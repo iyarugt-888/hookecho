@@ -340,6 +340,8 @@ enum OverlaySource {
     Fronts,
     /// HRRR composite-reflectivity forecast for a forecast hour (0..=18).
     Hrrr(u8),
+    /// HRRR sub-hourly (`wrfsubhf`) composite reflectivity, forecast lead in minutes (15..=1080).
+    HrrrSub(u16),
     /// Environment field (CAPE/SRH) at f00 from `model`; `ml` = mixed-layer CAPE, `srh_km` = SRH
     /// depth. RAP makes it an observed analysis rather than an HRRR forecast at hour zero.
     Env(crate::render::FieldLayer, wxdata::hrrr::Model, bool, u8),
@@ -635,7 +637,7 @@ impl OverlaySource {
             | Self::L3Grid(layer, ..) => RequestLane::Field(*layer),
             Self::ModelDiff(..) => RequestLane::Field(FL::ModelDiff),
             Self::Mosaic(..) => RequestLane::Field(FL::Mosaic),
-            Self::Hrrr(..) => RequestLane::Field(FL::Hrrr),
+            Self::Hrrr(..) | Self::HrrrSub(..) => RequestLane::Field(FL::Hrrr),
             Self::Snow(..) => RequestLane::Field(FL::SnowAnalysis),
             Self::SnowBands => RequestLane::Field(FL::SnowBands),
             Self::StormReports(Some(_)) => RequestLane::Feed("Archived storm reports"),
@@ -826,6 +828,9 @@ impl OverlaySource {
             }
             OverlaySource::Hrrr(fh) => {
                 OverlayMsg::Hrrr(wxdata::hrrr::fetch_forecast(http, fh).await?)
+            }
+            OverlaySource::HrrrSub(mins) => {
+                OverlayMsg::Hrrr(wxdata::hrrr::fetch_forecast_subhourly(http, mins).await?)
             }
             OverlaySource::HrrrLayer(layer, fh) => {
                 use crate::render::FieldLayer as FL;
@@ -2671,6 +2676,11 @@ pub struct HookEchoApp {
     hrrr_run: Option<DateTime<Utc>>,
     hrrr_valid: Option<DateTime<Utc>>,
     hrrr_last_fetch: Option<Instant>,
+    /// HRRR sub-hourly (`wrfsubhf`) mode: when on, the forecast tail is scrubbed in 15-minute
+    /// steps out to 18 h instead of whole hours. `hrrr_fcst_min` is the selected lead (minutes).
+    hrrr_subhourly: bool,
+    hrrr_fcst_min: u16,
+    hrrr_fetched_min: Option<u16>,
     /// True while the HRRR layer is being driven by a forecast-tail scrub (vs. the manual toggle).
     hrrr_by_timeline: bool,
     /// Tray-menu command channel (Linux StatusNotifier); `None` if no tray host is available.
@@ -3518,6 +3528,9 @@ impl HookEchoApp {
             hrrr_run: None,
             hrrr_valid: None,
             hrrr_last_fetch: None,
+            hrrr_subhourly: false,
+            hrrr_fcst_min: 15,
+            hrrr_fetched_min: None,
             hrrr_by_timeline: false,
             tray_rx: tray_rx_init,
             tray_state: crate::tray::TrayState::default(),
@@ -5246,6 +5259,9 @@ impl HookEchoApp {
         match self.views[self.active].timeline.forecast_hour() {
             Some(h) => {
                 self.hrrr_fcst_hour = h;
+                // The timeline tail is hourly; keep the sub-hourly lead in step with it so
+                // scrubbing works the same in either mode.
+                self.hrrr_fcst_min = u16::from(h) * 60;
                 self.views[self.active].fields_on.insert(FL::Hrrr);
                 self.hrrr_by_timeline = true;
             }
@@ -13523,9 +13539,20 @@ impl HookEchoApp {
                 .hrrr_valid
                 .map(|v| crate::timefmt::fmt_date_clock(v, self.active_tz()))
                 .unwrap_or_else(|| "loading…".to_string());
+            let lead = if self.hrrr_subhourly {
+                let t = self.hrrr_fcst_min;
+                if t < 60 {
+                    format!("+{t}min")
+                } else if t % 60 == 0 {
+                    format!("+{}h", t / 60)
+                } else {
+                    format!("+{}h{:02}min", t / 60, t % 60)
+                }
+            } else {
+                format!("+{}h", self.hrrr_fcst_hour)
+            };
             let text = format!(
-                "⚠ FORECAST +{}h — HRRR MODEL, NOT OBSERVED — valid {}",
-                self.hrrr_fcst_hour, valid
+                "⚠ FORECAST {lead} — HRRR MODEL, NOT OBSERVED — valid {valid}"
             );
             let font = egui::FontId::proportional(13.0);
             let galley = painter.layout_no_wrap(text.clone(), font.clone(), egui::Color32::BLACK);
@@ -16606,14 +16633,28 @@ impl eframe::App for HookEchoApp {
         // (~10-min throttle; a new run posts hourly).
         let hrrr_on = self.field_wanted(FL::Hrrr);
         if hrrr_on {
-            let hour_changed = self.hrrr_fetched_hour != Some(self.hrrr_fcst_hour);
             let stale = self
                 .hrrr_last_fetch
                 .is_none_or(|t| t.elapsed().as_secs() >= 600);
-            if hour_changed || stale {
+            // Sub-hourly and hourly are the same layer on one lane; the selected lead is the
+            // 15-minute value in sub-hourly mode and the whole-hour value otherwise. Switching
+            // modes counts as a change so the tail refetches at the new resolution.
+            let (changed, source) = if self.hrrr_subhourly {
+                (
+                    self.hrrr_fetched_min != Some(self.hrrr_fcst_min),
+                    OverlaySource::HrrrSub(self.hrrr_fcst_min),
+                )
+            } else {
+                (
+                    self.hrrr_fetched_hour != Some(self.hrrr_fcst_hour),
+                    OverlaySource::Hrrr(self.hrrr_fcst_hour),
+                )
+            };
+            if changed || stale {
                 self.hrrr_fetched_hour = Some(self.hrrr_fcst_hour);
+                self.hrrr_fetched_min = Some(self.hrrr_fcst_min);
                 self.hrrr_last_fetch = Some(Instant::now());
-                self.spawn_overlay(ctx, OverlaySource::Hrrr(self.hrrr_fcst_hour));
+                self.spawn_overlay(ctx, source);
             }
         }
         // Live LSR refresh (~2-min cadence; the IEM feed is minutes-fresh).

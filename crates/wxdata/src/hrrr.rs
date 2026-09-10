@@ -105,12 +105,18 @@ pub struct HrrrForecast {
     pub run: DateTime<Utc>,
     /// Forecast hour past the run.
     pub fcst_hour: u8,
+    /// Forecast lead in minutes, set only for the sub-hourly (`wrfsubhf`) product where the lead
+    /// is not a whole hour. `None` means the lead is exactly `fcst_hour` hours.
+    pub fcst_minutes: Option<u16>,
 }
 
 impl HrrrForecast {
-    /// Valid time = run + forecast hour.
+    /// Valid time = run + forecast lead.
     pub fn valid(&self) -> DateTime<Utc> {
-        self.run + chrono::Duration::hours(self.fcst_hour as i64)
+        match self.fcst_minutes {
+            Some(m) => self.run + chrono::Duration::minutes(i64::from(m)),
+            None => self.run + chrono::Duration::hours(i64::from(self.fcst_hour)),
+        }
     }
 }
 
@@ -126,6 +132,92 @@ pub async fn fetch_forecast(http: &reqwest::Client, fcst_hour: u8) -> anyhow::Re
         -30.0,
     )
     .await
+}
+
+/// The HRRR sub-hourly (`wrfsubhf`) product: composite reflectivity at 15-minute steps.
+///
+/// `minutes` is the total forecast lead (15..=1080), snapped to the 15-minute grid. Each
+/// `wrfsubhf{FF}` file holds the four steps ending at hour `FF` — `wrfsubhf01` carries the 15/30/
+/// 45/60-minute forecasts — so the file index is `ceil(minutes / 60)` and the `.idx` message is
+/// the one whose forecast designator (field 5) is exactly `"{minutes} min fcst"`.
+///
+/// The regrid and colour mapping are identical to [`fetch_forecast`]; only the file and the
+/// index lookup differ, which is why this shares [`decode_regrid`] and [`recent_cycles`].
+pub async fn fetch_forecast_subhourly(
+    http: &reqwest::Client,
+    minutes: u16,
+) -> anyhow::Result<HrrrForecast> {
+    let minutes = (minutes.clamp(15, 18 * 60) / 15) * 15;
+    let ff = subhourly_file_index(minutes);
+    let fcst = format!("{minutes} min fcst");
+    let now = Utc::now();
+    let mut last_err = None;
+    for run in recent_cycles(Model::Hrrr, now) {
+        match fetch_subhourly_run(http, run, ff, &fcst, minutes).await {
+            Ok(fc) => return Ok(fc),
+            Err(e) => last_err = Some(e),
+        }
+    }
+    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("no HRRR sub-hourly run found")))
+}
+
+/// `wrfsubhf{ff}` for one cycle.
+fn subhourly_url(date: &str, cycle_hour: u32, ff: u8) -> String {
+    format!("{BUCKET}/hrrr.{date}/conus/hrrr.t{cycle_hour:02}z.wrfsubhf{ff:02}.grib2")
+}
+
+/// Which `wrfsubhf{FF}` file carries the `minutes`-lead step. Each file holds the four steps
+/// ending at hour FF — `wrfsubhf01` → 15/30/45/60 min — so FF = ceil(minutes / 60), clamped to
+/// the model's 18-hour range.
+fn subhourly_file_index(minutes: u16) -> u8 {
+    ((u32::from(minutes.max(1)) + 59) / 60).clamp(1, 18) as u8
+}
+
+async fn fetch_subhourly_run(
+    http: &reqwest::Client,
+    run: DateTime<Utc>,
+    ff: u8,
+    fcst: &str,
+    minutes: u16,
+) -> anyhow::Result<HrrrForecast> {
+    let date = format!("{:04}{:02}{:02}", run.year(), run.month(), run.day());
+    let base = subhourly_url(&date, run.hour(), ff);
+
+    let idx = http
+        .get(crate::net::fetch_url(&format!("{base}.idx")))
+        .timeout(crate::net::FEED_TIMEOUT)
+        .header("User-Agent", USER_AGENT)
+        .send()
+        .await?
+        .error_for_status()?
+        .text()
+        .await?;
+    let (start, end) = field_byte_range_fcst(&idx, "REFC", "entire atmosphere", fcst)
+        .ok_or_else(|| anyhow::anyhow!("no REFC:{fcst} in sub-hourly idx"))?;
+
+    let range = match end {
+        Some(e) => format!("bytes={start}-{}", e - 1),
+        None => format!("bytes={start}-"),
+    };
+    let bytes = http
+        .get(crate::net::fetch_url(&base))
+        .timeout(crate::net::FEED_TIMEOUT)
+        .header("User-Agent", USER_AGENT)
+        .header("Range", range)
+        .send()
+        .await?
+        .error_for_status()?
+        .bytes()
+        .await?;
+
+    let field = crate::task::guarded(|| decode_regrid(&bytes, Model::Hrrr, -30.0))
+        .unwrap_or_else(|_| anyhow::bail!("HRRR sub-hourly grib decode panicked"))?;
+    Ok(HrrrForecast {
+        field,
+        run,
+        fcst_hour: (minutes / 60) as u8,
+        fcst_minutes: Some(minutes),
+    })
 }
 
 /// Fetch any single HRRR surface field for `fcst_hour` by variable + level idx strings, regridding
@@ -149,6 +241,7 @@ pub async fn fetch_field(
                     field,
                     run,
                     fcst_hour: fh,
+                    fcst_minutes: None,
                 })
             }
             Err(e) => last_err = Some(e),
@@ -391,6 +484,7 @@ pub async fn fetch_field_swath(
                     field,
                     run,
                     fcst_hour: through,
+                    fcst_minutes: None,
                 })
             }
             (e, _) => last_err = e.or(last_err),
@@ -464,13 +558,34 @@ async fn fetch_run_field(
 /// Find the `[start, end)` byte range of the message matching `var` (field 3) and `level`
 /// (field 4) in a GRIB2 `.idx`. `end` is `None` when it's the last message (read to EOF).
 pub(crate) fn field_byte_range(idx: &str, var: &str, level: &str) -> Option<(u64, Option<u64>)> {
+    field_byte_range_inner(idx, var, level, None)
+}
+
+/// [`field_byte_range`] that also pins the forecast designator (field 5) — needed for the
+/// sub-hourly product, where one file holds four `REFC:entire atmosphere` messages that differ
+/// only by `"15 min fcst"` / `"30 min fcst"` / `"45 min fcst"` / `"60 min fcst"`.
+pub(crate) fn field_byte_range_fcst(
+    idx: &str,
+    var: &str,
+    level: &str,
+    fcst: &str,
+) -> Option<(u64, Option<u64>)> {
+    field_byte_range_inner(idx, var, level, Some(fcst))
+}
+
+fn field_byte_range_inner(
+    idx: &str,
+    var: &str,
+    level: &str,
+    fcst: Option<&str>,
+) -> Option<(u64, Option<u64>)> {
     let lines: Vec<&str> = idx.lines().collect();
     for (i, line) in lines.iter().enumerate() {
         let f: Vec<&str> = line.split(':').collect();
         if f.len() < 5 {
             continue;
         }
-        if f[3] == var && f[4] == level {
+        if f[3] == var && f[4] == level && fcst.is_none_or(|c| f.get(5) == Some(&c)) {
             let start: u64 = f[1].parse().ok()?;
             // The end is the next *distinct* offset. RAP's idx lists a message that packs several
             // fields (VUCSH/VVCSH) as sibling lines sharing one offset; taking the very next line
@@ -601,6 +716,97 @@ pub(crate) fn regrid(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn subhourly_idx_picks_the_right_15min_step() {
+        // Real wrfsubhf01 layout: four REFC:entire atmosphere messages, one per 15-min step.
+        let idx = "1:0:d=2024060112:REFC:entire atmosphere:15 min fcst:\n\
+                   2:337244:d=2024060112:RETOP:cloud top:15 min fcst:\n\
+                   50:50602329:d=2024060112:REFC:entire atmosphere:30 min fcst:\n\
+                   51:50925519:d=2024060112:RETOP:cloud top:30 min fcst:\n\
+                   99:102242691:d=2024060112:REFC:entire atmosphere:45 min fcst:\n\
+                   148:154842502:d=2024060112:REFC:entire atmosphere:60 min fcst:\n\
+                   149:155200986:d=2024060112:RETOP:cloud top:60 min fcst:\n";
+
+        // Plain field_byte_range would return the first REFC (15 min); the fcst-pinned lookup
+        // walks to the one asked for, and its end is the next distinct offset.
+        assert_eq!(
+            field_byte_range_fcst(idx, "REFC", "entire atmosphere", "15 min fcst"),
+            Some((0, Some(337244)))
+        );
+        assert_eq!(
+            field_byte_range_fcst(idx, "REFC", "entire atmosphere", "30 min fcst"),
+            Some((50602329, Some(50925519)))
+        );
+        assert_eq!(
+            field_byte_range_fcst(idx, "REFC", "entire atmosphere", "45 min fcst"),
+            Some((102242691, Some(154842502)))
+        );
+        // Last REFC before EOF-ish: end is the next distinct offset (the trailing RETOP).
+        assert_eq!(
+            field_byte_range_fcst(idx, "REFC", "entire atmosphere", "60 min fcst"),
+            Some((154842502, Some(155200986)))
+        );
+        // A step this file does not carry.
+        assert_eq!(
+            field_byte_range_fcst(idx, "REFC", "entire atmosphere", "75 min fcst"),
+            None
+        );
+    }
+
+    #[test]
+    fn subhourly_url_and_file_index() {
+        // wrfsubhf01 holds 15..60 min; wrfsubhf02 holds 75..120.
+        assert_eq!(subhourly_file_index(15), 1);
+        assert_eq!(subhourly_file_index(60), 1);
+        assert_eq!(subhourly_file_index(75), 2);
+        assert_eq!(subhourly_file_index(120), 2);
+        assert_eq!(subhourly_file_index(18 * 60), 18);
+        assert_eq!(subhourly_file_index(9999), 18, "clamped to the model range");
+        assert!(subhourly_url("20240601", 12, 1)
+            .ends_with("hrrr.20240601/conus/hrrr.t12z.wrfsubhf01.grib2"));
+    }
+
+    #[test]
+    fn subhourly_valid_time_carries_minutes() {
+        let run = "2024-06-01T12:00:00Z".parse::<DateTime<Utc>>().unwrap();
+        let fc = HrrrForecast {
+            field: MrmsField {
+                values: Vec::new(),
+                nx: 0,
+                ny: 0,
+                lon_west: 0.0,
+                lon_east: 0.0,
+                lat_north: 0.0,
+                lat_south: 0.0,
+                time: run,
+            },
+            run,
+            fcst_hour: 0,
+            fcst_minutes: Some(45),
+        };
+        assert_eq!(
+            fc.valid(),
+            "2024-06-01T12:45:00Z".parse::<DateTime<Utc>>().unwrap()
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn subhourly_refc_decodes() {
+        let http = reqwest::Client::new();
+        let fc = fetch_forecast_subhourly(&http, 45)
+            .await
+            .expect("HRRR sub-hourly F+45min REFC");
+        let finite = fc.field.values.iter().filter(|v| v.is_finite()).count();
+        eprintln!(
+            "HRRR wrfsubhf F+45min — {}x{} grid, {finite} finite cells, run {}",
+            fc.field.nx, fc.field.ny, fc.run
+        );
+        assert!(finite > fc.field.values.len() / 3, "coverage holes");
+        assert_eq!(fc.fcst_minutes, Some(45));
+        assert_eq!(fc.valid(), fc.run + chrono::Duration::minutes(45));
+    }
 
     #[test]
     fn idx_range_finds_field() {

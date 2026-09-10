@@ -64,6 +64,7 @@ impl HookEchoApp {
             .fields_on
             .contains(&crate::render::FieldLayer::Hrrr);
         let hrrr_valid = self.hrrr_valid;
+        let hrrr_sub = self.hrrr_subhourly;
         let tz_l = self.active_tz();
 
         let (disp_f, disp_l) = display_units(moment, &self.settings);
@@ -72,6 +73,8 @@ impl HookEchoApp {
         let mut pick_tilt: Option<usize> = None;
         let mut pick_panes: Option<usize> = None;
         let mut hrrr_hour = self.hrrr_fcst_hour;
+        let mut hrrr_min = self.hrrr_fcst_min;
+        let mut hrrr_sub_toggled = false;
         let mut all_tilts = false;
 
         egui::Panel::top("wsv3_ribbon")
@@ -223,7 +226,7 @@ impl HookEchoApp {
                     });
 
                     // ---- MODEL ----
-                    ribbon_group(ui, 128.0, |ui| {
+                    ribbon_group(ui, 150.0, |ui| {
                         wsv3::group_label(ui, "Model");
                         if wsv3::pill(ui, "HRRR future", hrrr_on, accent)
                             .on_hover_text(
@@ -236,18 +239,48 @@ impl HookEchoApp {
                             ));
                         }
                         if hrrr_on {
+                            if wsv3::pill(ui, "15-min steps", hrrr_sub, accent)
+                                .on_hover_text(
+                                    "HRRR sub-hourly (wrfsubhf): scrub the tail in 15-minute \
+                                     steps instead of whole hours",
+                                )
+                                .clicked()
+                            {
+                                hrrr_sub_toggled = true;
+                            }
                             ui.horizontal(|ui| {
-                                if wsv3::pill(ui, "\u{2039}", false, accent).clicked() {
-                                    hrrr_hour = hrrr_hour.saturating_sub(1).max(1);
-                                }
+                                let dec = wsv3::pill(ui, "\u{2039}", false, accent).clicked();
+                                let lead = if hrrr_sub {
+                                    let h = hrrr_min / 60;
+                                    let m = hrrr_min % 60;
+                                    if h == 0 {
+                                        format!("F+{m}m")
+                                    } else if m == 0 {
+                                        format!("F+{h}h")
+                                    } else {
+                                        format!("F+{h}h{m:02}m")
+                                    }
+                                } else {
+                                    format!("F+{hrrr_hour}h")
+                                };
                                 ui.label(
-                                    RichText::new(format!("F+{hrrr_hour}h"))
-                                        .size(12.0)
-                                        .strong()
-                                        .color(wsv3::INK),
+                                    RichText::new(lead).size(12.0).strong().color(wsv3::INK),
                                 );
-                                if wsv3::pill(ui, "\u{203a}", false, accent).clicked() {
-                                    hrrr_hour = (hrrr_hour + 1).min(18);
+                                let inc = wsv3::pill(ui, "\u{203a}", false, accent).clicked();
+                                if hrrr_sub {
+                                    if dec {
+                                        hrrr_min = hrrr_min.saturating_sub(15).max(15);
+                                    }
+                                    if inc {
+                                        hrrr_min = (hrrr_min + 15).min(18 * 60);
+                                    }
+                                } else {
+                                    if dec {
+                                        hrrr_hour = hrrr_hour.saturating_sub(1).max(1);
+                                    }
+                                    if inc {
+                                        hrrr_hour = (hrrr_hour + 1).min(18);
+                                    }
                                 }
                             });
                             if let Some(v) = hrrr_valid {
@@ -344,9 +377,16 @@ impl HookEchoApp {
             self.settings.save();
         }
         self.views[self.active].show_legend = legend_on;
-        // The per-frame sync in `update` refetches when `hrrr_fcst_hour` changes; a no-op write
+        // The per-frame sync in `update` refetches when the selected lead changes; a no-op write
         // when the steppers weren't touched costs nothing.
         self.hrrr_fcst_hour = hrrr_hour;
+        self.hrrr_fcst_min = hrrr_min;
+        if hrrr_sub_toggled {
+            self.hrrr_subhourly = !self.hrrr_subhourly;
+            // The tail is now a different resolution — force a refetch at the new one.
+            self.hrrr_fetched_hour = None;
+            self.hrrr_fetched_min = None;
+        }
         self.apply_ui_actions(actions, ctx);
     }
 
