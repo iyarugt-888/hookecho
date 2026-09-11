@@ -54,6 +54,17 @@ fn stp_source(model: wxdata::hrrr::Model) -> bool {
     matches!(model, wxdata::hrrr::Model::Hrrr)
 }
 
+/// The valid-time caption for a difference/comparison fetch — shared by `ModelDiff` and the
+/// compare panes, since both come from the same two-model fetch and the two models rarely share
+/// a cycle: a reading built from two different instants is only honest if it says which two.
+fn valid_time_note(valid: Option<&(String, String)>, a: &str, b: &str) -> Option<String> {
+    match valid {
+        Some((va, vb)) if va != vb => Some(format!("⚠ {a} valid {va}, {b} valid {vb} — not the same time.")),
+        Some((va, _)) => Some(format!("Both valid {va}.")),
+        None => None,
+    }
+}
+
 #[allow(clippy::too_many_arguments)] // one flat call per frame; a params struct adds churn for no reader gain
 pub(crate) fn show(
     ui: &mut egui::Ui,
@@ -202,18 +213,8 @@ pub(crate) fn show(
                 "{a} minus {b}, in {}. Red = {a} higher, blue = {b} higher; where they agree, nothing is drawn.",
                 diff_field.units()
             ));
-            match diff_valid {
-                // The two models rarely share a cycle, and a difference between two instants is
-                // only honest if it says which two.
-                Some((va, vb)) if va != vb => {
-                    ui.weak(format!(
-                        "⚠ {a} valid {va}, {b} valid {vb} — not the same time."
-                    ));
-                }
-                Some((va, _)) => {
-                    ui.weak(format!("Both valid {va}."));
-                }
-                None => {}
+            if let Some(note) = valid_time_note(diff_valid, a, b) {
+                ui.weak(note);
             }
         }
         if showing_compare {
@@ -223,14 +224,8 @@ pub(crate) fn show(
                  difference in the field itself (not just where they disagree) is easy to spot \
                  by eye."
             ));
-            match compare_valid {
-                Some((va, vb)) if va != vb => {
-                    ui.weak(format!("⚠ {a} valid {va}, {b} valid {vb} — not the same time."));
-                }
-                Some((va, _)) => {
-                    ui.weak(format!("Both valid {va}."));
-                }
-                None => {}
+            if let Some(note) = valid_time_note(compare_valid, a, b) {
+                ui.weak(note);
             }
         }
         if ui

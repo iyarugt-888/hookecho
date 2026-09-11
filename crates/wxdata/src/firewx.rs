@@ -123,8 +123,12 @@ pub async fn fetch(client: &reqwest::Client, day: u8) -> anyhow::Result<Vec<GeoF
     let (Some(risk), Some(dryt)) = (risk_layer(day), dryt_layer(day)) else {
         anyhow::bail!("fire weather outlook is Day 1-2 only");
     };
-    let risk_json = fetch_layer(client, risk).await?;
-    let dryt_json = fetch_layer(client, dryt).await?;
+    // Two independent ArcGIS queries — fetched concurrently rather than one after the other.
+    let (risk_json, dryt_json) = futures_util::future::try_join(
+        fetch_layer(client, risk),
+        fetch_layer(client, dryt),
+    )
+    .await?;
     let mut out = parse_layer(&risk_json, day, risk_color, "SPC Fire Weather Outlook")?;
     out.extend(parse_layer(
         &dryt_json,

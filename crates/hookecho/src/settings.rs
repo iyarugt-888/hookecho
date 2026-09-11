@@ -1627,6 +1627,7 @@ mod tests {
             accent: Some([255, 0, 128]),
             poll_interval_secs: 45,
             theme: Theme::Synthwave,
+            layout: Layout::Minimal,
             presets: vec!["KTLX".to_string(), "KOUN".to_string()],
             palettes: BTreeMap::from([("REF".to_string(), "/tmp/foo.pal".to_string())]),
             velocity_unit: VelocityUnit::Mph,

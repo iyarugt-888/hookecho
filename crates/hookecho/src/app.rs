@@ -11244,6 +11244,23 @@ impl HookEchoApp {
         }
     }
 
+    /// A diff/compare grid's value under the cursor, in the field's own display units — shared by
+    /// the `ModelDiff` and `CompareA`/`CompareB` hover readouts in `render_pane`, which differ
+    /// only in how they word what they found (a subtraction vs. one side's own reading).
+    fn diff_hover_value(
+        &self,
+        grid: &wxdata::mrms::MrmsField,
+        cam: crate::render::mercator::Camera,
+        prect: egui::Rect,
+        vp: (f32, f32),
+        hp: egui::Pos2,
+    ) -> Option<f32> {
+        let w = cam.screen_to_world((hp.x - prect.left(), hp.y - prect.top()), vp);
+        let (lon, lat) = crate::render::mercator::world_to_lonlat(w.0, w.1);
+        let v = grid.sample_bilinear(lon, lat)?;
+        Some(v * self.diff_field.input_scale())
+    }
+
     /// Render one pane into `prect`: input, tiles, radar, paint callback, and painter overlays.
     #[allow(clippy::too_many_arguments)]
     fn render_pane(
@@ -13991,12 +14008,13 @@ impl HookEchoApp {
             .fields_on
             .contains(&crate::render::FieldLayer::ModelDiff)
         {
-            if let (Some(grid), Some(hp)) = (self.diff_grid.as_ref(), response.hover_pos()) {
-                let w = cam.screen_to_world((hp.x - prect.left(), hp.y - prect.top()), vp);
-                let (lon, lat) = crate::render::mercator::world_to_lonlat(w.0, w.1);
-                if let Some(v) = grid.sample_bilinear(lon, lat) {
+            if let Some(hp) = response.hover_pos() {
+                if let Some(v) = self
+                    .diff_grid
+                    .as_ref()
+                    .and_then(|g| self.diff_hover_value(g, cam, prect, vp, hp))
+                {
                     let f = self.diff_field;
-                    let v = v * f.input_scale();
                     let (a, b) = f.pair();
                     response.clone().show_tooltip_text(format!(
                         "{}: {v:+.1} {} ({a} \u{2212} {b})",
@@ -14013,23 +14031,26 @@ impl HookEchoApp {
             use crate::render::FieldLayer as FL;
             let showing_a = view.fields_on.contains(&FL::CompareA);
             let showing_b = view.fields_on.contains(&FL::CompareB);
-            let grid = self.compare_grid.as_ref().and_then(|(a, b)| {
-                if showing_a {
-                    Some(a)
-                } else if showing_b {
-                    Some(b)
-                } else {
-                    None
-                }
-            });
-            if let (Some(grid), Some(hp)) = (grid, response.hover_pos()) {
-                let w = cam.screen_to_world((hp.x - prect.left(), hp.y - prect.top()), vp);
-                let (lon, lat) = crate::render::mercator::world_to_lonlat(w.0, w.1);
-                if let Some(v) = grid.sample_bilinear(lon, lat) {
+            // CompareB paints after CompareA (see FieldLayer::DRAW_ORDER), so on the rare pane
+            // that somehow has both on at once, B is what's actually visible on top — the same
+            // "last enabled layer in paint order" the legend a few hundred lines below already
+            // uses to decide what to label. Checking B first here keeps the hover number and the
+            // legend's model name from disagreeing.
+            let on_top_is_b = showing_b;
+            if let Some(hp) = response.hover_pos() {
+                let grid = self.compare_grid.as_ref().and_then(|(a, b)| {
+                    if on_top_is_b {
+                        Some(b)
+                    } else if showing_a {
+                        Some(a)
+                    } else {
+                        None
+                    }
+                });
+                if let Some(v) = grid.and_then(|g| self.diff_hover_value(g, cam, prect, vp, hp)) {
                     let f = self.diff_field;
-                    let v = v * f.input_scale();
-                    let (a, b) = f.pair();
-                    let model = if showing_a { a } else { b };
+                    let (label_a, label_b) = f.pair();
+                    let model = if on_top_is_b { label_b } else { label_a };
                     response.clone().show_tooltip_text(format!(
                         "{}: {v:.1} {} ({model})",
                         f.label(),

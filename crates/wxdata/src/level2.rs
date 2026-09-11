@@ -191,7 +191,7 @@ pub fn observed_gates(
         .iter()
         .filter_map(|s| s.radials().first())
         .map(|r| r.elevation_angle_degrees())
-        .fold(f32::MAX, f32::min);
+        .fold(f32::INFINITY, f32::min);
     let min_elevation_deg = if min_elevation_deg.is_finite() {
         min_elevation_deg
     } else {
