@@ -175,6 +175,7 @@ pub async fn fetch_grid(
         field,
         run,
         fcst_hour: 0,
+        fcst_minutes: None,
     })
 }
 
@@ -511,6 +512,7 @@ fn as_forecast(
         },
         run,
         fcst_hour: 0,
+        fcst_minutes: None,
     }
 }
 
