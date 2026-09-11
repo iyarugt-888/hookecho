@@ -201,9 +201,10 @@ pub fn draw_field(
     map_rect: Rect,
     layer: crate::render::FieldLayer,
     y_offset: f32,
+    temp_unit: crate::settings::TempUnit,
 ) -> f32 {
     match crate::render::field_ramps::ramp_for(layer) {
-        Some(r) => draw_ramp(painter, map_rect, r, y_offset),
+        Some(r) => draw_ramp(painter, map_rect, r, y_offset, temp_unit),
         None => 0.0,
     }
 }
@@ -281,13 +282,18 @@ pub fn draw_ramp(
     map_rect: Rect,
     r: &crate::render::field_ramps::FieldRamp,
     y_offset: f32,
+    temp_unit: crate::settings::TempUnit,
 ) -> f32 {
     use crate::render::field_ramps::FieldScale;
     let font = FontId::proportional(10.0);
     let origin = map_rect.left_top() + Vec2::new(INSET, INSET + y_offset);
 
     match r.scale {
-        FieldScale::Ramp { lo, hi, stops, .. } => {
+        FieldScale::Ramp { stops, .. } => {
+            // `lo`/`hi`/units in display terms: as written on the ramp, except the two
+            // Kelvin-wire fields, which convert to the Units setting here (see `legend_bounds`).
+            // The color mapping upstream never sees this — it stays in Kelvin regardless.
+            let (lo, hi, units) = r.legend_bounds(temp_unit);
             let panel =
                 Rect::from_min_size(origin, Vec2::new(BAR_W + PAD_X * 2.0, BAR_H + 16.0 + 14.0));
             let bar =
@@ -324,9 +330,10 @@ pub fn draw_ramp(
             );
 
             // Sub-unit thresholds (VIL 0.1, QPE 0.25) need decimals; everything else reads
-            // better whole.
+            // better whole — always, for a temperature, since a negative Fahrenheit low would
+            // otherwise be the one value on the bar with two decimal places.
             let num = |v: f32| {
-                if v >= 10.0 {
+                if r.is_temp_kelvin || v >= 10.0 {
                     format!("{v:.0}")
                 } else {
                     format!("{v:.2}")
@@ -344,10 +351,10 @@ pub fn draw_ramp(
                     Color32::from_gray(225),
                 );
             }
-            let head = if r.units.is_empty() {
+            let head = if units.is_empty() {
                 r.label.to_string()
             } else {
-                format!("{} ({})", r.label, r.units)
+                format!("{} ({units})", r.label)
             };
             painter.text(
                 panel.left_top() + Vec2::new(PAD_X, 3.0),

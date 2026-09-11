@@ -43,12 +43,36 @@ pub struct FieldRamp {
     /// Multiplier applied to raw grid values before anything else, when the wire units aren't the
     /// units anyone reads (HRRR smoke arrives in kg/m³; people talk in µg/m³).
     pub input_scale: f32,
+    /// This ramp's `lo`/`hi`/`units` are Kelvin — a GRIB wire unit nobody reads. The legend
+    /// converts to [`crate::settings::TempUnit`] for display; the GPU LUT stays in Kelvin
+    /// (`index()` never sees this flag, so the color mapping is untouched).
+    pub is_temp_kelvin: bool,
 }
 
 impl FieldRamp {
     /// Raw grid value in this layer's display units (applies [`Self::input_scale`]).
     pub fn display(&self, v: f32) -> f32 {
         v * self.input_scale
+    }
+
+    /// The `(lo, hi, units)` the legend should print for this ramp's endpoints. Every ramp but
+    /// the two Kelvin ones just hands its own numbers back; those two convert through
+    /// `unit.from_c` (an offset, not a scale, so [`Self::input_scale`] cannot express it) and
+    /// swap in the unit's own label. The GPU color mapping in [`Self::index`] never calls this —
+    /// it stays in Kelvin regardless of what the reader sees.
+    pub fn legend_bounds(&self, unit: crate::settings::TempUnit) -> (f32, f32, &'static str) {
+        let FieldScale::Ramp { lo, hi, .. } = &self.scale else {
+            return (0.0, 0.0, self.units);
+        };
+        if self.is_temp_kelvin {
+            (
+                unit.from_c(*lo - 273.15),
+                unit.from_c(*hi - 273.15),
+                unit.label(),
+            )
+        } else {
+            (*lo, *hi, self.units)
+        }
     }
 
     /// Raw grid value → LUT index. Index 0 is "nothing here" (fully transparent).
@@ -83,6 +107,7 @@ macro_rules! ramp {
             units: $units,
             alpha: $alpha,
             input_scale: 1.0,
+            is_temp_kelvin: false,
             scale: FieldScale::Ramp {
                 lo: $lo,
                 hi: $hi,
@@ -381,6 +406,7 @@ static GLOBAL_DEWPOINT_2M: FieldRamp = FieldRamp {
     // and dry at the bottom, green and soupy at the top, with the 15 °C / 288 K "muggy" mark
     // near the middle where severe forecasters look.
     input_scale: 1.0,
+    is_temp_kelvin: true,
     ..ramp!(
         "2 m dewpoint",
         "K",
@@ -399,9 +425,10 @@ static GLOBAL_DEWPOINT_2M: FieldRamp = FieldRamp {
 };
 
 static GLOBAL_TEMP_2M: FieldRamp = FieldRamp {
-    // Kelvin → °C is an offset, not a scale, so the ramp is expressed in Kelvin and labelled °C
-    // by the legend's own offset handling would be a lie — keep it in Kelvin-derived °C here.
+    // Kelvin → °C/°F is an offset, not a scale, so `input_scale` (a pure multiplier) can't do it;
+    // the ramp stays in Kelvin and `is_temp_kelvin` has the legend convert to the Units setting.
     input_scale: 1.0,
+    is_temp_kelvin: true,
     ..ramp!(
         "2 m temp",
         "K",
@@ -688,6 +715,23 @@ pub fn ramp_for(layer: FieldLayer) -> Option<&'static FieldRamp> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Only the two Kelvin-wire fields ask the legend to convert; every other ramp's `lo`/`hi`
+    /// are already in the units it labels itself with, and must stay untouched by the flag.
+    #[test]
+    fn only_the_kelvin_ramps_ask_for_temperature_conversion() {
+        assert!(GLOBAL_TEMP_2M.is_temp_kelvin, "labelled K, must convert");
+        assert!(GLOBAL_DEWPOINT_2M.is_temp_kelvin, "labelled K, must convert");
+        for (name, r) in [
+            ("MSLP", &GLOBAL_MSLP),
+            ("500mb height", &GLOBAL_HEIGHT_500),
+            ("10m wind", &GLOBAL_WIND_10M),
+            ("wind particles", &WIND),
+            ("snowfall", &SNOWFALL),
+        ] {
+            assert!(!r.is_temp_kelvin, "{name} is not a temperature ramp");
+        }
+    }
 
     /// Layers colored outside this table. A new `FieldLayer` must join the table or this list —
     /// forgetting both silently ships a layer with no legend.

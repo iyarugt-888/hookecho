@@ -14132,13 +14132,19 @@ impl HookEchoApp {
                 y += if *top == crate::render::FieldLayer::ModelDiff {
                     ui::legend::draw_diff(&painter, prect, self.diff_field, y)
                 } else {
-                    ui::legend::draw_field(&painter, prect, *top, y)
+                    ui::legend::draw_field(&painter, prect, *top, y, self.settings.temp_unit)
                 };
             }
             // Wind particles carry their own scale — it isn't a FieldLayer, so it needs its own
             // call rather than a slot in DRAW_ORDER.
             if self.show_wind && self.wind.is_some() {
-                ui::legend::draw_ramp(&painter, prect, &crate::render::field_ramps::WIND, y);
+                ui::legend::draw_ramp(
+                    &painter,
+                    prect,
+                    &crate::render::field_ramps::WIND,
+                    y,
+                    self.settings.temp_unit,
+                );
             }
         }
     }
