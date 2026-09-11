@@ -153,6 +153,11 @@ pub enum FieldLayer {
     GlmFed,
     /// One model minus another — which field, and therefore which pair, is `app.diff_field`.
     ModelDiff,
+    /// Model-comparison side A (`app.diff_field.pair().0`'s own field, unsubtracted) — meant for
+    /// a pane of its own, next to a `CompareB` pane, rather than one subtracted layer.
+    CompareA,
+    /// Model-comparison side B (`app.diff_field.pair().1`'s own field).
+    CompareB,
 }
 
 impl FieldLayer {
@@ -177,11 +182,13 @@ impl FieldLayer {
                 | FieldLayer::GlobalWind10m
                 | FieldLayer::GlobalPrecip
                 | FieldLayer::ModelDiff
+                | FieldLayer::CompareA
+                | FieldLayer::CompareB
         )
     }
 
     /// Fixed bottom-to-top paint order within each band.
-    pub const DRAW_ORDER: [FieldLayer; 38] = [
+    pub const DRAW_ORDER: [FieldLayer; 40] = [
         // Below-radar context band (bottom to top). The global models sit at the very bottom:
         // they are the synoptic backdrop everything else is drawn against.
         FieldLayer::GlobalMslp,
@@ -191,6 +198,8 @@ impl FieldLayer {
         FieldLayer::GlobalWind10m,
         FieldLayer::GlobalPrecip,
         FieldLayer::ModelDiff,
+        FieldLayer::CompareA,
+        FieldLayer::CompareB,
         FieldLayer::Mrms,
         FieldLayer::Mosaic,
         FieldLayer::Hrrr,
@@ -266,6 +275,8 @@ impl FieldLayer {
             FieldLayer::GlobalWind10m => "global-wind10m",
             FieldLayer::GlobalPrecip => "global-precip",
             FieldLayer::ModelDiff => "model-diff",
+            FieldLayer::CompareA => "compare-a",
+            FieldLayer::CompareB => "compare-b",
             FieldLayer::GlmFed => "glm-fed",
         }
     }

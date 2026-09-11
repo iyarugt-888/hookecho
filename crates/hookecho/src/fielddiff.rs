@@ -95,6 +95,27 @@ impl DiffField {
         }
     }
 
+    /// The single-model layer whose color scale represents this field's own physical units.
+    ///
+    /// The compare-panes mode shows each side's raw field, unsubtracted — one model's own MSLP
+    /// is exactly what `FieldLayer::GlobalMslp` already draws, so it reuses that ramp rather than
+    /// tabulating a second copy of it under a `CompareA`/`CompareB` key. Both panes read this same
+    /// layer regardless of which side they're drawing: the field is identical, only the model
+    /// providing the grid differs.
+    pub fn source_layer(self) -> crate::render::FieldLayer {
+        use crate::render::FieldLayer as FL;
+        match self {
+            DiffField::Global(GlobalFieldKind::Mslp) => FL::GlobalMslp,
+            DiffField::Global(GlobalFieldKind::Height500) => FL::GlobalHeight500,
+            DiffField::Global(GlobalFieldKind::Temp2m) => FL::GlobalTemp2m,
+            DiffField::Global(GlobalFieldKind::Dewpoint2m) => FL::GlobalDewpoint2m,
+            DiffField::Global(GlobalFieldKind::Wind10m) => FL::GlobalWind10m,
+            DiffField::Global(GlobalFieldKind::Precip) => FL::GlobalPrecip,
+            DiffField::Cape => FL::Cape,
+            DiffField::Srh => FL::Srh,
+        }
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             DiffField::Global(k) => GlobalField::from(k).label(),
@@ -361,5 +382,33 @@ mod tests {
         };
         assert!(rgb(-9.0).1 > rgb(-9.0).0, "negative is blue");
         assert!(rgb(9.0).0 > rgb(9.0).1, "positive is red");
+    }
+
+    #[test]
+    fn every_field_maps_to_its_own_single_model_layer() {
+        use crate::render::field_ramps::ramp_for;
+        use crate::render::FieldLayer as FL;
+        let expected = [
+            (DiffField::Global(GlobalFieldKind::Mslp), FL::GlobalMslp),
+            (
+                DiffField::Global(GlobalFieldKind::Height500),
+                FL::GlobalHeight500,
+            ),
+            (DiffField::Global(GlobalFieldKind::Temp2m), FL::GlobalTemp2m),
+            (
+                DiffField::Global(GlobalFieldKind::Dewpoint2m),
+                FL::GlobalDewpoint2m,
+            ),
+            (DiffField::Global(GlobalFieldKind::Wind10m), FL::GlobalWind10m),
+            (DiffField::Cape, FL::Cape),
+            (DiffField::Srh, FL::Srh),
+        ];
+        // Every field the UI actually offers (`DiffField::ALL`) is covered above — this catches a
+        // new entry added to one list and not the other.
+        assert_eq!(expected.len(), DiffField::ALL.len());
+        for (f, layer) in expected {
+            assert_eq!(f.source_layer(), layer, "{f:?} mapped to the wrong layer");
+            assert!(ramp_for(layer).is_some(), "{layer:?} must have a ramp to borrow");
+        }
     }
 }

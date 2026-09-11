@@ -27,9 +27,6 @@ upgrade path out of it (`grep -rn "ponytail:" crates/`).
 - Blending surface observations into the effective-layer analysis, which is the
   remaining difference from SPC's mesoanalysis now that the vertical resolution
   is there.
-- The difference layer as two panes rather than one subtraction. Per-pane field
-  layers landed, so the thing this was waiting on is done; what is left is the
-  comparison UI itself.
 
 ## Later
 
@@ -80,7 +77,9 @@ Already shipped, and sometimes mistaken for gaps:
   wallpaper scripts, with size and zoom on `/snapshot.png` too.
 - **True lunar ephemeris** (Meeus), in place of the mean synodic month.
 - **A model difference layer** — GFS against ECMWF, HRRR against RAP — drawing
-  nothing where the two agree, with a hover readout and a diverging legend.
+  nothing where the two agree, with a hover readout and a diverging legend,
+  aligned to one valid time, plus a two-pane side-by-side alternative to the
+  subtraction itself.
 - **Effective-layer parameters on the full pressure ladder**, up to 100 hPa, so
   the depth-dependent ones exist on the days they describe.
 - **A headless-browser smoke test in CI**, which is the check `cargo check`

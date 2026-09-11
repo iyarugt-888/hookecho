@@ -67,6 +67,13 @@ The rolling `latest` release tracks `main` and is not listed here.
   re-target, not an interpolation, since every cycle for both models lands on
   a whole UTC hour. Falls back to the old (honestly mismatched, still labeled)
   pair if that specific hour isn't published.
+- The model difference layer can now be viewed as **two side-by-side panes**
+  instead of one subtracted layer: one model's own field in each pane, on the
+  same color scale, cameras linked — a difference in the field itself (not
+  just where the two disagree) reads at a glance. "View side by side" in
+  Layer options → Model comparison, or "Compare models in 2 panes" from the
+  command palette; the field picker and valid-time readout are shared with
+  the subtraction view.
 
 ### Fixes
 

@@ -74,7 +74,17 @@ impl HookEchoApp {
                         | FL::ThunderProb
                         | FL::GlmFed
                         | FL::ModelDiff
-                ) => RequestLane::Field(layer),
+                        | FL::CompareA
+                        | FL::CompareB
+                ) =>
+            {
+                // Compare's one fetch feeds both layers at once and is filed under CompareA
+                // (see `OverlaySource::Compare`'s own `lane()`); ask for that lane regardless of
+                // which of the two the toggle is for, so CompareB's health isn't perpetually
+                // "unknown" just because nothing was ever filed under its own name.
+                let layer = if layer == FL::CompareB { FL::CompareA } else { layer };
+                RequestLane::Field(layer)
+            }
             PaletteAction::ToggleOverlay(toggle) => match toggle {
                 T::AlertPanel | T::Alerts => RequestLane::Feed("Weather alerts"),
                 T::StormReports => RequestLane::Feed("Storm reports"),
@@ -422,6 +432,20 @@ impl HookEchoApp {
                 "Models",
                 "Model difference",
                 "Where two models disagree \u{2014} pick the field in layer options",
+                false,
+            ),
+            (
+                FL::CompareA,
+                "Models",
+                "Compare (pane A)",
+                "One model's own field, meant for its own pane \u{2014} pick the field in layer options",
+                false,
+            ),
+            (
+                FL::CompareB,
+                "Models",
+                "Compare (pane B)",
+                "The other model's own field, meant for its own pane",
                 false,
             ),
             (
@@ -1093,6 +1117,14 @@ impl HookEchoApp {
             "Four panes of this product at four heights, cameras linked",
             true,
             PaletteAction::AllTilts,
+            None,
+        );
+        push(
+            "Compare models in 2 panes",
+            "Models",
+            "One model's own field in each pane, cameras linked, instead of subtracting them",
+            false,
+            PaletteAction::CompareInPanes,
             None,
         );
         let panes = self.views.len();

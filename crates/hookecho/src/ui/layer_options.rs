@@ -83,6 +83,7 @@ pub(crate) fn show(
     // Model difference: which field, and the two valid times the last fetch actually compared.
     diff_field: &mut crate::fielddiff::DiffField,
     diff_valid: Option<&(String, String)>,
+    compare_valid: Option<&(String, String)>,
     // Lightning: NLDN averaging window, and whether GLM also polls GOES-West.
     lightning_minutes: &mut u16,
     show_glm: bool,
@@ -118,7 +119,10 @@ pub(crate) fn show(
         ("Outlooks", true),
         ("Environment", true),
         ("Global forecast", global_on),
-        ("Model comparison", on.contains(&FL::ModelDiff)),
+        (
+            "Model comparison",
+            on.contains(&FL::ModelDiff) || on.contains(&FL::CompareA) || on.contains(&FL::CompareB),
+        ),
         ("Lightning", show_glm || on.contains(&FL::Lightning)),
         ("Spotters", show_spotters),
         ("Rotation tracks", on.contains(&FL::Rotation)),
@@ -184,30 +188,64 @@ pub(crate) fn show(
         });
     }
 
-    if section == "Model comparison" && on.contains(&FL::ModelDiff) {
+    let showing_compare = on.contains(&FL::CompareA) || on.contains(&FL::CompareB);
+    if section == "Model comparison" && (on.contains(&FL::ModelDiff) || showing_compare) {
         let (a, b) = diff_field.pair();
         ui.horizontal_wrapped(|ui| {
-            ui.label("Difference:");
+            ui.label("Field:");
             for f in crate::fielddiff::DiffField::ALL {
                 changed |= ui.selectable_value(diff_field, f, f.label()).changed();
             }
         });
-        ui.weak(format!(
-            "{a} minus {b}, in {}. Red = {a} higher, blue = {b} higher; where they agree, nothing is drawn.",
-            diff_field.units()
-        ));
-        match diff_valid {
-            // The two models rarely share a cycle, and a difference between two instants is only
-            // honest if it says which two.
-            Some((va, vb)) if va != vb => {
-                ui.weak(format!(
-                    "⚠ {a} valid {va}, {b} valid {vb} — not the same time."
-                ));
+        if on.contains(&FL::ModelDiff) {
+            ui.weak(format!(
+                "{a} minus {b}, in {}. Red = {a} higher, blue = {b} higher; where they agree, nothing is drawn.",
+                diff_field.units()
+            ));
+            match diff_valid {
+                // The two models rarely share a cycle, and a difference between two instants is
+                // only honest if it says which two.
+                Some((va, vb)) if va != vb => {
+                    ui.weak(format!(
+                        "⚠ {a} valid {va}, {b} valid {vb} — not the same time."
+                    ));
+                }
+                Some((va, _)) => {
+                    ui.weak(format!("Both valid {va}."));
+                }
+                None => {}
             }
-            Some((va, _)) => {
-                ui.weak(format!("Both valid {va}."));
+        }
+        if showing_compare {
+            let label = diff_field.label();
+            ui.weak(format!(
+                "Pane A: {a}'s own {label}. Pane B: {b}'s own {label} — same scale, so a \
+                 difference in the field itself (not just where they disagree) is easy to spot \
+                 by eye."
+            ));
+            match compare_valid {
+                Some((va, vb)) if va != vb => {
+                    ui.weak(format!("⚠ {a} valid {va}, {b} valid {vb} — not the same time."));
+                }
+                Some((va, _)) => {
+                    ui.weak(format!("Both valid {va}."));
+                }
+                None => {}
             }
-            None => {}
+        }
+        if ui
+            .button(if showing_compare {
+                "Rearrange panes"
+            } else {
+                "View side by side (2 panes)"
+            })
+            .on_hover_text(
+                "Puts one model's own field in each of two panes with linked cameras, instead \
+                 of one subtracted layer",
+            )
+            .clicked()
+        {
+            actions.palette = Some(crate::app::PaletteAction::CompareInPanes);
         }
     }
 

@@ -249,6 +249,7 @@ impl HookEchoApp {
                                     &mut self.global_fcst_hour,
                                     &mut self.diff_field,
                                     self.diff_valid.as_ref(),
+                                    self.compare_valid.as_ref(),
                                     &mut self.settings.lightning_minutes,
                                     glm_options,
                                     &mut self.settings.glm_goes_west,

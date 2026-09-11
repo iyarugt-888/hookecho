@@ -275,6 +275,32 @@ pub fn draw_diff(
     panel.height() + 6.0
 }
 
+/// A small "which model" tag drawn just above a compare-pane's ramp (from [`draw_field`], reusing
+/// `field.source_layer()`'s own scale — see `DiffField::source_layer`). Two panes otherwise show
+/// the identical color scale, since it's the same field either side of the comparison; this is
+/// the only thing telling them apart without a click.
+///
+/// Returns the height consumed, same convention as [`draw_field`]/[`draw_ramp`], so it composes
+/// with either the way `draw_diff` does.
+pub fn draw_compare_label(painter: &egui::Painter, map_rect: Rect, y_offset: f32, model: &str) -> f32 {
+    let font = FontId::proportional(11.0);
+    let at = map_rect.left_top() + Vec2::new(INSET, INSET + y_offset);
+    for d in [Vec2::new(1.0, 1.0), Vec2::ZERO] {
+        painter.text(
+            at + d,
+            Align2::LEFT_TOP,
+            model,
+            font.clone(),
+            if d == Vec2::ZERO {
+                Color32::WHITE
+            } else {
+                Color32::BLACK
+            },
+        );
+    }
+    14.0
+}
+
 /// The same key, for a ramp that isn't a [`crate::render::FieldLayer`] — the wind particles carry
 /// their scale rather than uploading a grid, but they still owe the reader a legend.
 pub fn draw_ramp(
