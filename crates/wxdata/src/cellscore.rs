@@ -178,6 +178,9 @@ mod tests {
             g2g_ms: 80.0,
             range_km: 30.0,
             gates: 6,
+            tilts: 1,
+            top_km: 0.5,
+            confidence: 0.5,
         }];
         let s = score_all(&cells, &feats, &couplets);
         // Inside the polygon and next to the couplet: 90% at weight 0.4 and a maxed Vrot ramp at

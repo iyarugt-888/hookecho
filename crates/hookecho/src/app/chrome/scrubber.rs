@@ -287,6 +287,39 @@ impl HookEchoApp {
                                     }
                                 }
                             });
+                            // A typed jump to an exact hour:minute, next to the day it applies
+                            // to — the track below is drag-precise, but "3:47Z" specifically is
+                            // faster typed than found by eye. Shows the playhead's own time so
+                            // the fields already read right before anyone touches them; editing
+                            // either jumps straight to the nearest volume on `t.date`.
+                            if !t.frames.is_empty() {
+                                use chrono::Timelike;
+                                let now = t
+                                    .current()
+                                    .and_then(|id| id.date_time())
+                                    .unwrap_or_else(Utc::now);
+                                let (mut hour, mut minute) = (now.hour(), now.minute());
+                                ui.horizontal(|ui| {
+                                    ui.label("Time (UTC):");
+                                    let hr = ui.add(
+                                        egui::DragValue::new(&mut hour)
+                                            .range(0..=23)
+                                            .suffix("h"),
+                                    );
+                                    let mr = ui.add(
+                                        egui::DragValue::new(&mut minute)
+                                            .range(0..=59)
+                                            .suffix("m"),
+                                    );
+                                    if hr.changed() || mr.changed() {
+                                        t.seek_to_time_of_day(hour, minute);
+                                    }
+                                })
+                                .response
+                                .on_hover_text(
+                                    "Jump to the volume nearest this time on the selected day",
+                                );
+                            }
                             ui.horizontal(|ui| {
                                 if ui.button("⏮").on_hover_text("First frame").clicked() {
                                     t.go_begin();

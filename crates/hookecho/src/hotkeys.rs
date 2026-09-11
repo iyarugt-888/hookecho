@@ -18,6 +18,14 @@ pub(crate) enum BindableAction {
     Palette(PaletteAction),
     TiltUp,
     TiltDown,
+    /// Nudge the active pane's map-pitch 3D camera tilt/rotation — a keyboard alternative to the
+    /// right-drag gesture, and the only way to adjust it at all without a mouse. No-op outside 3D
+    /// map mode, same as `TiltUp`/`TiltDown` are no-ops with no volume loaded. Off the arrow keys
+    /// on purpose: those are fully the timeline's, so a camera nudge can never eat a scrub.
+    Camera3dPitchUp,
+    Camera3dPitchDown,
+    Camera3dBearingLeft,
+    Camera3dBearingRight,
     OpenSiteDialog,
     ToggleAlertPanel,
     ToggleObs,
@@ -25,6 +33,11 @@ pub(crate) enum BindableAction {
     ToggleDrawer,
     StepBack,
     StepForward,
+    /// The coarse timeline jump beside `StepBack`/`StepForward`'s one-frame step: about an hour of
+    /// archive time, so finding "around 22Z" doesn't mean stepping through every 4-6 minute volume
+    /// between here and there by hand.
+    StepHourBack,
+    StepHourForward,
     Fullscreen,
     CommandSearch,
     CheatSheet,
@@ -88,10 +101,21 @@ pub(crate) fn defaults() -> Vec<Binding> {
         // working, pointed at the drawer, so the muscle memory still lands somewhere.
         plain(K::F7, A::ToggleDrawer),
         plain(K::L, A::ToggleDrawer),
-        // Arrow keys scrub the timeline: the transport buttons were the only way to step a frame,
-        // which made every scripted capture depend on hitting them by pixel.
+        // All four arrow keys are the timeline's, full stop: Left/Right step one volume (the
+        // transport buttons were the only way to do that, which made every scripted capture
+        // depend on hitting them by pixel), Up/Down jump about an hour so finding "around 22Z" in
+        // a day of 4-6 minute volumes doesn't mean stepping through every one of them by hand.
         plain(K::ArrowLeft, A::StepBack),
         plain(K::ArrowRight, A::StepForward),
+        plain(K::ArrowUp, A::StepHourForward),
+        plain(K::ArrowDown, A::StepHourBack),
+        // The map-pitch 3D camera takes W/S (tilt) and Q/E (rotate) instead — a flight-sim-style
+        // pairing that reads as "look up/down, turn left/right" without touching a single arrow
+        // key or any letter another binding already owns.
+        plain(K::W, A::Camera3dPitchUp),
+        plain(K::S, A::Camera3dPitchDown),
+        plain(K::Q, A::Camera3dBearingLeft),
+        plain(K::E, A::Camera3dBearingRight),
         plain(K::F8, A::ToggleObs),
         plain(K::F9, A::ToggleObsTour),
         plain(K::R, A::Palette(P::InstantReplay)),
@@ -174,6 +198,12 @@ pub(crate) fn label(action: BindableAction) -> Option<&'static str> {
         BindableAction::Palette(_) => return None,
         BindableAction::TiltUp => "Tilt up",
         BindableAction::TiltDown => "Tilt down",
+        BindableAction::Camera3dPitchUp => "3D camera: tilt more",
+        BindableAction::Camera3dPitchDown => "3D camera: tilt less",
+        BindableAction::Camera3dBearingLeft => "3D camera: rotate left",
+        BindableAction::Camera3dBearingRight => "3D camera: rotate right",
+        BindableAction::StepHourBack => "Jump back ~1 hour",
+        BindableAction::StepHourForward => "Jump forward ~1 hour",
         BindableAction::OpenSiteDialog => "Change radar site",
         BindableAction::ToggleAlertPanel => "Alerts panel",
         BindableAction::ToggleObs => "Streamer (OBS) mode",

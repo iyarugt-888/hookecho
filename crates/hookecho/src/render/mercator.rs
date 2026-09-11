@@ -13,6 +13,13 @@ pub const MAX_LAT: f64 = 85.05112878;
 /// Equatorial circumference of the spherical Earth used by Web Mercator.
 pub const EARTH_CIRCUMFERENCE_M: f64 = 2.0 * PI * 6_371_000.0;
 
+/// Steepest camera pitch the map-pitch view allows. `view_projection`'s "up" vector is the
+/// bearing's own ground direction rather than world-up (needed so a flat, pitch-zero camera —
+/// looking straight down — has a well-defined up at all), which only stays distinct from the
+/// view direction below 90°; 75° leaves a comfortable margin while still reading as a real
+/// oblique, near-horizon view rather than the old capped-at-60° tilt.
+pub const MAX_PITCH_DEG: f32 = 75.0;
+
 /// Longitude/latitude (degrees) -> normalized mercator world coord.
 pub fn lonlat_to_world(lon: f64, lat: f64) -> (f64, f64) {
     let x = (lon + 180.0) / 360.0;
@@ -72,7 +79,7 @@ impl Camera {
         let (width, height) = (viewport_px.0.max(1.0), viewport_px.1.max(1.0));
         let fov = 45f32.to_radians();
         let distance = height * 0.5 / (fov * 0.5).tan();
-        let pitch = self.pitch.clamp(0.0, 60.0).to_radians();
+        let pitch = self.pitch.clamp(0.0, MAX_PITCH_DEG).to_radians();
         let bearing = self.bearing.to_radians();
         let forward_ground = Vec3::new(bearing.sin(), bearing.cos(), 0.0);
         let eye = self.eye_position(viewport_px);
@@ -86,7 +93,7 @@ impl Camera {
         let height = viewport_px.1.max(1.0);
         let fov = 45f32.to_radians();
         let distance = height * 0.5 / (fov * 0.5).tan();
-        let pitch = self.pitch.clamp(0.0, 60.0).to_radians();
+        let pitch = self.pitch.clamp(0.0, MAX_PITCH_DEG).to_radians();
         let bearing = self.bearing.to_radians();
         let forward_ground = Vec3::new(bearing.sin(), bearing.cos(), 0.0);
         -forward_ground * (distance * pitch.sin()) + Vec3::Z * (distance * pitch.cos())

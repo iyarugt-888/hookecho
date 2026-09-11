@@ -221,6 +221,16 @@ impl Volume {
             .filter_map(|t| self.binned(moment, t, false).ok().cloned())
             .collect()
     }
+
+    /// All velocity tilts, dealiased (lowest→highest) — `moment_tilts`'s own `Moment::Velocity`
+    /// call always asks for the folded sweep, which manufactures huge false gate-to-gate jumps if
+    /// fed straight into rotation detection.
+    pub fn velocity_tilts_dealiased(&mut self) -> Vec<BinnedSweep> {
+        let n = self.elevations.len();
+        (0..n)
+            .filter_map(|t| self.binned(Moment::Velocity, t, true).ok().cloned())
+            .collect()
+    }
 }
 
 /// One map pane.

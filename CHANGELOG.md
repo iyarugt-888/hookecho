@@ -8,6 +8,37 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### The timeline picks an exact time, not just a day
+
+- The archive day picker (Live/Archive badge → calendar) now sits beside a
+  typed hour:minute (UTC) field that jumps straight to the nearest volume —
+  the drag-precise time track was already there, but pinpointing an exact
+  scan on a specific historical day now takes typing a time instead of eyeing
+  a pixel.
+- **↑/↓** jump the timeline by about an hour, alongside **←/→**'s existing
+  one-frame step — closing distance across a day of archive volumes no
+  longer means stepping through every 4-6 minute scan between here and there.
+
+### The map-pitch 3D camera goes further, and takes a keyboard
+
+- Camera pitch now goes to 75° (was capped at 60°) for a steeper, more
+  dramatic oblique view.
+- **W/S** tilt the camera and **Q/E** rotate it — a keyboard alternative to
+  the right-drag gesture, and the only way to adjust the 3D camera at all
+  without a mouse.
+
+### TVS and TDS detection see height, not just one tilt
+
+- Both the client-side rotation-couplet (TVS) and debris-signature (TDS)
+  detectors now check the lowest several tilts instead of only the lowest
+  one, and raise their confidence by how many of them show the same signature
+  and how high the tallest one reaches. A couplet or a debris ball confined
+  to a single sweep is as often a gust front, biological scatter, or a data
+  glitch as it is the real thing — vertical continuity is the classic
+  criterion neither detector had access to before. The alert banner and the
+  map label both now show the confidence, tilt count, and height once more
+  than one tilt confirms a hit.
+
 ### A docked control ribbon (desktop/web)
 
 - The floating map-first chrome (search pill, right-edge control column) is

@@ -208,6 +208,51 @@ impl Timeline {
             .map(|(i, _)| i)
     }
 
+    /// Jump straight to the volume nearest `hour:minute` UTC on the currently-selected day.
+    ///
+    /// Unlike `seek_target` (which waits for the *next* listing to land, for a day that has not
+    /// been fetched yet), this acts on `frames` immediately — the picker that calls it only shows
+    /// once a day is already listed, so there is nothing to wait for. Silently does nothing for
+    /// an out-of-range `hour`/`minute` or an empty listing, rather than fail a mistyped value.
+    pub fn seek_to_time_of_day(&mut self, hour: u32, minute: u32) {
+        let Some(target) = self
+            .date
+            .and_hms_opt(hour, minute, 0)
+            .map(|t| t.and_utc())
+        else {
+            return;
+        };
+        let Some(i) = self.nearest_frame(target) else {
+            return;
+        };
+        self.playing = false;
+        self.replay = None;
+        self.playhead = i;
+        self.following = i + 1 == self.frames.len();
+    }
+
+    /// Jump forward/backward by about `minutes` of archive time from the playhead's own frame —
+    /// the coarse counterpart to `step`'s one-frame-at-a-time, for closing distance across a whole
+    /// day quickly. Landing is by nearest frame, same as `seek_to_time_of_day`, so it lands close
+    /// to a clean value regardless of the site's actual volume cadence.
+    ///
+    /// Confined to the day already listed, same as `step`: a request that would cross into the
+    /// day before or after just clamps to that end of `frames` rather than reaching for a listing
+    /// this call has no way to wait for.
+    pub fn step_time(&mut self, minutes: i64) {
+        let Some(cur) = self.current().and_then(|id| id.date_time()) else {
+            return;
+        };
+        let target = cur + chrono::Duration::minutes(minutes);
+        let Some(i) = self.nearest_frame(target) else {
+            return;
+        };
+        self.playing = false;
+        self.replay = None;
+        self.playhead = i;
+        self.following = i + 1 == self.frames.len();
+    }
+
     /// Step `delta` slots (observed frames + forecast tail), un-pinning and pausing playback.
     pub fn step(&mut self, delta: i32) {
         self.playing = false;
@@ -533,5 +578,67 @@ mod tests {
         // Taking the playhead back by hand ends the bundle.
         t.step(1);
         assert_eq!(t.replay, None);
+    }
+
+    #[test]
+    fn seek_to_time_of_day_lands_on_the_nearest_frame_and_unpins_from_live() {
+        let mut t = Timeline::default();
+        // `day()` always stamps 2026-08-19 into its identifiers regardless of `t.date` (its
+        // callers only ever check playhead/index arithmetic, not the wall-clock date) — this
+        // test is the first to seek by time of day, which needs `t.date` to actually agree with
+        // the frames' own embedded dates, or every frame looks equally far from the target.
+        let day_of = chrono::NaiveDate::from_ymd_opt(2026, 8, 19).unwrap();
+        t.date = day_of;
+        // Five-minute volumes all day: 12:32Z is 2 minutes past the 12:30 frame and 3 short of
+        // 12:35, so the nearest one is 12:30.
+        t.set_frames(day("KTLX", 288), ("KTLX".into(), day_of));
+        t.following = true;
+        t.playing = true;
+        t.seek_to_time_of_day(12, 32);
+        assert!(!t.playing, "typing a time takes manual control, like step()");
+        assert!(!t.following, "no longer pinned to the live head");
+        assert_eq!(
+            t.current().unwrap().date_time().unwrap().format("%H:%M").to_string(),
+            "12:30"
+        );
+    }
+
+    #[test]
+    fn seek_to_time_of_day_is_a_no_op_on_an_empty_listing() {
+        let mut t = Timeline::default();
+        t.seek_to_time_of_day(12, 0); // nothing to land on; must not panic
+        assert_eq!(t.playhead, 0);
+    }
+
+    #[test]
+    fn step_time_jumps_about_an_hour_and_clamps_at_the_day() {
+        let mut t = Timeline::default();
+        let today = t.date;
+        t.set_frames(day("KTLX", 288), ("KTLX".into(), today)); // 5-minute volumes, 24 h
+        t.playhead = 150; // 12:30Z
+        t.playing = true;
+
+        t.step_time(60);
+        assert!(!t.playing, "a jump takes manual control, like step()");
+        assert_eq!(t.playhead, 162, "12:30 + 1h = 13:30, 12 frames on at 5 min each");
+
+        t.step_time(-120);
+        assert_eq!(t.playhead, 138, "13:30 - 2h = 11:30");
+
+        // Requesting past either end of the day lands on that end rather than reaching for a
+        // listing this call has no way to wait for.
+        t.playhead = 0; // 00:00Z
+        t.step_time(-60);
+        assert_eq!(t.playhead, 0, "nothing earlier in today's listing");
+        t.playhead = 287; // 23:55Z
+        t.step_time(60);
+        assert_eq!(t.playhead, 287, "nothing later in today's listing");
+    }
+
+    #[test]
+    fn step_time_is_a_no_op_on_an_empty_listing() {
+        let mut t = Timeline::default();
+        t.step_time(60); // nothing to land on; must not panic
+        assert_eq!(t.playhead, 0);
     }
 }

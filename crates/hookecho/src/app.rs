@@ -6696,33 +6696,40 @@ impl HookEchoApp {
     }
 
     fn compute_tds_uncached(&mut self, idx: usize) -> Vec<wxdata::tds::TdsHit> {
-        // Lowest tilt carries the near-ground debris; dual-pol CC must be present.
-        let z = match self.views[idx]
-            .volume
-            .as_mut()
-            .and_then(|v| v.binned(Moment::Reflectivity, 0, false).ok())
-        {
-            Some(s) => s.clone(),
-            None => return Vec::new(),
-        };
-        let Some(cc) = self.views[idx]
-            .volume
-            .as_mut()
-            .and_then(|v| v.binned(Moment::CorrelationCoefficient, 0, false).ok())
-            .cloned()
-        else {
+        // The lowest few tilts, not just the lowest one: a debris ball that repeats up through
+        // them is real vertical evidence a single tilt cannot offer at all (see
+        // `tds::detect_volume`). Capped at 4 tilts' worth of gate scanning rather than the whole
+        // volume — this only runs once per new volume (cached on `volume_key`), but there is no
+        // reason to pay for tilts high enough that lofted-debris relevance has already dropped off.
+        const TILTS: usize = 4;
+        let Some(vol) = self.views[idx].volume.as_mut() else {
             return Vec::new();
         };
-        let hits = wxdata::tds::detect(&z, &cc, 0.80, 40.0, 150.0, 4);
+        let z_tilts = vol.moment_tilts(Moment::Reflectivity);
+        let cc_tilts = vol.moment_tilts(Moment::CorrelationCoefficient);
+        let pairs: Vec<_> = z_tilts.into_iter().zip(cc_tilts).take(TILTS).collect();
+        if pairs.is_empty() {
+            return Vec::new(); // no dual-pol CC on this volume (legacy pre-dual-pol, or TDWR)
+        }
+        let hits = wxdata::tds::detect_volume(&pairs, 0.80, 40.0, 150.0, 4);
         // Rising-edge alert.
         let now_active = !hits.is_empty();
         if now_active && !self.tds_active {
             print!("\x07");
             use std::io::Write;
             let _ = std::io::stdout().flush();
+            let best = hits[0]; // sorted strongest-first (by confidence)
             self.banner(
                 "⚠ TDS detected".to_string(),
-                format!("{} debris signature(s) — possible tornado", hits.len()),
+                format!(
+                    "{} debris signature(s) — possible tornado ({:.0}% confidence, \
+                     {} tilt{}, lofted to {:.1} km)",
+                    hits.len(),
+                    best.confidence * 100.0,
+                    best.tilts,
+                    if best.tilts == 1 { "" } else { "s" },
+                    best.top_km,
+                ),
             );
             self.notify_alert(
                 "⚠ Tornado Debris Signature",
@@ -6862,31 +6869,39 @@ impl HookEchoApp {
     }
 
     fn compute_couplets_uncached(&mut self, idx: usize) -> Vec<wxdata::rotation::CoupletHit> {
-        // Lowest tilt = closest to the ground; dealiased so folded gates don't fake huge shear.
-        let vel = match self.views[idx]
-            .volume
-            .as_mut()
-            .and_then(|v| v.binned(Moment::Velocity, 0, true).ok())
-        {
-            Some(s) => s.clone(),
-            None => return Vec::new(),
+        // The lowest few tilts, not just the lowest one: the classic operational TVS criterion is
+        // vertical continuity, which a single sweep cannot offer at all (see
+        // `rotation::detect_volume`). Dealiased, so folded gates don't fake huge shear. Capped at
+        // 4 tilts for the same reason `compute_tds_uncached` caps at 4 — bounded cost, and low-
+        // level rotation is what a tornadic circulation actually looks like.
+        const TILTS: usize = 4;
+        let Some(vol) = self.views[idx].volume.as_mut() else {
+            return Vec::new();
         };
+        let tilts: Vec<_> = vol.velocity_tilts_dealiased().into_iter().take(TILTS).collect();
+        let Some(first) = tilts.first() else {
+            return Vec::new();
+        };
+        let (radar_lon, radar_lat) = (first.radar_lon, first.radar_lat);
         // 25 m/s gate-to-gate is the legacy weak-TVS criterion; 15-150 km is the usable range band
         // (nearer, clutter fakes couplets; farther, the beam is too high and too coarsely sampled).
-        let hits = wxdata::rotation::detect(&vel, 25.0, 15.0, 150.0, 3);
+        let hits = wxdata::rotation::detect_volume(&tilts, 25.0, 15.0, 150.0, 3);
         let now_active = !hits.is_empty();
         if now_active && !self.rot_active {
-            let h = hits[0]; // sorted strongest-first
+            let h = hits[0]; // sorted strongest-first (by confidence, now that height/depth count)
             let site = self.views[idx].site.clone().unwrap_or_default();
             let kt = h.vrot_ms * 1.943_844;
-            let (km, bearing) = crate::geo::great_circle(
-                [vel.radar_lon as f64, vel.radar_lat as f64],
-                [h.lon, h.lat],
-            );
+            let (km, bearing) =
+                crate::geo::great_circle([radar_lon as f64, radar_lat as f64], [h.lon, h.lat]);
             let where_ = format!("{:.0} km {} of {site}", km, cardinal(bearing));
             self.banner(
                 "⟳ Rotation detected".to_string(),
-                format!("{kt:.0} kt couplet — {where_}"),
+                format!(
+                    "{kt:.0} kt couplet — {where_} ({:.0}% confidence, {} tilt{})",
+                    h.confidence * 100.0,
+                    h.tilts,
+                    if h.tilts == 1 { "" } else { "s" },
+                ),
             );
             self.notify_alert(
                 "⟳ Rotation couplet",
@@ -10013,6 +10028,37 @@ impl HookEchoApp {
                 let v = &mut self.views[self.active];
                 v.tilt = v.tilt.saturating_sub(1);
             }
+            A::Camera3dPitchUp | A::Camera3dPitchDown | A::Camera3dBearingLeft
+            | A::Camera3dBearingRight => {
+                let v = &mut self.views[self.active];
+                if v.map_3d.enabled {
+                    // One keypress, one visible step — big enough to see, small enough that
+                    // holding the key down still reads as a smooth nudge rather than a jump.
+                    const PITCH_STEP_DEG: f32 = 5.0;
+                    const BEARING_STEP_DEG: f32 = 10.0;
+                    match action {
+                        A::Camera3dPitchUp => {
+                            v.camera.pitch = (v.camera.pitch + PITCH_STEP_DEG)
+                                .clamp(0.0, crate::render::mercator::MAX_PITCH_DEG);
+                        }
+                        A::Camera3dPitchDown => {
+                            v.camera.pitch = (v.camera.pitch - PITCH_STEP_DEG)
+                                .clamp(0.0, crate::render::mercator::MAX_PITCH_DEG);
+                        }
+                        A::Camera3dBearingLeft => {
+                            v.camera.bearing =
+                                (v.camera.bearing - BEARING_STEP_DEG + 180.0).rem_euclid(360.0)
+                                    - 180.0;
+                        }
+                        A::Camera3dBearingRight => {
+                            v.camera.bearing =
+                                (v.camera.bearing + BEARING_STEP_DEG + 180.0).rem_euclid(360.0)
+                                    - 180.0;
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+            }
             A::OpenSiteDialog => {
                 if self.site_dialog.is_none() {
                     self.site_dialog = Some(Default::default());
@@ -10047,6 +10093,8 @@ impl HookEchoApp {
             }
             A::StepBack => self.views[self.active].timeline.step(-1),
             A::StepForward => self.views[self.active].timeline.step(1),
+            A::StepHourBack => self.views[self.active].timeline.step_time(-60),
+            A::StepHourForward => self.views[self.active].timeline.step_time(60),
             A::Fullscreen => {
                 // Desktop only; mobile is already fullscreen.
                 if !cfg!(target_os = "android") {
@@ -11074,9 +11122,12 @@ impl HookEchoApp {
                             );
                         });
                         ui.add(
-                            egui::Slider::new(&mut view.camera.pitch, 0.0..=60.0)
-                                .text("Pitch")
-                                .suffix("°"),
+                            egui::Slider::new(
+                                &mut view.camera.pitch,
+                                0.0..=crate::render::mercator::MAX_PITCH_DEG,
+                            )
+                            .text("Pitch")
+                            .suffix("°"),
                         );
                         ui.add(
                             egui::Slider::new(&mut view.camera.bearing, -180.0..=180.0)
@@ -11110,6 +11161,7 @@ impl HookEchoApp {
                             ui.weak("Vertical and Opacity above shape the resampled volume.");
                         }
                         ui.weak("Right-drag rotates · drag pans · wheel zooms");
+                        ui.weak("W/S tilt · Q/E rotate");
                     });
             });
     }
@@ -11346,8 +11398,8 @@ impl HookEchoApp {
                 self.views[idx].camera.bearing =
                     (self.views[idx].camera.bearing - d.x * 0.35 + 180.0).rem_euclid(360.0)
                         - 180.0;
-                self.views[idx].camera.pitch =
-                    (self.views[idx].camera.pitch + d.y * 0.25).clamp(0.0, 60.0);
+                self.views[idx].camera.pitch = (self.views[idx].camera.pitch + d.y * 0.25)
+                    .clamp(0.0, crate::render::mercator::MAX_PITCH_DEG);
             } else {
                 match self.tap_zoom {
                 // Double-tap-drag: the map zoom every phone map has, and the only one you can do
@@ -12830,7 +12882,14 @@ impl HookEchoApp {
                 painter.text(
                     p + egui::vec2(0.0, -s - 2.0),
                     egui::Align2::CENTER_BOTTOM,
-                    format!("TDS ρ{:.2}", h.min_cc),
+                    // Height only earns its place on the label once there's more than one tilt of
+                    // it to report — a bare "0.5 km" off a single low tilt is just its range, not
+                    // evidence of anything lofted.
+                    if h.tilts > 1 {
+                        format!("TDS ρ{:.2} · {}t {:.1}km", h.min_cc, h.tilts, h.top_km)
+                    } else {
+                        format!("TDS ρ{:.2}", h.min_cc)
+                    },
                     egui::FontId::proportional(11.0),
                     m,
                 );
@@ -12928,7 +12987,18 @@ impl HookEchoApp {
                 painter.text(
                     p + egui::vec2(0.0, 13.0),
                     egui::Align2::CENTER_TOP,
-                    format!("ROT {:.0} kt", h.vrot_ms * 1.943_844),
+                    // Same reasoning as the TDS label: height/tilt-count only means something once
+                    // there's more than one tilt behind it.
+                    if h.tilts > 1 {
+                        format!(
+                            "ROT {:.0} kt · {}t {:.1}km",
+                            h.vrot_ms * 1.943_844,
+                            h.tilts,
+                            h.top_km
+                        )
+                    } else {
+                        format!("ROT {:.0} kt", h.vrot_ms * 1.943_844)
+                    },
                     egui::FontId::proportional(11.0),
                     col,
                 );
