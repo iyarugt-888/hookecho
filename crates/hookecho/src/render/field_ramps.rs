@@ -562,6 +562,7 @@ static PRECIP_TYPE: FieldRamp = FieldRamp {
     units: "",
     alpha: 200,
     input_scale: 1.0,
+    is_temp_kelvin: false,
     scale: FieldScale::Categorical(&[
         (1, [60, 200, 90], "Rain"),
         (3, [90, 150, 240], "Snow"),
@@ -578,6 +579,7 @@ static HCA: FieldRamp = FieldRamp {
     units: "",
     alpha: 200,
     input_scale: 1.0,
+    is_temp_kelvin: false,
     scale: FieldScale::Categorical(&[
         (10, [140, 110, 90], "Biological"),
         (20, [95, 95, 95], "Clutter"),
