@@ -8,6 +8,41 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### A docked control ribbon (desktop/web)
+
+- The floating map-first chrome (search pill, right-edge control column) is
+  replaced on desktop and web by a docked top ribbon in the style of WSV3's
+  toolbar: labelled control groups over a navy gradient, a docked colour scale
+  under it, a blue timestamp pill, and a thin bottom status bar. The original
+  layout is still there — Settings → Layout — for anyone who preferred the
+  map getting every pixel back.
+- The ribbon swaps its middle section by data type: **Radar** (site, moments,
+  tilt angle, pane count), **Model** (GFS/ECMWF/HRRR/RAP/NAM source pills, a
+  colour-fill toggle list, a contours dropdown, HRRR future radar), and
+  **MRMS** (the national mosaic products). Overlays, Tools, Capture and the
+  transport stay on screen in every mode.
+- HRRR future radar gained a **sub-hourly mode**: 15-minute steps out to 18
+  hours from the `wrfsubhf` product, instead of whole hours only.
+
+### Fixes
+
+- The web build's CORS proxy dropped every client header, including `Range`
+  — so HRRR, RAP, NAM, NBM and GFS, which all pull one GRIB message out of a
+  ~130 MB file by byte range, silently fetched the whole file and tripped the
+  proxy's size cap. Every one of those layers 502'd on the web build. The
+  proxy now validates and forwards `Range`, and answers with a real `206` on
+  both the native `--serve` proxy and the Cloudflare Worker.
+- The 3D radar volume (map-pitch "Observed" mode and the 3D window) stopped
+  loading every available tilt once a live volume grew past the point it was
+  first opened, and its instanced gates left large sampling gaps along each
+  beam at typical densities — both looked like missing data. Sweep count is
+  now part of the rebuild key, gate footprints tile the beam with no gap, and
+  each tilt fades a little more than the one below it so the stack reads as
+  layers rather than a flat wall of paint.
+- The 2 m temperature and dewpoint field legends printed raw Kelvin regardless
+  of the Units setting, while the station plots and everything else already
+  followed it.
+
 ### GPS connects itself
 
 - **Connect GPS at launch** (Chase tab; `gps_autoconnect` in settings.json)
