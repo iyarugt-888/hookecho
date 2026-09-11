@@ -28,16 +28,25 @@ The rolling `latest` release tracks `main` and is not listed here.
   basemap — all driven off the sun's real current position, not a fixed
   offset from local time.
 
-### The map-pitch 3D view gets a Smooth volume
+### The map-pitch 3D view gets a Smooth volume, and a Debris mode
 
 - The **Smooth** representation in map-pitch 3D (alongside the existing
   Observed sweeps) now actually draws: a regularized reflectivity volume,
   resampled off the UI thread onto a Cartesian grid the same way the
   standalone 3D window does, then raymarched in place on the pitched map with
-  the same Vertical/Opacity controls. Reflectivity only, since that's the
-  only moment the resampler regularizes. It has its own GPU pipeline and
+  the same Vertical/Opacity controls. It has its own GPU pipeline and
   per-pane textures, so it can't collide with the 3D window's volume if both
   are open on different sites at once.
+- A new **Debris** representation resamples correlation coefficient instead
+  of reflectivity, with its volume inverted before raymarching so a lofted
+  low-CC pocket — a tornado debris signature — lights up the way a
+  reflectivity core does, instead of a plain CC volume just showing ordinary
+  high-CC rain everywhere. Selectable whenever the pane's 2D product is CC.
+- Observed sweeps' beam height, in map-pitch 3D, no longer multiplies the
+  earth-curvature climb every tilt has with range by the Vertical slider —
+  only how far a tilt sits above the lowest tilt's own height at that same
+  range (genuine storm structure) gets exaggerated, so a low-tilt base scan
+  no longer visibly lifts off the ground at high Vertical settings.
 
 ### Fixes
 

@@ -93,6 +93,28 @@ pub fn build(
     })
 }
 
+/// Flip the volume's index mapping end for end: the voxel that held `value_min` now holds
+/// `value_max`'s index and vice versa, with everything between mirrored the same way. `value_min`/
+/// `value_max` themselves are left untouched — they still describe the true physical range, just
+/// no longer the direction the index counts toward.
+///
+/// Built for correlation coefficient. [`build`]'s index is directly proportional to the physical
+/// value, which is right for reflectivity: the raymarch takes a maximum, so raising its floor
+/// carves away weak echo and leaves the storm cores standing alone. CC is the opposite ask — a
+/// tornado debris signature is a *lofted low-CC pocket*, and a maximum-of-CC raymarch only ever
+/// finds the ordinary high-CC rain around it. Inverting first makes "low CC" the voxel that wins
+/// the maximum, so the same floor/opacity controls that isolate a reflectivity core isolate a
+/// debris signature instead. The caller must pair this with a matching LUT permutation
+/// (`colormap::invert_lut` in the `hookecho` crate) so a voxel's color still comes from its true
+/// physical value, not its flipped index.
+pub fn invert_in_place(v3: &mut Volume3d) {
+    for b in v3.data.iter_mut() {
+        if *b >= 2 {
+            *b = (257 - *b as u16) as u8;
+        }
+    }
+}
+
 /// A constant-altitude PPI (CAPPI): an `n × n` horizontal slice of reflectivity (dBZ) at a fixed
 /// altitude, radar-centered. `dbz[x + n*y]` with row 0 = north (y inverted for image display).
 pub struct Cappi {

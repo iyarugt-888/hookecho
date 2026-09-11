@@ -3023,12 +3023,14 @@ pub struct HookEchoApp {
     /// ceiling) rather than the window's single `vol3d_*` set — more than one pane can be
     /// showing it at once, each its own site and volume.
     ///
-    /// `(volume name, tilt count)` last built per pane; an in-flight receiver while a rebuild
-    /// runs off-thread; a finished upload waiting for `render_pane`'s GPU callback to consume it;
-    /// and the small geometry facts (`n, nz, half_km, top_km`) of whatever is currently
-    /// GPU-resident, kept separately from the (heavy) upload so the frames between rebuilds don't
-    /// need the tens-of-MB volume held twice just to recompute the camera uniform.
-    smooth_vol_key: [Option<(String, usize)>; 4],
+    /// `(volume name, tilt count, moment)` last built per pane — the moment is part of the key so
+    /// switching between the reflectivity Smooth volume and the CC Debris volume on the same pane
+    /// rebuilds instead of showing the stale one; an in-flight receiver while a rebuild runs
+    /// off-thread; a finished upload waiting for `render_pane`'s GPU callback to consume it; and
+    /// the small geometry facts (`n, nz, half_km, top_km`) of whatever is currently GPU-resident,
+    /// kept separately from the (heavy) upload so the frames between rebuilds don't need the
+    /// tens-of-MB volume held twice just to recompute the camera uniform.
+    smooth_vol_key: [Option<(String, usize, Moment)>; 4],
     #[allow(clippy::type_complexity)]
     smooth_vol_rx: [Option<std::sync::mpsc::Receiver<crate::render3d::Volume3dUpload>>; 4],
     smooth_vol_pending: [Option<crate::render3d::Volume3dUpload>; 4],
@@ -10729,7 +10731,7 @@ impl HookEchoApp {
             srv,
             motion_e,
             motion_n,
-            0.0,
+            observed.min_elevation_deg,
             0.0,
         ];
         self.views[idx].map_3d.observed_key = Some(key);
@@ -10743,13 +10745,20 @@ impl HookEchoApp {
         )
     }
 
-    /// The map-pitch "Smooth" 3D representation: a continuous, interpolated volume raymarched in
-    /// place on the map, as against `pane_observed_radar`'s real (and therefore gappy-at-range)
-    /// Level II gates. `None` when this pane isn't in Smooth mode. `Some` carries this frame's
-    /// camera/radar uniform always, and a fresh [`crate::render3d::Volume3dUpload`] only on the
-    /// frame a rebuild finishes — the resample is real CPU work (`build_volume3d`'s own comment:
-    /// "would drop a second of frames"), so it runs off-thread and this drains it rather than
-    /// blocking the render path.
+    /// The map-pitch "Smooth" and "Debris" 3D representations: a continuous, interpolated volume
+    /// raymarched in place on the map, as against `pane_observed_radar`'s real (and therefore
+    /// gappy-at-range) Level II gates. `None` when this pane isn't in one of those two modes.
+    /// `Some` carries this frame's camera/radar uniform always, and a fresh
+    /// [`crate::render3d::Volume3dUpload`] only on the frame a rebuild finishes — the resample is
+    /// real CPU work (`build_volume3d`'s own comment: "would drop a second of frames"), so it runs
+    /// off-thread and this drains it rather than blocking the render path.
+    ///
+    /// Debris shares every line of this with Smooth — same resample, same raymarch, same controls
+    /// — except which moment it resamples and that its volume's index is inverted afterward
+    /// ([`wxdata::volume3d::invert_in_place`]) before upload, with the LUT permuted
+    /// ([`crate::colormap::invert_lut`]) to match. See that function's doc comment for why: a
+    /// max-intensity raymarch over plain CC only ever finds ordinary high-CC rain, never the
+    /// lofted low-CC pocket a tornado debris signature actually is.
     fn pane_smooth_volume(
         &mut self,
         idx: usize,
@@ -10763,10 +10772,15 @@ impl HookEchoApp {
         // function would fight the borrow checker for no benefit — it's a few scalars and a small
         // `Option`, cheap to clone.
         let state = self.views[idx].map_3d.clone();
-        if !state.enabled || state.representation != Map3dRepresentation::SmoothVolume {
+        if !state.enabled {
             return None;
         }
-        if self.views[idx].moment != Moment::Reflectivity {
+        let (resample_moment, invert) = match state.representation {
+            Map3dRepresentation::SmoothVolume => (Moment::Reflectivity, false),
+            Map3dRepresentation::SmoothDebris => (Moment::CorrelationCoefficient, true),
+            Map3dRepresentation::ObservedSweeps => return None,
+        };
+        if self.views[idx].moment != resample_moment {
             // `map_3d_controls` already resets back to Observed the moment this stops being
             // true; this is a second, cheap guard against ever resampling the wrong moment.
             return None;
@@ -10801,33 +10815,38 @@ impl HookEchoApp {
         // in flight for this pane.
         if self.smooth_vol_rx[idx].is_none() {
             if let Some(vol) = self.views[data].volume.as_mut() {
-                let key = (vol.name.clone(), vol.elevations.len());
+                let key = (vol.name.clone(), vol.elevations.len(), resample_moment);
                 if self.smooth_vol_key[idx].as_ref() != Some(&key) {
-                    let sweeps = vol.reflectivity_tilts();
+                    let sweeps = vol.moment_tilts(resample_moment);
                     if !sweeps.is_empty() {
                         self.smooth_vol_key[idx] = Some(key);
                         let table = crate::colormap::effective_table(
                             &self.palettes,
-                            Moment::Reflectivity,
+                            resample_moment,
                             self.settings.theme,
                         );
                         let (tx, rx) = std::sync::mpsc::channel();
                         self.smooth_vol_rx[idx] = Some(rx);
                         self.spawner.spawn(async move {
                             let built = wxdata::task::blocking(move || {
-                                let v3 =
+                                let mut v3 =
                                     wxdata::volume3d::build(&sweeps, VOL3D_N, VOL3D_NZ, 150.0, 18.0)?;
-                                let lut = crate::colormap::bake_lut(
+                                if invert {
+                                    wxdata::volume3d::invert_in_place(&mut v3);
+                                }
+                                let mut lut = crate::colormap::bake_lut(
                                     &table,
                                     (v3.value_min, v3.value_max),
                                     None,
-                                )
-                                .to_vec();
+                                );
+                                if invert {
+                                    lut = crate::colormap::invert_lut(lut);
+                                }
                                 Some(crate::render3d::Volume3dUpload {
                                     data: v3.data,
                                     n: v3.n as u32,
                                     nz: v3.nz as u32,
-                                    lut,
+                                    lut: lut.to_vec(),
                                     half_km: v3.half_km,
                                     top_km: v3.top_km,
                                 })
@@ -10884,7 +10903,7 @@ impl HookEchoApp {
     fn map_3d_controls(&mut self, idx: usize, prect: egui::Rect, ctx: &egui::Context) {
         let volume_supported = self.volume3d_supported;
         let moment = self.views[idx].moment;
-        let pos = prect.right_top() + egui::vec2(-246.0, 8.0);
+        let pos = prect.right_top() + egui::vec2(-276.0, 8.0);
         egui::Area::new(egui::Id::new(("map_3d_controls", idx)))
             .order(egui::Order::Foreground)
             .fixed_pos(pos)
@@ -10892,7 +10911,7 @@ impl HookEchoApp {
                 egui::Frame::popup(ui.style())
                     .inner_margin(egui::Margin::symmetric(8, 6))
                     .show(ui, |ui| {
-                        ui.set_width(230.0);
+                        ui.set_width(260.0);
                         let view = &mut self.views[idx];
                         let was_enabled = view.map_3d.enabled;
                         ui.horizontal(|ui| {
@@ -10915,9 +10934,16 @@ impl HookEchoApp {
                         if !view.map_3d.enabled {
                             return;
                         }
-                        if view.map_3d.representation == Map3dRepresentation::SmoothVolume
-                            && moment != Moment::Reflectivity
-                        {
+                        // Each resampled representation only ever shows one moment's volume; if
+                        // the pane's 2D product moves off that moment, fall back to Observed
+                        // rather than keep showing a volume for a product no longer selected.
+                        let stale_smooth = view.map_3d.representation
+                            == Map3dRepresentation::SmoothVolume
+                            && moment != Moment::Reflectivity;
+                        let stale_debris = view.map_3d.representation
+                            == Map3dRepresentation::SmoothDebris
+                            && moment != Moment::CorrelationCoefficient;
+                        if stale_smooth || stale_debris {
                             view.map_3d.representation = Map3dRepresentation::ObservedSweeps;
                         }
                         ui.horizontal(|ui| {
@@ -10939,6 +10965,21 @@ impl HookEchoApp {
                             )
                             .response
                             .on_hover_text("Regularized reflectivity volume");
+                            ui.add_enabled_ui(
+                                volume_supported && moment == Moment::CorrelationCoefficient,
+                                |ui| {
+                                    ui.selectable_value(
+                                        &mut view.map_3d.representation,
+                                        Map3dRepresentation::SmoothDebris,
+                                        "Debris",
+                                    )
+                                },
+                            )
+                            .response
+                            .on_hover_text(
+                                "Lofted low correlation coefficient — possible tornado debris \
+                                 (TDS). Brighter = lower CC, inverted from the usual CC scale.",
+                            );
                         });
                         ui.add(
                             egui::Slider::new(&mut view.camera.pitch, 0.0..=60.0)
@@ -10974,7 +11015,7 @@ impl HookEchoApp {
                                 ui.weak("KDP is derived; shown on the map plane.");
                             }
                         } else {
-                            ui.weak("Reflectivity floor, quality, and slicing use the 3D volume controls.");
+                            ui.weak("Vertical and Opacity above shape the resampled volume.");
                         }
                         ui.weak("Right-drag rotates · drag pans · wheel zooms");
                     });

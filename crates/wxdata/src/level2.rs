@@ -156,6 +156,10 @@ pub struct ObservedGates {
     pub sweep_count: usize,
     pub radial_count: usize,
     pub gate_stride: usize,
+    /// Elevation angle of the lowest tilt carrying this moment. The 3D renderer uses it as the
+    /// reference floor a beam's height-with-range rise is measured from, so vertical exaggeration
+    /// scales genuine storm structure and not the earth-curvature climb every tilt shares.
+    pub min_elevation_deg: f32,
 }
 
 /// Extract every valid observed gate of `moment`, preserving each radial's real azimuth, beam
@@ -179,6 +183,20 @@ pub fn observed_gates(
         .filter(|s| s.radials().iter().any(|r| moment.select(r).is_some()))
         .collect();
     let radial_count = carrying.iter().map(|s| s.radials().len()).sum();
+    // The lowest tilt actually carrying this moment (not necessarily the volume's lowest tilt
+    // overall — e.g. some legacy products only ride on a subset of elevations). Falls back to a
+    // typical VCP's base scan if no sweep has a first radial, which only happens when `carrying`
+    // is already empty and `gates` below ends up empty too.
+    let min_elevation_deg = carrying
+        .iter()
+        .filter_map(|s| s.radials().first())
+        .map(|r| r.elevation_angle_degrees())
+        .fold(f32::MAX, f32::min);
+    let min_elevation_deg = if min_elevation_deg.is_finite() {
+        min_elevation_deg
+    } else {
+        0.5
+    };
     let total_gates: usize = carrying
         .iter()
         .flat_map(|s| s.radials())
@@ -237,6 +255,7 @@ pub fn observed_gates(
         sweep_count: carrying.len(),
         radial_count,
         gate_stride,
+        min_elevation_deg,
     })
 }
 

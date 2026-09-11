@@ -26,7 +26,9 @@ struct Radar3d {
     srv: f32,
     motion_e: f32,
     motion_n: f32,
-    _pad0: f32,
+    // Elevation angle of the volume's lowest tilt carrying this moment — see `beam_world`'s doc
+    // comment for what it's used for.
+    min_elevation_deg: f32,
     _pad1: f32,
 };
 
@@ -46,13 +48,39 @@ struct VsOut {
     @location(2) @interpolate(flat) elevation: f32,
 };
 
+// 4/3-earth beam height above the radar (m) at slant range `r` (m) and elevation `e` (rad).
+fn beam_height_m(r: f32, e: f32) -> f32 {
+    return sqrt(r * r + EFFECTIVE_RADIUS_M * EFFECTIVE_RADIUS_M
+        + 2.0 * r * EFFECTIVE_RADIUS_M * sin(e)) - EFFECTIVE_RADIUS_M;
+}
+
+// Slant range (m) at which an `e`-radian beam passes over ground range `ground` (m) — the same
+// closed form as `xsection::slant_from_ground_km`, in metres/radians instead of km/degrees.
+fn slant_for_ground_m(ground: f32, e: f32) -> f32 {
+    let theta = ground / EFFECTIVE_RADIUS_M;
+    let denom = cos(e + theta);
+    if (abs(denom) < 1e-6) {
+        return ground;
+    }
+    return EFFECTIVE_RADIUS_M * sin(theta) / denom;
+}
+
 fn beam_world(azimuth_deg: f32, slant_km: f32, elevation_deg: f32) -> vec3<f32> {
     let r = max(slant_km, 0.0) * 1000.0;
     let e = elevation_deg * PI / 180.0;
-    let height = sqrt(r * r + EFFECTIVE_RADIUS_M * EFFECTIVE_RADIUS_M
-        + 2.0 * r * EFFECTIVE_RADIUS_M * sin(e)) - EFFECTIVE_RADIUS_M;
+    let height = beam_height_m(r, e);
     let central = atan2(r * cos(e), EFFECTIVE_RADIUS_M + r * sin(e));
     let ground = EFFECTIVE_RADIUS_M * central;
+
+    // Every tilt's beam climbs with range from earth curvature alone — the lowest tilt is no
+    // exception, so its own height at this same ground range is a floor the storm sits on, not
+    // storm structure. Only how far above that floor this particular gate sits is genuine
+    // structure (a higher tilt cutting through a taller core, a lofted layer), and only that part
+    // scales with vertical exaggeration; the floor itself stays true to scale so a low-tilt base
+    // scan never visibly lifts off the ground just because Vertical is turned up.
+    let min_e = radar.min_elevation_deg * PI / 180.0;
+    let base_height = beam_height_m(slant_for_ground_m(ground, min_e), min_e);
+    let structure_height = max(height - base_height, 0.0);
 
     let phi1 = radar.radar_lat * PI / 180.0;
     let lambda1 = radar.radar_lon * PI / 180.0;
@@ -70,7 +98,8 @@ fn beam_world(azimuth_deg: f32, slant_km: f32, elevation_deg: f32) -> vec3<f32> 
     );
     var d = world - camera.center;
     d.x = d.x - floor(d.x + 0.5);
-    let altitude = (radar.antenna_altitude_m + height) * radar.vertical_exaggeration;
+    let altitude = radar.antenna_altitude_m + base_height
+        + structure_height * radar.vertical_exaggeration;
     return vec3<f32>(
         d.x / camera.world_per_pixel,
         -d.y / camera.world_per_pixel,

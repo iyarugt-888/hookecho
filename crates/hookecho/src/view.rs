@@ -14,6 +14,11 @@ use wxdata::level2::{self, BinnedSweep, Moment, Scan};
 pub enum Map3dRepresentation {
     ObservedSweeps,
     SmoothVolume,
+    /// A resampled correlation-coefficient volume with its index mapping inverted before it is
+    /// raymarched, so the same max-intensity/threshold machinery that finds a reflectivity core
+    /// instead finds the *lowest* CC along each ray — a lofted low-CC pocket embedded in high
+    /// reflectivity is the tornado debris signature. See `pane_smooth_volume`'s doc comment.
+    SmoothDebris,
 }
 
 /// Geographic 3D controls belong to a map pane so they stay synchronized with that pane's

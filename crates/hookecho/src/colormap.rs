@@ -103,6 +103,21 @@ pub fn bake_lut(table: &ColorTable, range: (f32, f32), threshold: Option<f32>) -
     lut
 }
 
+/// Permute an already-baked LUT to match [`wxdata::volume3d::invert_in_place`]'s index flip:
+/// entry `raw` moves to `257 - raw` (for `raw` in `2..=255`), so `lut[flipped_index]` still holds
+/// the color for the voxel's true physical value after the volume's own index has been flipped.
+/// Indices 0 and 1 (transparent / range-fold) are untouched — the flip never produces them.
+pub fn invert_lut(lut: [u8; 1024]) -> [u8; 1024] {
+    let mut out = lut;
+    for raw in 2u32..=255 {
+        let flipped = 257 - raw;
+        let src = (raw * 4) as usize;
+        let dst = (flipped * 4) as usize;
+        out[dst..dst + 4].copy_from_slice(&lut[src..src + 4]);
+    }
+    out
+}
+
 /// Serialize a color table back to GRLevelX `.pal` text (identity scale/offset — values are
 /// already internal units). Round-trips through [`parse_pal`] for the editor's Save.
 pub fn to_pal_string(t: &ColorTable) -> String {
