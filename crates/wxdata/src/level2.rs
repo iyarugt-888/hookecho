@@ -204,6 +204,13 @@ pub fn observed_gates(
             };
             let first = data.first_gate_range_km() as f32;
             let interval = data.gate_interval_km() as f32;
+            // A kept sample stands in for the `gate_stride` gates the stride skips, so its
+            // footprint has to cover the window up to the next kept sample — not just its own
+            // native gate width. At the budget's usual stride (5-10x on a full-res volume) a
+            // footprint of one native gate left 80-90% of every beam unpainted, which is the
+            // banding: any oblique or pitched view reads the paint as gaps between beams rather
+            // than what it actually was, a hole every few gates along an otherwise solid one.
+            let footprint_km = interval * gate_stride as f32;
             for (gate, value) in data.iter().enumerate().step_by(gate_stride) {
                 let MomentValue::Value(value) = value else {
                     continue;
@@ -212,7 +219,7 @@ pub fn observed_gates(
                     azimuth_deg: radial.azimuth_angle_degrees().rem_euclid(360.0),
                     beam_width_deg: radial.azimuth_spacing_degrees().max(0.01),
                     slant_start_km: first + gate as f32 * interval,
-                    slant_span_km: interval,
+                    slant_span_km: footprint_km,
                     elevation_deg: radial.elevation_angle_degrees(),
                     value_index: normalize(value),
                     gate: gate as u32,

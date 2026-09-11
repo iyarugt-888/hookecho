@@ -43,6 +43,7 @@ struct VsOut {
     @builtin(position) clip: vec4<f32>,
     @location(0) @interpolate(flat) value_idx: f32,
     @location(1) @interpolate(flat) azimuth: f32,
+    @location(2) @interpolate(flat) elevation: f32,
 };
 
 fn beam_world(azimuth_deg: f32, slant_km: f32, elevation_deg: f32) -> vec3<f32> {
@@ -89,6 +90,7 @@ fn vs_main(@builtin(vertex_index) vertex: u32, gate: Gate) -> VsOut {
     out.clip = camera.view_proj * vec4<f32>(beam_world(az, range, gate.data.x), 1.0);
     out.value_idx = gate.data.y;
     out.azimuth = gate.polar.x;
+    out.elevation = gate.data.x;
     return out;
 }
 
@@ -101,7 +103,13 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     }
     if (idx < radar.threshold_idx) { discard; }
     let color = textureLoad(lut_tex, vec2<i32>(i32(round(idx)), 0), 0);
-    let alpha = color.a * radar.opacity;
+    // Each tilt fades a little more than the one below it — from full strength at the lowest
+    // (0.5°) scan down to about a third at the volume's highest (VCP tips top out at 19.5°) — so
+    // the stack reads as receding layers instead of one flat wall of paint. Pure per-tilt fade,
+    // not a function of range or height: two tilts really do share one transparency everywhere
+    // along their sweep, only the sweep itself changes what shows through.
+    let height_fade = mix(1.0, 0.35, clamp(in.elevation / 19.5, 0.0, 1.0));
+    let alpha = color.a * radar.opacity * height_fade;
     if (alpha <= 0.0) { discard; }
     return vec4<f32>(color.rgb, alpha);
 }
