@@ -3019,6 +3019,20 @@ pub struct HookEchoApp {
     /// The built volume's dBZ span, which the window's threshold slider works in.
     vol3d_range: (f32, f32),
     vol3d_pending: Option<crate::render3d::Volume3dUpload>,
+    /// The map-pitch "Smooth" 3D representation, one slot per pane (the app's own 4-pane
+    /// ceiling) rather than the window's single `vol3d_*` set — more than one pane can be
+    /// showing it at once, each its own site and volume.
+    ///
+    /// `(volume name, tilt count)` last built per pane; an in-flight receiver while a rebuild
+    /// runs off-thread; a finished upload waiting for `render_pane`'s GPU callback to consume it;
+    /// and the small geometry facts (`n, nz, half_km, top_km`) of whatever is currently
+    /// GPU-resident, kept separately from the (heavy) upload so the frames between rebuilds don't
+    /// need the tens-of-MB volume held twice just to recompute the camera uniform.
+    smooth_vol_key: [Option<(String, usize)>; 4],
+    #[allow(clippy::type_complexity)]
+    smooth_vol_rx: [Option<std::sync::mpsc::Receiver<crate::render3d::Volume3dUpload>>; 4],
+    smooth_vol_pending: [Option<crate::render3d::Volume3dUpload>; 4],
+    smooth_vol_dims: [Option<(u32, u32, f32, f32)>; 4],
     /// GPU 2D texture-size cap (device limit), used to clamp field-grid decimation on mobile GPUs.
     max_texture_dim: u32,
     /// Whether this device can hold the 3D texture the raymarch window needs. See its assignment
@@ -3726,6 +3740,12 @@ impl HookEchoApp {
             vol3d_rx: None,
             vol3d_range: (-30.0, 80.0),
             vol3d_pending: None,
+            // `[None; 4]` needs `Option<T>: Copy`, which a `Receiver`/`Volume3dUpload` inside it
+            // is not; `from_fn` builds the array without that requirement.
+            smooth_vol_key: std::array::from_fn(|_| None),
+            smooth_vol_rx: std::array::from_fn(|_| None),
+            smooth_vol_pending: std::array::from_fn(|_| None),
+            smooth_vol_dims: std::array::from_fn(|_| None),
             max_texture_dim,
             volume3d_supported,
         };
@@ -10723,6 +10743,144 @@ impl HookEchoApp {
         )
     }
 
+    /// The map-pitch "Smooth" 3D representation: a continuous, interpolated volume raymarched in
+    /// place on the map, as against `pane_observed_radar`'s real (and therefore gappy-at-range)
+    /// Level II gates. `None` when this pane isn't in Smooth mode. `Some` carries this frame's
+    /// camera/radar uniform always, and a fresh [`crate::render3d::Volume3dUpload`] only on the
+    /// frame a rebuild finishes — the resample is real CPU work (`build_volume3d`'s own comment:
+    /// "would drop a second of frames"), so it runs off-thread and this drains it rather than
+    /// blocking the render path.
+    fn pane_smooth_volume(
+        &mut self,
+        idx: usize,
+        data: usize,
+        ctx: &egui::Context,
+        cam: &crate::render::mercator::Camera,
+        vp: (f32, f32),
+    ) -> Option<(Option<crate::render3d::Volume3dUpload>, crate::render3d::Uniforms)> {
+        // Cloned (not borrowed) up front: `Map3dState` isn't `Copy`, and every branch below needs
+        // `&mut self` for the async-build bookkeeping, so holding a borrow of it across this
+        // function would fight the borrow checker for no benefit — it's a few scalars and a small
+        // `Option`, cheap to clone.
+        let state = self.views[idx].map_3d.clone();
+        if !state.enabled || state.representation != Map3dRepresentation::SmoothVolume {
+            return None;
+        }
+        if self.views[idx].moment != Moment::Reflectivity {
+            // `map_3d_controls` already resets back to Observed the moment this stops being
+            // true; this is a second, cheap guard against ever resampling the wrong moment.
+            return None;
+        }
+        let Some(site) = self.views[idx]
+            .site
+            .as_deref()
+            .and_then(wxdata::sites::site_by_id)
+        else {
+            return None;
+        };
+
+        // Drain a finished build before deciding whether to start another.
+        if let Some(rx) = &self.smooth_vol_rx[idx] {
+            match rx.try_recv() {
+                Ok(up) => {
+                    self.smooth_vol_dims[idx] = Some((up.n, up.nz, up.half_km, up.top_km));
+                    self.smooth_vol_pending[idx] = Some(up);
+                    self.smooth_vol_rx[idx] = None;
+                    ctx.request_repaint();
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                // No sweeps survived the resample (or the task panicked); allow another attempt
+                // on the next volume/tilt change rather than wedging this pane silently.
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.smooth_vol_rx[idx] = None;
+                }
+            }
+        }
+
+        // Kick off a (re)build when the volume or its tilt count changed and nothing is already
+        // in flight for this pane.
+        if self.smooth_vol_rx[idx].is_none() {
+            if let Some(vol) = self.views[data].volume.as_mut() {
+                let key = (vol.name.clone(), vol.elevations.len());
+                if self.smooth_vol_key[idx].as_ref() != Some(&key) {
+                    let sweeps = vol.reflectivity_tilts();
+                    if !sweeps.is_empty() {
+                        self.smooth_vol_key[idx] = Some(key);
+                        let table = crate::colormap::effective_table(
+                            &self.palettes,
+                            Moment::Reflectivity,
+                            self.settings.theme,
+                        );
+                        let (tx, rx) = std::sync::mpsc::channel();
+                        self.smooth_vol_rx[idx] = Some(rx);
+                        self.spawner.spawn(async move {
+                            let built = wxdata::task::blocking(move || {
+                                let v3 =
+                                    wxdata::volume3d::build(&sweeps, VOL3D_N, VOL3D_NZ, 150.0, 18.0)?;
+                                let lut = crate::colormap::bake_lut(
+                                    &table,
+                                    (v3.value_min, v3.value_max),
+                                    None,
+                                )
+                                .to_vec();
+                                Some(crate::render3d::Volume3dUpload {
+                                    data: v3.data,
+                                    n: v3.n as u32,
+                                    nz: v3.nz as u32,
+                                    lut,
+                                    half_km: v3.half_km,
+                                    top_km: v3.top_km,
+                                })
+                            })
+                            .await
+                            .ok()
+                            .flatten();
+                            if let Some(b) = built {
+                                let _ = tx.send(b);
+                            }
+                        });
+                        ctx.request_repaint();
+                    }
+                }
+            }
+        }
+
+        // Nothing GPU-resident yet for this pane (first frame in Smooth mode, or the first build
+        // is still in flight) — nothing to raymarch this frame.
+        let (n, nz, half_km, top_km) = self.smooth_vol_dims[idx]?;
+        let antenna_altitude_m =
+            (site.elevation_meters as f64 + wxdata::towers::tower_m(site.id)) as f32;
+        // A geometry-only stand-in: `map_uniform` reads `n`/`nz`/`half_km`/`top_km` off it and
+        // nothing else, so the (empty, non-allocating) `data`/`lut` never have to hold the actual
+        // multi-megabyte volume just to recompute a camera matrix on a frame with no new upload.
+        let dims_only = crate::render3d::Volume3dUpload {
+            data: Vec::new(),
+            n,
+            nz,
+            lut: Vec::new(),
+            half_km,
+            top_km,
+        };
+        let view = crate::render3d::View3d {
+            threshold_idx: 2.0,
+            clip: [0.0, 1.0, 0.0, 1.0, 0.0, 1.0],
+        };
+        let steps = if cfg!(target_os = "android") { 64 } else { 128 };
+        let uniform = crate::render3d::map_uniform(
+            cam,
+            vp,
+            site.longitude as f64,
+            site.latitude as f64,
+            antenna_altitude_m,
+            &dims_only,
+            steps,
+            view,
+            state.vertical_exaggeration,
+            state.opacity,
+        );
+        Some((self.smooth_vol_pending[idx].take(), uniform))
+    }
+
     fn map_3d_controls(&mut self, idx: usize, prect: egui::Rect, ctx: &egui::Context) {
         let volume_supported = self.volume3d_supported;
         let moment = self.views[idx].moment;
@@ -11723,6 +11881,14 @@ impl HookEchoApp {
             .collect();
 
         let cam = self.views[idx].camera;
+        // The pitched-map "Smooth" 3D volume takes over the pane entirely when it has something
+        // resident to draw — it fully occludes the flat radar plane and the observed-gates cloud
+        // underneath it, the same way `draw_observed` already wins over `draw_radar` above.
+        let smooth_volume = self.pane_smooth_volume(idx, idx, ctx, &cam, vp);
+        if smooth_volume.is_some() {
+            draw_radar = false;
+            draw_observed = false;
+        }
         let (center, scale) = cam.world_to_clip_uniform(vp);
         let (wind_upload, wind) = if cam.is_3d() {
             // The particle compositor is a screen-space trail buffer and cannot be pitched without
@@ -11766,6 +11932,21 @@ impl HookEchoApp {
         };
         ui.painter()
             .add(egui_wgpu::Callback::new_paint_callback(prect, cb));
+        // A second, independent paint callback rather than a field on `MapCallback`: it is its own
+        // pipeline and its own per-pane GPU resources (`MapVolume3dResources`), keyed by a
+        // different type than `RenderResources` in the same `CallbackResources` map, and it draws
+        // strictly after (so on top of) the flat map `cb` just queued — the raymarched volume has
+        // to composite over the basemap/tiles, never under them.
+        if let Some((upload, uniform)) = smooth_volume {
+            ui.painter().add(egui_wgpu::Callback::new_paint_callback(
+                prect,
+                crate::render3d::MapVolume3dCallback {
+                    pane: idx as u32,
+                    upload,
+                    uniform,
+                },
+            ));
+        }
 
         // Per-pane product picker (multi-pane only): set THIS pane's moment directly, without
         // clicking to activate it first. Single-pane keeps using the product pill.

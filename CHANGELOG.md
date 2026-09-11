@@ -23,6 +23,21 @@ The rolling `latest` release tracks `main` and is not listed here.
   transport stay on screen in every mode.
 - HRRR future radar gained a **sub-hourly mode**: 15-minute steps out to 18
   hours from the `wrfsubhf` product, instead of whole hours only.
+- A **Day/Night** overlay pill shades the night side of the map, draws a
+  dashed terminator line, and lays a 20°-stepped lat/lon graticule over the
+  basemap — all driven off the sun's real current position, not a fixed
+  offset from local time.
+
+### The map-pitch 3D view gets a Smooth volume
+
+- The **Smooth** representation in map-pitch 3D (alongside the existing
+  Observed sweeps) now actually draws: a regularized reflectivity volume,
+  resampled off the UI thread onto a Cartesian grid the same way the
+  standalone 3D window does, then raymarched in place on the pitched map with
+  the same Vertical/Opacity controls. Reflectivity only, since that's the
+  only moment the resampler regularizes. It has its own GPU pipeline and
+  per-pane textures, so it can't collide with the 3D window's volume if both
+  are open on different sites at once.
 
 ### Fixes
 
