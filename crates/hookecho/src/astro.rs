@@ -57,6 +57,64 @@ fn jd_to_utc(jd: f64) -> Option<DateTime<Utc>> {
     Utc.timestamp_opt(secs.round() as i64, 0).single()
 }
 
+/// Where the sun is directly overhead right now: `(latitude, longitude)` in degrees, east-positive
+/// longitude to match [`crate::render::mercator::lonlat_to_world`]. The day/night map draws from
+/// this — the terminator is the great circle 90° from this point, and a location is in daylight
+/// exactly where [`solar_zenith_cos`] comes out positive.
+///
+/// Same mean-anomaly/ecliptic-longitude/declination formula [`sun_times`] uses (so both share one
+/// tested solar position), evaluated at a continuous instant instead of a day-quantized one, plus
+/// Greenwich Mean Sidereal Time for the longitude half `sun_times` never needed.
+pub fn subsolar_point(t: DateTime<Utc>) -> (f64, f64) {
+    let d = t.timestamp() as f64 / 86_400.0 + JD_UNIX_EPOCH - JD_J2000;
+
+    let m = (357.5291 + 0.985_600_28 * d).rem_euclid(360.0);
+    let m_rad = m.to_radians();
+    let c = 1.9148 * m_rad.sin() + 0.02 * (2.0 * m_rad).sin() + 0.0003 * (3.0 * m_rad).sin();
+    let lambda = (m + c + 180.0 + 102.9372).rem_euclid(360.0);
+    let lambda_rad = lambda.to_radians();
+    let obliquity_rad = OBLIQUITY.to_radians();
+
+    let decl = (lambda_rad.sin() * obliquity_rad.sin()).asin();
+    let ra = (obliquity_rad.cos() * lambda_rad.sin()).atan2(lambda_rad.cos());
+
+    // Simplified GMST (good to a few arcseconds, plenty for a day/night line): right ascension
+    // minus sidereal time gives the hour angle at Greenwich, and the sun's own longitude is where
+    // that hour angle is zero.
+    let gmst = (280.460_618_37 + 360.985_647_366_29 * d).rem_euclid(360.0);
+    let lon = (ra.to_degrees() - gmst + 180.0).rem_euclid(360.0) - 180.0;
+
+    (decl.to_degrees(), lon)
+}
+
+/// Cosine of the solar zenith angle at `(lat, lon)` given the current subsolar point — positive in
+/// daylight, negative at night, zero exactly on the terminator. The standard spherical-astronomy
+/// formula (equivalent to `sin(solar elevation)`), so a location's own zenith angle needs no
+/// separate elevation calculation.
+pub fn solar_zenith_cos(lat_deg: f64, lon_deg: f64, subsolar: (f64, f64)) -> f64 {
+    let (lat, decl) = (lat_deg.to_radians(), subsolar.0.to_radians());
+    let hour_angle = (lon_deg - subsolar.1).to_radians();
+    lat.sin() * decl.sin() + lat.cos() * decl.cos() * hour_angle.cos()
+}
+
+/// Latitude (degrees) of the day/night terminator at `lon_deg`, for the given subsolar point.
+/// `None` only at the instant the sun sits exactly over the equator (declination zero, twice a
+/// year): the terminator is then two meridians rather than a function of longitude, and every
+/// caller already has to decide what "the terminator's latitude" even means there.
+pub fn terminator_lat_deg(lon_deg: f64, subsolar: (f64, f64)) -> Option<f64> {
+    let decl = subsolar.0.to_radians();
+    if decl.abs() < 1e-6 {
+        return None;
+    }
+    let hour_angle = (lon_deg - subsolar.1).to_radians();
+    // Zenith = 90° solved for latitude: sin(lat)sin(decl) + cos(lat)cos(decl)cos(H) = 0
+    // => tan(lat) = -cos(decl)cos(H) / sin(decl). `atan` (not `atan2`) is deliberate: the result
+    // is always a plain latitude in (-90°, 90°), never a point needing the extra quadrant atan2
+    // resolves.
+    let lat = (-decl.cos() * hour_angle.cos() / decl.sin()).atan();
+    Some(lat.to_degrees())
+}
+
 /// Moon phase as a fraction of the synodic cycle: 0.0 = new, 0.25 = first quarter, 0.5 = full.
 ///
 /// The mean synodic month this used to divide by drifts up to about half a day either side of the
@@ -208,5 +266,67 @@ mod tests {
         sorted.sort_unstable();
         sorted.dedup();
         assert_eq!(sorted.len(), 8);
+    }
+
+    #[test]
+    fn subsolar_declination_matches_the_seasons() {
+        // Near the June solstice the subsolar point sits over the Tropic of Cancer; near the
+        // December solstice, the Tropic of Capricorn. Declination barely moves right at a
+        // solstice, which is what makes it a good instant to check against a fixed tolerance.
+        let june = Utc.with_ymd_and_hms(2024, 6, 21, 0, 0, 0).unwrap();
+        let december = Utc.with_ymd_and_hms(2024, 12, 21, 12, 0, 0).unwrap();
+        assert!(
+            (subsolar_point(june).0 - 23.44).abs() < 0.5,
+            "got {:?}",
+            subsolar_point(june)
+        );
+        assert!(
+            (subsolar_point(december).0 + 23.44).abs() < 0.5,
+            "got {:?}",
+            subsolar_point(december)
+        );
+    }
+
+    #[test]
+    fn subsolar_longitude_tracks_local_solar_noon() {
+        // At 12:00 UTC the sun is within the equation of time's reach (<= ~17 minutes, ~4.3° of
+        // longitude) of standing over the Greenwich meridian, on any date of the year — this is
+        // what "UTC" being mean solar time at 0° longitude actually means.
+        for md in [(3, 20), (6, 21), (9, 22), (12, 21)] {
+            let t = Utc.with_ymd_and_hms(2024, md.0, md.1, 12, 0, 0).unwrap();
+            let (_, lon) = subsolar_point(t);
+            assert!(lon.abs() < 4.5, "{md:?}: subsolar lon {lon}");
+        }
+    }
+
+    #[test]
+    fn zenith_cosine_is_one_overhead_and_minus_one_at_the_antipode() {
+        let sub = (10.0, -80.0);
+        assert!((solar_zenith_cos(sub.0, sub.1, sub) - 1.0).abs() < 1e-9);
+        let antipode = (-sub.0, sub.1 + 180.0);
+        assert!((solar_zenith_cos(antipode.0, antipode.1, sub) - (-1.0)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn terminator_crosses_the_equator_a_quarter_turn_from_the_subsolar_meridian() {
+        // True regardless of season: 90° of hour angle from local solar noon is always the
+        // equator crossing, because sin(elevation) at the equator only ever depends on cos(H).
+        let sub = (23.4, 40.0);
+        let lat = terminator_lat_deg(sub.1 + 90.0, sub).unwrap();
+        assert!(lat.abs() < 1e-6, "expected the equator, got {lat}");
+    }
+
+    #[test]
+    fn terminator_matches_the_polar_circle_under_the_subsolar_meridian() {
+        // At the subsolar meridian itself (H = 0) the terminator sits at ±(90° - |declination|) —
+        // the Arctic/Antarctic Circle, the classic solstice polar-day/polar-night boundary.
+        let sub = (23.44, 0.0);
+        let lat = terminator_lat_deg(sub.1, sub).unwrap();
+        assert!((lat + (90.0 - sub.0)).abs() < 0.1, "expected the antarctic circle, got {lat}");
+    }
+
+    #[test]
+    fn terminator_is_none_exactly_at_zero_declination() {
+        assert!(terminator_lat_deg(50.0, (0.0, 10.0)).is_none());
     }
 }

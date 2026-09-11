@@ -1469,6 +1469,8 @@ pub(crate) enum OverlayToggle {
     MiniLoop,
     /// Beam-vs-terrain blockage shading for the displayed tilt (chase mode).
     Blockage,
+    /// Day/night shading, the terminator line, and the lat/lon graticule.
+    DayNight,
 }
 
 /// What a computed blockage raster was built for. Any change here (site, tilt, or a pan/zoom past
@@ -1485,7 +1487,7 @@ pub(crate) struct BlockageKey {
 impl OverlayToggle {
     /// Every toggle, for the persistence sweep. A new variant belongs here too, or it silently
     /// stops being remembered across restarts.
-    pub(crate) const ALL: [OverlayToggle; 41] = [
+    pub(crate) const ALL: [OverlayToggle; 42] = [
         Self::AlertPanel,
         Self::StormReports,
         Self::Spotters,
@@ -1527,6 +1529,7 @@ impl OverlayToggle {
         Self::LinkCameras,
         Self::MiniLoop,
         Self::Blockage,
+        Self::DayNight,
     ];
 
     /// Toggles that describe this session's window arrangement rather than a layer: camera
@@ -2750,6 +2753,9 @@ pub struct HookEchoApp {
     show_range_rings: bool,
     /// Draw all NEXRAD radar sites on the map; clicking one switches the pane to that radar.
     show_radar_sites: bool,
+    /// Day/night shading, the terminator line, and the lat/lon graticule (`daynight_draw`).
+    /// Client-side geometry from the current clock — no fetch, no `rebuild_overlays`.
+    show_daynight: bool,
     /// Beam-vs-terrain blockage shading: the resident raster, what it was built for, and the
     /// world rect it covers. Built off-thread (it fetches DEM tiles), so it arrives on a channel.
     show_blockage: bool,
@@ -3585,6 +3591,7 @@ impl HookEchoApp {
             tropical_text_rx: None,
             show_range_rings: false,
             show_radar_sites: true,
+            show_daynight: false,
             show_blockage: false,
             blockage_tex: None,
             blockage_pending: None,
@@ -7861,6 +7868,7 @@ impl HookEchoApp {
             T::LinkCameras => &mut self.link_cameras,
             T::MiniLoop => &mut self.mini_loop,
             T::Blockage => &mut self.show_blockage,
+            T::DayNight => &mut self.show_daynight,
         }
     }
 
@@ -13545,6 +13553,22 @@ impl HookEchoApp {
                     }
                 }
             }
+        }
+
+        // Day/night shading, the terminator line, and the lat/lon graticule — a plain reference
+        // layer over the map, not a data source, so it needs no site/moment/pane gate beyond the
+        // toggle itself.
+        if self.show_daynight {
+            crate::daynight_draw::draw(
+                &painter,
+                prect,
+                |lon, lat| {
+                    let w = crate::render::mercator::lonlat_to_world(lon, lat);
+                    let (sx, sy) = cam.world_to_screen(w, vp);
+                    egui::pos2(prect.left() + sx, prect.top() + sy)
+                },
+                Utc::now(),
+            );
         }
 
         // County power outages: hatching, not a fill — see `outage_draw`.

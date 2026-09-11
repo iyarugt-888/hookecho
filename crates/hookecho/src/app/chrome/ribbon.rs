@@ -60,6 +60,7 @@ impl HookEchoApp {
         let layers_on = self.panel_open && !self.show_alert_panel;
         let alerts_on = self.panel_open && self.show_alert_panel;
         let basemap_on = self.basemap_open;
+        let daynight_on = self.show_daynight;
         let fields_on = self.views[self.active].fields_on.clone();
         let is_on = |l: crate::render::FieldLayer| fields_on.contains(&l);
         let hrrr_on = is_on(crate::render::FieldLayer::Hrrr);
@@ -436,7 +437,7 @@ impl HookEchoApp {
                     } // mrms_mode
 
                     // ---- OVERLAYS ----
-                    ribbon_group(ui, 92.0, |ui| {
+                    ribbon_group(ui, 108.0, |ui| {
                         wsv3::group_label(ui, "Overlays");
                         if wsv3::pill(ui, "Layers", layers_on, accent).clicked() {
                             self.panel_open = !layers_on;
@@ -448,6 +449,15 @@ impl HookEchoApp {
                         }
                         if wsv3::pill(ui, "Basemap", basemap_on, accent).clicked() {
                             self.basemap_open = !basemap_on;
+                        }
+                        if wsv3::pill(ui, "Day/Night", daynight_on, accent)
+                            .on_hover_text(
+                                "Night shading, the terminator, and a lat/lon graticule",
+                            )
+                            .clicked()
+                        {
+                            actions.palette =
+                                Some(PaletteAction::ToggleOverlay(OverlayToggle::DayNight));
                         }
                     });
 
