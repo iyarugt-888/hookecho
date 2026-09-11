@@ -1210,6 +1210,29 @@ pub(crate) enum MapTool {
     AlertZone,
 }
 
+/// Which set of controls the WSV3 ribbon shows. WSV3 swaps its whole toolbar by data type; this
+/// is the same idea — the shared groups (data-type pills, overlays, tools, capture, transport)
+/// stay put and the middle of the ribbon changes. Session state, not a saved preference.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum RibbonMode {
+    #[default]
+    Radar,
+    Model,
+    Mrms,
+}
+
+impl RibbonMode {
+    pub(crate) const ALL: [RibbonMode; 3] = [RibbonMode::Radar, RibbonMode::Model, RibbonMode::Mrms];
+
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            RibbonMode::Radar => "Radar",
+            RibbonMode::Model => "Model",
+            RibbonMode::Mrms => "MRMS",
+        }
+    }
+}
+
 /// HRRR model field drawn as contour lines over the radar (surface `f00`). SB-CAPE / 0-3 km SRH
 /// are fixed here — `// ponytail: not wired to the env suite's env_cape_ml / env_srh_km toggles.`
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
@@ -2489,6 +2512,8 @@ pub struct HookEchoApp {
     last_viewport: (f32, f32),
     /// Active left-click map tool.
     tool: MapTool,
+    /// Which control set the WSV3 ribbon is showing (desktop/web only).
+    ribbon_mode: RibbonMode,
     /// Measure-tool clicked endpoints in `[lon, lat]` (max 2).
     measure: Vec<[f64; 2]>,
     /// Freehand annotation strokes, in lon/lat so they stick to the ground through pan and zoom.
@@ -3420,6 +3445,7 @@ impl HookEchoApp {
             placefile_window: Default::default(),
             last_viewport: (1000.0, 800.0),
             tool: MapTool::default(),
+            ribbon_mode: RibbonMode::default(),
             measure: Vec::new(),
             strokes: Vec::new(),
             draw_color: DRAW_COLORS[0],

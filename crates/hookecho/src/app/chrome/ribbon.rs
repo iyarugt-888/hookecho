@@ -60,22 +60,30 @@ impl HookEchoApp {
         let layers_on = self.panel_open && !self.show_alert_panel;
         let alerts_on = self.panel_open && self.show_alert_panel;
         let basemap_on = self.basemap_open;
-        let hrrr_on = self.views[self.active]
-            .fields_on
-            .contains(&crate::render::FieldLayer::Hrrr);
+        let fields_on = self.views[self.active].fields_on.clone();
+        let is_on = |l: crate::render::FieldLayer| fields_on.contains(&l);
+        let hrrr_on = is_on(crate::render::FieldLayer::Hrrr);
         let hrrr_valid = self.hrrr_valid;
         let hrrr_sub = self.hrrr_subhourly;
         let tz_l = self.active_tz();
+        let mode = self.ribbon_mode;
+        let contour_kind = self.contour_kind;
 
         let (disp_f, disp_l) = display_units(moment, &self.settings);
         let table = self.palettes.table(moment).clone();
 
         let mut pick_tilt: Option<usize> = None;
         let mut pick_panes: Option<usize> = None;
+        let mut pick_mode: Option<crate::app::RibbonMode> = None;
+        let mut pick_contour: Option<crate::app::ContourKind> = None;
         let mut hrrr_hour = self.hrrr_fcst_hour;
         let mut hrrr_min = self.hrrr_fcst_min;
         let mut hrrr_sub_toggled = false;
         let mut all_tilts = false;
+        // Global/env model source + lead, edited through locals so the sync loop refetches.
+        let mut global_model = self.global_model;
+        let mut global_hour = self.global_fcst_hour;
+        let mut env_model = self.env_model;
 
         egui::Panel::top("wsv3_ribbon")
             .exact_size(wsv3::RIBBON_H + wsv3::COLORBAR_H)
@@ -90,6 +98,21 @@ impl HookEchoApp {
                 ui.horizontal(|ui| {
                     ui.add_space(6.0);
 
+                    // ---- DATA (mode switch — WSV3 swaps its whole toolbar by data type) ----
+                    ribbon_group(ui, 76.0, |ui| {
+                        wsv3::group_label(ui, "Data");
+                        for m in crate::app::RibbonMode::ALL {
+                            if wsv3::pill_sized(ui, m.label(), mode == m, accent, 62.0).clicked() {
+                                pick_mode = Some(m);
+                            }
+                        }
+                    });
+
+                    let radar_mode = mode == crate::app::RibbonMode::Radar;
+                    let model_mode = mode == crate::app::RibbonMode::Model;
+                    let mrms_mode = mode == crate::app::RibbonMode::Mrms;
+
+                    if radar_mode {
                     // ---- RADAR ----
                     ribbon_group(ui, 208.0, |ui| {
                         wsv3::group_label(ui, "Radar");
@@ -224,10 +247,100 @@ impl HookEchoApp {
                             }
                         });
                     });
+                    } // radar_mode
 
-                    // ---- MODEL ----
-                    ribbon_group(ui, 150.0, |ui| {
+                    if model_mode {
+                    // ---- MODEL SOURCE ----
+                    ribbon_group(ui, 168.0, |ui| {
                         wsv3::group_label(ui, "Model");
+                        ui.horizontal_wrapped(|ui| {
+                            for gm in [
+                                wxdata::global::GlobalModel::Gfs,
+                                wxdata::global::GlobalModel::Ecmwf,
+                            ] {
+                                if wsv3::pill_sized(ui, gm.label(), global_model == gm, accent, 46.0)
+                                    .clicked()
+                                {
+                                    global_model = gm;
+                                }
+                            }
+                            for (em, label) in [
+                                (wxdata::hrrr::Model::Hrrr, "HRRR"),
+                                (wxdata::hrrr::Model::Rap, "RAP"),
+                                (wxdata::hrrr::Model::NamNest, "NAM"),
+                            ] {
+                                if wsv3::pill_sized(ui, label, env_model == em, accent, 44.0)
+                                    .on_hover_text(
+                                        "Source for the CAPE / SRH / contour environment suite",
+                                    )
+                                    .clicked()
+                                {
+                                    env_model = em;
+                                }
+                            }
+                        });
+                        ui.add_space(1.0);
+                        ui.horizontal(|ui| {
+                            wsv3::group_label(ui, "Hour");
+                            if wsv3::pill(ui, "\u{2039}", false, accent).clicked() {
+                                global_hour = global_hour.saturating_sub(3);
+                            }
+                            ui.label(
+                                RichText::new(format!("F+{global_hour}h"))
+                                    .size(12.0)
+                                    .strong()
+                                    .color(wsv3::INK),
+                            );
+                            if wsv3::pill(ui, "\u{203a}", false, accent).clicked() {
+                                global_hour = (global_hour + 3).min(120);
+                            }
+                        });
+                    });
+
+                    // ---- COLOR FILL ----
+                    ribbon_group(ui, 210.0, |ui| {
+                        wsv3::group_label(ui, "Color fill");
+                        ui.horizontal_wrapped(|ui| {
+                            use crate::render::FieldLayer as FL;
+                            for (fl, label) in [
+                                (FL::GlobalTemp2m, "2 m temp"),
+                                (FL::GlobalDewpoint2m, "2 m dew"),
+                                (FL::GlobalWind10m, "10 m wind"),
+                                (FL::GlobalPrecip, "Precip"),
+                                (FL::GlobalMslp, "MSLP"),
+                                (FL::GlobalHeight500, "500 mb hgt"),
+                                (FL::Cape, "CAPE"),
+                                (FL::Srh, "SRH"),
+                                (FL::UpdraftHelicity, "UH tracks"),
+                                (FL::Smoke, "Smoke"),
+                            ] {
+                                if wsv3::pill(ui, label, is_on(fl), accent).clicked() {
+                                    actions.palette = Some(PaletteAction::ToggleField(fl));
+                                }
+                            }
+                        });
+                    });
+
+                    // ---- CONTOURS ----
+                    ribbon_group(ui, 140.0, |ui| {
+                        wsv3::group_label(ui, "Contours");
+                        let mut sel = contour_kind;
+                        egui::ComboBox::from_id_salt("wsv3_contours")
+                            .selected_text(contour_kind.label())
+                            .width(120.0)
+                            .show_ui(ui, |ui| {
+                                for ck in crate::app::ContourKind::ALL {
+                                    ui.selectable_value(&mut sel, ck, ck.label());
+                                }
+                            });
+                        if sel != contour_kind {
+                            pick_contour = Some(sel);
+                        }
+                    });
+
+                    // ---- FUTURE RADAR (HRRR) ----
+                    ribbon_group(ui, 150.0, |ui| {
+                        wsv3::group_label(ui, "Future radar");
                         if wsv3::pill(ui, "HRRR future", hrrr_on, accent)
                             .on_hover_text(
                                 "HRRR composite-reflectivity forecast — future radar out to 18 h",
@@ -292,6 +405,35 @@ impl HookEchoApp {
                             }
                         }
                     });
+                    } // model_mode
+
+                    if mrms_mode {
+                    // ---- MRMS ----
+                    ribbon_group(ui, 268.0, |ui| {
+                        wsv3::group_label(ui, "MRMS national");
+                        ui.horizontal_wrapped(|ui| {
+                            use crate::render::FieldLayer as FL;
+                            for (fl, label) in [
+                                (FL::Mosaic, "Reflectivity"),
+                                (FL::PrecipRate, "Precip rate"),
+                                (FL::Qpe1h, "QPE 1 h"),
+                                (FL::Qpe24h, "QPE 24 h"),
+                                (FL::Rotation, "Rotation"),
+                                (FL::AzShear, "AzShear"),
+                                (FL::Mesh, "MESH hail"),
+                                (FL::HailSwath, "Hail swath"),
+                                (FL::PrecipType, "Precip type"),
+                                (FL::FlashFlood, "FLASH"),
+                                (FL::Lightning, "Lightning"),
+                                (FL::EchoTops, "Echo tops"),
+                            ] {
+                                if wsv3::pill(ui, label, is_on(fl), accent).clicked() {
+                                    actions.palette = Some(PaletteAction::ToggleField(fl));
+                                }
+                            }
+                        });
+                    });
+                    } // mrms_mode
 
                     // ---- OVERLAYS ----
                     ribbon_group(ui, 92.0, |ui| {
@@ -377,6 +519,36 @@ impl HookEchoApp {
             self.settings.save();
         }
         self.views[self.active].show_legend = legend_on;
+        if let Some(m) = pick_mode {
+            self.ribbon_mode = m;
+        }
+        if let Some(k) = pick_contour {
+            self.apply_palette(PaletteAction::SetContours(k), ctx);
+        }
+        // Model source / lead: the global sync loop refetches on any change to these, so a plain
+        // write is enough there.
+        self.global_model = global_model;
+        self.global_fcst_hour = global_hour;
+        if env_model != self.env_model {
+            self.env_model = env_model;
+            // Both CAPE/SRH and the contours are cut from this source — drop their fetch clocks so
+            // the next frame reloads, and clear STP-family contours the coarser sources can't do
+            // (no LCL height in the RAP / NAM-nest files; see wxdata::severe::fetch_grid).
+            use crate::render::FieldLayer as FL;
+            for l in [FL::Cape, FL::Srh] {
+                if let Some(s) = self.fields.get_mut(&l) {
+                    s.last_fetch = None;
+                }
+            }
+            if !matches!(env_model, wxdata::hrrr::Model::Hrrr)
+                && matches!(
+                    self.contour_kind,
+                    crate::app::ContourKind::Stp | crate::app::ContourKind::StpEff
+                )
+            {
+                self.contour_kind = crate::app::ContourKind::Off;
+            }
+        }
         // The per-frame sync in `update` refetches when the selected lead changes; a no-op write
         // when the steppers weren't touched costs nothing.
         self.hrrr_fcst_hour = hrrr_hour;
