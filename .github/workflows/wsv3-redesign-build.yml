@@ -1,0 +1,131 @@
+name: WSV3 Redesign Builds
+
+on:
+  push:
+    branches:
+      - feat/wsv3-redesign
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wsv3-redesign-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Windows EXE
+    runs-on: windows-latest
+    steps:
+      - name: Check out feat/wsv3-redesign
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build HookEcho
+        run: cargo build --release -p hookecho
+
+      - name: Smoke-test executable
+        shell: bash
+        run: |
+          ./target/release/hookecho.exe --headless-icon icon.png
+          test -s icon.png
+
+      - name: Read version
+        id: ver
+        shell: bash
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "numeric=${version%%-*}" >> "$GITHUB_OUTPUT"
+
+      - name: Build Windows installer EXE
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
+            /DAppVersion=${{ steps.ver.outputs.numeric }} `
+            /DExeDir=${{ github.workspace }}\target\release `
+            /Odist packaging\windows\hookecho.iss
+          Copy-Item target\release\hookecho.exe dist\HookEcho-portable-x86_64.exe
+
+      - name: Upload Windows release files
+        uses: actions/upload-artifact@v4
+        with:
+          name: HookEcho-wsv3-Windows-x86_64
+          if-no-files-found: error
+          path: |
+            dist/HookEcho-setup-x86_64.exe
+            dist/HookEcho-portable-x86_64.exe
+
+  android:
+    name: Android APK (arm64-v8a)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out feat/wsv3-redesign
+        uses: actions/checkout@v4
+
+      - name: Install Rust and Android target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Android NDK
+        uses: nttld/setup-ndk@v1
+        id: ndk
+        with:
+          ndk-version: r26d
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      - name: Build Android native library
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+        run: cargo ndk -t arm64-v8a -o android/app/src/main/jniLibs build --release --lib -p hookecho
+
+      - name: Materialize signing keystore when configured
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KS_B64" ]; then
+            echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/hookecho.p12"
+            echo "HOOKECHO_KEYSTORE=$RUNNER_TEMP/hookecho.p12" >> "$GITHUB_ENV"
+          fi
+
+      - name: Assemble release APK
+        working-directory: android
+        env:
+          HOOKECHO_KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASS }}
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Collect APK
+        run: |
+          apk=android/app/build/outputs/apk/release/app-release.apk
+          [ -f "$apk" ] || apk=android/app/build/outputs/apk/release/app-release-unsigned.apk
+          test -f "$apk"
+          cp "$apk" HookEcho-wsv3-arm64-v8a.apk
+          ls -lh HookEcho-wsv3-arm64-v8a.apk
+
+      - name: Upload Android release file
+        uses: actions/upload-artifact@v4
+        with:
+          name: HookEcho-wsv3-Android-arm64-v8a
+          if-no-files-found: error
+          path: HookEcho-wsv3-arm64-v8a.apk
