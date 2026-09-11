@@ -765,13 +765,24 @@ impl OverlaySource {
                 let (a, b, valid) = match field {
                     DiffField::Global(kind) => {
                         let g: GlobalField = kind.into();
-                        // Both cycles at once: they are independent services, and the layer is
-                        // useless until both answer anyway.
-                        let (gfs, ecmwf) = futures_util::future::try_join(
-                            wxdata::global::fetch(http, GlobalModel::Gfs, g, fh),
-                            wxdata::global::fetch(http, GlobalModel::Ecmwf, g, fh),
+                        let gfs = wxdata::global::fetch(http, GlobalModel::Gfs, g, fh).await?;
+                        // Align ECMWF onto GFS's exact valid time rather than its own
+                        // independently walked-back cycle at the same nominal `fh`: the two
+                        // services post on the same 6-hourly cadence but not at the same
+                        // wall-clock speed, so "same fh" can silently mean two different instants
+                        // for hours at a stretch. Falls back to the old (honestly mismatched,
+                        // labeled as such) pair if ECMWF simply hasn't published the aligned hour.
+                        let ecmwf = match wxdata::global::fetch_aligned(
+                            http,
+                            GlobalModel::Ecmwf,
+                            g,
+                            gfs.valid(),
                         )
-                        .await?;
+                        .await
+                        {
+                            Ok(f) => f,
+                            Err(_) => wxdata::global::fetch(http, GlobalModel::Ecmwf, g, fh).await?,
+                        };
                         let valid = (
                             gfs.valid().format("%d %H:%MZ").to_string(),
                             ecmwf.valid().format("%d %H:%MZ").to_string(),

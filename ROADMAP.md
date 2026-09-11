@@ -36,8 +36,6 @@ upgrade path out of it (`grep -rn "ponytail:" crates/`).
 Restocked from `grep -rn "ponytail:" crates/` — 161 of them at the moment, each
 naming its own upgrade path.
 
-- A valid-time alignment for the difference layer: it labels the two cycles
-  today rather than interpolating either onto the other's instant.
 - Web persistence: caches live in memory in the browser, so a reload refetches
   everything. IndexedDB or OPFS is the upgrade (`paths.rs`).
 - A tablet layout for Android — the phone chrome is what a tablet gets today

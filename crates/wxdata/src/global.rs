@@ -159,6 +159,51 @@ pub async fn fetch(
     Err(last_err.unwrap_or_else(|| anyhow::anyhow!("no {} cycle found", model.label())))
 }
 
+/// Fetch `model`'s `field` at whichever forecast hour lands exactly on `target_valid`, instead of
+/// at a fixed `fh` from whatever cycle happens to be newest right now.
+///
+/// Two models on the same `fh` are not necessarily the same instant: both GFS and ECMWF cycle
+/// every 6 h from the same UTC anchor, but [`fetch`]'s walk-back only skips a cycle that has not
+/// posted *yet* — one model can be a cycle ahead of the other for hours at a time, and comparing
+/// them at equal `fh` then compares two different valid times without saying so.
+///
+/// This is exact, not interpolated: since every cycle for both models lands on a whole UTC hour,
+/// the cycle at or before `target_valid` is always some whole number of `cycle_step`s behind it,
+/// and the forecast hour that reaches `target_valid` from there always exists in principle — the
+/// walk-back here is purely for the same "not posted yet" latency [`fetch`] already tolerates.
+/// What is not guaranteed is that the model has *published* that specific forecast hour (some
+/// only post every third or sixth hour past a range); that failure is the caller's to handle, by
+/// falling back to [`fetch`] at its own `fh` and honestly labelling the mismatch as before.
+pub async fn fetch_aligned(
+    http: &reqwest::Client,
+    model: GlobalModel,
+    field: GlobalField,
+    target_valid: DateTime<Utc>,
+) -> anyhow::Result<GlobalForecast> {
+    let step = model.cycle_step() as i64;
+    let midnight = target_valid
+        .date_naive()
+        .and_hms_opt(0, 0, 0)
+        .unwrap()
+        .and_utc();
+    let mut last_err = None;
+    for back in 0..5 {
+        let hours = (target_valid.hour() as i64 / step) * step - back * step;
+        let run = midnight + chrono::Duration::hours(hours);
+        // `target_valid` is always on an hour boundary (both `run` and every `fh` are whole
+        // hours), so this is an exact hour count, never a truncated fraction.
+        let fh = (target_valid - run).num_hours();
+        let Ok(fh) = u16::try_from(fh) else {
+            continue; // run ended up after target_valid; try one cycle further back
+        };
+        match fetch_run(http, model, field, run, fh).await {
+            Ok(f) => return Ok(f),
+            Err(e) => last_err = Some(e),
+        }
+    }
+    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("no {} cycle aligns", model.label())))
+}
+
 async fn fetch_run(
     http: &reqwest::Client,
     model: GlobalModel,

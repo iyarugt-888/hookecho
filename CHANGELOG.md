@@ -57,6 +57,17 @@ The rolling `latest` release tracks `main` and is not listed here.
   publishes this one as a KMZ rather than the plain GeoJSON its other
   outlooks ship.
 
+### The model difference layer compares the same instant
+
+- GFS and ECMWF cycle every 6 hours from the same UTC anchor but don't post at
+  the same wall-clock speed, so fetching both at the same forecast-hour offset
+  could silently compare two different valid times for hours at a stretch
+  whenever one model's latest cycle wasn't up yet. ECMWF is now fetched at
+  whichever forecast hour lands exactly on GFS's own valid time — an exact
+  re-target, not an interpolation, since every cycle for both models lands on
+  a whole UTC hour. Falls back to the old (honestly mismatched, still labeled)
+  pair if that specific hour isn't published.
+
 ### Fixes
 
 - The web build's CORS proxy dropped every client header, including `Range`
