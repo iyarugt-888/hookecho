@@ -26,6 +26,8 @@ pub struct UiActions {
     pub wssi_day_changed: bool,
     /// The Excessive Rainfall Outlook day changed; the app must clear + refetch it.
     pub ero_day_changed: bool,
+    /// The Fire Weather Outlook day changed; the app must clear + refetch it.
+    pub fire_day_changed: bool,
     /// Start an offline chase-pack download of the current view's basemap.
     pub download_chasepack: bool,
     /// Cancel the in-progress chase-pack download.
@@ -334,6 +336,34 @@ pub(crate) fn show(
                         .changed()
                     {
                         actions.wssi_day_changed = true;
+                        changed = true;
+                    }
+                }
+            });
+
+        // Fire Weather Outlook: categorical risk + dry thunderstorm hazard together. Day 1-2
+        // only — SPC's own Day 3-8 product splits into different hazard layers entirely rather
+        // than publishing this same categorical risk further out (see `wxdata::firewx`).
+        ui.label("Fire weather outlook");
+        egui::ComboBox::from_id_salt("fire_day")
+            .width(ui.available_width() - 8.0)
+            .selected_text(if filters.fire_day == 0 {
+                "Off".to_string()
+            } else {
+                format!("Day {}", filters.fire_day)
+            })
+            .show_ui(ui, |ui| {
+                for day in 0u8..=2 {
+                    let label = if day == 0 {
+                        "Off".to_string()
+                    } else {
+                        format!("Day {day}")
+                    };
+                    if ui
+                        .selectable_value(&mut filters.fire_day, day, label)
+                        .changed()
+                    {
+                        actions.fire_day_changed = true;
                         changed = true;
                     }
                 }

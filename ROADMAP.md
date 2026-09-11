@@ -46,8 +46,6 @@ naming its own upgrade path.
   points around a marker's radius (`Nws.kt`).
 - Snap positions for the mobile sheets; they dismiss on a drag today but have no
   half-open state.
-- Temperature units for the gridded contour labels, which still do their own
-  K → °F while the station plots follow the Units setting.
 
 ## Not planned
 

@@ -153,6 +153,9 @@ pub struct OverlayFilters {
     pub wssi_day: u8,
     /// WPC Excessive Rainfall Outlook day (0 = off, else 1-3).
     pub ero_day: u8,
+    /// SPC Fire Weather Outlook day (0 = off, else 1-2 — the only days it publishes a single
+    /// categorical risk; see `wxdata::firewx`).
+    pub fire_day: u8,
     /// Level 3 storm cells (clickable dots: storm tracking, hail, mesocyclone).
     pub show_cells: bool,
     /// SCIT forecast tracks (painter-only; no overlay rebuild).
@@ -182,6 +185,7 @@ impl Default for OverlayFilters {
             outlook_kind: wxdata::spc::OutlookKind::Categorical,
             wssi_day: 0, // off by default, like the SPC outlook
             ero_day: 0,
+            fire_day: 0,
 
             show_mds: true,
             show_watches: true,
@@ -221,6 +225,8 @@ enum OverlayMsg {
     Wssi(u8, Vec<GeoFeature>),
     /// WPC Excessive Rainfall Outlook polygons for a day.
     Ero(u8, Vec<GeoFeature>),
+    /// SPC Fire Weather Outlook polygons (risk + dry thunderstorm) for a day.
+    FireWx(u8, Vec<GeoFeature>),
     /// mPING crowd precipitation-type reports.
     Mping(Vec<wxdata::mping::Report>),
     /// Pilot reports within the fetched bbox.
@@ -321,6 +327,8 @@ enum OverlaySource {
     Wssi(u8),
     /// Excessive Rainfall Outlook for a day (1-3).
     Ero(u8),
+    /// SPC Fire Weather Outlook (categorical risk + dry thunderstorm) for a day (1-2).
+    FireWx(u8),
     /// mPING crowd reports from the last hour, with the user's API key.
     Mping(String),
     /// Pilot reports within a lat/lon bbox `(lat0, lon0, lat1, lon1)`.
@@ -622,6 +630,7 @@ impl OverlaySource {
             Self::Watches => RequestLane::Feed("Watch boxes"),
             Self::Wssi(..) => RequestLane::Feed("Winter storm severity"),
             Self::Ero(..) => RequestLane::Feed("Excessive rainfall outlook"),
+            Self::FireWx(..) => RequestLane::Feed("Fire weather outlook"),
             Self::Mping(..) => RequestLane::Feed("mPING reports"),
             Self::Pireps(..) => RequestLane::Feed("Pilot reports"),
             Self::Recon => RequestLane::Feed("Hurricane reconnaissance"),
@@ -706,6 +715,9 @@ impl OverlaySource {
                 wxdata::aviation::fetch_pireps(http, lat0, lon0, lat1, lon1).await?,
             ),
             OverlaySource::Ero(day) => OverlayMsg::Ero(day, wxdata::ero::fetch(http, day).await?),
+            OverlaySource::FireWx(day) => {
+                OverlayMsg::FireWx(day, wxdata::firewx::fetch(http, day).await?)
+            }
             OverlaySource::Recon => OverlayMsg::Recon(wxdata::recon::fetch(http, 6).await?),
             OverlaySource::Outlook(day, kind) => {
                 OverlayMsg::Outlook(day, wxdata::spc::fetch_outlook_kind(http, day, kind).await?)
@@ -2396,6 +2408,8 @@ pub struct HookEchoApp {
     wssi_features: Vec<GeoFeature>,
     /// Excessive Rainfall Outlook polygons for the selected day.
     ero_features: Vec<GeoFeature>,
+    /// SPC Fire Weather Outlook polygons (risk + dry thunderstorm) for the selected day.
+    fire_features: Vec<GeoFeature>,
     /// Crowd precipitation-type reports (mPING), and their fetch clock.
     show_mping: bool,
     mping_reports: Vec<wxdata::mping::Report>,
@@ -3403,6 +3417,7 @@ impl HookEchoApp {
             watch_features: Vec::new(),
             wssi_features: Vec::new(),
             ero_features: Vec::new(),
+            fire_features: Vec::new(),
             show_mping: false,
             mping_reports: Vec::new(),
             mping_last_fetch: None,
@@ -4290,6 +4305,9 @@ impl HookEchoApp {
         }
         if (1..=3).contains(&self.filters.ero_day) {
             self.spawn_overlay(ctx, OverlaySource::Ero(self.filters.ero_day));
+        }
+        if (1..=2).contains(&self.filters.fire_day) {
+            self.spawn_overlay(ctx, OverlaySource::FireWx(self.filters.fire_day));
         }
         // Only fetch the SPC outlook the user has selected (off = day 0 fetches nothing).
         if (1..=8).contains(&self.filters.outlook_day) {
@@ -7241,6 +7259,12 @@ impl HookEchoApp {
                 self.spawn_overlay(ctx, OverlaySource::Ero(self.filters.ero_day));
             }
         }
+        if actions.fire_day_changed {
+            self.fire_features.clear();
+            if (1..=2).contains(&self.filters.fire_day) {
+                self.spawn_overlay(ctx, OverlaySource::FireWx(self.filters.fire_day));
+            }
+        }
         if actions.wssi_day_changed {
             // Day switched: the shown polygons belong to the old day until the new ones land.
             self.wssi_features.clear();
@@ -8158,6 +8182,11 @@ impl HookEchoApp {
                 OverlayMsg::Ero(day, f) => {
                     if day == self.filters.ero_day {
                         self.ero_features = f;
+                    }
+                }
+                OverlayMsg::FireWx(day, f) => {
+                    if day == self.filters.fire_day {
+                        self.fire_features = f;
                     }
                 }
                 OverlayMsg::Wssi(day, f) => {
@@ -9264,6 +9293,9 @@ impl HookEchoApp {
         }
         if (1..=3).contains(&self.filters.ero_day) {
             v.extend(self.ero_features.iter().cloned());
+        }
+        if (1..=2).contains(&self.filters.fire_day) {
+            v.extend(self.fire_features.iter().cloned());
         }
         if self.show_outages {
             v.extend(self.outage_features.iter().cloned());
@@ -13697,9 +13729,6 @@ impl HookEchoApp {
                 }
             }
         }
-        // ponytail: the station plots follow the Units setting; the gridded contour labels
-        // (K → °F, `field_ramps`) still do not, and want the same treatment when asked.
-
         // River flood gauges (NWPS): category-colored inverted-triangle droplet + stage tooltip.
         // ponytail: hover tooltip carries name/stage/forecast; skipped a click→Detail popup — the
         // hover already answers "how high is this river", add the popup if users want to pin it.

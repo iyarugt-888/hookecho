@@ -20,6 +20,7 @@ pub mod dwd;
 pub mod eccc;
 pub mod efield;
 pub mod ero;
+pub mod firewx;
 pub mod forecast;
 pub mod fronts;
 pub mod geocode;

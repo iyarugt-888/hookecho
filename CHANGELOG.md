@@ -48,6 +48,15 @@ The rolling `latest` release tracks `main` and is not listed here.
   range (genuine storm structure) gets exaggerated, so a low-tilt base scan
   no longer visibly lifts off the ground at high Vertical settings.
 
+### SPC Fire Weather Outlook
+
+- A new **Fire weather outlook** picker (Layer options → Outlooks), Day 1-2:
+  the categorical risk (Elevated/Critical/Extreme) and the dry-thunderstorm
+  hazard together, in the same shape as the existing SPC/ERO/WSSI day
+  pickers. Read from SPC's own ArcGIS map service, since the site only
+  publishes this one as a KMZ rather than the plain GeoJSON its other
+  outlooks ship.
+
 ### Fixes
 
 - The web build's CORS proxy dropped every client header, including `Range`
