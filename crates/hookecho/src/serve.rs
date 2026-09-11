@@ -130,6 +130,7 @@ fn handle(server: &Server, mut stream: TcpStream) -> anyhow::Result<()> {
     // a header wall, is hung up on rather than humoured.
     let mut authorized = server.token.is_empty();
     let mut if_none_match = None;
+    let mut range = None;
     {
         let supplied = query_token(query);
         for _ in 0..64 {
@@ -147,6 +148,12 @@ fn handle(server: &Server, mut stream: TcpStream) -> anyhow::Result<()> {
                 }
             } else if name.eq_ignore_ascii_case("if-none-match") {
                 if_none_match = Some(value.trim().to_string());
+            } else if name.eq_ignore_ascii_case("range") {
+                // Forwarded to `/proxy/` upstreams only, and only after `valid_byte_range`
+                // clears it. The GRIB feeds (HRRR, RAP, NAM, NBM, GFS) fetch one message out of
+                // a ~130 MB file by byte range; without this the proxy pulls the whole file and
+                // trips its 64 MB cap.
+                range = Some(value.trim().to_string());
             }
         }
         // A dashboard that can only put things in a URL (a picture element, a widget) has no
@@ -157,13 +164,13 @@ fn handle(server: &Server, mut stream: TcpStream) -> anyhow::Result<()> {
         }
     }
     let reply = if authorized {
-        route(server, path, query, if_none_match.as_deref())
+        route(server, path, query, if_none_match.as_deref(), range.as_deref())
     } else if server.public {
         // The public hostname serves the fixed frames the site embeds and nothing else. Anything
         // else — another size, another product, a status page — needs the token, which is how the
         // owner keeps the full parameter surface without handing it to the internet.
         if is_preset(path, query) {
-            route(server, path, query, if_none_match.as_deref())
+            route(server, path, query, if_none_match.as_deref(), range.as_deref())
         } else {
             count("denied");
             (
@@ -292,7 +299,13 @@ fn image_reply(ctype: &'static str, body: Vec<u8>) -> Reply {
     }
 }
 
-fn route(server: &Server, path: &str, query: &str, if_none_match: Option<&str>) -> Reply {
+fn route(
+    server: &Server,
+    path: &str,
+    query: &str,
+    if_none_match: Option<&str>,
+    range: Option<&str>,
+) -> Reply {
     count(match path {
         "/" => "index",
         "/status.json" | "/alerts.json" | "/obs.json" | "/health.json" => "json",
@@ -350,7 +363,7 @@ fn route(server: &Server, path: &str, query: &str, if_none_match: Option<&str>) 
             metrics(server).into_bytes(),
         )
             .into(),
-        _ if path.starts_with("/proxy/") => proxy(server, path, query, if_none_match),
+        _ if path.starts_with("/proxy/") => proxy(server, path, query, if_none_match, range),
         _ if server.web_root.is_some() => static_file(server, path).into(),
         _ => not_found().into(),
     }
@@ -1325,7 +1338,13 @@ const PROXY_MAX_BYTES: usize = 64 * 1024 * 1024;
 /// ever issued upstream (this server never speaks another method), no client header reaches the
 /// upstream, and the response is capped and stripped down to a known content type. Same-origin by
 /// construction, so no CORS header of our own is needed.
-fn proxy(server: &Server, path: &str, query: &str, if_none_match: Option<&str>) -> Reply {
+fn proxy(
+    server: &Server,
+    path: &str,
+    query: &str,
+    if_none_match: Option<&str>,
+    range: Option<&str>,
+) -> Reply {
     let forbidden = |why: &str| -> Reply {
         log::warn!("proxy refused {path}: {why}");
         (
@@ -1346,6 +1365,53 @@ fn proxy(server: &Server, path: &str, query: &str, if_none_match: Option<&str>) 
     } else {
         format!("https://{host}/{rest}?{query}")
     };
+
+    // Byte-range requests (the GRIB `.idx` fetch pattern) bypass the response cache — each range
+    // is a one-off — and forward a validated `Range` upstream so S3 returns the ~0.5 MB message
+    // instead of the whole file. Anything that is not a single `bytes=N-[M]` range is ignored and
+    // falls through to the normal path.
+    if let Some((header, start)) = range.and_then(valid_byte_range) {
+        PROXY_MISSES.fetch_add(1, Ordering::Relaxed);
+        return match server
+            .rt
+            .block_on(fetch_capped_range(&server.http, &url, &header))
+        {
+            Ok((ctype, body, partial)) => {
+                let mut headers = vec![
+                    ("Accept-Ranges", "bytes".to_string()),
+                    // A shared HTTP cache keyed only on the URL must not serve this slice for
+                    // another range.
+                    ("Cache-Control", "no-store".to_string()),
+                ];
+                if partial {
+                    // Self-built from the request + body length, never copied from upstream. `*`
+                    // for the total: the GRIB reader does not need it, and echoing an upstream
+                    // number would be upstream text in our header.
+                    let end = start + body.len().saturating_sub(1) as u64;
+                    headers.push(("Content-Range", format!("bytes {start}-{end}/*")));
+                }
+                Reply {
+                    status: if partial {
+                        "206 Partial Content"
+                    } else {
+                        "200 OK"
+                    },
+                    ctype,
+                    body,
+                    headers,
+                }
+            }
+            Err(e) => {
+                log::warn!("proxy ranged fetch of {url} failed: {e}");
+                (
+                    "502 Bad Gateway",
+                    "application/json",
+                    br#"{"error":"upstream range fetch failed"}"#.to_vec(),
+                )
+                    .into()
+            }
+        };
+    }
 
     let ttl = cache_seconds(host, query);
     let fresh = |h: &ProxyHit| h.at.elapsed() < Duration::from_secs(ttl);
@@ -1453,6 +1519,57 @@ async fn fetch_capped(
         body.extend_from_slice(&chunk);
     }
     Ok((ctype, body))
+}
+
+/// [`fetch_capped`] that forwards a validated `Range` header. Returns whether the upstream
+/// answered `206` (S3 always does; a source that ignored the header answers `200` with the whole
+/// body, which the cap then catches).
+async fn fetch_capped_range(
+    http: &reqwest::Client,
+    url: &str,
+    range: &str,
+) -> anyhow::Result<(&'static str, Vec<u8>, bool)> {
+    let mut resp = http
+        .get(url)
+        .header(reqwest::header::RANGE, range)
+        .send()
+        .await?
+        .error_for_status()?;
+    let partial = resp.status().as_u16() == 206;
+    let ctype = proxy_content_type(
+        resp.headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or(""),
+    );
+    let mut body = Vec::new();
+    while let Some(chunk) = resp.chunk().await? {
+        if body.len() + chunk.len() > PROXY_MAX_BYTES {
+            anyhow::bail!("ranged response over {PROXY_MAX_BYTES} bytes");
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok((ctype, body, partial))
+}
+
+/// Accept only a single well-formed `bytes=START-[END]` range. Multi-ranges (a comma), suffix
+/// ranges (`bytes=-500`) and anything with stray characters are rejected — the value is forwarded
+/// verbatim upstream, so it has to be exactly what it looks like. Returns the canonical header
+/// value and the start offset (for the self-built `Content-Range`).
+fn valid_byte_range(raw: &str) -> Option<(String, u64)> {
+    let spec = raw.trim().strip_prefix("bytes=")?;
+    if spec.contains(',') {
+        return None;
+    }
+    let (start, end) = spec.split_once('-')?;
+    let start: u64 = start.parse().ok()?;
+    if !end.is_empty() {
+        let end: u64 = end.parse().ok()?;
+        if end < start {
+            return None;
+        }
+    }
+    Some((format!("bytes={spec}"), start))
 }
 
 /// An upstream `Content-Type` mapped onto one of ours. The upstream header is remote text going
@@ -1726,12 +1843,12 @@ mod tests {
             ctype,
             body,
             ..
-        } = route(&server, "/etc/passwd", "", None);
+        } = route(&server, "/etc/passwd", "", None, None);
         assert_eq!(status, "404 Not Found");
         assert_eq!(ctype, "application/json");
         assert!(String::from_utf8_lossy(&body).contains("no such endpoint"));
 
-        let status = route(&server, "/", "", None).status;
+        let status = route(&server, "/", "", None, None).status;
         assert_eq!(status, "200 OK");
     }
 
@@ -1760,7 +1877,7 @@ mod tests {
             "/..%2f..%2fetc/passwd",
             "//etc/passwd",
         ] {
-            let status = route(&server, path, "", None).status;
+            let status = route(&server, path, "", None, None).status;
             assert_eq!(status, "404 Not Found", "{path} must not be served");
         }
         assert_eq!(
@@ -1803,10 +1920,10 @@ mod tests {
             )),
             render: Mutex::new(()),
         };
-        let body = route(&server, "/lite/", "", None).body;
+        let body = route(&server, "/lite/", "", None, None).body;
         assert_eq!(String::from_utf8_lossy(&body), "<!doctype html>lite");
         // Still no way out of the root, trailing slash or not.
-        assert_eq!(route(&server, "/../", "", None).status, "404 Not Found");
+        assert_eq!(route(&server, "/../", "", None, None).status, "404 Not Found");
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -1897,7 +2014,7 @@ mod tests {
             "/proxy/evil.example.com#api.weather.gov/alerts",
             "/proxy/api.weather.gov",
         ] {
-            let status = route(&server, path, "", None).status;
+            let status = route(&server, path, "", None, None).status;
             assert_eq!(status, "403 Forbidden", "{path} must not be proxied");
         }
     }
@@ -1934,7 +2051,7 @@ mod tests {
         };
         let i = ROUTES.iter().position(|r| *r == "index").unwrap();
         let before = REQUESTS[i].load(Ordering::Relaxed);
-        route(&server, "/", "", None);
+        route(&server, "/", "", None, None);
         // Counters are process-wide and the test threads share them, so this asserts movement
         // rather than an exact delta — another test routing "/" must not fail this one.
         assert!(REQUESTS[i].load(Ordering::Relaxed) > before);
@@ -2028,5 +2145,30 @@ mod preset_gate_tests {
         assert!(!is_preset("/metrics", ""));
         assert!(!is_preset("/proxy/https://example.invalid/x", ""));
         assert!(!is_preset("/", ""));
+    }
+
+    #[test]
+    fn byte_range_header_is_validated_before_forwarding() {
+        // The GRIB `.idx` fetch pattern: a single closed or open range.
+        assert_eq!(
+            valid_byte_range("bytes=0-396352"),
+            Some(("bytes=0-396352".to_string(), 0))
+        );
+        assert_eq!(
+            valid_byte_range("bytes=154842502-"),
+            Some(("bytes=154842502-".to_string(), 154_842_502))
+        );
+        assert_eq!(
+            valid_byte_range("  bytes=10-20  "),
+            Some(("bytes=10-20".to_string(), 10))
+        );
+
+        // Rejected: multi-range, suffix range, reversed, other units, junk.
+        assert_eq!(valid_byte_range("bytes=0-10,20-30"), None);
+        assert_eq!(valid_byte_range("bytes=-500"), None);
+        assert_eq!(valid_byte_range("bytes=30-10"), None);
+        assert_eq!(valid_byte_range("items=0-10"), None);
+        assert_eq!(valid_byte_range("bytes=0-10; evil"), None);
+        assert_eq!(valid_byte_range("bytes=abc-def"), None);
     }
 }

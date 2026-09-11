@@ -87,3 +87,26 @@ test("the trust boundary is unchanged", async () => {
   const post = new Request("https://example.test/proxy/api.weather.gov/x", { method: "POST" });
   assert.equal((await proxy(post)).status, 403);
 });
+
+test("a valid byte range is forwarded and answered 206 — the GRIB .idx fetch pattern", async () => {
+  const calls = stubFetch(
+    new Response("SLICE", { status: 206, headers: { "content-type": "application/octet-stream" } }),
+  );
+  const res = await proxy(
+    ask("noaa-hrrr-bdp-pds.s3.amazonaws.com/hrrr.20240601/conus/x.grib2", {
+      range: "bytes=100-499",
+    }),
+  );
+  assert.equal(calls[0].init.headers.range, "bytes=100-499");
+  assert.equal(res.status, 206);
+  assert.equal(res.headers.get("content-range"), "bytes 100-104/*");
+  assert.equal(res.headers.get("accept-ranges"), "bytes");
+  assert.equal(res.headers.get("cache-control"), "no-store");
+  assert.equal(await res.text(), "SLICE");
+});
+
+test("a malformed range is dropped, not forwarded", async () => {
+  const calls = stubFetch(upstream());
+  await proxy(ask("api.weather.gov/alerts/active", { range: "bytes=0-10,20-30" }));
+  assert.equal(calls[0].init.headers.range, undefined);
+});

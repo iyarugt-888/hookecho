@@ -176,13 +176,20 @@ impl Camera {
             let dy = (self.center.1 - world.1) / wpp;
             let p = self.view_projection(viewport_px)
                 * Vec4::new(dx as f32, dy as f32, 0.0, 1.0);
-            if p.w.abs() > f32::EPSILON {
-                let ndc = p.truncate() / p.w;
-                return (
-                    (ndc.x + 1.0) * viewport_px.0 * 0.5,
-                    (1.0 - ndc.y) * viewport_px.1 * 0.5,
-                );
+            // `w <= 0` means the point is on or behind the camera plane — genuinely off screen.
+            // Push it far outside the viewport so `rect.contains` culls it; dividing by a
+            // non-positive `w` (the old `w.abs()` test) mirrored those points back onto the map,
+            // and falling through to the orthographic branch below placed every overlay marker
+            // (storm cells, warnings, place labels) at a 2D position the pitched map no longer
+            // uses — which read as the whole overlay layer vanishing the moment the camera tilted.
+            if p.w <= f32::EPSILON {
+                return (-1.0e6, -1.0e6);
             }
+            let ndc = p.truncate() / p.w;
+            return (
+                (ndc.x + 1.0) * viewport_px.0 * 0.5,
+                (1.0 - ndc.y) * viewport_px.1 * 0.5,
+            );
         }
         let ppw = 256.0 * 2f64.powf(self.zoom); // pixels per world unit
         let px = (world.0 - self.center.0) * ppw + viewport_px.0 as f64 / 2.0;

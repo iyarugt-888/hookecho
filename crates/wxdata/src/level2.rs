@@ -186,6 +186,11 @@ pub fn observed_gates(
         .map(|m| m.gate_count() as usize)
         .sum();
     let budget = instance_budget.max(1);
+    // `gate_stride` below is `ceil(total_gates / budget)`, which always divides `total_gates` down
+    // to at most `budget` — so this cap is a pure safety valve and normally never fires. The old
+    // `break` sat at exactly `budget` and clipped the top sweeps off a full volume when the
+    // running count brushed it; a small margin keeps every sweep while still bounding the buffer.
+    let hard_cap = budget.saturating_add(budget / 4);
     let budget_stride = total_gates.div_ceil(budget);
     let gate_stride = requested_stride.max(1).max(budget_stride);
     let (value_min, value_max) = moment.value_range();
@@ -212,7 +217,7 @@ pub fn observed_gates(
                     value_index: normalize(value),
                     gate: gate as u32,
                 });
-                if gates.len() >= budget {
+                if gates.len() >= hard_cap {
                     break 'sweeps;
                 }
             }

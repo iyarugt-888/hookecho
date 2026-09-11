@@ -182,6 +182,16 @@ const badGateway = () =>
     headers: { "content-type": "application/json" },
   });
 
+// Accept only a single well-formed `bytes=START-[END]` range; the value is forwarded verbatim
+// upstream, so it has to be exactly that. Returns the canonical string or null.
+function validRange(raw) {
+  if (!raw) return null;
+  const m = /^bytes=(\d{1,15})-(\d{0,15})$/.exec(raw.trim());
+  if (!m) return null;
+  if (m[2] !== "" && Number(m[2]) < Number(m[1])) return null;
+  return `bytes=${m[1]}-${m[2]}`;
+}
+
 // Stop a hostile or broken upstream mid-stream rather than after buffering it.
 function capped(body) {
   let seen = 0;
@@ -208,17 +218,45 @@ export async function handleProxy(request, { fetchInit = () => ({}), extraHeader
   if (request.method !== "GET") return refused("GET only");
 
   const target = `https://${host}/${rest.slice(slash + 1)}${url.search}`;
+
+  // The one client header forwarded, and only after validation: a single `bytes=N-[M]` range.
+  // The GRIB feeds (HRRR, RAP, NAM, NBM, GFS) pull one message out of a ~130 MB file this way;
+  // without it the proxy fetches the whole file and trips the size cap.
+  const range = validRange(request.headers.get("range"));
+
   let upstream;
   try {
-    // No client header is forwarded — this is a fresh request, not a rewrite of theirs.
+    // No other client header is forwarded — this is a fresh request, not a rewrite of theirs.
     upstream = await fetch(target, {
-      headers: { "user-agent": USER_AGENT },
+      headers: {
+        "user-agent": USER_AGENT,
+        ...(range ? { range } : {}),
+      },
       ...fetchInit(host, url.search),
     });
   } catch {
     return badGateway();
   }
   if (!upstream.ok) return badGateway();
+
+  if (range) {
+    const start = Number(range.slice("bytes=".length).split("-")[0]) || 0;
+    const buf = await upstream.arrayBuffer();
+    if (buf.byteLength > MAX_BYTES) return refused("ranged response over cap");
+    const headers = {
+      ...extraHeaders(host, url.search),
+      "content-type": contentType(upstream.headers.get("content-type") || ""),
+      "accept-ranges": "bytes",
+      // A shared HTTP cache keyed only on the URL must not serve this slice for another range —
+      // wins over any `cache-control` the platform's `extraHeaders` added.
+      "cache-control": "no-store",
+    };
+    const partial = upstream.status === 206;
+    if (partial) {
+      headers["content-range"] = `bytes ${start}-${start + Math.max(0, buf.byteLength - 1)}/*`;
+    }
+    return new Response(buf, { status: partial ? 206 : 200, headers });
+  }
 
   const length = Number(upstream.headers.get("content-length") || 0);
   if (length > MAX_BYTES) return refused("response over cap");

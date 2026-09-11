@@ -27,8 +27,9 @@ pub struct Map3dState {
     pub gate_stride: usize,
     pub instance_budget: usize,
     /// Upload identity. Camera state is intentionally absent: moving the camera updates uniforms,
-    /// never the millions-of-gates buffer.
-    pub observed_key: Option<(String, Moment, usize, u64, [u32; 6])>,
+    /// never the millions-of-gates buffer. The last `[u32; 7]` slot is the volume's tilt count, so
+    /// a still-streaming volume re-uploads as each higher sweep arrives.
+    pub observed_key: Option<(String, Moment, usize, u64, [u32; 7])>,
 }
 
 impl Default for Map3dState {
@@ -39,10 +40,15 @@ impl Default for Map3dState {
             vertical_exaggeration: 1.0,
             opacity: 0.72,
             gate_stride: if cfg!(target_os = "android") { 2 } else { 1 },
+            // How many gate instances the buffer may hold. Higher = a denser, less "gappy"
+            // volume; the cost is GPU buffer memory (~32 B/instance). Desktop can spare it; the
+            // browser heap is 32-bit and already holds the volumes, and a phone less again.
             instance_budget: if cfg!(target_os = "android") {
-                250_000
+                400_000
+            } else if cfg!(target_arch = "wasm32") {
+                800_000
             } else {
-                1_000_000
+                2_000_000
             },
             observed_key: None,
         }

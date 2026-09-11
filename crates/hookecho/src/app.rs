@@ -2979,7 +2979,9 @@ pub struct HookEchoApp {
     show_3d: bool,
     vol3d: ui::volume3d_window::Volume3dState,
     /// Which volume the built grid belongs to, so reopening the window doesn't rebuild it.
-    vol3d_key: Option<(String, usize)>,
+    /// `(volume name, grid size, tilt count)` — the tilt count so a volume that is still
+    /// streaming its higher sweeps rebuilds the 3D grid as each one lands.
+    vol3d_key: Option<(String, usize, usize)>,
     /// In-flight build (the resample runs off the UI thread).
     #[allow(clippy::type_complexity)]
     vol3d_rx: Option<std::sync::mpsc::Receiver<(crate::render3d::Volume3dUpload, (f32, f32))>>,
@@ -5287,8 +5289,10 @@ impl HookEchoApp {
         let Some(vol) = self.views[self.active].volume.as_mut() else {
             return;
         };
-        // Rebuild once per volume, not once per open: resampling 192x192x48 is a second of CPU.
-        let key = (vol.name.clone(), VOL3D_N);
+        // Rebuild once per (volume, tilt count), not once per open: resampling 192x192x48 is a
+        // second of CPU, but a live volume gains sweeps for a minute after the first chunk and the
+        // 3D grid has to grow with it or the storm stays decapitated.
+        let key = (vol.name.clone(), VOL3D_N, vol.elevations.len());
         if self.vol3d_key.as_ref() == Some(&key) || self.vol3d_rx.is_some() {
             return;
         }
@@ -10592,6 +10596,9 @@ impl HookEchoApp {
             motion_e.to_bits(),
             motion_n.to_bits(),
             srv.to_bits(),
+            // Rebuild when the volume gains a sweep (live chunk stream) so every available tilt
+            // is in the buffer, not just the ones present when 3D was first enabled.
+            scan.sweeps().len() as u32,
         ];
         let palette_gen = self.palettes.gen.wrapping_add(
             if crate::theme::is_high_contrast(self.settings.theme) {
