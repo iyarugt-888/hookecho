@@ -1663,7 +1663,7 @@ fn spot(f: &wxdata::mrms::MrmsField, lon: f64, lat: f64) -> Option<f32> {
     Some(f.values[row as usize * f.nx + col as usize])
 }
 
-/// Render one global-model field. `--headless-global <gfs|ecmwf> <slug> <out.png>`, with the
+/// Render one global-model field. `--headless-global <gfs|ecmwf|gefs> <slug> <out.png>`, with the
 /// camera from `HOOKECHO_CAM` — which is how the dateline gets checked (a global grid that hasn't
 /// been wrapped to −180..180 draws one quad across the entire map).
 pub fn run_global(model: &str, slug: &str, out_path: &str) -> anyhow::Result<()> {
@@ -1672,7 +1672,8 @@ pub fn run_global(model: &str, slug: &str, out_path: &str) -> anyhow::Result<()>
     let model = match model {
         "ecmwf" => GlobalModel::Ecmwf,
         "gfs" => GlobalModel::Gfs,
-        other => anyhow::bail!("unknown global model '{other}' (gfs|ecmwf)"),
+        "gefs" => GlobalModel::Gefs,
+        other => anyhow::bail!("unknown global model '{other}' (gfs|ecmwf|gefs)"),
     };
     let gfield = GlobalField::from_slug(slug)
         .ok_or_else(|| anyhow::anyhow!("unknown global field '{slug}'"))?;

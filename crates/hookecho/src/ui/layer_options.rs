@@ -182,6 +182,7 @@ pub(crate) fn show(
             for m in [
                 wxdata::global::GlobalModel::Gfs,
                 wxdata::global::GlobalModel::Ecmwf,
+                wxdata::global::GlobalModel::Gefs,
             ] {
                 changed |= ui.selectable_value(global_model, m, m.label()).changed();
             }
@@ -423,6 +424,11 @@ pub(crate) fn show(
             .on_hover_text(
                 "The NAM's 3 km CONUS nest — a second convection-allowing opinion on its own \
                  dynamical core, run every six hours",
+            );
+                ui.selectable_value(env_model, wxdata::hrrr::Model::Nam, "NAM 12 km")
+            .on_hover_text(
+                "The NAM's own parent 12 km CONUS grid — coarser than the nest it's downscaled \
+                 from, but a third independent dynamical core and cycle",
             );
             });
         if *env_model != env_before {

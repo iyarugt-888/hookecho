@@ -34,6 +34,10 @@ pub enum Model {
     /// NAM 3 km CONUS nest. A second convection-allowing opinion at HRRR's resolution, on its own
     /// dynamical core and its own 6-hourly cycle — which is the point of having it.
     NamNest,
+    /// The NAM's own parent 12 km CONUS grid (AWIPS grid 212) — coarser than the nest, but the
+    /// nest is itself downscaled from this, so it is a third genuinely independent opinion (its
+    /// own dynamical core, its own cycle) rather than the same nest at a different crop.
+    Nam,
     /// National Blend of Models, CONUS domain. Statistically post-processed guidance rather than
     /// a raw model: no updraft helicity, but the calibrated probabilities nobody else publishes.
     Nbm,
@@ -58,6 +62,10 @@ impl Model {
             Model::NamNest => format!(
                 "{NAM_BUCKET}/nam.{date}/nam.t{cycle_hour:02}z.conusnest.hiresf{fh:02}.tm00.grib2"
             ),
+            // `awip12` is AWIPS grid 212, the NAM's own parent 12 km CONUS grid.
+            Model::Nam => {
+                format!("{NAM_BUCKET}/nam.{date}/nam.t{cycle_hour:02}z.awip12{fh:02}.tm00.grib2")
+            }
             // `co` is the CONUS domain; the forecast hour is three digits here, not two.
             Model::Nbm => format!(
                 "{NBM_BUCKET}/blend.{date}/{cycle_hour:02}/core/blend.t{cycle_hour:02}z.core.f{fh:03}.co.grib2"
@@ -69,7 +77,7 @@ impl Model {
     /// ever finds 404s.
     fn cycle_hours(self) -> u32 {
         match self {
-            Model::NamNest => 6,
+            Model::NamNest | Model::Nam => 6,
             _ => 1,
         }
     }
@@ -83,6 +91,8 @@ impl Model {
             Model::Rap => 0.15,
             // The NAM nest is 3 km like the HRRR; the NBM CONUS grid is 2.5 km.
             Model::NamNest => 0.04,
+            // AWIPS grid 212 is 12 km native.
+            Model::Nam => 0.13,
             Model::Nbm => 0.035,
         }
     }
@@ -93,6 +103,7 @@ impl Model {
             Model::HrrrPressure => "HRRR pressure",
             Model::Rap => "RAP",
             Model::NamNest => "NAM 3 km nest",
+            Model::Nam => "NAM 12 km",
             Model::Nbm => "NBM",
         }
     }
@@ -861,6 +872,9 @@ mod tests {
             Model::Rap.res_deg() > Model::Hrrr.res_deg(),
             "13 km vs 3 km"
         );
+        assert!(Model::Nam
+            .url("20260728", 12, 6)
+            .ends_with("nam.20260728/nam.t12z.awip1206.tm00.grib2"));
     }
 
     #[tokio::test]
@@ -905,6 +919,54 @@ mod tests {
         eprintln!("peak CAPE — RAP {max:.0} vs HRRR {hmax:.0} J/kg");
         let ratio = (max as f64 / hmax.max(1.0) as f64).max(hmax as f64 / max.max(1.0) as f64);
         assert!(ratio < 3.0, "RAP {max} and HRRR {hmax} disagree wildly");
+    }
+
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn nam_parent_grid_cape_decodes() {
+        let http = reqwest::Client::new();
+        let fc = fetch_field(&http, Model::Nam, "CAPE", "surface", 6, 0.0)
+            .await
+            .expect("NAM f06 CAPE");
+        let finite: Vec<f32> = fc
+            .field
+            .values
+            .iter()
+            .copied()
+            .filter(|v| v.is_finite())
+            .collect();
+        let max = finite.iter().copied().fold(f32::MIN, f32::max);
+        eprintln!(
+            "NAM {}x{} run {} — {} finite cells, max {max:.0} J/kg",
+            fc.field.nx,
+            fc.field.ny,
+            fc.run,
+            finite.len()
+        );
+        assert!(finite.len() > fc.field.values.len() / 2, "coverage holes");
+        assert!((0.0..10_000.0).contains(&max), "implausible CAPE {max}");
+
+        // Same idea as the RAP/HRRR cross-check above: SRH from the NAM's own storm-relative
+        // helicity field, sane range and a real CONUS-wide max.
+        let srh = fetch_field(
+            &http,
+            Model::Nam,
+            "HLCY",
+            "3000-0 m above ground",
+            6,
+            f64::NEG_INFINITY,
+        )
+        .await
+        .expect("NAM f06 0-3km SRH");
+        let srh_max = srh
+            .field
+            .values
+            .iter()
+            .copied()
+            .filter(|v| v.is_finite())
+            .fold(f32::MIN, f32::max);
+        eprintln!("NAM 0-3km SRH max {srh_max:.0} m2/s2");
+        assert!((-2000.0..2000.0).contains(&srh_max), "implausible SRH {srh_max}");
     }
 
     #[tokio::test]

@@ -21,10 +21,15 @@ use chrono::{DateTime, Datelike, Timelike, Utc};
 
 const GFS_BUCKET: &str = "https://noaa-gfs-bdp-pds.s3.amazonaws.com";
 const ECMWF_BASE: &str = "https://data.ecmwf.int/forecasts";
+const GEFS_BUCKET: &str = "https://noaa-gefs-pds.s3.amazonaws.com";
 
-/// Quarter-degree source grids resample onto this. Coarser than the grid itself, so the scatter
-/// fills every cell; 1440×721 at 0.25° well under the 4096 texture cap either way.
+/// Quarter-degree source grids (GFS, ECMWF) resample onto this. Coarser than the grid itself, so
+/// the scatter fills every cell; 1440×721 at 0.25° well under the 4096 texture cap either way.
 const RES_DEG: f64 = 0.3;
+/// GEFS's ensemble mean posts at half a degree, not a quarter — scattering it onto `RES_DEG`
+/// left most of the output grid empty (a source cell coarser than its target leaves gaps between
+/// samples), so it gets its own coarser target to match.
+const GEFS_RES_DEG: f64 = 0.6;
 
 /// Which global model to read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -32,6 +37,10 @@ pub enum GlobalModel {
     #[default]
     Gfs,
     Ecmwf,
+    /// GFS Ensemble mean, 0.5° — thirty-one members averaged down to one field. Coarser than a
+    /// single deterministic run, but it is the average outcome across the spread rather than one
+    /// realization of it, which is its own kind of useful.
+    Gefs,
 }
 
 impl GlobalModel {
@@ -39,10 +48,11 @@ impl GlobalModel {
         match self {
             GlobalModel::Gfs => "GFS",
             GlobalModel::Ecmwf => "ECMWF",
+            GlobalModel::Gefs => "GEFS mean",
         }
     }
 
-    /// Hours between cycles. Both run four times a day.
+    /// Hours between cycles. All three run four times a day.
     fn cycle_step(self) -> u32 {
         6
     }
@@ -236,6 +246,23 @@ async fn fetch_run(
                 .ok_or_else(|| anyhow::anyhow!("no {:?} in ECMWF index", field))?;
             (base, r)
         }
+        // The ensemble mean's surface fields share GFS's own variable/level naming (both are
+        // NCEP products off the same GRIB tables), so this reuses `gfs_key()` rather than
+        // tabulating a second identical mapping — the one field it doesn't carry (dewpoint) then
+        // just surfaces as the same "not found in idx" error a genuinely missing field always
+        // does, the same way an unavailable field on any other model already fails honestly.
+        GlobalModel::Gefs => {
+            let base = format!(
+                "{GEFS_BUCKET}/gefs.{date}/{:02}/atmos/pgrb2ap5/geavg.t{:02}z.pgrb2a.0p50.f{fh:03}",
+                run.hour(),
+                run.hour()
+            );
+            let idx = get_text(http, &format!("{base}.idx")).await?;
+            let (var, level) = field.gfs_key();
+            let r = crate::hrrr::field_byte_range(&idx, var, level)
+                .ok_or_else(|| anyhow::anyhow!("no {var}:{level} in GEFS idx"))?;
+            (base, r)
+        }
     };
 
     let (start, end) = range;
@@ -255,7 +282,12 @@ async fn fetch_run(
         .await?;
 
     let raw = bytes.to_vec();
-    let field_out = crate::task::blocking(move || decode(&raw)).await??;
+    let res_deg = if model == GlobalModel::Gefs {
+        GEFS_RES_DEG
+    } else {
+        RES_DEG
+    };
+    let field_out = crate::task::blocking(move || decode(&raw, res_deg)).await??;
     Ok(GlobalForecast {
         field: field_out,
         run,
@@ -323,7 +355,7 @@ fn json_number(line: &str, key: &str) -> Option<u64> {
 }
 
 /// Decode one GRIB2 message onto the shared regular lat/lon grid.
-fn decode(raw: &[u8]) -> anyhow::Result<MrmsField> {
+fn decode(raw: &[u8], res_deg: f64) -> anyhow::Result<MrmsField> {
     use gribberish::data_message::DataMessage;
     use gribberish::message::read_message;
     let msg = read_message(raw, 0).ok_or_else(|| anyhow::anyhow!("no GRIB2 message"))?;
@@ -351,7 +383,7 @@ fn decode(raw: &[u8]) -> anyhow::Result<MrmsField> {
         lats.len() == data.len() && lons.len() == data.len(),
         "global latlng/data length mismatch"
     );
-    crate::hrrr::regrid(&lats, &lons, &data, time, RES_DEG, f64::NEG_INFINITY)
+    crate::hrrr::regrid(&lats, &lons, &data, time, res_deg, f64::NEG_INFINITY)
 }
 
 #[cfg(test)]
@@ -394,20 +426,22 @@ mod tests {
     #[ignore = "network"]
     async fn global_live() {
         let http = reqwest::Client::new();
-        for model in [GlobalModel::Gfs, GlobalModel::Ecmwf] {
+        for model in [GlobalModel::Gfs, GlobalModel::Ecmwf, GlobalModel::Gefs] {
             let f = fetch(&http, model, GlobalField::Mslp, 0)
                 .await
                 .unwrap_or_else(|e| panic!("{} fetch: {e}", model.label()));
             let finite = f.field.values.iter().filter(|v| v.is_finite()).count();
             println!(
-                "{}: {}x{} lon {:.1}..{:.1} lat {:.1}..{:.1} finite {finite}",
+                "{}: {}x{} lon {:.1}..{:.1} lat {:.1}..{:.1} finite {finite}/{} ({:.0}%)",
                 model.label(),
                 f.field.nx,
                 f.field.ny,
                 f.field.lon_west,
                 f.field.lon_east,
                 f.field.lat_south,
-                f.field.lat_north
+                f.field.lat_north,
+                f.field.values.len(),
+                100.0 * finite as f64 / f.field.values.len() as f64,
             );
             // The whole point of the longitude wrap: a global field lands in −180..180.
             assert!(f.field.lon_west >= -180.5 && f.field.lon_east <= 180.5);

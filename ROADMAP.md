@@ -30,9 +30,16 @@ upgrade path out of it (`grep -rn "ponytail:" crates/`).
   sectors) instead of the one hardcoded default, hooking it into the
   existing GIBS frame bar's "follow the radar clock" scrubbing rather than
   a plain on/off toggle, and imagery inside an offline chase pack.
-- Blending surface observations into the effective-layer analysis, which is the
-  remaining difference from SPC's mesoanalysis now that the vertical resolution
-  is there.
+- **Model coverage on par with the other radar apps.** NAM's own 12 km grid
+  (`hrrr::Model::Nam`) and the GFS ensemble mean (`global::GlobalModel::Gefs`)
+  are in, each verified against its live public bucket. Still open: RRFS
+  (HRRR's planned successor — its public bucket currently holds only a 2024
+  retrospective test run, not a live operational feed, so it's not addable
+  yet as more than a guess), ICON (DWD, open data), GEM/GDPS (Environment
+  Canada, open data), and HREF (the short-range CAM ensemble). Each is the
+  same shape of work as NAM/GEFS: confirm the live bucket and file naming,
+  confirm `gribberish` decodes its grid projection, wire it into the
+  relevant `Model`/`GlobalModel` enum.
 
 ## Later
 
@@ -47,6 +54,12 @@ naming its own upgrade path.
   points around a marker's radius (`Nws.kt`).
 - Snap positions for the mobile sheets; they dismiss on a drag today but have no
   half-open state.
+- Blending surface observations into the effective-layer analysis, which is the
+  remaining difference from SPC's mesoanalysis now that the vertical resolution
+  is there. Deliberately parked, not forgotten: this feeds numbers people may
+  use for real severe-weather decisions, and the scoping questions it raises
+  (radius of influence, which variables to correct, QC against a bad ob) are
+  worth a real decision when picked back up, not a guess.
 
 ## Not planned
 

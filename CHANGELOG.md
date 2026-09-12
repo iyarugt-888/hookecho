@@ -8,6 +8,22 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Two more models: NAM's own 12 km grid, and a GFS ensemble mean
+
+- **NAM 12 km** joins HRRR/RAP/the NAM 3 km nest as an Environment model source
+  (CAPE, SRH, contours) — the NAM's own parent grid, not just its nest, so it's
+  a third genuinely independent dynamical core and cycle rather than the same
+  nest at a different crop.
+- **GEFS mean** joins GFS/ECMWF as a Global forecast source — the 31-member
+  GFS ensemble's average, which is a different (and sometimes more useful)
+  answer than any one deterministic run. Its native half-degree grid needed
+  its own coarser output resolution to regrid without leaving most of the map
+  empty (a source cell coarser than its scatter target leaves gaps between
+  samples) — first attempt landed at 36% coverage before that fix.
+- The start of "every model RadarOmega/WeatherWise has" — both verified live
+  against their real public buckets; more to follow incrementally rather than
+  landing untested all at once.
+
 ### The layers/alerts panel no longer gets stuck hidden
 
 - The floating layers/alerts panel steps aside whenever a drawer page
