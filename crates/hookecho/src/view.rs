@@ -31,6 +31,23 @@ pub struct Map3dState {
     pub opacity: f32,
     pub gate_stride: usize,
     pub instance_budget: usize,
+    /// Whether the resampled "Smooth" volume gates out weak reflectivity before raymarching. Only
+    /// meaningful for [`Map3dRepresentation::SmoothVolume`] — the whole point is denoising a
+    /// dBZ field, and `SmoothDebris`'s inverted-CC volume isn't one. Defaults on: an ungated
+    /// max-intensity raymarch over a full volume is mostly light rain and noise standing between
+    /// the camera and the storm cores that are the actual reason to look in 3D.
+    pub denoise_enabled: bool,
+    /// Reflectivity floor (dBZ) used when `denoise_enabled`. 18 dBZ sits above the usual noise
+    /// floor and light stratiform rain while leaving convective cores untouched.
+    pub reflectivity_floor_dbz: f32,
+    /// Slab the resampled volume is cropped to, as fractions of its box: `[x0,x1,y0,y1,z0,z1]`.
+    /// Lets the user cut into a storm instead of only ever viewing it from outside. Unused by
+    /// `ObservedSweeps`, which has no box to slice.
+    pub clip: [f32; 6],
+    /// Raymarch samples per pixel for the resampled volume. Higher = smoother gradients and
+    /// fewer banding artifacts at the cost of GPU time; unused by `ObservedSweeps`, which draws
+    /// real gate instances rather than raymarching.
+    pub quality_steps: u32,
     /// Upload identity. Camera state is intentionally absent: moving the camera updates uniforms,
     /// never the millions-of-gates buffer. The last `[u32; 7]` slot is the volume's tilt count, so
     /// a still-streaming volume re-uploads as each higher sweep arrives.
@@ -55,6 +72,10 @@ impl Default for Map3dState {
             } else {
                 2_000_000
             },
+            denoise_enabled: true,
+            reflectivity_floor_dbz: 18.0,
+            clip: [0.0, 1.0, 0.0, 1.0, 0.0, 1.0],
+            quality_steps: if cfg!(target_os = "android") { 64 } else { 128 },
             observed_key: None,
         }
     }

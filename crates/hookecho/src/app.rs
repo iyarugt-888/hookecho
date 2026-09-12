@@ -11020,11 +11020,27 @@ impl HookEchoApp {
             half_km,
             top_km,
         };
-        let view = crate::render3d::View3d {
-            threshold_idx: 2.0,
-            clip: [0.0, 1.0, 0.0, 1.0, 0.0, 1.0],
+        let threshold_idx = if state.representation == Map3dRepresentation::SmoothVolume
+            && state.denoise_enabled
+        {
+            crate::render3d::threshold_index(
+                state.reflectivity_floor_dbz,
+                Moment::Reflectivity.value_range(),
+            )
+        } else {
+            2.0
         };
-        let steps = if cfg!(target_os = "android") { 64 } else { 128 };
+        let view = crate::render3d::View3d {
+            threshold_idx,
+            clip: state.clip,
+        };
+        // Same visual-guard clamp as the standalone 3D Reflectivity window: a phone under thermal
+        // or battery pressure gets the coarsest march regardless of what quality was chosen.
+        let steps = if ui::motion::degraded() {
+            state.quality_steps.min(64)
+        } else {
+            state.quality_steps
+        };
         let uniform = crate::render3d::map_uniform(
             cam,
             vp,
@@ -11159,6 +11175,49 @@ impl HookEchoApp {
                             }
                         } else {
                             ui.weak("Vertical and Opacity above shape the resampled volume.");
+                            if view.map_3d.representation == Map3dRepresentation::SmoothVolume {
+                                ui.horizontal(|ui| {
+                                    ui.checkbox(&mut view.map_3d.denoise_enabled, "Denoise")
+                                        .on_hover_text(
+                                            "Hide light rain and noise below the floor so \
+                                             storm cores stand alone",
+                                        );
+                                    if view.map_3d.denoise_enabled {
+                                        let (lo, hi) = Moment::Reflectivity.value_range();
+                                        ui.add(
+                                            egui::Slider::new(
+                                                &mut view.map_3d.reflectivity_floor_dbz,
+                                                lo..=hi,
+                                            )
+                                            .suffix(" dBZ"),
+                                        );
+                                    }
+                                });
+                            }
+                            ui.horizontal(|ui| {
+                                ui.label("Quality");
+                                for (label, steps) in
+                                    [("Low", 64u32), ("Medium", 96), ("High", 128)]
+                                {
+                                    ui.selectable_value(
+                                        &mut view.map_3d.quality_steps,
+                                        steps,
+                                        label,
+                                    );
+                                }
+                            });
+                            egui::CollapsingHeader::new("Slice")
+                                .id_salt(("map_3d_slice", idx))
+                                .default_open(false)
+                                .show(ui, |ui| {
+                                    let [x0, x1, y0, y1, z0, z1] = &mut view.map_3d.clip;
+                                    map_3d_axis_slice(ui, "E-W", x0, x1);
+                                    map_3d_axis_slice(ui, "N-S", y0, y1);
+                                    map_3d_axis_slice(ui, "Up ", z0, z1);
+                                    if ui.button("Whole volume").clicked() {
+                                        view.map_3d.clip = [0.0, 1.0, 0.0, 1.0, 0.0, 1.0];
+                                    }
+                                });
                         }
                         ui.weak("Right-drag rotates · drag pans · wheel zooms");
                         ui.weak("W/S tilt · Q/E rotate");
@@ -16094,6 +16153,21 @@ pub(crate) fn field_index_upload(
 }
 
 /// Interpolate a 256-entry RGBA LUT from `(t, [r,g,b])` stops; index 0 is always transparent.
+/// One `min..max` pair of sliders for an axis of the map-embedded 3D volume's slab, mirroring the
+/// standalone "3D Reflectivity" window's `axis_slice`, which lives in a different module (a
+/// per-pane `egui::Area`, not that window's own `egui::Window`) and so isn't reused directly.
+fn map_3d_axis_slice(ui: &mut egui::Ui, label: &str, lo: &mut f32, hi: &mut f32) {
+    ui.horizontal(|ui| {
+        ui.label(label);
+        ui.add(egui::Slider::new(lo, 0.0..=1.0).show_value(false));
+        ui.add(egui::Slider::new(hi, 0.0..=1.0).show_value(false));
+    });
+    // Keep the pair ordered so an inverted drag empties the view instead of inverting the slab.
+    if *lo > *hi {
+        std::mem::swap(lo, hi);
+    }
+}
+
 fn ramp_lut(stops: &[(f32, [u8; 3])]) -> Vec<u8> {
     ramp_lut_a(stops, 255)
 }

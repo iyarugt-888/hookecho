@@ -8,6 +8,21 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### The 3D map denoises light rain, and slices into the storm
+
+- The map-embedded "Smooth" reflectivity volume now hides everything weaker
+  than a floor (18 dBZ by default) before raymarching, so a wide stratiform
+  rain shield no longer buries the convective cores that are the actual
+  reason to look in 3D — the same gating the standalone 3D Reflectivity
+  window already had, now on the map. **Denoise** toggles it off if you want
+  the unfiltered volume back, with a slider to move the floor.
+- A **Slice** panel crops the resampled volume to an E–W/N–S/Up box, so you
+  can cut into a storm instead of only ever viewing it from outside — the
+  same slab control the standalone window has, now available while the
+  volume sits on the map.
+- **Quality** (Low/Medium/High) trades raymarch samples per pixel for frame
+  time, for the resampled Smooth/Debris volumes.
+
 ### 33 community color tables join the built-in alternates
 
 - Reflectivity, velocity, spectrum width, and correlation coefficient each
