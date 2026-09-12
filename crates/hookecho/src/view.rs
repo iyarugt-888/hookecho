@@ -19,7 +19,18 @@ pub enum Map3dRepresentation {
     /// instead finds the *lowest* CC along each ray — a lofted low-CC pocket embedded in high
     /// reflectivity is the tornado debris signature. See `pane_smooth_volume`'s doc comment.
     SmoothDebris,
+    /// A resampled spectrum-width volume, plain (not inverted, unlike `SmoothDebris`) — high
+    /// spectral width along a ray is the interesting case (shear, turbulence, a couplet's own
+    /// broadening), the same sense a reflectivity core is "high is interesting".
+    SmoothSpectrumWidth,
 }
+
+/// How many tilts the "Layers" list can have pulled out and highlighted at once. The GPU uniform
+/// carries this many scalar slots rather than a real array — `array<f32,N>` gets padded to a
+/// 16-byte stride in WGSL's uniform address space, which would needlessly balloon the buffer —
+/// so it has to be a fixed, known-in-advance count either way. Eight is comfortably more than
+/// anyone compares by eye at once.
+pub const MAX_HIGHLIGHTED_LAYERS: usize = 8;
 
 /// Geographic 3D controls belong to a map pane so they stay synchronized with that pane's
 /// product, timeline, site and camera rather than becoming another viewer.
@@ -31,15 +42,23 @@ pub struct Map3dState {
     pub opacity: f32,
     pub gate_stride: usize,
     pub instance_budget: usize,
-    /// Whether the resampled "Smooth" volume gates out weak reflectivity before raymarching. Only
-    /// meaningful for [`Map3dRepresentation::SmoothVolume`] — the whole point is denoising a
-    /// dBZ field, and `SmoothDebris`'s inverted-CC volume isn't one. Defaults on: an ungated
-    /// max-intensity raymarch over a full volume is mostly light rain and noise standing between
-    /// the camera and the storm cores that are the actual reason to look in 3D.
+    /// Whether the resampled "Smooth" volume gates out weak values before raymarching. Meaningful
+    /// for [`Map3dRepresentation::SmoothVolume`] (reflectivity) and `SmoothSpectrumWidth` — the
+    /// whole point is denoising a plain "high is interesting" field, and `SmoothDebris`'s
+    /// inverted-CC volume isn't one. Defaults on: an ungated max-intensity raymarch over a full
+    /// volume is mostly light rain and noise standing between the camera and the storm cores that
+    /// are the actual reason to look in 3D.
     pub denoise_enabled: bool,
-    /// Reflectivity floor (dBZ) used when `denoise_enabled`. 18 dBZ sits above the usual noise
-    /// floor and light stratiform rain while leaving convective cores untouched.
+    /// Reflectivity floor (dBZ) used when `denoise_enabled` and the representation is
+    /// `SmoothVolume`. 18 dBZ sits above the usual noise floor and light stratiform rain while
+    /// leaving convective cores untouched.
     pub reflectivity_floor_dbz: f32,
+    /// Spectrum-width floor (m/s) used when `denoise_enabled` and the representation is
+    /// `SmoothSpectrumWidth`. Kept separate from the reflectivity floor rather than one shared
+    /// value in whatever unit happens to be active — dBZ and m/s aren't interchangeable numbers,
+    /// and switching representations must not silently carry one moment's floor into another's.
+    /// 8 m/s clears ordinary spectral broadening and keeps genuine turbulence/shear signatures.
+    pub sw_floor_ms: f32,
     /// Slab the resampled volume is cropped to, as fractions of its box: `[x0,x1,y0,y1,z0,z1]`.
     /// Lets the user cut into a storm instead of only ever viewing it from outside. Unused by
     /// `ObservedSweeps`, which has no box to slice.
@@ -53,18 +72,20 @@ pub struct Map3dState {
     /// the stack reads as one continuous volume; a selected layer (below) is worth turning it off
     /// for, to see the real tilts' true spacing instead of the filled approximation.
     pub fill_gaps: bool,
-    /// The tilt (by elevation angle) the user clicked in the Layers list, if any — pulled toward
-    /// the camera and desaturated everywhere else so it stands out, and detailed below the list.
-    pub selected_layer_elev: Option<f32>,
+    /// The tilts (by elevation angle) the user clicked in the Layers list, if any — each pulled
+    /// toward the camera and desaturated everywhere else so the set stands out, and detailed
+    /// below the list. Capped at `MAX_HIGHLIGHTED_LAYERS`.
+    pub selected_layer_elevs: Vec<f32>,
     /// One summary per real tilt in the current `ObservedSweeps` upload, for the Layers list.
     /// Refreshed only when `pane_observed_radar` actually rebuilds (see `observed_key`), not
     /// every frame.
     pub observed_layers: Vec<level2::ObservedLayer>,
     /// Upload identity. Camera state is intentionally absent: moving the camera updates uniforms,
     /// never the millions-of-gates buffer. The `sweep_count` slot is the volume's tilt count, so
-    /// a still-streaming volume re-uploads as each higher sweep arrives; the last two are
-    /// `fill_gaps` and the selected layer's elevation (as bits), so either changing rebuilds too.
-    pub observed_key: Option<(String, Moment, usize, u64, [u32; 9])>,
+    /// a still-streaming volume re-uploads as each higher sweep arrives; `fill_gaps` and the
+    /// `MAX_HIGHLIGHTED_LAYERS` selected-elevation slots (as bits) follow, so any of those
+    /// changing rebuilds too.
+    pub observed_key: Option<(String, Moment, usize, u64, [u32; 8 + MAX_HIGHLIGHTED_LAYERS])>,
 }
 
 impl Default for Map3dState {
@@ -87,10 +108,11 @@ impl Default for Map3dState {
             },
             denoise_enabled: true,
             reflectivity_floor_dbz: 18.0,
+            sw_floor_ms: 8.0,
             clip: [0.0, 1.0, 0.0, 1.0, 0.0, 1.0],
             quality_steps: if cfg!(target_os = "android") { 64 } else { 128 },
             fill_gaps: true,
-            selected_layer_elev: None,
+            selected_layer_elevs: Vec::new(),
             observed_layers: Vec::new(),
             observed_key: None,
         }

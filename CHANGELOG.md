@@ -8,6 +8,25 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### A third "Smooth" 3D volume: spectrum width, plus a typeable archive date and multi-tilt highlighting
+
+- **Spectrum width** joins reflectivity and correlation coefficient with its own resampled
+  "SW" 3D volume — the same continuous, gap-free fill, with its own **Denoise** floor (in
+  m/s, not dBZ) so switching between the three never carries one moment's number into
+  another's units.
+- The 3D "Layers" list — every real tilt in the Observed volume — is now inside a scroll
+  area instead of a plain stacked column, so a 19-tilt VCP with MESO-SAILS cuts no longer
+  pushes Denoise and everything below it off the bottom of the floating panel with no way
+  back to it.
+- That list also went from picking one tilt at a time to picking several: click more than
+  one and each pulls out of the stack together, with stats for every selection listed below
+  rather than just the last one clicked. Capped at eight at once — the GPU uniform has a
+  fixed number of highlight slots, and nobody is comparing more than that by eye anyway.
+- The archive-day field in the LIVE/ARCHIVE menu now has a typed `YYYY-MM-DD` box next to
+  the calendar button on desktop, not just on web — a calendar is fine for "a few days
+  back" but painful for "reach a specific day in 1991" one click at a time, and typing
+  reaches either just as directly.
+
 ### Two more models: NAM's own 12 km grid, and a GFS ensemble mean
 
 - **NAM 12 km** joins HRRR/RAP/the NAM 3 km nest as an Environment model source

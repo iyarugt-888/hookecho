@@ -22,7 +22,7 @@ use crate::settings::Settings;
 use crate::tiles::TileManager;
 use crate::ui;
 use crate::ui::detail_window::Detail;
-use crate::view::{Map3dRepresentation, MapView, Volume};
+use crate::view::{Map3dRepresentation, MapView, Volume, MAX_HIGHLIGHTED_LAYERS};
 use chrono::{DateTime, NaiveDate, Utc};
 use lru::LruCache;
 use std::num::NonZeroUsize;
@@ -10828,25 +10828,31 @@ impl HookEchoApp {
             })
             .unwrap_or((0.0, 0.0, 0.0));
         let fill_gaps = self.views[idx].map_3d.fill_gaps;
-        // -inf reads as "nothing selected" on the shader side (`> -900.0` is false for it) and
-        // is exact under `.to_bits()` round-tripping, unlike NaN's multiple bit patterns.
-        let highlight_elev = self.views[idx]
-            .map_3d
-            .selected_layer_elev
-            .unwrap_or(f32::NEG_INFINITY);
-        let controls = [
-            self.views[idx].map_3d.vertical_exaggeration.to_bits(),
-            self.views[idx].map_3d.opacity.to_bits(),
-            threshold_idx.to_bits(),
-            motion_e.to_bits(),
-            motion_n.to_bits(),
-            srv.to_bits(),
-            // Rebuild when the volume gains a sweep (live chunk stream) so every available tilt
-            // is in the buffer, not just the ones present when 3D was first enabled.
-            scan.sweeps().len() as u32,
-            fill_gaps as u32,
-            highlight_elev.to_bits(),
-        ];
+        // -inf in an unused slot reads as "nothing here" on the shader side (`> -900.0` is false
+        // for it) and is exact under `.to_bits()` round-tripping, unlike NaN's multiple bit
+        // patterns. Only the first `selected_layer_elevs.len()` slots are ever real; the UI caps
+        // that at `MAX_HIGHLIGHTED_LAYERS` already, so no truncation happens here.
+        let mut highlight_elevs = [f32::NEG_INFINITY; MAX_HIGHLIGHTED_LAYERS];
+        for (slot, elev) in highlight_elevs
+            .iter_mut()
+            .zip(self.views[idx].map_3d.selected_layer_elevs.iter())
+        {
+            *slot = *elev;
+        }
+        let mut controls = [0u32; 8 + MAX_HIGHLIGHTED_LAYERS];
+        controls[0] = self.views[idx].map_3d.vertical_exaggeration.to_bits();
+        controls[1] = self.views[idx].map_3d.opacity.to_bits();
+        controls[2] = threshold_idx.to_bits();
+        controls[3] = motion_e.to_bits();
+        controls[4] = motion_n.to_bits();
+        controls[5] = srv.to_bits();
+        // Rebuild when the volume gains a sweep (live chunk stream) so every available tilt
+        // is in the buffer, not just the ones present when 3D was first enabled.
+        controls[6] = scan.sweeps().len() as u32;
+        controls[7] = fill_gaps as u32;
+        for (slot, elev) in controls[8..].iter_mut().zip(highlight_elevs.iter()) {
+            *slot = elev.to_bits();
+        }
         let palette_gen = self.palettes.gen.wrapping_add(
             if crate::theme::is_high_contrast(self.settings.theme) {
                 0x9e37_79b9_7f4a_7c15
@@ -10879,13 +10885,12 @@ impl HookEchoApp {
         };
         self.views[idx].map_3d.observed_layers = observed.layers.clone();
         // A selection surviving a moment switch or a tilt dropping out of the volume would dim
-        // every gate (the shader has a selection but nothing to match it), which reads as the
-        // whole layer vanishing rather than as nothing being selected.
-        if let Some(sel) = self.views[idx].map_3d.selected_layer_elev {
-            if !observed.layers.iter().any(|l| (l.elevation_deg - sel).abs() < 0.05) {
-                self.views[idx].map_3d.selected_layer_elev = None;
-            }
-        }
+        // every gate (the shader has a selection but nothing left to match it), which reads as
+        // the whole layer vanishing rather than as nothing being selected.
+        self.views[idx]
+            .map_3d
+            .selected_layer_elevs
+            .retain(|&sel| observed.layers.iter().any(|l| (l.elevation_deg - sel).abs() < 0.05));
         let antenna_altitude_m = self.views[idx]
             .site
             .as_deref()
@@ -10921,7 +10926,8 @@ impl HookEchoApp {
             observed.gates.len(),
             observed.gate_stride
         );
-        let uniform = [
+        let mut uniform = [0.0f32; 11 + MAX_HIGHLIGHTED_LAYERS];
+        uniform[..11].copy_from_slice(&[
             observed.radar_lat,
             observed.radar_lon,
             antenna_altitude_m,
@@ -10933,8 +10939,8 @@ impl HookEchoApp {
             motion_e,
             motion_n,
             observed.min_elevation_deg,
-            highlight_elev,
-        ];
+        ]);
+        uniform[11..].copy_from_slice(&highlight_elevs);
         self.views[idx].map_3d.observed_key = Some(key);
         (
             Some(ObservedSweepUpload {
@@ -10979,6 +10985,7 @@ impl HookEchoApp {
         let (resample_moment, invert) = match state.representation {
             Map3dRepresentation::SmoothVolume => (Moment::Reflectivity, false),
             Map3dRepresentation::SmoothDebris => (Moment::CorrelationCoefficient, true),
+            Map3dRepresentation::SmoothSpectrumWidth => (Moment::SpectrumWidth, false),
             Map3dRepresentation::ObservedSweeps => return None,
         };
         if self.views[idx].moment != resample_moment {
@@ -11081,15 +11088,19 @@ impl HookEchoApp {
             half_km,
             top_km,
         };
-        let threshold_idx = if state.representation == Map3dRepresentation::SmoothVolume
-            && state.denoise_enabled
-        {
-            crate::render3d::threshold_index(
-                state.reflectivity_floor_dbz,
-                Moment::Reflectivity.value_range(),
-            )
-        } else {
-            2.0
+        // Denoising a plain "high is interesting" field makes sense for reflectivity and spectrum
+        // width; `SmoothDebris`'s inverted-CC volume is the opposite sense (low is interesting)
+        // and has no floor of its own here.
+        let denoise_floor = match state.representation {
+            Map3dRepresentation::SmoothVolume => Some(state.reflectivity_floor_dbz),
+            Map3dRepresentation::SmoothSpectrumWidth => Some(state.sw_floor_ms),
+            Map3dRepresentation::SmoothDebris | Map3dRepresentation::ObservedSweeps => None,
+        };
+        let threshold_idx = match denoise_floor {
+            Some(floor) if state.denoise_enabled => {
+                crate::render3d::threshold_index(floor, resample_moment.value_range())
+            }
+            _ => 2.0,
         };
         let view = crate::render3d::View3d {
             threshold_idx,
@@ -11160,7 +11171,10 @@ impl HookEchoApp {
                         let stale_debris = view.map_3d.representation
                             == Map3dRepresentation::SmoothDebris
                             && moment != Moment::CorrelationCoefficient;
-                        if stale_smooth || stale_debris {
+                        let stale_sw = view.map_3d.representation
+                            == Map3dRepresentation::SmoothSpectrumWidth
+                            && moment != Moment::SpectrumWidth;
+                        if stale_smooth || stale_debris || stale_sw {
                             view.map_3d.representation = Map3dRepresentation::ObservedSweeps;
                         }
                         ui.horizontal(|ui| {
@@ -11196,6 +11210,21 @@ impl HookEchoApp {
                             .on_hover_text(
                                 "Lofted low correlation coefficient — possible tornado debris \
                                  (TDS). Brighter = lower CC, inverted from the usual CC scale.",
+                            );
+                            ui.add_enabled_ui(
+                                volume_supported && moment == Moment::SpectrumWidth,
+                                |ui| {
+                                    ui.selectable_value(
+                                        &mut view.map_3d.representation,
+                                        Map3dRepresentation::SmoothSpectrumWidth,
+                                        "SW",
+                                    )
+                                },
+                            )
+                            .response
+                            .on_hover_text(
+                                "Regularized spectrum-width volume — shear and turbulence \
+                                 signatures, the same continuous fill as Smooth/Debris",
                             );
                         });
                         ui.add(
@@ -11277,90 +11306,146 @@ impl HookEchoApp {
                                     .id_salt(("map_3d_layers", idx))
                                     .default_open(false)
                                     .show(ui, |ui| {
-                                        ui.weak("Click a tilt to pull it out and see its stats.");
-                                        // Highest first: reads top-to-bottom like the real stack.
-                                        for layer in layers.iter().rev() {
-                                            let selected =
-                                                view.map_3d.selected_layer_elev.is_some_and(|e| {
-                                                    (e - layer.elevation_deg).abs() < 0.05
-                                                });
-                                            let label = format!(
-                                                "{:.1}°  ·  {} radials",
-                                                layer.elevation_deg, layer.radial_count
-                                            );
-                                            if ui.selectable_label(selected, label).clicked() {
-                                                view.map_3d.selected_layer_elev = if selected {
-                                                    None
-                                                } else {
-                                                    Some(layer.elevation_deg)
-                                                };
-                                            }
+                                        ui.weak(
+                                            "Click a tilt to pull it out and see its stats — \
+                                             click more to compare several at once.",
+                                        );
+                                        // A fixed cap (rather than a scroll area sized to fit
+                                        // every tilt) so a 19-tilt VCP with MESO-SAILS cuts still
+                                        // fits the floating panel instead of pushing Denoise and
+                                        // everything below it off-screen with no way back to it.
+                                        egui::ScrollArea::vertical()
+                                            .id_salt(("map_3d_layers_scroll", idx))
+                                            .max_height(180.0)
+                                            .show(ui, |ui| {
+                                                // Highest first: reads top-to-bottom like the
+                                                // real stack.
+                                                for layer in layers.iter().rev() {
+                                                    let selected = view
+                                                        .map_3d
+                                                        .selected_layer_elevs
+                                                        .iter()
+                                                        .any(|&e| {
+                                                            (e - layer.elevation_deg).abs() < 0.05
+                                                        });
+                                                    let label = format!(
+                                                        "{:.1}°  ·  {} radials",
+                                                        layer.elevation_deg, layer.radial_count
+                                                    );
+                                                    let at_cap = !selected
+                                                        && view.map_3d.selected_layer_elevs.len()
+                                                            >= MAX_HIGHLIGHTED_LAYERS;
+                                                    let mut resp =
+                                                        ui.selectable_label(selected, label);
+                                                    if at_cap {
+                                                        resp = resp.on_hover_text(format!(
+                                                            "Up to {MAX_HIGHLIGHTED_LAYERS} \
+                                                             tilts can be pulled out at once — \
+                                                             deselect one first"
+                                                        ));
+                                                    }
+                                                    if resp.clicked() {
+                                                        let elevs =
+                                                            &mut view.map_3d.selected_layer_elevs;
+                                                        if let Some(i) =
+                                                            elevs.iter().position(|&e| {
+                                                                (e - layer.elevation_deg).abs()
+                                                                    < 0.05
+                                                            })
+                                                        {
+                                                            elevs.remove(i);
+                                                        } else if !at_cap {
+                                                            elevs.push(layer.elevation_deg);
+                                                        }
+                                                    }
+                                                }
+                                            });
+                                        if view.map_3d.selected_layer_elevs.is_empty() {
+                                            return;
                                         }
-                                        let Some(sel) = view.map_3d.selected_layer_elev else {
-                                            return;
-                                        };
-                                        let Some(layer) = layers
-                                            .iter()
-                                            .find(|l| (l.elevation_deg - sel).abs() < 0.05)
-                                        else {
-                                            return;
-                                        };
                                         ui.separator();
-                                        let total =
-                                            (layer.radial_count * layer.gate_count).max(1) as f32;
-                                        let coverage_pct =
-                                            100.0 * layer.coverage_gates as f32 / total;
-                                        ui.label(format!(
-                                            "{} radials × {} gates · {coverage_pct:.0}% coverage",
-                                            layer.radial_count, layer.gate_count
-                                        ));
-                                        if let Some(v) = layer.max_value {
+                                        let mut selected_elevs =
+                                            view.map_3d.selected_layer_elevs.clone();
+                                        selected_elevs.sort_by(|a, b| b.total_cmp(a));
+                                        for sel in selected_elevs {
+                                            let Some(layer) = layers
+                                                .iter()
+                                                .find(|l| (l.elevation_deg - sel).abs() < 0.05)
+                                            else {
+                                                continue;
+                                            };
+                                            let total = (layer.radial_count * layer.gate_count)
+                                                .max(1)
+                                                as f32;
+                                            let coverage_pct =
+                                                100.0 * layer.coverage_gates as f32 / total;
                                             ui.label(format!(
-                                                "strongest reading: {v:.1} {}",
-                                                moment.units()
+                                                "{:.1}°  ·  {} radials × {} gates · \
+                                                 {coverage_pct:.0}% coverage",
+                                                layer.elevation_deg,
+                                                layer.radial_count,
+                                                layer.gate_count
                                             ));
-                                        }
-                                        match (layer.scan_start, layer.scan_end) {
-                                            (Some(a), Some(b)) if a != b => {
+                                            if let Some(v) = layer.max_value {
                                                 ui.label(format!(
-                                                    "scanned {} – {} UTC",
-                                                    a.format("%H:%M:%S"),
-                                                    b.format("%H:%M:%S")
+                                                    "   strongest reading: {v:.1} {}",
+                                                    moment.units()
                                                 ));
                                             }
-                                            (Some(a), _) => {
-                                                ui.label(format!(
-                                                    "scanned {} UTC",
-                                                    a.format("%H:%M:%S")
-                                                ));
-                                            }
-                                            _ => {
-                                                ui.weak("no per-radial timestamps");
+                                            match (layer.scan_start, layer.scan_end) {
+                                                (Some(a), Some(b)) if a != b => {
+                                                    ui.label(format!(
+                                                        "   scanned {} – {} UTC",
+                                                        a.format("%H:%M:%S"),
+                                                        b.format("%H:%M:%S")
+                                                    ));
+                                                }
+                                                (Some(a), _) => {
+                                                    ui.label(format!(
+                                                        "   scanned {} UTC",
+                                                        a.format("%H:%M:%S")
+                                                    ));
+                                                }
+                                                _ => {
+                                                    ui.weak("   no per-radial timestamps");
+                                                }
                                             }
                                         }
                                         if ui.small_button("Clear selection").clicked() {
-                                            view.map_3d.selected_layer_elev = None;
+                                            view.map_3d.selected_layer_elevs.clear();
                                         }
                                     });
                             }
                         } else {
                             ui.weak("Vertical and Opacity above shape the resampled volume.");
-                            if view.map_3d.representation == Map3dRepresentation::SmoothVolume {
+                            // `SmoothDebris`'s inverted-CC volume has no floor of its own here —
+                            // low CC is the interesting case there, not high — so only the two
+                            // plain "high is interesting" representations get a Denoise row, each
+                            // against its own floor field so switching between them never carries
+                            // one moment's number into another's units.
+                            let denoise_field = match view.map_3d.representation {
+                                Map3dRepresentation::SmoothVolume => Some((
+                                    &mut view.map_3d.reflectivity_floor_dbz,
+                                    Moment::Reflectivity.value_range(),
+                                    " dBZ",
+                                )),
+                                Map3dRepresentation::SmoothSpectrumWidth => Some((
+                                    &mut view.map_3d.sw_floor_ms,
+                                    Moment::SpectrumWidth.value_range(),
+                                    " m/s",
+                                )),
+                                Map3dRepresentation::SmoothDebris
+                                | Map3dRepresentation::ObservedSweeps => None,
+                            };
+                            if let Some((floor, (lo, hi), suffix)) = denoise_field {
                                 ui.horizontal(|ui| {
                                     ui.checkbox(&mut view.map_3d.denoise_enabled, "Denoise")
                                         .on_hover_text(
-                                            "Hide light rain and noise below the floor so \
-                                             storm cores stand alone",
+                                            "Hide weak values below the floor so the \
+                                             interesting structure stands alone",
                                         );
                                     if view.map_3d.denoise_enabled {
-                                        let (lo, hi) = Moment::Reflectivity.value_range();
-                                        ui.add(
-                                            egui::Slider::new(
-                                                &mut view.map_3d.reflectivity_floor_dbz,
-                                                lo..=hi,
-                                            )
-                                            .suffix(" dBZ"),
-                                        );
+                                        ui.add(egui::Slider::new(floor, lo..=hi).suffix(suffix));
                                     }
                                 });
                             }
@@ -19339,38 +19424,18 @@ mod tests {
     }
 }
 
-/// The archive-day control inside the LIVE/ARCHIVE badge menu. `Some` on the frame the user
-/// picks a new day.
-///
-/// Native gets a calendar. The web build does not: the picker widget and the `jiff` date type
-/// it takes cost about 120 KB gzipped, which is a real share of the wasm budget to spend on a
-/// convenience, and a typed date reaches 1991 just as directly. Everything else about the menu
-/// — the carets, the UTC-day caveat — is the same on both.
-#[cfg(not(target_arch = "wasm32"))]
-fn archive_day_input(ui: &mut egui::Ui, date: chrono::NaiveDate) -> Option<chrono::NaiveDate> {
-    let mut picked = to_jiff(date);
-    let changed = ui
-        .add(
-            egui_extras::DatePickerButton::new(&mut picked)
-                .id_salt("archive-day")
-                .format("%Y-%m-%d")
-                .highlight_weekends(false),
-        )
-        .on_hover_text("Archive days are UTC days — the S3 buckets are bucketed that way")
-        .changed();
-    changed.then(|| from_jiff(picked)).flatten()
-}
-
-/// Web: type the day instead. The buffer lives in egui's own memory rather than app state,
-/// because a half-typed date is not something the app has any use for.
-#[cfg(target_arch = "wasm32")]
-fn archive_day_input(ui: &mut egui::Ui, date: chrono::NaiveDate) -> Option<chrono::NaiveDate> {
+/// Type-in half of the archive-day control: `YYYY-MM-DD`, committed only on a complete,
+/// parseable date — otherwise every keystroke mid-typing would send the timeline somewhere. The
+/// buffer lives in egui's own memory rather than app state, because a half-typed date is not
+/// something the app has any use for.
+fn archive_day_text_input(ui: &mut egui::Ui, date: chrono::NaiveDate) -> Option<chrono::NaiveDate> {
     let id = egui::Id::new("archive-day-text");
     let shown = date.format("%Y-%m-%d").to_string();
     let mut buf: String = ui
         .data_mut(|d| d.get_temp(id))
         .unwrap_or_else(|| shown.clone());
-    // Someone else moved the day (a caret, a deep link): follow it rather than argue.
+    // Someone else moved the day (a caret, the calendar button, a deep link): follow it rather
+    // than argue.
     if !buf.starts_with(&shown[..4]) && chrono::NaiveDate::parse_from_str(&buf, "%Y-%m-%d").is_ok()
     {
         buf = shown.clone();
@@ -19389,9 +19454,40 @@ fn archive_day_input(ui: &mut egui::Ui, date: chrono::NaiveDate) -> Option<chron
         .ok()
         .filter(|d| *d != date);
     ui.data_mut(|d| d.insert_temp(id, buf));
-    // Only commit on a complete, parseable date — otherwise every keystroke mid-typing would
-    // send the timeline somewhere.
     resp.changed().then_some(out).flatten()
+}
+
+/// The archive-day control inside the LIVE/ARCHIVE badge menu. `Some` on the frame the user
+/// picks a new day.
+///
+/// Native gets a calendar button *and* a typed field beside it: a calendar is fine for "a few
+/// days back" but painful for "reach a specific day in 1991" one click at a time, and a typed
+/// date reaches either just as directly. The web build gets the typed field alone — the calendar
+/// widget and the `jiff` date type it takes cost about 120 KB gzipped, a real share of the wasm
+/// budget to spend on a shortcut the text field already covers. Everything else about the menu
+/// — the carets, the UTC-day caveat — is the same on both.
+#[cfg(not(target_arch = "wasm32"))]
+fn archive_day_input(ui: &mut egui::Ui, date: chrono::NaiveDate) -> Option<chrono::NaiveDate> {
+    let mut picked = to_jiff(date);
+    let from_calendar = ui
+        .add(
+            egui_extras::DatePickerButton::new(&mut picked)
+                .id_salt("archive-day")
+                .format("%Y-%m-%d")
+                .highlight_weekends(false),
+        )
+        .on_hover_text("Archive days are UTC days — the S3 buckets are bucketed that way")
+        .changed()
+        .then(|| from_jiff(picked))
+        .flatten();
+    let from_typed = archive_day_text_input(ui, from_calendar.unwrap_or(date));
+    from_calendar.or(from_typed)
+}
+
+/// Web: the typed field alone. See [`archive_day_input`]'s doc comment for why.
+#[cfg(target_arch = "wasm32")]
+fn archive_day_input(ui: &mut egui::Ui, date: chrono::NaiveDate) -> Option<chrono::NaiveDate> {
+    archive_day_text_input(ui, date)
 }
 
 /// A chrono date as a jiff one, for `egui_extras`'s date picker.

@@ -73,8 +73,10 @@ pub struct ObservedGateInstance {
 /// Static observed-gate geometry uploaded only when volume/product/density changes.
 pub struct ObservedSweepUpload {
     pub instances: Vec<ObservedGateInstance>,
-    /// Radar/site, transfer-function and physical scaling controls; see `radar_observed.wgsl`.
-    pub uniform: [f32; 12],
+    /// Radar/site, transfer-function and physical scaling controls, followed by
+    /// `crate::view::MAX_HIGHLIGHTED_LAYERS` highlighted-elevation slots; see
+    /// `radar_observed.wgsl`.
+    pub uniform: [f32; 11 + crate::view::MAX_HIGHLIGHTED_LAYERS],
     pub lut: Vec<u8>,
 }
 
@@ -633,7 +635,11 @@ impl RenderResources {
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
-                        min_binding_size: NonZeroU64::new(48),
+                        min_binding_size: NonZeroU64::new(
+                            (std::mem::size_of::<f32>()
+                                * (11 + crate::view::MAX_HIGHLIGHTED_LAYERS))
+                                as u64,
+                        ),
                     },
                     count: None,
                 },
