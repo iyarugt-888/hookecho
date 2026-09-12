@@ -584,9 +584,21 @@ pub(crate) fn parse_attribute(d: &[u8], at: usize) -> Result<(String, Option<Val
     let data_at = c.p;
     // Anything we can't read as a number (strings, compounds) is still a valid attribute — we
     // just have no use for its value, but we DO need its length to find the next one.
+    //
+    // `checked_mul`, not a bare `.product()`: an attribute whose datatype this reader doesn't
+    // fully understand (seen on a GOES ABI coordinate variable's `DIMENSION_LIST`, an array of
+    // object references) can carry a dataspace this parser misreads as a handful of enormous
+    // dimensions. The element count is already best-effort — falling back to 1 alongside every
+    // other "couldn't figure this one out" case beats panicking the whole file open over one
+    // attribute neither this reader nor its caller has any use for.
     let count = parse_dataspace(d, space_at)
-        .map(|dims| dims.iter().map(|&n| n as usize).product::<usize>().max(1))
-        .unwrap_or(1);
+        .ok()
+        .and_then(|dims| {
+            dims.iter()
+                .try_fold(1usize, |acc, &n| acc.checked_mul(n as usize))
+        })
+        .unwrap_or(1)
+        .max(1);
     // Advance by the on-disk element width whatever the class is — string attributes
     // (`standard_name`, `units`, ODIM's `quantity`) sit between the numeric ones, and mis-measuring
     // them desyncs the whole dense-attribute walk.
