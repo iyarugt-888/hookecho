@@ -1,0 +1,37 @@
+Product: BR
+Units: dBZ
+Step: 5
+Scale: 1
+Offset: 0
+
+Color4: -25 0 0 0 0
+Color: 5 70 70 70
+Color: 7 87 69 110
+Color: 10 0 90 110
+Color: 12 0 166 169
+Color: 14.3 65 169 72
+Color: 19 3 142 14
+Color: 23 9 96 79 
+Color: 25 156 143 10    
+Color: 27 192 163 26
+Color: 27.6 214 191 49
+Color: 29 255 181 43
+Color: 32 255 213 0
+Color: 37 255 95 34
+Color: 39 200 70 0
+Color: 42 201 0 0
+Color: 50 125 0 0
+Color: 56 193 0 193
+Color: 60 255 125 255 
+Color: 65 97 0 87 ; dark bink
+Color: 69 0 0 0 ; black
+Color: 75 255 255 255
+Color: 80 0 244 255
+Color: 90 0 90 200
+Color: 95 0 0 200
+Color: 100 0 0 0
+
+; hi this is apoc
+; please like it
+
+; discord is apocalypsenow

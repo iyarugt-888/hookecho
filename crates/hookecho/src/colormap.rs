@@ -303,7 +303,7 @@ static BUILTINS: LazyLock<[ColorTable; Moment::ALL.len()]> = LazyLock::new(|| {
 ///
 /// ponytail: the alternates are `.pal` text like every other table, so they cost one array entry
 /// and no new code path — no `enum PaletteSource`, no migration.
-const ALT_SRC: [(&str, usize, &str); 4] = [
+const ALT_SRC: [(&str, usize, &str); 37] = [
     (
         "Colorblind-safe (viridis)",
         0, // Moment::Reflectivity
@@ -323,6 +323,175 @@ const ALT_SRC: [(&str, usize, &str); 4] = [
         "High contrast (velocity)",
         1, // Moment::Velocity
         include_str!("../data/colortables/VEL-HC.pal"),
+    ),
+    // Community reflectivity tables.
+    (
+        "Ben's BR",
+        0, // Moment::Reflectivity
+        include_str!("../data/colortables/Reflectivity/01_Bens_BR.pal"),
+    ),
+    (
+        "Apoc's BR",
+        0,
+        include_str!("../data/colortables/Reflectivity/02_Apocs_BR.pal"),
+    ),
+    (
+        "Viper HD",
+        0,
+        include_str!("../data/colortables/Reflectivity/03_Viper_HD.pal"),
+    ),
+    (
+        "2004 LaCrosse BR",
+        0,
+        include_str!("../data/colortables/Reflectivity/04_2004_LaCrosse_BR.pal"),
+    ),
+    (
+        "AWIPS II Experimental",
+        0,
+        include_str!("../data/colortables/Reflectivity/05_AWIPS_II_Experimental.pal"),
+    ),
+    (
+        "AWIPS II Official (Mod)",
+        0,
+        include_str!("../data/colortables/Reflectivity/06_AWIPS_II_Official_Mod.pal"),
+    ),
+    (
+        "WFO OUN",
+        0,
+        include_str!("../data/colortables/Reflectivity/07_WFO_OUN.pal"),
+    ),
+    (
+        "AWIPS NEON 2015",
+        0,
+        include_str!("../data/colortables/Reflectivity/08_AWIPS_NEON_2015.pal"),
+    ),
+    (
+        "ABC 33/40 Max Storm",
+        0,
+        include_str!("../data/colortables/Reflectivity/09_ABC3340_MAX_STORM.pal"),
+    ),
+    (
+        "GR3 v2",
+        0,
+        include_str!("../data/colortables/Reflectivity/10_GRL3V2.pal"),
+    ),
+    // Community velocity tables.
+    (
+        "Alpha",
+        1, // Moment::Velocity
+        include_str!("../data/colortables/Velocity/01_Alpha.pal"),
+    ),
+    (
+        "AWIPS (Evans)",
+        1,
+        include_str!("../data/colortables/Velocity/02_AWIPS_Evans.pal"),
+    ),
+    (
+        "Custom Velocity I",
+        1,
+        include_str!("../data/colortables/Velocity/03_Custom_BV_I.pal"),
+    ),
+    (
+        "AWIPS",
+        1,
+        include_str!("../data/colortables/Velocity/04_AWIPS.pal"),
+    ),
+    (
+        "GR3 v2",
+        1,
+        include_str!("../data/colortables/Velocity/05_GRL3V2.pal"),
+    ),
+    (
+        "MSBV",
+        1,
+        include_str!("../data/colortables/Velocity/06_MSBV.pal"),
+    ),
+    (
+        "Green/Yellow",
+        1,
+        include_str!("../data/colortables/Velocity/07_Green_Yellow.pal"),
+    ),
+    (
+        "MacDonald/Emmerson",
+        1,
+        include_str!("../data/colortables/Velocity/08_MacDonald_Emmerson.pal"),
+    ),
+    (
+        "Light Blue/Gray",
+        1,
+        include_str!("../data/colortables/Velocity/09_LightBlue_Gray.pal"),
+    ),
+    (
+        "Custom Velocity II",
+        1,
+        include_str!("../data/colortables/Velocity/10_Custom_BV_II.pal"),
+    ),
+    // Community spectrum width tables.
+    (
+        "Ben's SW",
+        2, // Moment::SpectrumWidth
+        include_str!("../data/colortables/Spectrum_Width/01_Bens_SW.pal"),
+    ),
+    (
+        "NWS Chicago SW",
+        2,
+        include_str!("../data/colortables/Spectrum_Width/02_NWS_Chicago_SW.pal"),
+    ),
+    (
+        "UMass SW",
+        2,
+        include_str!("../data/colortables/Spectrum_Width/03_UMass_SW.pal"),
+    ),
+    // Community correlation coefficient tables.
+    (
+        "Ben's CC",
+        6, // Moment::CorrelationCoefficient
+        include_str!("../data/colortables/Correlation_Coefficient/01_Bens_CC.pal"),
+    ),
+    (
+        "AWIPS RHO",
+        6,
+        include_str!("../data/colortables/Correlation_Coefficient/02_AWIPS_RHO.pal"),
+    ),
+    (
+        "Black CC",
+        6,
+        include_str!("../data/colortables/Correlation_Coefficient/03_Black_CC.pal"),
+    ),
+    (
+        "AWIPS RHO (Altered)",
+        6,
+        include_str!("../data/colortables/Correlation_Coefficient/04_AWIPS_RHO_Altered.pal"),
+    ),
+    (
+        "NWS Grand Rapids 2021",
+        6,
+        include_str!("../data/colortables/Correlation_Coefficient/05_NWS_Grand_Rapids_2021.pal"),
+    ),
+    (
+        "Kyle Noel",
+        6,
+        include_str!("../data/colortables/Correlation_Coefficient/06_Kyle_Noel.pal"),
+    ),
+    (
+        "NWS St. Louis",
+        6,
+        include_str!("../data/colortables/Correlation_Coefficient/07_NWS_St_Louis.pal"),
+    ),
+    (
+        "WKRN Nashville",
+        6,
+        include_str!("../data/colortables/Correlation_Coefficient/08_WKRN_Nashville.pal"),
+    ),
+    (
+        "Gag",
+        6,
+        include_str!("../data/colortables/Correlation_Coefficient/09_Gag.pal"),
+    ),
+    (
+        "Russian CC",
+        6,
+        include_str!("../data/colortables/Correlation_Coefficient/10_Russian_CC.pal"),
     ),
 ];
 
@@ -481,9 +650,10 @@ mod tests {
         // The hardcoded moment indices in ALT_SRC have to match Moment::index().
         assert_eq!(Moment::Reflectivity.index(), 0);
         assert_eq!(Moment::Velocity.index(), 1);
-        assert_eq!(alt_names(Moment::Reflectivity).count(), 2);
-        assert_eq!(alt_names(Moment::Velocity).count(), 2);
-        assert_eq!(alt_names(Moment::SpectrumWidth).count(), 0);
+        assert_eq!(alt_names(Moment::Reflectivity).count(), 12);
+        assert_eq!(alt_names(Moment::Velocity).count(), 12);
+        assert_eq!(alt_names(Moment::SpectrumWidth).count(), 3);
+        assert_eq!(alt_names(Moment::CorrelationCoefficient).count(), 10);
 
         let mut p = Palettes::default();
         let mut paths: [Option<std::path::PathBuf>; Moment::ALL.len()] = Default::default();
@@ -505,6 +675,17 @@ mod tests {
         // An unknown name keeps the default and says so rather than blanking the moment.
         assert!(p.errors[1].is_some());
         assert_eq!(p.table(Moment::Velocity), default_table(Moment::Velocity));
+    }
+
+    /// Every shipped alternate `.pal` has to actually parse — a malformed community-contributed
+    /// file would otherwise silently disappear from the menu (`resolve_builtin` swallows the
+    /// error via `.ok()`) instead of failing the build.
+    #[test]
+    fn every_built_in_alternate_parses() {
+        for (name, _moment_idx, src) in ALT_SRC.iter() {
+            let table = parse_pal(src).unwrap_or_else(|e| panic!("alternate {name:?}: {e}"));
+            assert!(!table.stops.is_empty(), "alternate {name:?} has no stops");
+        }
     }
 
     /// A v3-flavoured table: v3-only directives the parser does not know, around ordinary

@@ -8,6 +8,17 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### 33 community color tables join the built-in alternates
+
+- Reflectivity, velocity, spectrum width, and correlation coefficient each
+  gain a batch of community-designed `.pal` tables (Ben's BR, Viper HD, GR3
+  v2, AWIPS Evans, NWS St. Louis, Russian CC, and more) selectable from the
+  same alternate-palette picker as the existing colorblind-safe and
+  high-contrast tables — no new UI, since the picker already lists whatever
+  `colormap::alt_names` returns for the moment. Reflectivity and velocity
+  each go from 2 alternates to 12, spectrum width from 0 to 3, and
+  correlation coefficient gains its first 10.
+
 ### The timeline picks an exact time, not just a day
 
 - The archive day picker (Live/Archive badge → calendar) now sits beside a
