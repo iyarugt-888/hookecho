@@ -8,6 +8,18 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### TVS and TDS reject a couple of the false positives real hardware makes
+
+- Rotation-couplet (TVS) detection required nothing but velocity shear —
+  clear-air noise, sidelobe returns, and receiver glitches could clear the
+  gate-to-gate threshold with no storm anywhere nearby. It now requires real
+  reflectivity echo (a generous 20 dBZ floor) collocated with the shear, the
+  same collocation debris-signature detection already leaned on.
+- Debris-signature (TDS) detection no longer accepts a cluster confined to a
+  single azimuth — the shape a stuck bit or a receiver glitch paints down
+  one bad radial, not the shape an actual debris ball (which has some real
+  width) makes.
+
 ### The 3D map denoises light rain, and slices into the storm
 
 - The map-embedded "Smooth" reflectivity volume now hides everything weaker

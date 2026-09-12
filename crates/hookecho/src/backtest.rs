@@ -148,7 +148,8 @@ fn first_hit(scan: &level2::Scan, rule: &AlertRule, settings: &Settings) -> Opti
         }
         _ => {
             let vel = level2::bin_scan_opts(scan, Moment::Velocity, 0, true).ok()?;
-            wxdata::rotation::detect(&vel, 25.0, 15.0, 150.0, 3)
+            let z = level2::bin_scan(scan, Moment::Reflectivity, 0).ok()?;
+            wxdata::rotation::detect(&vel, &z, 25.0, 20.0, 15.0, 150.0, 3)
                 .iter()
                 .map(|h| Detection::with_strength(h.lon, h.lat, h.vrot_ms as f64 * 1.943_844))
                 .collect()

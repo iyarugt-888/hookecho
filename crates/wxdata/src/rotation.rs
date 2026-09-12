@@ -14,6 +14,12 @@
 //! a data glitch, or shallow non-tornadic shear as it is a real, established circulation.
 //! [`detect_volume`] runs the same detector across several tilts and raises a cell's confidence
 //! by how many of them show the couplet and how high the highest one reaches.
+//!
+//! Velocity alone has no idea whether there is a storm at a gate or clear air — a receiver
+//! glitch, a sidelobe return, or ordinary clear-air/AP noise can clear the gate-to-gate shear
+//! threshold just as easily as a real vortex. [`detect`] and [`detect_volume`] both take a
+//! collocated reflectivity sweep and require some real echo at the couplet before counting it,
+//! the same collocation `crate::tds` already leans on for its own moments.
 
 use crate::level2::{BinnedSweep, Moment};
 
@@ -74,15 +80,22 @@ fn dest(lon: f64, lat: f64, bearing_deg: f64, dist_km: f64) -> (f64, f64) {
 /// a few hundred metres apart, so ground clutter and ordinary turbulence routinely clear a 25 m/s
 /// gate-to-gate difference — a live KTLX clear-air sweep reported six "couplets", all within 8 km.
 ///
+/// `z` is the same-tilt reflectivity sweep; a gate pair only counts when at least one side shows
+/// real echo (`>= z_min` dBZ) — a generously low floor, since a TVS often sits at a storm's weaker
+/// flank rather than its core, but enough to reject a couplet with no storm behind it at all.
+///
 /// Feed this the *dealiased* sweep: folded velocity manufactures huge false gate-to-gate jumps.
 pub fn detect(
     vel: &BinnedSweep,
+    z: &BinnedSweep,
     g2g_min_ms: f32,
+    z_min: f32,
     min_range_km: f32,
     max_range_km: f32,
     min_gates: usize,
 ) -> Vec<CoupletHit> {
     debug_assert_eq!(vel.moment, Moment::Velocity);
+    debug_assert_eq!(z.moment, Moment::Reflectivity);
     if vel.az_bins == 0 || vel.gate_count == 0 {
         return Vec::new();
     }
@@ -113,6 +126,19 @@ pub fn detect(
             let dv = (a - b).abs();
             if dv < g2g_min_ms || a * b >= 0.0 {
                 continue; // too weak, or both gates on the same side of zero (not a couplet)
+            }
+            // Real echo has to be behind the shear somewhere, or this is clear-air noise or a
+            // receiver artifact wearing a couplet's shape, not rotation.
+            let zi = ((range - z.first_gate_km) / z.gate_interval_km).round() as i64;
+            if zi < 0 || zi as usize >= z.gate_count {
+                continue;
+            }
+            let z_here = z.data[az * z.gate_count + zi as usize];
+            let z_next = z.data[next * z.gate_count + zi as usize];
+            let has_echo = decode(z, z_here).is_some_and(|v| v >= z_min)
+                || decode(z, z_next).is_some_and(|v| v >= z_min);
+            if !has_echo {
+                continue;
             }
             let (lon, lat) = dest(rlon, rlat, az_deg, range as f64);
             let key = ((lon / CELL).round() as i64, (lat / CELL).round() as i64);
@@ -169,9 +195,13 @@ pub fn detect(
 ///
 /// A couplet seen at only one tilt is still returned (shallow, transient rotation happens), just
 /// without the confidence boost a taller column earns.
+///
+/// `sweeps` is (velocity, reflectivity) pairs, one per tilt, matching `tds::detect_volume`'s own
+/// (z, cc) pairing convention.
 pub fn detect_volume(
-    sweeps: &[BinnedSweep],
+    sweeps: &[(BinnedSweep, BinnedSweep)],
     g2g_min_ms: f32,
+    z_min: f32,
     min_range_km: f32,
     max_range_km: f32,
     min_gates: usize,
@@ -182,8 +212,8 @@ pub fn detect_volume(
     let mut cells: HashMap<(i64, i64), (usize, f64, f64, f64, f32, f32, usize, f32)> =
         HashMap::new();
 
-    for vel in sweeps {
-        for h in detect(vel, g2g_min_ms, min_range_km, max_range_km, min_gates) {
+    for (vel, z) in sweeps {
+        for h in detect(vel, z, g2g_min_ms, z_min, min_range_km, max_range_km, min_gates) {
             let key = ((h.lon / CELL).round() as i64, (h.lat / CELL).round() as i64);
             let w = h.gates as f64;
             let e = cells
@@ -297,9 +327,44 @@ mod tests {
         }
     }
 
+    /// A same-geometry reflectivity companion sweep, uniformly `dbz` — or the no-data sentinel
+    /// everywhere when `None`, standing in for clear air (or a corrupted/no-return gate).
+    fn z_sweep(elevation_deg: f32, dbz: Option<f32>) -> BinnedSweep {
+        let (az_bins, gate_count) = (720usize, 200usize);
+        let (lo, hi) = Moment::Reflectivity.value_range();
+        let data = match dbz {
+            Some(v) => {
+                let idx = (2.0 + (v - lo) / (hi - lo) * 253.0).round() as u8;
+                vec![idx; az_bins * gate_count]
+            }
+            None => vec![0u8; az_bins * gate_count],
+        };
+        BinnedSweep {
+            moment: Moment::Reflectivity,
+            az_bins,
+            gate_count,
+            data,
+            first_gate_km: 2.0,
+            gate_interval_km: 0.25,
+            radar_lat: 35.0,
+            radar_lon: -97.5,
+            elevation_deg,
+            value_min: lo,
+            value_max: hi,
+        }
+    }
+
     #[test]
     fn flags_adjacent_inbound_outbound() {
-        let hits = detect(&couplet_sweep(-30.0, 30.0, 0.0), 25.0, 5.0, 150.0, 3);
+        let hits = detect(
+            &couplet_sweep(-30.0, 30.0, 0.0),
+            &z_sweep(0.5, Some(45.0)),
+            25.0,
+            20.0,
+            5.0,
+            150.0,
+            3,
+        );
         assert!(!hits.is_empty(), "a ±30 m/s couplet should be flagged");
         let h = hits[0];
         assert!(
@@ -317,36 +382,58 @@ mod tests {
 
     #[test]
     fn ignores_weak_and_same_sign_shear() {
+        let z = z_sweep(0.5, Some(45.0));
         // Weak couplet: ±8 m/s is well under the 25 m/s criterion.
-        assert!(detect(&couplet_sweep(-8.0, 8.0, 0.0), 25.0, 5.0, 150.0, 3).is_empty());
+        assert!(detect(&couplet_sweep(-8.0, 8.0, 0.0), &z, 25.0, 20.0, 5.0, 150.0, 3).is_empty());
         // Strong shear but both sides inbound: convergence, not rotation.
-        assert!(detect(&couplet_sweep(-40.0, -5.0, -5.0), 25.0, 5.0, 150.0, 3).is_empty());
+        assert!(
+            detect(&couplet_sweep(-40.0, -5.0, -5.0), &z, 25.0, 20.0, 5.0, 150.0, 3).is_empty()
+        );
     }
 
     #[test]
     fn range_gates_exclude_far_and_near_couplets() {
         // The synthetic couplet sits ~12-17 km out.
         let s = couplet_sweep(-30.0, 30.0, 0.0);
+        let z = z_sweep(0.5, Some(45.0));
         assert!(
-            detect(&s, 25.0, 5.0, 8.0, 3).is_empty(),
+            detect(&s, &z, 25.0, 20.0, 5.0, 8.0, 3).is_empty(),
             "beyond the far gate"
         );
         assert!(
-            detect(&s, 25.0, 30.0, 150.0, 3).is_empty(),
+            detect(&s, &z, 25.0, 20.0, 30.0, 150.0, 3).is_empty(),
             "inside the near gate"
         );
     }
 
     #[test]
+    fn a_strong_shear_with_no_real_echo_is_not_flagged() {
+        // The same ±30 m/s couplet `flags_adjacent_inbound_outbound` accepts, but paired with a
+        // clear-air (no-data) reflectivity sweep instead of a real storm — exactly what a
+        // receiver glitch, sidelobe return, or clear-air/AP artifact looks like: strong apparent
+        // shear with no actual echo behind it.
+        let hits = detect(
+            &couplet_sweep(-30.0, 30.0, 0.0),
+            &z_sweep(0.5, None),
+            25.0,
+            20.0,
+            5.0,
+            150.0,
+            3,
+        );
+        assert!(hits.is_empty(), "no real echo behind the shear — not rotation");
+    }
+
+    #[test]
     fn a_couplet_seen_through_two_tilts_scores_higher_than_one() {
-        let one_tilt = [couplet_sweep_tilt(0.5, -30.0, 30.0, 0.0)];
+        let one_tilt = [(couplet_sweep_tilt(0.5, -30.0, 30.0, 0.0), z_sweep(0.5, Some(45.0)))];
         let two_tilts = [
-            couplet_sweep_tilt(0.5, -30.0, 30.0, 0.0),
-            couplet_sweep_tilt(1.5, -30.0, 30.0, 0.0),
+            (couplet_sweep_tilt(0.5, -30.0, 30.0, 0.0), z_sweep(0.5, Some(45.0))),
+            (couplet_sweep_tilt(1.5, -30.0, 30.0, 0.0), z_sweep(1.5, Some(45.0))),
         ];
 
-        let single = detect_volume(&one_tilt, 25.0, 5.0, 150.0, 3);
-        let double = detect_volume(&two_tilts, 25.0, 5.0, 150.0, 3);
+        let single = detect_volume(&one_tilt, 25.0, 20.0, 5.0, 150.0, 3);
+        let double = detect_volume(&two_tilts, 25.0, 20.0, 5.0, 150.0, 3);
         assert_eq!(single.len(), 1, "one hit from one tilt");
         assert_eq!(double.len(), 1, "the two tilts' hits merge into one column");
         assert_eq!(single[0].tilts, 1);
@@ -370,7 +457,14 @@ mod tests {
 
     #[test]
     fn detect_volume_still_reports_a_lone_single_tilt_hit() {
-        let hits = detect_volume(&[couplet_sweep_tilt(0.5, -30.0, 30.0, 0.0)], 25.0, 5.0, 150.0, 3);
+        let hits = detect_volume(
+            &[(couplet_sweep_tilt(0.5, -30.0, 30.0, 0.0), z_sweep(0.5, Some(45.0)))],
+            25.0,
+            20.0,
+            5.0,
+            150.0,
+            3,
+        );
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].tilts, 1);
         assert!(hits[0].gates > 0);
@@ -378,6 +472,6 @@ mod tests {
 
     #[test]
     fn detect_volume_of_nothing_is_nothing() {
-        assert!(detect_volume(&[], 25.0, 5.0, 150.0, 3).is_empty());
+        assert!(detect_volume(&[], 25.0, 20.0, 5.0, 150.0, 3).is_empty());
     }
 }

@@ -6878,14 +6878,21 @@ impl HookEchoApp {
         let Some(vol) = self.views[idx].volume.as_mut() else {
             return Vec::new();
         };
-        let tilts: Vec<_> = vol.velocity_tilts_dealiased().into_iter().take(TILTS).collect();
-        let Some(first) = tilts.first() else {
+        let vel_tilts = vol.velocity_tilts_dealiased();
+        let z_tilts = vol.moment_tilts(Moment::Reflectivity);
+        // Paired with reflectivity so `detect_volume` can require real echo behind the shear
+        // (see the module doc comment) — the same (moment, moment) zip `compute_tds_uncached`
+        // uses for its own (z, cc) pairing.
+        let pairs: Vec<_> = vel_tilts.into_iter().zip(z_tilts).take(TILTS).collect();
+        let Some((first, _)) = pairs.first() else {
             return Vec::new();
         };
         let (radar_lon, radar_lat) = (first.radar_lon, first.radar_lat);
-        // 25 m/s gate-to-gate is the legacy weak-TVS criterion; 15-150 km is the usable range band
-        // (nearer, clutter fakes couplets; farther, the beam is too high and too coarsely sampled).
-        let hits = wxdata::rotation::detect_volume(&tilts, 25.0, 15.0, 150.0, 3);
+        // 25 m/s gate-to-gate is the legacy weak-TVS criterion; 20 dBZ is a generous echo floor
+        // (real rotation happens at a storm's weaker flank, not just its core); 15-150 km is the
+        // usable range band (nearer, clutter fakes couplets; farther, the beam is too high and
+        // too coarsely sampled).
+        let hits = wxdata::rotation::detect_volume(&pairs, 25.0, 20.0, 15.0, 150.0, 3);
         let now_active = !hits.is_empty();
         if now_active && !self.rot_active {
             let h = hits[0]; // sorted strongest-first (by confidence, now that height/depth count)

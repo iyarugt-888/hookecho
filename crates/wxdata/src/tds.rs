@@ -81,8 +81,8 @@ pub fn detect(
     // Accumulate candidates into ~0.04° (~4 km) geographic cells.
     const CELL: f64 = 0.04;
     use std::collections::HashMap;
-    // gates, sum_lon, sum_lat, sum_range, min_cc
-    let mut cells: HashMap<(i64, i64), (usize, f64, f64, f64, f32)> = HashMap::new();
+    // gates, sum_lon, sum_lat, sum_range, min_cc, az_min, az_max
+    let mut cells: HashMap<(i64, i64), (usize, f64, f64, f64, f32, i64, i64)> = HashMap::new();
     let (rlon, rlat) = (cc.radar_lon as f64, cc.radar_lat as f64);
 
     for az in 0..cc.az_bins {
@@ -111,20 +111,29 @@ pub fn detect(
             }
             let (lon, lat) = dest(rlon, rlat, az_deg, range as f64);
             let key = ((lon / CELL).round() as i64, (lat / CELL).round() as i64);
-            let e = cells.entry(key).or_insert((0, 0.0, 0.0, 0.0, 1.05));
+            let e = cells
+                .entry(key)
+                .or_insert((0, 0.0, 0.0, 0.0, 1.05, i64::MAX, i64::MIN));
             e.0 += 1;
             e.1 += lon;
             e.2 += lat;
             e.3 += range as f64;
             e.4 = e.4.min(cc_val);
+            e.5 = e.5.min(az as i64);
+            e.6 = e.6.max(az as i64);
         }
     }
 
     let elev = cc.elevation_deg as f64;
     let mut hits: Vec<TdsHit> = cells
         .into_values()
-        .filter(|(n, ..)| *n >= min_gates)
-        .map(|(n, slon, slat, srange, min_cc)| {
+        // A cluster confined to one azimuth is a single bad radial — a stuck bit or a receiver
+        // glitch paints a solid low-CC/high-Z streak the length of the beam, which `min_gates`
+        // alone cannot tell apart from a real debris ball spanning many range gates. A genuine
+        // debris ball, being an actual 3D object with some width, almost always paints across at
+        // least two of the ~0.5° azimuth samples this range of gates spans.
+        .filter(|(n, _, _, _, _, az_min, az_max)| *n >= min_gates && az_max > az_min)
+        .map(|(n, slon, slat, srange, min_cc, ..)| {
             let range_km = (srange / n as f64) as f32;
             let top_km = crate::xsection::beam_height_km(range_km as f64, elev) as f32;
             // No vertical evidence at all from one tilt — gate count is the only signal, so this
@@ -315,6 +324,24 @@ mod tests {
             40..60,
         );
         assert!(detect(&z, &cc, 0.80, 40.0, 150.0, 4).is_empty());
+    }
+
+    #[test]
+    fn a_single_bad_radial_is_not_a_debris_ball() {
+        // Same CC/Z values as `flags_low_cc_in_high_z`, but confined to one azimuth and stretched
+        // across many range gates instead — exactly the shape a stuck-bit or receiver glitch
+        // paints down a single radial, and exactly what a real debris ball (which has some actual
+        // width) does not look like.
+        let cc_hot = idx(Moment::CorrelationCoefficient, 0.55);
+        let cc_cold = idx(Moment::CorrelationCoefficient, 0.98);
+        let z_hot = idx(Moment::Reflectivity, 52.0);
+        let z_cold = idx(Moment::Reflectivity, 20.0);
+        let cc = sweep(Moment::CorrelationCoefficient, cc_hot, cc_cold, 100..101, 40..80);
+        let z = sweep(Moment::Reflectivity, z_hot, z_cold, 100..101, 40..80);
+        assert!(
+            detect(&z, &cc, 0.80, 40.0, 150.0, 4).is_empty(),
+            "a one-azimuth streak should read as a bad radial, not debris"
+        );
     }
 
     /// A synthetic debris ball at one (z, cc) tilt pair, at `elev`. Deliberately small (2 km

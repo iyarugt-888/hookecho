@@ -886,7 +886,7 @@ pub fn run_rules(site: &str) -> anyhow::Result<()> {
         100.0,
     );
     // Same thresholds the app's own couplet layer uses, so the verdict matches the app.
-    let couplets = wxdata::rotation::detect(&vel, 25.0, 15.0, 150.0, 3);
+    let couplets = wxdata::rotation::detect(&vel, &z, 25.0, 20.0, 15.0, 150.0, 3);
     println!(
         "detections: {} TDS, {} TBSS, {} ZDR columns, {} couplets",
         tds.len(),
@@ -948,15 +948,17 @@ pub fn run_rotation(site: &str) -> anyhow::Result<()> {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
-    let vel = rt.block_on(async {
+    let (vel, z) = rt.block_on(async {
         let scan = level2::download_latest_scan(site, chrono::Utc::now().date_naive()).await?;
-        level2::bin_scan_opts(&scan, Moment::Velocity, 0, true)
+        let vel = level2::bin_scan_opts(&scan, Moment::Velocity, 0, true)?;
+        let z = level2::bin_scan(&scan, Moment::Reflectivity, 0)?;
+        anyhow::Ok((vel, z))
     })?;
     println!(
         "{site}: V {}x{} @ {:.2}°",
         vel.az_bins, vel.gate_count, vel.elevation_deg
     );
-    let hits = wxdata::rotation::detect(&vel, 25.0, 15.0, 150.0, 3);
+    let hits = wxdata::rotation::detect(&vel, &z, 25.0, 20.0, 15.0, 150.0, 3);
     println!(
         "rotation couplets (>=25 m/s gate-to-gate, 15-150 km, >=3 gates): {}",
         hits.len()
