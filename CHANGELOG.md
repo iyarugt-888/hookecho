@@ -8,6 +8,20 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### The layers/alerts panel no longer gets stuck hidden
+
+- The floating layers/alerts panel steps aside whenever a drawer page
+  (Sounding, Settings, X-section, Volume 3D, …) is open, and comes back
+  once it closes. That "comes back" relied on the drawer noticing a page
+  had closed, which it only ever checked when *some other* page called in
+  to ask — so closing the *last* open page left nothing to trigger the
+  check, and the drawer considered itself permanently open. The panel
+  then stayed hidden until a restart, which is what the alerts panel
+  being "stuck" or "disappearing" actually was — alerts themselves kept
+  fetching fine underneath it the whole time. The drawer now runs that
+  same check unconditionally, once a frame, regardless of whether any
+  page is open.
+
 ### GOES satellite IR, read straight from the source
 
 - A new **GOES-East IR satellite** layer (National weather) reads ABI Level

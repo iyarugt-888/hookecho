@@ -32,7 +32,10 @@ pub struct Drawer {
     /// Titles that asked to draw this frame; a page that closed itself simply stops asking.
     seen: Vec<String>,
     /// Which frame `seen` belongs to, so the stack can prune itself without the app calling us.
-    frame: u64,
+    /// `None` before the first call: `egui`'s own pass counter also starts at 0, and comparing
+    /// against a `0` sentinel let the very first call's transition go unrecorded, one real frame
+    /// too late, whenever it landed on pass 0.
+    frame: Option<u64>,
     /// App time the drawer last went from empty to showing something, so the slide-in animates
     /// from where the drawer actually came from rather than from wherever egui last latched it.
     opened_at: f64,
@@ -46,6 +49,26 @@ impl Drawer {
     /// and the drawer is where the panel just sent the user.
     pub fn is_open(&self) -> bool {
         !self.stack.is_empty()
+    }
+
+    /// Call once per frame, unconditionally, after every page has had its chance to call
+    /// [`page`](Self::page)/[`page_sized`](Self::page_sized).
+    ///
+    /// `page_sized` prunes its own stack when a *different* page calls it in a new frame — but
+    /// that self-healing needs *something* to still be calling in, and the case that most needs
+    /// pruning is exactly the one where nothing is: the last open page closes, so nothing calls
+    /// `page_sized` again, so its prune never runs, so `stack` keeps that page's title forever.
+    /// `is_open()` then reads `true` forever, and the floating layers/alerts panel — which steps
+    /// aside whenever a page is open — stays hidden until the app restarts and the drawer resets.
+    /// This is the same prune, just driven by a call the app makes regardless of whether any page
+    /// is open, so the empty case gets cleaned up too.
+    pub fn end_frame(&mut self, ctx: &egui::Context) {
+        let frame = ctx.cumulative_pass_nr();
+        if Some(frame) != self.frame {
+            self.stack.retain(|t| self.seen.contains(t));
+            self.seen.clear();
+            self.frame = Some(frame);
+        }
     }
 
     /// The page on top, if any. What a workspace saves; the pages underneath it are a back-stack,
@@ -89,13 +112,9 @@ impl Drawer {
         if !*open {
             return None;
         }
-        let frame = ctx.cumulative_pass_nr();
-        if frame != self.frame {
-            // A page that stopped drawing has closed itself (its own ✕, a hotkey, an action).
-            self.stack.retain(|t| self.seen.contains(t));
-            self.seen.clear();
-            self.frame = frame;
-        }
+        // A page that stopped drawing has closed itself (its own ✕, a hotkey, an action) — see
+        // `end_frame`'s doc comment for the case this alone can't catch.
+        self.end_frame(ctx);
         self.seen.push(title.to_string());
         if self.stack.is_empty() {
             self.opened_at = ctx.input(|i| i.time);
@@ -231,4 +250,101 @@ fn rects(ctx: &egui::Context, width: f32) -> (Rect, Rect) {
     let head = Rect::from_min_size(pos2(x, top), vec2(w, HEADER_H));
     let body = Rect::from_min_max(pos2(x, head.bottom() + 4.0), pos2(x + w, bottom));
     (head, body)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Run one simulated frame: `f` gets a fresh pass to make whatever `page_sized` calls it
+    /// wants, then `end_frame` runs, matching the app's own unconditional per-frame call.
+    fn tick(ctx: &egui::Context, d: &mut Drawer, f: impl FnOnce(&egui::Context, &mut Drawer)) {
+        ctx.begin_pass(Default::default());
+        f(ctx, d);
+        d.end_frame(ctx);
+        let _ = ctx.end_pass();
+    }
+
+    /// The bug this app actually hit: a page closes itself (its own ✕, a hotkey), nothing else is
+    /// open, so nothing calls `page`/`page_sized` again — and `is_open()` stayed `true` forever,
+    /// permanently hiding the floating layers/alerts panel that steps aside for an open page.
+    /// `end_frame` is the unconditional per-frame call that catches the case `page_sized`'s own
+    /// self-pruning can't: it only runs when *something* is still calling in.
+    ///
+    /// Convergence takes one extra quiet frame beyond the one the page stops calling in — `seen`
+    /// reflects the frame the *previous* prune consumed, not the one just finished — which is a
+    /// couple of milliseconds at any real frame rate, not the "stuck until restart" this is
+    /// actually guarding against.
+    #[test]
+    fn a_page_that_stops_asking_is_eventually_dropped_with_nothing_left_open() {
+        let mut d = Drawer::default();
+        let ctx = egui::Context::default();
+
+        tick(&ctx, &mut d, |ctx, d| {
+            let mut open = true;
+            let _ = d.page_sized(ctx, "Test", &mut open, false, 300.0, egui::Window::new("Test"));
+        });
+        assert!(d.is_open(), "the page claimed the stack");
+
+        // The page closed itself; the caller's own `open` flag now gates it out, so nothing calls
+        // `page_sized` from here on — only `end_frame` runs, inside `tick`.
+        tick(&ctx, &mut d, |_, _| {});
+        tick(&ctx, &mut d, |_, _| {});
+        assert!(!d.is_open(), "two quiet frames is enough to notice nothing is open");
+    }
+
+    /// The back-stack feature this module's doc comment describes: opening a second page hides
+    /// the first without closing it, and closing the second eventually brings the first back.
+    #[test]
+    fn opening_a_second_page_hides_the_first_without_closing_it() {
+        let mut d = Drawer::default();
+        let ctx = egui::Context::default();
+        let mut open_a = true;
+
+        // A alone.
+        let mut a_top = false;
+        tick(&ctx, &mut d, |ctx, d| {
+            a_top = d
+                .page_sized(ctx, "A", &mut open_a, false, 300.0, egui::Window::new("A"))
+                .is_some();
+        });
+        assert!(a_top, "A is alone, so it's on top");
+
+        // B opens on top of it (both now ask every frame).
+        let mut open_b = true;
+        tick(&ctx, &mut d, |ctx, d| {
+            let _ = d.page_sized(ctx, "A", &mut open_a, false, 300.0, egui::Window::new("A"));
+            let _ = d.page_sized(ctx, "B", &mut open_b, false, 300.0, egui::Window::new("B"));
+        });
+
+        // Steady state: both still ask, B stays on top, A stays open underneath.
+        let (mut a_shown, mut b_shown) = (true, false);
+        tick(&ctx, &mut d, |ctx, d| {
+            a_shown = d
+                .page_sized(ctx, "A", &mut open_a, false, 300.0, egui::Window::new("A"))
+                .is_some();
+            b_shown = d
+                .page_sized(ctx, "B", &mut open_b, false, 300.0, egui::Window::new("B"))
+                .is_some();
+        });
+        assert!(!a_shown, "A is hidden under B");
+        assert!(b_shown, "B is on top");
+        assert!(open_a, "A is still open, just not showing");
+
+        // B closes itself; its own `open` flag now gates it out, so only A calls in. Two quiet
+        // frames (from B's perspective) for the same reason emptying the stack takes two above.
+        for _ in 0..2 {
+            tick(&ctx, &mut d, |ctx, d| {
+                let _ = d.page_sized(ctx, "A", &mut open_a, false, 300.0, egui::Window::new("A"));
+            });
+        }
+        let mut a_back_on_top = false;
+        tick(&ctx, &mut d, |ctx, d| {
+            a_back_on_top = d
+                .page_sized(ctx, "A", &mut open_a, false, 300.0, egui::Window::new("A"))
+                .is_some();
+        });
+        assert!(a_back_on_top, "B closed; A is back on top");
+        assert!(d.is_open());
+    }
 }

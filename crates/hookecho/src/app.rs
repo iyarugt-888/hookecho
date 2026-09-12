@@ -18725,6 +18725,14 @@ impl eframe::App for HookEchoApp {
 
         self.crash_report_window(ctx);
 
+        // Unconditional, every frame, regardless of which (if any) drawer-hosted page ran above:
+        // the self-pruning inside `Drawer::page`/`page_sized` only fires when *some* page calls
+        // it, which is exactly the property the empty case doesn't have. Without this, closing
+        // the last open page (Sounding, Settings, X-section, …) left the drawer's stack holding
+        // its title forever, `Drawer::is_open()` reading true forever, and the floating
+        // layers/alerts panel — which steps aside whenever a page is open — hidden until restart.
+        self.drawer.end_frame(ctx);
+
         // Idle heartbeat so clocks (volume age, countdowns) tick without input. Data arrivals and
         // animations (pulse, banners) request faster repaints on their own. Slower on Android to
         // spare the battery — nothing on screen changes faster than this between frames.
