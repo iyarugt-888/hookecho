@@ -32,6 +32,13 @@ pub struct Blob {
 /// likely to be a bright patch of a squall line's leading edge as a storm.
 const MIN_AREA_KM2: f64 = 8.0;
 
+/// Hard cap on cells returned from one sweep. A real severe-weather day has a handful of storms
+/// worth tracking — a few dozen is already generous. Without a cap, a sweep contaminated by
+/// widespread anomalous propagation or biological scatter above `min_dbz` could return hundreds
+/// of spurious "cells", and [`associate`]'s per-frame cost is quadratic in cell count: exactly the
+/// shape of input that turned this layer into a multi-second UI freeze.
+const MAX_CELLS: usize = 64;
+
 /// Decode a binned `u8` gate index back to dBZ, or `None` for below-threshold / range-folded
 /// gates. Same encoding as [`crate::rotation`] and [`crate::tds`].
 fn decode(sweep: &BinnedSweep, idx: u8) -> Option<f32> {
@@ -136,6 +143,11 @@ pub fn find_cells(sweep: &BinnedSweep, min_dbz: f32) -> Vec<Blob> {
                 });
             }
         }
+    }
+    if out.len() > MAX_CELLS {
+        // Biggest first, so the cap keeps actual storms over a field of small clutter/AP patches.
+        out.sort_unstable_by(|a, b| b.area_km2.total_cmp(&a.area_km2));
+        out.truncate(MAX_CELLS);
     }
     out
 }
@@ -276,6 +288,56 @@ mod tests {
             value_min: -32.0,
             value_max: 95.0,
         }
+    }
+
+    /// `n` small, separated patches spaced evenly around the full circle — the shape a field of
+    /// anomalous-propagation or biological-scatter clutter makes, as against one or two real
+    /// storms. Each patch clears `MIN_AREA_KM2` on its own; a 1-bin gap between patches keeps the
+    /// flood fill from merging neighbours.
+    fn sweep_with_many_cells(n: usize) -> BinnedSweep {
+        let (az_bins, gate_count) = (720usize, 200usize);
+        let mut data = vec![0u8; az_bins * gate_count];
+        let idx = ((45.0 + 32.0) / 127.0 * 253.0 + 2.0) as u8;
+        let gate_center = 120;
+        let spacing = az_bins / n;
+        assert!(spacing >= 8, "patches would merge at this density");
+        for i in 0..n {
+            let az_center = i * spacing;
+            for az in 0..az_bins {
+                let daz = ((az + az_bins - az_center) % az_bins)
+                    .min((az_center + az_bins - az) % az_bins);
+                if daz > 3 {
+                    continue;
+                }
+                for g in gate_center - 8..=gate_center + 8 {
+                    data[az * gate_count + g] = idx;
+                }
+            }
+        }
+        BinnedSweep {
+            moment: Moment::Reflectivity,
+            az_bins,
+            gate_count,
+            data,
+            first_gate_km: 2.0,
+            gate_interval_km: 0.25,
+            radar_lat: 35.0,
+            radar_lon: -97.0,
+            elevation_deg: 0.5,
+            value_min: -32.0,
+            value_max: 95.0,
+        }
+    }
+
+    #[test]
+    fn a_field_of_clutter_is_capped_rather_than_returned_whole() {
+        let sweep = sweep_with_many_cells(90);
+        let cells = find_cells(&sweep, 40.0);
+        assert_eq!(
+            cells.len(),
+            MAX_CELLS,
+            "90 separated patches should be capped at MAX_CELLS, not returned whole"
+        );
     }
 
     #[test]

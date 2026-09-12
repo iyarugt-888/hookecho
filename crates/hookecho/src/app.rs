@@ -6817,17 +6817,33 @@ impl HookEchoApp {
     /// decode cache, so it needs no extra downloads and silently produces nothing on a fresh boot
     /// with one volume in hand.
     fn compute_local_tracks(&mut self) -> Vec<wxdata::celltrack::Track> {
+        // A bounded trailing window, not "everything from frame 0 to the playhead": association
+        // only ever looks at a track's *last* point and `fit_motion` only ever fits the last
+        // `FIT_POINTS` (6) of them, so frames older than this window contribute nothing to the
+        // answer — only cost. Recomputing the full history on every volume tick made this scale
+        // with how long the session (or the scrubbed-to archive day) had been running, freezing
+        // the UI thread for whole seconds once a live session or a deep timeline scrub had
+        // accumulated a few dozen volumes, and it never got cheaper again for the rest of the
+        // session. 16 volumes is over an hour at a typical VCP, comfortably more than
+        // `FIT_POINTS` needs.
+        const WINDOW_FRAMES: usize = 16;
         let key = self.volume_key(self.active);
         if let Some((k, v)) = &self.tracks_cache {
             if *k == key {
                 return v.clone();
             }
         }
+        let playhead = self.views[self.active].timeline.playhead;
         let frames: Vec<_> = self.views[self.active]
             .timeline
             .frames
             .iter()
-            .take(self.views[self.active].timeline.playhead + 1)
+            .take(playhead + 1)
+            .rev()
+            .take(WINDOW_FRAMES)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
             .filter_map(|id| id.date_time().map(|t| (id.name().to_string(), t)))
             .filter(|(name, _)| self.scan_cache.contains(name))
             .collect();

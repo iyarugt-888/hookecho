@@ -8,7 +8,26 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
-### The Observed 3D volume fills its own gaps, and its tilts are clickable
+### Local cell tracks no longer freeze the app, and weather alerts no longer time out
+
+- Local cell tracks (the reflectivity-derived storm tracking used at sites
+  with no Level 3 SCIT product) recomputed from the timeline's very first
+  frame up through the current playhead on every volume tick, with no cap
+  on how many tracks could pile up along the way — a long live session or
+  a timeline scrubbed deep into an archive day turned this into seconds of
+  frozen UI on every single refresh, and it never got cheaper for the rest
+  of the session. It now looks at a bounded trailing window of volumes
+  (16, comfortably more than the 6 the motion fit itself uses), and the
+  underlying cell finder now caps how many cells one sweep can report so a
+  field of anomalous-propagation or biological-scatter clutter can't turn
+  into thousands of "cells" for it to track.
+- Weather alerts resolved zone-only advisories (heat, winter weather,
+  marine — anything without an inline warning polygon) one zone at a time,
+  awaited sequentially. A cold zone-geometry cache with many such alerts
+  active at once — exactly the days the feed matters most — could take
+  long enough to run past the alerts fetch's own timeout, which read as
+  "Weather alerts unavailable" for no reason but the fetch's own shape.
+  Zone geometries now fetch 16 at a time instead of one after another.
 
 - Adjacent tilts in the map's "Observed" 3D mode used to show real gaps
   between them — accurate to what the radar actually measured, but a

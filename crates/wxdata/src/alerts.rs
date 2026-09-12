@@ -7,6 +7,12 @@
 use crate::overlay::{
     for_each_feature, polygons_of, AlertInfo, FeatureKind, GeoFeature, StormMotion,
 };
+use futures_util::StreamExt;
+
+/// How many zone-geometry fetches [`resolve_zone_alerts`] runs at once. Small GeoJSON responses,
+/// so this can run well past `sounding.rs`'s GRIB-byte-range concurrency without leaning on
+/// api.weather.gov any harder per request — it just stops queuing them one at a time.
+const ZONE_FETCH_CONCURRENCY: usize = 16;
 
 const ALERTS_URL: &str = "https://api.weather.gov/alerts/active";
 /// weather.gov requires a User-Agent identifying the app + a contact.
@@ -341,14 +347,30 @@ async fn fetch_zone_geometry(client: &reqwest::Client, url: &str) -> Vec<Vec<Vec
     polys
 }
 
+/// One zone left to resolve: enough of its parent alert's rendering info to build a [`GeoFeature`]
+/// once the geometry comes back.
+struct ZoneJob {
+    zurl: String,
+    kind: FeatureKind,
+    rgb: [u8; 3],
+    detail: String,
+    alert: AlertInfo,
+}
+
 /// Resolve zone-only alerts (no inline polygon) in `body` into features via their `affectedZones`
 /// URLs. Alerts whose id is already in `seen` are skipped (dedup across the nationwide + scoped
 /// passes); every resolved id is added to `seen`. `budget` caps zone fetches so a burst can't fan
 /// out into thousands of requests.
+///
+/// Fetches up to [`ZONE_FETCH_CONCURRENCY`] zones at once rather than one round trip at a time — a
+/// cold zone-geometry cache (first run, or the first heat/winter/marine advisory of the season)
+/// paying for `budget` sequential fetches routinely took long enough to run past the overlay
+/// fetch's own timeout, which read as "weather alerts unavailable" on exactly the days with the
+/// most zone-only alerts active to resolve.
 async fn resolve_zone_alerts(
     client: &reqwest::Client,
     body: &str,
-    mut budget: usize,
+    budget: usize,
     seen: &mut std::collections::HashSet<String>,
 ) -> Vec<GeoFeature> {
     let Ok(v) = serde_json::from_str::<serde_json::Value>(body) else {
@@ -357,7 +379,7 @@ async fn resolve_zone_alerts(
     let Some(feats) = v.get("features").and_then(|f| f.as_array()) else {
         return Vec::new();
     };
-    let mut out = Vec::new();
+    let mut jobs: Vec<ZoneJob> = Vec::new();
     for feat in feats {
         // Only alerts lacking an inline geometry need zone resolution.
         if !feat.get("geometry").map(|g| g.is_null()).unwrap_or(true) {
@@ -378,24 +400,41 @@ async fn resolve_zone_alerts(
             .cloned()
             .unwrap_or_default();
         for zurl in zones.iter().filter_map(|z| z.as_str()) {
-            if budget == 0 {
-                break;
-            }
-            budget -= 1;
-            for poly in fetch_zone_geometry(client, zurl).await {
-                out.push(GeoFeature {
-                    rings: poly,
-                    fill: [rgb[0], rgb[1], rgb[2], 45],
-                    stroke: [rgb[0], rgb[1], rgb[2], 235],
-                    kind,
-                    title: alert.event.clone(),
-                    detail: detail.clone(),
-                    alert: Some(alert.clone()),
-                });
-            }
+            jobs.push(ZoneJob {
+                zurl: zurl.to_string(),
+                kind,
+                rgb,
+                detail: detail.clone(),
+                alert: alert.clone(),
+            });
         }
     }
-    out
+    jobs.truncate(budget);
+
+    futures_util::stream::iter(jobs.into_iter().map(|job| {
+        let client = client.clone();
+        async move {
+            fetch_zone_geometry(&client, &job.zurl)
+                .await
+                .into_iter()
+                .map(|poly| GeoFeature {
+                    rings: poly,
+                    fill: [job.rgb[0], job.rgb[1], job.rgb[2], 45],
+                    stroke: [job.rgb[0], job.rgb[1], job.rgb[2], 235],
+                    kind: job.kind,
+                    title: job.alert.event.clone(),
+                    detail: job.detail.clone(),
+                    alert: Some(job.alert.clone()),
+                })
+                .collect::<Vec<_>>()
+        }
+    }))
+    .buffered(ZONE_FETCH_CONCURRENCY)
+    .collect::<Vec<_>>()
+    .await
+    .into_iter()
+    .flatten()
+    .collect()
 }
 
 /// GET an api.weather.gov alerts endpoint as a GeoJSON body.
