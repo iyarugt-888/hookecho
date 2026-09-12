@@ -22,8 +22,14 @@ upgrade path out of it (`grep -rn "ponytail:" crates/`).
   fifteen timed layers (GeoColor, clean IR, air mass, dust, fire temperature,
   plus Himawari and IMERG), a frame bar, and a "follow the radar clock" mode
   that scrubs the imagery with the volume. Reading ABI Level 2 CMIP directly
-  would still buy native resolution, bands GIBS does not publish, and imagery
-  inside an offline chase pack — which is what is actually left.
+  now also exists as one national field layer (GOES-East, Band 13 clean IR,
+  CONUS sector, `wxdata::goes_abi`) — the fixed-grid geostationary
+  projection and the netCDF-4 read (an `hdf5lite` bugfix along the way) were
+  the real unknowns, and both are proven against the live bucket now. What's
+  actually left: a satellite/band picker (GOES-West, other bands, other
+  sectors) instead of the one hardcoded default, hooking it into the
+  existing GIBS frame bar's "follow the radar clock" scrubbing rather than
+  a plain on/off toggle, and imagery inside an offline chase pack.
 - Blending surface observations into the effective-layer analysis, which is the
   remaining difference from SPC's mesoanalysis now that the vertical resolution
   is there.

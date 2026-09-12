@@ -424,6 +424,32 @@ static GLOBAL_DEWPOINT_2M: FieldRamp = FieldRamp {
     )
 };
 
+/// Simplified enhanced-IR curve: grayscale (cold = bright, warm = dark, the traditional IR sense)
+/// through ordinary cloud tops, with a colorized pop for the coldest overshooting convection —
+/// the same idea as the classic NHC/McIDAS enhancement curves, without their full non-monotonic
+/// repeating bands.
+static GOES_IR: FieldRamp = FieldRamp {
+    input_scale: 1.0,
+    is_temp_kelvin: true,
+    ..ramp!(
+        "IR brightness temp",
+        "K",
+        180.0,
+        320.0,
+        RampScale::Linear,
+        255,
+        &[
+            (0.00, [255, 60, 0]),     // ~180 K: extreme overshooting top
+            (0.06, [255, 230, 0]),    // ~188 K
+            (0.13, [255, 255, 255]),  // ~198 K: deep convective cloud tops
+            (0.35, [180, 180, 180]),  // ~229 K: cold cirrus/anvil
+            (0.55, [100, 100, 100]),  // ~257 K: mid-level cloud
+            (0.75, [40, 40, 40]),     // ~285 K: warm cloud / low stratus
+            (1.00, [0, 0, 0]),        // 320 K: clear, warm ground
+        ]
+    )
+};
+
 static GLOBAL_TEMP_2M: FieldRamp = FieldRamp {
     // Kelvin → °C/°F is an offset, not a scale, so `input_scale` (a pure multiplier) can't do it;
     // the ramp stays in Kelvin and `is_temp_kelvin` has the legend convert to the Units setting.
@@ -706,6 +732,7 @@ pub fn ramp_for(layer: FieldLayer) -> Option<&'static FieldRamp> {
         FL::GlmFed => &GLM_FED,
         FL::SnowBands => &SNOW_BANDS,
         FL::ThunderProb => &THUNDER_PROB,
+        FL::GoesIr => &GOES_IR,
         // Composite is reflectivity in dBZ, so like the mosaic it follows the user's own
         // reflectivity `.pal` rather than a fixed ramp of its own.
         // The compare panes borrow their ramp from whichever single-model layer shares their

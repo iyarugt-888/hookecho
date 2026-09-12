@@ -26,6 +26,7 @@ pub mod fronts;
 pub mod geocode;
 pub mod glm;
 pub mod global;
+pub mod goes_abi;
 pub mod hrrr;
 pub mod kdp;
 pub mod level2;

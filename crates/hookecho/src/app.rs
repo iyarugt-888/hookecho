@@ -385,6 +385,9 @@ enum OverlaySource {
     Snow(u16),
     /// Banded snow: the MRMS mosaic cut to elongated echo and masked to snow.
     SnowBands,
+    /// GOES-East ABI Band 13 (clean IR), CONUS sector, read directly from S3 rather than GIBS'
+    /// pre-rendered tiles.
+    GoesIr,
     /// Nearest-station observations for `site` at `(lat, lon)`.
     Obs {
         site: String,
@@ -716,6 +719,7 @@ impl OverlaySource {
             Self::Hrrr(..) | Self::HrrrSub(..) => RequestLane::Field(FL::Hrrr),
             Self::Snow(..) => RequestLane::Field(FL::SnowAnalysis),
             Self::SnowBands => RequestLane::Field(FL::SnowBands),
+            Self::GoesIr => RequestLane::Field(FL::GoesIr),
             Self::StormReports(Some(_)) => RequestLane::Feed("Archived storm reports"),
             Self::StormReports(None) => RequestLane::Feed("Storm reports"),
             Self::Spotters => RequestLane::Feed("Spotter Network"),
@@ -953,6 +957,17 @@ impl OverlaySource {
             OverlaySource::Snow(hours) => OverlayMsg::Field(
                 crate::render::FieldLayer::SnowAnalysis,
                 wxdata::nohrsc::fetch(http, hours).await?,
+            ),
+            OverlaySource::GoesIr => OverlayMsg::Field(
+                crate::render::FieldLayer::GoesIr,
+                wxdata::goes_abi::fetch_latest_conus(
+                    http,
+                    wxdata::goes_abi::Satellite::East,
+                    13,
+                    1200,
+                    700,
+                )
+                .await?,
             ),
             OverlaySource::FreezingLevels(lon, lat) => {
                 // HRRR carries both isotherm heights as analysis fields, so the hail algorithm
@@ -1782,6 +1797,8 @@ fn field_refresh_secs(layer: crate::render::FieldLayer) -> u64 {
         FL::Smoke => 900,
         // NBM posts hourly; the blend moves no faster than that.
         FL::ThunderProb => 900,
+        // CONUS ABI CMIP lands on S3 about every 5 minutes.
+        FL::GoesIr => 300,
         // An accumulation moves slower than the grid it accumulates, whatever the window.
         FL::HailSwath => 300,
         // Environment (HRRR CAPE/SRH) refreshes slowly — 15 min.
@@ -10252,7 +10269,9 @@ impl HookEchoApp {
             // Built from two grids at once, so it has a fetch block of its own.
             | FL::SnowBands
             // Model layers, fetched on the forecast-hour scrub rather than a product path.
-            | FL::ThunderProb => return None,
+            | FL::ThunderProb
+            // Not MRMS at all — read straight from the satellite's own S3 bucket.
+            | FL::GoesIr => return None,
         })
     }
 
@@ -17048,6 +17067,19 @@ impl eframe::App for HookEchoApp {
                     s.last_fetch = Some(Instant::now());
                 }
                 self.spawn_overlay(ctx, OverlaySource::SnowBands);
+            }
+        }
+        // GOES-East IR: no forecast hour, no product path — read straight from S3.
+        {
+            let layer = FL::GoesIr;
+            let stale = self.field_wanted(layer)
+                && self.fields.get(&layer).is_none_or(|s| {
+                    s.last_fetch
+                        .is_none_or(|t| t.elapsed().as_secs() >= field_refresh_secs(layer))
+                });
+            if stale {
+                self.fields.entry(layer).or_default().last_fetch = Some(Instant::now());
+                self.spawn_overlay(ctx, OverlaySource::GoesIr);
             }
         }
         // Environment suite (HRRR CAPE/SRH): fetch each enabled layer at f00, refresh ~15 min.

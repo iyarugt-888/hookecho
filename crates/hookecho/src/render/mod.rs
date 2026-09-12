@@ -158,6 +158,9 @@ pub enum FieldLayer {
     CompareA,
     /// Model-comparison side B (`app.diff_field.pair().1`'s own field).
     CompareB,
+    /// GOES-East ABI Band 13 (clean IR) brightness temperature, CONUS sector — read directly from
+    /// the satellite's own S3 bucket rather than GIBS' pre-rendered tiles.
+    GoesIr,
 }
 
 impl FieldLayer {
@@ -184,13 +187,16 @@ impl FieldLayer {
                 | FieldLayer::ModelDiff
                 | FieldLayer::CompareA
                 | FieldLayer::CompareB
+                | FieldLayer::GoesIr
         )
     }
 
     /// Fixed bottom-to-top paint order within each band.
-    pub const DRAW_ORDER: [FieldLayer; 40] = [
+    pub const DRAW_ORDER: [FieldLayer; 41] = [
         // Below-radar context band (bottom to top). The global models sit at the very bottom:
-        // they are the synoptic backdrop everything else is drawn against.
+        // they are the synoptic backdrop everything else is drawn against — satellite included,
+        // since it is the same kind of backdrop and the radar itself paints over it just the same.
+        FieldLayer::GoesIr,
         FieldLayer::GlobalMslp,
         FieldLayer::GlobalHeight500,
         FieldLayer::GlobalTemp2m,
@@ -278,6 +284,7 @@ impl FieldLayer {
             FieldLayer::CompareA => "compare-a",
             FieldLayer::CompareB => "compare-b",
             FieldLayer::GlmFed => "glm-fed",
+            FieldLayer::GoesIr => "goes-ir",
         }
     }
 

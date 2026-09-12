@@ -229,6 +229,13 @@ impl HookEchoApp {
                 true,
             ),
             (
+                FL::GoesIr,
+                "National",
+                "GOES-East IR satellite",
+                "Cloud-top brightness temperature, read straight from the satellite over CONUS",
+                true,
+            ),
+            (
                 FL::Rotation,
                 "National",
                 "Rotation tracks",

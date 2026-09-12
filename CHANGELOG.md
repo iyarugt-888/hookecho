@@ -8,6 +8,24 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### GOES satellite IR, read straight from the source
+
+- A new **GOES-East IR satellite** layer (National weather) reads ABI Level
+  2 Cloud and Moisture Imagery directly from the satellite's own public S3
+  bucket, instead of GIBS' pre-rendered tiles — this was the piece the
+  roadmap's GOES entry called out as actually left: native resolution and a
+  source this app controls the refresh cadence of (every ~5 minutes, CONUS
+  sector, Band 13 clean IR). The fixed-grid geostationary scan the
+  satellite actually flies gets forward-projected pixel by pixel onto a
+  regular lat/lon grid, the same shape every other national field layer
+  already uses, so it drew with no new rendering path at all.
+- Along the way, fixed a real (if rare) crash in `hdf5lite`, this app's
+  from-scratch HDF5/netCDF-4 reader: an attribute whose datatype it doesn't
+  interpret — seen on every ABI file's coordinate variables — could get its
+  size misread as enormous, overflowing and panicking instead of degrading
+  gracefully like every other "can't make sense of this one" case already
+  does.
+
 ### Denoise reaches the Observed 3D volume too
 
 - The map's "Observed" 3D mode had no way to hide light rain and noise —
