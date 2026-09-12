@@ -8,6 +8,18 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Two more GOES bands: visible and water vapor, not just clean IR
+
+- **GOES-East visible** and **GOES-East water vapor** join the existing clean-IR satellite
+  layer, all three read the same way — straight from the satellite's own S3 bucket rather
+  than GIBS' pre-rendered tiles. Visible is daytime cloud texture in plain grayscale
+  reflectance; water vapor is upper-level moisture, day or night, with its own dark-dry
+  to blue-moist enhancement. Same fetch and regrid code as clean IR already used (it only
+  ever needed the band number as a parameter) — the new work was two colormaps and the
+  wiring to make each its own toggleable layer.
+- The start of matching RadarOmega's "satellite imagery (Visible, LWIR, water vapor)" — one
+  satellite, one source (ABI CMIP CONUS), all three of its bands.
+
 ### A third "Smooth" 3D volume: spectrum width, plus a typeable archive date and multi-tilt highlighting
 
 - **Spectrum width** joins reflectivity and correlation coefficient with its own resampled

@@ -370,4 +370,47 @@ mod tests {
         let finite = field.values.iter().filter(|v| v.is_finite()).count();
         assert!(finite > field.values.len() / 2);
     }
+
+    /// Band 2 (visible) is reflectance, not brightness temperature — a different physical
+    /// quantity than every other band this module reads — so it gets its own live check rather
+    /// than trusting that `fetch_latest_conus` being band-generic means every band actually
+    /// decodes. At night this is mostly a near-zero field, which is real data, not a fetch
+    /// failure, so this only asserts the fetch/decode/regrid pipeline itself succeeds.
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn fetches_the_live_conus_visible() {
+        let client = reqwest::Client::new();
+        let field = fetch_latest_conus(&client, Satellite::East, 2, 200, 150)
+            .await
+            .expect("fetch_latest_conus");
+        eprintln!(
+            "CONUS band 2: {}x{} lon {:.1}..{:.1} lat {:.1}..{:.1} at {}",
+            field.nx, field.ny, field.lon_west, field.lon_east, field.lat_south, field.lat_north,
+            field.time
+        );
+        let finite = field.values.iter().filter(|v| v.is_finite()).count();
+        assert!(finite > field.values.len() / 2);
+        for &v in field.values.iter().filter(|v| v.is_finite()) {
+            assert!((0.0..2.0).contains(&v), "implausible reflectance factor {v}");
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn fetches_the_live_conus_water_vapor() {
+        let client = reqwest::Client::new();
+        let field = fetch_latest_conus(&client, Satellite::East, 8, 200, 150)
+            .await
+            .expect("fetch_latest_conus");
+        eprintln!(
+            "CONUS band 8: {}x{} lon {:.1}..{:.1} lat {:.1}..{:.1} at {}",
+            field.nx, field.ny, field.lon_west, field.lon_east, field.lat_south, field.lat_north,
+            field.time
+        );
+        let finite = field.values.iter().filter(|v| v.is_finite()).count();
+        assert!(finite > field.values.len() / 2);
+        for &v in field.values.iter().filter(|v| v.is_finite()) {
+            assert!((150.0..300.0).contains(&v), "implausible brightness temp {v} K");
+        }
+    }
 }

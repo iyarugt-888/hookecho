@@ -22,14 +22,14 @@ upgrade path out of it (`grep -rn "ponytail:" crates/`).
   fifteen timed layers (GeoColor, clean IR, air mass, dust, fire temperature,
   plus Himawari and IMERG), a frame bar, and a "follow the radar clock" mode
   that scrubs the imagery with the volume. Reading ABI Level 2 CMIP directly
-  now also exists as one national field layer (GOES-East, Band 13 clean IR,
-  CONUS sector, `wxdata::goes_abi`) — the fixed-grid geostationary
-  projection and the netCDF-4 read (an `hdf5lite` bugfix along the way) were
-  the real unknowns, and both are proven against the live bucket now. What's
-  actually left: a satellite/band picker (GOES-West, other bands, other
-  sectors) instead of the one hardcoded default, hooking it into the
-  existing GIBS frame bar's "follow the radar clock" scrubbing rather than
-  a plain on/off toggle, and imagery inside an offline chase pack.
+  now also exists as three national field layers (GOES-East clean IR, visible
+  and water vapor, CONUS sector, `wxdata::goes_abi`) — the fixed-grid
+  geostationary projection and the netCDF-4 read (an `hdf5lite` bugfix along
+  the way) were the real unknowns, and all three bands are proven against the
+  live bucket now. What's actually left: a satellite/band picker (GOES-West,
+  other sectors) instead of the one hardcoded satellite, hooking it into the
+  existing GIBS frame bar's "follow the radar clock" scrubbing rather than a
+  plain on/off toggle, and imagery inside an offline chase pack.
 - **Model coverage on par with the other radar apps.** NAM's own 12 km grid
   (`hrrr::Model::Nam`) and the GFS ensemble mean (`global::GlobalModel::Gefs`)
   are in, each verified against its live public bucket. Still open: RRFS
@@ -39,7 +39,12 @@ upgrade path out of it (`grep -rn "ponytail:" crates/`).
   Canada, open data), and HREF (the short-range CAM ensemble). Each is the
   same shape of work as NAM/GEFS: confirm the live bucket and file naming,
   confirm `gribberish` decodes its grid projection, wire it into the
-  relevant `Model`/`GlobalModel` enum.
+  relevant `Model`/`GlobalModel` enum. Also on this list, once scoped: NDFD
+  (the NWS's own forecaster-blended gridded forecast — temperature, wind,
+  gusts, snow totals) — a genuinely different source from raw model output,
+  and one RadarOmega calls out by name, but its live bucket/grid layout
+  needs confirming before it's more than a guess, the same way NAM/GEFS
+  started.
 
 ## Later
 

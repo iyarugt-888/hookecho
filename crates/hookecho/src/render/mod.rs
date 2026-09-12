@@ -163,6 +163,14 @@ pub enum FieldLayer {
     /// GOES-East ABI Band 13 (clean IR) brightness temperature, CONUS sector — read directly from
     /// the satellite's own S3 bucket rather than GIBS' pre-rendered tiles.
     GoesIr,
+    /// GOES-East ABI Band 2 (red visible, 0.64 µm) reflectance factor, CONUS sector. Daytime
+    /// only — the sun-lit side of a scan reads real cloud texture, the night side reads noise
+    /// near zero, same as looking at a satellite loop on any other app.
+    GoesVisible,
+    /// GOES-East ABI Band 8 (upper-level water vapor, 6.2 µm) brightness temperature, CONUS
+    /// sector — mid/upper-tropospheric moisture, day or night, the channel forecasters actually
+    /// mean by "the water vapor loop".
+    GoesWaterVapor,
 }
 
 impl FieldLayer {
@@ -190,14 +198,21 @@ impl FieldLayer {
                 | FieldLayer::CompareA
                 | FieldLayer::CompareB
                 | FieldLayer::GoesIr
+                | FieldLayer::GoesVisible
+                | FieldLayer::GoesWaterVapor
         )
     }
 
     /// Fixed bottom-to-top paint order within each band.
-    pub const DRAW_ORDER: [FieldLayer; 41] = [
+    pub const DRAW_ORDER: [FieldLayer; 43] = [
         // Below-radar context band (bottom to top). The global models sit at the very bottom:
         // they are the synoptic backdrop everything else is drawn against — satellite included,
         // since it is the same kind of backdrop and the radar itself paints over it just the same.
+        // The three GOES bands are mutually exclusive in practice (nobody overlays IR on top of
+        // visible on top of water vapor), so their relative order doesn't matter much; water
+        // vapor first reads as the widest-context one, IR (the traditional default) last.
+        FieldLayer::GoesWaterVapor,
+        FieldLayer::GoesVisible,
         FieldLayer::GoesIr,
         FieldLayer::GlobalMslp,
         FieldLayer::GlobalHeight500,
@@ -287,6 +302,8 @@ impl FieldLayer {
             FieldLayer::CompareB => "compare-b",
             FieldLayer::GlmFed => "glm-fed",
             FieldLayer::GoesIr => "goes-ir",
+            FieldLayer::GoesVisible => "goes-visible",
+            FieldLayer::GoesWaterVapor => "goes-water-vapor",
         }
     }
 

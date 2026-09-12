@@ -450,6 +450,47 @@ static GOES_IR: FieldRamp = FieldRamp {
     )
 };
 
+/// Plain grayscale reflectance, the way every satellite loop shows visible imagery: dark ocean
+/// and land, bright cloud. `input_scale` turns the wire's 0..~1.2 reflectance factor into the
+/// 0..120 % people read it as; anything past 100 % (a sun-glint or a bright overshoot) just
+/// clips white rather than needing its own scale.
+static GOES_VISIBLE: FieldRamp = FieldRamp {
+    input_scale: 100.0,
+    is_temp_kelvin: false,
+    ..ramp!(
+        "Visible reflectance",
+        "%",
+        0.0,
+        100.0,
+        RampScale::Linear,
+        255,
+        &[(0.0, [0, 0, 0]), (1.0, [255, 255, 255])]
+    )
+};
+
+/// Water vapor's own enhancement: dark/warm where the mid-upper troposphere is dry (subsidence,
+/// often the interesting signal for severe setups), through white, into blue-white for the
+/// coldest, moistest air a jet streak or a deep trough drags across the loop.
+static GOES_WATER_VAPOR: FieldRamp = FieldRamp {
+    input_scale: 1.0,
+    is_temp_kelvin: true,
+    ..ramp!(
+        "Water vapor brightness temp",
+        "K",
+        200.0,
+        260.0,
+        RampScale::Linear,
+        255,
+        &[
+            (0.00, [10, 10, 40]),    // 200 K: coldest, moistest upper-level air
+            (0.30, [40, 100, 180]),  // 218 K
+            (0.55, [200, 220, 230]), // 233 K
+            (0.75, [110, 90, 70]),   // 245 K
+            (1.00, [30, 20, 10]),    // 260 K: driest, warmest — subsidence
+        ]
+    )
+};
+
 static GLOBAL_TEMP_2M: FieldRamp = FieldRamp {
     // Kelvin → °C/°F is an offset, not a scale, so `input_scale` (a pure multiplier) can't do it;
     // the ramp stays in Kelvin and `is_temp_kelvin` has the legend convert to the Units setting.
@@ -733,6 +774,8 @@ pub fn ramp_for(layer: FieldLayer) -> Option<&'static FieldRamp> {
         FL::SnowBands => &SNOW_BANDS,
         FL::ThunderProb => &THUNDER_PROB,
         FL::GoesIr => &GOES_IR,
+        FL::GoesVisible => &GOES_VISIBLE,
+        FL::GoesWaterVapor => &GOES_WATER_VAPOR,
         // Composite is reflectivity in dBZ, so like the mosaic it follows the user's own
         // reflectivity `.pal` rather than a fixed ramp of its own.
         // The compare panes borrow their ramp from whichever single-model layer shares their

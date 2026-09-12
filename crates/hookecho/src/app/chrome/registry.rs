@@ -236,6 +236,20 @@ impl HookEchoApp {
                 true,
             ),
             (
+                FL::GoesVisible,
+                "National",
+                "GOES-East visible satellite",
+                "Daytime visible reflectance, read straight from the satellite over CONUS",
+                true,
+            ),
+            (
+                FL::GoesWaterVapor,
+                "National",
+                "GOES-East water vapor satellite",
+                "Upper-level moisture, read straight from the satellite over CONUS",
+                true,
+            ),
+            (
                 FL::Rotation,
                 "National",
                 "Rotation tracks",
