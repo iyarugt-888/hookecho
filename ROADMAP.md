@@ -39,12 +39,11 @@ upgrade path out of it (`grep -rn "ponytail:" crates/`).
   Canada, open data), and HREF (the short-range CAM ensemble). Each is the
   same shape of work as NAM/GEFS: confirm the live bucket and file naming,
   confirm `gribberish` decodes its grid projection, wire it into the
-  relevant `Model`/`GlobalModel` enum. Also on this list, once scoped: NDFD
-  (the NWS's own forecaster-blended gridded forecast — temperature, wind,
-  gusts, snow totals) — a genuinely different source from raw model output,
-  and one RadarOmega calls out by name, but its live bucket/grid layout
-  needs confirming before it's more than a guess, the same way NAM/GEFS
-  started.
+  relevant `Model`/`GlobalModel` enum. NDFD (the NWS's own forecaster-blended
+  grid — temperature, wind, gusts, snow totals) is in, read straight from
+  `noaa-ndfd-pds` (`wxdata::ndfd`); its snowfall grid also turned up (and paid
+  for the fix of) a real decoder bug in the Complex Grid Packing template
+  nothing else here had exercised — see the changelog.
 
 ## Later
 

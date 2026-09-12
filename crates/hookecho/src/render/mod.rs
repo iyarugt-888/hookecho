@@ -171,6 +171,14 @@ pub enum FieldLayer {
     /// sector — mid/upper-tropospheric moisture, day or night, the channel forecasters actually
     /// mean by "the water vapor loop".
     GoesWaterVapor,
+    /// NDFD 2 m temperature — the NWS's own forecaster-blended grid, not a raw model run.
+    NdfdTemp2m,
+    /// NDFD 10 m sustained wind speed.
+    NdfdWind10m,
+    /// NDFD 10 m wind gust.
+    NdfdGust10m,
+    /// NDFD forecast snowfall accumulation.
+    NdfdSnow,
 }
 
 impl FieldLayer {
@@ -200,11 +208,15 @@ impl FieldLayer {
                 | FieldLayer::GoesIr
                 | FieldLayer::GoesVisible
                 | FieldLayer::GoesWaterVapor
+                | FieldLayer::NdfdTemp2m
+                | FieldLayer::NdfdWind10m
+                | FieldLayer::NdfdGust10m
+                | FieldLayer::NdfdSnow
         )
     }
 
     /// Fixed bottom-to-top paint order within each band.
-    pub const DRAW_ORDER: [FieldLayer; 43] = [
+    pub const DRAW_ORDER: [FieldLayer; 47] = [
         // Below-radar context band (bottom to top). The global models sit at the very bottom:
         // they are the synoptic backdrop everything else is drawn against — satellite included,
         // since it is the same kind of backdrop and the radar itself paints over it just the same.
@@ -214,6 +226,12 @@ impl FieldLayer {
         FieldLayer::GoesWaterVapor,
         FieldLayer::GoesVisible,
         FieldLayer::GoesIr,
+        // NDFD sits with the models it's an alternative to, not with GOES — a forecaster-blended
+        // grid rather than a raw model run, but same shape of thing as the global fields.
+        FieldLayer::NdfdTemp2m,
+        FieldLayer::NdfdWind10m,
+        FieldLayer::NdfdGust10m,
+        FieldLayer::NdfdSnow,
         FieldLayer::GlobalMslp,
         FieldLayer::GlobalHeight500,
         FieldLayer::GlobalTemp2m,
@@ -304,6 +322,10 @@ impl FieldLayer {
             FieldLayer::GoesIr => "goes-ir",
             FieldLayer::GoesVisible => "goes-visible",
             FieldLayer::GoesWaterVapor => "goes-water-vapor",
+            FieldLayer::NdfdTemp2m => "ndfd-temp2m",
+            FieldLayer::NdfdWind10m => "ndfd-wind10m",
+            FieldLayer::NdfdGust10m => "ndfd-gust10m",
+            FieldLayer::NdfdSnow => "ndfd-snow",
         }
     }
 

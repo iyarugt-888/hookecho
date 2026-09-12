@@ -9,9 +9,13 @@ members = [
 # dependencies, which then cannot move the app's.
 exclude = ["fuzz", "scripts/strikes-relay"]
 
-# Vendored gribberish 1.5.0 with a one-line fix to its 8-bit PNG unpack (upstream always read a
-# u16, overrunning MRMS rotation-track / AzShear grids). See vendor/gribberish/src/templates/
-# data_representation/png_template.rs.
+# Vendored gribberish 1.5.0 with two fixes: a one-line fix to its 8-bit PNG unpack (upstream
+# always read a u16, overrunning MRMS rotation-track / AzShear grids), and a fix to Complex Grid
+# Packing (template 5.2, NDFD's snowfall grid) that panicked on every real-world message — a
+# plain `.load()` instead of `.load_be()` on group references/widths, and the last group's length
+# trusted from the reference/increment formula instead of read explicitly like the spec requires.
+# See vendor/gribberish/src/templates/data_representation/png_template.rs and
+# complex_packing_template.rs.
 # Vendored nexrad-data 1.0.0-rc.7: its reqwest 0.13 forces the `rustls` feature, which on Android
 # selects rustls-platform-verifier — that needs a bundled Kotlin CertificateVerifier class our
 # hasCode=false NativeActivity APK can't ship (and panics uninitialized). The vendored copy hands

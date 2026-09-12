@@ -776,6 +776,12 @@ pub fn ramp_for(layer: FieldLayer) -> Option<&'static FieldRamp> {
         FL::GoesIr => &GOES_IR,
         FL::GoesVisible => &GOES_VISIBLE,
         FL::GoesWaterVapor => &GOES_WATER_VAPOR,
+        // Same physical quantity and units as the global-model equivalents (NDFD publishes
+        // Kelvin/m/s/metres same as every other model this app reads), so they share the ramp
+        // rather than tabulating a second, identical one.
+        FL::NdfdTemp2m => &GLOBAL_TEMP_2M,
+        FL::NdfdWind10m | FL::NdfdGust10m => &GLOBAL_WIND_10M,
+        FL::NdfdSnow => &SNOWFALL,
         // Composite is reflectivity in dBZ, so like the mosaic it follows the user's own
         // reflectivity `.pal` rather than a fixed ramp of its own.
         // The compare panes borrow their ramp from whichever single-model layer shares their

@@ -8,6 +8,27 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### NDFD: the NWS's own forecaster-blended grids, and a real GRIB2 decoder bug fixed along the way
+
+- **NDFD temperature, wind speed, wind gust and snowfall** join the model layers — read
+  directly from the National Digital Forecast Database's own public S3 bucket
+  (`noaa-ndfd-pds`). This is a genuinely different source from every other model layer here:
+  not a raw dynamical-model run, but the NWS's own forecaster-edited blend, the one other
+  radar apps call out by name alongside their raw model output. No forecast-hour scrub for
+  these — NDFD bundles every valid time for the next several days into one file per element
+  with no index to slice a single hour out of, so each fetch decodes the whole thing and
+  keeps whichever message is valid nearest to now, the same "always current" shape the HRRR
+  CAPE/SRH environment layers already have.
+- Along the way, found and fixed two real bugs in `vendor/gribberish`'s Complex Grid Packing
+  decoder (GRIB2 data representation template 5.2) — the packing NDFD's snowfall grid uses
+  and nothing else in this app had exercised before. It panicked on every single message:
+  group reference and width fields were read with the endian-less `.load()` instead of
+  `.load_be()`, silently misreading any field wider than a byte on a little-endian machine,
+  and the last group's length was computed from the reference/increment formula every other
+  group follows instead of being read explicitly the way the GRIB2 spec requires (the
+  sibling spatial-differencing template already got this right — this one didn't). A real
+  extracted message is now a committed regression fixture so this can't come back silently.
+
 ### Two more GOES bands: visible and water vapor, not just clean IR
 
 - **GOES-East visible** and **GOES-East water vapor** join the existing clean-IR satellite

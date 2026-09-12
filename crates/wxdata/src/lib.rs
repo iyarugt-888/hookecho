@@ -39,6 +39,7 @@ pub mod mosaic;
 pub mod mping;
 pub mod mrms;
 pub mod ndbc;
+pub mod ndfd;
 pub mod net;
 pub mod nohrsc;
 pub mod obs;

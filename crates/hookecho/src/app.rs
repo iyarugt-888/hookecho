@@ -388,6 +388,9 @@ enum OverlaySource {
     /// A GOES-East ABI band, CONUS sector, read directly from S3 rather than GIBS' pre-rendered
     /// tiles — which band is `GoesIr`/`GoesVisible`/`GoesWaterVapor`.
     Goes(crate::render::FieldLayer),
+    /// An NDFD element (the NWS's own forecaster-blended grid), CONUS short range — which
+    /// element is `NdfdTemp2m`/`NdfdWind10m`/`NdfdGust10m`/`NdfdSnow`.
+    Ndfd(crate::render::FieldLayer),
     /// Nearest-station observations for `site` at `(lat, lon)`.
     Obs {
         site: String,
@@ -711,7 +714,8 @@ impl OverlaySource {
             | Self::HrrrLayer(layer, ..)
             | Self::Global(layer, ..)
             | Self::L3Grid(layer, ..)
-            | Self::Goes(layer) => RequestLane::Field(*layer),
+            | Self::Goes(layer)
+            | Self::Ndfd(layer) => RequestLane::Field(*layer),
             Self::ModelDiff(..) => RequestLane::Field(FL::ModelDiff),
             // Both compare panes ride one fetch (see `fetch_diff_pair`); either layer name works
             // as the dedup key, so it just picks the first.
@@ -979,6 +983,17 @@ impl OverlaySource {
                     )
                     .await?,
                 )
+            }
+            OverlaySource::Ndfd(layer) => {
+                use crate::render::FieldLayer as FL;
+                let field = match layer {
+                    FL::NdfdTemp2m => wxdata::ndfd::NdfdField::Temp,
+                    FL::NdfdWind10m => wxdata::ndfd::NdfdField::WindSpeed,
+                    FL::NdfdGust10m => wxdata::ndfd::NdfdField::WindGust,
+                    FL::NdfdSnow => wxdata::ndfd::NdfdField::Snow,
+                    _ => anyhow::bail!("{layer:?} is not an NDFD element"),
+                };
+                OverlayMsg::Field(layer, wxdata::ndfd::fetch(http, field).await?)
             }
             OverlaySource::FreezingLevels(lon, lat) => {
                 // HRRR carries both isotherm heights as analysis fields, so the hail algorithm
@@ -1810,6 +1825,10 @@ fn field_refresh_secs(layer: crate::render::FieldLayer) -> u64 {
         FL::ThunderProb => 900,
         // CONUS ABI CMIP lands on S3 about every 5 minutes, whichever band.
         FL::GoesIr | FL::GoesVisible | FL::GoesWaterVapor => 300,
+        // NDFD elements update on a forecaster's schedule, not a fixed clock, and each fetch is
+        // a whole multi-day CONUS grid (tens of MB) with no way to ask for just the new part —
+        // half an hour balances staying current against re-downloading that for no reason.
+        FL::NdfdTemp2m | FL::NdfdWind10m | FL::NdfdGust10m | FL::NdfdSnow => 1800,
         // An accumulation moves slower than the grid it accumulates, whatever the window.
         FL::HailSwath => 300,
         // Environment (HRRR CAPE/SRH) refreshes slowly — 15 min.
@@ -10284,7 +10303,12 @@ impl HookEchoApp {
             // Not MRMS at all — read straight from the satellite's own S3 bucket.
             | FL::GoesIr
             | FL::GoesVisible
-            | FL::GoesWaterVapor => return None,
+            | FL::GoesWaterVapor
+            // Not MRMS either — NDFD's own S3 bucket.
+            | FL::NdfdTemp2m
+            | FL::NdfdWind10m
+            | FL::NdfdGust10m
+            | FL::NdfdSnow => return None,
         })
     }
 
@@ -17177,6 +17201,19 @@ impl eframe::App for HookEchoApp {
             if stale {
                 self.fields.entry(layer).or_default().last_fetch = Some(Instant::now());
                 self.spawn_overlay(ctx, OverlaySource::Goes(layer));
+            }
+        }
+        // NDFD elements: also no forecast hour to scrub — each fetch is the whole short-range
+        // bundle and this always shows the message valid nearest to now.
+        for layer in [FL::NdfdTemp2m, FL::NdfdWind10m, FL::NdfdGust10m, FL::NdfdSnow] {
+            let stale = self.field_wanted(layer)
+                && self.fields.get(&layer).is_none_or(|s| {
+                    s.last_fetch
+                        .is_none_or(|t| t.elapsed().as_secs() >= field_refresh_secs(layer))
+                });
+            if stale {
+                self.fields.entry(layer).or_default().last_fetch = Some(Instant::now());
+                self.spawn_overlay(ctx, OverlaySource::Ndfd(layer));
             }
         }
         // Environment suite (HRRR CAPE/SRH): fetch each enabled layer at f00, refresh ~15 min.

@@ -126,12 +126,17 @@ impl DataRepresentationTemplate<f64> for ComplexPackingDataRepresentationTemplat
         let ng = self.number_of_groups() as usize;
         let nbits = self.bit_count() as usize;
 
+        // `.load_be()`, not the endian-less `.load()` — this is a `Msb0`-ordered GRIB2
+        // bitstream, and a bare `.load()` groups multi-byte spans by the host's native
+        // endianness instead, silently misreading any field wider than one byte on a
+        // little-endian machine (the sibling spatial-differencing template already avoids
+        // this; every read here should match it).
         let group_references = (0..ng).map(|ig| {
             if nbits == 0 {
                 0
             } else {
                 let start = ig * nbits;
-                bits[start..start + nbits].load::<u32>()
+                bits[start..start + nbits].load_be::<u32>()
             }
         });
 
@@ -142,7 +147,7 @@ impl DataRepresentationTemplate<f64> for ComplexPackingDataRepresentationTemplat
                 0
             } else {
                 let start = group_widths_start + ig * n_width_bits;
-                bits[start..start + n_width_bits].load::<u32>()
+                bits[start..start + n_width_bits].load_be::<u32>()
                     + self.group_width_reference() as u32
             }
         });
@@ -150,16 +155,23 @@ impl DataRepresentationTemplate<f64> for ComplexPackingDataRepresentationTemplat
         let group_lengths_start =
             group_widths_start + (((n_width_bits * ng) as f32 / 8.0).ceil() as usize * 8);
         let n_length_bits = self.group_length_bits() as usize;
-        let group_lengths = (0..ng).map(|ig| {
-            if n_length_bits == 0 {
-                0
-            } else {
-                let start = group_lengths_start + ig * n_length_bits;
-                bits[start..start + n_length_bits].load::<u32>()
-                    * self.group_length_increment() as u32
-                    + self.group_length_reference()
-            }
-        });
+        // The last group's length is not implied by the reference/increment formula every
+        // other group follows — it's stored explicitly (`group_last_length`) because the final
+        // group is whatever's left over, not a multiple of the increment. Trusting the formula
+        // for it reads past the actual bitstream almost every time (the sibling spatial-
+        // differencing template already gets this right; this one didn't).
+        let group_lengths = (0..ng.saturating_sub(1))
+            .map(|ig| {
+                if n_length_bits == 0 {
+                    0
+                } else {
+                    let start = group_lengths_start + ig * n_length_bits;
+                    bits[start..start + n_length_bits].load_be::<u32>()
+                        * self.group_length_increment() as u32
+                        + self.group_length_reference()
+                }
+            })
+            .chain(std::iter::once(self.group_last_length()));
 
         let mut pos =
             group_lengths_start + (((n_length_bits * ng) as f32 / 8.0).ceil() as usize * 8);
