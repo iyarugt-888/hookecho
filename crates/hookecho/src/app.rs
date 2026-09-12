@@ -10792,6 +10792,13 @@ impl HookEchoApp {
                 (e * per_ms, n * per_ms, 1.0f32)
             })
             .unwrap_or((0.0, 0.0, 0.0));
+        let fill_gaps = self.views[idx].map_3d.fill_gaps;
+        // -inf reads as "nothing selected" on the shader side (`> -900.0` is false for it) and
+        // is exact under `.to_bits()` round-tripping, unlike NaN's multiple bit patterns.
+        let highlight_elev = self.views[idx]
+            .map_3d
+            .selected_layer_elev
+            .unwrap_or(f32::NEG_INFINITY);
         let controls = [
             self.views[idx].map_3d.vertical_exaggeration.to_bits(),
             self.views[idx].map_3d.opacity.to_bits(),
@@ -10802,6 +10809,8 @@ impl HookEchoApp {
             // Rebuild when the volume gains a sweep (live chunk stream) so every available tilt
             // is in the buffer, not just the ones present when 3D was first enabled.
             scan.sweeps().len() as u32,
+            fill_gaps as u32,
+            highlight_elev.to_bits(),
         ];
         let palette_gen = self.palettes.gen.wrapping_add(
             if crate::theme::is_high_contrast(self.settings.theme) {
@@ -10825,6 +10834,7 @@ impl HookEchoApp {
             moment,
             self.views[idx].map_3d.gate_stride,
             self.views[idx].map_3d.instance_budget,
+            fill_gaps,
         ) {
             Ok(gates) => gates,
             Err(err) => {
@@ -10832,6 +10842,15 @@ impl HookEchoApp {
                 return (None, false);
             }
         };
+        self.views[idx].map_3d.observed_layers = observed.layers.clone();
+        // A selection surviving a moment switch or a tilt dropping out of the volume would dim
+        // every gate (the shader has a selection but nothing to match it), which reads as the
+        // whole layer vanishing rather than as nothing being selected.
+        if let Some(sel) = self.views[idx].map_3d.selected_layer_elev {
+            if !observed.layers.iter().any(|l| (l.elevation_deg - sel).abs() < 0.05) {
+                self.views[idx].map_3d.selected_layer_elev = None;
+            }
+        }
         let antenna_altitude_m = self.views[idx]
             .site
             .as_deref()
@@ -10879,7 +10898,7 @@ impl HookEchoApp {
             motion_e,
             motion_n,
             observed.min_elevation_deg,
-            0.0,
+            highlight_elev,
         ];
         self.views[idx].map_3d.observed_key = Some(key);
         (
@@ -11177,8 +11196,85 @@ impl HookEchoApp {
                                     );
                                 }
                             });
+                            ui.checkbox(&mut view.map_3d.fill_gaps, "Fill gaps").on_hover_text(
+                                "Add a copy of each gate at the midpoint toward the next tilt \
+                                 up, so the stack reads as one continuous volume instead of \
+                                 separated rings",
+                            );
                             if moment == Moment::SpecificDifferentialPhase {
                                 ui.weak("KDP is derived; shown on the map plane.");
+                            }
+                            if !view.map_3d.observed_layers.is_empty() {
+                                let layers = view.map_3d.observed_layers.clone();
+                                egui::CollapsingHeader::new(format!("Layers ({})", layers.len()))
+                                    .id_salt(("map_3d_layers", idx))
+                                    .default_open(false)
+                                    .show(ui, |ui| {
+                                        ui.weak("Click a tilt to pull it out and see its stats.");
+                                        // Highest first: reads top-to-bottom like the real stack.
+                                        for layer in layers.iter().rev() {
+                                            let selected =
+                                                view.map_3d.selected_layer_elev.is_some_and(|e| {
+                                                    (e - layer.elevation_deg).abs() < 0.05
+                                                });
+                                            let label = format!(
+                                                "{:.1}°  ·  {} radials",
+                                                layer.elevation_deg, layer.radial_count
+                                            );
+                                            if ui.selectable_label(selected, label).clicked() {
+                                                view.map_3d.selected_layer_elev = if selected {
+                                                    None
+                                                } else {
+                                                    Some(layer.elevation_deg)
+                                                };
+                                            }
+                                        }
+                                        let Some(sel) = view.map_3d.selected_layer_elev else {
+                                            return;
+                                        };
+                                        let Some(layer) = layers
+                                            .iter()
+                                            .find(|l| (l.elevation_deg - sel).abs() < 0.05)
+                                        else {
+                                            return;
+                                        };
+                                        ui.separator();
+                                        let total =
+                                            (layer.radial_count * layer.gate_count).max(1) as f32;
+                                        let coverage_pct =
+                                            100.0 * layer.coverage_gates as f32 / total;
+                                        ui.label(format!(
+                                            "{} radials × {} gates · {coverage_pct:.0}% coverage",
+                                            layer.radial_count, layer.gate_count
+                                        ));
+                                        if let Some(v) = layer.max_value {
+                                            ui.label(format!(
+                                                "strongest reading: {v:.1} {}",
+                                                moment.units()
+                                            ));
+                                        }
+                                        match (layer.scan_start, layer.scan_end) {
+                                            (Some(a), Some(b)) if a != b => {
+                                                ui.label(format!(
+                                                    "scanned {} – {} UTC",
+                                                    a.format("%H:%M:%S"),
+                                                    b.format("%H:%M:%S")
+                                                ));
+                                            }
+                                            (Some(a), _) => {
+                                                ui.label(format!(
+                                                    "scanned {} UTC",
+                                                    a.format("%H:%M:%S")
+                                                ));
+                                            }
+                                            _ => {
+                                                ui.weak("no per-radial timestamps");
+                                            }
+                                        }
+                                        if ui.small_button("Clear selection").clicked() {
+                                            view.map_3d.selected_layer_elev = None;
+                                        }
+                                    });
                             }
                         } else {
                             ui.weak("Vertical and Opacity above shape the resampled volume.");

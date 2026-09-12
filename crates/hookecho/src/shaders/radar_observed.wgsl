@@ -29,7 +29,9 @@ struct Radar3d {
     // Elevation angle of the volume's lowest tilt carrying this moment — see `beam_world`'s doc
     // comment for what it's used for.
     min_elevation_deg: f32,
-    _pad1: f32,
+    // The tilt the user clicked in the Layers list, or a large negative sentinel for "none" —
+    // see `beam_world` and `fs_main` for what it does to that tilt's gates.
+    highlight_elev: f32,
 };
 
 @group(0) @binding(0) var<uniform> camera: Camera;
@@ -98,8 +100,13 @@ fn beam_world(azimuth_deg: f32, slant_km: f32, elevation_deg: f32) -> vec3<f32> 
     );
     var d = world - camera.center;
     d.x = d.x - floor(d.x + 0.5);
+    // Pull the selected layer clear of the stack so it reads as pulled out rather than merely
+    // recolored — 600 m is well clear of the fill-gap midpoint copies and of the next real tilt
+    // at any range the "Layers" list is likely to be used at.
+    let selected = radar.highlight_elev > -900.0 && abs(elevation_deg - radar.highlight_elev) < 0.05;
+    let pull_m = select(0.0, 600.0, selected);
     let altitude = radar.antenna_altitude_m + base_height
-        + structure_height * radar.vertical_exaggeration;
+        + structure_height * radar.vertical_exaggeration + pull_m;
     return vec3<f32>(
         d.x / camera.world_per_pixel,
         -d.y / camera.world_per_pixel,
@@ -138,7 +145,12 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     // not a function of range or height: two tilts really do share one transparency everywhere
     // along their sweep, only the sweep itself changes what shows through.
     let height_fade = mix(1.0, 0.35, clamp(in.elevation / 19.5, 0.0, 1.0));
-    let alpha = color.a * radar.opacity * height_fade;
+    var alpha = color.a * radar.opacity * height_fade;
+    // A layer is selected in the "Layers" list: fade every other tilt into the background so the
+    // one pulled out in `beam_world` also reads as the one actually being looked at.
+    if (radar.highlight_elev > -900.0 && abs(in.elevation - radar.highlight_elev) >= 0.05) {
+        alpha = alpha * 0.12;
+    }
     if (alpha <= 0.0) { discard; }
     return vec4<f32>(color.rgb, alpha);
 }

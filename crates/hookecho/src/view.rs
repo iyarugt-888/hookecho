@@ -48,10 +48,23 @@ pub struct Map3dState {
     /// fewer banding artifacts at the cost of GPU time; unused by `ObservedSweeps`, which draws
     /// real gate instances rather than raymarching.
     pub quality_steps: u32,
+    /// Whether `ObservedSweeps` fills the vertical gap between adjacent tilts with a synthetic
+    /// midpoint copy of each gate (see `level2::observed_gates`'s doc comment). On by default so
+    /// the stack reads as one continuous volume; a selected layer (below) is worth turning it off
+    /// for, to see the real tilts' true spacing instead of the filled approximation.
+    pub fill_gaps: bool,
+    /// The tilt (by elevation angle) the user clicked in the Layers list, if any — pulled toward
+    /// the camera and desaturated everywhere else so it stands out, and detailed below the list.
+    pub selected_layer_elev: Option<f32>,
+    /// One summary per real tilt in the current `ObservedSweeps` upload, for the Layers list.
+    /// Refreshed only when `pane_observed_radar` actually rebuilds (see `observed_key`), not
+    /// every frame.
+    pub observed_layers: Vec<level2::ObservedLayer>,
     /// Upload identity. Camera state is intentionally absent: moving the camera updates uniforms,
-    /// never the millions-of-gates buffer. The last `[u32; 7]` slot is the volume's tilt count, so
-    /// a still-streaming volume re-uploads as each higher sweep arrives.
-    pub observed_key: Option<(String, Moment, usize, u64, [u32; 7])>,
+    /// never the millions-of-gates buffer. The `sweep_count` slot is the volume's tilt count, so
+    /// a still-streaming volume re-uploads as each higher sweep arrives; the last two are
+    /// `fill_gaps` and the selected layer's elevation (as bits), so either changing rebuilds too.
+    pub observed_key: Option<(String, Moment, usize, u64, [u32; 9])>,
 }
 
 impl Default for Map3dState {
@@ -76,6 +89,9 @@ impl Default for Map3dState {
             reflectivity_floor_dbz: 18.0,
             clip: [0.0, 1.0, 0.0, 1.0, 0.0, 1.0],
             quality_steps: if cfg!(target_os = "android") { 64 } else { 128 },
+            fill_gaps: true,
+            selected_layer_elev: None,
+            observed_layers: Vec::new(),
             observed_key: None,
         }
     }

@@ -14,7 +14,7 @@ hdf5lite = { path = "../hdf5lite" }
 # `parallel` is target-gated below, not set here: cargo resolves features per target, and asking
 # for it unconditionally linked rayon-core into a wasm bundle that has no threads to give it.
 nexrad-data = { version = "1.0.0-rc.7" }
-nexrad-model = "1.0.0-rc.2"
+nexrad-model = { version = "1.0.0-rc.2", features = ["chrono"] }
 anyhow.workspace = true
 thiserror.workspace = true
 reqwest.workspace = true
@@ -53,7 +53,7 @@ gribberish = { version = "1.5.0", default-features = false, features = ["png"] }
 # bzip2 records, tens of MB of CPU) is run in a Web Worker instead — see `wasm_worker.rs`. The
 # worker can only send bytes back, so the decoded `Scan` crosses as postcard; nexrad-model already
 # derives Serialize/Deserialize behind its `serde` feature, so no wire types of our own.
-nexrad-model = { version = "1.0.0-rc.2", features = ["serde"] }
+nexrad-model = { version = "1.0.0-rc.2", features = ["serde", "chrono"] }
 postcard = { version = "1", features = ["alloc"] }
 js-sys = "0.3"
 wasm-bindgen = "0.2"

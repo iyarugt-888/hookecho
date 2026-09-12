@@ -8,6 +8,23 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### The Observed 3D volume fills its own gaps, and its tilts are clickable
+
+- Adjacent tilts in the map's "Observed" 3D mode used to show real gaps
+  between them — accurate to what the radar actually measured, but a
+  volume with only 14-ish elevations reads as separated rings rather than
+  a storm. **Fill gaps** (on by default) adds one synthetic copy of every
+  gate at the midpoint toward the next tilt up — still that gate's own
+  real reading, just given some vertical reach instead of none — so the
+  stack reads as one volume without resampling anything or losing native
+  gate resolution the way the "Smooth" volume does.
+- A new **Layers** list in the 3D panel shows every real tilt — elevation,
+  radial count, and (when the source carries per-radial timestamps) the
+  actual wall-clock span the radar spent scanning it, since a volume's
+  tilts do not share one instant. Clicking a tilt pulls it toward the
+  camera and fades every other tilt into the background, and shows its
+  coverage percentage and strongest reading below the list.
+
 ### TVS and TDS reject a couple of the false positives real hardware makes
 
 - Rotation-couplet (TVS) detection required nothing but velocity shear —
