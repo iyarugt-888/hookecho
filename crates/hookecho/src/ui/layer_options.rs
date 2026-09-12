@@ -183,6 +183,7 @@ pub(crate) fn show(
                 wxdata::global::GlobalModel::Gfs,
                 wxdata::global::GlobalModel::Ecmwf,
                 wxdata::global::GlobalModel::Gefs,
+                wxdata::global::GlobalModel::Gdps,
             ] {
                 changed |= ui.selectable_value(global_model, m, m.label()).changed();
             }

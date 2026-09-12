@@ -22,6 +22,12 @@ use chrono::{DateTime, Datelike, Timelike, Utc};
 const GFS_BUCKET: &str = "https://noaa-gfs-bdp-pds.s3.amazonaws.com";
 const ECMWF_BASE: &str = "https://data.ecmwf.int/forecasts";
 const GEFS_BUCKET: &str = "https://noaa-gefs-pds.s3.amazonaws.com";
+/// Environment and Climate Change Canada's public "Datamart" — plain HTTPS directory listings,
+/// one GRIB2 message per file already (no sidecar index to slice one out of a bundle the way
+/// GFS/ECMWF need). `today` is the only window Datamart exposes; there is no `yesterday`, so a
+/// walk-back that crosses a UTC midnight can come up empty even for a cycle that really did post
+/// — the same honest "no cycle found" every model already surfaces when nothing's ready yet.
+const GDPS_BASE: &str = "https://dd.weather.gc.ca/today/model_gdps/15km";
 
 /// Quarter-degree source grids (GFS, ECMWF) resample onto this. Coarser than the grid itself, so
 /// the scatter fills every cell; 1440×721 at 0.25° well under the 4096 texture cap either way.
@@ -41,6 +47,10 @@ pub enum GlobalModel {
     /// single deterministic run, but it is the average outcome across the spread rather than one
     /// realization of it, which is its own kind of useful.
     Gefs,
+    /// Environment Canada's Global Deterministic Prediction System, 0.15° — a second national
+    /// weather service's own global model, independent of NCEP/ECMWF's data assimilation and
+    /// physics entirely.
+    Gdps,
 }
 
 impl GlobalModel {
@@ -49,6 +59,7 @@ impl GlobalModel {
             GlobalModel::Gfs => "GFS",
             GlobalModel::Ecmwf => "ECMWF",
             GlobalModel::Gefs => "GEFS mean",
+            GlobalModel::Gdps => "GDPS",
         }
     }
 
@@ -127,6 +138,22 @@ impl GlobalField {
             GlobalField::Dewpoint2m => ("2d", "sfc", None),
             GlobalField::Wind10m => ("10u", "sfc", None),
             GlobalField::Precip => ("tp", "sfc", None),
+        }
+    }
+
+    /// GDPS Datamart filename `(variable, level)` tokens — `{variable}_{level}` between the
+    /// model name and the grid spec in `{date}T{HH}Z_MSC_GDPS_{variable}_{level}_LatLon0.15_PT{fh}H.grib2`.
+    /// Wind is the one genuine semantic difference from GFS/ECMWF's key: GDPS publishes speed
+    /// directly rather than a U component, so this is the actual scalar magnitude, not one
+    /// vector component read as if it were the whole story.
+    fn gdps_key(self) -> (&'static str, &'static str) {
+        match self {
+            GlobalField::Mslp => ("Pressure", "MSL"),
+            GlobalField::Height500 => ("GeopotentialHeight", "IsbL-0500"),
+            GlobalField::Temp2m => ("AirTemp", "AGL-2m"),
+            GlobalField::Dewpoint2m => ("DewPoint", "AGL-2m"),
+            GlobalField::Wind10m => ("WindSpeed", "AGL-10m"),
+            GlobalField::Precip => ("Precip-Accum", "Sfc"),
         }
     }
 }
@@ -262,6 +289,17 @@ async fn fetch_run(
             let r = crate::hrrr::field_byte_range(&idx, var, level)
                 .ok_or_else(|| anyhow::anyhow!("no {var}:{level} in GEFS idx"))?;
             (base, r)
+        }
+        // No index to slice — Datamart already publishes one message per file, so the "range"
+        // is simply the whole thing.
+        GlobalModel::Gdps => {
+            let (var, level) = field.gdps_key();
+            let base = format!(
+                "{GDPS_BASE}/{:02}/{fh:03}/{date}T{:02}Z_MSC_GDPS_{var}_{level}_LatLon0.15_PT{fh:03}H.grib2",
+                run.hour(),
+                run.hour()
+            );
+            (base, (0, None))
         }
     };
 
@@ -426,7 +464,12 @@ mod tests {
     #[ignore = "network"]
     async fn global_live() {
         let http = reqwest::Client::new();
-        for model in [GlobalModel::Gfs, GlobalModel::Ecmwf, GlobalModel::Gefs] {
+        for model in [
+            GlobalModel::Gfs,
+            GlobalModel::Ecmwf,
+            GlobalModel::Gefs,
+            GlobalModel::Gdps,
+        ] {
             let f = fetch(&http, model, GlobalField::Mslp, 0)
                 .await
                 .unwrap_or_else(|e| panic!("{} fetch: {e}", model.label()));
@@ -446,6 +489,33 @@ mod tests {
             // The whole point of the longitude wrap: a global field lands in −180..180.
             assert!(f.field.lon_west >= -180.5 && f.field.lon_east <= 180.5);
             assert!(finite > 0);
+        }
+    }
+
+    /// GDPS specifically, every field this app reads — `gdps_key()`'s Datamart filenames are
+    /// hand-transcribed from a live directory listing, not derived from any spec, so each one
+    /// needs its own live check rather than trusting the MSLP check above covers them all.
+    /// `cargo test -p wxdata gdps_live -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn gdps_live() {
+        let http = reqwest::Client::new();
+        for field in GlobalField::ALL {
+            // Precip is an accumulation; it has nothing to report at the analysis hour.
+            let fh = if field == GlobalField::Precip { 24 } else { 0 };
+            let f = fetch(&http, GlobalModel::Gdps, field, fh)
+                .await
+                .unwrap_or_else(|e| panic!("{}: {e}", field.label()));
+            let finite = f.field.values.iter().filter(|v| v.is_finite()).count();
+            println!(
+                "{}: {}x{} finite {finite}/{} ({:.0}%)",
+                field.label(),
+                f.field.nx,
+                f.field.ny,
+                f.field.values.len(),
+                100.0 * finite as f64 / f.field.values.len() as f64,
+            );
+            assert!(finite > f.field.values.len() / 2, "{}: too many gaps", field.label());
         }
     }
 }

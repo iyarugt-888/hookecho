@@ -258,6 +258,8 @@ impl HookEchoApp {
                             for gm in [
                                 wxdata::global::GlobalModel::Gfs,
                                 wxdata::global::GlobalModel::Ecmwf,
+                                wxdata::global::GlobalModel::Gefs,
+                                wxdata::global::GlobalModel::Gdps,
                             ] {
                                 if wsv3::pill_sized(ui, gm.label(), global_model == gm, accent, 46.0)
                                     .clicked()
@@ -269,6 +271,7 @@ impl HookEchoApp {
                                 (wxdata::hrrr::Model::Hrrr, "HRRR"),
                                 (wxdata::hrrr::Model::Rap, "RAP"),
                                 (wxdata::hrrr::Model::NamNest, "NAM"),
+                                (wxdata::hrrr::Model::Nam, "NAM12"),
                             ] {
                                 if wsv3::pill_sized(ui, label, env_model == em, accent, 44.0)
                                     .on_hover_text(

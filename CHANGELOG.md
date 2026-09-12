@@ -8,6 +8,20 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### A fourth global model: Environment Canada's GDPS
+
+- **GDPS** joins GFS, ECMWF and GEFS as a Global forecast source — a second national
+  weather service's own global model, independent data assimilation and physics from
+  the NCEP/ECMWF pair already here. Read straight from Environment Canada's public
+  Datamart (`dd.weather.gc.ca`), which — unlike every S3 bucket this app otherwise reads —
+  already publishes one GRIB2 message per file, so fetching a field is a plain GET with no
+  index to slice a byte range out of first.
+- Also fixed: the model pickers in the ribbon toolbar (`app/chrome/ribbon.rs`) had never
+  been updated for GEFS or NAM's 12 km grid, both added earlier — a second, separate copy
+  of the model-button row from the one in the layers panel that quietly drifted out of
+  sync. Both now show the full roster (GFS/ECMWF/GEFS/GDPS, and HRRR/RAP/NAM/NAM12), the
+  same models the layers panel already offered.
+
 ### NDFD: the NWS's own forecaster-blended grids, and a real GRIB2 decoder bug fixed along the way
 
 - **NDFD temperature, wind speed, wind gust and snowfall** join the model layers — read

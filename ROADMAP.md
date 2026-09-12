@@ -31,19 +31,24 @@ upgrade path out of it (`grep -rn "ponytail:" crates/`).
   existing GIBS frame bar's "follow the radar clock" scrubbing rather than a
   plain on/off toggle, and imagery inside an offline chase pack.
 - **Model coverage on par with the other radar apps.** NAM's own 12 km grid
-  (`hrrr::Model::Nam`) and the GFS ensemble mean (`global::GlobalModel::Gefs`)
-  are in, each verified against its live public bucket. Still open: RRFS
-  (HRRR's planned successor — its public bucket currently holds only a 2024
-  retrospective test run, not a live operational feed, so it's not addable
-  yet as more than a guess), ICON (DWD, open data), GEM/GDPS (Environment
-  Canada, open data), and HREF (the short-range CAM ensemble). Each is the
-  same shape of work as NAM/GEFS: confirm the live bucket and file naming,
-  confirm `gribberish` decodes its grid projection, wire it into the
-  relevant `Model`/`GlobalModel` enum. NDFD (the NWS's own forecaster-blended
-  grid — temperature, wind, gusts, snow totals) is in, read straight from
-  `noaa-ndfd-pds` (`wxdata::ndfd`); its snowfall grid also turned up (and paid
-  for the fix of) a real decoder bug in the Complex Grid Packing template
-  nothing else here had exercised — see the changelog.
+  (`hrrr::Model::Nam`), the GFS ensemble mean (`global::GlobalModel::Gefs`),
+  Environment Canada's GDPS (`global::GlobalModel::Gdps`) and NDFD (the NWS's
+  own forecaster-blended grid — temperature, wind, gusts, snow totals,
+  `wxdata::ndfd`) are all in, each verified against its live public source.
+  NDFD's snowfall grid also turned up (and paid for the fix of) a real
+  decoder bug in the Complex Grid Packing template nothing else here had
+  exercised — see the changelog. Still open: RRFS (HRRR's planned successor
+  — its public bucket currently holds only a 2024 retrospective test run,
+  not a live operational feed, so it's not addable yet as more than a
+  guess) and HREF (the short-range CAM ensemble — no confirmed public
+  bucket found yet; NOMADS may have it but that needs its own directory-
+  listing recon the way GDPS's Datamart got). ICON (DWD) is the one of
+  these four with a real open question rather than just unconfirmed
+  logistics: its native grid is icosahedral (triangular cells over the
+  sphere), not the regular lat/lon or Lambert grids every model this app
+  reads decodes today, so `gribberish` support for that grid definition
+  template would need confirming (or a DWD-published regular-lat/lon
+  regrid substituted) before it's more than a guess.
 
 ## Later
 
