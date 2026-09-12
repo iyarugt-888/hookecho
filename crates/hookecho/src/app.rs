@@ -11212,6 +11212,38 @@ impl HookEchoApp {
                                     );
                                 }
                             });
+                            {
+                                // Same `threshold_enabled`/`thresholds` the 2D "Product settings"
+                                // Threshold control edits — one gate, so turning it on here also
+                                // denoises the flat 2D view and vice versa, rather than a second
+                                // floor a user has to keep in sync with the first.
+                                let mi = moment.index();
+                                ui.horizontal(|ui| {
+                                    ui.checkbox(&mut view.threshold_enabled[mi], "Denoise")
+                                        .on_hover_text(
+                                            "Hide everything below a value, so light rain and \
+                                             noise don't clutter the 3D scan",
+                                        );
+                                    if view.threshold_enabled[mi] {
+                                        let (vmin, vmax) = moment.value_range();
+                                        let (unit_factor, unit_label) =
+                                            display_units(moment, &self.settings);
+                                        let f = unit_factor as f64;
+                                        let t = view.thresholds[mi]
+                                            .get_or_insert((vmin + vmax) * 0.5);
+                                        ui.add(
+                                            egui::Slider::new(t, vmin..=vmax)
+                                                .custom_formatter(move |v, _| {
+                                                    format!("{:.0}", v * f)
+                                                })
+                                                .custom_parser(move |s| {
+                                                    s.parse::<f64>().ok().map(|x| x / f)
+                                                })
+                                                .suffix(unit_label),
+                                        );
+                                    }
+                                });
+                            }
                             ui.checkbox(&mut view.map_3d.fill_gaps, "Fill gaps").on_hover_text(
                                 "Add a copy of each gate at the midpoint toward the next tilt \
                                  up, so the stack reads as one continuous volume instead of \

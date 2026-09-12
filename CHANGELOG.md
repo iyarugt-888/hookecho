@@ -8,6 +8,17 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Denoise reaches the Observed 3D volume too
+
+- The map's "Observed" 3D mode had no way to hide light rain and noise —
+  denoising only existed for the resampled "Smooth" volume. Observed mode
+  now has its own **Denoise** control in the 3D panel, right beside Gates
+  and Fill gaps. It edits the same per-moment threshold the 2D "Product
+  settings" panel already has, so turning it on denoises whichever view
+  you're looking at rather than being a second floor to keep in sync with
+  the first, and it works for whatever moment the pane is showing —
+  reflectivity, velocity, or anything else — not just dBZ.
+
 ### Local cell tracks no longer freeze the app, and weather alerts no longer time out
 
 - Local cell tracks (the reflectivity-derived storm tracking used at sites
