@@ -160,14 +160,15 @@ pub enum FieldLayer {
     CompareA,
     /// Model-comparison side B (`app.diff_field.pair().1`'s own field).
     CompareB,
-    /// GOES-East ABI Band 13 (clean IR) brightness temperature, CONUS sector — read directly from
-    /// the satellite's own S3 bucket rather than GIBS' pre-rendered tiles.
+    /// GOES ABI Band 13 (clean IR) brightness temperature, CONUS sector — read directly from
+    /// the satellite's own S3 bucket rather than GIBS' pre-rendered tiles. East by default; West
+    /// is `settings.goes_satellite_west`.
     GoesIr,
-    /// GOES-East ABI Band 2 (red visible, 0.64 µm) reflectance factor, CONUS sector. Daytime
+    /// GOES ABI Band 2 (red visible, 0.64 µm) reflectance factor, CONUS sector. Daytime
     /// only — the sun-lit side of a scan reads real cloud texture, the night side reads noise
     /// near zero, same as looking at a satellite loop on any other app.
     GoesVisible,
-    /// GOES-East ABI Band 8 (upper-level water vapor, 6.2 µm) brightness temperature, CONUS
+    /// GOES ABI Band 8 (upper-level water vapor, 6.2 µm) brightness temperature, CONUS
     /// sector — mid/upper-tropospheric moisture, day or night, the channel forecasters actually
     /// mean by "the water vapor loop".
     GoesWaterVapor,

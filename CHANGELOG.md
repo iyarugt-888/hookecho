@@ -8,6 +8,17 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### GOES-West for the satellite bands
+
+- The IR/visible/water-vapor satellite layers can now read from **GOES-West** (GOES-18)
+  instead of the hardcoded GOES-East — a Layer settings toggle, since the two satellites'
+  CONUS scans overlap and showing both at once would double-paint that overlap rather than
+  extend coverage. Picking West and back refetches every band at once rather than waiting
+  out the normal five-minute cadence, the same immediate-refetch-on-change rule the Global
+  model picker already uses.
+- The roadmap's "GOES from the source" entry called this out as one of two things actually
+  left (the other, an offline-chase-pack copy of the imagery, is still open).
+
 ### A fourth global model: Environment Canada's GDPS
 
 - **GDPS** joins GFS, ECMWF and GEFS as a Global forecast source — a second national

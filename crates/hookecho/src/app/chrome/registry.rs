@@ -231,22 +231,25 @@ impl HookEchoApp {
             (
                 FL::GoesIr,
                 "National",
-                "GOES-East IR satellite",
-                "Cloud-top brightness temperature, read straight from the satellite over CONUS",
+                "GOES IR satellite",
+                "Cloud-top brightness temperature, read straight from the satellite over CONUS \
+                 — East by default, West in Layer settings",
                 true,
             ),
             (
                 FL::GoesVisible,
                 "National",
-                "GOES-East visible satellite",
-                "Daytime visible reflectance, read straight from the satellite over CONUS",
+                "GOES visible satellite",
+                "Daytime visible reflectance, read straight from the satellite over CONUS \
+                 — East by default, West in Layer settings",
                 true,
             ),
             (
                 FL::GoesWaterVapor,
                 "National",
-                "GOES-East water vapor satellite",
-                "Upper-level moisture, read straight from the satellite over CONUS",
+                "GOES water vapor satellite",
+                "Upper-level moisture, read straight from the satellite over CONUS \
+                 — East by default, West in Layer settings",
                 true,
             ),
             (

@@ -99,6 +99,9 @@ pub(crate) fn show(
     lightning_minutes: &mut u16,
     show_glm: bool,
     glm_goes_west: &mut bool,
+    // Satellite: GOES-East or -West for the IR/visible/water-vapor CMIP bands (exclusive,
+    // unlike GLM's additive choice above — the two satellites' CONUS scans overlap).
+    goes_satellite_west: &mut bool,
     // Spotter Network dots: on-state, and how far from the radar to draw them (0 = whole feed).
     show_spotters: bool,
     spotter_range_km: &mut f64,
@@ -135,6 +138,12 @@ pub(crate) fn show(
             on.contains(&FL::ModelDiff) || on.contains(&FL::CompareA) || on.contains(&FL::CompareB),
         ),
         ("Lightning", show_glm || on.contains(&FL::Lightning)),
+        (
+            "Satellite",
+            [FL::GoesIr, FL::GoesVisible, FL::GoesWaterVapor]
+                .iter()
+                .any(|l| on.contains(l)),
+        ),
         ("Spotters", show_spotters),
         ("Rotation tracks", on.contains(&FL::Rotation)),
         ("Hail swaths", on.contains(&FL::HailSwath)),
@@ -261,6 +270,16 @@ pub(crate) fn show(
     if section == "Lightning" && show_glm {
         changed |= crate::ui::style::toggle(ui, glm_goes_west, "Include GOES-West")
             .on_hover_text("Adds GOES-18 so the Pacific and the west coast are covered too")
+            .changed();
+    }
+
+    if section == "Satellite" {
+        changed |= crate::ui::style::toggle(ui, goes_satellite_west, "Use GOES-West")
+            .on_hover_text(
+                "GOES-18 instead of GOES-East — covers the Pacific and the western half of the \
+                 country. The two satellites' CONUS scans overlap, so this replaces the image \
+                 rather than adding to it.",
+            )
             .changed();
     }
 

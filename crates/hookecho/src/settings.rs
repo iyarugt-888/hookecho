@@ -249,6 +249,13 @@ pub struct Settings {
     /// listing per 20-second cycle and covers the Pacific and the west coast.
     #[serde(default)]
     pub glm_goes_west: bool,
+    /// Read the IR/visible/water-vapor satellite layers from GOES-West instead of GOES-East.
+    /// Unlike GLM lightning (which polls both and combines the flashes) this is exclusive, not
+    /// additive — the two satellites' CONUS-sector scans overlap, and showing both images at
+    /// once would double-paint that overlap rather than usefully extend coverage. Pick West for
+    /// the Pacific and the western half of the country, East for everywhere else.
+    #[serde(default)]
+    pub goes_satellite_west: bool,
     /// How far from the active radar to draw Spotter Network dots, in km. 0 = no limit (the whole
     /// CONUS feed). Default 230 km, roughly the radar's own useful range.
     #[serde(default = "default_spotter_range_km")]
@@ -1144,6 +1151,7 @@ impl Default for Settings {
             share_video_url: String::new(),
             lightning_minutes: default_lightning_minutes(),
             glm_goes_west: false,
+            goes_satellite_west: false,
             spotter_range_km: default_spotter_range_km(),
             alert_sound: true,
             smooth_radar: true,
@@ -1674,6 +1682,7 @@ mod tests {
             }),
             lightning_minutes: default_lightning_minutes(),
             glm_goes_west: false,
+            goes_satellite_west: false,
             spotter_range_km: default_spotter_range_km(),
             alert_sound: false,
             ntfy_topic: "hookecho-test".to_string(),

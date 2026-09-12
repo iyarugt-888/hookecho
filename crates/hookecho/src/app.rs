@@ -385,9 +385,10 @@ enum OverlaySource {
     Snow(u16),
     /// Banded snow: the MRMS mosaic cut to elongated echo and masked to snow.
     SnowBands,
-    /// A GOES-East ABI band, CONUS sector, read directly from S3 rather than GIBS' pre-rendered
-    /// tiles — which band is `GoesIr`/`GoesVisible`/`GoesWaterVapor`.
-    Goes(crate::render::FieldLayer),
+    /// A GOES ABI band, CONUS sector, read directly from S3 rather than GIBS' pre-rendered
+    /// tiles — which band is `GoesIr`/`GoesVisible`/`GoesWaterVapor`, which satellite is the
+    /// second field (`settings.goes_satellite_west`, resolved at spawn time).
+    Goes(crate::render::FieldLayer, wxdata::goes_abi::Satellite),
     /// An NDFD element (the NWS's own forecaster-blended grid), CONUS short range — which
     /// element is `NdfdTemp2m`/`NdfdWind10m`/`NdfdGust10m`/`NdfdSnow`.
     Ndfd(crate::render::FieldLayer),
@@ -714,7 +715,7 @@ impl OverlaySource {
             | Self::HrrrLayer(layer, ..)
             | Self::Global(layer, ..)
             | Self::L3Grid(layer, ..)
-            | Self::Goes(layer)
+            | Self::Goes(layer, ..)
             | Self::Ndfd(layer) => RequestLane::Field(*layer),
             Self::ModelDiff(..) => RequestLane::Field(FL::ModelDiff),
             // Both compare panes ride one fetch (see `fetch_diff_pair`); either layer name works
@@ -962,7 +963,7 @@ impl OverlaySource {
                 crate::render::FieldLayer::SnowAnalysis,
                 wxdata::nohrsc::fetch(http, hours).await?,
             ),
-            OverlaySource::Goes(layer) => {
+            OverlaySource::Goes(layer, satellite) => {
                 use crate::render::FieldLayer as FL;
                 // Band number for each channel's own S3 objects — see `wxdata::goes_abi`'s doc
                 // comment for why CMIP CONUS is the product either way.
@@ -974,14 +975,7 @@ impl OverlaySource {
                 };
                 OverlayMsg::Field(
                     layer,
-                    wxdata::goes_abi::fetch_latest_conus(
-                        http,
-                        wxdata::goes_abi::Satellite::East,
-                        band,
-                        1200,
-                        700,
-                    )
-                    .await?,
+                    wxdata::goes_abi::fetch_latest_conus(http, satellite, band, 1200, 700).await?,
                 )
             }
             OverlaySource::Ndfd(layer) => {
@@ -2531,6 +2525,9 @@ pub struct HookEchoApp {
     /// the pair rarely shares a cycle, and a difference between two instants has to say so.
     diff_field: crate::fielddiff::DiffField,
     diff_valid: Option<(String, String)>,
+    /// Which `settings.goes_satellite_west` each GOES band was last fetched for, so flipping the
+    /// satellite refetches at once instead of waiting out the normal cadence.
+    goes_west_key: std::collections::HashMap<crate::render::FieldLayer, bool>,
     /// When `goto.txt` was last looked for — see the poll in `update`.
     goto_poll: Option<Instant>,
     /// The `#goto=` fragment last applied, web only — so a kiosk tab that never navigates away
@@ -3531,6 +3528,7 @@ impl HookEchoApp {
             diff_field: crate::fielddiff::DiffField::default(),
             diff_valid: None,
             diff_grid: None,
+            goes_west_key: std::collections::HashMap::new(),
             goto_poll: None,
             #[cfg(target_arch = "wasm32")]
             last_goto_hash: None,
@@ -17191,16 +17189,27 @@ impl eframe::App for HookEchoApp {
                 self.spawn_overlay(ctx, OverlaySource::SnowBands);
             }
         }
-        // GOES-East bands: no forecast hour, no product path — read straight from S3.
+        // GOES bands: no forecast hour, no product path — read straight from S3. Which satellite
+        // is a setting, not a per-layer choice, so flipping it has to refetch every band at once
+        // rather than waiting out the normal cadence.
+        let west = self.settings.goes_satellite_west;
+        let satellite = if west {
+            wxdata::goes_abi::Satellite::West
+        } else {
+            wxdata::goes_abi::Satellite::East
+        };
         for layer in [FL::GoesIr, FL::GoesVisible, FL::GoesWaterVapor] {
-            let stale = self.field_wanted(layer)
+            let on = self.field_wanted(layer);
+            let stale = on
                 && self.fields.get(&layer).is_none_or(|s| {
                     s.last_fetch
                         .is_none_or(|t| t.elapsed().as_secs() >= field_refresh_secs(layer))
                 });
-            if stale {
+            let changed = on && self.goes_west_key.get(&layer) != Some(&west);
+            if stale || changed {
                 self.fields.entry(layer).or_default().last_fetch = Some(Instant::now());
-                self.spawn_overlay(ctx, OverlaySource::Goes(layer));
+                self.goes_west_key.insert(layer, west);
+                self.spawn_overlay(ctx, OverlaySource::Goes(layer, satellite));
             }
         }
         // NDFD elements: also no forecast hour to scrub — each fetch is the whole short-range

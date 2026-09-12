@@ -22,14 +22,16 @@ upgrade path out of it (`grep -rn "ponytail:" crates/`).
   fifteen timed layers (GeoColor, clean IR, air mass, dust, fire temperature,
   plus Himawari and IMERG), a frame bar, and a "follow the radar clock" mode
   that scrubs the imagery with the volume. Reading ABI Level 2 CMIP directly
-  now also exists as three national field layers (GOES-East clean IR, visible
-  and water vapor, CONUS sector, `wxdata::goes_abi`) — the fixed-grid
+  now also exists as three national field layers (clean IR, visible and
+  water vapor, CONUS sector, `wxdata::goes_abi`) — the fixed-grid
   geostationary projection and the netCDF-4 read (an `hdf5lite` bugfix along
   the way) were the real unknowns, and all three bands are proven against the
-  live bucket now. What's actually left: a satellite/band picker (GOES-West,
-  other sectors) instead of the one hardcoded satellite, hooking it into the
-  existing GIBS frame bar's "follow the radar clock" scrubbing rather than a
-  plain on/off toggle, and imagery inside an offline chase pack.
+  live bucket now. GOES-West is in too (`settings.goes_satellite_west`, a
+  Layer settings toggle — exclusive with East, since the two satellites'
+  CONUS scans overlap). What's actually left: other sectors (mesoscale, full
+  disk) instead of the one hardcoded CONUS crop, hooking the CMIP bands into
+  the existing GIBS frame bar's "follow the radar clock" scrubbing rather
+  than a plain on/off toggle, and imagery inside an offline chase pack.
 - **Model coverage on par with the other radar apps.** NAM's own 12 km grid
   (`hrrr::Model::Nam`), the GFS ensemble mean (`global::GlobalModel::Gefs`),
   Environment Canada's GDPS (`global::GlobalModel::Gdps`) and NDFD (the NWS's

@@ -253,6 +253,7 @@ impl HookEchoApp {
                                     &mut self.settings.lightning_minutes,
                                     glm_options,
                                     &mut self.settings.glm_goes_west,
+                                    &mut self.settings.goes_satellite_west,
                                     self.show_spotters,
                                     &mut self.settings.spotter_range_km,
                                     &mut self.settings.detectors,
