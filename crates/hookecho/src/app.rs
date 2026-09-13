@@ -9847,7 +9847,7 @@ impl HookEchoApp {
                         let time = id.date_time().unwrap_or_else(Utc::now);
                         // No cache at the live head: the newest object can still be uploading, and a
                         // half-written volume is not something to keep.
-                        let fetched = match crate::volume::fetch(id, None).await {
+                        let fetched = match crate::volume::fetch(id, false, None).await {
                             Ok(scan) => Ok((name.clone(), time, scan)),
                             Err(e) => match prev {
                                 // Only worth retrying when there IS an older volume and we're not
@@ -9858,7 +9858,7 @@ impl HookEchoApp {
                                     log::debug!(
                                         "newest volume unusable ({e}); falling back to {pname}"
                                     );
-                                    crate::volume::fetch(p, None)
+                                    crate::volume::fetch(p, false, None)
                                         .await
                                         .map(|scan| (pname, ptime, scan))
                                         .map_err(|_| e)
@@ -10577,7 +10577,7 @@ impl HookEchoApp {
             let name = id.name().to_string();
             let fetched = wxdata::task::timeout(
                 VOLUME_TIMEOUT,
-                crate::volume::fetch(id, crate::paths::cache_dir()),
+                crate::volume::fetch(id, true, crate::paths::cache_dir()),
             )
             .await
             .unwrap_or_else(Err);
@@ -10637,7 +10637,7 @@ impl HookEchoApp {
             // stops polling for the rest of the session.
             let fetched = wxdata::task::timeout(
                 VOLUME_TIMEOUT,
-                crate::volume::fetch(id, crate::paths::cache_dir()),
+                crate::volume::fetch(id, true, crate::paths::cache_dir()),
             )
             .await
             .unwrap_or_else(Err);

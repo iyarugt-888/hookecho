@@ -8,6 +8,20 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: the web build now caches archived radar volumes locally
+
+- Native builds have always kept every archived Level II volume on disk indefinitely, so
+  re-scrubbing to an hour already visited is a file read. The browser build only got that for a
+  volume someone explicitly saved as an offline chase pack — every other archived volume was
+  refetched from S3 on every visit, including a plain page reload. The browser now keeps its own
+  automatic cache in IndexedDB, independent of chase packs, evicted oldest-least-recently-used
+  first once it passes its own size cap — reloading and re-scrubbing back through a storm you
+  already looked at today no longer redownloads it. The live head is never cached, since the
+  newest object can still be mid-write.
+- Verified live: scrubbed back through several archive frames, reloaded the page in a fresh tab,
+  and confirmed (via the network log) that those exact volumes loaded with no request at all,
+  while a newly-scrubbed time still fetched normally.
+
 ### Fixed: live NWS alerts (warnings, watches, advisories) failed on the web build
 
 - Reported live: on a `hookecho --serve` deployment, active/live alerts never appeared while

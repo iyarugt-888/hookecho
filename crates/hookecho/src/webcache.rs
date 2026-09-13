@@ -1,4 +1,4 @@
-//! Offline chase packs: raw radar volumes kept in IndexedDB so a saved loop plays with no network.
+//! Offline chase packs, and an automatic archive-volume cache, both in IndexedDB.
 //!
 //! The service worker already caches basemap tiles (`web/sw.src.js`, `tiles-v1`) and deliberately
 //! excludes radar — a volume is tens of megabytes and the newest one changes every few minutes,
@@ -13,6 +13,17 @@
 //! ponytail: no eviction inside a pack and no sharing accounting between packs — a volume in two
 //! packs is stored once and freed when the last pack referencing it goes. Packs are deleted whole,
 //! oldest first, once the store passes [`BYTE_CAP`].
+//!
+//! The auto-cache (`auto_cached_volume`/`spawn_auto_cache_put`) is the unrelated, unglamorous
+//! other half: native builds already keep every archived volume on disk indefinitely
+//! (`wxdata::level2::download_scan`'s `cache_dir`), so re-scrubbing to an hour already visited
+//! this session is a file read, not a download — but the browser build only got that for a volume
+//! someone explicitly saved as a pack. Every other archived volume was refetched from S3 on every
+//! visit, including a plain page reload. This mirrors the native behavior for the browser: any
+//! archived (never-live) volume is cached the first time it is decoded and read back on every
+//! later visit, evicted oldest-`last_used`-first once the store passes [`AUTO_CACHE_BYTE_CAP`] —
+//! independently of packs, so background scrubbing can never evict something a chaser pinned on
+//! purpose.
 
 #[cfg(target_arch = "wasm32")]
 use anyhow::anyhow;
@@ -29,6 +40,10 @@ const DB_NAME: &str = "hookecho-packs";
 const VOLUMES: &str = "volumes";
 #[cfg(target_arch = "wasm32")]
 const PACKS: &str = "packs";
+#[cfg(target_arch = "wasm32")]
+const AUTO_VOLUMES: &str = "auto_volumes";
+#[cfg(target_arch = "wasm32")]
+const AUTO_VOLUMES_META: &str = "auto_volumes_meta";
 
 /// How much radar may sit in IndexedDB before saving a pack evicts the oldest one.
 ///
@@ -36,6 +51,44 @@ const PACKS: &str = "packs";
 /// self-imposed ceiling well under any plausible quota: about ten loops of a dozen volumes.
 #[cfg(target_arch = "wasm32")]
 const BYTE_CAP: f64 = 250.0 * 1024.0 * 1024.0;
+
+/// How much the automatic archive-volume cache may hold, independent of [`BYTE_CAP`] — a
+/// background cache should never be able to evict a pack a chaser deliberately saved, or vice
+/// versa. About 200-500 volumes depending on site/mode, which comfortably covers a session's
+/// worth of scrubbing back through one storm.
+#[cfg(target_arch = "wasm32")]
+const AUTO_CACHE_BYTE_CAP: f64 = 150.0 * 1024.0 * 1024.0;
+
+/// One auto-cached volume's bookkeeping: enough to evict the least-recently-read entry first.
+///
+/// Kept available (not just `#[cfg(target_arch = "wasm32")]`) on `test` too — the eviction order
+/// this and [`entries_over_cap`] decide is worth testing without a browser's IndexedDB, and native
+/// is where `cargo test` actually runs.
+#[cfg(any(target_arch = "wasm32", test))]
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+struct AutoCacheMeta {
+    /// Unix milliseconds of the last read (or write) — the LRU clock.
+    last_used: i64,
+    bytes: f64,
+}
+
+/// Which auto-cached entries to delete to bring `entries`' total back under `cap`, oldest
+/// `last_used` first. Pure and target-independent so eviction order is tested without a browser.
+#[cfg(any(target_arch = "wasm32", test))]
+fn entries_over_cap(entries: &[(String, AutoCacheMeta)], cap: f64) -> Vec<String> {
+    let mut ordered: Vec<&(String, AutoCacheMeta)> = entries.iter().collect();
+    ordered.sort_by_key(|(_, meta)| meta.last_used);
+    let mut total: f64 = entries.iter().map(|(_, meta)| meta.bytes).sum();
+    let mut evict = Vec::new();
+    for (name, meta) in ordered {
+        if total <= cap {
+            break;
+        }
+        total -= meta.bytes;
+        evict.push(name.clone());
+    }
+    evict
+}
 
 /// One saved loop.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
@@ -89,14 +142,18 @@ async fn await_request(req: IdbRequest) -> anyhow::Result<JsValue> {
     JsFuture::from(promise).await.map_err(|e| anyhow!("{e:?}"))
 }
 
-/// Open the database, creating the two stores on first use or version bump.
+/// Open the database, creating any store this build knows about but this browser's copy does not
+/// yet have. Version 2 added [`AUTO_VOLUMES`]/[`AUTO_VOLUMES_META`] to a database that visitors
+/// from before that change already have at version 1 — `IndexedDB` fires `onupgradeneeded` for
+/// exactly that gap, and each store is only created if missing, so both a fresh visitor and one
+/// upgrading from version 1 land in the same place without a "store already exists" exception.
 #[cfg(target_arch = "wasm32")]
 async fn open() -> anyhow::Result<IdbDatabase> {
     let factory = web_sys::window()
         .and_then(|w| w.indexed_db().ok().flatten())
         .ok_or_else(|| anyhow!("no IndexedDB in this browser"))?;
     let req = factory
-        .open_with_u32(DB_NAME, 1)
+        .open_with_u32(DB_NAME, 2)
         .map_err(|e| anyhow!("{e:?}"))?;
     let upgrade = Closure::<dyn FnMut(web_sys::Event)>::new(move |ev: web_sys::Event| {
         let Some(req) = ev.target().and_then(|t| t.dyn_into::<IdbRequest>().ok()) else {
@@ -105,8 +162,12 @@ async fn open() -> anyhow::Result<IdbDatabase> {
         let Ok(db) = req.result().and_then(|v| v.dyn_into::<IdbDatabase>()) else {
             return;
         };
-        let _ = db.create_object_store(VOLUMES);
-        let _ = db.create_object_store(PACKS);
+        let existing = db.object_store_names();
+        for name in [VOLUMES, PACKS, AUTO_VOLUMES, AUTO_VOLUMES_META] {
+            if !existing.contains(name) {
+                let _ = db.create_object_store(name);
+            }
+        }
     });
     req.set_onupgradeneeded(Some(upgrade.as_ref().unchecked_ref()));
     let db = await_request(req.clone().unchecked_into()).await?;
@@ -255,6 +316,107 @@ pub async fn remove(key: String) {
     }
 }
 
+/// Every entry's LRU bookkeeping, for eviction and for the read path's own timestamp bump.
+#[cfg(target_arch = "wasm32")]
+async fn auto_cache_entries(db: &IdbDatabase) -> Vec<(String, AutoCacheMeta)> {
+    let Ok(s) = store(db, AUTO_VOLUMES_META, IdbTransactionMode::Readonly) else {
+        return Vec::new();
+    };
+    let (Ok(keys_req), Ok(vals_req)) = (s.get_all_keys(), s.get_all()) else {
+        return Vec::new();
+    };
+    let (Ok(keys), Ok(vals)) = (
+        await_request(keys_req).await,
+        await_request(vals_req).await,
+    ) else {
+        return Vec::new();
+    };
+    // `get_all`/`get_all_keys` both return their results in the same (ascending key) order, so
+    // zipping the two arrays pairs each key with its own value without a second round trip.
+    js_sys::Array::from(&keys)
+        .iter()
+        .filter_map(|k| k.as_string())
+        .zip(
+            js_sys::Array::from(&vals)
+                .iter()
+                .filter_map(|v| v.as_string())
+                .filter_map(|s| serde_json::from_str::<AutoCacheMeta>(&s).ok()),
+        )
+        .collect()
+}
+
+/// Raw bytes of an archived volume from the automatic cache, if this browser has already fetched
+/// it this way — never populated for the live head, which [`crate::volume::fetch`] never asks
+/// this for. Touches the entry's `last_used` on a hit; a failed touch just makes that entry look
+/// slightly older than it is at the next eviction, not a correctness problem.
+#[cfg(target_arch = "wasm32")]
+pub async fn auto_cached_volume(name: &str) -> Option<Vec<u8>> {
+    let db = open().await.ok()?;
+    let s = store(&db, AUTO_VOLUMES, IdbTransactionMode::Readonly).ok()?;
+    let v = await_request(s.get(&name.into()).ok()?).await.ok()?;
+    let bytes = v.dyn_into::<js_sys::Uint8Array>().ok()?.to_vec();
+    if let Ok(s) = store(&db, AUTO_VOLUMES_META, IdbTransactionMode::Readwrite) {
+        let meta = AutoCacheMeta {
+            last_used: chrono::Utc::now().timestamp_millis(),
+            bytes: bytes.len() as f64,
+        };
+        if let Ok(json) = serde_json::to_string(&meta) {
+            if let Ok(req) = s.put_with_key(&json.as_str().into(), &name.into()) {
+                let _ = await_request(req).await;
+            }
+        }
+    }
+    Some(bytes)
+}
+
+/// Store one archived volume's bytes in the automatic cache, then evict the least-recently-used
+/// entries until the store is back under [`AUTO_CACHE_BYTE_CAP`].
+#[cfg(target_arch = "wasm32")]
+async fn auto_cache_put(name: &str, bytes: &[u8]) -> anyhow::Result<()> {
+    let db = open().await?;
+    let s = store(&db, AUTO_VOLUMES, IdbTransactionMode::Readwrite)?;
+    let arr = js_sys::Uint8Array::from(bytes);
+    let req = s
+        .put_with_key(&arr, &name.into())
+        .map_err(|e| anyhow!("{e:?}"))?;
+    await_request(req).await?;
+    let meta = AutoCacheMeta {
+        last_used: chrono::Utc::now().timestamp_millis(),
+        bytes: bytes.len() as f64,
+    };
+    let s = store(&db, AUTO_VOLUMES_META, IdbTransactionMode::Readwrite)?;
+    let json = serde_json::to_string(&meta)?;
+    let req = s
+        .put_with_key(&json.as_str().into(), &name.into())
+        .map_err(|e| anyhow!("{e:?}"))?;
+    await_request(req).await?;
+    let victims = entries_over_cap(&auto_cache_entries(&db).await, AUTO_CACHE_BYTE_CAP);
+    for name in victims {
+        if let Ok(s) = store(&db, AUTO_VOLUMES, IdbTransactionMode::Readwrite) {
+            if let Ok(req) = s.delete(&name.as_str().into()) {
+                let _ = await_request(req).await;
+            }
+        }
+        if let Ok(s) = store(&db, AUTO_VOLUMES_META, IdbTransactionMode::Readwrite) {
+            if let Ok(req) = s.delete(&name.as_str().into()) {
+                let _ = await_request(req).await;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Fire-and-forget wrapper for [`auto_cache_put`] — the caller (`volume::fetch`) already has the
+/// decoded scan in hand and has no reason to wait on the store finishing.
+#[cfg(target_arch = "wasm32")]
+pub fn spawn_auto_cache_put(name: String, bytes: Vec<u8>) {
+    wasm_bindgen_futures::spawn_local(async move {
+        if let Err(e) = auto_cache_put(&name, &bytes).await {
+            log::debug!("auto-cache put for {name} failed: {e}");
+        }
+    });
+}
+
 /// What the UI reads: the packs on hand and the last progress line. Filled by the async saves and
 /// loads, which have nowhere else to put a result — the picker is drawn from a `&mut self` the
 /// spawned task cannot hold.
@@ -354,5 +516,41 @@ mod tests {
         assert_eq!(back, p);
         assert_eq!(back.key(), "KTLX-2026-05-20");
         assert_eq!(back.label(), "KTLX 2026-05-20 — 1 volume, 32 MB");
+    }
+
+    fn meta(last_used: i64, bytes: f64) -> AutoCacheMeta {
+        AutoCacheMeta { last_used, bytes }
+    }
+
+    /// Under the cap, nothing is evicted — the common case on every write.
+    #[test]
+    fn nothing_is_evicted_under_the_cap() {
+        let entries = vec![
+            ("a".to_string(), meta(1, 10.0)),
+            ("b".to_string(), meta(2, 10.0)),
+        ];
+        assert!(entries_over_cap(&entries, 100.0).is_empty());
+    }
+
+    /// Over the cap, the oldest `last_used` goes first, and only as many entries as it takes to
+    /// get back under the cap — not every entry older than the newest one.
+    #[test]
+    fn the_least_recently_used_entries_go_first() {
+        let entries = vec![
+            ("newest".to_string(), meta(30, 10.0)),
+            ("oldest".to_string(), meta(10, 10.0)),
+            ("middle".to_string(), meta(20, 10.0)),
+        ];
+        assert_eq!(entries_over_cap(&entries, 25.0), vec!["oldest".to_string()]);
+        assert_eq!(
+            entries_over_cap(&entries, 5.0),
+            vec!["oldest".to_string(), "middle".to_string(), "newest".to_string()]
+        );
+    }
+
+    /// A cache holding nothing has nothing to evict — must not panic on an empty slice.
+    #[test]
+    fn an_empty_cache_evicts_nothing() {
+        assert!(entries_over_cap(&[], 0.0).is_empty());
     }
 }

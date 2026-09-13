@@ -278,14 +278,22 @@ Opening radar + GOES + MRMS + HRRR in four panes and scrubbing time keeps all pa
 
 Native disk cache exists; browser persistence remains a roadmap concern.
 
+Radar archive volumes are done (`crates/hookecho/src/webcache.rs`'s `auto_cached_volume`/
+`spawn_auto_cache_put`, wired through `volume::fetch`'s new `archived` flag): an IndexedDB store
+separate from the explicit offline-pack store, LRU-evicted under its own byte cap, mirroring what
+native's disk cache already did for the same data. MRMS/model/satellite caching is not — those
+change on a cadence rather than never, so "cached" there means "cached for a bounded TTL," not
+"cached forever," and needs its own design. No common native/WASM trait yet; the two caches remain
+parallel implementations of the same idea.
+
 ### Implement
 
 - [ ] common cache interface for native and WASM
-- [ ] browser IndexedDB or OPFS persistence
+- [x] browser IndexedDB or OPFS persistence — radar archive volumes only, see above
 - [ ] cache namespaces by source/product/run
 - [ ] size quota per source family
-- [ ] LRU eviction
-- [ ] immutable object cache for archived frames
+- [x] LRU eviction — radar archive volumes only
+- [x] immutable object cache for archived frames — radar archive volumes only
 - [ ] partial/range-response caching where useful for GRIB
 - [ ] checksum/content-length verification when available
 - [ ] storage statistics in existing Storage UI
