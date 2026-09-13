@@ -8,6 +8,30 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### An interactive model meteogram in the Forecast window
+
+- The point-tap **Forecast** window's "This week" outlook — one forecaster-reconciled NWS
+  blend — now has a **Model forecast** section under it: pick GFS, ECMWF, GEFS mean or GDPS,
+  pick a field (2 m temp, 2 m dewpoint, 10 m wind, MSLP or 500 hPa height), pick how far out
+  (24h / 3 day / 5 day), and see that one model's own raw run graphed at the tapped point,
+  with a min/max/avg line underneath. The same numbers the map's Global-model layers already
+  draw as a grid — sampled at a point and strung into a line instead, so "what does GFS
+  actually say here" no longer means opening the map layer and hovering the exact pixel by
+  eye. Switching any picker refetches immediately, the same rule the map's own Global-model
+  picker already follows; a 15-minute cache like the NWS forecast beside it keeps re-tapping
+  the same neighborhood cheap.
+- New in `wxdata::global`: `fetch_point_series`, which samples one point across a whole
+  forecast period from one pinned model cycle — every earlier fetch in this module answered
+  "the whole grid, one hour" and needed a partner that answers "one point, every hour," since
+  a meteogram describes one run's evolution rather than whichever cycle happened to be newest
+  at each hour independently (the same edge `fetch_aligned`'s doc comment already explains for
+  comparing two models at once).
+- Found along the way: GFS and ECMWF's "10 m wind" field is actually the U (east-west)
+  *component* of the wind, not its speed — a real vector quantity, negative half the time.
+  The map's own legend already takes its absolute value for the color scale; the new graph
+  now does the same, rather than a meteogram that reads as calm every time the wind happens
+  to blow from the east.
+
 ### GOES-West for the satellite bands
 
 - The IR/visible/water-vapor satellite layers can now read from **GOES-West** (GOES-18)

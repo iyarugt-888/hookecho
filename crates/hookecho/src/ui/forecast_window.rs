@@ -14,9 +14,79 @@ pub enum State {
     Failed(String),
 }
 
+/// The model-meteogram picker: which model, which field, how far out. A second data source from
+/// the "This week" NWS blend above — that is one forecaster-reconciled outlook; this is one
+/// specific model's own raw run, the same numbers the map's Global-model layers draw, sampled at
+/// a point and strung into a line instead of painted as a grid.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ModelSeriesUi {
+    pub model: wxdata::global::GlobalModel,
+    pub field: wxdata::global::GlobalField,
+    pub period: Period,
+}
+
+impl Default for ModelSeriesUi {
+    fn default() -> Self {
+        Self {
+            model: wxdata::global::GlobalModel::Gfs,
+            field: wxdata::global::GlobalField::Temp2m,
+            period: Period::Day3,
+        }
+    }
+}
+
+/// How far the meteogram reaches, in 3-hourly steps — the same step the map's own forecast-hour
+/// slider uses.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Period {
+    Day1,
+    Day3,
+    Day5,
+}
+
+impl Period {
+    /// The forecast hours to fetch, ascending — the first one is what
+    /// [`wxdata::global::fetch_point_series`] pins the whole series' cycle to.
+    pub fn hours(self) -> Vec<u16> {
+        let max = match self {
+            Period::Day1 => 24,
+            Period::Day3 => 72,
+            Period::Day5 => 120,
+        };
+        (0..=max).step_by(3).collect()
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Period::Day1 => "24h",
+            Period::Day3 => "3 day",
+            Period::Day5 => "5 day",
+        }
+    }
+}
+
+/// One point's worth of one model's one field, across the tapped period — `None` per hour where
+/// that particular request failed (not yet posted, past the model's own range), so a gap breaks
+/// the line rather than the whole series erroring over one missing hour.
+pub enum SeriesState {
+    Idle,
+    Loading,
+    Ready(Vec<(DateTime<Utc>, Option<f32>)>),
+    Failed(String),
+}
+
+/// What [`show`] found this frame: whether the window is still open, and whether a picker
+/// changed — the caller owns fetching (this module has no network access of its own), so it
+/// needs to know when to kick one off.
+pub struct ForecastResult {
+    pub open: bool,
+    pub series_changed: bool,
+}
+
 /// Show the window. `minute` is the per-minute radar-advection profile over the point (dBZ per
 /// minute from now); `None` in archive or without a volume, which hides that section. `now` is the
 /// nearest station's latest observation, if one arrived.
+#[allow(clippy::too_many_arguments)]
 pub fn show(
     ctx: &egui::Context,
     state: &State,
@@ -25,45 +95,56 @@ pub fn show(
     minute: Option<&[Option<f32>]>,
     now: Option<(&str, &wxdata::obs::Observation)>,
     popovers: &mut crate::ui::popover::Popovers,
-) -> bool {
+    series_ui: &mut ModelSeriesUi,
+    series_state: &SeriesState,
+) -> ForecastResult {
     let mut open = true;
+    let mut series_changed = false;
     popovers
         .card(ctx, "forecast", egui::Window::new("Forecast"))
         .open(&mut open)
-        .default_size([460.0, 460.0])
+        .default_size([460.0, 520.0])
         .show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.strong(format!("{:.3}, {:.3}", at.1, at.0));
-                if let State::Ready(f) = state {
-                    if !f.office.is_empty() {
-                        ui.weak(format!("· {}", f.office));
+            // The window is a fixed default size but the content is not — the daily list, and
+            // now the model-forecast section below it, both vary with what came back. An outer
+            // scroll area means a tall render never clips instead of the window having to grow
+            // to fit whatever the longest possible content is.
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.strong(format!("{:.3}, {:.3}", at.1, at.0));
+                    if let State::Ready(f) = state {
+                        if !f.office.is_empty() {
+                            ui.weak(format!("· {}", f.office));
+                        }
                     }
+                });
+                if let Some((station, o)) = now {
+                    ui.label(conditions_line(o, station));
                 }
+                ui.weak(almanac_line(at, tz));
+                ui.separator();
+                if let Some(m) = minute {
+                    minute_strip(ui, m);
+                    ui.add_space(6.0);
+                }
+                match state {
+                    State::Loading => {
+                        ui.horizontal(|ui| {
+                            ui.spinner();
+                            ui.weak("Fetching forecast…");
+                        });
+                    }
+                    State::Failed(e) => {
+                        ui.colored_label(Color32::from_rgb(230, 120, 120), e);
+                        ui.small("Forecast services go down; tap the map again to retry.");
+                    }
+                    State::Ready(f) => body(ui, f, tz),
+                }
+                ui.separator();
+                series_changed = model_series_section(ui, series_ui, series_state, tz);
             });
-            if let Some((station, o)) = now {
-                ui.label(conditions_line(o, station));
-            }
-            ui.weak(almanac_line(at, tz));
-            ui.separator();
-            if let Some(m) = minute {
-                minute_strip(ui, m);
-                ui.add_space(6.0);
-            }
-            match state {
-                State::Loading => {
-                    ui.horizontal(|ui| {
-                        ui.spinner();
-                        ui.weak("Fetching forecast…");
-                    });
-                }
-                State::Failed(e) => {
-                    ui.colored_label(Color32::from_rgb(230, 120, 120), e);
-                    ui.small("Forecast services go down; tap the map again to retry.");
-                }
-                State::Ready(f) => body(ui, f, tz),
-            }
         });
-    open
+    ForecastResult { open, series_changed }
 }
 
 fn body(ui: &mut egui::Ui, f: &PointForecast, tz: Option<wxdata::tz::Tz>) {
@@ -75,7 +156,9 @@ fn body(ui: &mut egui::Ui, f: &PointForecast, tz: Option<wxdata::tz::Tz>) {
     }
     ui.label(RichText::new("This week").strong());
     ui.add_space(2.0);
-    egui::ScrollArea::vertical().show(ui, |ui| {
+    // Capped, not left to fill whatever room the window has: an uncapped scroll area here ate
+    // the entire rest of the window, leaving nothing for the model-forecast section below it.
+    egui::ScrollArea::vertical().max_height(150.0).show(ui, |ui| {
         for p in &f.daily {
             ui.horizontal(|ui| {
                 ui.add_sized(
@@ -111,6 +194,234 @@ fn body(ui: &mut egui::Ui, f: &PointForecast, tz: Option<wxdata::tz::Tz>) {
             });
         }
     });
+}
+
+/// Model/field/period pickers, the graph, and a min/max/avg line. Returns whether any picker
+/// changed this frame — the caller owns fetching, so it needs to know when to kick one off.
+fn model_series_section(
+    ui: &mut egui::Ui,
+    series_ui: &mut ModelSeriesUi,
+    series_state: &SeriesState,
+    tz: Option<wxdata::tz::Tz>,
+) -> bool {
+    use wxdata::global::GlobalModel as GM;
+    let mut changed = false;
+    ui.label(RichText::new("Model forecast").strong());
+    ui.horizontal_wrapped(|ui| {
+        for m in [GM::Gfs, GM::Ecmwf, GM::Gefs, GM::Gdps] {
+            changed |= ui
+                .selectable_value(&mut series_ui.model, m, m.label())
+                .changed();
+        }
+    });
+    ui.horizontal_wrapped(|ui| {
+        for f in field_choices() {
+            changed |= ui
+                .selectable_value(&mut series_ui.field, f, f.label())
+                .changed();
+        }
+    });
+    ui.horizontal(|ui| {
+        for p in [Period::Day1, Period::Day3, Period::Day5] {
+            changed |= ui
+                .selectable_value(&mut series_ui.period, p, p.label())
+                .changed();
+        }
+    });
+    ui.add_space(4.0);
+    match series_state {
+        SeriesState::Idle => {}
+        SeriesState::Loading => {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.weak(format!("Fetching {}…", series_ui.model.label()));
+            });
+        }
+        SeriesState::Failed(e) => {
+            ui.colored_label(Color32::from_rgb(230, 120, 120), e);
+        }
+        SeriesState::Ready(points) => {
+            series_chart(ui, points, series_ui.field, tz);
+            series_stats(ui, points, series_ui.field);
+        }
+    }
+    changed
+}
+
+/// The fields worth graphing at a point. Precip is left out on purpose: GFS publishes
+/// precipitable water and ECMWF/GDPS publish accumulated precipitation, two different physical
+/// quantities sharing one map legend already (see that legend's own doc comment) — fine as a
+/// single always-on color scale, not fine as a number this window would state as one "precip" line
+/// with no way to say which sense it's in.
+fn field_choices() -> [wxdata::global::GlobalField; 5] {
+    use wxdata::global::GlobalField as GF;
+    [
+        GF::Temp2m,
+        GF::Dewpoint2m,
+        GF::Wind10m,
+        GF::Mslp,
+        GF::Height500,
+    ]
+}
+
+/// Kelvin / m·s⁻¹ / Pa / metres → the units this window already shows everywhere else (°F, mph,
+/// hPa, dam) — the same conversions the map's own legend applies for these fields
+/// (`render::field_ramps`), done locally rather than pulling a render-crate dependency into a UI
+/// module for one multiply-and-maybe-subtract each.
+fn display_value(field: wxdata::global::GlobalField, raw: f32) -> f32 {
+    use crate::ui::station_card::c_to_f;
+    use wxdata::global::GlobalField as GF;
+    match field {
+        GF::Temp2m | GF::Dewpoint2m => c_to_f(raw - 273.15),
+        // GFS/ECMWF publish this as the U (east-west) *component* of the 10 m wind, not its
+        // speed — a real vector quantity that is negative half the time, not a smaller wind.
+        // `.abs()` turns it into the same "how hard, not which way" magnitude the map's own
+        // `GLOBAL_WIND_10M` ramp already shows (`RampScale::Abs`) rather than a graph that
+        // reads as calm every time the wind happens to blow from the east.
+        GF::Wind10m => raw.abs() * 2.236_936, // m/s -> mph
+        GF::Mslp => raw * 0.01,         // Pa -> hPa
+        GF::Height500 => raw * 0.1,     // m -> dam
+        GF::Precip => raw,
+    }
+}
+
+fn field_unit(field: wxdata::global::GlobalField) -> &'static str {
+    use wxdata::global::GlobalField as GF;
+    match field {
+        GF::Temp2m | GF::Dewpoint2m => "°F",
+        GF::Wind10m => "mph",
+        GF::Mslp => "hPa",
+        GF::Height500 => "dam",
+        GF::Precip => "mm",
+    }
+}
+
+/// One line, hand-painted like `hourly_strip` — a value per fetched hour, gaps where a request
+/// failed rather than a straight (and false) connector across a missing hour.
+fn series_chart(
+    ui: &mut egui::Ui,
+    points: &[(DateTime<Utc>, Option<f32>)],
+    field: wxdata::global::GlobalField,
+    tz: Option<wxdata::tz::Tz>,
+) {
+    if points.len() < 2 {
+        ui.weak("Not enough hours to draw a line.");
+        return;
+    }
+    let values: Vec<Option<f32>> = points
+        .iter()
+        .map(|(_, v)| v.map(|v| display_value(field, v)))
+        .collect();
+    let finite: Vec<f32> = values.iter().filter_map(|v| *v).collect();
+    if finite.is_empty() {
+        ui.weak("No data for this period.");
+        return;
+    }
+
+    let w = ui.available_width().max(220.0);
+    let h = 110.0;
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(w, h), Sense::hover());
+    let p = ui.painter_at(rect);
+    p.rect_filled(rect, 4.0, Color32::from_black_alpha(90));
+
+    let plot = rect.shrink2(Vec2::new(6.0, 4.0));
+    let axis_h = 12.0;
+    let body = egui::Rect::from_min_max(
+        plot.left_top(),
+        egui::pos2(plot.right(), plot.bottom() - axis_h),
+    );
+
+    let (lo, hi) = finite
+        .iter()
+        .fold((f32::MAX, f32::MIN), |(a, b), &v| (a.min(v), b.max(v)));
+    // Always give the line some vertical room, even on a flat run.
+    let (lo, hi) = if (hi - lo).abs() < 1.0 {
+        (lo - 1.0, hi + 1.0)
+    } else {
+        (lo, hi)
+    };
+    let x_of = |i: usize| body.left() + (i as f32 + 0.5) / points.len() as f32 * body.width();
+    let y_of = |v: f32| body.bottom() - ((v - lo) / (hi - lo).max(f32::EPSILON)) * body.height() * 0.82;
+
+    // Contiguous runs of `Some` become separate polylines, so a gap breaks the line instead of
+    // drawing a straight connector across an hour that failed to fetch.
+    let color = Color32::from_rgb(120, 190, 230);
+    let mut run: Vec<egui::Pos2> = Vec::new();
+    for (i, v) in values.iter().enumerate() {
+        match v {
+            Some(v) => run.push(egui::pos2(x_of(i), y_of(*v))),
+            None => {
+                if run.len() > 1 {
+                    p.add(egui::Shape::line(run.clone(), Stroke::new(1.6, color)));
+                }
+                run.clear();
+            }
+        }
+    }
+    if run.len() > 1 {
+        p.add(egui::Shape::line(run, Stroke::new(1.6, color)));
+    }
+
+    // Label the ends and the extremes only — one value per fetched hour is noise past that.
+    let font = FontId::proportional(9.0);
+    let hi_i = values
+        .iter()
+        .enumerate()
+        .filter_map(|(i, v)| v.map(|v| (i, v)))
+        .max_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(i, _)| i);
+    let lo_i = values
+        .iter()
+        .enumerate()
+        .filter_map(|(i, v)| v.map(|v| (i, v)))
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(i, _)| i);
+    let first_i = values.iter().position(|v| v.is_some());
+    let last_i = values.iter().rposition(|v| v.is_some());
+    for i in [first_i, hi_i, lo_i, last_i].into_iter().flatten() {
+        let Some(v) = values[i] else { continue };
+        p.text(
+            egui::pos2(x_of(i), y_of(v)) - Vec2::new(0.0, 4.0),
+            Align2::CENTER_BOTTOM,
+            format!("{v:.0}"),
+            font.clone(),
+            Color32::from_gray(235),
+        );
+    }
+    // Time axis at roughly quarter-width steps.
+    let step = (points.len() / 4).max(1);
+    for (i, (t, _)) in points.iter().enumerate() {
+        if i % step != 0 {
+            continue;
+        }
+        p.text(
+            egui::pos2(x_of(i), plot.bottom() - axis_h + 1.0),
+            Align2::CENTER_TOP,
+            short_hour(*t, tz),
+            font.clone(),
+            Color32::from_gray(170),
+        );
+    }
+}
+
+fn series_stats(
+    ui: &mut egui::Ui,
+    points: &[(DateTime<Utc>, Option<f32>)],
+    field: wxdata::global::GlobalField,
+) {
+    let values: Vec<f32> = points
+        .iter()
+        .filter_map(|(_, v)| v.map(|v| display_value(field, v)))
+        .collect();
+    if values.is_empty() {
+        return;
+    }
+    let unit = field_unit(field);
+    let (min, max) = values
+        .iter()
+        .fold((f32::MAX, f32::MIN), |(a, b), &v| (a.min(v), b.max(v)));
+    let mean = values.iter().sum::<f32>() / values.len() as f32;
+    ui.weak(format!("min {min:.0}{unit} · max {max:.0}{unit} · avg {mean:.0}{unit}"));
 }
 
 /// Minute-by-minute rain over the point for the next hour, advected from the current radar scan.

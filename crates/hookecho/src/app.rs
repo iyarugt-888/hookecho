@@ -2986,6 +2986,18 @@ pub struct HookEchoApp {
     )>,
     forecast_obs_cache:
         std::collections::HashMap<(i32, i32), (Instant, String, wxdata::obs::Observation)>,
+    /// The forecast window's model-meteogram picker (model/field/period) and what it's holding.
+    model_series_ui: ui::forecast_window::ModelSeriesUi,
+    model_series_state: ui::forecast_window::SeriesState,
+    #[allow(clippy::type_complexity)]
+    model_series_rx: Option<(
+        (i32, i32, ui::forecast_window::ModelSeriesUi),
+        std::sync::mpsc::Receiver<Result<Vec<(chrono::DateTime<Utc>, Option<f32>)>, String>>,
+    )>,
+    model_series_cache: std::collections::HashMap<
+        (i32, i32, ui::forecast_window::ModelSeriesUi),
+        (Instant, Vec<(chrono::DateTime<Utc>, Option<f32>)>),
+    >,
     /// Rain-arrival alerting: per-point persistence/cooldown state, plus the current ETAs for the
     /// on-map chip.
     rain_detector: crate::rain_arrival::Detector,
@@ -3779,6 +3791,10 @@ impl HookEchoApp {
             forecast_cache: std::collections::HashMap::new(),
             forecast_obs_rx: None,
             forecast_obs_cache: std::collections::HashMap::new(),
+            model_series_ui: ui::forecast_window::ModelSeriesUi::default(),
+            model_series_state: ui::forecast_window::SeriesState::Idle,
+            model_series_rx: None,
+            model_series_cache: std::collections::HashMap::new(),
             minute_profile: None,
             minute_key: None,
             rain_detector: Default::default(),
@@ -6379,6 +6395,7 @@ impl HookEchoApp {
         self.forecast_at = Some((lon, lat));
         self.forecast_open = true;
         self.fetch_point_obs(key, lon, lat);
+        self.fetch_model_series(lon, lat);
         if let Some((when, f)) = self.forecast_cache.get(&key) {
             if when.elapsed().as_secs() < 900 {
                 self.forecast_state = ui::forecast_window::State::Ready(Box::new(f.clone()));
@@ -6391,6 +6408,36 @@ impl HookEchoApp {
         let http = self.http.clone();
         self.spawner.spawn(async move {
             let res = wxdata::forecast::fetch(&http, lat, lon)
+                .await
+                .map_err(|e| e.to_string());
+            let _ = tx.send(res);
+        });
+    }
+
+    /// One model's forecast for one field at the tapped point, over `self.model_series_ui`'s
+    /// chosen period — the meteogram under the forecast window's "This week" NWS blend. Same
+    /// ~0.05° cache cell and 15-minute TTL as the point forecast beside it, keyed additionally by
+    /// the picker so switching model/field/period is a fresh fetch, not a stale hit.
+    fn fetch_model_series(&mut self, lon: f64, lat: f64) {
+        let key = (
+            (lat * 20.0).round() as i32,
+            (lon * 20.0).round() as i32,
+            self.model_series_ui,
+        );
+        if let Some((when, series)) = self.model_series_cache.get(&key) {
+            if when.elapsed().as_secs() < 900 {
+                self.model_series_state = ui::forecast_window::SeriesState::Ready(series.clone());
+                return;
+            }
+        }
+        self.model_series_state = ui::forecast_window::SeriesState::Loading;
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.model_series_rx = Some((key, rx));
+        let http = self.http.clone();
+        let ui = self.model_series_ui;
+        let hours = ui.period.hours();
+        self.spawner.spawn(async move {
+            let res = wxdata::global::fetch_point_series(&http, ui.model, ui.field, lon, lat, &hours)
                 .await
                 .map_err(|e| e.to_string());
             let _ = tx.send(res);
@@ -18239,6 +18286,21 @@ impl eframe::App for HookEchoApp {
                     .insert(key, (Instant::now(), station, ob));
             }
         }
+        // Model-forecast meteogram: drain the fetch, cache it under (point, model, field, period).
+        if let Some((key, rx)) = &self.model_series_rx {
+            if let Ok(res) = rx.try_recv() {
+                let key = *key;
+                self.model_series_rx = None;
+                self.model_series_state = match res {
+                    Ok(series) => {
+                        self.model_series_cache
+                            .insert(key, (Instant::now(), series.clone()));
+                        ui::forecast_window::SeriesState::Ready(series)
+                    }
+                    Err(e) => ui::forecast_window::SeriesState::Failed(e),
+                };
+            }
+        }
         if self.forecast_open {
             let at = self.forecast_at.unwrap_or((0.0, 0.0));
             let tz = self.active_tz();
@@ -18248,7 +18310,7 @@ impl eframe::App for HookEchoApp {
                 .forecast_obs_cache
                 .get(&key)
                 .map(|(_, station, ob)| (station.as_str(), ob));
-            if !ui::forecast_window::show(
+            let result = ui::forecast_window::show(
                 ctx,
                 &self.forecast_state,
                 at,
@@ -18256,7 +18318,13 @@ impl eframe::App for HookEchoApp {
                 minute.as_deref(),
                 now,
                 &mut self.popovers,
-            ) {
+                &mut self.model_series_ui,
+                &self.model_series_state,
+            );
+            if result.series_changed {
+                self.fetch_model_series(at.0, at.1);
+            }
+            if !result.open {
                 self.forecast_open = false;
             }
         }

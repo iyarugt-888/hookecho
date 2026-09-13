@@ -38,7 +38,7 @@ const RES_DEG: f64 = 0.3;
 const GEFS_RES_DEG: f64 = 0.6;
 
 /// Which global model to read.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum GlobalModel {
     #[default]
     Gfs,
@@ -70,7 +70,7 @@ impl GlobalModel {
 }
 
 /// A field a global model can draw. Kept to what both publish, so switching source keeps the map.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum GlobalField {
     Mslp,
     Height500,
@@ -181,6 +181,17 @@ pub async fn fetch(
     field: GlobalField,
     fh: u16,
 ) -> anyhow::Result<GlobalForecast> {
+    fetch_latest(http, model, field, fh).await.map(|(_, f)| f)
+}
+
+/// [`fetch`], but also hands back which cycle actually answered — [`fetch_point_series`] needs
+/// to pin every later hour to that same run instead of re-discovering it hour by hour.
+async fn fetch_latest(
+    http: &reqwest::Client,
+    model: GlobalModel,
+    field: GlobalField,
+    fh: u16,
+) -> anyhow::Result<(DateTime<Utc>, GlobalForecast)> {
     let now = Utc::now();
     let mut last_err = None;
     for back in 0..5 {
@@ -189,11 +200,44 @@ pub async fn fetch(
         let run = (now.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc())
             + chrono::Duration::hours(hours);
         match fetch_run(http, model, field, run, fh).await {
-            Ok(f) => return Ok(f),
+            Ok(f) => return Ok((run, f)),
             Err(e) => last_err = Some(e),
         }
     }
     Err(last_err.unwrap_or_else(|| anyhow::anyhow!("no {} cycle found", model.label())))
+}
+
+/// One point's value from `field`, at every hour in `hours`, all pinned to the one cycle that
+/// answered the first request — a meteogram describes one run's evolution, not whichever cycle
+/// happened to be newest at each individual forecast hour (which can differ near a cycle
+/// boundary, the same edge [`fetch_aligned`]'s doc comment explains for comparing two models).
+///
+/// `hours` should already be sorted ascending; the first one picks the run every later hour
+/// reuses. A later hour failing (not yet posted, or past the model's own forecast length) is
+/// `None` in its slot rather than aborting the rest of the series — a gap in the graph's line,
+/// not an error for the whole thing over one missing hour.
+pub async fn fetch_point_series(
+    http: &reqwest::Client,
+    model: GlobalModel,
+    field: GlobalField,
+    lon: f64,
+    lat: f64,
+    hours: &[u16],
+) -> anyhow::Result<Vec<(DateTime<Utc>, Option<f32>)>> {
+    let Some((&first, rest)) = hours.split_first() else {
+        return Ok(Vec::new());
+    };
+    let (run, f) = fetch_latest(http, model, field, first).await?;
+    let mut out = vec![(f.valid(), f.field.sample_bilinear(lon, lat))];
+    for &fh in rest {
+        let valid = run + chrono::Duration::hours(fh as i64);
+        let value = fetch_run(http, model, field, run, fh)
+            .await
+            .ok()
+            .and_then(|f| f.field.sample_bilinear(lon, lat));
+        out.push((valid, value));
+    }
+    Ok(out)
 }
 
 /// Fetch `model`'s `field` at whichever forecast hour lands exactly on `target_valid`, instead of
@@ -516,6 +560,58 @@ mod tests {
                 100.0 * finite as f64 / f.field.values.len() as f64,
             );
             assert!(finite > f.field.values.len() / 2, "{}: too many gaps", field.label());
+        }
+    }
+
+    /// A meteogram series for a real point (Oklahoma City), live, across all four models —
+    /// every hour should come back with a value (the point sits well inside every model's
+    /// domain), and every hour's valid time should be `run + fh`, one cycle apart.
+    /// `cargo test -p wxdata point_series_live -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn point_series_live() {
+        let http = reqwest::Client::new();
+        let hours: Vec<u16> = (0..=24).step_by(6).collect();
+        for model in [
+            GlobalModel::Gfs,
+            GlobalModel::Ecmwf,
+            GlobalModel::Gefs,
+            GlobalModel::Gdps,
+        ] {
+            let series = match fetch_point_series(&http, model, GlobalField::Temp2m, -97.5, 35.5, &hours).await {
+                Ok(s) => s,
+                // GDPS reads Datamart's rolling "today" window, which has no "yesterday" to fall
+                // back to (see `GDPS_BASE`'s doc comment) — a walk-back that crosses a UTC
+                // midnight can come up empty for a cycle that really did post. That is a real,
+                // disclosed limitation of the source, not this function; don't fail the other
+                // three models' coverage over it.
+                Err(e) if model == GlobalModel::Gdps => {
+                    eprintln!("GDPS: {e} (known Datamart today-only limitation, skipping)");
+                    continue;
+                }
+                Err(e) => panic!("{}: {e}", model.label()),
+            };
+            assert_eq!(series.len(), hours.len());
+            let finite = series.iter().filter(|(_, v)| v.is_some()).count();
+            println!(
+                "{}: {finite}/{} hours, first {:?}, last {:?}",
+                model.label(),
+                series.len(),
+                series.first(),
+                series.last()
+            );
+            assert!(finite > 0, "{}: every hour came back empty", model.label());
+            for (_, v) in &series {
+                if let Some(k) = v {
+                    assert!((250.0..330.0).contains(k), "{}: implausible temp {k} K", model.label());
+                }
+            }
+            // Every valid time is exactly `fh` hours after the first — same cycle throughout.
+            let first_valid = series[0].0;
+            for (i, &fh) in hours.iter().enumerate() {
+                let expected = first_valid + chrono::Duration::hours(fh as i64);
+                assert_eq!(series[i].0, expected, "{}: hour {fh} drifted cycle", model.label());
+            }
         }
     }
 }

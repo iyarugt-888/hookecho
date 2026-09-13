@@ -110,6 +110,10 @@ Already shipped, and sometimes mistaken for gaps:
   nothing where the two agree, with a hover readout and a diverging legend,
   aligned to one valid time, plus a two-pane side-by-side alternative to the
   subtraction itself.
+- **A point meteogram in the Forecast window** — pick a model (GFS, ECMWF,
+  GEFS, GDPS) and a field, see that model's own raw run graphed at the tapped
+  point over 24h/3-day/5-day, with min/max/avg — beside the NWS blended
+  outlook already there, not instead of it.
 - **Effective-layer parameters on the full pressure ladder**, up to 100 hPa, so
   the depth-dependent ones exist on the days they describe.
 - **A headless-browser smoke test in CI**, which is the check `cargo check`
