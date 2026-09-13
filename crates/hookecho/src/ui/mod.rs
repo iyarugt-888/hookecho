@@ -1,4 +1,5 @@
 //! egui UI: the drawer's layer list and options, site picker, settings window, color legend.
+pub(crate) mod data_inspector;
 
 /// A spinner with a label. A bare spinner says "something is happening"; the label says what,
 /// which is the difference between a professional app and a hung one.

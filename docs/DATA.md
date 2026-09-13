@@ -24,6 +24,15 @@ ours, and both move around during busy weather.
 Archive coverage runs back to **June 1991** for Level 2, and every WSR-88D plus
 the 44 TDWRs are addressable.
 
+Direct MRMS field layers expose a **Data source** inspector in Layer options:
+the product path, provider, GRIB valid time, and complete-response receipt time
+are retained with the displayed grid. Valid-time age and receipt age are
+computed separately; neither is a measurement of provider ingest latency.
+Issue/run times, provider latency, and undecoded quality flags remain unknown.
+MRMS fields are labeled derived analyses. Failed refreshes retain the prior
+grid's timestamps, and invalid GRIB timestamps produce an error. See
+[the field migration note](field-registry.md) for scope and remaining work.
+
 ## Warnings, outlooks and reports
 
 | Feed | Source | Cadence | Latency | Key |

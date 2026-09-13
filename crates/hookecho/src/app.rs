@@ -7,6 +7,8 @@
 /// drawer / pills / alert dock. Only the chrome differs; the map,
 /// windows, and every data path are shared.
 mod chrome;
+mod field_state;
+pub(crate) use field_state::FieldState;
 mod mobile;
 
 use crate::colormap::{ColorTable, Palettes};
@@ -239,6 +241,10 @@ enum OverlayMsg {
     Placefile(String, wxdata::placefile::Placefile),
     /// The latest grid for a national field layer (mosaic, rotation, MESH, AzShear, lightning).
     Field(crate::render::FieldLayer, wxdata::mrms::MrmsField),
+    StampedField(
+        crate::render::FieldLayer,
+        wxdata::field::Stamped<wxdata::mrms::MrmsField>,
+    ),
     /// A model-difference grid plus the two valid times it compared, for the layer's own row.
     ModelDiff(wxdata::mrms::MrmsField, (String, String)),
     /// Both sides of a comparison, unsubtracted, plus their valid times — the field is included
@@ -816,7 +822,10 @@ impl OverlaySource {
                 }
             }
             OverlaySource::Field(layer, product) => {
-                OverlayMsg::Field(layer, wxdata::mrms::fetch_latest(http, &product).await?)
+                OverlayMsg::StampedField(
+                    layer,
+                    wxdata::mrms::fetch_latest_stamped(http, &product).await?,
+                )
             }
             OverlaySource::SnowBands => {
                 // Both grids at once: the mask is useless without the echo and vice versa.
@@ -1863,16 +1872,6 @@ type ZdrCache = (
     Vec<wxdata::dualpol::ZdrColumnHit>,
     Option<wxdata::dualpol::BrightBand>,
 );
-
-/// Per-field-layer UI + fetch state (toggle, pending upload, refresh clock).
-#[derive(Default)]
-pub(crate) struct FieldState {
-    pub pending: Option<crate::render::MrmsUpload>,
-    pub last_fetch: Option<Instant>,
-    /// Since when no pane has drawn this layer. Its GPU texture (up to 8192 px of R8) is freed
-    /// after [`FIELD_EVICT`]; before this, thirty-five layers could stay resident until exit.
-    pub off_since: Option<Instant>,
-}
 
 /// How long a field layer stays uploaded after the last pane turns it off. Long enough that
 /// toggling a layer to compare it against another doesn't re-fetch, short enough that an
@@ -4359,6 +4358,9 @@ impl HookEchoApp {
                     // for the whole pool.
                     Ok(match msg {
                         OverlayMsg::Field(layer, f) => OverlayMsg::Field(layer, f.decimated(cap)),
+                        OverlayMsg::StampedField(layer, f) => {
+                            OverlayMsg::StampedField(layer, f.map(|grid| grid.decimated(cap)))
+                        }
                         other => other,
                     })
                 }
@@ -8423,19 +8425,10 @@ impl HookEchoApp {
                     }
                 }
                 OverlayMsg::Field(layer, field) => {
-                    if layer == crate::render::FieldLayer::Lightning {
-                        self.check_lightning_proximity(&field);
-                    }
-                    // The precipitation-type grid is kept, not just uploaded: the radar tint
-                    // reads it per fragment, and the layer it belongs to may well be hidden.
-                    if layer == crate::render::FieldLayer::PrecipType {
-                        self.precip_flag_grid = Some(std::sync::Arc::new(PrecipGrid::new(&field)));
-                        self.precip_flag_gen = self.precip_flag_gen.wrapping_add(1);
-                    }
-                    let upload = self.field_upload(layer, &field);
-                    if let Some(s) = self.fields.get_mut(&layer) {
-                        s.pending = Some(upload);
-                    }
+                    self.accept_field(layer, field, None);
+                }
+                OverlayMsg::StampedField(layer, field) => {
+                    self.accept_field(layer, field.data, Some(field.stamp));
                 }
                 OverlayMsg::ModelDiff(field, valid) => {
                     let layer = crate::render::FieldLayer::ModelDiff;

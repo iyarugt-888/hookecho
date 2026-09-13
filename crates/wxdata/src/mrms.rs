@@ -275,6 +275,14 @@ impl MrmsField {
 
 /// Fetch + decode the latest CONUS mosaic for `product` (see [`REFLECTIVITY`], [`LIGHTNING`]).
 pub async fn fetch_latest(http: &reqwest::Client, product: &str) -> anyhow::Result<MrmsField> {
+    Ok(fetch_latest_stamped(http, product).await?.data)
+}
+
+/// Fetch an existing MRMS product with exact valid and local receipt times.
+pub async fn fetch_latest_stamped(
+    http: &reqwest::Client,
+    product: &str,
+) -> anyhow::Result<crate::field::Stamped<MrmsField>> {
     let key = latest_key(http, product).await?;
     let url = format!("{BUCKET}/{key}");
     let gz = http
@@ -284,11 +292,25 @@ pub async fn fetch_latest(http: &reqwest::Client, product: &str) -> anyhow::Resu
         .error_for_status()?
         .bytes()
         .await?;
+    let received_time = chrono::Utc::now();
     let raw = gunzip(&gz)?;
     // gribberish can panic on some MRMS product packings (a slice off-by-one on rotation-track /
     // AzShear grids). Contain it so a bad product surfaces as an error, never a process abort.
-    crate::task::guarded(|| decode_grib2(&raw))
-        .unwrap_or_else(|_| anyhow::bail!("grib decode panicked for {product}"))
+    let data = crate::task::guarded(|| decode_grib2(&raw))
+        .unwrap_or_else(|_| anyhow::bail!("grib decode panicked for {product}"))?;
+    let stamp = crate::field::DataStamp {
+        source_id: BUCKET.into(),
+        product_id: product.into(),
+        issue_time: None,
+        run_time: None,
+        valid_time: data.time,
+        received_time,
+        source_latency: None,
+        is_forecast: false,
+        is_derived: true,
+        quality: crate::field::QualitySummary::Unknown,
+    };
+    Ok(crate::field::Stamped { data, stamp })
 }
 
 /// Newest key seen per product, so refreshes can ask S3 only for what came after it.
@@ -369,7 +391,9 @@ pub fn decode_grib2(raw: &[u8]) -> anyhow::Result<MrmsField> {
         );
     }
     let msg = read_message(raw, 0).ok_or_else(|| anyhow::anyhow!("no GRIB2 message"))?;
-    let time = msg.forecast_date().unwrap_or_else(|_| chrono::Utc::now());
+    let time = msg
+        .forecast_date()
+        .map_err(|e| anyhow::anyhow!("invalid GRIB valid time: {e:?}"))?;
     let dm = DataMessage::try_from(&msg).map_err(|e| anyhow::anyhow!("grib decode: {e:?}"))?;
     let (ny, nx) = dm.metadata.grid_shape;
     let (lat0, lon0) = dm.metadata.projector.latlng_start();
@@ -426,6 +450,34 @@ fn last_key(xml: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn display_decimation_retains_source_provenance() {
+        use crate::field::{DataStamp, QualitySummary, Stamped};
+        let mut grid = linear_field();
+        grid.time = chrono::DateTime::from_timestamp(1_000, 0).unwrap();
+        let stamp = DataStamp {
+            source_id: BUCKET.into(),
+            product_id: REFLECTIVITY.into(),
+            issue_time: None,
+            run_time: None,
+            valid_time: grid.time,
+            received_time: grid.time + chrono::Duration::seconds(42),
+            source_latency: None,
+            is_forecast: false,
+            is_derived: true,
+            quality: QualitySummary::Unknown,
+        };
+        let result = Stamped {
+            data: grid,
+            stamp: stamp.clone(),
+        }
+        .map(|grid| grid.decimated(2));
+        assert_eq!((result.data.nx, result.data.ny), (2, 2));
+        assert_eq!(result.data.time, stamp.valid_time);
+        assert_eq!(result.stamp, stamp);
+        assert_eq!(result.stamp.age_at(stamp.received_time).num_seconds(), 42);
+    }
 
     /// A message that declares more bytes than it carries used to send the decoder scanning for
     /// sections that were never there — minutes of CPU on 28 bytes (found by fuzzing).

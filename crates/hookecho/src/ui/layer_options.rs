@@ -59,7 +59,9 @@ fn stp_source(model: wxdata::hrrr::Model) -> bool {
 /// a cycle: a reading built from two different instants is only honest if it says which two.
 fn valid_time_note(valid: Option<&(String, String)>, a: &str, b: &str) -> Option<String> {
     match valid {
-        Some((va, vb)) if va != vb => Some(format!("⚠ {a} valid {va}, {b} valid {vb} — not the same time.")),
+        Some((va, vb)) if va != vb => Some(format!(
+            "⚠ {a} valid {va}, {b} valid {vb} — not the same time."
+        )),
         Some((va, _)) => Some(format!("Both valid {va}.")),
         None => None,
     }
@@ -115,6 +117,23 @@ pub(crate) fn show(
 ) {
     use crate::render::FieldLayer as FL;
     let mut changed = false;
+
+    let mut stamped: Vec<_> = on
+        .iter()
+        .filter_map(|layer| {
+            fields
+                .get(layer)?
+                .stamp
+                .as_ref()
+                .map(|stamp| (layer.slug(), stamp))
+        })
+        .collect();
+    stamped.sort_by_key(|(slug, _)| *slug);
+    for (slug, stamp) in stamped {
+        ui.collapsing(format!("Data source · {slug}"), |ui| {
+            super::data_inspector::show(ui, stamp);
+        });
+    }
 
     let global_on = [
         FL::GlobalMslp,
