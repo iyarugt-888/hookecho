@@ -1500,11 +1500,21 @@ fn proxy_reply(
 
 /// One upstream GET, no inherited headers, stopped at [`PROXY_MAX_BYTES`] mid-stream rather than
 /// after the fact.
+///
+/// The one header this does send: `api.weather.gov` answers a `User-Agent`-less request with a
+/// flat 403, which native builds never hit (reqwest's client there already carries this same
+/// identity) but the browser build did on every proxied NWS request — active alerts included —
+/// since this hop starts a fresh request rather than forwarding the browser's own headers.
 async fn fetch_capped(
     http: &reqwest::Client,
     url: &str,
 ) -> anyhow::Result<(&'static str, Vec<u8>)> {
-    let mut resp = http.get(url).send().await?.error_for_status()?;
+    let mut resp = http
+        .get(url)
+        .header(reqwest::header::USER_AGENT, wxdata::alerts::USER_AGENT)
+        .send()
+        .await?
+        .error_for_status()?;
     let ctype = proxy_content_type(
         resp.headers()
             .get(reqwest::header::CONTENT_TYPE)
@@ -1531,6 +1541,7 @@ async fn fetch_capped_range(
 ) -> anyhow::Result<(&'static str, Vec<u8>, bool)> {
     let mut resp = http
         .get(url)
+        .header(reqwest::header::USER_AGENT, wxdata::alerts::USER_AGENT)
         .header(reqwest::header::RANGE, range)
         .send()
         .await?

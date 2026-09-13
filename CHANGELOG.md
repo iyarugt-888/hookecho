@@ -8,6 +8,43 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: live NWS alerts (warnings, watches, advisories) failed on the web build
+
+- Reported live: on a `hookecho --serve` deployment, active/live alerts never appeared while
+  the archived-warnings overlay (a scrubbed timeline's storm-based warning polygons) worked
+  fine. The two pull from different services — `api.weather.gov` for live alerts, the Iowa
+  Environmental Mesonet for archived ones — and only the former requires a `User-Agent` header,
+  which the web build's server-side CORS proxy (`crates/hookecho/src/serve.rs`) never sent for
+  *any* proxied request (a deliberate no-inherited-headers policy that stripped this one too).
+  Every `api.weather.gov` fetch routed through the browser build came back a flat 403. Native
+  builds never hit this — their `reqwest` client already carries the app's identifying
+  User-Agent on every request — and the Cloudflare Pages edge worker (`web/_worker.js/proxy-
+  core.js`) already sent it, so only a locally-served web build was affected. Fixed by having
+  the proxy send the app's own User-Agent (the same constant used everywhere else) on its
+  upstream fetches, closing the gap between the two proxy implementations.
+- Verified live: reproduced the bare 403 against a local `--serve` instance, confirmed the fix
+  turns it into a 200 with real, current alert data, and watched it render correctly in a
+  browser tab.
+
+### Fixed: the archive date control, replaced with an actual calendar
+
+- The archive-day picker (the LIVE/ARCHIVE badge's right-click menu) is a genuine calendar now:
+  a year field, month arrows, and a day grid, browsable and clickable, alongside the existing
+  typed `YYYY-MM-DD` field. Native and web share one implementation — no more platform split.
+- The previous native-only `egui_extras::DatePickerButton` rarely opened at all: it draws its
+  own popup nested inside the timeline menu's own popup, and that outer menu used egui's
+  default context-menu close behavior (`CloseOnClick`), which closes on *any* click, inside the
+  menu or out. Opening the picker's inner popup routinely closed the outer menu (and the
+  picker with it) before a day could be picked. The new calendar is drawn as plain widgets
+  directly inside the already-open menu — no nested popup — and the menu's close behavior is
+  now explicitly `CloseOnClickOutside`, so multi-step interaction (browsing months, then
+  picking a day) survives inside it. This also drops the native-only `egui_extras` datepicker
+  feature and the `jiff` dependency it required.
+- Fixed a related bug in the typed field found while testing the calendar: its resync check
+  only caught an externally-moved day (a caret, the calendar, a deep link) when the *year*
+  changed, so stepping from the 13th to the 3rd of the same month left "13" on screen after the
+  map had already moved to the 3rd. Now compares the full date.
+
 ### Fixed: the web build could crash outright on the Observed 3D volume
 
 - A real regression, reported live: on some GPUs (mobile browsers running WebGPU over
