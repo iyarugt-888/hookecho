@@ -8,6 +8,24 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: the LIVE badge flickered to Stale during normal loop playback
+
+- Reported live, alongside the cache-corruption fix below: the LIVE/Stale badge and the "Scan
+  ⟨n⟩ ago" readout would swing between fresh and hours-old on a perfectly healthy feed. The
+  rolling live loop (started automatically when playback begins at the live head) deliberately
+  keeps showing its playhead frame while a newly-arrived head is appended to the timeline behind
+  the scenes rather than displayed — that is what makes it a *loop* over the trailing window
+  instead of a feed that jumps every time a new volume lands. The badge read the *displayed*
+  volume's age to decide Live vs. Stale, so every time the loop's animation was anywhere but the
+  newest frame — most of the time, by design — it reported the site as stale and named the
+  loop's current position as the site's lag, even though the feed itself was current the whole
+  time.
+- Fixed by having the badge, its age readout, and the Radar row in the source-health panel all
+  read the timeline's actual newest known frame (`Timeline::newest`, new) instead of the
+  currently displayed one — decoupling "is the feed keeping up" from "what is the loop showing
+  right now." Verified live: badge and age now hold steady on Live/fresh throughout loop
+  playback instead of oscillating.
+
 ### Fixed: live radar could get permanently stuck showing an old scan
 
 - Reported live: the LIVE badge would flip to Stale and the age readout would jump to hours old,

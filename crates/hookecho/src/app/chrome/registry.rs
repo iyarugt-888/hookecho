@@ -49,10 +49,12 @@ impl HookEchoApp {
 
     pub(in crate::app) fn radar_health(&self) -> SourceHealth {
         let v = &self.views[self.active];
-        let age = v.volume.as_ref().map(|volume| {
-            (chrono::Utc::now() - volume.time)
-                .to_std()
-                .unwrap_or_default()
+        // The timeline's own newest known frame, not the displayed volume: a rolling live loop
+        // deliberately keeps its playhead frame on screen while a genuinely new head is appended
+        // behind the scenes (see the `DataMsg::Volume` handler's `looping && new_head` case), so
+        // `v.volume.time` can be well behind the feed's actual cadence while looping plays.
+        let age = v.timeline.newest().and_then(|id| id.date_time()).map(|t| {
+            (chrono::Utc::now() - t).to_std().unwrap_or_default()
         });
         SourceHealth {
             source: v

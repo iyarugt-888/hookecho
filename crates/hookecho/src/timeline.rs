@@ -71,6 +71,15 @@ impl Timeline {
         self.frames.get(self.playhead)
     }
 
+    /// The newest known frame, regardless of where the playhead is — the site's own production
+    /// cadence, not whatever a rolling live loop happens to be animating right now. [`current`]
+    /// answers "what is on screen"; this answers "is the feed itself keeping up."
+    ///
+    /// [`current`]: Self::current
+    pub fn newest(&self) -> Option<&Identifier> {
+        self.frames.last()
+    }
+
     /// Total scrub slots: observed frames plus the forecast tail (only when frames exist).
     pub fn slot_count(&self) -> usize {
         if self.frames.is_empty() {
@@ -640,5 +649,33 @@ mod tests {
         let mut t = Timeline::default();
         t.step_time(60); // nothing to land on; must not panic
         assert_eq!(t.playhead, 0);
+    }
+
+    /// `newest` must answer "what has the feed produced" and not "what is on screen": a rolling
+    /// live loop leaves the playhead well behind the newest frame on purpose (the whole point of
+    /// looping the tail window), and the staleness badge/age readout that reads this needs the
+    /// feed's own cadence, not the loop's current animation position.
+    #[test]
+    fn newest_is_the_last_frame_regardless_of_the_playhead() {
+        let mut t = Timeline::default();
+        let today = t.date;
+        t.set_frames(day("KTLX", 12), ("KTLX".into(), today));
+        t.toggle_play();
+        assert!(t.live_looping(), "looping the tail, playhead behind the head");
+        assert_ne!(
+            t.current().map(Identifier::name),
+            t.newest().map(Identifier::name),
+            "the loop is not currently showing the newest frame"
+        );
+        assert_eq!(
+            t.newest().map(Identifier::name),
+            t.frames.last().map(Identifier::name),
+            "newest is always the last listed frame, wherever the playhead sits"
+        );
+    }
+
+    #[test]
+    fn newest_is_none_on_an_empty_listing() {
+        assert!(Timeline::default().newest().is_none());
     }
 }

@@ -14,17 +14,24 @@ impl HookEchoApp {
         use egui_phosphor::regular as ph;
         let accent = crate::theme::accent(self.settings.theme);
         let tz = self.active_tz();
-        let fresh = self.views[self.active]
-            .volume
-            .as_ref()
-            .is_some_and(|v| (chrono::Utc::now() - v.time).num_seconds() < 900);
+        // The site's own newest known frame, not whatever the displayed volume happens to be: a
+        // rolling live loop deliberately keeps showing its playhead frame while a genuinely new
+        // head is appended to the timeline behind the scenes (see the `DataMsg::Volume` handler's
+        // `looping && new_head` case) — reading `views[active].volume.time` here instead used to
+        // flip the badge to "Stale" and the age to hours old every time the loop's animation
+        // wasn't on the newest frame, even though the feed itself was current the whole time.
+        let newest_time = self.views[self.active]
+            .timeline
+            .newest()
+            .and_then(|id| id.date_time());
+        let fresh = newest_time.is_some_and(|t| (chrono::Utc::now() - t).num_seconds() < 900);
         // Site and data age used to live in the docked status bar; the clock belongs with the clock.
         let site = self.views[self.active]
             .site
             .clone()
             .unwrap_or_else(|| "no site".to_string());
-        let age = self.views[self.active].volume.as_ref().map(|v| {
-            let secs = (Utc::now() - v.time).num_seconds().max(0);
+        let age = newest_time.map(|t| {
+            let secs = (Utc::now() - t).num_seconds().max(0);
             format!("Scan {} ago", humanize(secs))
         });
         let loading = self.views[self.active].loading;
