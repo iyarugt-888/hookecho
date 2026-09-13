@@ -8,6 +8,21 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: a radar gate inspector (Phase B4)
+
+- Clicking the radar map with nothing more specific under the click — a marker, a storm cell, an
+  overlay feature — now opens a **Gate inspector**: radar site, VCP, elevation angle, azimuth,
+  slant range, ground range, beam height (4/3-earth model), gate spacing/index, the raw value at
+  that point, and — for velocity — the dealiased value and an estimated Nyquist velocity, plus
+  whether the gate is range-folded and the wall-clock span that tilt's radials were actually
+  collected over (spanning every pass, for a repeated SAILS/MRLE cut).
+- Nyquist velocity is explicitly labeled "(est.)": the largest observed |v| in the sweep, the same
+  proxy dealiasing itself already relies on. The decoder this app is built on does not extract the
+  true unambiguous-velocity field from the raw message header, so this is not read from the
+  instrument — extending that would mean patching the vendored decode crate, out of scope here.
+- Verified live against real reflectivity and velocity gates, folded and unfolded, checking beam
+  height against a hand computation.
+
 ### Added: a provider-lag reading in the Radar source-health popup
 
 - The Layers panel's Radar row now shows a "Provider lag" line: how far behind wall clock the

@@ -101,6 +101,7 @@ pub mod drawer;
 pub mod event_window;
 pub mod firstrun;
 pub mod forecast_window;
+pub mod gate_inspector;
 pub mod glossary;
 pub mod help_hub;
 pub mod hodograph_window;

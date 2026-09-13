@@ -2523,6 +2523,10 @@ pub struct HookEchoApp {
     detail: Option<Detail>,
     /// Open "Storm {id} Attributes" window (a clicked storm cell).
     cell_popup: Option<Cell>,
+    /// Open gate-inspector popup (Phase B4): every geometry/value fact about the point last
+    /// interrogated on the radar itself, when nothing more specific (a marker, a storm cell, an
+    /// overlay feature) was under the click.
+    gate_popup: Option<ui::gate_inspector::GateInspectorPopup>,
     /// Which of `settings.markers` the tapped-marker popup is editing.
     // ponytail: index identity — markers have no id, and their names aren't unique ("Marker 3"
     // comes back after a delete). A bounds check closes the popup if the list shrinks under it.
@@ -3545,6 +3549,7 @@ impl HookEchoApp {
             overlay_last_fetch: None,
             detail: None,
             cell_popup: None,
+            gate_popup: None,
             marker_popup: None,
             global_model: wxdata::global::GlobalModel::default(),
             global_fcst_hour: 0,
@@ -6546,6 +6551,50 @@ impl HookEchoApp {
                 .map_err(|e| e.to_string());
             let _ = tx.send(res);
         });
+    }
+
+    /// Phase B4's gate inspector: everything about the point at `(lon, lat)` on the active pane's
+    /// currently displayed moment/tilt, or `None` when there is no volume here, this moment has
+    /// no data on this tilt, or the point falls outside the sweep's coverage (past its last
+    /// gate). Synchronous and local — unlike `fetch_sounding`/`query_climatology`, nothing here
+    /// reaches the network: the volume this samples is already decoded and on screen.
+    fn inspect_gate(
+        &mut self,
+        idx: usize,
+        lon: f64,
+        lat: f64,
+    ) -> Option<ui::gate_inspector::GateInspectorPopup> {
+        let v = &mut self.views[idx];
+        let site = v.site.clone();
+        let moment = v.moment;
+        let tilt = v.tilt;
+        let (scan, vcp, elevation_deg) = {
+            let vol = v.volume.as_ref()?;
+            (
+                Arc::clone(&vol.scan),
+                vol.vcp.clone(),
+                *vol.elevations.get(tilt)?,
+            )
+        };
+        let vol = v.volume.as_mut()?;
+        // Only velocity has a dealiased counterpart worth sampling; asking `binned` for any
+        // other moment's "dealiased" sweep would just rebuild the same raw one under a
+        // different cache key.
+        let dealiased = if moment == Moment::Velocity {
+            vol.binned(moment, tilt, true).ok().cloned()
+        } else {
+            None
+        };
+        let raw = vol.binned(moment, tilt, false).ok()?.clone();
+        let inspection = raw.inspect(lon, lat, dealiased.as_ref())?;
+        let time_range = level2::sweep_time_range(&scan, elevation_deg, moment);
+        Some(ui::gate_inspector::GateInspectorPopup {
+            site,
+            vcp,
+            moment,
+            time_range,
+            inspection,
+        })
     }
 
     fn fetch_sounding(&mut self, lon: f64, lat: f64) {
@@ -12020,6 +12069,7 @@ impl HookEchoApp {
                 if let Some(ob) = station_hit {
                     self.cell_popup = None;
                     self.warning_popup = None;
+                    self.gate_popup = None;
                     let (rt, http) = (self.spawner.clone(), self.http.clone());
                     self.stations.open_card(ob, &rt, &http, ctx);
                     return;
@@ -12031,26 +12081,31 @@ impl HookEchoApp {
                         self.marker_popup = marker_hit;
                         self.cell_popup = None;
                         self.detail = None;
+                        self.gate_popup = None;
                     }
                     _ if peer_hit.is_some() => {
                         let (name, url) = peer_hit.expect("checked Some");
                         self.cell_popup = None;
+                        self.gate_popup = None;
                         self.watch_stream(name, url);
                     }
                     _ if zone_hit.is_some() => {
                         self.zone_popup = zone_hit;
                         self.cell_popup = None;
+                        self.gate_popup = None;
                     }
                     _ if picked_site => {}
                     _ if cam_site.is_some() => {
                         self.cell_popup = None;
                         self.warning_popup = None;
+                        self.gate_popup = None;
                         let site = cam_site.expect("checked Some");
                         self.open_webcam(&site, ctx);
                     }
                     _ if dat_hit.is_some() => {
                         self.cell_popup = None;
                         self.warning_popup = None;
+                        self.gate_popup = None;
                         let p = dat_hit.expect("checked Some");
                         self.open_damage_point(&p, ctx);
                     }
@@ -12125,6 +12180,7 @@ impl HookEchoApp {
                             self.tropical_window.storm_id = Some(id.clone());
                             let product = self.tropical_window.product;
                             self.fetch_tropical_text(&id, product);
+                            self.gate_popup = None;
                             break 'interrogate;
                         }
                         // Storm reports sit on top: a click near a report dot opens its detail.
@@ -12171,6 +12227,7 @@ impl HookEchoApp {
                         if let Some(o) = air {
                             self.cell_popup = None;
                             self.warning_popup = None;
+                            self.gate_popup = None;
                             let c = o.color();
                             self.detail = Some(Detail {
                                 title: format!("AQI {} — {}", o.aqi, o.category_name()),
@@ -12182,6 +12239,7 @@ impl HookEchoApp {
                         } else if let Some(f) = fire {
                             self.cell_popup = None;
                             self.warning_popup = None;
+                            self.gate_popup = None;
                             self.detail = Some(Detail {
                                 title: format!("{} Fire", f.name),
                                 body: format!(
@@ -12200,6 +12258,7 @@ impl HookEchoApp {
                         } else if let Some(r) = report {
                             self.cell_popup = None;
                             self.warning_popup = None;
+                            self.gate_popup = None;
                             self.detail = Some(Detail {
                                 title: format!("{} Report — {}", r.kind.label(), r.magnitude),
                                 body: format!(
@@ -12232,10 +12291,12 @@ impl HookEchoApp {
                                 // detection (empty id) falls back to a generic detail popup.
                                 Some(c) if !c.id.is_empty() => {
                                     self.detail = None;
+                                    self.gate_popup = None;
                                     self.cell_popup = Some(c);
                                 }
                                 Some(c) => {
                                     self.cell_popup = None;
+                                    self.gate_popup = None;
                                     self.detail = Some(Detail {
                                         title: c.title.clone(),
                                         body: c.summary(),
@@ -12260,6 +12321,7 @@ impl HookEchoApp {
                                         .collect();
                                     if !cards.is_empty() {
                                         self.detail = None;
+                                        self.gate_popup = None;
                                         // Open straight to the full bulletin of the top alert; the
                                         // Back button reveals the stack when polygons overlap.
                                         self.warning_popup =
@@ -12267,15 +12329,26 @@ impl HookEchoApp {
                                                 cards,
                                                 selected: Some(0),
                                             });
-                                    } else {
+                                    } else if let Some(f) = hits.first() {
                                         self.warning_popup = None;
-                                        self.detail = hits.first().map(|f| Detail {
+                                        self.gate_popup = None;
+                                        self.detail = Some(Detail {
                                             title: f.title.clone(),
                                             body: f.detail.clone(),
                                             color: f.stroke,
                                             image: None,
                                             link: None,
                                         });
+                                    } else {
+                                        // Nothing more specific under the click: fall back to the
+                                        // radar itself (Phase B4's gate inspector), if there is a
+                                        // volume here to sample. A click off the sweep's coverage
+                                        // (past its last gate, or a moment/tilt with no data)
+                                        // clears whatever inspector was open rather than leaving a
+                                        // stale reading up for a point that no longer answers.
+                                        self.warning_popup = None;
+                                        self.detail = None;
+                                        self.gate_popup = self.inspect_gate(idx, lon, lat);
                                     }
                                 }
                             }
@@ -18521,6 +18594,12 @@ impl eframe::App for HookEchoApp {
         if let Some(clip) = open_3d {
             self.vol3d.clip = clip;
             self.build_volume3d();
+        }
+        if let Some(popup) = &self.gate_popup {
+            let tz = self.active_tz();
+            if !ui::gate_inspector::show(ctx, popup, tz, &mut self.popovers) {
+                self.gate_popup = None;
+            }
         }
         if let Some(i) = self.marker_popup {
             match self.settings.markers.get_mut(i) {

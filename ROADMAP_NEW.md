@@ -361,23 +361,33 @@ Add a compact source/latency diagnostic:
 - dropped/retried chunks
 - provider failover state
 
-## B4. Radar metadata inspector
+## B4. Radar metadata inspector — done
 
-For a sampled gate expose:
+Clicking the radar with nothing more specific under the click (a marker, a storm cell, an
+overlay feature) opens a gate inspector (`crates/hookecho/src/ui/gate_inspector.rs`), fed by
+`wxdata::level2::BinnedSweep::inspect`/`sweep_time_range`. Verified live against real reflectivity
+and velocity gates, folded and unfolded.
 
-- radar site
-- VCP
-- elevation angle
-- azimuth
-- slant range
-- ground range
-- beam center height using current 4/3-earth model
-- gate spacing
-- raw product value
-- dealiased value where relevant
-- Nyquist velocity
-- range-folded/missing state where available
-- sweep timestamp
+- [x] radar site
+- [x] VCP
+- [x] elevation angle
+- [x] azimuth
+- [x] slant range
+- [x] ground range
+- [x] beam center height using current 4/3-earth model (`beam_geometry.rs`/`xsection.rs`, already
+  implemented before this phase; this just wired an inspector to it)
+- [x] gate spacing
+- [x] raw product value
+- [x] dealiased value where relevant (velocity only)
+- [x] Nyquist velocity — **estimated**, not decoded: the vendored `nexrad-data` decoder never
+  extracts the true unambiguous-velocity field from the raw message header, so this reads
+  `BinnedSweep::estimated_nyquist_mps` (the same largest-observed-|v| proxy dealiasing itself
+  relies on) instead, labeled "Nyquist velocity (est.)" in the UI so it is never mistaken for an
+  instrument reading. Decoding the true value would mean extending the vendored crate itself —
+  out of scope here.
+- [x] range-folded/missing state where available
+- [x] sweep timestamp (aggregated across every sweep at that elevation, so a repeated
+  SAILS/MRLE cut reports the full span it was collected over, not one arbitrary pass)
 
 ## B5. VCP / SAILS / MESO-SAILS awareness
 

@@ -431,6 +431,87 @@ impl BinnedSweep {
     pub fn beam_height_ft(&self, range_km: f32) -> f64 {
         crate::xsection::beam_height_km(range_km as f64, self.elevation_deg as f64) * 3280.84
     }
+
+    /// Estimated Nyquist velocity (m/s), for a velocity sweep only — `None` for every other
+    /// moment, where the question does not apply.
+    ///
+    /// The vendored decoder does not surface the true unambiguous-velocity field from the raw
+    /// message header, so this is the same practical proxy dealiasing itself relies on
+    /// ([`crate::dealias::estimate_nyquist`]): the largest observed |v|, reconstructed from this
+    /// sweep's own quantized band rather than re-reading the volume. Call it on the *raw* (not
+    /// dealiased) sweep — dealiasing can push values past the true Nyquist, which would make the
+    /// estimate too high.
+    pub fn estimated_nyquist_mps(&self) -> Option<f32> {
+        if self.moment != Moment::Velocity {
+            return None;
+        }
+        let values: Vec<Option<f32>> = self
+            .data
+            .iter()
+            .map(|&code| {
+                (code >= 2).then(|| {
+                    let t = (code - 2) as f32 / 253.0;
+                    self.value_min + t * (self.value_max - self.value_min)
+                })
+            })
+            .collect();
+        Some(crate::dealias::estimate_nyquist(&values))
+    }
+
+    /// Everything a gate inspector (Phase B4) shows for the point under `(lon, lat)` on this
+    /// sweep, or `None` when the point falls outside it.
+    ///
+    /// Call this on the *raw* (non-dealiased) sweep — its Nyquist estimate needs the raw field,
+    /// and its gate value is what the radar actually measured before any unfolding. `dealiased`
+    /// is the same moment's dealiased sweep, when the caller has one (velocity only); its own
+    /// sample fills in [`GateInspection::dealiased_value`].
+    pub fn inspect(&self, lon: f64, lat: f64, dealiased: Option<&BinnedSweep>) -> Option<GateInspection> {
+        let sample = self.sample_at(lon, lat)?;
+        let ground_range_km =
+            crate::xsection::ground_from_slant_km(sample.range_km as f64, self.elevation_deg as f64)
+                as f32;
+        Some(GateInspection {
+            dealiased_value: dealiased.and_then(|d| d.sample_at(lon, lat)).and_then(|s| s.value),
+            ground_range_km,
+            beam_height_ft: self.beam_height_ft(sample.range_km),
+            gate_interval_km: self.gate_interval_km,
+            elevation_deg: self.elevation_deg,
+            nyquist_mps: self.estimated_nyquist_mps(),
+            sample,
+        })
+    }
+}
+
+/// The wall-clock span this tilt's radials for `moment` were actually collected over. A repeated
+/// low cut (SAILS/MRLE) has more than one sweep at the same elevation angle within one volume;
+/// this spans all of them, mirroring [`ObservedLayer::scan_start`]/[`ObservedLayer::scan_end`]'s
+/// own aggregate rather than picking one sweep arbitrarily. `None` when no sweep at this
+/// elevation carries the moment, or the source has no per-radial timestamps.
+pub fn sweep_time_range(
+    scan: &Scan,
+    elevation_deg: f32,
+    moment: Moment,
+) -> Option<(chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>)> {
+    scan.sweeps_at_elevation(elevation_deg)
+        .filter(|s| s.radials().iter().any(|r| moment.select(r).is_some()))
+        .filter_map(|s| s.time_range())
+        .reduce(|(a_start, a_end), (b_start, b_end)| (a_start.min(b_start), a_end.max(b_end)))
+}
+
+/// Everything the Phase B4 gate inspector shows for one clicked point, on one already-binned
+/// sweep.
+#[derive(Debug, Clone, Copy)]
+pub struct GateInspection {
+    pub sample: GateSample,
+    /// The same point sampled from the moment's dealiased sweep, when the caller has one —
+    /// meaningful for velocity only.
+    pub dealiased_value: Option<f32>,
+    pub ground_range_km: f32,
+    pub beam_height_ft: f64,
+    pub gate_interval_km: f32,
+    pub elevation_deg: f32,
+    /// See [`BinnedSweep::estimated_nyquist_mps`] — an estimate, not a decoded header value.
+    pub nyquist_mps: Option<f32>,
 }
 
 /// An AWS archive volume identifier (re-exported so callers needn't depend on `nexrad-data`).
@@ -1146,6 +1227,158 @@ mod tests {
         };
         let (lon, lat) = destination(-97.0, 35.0, 45.0, 400.0);
         assert!(sweep.sample_at(lon, lat).is_none());
+    }
+
+    /// Reflectivity has no Nyquist velocity to estimate — the question does not apply to it.
+    #[test]
+    fn estimated_nyquist_is_none_for_a_non_velocity_moment() {
+        let sweep = BinnedSweep {
+            moment: Moment::Reflectivity,
+            az_bins: 1,
+            gate_count: 1,
+            data: vec![255u8],
+            first_gate_km: 0.0,
+            gate_interval_km: 1.0,
+            radar_lat: 35.0,
+            radar_lon: -97.0,
+            elevation_deg: 0.5,
+            value_min: -32.0,
+            value_max: 95.0,
+        };
+        assert!(sweep.estimated_nyquist_mps().is_none());
+    }
+
+    /// The estimate is the largest observed |v| in the sweep — code 255 (the top of the band)
+    /// decodes to `value_max`, so that must be what comes back.
+    #[test]
+    fn estimated_nyquist_reads_the_largest_observed_speed() {
+        let mut sweep = BinnedSweep {
+            moment: Moment::Velocity,
+            az_bins: 2,
+            gate_count: 1,
+            data: vec![0u8; 2],
+            first_gate_km: 0.0,
+            gate_interval_km: 1.0,
+            radar_lat: 35.0,
+            radar_lon: -97.0,
+            elevation_deg: 0.5,
+            value_min: -30.0,
+            value_max: 30.0,
+        };
+        sweep.data[0] = 255; // decodes to +30.0
+        sweep.data[1] = 2; // decodes to -30.0; |v| ties, must not double-count as 60
+        assert_eq!(sweep.estimated_nyquist_mps(), Some(30.0));
+    }
+
+    /// `inspect` must combine geometry (ground range strictly less than slant range off nadir,
+    /// beam height positive), the dealiased sweep's own value at the same point, and the raw
+    /// sweep's Nyquist estimate — one call standing in for the whole gate inspector.
+    #[test]
+    fn inspect_combines_geometry_dealiasing_and_nyquist() {
+        let (az_bins, gate_count) = (720, 200);
+        let raw = BinnedSweep {
+            moment: Moment::Velocity,
+            az_bins,
+            gate_count,
+            data: {
+                let mut d = vec![0u8; az_bins * gate_count];
+                d[100] = 255; // az bin 0 (due north), gate 100: +Nyquist
+                d
+            },
+            first_gate_km: 0.0,
+            gate_interval_km: 0.25,
+            radar_lat: 35.0,
+            radar_lon: -97.0,
+            elevation_deg: 0.5,
+            value_min: -30.0,
+            value_max: 30.0,
+        };
+        let mut dealiased = raw.clone();
+        dealiased.data[100] = 253; // a different, unfolded reading at the same gate
+
+        let slant = 100.5 * 0.25;
+        let ground = crate::xsection::ground_from_slant_km(slant, 0.5);
+        let (lon, lat) = destination(-97.0, 35.0, 0.0, ground);
+
+        let got = raw
+            .inspect(lon, lat, Some(&dealiased))
+            .expect("point is inside the sweep");
+        assert_eq!(got.sample.gate, 100);
+        assert!(got.ground_range_km > 0.0 && got.ground_range_km <= got.sample.range_km);
+        assert!(got.beam_height_ft > 0.0, "a beam above the horizon climbs");
+        assert_eq!(got.gate_interval_km, 0.25);
+        assert_eq!(got.elevation_deg, 0.5);
+        assert_eq!(got.nyquist_mps, Some(30.0), "estimated from the raw sweep");
+        assert_ne!(
+            got.sample.value, got.dealiased_value,
+            "raw and dealiased disagree at this gate by construction"
+        );
+    }
+
+    /// No dealiased sweep in hand (a non-velocity moment, or the caller simply has only the raw
+    /// one) must not be an error — just no dealiased reading.
+    #[test]
+    fn inspect_without_a_dealiased_sweep_leaves_that_field_empty() {
+        let sweep = BinnedSweep {
+            moment: Moment::Reflectivity,
+            az_bins: 1,
+            gate_count: 1,
+            data: vec![200u8],
+            first_gate_km: 0.0,
+            gate_interval_km: 1.0,
+            radar_lat: 35.0,
+            radar_lon: -97.0,
+            elevation_deg: 0.5,
+            value_min: -32.0,
+            value_max: 95.0,
+        };
+        let (lon, lat) = destination(-97.0, 35.0, 180.0, 0.5);
+        let got = sweep.inspect(lon, lat, None).unwrap();
+        assert!(got.dealiased_value.is_none());
+        assert!(got.nyquist_mps.is_none(), "not a velocity sweep");
+    }
+
+    /// A repeated low cut (SAILS/MRLE) puts more than one sweep at the same elevation in one
+    /// volume; the timestamp must span all of them, not just whichever the lookup happens to hit
+    /// first.
+    #[test]
+    fn sweep_time_range_spans_every_sweep_at_that_elevation() {
+        let refl_at = |ts: i64| {
+            let raw = vec![106u8];
+            let data = MomentData::from_fixed_point(1, 2125, 250, 8, 2.0, 66.0, raw);
+            Radial::new(
+                ts,
+                0,
+                0.0,
+                0.5,
+                nexrad_model::data::RadialStatus::ScanStart,
+                1,
+                0.5,
+                Some(data),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+        };
+        let first_cut = Sweep::new(1, vec![refl_at(1_000), refl_at(1_010)]);
+        let sails_cut = Sweep::new(1, vec![refl_at(2_000), refl_at(2_010)]);
+        let site = nexrad_model::meta::Site::new(*b"KTLX", 35.33, -97.28, 380, 0);
+        let scan = Scan::with_site(site, minimal_vcp(), vec![first_cut, sails_cut]);
+
+        let (start, end) = sweep_time_range(&scan, 0.5, Moment::Reflectivity)
+            .expect("both sweeps carry reflectivity at 0.5 deg");
+        assert_eq!(start.timestamp_millis(), 1_000);
+        assert_eq!(end.timestamp_millis(), 2_010);
+    }
+
+    /// Asking for a moment nothing at that elevation carries (velocity, on an all-reflectivity
+    /// scan) must come back empty rather than panic or hand back an unrelated sweep's time.
+    #[test]
+    fn sweep_time_range_is_none_when_nothing_carries_the_moment() {
+        assert!(sweep_time_range(&two_tilt_scan(), 0.5, Moment::Velocity).is_none());
     }
 
     /// Walk `km` from a point along `bearing`, for placing test points at a known gate.
