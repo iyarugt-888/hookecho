@@ -43,7 +43,18 @@ pub(crate) fn matches(entries: &[PaletteEntry], query: &str) -> Vec<usize> {
     let mut hits: Vec<(usize, usize)> = entries
         .iter()
         .enumerate()
-        .filter_map(|(i, e)| fuzzy(query, &e.label).map(|s| (s, i)))
+        .filter_map(|(i, e)| {
+            let metadata = match e.action {
+                PaletteAction::ToggleField(layer) => layer.descriptor(),
+                _ => None,
+            };
+            let score = fuzzy(query, &e.label).or_else(|| {
+                metadata
+                    .and_then(|field| fuzzy(query, &field.search_text()))
+                    .map(|score| score.saturating_add(1000))
+            });
+            score.map(|score| (score, i))
+        })
         .collect();
     hits.sort_by_key(|(s, i)| (*s, *i));
     hits.into_iter().map(|(_, i)| i).collect()
@@ -1021,6 +1032,39 @@ mod tests {
             offset > 150.0,
             "focused search stayed behind the keyboard: {offset}"
         );
+    }
+
+    #[test]
+    fn catalog_rows_resolve_saved_layers_and_search_metadata() {
+        let entries: Vec<_> = wxdata::mrms::catalog::PRODUCTS
+            .iter()
+            .map(|product| {
+                let layer = crate::render::FieldLayer::from_slug(product.field.id.0)
+                    .expect("catalog product must resolve to a saved layer ID");
+                assert_eq!(layer.descriptor().unwrap().id, product.field.id);
+                PaletteEntry {
+                    label: product.field.name.into(),
+                    category: "National",
+                    action: PaletteAction::ToggleField(layer),
+                    on: Some(false),
+                    desc: product.field.description,
+                    common: product.common,
+                    key: None,
+                    health: None,
+                }
+            })
+            .collect();
+        assert_eq!(matches(&entries, "NOAA MRMS").len(), entries.len());
+        for (query, slug) in [
+            ("mm/hr", "preciprate"), ("NLDN", "lightning"),
+            ("hydrology", "flashflood"), ("gauge corrected", "qpe1h"),
+        ] {
+            let action = PaletteAction::ToggleField(crate::render::FieldLayer::from_slug(slug).unwrap());
+            assert!(
+                matches(&entries, query).iter().any(|i| entries[*i].action == action),
+                "{query} must find {slug}"
+            );
+        }
     }
 
     /// Grouping must never hide a row for good: every specialist entry remains searchable.

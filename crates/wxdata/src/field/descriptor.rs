@@ -1,0 +1,174 @@
+//! Metadata shared by product catalogs; display grids remain separate payloads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct FieldId(pub &'static str);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FieldFamily {
+    Radar,
+    Mrms,
+    Satellite,
+    Model,
+    Analysis,
+    ObservationDerived,
+    UserDefined,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ValueKind {
+    Scalar,
+    Categorical,
+    Vector,
+    Probability,
+    Accumulation,
+    Mask,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Unit {
+    Dbz,
+    Millimeters,
+    Inches,
+    MillimetersPerHour,
+    InchesPerHour,
+    PerSecond,
+    MilliPerSecond,
+    StrikesPerSquareKmPerMinute,
+    Years,
+    Category,
+}
+
+impl Unit {
+    pub fn symbol(self) -> &'static str {
+        match self {
+            Self::Dbz => "dBZ",
+            Self::Millimeters => "mm",
+            Self::Inches => "in",
+            Self::MillimetersPerHour => "mm/hr",
+            Self::InchesPerHour => "in/hr",
+            Self::PerSecond => "s⁻¹",
+            Self::MilliPerSecond => "0.001/s",
+            Self::StrikesPerSquareKmPerMinute => "strikes/km²/min",
+            Self::Years => "years",
+            Self::Category => "category",
+        }
+    }
+
+    /// Reject incompatible dimensions; missing/nonfinite samples stay missing.
+    pub fn convert(self, value: f32, target: Self) -> Option<f32> {
+        if !value.is_finite() {
+            return None;
+        }
+        if self == target {
+            return Some(value);
+        }
+        match (self, target) {
+            (Self::MilliPerSecond, Self::PerSecond) => Some(value * 0.001),
+            (Self::PerSecond, Self::MilliPerSecond) => Some(value * 1000.0),
+            (Self::Millimeters, Self::Inches) | (Self::MillimetersPerHour, Self::InchesPerHour) => {
+                Some(value / 25.4)
+            }
+            (Self::Inches, Self::Millimeters) | (Self::InchesPerHour, Self::MillimetersPerHour) => {
+                Some(value * 25.4)
+            }
+            _ => None,
+        }
+    }
+}
+
+/// Stable renderer palette choices; a descriptor selects a palette without owning GPU code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaletteId {
+    Reflectivity,
+    Rotation,
+    HailSize,
+    HailSwath,
+    LightningDensity,
+    PrecipitationRate,
+    Precipitation1h,
+    Precipitation24h,
+    PrecipitationType,
+    FloodRecurrence,
+}
+
+#[derive(Debug)]
+pub struct FieldDescriptor {
+    pub id: FieldId,
+    pub source: &'static str,
+    pub family: FieldFamily,
+    pub name: &'static str,
+    pub description: &'static str,
+    pub units: Unit,
+    pub value_kind: ValueKind,
+    pub aliases: &'static str,
+    pub default_palette: PaletteId,
+}
+
+impl FieldDescriptor {
+    pub fn search_text(&self) -> String {
+        format!(
+            "{} {} {} {:?} {} {} {}",
+            self.id.0,
+            self.name,
+            self.source,
+            self.family,
+            self.units.symbol(),
+            self.description,
+            self.aliases
+        )
+    }
+
+    /// Sample an existing regular grid, with categorical/mask fields never interpolated.
+    /// This reads the supplied grid; callers must supply native data for raw-value inspection.
+    pub fn sample(&self, grid: &crate::mrms::MrmsField, lon: f64, lat: f64) -> Option<f32> {
+        if !lon.is_finite()
+            || !lat.is_finite()
+            || grid.nx == 0
+            || grid.ny == 0
+            || grid.nx.checked_mul(grid.ny)? != grid.values.len()
+            || ![grid.lon_west, grid.lon_east, grid.lat_south, grid.lat_north]
+                .iter()
+                .all(|v| v.is_finite())
+            || grid.lon_west >= grid.lon_east
+            || grid.lat_south >= grid.lat_north
+            || lon < grid.lon_west
+            || lon > grid.lon_east
+            || lat < grid.lat_south
+            || lat > grid.lat_north
+        {
+            return None;
+        }
+        match self.value_kind {
+            ValueKind::Vector => None,
+            ValueKind::Categorical | ValueKind::Mask => {
+                let x = (((lon - grid.lon_west) / (grid.lon_east - grid.lon_west) * grid.nx as f64)
+                    as usize)
+                    .min(grid.nx - 1);
+                let y = (((grid.lat_north - lat) / (grid.lat_north - grid.lat_south)
+                    * grid.ny as f64) as usize)
+                    .min(grid.ny - 1);
+                let value = grid.values[y * grid.nx + x];
+                value.is_finite().then_some(value)
+            }
+            _ => grid.sample_bilinear(lon, lat),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn conversion_preserves_dimensions_and_missing_values() {
+        assert!((Unit::MilliPerSecond.convert(20.0, Unit::PerSecond).unwrap() - 0.02).abs() < 1e-8);
+        assert_eq!(Unit::Millimeters.convert(25.4, Unit::Inches), Some(1.0));
+        assert_eq!(
+            Unit::InchesPerHour.convert(1.0, Unit::MillimetersPerHour),
+            Some(25.4)
+        );
+        assert_eq!(
+            Unit::Millimeters.convert(1.0, Unit::MillimetersPerHour),
+            None
+        );
+        assert_eq!(Unit::Dbz.convert(f32::NAN, Unit::Dbz), None);
+    }
+}

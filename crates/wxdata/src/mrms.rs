@@ -5,6 +5,7 @@
 //! the regular lat/lon grid onto web-mercator in a shader.
 
 use gribberish::data_message::DataMessage;
+pub mod catalog;
 use gribberish::message::read_message;
 
 const BUCKET: &str = "https://noaa-mrms-pds.s3.amazonaws.com";
@@ -309,6 +310,7 @@ pub async fn fetch_latest_stamped(
         is_forecast: false,
         is_derived: true,
         quality: crate::field::QualitySummary::Unknown,
+        grid: Some(crate::field::GridProvenance::native(&data)),
     };
     Ok(crate::field::Stamped { data, stamp })
 }
@@ -467,6 +469,7 @@ mod tests {
             is_forecast: false,
             is_derived: true,
             quality: QualitySummary::Unknown,
+            grid: None,
         };
         let result = Stamped {
             data: grid,

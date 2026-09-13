@@ -740,16 +740,23 @@ pub fn bake_ramp_lut(stops: &[(f32, [u8; 3])], alpha: u8) -> Vec<u8> {
 /// palette (`Mrms`/`Hrrr`, which follow the user's `.pal` table) and `Lightning` (own upload fn).
 pub fn ramp_for(layer: FieldLayer) -> Option<&'static FieldRamp> {
     use FieldLayer as FL;
+    if let Some(field) = layer.descriptor() {
+        use wxdata::field::PaletteId;
+        return match field.default_palette {
+            PaletteId::Reflectivity | PaletteId::LightningDensity => None,
+            PaletteId::Rotation => Some(&ROTATION),
+            PaletteId::HailSize => Some(&MESH),
+            PaletteId::HailSwath => Some(&HAIL_SWATH),
+            PaletteId::PrecipitationRate => Some(&PRECIP_RATE),
+            PaletteId::Precipitation1h => Some(&QPE_1H),
+            PaletteId::Precipitation24h => Some(&QPE_24H),
+            PaletteId::PrecipitationType => Some(&PRECIP_TYPE),
+            PaletteId::FloodRecurrence => Some(&FLASH_FLOOD),
+        };
+    }
     Some(match layer {
-        FL::Rotation | FL::AzShear => &ROTATION,
-        FL::Mesh => &MESH,
-        FL::HailSwath => &HAIL_SWATH,
-        FL::PrecipRate => &PRECIP_RATE,
-        FL::Qpe1h => &QPE_1H,
-        FL::Qpe24h => &QPE_24H,
         FL::Cape => &CAPE,
         FL::Srh => &SRH,
-        FL::FlashFlood => &FLASH_FLOOD,
         // Locally derived twins share their L3 counterparts' scales — one VIL scale app-wide, so
         // a number means the same thing whichever source drew it.
         FL::Vil | FL::VilLocal => &VIL,
@@ -758,7 +765,6 @@ pub fn ramp_for(layer: FieldLayer) -> Option<&'static FieldRamp> {
         // MEHS shares the MRMS MESH scale: one hail scale app-wide.
         FL::HailMehs => &MESH,
         FL::HailPosh => &POSH,
-        FL::PrecipType => &PRECIP_TYPE,
         FL::UpdraftHelicity => &UPDRAFT_HELICITY,
         FL::Smoke => &SMOKE,
         FL::Snowfall => &SNOWFALL,
@@ -788,6 +794,15 @@ pub fn ramp_for(layer: FieldLayer) -> Option<&'static FieldRamp> {
         // field's physical units (`DiffField::source_layer`) instead of tabulating a second one
         // here — same reason `ModelDiff` has none of its own (built dynamically in `fielddiff`).
         FL::Mrms
+        | FL::Rotation
+        | FL::AzShear
+        | FL::Mesh
+        | FL::HailSwath
+        | FL::PrecipRate
+        | FL::Qpe1h
+        | FL::Qpe24h
+        | FL::FlashFlood
+        | FL::PrecipType
         | FL::Mosaic
         | FL::CompositeLocal
         | FL::Hrrr
@@ -801,6 +816,22 @@ pub fn ramp_for(layer: FieldLayer) -> Option<&'static FieldRamp> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn catalog_palettes_preserve_existing_scales() {
+        for (id, expected) in [
+            ("rotation", &ROTATION), ("azshear", &ROTATION), ("mesh", &MESH),
+            ("hailswath", &HAIL_SWATH), ("preciprate", &PRECIP_RATE),
+            ("qpe1h", &QPE_1H), ("qpe24h", &QPE_24H),
+            ("preciptype", &PRECIP_TYPE), ("flashflood", &FLASH_FLOOD),
+        ] {
+            let layer = FieldLayer::from_slug(id).unwrap();
+            assert!(std::ptr::eq(ramp_for(layer).unwrap(), expected), "{id}");
+        }
+        // These retain their user-configured and density-specific upload paths.
+        assert!(ramp_for(FieldLayer::Mrms).is_none());
+        assert!(ramp_for(FieldLayer::Lightning).is_none());
+    }
 
     /// Only the two Kelvin-wire fields ask the legend to convert; every other ramp's `lo`/`hi`
     /// are already in the units it labels itself with, and must stay untouched by the flag.

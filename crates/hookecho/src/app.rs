@@ -4359,7 +4359,8 @@ impl HookEchoApp {
                     Ok(match msg {
                         OverlayMsg::Field(layer, f) => OverlayMsg::Field(layer, f.decimated(cap)),
                         OverlayMsg::StampedField(layer, f) => {
-                            OverlayMsg::StampedField(layer, f.map(|grid| grid.decimated(cap)))
+                            let kind = layer.descriptor().map_or(wxdata::field::ValueKind::Scalar, |d| d.value_kind);
+                            OverlayMsg::StampedField(layer, f.for_display(cap, kind))
                         }
                         other => other,
                     })
@@ -10283,73 +10284,15 @@ impl HookEchoApp {
         }
     }
 
-    /// The MRMS product the national field loop fetches for `layer`, or `None` for a layer that
-    /// has a fetch block of its own (HRRR forecast, the environment suite, the global models,
-    /// per-site Level 3 grids).
-    ///
-    /// One exhaustive match rather than a skip list and a second match that had to agree with it:
-    /// they drifted, the global model fields were missing from the skip list, and switching one on
-    /// walked into an `unreachable!()` and took the app down. A layer added to `FieldLayer` now
-    /// fails to compile here instead of panicking at runtime.
+    /// Resolve existing layer IDs through the MRMS catalog; other sources have their own fetches.
     fn mrms_product(&self, layer: crate::render::FieldLayer) -> Option<String> {
-        use crate::render::FieldLayer as FL;
-        Some(match layer {
-            FL::Mrms => wxdata::mrms::REFLECTIVITY.to_string(),
-            FL::Lightning => {
-                wxdata::mrms::lightning_density(self.settings.lightning_minutes).to_string()
-            }
-            FL::Mesh => wxdata::mrms::MESH.to_string(),
-            FL::AzShear => wxdata::mrms::AZSHEAR.to_string(),
-            FL::Rotation => wxdata::mrms::rotation_track(self.rotation_minutes).to_string(),
-            FL::PrecipRate => wxdata::mrms::PRECIP_RATE.to_string(),
-            FL::Qpe1h => wxdata::mrms::QPE_01H.to_string(),
-            FL::Qpe24h => wxdata::mrms::QPE_24H.to_string(),
-            FL::PrecipType => wxdata::mrms::PRECIP_TYPE.to_string(),
-            FL::FlashFlood => wxdata::mrms::FLASH_ARI30.to_string(),
-            FL::HailSwath => wxdata::mrms::hail_swath(self.hail_minutes).to_string(),
-            FL::Hrrr
-            | FL::Cape
-            | FL::Srh
-            | FL::Vil
-            | FL::EchoTops
-            | FL::Hca
-            | FL::UpdraftHelicity
-            | FL::Smoke
-            | FL::Mosaic
-            | FL::CompositeLocal
-            | FL::VilLocal
-            | FL::VilDensity
-            | FL::EtopLocal
-            | FL::HailMehs
-            | FL::HailPosh
-            | FL::Snowfall
-            | FL::SnowAnalysis
-            | FL::GlobalMslp
-            | FL::GlobalHeight500
-            | FL::GlobalTemp2m
-            | FL::GlobalDewpoint2m
-            | FL::GlobalWind10m
-            | FL::GlobalPrecip
-            | FL::ModelDiff
-            | FL::CompareA
-            | FL::CompareB
-            | FL::GlmFed
-            // Built from two grids at once, so it has a fetch block of its own.
-            | FL::SnowBands
-            // Model layers, fetched on the forecast-hour scrub rather than a product path.
-            | FL::ThunderProb
-            // Not MRMS at all — read straight from the satellite's own S3 bucket.
-            | FL::GoesIr
-            | FL::GoesVisible
-            | FL::GoesWaterVapor
-            // Not MRMS either — NDFD's own S3 bucket.
-            | FL::NdfdTemp2m
-            | FL::NdfdWind10m
-            | FL::NdfdGust10m
-            | FL::NdfdSnow => return None,
-        })
+        let product = wxdata::mrms::catalog::find(layer.slug())?;
+        Some(
+            product
+                .path(self.rotation_minutes, self.settings.lightning_minutes, self.hail_minutes)
+                .to_string(),
+        )
     }
-
     /// Per-frame per-pane: react to site changes, keep the timeline current, and (for the active
     /// pane) manage the live stream. Each pane fetches its own volume via its view index.
     fn sync_pane(&mut self, idx: usize, ctx: &egui::Context) {
@@ -16612,9 +16555,10 @@ pub(crate) fn field_upload_indexed(
     f: &wxdata::mrms::MrmsField,
 ) -> crate::render::MrmsUpload {
     use crate::render::field_ramps::{ramp_for, FieldScale};
-    use crate::render::FieldLayer as FL;
     // Lightning keeps its own mapping (density counts, not a physical scale).
-    if layer == FL::Lightning {
+    if layer.descriptor().is_some_and(|field| {
+        field.default_palette == wxdata::field::PaletteId::LightningDensity
+    }) {
         return lightning_upload(f);
     }
     let Some(r) = ramp_for(layer) else {
@@ -16640,6 +16584,11 @@ impl HookEchoApp {
         f: &wxdata::mrms::MrmsField,
     ) -> crate::render::MrmsUpload {
         use crate::render::FieldLayer as FL;
+        if layer.descriptor().is_some_and(|field| {
+            field.default_palette == wxdata::field::PaletteId::Reflectivity
+        }) {
+            return mrms_upload(f, self.palettes.table(Moment::Reflectivity));
+        }
         match layer {
             // Mosaic + HRRR forecast are both dBZ → the reflectivity palette.
             FL::Mrms | FL::Mosaic | FL::Hrrr => {

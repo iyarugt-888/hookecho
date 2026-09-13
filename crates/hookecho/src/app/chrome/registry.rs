@@ -212,15 +212,20 @@ impl HookEchoApp {
             );
         }
 
+        for product in wxdata::mrms::catalog::PRODUCTS {
+            if let Some(layer) = FL::from_slug(product.field.id.0) {
+                push(
+                    product.field.name,
+                    "National",
+                    product.field.description,
+                    product.common,
+                    PaletteAction::ToggleField(layer),
+                    Some(self.views[self.active].fields_on.contains(&layer)),
+                );
+            }
+        }
         // --- National / model grids. ---
         for (layer, category, label, desc, common) in [
-            (
-                FL::Mrms,
-                "National",
-                "National mosaic (MRMS)",
-                "Every radar in the country stitched into one picture",
-                true,
-            ),
             (
                 FL::Mosaic,
                 "National",
@@ -251,77 +256,6 @@ impl HookEchoApp {
                 "Upper-level moisture, read straight from the satellite over CONUS \
                  — East by default, West in Layer settings",
                 true,
-            ),
-            (
-                FL::Rotation,
-                "National",
-                "Rotation tracks",
-                "Where rotation has passed over the last hour — the tornado-track map",
-                true,
-            ),
-            (
-                FL::Mesh,
-                "National",
-                "Hail size (MESH)",
-                "Estimated largest hail size each storm is producing",
-                true,
-            ),
-            (
-                FL::Lightning,
-                "National",
-                "Lightning density (CG)",
-                "Ground strikes only: NLDN cloud-to-ground density, averaged over a window you \
-                 pick. Pair it with satellite lightning (GLM) to see total vs cloud-to-ground.",
-                true,
-            ),
-            (
-                FL::AzShear,
-                "National",
-                "Rotation strength (AzShear, 0–2 km)",
-                "Low-level rotation strength, right now",
-                false,
-            ),
-            (
-                FL::PrecipRate,
-                "National",
-                "Rain rate",
-                "How hard it is coming down right now, rather than how much has fallen",
-                false,
-            ),
-            (
-                FL::Qpe1h,
-                "National",
-                "Rain so far, 1 hour (QPE)",
-                "How much rain has fallen in the last hour",
-                false,
-            ),
-            (
-                FL::Qpe24h,
-                "National",
-                "Rain so far, 24 hours (QPE)",
-                "How much rain has fallen in the last day",
-                false,
-            ),
-            (
-                FL::PrecipType,
-                "National",
-                "Rain or snow (precip type)",
-                "Rain, snow, sleet or freezing rain at the surface",
-                false,
-            ),
-            (
-                FL::FlashFlood,
-                "National",
-                "Flash-flood rarity (FLASH ARI)",
-                "How rare this much rain is here — flash-flood risk",
-                false,
-            ),
-            (
-                FL::HailSwath,
-                "National",
-                "Hail swaths",
-                "Where hail has fallen — over the past day, or a window you pick",
-                false,
             ),
             (
                 FL::ThunderProb,

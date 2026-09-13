@@ -31,4 +31,15 @@ pub(crate) fn show(ui: &mut egui::Ui, stamp: &DataStamp) {
         stamp.is_forecast, stamp.is_derived
     ));
     ui.label(format!("Quality: {:?}", stamp.quality));
+    if let Some(grid) = &stamp.grid {
+        ui.label(format!("Native grid: {} × {} (longitude/latitude)", grid.native.nx, grid.native.ny));
+        ui.label(format!("Native bounds [W, S, E, N]: {:?}", grid.native.bounds));
+        ui.label(format!("Display grid: {} × {}", grid.displayed.nx, grid.displayed.ny));
+        let transform = match grid.transform {
+            wxdata::field::DisplayTransform::Native => "Native grid values".to_string(),
+            wxdata::field::DisplayTransform::MaximumPool { factor } => format!("Maximum pooling, {factor} × {factor} cells"),
+            wxdata::field::DisplayTransform::NearestCell => "Nearest-cell resampling (categorical)".to_string(),
+        };
+        ui.label(format!("Display transform: {transform}"));
+    }
 }

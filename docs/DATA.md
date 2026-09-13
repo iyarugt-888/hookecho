@@ -33,6 +33,12 @@ MRMS fields are labeled derived analyses. Failed refreshes retain the prior
 grid's timestamps, and invalid GRIB timestamps produce an error. See
 [the field migration note](field-registry.md) for scope and remaining work.
 
+The existing 11 direct MRMS layer families now share a product catalog. Layer
+search accepts source names (`NOAA MRMS`), units (`mm/hr`), and aliases such as
+`NLDN` or `hydrology`. The source inspector also shows native product units and
+value kind. Product paths and selectable rotation/lightning/hail windows retain
+their existing mappings; this migration does not add new NOAA products.
+
 ## Warnings, outlooks and reports
 
 | Feed | Source | Cadence | Latency | Key |

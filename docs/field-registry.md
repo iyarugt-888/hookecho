@@ -19,14 +19,20 @@ This implements the provenance-first step of [ROADMAP_NEW.md](https://github.com
 
 All existing direct MRMS field-layer fetches use the stamped API. Legacy callers retain `fetch_latest`. `app/field_state.rs` accepts the upload and stamp together, while `ui/data_inspector.rs` presents metadata for enabled layers in Layer options. Failed refreshes keep the prior payload and its original timestamps; the existing request-health UI reports fetch failures. This migration adds no new network source.
 
-## Next registry contract
+## Implemented catalog contract
 
-Introduce stable `FieldId` descriptors with source, family, value kind, units/conversions, palette/range, contour defaults, missing semantics, native grid/domain, aliases, and sampling capabilities. Keep source fetch mappings separate from descriptors and bridge existing `FieldLayer` slugs to descriptors so saved workspaces remain valid.
+`wxdata::field::FieldDescriptor` now defines stable `FieldId`, source, family, value kind, units/conversions, names, descriptions, and search aliases. `wxdata::mrms::catalog` describes all 11 existing direct MRMS layer families. Separate fetch mappings retain rotation, lightning, and hail window selection and fallbacks. Existing `FieldLayer` slugs bridge to descriptors, preserving saved workspace IDs.
 
-Generate MRMS browser rows and legends from descriptors. A common sampling API must dispatch categorical grids to nearest-cell sampling and explicitly describe interpolation for continuous values. Preserve native grids for scientific sampling: display pooling/smoothing must never be represented as raw source values. Native resolution and display transforms belong beside the field metadata, not guessed from the source name.
+MRMS browser rows and source-inspector units come from this catalog. Search includes source, units, family, and aliases, with label matches ranked first. `FieldDescriptor::sample` uses nearest-cell selection for categories/masks and the existing NaN-aware bilinear sampler for continuous fields. Malformed grids and nonfinite coordinates return no sample. The API samples the supplied grid; it does not retain native grids or add a map probe by itself.
 
-Follow with HRRR/RAP and global difference inputs, then timeline alignment and persistent browser caching. Favorites, the catalog, native-grid sampling, and full provenance for other sources remain unimplemented in this change. No roadmap phase checkbox is marked complete.
+## Remaining registry work
+
+Catalog `PaletteId` selections now route both GPU upload and legend generation through the existing shared `FieldRamp` objects. Regression tests verify that each migrated product retains its exact palette, scale, and category mapping. Reflectivity still uses the user's `.pal` table, and lightning retains its density mapping. Range values remain owned by the shared renderer scale rather than duplicated in the catalog.
+
+The shear unit is `0.001/s`, including conversion to `s⁻¹`; NOAA's [operational GRIB2 table](https://www.nssl.noaa.gov/projects/mrms/operational/tables.php) documents the factor of 1000. This corrects the initial catalog's unit label without changing displayed values or colors.
+
+Expose renderer range metadata and contour defaults through the inspector. Preserve native grids for scientific sampling: display pooling/smoothing must never be represented as raw source values. Native resolution, accumulation windows, domain, and display transforms still need explicit metadata. Follow with HRRR/RAP and global difference inputs, then timeline alignment and persistent browser caching. Favorites and full provenance for other sources remain future work. No roadmap phase checkbox is marked complete.
 
 ## Validation
 
-Deterministic tests cover signed ages, unknown metadata, serialization, and preservation through grid decimation. Existing MRMS decoding/sampling tests protect the unchanged renderer payload. Normal tests do not require live NOAA services.
+Deterministic tests cover signed ages, unknown metadata, serialization, preservation through grid decimation, unique catalog IDs/paths, window mapping, unit conversion, categorical versus continuous sampling, missing/malformed grids, saved layer resolution, and metadata search. Existing MRMS decoding/sampling tests protect the unchanged renderer payload. Normal tests do not require live NOAA services.

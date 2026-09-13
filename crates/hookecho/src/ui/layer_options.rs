@@ -131,6 +131,12 @@ pub(crate) fn show(
     stamped.sort_by_key(|(slug, _)| *slug);
     for (slug, stamp) in stamped {
         ui.collapsing(format!("Data source · {slug}"), |ui| {
+            if let Some(field) = FL::from_slug(slug).and_then(FL::descriptor) {
+                ui.label(format!(
+                    "{} · {} · {:?}",
+                    field.name, field.units.symbol(), field.value_kind
+                ));
+            }
             super::data_inspector::show(ui, stamp);
         });
     }

@@ -1,4 +1,8 @@
 //! Source-independent provenance for weather fields. Unknown times remain unknown.
+mod descriptor;
+mod grid;
+pub use grid::{DisplayTransform, GridGeometry, GridProvenance};
+pub use descriptor::{FieldDescriptor, FieldFamily, FieldId, PaletteId, Unit, ValueKind};
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -10,7 +14,7 @@ pub enum QualitySummary {
     Suspect(String),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DataStamp {
     pub source_id: String,
     pub product_id: String,
@@ -24,6 +28,8 @@ pub struct DataStamp {
     pub is_forecast: bool,
     pub is_derived: bool,
     pub quality: QualitySummary,
+    #[serde(default)]
+    pub grid: Option<GridProvenance>,
 }
 
 impl DataStamp {
@@ -72,6 +78,7 @@ mod tests {
             is_forecast: true,
             is_derived: false,
             quality: QualitySummary::Unknown,
+            grid: None,
         };
         assert_eq!(
             stamp.age_at(valid - Duration::seconds(10)).num_seconds(),

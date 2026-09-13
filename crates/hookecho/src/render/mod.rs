@@ -280,6 +280,11 @@ impl FieldLayer {
 
     /// Stable name for saved files — a workspace records which layers were on by slug, so a file
     /// written by a newer build names a layer this one skips rather than failing to load.
+    /// Generic metadata for migrated fields; legacy layers remain usable without a descriptor.
+    pub fn descriptor(self) -> Option<&'static wxdata::field::FieldDescriptor> {
+        wxdata::mrms::catalog::find(self.slug()).map(|product| &product.field)
+    }
+
     pub fn slug(self) -> &'static str {
         match self {
             FieldLayer::Mrms => "mrms",
