@@ -234,6 +234,12 @@ impl HookEchoApp {
                     egui::Popup::context_menu(&badge)
                         .anchor(&badge)
                         .align(egui::RectAlign::TOP_START)
+                        // `context_menu`'s default (`CloseOnClick`) closes this on ANY click,
+                        // inside the menu or out — fine for a one-shot pick, but this menu holds
+                        // multi-step controls (the calendar toggle below, the fps slider) that
+                        // need several clicks in a row without the whole thing vanishing after
+                        // the first one.
+                        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
                         .show(|ui| {
                             ui.set_min_width(240.0);
                         if dvr > 1 {
@@ -287,6 +293,11 @@ impl HookEchoApp {
                                     }
                                 }
                             });
+                            let today = chrono::Utc::now().date_naive();
+                            if let Some(d) = archive_day_calendar(ui, t.date) {
+                                t.date = d.clamp(wxdata::level2::ARCHIVE_START, today);
+                                t.following = t.date >= today;
+                            }
                             // A typed jump to an exact hour:minute, next to the day it applies
                             // to — the track below is drag-precise, but "3:47Z" specifically is
                             // faster typed than found by eye. Shows the playhead's own time so

@@ -19505,10 +19505,13 @@ fn archive_day_text_input(ui: &mut egui::Ui, date: chrono::NaiveDate) -> Option<
     let mut buf: String = ui
         .data_mut(|d| d.get_temp(id))
         .unwrap_or_else(|| shown.clone());
-    // Someone else moved the day (a caret, the calendar button, a deep link): follow it rather
-    // than argue.
-    if !buf.starts_with(&shown[..4]) && chrono::NaiveDate::parse_from_str(&buf, "%Y-%m-%d").is_ok()
-    {
+    // Someone else moved the day (a caret, the calendar grid, a deep link): follow it rather than
+    // argue. Gated on the buffer already being a complete date, not just any mismatch, so a
+    // half-typed string mid-edit is never clobbered — only a fully-committed stale one. Comparing
+    // full dates rather than a leading-year slice, which missed every external move that kept the
+    // year the same (a caret step, most calendar picks) and left the field showing yesterday's
+    // pick after today's.
+    if chrono::NaiveDate::parse_from_str(&buf, "%Y-%m-%d").is_ok_and(|parsed| parsed != date) {
         buf = shown.clone();
     }
     let resp = ui
@@ -19528,67 +19531,189 @@ fn archive_day_text_input(ui: &mut egui::Ui, date: chrono::NaiveDate) -> Option<
     resp.changed().then_some(out).flatten()
 }
 
-/// The archive-day control inside the LIVE/ARCHIVE badge menu. `Some` on the frame the user
-/// picks a new day.
+/// The archive-day control inside the LIVE/ARCHIVE badge menu: a typed field plus a toggle for
+/// [`archive_day_calendar`]. `Some` on the frame the typed field is edited to a complete date —
+/// the calendar reports its own picks separately, since it renders as a block below this row
+/// rather than inline in it.
 ///
-/// Native gets a calendar button *and* a typed field beside it: a calendar is fine for "a few
-/// days back" but painful for "reach a specific day in 1991" one click at a time, and a typed
-/// date reaches either just as directly. The web build gets the typed field alone — the calendar
-/// widget and the `jiff` date type it takes cost about 120 KB gzipped, a real share of the wasm
-/// budget to spend on a shortcut the text field already covers. Everything else about the menu
-/// — the carets, the UTC-day caveat — is the same on both.
-#[cfg(not(target_arch = "wasm32"))]
+/// This used to be a native-only `egui_extras::DatePickerButton` (a typed field alone on web,
+/// to skip the ~120 KB gzipped the picker and its `jiff` date type cost). That button rarely
+/// opened here: it draws its own `egui::Popup`, nested inside the timeline menu's popup, and
+/// egui only tracks one "close me on outside click" popup at a time, so opening the inner one
+/// usually closed the outer menu first. The calendar below is homegrown specifically to avoid
+/// that — it is plain widgets drawn straight into the already-open menu, no nested popup and no
+/// extra dependency — so native and web now share one implementation.
 fn archive_day_input(ui: &mut egui::Ui, date: chrono::NaiveDate) -> Option<chrono::NaiveDate> {
-    let mut picked = to_jiff(date);
-    let from_calendar = ui
-        .add(
-            egui_extras::DatePickerButton::new(&mut picked)
-                .id_salt("archive-day")
-                .format("%Y-%m-%d")
-                .highlight_weekends(false),
-        )
-        .on_hover_text("Archive days are UTC days — the S3 buckets are bucketed that way")
-        .changed()
-        .then(|| from_jiff(picked))
-        .flatten();
-    let from_typed = archive_day_text_input(ui, from_calendar.unwrap_or(date));
-    from_calendar.or(from_typed)
-}
-
-/// Web: the typed field alone. See [`archive_day_input`]'s doc comment for why.
-#[cfg(target_arch = "wasm32")]
-fn archive_day_input(ui: &mut egui::Ui, date: chrono::NaiveDate) -> Option<chrono::NaiveDate> {
+    let open_id = egui::Id::new("archive-day-calendar-open");
+    let mut open: bool = ui.data_mut(|d| d.get_temp(open_id)).unwrap_or(false);
+    if ui
+        .selectable_label(open, egui_phosphor::regular::CALENDAR)
+        .on_hover_text("Browse by month and year")
+        .clicked()
+    {
+        open = !open;
+        ui.data_mut(|d| d.insert_temp(open_id, open));
+    }
     archive_day_text_input(ui, date)
 }
 
-/// A chrono date as a jiff one, for `egui_extras`'s date picker.
-///
-/// ponytail: the two crates model a civil date identically, so this is a field copy. It exists
-/// because the picker is the only jiff-speaking thing in the app and converting one widget's
-/// argument is cheaper than migrating every date in the codebase. Out-of-range dates cannot
-/// happen — chrono's year range is a subset of jiff's — so the fallback is the epoch.
-#[cfg(not(target_arch = "wasm32"))]
-fn to_jiff(d: chrono::NaiveDate) -> jiff::civil::Date {
+/// The calendar block toggled by [`archive_day_input`]'s button: a year field, month arrows, and
+/// a day grid, drawn below the typed-field row rather than inside it so the grid gets the menu's
+/// full width. `Some` on the frame a day is clicked. Closes itself on a pick, since picking a day
+/// is the natural end of browsing.
+fn archive_day_calendar(ui: &mut egui::Ui, date: chrono::NaiveDate) -> Option<chrono::NaiveDate> {
     use chrono::Datelike;
-    jiff::civil::Date::new(d.year() as i16, d.month() as i8, d.day() as i8)
-        .unwrap_or(jiff::civil::Date::ZERO)
-}
+    let open_id = egui::Id::new("archive-day-calendar-open");
+    if !ui.data_mut(|d| d.get_temp(open_id)).unwrap_or(false) {
+        return None;
+    }
+    let today = chrono::Utc::now().date_naive();
+    let view_id = egui::Id::new("archive-day-calendar-view");
+    let (mut year, mut month) = ui
+        .data_mut(|d| d.get_temp::<(i32, u32)>(view_id))
+        .unwrap_or((date.year(), date.month()));
+    let mut picked = None;
 
-/// The inverse of [`to_jiff`]; `None` for a date chrono cannot represent.
-#[cfg(not(target_arch = "wasm32"))]
-fn from_jiff(d: jiff::civil::Date) -> Option<chrono::NaiveDate> {
-    chrono::NaiveDate::from_ymd_opt(d.year() as i32, d.month() as u32, d.day() as u32)
-}
-
-#[cfg(all(test, not(target_arch = "wasm32")))]
-mod date_picker_tests {
-    /// The picker's date must survive the round trip, or picking a day would move it.
-    #[test]
-    fn dates_round_trip_through_jiff() {
-        for (y, m, d) in [(1991, 6, 5), (2026, 8, 24), (2000, 2, 29), (2011, 12, 31)] {
-            let orig = chrono::NaiveDate::from_ymd_opt(y, m, d).unwrap();
-            assert_eq!(super::from_jiff(super::to_jiff(orig)), Some(orig));
+    ui.separator();
+    ui.horizontal(|ui| {
+        if ui.button(egui_phosphor::regular::CARET_LEFT).clicked() {
+            (year, month) = if month == 1 { (year - 1, 12) } else { (year, month - 1) };
         }
+        ui.add(
+            egui::DragValue::new(&mut year)
+                .range(wxdata::level2::ARCHIVE_START.year()..=today.year())
+                .custom_formatter(|v, _| format!("{v:04}")),
+        )
+        .on_hover_text("Year — drag, or click to type one");
+        ui.label(
+            chrono::NaiveDate::from_ymd_opt(year, month, 1)
+                .map(|d| d.format("%B").to_string())
+                .unwrap_or_default(),
+        );
+        if ui.button(egui_phosphor::regular::CARET_RIGHT).clicked() {
+            (year, month) = if month == 12 { (year + 1, 1) } else { (year, month + 1) };
+        }
+    });
+
+    let first = chrono::NaiveDate::from_ymd_opt(year, month, 1);
+    let days_in_month = first
+        .and_then(|_| {
+            let (ny, nm) = if month == 12 { (year + 1, 1) } else { (year, month + 1) };
+            chrono::NaiveDate::from_ymd_opt(ny, nm, 1)
+        })
+        .zip(first)
+        .map(|(next, first)| (next - first).num_days())
+        .unwrap_or(0);
+    if let Some(first) = first {
+        egui::Grid::new("archive-day-calendar-grid")
+            .spacing([4.0, 4.0])
+            .show(ui, |ui| {
+                for wd in ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"] {
+                    ui.label(egui::RichText::new(wd).weak().size(crate::ui::style::FONT_SM));
+                }
+                ui.end_row();
+                let lead = first.weekday().num_days_from_sunday();
+                let mut col = 0;
+                for _ in 0..lead {
+                    ui.label("");
+                    col += 1;
+                }
+                for day in 1..=days_in_month as u32 {
+                    let d = chrono::NaiveDate::from_ymd_opt(year, month, day).unwrap();
+                    let enabled = d >= wxdata::level2::ARCHIVE_START && d <= today;
+                    let button = egui::Button::new(day.to_string())
+                        .small()
+                        .selected(d == date)
+                        .frame(d == today && d != date);
+                    if ui.add_enabled(enabled, button).clicked() {
+                        picked = Some(d);
+                    }
+                    col += 1;
+                    if col == 7 {
+                        ui.end_row();
+                        col = 0;
+                    }
+                }
+            });
+    }
+
+    ui.data_mut(|d| d.insert_temp(view_id, (year, month)));
+    if picked.is_some() {
+        ui.data_mut(|d| d.insert_temp(open_id, false));
+    }
+    picked
+}
+
+#[cfg(test)]
+mod archive_calendar_tests {
+    use chrono::Datelike;
+
+    /// December must roll into next January and January must roll back into last December —
+    /// the two edges the plain `month - 1`/`month + 1` arithmetic in the widget cannot handle
+    /// itself, which is why it is guarded with the wraparound checks it has.
+    #[test]
+    fn month_navigation_wraps_the_year() {
+        let (year, month) = (2026i32, 1u32);
+        let (py, pm) = if month == 1 { (year - 1, 12) } else { (year, month - 1) };
+        assert_eq!((py, pm), (2025, 12));
+        let (year, month) = (2026i32, 12u32);
+        let (ny, nm) = if month == 12 { (year + 1, 1) } else { (year, month + 1) };
+        assert_eq!((ny, nm), (2027, 1));
+    }
+
+    /// The grid needs an exact day count per month, including the leap-year edge, to avoid
+    /// drawing a nonexistent Feb 30th or clipping Feb 29th on a leap year.
+    #[test]
+    fn days_in_month_matches_the_calendar_including_leap_years() {
+        for (year, month, expected) in [
+            (2026, 1, 31),
+            (2026, 2, 28),
+            (2024, 2, 29),
+            (2026, 4, 30),
+            (2026, 12, 31),
+        ] {
+            let first = chrono::NaiveDate::from_ymd_opt(year, month, 1).unwrap();
+            let (ny, nm) = if month == 12 { (year + 1, 1) } else { (year, month + 1) };
+            let next = chrono::NaiveDate::from_ymd_opt(ny, nm, 1).unwrap();
+            assert_eq!((next - first).num_days(), expected, "{year}-{month}");
+        }
+    }
+
+    /// The archive's actual start date must fall inside the year range the widget lets the
+    /// `DragValue` reach, or 1991-06-05 itself would be unreachable by year alone.
+    #[test]
+    fn archive_start_year_is_a_valid_calendar_year() {
+        assert_eq!(wxdata::level2::ARCHIVE_START.year(), 1991);
+        assert!(wxdata::level2::ARCHIVE_START.month() >= 1);
+    }
+
+    /// A day moved from outside the text field (a caret, the calendar grid) must show up in the
+    /// field even when the year does not change — the buffer used to resync only on a leading-year
+    /// mismatch, so stepping from the 13th to the 3rd of the same month left "13" on screen while
+    /// the map had already moved to the 3rd.
+    #[test]
+    fn the_typed_field_follows_a_same_year_external_move() {
+        let ctx = egui::Context::default();
+        let id = egui::Id::new("archive-day-text");
+        let day13 = chrono::NaiveDate::from_ymd_opt(2026, 9, 13).unwrap();
+        let day03 = chrono::NaiveDate::from_ymd_opt(2026, 9, 3).unwrap();
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            super::archive_day_text_input(ui, day13);
+        });
+        assert_eq!(
+            ctx.data(|d| d.get_temp::<String>(id)),
+            Some("2026-09-13".to_string())
+        );
+        // The caller moved `date` without the field's own text ever changing — a caret step or a
+        // calendar pick, not a keystroke.
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            super::archive_day_text_input(ui, day03);
+        });
+        assert_eq!(
+            ctx.data(|d| d.get_temp::<String>(id)),
+            Some("2026-09-03".to_string()),
+            "the field must drop the stale day rather than keep showing the 13th"
+        );
     }
 }
 
