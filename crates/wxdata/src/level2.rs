@@ -642,6 +642,14 @@ pub async fn scan_from_volume_bytes(name: &str, bytes: Vec<u8>) -> anyhow::Resul
 /// read instead of a download. Raw bytes rather than a decoded scan because they're smaller, need
 /// no serialization of their own, and go back through the same decode path either way. Pass `None`
 /// at the live head, where the newest object may still be mid-write.
+///
+/// The cache is written only after a fresh download decodes successfully. A `cache_dir` caller
+/// still asks for a frame the radar could be mid-upload on — the trailing edge of the loop window,
+/// a scrub right up to now — and a half-written object downloads as truncated bytes that fail to
+/// decode (see the "missing coverage pattern" case callers treat as transient). Caching those
+/// bytes before decode used to let one unlucky poll pin a broken file to disk forever: every later
+/// read of that name kept coming from the cache, decoding the same incomplete download, even
+/// long after the real object had finished uploading.
 pub async fn download_scan(id: Identifier, cache_dir: Option<PathBuf>) -> anyhow::Result<Scan> {
     use nexrad_data::aws::archive;
     let name = id.name().to_string();
@@ -650,20 +658,17 @@ pub async fn download_scan(id: Identifier, cache_dir: Option<PathBuf>) -> anyhow
         .as_ref()
         .and_then(|p| std::fs::read(p).ok())
         .map(nexrad_data::volume::File::new);
-    let file = match cached {
-        Some(f) => f,
+    // `Some` only for a fresh download that still needs writing to disk once it proves decodable;
+    // a cache hit needs no rewrite of the bytes it just read.
+    let (file, fresh_bytes) = match cached {
+        Some(f) => (f, None),
         None => {
             let f = archive::download_file(id)
                 .await
                 .map_err(|e| anyhow::anyhow!("download_file: {e}"))?;
             crate::stats::net(f.data().len());
-            if let Some(p) = &cache_file {
-                if let Some(dir) = p.parent() {
-                    let _ = std::fs::create_dir_all(dir);
-                }
-                let _ = std::fs::write(p, f.data());
-            }
-            f
+            let bytes = f.data().to_vec();
+            (f, Some(bytes))
         }
     };
     // bzip2 decompression plus the message decode is tens of MB of pure CPU. On the async worker
@@ -680,6 +685,12 @@ pub async fn download_scan(id: Identifier, cache_dir: Option<PathBuf>) -> anyhow
         Err(crate::wasm_worker::Error::Unavailable) => decode_file(file)?,
         Err(e) => anyhow::bail!("{e}"),
     };
+    if let (Some(p), Some(bytes)) = (&cache_file, fresh_bytes) {
+        if let Some(dir) = p.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(p, bytes);
+    }
     // Legacy (pre-2008) volumes carry no volume data block, so the decoder can't name the radar.
     // The volume's own filename can: "KTLX19910605_162126".
     Ok(match scan.site() {

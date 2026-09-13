@@ -8,6 +8,24 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: live radar could get permanently stuck showing an old scan
+
+- Reported live: the LIVE badge would flip to Stale and the age readout would jump to hours old,
+  even though the site had scans from minutes ago that worked fine elsewhere — and a volume that
+  loaded correctly once would sometimes revert. The newest S3 object can still be mid-upload when
+  a poll or a lookahead prefetch reads it (`download_scan`'s own doc comment already warned about
+  this for the live head specifically), and a half-written object downloads as bytes that fail to
+  decode. Both the native disk cache and the browser's new automatic archive cache (previous
+  entry) wrote those raw bytes to the cache *before* decoding them — so the one poll unlucky
+  enough to catch an object mid-write pinned a broken download to the cache under that volume's
+  name permanently. Every later read of that exact name kept decoding the same truncated bytes
+  from the cache and failing, even minutes later once the real upload had long since finished,
+  since a cache hit is never re-checked against the network.
+- Fixed by writing to the cache only after a fresh download decodes successfully
+  (`wxdata::level2::download_scan`, `crates/hookecho/src/volume.rs`), on both targets. A
+  volume caught mid-write now simply isn't cached; the next read (poll or scrub) tries the
+  network again and caches the complete file once one actually decodes.
+
 ### Added: the web build now caches archived radar volumes locally
 
 - Native builds have always kept every archived Level II volume on disk indefinitely, so

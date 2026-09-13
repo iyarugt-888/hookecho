@@ -35,8 +35,14 @@ pub async fn fetch(
                 return level2::scan_from_volume_bytes(&name, bytes).await;
             }
             let bytes = level2::volume_bytes(id).await?;
-            crate::webcache::spawn_auto_cache_put(name.clone(), bytes.clone());
-            return level2::scan_from_volume_bytes(&name, bytes).await;
+            // Decode before caching, not after: `archived` means "this timeline already names
+            // it," not "the radar has finished uploading it" — the trailing edge of the loop
+            // window can still be mid-write, and a half-written object downloads as bytes that
+            // fail to decode. Caching first would pin that broken download to IndexedDB forever,
+            // since a cache hit is never re-checked against the network once it exists.
+            let scan = level2::scan_from_volume_bytes(&name, bytes.clone()).await?;
+            crate::webcache::spawn_auto_cache_put(name, bytes);
+            return Ok(scan);
         }
     }
     #[cfg(not(target_arch = "wasm32"))]
