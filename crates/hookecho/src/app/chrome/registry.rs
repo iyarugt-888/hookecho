@@ -2,6 +2,43 @@
 
 use super::*;
 
+/// Whether `layer`'s fetch health belongs in the request book: every MRMS catalog product
+/// automatically qualifies, so a new one is tracked the day it is added rather than needing this
+/// list remembered too. What follows is only the layers the catalog does not cover yet (HRRR/RAP,
+/// the global suite, local-radar-derived fields) — see `docs/field-registry.md`'s "Remaining
+/// registry work". A free function rather than a `palette_health` match arm so the mapping is
+/// testable without an `HookEchoApp` to hang it off of.
+fn field_layer_is_health_tracked(layer: crate::render::FieldLayer) -> bool {
+    use crate::render::FieldLayer as FL;
+    layer.descriptor().is_some()
+        || matches!(
+            layer,
+            FL::Mosaic
+                | FL::SnowBands
+                | FL::Vil
+                | FL::EchoTops
+                | FL::Hca
+                | FL::Hrrr
+                | FL::UpdraftHelicity
+                | FL::SnowAnalysis
+                | FL::Snowfall
+                | FL::Smoke
+                | FL::Cape
+                | FL::Srh
+                | FL::GlobalMslp
+                | FL::GlobalHeight500
+                | FL::GlobalTemp2m
+                | FL::GlobalDewpoint2m
+                | FL::GlobalWind10m
+                | FL::GlobalPrecip
+                | FL::ThunderProb
+                | FL::GlmFed
+                | FL::ModelDiff
+                | FL::CompareA
+                | FL::CompareB
+        )
+}
+
 impl HookEchoApp {
     fn request_health(&self, lane: RequestLane) -> SourceHealth {
         self.overlay_requests
@@ -39,45 +76,7 @@ impl HookEchoApp {
             PaletteAction::SetContours(k) if k != ContourKind::Off => {
                 RequestLane::Feed("Model contours")
             }
-            PaletteAction::ToggleField(layer)
-                if matches!(
-                    layer,
-                    FL::Mrms
-                        | FL::Mosaic
-                        | FL::Rotation
-                        | FL::Mesh
-                        | FL::Lightning
-                        | FL::AzShear
-                        | FL::PrecipRate
-                        | FL::Qpe1h
-                        | FL::Qpe24h
-                        | FL::PrecipType
-                        | FL::FlashFlood
-                        | FL::SnowBands
-                        | FL::Vil
-                        | FL::EchoTops
-                        | FL::HailSwath
-                        | FL::Hca
-                        | FL::Hrrr
-                        | FL::UpdraftHelicity
-                        | FL::SnowAnalysis
-                        | FL::Snowfall
-                        | FL::Smoke
-                        | FL::Cape
-                        | FL::Srh
-                        | FL::GlobalMslp
-                        | FL::GlobalHeight500
-                        | FL::GlobalTemp2m
-                        | FL::GlobalDewpoint2m
-                        | FL::GlobalWind10m
-                        | FL::GlobalPrecip
-                        | FL::ThunderProb
-                        | FL::GlmFed
-                        | FL::ModelDiff
-                        | FL::CompareA
-                        | FL::CompareB
-                ) =>
-            {
+            PaletteAction::ToggleField(layer) if field_layer_is_health_tracked(layer) => {
                 // Compare's one fetch feeds both layers at once and is filed under CompareA
                 // (see `OverlaySource::Compare`'s own `lane()`); ask for that lane regardless of
                 // which of the two the toggle is for, so CompareB's health isn't perpetually
@@ -1154,5 +1153,38 @@ impl HookEchoApp {
             }
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::field_layer_is_health_tracked;
+
+    /// Every MRMS catalog product must be health-tracked without being named here — that is the
+    /// whole point of checking `descriptor().is_some()` first. A product added to the catalog
+    /// with no matching entry in this test would still pass it, which is the intended shape: the
+    /// catalog is the source of truth, not this list.
+    #[test]
+    fn every_catalog_product_is_health_tracked() {
+        for product in wxdata::mrms::catalog::PRODUCTS {
+            let layer = crate::render::FieldLayer::from_slug(product.field.id.0)
+                .unwrap_or_else(|| panic!("catalog product {} has no FieldLayer slug", product.field.id.0));
+            assert!(
+                field_layer_is_health_tracked(layer),
+                "{} (catalog product {}) should be health-tracked",
+                layer.slug(),
+                product.field.id.0
+            );
+        }
+    }
+
+    /// A layer computed locally from the volume already on screen — no network request of its
+    /// own — must not claim a health lane nothing ever fills in, which would just show
+    /// "Waiting" forever instead of the honest "no network state" of `None`.
+    #[test]
+    fn a_locally_derived_layer_is_not_health_tracked() {
+        assert!(!field_layer_is_health_tracked(
+            crate::render::FieldLayer::CompositeLocal
+        ));
     }
 }

@@ -31,6 +31,8 @@ Catalog `PaletteId` selections now route both GPU upload and legend generation t
 
 The shear unit is `0.001/s`, including conversion to `s⁻¹`; NOAA's [operational GRIB2 table](https://www.nssl.noaa.gov/projects/mrms/operational/tables.php) documents the factor of 1000. This corrects the initial catalog's unit label without changing displayed values or colors.
 
+Source-health tracking (`app/chrome/registry.rs::field_layer_is_health_tracked`) now checks `FieldLayer::descriptor().is_some()` first, so a layer the catalog already knows is tracked automatically — the layers-panel health dot and popup no longer need a matching entry hand-added to a second list the way `mrms_product`'s dispatch once did. The remaining explicit list is exactly the layers the catalog does not cover yet.
+
 Expose renderer range metadata and contour defaults through the inspector. Preserve native grids for scientific sampling: display pooling/smoothing must never be represented as raw source values. Native resolution, accumulation windows, domain, and display transforms still need explicit metadata. Follow with HRRR/RAP and global difference inputs, then timeline alignment and persistent browser caching. Favorites and full provenance for other sources remain future work. No roadmap phase checkbox is marked complete.
 
 ## Validation
