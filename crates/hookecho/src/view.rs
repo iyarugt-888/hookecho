@@ -328,6 +328,12 @@ pub struct MapView {
     pub loading: bool,
     pub last_poll: Option<Instant>,
     pub error: Option<String>,
+    /// Wall clock the last time a *live* volume actually landed here — a completed poll or a live
+    /// stream sweep merge, never an archive/loop-replay redisplay of something already fetched.
+    /// Paired with that arrival's own `Volume::time` this is the provider ingest lag: how far
+    /// behind wall clock the data already was by the time this client got it, independent of
+    /// whatever a rolling loop happens to be showing on screen right now.
+    pub last_live_arrival: Option<(DateTime<Utc>, DateTime<Utc>)>,
     /// National field layers drawn in this pane. Per-pane rather than app-wide: two panes is how
     /// you compare two fields, and the model-difference layer would rather be a pair of panes
     /// than a subtraction. The grids themselves stay in one shared cache — only the choice of
@@ -367,6 +373,7 @@ impl MapView {
             loading: false,
             last_poll: None,
             error: None,
+            last_live_arrival: None,
             fields_on: Default::default(),
             moments_seen: [false; Moment::ALL.len()],
         }

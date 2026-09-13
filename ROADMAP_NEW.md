@@ -350,9 +350,14 @@ Add a compact source/latency diagnostic:
 
 - beam/radial timestamp where available
 - current wall-clock difference
-- provider ingest delay
+- provider ingest delay — **done**: `View::last_live_arrival` records `(received_at, valid_time)`
+  at every live-poll and live-stream arrival (never an archive scrub or a loop's replayed frame);
+  the Radar row's health popup (Layers panel) shows it as "Provider lag". Verified live.
 - decode/render delay
-- latest complete volume age
+- latest complete volume age — **done** via B2-adjacent work: `Timeline::newest()` (added while
+  fixing the LIVE badge, see Unreleased/CHANGELOG) is the site's own newest known frame,
+  independent of what a rolling loop is currently displaying; the badge, its age readout, and
+  `radar_health()` all read it now instead of the displayed volume.
 - dropped/retried chunks
 - provider failover state
 

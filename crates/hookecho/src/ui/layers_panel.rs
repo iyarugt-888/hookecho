@@ -228,6 +228,11 @@ fn health_popup(ui: &mut egui::Ui, health: &SourceHealth) {
                     .map_or_else(|| "waiting".into(), |d| format!("in {}", compact_age(d)))
             });
             ui.end_row();
+            if let Some((label, value)) = &health.detail {
+                ui.weak(*label);
+                ui.label(value);
+                ui.end_row();
+            }
         });
     if let Some(error) = &health.error {
         ui.separator();

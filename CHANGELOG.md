@@ -8,6 +8,22 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: a provider-lag reading in the Radar source-health popup
+
+- The Layers panel's Radar row now shows a "Provider lag" line: how far behind wall clock the
+  data already was the moment this client actually received it (the radar's own scan timestamp
+  against this client's receipt), recorded on every genuine live-poll or live-stream arrival —
+  never from an archive scrub or a loop's replayed frame. The first piece of Phase B3's latency
+  dashboard.
+- Found and fixed a race while building it: the natural first attempt tried to reuse the
+  existing "is this a new live head" check (`new_head`, `DataMsg::Volume`'s handler) as the
+  signal for "a live arrival just landed," but that check can independently be satisfied by the
+  bucket listing discovering a name before the matching volume fetch completes — so it went
+  false on a live poll that was, in fact, the first successful fetch of that exact volume. Fixed
+  by tagging `DataMsg::Volume` with an explicit `live_poll` flag set only by the live-head poll,
+  never by an archive/loop-frame fetch, rather than inferring it from timeline state that a
+  second, independent mechanism can also change.
+
 ### Fixed: the LIVE badge flickered to Stale during normal loop playback
 
 - Reported live, alongside the cache-corruption fix below: the LIVE/Stale badge and the "Scan

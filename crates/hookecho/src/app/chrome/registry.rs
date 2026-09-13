@@ -39,6 +39,20 @@ fn field_layer_is_health_tracked(layer: crate::render::FieldLayer) -> bool {
         )
 }
 
+/// The ingest-lag reading `radar_health`'s detail line shows: how far behind wall clock the
+/// data already was the moment this client actually received it (the radar's own timestamp
+/// against this client's receipt) — not the local network/decode time on top of that. `None`
+/// until the first live arrival lands. A free function, like `field_layer_is_health_tracked`
+/// above, so it is testable without an `HookEchoApp`.
+fn ingest_lag_detail(
+    last_live_arrival: Option<(chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>)>,
+) -> Option<(&'static str, String)> {
+    last_live_arrival.map(|(received_at, valid_time)| {
+        let lag = (received_at - valid_time).num_seconds().max(0);
+        ("Provider lag", humanize(lag))
+    })
+}
+
 impl HookEchoApp {
     fn request_health(&self, lane: RequestLane) -> SourceHealth {
         self.overlay_requests
@@ -56,6 +70,9 @@ impl HookEchoApp {
         let age = v.timeline.newest().and_then(|id| id.date_time()).map(|t| {
             (chrono::Utc::now() - t).to_std().unwrap_or_default()
         });
+        // Phase B3's provider-ingest-lag reading; never set from an archive scrub or a loop's
+        // replayed frame, only a genuine live arrival — see `last_live_arrival`'s own doc comment.
+        let detail = ingest_lag_detail(v.last_live_arrival);
         SourceHealth {
             source: v
                 .site
@@ -67,6 +84,7 @@ impl HookEchoApp {
             last_failure: v.error.as_ref().map(|_| std::time::Duration::ZERO),
             error: v.error.clone(),
             cadence: std::time::Duration::from_secs(120),
+            detail,
         }
     }
 
@@ -1160,7 +1178,7 @@ impl HookEchoApp {
 
 #[cfg(test)]
 mod tests {
-    use super::field_layer_is_health_tracked;
+    use super::{field_layer_is_health_tracked, ingest_lag_detail};
 
     /// Every MRMS catalog product must be health-tracked without being named here — that is the
     /// whole point of checking `descriptor().is_some()` first. A product added to the catalog
@@ -1188,5 +1206,31 @@ mod tests {
         assert!(!field_layer_is_health_tracked(
             crate::render::FieldLayer::CompositeLocal
         ));
+    }
+
+    #[test]
+    fn no_live_arrival_yet_means_no_lag_detail() {
+        assert!(ingest_lag_detail(None).is_none());
+    }
+
+    /// Received 41 seconds after the volume's own valid time — a plausible provider/network
+    /// delay, not a clock skew edge case.
+    #[test]
+    fn lag_is_receipt_minus_valid_time() {
+        let valid = chrono::DateTime::from_timestamp(1_000, 0).unwrap();
+        let received = valid + chrono::Duration::seconds(41);
+        let (label, value) = ingest_lag_detail(Some((received, valid))).unwrap();
+        assert_eq!(label, "Provider lag");
+        assert_eq!(value, "41s");
+    }
+
+    /// A clock skewed slightly ahead of the radar's own must not show a negative lag — that
+    /// reads as nonsense ("-3s") rather than the honest "about zero" it actually is.
+    #[test]
+    fn a_negative_lag_from_clock_skew_clamps_to_zero() {
+        let valid = chrono::DateTime::from_timestamp(1_000, 0).unwrap();
+        let received = valid - chrono::Duration::seconds(3);
+        let (_, value) = ingest_lag_detail(Some((received, valid))).unwrap();
+        assert_eq!(value, "0s");
     }
 }

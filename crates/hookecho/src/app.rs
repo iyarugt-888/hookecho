@@ -524,6 +524,10 @@ pub(crate) struct SourceHealth {
     pub last_failure: Option<std::time::Duration>,
     pub error: Option<String>,
     pub cadence: std::time::Duration,
+    /// An extra labeled line the popup shows verbatim, for a source with one fact worth a
+    /// permanent line of its own rather than a hover aside — radar's provider ingest lag so far,
+    /// the only source that currently sets this.
+    pub detail: Option<(&'static str, String)>,
 }
 
 impl SourceHealth {
@@ -618,6 +622,7 @@ impl RequestBook {
                 last_failure: None,
                 error: None,
                 cadence: lane.cadence(),
+                detail: None,
             };
         };
         SourceHealth {
@@ -631,6 +636,7 @@ impl RequestBook {
                 .map(|(t, _)| now.saturating_duration_since(*t)),
             error: s.last_failure.as_ref().map(|(_, e)| e.clone()),
             cadence: s.cadence,
+            detail: None,
         }
     }
 }
@@ -1988,6 +1994,13 @@ enum DataMsg {
         name: String,
         time: DateTime<Utc>,
         scan: Scan,
+        /// True only from the live-head poll (`spawn_fetch`'s `latest_identifiers` result), never
+        /// from an archive/loop-frame fetch of an already-known `Identifier` (`spawn_frame_fetch`).
+        /// `t.frames` can independently learn a name from the bucket listing (`DataMsg::Frames`)
+        /// before the matching volume fetch completes, so "is this name new to `t.frames`" is not
+        /// a reliable way to tell live arrivals from archive ones — this flag is set at the only
+        /// place that actually knows which kind of fetch produced the result.
+        live_poll: bool,
     },
     /// A live sweep-boundary update (merged full volume) from the chunk streamer.
     Live {
@@ -9816,6 +9829,7 @@ impl HookEchoApp {
                         name,
                         time,
                         scan,
+                        live_poll: true,
                     },
                     Err(e) => DataMsg::Error {
                         view: view_idx,
@@ -9873,6 +9887,7 @@ impl HookEchoApp {
                                 name,
                                 time,
                                 scan,
+                                live_poll: true,
                             },
                             Err(e) => DataMsg::Error {
                                 view: view_idx,
@@ -9919,6 +9934,7 @@ impl HookEchoApp {
                     name,
                     time,
                     scan,
+                    live_poll,
                     ..
                 } => {
                     let scan = Arc::new(scan);
@@ -9928,6 +9944,11 @@ impl HookEchoApp {
                     // A newly-arrived live head (following): roll the day at UTC midnight, or grow
                     // the frame list so the loop window slides forward. A frame-fetch result for a
                     // scrubbed/loop-display frame is older than the head and isn't a new head.
+                    //
+                    // This is *not* the same question as `live_poll`: the bucket listing
+                    // (`DataMsg::Frames`) can independently learn this exact name before this
+                    // fetch completes, so "new to `t.frames`" and "came from the live poll" can
+                    // disagree — both checks exist because each answers a different question.
                     let new_head = v.timeline.following
                         && v.site.as_deref().is_some_and(wxdata::sites::is_nexrad)
                         && {
@@ -9949,6 +9970,13 @@ impl HookEchoApp {
                     // only appended, not shown. Every other case updates the displayed volume.
                     if !(looping && new_head) {
                         v.show_volume(scan, name, time);
+                    }
+                    // A stale in-flight poll completing after the user scrubbed away from live is
+                    // simply not recorded — `following` is checked at the only point that matters,
+                    // when the result actually lands, rather than trusted from when the fetch
+                    // started.
+                    if live_poll && v.timeline.following {
+                        v.last_live_arrival = Some((Utc::now(), time));
                     }
                     v.loading = false;
                     v.error = None;
@@ -9986,6 +10014,7 @@ impl HookEchoApp {
                         Some(vol) => vol.apply_live(scan, name, time, &changed),
                         None => v.volume = Some(Volume::new(scan, name, time)),
                     }
+                    v.last_live_arrival = Some((Utc::now(), time));
                     v.loading = false;
                     v.error = None;
                     v.clamp_tilt();
@@ -10648,6 +10677,7 @@ impl HookEchoApp {
                     name,
                     time,
                     scan,
+                    live_poll: false,
                 },
                 Err(e) => DataMsg::Error {
                     view: view_idx,
@@ -19798,6 +19828,7 @@ mod request_book_tests {
             last_failure: failure.map(std::time::Duration::from_secs),
             error,
             cadence,
+            detail: None,
         };
         assert_eq!(health(true, None, None, None).state(), HealthState::Fetching);
         assert_eq!(health(false, Some(5), None, None).state(), HealthState::Fresh);
