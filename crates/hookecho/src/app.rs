@@ -11008,7 +11008,10 @@ impl HookEchoApp {
             observed.gates.len(),
             observed.gate_stride
         );
-        let mut uniform = [0.0f32; 11 + MAX_HIGHLIGHTED_LAYERS];
+        // One trailing pad float beyond the 11 fixed fields + 8 highlight slots: some downlevel
+        // backends (mobile GLES via ANGLE) reject a uniform binding whose declared type isn't a
+        // multiple of 16 bytes, and 19 scalar f32s is 76 — see `radar_observed.wgsl`'s `Radar3d`.
+        let mut uniform = [0.0f32; 12 + MAX_HIGHLIGHTED_LAYERS];
         uniform[..11].copy_from_slice(&[
             observed.radar_lat,
             observed.radar_lon,
@@ -11022,7 +11025,7 @@ impl HookEchoApp {
             motion_n,
             observed.min_elevation_deg,
         ]);
-        uniform[11..].copy_from_slice(&highlight_elevs);
+        uniform[11..11 + MAX_HIGHLIGHTED_LAYERS].copy_from_slice(&highlight_elevs);
         self.views[idx].map_3d.observed_key = Some(key);
         (
             Some(ObservedSweepUpload {

@@ -41,6 +41,11 @@ struct Radar3d {
     highlight_5: f32,
     highlight_6: f32,
     highlight_7: f32,
+    // Pads the struct to 80 bytes. Some downlevel backends (mobile GLES via ANGLE, seen live on
+    // Android Chrome) refuse a uniform buffer binding whose declared type isn't a multiple of 16
+    // bytes — 19 scalar f32 fields is 76, one short. Desktop Vulkan/Metal/DX12 never enforced
+    // this, which is how the 76-byte version shipped without the mismatch showing up here.
+    _pad: f32,
 };
 
 const NO_HIGHLIGHT: f32 = -900.0;

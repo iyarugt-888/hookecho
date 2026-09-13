@@ -8,6 +8,23 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: the web build could crash outright on the Observed 3D volume
+
+- A real regression, reported live: on some GPUs (mobile browsers running WebGPU over
+  ANGLE/OpenGL ES in particular — the case that surfaced it) the app could stop entirely with
+  "Uncaught RuntimeError: unreachable" the moment the map's Observed 3D volume tried to render.
+  The cause was a wgpu validation error one step earlier: `radar_observed.wgsl`'s per-frame
+  uniform buffer had grown to 76 bytes when the multi-tilt Layers highlight landed, and 76 is
+  not a multiple of 16 — a requirement desktop Vulkan/Metal/DX12 never enforces but WebGL-class
+  ("downlevel") backends do. Padded the buffer to 80 bytes (one trailing `f32`) to satisfy it
+  everywhere, not just the backends that happened to already tolerate the mismatch. Audited
+  every other uniform struct in the shader set for the same class of bug; none of the others
+  had it.
+- Verified end to end: built the actual web bundle, served it, and reproduced the exact
+  Observed-3D code path live in a browser (including selecting multiple highlighted tilts, the
+  feature that grew the buffer past 76 bytes in the first place) with a clean console and no
+  panic, where it previously would have stopped the app outright.
+
 ### An interactive model meteogram in the Forecast window
 
 - The point-tap **Forecast** window's "This week" outlook — one forecaster-reconciled NWS

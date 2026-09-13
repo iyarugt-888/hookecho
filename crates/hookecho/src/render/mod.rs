@@ -74,9 +74,11 @@ pub struct ObservedGateInstance {
 pub struct ObservedSweepUpload {
     pub instances: Vec<ObservedGateInstance>,
     /// Radar/site, transfer-function and physical scaling controls, followed by
-    /// `crate::view::MAX_HIGHLIGHTED_LAYERS` highlighted-elevation slots; see
-    /// `radar_observed.wgsl`.
-    pub uniform: [f32; 11 + crate::view::MAX_HIGHLIGHTED_LAYERS],
+    /// `crate::view::MAX_HIGHLIGHTED_LAYERS` highlighted-elevation slots and one trailing pad
+    /// float — `radar_observed.wgsl`'s `Radar3d` needs a total size that's a multiple of 16
+    /// bytes (some downlevel backends, mobile GLES via ANGLE among them, reject a uniform
+    /// binding whose type isn't; 11 + 8 scalar f32 fields is 76 bytes, one short of 80).
+    pub uniform: [f32; 12 + crate::view::MAX_HIGHLIGHTED_LAYERS],
     pub lut: Vec<u8>,
 }
 
@@ -677,7 +679,7 @@ impl RenderResources {
                         has_dynamic_offset: false,
                         min_binding_size: NonZeroU64::new(
                             (std::mem::size_of::<f32>()
-                                * (11 + crate::view::MAX_HIGHLIGHTED_LAYERS))
+                                * (12 + crate::view::MAX_HIGHLIGHTED_LAYERS))
                                 as u64,
                         ),
                     },
