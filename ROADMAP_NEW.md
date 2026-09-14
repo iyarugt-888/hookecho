@@ -357,7 +357,7 @@ in, then confirmed live (`cargo run` logged "live stream started for ..." same a
 
 **Do not claim sub-10-second performance unless the active provider actually supplies data that quickly.** The UI must report measured latency rather than marketing a fixed number.
 
-## B2. Progressive radial rendering
+## B2. Progressive radial rendering — partly done
 
 Instead of waiting for a sweep/volume boundary:
 
@@ -365,9 +365,24 @@ Instead of waiting for a sweep/volume boundary:
 - [ ] update GPU polar texture incrementally
 - [ ] preserve previous sweep underneath not-yet-updated azimuths
 - [ ] visually distinguish “new scan”, “old scan” and “not yet received” when analyst scan-progress mode is enabled
-- [ ] expose current elevation, VCP, sweep number and scan progress
-- [ ] show age since radar timestamp and age since local receipt separately
+- [x] expose current elevation, VCP, sweep number and scan progress — `wxdata::live::ScanProgress`
+  (elevation number/angle, total elevations, chunk index/count within the sweep), read straight off
+  metadata the vendored `ElevationChunkMapper` already derives from the VCP per chunk. `stream()`
+  takes a second `on_progress` callback alongside the existing `on_update`, firing on every chunk
+  rather than only at sweep boundaries; threaded through `Level2LiveProvider::subscribe` and a new
+  `DataMsg::LiveProgress`, landing in `MapView::live_progress`. Surfaced today as extra detail in
+  the scrubber's "Live" badge tooltip ("Sweep 3/12 at 0.9°, chunk 2/6") whenever a chunk stream —
+  not interval polling — is feeding the pane. Verified live: the reading advanced chunk-by-chunk
+  against a real site.
+- [x] show age since radar timestamp and age since local receipt separately — **done** via B3's
+  provider-lag reading (`View::last_live_arrival`, see below); not duplicated here.
 - [ ] keep animation smooth while updates stream
+
+The GPU-texture and visual-distinction items above are the actual "progressive rendering" the
+section is named for, and remain unimplemented — this increment only exposes the metadata a UI
+could use for that, deliberately scoped down because incremental polar-texture rendering needs a
+tighter render-loop iteration cycle than was available here. Don't read the checked items as the
+section being done.
 
 ## B3. Latency dashboard
 

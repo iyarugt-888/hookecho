@@ -7,6 +7,13 @@
 //! volume, and hands the caller a full updated [`Scan`] via `on_update`.
 //!
 //! All merged state lives on this task; the UI thread only ever receives a finished `Scan`.
+//!
+//! [`ScanProgress`] is the lighter-weight sibling: `on_progress` fires on *every* chunk, not just
+//! ones that complete a sweep, so a UI can show how far into the current tilt the radar has
+//! scanned between the heavier `Update`s the merged volume actually arrives on. It carries no
+//! scan data and costs nothing to compute — the chunk's own metadata already has the answer —
+//! so this does not change how often the expensive reassembly in `emit` runs (Phase B2's
+//! "expose current elevation, VCP, sweep number and scan progress").
 
 use crate::level2::{elevation_angles, Scan};
 use nexrad_data::aws::realtime::{
@@ -15,6 +22,22 @@ use nexrad_data::aws::realtime::{
 use nexrad_model::data::{Radial, Sweep};
 use std::sync::Arc;
 use std::time::Duration;
+
+/// How far the live stream has scanned into the volume right now, independent of whether a
+/// merged [`Update`] has arrived for it yet — the Start chunk (metadata only, no elevation of
+/// its own) never produces one of these.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ScanProgress {
+    /// 1-based position of the current sweep within the VCP.
+    pub elevation_number: usize,
+    /// How many sweeps this VCP has in total.
+    pub total_elevations: usize,
+    pub elevation_angle_deg: f64,
+    /// 1-based position of the chunk just received within its sweep.
+    pub chunk_index: usize,
+    /// How many chunks this sweep has in total (3 standard, 6 super-resolution).
+    pub chunks_in_sweep: usize,
+}
 
 /// A merged live volume ready to display.
 pub struct Update {
@@ -44,14 +67,16 @@ pub struct Update {
 ///
 /// Runs on the web too: the waits go through [`crate::task::sleep`] (a `setTimeout` there) and the
 /// backfill through `futures_util`, so nothing in here reaches for tokio directly.
-pub async fn stream<F>(
+pub async fn stream<F, P>(
     site: String,
     base: Arc<Scan>,
     active: impl Fn() -> bool,
     mut on_update: F,
+    mut on_progress: P,
 ) -> anyhow::Result<()>
 where
     F: FnMut(Update),
+    P: FnMut(ScanProgress),
 {
     let init = ChunkIterator::start(&site)
         .await
@@ -144,7 +169,22 @@ where
                 }
                 volume = vol;
                 chunks.push(dc.chunk);
-                let sweep_done = it.chunk_metadata(seq).is_some_and(|m| m.is_last_in_sweep());
+                let meta = it.chunk_metadata(seq).copied();
+                if let Some(meta) = meta {
+                    // The Start chunk has no elevation of its own; nothing to report yet.
+                    if let Some(elevation_number) = meta.elevation_number() {
+                        on_progress(ScanProgress {
+                            elevation_number,
+                            total_elevations: it
+                                .elevation_mapper()
+                                .map_or(elevation_number, |m| m.total_elevations()),
+                            elevation_angle_deg: meta.elevation_angle_deg(),
+                            chunk_index: meta.chunk_index_in_sweep() + 1,
+                            chunks_in_sweep: meta.chunks_in_sweep(),
+                        });
+                    }
+                }
+                let sweep_done = meta.is_some_and(|m| m.is_last_in_sweep());
                 // The fetch itself can outlast the cancellation: a sweep assembled for a site the
                 // caller has already left is a stale frame handed to a live view.
                 if (sweep_done || ctype == ChunkType::End) && active() {

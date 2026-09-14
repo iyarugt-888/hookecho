@@ -163,6 +163,12 @@ impl ElevationChunkMapper {
             .unwrap_or(0)
     }
 
+    /// Total number of elevation sweeps this VCP describes — the upper bound a
+    /// [`ChunkMetadata::elevation_number`] can reach.
+    pub fn total_elevations(&self) -> usize {
+        self.elevation_chunk_mappings.len()
+    }
+
     /// Get rich metadata for a specific chunk sequence number.
     ///
     /// Returns None if the sequence number is out of range.

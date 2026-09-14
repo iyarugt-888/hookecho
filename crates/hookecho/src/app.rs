@@ -2033,6 +2033,14 @@ enum DataMsg {
         /// Stream generation — a stale end must not clear a newer stream's handle.
         gen: u64,
     },
+    /// How far the live stream has scanned into the current sweep — fires on every chunk, far
+    /// more often than `Live`'s full merged-volume updates, so a UI can show scan-in-progress
+    /// motion between them.
+    LiveProgress {
+        view: usize,
+        site: String,
+        progress: wxdata::live::ScanProgress,
+    },
     /// The archive volume listing for a site+date (timeline frames).
     Frames {
         view: usize,
@@ -2065,6 +2073,7 @@ impl DataMsg {
             DataMsg::Volume { view, .. }
             | DataMsg::Live { view, .. }
             | DataMsg::LiveEnded { view, .. }
+            | DataMsg::LiveProgress { view, .. }
             | DataMsg::Frames { view, .. }
             | DataMsg::UpToDate { view, .. }
             | DataMsg::Prefetched { view, .. }
@@ -2076,6 +2085,7 @@ impl DataMsg {
             DataMsg::Volume { site, .. }
             | DataMsg::Live { site, .. }
             | DataMsg::LiveEnded { site, .. }
+            | DataMsg::LiveProgress { site, .. }
             | DataMsg::Frames { site, .. }
             | DataMsg::UpToDate { site, .. }
             | DataMsg::Prefetched { site, .. }
@@ -9865,6 +9875,11 @@ impl HookEchoApp {
                     {
                         self.live_stream = None; // interval polling resumes automatically
                     }
+                    // A stale reading from a stream that's no longer feeding this pane is worse
+                    // than none — the chunk it described may be minutes old by the next glance.
+                    if view < self.views.len() {
+                        self.views[view].live_progress = None;
+                    }
                 }
                 continue;
             }
@@ -9965,6 +9980,9 @@ impl HookEchoApp {
                         None => v.volume = Some(Volume::new(scan, name, time)),
                     }
                     v.last_live_arrival = Some((Utc::now(), time));
+                    // The sweep this was tracking just landed as a full merge; the next progress
+                    // reading (for whichever sweep comes next) replaces it.
+                    v.live_progress = None;
                     v.loading = false;
                     v.error = None;
                     v.clamp_tilt();
@@ -9991,6 +10009,9 @@ impl HookEchoApp {
                     } else {
                         v.error = Some(err);
                     }
+                }
+                DataMsg::LiveProgress { view, progress, .. } => {
+                    self.views[view].live_progress = Some(progress);
                 }
                 DataMsg::LiveEnded { .. } => unreachable!("handled above"),
             }
@@ -10075,6 +10096,9 @@ impl HookEchoApp {
             let cb_tx = tx.clone();
             let cb_ctx = ctx.clone();
             let cb_site = site.clone();
+            let progress_tx = tx.clone();
+            let progress_ctx = ctx.clone();
+            let progress_site = site.clone();
             log::info!("live stream started for {end_site}");
             let res = UnidataLevel2Provider
                 .subscribe(
@@ -10091,6 +10115,14 @@ impl HookEchoApp {
                             changed: u.changed,
                         });
                         cb_ctx.request_repaint();
+                    }),
+                    Box::new(move |progress| {
+                        let _ = progress_tx.send(DataMsg::LiveProgress {
+                            view: view_idx,
+                            site: progress_site.clone(),
+                            progress,
+                        });
+                        progress_ctx.request_repaint();
                     }),
                 )
                 .await;

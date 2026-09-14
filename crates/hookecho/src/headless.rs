@@ -1166,6 +1166,7 @@ pub fn run_live(out_path: &str, site: &str, moment: Moment) -> anyhow::Result<()
                 move |u| {
                     let _ = tx.send(u);
                 },
+                |_progress| {},
             )
             .await;
         });

@@ -72,15 +72,16 @@ pub trait Level2LiveProvider {
     fn label(&self) -> &'static str;
 
     /// Stream live updates for `site`, starting from `base` — see [`wxdata::live::stream`] for
-    /// the exact contract `active`/`on_update` follow. Boxed rather than generic so the method
-    /// itself stays a plain, nameable type — this trait has one implementor today, but its shape
-    /// should not change when a second one arrives.
+    /// the exact contract `active`/`on_update`/`on_progress` follow. Boxed rather than generic so
+    /// the method itself stays a plain, nameable type — this trait has one implementor today, but
+    /// its shape should not change when a second one arrives.
     async fn subscribe(
         &self,
         site: String,
         base: std::sync::Arc<Scan>,
         active: Box<dyn Fn() -> bool + Send + Sync>,
         on_update: Box<dyn FnMut(wxdata::live::Update) + Send>,
+        on_progress: Box<dyn FnMut(wxdata::live::ScanProgress) + Send>,
     ) -> anyhow::Result<()>;
 
     /// The provider's best current answer for `site`: unchanged from `current_name`, a new
@@ -118,8 +119,9 @@ impl Level2LiveProvider for UnidataLevel2Provider {
         base: std::sync::Arc<Scan>,
         active: Box<dyn Fn() -> bool + Send + Sync>,
         on_update: Box<dyn FnMut(wxdata::live::Update) + Send>,
+        on_progress: Box<dyn FnMut(wxdata::live::ScanProgress) + Send>,
     ) -> anyhow::Result<()> {
-        wxdata::live::stream(site, base, active, on_update).await
+        wxdata::live::stream(site, base, active, on_update, on_progress).await
     }
 
     async fn latest_complete_volume(

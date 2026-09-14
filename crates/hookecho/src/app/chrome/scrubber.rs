@@ -41,6 +41,8 @@ impl HookEchoApp {
             .live_stream
             .as_ref()
             .is_some_and(|(v, _, _)| *v == self.active);
+        // Read before `t` below takes its mutable borrow of the same view's `timeline` field.
+        let live_progress = self.views[self.active].live_progress;
         // TDWR and DWD radars publish no archive, so their timeline is empty by design and stays
         // live. Saying "(no volumes)" there reads as a failed fetch while a live volume is on
         // screen; only a site that HAS an archive can be genuinely missing one.
@@ -200,10 +202,27 @@ impl HookEchoApp {
                             mobile::OMEGA_GREEN,
                             "Live".to_string(),
                             if streaming {
-                                "Following the newest volume, sweep by sweep (live stream)."
+                                match live_progress {
+                                    // Scan-in-progress detail between sweep merges — the same
+                                    // metadata the vendored chunk mapper already computes from
+                                    // the VCP, just surfaced rather than thrown away.
+                                    Some(p) => format!(
+                                        "Following the newest volume, sweep by sweep (live \
+                                         stream). Sweep {}/{} at {:.1}\u{b0}, chunk {}/{}.",
+                                        p.elevation_number,
+                                        p.total_elevations,
+                                        p.elevation_angle_deg,
+                                        p.chunk_index,
+                                        p.chunks_in_sweep,
+                                    ),
+                                    None => "Following the newest volume, sweep by sweep (live \
+                                             stream)."
+                                        .to_string(),
+                                }
                             } else {
                                 "Following the newest volume, polling for new ones (no live \
                                  stream — this site has none, or it is retrying)."
+                                    .to_string()
                             },
                         )
                     } else if t.following {
@@ -212,13 +231,14 @@ impl HookEchoApp {
                             "Stale".to_string(),
                             "Following the newest volume, but this site has not produced one \
                              recently — its feed has stopped. The age next to the clock is how \
-                             far behind it is.",
+                             far behind it is."
+                                .to_string(),
                         )
                     } else {
                         (
                             egui::Color32::from_gray(150),
                             if narrow { "Archive".to_string() } else { format!("Archive {}", t.date.format("%m/%d")) },
-                            "Scrubbed to an archive day. Click to jump back to live.",
+                            "Scrubbed to an archive day. Click to jump back to live.".to_string(),
                         )
                     };
                     let badge = ui.add(
@@ -231,7 +251,7 @@ impl HookEchoApp {
                         .fill(egui::Color32::TRANSPARENT)
                         .corner_radius(9.0),
                     )
-                    .named(hint);
+                    .named(&hint);
                     if badge.clicked() {
                         go_head = true;
                     }

@@ -8,6 +8,21 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: live scan-progress reporting (Phase B2)
+
+- The live chunk stream now reports how far into the current sweep it has scanned between the
+  merged-volume updates it already sent — elevation number and angle, and chunk position within
+  the sweep — using per-chunk metadata the vendored chunk mapper already computed from the VCP but
+  nothing surfaced. Shown today as detail in the scrubber's "Live" badge tooltip when a chunk
+  stream (not interval polling) is actually feeding the pane; the underlying `ScanProgress` data
+  is available to any future UI surface without touching the streaming code again.
+- This is a scoped-down slice of the full B2 spec, not the whole thing: the roadmap's GPU
+  incremental polar-texture rendering (drawing a sweep gate-by-gate as chunks arrive, with a
+  visual "not yet received" distinction) is not implemented — that needs a tighter render-loop
+  iteration cycle than was available here, and is called out as remaining work rather than done.
+- Verified live: the tooltip advanced chunk-by-chunk (e.g. "Sweep 3/12 at 0.9°, chunk 1/6" to
+  "chunk 2/6") while the stream ran against a real site.
+
 ### Fixed: the top status readout could disagree with the LIVE badge
 
 - Reported live: the toolbar's "View" status could read Stale at the same instant the scrubber's

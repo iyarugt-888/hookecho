@@ -334,6 +334,10 @@ pub struct MapView {
     /// behind wall clock the data already was by the time this client got it, independent of
     /// whatever a rolling loop happens to be showing on screen right now.
     pub last_live_arrival: Option<(DateTime<Utc>, DateTime<Utc>)>,
+    /// How far the live chunk stream has scanned into the current sweep, right now — cleared
+    /// whenever the stream isn't actively feeding this pane (stream end, site change) so a stale
+    /// in-progress reading never lingers on screen.
+    pub live_progress: Option<wxdata::live::ScanProgress>,
     /// National field layers drawn in this pane. Per-pane rather than app-wide: two panes is how
     /// you compare two fields, and the model-difference layer would rather be a pair of panes
     /// than a subtraction. The grids themselves stay in one shared cache — only the choice of
@@ -374,6 +378,7 @@ impl MapView {
             last_poll: None,
             error: None,
             last_live_arrival: None,
+            live_progress: None,
             fields_on: Default::default(),
             moments_seen: [false; Moment::ALL.len()],
         }
