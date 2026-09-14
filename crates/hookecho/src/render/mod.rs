@@ -44,7 +44,7 @@ pub struct RadarUpload {
     pub data: Vec<u8>,
     /// [radar_lat, radar_lon, first_gate_km, gate_interval_km, az_bins, gate_count,
     ///  smoothing, srv, motion_e, motion_n, tint, flag_nx, flag_ny, flag_west, flag_north,
-    ///  flag_east, flag_south, _pad, _pad, _pad] (see `shaders/radar.wgsl`).
+    ///  flag_east, flag_south, stale_start, stale_end, stale_dim] (see `shaders/radar.wgsl`).
     pub uniform: [f32; 20],
     /// 256×3 RGBA color LUT indexed by the sweep's `u8`: row 0 rain (the user's own table),
     /// row 1 snow, row 2 mix. Rows 1 and 2 are copies of row 0 unless the precipitation-type

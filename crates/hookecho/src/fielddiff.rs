@@ -143,10 +143,25 @@ pub async fn fetch_pair(
         }
         DiffField::Cape | DiffField::Srh => {
             use wxdata::hrrr::Model;
-            let (var, level, min_valid) = match field {
-                DiffField::Srh => ("HLCY", "3000-0 m above ground", f64::NEG_INFINITY),
-                _ => ("CAPE", "surface", 0.0),
+            use wxdata::model::ModelField;
+            // Phase F1: HRRR and RAP spell these identically, so one key serves both — but that
+            // is a fact the catalogue now records rather than an assumption this call site makes.
+            // A third model in this comparison would need no change here.
+            let mf = match field {
+                DiffField::Srh => ModelField::Srh3km,
+                _ => ModelField::SurfaceCape,
             };
+            let key_for = |m: Model| {
+                mf.grib(m)
+                    .ok_or_else(|| anyhow::anyhow!("{} does not publish {}", m.label(), mf.label()))
+            };
+            let (hrrr_key, rap_key) = (key_for(Model::Hrrr)?, key_for(Model::Rap)?);
+            anyhow::ensure!(
+                hrrr_key == rap_key,
+                "HRRR and RAP spell {} differently; this comparison assumes one key",
+                mf.label()
+            );
+            let (var, level, min_valid) = (hrrr_key.var, hrrr_key.level, hrrr_key.min_valid);
             let (hrrr, rap) = futures_util::future::try_join(
                 wxdata::hrrr::fetch_field(http, Model::Hrrr, var, level, 0, min_valid),
                 wxdata::hrrr::fetch_field(http, Model::Rap, var, level, 0, min_valid),
@@ -642,6 +657,21 @@ mod tests {
                 ramp_for(layer).is_some(),
                 "{layer:?} must have a ramp to borrow"
             );
+        }
+    }
+
+    /// The HRRR-vs-RAP comparison fetches one GRIB key and uses it for both models. That is only
+    /// sound while the catalogue says they spell the field identically — the fetch now checks it
+    /// at runtime, and this checks it at build time so a future divergence (the NAM's
+    /// reflectivity level is exactly such a case) fails here rather than in front of a user.
+    #[test]
+    fn the_compared_models_spell_their_shared_fields_the_same_way() {
+        use wxdata::hrrr::Model;
+        use wxdata::model::ModelField;
+        for f in [ModelField::SurfaceCape, ModelField::Srh3km] {
+            let hrrr = f.grib(Model::Hrrr).expect("HRRR publishes it");
+            let rap = f.grib(Model::Rap).expect("RAP publishes it");
+            assert_eq!(hrrr, rap, "{} diverged between HRRR and RAP", f.label());
         }
     }
 }

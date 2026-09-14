@@ -36,9 +36,13 @@ struct Radar {
     flag_north: f32,
     flag_east: f32,
     flag_south: f32,
-    _pad0: f32,
-    _pad1: f32,
-    _pad2: f32,
+    // Generation mask for a live, partially-swept volume: the azimuth wedge, clockwise from
+    // `stale_start` to `stale_end` in degrees, that still shows the *previous* rotation because
+    // the current one has not reached it yet. `stale_end < stale_start` means the wedge crosses
+    // north. `stale_dim` is 0 when there is nothing to mark, which is every archive sweep.
+    stale_start: f32,
+    stale_end: f32,
+    stale_dim: f32,
 };
 
 @group(0) @binding(0) var<uniform> camera: Camera;
@@ -195,5 +199,19 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         color = textureLoad(lut_tex, vec2<i32>(i32(round(rawf)), row), 0);
     }
     if (color.a == 0.0) { discard; }
+
+    // Mark carried-over data. Without this the display is honest about *where* echo is but not
+    // about *when* it was measured: a wedge from the previous rotation looks exactly like the
+    // sector scanned two seconds ago, and on a fast-moving storm that is a minute of position
+    // error presented as current. Dimming is deliberately a tint rather than a hide — the old
+    // data are still the best available for that wedge, just not new.
+    if (radar.stale_dim > 0.0) {
+        let s = radar.stale_start;
+        let e = radar.stale_end;
+        let inside = select(az >= s || az <= e, az >= s && az <= e, s <= e);
+        if (inside) {
+            color = vec4<f32>(color.rgb * (1.0 - radar.stale_dim), color.a);
+        }
+    }
     return color;
 }

@@ -903,56 +903,45 @@ impl OverlaySource {
             }
             OverlaySource::HrrrLayer(layer, fh) => {
                 use crate::render::FieldLayer as FL;
+                use wxdata::hrrr::Model::{Hrrr as HRRR, Nbm as NBM};
+                use wxdata::model::ModelField as MF;
+                // Phase F1: each of these was a hand-written GRIB var/level pair. They now come
+                // from the catalogue, which a live contract test checks against the real `.idx`
+                // sidecars — so a NOAA rename surfaces as a failing test rather than as a layer
+                // that quietly stops drawing.
+                let uh_key = || {
+                    MF::UpdraftHelicity
+                        .grib(HRRR)
+                        .expect("HRRR publishes updraft helicity")
+                };
+                async fn model_field(
+                    http: &reqwest::Client,
+                    field: MF,
+                    model: wxdata::hrrr::Model,
+                    fh: u8,
+                ) -> anyhow::Result<wxdata::hrrr::HrrrForecast> {
+                    let k = field.grib(model).ok_or_else(|| {
+                        anyhow::anyhow!("{} does not publish {}", model.label(), field.label())
+                    })?;
+                    wxdata::hrrr::fetch_field(http, model, k.var, k.level, fh, k.min_valid).await
+                }
                 let fc = match layer {
                     // Rotation tracks read as a swath: the union of every hourly max window from
                     // now through the scrubbed hour, not just that one hour's slice.
                     FL::UpdraftHelicity => {
-                        wxdata::hrrr::fetch_field_swath(
-                            http,
-                            "MXUPHL",
-                            "5000-2000 m above ground",
-                            fh.max(1),
-                            0.0,
-                        )
-                        .await?
+                        let k = uh_key();
+                        wxdata::hrrr::fetch_field_swath(http, k.var, k.level, fh.max(1), k.min_valid)
+                            .await?
                     }
-                    // Accumulated snowfall since the run started, through the scrubbed hour.
-                    FL::Snowfall => {
-                        wxdata::hrrr::fetch_field(
-                            http,
-                            wxdata::hrrr::Model::Hrrr,
-                            "ASNOW",
-                            "surface",
-                            fh,
-                            0.0,
-                        )
-                        .await?
-                    }
+                    // Accumulated snowfall through the scrubbed hour.
+                    FL::Snowfall => model_field(http, MF::Snowfall, HRRR, fh).await?,
                     // NBM's calibrated probability of thunder over the hour ending at `fh`. The
                     // idx lists the trailing window first, so the plain var+level match already
                     // picks that one over the run-total windows beside it.
                     FL::ThunderProb => {
-                        wxdata::hrrr::fetch_field(
-                            http,
-                            wxdata::hrrr::Model::Nbm,
-                            "TSTM",
-                            "surface",
-                            fh.max(1),
-                            0.0,
-                        )
-                        .await?
+                        model_field(http, MF::ThunderProbability, NBM, fh.max(1)).await?
                     }
-                    _ => {
-                        wxdata::hrrr::fetch_field(
-                            http,
-                            wxdata::hrrr::Model::Hrrr,
-                            "MASSDEN",
-                            "8 m above ground",
-                            fh,
-                            0.0,
-                        )
-                        .await?
-                    }
+                    _ => model_field(http, MF::Smoke, HRRR, fh).await?,
                 };
                 let source = if layer == FL::ThunderProb {
                     "NBM"
@@ -974,17 +963,24 @@ impl OverlaySource {
             }
             OverlaySource::Env(layer, model, ml, srh_km) => {
                 use crate::render::FieldLayer as FL;
-                let (var, level, min_valid) = match layer {
-                    FL::Cape if ml => ("CAPE", "90-0 mb above ground".to_string(), 0.0),
-                    FL::Cape => ("CAPE", "surface".to_string(), 0.0),
-                    FL::Srh => (
-                        "HLCY",
-                        format!("{}000-0 m above ground", srh_km),
-                        f64::NEG_INFINITY,
-                    ),
-                    _ => ("REFC", "entire atmosphere".to_string(), -30.0),
+                use wxdata::model::ModelField;
+                // Phase F1: the GRIB spelling is the model catalogue's business, not this
+                // dispatch's. The old literals here were right for the HRRR and silently wrong
+                // for the NAM, whose composite-reflectivity level string is spelled differently
+                // — a bug this migration fixes rather than a refactor that preserves it.
+                let field = match layer {
+                    FL::Cape if ml => ModelField::MixedLayerCape,
+                    FL::Cape => ModelField::SurfaceCape,
+                    FL::Srh if srh_km == 1 => ModelField::Srh1km,
+                    FL::Srh => ModelField::Srh3km,
+                    _ => ModelField::CompositeReflectivity,
                 };
-                let fc = wxdata::hrrr::fetch_field(http, model, var, &level, 0, min_valid).await?;
+                let key = field.grib(model).ok_or_else(|| {
+                    anyhow::anyhow!("{} does not publish {}", model.label(), field.label())
+                })?;
+                let (var, level) = (key.var, key.level);
+                let fc =
+                    wxdata::hrrr::fetch_field(http, model, var, level, 0, key.min_valid).await?;
                 let valid = fc.valid();
                 OverlayMsg::StampedField(
                     layer,
@@ -16566,6 +16562,16 @@ pub(crate) fn to_upload(
         None => (Vec::new(), 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
     };
 
+    // Generation mask (suggestions.md §21). A live volume assembled from chunks keeps the
+    // previous rotation in the wedge the current one has not reached; dim it so retained data
+    // are visibly not the same thing as just-scanned data. `STALE_DIM` is a tint, not a hide:
+    // the old sweep is still the best available answer for that wedge.
+    const STALE_DIM: f32 = 0.45;
+    let (stale_start, stale_end, stale_dim) = match s.stale_arc_deg {
+        Some((a, b)) => (a, b, STALE_DIM),
+        None => (0.0, 0.0, 0.0),
+    };
+
     RadarUpload {
         az_bins: s.az_bins as u32,
         gate_count: s.gate_count as u32,
@@ -16588,9 +16594,9 @@ pub(crate) fn to_upload(
             flag_n,
             flag_e,
             flag_s,
-            0.0,
-            0.0,
-            0.0,
+            stale_start,
+            stale_end,
+            stale_dim,
         ],
         lut,
         precip_flag,
@@ -19663,6 +19669,7 @@ mod tests {
             elevation_deg: 0.5,
             value_min: -32.0,
             value_max: 95.0,
+            ..Default::default()
         };
         let table = crate::colormap::default_table(wxdata::level2::Moment::Reflectivity);
         let full = super::to_upload(&sweep, table, None, false, None, None, false);

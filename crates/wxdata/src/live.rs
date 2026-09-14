@@ -194,10 +194,16 @@ where
                         });
                     }
                 }
-                let sweep_done = meta.is_some_and(|m| m.is_last_in_sweep());
+                // Phase B2 / suggestions.md §21: every chunk is a rendering unit, not just the
+                // one that finishes a sweep. A chunk is ~120 radials — a 60° wedge of super-res —
+                // so waiting for all six of them held the display a whole rotation (15 s in a
+                // precipitation VCP, over a minute in clear air) behind data already on this
+                // machine. `merge_scan`/`stitch` already merge partial sweeps by azimuth, so the
+                // only thing that was stopping this was the emit gate itself.
+                //
                 // The fetch itself can outlast the cancellation: a sweep assembled for a site the
                 // caller has already left is a stale frame handed to a live view.
-                if (sweep_done || ctype == ChunkType::End) && active() {
+                if active() {
                     let window: Vec<Chunk<'static>> = chunks
                         .first()
                         .filter(|_| window_start > 0)
@@ -206,6 +212,10 @@ where
                         .cloned()
                         .collect();
                     emit(&it, &window, &mut merged, total_retries, &mut on_update).await;
+                    // Advance every emit, not only at sweep boundaries: each window is then the
+                    // start chunk plus the one new chunk, so per-chunk emitting costs about the
+                    // same total assembly work as the old per-sweep one rather than re-decoding
+                    // the whole accumulating sweep each time.
                     window_start = chunks.len();
                 }
             }
@@ -352,27 +362,32 @@ async fn emit<F: FnMut(Update)>(
     });
 }
 
-/// A sweep pass finishes in well under this. A base sweep older than that at the same elevation
-/// number is the *previous* volume's version of the tilt, which has to be dropped whole rather
-/// than stitched, or a rollover would leave last volume's radials standing in the gaps.
-const SAME_PASS_MS: i64 = 90_000;
+/// How far behind the newest radial in a tilt an older one may be and still be kept.
+///
+/// Keeping the previous pass is the point (see [`stitch`]): a half-finished rotation should show
+/// the other half of the storm rather than a blank wedge. But a sector the radar has genuinely
+/// stopped scanning — a failed volume, a VCP that skips a tilt, a stream that reconnected onto a
+/// different elevation set — must not stand there forever pretending to be weather. Fifteen
+/// minutes clears the slowest clear-air volume (~10 min) with headroom and bounds the worst case.
+/// Anything older than one pass is drawn dimmed and reads its own age in the gate inspector, so
+/// this is a backstop, not the thing that keeps stale data honest.
+const RETAIN_MS: i64 = 900_000;
 
 /// Stitch a partial sweep onto the base sweep of the same tilt, newest radial wins per azimuth.
 ///
-/// This is the seam fix. A chunk can straddle a sweep boundary, so the chunks assembled for one
-/// sweep can also carry the first radials of the next one. Those early radials land in `merged`,
-/// and the window for the *next* boundary no longer contains the chunk they came from — so the
-/// sweep assembled there is missing its own beginning. Replacing wholesale threw the early
-/// radials away and drew the volume with a wedge of empty azimuths: the seam.
+/// This is both the seam fix and, since partial sweeps became a rendering unit of their own
+/// (suggestions.md §21), what makes a half-scanned tilt legible. A chunk can straddle a sweep
+/// boundary, so the chunks assembled for one sweep can also carry the first radials of the next
+/// one; and with per-chunk emitting, *every* sweep is partial for most of its life. Merging by
+/// azimuth covers both: each new radial replaces the one that was at its azimuth, and azimuths
+/// the new pass has not reached yet keep showing the previous pass's radials until it does.
+///
+/// This deliberately no longer drops the previous pass wholesale when a new one starts. That was
+/// protecting against last volume's echo standing where the new pass is thin — real, but the fix
+/// for it is to *mark* retained data, not to blank the display for most of every rotation. A
+/// radial's own `collection_timestamp` is what marks it: [`crate::level2::BinnedSweep`] turns the
+/// per-azimuth times into a stale arc the renderer dims and the gate inspector reads.
 fn stitch(base: &Sweep, partial: &Sweep) -> Sweep {
-    let start = |s: &Sweep| s.radials().iter().map(|r| r.collection_timestamp()).min();
-    let same_pass = match (start(base), start(partial)) {
-        (Some(b), Some(p)) => (p - b).abs() < SAME_PASS_MS,
-        _ => false,
-    };
-    if !same_pass {
-        return partial.clone();
-    }
     // ponytail: BTreeMap because it dedupes and sorts by azimuth in one pass, and a sweep is
     // ~720 radials. A merge of two already-sorted slices would allocate less, if it ever shows up
     // in a profile.
@@ -387,6 +402,12 @@ fn stitch(base: &Sweep, partial: &Sweep) -> Sweep {
             .iter()
             .map(|r| (r.azimuth_number(), r.clone())),
     );
+    let newest = by_az
+        .values()
+        .map(|r| r.collection_timestamp())
+        .max()
+        .unwrap_or(0);
+    by_az.retain(|_, r| newest - r.collection_timestamp() <= RETAIN_MS);
     Sweep::new(base.elevation_number(), by_az.into_values().collect())
 }
 
@@ -563,14 +584,37 @@ mod tests {
         );
     }
 
+    /// A new pass over the same tilt keeps the previous one underneath until it sweeps past.
+    /// Before partial sweeps were a rendering unit this dropped the old radials wholesale, which
+    /// was fine when a tilt only ever reached the display complete — now it would blank five
+    /// sixths of the tilt for most of every rotation. What keeps the retained half honest is that
+    /// it stays a whole pass behind in time, which the binning turns into a dimmed arc.
     #[test]
-    fn a_new_volume_replaces_the_tilt_instead_of_stitching_to_it() {
-        // Same tilt five minutes later is the next volume, not the rest of this pass. Keeping the
-        // old radials would leave last volume's echoes standing wherever the new one is thin.
+    fn a_new_pass_keeps_the_previous_one_in_azimuths_it_has_not_reached() {
         let base = Scan::new(vcp(212), vec![wedge(1, 0..720, 1_000)]);
         let partial = Scan::new(vcp(212), vec![wedge(1, 0..120, 301_000)]);
         let (merged, _) = merge_scan(&base, partial);
-        assert_eq!(merged.sweeps()[0].radials().len(), 120);
+        let r = merged.sweeps()[0].radials();
+        assert_eq!(r.len(), 720, "the whole tilt still has coverage");
+        // The 120 azimuths the new pass reached carry its time; the rest still carry the old pass's.
+        assert_eq!(r[0].collection_timestamp(), 301_000);
+        assert_eq!(r[119].collection_timestamp(), 301_000);
+        assert_eq!(r[120].collection_timestamp(), 1_000);
+        assert_eq!(r[719].collection_timestamp(), 1_000);
+    }
+
+    /// The backstop on the above: a sector the radar stopped scanning altogether does not stand
+    /// there indefinitely once it is a quarter-hour behind everything else.
+    #[test]
+    fn radials_far_older_than_the_newest_are_dropped_rather_than_kept_forever() {
+        let base = Scan::new(vcp(212), vec![wedge(1, 0..720, 1_000)]);
+        let partial = Scan::new(vcp(212), vec![wedge(1, 0..120, 1_000 + super::RETAIN_MS + 1)]);
+        let (merged, _) = merge_scan(&base, partial);
+        assert_eq!(
+            merged.sweeps()[0].radials().len(),
+            120,
+            "only the new pass survives once the old one is past the retention window"
+        );
     }
 
     #[test]

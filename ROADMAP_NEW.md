@@ -380,10 +380,22 @@ in, then confirmed live (`cargo run` logged "live stream started for ..." same a
 
 Instead of waiting for a sweep/volume boundary:
 
-- [ ] decode and publish radial blocks as they arrive
-- [ ] update GPU polar texture incrementally
-- [ ] preserve previous sweep underneath not-yet-updated azimuths
-- [ ] visually distinguish “new scan”, “old scan” and “not yet received” when analyst scan-progress mode is enabled
+- [x] decode and publish radial blocks as they arrive — `stream()` emits on **every chunk**
+  (~120 radials, a 60° wedge of super-res) rather than only on the chunk that completes a sweep.
+  The emit window advances each time, so the total assembly work is about what the per-sweep path
+  cost, not six times it.
+- [ ] update GPU polar texture incrementally — still a whole-texture replace per emit, and
+  `merge_scan` still deep-clones its sweeps, now ~6× more often. This is the remaining cost item.
+- [x] preserve previous sweep underneath not-yet-updated azimuths — `stitch()` keeps the older
+  radial in any azimuth the new pass has not reached (bounded to 15 min) instead of replacing the
+  whole tilt and blanking the unswept sectors.
+- [x] visually distinguish “new scan”, “old scan” and “not yet received” — `BinnedSweep` carries
+  per-azimuth acquisition times and derives the carried-over wedge from the largest gap between
+  them (30 s floor, so a slow clear-air rotation isn't split in two); `radar.wgsl` dims that wedge
+  and the gate inspector reports each sampled gate's own time and its lag behind the newest radial
+  in the tilt. "Not yet received" is not a separate state here — nothing is ever blank, because a
+  bin either holds the new pass or the retained one. Verified on a real GPU (`headless.rs`'s
+  `a_stale_wedge_renders_dimmer_and_only_where_it_should`), not only in unit tests.
 - [x] expose current elevation, VCP, sweep number and scan progress — `wxdata::live::ScanProgress`
   (elevation number/angle, total elevations, chunk index/count within the sweep), read straight off
   metadata the vendored `ElevationChunkMapper` already derives from the VCP per chunk. `stream()`
@@ -397,11 +409,10 @@ Instead of waiting for a sweep/volume boundary:
   provider-lag reading (`View::last_live_arrival`, see below); not duplicated here.
 - [ ] keep animation smooth while updates stream
 
-The GPU-texture and visual-distinction items above are the actual "progressive rendering" the
-section is named for, and remain unimplemented — this increment only exposes the metadata a UI
-could use for that, deliberately scoped down because incremental polar-texture rendering needs a
-tighter render-loop iteration cycle than was available here. Don't read the checked items as the
-section being done.
+What remains is the *incremental GPU upload*: the display is now correct and honest about
+generations, but each emit still ships a whole 720×N texture rather than the radial range that
+actually changed. That is a cost problem, not a correctness one, and it is the item to take next
+in this section.
 
 ## B3. Latency dashboard — mostly done
 
@@ -917,7 +928,29 @@ Allow selected time/range/sector frames to be downloaded into chase packs subjec
 
 Do not build each model as a separate feature. Build a general GRIB model engine and add model definitions.
 
-## F1. Model abstraction
+## F1. Model abstraction — done for the models already wired up
+
+`wxdata::model` holds the definition table (`ModelDef`) and the field catalogue (`ModelField`).
+Every model already fetched — HRRR, HRRR pressure, RAP, NAM 3 km nest, NAM 12 km, NBM — is a row;
+the GRIB variable/level literals that used to be duplicated across `app.rs`, `fielddiff.rs`,
+`severe.rs` and `headless.rs` are now looked up by field *meaning*, and `ModelField::grib`
+returning `None` is how a caller learns a model does not publish something.
+
+The table is checked against reality rather than against documentation: a network-gated contract
+test (`the_catalogue_matches_what_the_feeds_publish`) pulls a recent `.idx` from every bucket and
+asserts both that each claimed field is present and that each field marked unavailable is absent.
+It found three errors in the first draft, one of which was a live bug — the NAM family spells
+composite reflectivity's level differently from the HRRR, and the matcher compares level strings
+exactly, so NAM reflectivity had simply been failing.
+
+Also fixed while here: the fetch path clamped every request to 18 forecast hours regardless of
+model or cycle, truncating the NAM nest's 60 h runs and three quarters of HRRR's extended cycles.
+The cap now comes from the run's own schedule.
+
+Not covered: vertical-coordinate mappings and a "list runs / list forecast hours" API are still
+implicit in `hrrr::recent_cycles`; the byte-range/index strategy stays in `hrrr.rs` rather than
+being per-model data, because every model here uses the same `.idx` scheme and inventing a
+strategy enum for one implementation would be speculative.
 
 A model definition must include:
 
@@ -946,9 +979,11 @@ Create common APIs for:
 
 ### Tier 1
 
-- [ ] HRRR — migrate existing functionality to generic engine where sensible
-- [ ] RAP — migrate existing analysis/profile functionality
-- [ ] GFS — expand beyond current comparison fields
+- [x] HRRR — migrated onto the F1 catalogue (definition + field mappings; fetch/regrid unchanged)
+- [x] RAP — migrated onto the same catalogue, including its analysis use at f00
+- [ ] GFS — expand beyond current comparison fields. Still on its own path in `global.rs`, which
+  fetches from a different bucket layout with a different index scheme; folding it in needs the
+  per-model byte-range strategy F1 deliberately did not invent yet.
 - [ ] RRFSv1 deterministic
 - [ ] REFS / RRFS ensemble members
 - [ ] GEFS

@@ -232,6 +232,7 @@ mod tests {
             elevation_deg: elev,
             value_min,
             value_max,
+            ..Default::default()
         }
     }
 

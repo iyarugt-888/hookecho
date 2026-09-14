@@ -340,16 +340,22 @@ fn main() -> eframe::Result<()> {
             .filter(|a| !a.starts_with("--"))
             .map(String::as_str)
             .unwrap_or("env.png");
-        if let Err(e) = headless::run_env(slug, out) {
+        // Optional fourth argument: which model, by `wxdata::model::ModelDef::id`.
+        let model = args
+            .get(pos + 3)
+            .filter(|a| !a.starts_with("--"))
+            .map(String::as_str)
+            .unwrap_or("hrrr");
+        if let Err(e) = headless::run_env(slug, out, model) {
             eprintln!("headless env render failed: {e}");
             std::process::exit(1);
         }
         return Ok(());
     }
 
-    // HRRR layer verify: `hookecho --headless-hrrr [refc|uh|smoke] [fcsthour] <out.png>`.
+    // Model layer verify: `hookecho --headless-hrrr [refc|uh|smoke] [fcsthour] <out.png> [model]`.
     // The layer name is optional and defaults to future radar, so the old argument order
-    // (`--headless-hrrr 3 out.png`) still works.
+    // (`--headless-hrrr 3 out.png`) still works; the trailing model id defaults to the HRRR.
     if let Some(pos) = args.iter().position(|a| a == "--headless-hrrr") {
         use hookecho::render::FieldLayer as FL;
         let mut rest = args[pos + 1..]
@@ -379,7 +385,10 @@ fn main() -> eframe::Result<()> {
             next
         }
         .unwrap_or("hrrr.png");
-        if let Err(e) = headless::run_hrrr_layer(layer, fh, out) {
+        // Optional trailing model id (`wxdata::model::ModelDef::id`), defaulting to the HRRR so
+        // every existing invocation keeps working.
+        let model = rest.next().unwrap_or("hrrr");
+        if let Err(e) = headless::run_hrrr_layer(layer, fh, out, model) {
             eprintln!("headless hrrr render failed: {e}");
             std::process::exit(1);
         }

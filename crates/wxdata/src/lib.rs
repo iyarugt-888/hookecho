@@ -36,6 +36,7 @@ pub mod live;
 pub mod lsr;
 pub mod metar;
 pub mod meteoalarm;
+pub mod model;
 pub mod mosaic;
 pub mod mping;
 pub mod mrms;

@@ -327,6 +327,7 @@ mod tests {
                 elevation_deg: e,
                 value_min: -32.0,
                 value_max: 95.0,
+                ..Default::default()
             })
             .collect()
     }

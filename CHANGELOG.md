@@ -8,6 +8,89 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: models are definitions now, and the catalogue is checked against the real feeds
+
+Phase F's acceptance criterion is that adding a model with an already-supported GRIB format
+should be a definition plus field mappings, not a new renderer. It wasn't: the six NWP sources
+the app already fetches were distinguished by `match` arms scattered across four files, and the
+GRIB variable/level strings were literals inside the UI's own layer dispatch — duplicated
+independently in `app.rs`, `fielddiff.rs`, `severe.rs` and `headless.rs`. "Does the NBM publish
+updraft helicity?" had no answer short of firing a request and reading the error.
+
+- New `wxdata::model`: a `ModelDef` row per model (id, label, cycle cadence, lead schedule, grid
+  spacing, domain, typical posting latency, ensemble role) and a `ModelField` catalogue that maps
+  a field *by meaning* to each model's GRIB spelling — or to `None`, which is a real answer the
+  caller can grey out rather than a gap.
+- **The table is verified against the live feeds, not against documentation.** A network-gated
+  contract test pulls a recent `.idx` from every model's bucket and asserts both directions: every
+  field the table claims is really in that file, and every field it marks unavailable is really
+  absent. Writing that test immediately found three things wrong with my first draft — the RAP
+  uses `MSLMA` where I had written `MSLET`, the NAM family spells composite reflectivity's level
+  `entire atmosphere (considered as a single layer)` where the HRRR uses `entire atmosphere`, and
+  the RAP publishes near-surface smoke, which I had marked HRRR-only. The NAM one was a live bug,
+  not just a table error: the app's reflectivity fetch matches the level string exactly, so asking
+  the NAM for composite reflectivity had been failing outright.
+- **Fixed: forecast leads were clamped to 18 hours for every model and every cycle.** The fetch
+  path applied a flat `.min(18)`, which silently truncated the NAM 3 km nest's 60-hour runs, the
+  NAM 12 km's 84, and three quarters of every HRRR 00/06/12/18Z cycle. The cap now comes from the
+  run's own schedule in the definition table.
+- Migrated the environment-field, HRRR-layer and HRRR-vs-RAP-difference call sites onto the
+  catalogue; `--headless-env` takes an optional model id so a field can be rendered from any model
+  in the table.
+- **This is F1 only, and Phase F is not finished.** No new model is wired up (F2's RRFS/REFS/GEFS
+  and the tier-2 list remain unbuilt), the generic field set (F3) covers what the app already
+  fetched rather than the full surface/pressure/severe list, and F4's display modes, F5's
+  run-to-run comparison, F7's ensemble workstation and F8's sounding overhaul are untouched. What
+  landed is the metadata layer those depend on.
+
+### Changed: live radar draws each chunk as it lands, and marks what is carried over
+
+`suggestions.md` §21's core complaint was latency the machine had already paid for: the data
+were on disk, decoded, and still not on screen. Live Level II arrives as chunks of ~120 radials,
+six to a super-res sweep, and the stream only handed a volume to the display when a chunk
+happened to finish a sweep. That held every wedge until the antenna had gone all the way round —
+about 15 s in a precipitation VCP and over a minute in clear air — for data that had been sitting
+locally the whole time.
+
+- **Every chunk is now a rendering unit.** `wxdata::live::stream` emits on each chunk rather than
+  at sweep boundaries, so a new 60° wedge reaches the map roughly six times sooner. The emit
+  window advances each time, so per-chunk emitting does about the same total assembly work as the
+  old per-sweep path, not six times as much.
+- **The previous rotation stays on screen where the new one hasn't reached.** Merging a partial
+  sweep used to replace the whole tilt, so the sectors the antenna had not come back to yet went
+  blank — the display traded a stale wedge for no wedge at all. It now keeps the older radial in
+  any azimuth the new pass has not swept, bounded to 15 minutes so nothing lingers indefinitely.
+- **Retained data are marked, not silently passed off as current** — this is the half that makes
+  the above honest. `BinnedSweep` now carries per-azimuth acquisition times and derives the
+  carried-over wedge from them, finding the generation boundary from the data itself (the largest
+  gap between bin times, with a 30 s floor so a slow clear-air rotation isn't split in two)
+  instead of being told which VCP is running. The radar shader dims that wedge, and the gate
+  inspector gained a "Gate collected" row showing the sampled gate's *own* time and how far it
+  lags the newest radial in the tilt. On a fast-moving storm that lag is a position error; showing
+  the volume's time for it would present that error as a measurement.
+- Verified on a real GPU, not just in unit tests: a headless render test renders the same
+  synthetic sweep with and without a stale wedge and asserts the marked half of the framebuffer
+  got darker, the unmarked half is byte-identical, and nothing anywhere got brighter — the check
+  that catches a sign error in the azimuth comparison, which no CPU-side test can see. A second
+  test drives a two-generation sweep through the real binner end to end and asserts both the
+  wedge and the per-gate time the inspector reads.
+- Verified against a live radar too. `--headless-live` now follows the stream for several updates
+  and reports each one's generation mask; against KMPX in a precipitation VCP it showed chunks
+  039–046 arriving as eight separate updates (~150 ms decode each after the initial backfill),
+  and on the tilt the antenna was actually writing the retained wedge shrank exactly as it should
+  — `106.0°..122.5°`, then a half-degree sliver, then "one generation" once the pass completed —
+  before the same cycle started again on the next tilt up. The rendered frame is a full 360°,
+  which is the visible half of the change: that tilt would previously have drawn with an empty
+  wedge.
+- Not reproducible in the browser build: the web target does not run the chunk stream at all
+  (`--serve`'s Live badge reports "no live stream" for every site), so the web app still polls
+  whole volumes and sees none of this. Left as-is rather than papered over — it is a separate
+  piece of work from the rendering path this change is about.
+- Still unbuilt from §21, deliberately: the GPU upload still replaces the whole sweep texture
+  rather than only the changed radial range (the merge also still deep-clones its sweeps, now
+  ~6× more often); there is no multi-provider interface or first-valid-record-wins arbitration,
+  no duplicate-identity detection, no explicit degraded-mode labelling, and no progressive 3D.
+
 ### Added: a radar-suitability tool — which nearby radar actually sees a point
 
 - New "Radar suitability" map tool (`suggestions.md`'s review of a real December 2021 Kentucky

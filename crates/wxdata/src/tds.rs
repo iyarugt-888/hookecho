@@ -258,6 +258,7 @@ mod tests {
             elevation_deg: 0.5,
             value_min: lo,
             value_max: hi,
+            ..Default::default()
         }
     }
 

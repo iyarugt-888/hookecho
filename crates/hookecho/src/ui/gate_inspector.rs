@@ -91,6 +91,27 @@ pub(crate) fn attributes(
             }
         },
     );
+    // The gate's *own* acquisition time, which on a live partially-swept volume is not the
+    // volume's time: the wedge the antenna has not come back to yet is carrying radials from the
+    // previous rotation. "Sweep time" above spans the whole tilt and so hides that; this row is
+    // the per-gate half of suggestions.md §21's requirement that retained data never read as
+    // newly scanned. The lag is measured against the newest radial in the tilt, because that is
+    // what the user is implicitly comparing it to when they read the sweep time.
+    let gate_time = i.sample.collected_ms.map_or_else(
+        || "—".to_string(),
+        |ms| {
+            let t = chrono::DateTime::from_timestamp_millis(ms);
+            let clock = t.map_or_else(|| "—".into(), |t| crate::timefmt::fmt_clock(t, tz, true));
+            match (t, popup.time_range) {
+                // 30 s is under one rotation in any VCP, so a lag that clears it is a real
+                // generation boundary rather than the seconds a single pass takes to sweep by.
+                (Some(t), Some((_, end))) if (end - t).num_seconds() >= 30 => {
+                    format!("{clock} ({} s older)", (end - t).num_seconds())
+                }
+                _ => clock,
+            }
+        },
+    );
     // Phase C1: each saved formula, re-evaluated fresh against this same gate every frame — so
     // editing a product in the manager updates this without needing another click.
     let udp_rows: Vec<(&str, String)> = udp_products
@@ -115,6 +136,7 @@ pub(crate) fn attributes(
                 ("Elevation angle", format!("{:.2}°", i.elevation_deg)),
                 ("Azimuth", format!("{:.1}°", i.sample.azimuth_deg)),
                 ("Sweep time", sweep_time),
+                ("Gate collected", gate_time),
             ],
         ),
         (
@@ -180,6 +202,7 @@ mod tests {
                     azimuth_deg: 123.4,
                     range_km: 45.6,
                     gate: 182,
+                    collected_ms: Some(1_050_000),
                 },
                 dealiased_value: (moment == Moment::Velocity).then_some(28.0),
                 ground_range_km: 45.0,
@@ -261,6 +284,30 @@ mod tests {
                 "{popup:?} -> {labels:?}"
             );
         }
+    }
+
+    /// A gate carried over from the previous rotation must say how far behind it is. Without
+    /// this the inspector reports the volume's time for a reading that could be a minute older,
+    /// which is a position error presented as a measurement.
+    #[test]
+    fn a_carried_over_gate_reports_its_own_age() {
+        let mut popup = sample_popup(Moment::Reflectivity, false, Some(42.5));
+        // Sweep ends at t=1_060_000 ms; this gate was collected a rotation earlier.
+        popup.inspection.sample.collected_ms = Some(1_060_000 - 180_000);
+        let labels = labels_for(&popup, &[]);
+        assert!(labels.iter().any(|s| s == "Gate collected"), "{labels:?}");
+        assert!(
+            labels.iter().any(|s| s.contains("(180 s older)")),
+            "{labels:?}"
+        );
+
+        // A gate from the current pass must not be labelled old at all.
+        popup.inspection.sample.collected_ms = Some(1_055_000);
+        let fresh = labels_for(&popup, &[]);
+        assert!(
+            !fresh.iter().any(|s| s.contains("older")),
+            "current-pass gate marked stale: {fresh:?}"
+        );
     }
 
     /// A range-folded gate must say so instead of showing a bogus numeric reading.

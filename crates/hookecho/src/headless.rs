@@ -1135,7 +1135,12 @@ fn parse_hhmm(s: &str) -> Option<i64> {
     Some(h.parse::<i64>().ok()? * 60 + m.parse::<i64>().ok()?)
 }
 
-/// Wait for the first live chunk-stream update for `site` and render it to a PNG.
+/// How many consecutive live updates to report before rendering the last one. Enough to show
+/// several chunks landing in a row rather than one update in isolation, and few enough that the
+/// command still finishes inside its own timeout in a slow-rotating VCP.
+const UPDATES_TO_OBSERVE: usize = 8;
+
+/// Follow the live chunk stream for `site`, report each update, and render the last to a PNG.
 ///
 /// Verifies the full chunks -> assemble -> merge -> bin -> render path windowless.
 pub fn run_live(out_path: &str, site: &str, moment: Moment) -> anyhow::Result<()> {
@@ -1172,20 +1177,52 @@ pub fn run_live(out_path: &str, site: &str, moment: Moment) -> anyhow::Result<()
         });
 
         // First update should arrive within a couple minutes (backfill emits immediately).
-        let update = tokio::time::timeout(std::time::Duration::from_secs(180), rx.recv())
-            .await
-            .map_err(|_| anyhow::anyhow!("no live update within 180s"))?
-            .ok_or_else(|| anyhow::anyhow!("stream closed before first update"))?;
+        //
+        // Then keep listening: since emitting moved from sweep boundaries to every chunk
+        // (suggestions.md §21) the interesting thing is no longer that *an* update arrives, but
+        // that they keep arriving a chunk at a time and that each one says which azimuths are
+        // still carrying the previous rotation. Taking several and printing the mask is what
+        // makes the partial-sweep path observable from outside the app.
+        let mut last = None;
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(180);
+        for i in 0..UPDATES_TO_OBSERVE {
+            let Ok(Some(update)) = tokio::time::timeout_at(deadline, rx.recv()).await else {
+                if last.is_none() {
+                    anyhow::bail!("no live update within 180s");
+                }
+                break;
+            };
+            let binned = level2::bin_scan(&update.scan, moment, 0)?;
+            let radials: usize = update.scan.sweeps().iter().map(|s| s.radials().len()).sum();
+            // The generation mask is only ever interesting on the tilt the antenna is *writing*.
+            // Tilt 0 finished minutes ago and is one generation by the time the volume's later
+            // chunks arrive, so reporting its arc would say "none" no matter what the code did.
+            let angles = level2::elevation_angles(&update.scan);
+            let live_tilt = update
+                .changed
+                .first()
+                .and_then(|a| angles.iter().position(|e| (e - a).abs() < 0.05));
+            let arc = live_tilt
+                .and_then(|t| level2::bin_scan(&update.scan, moment, t).ok())
+                .map(|b| match b.stale_arc_deg {
+                    Some((a, e)) => format!("{a:.1}°..{e:.1}° carrying the previous pass"),
+                    None => "none (one generation)".into(),
+                })
+                .unwrap_or_else(|| "n/a".into());
+            println!(
+                "update {i}: {} — {} sweeps / {radials} radials, changed {:?}, {} retries, \
+                 {:?} decode; live tilt {:?} stale arc {arc}",
+                update.name,
+                update.scan.sweeps().len(),
+                update.changed,
+                update.retries,
+                update.decode_time,
+                live_tilt.map(|t| angles[t]),
+            );
+            last = Some(binned);
+        }
         handle.abort();
-        println!(
-            "live update: {} ({} sweeps, {} changed tilts, {} retries, {:?} decode)",
-            update.name,
-            update.scan.sweeps().len(),
-            update.changed.len(),
-            update.retries,
-            update.decode_time
-        );
-        level2::bin_scan(&update.scan, moment, 0)
+        last.ok_or_else(|| anyhow::anyhow!("stream closed before first update"))
     })?;
 
     println!(
@@ -2211,23 +2248,40 @@ pub fn run_l3grid(kind: &str, site: &str, out_path: &str) -> anyhow::Result<()> 
     render_to_png(&rt, cb, out_path)
 }
 
-/// Fetch + regrid an HRRR environment field (CAPE/SRH), print stats, render over CONUS (feature T).
-pub fn run_env(slug: &str, out_path: &str) -> anyhow::Result<()> {
+/// Fetch + regrid a model environment field (CAPE/SRH/reflectivity), print stats, render over
+/// CONUS (feature T).
+///
+/// `model_id` is a [`wxdata::model::ModelDef::id`] — this is the command that exercises the
+/// Phase F1 claim that a field is addressable by meaning across models, so it has to be able to
+/// ask a model other than the HRRR.
+pub fn run_env(slug: &str, out_path: &str, model_id: &str) -> anyhow::Result<()> {
     use crate::render::FieldLayer as FL;
-    let (var, level, min_valid, layer): (&str, &str, f64, FL) = match slug {
-        "sbcape" => ("CAPE", "surface", 0.0, FL::Cape),
-        "mlcape" => ("CAPE", "90-0 mb above ground", 0.0, FL::Cape),
-        "srh1" => ("HLCY", "1000-0 m above ground", f64::NEG_INFINITY, FL::Srh),
-        "srh3" => ("HLCY", "3000-0 m above ground", f64::NEG_INFINITY, FL::Srh),
+    use wxdata::model::ModelField as MF;
+    let (field, layer): (MF, FL) = match slug {
+        "sbcape" => (MF::SurfaceCape, FL::Cape),
+        "mlcape" => (MF::MixedLayerCape, FL::Cape),
+        "srh1" => (MF::Srh1km, FL::Srh),
+        "srh3" => (MF::Srh3km, FL::Srh),
+        // Composite reflectivity is deliberately not here: it draws with the radar palette,
+        // which this renderer does not carry — `--headless-hrrr refc <fh> <out> <model>` is the
+        // command for it.
         other => anyhow::bail!("unknown env slug '{other}' (sbcape|mlcape|srh1|srh3)"),
     };
+    let model = wxdata::hrrr::Model::from_id(model_id).ok_or_else(|| {
+        let ids: Vec<&str> = wxdata::model::ALL_MODELS.iter().map(|m| m.def().id).collect();
+        anyhow::anyhow!("unknown model '{model_id}' (one of {})", ids.join("|"))
+    })?;
+    let key = field.grib(model).ok_or_else(|| {
+        anyhow::anyhow!("{} does not publish {}", model.label(), field.label())
+    })?;
+    let (var, level, min_valid) = (key.var, key.level, key.min_valid);
+    println!("{} {} -> {var}:{level}", model.label(), field.label());
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
     let fc = rt.block_on(async {
         let client = reqwest::Client::new();
-        wxdata::hrrr::fetch_field(&client, wxdata::hrrr::Model::Hrrr, var, level, 0, min_valid)
-            .await
+        wxdata::hrrr::fetch_field(&client, model, var, level, 0, min_valid).await
     })?;
     let f = &fc.field;
     let filled = f.values.iter().filter(|v| !v.is_nan()).count();
@@ -2293,46 +2347,66 @@ pub fn run_env(slug: &str, out_path: &str) -> anyhow::Result<()> {
 
 /// Fetch + regrid an HRRR reflectivity forecast for `fcst_hour`, print stats, render over CONUS.
 pub fn run_hrrr(fcst_hour: u8, out_path: &str) -> anyhow::Result<()> {
-    run_hrrr_layer(crate::render::FieldLayer::Hrrr, fcst_hour, out_path)
+    run_hrrr_layer(crate::render::FieldLayer::Hrrr, fcst_hour, out_path, "hrrr")
 }
 
-/// Render any HRRR-backed field layer (future radar, rotation tracks, smoke) for `fcst_hour`,
+/// Render any model-backed field layer (future radar, rotation tracks, smoke) for `fcst_hour`,
 /// printing grid stats first — decoded ranges are how a units mistake gets caught before it
 /// reaches the map.
+///
+/// `model_id` is a [`wxdata::model::ModelDef::id`]. This is the command that exercises Phase F1's
+/// claim end to end: the same layer, fetched from a different model, with only the catalogue
+/// deciding how that model spells the field.
 pub fn run_hrrr_layer(
     layer: crate::render::FieldLayer,
     fcst_hour: u8,
     out_path: &str,
+    model_id: &str,
 ) -> anyhow::Result<()> {
     use crate::render::{mercator::lonlat_to_world, FieldLayer, MrmsUpload};
+    use wxdata::model::ModelField as MF;
+    let model = wxdata::hrrr::Model::from_id(model_id).ok_or_else(|| {
+        let ids: Vec<&str> = wxdata::model::ALL_MODELS.iter().map(|m| m.def().id).collect();
+        anyhow::anyhow!("unknown model '{model_id}' (one of {})", ids.join("|"))
+    })?;
+    let field = match layer {
+        FieldLayer::UpdraftHelicity => MF::UpdraftHelicity,
+        FieldLayer::Smoke => MF::Smoke,
+        _ => MF::CompositeReflectivity,
+    };
+    let key = field.grib(model).ok_or_else(|| {
+        anyhow::anyhow!("{} does not publish {}", model.label(), field.label())
+    })?;
+    println!("{} {} -> {}:{}", model.label(), field.label(), key.var, key.level);
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
     let fc = rt.block_on(async {
         let client = reqwest::Client::new();
         match layer {
+            // The swath is a union over every hourly-max window up to `fcst_hour`, so it has its
+            // own fetch rather than a single-message one.
             FieldLayer::UpdraftHelicity => {
                 wxdata::hrrr::fetch_field_swath(
                     &client,
-                    "MXUPHL",
-                    "5000-2000 m above ground",
+                    key.var,
+                    key.level,
                     fcst_hour.max(1),
-                    0.0,
+                    key.min_valid,
                 )
                 .await
             }
-            FieldLayer::Smoke => {
+            _ => {
                 wxdata::hrrr::fetch_field(
                     &client,
-                    wxdata::hrrr::Model::Hrrr,
-                    "MASSDEN",
-                    "8 m above ground",
+                    model,
+                    key.var,
+                    key.level,
                     fcst_hour,
-                    0.0,
+                    key.min_valid,
                 )
                 .await
             }
-            _ => wxdata::hrrr::fetch_forecast(&client, fcst_hour).await,
         }
     })?;
     let f = &fc.field;
@@ -2400,8 +2474,8 @@ pub fn run_hrrr_layer(
         .filter(|v| !v.is_nan())
         .fold(f32::MIN, f32::max);
     println!(
-        "HRRR F+{}h regrid {}x{}  lon[{:.1},{:.1}] lat[{:.1},{:.1}]  filled {}  max {:.1} dBZ  run {} valid {}",
-        fc.fcst_hour, f.nx, f.ny, f.lon_west, f.lon_east, f.lat_south, f.lat_north, valid, vmax,
+        "{} F+{}h regrid {}x{}  lon[{:.1},{:.1}] lat[{:.1},{:.1}]  filled {}  max {:.1} dBZ  run {} valid {}",
+        model.label(), fc.fcst_hour, f.nx, f.ny, f.lon_west, f.lon_east, f.lat_south, f.lat_north, valid, vmax,
         fc.run.format("%Y-%m-%d %HZ"), fc.valid().format("%Y-%m-%d %H:%MZ")
     );
 
@@ -3233,6 +3307,7 @@ mod golden_tests {
             elevation_deg: 0.5,
             value_min: -32.0,
             value_max: 95.0,
+            ..Default::default()
         }
     }
 
@@ -3383,6 +3458,110 @@ mod golden_tests {
             let width = (0..200).filter(|&y| pixels[(y * 200 + 100) * 4] > 200).count();
             assert_eq!(width, 4, "stroke changed width at zoom {zoom}");
         }
+    }
+
+    /// The generation mask has to survive all the way to the framebuffer, and it has to land on
+    /// the right side of the display. A unit test on `previous_pass_arc` proves the arc is
+    /// computed correctly; only a render proves the shader dims *that* wedge and not its mirror
+    /// image, which is exactly the class of bug a sign error in the azimuth comparison produces
+    /// and which no CPU-side test can see.
+    ///
+    /// Run with `HOOKECHO_GPU_FALLBACK=1 cargo test -p hookecho -- --ignored gpu`.
+    #[test]
+    #[ignore = "gpu"]
+    fn a_stale_wedge_renders_dimmer_and_only_where_it_should() {
+        let base = synthetic_sweep();
+        // Azimuth 0..180 is north through east through south: the right half of a north-up map.
+        let mut stale = base.clone();
+        stale.stale_arc_deg = Some((0.0, 180.0));
+
+        let table = crate::colormap::default_table(Moment::Reflectivity).clone();
+        let camera = Camera::at_lonlat(base.radar_lon as f64, base.radar_lat as f64, 8.5);
+        let (center, scale) =
+            camera.world_to_clip_uniform((GOLDEN_SIZE as f32, GOLDEN_SIZE as f32));
+
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let Ok((device, queue, _adapter)) = init_gpu(&rt) else {
+            println!("SKIP: no wgpu adapter");
+            return;
+        };
+        let format = wgpu::TextureFormat::Rgba8UnormSrgb;
+        let mut res = RenderResources::new(&device, format);
+        let target = new_target(&device, format, GOLDEN_SIZE);
+        let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let mut render = |sweep: &BinnedSweep| {
+            let cb = MapCallback {
+                pane: 0,
+                camera_center: center,
+                camera_scale: scale,
+                world_per_pixel: camera.world_per_pixel() as f32,
+                camera_view_proj: camera
+                    .view_projection_uniform((GOLDEN_SIZE as f32, GOLDEN_SIZE as f32)),
+                camera_3d: 0.0,
+                basemap_key: 0,
+                vector_over_raster: false,
+                new_tiles: Vec::new(),
+                visible: Vec::new(),
+                radar_upload: Some(crate::app::to_upload(
+                    sweep, &table, None, false, None, None, false,
+                )),
+                draw_radar: true,
+                observed_upload: None,
+                draw_observed: false,
+                overlay_upload: None,
+                draw_overlay: false,
+                field_uploads: Vec::new(),
+                field_draws: Vec::new(),
+                clear_tiles: false,
+                drop_tiles: Vec::new(),
+                drop_fields: Vec::new(),
+                new_vector_tiles: Vec::new(),
+                visible_vector: Vec::new(),
+                clear_vector: false,
+                drop_vector_tiles: Vec::new(),
+                wind_upload: None,
+                wind: None,
+            };
+            res.render_once(&device, &queue, &view, &cb, wgpu::Color::BLACK);
+            read_target(&device, &queue, &target, GOLDEN_SIZE)
+        };
+        let plain = render(&base);
+        let marked = render(&stale);
+
+        let n = GOLDEN_SIZE as usize;
+        let (mut dimmed_east, mut changed_west, mut brightened) = (0usize, 0usize, 0usize);
+        for y in 0..n {
+            for x in 0..n {
+                let i = (y * n + x) * 4;
+                let (a, b) = (&plain[i..i + 3], &marked[i..i + 3]);
+                if a == b {
+                    continue;
+                }
+                let east = x > n / 2;
+                let darker = b.iter().zip(a).all(|(m, p)| m <= p);
+                if !darker {
+                    brightened += 1;
+                } else if east {
+                    dimmed_east += 1;
+                } else {
+                    changed_west += 1;
+                }
+            }
+        }
+        assert!(
+            dimmed_east > 200,
+            "the stale wedge barely changed: {dimmed_east} px dimmed"
+        );
+        assert_eq!(brightened, 0, "the mask must only ever darken");
+        // The column straight through the radar is the arc boundary itself, so allow the seam.
+        assert!(
+            changed_west < 32,
+            "{changed_west} px changed outside the stale wedge"
+        );
     }
 
     /// Golden-image test for the radar render pipeline. Run with

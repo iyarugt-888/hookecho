@@ -130,6 +130,107 @@ pub struct BinnedSweep {
     /// Inverse of `value_range`, for the shader/legend to recover physical units.
     pub value_min: f32,
     pub value_max: f32,
+    /// Acquisition time of each azimuth bin, ms since the Unix epoch, `0` where no radial
+    /// landed. Empty when the caller did not build one (every fixture and every path that
+    /// predates partial-sweep rendering) — treat an empty vector as "timing unknown", never
+    /// as "all bins at time zero".
+    pub bin_time_ms: Vec<i64>,
+    /// The azimuth wedge, `(start_deg, end_deg)` clockwise, still showing the *previous*
+    /// rotation because the current one has not swept through it yet. `end < start` means the
+    /// wedge crosses north. `None` when every bin came from one pass, which is the normal
+    /// archive case.
+    ///
+    /// suggestions.md §21 asks for an explicit generation mask so retained old data are never
+    /// confused with newly scanned data; this is that mask, compressed to the one contiguous
+    /// wedge a mechanically rotating antenna can actually leave behind.
+    pub stale_arc_deg: Option<(f32, f32)>,
+}
+
+impl Default for BinnedSweep {
+    fn default() -> Self {
+        Self {
+            moment: Moment::Reflectivity,
+            az_bins: 0,
+            gate_count: 0,
+            data: Vec::new(),
+            first_gate_km: 0.0,
+            gate_interval_km: 0.0,
+            radar_lat: 0.0,
+            radar_lon: 0.0,
+            elevation_deg: 0.0,
+            value_min: 0.0,
+            value_max: 0.0,
+            bin_time_ms: Vec::new(),
+            stale_arc_deg: None,
+        }
+    }
+}
+
+/// Two radials belong to different rotations once their acquisition times are at least this
+/// far apart. A super-res 0.5-degree cut takes a few seconds per chunk, so neighbouring bins
+/// within one pass are milliseconds apart; the floor keeps a slow clear-air rotation, where
+/// the largest within-pass gap can still be seconds, from being split into two generations.
+const PASS_GAP_FLOOR_MS: i64 = 30_000;
+
+/// The wedge still showing the previous rotation, derived from per-bin acquisition times.
+///
+/// The split point is found from the data rather than fixed: sort the distinct bin times and
+/// take the largest gap between consecutive ones. If that gap clears [`PASS_GAP_FLOOR_MS`] the
+/// bins on its old side are the previous pass. This self-calibrates across VCPs, which differ
+/// by a factor of four in rotation period, without being told which one is running.
+///
+/// Only the longest contiguous run is returned, so an empty bin inside the retained wedge splits
+/// it and the shorter piece goes unmarked. That errs toward marking too little rather than
+/// dimming data that is in fact current, which is the right way round for a display: an
+/// unmarked-but-old sliver is a missed warning, an over-dimmed current sector is a wrong one.
+pub fn previous_pass_arc(bin_time_ms: &[i64], az_bins: usize) -> Option<(f32, f32)> {
+    if az_bins == 0 || bin_time_ms.len() != az_bins {
+        return None;
+    }
+    let mut times: Vec<i64> = bin_time_ms.iter().copied().filter(|&t| t > 0).collect();
+    if times.len() < 2 {
+        return None;
+    }
+    times.sort_unstable();
+    times.dedup();
+    // Largest gap between consecutive distinct times, and the value on its old side.
+    let (gap, old_side) = times
+        .windows(2)
+        .map(|w| (w[1] - w[0], w[0]))
+        .max_by_key(|&(gap, _)| gap)?;
+    if gap < PASS_GAP_FLOOR_MS {
+        return None;
+    }
+
+    let stale = |i: usize| {
+        let t = bin_time_ms[i % az_bins];
+        t > 0 && t <= old_side
+    };
+    // Longest circular run of stale bins. Walking 2N indices lets a run that crosses north be
+    // found without a special case; a run can never exceed N because at least one bin is new.
+    let (mut best_len, mut best_start) = (0usize, 0usize);
+    let (mut run_len, mut run_start) = (0usize, 0usize);
+    for i in 0..az_bins * 2 {
+        if stale(i) {
+            if run_len == 0 {
+                run_start = i;
+            }
+            run_len += 1;
+            if run_len > best_len && run_len <= az_bins {
+                best_len = run_len;
+                best_start = run_start;
+            }
+        } else {
+            run_len = 0;
+        }
+    }
+    if best_len == 0 {
+        return None;
+    }
+    let bin_deg = 360.0 / az_bins as f32;
+    let start = (best_start % az_bins) as f32 * bin_deg;
+    let end = ((best_start + best_len) % az_bins) as f32 * bin_deg;
+    Some((start, end))
 }
 
 /// One real Level II gate prepared for geographic GPU instancing. Geometry comes from the
@@ -389,6 +490,10 @@ pub struct GateSample {
     pub range_km: f32,
     /// Gate index along the radial — what a range-resolution argument is actually about.
     pub gate: usize,
+    /// When the radial carrying this gate was collected, ms since the Unix epoch, or `None`
+    /// when the sweep carries no timing. On a live partially-swept volume this is the gate's
+    /// *own* age, which can be a full rotation older than the volume's nominal time.
+    pub collected_ms: Option<i64>,
 }
 
 impl BinnedSweep {
@@ -423,6 +528,7 @@ impl BinnedSweep {
             azimuth_deg: az as f32,
             range_km: slant as f32,
             gate,
+            collected_ms: self.bin_time_ms.get(bin).copied().filter(|&t| t > 0),
         })
     }
 
@@ -1161,6 +1267,21 @@ pub fn bin_sweep_opts(
         }
     }
 
+    // Per-bin acquisition time, taken from the same buckets that filled the rows so it cannot
+    // drift out of step with what is drawn. Where radials overlap, the newest wins: that is the
+    // one whose gates survived `fill_row`'s last write.
+    let bin_time_ms: Vec<i64> = by_bin
+        .iter()
+        .map(|bucket| {
+            bucket
+                .iter()
+                .map(|r| r.collection_timestamp())
+                .max()
+                .unwrap_or(0)
+        })
+        .collect();
+    let stale_arc_deg = previous_pass_arc(&bin_time_ms, AZ_BINS);
+
     Ok(BinnedSweep {
         moment,
         az_bins: AZ_BINS,
@@ -1173,6 +1294,8 @@ pub fn bin_sweep_opts(
         elevation_deg: sweep.elevation_angle_degrees().unwrap_or(0.0),
         value_min,
         value_max,
+        bin_time_ms,
+        stale_arc_deg,
     })
 }
 
@@ -1180,6 +1303,133 @@ pub fn bin_sweep_opts(
 mod tests {
     use super::*;
     use nexrad_model::data::{MomentData, Radial};
+
+    /// Build per-bin times for a rotation that has swept `new_bins` bins past north: those
+    /// carry the new pass, the rest still carry the one before it.
+    fn two_pass_times(az_bins: usize, new_bins: usize, gap_ms: i64) -> Vec<i64> {
+        (0..az_bins)
+            .map(|i| {
+                // Within a pass, bins are milliseconds apart — a real rotation is continuous.
+                if i < new_bins {
+                    1_000_000 + gap_ms + i as i64 * 20
+                } else {
+                    1_000_000 + i as i64 * 20
+                }
+            })
+            .collect()
+    }
+
+    /// The whole point of the generation mask: a live sweep that is part new and part carried
+    /// over must report exactly the carried-over wedge, so the display can mark it as old
+    /// rather than pass it off as just-scanned.
+    #[test]
+    fn the_arc_covers_the_bins_the_new_pass_has_not_reached() {
+        let times = two_pass_times(720, 120, 300_000);
+        let (start, end) = previous_pass_arc(&times, 720).expect("two passes present");
+        // Bins 120..720 are the old pass: 60 degrees through 0 degrees.
+        assert_eq!((start, end), (60.0, 0.0));
+    }
+
+    /// A completed archive sweep is one pass end to end. Marking any of it stale would dim
+    /// data that is not stale, so the mask has to stay silent.
+    #[test]
+    fn a_sweep_from_a_single_pass_has_no_stale_arc() {
+        let times: Vec<i64> = (0..720).map(|i| 1_000_000 + i as i64 * 20).collect();
+        assert_eq!(previous_pass_arc(&times, 720), None);
+    }
+
+    /// A clear-air VCP rotates in about a minute, so neighbouring bins can legitimately be
+    /// seconds apart. Splitting on the largest gap alone would carve such a sweep into two
+    /// generations and dim half of it for no reason; the floor is what stops that.
+    #[test]
+    fn a_slow_rotation_is_not_split_into_two_generations() {
+        // Largest within-pass step is 10 s, well under PASS_GAP_FLOOR_MS.
+        let times: Vec<i64> = (0..720)
+            .map(|i| 1_000_000 + i as i64 * 80 + if i == 400 { 10_000 } else { 0 })
+            .collect();
+        assert_eq!(previous_pass_arc(&times, 720), None);
+    }
+
+    /// The carried-over wedge usually straddles north, because the antenna restarts there.
+    /// A run-finder that stopped at the end of the array would report only the fragment after
+    /// the wrap and leave the rest of the old data unmarked.
+    #[test]
+    fn a_stale_wedge_crossing_north_is_reported_as_one_arc() {
+        // New pass covers bins 60..500; the old pass is 500..720 plus 0..60, across north.
+        let times: Vec<i64> = (0..720)
+            .map(|i| {
+                if (60..500).contains(&i) {
+                    1_400_000 + i as i64 * 20
+                } else {
+                    1_000_000 + i as i64 * 20
+                }
+            })
+            .collect();
+        let (start, end) = previous_pass_arc(&times, 720).expect("two passes present");
+        assert_eq!((start, end), (250.0, 30.0));
+    }
+
+    /// Bins nothing has landed in yet carry time 0. Reading those as "the oldest data here"
+    /// would anchor the split at epoch and mark the entire sweep stale.
+    #[test]
+    fn bins_with_no_radial_do_not_anchor_the_split() {
+        let mut times = two_pass_times(720, 120, 300_000);
+        for t in times.iter_mut().take(20) {
+            *t = 0;
+        }
+        let (start, end) = previous_pass_arc(&times, 720).expect("two passes present");
+        assert_eq!((start, end), (60.0, 0.0));
+    }
+
+    /// End to end through the real binner, not just the arc helper: a stitched live sweep whose
+    /// azimuths carry two generations of radials must come out of `bin_sweep_opts` with the
+    /// carried-over wedge already marked, because that is the only thing the renderer reads.
+    /// A helper that works on a hand-built time array proves nothing if the binner never fills
+    /// one.
+    #[test]
+    fn binning_a_two_generation_sweep_marks_the_carried_over_wedge() {
+        use nexrad_model::data::RadialStatus;
+        let radials: Vec<Radial> = (0..720u16)
+            .map(|az| {
+                let data = MomentData::from_fixed_point(1, 2125, 250, 8, 2.0, 66.0, vec![80]);
+                // The new pass has swept bins 0..120; the rest is still the previous rotation.
+                let t_ms = if az < 120 {
+                    1_300_000 + az as i64 * 20
+                } else {
+                    1_000_000 + az as i64 * 20
+                };
+                Radial::new(
+                    t_ms,
+                    az,
+                    az as f32 * 0.5,
+                    0.5,
+                    RadialStatus::ScanStart,
+                    1,
+                    0.5,
+                    Some(data),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+            })
+            .collect();
+        let sweep = Sweep::new(1, radials);
+        let binned = bin_sweep_opts(&sweep, Moment::Reflectivity, 35.0, -97.0, false).unwrap();
+        assert_eq!(binned.bin_time_ms.len(), 720);
+        assert_eq!(binned.stale_arc_deg, Some((60.0, 0.0)));
+        // And the per-gate age the inspector shows has to come from that same table: a point
+        // due west sits at azimuth 270, deep inside the carried-over wedge, so it must report
+        // the old pass's time rather than the volume's.
+        // The fixture carries a single gate spanning 2.125..2.375 km, so the sample point has
+        // to land inside it.
+        let west = -97.0 - 2.25 / (111.32 * (35.0f64).to_radians().cos());
+        let sample = binned.sample_at(west, 35.0).expect("a gate due west");
+        assert!((sample.azimuth_deg - 270.0).abs() < 1.0, "{sample:?}");
+        assert_eq!(sample.collected_ms, Some(1_000_000 + 540 * 20));
+    }
 
     /// The bucket carries a metadata-message sidecar next to the volumes. It parses as an
     /// identifier and sorts in among them, so nothing downstream notices it is not a volume.
@@ -1201,6 +1451,7 @@ mod tests {
             elevation_deg: 0.5,
             value_min: -32.0,
             value_max: 95.0,
+            ..Default::default()
         };
         // Write a known value into one gate: azimuth bin 180 (= 90 deg, due east), gate 100.
         let (want_az, want_gate) = (90.0_f64, 100usize);
@@ -1242,6 +1493,7 @@ mod tests {
             elevation_deg: 0.5,
             value_min: -127.0,
             value_max: 127.0,
+            ..Default::default()
         };
         sweep.data[1] = 1; // range folded, due north, gate 1
         let (lon, lat) = destination(-97.0, 35.0, 0.0, 1.5);
@@ -1271,6 +1523,7 @@ mod tests {
             elevation_deg: 0.5,
             value_min: -32.0,
             value_max: 95.0,
+            ..Default::default()
         };
         let (lon, lat) = destination(-97.0, 35.0, 45.0, 400.0);
         assert!(sweep.sample_at(lon, lat).is_none());
@@ -1291,6 +1544,7 @@ mod tests {
             elevation_deg: 0.5,
             value_min: -32.0,
             value_max: 95.0,
+            ..Default::default()
         };
         assert!(sweep.estimated_nyquist_mps().is_none());
     }
@@ -1311,6 +1565,7 @@ mod tests {
             elevation_deg: 0.5,
             value_min: -30.0,
             value_max: 30.0,
+            ..Default::default()
         };
         sweep.data[0] = 255; // decodes to +30.0
         sweep.data[1] = 2; // decodes to -30.0; |v| ties, must not double-count as 60
@@ -1339,6 +1594,7 @@ mod tests {
             elevation_deg: 0.5,
             value_min: -30.0,
             value_max: 30.0,
+            ..Default::default()
         };
         let mut dealiased = raw.clone();
         dealiased.data[100] = 253; // a different, unfolded reading at the same gate
@@ -1378,6 +1634,7 @@ mod tests {
             elevation_deg: 0.5,
             value_min: -32.0,
             value_max: 95.0,
+            ..Default::default()
         };
         let (lon, lat) = destination(-97.0, 35.0, 180.0, 0.5);
         let got = sweep.inspect(lon, lat, None).unwrap();

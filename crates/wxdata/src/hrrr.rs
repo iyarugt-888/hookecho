@@ -242,10 +242,13 @@ pub async fn fetch_field(
     fcst_hour: u8,
     min_valid: f64,
 ) -> anyhow::Result<HrrrForecast> {
-    let fh = fcst_hour.min(18);
     let now = Utc::now();
     let mut last_err = None;
     for run in recent_cycles(model, now) {
+        // The lead cap is a property of the run, not a constant: this was `.min(18)` for every
+        // model and every cycle, which silently truncated the NAM's 60 h nest and three quarters
+        // of HRRR's 00/06/12/18Z runs. `crate::model` holds the real schedule.
+        let fh = clamp_lead(model, run, fcst_hour);
         match fetch_run_field(http, model, run, fh, var, level, min_valid).await {
             Ok(field) => {
                 return Ok(HrrrForecast {
@@ -358,7 +361,6 @@ pub async fn fetch_fields_one_run_capped(
     specs: &[(&str, &str, f64)],
     max_dim: Option<usize>,
 ) -> anyhow::Result<(DateTime<Utc>, Vec<MrmsField>)> {
-    let fh = fcst_hour.min(18);
     // Owned up front: the concurrent stream below must not borrow `specs` across an await, or
     // the whole future stops being `Send` and the app can't spawn it.
     let owned_specs: Vec<(String, String, f64)> = specs
@@ -368,6 +370,7 @@ pub async fn fetch_fields_one_run_capped(
     let now = Utc::now();
     let mut last_err = None;
     for run in recent_cycles(model, now) {
+        let fh = clamp_lead(model, run, fcst_hour);
         let results: Vec<_> = futures_util::stream::iter(owned_specs.clone().into_iter().map(
             |(var, level, mv): (String, String, f64)| {
                 let http = http.clone();
@@ -570,6 +573,37 @@ fn merge_max(dst: &mut MrmsField, src: &MrmsField) {
     }
 }
 
+/// Longest lead this particular run publishes, from [`crate::model`]'s schedule.
+///
+/// `u8` because every caller's forecast hour is one; the schedule is in `u16` because the NBM
+/// runs to 264 h, which those callers cannot ask for anyway.
+fn clamp_lead(model: Model, run: DateTime<Utc>, fcst_hour: u8) -> u8 {
+    let max = model.max_lead_for_cycle(run.hour()).min(u8::MAX as u16) as u8;
+    fcst_hour.min(max)
+}
+
+/// The `.idx` sidecar for one model cycle and forecast hour — the catalogue of what that file
+/// actually contains. Exposed so [`crate::model`]'s contract test can ask the real feeds which
+/// fields a model publishes, rather than trusting a hand-written table.
+pub async fn fetch_idx(
+    http: &reqwest::Client,
+    model: Model,
+    run: DateTime<Utc>,
+    fh: u8,
+) -> anyhow::Result<String> {
+    let date = format!("{:04}{:02}{:02}", run.year(), run.month(), run.day());
+    let base = model.url(&date, run.hour(), fh);
+    Ok(http
+        .get(crate::net::fetch_url(&format!("{base}.idx")))
+        .timeout(crate::net::FEED_TIMEOUT)
+        .header("User-Agent", USER_AGENT)
+        .send()
+        .await?
+        .error_for_status()?
+        .text()
+        .await?)
+}
+
 async fn fetch_run_field(
     http: &reqwest::Client,
     model: Model,
@@ -582,16 +616,7 @@ async fn fetch_run_field(
     let date = format!("{:04}{:02}{:02}", run.year(), run.month(), run.day());
     let base = model.url(&date, run.hour(), fh);
 
-    // The .idx sidecar lists each message's start byte; find the one for this var+level.
-    let idx = http
-        .get(crate::net::fetch_url(&format!("{base}.idx")))
-        .timeout(crate::net::FEED_TIMEOUT)
-        .header("User-Agent", USER_AGENT)
-        .send()
-        .await?
-        .error_for_status()?
-        .text()
-        .await?;
+    let idx = fetch_idx(http, model, run, fh).await?;
     let (start, end) = field_byte_range(&idx, var, level)
         .ok_or_else(|| anyhow::anyhow!("no {var}:{level} in idx"))?;
 
