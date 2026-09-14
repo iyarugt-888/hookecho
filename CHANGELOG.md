@@ -8,6 +8,21 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: a decode-time reading in the Radar source-health popup (Phase B3)
+
+- Rounds out the latency dashboard's local half: `wxdata::live::Update` now carries `decode_time`,
+  the wall clock the last live-stream sweep spent assembling and merging on this client — as
+  opposed to `last_live_arrival`'s provider-side half (how stale the data already was on arrival).
+  Shown as a "Decode time" line in the same Radar health popup as provider lag and stream retries,
+  with its own millisecond-precision formatter (`humanize`'s whole-second rounding would show "0s"
+  for every normal decode, which is useless).
+- Unit-tested (`decode_time_detail`/`format_millis`). Confirmed the app runs correctly end to end
+  with the new field threaded through and doesn't regress anything, but did not see the popup line
+  itself render live this round: the status button that opens this popup (`active_row` in
+  `layers_panel.rs`) only appears once a source is *not* Fresh, by design — a healthy KTLX feed,
+  which is what was available to test against, has nothing to click. Verifying the rendered line
+  needs either a genuinely degraded feed or a from-code way to force one, neither available here.
+
 ### Added: a live-stream retry count in the Radar source-health popup (Phase B3)
 
 - The chunk stream already retried a hiccupped fetch in place (S3 blip, laptop lid, Wi-Fi

@@ -2028,6 +2028,8 @@ enum DataMsg {
         /// Chunk fetch retries since this stream connection started — see
         /// `wxdata::live::Update::retries`.
         retries: u32,
+        /// See `wxdata::live::Update::decode_time`.
+        decode_time: std::time::Duration,
     },
     /// The live stream for `view` ended (error or clean exit); polling resumes.
     LiveEnded {
@@ -9974,6 +9976,7 @@ impl HookEchoApp {
                     scan,
                     changed,
                     retries,
+                    decode_time,
                     ..
                 } => {
                     let v = &mut self.views[view];
@@ -9989,6 +9992,7 @@ impl HookEchoApp {
                     // reading (for whichever sweep comes next) replaces it.
                     v.live_progress = None;
                     v.live_retries = retries;
+                    v.last_decode_time = Some(decode_time);
                     v.loading = false;
                     v.error = None;
                     v.clamp_tilt();
@@ -10120,6 +10124,7 @@ impl HookEchoApp {
                             scan: u.scan,
                             changed: u.changed,
                             retries: u.retries,
+                            decode_time: u.decode_time,
                         });
                         cb_ctx.request_repaint();
                     }),

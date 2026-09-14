@@ -343,6 +343,11 @@ pub struct MapView {
     /// connection has a clean slate), not merely on a display change, so it answers "has this
     /// connection been flaky" rather than "was some earlier connection ever flaky."
     pub live_retries: u32,
+    /// Wall clock the last live-stream update spent assembling and merging — the local half of
+    /// live latency, alongside `last_live_arrival`'s provider-side half. See
+    /// `wxdata::live::Update::decode_time`. Only ever set from a live-stream sweep merge, so it
+    /// stays meaningful (not zeroed by an unrelated redraw) between updates.
+    pub last_decode_time: Option<std::time::Duration>,
     /// National field layers drawn in this pane. Per-pane rather than app-wide: two panes is how
     /// you compare two fields, and the model-difference layer would rather be a pair of panes
     /// than a subtraction. The grids themselves stay in one shared cache — only the choice of
@@ -385,6 +390,7 @@ impl MapView {
             last_live_arrival: None,
             live_progress: None,
             live_retries: 0,
+            last_decode_time: None,
             fields_on: Default::default(),
             moments_seen: [false; Moment::ALL.len()],
         }

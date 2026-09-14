@@ -55,6 +55,10 @@ pub struct Update {
     /// perfectly healthy connection; a rising count on an otherwise-working stream is a sign of a
     /// flaky network, surfaced so that isn't invisible the way it was before this field existed.
     pub retries: u32,
+    /// Wall clock spent assembling and merging this update — the local half of live latency, as
+    /// opposed to the provider's own ingest lag (how stale the data already was on arrival). See
+    /// [`emit`]'s own comment for exactly what this does and doesn't include.
+    pub decode_time: std::time::Duration,
 }
 
 /// Stream live chunks for `site`, starting from `base` (the last polled volume), calling
@@ -293,6 +297,11 @@ async fn emit<F: FnMut(Update)>(
     retries: u32,
     on_update: &mut F,
 ) {
+    // Wall clock around assembly + merge — on native that's real CPU time (off the async worker,
+    // see below); on the web it also includes the postMessage round trip to the decode worker, so
+    // either way this is an honest answer to "how long did the app wait for usable data," not a
+    // narrower "CPU time spent decoding" that would understate the web's actual latency.
+    let started = crate::clock::Instant::now();
     // Re-assembling every accumulated chunk at each sweep boundary is the heaviest CPU on this
     // task; `block_in_place` moves it off the async worker so chunk polling and every other
     // fetch on that thread keep running. (Requires the multi-threaded runtime, which is what the
@@ -339,6 +348,7 @@ async fn emit<F: FnMut(Update)>(
         scan: Arc::clone(merged),
         changed,
         retries,
+        decode_time: started.elapsed(),
     });
 }
 

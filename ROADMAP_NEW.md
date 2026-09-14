@@ -384,16 +384,25 @@ could use for that, deliberately scoped down because incremental polar-texture r
 tighter render-loop iteration cycle than was available here. Don't read the checked items as the
 section being done.
 
-## B3. Latency dashboard
+## B3. Latency dashboard — mostly done
 
 Add a compact source/latency diagnostic:
 
-- beam/radial timestamp where available
-- current wall-clock difference
+- beam/radial timestamp where available — **done**, at the per-gate granularity that's actually
+  useful (not per-radial, which arrive within about a second of each other within a sweep and
+  wouldn't earn their own reading): the Gate inspector's (B4) "Sweep time" is the wall-clock span
+  the clicked gate's sweep was collected over, aggregated across every pass at that elevation so a
+  repeated SAILS/MRLE cut reports its full span.
+- current wall-clock difference — **done**, predates this phase: the scrubber's "Scan ⟨n⟩ ago"
+  readout, now driven by `Timeline::newest()` (see the "latest complete volume age" entry below).
 - provider ingest delay — **done**: `View::last_live_arrival` records `(received_at, valid_time)`
   at every live-poll and live-stream arrival (never an archive scrub or a loop's replayed frame);
   the Radar row's health popup (Layers panel) shows it as "Provider lag". Verified live.
-- decode/render delay
+- decode/render delay — **done**: `wxdata::live::Update::decode_time` measures the wall clock spent
+  assembling and merging each live-stream sweep, shown as "Decode time" in the same health popup.
+  Unit-tested; not seen rendering live this round because the popup's trigger only appears for a
+  source that isn't Fresh (`active_row` in `layers_panel.rs`) and nothing available here was
+  unhealthy — see CHANGELOG for the honest caveat.
 - latest complete volume age — **done** via B2-adjacent work: `Timeline::newest()` (added while
   fixing the LIVE badge, see Unreleased/CHANGELOG) is the site's own newest known frame,
   independent of what a rolling loop is currently displaying; the badge, its age readout, and

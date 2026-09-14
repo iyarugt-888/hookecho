@@ -66,6 +66,26 @@ fn retry_detail(retries: u32) -> Option<(&'static str, String)> {
     })
 }
 
+/// The local half of live latency, alongside `ingest_lag_detail`'s provider-side half: how long
+/// the last live-stream sweep spent assembling and merging on this client, once one has actually
+/// landed. `None` before the first live-stream update (as opposed to an interval poll, which
+/// doesn't measure this) arrives.
+fn decode_time_detail(last: Option<std::time::Duration>) -> Option<(&'static str, String)> {
+    last.map(|d| ("Decode time", format_millis(d)))
+}
+
+/// Sub-second precision below 1s (decode times are normally tens to low hundreds of ms, where
+/// `humanize`'s whole-second granularity would round everything down to a useless "0s"); whole
+/// tenths of a second above that, since a decode slow enough to reach a second is already
+/// noteworthy without needing millisecond precision on top.
+fn format_millis(d: std::time::Duration) -> String {
+    if d < std::time::Duration::from_secs(1) {
+        format!("{}ms", d.as_millis())
+    } else {
+        format!("{:.1}s", d.as_secs_f64())
+    }
+}
+
 impl HookEchoApp {
     fn request_health(&self, lane: RequestLane) -> SourceHealth {
         self.overlay_requests
@@ -87,6 +107,7 @@ impl HookEchoApp {
         // replayed frame, only a genuine live arrival — see `last_live_arrival`'s own doc comment.
         let details = [
             ingest_lag_detail(v.last_live_arrival),
+            decode_time_detail(v.last_decode_time),
             retry_detail(v.live_retries),
         ]
         .into_iter()
@@ -1206,7 +1227,7 @@ impl HookEchoApp {
 
 #[cfg(test)]
 mod tests {
-    use super::{field_layer_is_health_tracked, ingest_lag_detail, retry_detail};
+    use super::{decode_time_detail, field_layer_is_health_tracked, ingest_lag_detail, retry_detail};
 
     /// Every MRMS catalog product must be health-tracked without being named here — that is the
     /// whole point of checking `descriptor().is_some()` first. A product added to the catalog
@@ -1274,5 +1295,28 @@ mod tests {
         assert_eq!(value, "1 chunk fetch retry");
         let (_, value) = retry_detail(3).unwrap();
         assert_eq!(value, "3 chunk fetch retries");
+    }
+
+    #[test]
+    fn no_live_stream_update_yet_means_no_decode_detail() {
+        assert!(decode_time_detail(None).is_none());
+    }
+
+    /// Sub-second decode times are the normal case and need millisecond precision — `humanize`'s
+    /// whole-second rounding would show "0s" for all of them, which is why this has its own
+    /// formatter rather than reusing that one.
+    #[test]
+    fn a_sub_second_decode_shows_milliseconds() {
+        let (label, value) =
+            decode_time_detail(Some(std::time::Duration::from_millis(120))).unwrap();
+        assert_eq!(label, "Decode time");
+        assert_eq!(value, "120ms");
+    }
+
+    #[test]
+    fn a_decode_at_or_past_one_second_shows_tenths() {
+        let (_, value) =
+            decode_time_detail(Some(std::time::Duration::from_millis(1_500))).unwrap();
+        assert_eq!(value, "1.5s");
     }
 }
