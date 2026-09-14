@@ -11098,8 +11098,19 @@ impl HookEchoApp {
         }
         let name = vol.name.clone();
         let scan = Arc::clone(&vol.scan);
-        let threshold = self.views[idx].active_threshold();
         let (value_min, value_max) = moment.value_range();
+        // CC anomaly replaces the floor for correlation coefficient rather than stacking with it.
+        // Leaving both live would be self-defeating: the floor's whole effect on CC is to discard
+        // the low values the anomaly ramp exists to bring forward, so a user who turned anomaly
+        // on would still lose the debris to a threshold set for a different moment's logic.
+        let cc_anomaly = self.views[idx].map_3d.cc_anomaly;
+        let cc_on = moment == Moment::CorrelationCoefficient && cc_anomaly.enabled;
+        let cc = if cc_on {
+            crate::render3d::cc_anomaly_uniform(cc_anomaly, (value_min, value_max), false)
+        } else {
+            [0.0; 4]
+        };
+        let threshold = self.views[idx].active_threshold().filter(|_| !cc_on);
         let threshold_idx = threshold.map_or(2.0, |value| {
             (2.0 + (value - value_min) / (value_max - value_min).max(f32::EPSILON) * 253.0)
                 .clamp(2.0, 255.0)
@@ -11123,7 +11134,7 @@ impl HookEchoApp {
         {
             *slot = *elev;
         }
-        let mut controls = [0u32; 8 + MAX_HIGHLIGHTED_LAYERS];
+        let mut controls = [0u32; 12 + MAX_HIGHLIGHTED_LAYERS];
         controls[0] = self.views[idx].map_3d.vertical_exaggeration.to_bits();
         controls[1] = self.views[idx].map_3d.opacity.to_bits();
         controls[2] = threshold_idx.to_bits();
@@ -11134,7 +11145,14 @@ impl HookEchoApp {
         // is in the buffer, not just the ones present when 3D was first enabled.
         controls[6] = scan.sweeps().len() as u32;
         controls[7] = fill_gaps as u32;
-        for (slot, elev) in controls[8..].iter_mut().zip(highlight_elevs.iter()) {
+        // The uniform only reaches the GPU alongside a fresh instance buffer, so anything that
+        // lives in it has to be part of the rebuild identity or moving the control silently does
+        // nothing. That is why `threshold_idx` and friends are already here, and why the CC ramp
+        // has to join them.
+        for (slot, v) in controls[8..12].iter_mut().zip(cc.iter()) {
+            *slot = v.to_bits();
+        }
+        for (slot, elev) in controls[12..].iter_mut().zip(highlight_elevs.iter()) {
             *slot = elev.to_bits();
         }
         let palette_gen = self.palettes.gen.wrapping_add(
@@ -11210,24 +11228,23 @@ impl HookEchoApp {
             observed.gates.len(),
             observed.gate_stride
         );
-        // One trailing pad float beyond the 11 fixed fields + 8 highlight slots: some downlevel
-        // backends (mobile GLES via ANGLE) reject a uniform binding whose declared type isn't a
-        // multiple of 16 bytes, and 19 scalar f32s is 76 — see `radar_observed.wgsl`'s `Radar3d`.
-        let mut uniform = [0.0f32; 12 + MAX_HIGHLIGHTED_LAYERS];
-        uniform[..11].copy_from_slice(&[
-            observed.radar_lat,
-            observed.radar_lon,
-            antenna_altitude_m,
-            self.views[idx].map_3d.vertical_exaggeration,
-            self.views[idx].map_3d.opacity,
-            threshold_idx,
-            Camera::world_units_per_metre(observed.radar_lat as f64) as f32,
-            srv,
-            motion_e,
-            motion_n,
-            observed.min_elevation_deg,
-        ]);
-        uniform[11..11 + MAX_HIGHLIGHTED_LAYERS].copy_from_slice(&highlight_elevs);
+        let uniform = observed_uniform(
+            [
+                observed.radar_lat,
+                observed.radar_lon,
+                antenna_altitude_m,
+                self.views[idx].map_3d.vertical_exaggeration,
+                self.views[idx].map_3d.opacity,
+                threshold_idx,
+                Camera::world_units_per_metre(observed.radar_lat as f64) as f32,
+                srv,
+                motion_e,
+                motion_n,
+                observed.min_elevation_deg,
+            ],
+            cc,
+            highlight_elevs,
+        );
         self.views[idx].map_3d.observed_key = Some(key);
         (
             Some(ObservedSweepUpload {
@@ -11389,10 +11406,22 @@ impl HookEchoApp {
             }
             _ => 2.0,
         };
+        // Debris is the CC representation, so it gets the anomaly ramp. `inverted: true` because
+        // the volume it raymarches has already had its indices flipped (`invert_in_place`) — the
+        // ramp has to run the other way round in that space to still mean "low CC draws solid".
+        let cc = match state.representation {
+            Map3dRepresentation::SmoothDebris => crate::render3d::cc_anomaly_uniform(
+                state.cc_anomaly,
+                resample_moment.value_range(),
+                true,
+            ),
+            _ => [0.0; 4],
+        };
         let view = crate::render3d::View3d {
             threshold_idx,
             clip: state.clip,
             plane: state.plane,
+            cc,
         };
         // Same visual-guard clamp as the standalone 3D Reflectivity window: a phone under thermal
         // or battery pressure gets the coarsest march regardless of what quality was chosen.
@@ -11558,7 +11587,14 @@ impl HookEchoApp {
                                     );
                                 }
                             });
-                            {
+                            if moment == Moment::CorrelationCoefficient {
+                                // CC gets the anomaly ramp instead of a floor — see `CcAnomaly`.
+                                // The pane's 2D threshold is untouched and still editable under
+                                // "Product settings"; it just stops applying to this 3D view,
+                                // because a floor and an anomaly ramp disagree about which end of
+                                // the CC scale is worth showing.
+                                map_3d_cc_anomaly_controls(ui, &mut view.map_3d.cc_anomaly);
+                            } else {
                                 // Same `threshold_enabled`/`thresholds` the 2D "Product settings"
                                 // Threshold control edits — one gate, so turning it on here also
                                 // denoises the flat 2D view and vice versa, rather than a second
@@ -11716,6 +11752,9 @@ impl HookEchoApp {
                             }
                         } else {
                             ui.weak("Vertical and Opacity above shape the resampled volume.");
+                            if view.map_3d.representation == Map3dRepresentation::SmoothDebris {
+                                map_3d_cc_anomaly_controls(ui, &mut view.map_3d.cc_anomaly);
+                            }
                             // `SmoothDebris`'s inverted-CC volume has no floor of its own here —
                             // low CC is the interesting case there, not high — so only the two
                             // plain "high is interesting" representations get a Denoise row, each
@@ -16797,6 +16836,83 @@ fn map_3d_axis_slice(ui: &mut egui::Ui, label: &str, lo: &mut f32, hi: &mut f32)
     // Keep the pair ordered so an inverted drag empties the view instead of inverting the slab.
     if *lo > *hi {
         std::mem::swap(lo, hi);
+    }
+}
+
+/// Pack `radar_observed.wgsl`'s `Radar3d` uniform: eleven fixed scalars, the four CC-anomaly
+/// slots, the highlighted-elevation slots, and one trailing pad float. Some downlevel backends
+/// (mobile GLES via ANGLE) reject a uniform binding whose declared type isn't a multiple of 16
+/// bytes, and 23 scalar f32s is 92 — hence the pad.
+///
+/// A free function rather than inline packing so a GPU test can drive exactly the layout the app
+/// ships. Hand-writing the same offsets in a test would only prove the test agrees with itself.
+pub(crate) fn observed_uniform(
+    fixed: [f32; 11],
+    cc: [f32; 4],
+    highlight_elevs: [f32; MAX_HIGHLIGHTED_LAYERS],
+) -> crate::render::ObservedUniform {
+    let mut uniform: crate::render::ObservedUniform = [0.0; _];
+    uniform[..11].copy_from_slice(&fixed);
+    uniform[11..15].copy_from_slice(&cc);
+    uniform[15..15 + MAX_HIGHLIGHTED_LAYERS].copy_from_slice(&highlight_elevs);
+    uniform
+}
+
+/// The CC-anomaly row, shared by the Observed (correlation coefficient) and Debris 3D modes so
+/// the two cannot drift into describing the same thing differently.
+///
+/// The thresholds are all user-set on purpose. The defaults are a reasonable starting point for
+/// a warm-season CONUS debris hunt and nothing more — CC backgrounds move with the radar, the
+/// beam's distance, the precipitation type and the season, so anything presented here as a fixed
+/// meteorological constant would be wrong somewhere.
+fn map_3d_cc_anomaly_controls(ui: &mut egui::Ui, a: &mut crate::view::CcAnomaly) {
+    ui.horizontal(|ui| {
+        ui.checkbox(&mut a.enabled, "CC anomaly").on_hover_text(
+            "Fade ordinary high-CC precipitation toward transparent and make low CC \
+             progressively more solid, so lofted debris, clutter and other non-meteorological \
+             returns stand out of the storm around them. The opposite of a denoise floor, which \
+             for CC would hide exactly those.",
+        );
+        if !a.enabled {
+            return;
+        }
+        if ui
+            .small_button("Reset")
+            .on_hover_text("Back to 0.97 / 0.80")
+            .clicked()
+        {
+            *a = crate::view::CcAnomaly::default();
+        }
+    });
+    if !a.enabled {
+        return;
+    }
+    ui.add(
+        egui::Slider::new(&mut a.clear_cc, 0.80..=1.0)
+            .text("Clear above")
+            .custom_formatter(|v, _| format!("{v:.3}")),
+    )
+    .on_hover_text("CC at or above this draws faintest — the background scatter edge");
+    ui.add(
+        egui::Slider::new(&mut a.opaque_cc, 0.0..=0.99)
+            .text("Solid below")
+            .custom_formatter(|v, _| format!("{v:.3}")),
+    )
+    .on_hover_text("CC at or below this draws at full strength");
+    ui.add(
+        egui::Slider::new(&mut a.faintest, 0.0..=0.5)
+            .text("Faintest")
+            .custom_formatter(|v, _| format!("{v:.2}")),
+    )
+    .on_hover_text(
+        "How visible the background stays. Zero removes it entirely; a little left keeps the \
+         storm as context around the anomaly.",
+    );
+    // Ordering here rather than clamping each slider against the other: mutually-constrained
+    // sliders feel stuck, and `cc_anomaly_uniform` already orders the pair before it builds the
+    // ramp, so a crossed pair is only ever a display question.
+    if a.opaque_cc > a.clear_cc {
+        std::mem::swap(&mut a.opaque_cc, &mut a.clear_cc);
     }
 }
 

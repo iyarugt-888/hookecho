@@ -18,6 +18,9 @@ pub struct Uniforms {
     /// See `shaders/raymarch.wgsl`'s own field of the same name: xy a world-space unit normal, z
     /// the signed distance along it, w whether the plane is active at all.
     plane: [f32; 4],
+    /// CC-anomaly opacity ramp: `[clear_idx, full_idx, faintest, enabled]`. See
+    /// [`cc_anomaly_uniform`]; all-zero means off, which is what every non-CC volume passes.
+    cc: [f32; 4],
 }
 
 /// A new volume grid to upload: `data` is `n×n×nz` R8 indices, `lut` a 256-entry RGBA table.
@@ -61,6 +64,8 @@ pub struct View3d {
     pub clip: [f32; 6],
     /// `None` disables the plane clip entirely (the common case).
     pub plane: Option<VerticalPlane>,
+    /// CC-anomaly ramp from [`cc_anomaly_uniform`], or all-zero for the volumes that aren't CC.
+    pub cc: [f32; 4],
 }
 
 impl Default for View3d {
@@ -69,6 +74,7 @@ impl Default for View3d {
             threshold_idx: 2.0,
             clip: [0.0, 1.0, 0.0, 1.0, 0.0, 1.0],
             plane: None,
+            cc: [0.0; 4],
         }
     }
 }
@@ -118,6 +124,7 @@ pub fn orbit_uniform(
         clip_min: [v3.clip[0], v3.clip[2], v3.clip[4], 0.0],
         clip_max: [v3.clip[1], v3.clip[3], v3.clip[5], 0.0],
         plane: plane_uniform(v3.plane, BOX_MIN, BOX_MAX),
+        cc: v3.cc,
     }
 }
 
@@ -167,6 +174,7 @@ pub fn map_uniform(
         clip_min: [view.clip[0], view.clip[2], view.clip[4], 0.0],
         clip_max: [view.clip[1], view.clip[3], view.clip[5], 0.0],
         plane: plane_uniform(view.plane, box_min, box_max),
+        cc: view.cc,
     }
 }
 
@@ -176,6 +184,37 @@ pub fn threshold_index(dbz: f32, range: (f32, f32)) -> f32 {
     let (lo, hi) = range;
     let span = (hi - lo).max(f32::EPSILON);
     (2.0 + ((dbz - lo) / span) * 253.0).clamp(2.0, 255.0)
+}
+
+/// The `cc` uniform both 3D shaders read: `[clear_idx, full_idx, faintest, enabled]`.
+///
+/// The ramp is expressed as two palette indices *in whatever index space the shader samples*,
+/// rather than as CC values plus a direction flag. That matters because `SmoothDebris` raymarches
+/// an inverted volume ([`wxdata::volume3d::invert_in_place`]), where low CC is a *high* index —
+/// so its ramp runs the opposite way round from the observed path's. Handing the shader the two
+/// endpoints lets one `(idx - clear) / (full - clear)` serve both: the division is signed, so the
+/// direction is carried by the endpoints themselves and neither shader needs to know which volume
+/// it is looking at.
+pub fn cc_anomaly_uniform(
+    anomaly: crate::view::CcAnomaly,
+    range: (f32, f32),
+    inverted: bool,
+) -> [f32; 4] {
+    if !anomaly.enabled {
+        return [0.0, 0.0, 0.0, 0.0];
+    }
+    // The sliders are independent, so nothing stops the clear edge being dragged below the opaque
+    // one. Ordering them here (rather than constraining the widgets against each other, which
+    // makes both feel sticky) keeps the ramp pointing the right way whatever the user does.
+    let opaque = anomaly.opaque_cc.min(anomaly.clear_cc);
+    let clear = anomaly.clear_cc.max(opaque + crate::view::MIN_CC_SPAN);
+    let flip = |i: f32| if inverted { 257.0 - i } else { i };
+    [
+        flip(threshold_index(clear, range)),
+        flip(threshold_index(opaque, range)),
+        anomaly.faintest.clamp(0.0, 1.0),
+        1.0,
+    ]
 }
 
 struct Gpu {
@@ -768,6 +807,119 @@ impl egui_wgpu::CallbackTrait for MapVolume3dCallback {
         if let Some(res) = resources.get::<MapVolume3dResources>() {
             res.record_for_pane(self.pane as usize, pass);
         }
+    }
+}
+
+#[cfg(test)]
+mod cc_anomaly_tests {
+    use super::cc_anomaly_uniform;
+    use crate::view::CcAnomaly;
+
+    /// Correlation coefficient's palette range (`Moment::CorrelationCoefficient::value_range`),
+    /// which is what both 3D paths bin CC against.
+    const CC: (f32, f32) = (0.0, 1.05);
+
+    /// Mirror of the smoothstep both shaders apply, so the table in `CcAnomaly`'s doc comment can
+    /// be checked against the real numbers rather than asserted by eye.
+    fn alpha_at(cc_value: f32, a: CcAnomaly, inverted: bool) -> f32 {
+        let [clear, full, faintest, on] = cc_anomaly_uniform(a, CC, inverted);
+        if on < 0.5 {
+            return 1.0;
+        }
+        let mut idx = super::threshold_index(cc_value, CC);
+        if inverted {
+            idx = 257.0 - idx;
+        }
+        let t = ((idx - clear) / (full - clear)).clamp(0.0, 1.0);
+        faintest + (1.0 - faintest) * t * t * (3.0 - 2.0 * t)
+    }
+
+    /// The whole point of the mode: opacity must fall as CC rises. A regression that flipped this
+    /// would restore precisely the behaviour it replaced — background rain solid, debris hidden.
+    #[test]
+    fn opacity_decreases_as_correlation_rises() {
+        let a = CcAnomaly::default();
+        let mut previous = f32::INFINITY;
+        for step in 0..=40 {
+            let cc = 0.60 + step as f32 * 0.01;
+            let alpha = alpha_at(cc, a, false);
+            assert!(
+                alpha <= previous + 1e-6,
+                "alpha rose at CC {cc:.2}: {alpha} after {previous}"
+            );
+            previous = alpha;
+        }
+    }
+
+    /// The tiers `CcAnomaly` documents, as numbers. Not meteorological claims — just the promise
+    /// that the defaults land where the doc comment says they do.
+    #[test]
+    fn the_default_ramp_matches_its_documented_tiers() {
+        let a = CcAnomaly::default();
+        let at = |cc| alpha_at(cc, a, false);
+        assert!(at(0.99) <= 0.06, "background should be nearly transparent");
+        assert!((0.03..0.15).contains(&at(0.96)), "0.95-0.97 should be faint");
+        assert!((0.15..0.45).contains(&at(0.92)), "0.90-0.95 should be visible");
+        assert!((0.55..0.95).contains(&at(0.85)), "0.80-0.90 should be strong");
+        assert!(at(0.70) >= 0.99, "below the solid edge should be full strength");
+    }
+
+    /// The debris volume is raymarched with its indices flipped, so its ramp has to run the other
+    /// way round to still mean the same thing. Both paths must agree on the alpha for a given CC,
+    /// or the same storm reads differently depending on which 3D mode is open.
+    #[test]
+    fn the_inverted_debris_volume_gets_the_same_alpha_for_the_same_cc() {
+        let a = CcAnomaly::default();
+        for step in 0..=17 {
+            let cc = 0.80 + step as f32 * 0.01;
+            let (plain, debris) = (alpha_at(cc, a, false), alpha_at(cc, a, true));
+            assert!(
+                (plain - debris).abs() < 0.02,
+                "CC {cc:.2}: observed {plain} vs debris {debris}"
+            );
+        }
+        // And the endpoints really are swapped in index space, which is what makes that work.
+        let [clear_p, full_p, ..] = cc_anomaly_uniform(a, CC, false);
+        let [clear_i, full_i, ..] = cc_anomaly_uniform(a, CC, true);
+        assert!(clear_p > full_p, "plain: high CC is the high index");
+        assert!(clear_i < full_i, "inverted: high CC is the low index");
+    }
+
+    /// Dragging both edges together would divide by zero in the shader. A hard step is a fine
+    /// thing to ask for; a NaN alpha is not.
+    #[test]
+    fn collapsing_the_two_edges_still_gives_a_usable_ramp() {
+        let a = CcAnomaly {
+            clear_cc: 0.90,
+            opaque_cc: 0.90,
+            ..CcAnomaly::default()
+        };
+        let [clear, full, ..] = cc_anomaly_uniform(a, CC, false);
+        assert!((clear - full).abs() > f32::EPSILON, "span collapsed to zero");
+        assert!(alpha_at(0.95, a, false).is_finite());
+        assert!(alpha_at(0.85, a, false) > alpha_at(0.95, a, false));
+    }
+
+    /// A crossed pair (solid edge dragged above the clear edge) must not invert the ramp — that
+    /// would make high CC solid, which is the bug this whole mode exists to fix.
+    #[test]
+    fn a_crossed_pair_does_not_flip_the_ramp() {
+        let a = CcAnomaly {
+            clear_cc: 0.85,
+            opaque_cc: 0.95,
+            ..CcAnomaly::default()
+        };
+        assert!(alpha_at(0.70, a, false) > alpha_at(0.99, a, false));
+    }
+
+    /// Disabled must be inert, since that same all-zero value is what every non-CC volume passes.
+    #[test]
+    fn disabled_is_all_zero() {
+        let a = CcAnomaly {
+            enabled: false,
+            ..CcAnomaly::default()
+        };
+        assert_eq!(cc_anomaly_uniform(a, CC, false), [0.0; 4]);
     }
 }
 

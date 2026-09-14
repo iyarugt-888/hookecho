@@ -3460,6 +3460,162 @@ mod golden_tests {
         }
     }
 
+    /// CC anomaly has to reach the framebuffer, and it has to reach it the right way round.
+    ///
+    /// The ramp maths is unit-tested in `render3d`, but that test mirrors the shader's formula in
+    /// Rust — it cannot see the two things that actually break here: the four CC slots landing at
+    /// the wrong offsets in `Radar3d` (the shader would then read an elevation angle as an
+    /// opacity), and the ramp running backwards, which would make ordinary rain solid and hide
+    /// the debris. Both are invisible to every CPU-side test and obvious in a rendered frame.
+    ///
+    /// Run with `HOOKECHO_GPU_FALLBACK=1 cargo test -p hookecho -- --ignored gpu`.
+    #[test]
+    #[ignore = "gpu"]
+    fn cc_anomaly_fades_high_correlation_and_keeps_low() {
+        use crate::render::ObservedGateInstance;
+        use crate::view::{CcAnomaly, MAX_HIGHLIGHTED_LAYERS};
+
+        let (radar_lon, radar_lat) = (-97.0f32, 35.0f32);
+        let range = Moment::CorrelationCoefficient.value_range();
+        let index_of = |cc: f32| crate::render3d::threshold_index(cc, range);
+        // Two wedges of gates at the same elevation and range, differing only in CC: ordinary
+        // meteorological scatter to the east, a debris-like low-CC pocket to the west.
+        let mut instances = Vec::new();
+        for (az0, cc) in [(60.0f32, 0.995f32), (240.0, 0.75)] {
+            for k in 0..60 {
+                for g in 0..40 {
+                    instances.push(ObservedGateInstance {
+                        polar: [az0 + k as f32, 1.2, 8.0 + g as f32 * 1.0, 1.0],
+                        data: [0.5, index_of(cc), g as f32, 0.0],
+                    });
+                }
+            }
+        }
+        // A flat opaque LUT, so every difference between the two renders is the anomaly ramp and
+        // not the CC palette's own alpha or color ramp.
+        let lut: Vec<u8> = (0..256).flat_map(|_| [255u8, 255, 255, 255]).collect();
+
+        let camera = Camera::at_lonlat(radar_lon as f64, radar_lat as f64, 8.0);
+        let (center, scale) =
+            camera.world_to_clip_uniform((GOLDEN_SIZE as f32, GOLDEN_SIZE as f32));
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let Ok((device, queue, _adapter)) = init_gpu(&rt) else {
+            println!("SKIP: no wgpu adapter");
+            return;
+        };
+        let format = wgpu::TextureFormat::Rgba8UnormSrgb;
+        let mut res = RenderResources::new(&device, format);
+        let target = new_target(&device, format, GOLDEN_SIZE);
+        let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let mut render = |cc: [f32; 4]| {
+            // The same packer the app ships, so a slot moving in one moves in both.
+            let uniform = crate::app::observed_uniform(
+                [
+                    radar_lat,
+                    radar_lon,
+                    0.0,
+                    1.0,  // vertical exaggeration
+                    1.0,  // opacity
+                    2.0,  // threshold index: draw everything
+                    Camera::world_units_per_metre(radar_lat as f64) as f32,
+                    0.0,  // srv off
+                    0.0,
+                    0.0,
+                    0.5, // min elevation
+                ],
+                cc,
+                [f32::NEG_INFINITY; MAX_HIGHLIGHTED_LAYERS],
+            );
+            let cb = MapCallback {
+                pane: 0,
+                camera_center: center,
+                camera_scale: scale,
+                world_per_pixel: camera.world_per_pixel() as f32,
+                camera_view_proj: camera
+                    .view_projection_uniform((GOLDEN_SIZE as f32, GOLDEN_SIZE as f32)),
+                camera_3d: 1.0,
+                basemap_key: 0,
+                vector_over_raster: false,
+                new_tiles: Vec::new(),
+                visible: Vec::new(),
+                radar_upload: None,
+                draw_radar: false,
+                observed_upload: Some(crate::render::ObservedSweepUpload {
+                    instances: instances.clone(),
+                    uniform,
+                    lut: lut.clone(),
+                }),
+                draw_observed: true,
+                overlay_upload: None,
+                draw_overlay: false,
+                field_uploads: Vec::new(),
+                field_draws: Vec::new(),
+                clear_tiles: false,
+                drop_tiles: Vec::new(),
+                drop_fields: Vec::new(),
+                new_vector_tiles: Vec::new(),
+                visible_vector: Vec::new(),
+                clear_vector: false,
+                drop_vector_tiles: Vec::new(),
+                wind_upload: None,
+                wind: None,
+            };
+            res.render_once(&device, &queue, &view, &cb, wgpu::Color::BLACK);
+            read_target(&device, &queue, &target, GOLDEN_SIZE)
+        };
+
+        // Against a black clear color, a pixel's brightness is the alpha the shader produced.
+        let off = render([0.0; 4]);
+        let on = render(crate::render3d::cc_anomaly_uniform(
+            CcAnomaly::default(),
+            range,
+            false,
+        ));
+        let n = GOLDEN_SIZE as usize;
+        let mean = |px: &[u8], east: bool| {
+            let (mut sum, mut count) = (0u64, 0u64);
+            for y in 0..n {
+                for x in 0..n {
+                    if (x > n / 2) != east {
+                        continue;
+                    }
+                    let v = px[(y * n + x) * 4] as u64;
+                    if v > 0 {
+                        sum += v;
+                        count += 1;
+                    }
+                }
+            }
+            (sum as f64 / count.max(1) as f64, count)
+        };
+        let (high_off, high_n) = mean(&off, true);
+        let (low_off, low_n) = mean(&off, false);
+        let (high_on, _) = mean(&on, true);
+        let (low_on, _) = mean(&on, false);
+        assert!(
+            high_n > 500 && low_n > 500,
+            "both wedges must actually draw: {high_n} / {low_n} px"
+        );
+        // With the ramp off the two wedges are the same paint — only CC differs, and the flat LUT
+        // ignores it. If they already differ, this test is measuring something else.
+        assert!(
+            (high_off - low_off).abs() < 12.0,
+            "wedges differed before the ramp: {high_off} vs {low_off}"
+        );
+        assert!(
+            high_on < high_off * 0.35,
+            "high CC should fade hard: {high_off} -> {high_on}"
+        );
+        assert!(
+            low_on > low_off * 0.85,
+            "low CC should stay solid: {low_off} -> {low_on}"
+        );
+    }
+
     /// The generation mask has to survive all the way to the framebuffer, and it has to land on
     /// the right side of the display. A unit test on `previous_pass_arc` proves the arc is
     /// computed correctly; only a render proves the shader dims *that* wedge and not its mirror

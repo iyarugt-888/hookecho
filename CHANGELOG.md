@@ -8,6 +8,44 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Changed: CC in 3D is an anomaly view now, not a denoise floor
+
+The 3D controls were built around "high is interesting", which is true of every radar moment
+except the one where it matters most. Correlation coefficient's ordinary meteorological scatter —
+rain, snow, the entire storm — sits at CC ≈ 0.97–1.00, and the *interesting* returns are the low
+ones: lofted debris, ground clutter, biological targets, the mixed-phase edges of a hail core. A
+denoise floor applied to CC therefore hid precisely what someone opens a CC volume to find and
+kept the uniform high-CC rain that is never the answer. It was backwards.
+
+- **CC anomaly** replaces that floor. Opacity is now a continuous function of how anomalous the
+  CC is: background scatter fades almost out, and the lower the CC the more solid the voxel.
+  Conceptually — with the defaults, which are a starting point and not meteorological constants —
+  above 0.97 is nearly transparent, 0.95–0.97 faint, 0.90–0.95 visible, 0.80–0.90 strong, and
+  below 0.80 very strong.
+- **The thresholds are the user's.** Two edges ("Clear above", "Solid below") and a "Faintest"
+  control for how much background survives. CC backgrounds move with the radar, the range, the
+  precipitation type and the season, so nothing here is presented as a fixed number. The tiers
+  above are not coded as bands either — a smoothstep between the two edges reproduces that
+  progression continuously, which is fewer knobs and avoids painting hard contour shells onto a
+  volume.
+- **Debris mode gets it too.** That mode raymarches a CC volume with its indices inverted, so its
+  ramp has to run the opposite way round to mean the same thing; the shared uniform carries the
+  two endpoints rather than a direction flag, and a test asserts both paths produce the same
+  opacity for the same CC. Debris previously had no opacity control of its own at all.
+- "Faintest" defaults to 0.05 rather than 0: "nearly transparent" and "deleted" are different
+  claims, and a trace of the surrounding precipitation is what lets a debris ball read as
+  embedded in a storm rather than floating in empty space. Set it to 0 to cut the background away.
+- Verified on a real GPU, and the test earned its keep immediately: rendering two wedges that
+  differ only in CC showed the high-CC one fading to under a third of its unramped brightness
+  while the low-CC one held above 85%, and writing it surfaced a crash that every CPU-side check
+  had missed — the observed bind-group layout still pinned the old 80-byte uniform size, so the
+  first 3D draw would have failed pipeline validation outright. That size is now derived from the
+  uniform's own type so the two cannot drift again. Then confirmed in the running app on live
+  KTLX, in both Observed (CC) and Debris.
+- The pane's 2D CC threshold is untouched and still lives under "Product settings"; it simply no
+  longer applies to the 3D view, because a floor and an anomaly ramp disagree about which end of
+  the CC scale is worth showing.
+
 ### Added: models are definitions now, and the catalogue is checked against the real feeds
 
 Phase F's acceptance criterion is that adding a model with an already-supported GRIB format

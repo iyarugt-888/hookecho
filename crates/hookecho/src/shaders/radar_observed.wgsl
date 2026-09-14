@@ -32,6 +32,13 @@ struct Radar3d {
     // alignment `_pad` below exists to satisfy — does not have to be renegotiated on the Rust
     // side for a value nothing here uses anymore.
     min_elevation_deg: f32,
+    // CC-anomaly opacity ramp: the palette index that draws faintest, the one that draws solid,
+    // that faintest multiplier, and whether this is active at all. Off (all zero) for every
+    // moment but correlation coefficient — see `fs_main`.
+    cc_clear_idx: f32,
+    cc_full_idx: f32,
+    cc_faintest: f32,
+    cc_on: f32,
     // Up to 8 tilts pulled out from the Layers list, or the sentinel (`NO_HIGHLIGHT`) in an
     // unused slot — see `beam_world` and `fs_main` for what it does to a gate on one of them.
     // Loose scalars rather than `array<f32,8>`: WGSL pads a real array to a 16-byte stride in the
@@ -44,10 +51,10 @@ struct Radar3d {
     highlight_5: f32,
     highlight_6: f32,
     highlight_7: f32,
-    // Pads the struct to 80 bytes. Some downlevel backends (mobile GLES via ANGLE, seen live on
+    // Pads the struct to 96 bytes. Some downlevel backends (mobile GLES via ANGLE, seen live on
     // Android Chrome) refuse a uniform buffer binding whose declared type isn't a multiple of 16
-    // bytes — 19 scalar f32 fields is 76, one short. Desktop Vulkan/Metal/DX12 never enforced
-    // this, which is how the 76-byte version shipped without the mismatch showing up here.
+    // bytes — 23 scalar f32 fields is 92, one short. Desktop Vulkan/Metal/DX12 never enforced
+    // this, which is how an unpadded version once shipped without the mismatch showing up here.
     _pad: f32,
 };
 
@@ -190,6 +197,18 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     // along their sweep, only the sweep itself changes what shows through.
     let height_fade = mix(1.0, 0.35, clamp(in.elevation / 19.5, 0.0, 1.0));
     var alpha = color.a * radar.opacity * height_fade;
+    // CC anomaly: for correlation coefficient the interesting gates are the *low* ones — lofted
+    // debris, clutter, biological targets — and a floor that hides everything below a cut keeps
+    // exactly the uniform high-CC rain nobody opened a CC volume to look at. Opacity instead
+    // falls off as CC approaches ordinary meteorological values, so the background thins to a
+    // trace and the anomaly is what's left standing. Multiplied here, unlike the raymarch's
+    // version: `color.a` is the palette's own alpha and `height_fade` is the per-tilt depth cue,
+    // and both remain meaningful independently of how anomalous this gate is.
+    if (radar.cc_on > 0.5) {
+        let t = clamp((idx - radar.cc_clear_idx) / (radar.cc_full_idx - radar.cc_clear_idx),
+                      0.0, 1.0);
+        alpha = alpha * (radar.cc_faintest + (1.0 - radar.cc_faintest) * t * t * (3.0 - 2.0 * t));
+    }
     // One or more layers are selected in the "Layers" list: fade every other tilt into the
     // background so the ones pulled out in `beam_world` also read as what's actually being
     // looked at.

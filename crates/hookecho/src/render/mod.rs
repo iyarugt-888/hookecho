@@ -70,15 +70,18 @@ pub struct ObservedGateInstance {
     pub data: [f32; 4],
 }
 
+/// `radar_observed.wgsl`'s `Radar3d` block: eleven radar/site and transfer-function scalars, four
+/// CC-anomaly slots, `crate::view::MAX_HIGHLIGHTED_LAYERS` highlighted-elevation slots, and one
+/// trailing pad float. The pad is load-bearing — some downlevel backends (mobile GLES via ANGLE
+/// among them) reject a uniform binding whose declared type isn't a multiple of 16 bytes, and
+/// 15 + 8 scalar f32 fields is 92, four short of 96.
+pub type ObservedUniform = [f32; 16 + crate::view::MAX_HIGHLIGHTED_LAYERS];
+
 /// Static observed-gate geometry uploaded only when volume/product/density changes.
 pub struct ObservedSweepUpload {
     pub instances: Vec<ObservedGateInstance>,
-    /// Radar/site, transfer-function and physical scaling controls, followed by
-    /// `crate::view::MAX_HIGHLIGHTED_LAYERS` highlighted-elevation slots and one trailing pad
-    /// float — `radar_observed.wgsl`'s `Radar3d` needs a total size that's a multiple of 16
-    /// bytes (some downlevel backends, mobile GLES via ANGLE among them, reject a uniform
-    /// binding whose type isn't; 11 + 8 scalar f32 fields is 76 bytes, one short of 80).
-    pub uniform: [f32; 12 + crate::view::MAX_HIGHLIGHTED_LAYERS],
+    /// See [`ObservedUniform`]. Built by `crate::app::observed_uniform`.
+    pub uniform: ObservedUniform,
     pub lut: Vec<u8>,
 }
 
@@ -682,10 +685,14 @@ impl RenderResources {
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
+                        // Derived from the uniform field's own type rather than restating its
+                        // length: the two got out of step once already, and the symptom is a
+                        // pipeline validation failure at first draw rather than a compile error.
+                        // Derived from the uniform's own type rather than restating its length:
+                        // the two got out of step once already, and the symptom is a pipeline
+                        // validation failure at first draw rather than a compile error.
                         min_binding_size: NonZeroU64::new(
-                            (std::mem::size_of::<f32>()
-                                * (12 + crate::view::MAX_HIGHLIGHTED_LAYERS))
-                                as u64,
+                            std::mem::size_of::<ObservedUniform>() as u64
                         ),
                     },
                     count: None,

@@ -25,6 +25,11 @@ struct Uniforms {
     // this is active at all (1.0) or ignored (0.0). A sample is kept only on the side the normal
     // points toward — see `fs_main`.
     plane: vec4<f32>,
+    // CC-anomaly opacity ramp: x the index that draws faintest, y the index that draws solid,
+    // z that faintest multiplier, w whether this is active at all. x and y are already in this
+    // volume's own index space — for the inverted debris volume x > y — so one signed ratio
+    // works without the shader knowing which volume it has.
+    cc: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -97,10 +102,25 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         discard;
     }
     let color = textureLoad(lut, vec2<i32>(i32(max_idx), 0), 0);
-    // Opacity ramps from the threshold, not from zero: with a 45 dBZ floor the surviving cores
-    // read solid instead of uniformly hazy.
-    let head = max(255.0 - f32(floor_idx), 1.0);
-    let alpha = clamp((f32(max_idx) - f32(floor_idx)) / head * 1.6 + 0.15, 0.0, 1.0)
-        * u.ctl.y;
+    var alpha: f32;
+    if (u.cc.w > 0.5) {
+        // CC anomaly: opacity is a function of how far this voxel's correlation coefficient sits
+        // below ordinary meteorological scatter, so the background storm fades out and the
+        // low-CC pocket inside it is what stays solid. This *replaces* the generic ramp below
+        // rather than scaling it — the two are competing opacity models, and multiplying them
+        // drove background CC to invisible instead of to the faint trace that keeps a debris
+        // ball legibly embedded in the storm around it.
+        let t = clamp((f32(max_idx) - u.cc.x) / (u.cc.y - u.cc.x), 0.0, 1.0);
+        // Smoothstep, not a linear ramp: it flattens at both ends, which is what makes the
+        // progression read as the intended tiers without banding the volume into hard shells.
+        let shaped = t * t * (3.0 - 2.0 * t);
+        alpha = (u.cc.z + (1.0 - u.cc.z) * shaped) * u.ctl.y;
+    } else {
+        // Opacity ramps from the threshold, not from zero: with a 45 dBZ floor the surviving
+        // cores read solid instead of uniformly hazy.
+        let head = max(255.0 - f32(floor_idx), 1.0);
+        alpha = clamp((f32(max_idx) - f32(floor_idx)) / head * 1.6 + 0.15, 0.0, 1.0) * u.ctl.y;
+    }
+    if (alpha <= 0.0) { discard; }
     return vec4<f32>(color.rgb * alpha, alpha);
 }

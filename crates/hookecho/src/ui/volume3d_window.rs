@@ -195,6 +195,9 @@ pub fn show(
             },
             clip: st.clip,
             plane: st.plane,
+            // The standalone orbit window is the reflectivity viewer; CC never reaches it, so it
+            // has no anomaly ramp to carry.
+            cc: [0.0; 4],
         };
         let uniform = orbit_uniform(
             st.az,

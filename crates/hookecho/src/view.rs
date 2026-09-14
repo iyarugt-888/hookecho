@@ -32,6 +32,62 @@ pub enum Map3dRepresentation {
 /// anyone compares by eye at once.
 pub const MAX_HIGHLIGHTED_LAYERS: usize = 8;
 
+/// How correlation coefficient maps to opacity when CC-anomaly rendering is on.
+///
+/// Every other radar moment is "high is interesting", and the 3D controls were built around that:
+/// a floor, and everything below it hidden. CC is the one moment where that is exactly backwards.
+/// Ordinary meteorological scatter — rain, snow, the whole storm — sits at CC ≈ 0.97–1.00, and
+/// the *interesting* returns are the low ones: lofted debris, ground clutter, biological targets,
+/// the mixed-phase edges of a hail core. A floor applied to CC hides precisely those and keeps
+/// the uniform high-CC rain that is never what anyone opened a CC volume to look at.
+///
+/// So instead of hiding below a cut, this makes opacity a continuous function of how anomalous
+/// the CC is: background CC fades almost to nothing, and the lower the CC the more solid the
+/// voxel. Conceptually (with the defaults below, though the whole point is that the user moves
+/// them — these are not meteorological constants):
+///
+/// | CC          | how it draws     |
+/// |-------------|------------------|
+/// | > 0.97      | nearly transparent |
+/// | 0.95 – 0.97 | faint            |
+/// | 0.90 – 0.95 | visible          |
+/// | 0.80 – 0.90 | strong           |
+/// | < 0.80      | very strong      |
+///
+/// The tiers are not coded as bands. Two user-set edges and a smoothstep between them reproduce
+/// that progression continuously, which is both fewer knobs and free of the contouring artifacts
+/// five hard bands would paint onto a volume.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CcAnomaly {
+    pub enabled: bool,
+    /// At and above this CC, a voxel draws at [`Self::faintest`] — the "background scatter"
+    /// edge. Default 0.97.
+    pub clear_cc: f32,
+    /// At and below this CC, a voxel draws at full strength. Default 0.80.
+    pub opaque_cc: f32,
+    /// Opacity multiplier at and above `clear_cc`. Deliberately not zero by default: "nearly
+    /// transparent" and "deleted" are different claims, and keeping a trace of the surrounding
+    /// precipitation is what lets a debris ball read as *embedded in* a storm rather than
+    /// floating in empty space. Set it to 0 to cut the background away entirely.
+    pub faintest: f32,
+}
+
+impl Default for CcAnomaly {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            clear_cc: 0.97,
+            opaque_cc: 0.80,
+            faintest: 0.05,
+        }
+    }
+}
+
+/// Smallest CC span the ramp is allowed to collapse to. Dragging the two edges onto each other
+/// would divide by zero in the shader; a narrow-but-finite span degrades to a hard step, which is
+/// a legitimate thing to want and not a crash.
+pub const MIN_CC_SPAN: f32 = 0.005;
+
 /// Geographic 3D controls belong to a map pane so they stay synchronized with that pane's
 /// product, timeline, site and camera rather than becoming another viewer.
 #[derive(Clone, Debug)]
@@ -59,6 +115,11 @@ pub struct Map3dState {
     /// and switching representations must not silently carry one moment's floor into another's.
     /// 8 m/s clears ordinary spectral broadening and keeps genuine turbulence/shear signatures.
     pub sw_floor_ms: f32,
+    /// CC-anomaly opacity, used by `SmoothDebris` and by `ObservedSweeps` while the pane's moment
+    /// is correlation coefficient. See [`CcAnomaly`]. Separate from `denoise_enabled` because it
+    /// is not a floor at all — the two are alternative ways of deciding what a voxel is worth
+    /// showing, and CC is the moment where the floor is the wrong one.
+    pub cc_anomaly: CcAnomaly,
     /// Slab the resampled volume is cropped to, as fractions of its box: `[x0,x1,y0,y1,z0,z1]`.
     /// Lets the user cut into a storm instead of only ever viewing it from outside. Unused by
     /// `ObservedSweeps`, which has no box to slice.
@@ -86,10 +147,10 @@ pub struct Map3dState {
     pub observed_layers: Vec<level2::ObservedLayer>,
     /// Upload identity. Camera state is intentionally absent: moving the camera updates uniforms,
     /// never the millions-of-gates buffer. The `sweep_count` slot is the volume's tilt count, so
-    /// a still-streaming volume re-uploads as each higher sweep arrives; `fill_gaps` and the
-    /// `MAX_HIGHLIGHTED_LAYERS` selected-elevation slots (as bits) follow, so any of those
-    /// changing rebuilds too.
-    pub observed_key: Option<(String, Moment, usize, u64, [u32; 8 + MAX_HIGHLIGHTED_LAYERS])>,
+    /// a still-streaming volume re-uploads as each higher sweep arrives; `fill_gaps`, the four
+    /// CC-anomaly ramp slots and the `MAX_HIGHLIGHTED_LAYERS` selected-elevation slots (all as
+    /// bits) follow, so any of those changing rebuilds too.
+    pub observed_key: Option<(String, Moment, usize, u64, [u32; 12 + MAX_HIGHLIGHTED_LAYERS])>,
 }
 
 impl Default for Map3dState {
@@ -113,6 +174,7 @@ impl Default for Map3dState {
             denoise_enabled: true,
             reflectivity_floor_dbz: 18.0,
             sw_floor_ms: 8.0,
+            cc_anomaly: CcAnomaly::default(),
             clip: [0.0, 1.0, 0.0, 1.0, 0.0, 1.0],
             plane: None,
             quality_steps: if cfg!(target_os = "android") { 64 } else { 128 },
