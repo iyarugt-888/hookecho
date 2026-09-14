@@ -254,6 +254,19 @@ impl Volume {
         self.live = true;
     }
 
+    /// Whether `changed` — the elevation angles a live merge just updated, straight from
+    /// [`apply_live`]'s own parameter — includes this volume's lowest tilt.
+    ///
+    /// The signal a "follow newest low-level cut" display mode acts on (Phase B5): under
+    /// SAILS/MRLE the lowest tilt is rescanned mid-volume, well before the volume as a whole
+    /// completes, so waiting for a full-volume boundary to show it throws away exactly the faster
+    /// low-level update those scan strategies exist to provide.
+    pub fn changed_includes_lowest_tilt(&self, changed: &[f32]) -> bool {
+        self.elevations
+            .first()
+            .is_some_and(|&lowest| changed.iter().any(|a| (a - lowest).abs() < 0.15))
+    }
+
     /// Bin (and cache) the sweep for `moment` at tilt index `tilt`.
     pub fn binned(
         &mut self,
@@ -300,6 +313,12 @@ pub struct MapView {
     pub site: Option<String>,
     pub moment: Moment,
     pub tilt: usize,
+    /// Phase B5: while following live, jump the display to tilt 0 the instant a sweep at the
+    /// volume's lowest elevation lands — including a SAILS/MRLE mid-volume rescan — rather than
+    /// waiting for the tilt the user happened to already have selected, or for the volume as a
+    /// whole to complete. Off by default: it overrides the user's own tilt choice, so it should
+    /// be something they turn on, not a standing behavior sprung on them.
+    pub follow_lowest_cut: bool,
     /// Per-moment display threshold (physical units), indexed by [`Moment::index`].
     pub thresholds: [Option<f32>; Moment::ALL.len()],
     pub threshold_enabled: [bool; Moment::ALL.len()],
@@ -370,6 +389,7 @@ impl MapView {
             site,
             moment: Moment::Reflectivity,
             tilt: 0,
+            follow_lowest_cut: false,
             thresholds: [None; Moment::ALL.len()],
             threshold_enabled: [false; Moment::ALL.len()],
             volume: None,
@@ -687,6 +707,25 @@ mod tests {
         vol.apply_live(scan_at(&[0.5]), "c".into(), now, &[]);
         assert_eq!(vol.elevations, vec![0.5]);
         assert_eq!(vol.name, "c");
+    }
+
+    /// Phase B5's "follow newest low-level cut" acts on exactly this signal: did the merge that
+    /// just landed touch the volume's lowest tilt.
+    #[test]
+    fn changed_includes_lowest_tilt_matches_the_first_elevation() {
+        let vol = Volume::new(scan_at(&[0.5, 1.5, 2.4]), "a".into(), chrono::Utc::now());
+        assert!(vol.changed_includes_lowest_tilt(&[0.5]));
+        // A SAILS insert reports the same angle every pass; a tiny recomputed wobble must still
+        // count as the same tilt.
+        assert!(vol.changed_includes_lowest_tilt(&[0.52]));
+        assert!(!vol.changed_includes_lowest_tilt(&[1.5, 2.4]));
+        assert!(!vol.changed_includes_lowest_tilt(&[]));
+    }
+
+    #[test]
+    fn changed_includes_lowest_tilt_is_false_on_an_empty_volume() {
+        let vol = Volume::new(scan_at(&[]), "a".into(), chrono::Utc::now());
+        assert!(!vol.changed_includes_lowest_tilt(&[0.5]));
     }
 
     /// Early in a live volume only reflectivity has arrived; the dual-pol rows must not blink out

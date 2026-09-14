@@ -458,12 +458,20 @@ and velocity gates, folded and unfolded.
   ordinary split cut's second pass (e.g. VCP 35's SZ-2 low tilts) unmarked — verified live.
 - [x] show scan strategy in analyst panel — the same popup; not a separate panel, but reachable
   from the one place the app already shows the VCP number.
+- [x] allow "follow newest 0.5° cut" mode independent of full-volume completion — the ribbon's
+  Tilt angle group has a "Follow low" toggle: while following live, it jumps the display to the
+  lowest tilt the instant a sweep there lands (including a SAILS/MRLE mid-volume insert), not at
+  the next full-volume boundary. `Volume::changed_includes_lowest_tilt` is the pure decision,
+  unit-tested; the live-update handler in `app.rs` acts on it only while `follow_lowest_cut` is on
+  and the pane is following live. Off by default. Verified live: toggled on, a manual tilt pick
+  was overridden back to the lowest tilt on the next low-tilt sweep while the chunk-stream
+  progress tooltip showed the scan had already moved past it to later tilts.
 - [ ] make timeline order reflect actual sweep chronology
-- [ ] allow “follow newest 0.5° cut” mode independent of full-volume completion
 
-The two unchecked items are a different, larger kind of change — they touch timeline/live-head
-semantics rather than adding a read-only surface over already-decoded data — and are deferred
-rather than attempted in the same pass that shipped the display-only half.
+The remaining item is a different, larger kind of change — it touches how the timeline itself
+represents a volume's sweep order (including SAILS/MRLE's mid-volume interleaving), not a
+display-time reaction to a signal that already exists, and needs its own design pass rather than
+being folded into this one.
 
 ## B6. Feed failover — not started
 

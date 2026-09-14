@@ -9987,6 +9987,17 @@ impl HookEchoApp {
                         Some(vol) => vol.apply_live(scan, name, time, &changed),
                         None => v.volume = Some(Volume::new(scan, name, time)),
                     }
+                    // Phase B5's "follow newest low-level cut": jump to the lowest tilt the
+                    // instant a sweep there lands, including a SAILS/MRLE mid-volume rescan,
+                    // rather than waiting for the tilt already selected or the volume as a whole.
+                    if v.follow_lowest_cut
+                        && v.timeline.following
+                        && v.volume
+                            .as_ref()
+                            .is_some_and(|vol| vol.changed_includes_lowest_tilt(&changed))
+                    {
+                        v.tilt = 0;
+                    }
                     v.last_live_arrival = Some((Utc::now(), time));
                     // The sweep this was tracking just landed as a full merge; the next progress
                     // reading (for whichever sweep comes next) replaces it.

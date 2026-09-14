@@ -8,6 +8,22 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: a "Follow low" mode that jumps to the newest low-level cut mid-volume (Phase B5)
+
+- New "Follow low" toggle next to the Tilt angle pills: while following live, it jumps the display
+  straight to the lowest tilt the instant a sweep there lands — including a SAILS/MRLE mid-volume
+  rescan — rather than waiting for the tilt already selected or for the volume as a whole to
+  finish. SAILS and MRLE exist specifically to give faster low-level updates for warning
+  operations; before this, watching one required either staying pinned to the lowest tilt by hand
+  or waiting out the rest of the volume to see it reflected on screen.
+- `Volume::changed_includes_lowest_tilt` (unit-tested) is the pure decision the live-update handler
+  acts on. Off by default — it overrides the user's own tilt choice, so it has to be something
+  turned on, not standing behavior sprung on them.
+- Verified live: with the toggle on, manually selecting a higher tilt was overridden back to the
+  lowest the next time a low-tilt sweep landed, while the chunk-stream progress tooltip showed the
+  scan had already moved on to later tilts — confirming the jump happens at the sweep itself, not
+  at a full-volume boundary.
+
 ### Added: a decode-time reading in the Radar source-health popup (Phase B3)
 
 - Rounds out the latency dashboard's local half: `wxdata::live::Update` now carries `decode_time`,

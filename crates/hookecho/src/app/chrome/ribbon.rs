@@ -101,6 +101,7 @@ impl HookEchoApp {
         let panes = self.views.len();
         let cur_tool = self.tool;
         let mut smooth = self.settings.smooth_radar;
+        let mut follow_lowest_cut = self.views[self.active].follow_lowest_cut;
         let mut legend_on = self.views[self.active].show_legend;
         let layers_on = self.panel_open && !self.show_alert_panel;
         let alerts_on = self.panel_open && self.show_alert_panel;
@@ -279,6 +280,16 @@ impl HookEchoApp {
                                     .clicked()
                                 {
                                     all_tilts = true;
+                                }
+                                if wsv3::pill(ui, "Follow low", follow_lowest_cut, accent)
+                                    .on_hover_text(
+                                        "While following live, jump here the instant the lowest \
+                                         tilt is rescanned (SAILS/MRLE) — don't wait for the \
+                                         whole volume, or for whatever tilt is already selected.",
+                                    )
+                                    .clicked()
+                                {
+                                    follow_lowest_cut = !follow_lowest_cut;
                                 }
                             });
                         }
@@ -610,6 +621,7 @@ impl HookEchoApp {
             self.settings.save();
         }
         self.views[self.active].show_legend = legend_on;
+        self.views[self.active].follow_lowest_cut = follow_lowest_cut;
         if let Some(m) = pick_mode {
             self.ribbon_mode = m;
         }
