@@ -26,8 +26,11 @@ struct Radar3d {
     srv: f32,
     motion_e: f32,
     motion_n: f32,
-    // Elevation angle of the volume's lowest tilt carrying this moment — see `beam_world`'s doc
-    // comment for what it's used for.
+    // Elevation angle of the volume's lowest tilt carrying this moment. No longer read by
+    // `beam_world` (see its doc comment for why the floor it used to build from this was
+    // replaced), kept as a struct field only so this buffer's byte layout — and the 16-byte
+    // alignment `_pad` below exists to satisfy — does not have to be renegotiated on the Rust
+    // side for a value nothing here uses anymore.
     min_elevation_deg: f32,
     // Up to 8 tilts pulled out from the Layers list, or the sentinel (`NO_HIGHLIGHT`) in an
     // unused slot — see `beam_world` and `fs_main` for what it does to a gate on one of them.
@@ -101,17 +104,6 @@ fn beam_height_m(r: f32, e: f32) -> f32 {
         + 2.0 * r * EFFECTIVE_RADIUS_M * sin(e)) - EFFECTIVE_RADIUS_M;
 }
 
-// Slant range (m) at which an `e`-radian beam passes over ground range `ground` (m) — the same
-// closed form as `xsection::slant_from_ground_km`, in metres/radians instead of km/degrees.
-fn slant_for_ground_m(ground: f32, e: f32) -> f32 {
-    let theta = ground / EFFECTIVE_RADIUS_M;
-    let denom = cos(e + theta);
-    if (abs(denom) < 1e-6) {
-        return ground;
-    }
-    return EFFECTIVE_RADIUS_M * sin(theta) / denom;
-}
-
 fn beam_world(azimuth_deg: f32, slant_km: f32, elevation_deg: f32) -> vec3<f32> {
     let r = max(slant_km, 0.0) * 1000.0;
     let e = elevation_deg * PI / 180.0;
@@ -119,15 +111,23 @@ fn beam_world(azimuth_deg: f32, slant_km: f32, elevation_deg: f32) -> vec3<f32> 
     let central = atan2(r * cos(e), EFFECTIVE_RADIUS_M + r * sin(e));
     let ground = EFFECTIVE_RADIUS_M * central;
 
-    // Every tilt's beam climbs with range from earth curvature alone — the lowest tilt is no
-    // exception, so its own height at this same ground range is a floor the storm sits on, not
-    // storm structure. Only how far above that floor this particular gate sits is genuine
-    // structure (a higher tilt cutting through a taller core, a lofted layer), and only that part
-    // scales with vertical exaggeration; the floor itself stays true to scale so a low-tilt base
-    // scan never visibly lifts off the ground just because Vertical is turned up.
-    let min_e = radar.min_elevation_deg * PI / 180.0;
-    let base_height = beam_height_m(slant_for_ground_m(ground, min_e), min_e);
-    let structure_height = max(height - base_height, 0.0);
+    // Exaggerating the whole beam height (the original behaviour) multiplies the earth-curvature
+    // climb every tilt shares, which visibly lifted the lowest tilt off the ground at long range
+    // — that climb is the radar's coverage floor, not storm structure. A first fix subtracted the
+    // *lowest* tilt's own height at this same ground range as a floor, but that went too far the
+    // other way: near the radar a *steep* tilt's own elevation angle alone already puts it high
+    // up (19.5 degrees is ~1.7 km up at just 5 km range, no curvature involved at all), and
+    // subtracting a floor built from a much shallower tilt barely reduced that — exaggeration
+    // multiplied nearly this gate's whole natural height, and ordinary nearby echo on a steep
+    // tilt shot into the sky.
+    //
+    // Split this gate's own height instead: the flat-earth angle rise it would have even with no
+    // curvature at all (`r * sin(e)` — true at any range for any tilt, and already large near the
+    // radar for a steep one on its own), and the remainder, which is what earth curvature adds on
+    // top. Only the remainder scales with vertical exaggeration; the angle term is this tilt's
+    // honest, unexaggerated geometry and never does, at any range.
+    let angle_height = r * sin(e);
+    let curvature_height = height - angle_height;
 
     let phi1 = radar.radar_lat * PI / 180.0;
     let lambda1 = radar.radar_lon * PI / 180.0;
@@ -149,8 +149,8 @@ fn beam_world(azimuth_deg: f32, slant_km: f32, elevation_deg: f32) -> vec3<f32> 
     // recolored — 600 m is well clear of the fill-gap midpoint copies and of the next real tilt
     // at any range the "Layers" list is likely to be used at.
     let pull_m = select(0.0, 600.0, is_highlighted(elevation_deg));
-    let altitude = radar.antenna_altitude_m + base_height
-        + structure_height * radar.vertical_exaggeration + pull_m;
+    let altitude = radar.antenna_altitude_m + angle_height
+        + curvature_height * radar.vertical_exaggeration + pull_m;
     return vec3<f32>(
         d.x / camera.world_per_pixel,
         -d.y / camera.world_per_pixel,

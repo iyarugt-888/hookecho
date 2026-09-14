@@ -8,6 +8,40 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: the top status readout could disagree with the LIVE badge
+
+- Reported live: the toolbar's "View" status could read Stale at the same instant the scrubber's
+  LIVE badge read Live for the same site. The two used different, independently hand-picked
+  freshness thresholds — the scrubber badge 900 seconds, the top status (`radar_health`) a much
+  stricter 120 seconds, well under NEXRAD's real 4-10 minute volume cadence, so the top status
+  would read Stale under perfectly normal operation. Both now read one shared constant
+  (`RADAR_FRESH_SECS`), so the two can't disagree again.
+
+### Fixed: nearby echo could render absurdly high in the 3D Observed view
+
+- Reported live: reflectivity gates close to the radar site rendered far too high in the 3D
+  Observed volume, especially with Vertical turned up. A steep tilt (near the top of a VCP) is
+  naturally high up even close to the radar — 19.5° is already ~1.7 km up at just 5 km range, pure
+  beam geometry with no earth curvature involved at all — and the prior beam-height fix (which
+  subtracted the *lowest* tilt's height at the same ground range as a "floor", to stop the coverage
+  dome visibly lifting off the ground at long range) barely reduced that, so vertical exaggeration
+  multiplied nearly a steep gate's entire natural height near the radar and sent ordinary nearby
+  echo shooting into the sky. That earlier fix had also shipped without a live visual check.
+- Fixed by splitting each gate's own beam height into the flat-earth angle rise it would have with
+  no curvature at all (true at any range, for any tilt, and already large near the radar for a
+  steep one on its own) and the remainder, which is what earth curvature alone adds on top. Only
+  the remainder now scales with vertical exaggeration; the angle term is a tilt's honest geometry
+  and never does, at any range — so the long-range floor still doesn't detach from the ground, and
+  a steep tilt near the radar no longer does either.
+- Verified live in the 3D Observed view at maximum (8×) vertical exaggeration.
+
+### Changed: the 3D map controls panel is now a real window
+
+- The floating "3D map" controls (representation, Pitch/Bearing/Vertical/Opacity, Layers) used to
+  be pinned to a fixed spot over the map with no way to move or resize it. It's a proper `Window`
+  now — drag its title bar to move it, drag a corner to resize — and egui remembers where it was
+  left, the same as every other window in the app.
+
 ### Added: a radar gate inspector (Phase B4)
 
 - Clicking the radar map with nothing more specific under the click — a marker, a storm cell, an

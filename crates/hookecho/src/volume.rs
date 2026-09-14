@@ -49,3 +49,147 @@ pub async fn fetch(
     let _ = archived;
     level2::download_scan(id, cache).await
 }
+
+/// A source of Level II data for one radar site: a live subscription plus a fallback poll for
+/// the newest complete volume (ROADMAP_NEW.md Phase B1).
+///
+/// Formalizes what this app has always done — the Unidata/AWS chunk feed for live updates,
+/// falling back to interval polling of the same bucket's archive/current objects — behind one
+/// interface, so a second provider (a different aggregator, a user's own relay) could be added
+/// without every caller learning a new shape, and so a future automatic failover (Phase B6) has
+/// something to fail over between. Not `dyn`-safe on purpose: nothing yet needs to pick a
+/// provider at runtime, and boxing every method just to support a hypothetical second
+/// implementation before one exists is exactly the premature abstraction the roadmap's own rules
+/// warn against (section 2). Add the boxing when B6 actually needs to choose between two.
+///
+/// `async fn` in a `pub` trait normally warns because an external implementor could return a
+/// non-`Send` future — moot here since this crate is the only caller and the only implementor,
+/// and every current call site already awaits it inside a `Send` spawned task.
+#[allow(async_fn_in_trait)]
+pub trait Level2LiveProvider {
+    /// Stable label for source-health / diagnostics display.
+    #[allow(dead_code)] // read by a future B6 failover/health surface, not yet by anything
+    fn label(&self) -> &'static str;
+
+    /// Stream live updates for `site`, starting from `base` — see [`wxdata::live::stream`] for
+    /// the exact contract `active`/`on_update` follow. Boxed rather than generic so the method
+    /// itself stays a plain, nameable type — this trait has one implementor today, but its shape
+    /// should not change when a second one arrives.
+    async fn subscribe(
+        &self,
+        site: String,
+        base: std::sync::Arc<Scan>,
+        active: Box<dyn Fn() -> bool + Send + Sync>,
+        on_update: Box<dyn FnMut(wxdata::live::Update) + Send>,
+    ) -> anyhow::Result<()>;
+
+    /// The provider's best current answer for `site`: unchanged from `current_name`, a new
+    /// volume, or an error when nothing usable could be found.
+    async fn latest_complete_volume(
+        &self,
+        site: &str,
+        current_name: Option<&str>,
+    ) -> anyhow::Result<LatestVolume>;
+}
+
+/// Outcome of [`Level2LiveProvider::latest_complete_volume`].
+pub enum LatestVolume {
+    /// Still `current_name` — nothing to redraw.
+    UpToDate,
+    New {
+        name: String,
+        time: chrono::DateTime<chrono::Utc>,
+        scan: Scan,
+    },
+}
+
+/// The provider this app has always used: Unidata's Level II chunk feed on AWS S3 for live
+/// updates, falling back to the same organization's archive/current-object bucket.
+pub struct UnidataLevel2Provider;
+
+impl Level2LiveProvider for UnidataLevel2Provider {
+    fn label(&self) -> &'static str {
+        "Unidata Level II (AWS S3)"
+    }
+
+    async fn subscribe(
+        &self,
+        site: String,
+        base: std::sync::Arc<Scan>,
+        active: Box<dyn Fn() -> bool + Send + Sync>,
+        on_update: Box<dyn FnMut(wxdata::live::Update) + Send>,
+    ) -> anyhow::Result<()> {
+        wxdata::live::stream(site, base, active, on_update).await
+    }
+
+    async fn latest_complete_volume(
+        &self,
+        site: &str,
+        current_name: Option<&str>,
+    ) -> anyhow::Result<LatestVolume> {
+        // Ask for two: the newest volume is usually still uploading, and one caught before its
+        // metadata record lands can't be decoded at all. Falling back one volume shows
+        // ~5-minute-old data instead of nothing.
+        let mut ids = level2::latest_identifiers(site, 2).await?;
+        let first = ids.remove(0);
+        let prev = ids.pop();
+        let name = first.name().to_string();
+        if current_name == Some(name.as_str()) {
+            return Ok(LatestVolume::UpToDate);
+        }
+        let time = first.date_time().unwrap_or_else(chrono::Utc::now);
+        // No cache at the live head: the newest object can still be uploading, and a
+        // half-written volume is not something to keep.
+        match fetch(first, false, None).await {
+            Ok(scan) => Ok(LatestVolume::New { name, time, scan }),
+            Err(e) => match prev {
+                // Only worth retrying when there IS an older volume and we're not already
+                // showing it.
+                Some(p) if current_name != Some(p.name()) => {
+                    let pname = p.name().to_string();
+                    let ptime = p.date_time().unwrap_or_else(chrono::Utc::now);
+                    log::debug!("newest volume unusable ({e}); falling back to {pname}");
+                    fetch(p, false, None).await.map(|scan| LatestVolume::New {
+                        name: pname,
+                        time: ptime,
+                        scan,
+                    }).map_err(|_| e)
+                }
+                _ => Err(e),
+            },
+        }
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_provider_names_itself() {
+        assert_eq!(UnidataLevel2Provider.label(), "Unidata Level II (AWS S3)");
+    }
+
+    /// A real end-to-end exercise of the fallback logic against the live network: the first call
+    /// must find a new volume from nothing, and an immediate second call naming what the first
+    /// one just returned must come back `UpToDate` rather than re-downloading — the exact
+    /// dedupe `spawn_fetch` relied on before this moved here. Can flake if the site happens to
+    /// publish a new volume in between the two calls; that is a real event, not a false positive.
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn latest_complete_volume_finds_a_new_one_then_reports_up_to_date() {
+        let provider = UnidataLevel2Provider;
+        let name = match provider.latest_complete_volume("KTLX", None).await.unwrap() {
+            LatestVolume::New { name, scan, .. } => {
+                assert!(scan.site().is_some(), "a real volume decodes with site metadata");
+                name
+            }
+            LatestVolume::UpToDate => panic!("nothing to be up to date with on the first call"),
+        };
+        let again = provider
+            .latest_complete_volume("KTLX", Some(&name))
+            .await
+            .unwrap();
+        assert!(matches!(again, LatestVolume::UpToDate));
+    }
+}

@@ -36,7 +36,6 @@ use wxdata::alerts::{self};
 use wxdata::clock::Instant;
 use wxdata::level2::{self, BinnedSweep, Identifier, Moment, Scan};
 use wxdata::level3::{self, Cell, CellKind};
-use wxdata::live;
 use wxdata::overlay::{self, GeoFeature};
 
 /// Frames to let a stepped archive volume load before grabbing it for the loop GIF.
@@ -68,6 +67,15 @@ const OVERLAY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(55);
 /// Again longer than the request's own 90 s deadline in the vendored S3 client, so the abort
 /// happens before we stop listening for it.
 const VOLUME_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(100);
+
+/// How old the newest known radar volume can be before the site counts as stale rather than
+/// "just between scans." The LIVE/Stale scrubber badge and the Radar row's source-health popup
+/// both key off this one constant so the two can never disagree — a live site reading Live at
+/// the scrubber and Stale in the health popup at the same instant was exactly that drift (two
+/// separately hand-picked numbers, 120 s and 900 s, for what is the same question). NEXRAD's
+/// slowest common VCP (clear-air, ~10 min between volumes) still reads fresh with room to spare;
+/// a genuinely dead feed clears this inside two cycles of even that slowest cadence.
+const RADAR_FRESH_SECS: i64 = 900;
 
 /// Loop frames in flight, keyed by volume name, with when each was kicked off.
 type PrefetchBook = std::collections::HashMap<String, Instant>;
@@ -2008,7 +2016,7 @@ enum DataMsg {
         site: String,
         name: String,
         time: DateTime<Utc>,
-        /// Already shared with the streaming task's running volume (see `live::Update`).
+        /// Already shared with the streaming task's running volume (see `wxdata::live::Update`).
         scan: Arc<Scan>,
         changed: Vec<f32>,
     },
@@ -9892,60 +9900,23 @@ impl HookEchoApp {
             return;
         }
         self.spawner.spawn(async move {
-            // Ask for two: the newest volume is usually still uploading, and one caught before
-            // its metadata record lands can't be decoded at all. Falling back one volume shows
-            // ~5-minute-old data instead of nothing.
-            let msg = match level2::latest_identifiers(&site, 2).await.map(|mut v| {
-                let first = v.remove(0);
-                (first, v.pop())
-            }) {
-                Ok((id, prev)) => {
-                    let name = id.name().to_string();
-                    if current_name.as_deref() == Some(name.as_str()) {
-                        DataMsg::UpToDate {
-                            view: view_idx,
-                            site,
-                        }
-                    } else {
-                        let time = id.date_time().unwrap_or_else(Utc::now);
-                        // No cache at the live head: the newest object can still be uploading, and a
-                        // half-written volume is not something to keep.
-                        let fetched = match crate::volume::fetch(id, false, None).await {
-                            Ok(scan) => Ok((name.clone(), time, scan)),
-                            Err(e) => match prev {
-                                // Only worth retrying when there IS an older volume and we're not
-                                // already showing it.
-                                Some(p) if current_name.as_deref() != Some(p.name()) => {
-                                    let pname = p.name().to_string();
-                                    let ptime = p.date_time().unwrap_or_else(Utc::now);
-                                    log::debug!(
-                                        "newest volume unusable ({e}); falling back to {pname}"
-                                    );
-                                    crate::volume::fetch(p, false, None)
-                                        .await
-                                        .map(|scan| (pname, ptime, scan))
-                                        .map_err(|_| e)
-                                }
-                                _ => Err(e),
-                            },
-                        };
-                        match fetched {
-                            Ok((name, time, scan)) => DataMsg::Volume {
-                                view: view_idx,
-                                site,
-                                name,
-                                time,
-                                scan,
-                                live_poll: true,
-                            },
-                            Err(e) => DataMsg::Error {
-                                view: view_idx,
-                                site,
-                                err: e.to_string(),
-                            },
-                        }
-                    }
-                }
+            use crate::volume::{Level2LiveProvider, LatestVolume, UnidataLevel2Provider};
+            let msg = match UnidataLevel2Provider
+                .latest_complete_volume(&site, current_name.as_deref())
+                .await
+            {
+                Ok(LatestVolume::UpToDate) => DataMsg::UpToDate {
+                    view: view_idx,
+                    site,
+                },
+                Ok(LatestVolume::New { name, time, scan }) => DataMsg::Volume {
+                    view: view_idx,
+                    site,
+                    name,
+                    time,
+                    scan,
+                    live_poll: true,
+                },
                 Err(e) => DataMsg::Error {
                     view: view_idx,
                     site,
@@ -10169,23 +10140,30 @@ impl HookEchoApp {
                 && crate::platform::activity::is_active()
         };
         self.spawner.spawn(async move {
+            use crate::volume::{Level2LiveProvider, UnidataLevel2Provider};
             let end_site = site.clone();
             let cb_tx = tx.clone();
             let cb_ctx = ctx.clone();
             let cb_site = site.clone();
             log::info!("live stream started for {end_site}");
-            let res = live::stream(site, base, active, move |u| {
-                let _ = cb_tx.send(DataMsg::Live {
-                    view: view_idx,
-                    site: cb_site.clone(),
-                    name: u.name,
-                    time: u.time,
-                    scan: u.scan,
-                    changed: u.changed,
-                });
-                cb_ctx.request_repaint();
-            })
-            .await;
+            let res = UnidataLevel2Provider
+                .subscribe(
+                    site,
+                    base,
+                    Box::new(active),
+                    Box::new(move |u| {
+                        let _ = cb_tx.send(DataMsg::Live {
+                            view: view_idx,
+                            site: cb_site.clone(),
+                            name: u.name,
+                            time: u.time,
+                            scan: u.scan,
+                            changed: u.changed,
+                        });
+                        cb_ctx.request_repaint();
+                    }),
+                )
+                .await;
             if let Err(e) = &res {
                 log::warn!("live stream for {end_site} ended: {e}");
             }
@@ -11232,14 +11210,24 @@ impl HookEchoApp {
         let volume_supported = self.volume3d_supported;
         let moment = self.views[idx].moment;
         let pos = prect.right_top() + egui::vec2(-276.0, 8.0);
-        egui::Area::new(egui::Id::new(("map_3d_controls", idx)))
+        // A real Window rather than a fixed-position Area: dragging its title bar and resizing
+        // from a corner both come free this way, and (unlike the Area this used to be) egui
+        // remembers where a user left it — `default_pos`/`default_width` only seed the very
+        // first appearance.
+        egui::Window::new("3D map")
+            .id(egui::Id::new(("map_3d_controls", idx)))
             .order(egui::Order::Foreground)
-            .fixed_pos(pos)
+            .default_pos(pos)
+            .default_width(260.0)
+            .min_width(220.0)
+            .resizable(true)
+            .collapsible(false)
+            .frame(
+                egui::Frame::popup(&ctx.style_of(ctx.theme()))
+                    .inner_margin(egui::Margin::symmetric(8, 6)),
+            )
             .show(ctx, |ui| {
-                egui::Frame::popup(ui.style())
-                    .inner_margin(egui::Margin::symmetric(8, 6))
-                    .show(ui, |ui| {
-                        ui.set_width(260.0);
+                {
                         let view = &mut self.views[idx];
                         let was_enabled = view.map_3d.enabled;
                         ui.horizontal(|ui| {
@@ -11576,7 +11564,7 @@ impl HookEchoApp {
                         }
                         ui.weak("Right-drag rotates · drag pans · wheel zooms");
                         ui.weak("W/S tilt · Q/E rotate");
-                    });
+                }
             });
     }
 

@@ -310,7 +310,7 @@ Reloading the web app does not redownload unchanged radar/model/satellite data a
 
 Current HookEcho live chunks are already fast, but a top-tier radar workstation should show what has arrived **inside an in-progress sweep**, expose latency, and tolerate provider failures.
 
-## B1. Radar provider abstraction
+## B1. Radar provider abstraction — partly done
 
 Create a provider trait around Level II live acquisition.
 
@@ -324,11 +324,27 @@ trait Level2LiveProvider {
 }
 ```
 
+`crates/hookecho/src/volume.rs` now has this (as `Level2LiveProvider`/`UnidataLevel2Provider`,
+`subscribe`/`latest_complete_volume`, close to the roadmap's own sketch — boxed closures rather
+than a channel `Sender`, matching this codebase's existing callback-based streaming API). Deliberately
+**not** `dyn`-safe yet: nothing needs to pick a provider at runtime with only one implementation
+in existence, and boxing every method for a hypothetical second one before it exists is the
+premature abstraction section 2's own rules warn against. `app.rs`'s `spawn_stream`/`spawn_fetch`
+route through it now instead of calling `wxdata::live::stream`/`wxdata::level2::latest_identifiers`
+directly — a mechanical move, not a rewrite: same functions, same fallback-to-the-previous-volume
+logic, verified against the exact ported logic with a live network test
+(`volume::tests::latest_complete_volume_finds_a_new_one_then_reports_up_to_date`) before wiring it
+in, then confirmed live (`cargo run` logged "live stream started for ..." same as before).
+
 ### Providers
 
-- [ ] current Unidata/AWS chunk source
-- [ ] completed-volume fallback from NOAA/AWS archive/current objects where applicable
-- [ ] optional user-configured direct/LDM/NOAAPort-compatible relay provider
+- [x] current Unidata/AWS chunk source — wrapped, not rewritten
+- [x] completed-volume fallback from NOAA/AWS archive/current objects where applicable — same
+  two-candidate-with-fallback logic `spawn_fetch` always had, now owned by the provider
+- [ ] optional user-configured direct/LDM/NOAAPort-compatible relay provider — out of scope: this
+  needs a satellite dish/dedicated feed a typical user does not have, not something a client
+  app can add on its own. Revisit only if a concrete second provider (a different aggregator)
+  becomes realistic.
 
 **Do not claim sub-10-second performance unless the active provider actually supplies data that quickly.** The UI must report measured latency rather than marketing a fixed number.
 

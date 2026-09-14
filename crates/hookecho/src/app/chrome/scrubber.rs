@@ -24,7 +24,7 @@ impl HookEchoApp {
             .timeline
             .newest()
             .and_then(|id| id.date_time());
-        let fresh = newest_time.is_some_and(|t| (chrono::Utc::now() - t).num_seconds() < 900);
+        let fresh = newest_time.is_some_and(|t| (chrono::Utc::now() - t).num_seconds() < RADAR_FRESH_SECS);
         // Site and data age used to live in the docked status bar; the clock belongs with the clock.
         let site = self.views[self.active]
             .site
