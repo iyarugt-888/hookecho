@@ -24,6 +24,9 @@ pub struct Workspace {
     pub active: usize,
     #[serde(default)]
     pub link_cameras: bool,
+    /// Archive pane time linking. Older workspaces remain independent.
+    #[serde(default)]
+    pub link_times: bool,
     /// Overlay toggles that were on, by slug — the same names `Settings::overlays_on` uses, so an
     /// unknown one from a newer build is skipped rather than fatal.
     #[serde(default)]
@@ -181,6 +184,7 @@ pub fn starters() -> Vec<Workspace> {
             ],
             active: 0,
             link_cameras: true,
+            link_times: true,
             overlays_on: vec![
                 "Alerts".into(),
                 "Cells".into(),
@@ -209,6 +213,7 @@ pub fn starters() -> Vec<Workspace> {
             }],
             active: 0,
             link_cameras: false,
+            link_times: false,
             overlays_on: vec!["Alerts".into(), "StormReports".into(), "Fronts".into()],
             adopt_site: false,
             fields_on: vec!["mrms".into()],
@@ -223,6 +228,7 @@ pub fn starters() -> Vec<Workspace> {
                 .collect(),
             active: 0,
             link_cameras: true,
+            link_times: true,
             overlays_on: vec!["Alerts".into(), "Cells".into(), "RangeRings".into()],
             adopt_site: true,
             fields_on: Vec::new(),
@@ -278,7 +284,10 @@ mod tests {
         v.thresholds[Moment::Velocity.index()] = Some(20.0);
 
         let snap = PaneSnap::capture(&v);
-        assert_eq!(snap.fields_on.as_deref(), Some(["mrms".to_string()].as_slice()));
+        assert_eq!(
+            snap.fields_on.as_deref(),
+            Some(["mrms".to_string()].as_slice())
+        );
         assert_eq!(snap.thresholds, vec![(Moment::Reflectivity, 35.0)]);
 
         let mut fresh = MapView::new(
@@ -300,7 +309,10 @@ mod tests {
         // The distinction the `Option` exists for. Capturing a bare pane must record "no layers",
         // not "no opinion" — as a plain `Vec` both were `[]`, and a pane you had cleared came back
         // wearing the union of every other pane's layers when the workspace was applied.
-        let v = MapView::new(None, crate::render::mercator::Camera::at_lonlat(-97.3, 35.3, 8.0));
+        let v = MapView::new(
+            None,
+            crate::render::mercator::Camera::at_lonlat(-97.3, 35.3, 8.0),
+        );
         let snap = PaneSnap::capture(&v);
         assert_eq!(snap.fields_on, Some(Vec::new()));
     }
@@ -338,6 +350,7 @@ mod tests {
             }],
             active: 0,
             link_cameras: true,
+            link_times: true,
             overlays_on: vec!["Alerts".into(), "Cells".into()],
             adopt_site: false,
             fields_on: vec!["mrms".into()],
@@ -359,6 +372,7 @@ mod tests {
             "overlays_on":["Alerts"]}"#;
         let ws: Workspace = serde_json::from_str(json).unwrap();
         assert!(ws.fields_on.is_empty() && !ws.adopt_site && ws.chrome.is_none());
+        assert!(!ws.link_times);
     }
 
     #[test]

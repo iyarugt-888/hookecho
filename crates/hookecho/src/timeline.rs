@@ -71,6 +71,16 @@ impl Timeline {
         self.frames.get(self.playhead)
     }
 
+    /// A background download only gets to replace the displayed scan if its request still
+    /// belongs to this cursor. Late results remain useful to the cache, but not to the map.
+    pub fn accepts_fetched_volume(&self, name: &str, live_poll: bool) -> bool {
+        if live_poll {
+            self.following
+        } else {
+            self.current().is_some_and(|id| id.name() == name)
+        }
+    }
+
     /// The newest known frame, regardless of where the playhead is — the site's own production
     /// cadence, not whatever a rolling live loop happens to be animating right now. [`current`]
     /// answers "what is on screen"; this answers "is the feed itself keeping up."
@@ -206,14 +216,69 @@ impl Timeline {
 
     /// Index of the frame whose time is closest to `target`.
     fn nearest_frame(&self, target: DateTime<Utc>) -> Option<usize> {
-        let available: Vec<_> = self.frames.iter().enumerate()
-            .filter_map(|(index, id)| id.date_time().map(|valid| (index, wxdata::time_align::FrameTime { valid, run: None })))
+        let available: Vec<_> = self
+            .frames
+            .iter()
+            .enumerate()
+            .filter_map(|(index, id)| {
+                id.date_time()
+                    .map(|valid| (index, wxdata::time_align::FrameTime { valid, run: None }))
+            })
             .collect();
         let frames: Vec<_> = available.iter().map(|(_, time)| *time).collect();
-        let selected = wxdata::time_align::select(&frames, target,
-            wxdata::time_align::TimePolicy::Nearest, None,
-            wxdata::field::ValueKind::Scalar)?.single_index()?;
+        let selected = wxdata::time_align::select(
+            &frames,
+            target,
+            wxdata::time_align::TimePolicy::Nearest,
+            None,
+            wxdata::field::ValueKind::Scalar,
+        )?
+        .single_index()?;
         Some(available[selected].0)
+    }
+
+    /// Align this pane's archive cursor to the nearest volume from `site`. When its site or UTC
+    /// day differs, discard the old axis and defer the seek until that listing arrives. Returns
+    /// whether the old axis was discarded, so the caller can clear its displayed radar volume.
+    pub fn seek_to_valid_time(&mut self, site: &str, target: DateTime<Utc>) -> bool {
+        let date = target.date_naive();
+        let stale_axis = self.date != date
+            || self
+                .frames_key
+                .as_ref()
+                .is_some_and(|(s, d)| s != site || *d != date)
+            || (self.frames_key.is_none() && !self.frames.is_empty());
+        self.following = false;
+        self.playing = false;
+        self.replay = None;
+        self.date = date;
+        if stale_axis {
+            self.frames.clear();
+            self.frames_key = None;
+            self.playhead = 0;
+            self.listing = false;
+        }
+        if self.frames.is_empty() {
+            self.seek_target = Some(target);
+        } else if let Some(index) = self.nearest_frame(target) {
+            self.playhead = index;
+            self.seek_target = None;
+        }
+        stale_axis
+    }
+
+    /// Return to a live listing for the given UTC day, cancelling any deferred archive seek.
+    /// Returns whether the old day's frame axis was discarded.
+    pub fn follow_day(&mut self, date: NaiveDate) -> bool {
+        let stale_axis = self.date != date;
+        if stale_axis {
+            self.frames.clear();
+            self.frames_key = None;
+            self.listing = false;
+        }
+        self.date = date;
+        self.go_head();
+        stale_axis
     }
 
     /// Jump straight to the volume nearest `hour:minute` UTC on the currently-selected day.
@@ -223,11 +288,7 @@ impl Timeline {
     /// once a day is already listed, so there is nothing to wait for. Silently does nothing for
     /// an out-of-range `hour`/`minute` or an empty listing, rather than fail a mistyped value.
     pub fn seek_to_time_of_day(&mut self, hour: u32, minute: u32) {
-        let Some(target) = self
-            .date
-            .and_hms_opt(hour, minute, 0)
-            .map(|t| t.and_utc())
-        else {
+        let Some(target) = self.date.and_hms_opt(hour, minute, 0).map(|t| t.and_utc()) else {
             return;
         };
         let Some(i) = self.nearest_frame(target) else {
@@ -277,6 +338,8 @@ impl Timeline {
     /// Jump to the newest frame and re-pin to live.
     pub fn go_head(&mut self) {
         self.replay = None;
+        self.seek_target = None;
+        self.replay_span_min = 0;
         self.following = true;
         self.playing = false;
         self.playhead = self.frames.len().saturating_sub(1);
@@ -385,6 +448,72 @@ mod tests {
                 Identifier::new(format!("{site}20260819_{h:02}{m:02}00_V06"))
             })
             .collect()
+    }
+
+    #[test]
+    fn linked_archive_seek_uses_nearest_time_and_relists_on_day_change() {
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 8, 19).unwrap();
+        let mut timeline = Timeline::default();
+        timeline.date = date;
+        timeline.set_frames(day("KDMX", 5), ("KDMX".into(), date));
+        let at_12 = date.and_hms_opt(0, 12, 0).unwrap().and_utc();
+        assert!(!timeline.seek_to_valid_time("KDMX", at_12));
+        assert_eq!(
+            timeline.current().and_then(Identifier::date_time),
+            Some(date.and_hms_opt(0, 10, 0).unwrap().and_utc())
+        );
+        assert!(!timeline.following);
+        assert!(!timeline.playing);
+
+        let next_day = date.succ_opt().unwrap();
+        let target = next_day.and_hms_opt(0, 5, 0).unwrap().and_utc();
+        assert!(timeline.seek_to_valid_time("KDMX", target));
+        assert!(timeline.frames.is_empty());
+        assert_eq!(timeline.seek_target, Some(target));
+        assert!(
+            !timeline.seek_to_valid_time("KDMX", target),
+            "one relist per axis"
+        );
+        let frames = vec![Identifier::new("KDMX20260820_000500_V06".into())];
+        timeline.set_frames(frames, ("KDMX".into(), next_day));
+        assert_eq!(
+            timeline.current().and_then(Identifier::date_time),
+            Some(target)
+        );
+        assert_eq!(timeline.seek_target, None);
+
+        timeline.seek_target = Some(target);
+        assert!(timeline.follow_day(date));
+        assert!(timeline.following);
+        assert!(timeline.frames.is_empty());
+        assert_eq!(timeline.seek_target, None, "Live cancels the archive seek");
+    }
+
+    #[test]
+    fn linked_sites_choose_by_valid_time_and_reject_late_downloads() {
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 8, 19).unwrap();
+        let mut timeline = Timeline::default();
+        timeline.date = date;
+        timeline.set_frames(
+            [3, 13, 23]
+                .into_iter()
+                .map(|minute| Identifier::new(format!("KDMX20260819_00{minute:02}00_V06")))
+                .collect(),
+            ("KDMX".into(), date),
+        );
+        let target = date.and_hms_opt(0, 10, 0).unwrap().and_utc();
+        assert!(!timeline.seek_to_valid_time("KDMX", target));
+        assert_eq!(
+            timeline.current().and_then(Identifier::date_time),
+            Some(date.and_hms_opt(0, 13, 0).unwrap().and_utc()),
+            "choose by valid time rather than copying another pane's index"
+        );
+        let selected = timeline.current().unwrap().name().to_owned();
+        assert!(timeline.accepts_fetched_volume(&selected, false));
+        assert!(!timeline.accepts_fetched_volume("KDMX20260819_000300_V06", false));
+        assert!(!timeline.accepts_fetched_volume(&selected, true));
+        timeline.go_head();
+        assert!(timeline.accepts_fetched_volume(&selected, true));
     }
 
     #[test]
@@ -603,10 +732,18 @@ mod tests {
         t.following = true;
         t.playing = true;
         t.seek_to_time_of_day(12, 32);
-        assert!(!t.playing, "typing a time takes manual control, like step()");
+        assert!(
+            !t.playing,
+            "typing a time takes manual control, like step()"
+        );
         assert!(!t.following, "no longer pinned to the live head");
         assert_eq!(
-            t.current().unwrap().date_time().unwrap().format("%H:%M").to_string(),
+            t.current()
+                .unwrap()
+                .date_time()
+                .unwrap()
+                .format("%H:%M")
+                .to_string(),
             "12:30"
         );
     }
@@ -628,7 +765,10 @@ mod tests {
 
         t.step_time(60);
         assert!(!t.playing, "a jump takes manual control, like step()");
-        assert_eq!(t.playhead, 162, "12:30 + 1h = 13:30, 12 frames on at 5 min each");
+        assert_eq!(
+            t.playhead, 162,
+            "12:30 + 1h = 13:30, 12 frames on at 5 min each"
+        );
 
         t.step_time(-120);
         assert_eq!(t.playhead, 138, "13:30 - 2h = 11:30");
@@ -660,7 +800,10 @@ mod tests {
         let today = t.date;
         t.set_frames(day("KTLX", 12), ("KTLX".into(), today));
         t.toggle_play();
-        assert!(t.live_looping(), "looping the tail, playhead behind the head");
+        assert!(
+            t.live_looping(),
+            "looping the tail, playhead behind the head"
+        );
         assert_ne!(
             t.current().map(Identifier::name),
             t.newest().map(Identifier::name),

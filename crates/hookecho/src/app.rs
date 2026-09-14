@@ -9,6 +9,7 @@
 mod chrome;
 mod field_state;
 mod goes_timeline;
+mod pane_time;
 use goes_timeline::nearest_goes;
 pub(crate) use field_state::FieldState;
 mod mobile;
@@ -1560,6 +1561,8 @@ pub(crate) enum OverlayToggle {
     Strikes,
     Wind,
     LinkCameras,
+    /// Align archive radar panes by valid time, using each site's nearest volume.
+    LinkTimes,
     /// The always-on-top mini-loop window (desktop only).
     MiniLoop,
     /// Beam-vs-terrain blockage shading for the displayed tilt (chase mode).
@@ -1582,7 +1585,7 @@ pub(crate) struct BlockageKey {
 impl OverlayToggle {
     /// Every toggle, for the persistence sweep. A new variant belongs here too, or it silently
     /// stops being remembered across restarts.
-    pub(crate) const ALL: [OverlayToggle; 42] = [
+    pub(crate) const ALL: [OverlayToggle; 43] = [
         Self::AlertPanel,
         Self::StormReports,
         Self::Spotters,
@@ -1622,16 +1625,17 @@ impl OverlayToggle {
         Self::Strikes,
         Self::Wind,
         Self::LinkCameras,
+        Self::LinkTimes,
         Self::MiniLoop,
         Self::Blockage,
         Self::DayNight,
     ];
 
-    /// Toggles that describe this session's window arrangement rather than a layer: camera
-    /// linking is about the panes on screen right now, and the mini loop is a window. Neither is
-    /// persisted or captured into a workspace.
+    /// Toggles that describe this session's window arrangement rather than a layer. Pane links
+    /// are captured by a saved workspace but are not global layer preferences; the mini loop is
+    /// a window and is not persisted.
     pub(crate) fn session_only(self) -> bool {
-        matches!(self, Self::LinkCameras | Self::MiniLoop)
+        matches!(self, Self::LinkCameras | Self::LinkTimes | Self::MiniLoop)
     }
 
     /// Stable name used in the settings file. Persisted as a string, not as the enum: an unknown
@@ -2745,6 +2749,7 @@ pub struct HookEchoApp {
     loop_export: Option<LoopExport>,
     /// When true, all panes share the active pane's camera.
     link_cameras: bool,
+    link_times: bool,
     /// The always-on-top mini-loop window is open (desktop only; see `mini_loop_viewport`).
     mini_loop: bool,
     /// The mini loop's own camera while it is open; `None` until it borrows the pane's.
@@ -3662,6 +3667,7 @@ impl HookEchoApp {
             share_card: None,
             loop_export: None,
             link_cameras: false,
+            link_times: false,
             mini_loop: false,
             #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
             mini_cam: None,
@@ -8069,6 +8075,7 @@ impl HookEchoApp {
             T::Pireps => &mut self.show_pireps,
             T::Recon => &mut self.show_recon,
             T::LinkCameras => &mut self.link_cameras,
+            T::LinkTimes => &mut self.link_times,
             T::MiniLoop => &mut self.mini_loop,
             T::Blockage => &mut self.show_blockage,
             T::DayNight => &mut self.show_daynight,
@@ -9876,6 +9883,13 @@ impl HookEchoApp {
                     let scan = Arc::new(scan);
                     self.scan_cache.put(name.clone(), Arc::clone(&scan));
                     let v = &mut self.views[view];
+                    // A completed fetch may belong to a cursor the user has since left. Keep
+                    // the scan in cache for a later revisit, but never paint it over the frame
+                    // now selected (including a late live poll after an archive scrub).
+                    if !v.timeline.accepts_fetched_volume(&name, live_poll) {
+                        v.loading = false;
+                        continue;
+                    }
                     let looping = v.timeline.live_looping();
                     // A newly-arrived live head (following): roll the day at UTC midnight, or grow
                     // the frame list so the loop window slides forward. A frame-fetch result for a
@@ -9928,8 +9942,8 @@ impl HookEchoApp {
                     frames,
                 } => {
                     let v = &mut self.views[view];
-                    v.timeline.listing = false;
                     if v.timeline.date == date && v.site.as_deref() == Some(site.as_str()) {
+                        v.timeline.listing = false;
                         v.timeline.set_frames(frames, (site, date));
                         self.pane_shown.remove(&view);
                     }
@@ -14989,6 +15003,7 @@ impl HookEchoApp {
         }
         // Four heights of one storm only reads if all four look at the same place.
         self.link_cameras = true;
+        self.link_times = true;
         self.pane_shown.clear();
     }
 
@@ -15101,6 +15116,7 @@ impl HookEchoApp {
                 .collect(),
             active: self.active,
             link_cameras: self.link_cameras,
+            link_times: self.link_times,
             overlays_on,
             // A workspace you saved records the sites you had open; only the shipped starters
             // adopt whatever is on screen.
@@ -15140,6 +15156,7 @@ impl HookEchoApp {
         }
         self.active = ws.active.min(self.views.len() - 1);
         self.link_cameras = ws.link_cameras;
+        self.link_times = ws.link_times;
         // Overlay names this build doesn't know are skipped, same as the settings restore.
         for t in OverlayToggle::ALL {
             if t.session_only() {
@@ -18596,8 +18613,19 @@ impl eframe::App for HookEchoApp {
         self.show_toasts(ctx);
 
         // Turn this frame's UI mutations into uploads/fetches before painting the map.
-        for idx in 0..self.views.len() {
-            self.sync_pane(idx, ctx);
+        if self.link_times && self.views.len() > 1 {
+            let active = self.active.min(self.views.len() - 1);
+            self.sync_pane(active, ctx);
+            self.sync_linked_pane_times();
+            for idx in 0..self.views.len() {
+                if idx != active {
+                    self.sync_pane(idx, ctx);
+                }
+            }
+        } else {
+            for idx in 0..self.views.len() {
+                self.sync_pane(idx, ctx);
+            }
         }
         self.sync_overlay();
 
@@ -18758,6 +18786,8 @@ impl eframe::App for HookEchoApp {
                     &placefile_labels,
                 );
             }
+
+            self.paint_linked_time_badges(ui, &rects, solo);
 
             // Pane borders; the active pane gets an accent outline. Nothing to outline under
             // `solo` — there is one pane on screen and the strip says which.

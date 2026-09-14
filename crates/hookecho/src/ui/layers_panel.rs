@@ -372,7 +372,7 @@ fn active_layer(e: &PaletteEntry) -> bool {
             PaletteAction::SetMoment(..) | PaletteAction::ToggleField(_) => true,
             PaletteAction::SetContours(kind) => kind != ContourKind::Off,
             PaletteAction::ToggleOverlay(toggle) => {
-                !matches!(toggle, T::AlertPanel | T::LinkCameras | T::MiniLoop)
+                !matches!(toggle, T::AlertPanel | T::LinkCameras | T::LinkTimes | T::MiniLoop)
             }
             _ => false,
         }
@@ -917,6 +917,7 @@ mod tests {
             PaletteAction::SetPanes(1),
             PaletteAction::ToggleOverlay(T::AlertPanel),
             PaletteAction::ToggleOverlay(T::LinkCameras),
+            PaletteAction::ToggleOverlay(T::LinkTimes),
             PaletteAction::ToggleOverlay(T::MiniLoop),
         ] {
             entry.action = action;

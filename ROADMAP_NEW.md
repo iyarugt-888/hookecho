@@ -272,6 +272,10 @@ Current increment: stamped MRMS fields show their signed offset from the display
 in the data inspector. The layer panel, WSV3 status bar, and GOES time control warn beyond a
 shared configurable threshold (10 minutes by default). Full multi-source synchronization and
 shared pane time remain open.
+An opt-in **Link pane archive times** control now seeks each NEXRAD pane to its own nearest
+volume when the active pane scrubs, with UTC scan times and offsets shown on every pane. Saved
+workspaces retain the link. Live panes continue polling their own heads; model and MRMS time
+coordination remains to be built.
 
 ### Acceptance criteria
 
