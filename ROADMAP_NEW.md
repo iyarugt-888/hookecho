@@ -280,6 +280,10 @@ The current model-difference and side-by-side pairs now require one exact valid 
 the decoded GRIB timestamp. The map shows that time, while Layer settings show each run and lead;
 an unavailable pair hides any previous grid instead of displaying a mismatched subtraction.
 General run-to-run and broader model comparison remain open.
+Single-model global, HRRR/RAP and NBM grid overlays now carry decoded valid time and model run
+into the existing per-layer provenance inspector. Difference and side-by-side layers also show
+their own source clocks there. The shared tolerance flags model/radar offsets; these overlays
+remain live forecasts rather than being sought to the radar archive cursor.
 
 ### Acceptance criteria
 

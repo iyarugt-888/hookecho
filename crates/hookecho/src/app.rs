@@ -813,7 +813,18 @@ impl OverlaySource {
             }
             OverlaySource::Global(layer, model, field, fh) => {
                 let fc = wxdata::global::fetch(http, model, field, fh).await?;
-                OverlayMsg::Field(layer, fc.field)
+                let valid = fc.valid();
+                OverlayMsg::StampedField(
+                    layer,
+                    field_state::model_field(
+                        model.label(),
+                        field.slug(),
+                        fc.field,
+                        Some(fc.run),
+                        valid,
+                        false,
+                    )?,
+                )
             }
             OverlaySource::ModelDiff(field, fh) => {
                 let pair = crate::fielddiff::fetch_pair(http, field, fh).await?;
@@ -909,7 +920,23 @@ impl OverlaySource {
                         .await?
                     }
                 };
-                OverlayMsg::Field(layer, fc.field)
+                let source = if layer == FL::ThunderProb {
+                    "NBM"
+                } else {
+                    "HRRR"
+                };
+                let valid = fc.valid();
+                OverlayMsg::StampedField(
+                    layer,
+                    field_state::model_field(
+                        source,
+                        &layer.slug(),
+                        fc.field,
+                        Some(fc.run),
+                        valid,
+                        layer == FL::UpdraftHelicity,
+                    )?,
+                )
             }
             OverlaySource::Env(layer, model, ml, srh_km) => {
                 use crate::render::FieldLayer as FL;
@@ -924,7 +951,18 @@ impl OverlaySource {
                     _ => ("REFC", "entire atmosphere".to_string(), -30.0),
                 };
                 let fc = wxdata::hrrr::fetch_field(http, model, var, &level, 0, min_valid).await?;
-                OverlayMsg::Field(layer, fc.field)
+                let valid = fc.valid();
+                OverlayMsg::StampedField(
+                    layer,
+                    field_state::model_field(
+                        model.label(),
+                        &format!("{var}:{level}"),
+                        fc.field,
+                        Some(fc.run),
+                        valid,
+                        false,
+                    )?,
+                )
             }
             OverlaySource::L3Grid(layer, site) => {
                 use crate::render::FieldLayer as FL;
@@ -8364,6 +8402,7 @@ impl HookEchoApp {
                                     self.diff_error = Some(err.clone());
                                     if let Some(state) = self.fields.get_mut(&FL::ModelDiff) {
                                         state.pending = None;
+                                        state.stamp = None;
                                     }
                                 }
                                 RequestLane::Field(FL::CompareA) => {
@@ -8373,6 +8412,7 @@ impl HookEchoApp {
                                     for layer in [FL::CompareA, FL::CompareB] {
                                         if let Some(state) = self.fields.get_mut(&layer) {
                                             state.pending = None;
+                                            state.stamp = None;
                                         }
                                     }
                                 }
@@ -8499,6 +8539,14 @@ impl HookEchoApp {
                     );
                     if let Some(s) = self.fields.get_mut(&layer) {
                         s.pending = Some(upload);
+                        let (a, b) = self.diff_field.pair();
+                        s.stamp = Some(field_state::model_stamp(
+                            &format!("{a} − {b}"),
+                            self.diff_field.slug(),
+                            &field,
+                            None,
+                            true,
+                        ));
                     }
                     self.diff_valid = Some(valid);
                     self.diff_error = None;
@@ -8512,11 +8560,18 @@ impl HookEchoApp {
                         let source = field.source_layer();
                         let upload_a = self.field_upload(source, &a);
                         let upload_b = self.field_upload(source, &b);
+                        let (model_a, model_b) = field.pair();
                         if let Some(s) = self.fields.get_mut(&FL::CompareA) {
                             s.pending = Some(upload_a);
+                            s.stamp = Some(field_state::model_stamp(
+                                model_a, field.slug(), &a, Some(valid.a_run), false,
+                            ));
                         }
                         if let Some(s) = self.fields.get_mut(&FL::CompareB) {
                             s.pending = Some(upload_b);
+                            s.stamp = Some(field_state::model_stamp(
+                                model_b, field.slug(), &b, Some(valid.b_run), false,
+                            ));
                         }
                         self.compare_valid = Some(valid);
                         self.compare_error = None;
@@ -17411,6 +17466,9 @@ impl eframe::App for HookEchoApp {
                 if changed {
                     self.diff_valid = None;
                     self.diff_grid = None;
+                    if let Some(s) = self.fields.get_mut(&layer) {
+                        s.stamp = None;
+                    }
                 }
                 self.diff_error = None;
                 if let Some(s) = self.fields.get_mut(&layer) {
@@ -17436,6 +17494,11 @@ impl eframe::App for HookEchoApp {
                 if changed {
                     self.compare_valid = None;
                     self.compare_grid = None;
+                    for layer in [FL::CompareA, FL::CompareB] {
+                        if let Some(s) = self.fields.get_mut(&layer) {
+                            s.stamp = None;
+                        }
+                    }
                 }
                 self.compare_error = None;
                 for layer in [FL::CompareA, FL::CompareB] {

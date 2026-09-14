@@ -21,7 +21,8 @@ pub struct DataStamp {
     pub issue_time: Option<DateTime<Utc>>,
     pub run_time: Option<DateTime<Utc>>,
     pub valid_time: DateTime<Utc>,
-    /// Time the complete response body reached this client, before decoding.
+    /// Local payload arrival time; when the fetcher cannot capture body arrival separately,
+    /// this is decode completion time. Never inferred from a forecast's valid time.
     pub received_time: DateTime<Utc>,
     /// Provider ingest latency, only when independently supplied by the provider.
     pub source_latency: Option<Duration>,

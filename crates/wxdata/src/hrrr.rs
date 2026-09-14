@@ -536,7 +536,10 @@ pub async fn fetch_field_swath(
             }
         }
         match (failed, acc) {
-            (None, Some(field)) => {
+            (None, Some(mut field)) => {
+                // The max grid covers F+1 through F+through; timestamp it at the ending
+                // valid time, not the first slice's F+1 time retained by the fold.
+                field.time = run + chrono::Duration::hours(i64::from(through));
                 return Ok(HrrrForecast {
                     field,
                     run,

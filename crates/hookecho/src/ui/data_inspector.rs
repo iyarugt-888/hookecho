@@ -75,11 +75,11 @@ pub(crate) fn show(
     ui.label(format!("Quality: {:?}", stamp.quality));
     if let Some(grid) = &stamp.grid {
         ui.label(format!(
-            "Native grid: {} × {} (longitude/latitude)",
+            "Fetched grid: {} × {} (longitude/latitude)",
             grid.native.nx, grid.native.ny
         ));
         ui.label(format!(
-            "Native bounds [W, S, E, N]: {:?}",
+            "Fetched bounds [W, S, E, N]: {:?}",
             grid.native.bounds
         ));
         ui.label(format!(
