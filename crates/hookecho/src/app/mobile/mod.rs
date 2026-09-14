@@ -130,6 +130,7 @@ impl super::HookEchoApp {
     /// Whether back would dismiss something in-app rather than leaving the app.
     fn mobile_has_dismissable(&self) -> bool {
         self.marker_popup.is_some()
+            || self.gate_popup.is_some()
             || self.detail.is_some()
             || self.warning_popup.is_some()
             || self.cell_popup.is_some()
@@ -179,6 +180,7 @@ impl super::HookEchoApp {
         }
         clear!(
             self.marker_popup,
+            self.gate_popup,
             self.detail,
             self.warning_popup,
             self.cell_popup,
@@ -293,6 +295,7 @@ impl super::HookEchoApp {
     /// two-point tool otherwise reads as "the first tap did nothing".
     fn mobile_tool_hint(&mut self, ctx: &egui::Context, content: Rect) {
         let text = match self.tool {
+            crate::app::MapTool::GateInspector => "Tap a radar gate to inspect it",
             crate::app::MapTool::Measure => "Tap two points to measure",
             crate::app::MapTool::Marker => "Tap the map to drop a marker",
             crate::app::MapTool::CrossSection => "Tap two points for a cross-section",

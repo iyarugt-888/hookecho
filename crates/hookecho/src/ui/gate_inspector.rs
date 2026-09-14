@@ -5,8 +5,7 @@
 
 use wxdata::level2::{GateInspection, Moment};
 
-/// Everything one click on the radar with nothing more specific under it (a marker, a storm
-/// cell, an overlay feature) needs to show.
+/// Everything a click with the Gate inspector tool needs to show.
 #[derive(Debug, Clone)]
 pub struct GateInspectorPopup {
     pub site: Option<String>,

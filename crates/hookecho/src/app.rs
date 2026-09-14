@@ -1309,9 +1309,11 @@ pub(crate) fn draw_append(
 /// What a left-click on the map does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub(crate) enum MapTool {
-    /// Interrogate storm cells / overlay features (the default).
+    /// Explore storm cells / overlay features (the default).
     #[default]
     Interrogate,
+    /// Sample the exact radar gate and open its inspector on a map click.
+    GateInspector,
     /// Measure great-circle distance/bearing between two clicks.
     Measure,
     /// Drop a location marker at the clicked point.
@@ -2581,9 +2583,8 @@ pub struct HookEchoApp {
     detail: Option<Detail>,
     /// Open "Storm {id} Attributes" window (a clicked storm cell).
     cell_popup: Option<Cell>,
-    /// Open gate-inspector popup (Phase B4): every geometry/value fact about the point last
-    /// interrogated on the radar itself, when nothing more specific (a marker, a storm cell, an
-    /// overlay feature) was under the click.
+    /// Open gate-inspector popup: every geometry/value fact about the point sampled with the
+    /// explicit Gate inspector tool.
     gate_popup: Option<ui::gate_inspector::GateInspectorPopup>,
     /// Which of `settings.markers` the tapped-marker popup is editing.
     // ponytail: index identity — markers have no id, and their names aren't unique ("Marker 3"
@@ -8243,6 +8244,9 @@ impl HookEchoApp {
                     MapTool::Interrogate
                 } else {
                     t
+                };
+                if self.tool != MapTool::GateInspector {
+                    self.gate_popup = None;
                 }
             }
             PaletteAction::SetPanes(n) => {
@@ -11387,7 +11391,7 @@ impl HookEchoApp {
             .default_width(260.0)
             .min_width(220.0)
             .resizable(true)
-            .collapsible(false)
+            .collapsible(true)
             .frame(
                 egui::Frame::popup(&ctx.style_of(ctx.theme()))
                     .inner_margin(egui::Margin::symmetric(8, 6)),
@@ -12090,9 +12094,8 @@ impl HookEchoApp {
                 }
             }
         }
-        // Long-press inspects, whatever tool is armed. A phone has no right-click and no hover,
-        // and arming Interrogate first to ask "what is that" is a step nobody discovers — so the
-        // press that means "tell me about this" is the press people already try.
+        // Long-press explores features, whatever tool is armed. A phone has no right-click and no
+        // hover, so the press that means "tell me about this" is the press people already try.
         let long_press = cfg!(target_os = "android") && response.long_touched();
         if long_press {
             // Before anything is drawn: the buzz is what says the press was heard.
@@ -12306,6 +12309,12 @@ impl HookEchoApp {
                     // Drawing happens on drag, not on click; a bare click leaves no mark.
                     MapTool::Draw => {}
                     MapTool::AlertZone => self.zone_pts.push([lon, lat]),
+                    MapTool::GateInspector => {
+                        self.cell_popup = None;
+                        self.warning_popup = None;
+                        self.detail = None;
+                        self.gate_popup = self.inspect_gate(idx, lon, lat);
+                    }
                     // Labelled so the storm-marker shortcut below can bail out of the hit-test
                     // chain without returning from `render_pane` and costing this pane its
                     // tiles and radar for the frame.
@@ -12499,15 +12508,11 @@ impl HookEchoApp {
                                             link: None,
                                         });
                                     } else {
-                                        // Nothing more specific under the click: fall back to the
-                                        // radar itself (Phase B4's gate inspector), if there is a
-                                        // volume here to sample. A click off the sweep's coverage
-                                        // (past its last gate, or a moment/tilt with no data)
-                                        // clears whatever inspector was open rather than leaving a
-                                        // stale reading up for a point that no longer answers.
+                                        // Explore only opens features. Gate sampling is an explicit
+                                        // tool, so a normal map click does not open the inspector.
                                         self.warning_popup = None;
                                         self.detail = None;
-                                        self.gate_popup = self.inspect_gate(idx, lon, lat);
+                                        self.gate_popup = None;
                                     }
                                 }
                             }

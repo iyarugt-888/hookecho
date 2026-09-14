@@ -142,7 +142,12 @@ impl HookEchoApp {
                 wsv3::ribbon_gradient(ui.painter(), ribbon_rect);
 
                 ui.spacing_mut().item_spacing = vec2(6.0, 3.0);
-                ui.horizontal(|ui| {
+                egui::ScrollArea::horizontal()
+                    .id_salt("wsv3_ribbon_groups")
+                    .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded)
+                    .max_height(wsv3::RIBBON_H)
+                    .show(ui, |ui| {
+                    ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                     ui.add_space(6.0);
 
                     // ---- DATA (mode switch — WSV3 swaps its whole toolbar by data type) ----
@@ -554,11 +559,12 @@ impl HookEchoApp {
                     });
 
                     // ---- TOOLS ----
-                    ribbon_group(ui, 224.0, |ui| {
+                    ribbon_group(ui, 250.0, |ui| {
                         wsv3::group_label(ui, "Tools");
                         ui.horizontal_wrapped(|ui| {
                             for (tool, label) in [
                                 (MapTool::Interrogate, "Explore"),
+                                (MapTool::GateInspector, "Gate inspector"),
                                 (MapTool::Measure, "Measure"),
                                 (MapTool::Marker, "Marker"),
                                 (MapTool::CrossSection, "X-section"),
@@ -596,7 +602,8 @@ impl HookEchoApp {
                             actions.palette = Some(PaletteAction::OpenWindow(AppWindow::Help));
                         }
                     });
-                });
+                    });
+                    });
 
                 // ---- docked colour scale ----
                 let cb = egui::Rect::from_min_max(

@@ -183,6 +183,7 @@ impl HookEchoApp {
         // Icon, tool name, and what to do with it — an armed tool should look armed, not leave a
         // sentence of instructions as the only sign anything changed.
         let (glyph, name, hint) = match self.tool {
+            MapTool::GateInspector => (ph::CROSSHAIR, "Gate inspector", "click a radar gate"),
             MapTool::Measure => (ph::RULER, "Measure", "click two points"),
             MapTool::Marker => (ph::MAP_PIN, "Drop marker", "click the map"),
             MapTool::CrossSection => (ph::CHART_LINE, "Cross-section", "click two points"),
@@ -209,6 +210,7 @@ impl HookEchoApp {
         // Escape disarms, the same way it closes every other transient thing.
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
             self.tool = MapTool::Interrogate;
+            self.gate_popup = None;
             return;
         }
         egui::Area::new(egui::Id::new("info_chip"))

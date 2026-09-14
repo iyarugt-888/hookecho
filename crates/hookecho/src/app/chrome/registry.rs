@@ -965,8 +965,14 @@ impl HookEchoApp {
         for (t, label, desc, common) in [
             (
                 MapTool::Interrogate,
-                "Tool: Interrogate",
-                "Click anywhere to read the exact radar value",
+                "Tool: Explore",
+                "Inspect storm cells, alerts, markers, and other map features",
+                true,
+            ),
+            (
+                MapTool::GateInspector,
+                "Tool: Gate inspector",
+                "Click the radar to read the exact gate value and geometry",
                 true,
             ),
             (
