@@ -538,6 +538,31 @@ impl BinnedSweep {
         crate::xsection::beam_height_km(range_km as f64, self.elevation_deg as f64) * 3280.84
     }
 
+    /// Top/bottom edges of the beam at `range_km`, in feet — the half-power-beamwidth
+    /// approximation from [`crate::beam_geometry::beam_extent`] (`.0` top, `.1` bottom). Answers
+    /// "how thick is the sample volume here", which the centre height alone cannot: a gate can
+    /// read a real but partial-beam-filling echo whose top or bottom edge only partly overlaps
+    /// the storm.
+    pub fn beam_top_bottom_ft(&self, range_km: f32) -> (f64, f64) {
+        const M_TO_FT: f64 = 3.28084;
+        let e = crate::beam_geometry::beam_extent(
+            range_km as f64 * 1_000.0,
+            self.elevation_deg as f64,
+            0.0,
+        );
+        (
+            e.top.height_above_radar_m * M_TO_FT,
+            e.bottom.height_above_radar_m * M_TO_FT,
+        )
+    }
+
+    /// Approximate horizontal beam width at `range_km` — see
+    /// [`crate::beam_geometry::horizontal_beam_width_km`] for the WSR-88D-shaped assumption this
+    /// makes.
+    pub fn beam_width_km(&self, range_km: f32) -> f64 {
+        crate::beam_geometry::horizontal_beam_width_km(range_km as f64)
+    }
+
     /// Estimated Nyquist velocity (m/s), for a velocity sweep only — `None` for every other
     /// moment, where the question does not apply.
     ///
@@ -580,6 +605,8 @@ impl BinnedSweep {
             dealiased_value: dealiased.and_then(|d| d.sample_at(lon, lat)).and_then(|s| s.value),
             ground_range_km,
             beam_height_ft: self.beam_height_ft(sample.range_km),
+            beam_top_bottom_ft: self.beam_top_bottom_ft(sample.range_km),
+            beam_width_km: self.beam_width_km(sample.range_km),
             gate_interval_km: self.gate_interval_km,
             elevation_deg: self.elevation_deg,
             nyquist_mps: self.estimated_nyquist_mps(),
@@ -614,6 +641,10 @@ pub struct GateInspection {
     pub dealiased_value: Option<f32>,
     pub ground_range_km: f32,
     pub beam_height_ft: f64,
+    /// (top, bottom) edges of the beam at this range — see [`BinnedSweep::beam_top_bottom_ft`].
+    pub beam_top_bottom_ft: (f64, f64),
+    /// Approximate horizontal beam width at this range — see [`BinnedSweep::beam_width_km`].
+    pub beam_width_km: f64,
     pub gate_interval_km: f32,
     pub elevation_deg: f32,
     /// See [`BinnedSweep::estimated_nyquist_mps`] — an estimate, not a decoded header value.

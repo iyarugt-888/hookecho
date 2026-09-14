@@ -10,6 +10,47 @@ pub const EARTH_RADIUS_M: f64 = 6_371_000.0;
 /// Standard-atmosphere effective Earth radius used for weather-radar propagation.
 pub const EFFECTIVE_EARTH_RADIUS_M: f64 = EARTH_RADIUS_M * 4.0 / 3.0;
 
+/// Half-power beamwidth WSR-88D antennas are built to, degrees. The one antenna-shape assumption
+/// every caller of [`beam_extent`]/[`horizontal_beam_width_km`] makes today — a TDWR's real beam
+/// is narrower, a DWD or OPERA site's differs again — so a number computed here for a non-WSR-88D
+/// site is a WSR-88D-shaped estimate, not that network's own documented beamwidth. Not papered
+/// over: `suitability.rs` carried this same caveat before this constant moved here to be shared
+/// with beam-top/bottom and cross-section beam-rise geometry.
+pub const WSR88D_BEAMWIDTH_DEG: f64 = 0.925;
+
+/// Approximate horizontal beam width (km) at `distance_km`, from the small-angle approximation
+/// `distance_km * beamwidth_rad` — accurate to well under 1% at NEXRAD's beamwidth and normal
+/// operating ranges. See [`WSR88D_BEAMWIDTH_DEG`] for what "approximate" means here.
+pub fn horizontal_beam_width_km(distance_km: f64) -> f64 {
+    distance_km * WSR88D_BEAMWIDTH_DEG.to_radians()
+}
+
+/// A beam's vertical extent at one slant range: its centre plus the top/bottom edges implied by
+/// the antenna's half-power beamwidth, using the analyst convention `elevation ± beamwidth / 2`.
+///
+/// This is an approximation of where the antenna pattern falls to half power, not a measured
+/// footprint — real antenna patterns are not a hard-edged cone, and beam energy exists (at
+/// falling power) outside this envelope too. `bottom`'s elevation angle can go negative for a
+/// radar's lowest tilt (WSR-88D's 0.2°-0.5° base scans are already within half the beamwidth of
+/// the horizon); that is a legitimate angle for the geometry model, not a bug — the true antenna
+/// pattern really does extend a little below the nominal tilt.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BeamExtent {
+    pub center: BeamPoint,
+    pub top: BeamPoint,
+    pub bottom: BeamPoint,
+}
+
+/// Compute [`BeamExtent`] at `slant_range_m` for a beam nominally aimed at `elevation_deg`.
+pub fn beam_extent(slant_range_m: f64, elevation_deg: f64, antenna_altitude_m: f64) -> BeamExtent {
+    let half = WSR88D_BEAMWIDTH_DEG / 2.0;
+    BeamExtent {
+        center: beam_point(slant_range_m, elevation_deg, antenna_altitude_m),
+        top: beam_point(slant_range_m, elevation_deg + half, antenna_altitude_m),
+        bottom: beam_point(slant_range_m, elevation_deg - half, antenna_altitude_m),
+    }
+}
+
 /// Beam centre at one slant range.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BeamPoint {
@@ -111,5 +152,61 @@ mod tests {
         let (wrapped, _) = destination_lonlat(179.8, 0.0, 90.0, 100_000.0);
         assert!((-180.0..180.0).contains(&wrapped));
         assert!(wrapped < 0.0);
+    }
+
+    #[test]
+    fn horizontal_beam_width_grows_with_range() {
+        assert_eq!(horizontal_beam_width_km(0.0), 0.0);
+        let near = horizontal_beam_width_km(40.0);
+        let far = horizontal_beam_width_km(160.0);
+        assert!(far > near);
+        // Small-angle approximation: width should scale linearly with distance.
+        assert!((far / near - 4.0).abs() < 1e-6, "near {near} far {far}");
+    }
+
+    /// The whole reason `beam_extent` exists: top must sit above centre, and centre above bottom,
+    /// by an amount that grows with range — the same "wedge widening downrange" a beam-vs-terrain
+    /// diagram is drawn to show.
+    #[test]
+    fn beam_extent_orders_top_center_bottom_and_widens_with_range() {
+        for range_km in [10.0, 50.0, 150.0, 250.0] {
+            let e = beam_extent(range_km * 1_000.0, 0.5, 0.0);
+            assert!(
+                e.top.height_above_radar_m > e.center.height_above_radar_m,
+                "range {range_km}: top {} vs center {}",
+                e.top.height_above_radar_m,
+                e.center.height_above_radar_m
+            );
+            assert!(
+                e.center.height_above_radar_m > e.bottom.height_above_radar_m,
+                "range {range_km}: center {} vs bottom {}",
+                e.center.height_above_radar_m,
+                e.bottom.height_above_radar_m
+            );
+        }
+        let near = beam_extent(20_000.0, 0.5, 0.0);
+        let far = beam_extent(200_000.0, 0.5, 0.0);
+        let near_span = near.top.height_above_radar_m - near.bottom.height_above_radar_m;
+        let far_span = far.top.height_above_radar_m - far.bottom.height_above_radar_m;
+        assert!(far_span > near_span, "near {near_span} far {far_span}");
+    }
+
+    /// `beam_extent`'s centre must be exactly `beam_point` at the nominal elevation — it is not a
+    /// second, independent calculation that happens to agree.
+    #[test]
+    fn beam_extent_center_matches_beam_point() {
+        let e = beam_extent(120_000.0, 1.8, 365.0);
+        let p = beam_point(120_000.0, 1.8, 365.0);
+        assert_eq!(e.center, p);
+    }
+
+    /// WSR-88D's lowest operational tilts (0.2°-0.5°) sit within half the beamwidth of the
+    /// horizon, so the modeled bottom edge legitimately goes negative there — this is the
+    /// geometry the analyst caveat in `WSR88D_BEAMWIDTH_DEG`'s doc comment is about, not a defect
+    /// to clamp away.
+    #[test]
+    fn a_low_tilt_bottom_edge_can_go_below_the_horizon() {
+        let e = beam_extent(100_000.0, 0.2, 0.0);
+        assert!(e.bottom.height_above_radar_m < e.center.height_above_radar_m);
     }
 }

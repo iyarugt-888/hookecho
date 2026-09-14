@@ -668,16 +668,43 @@ Historic supercell replay produces a stable rotation/hail trail that can be inde
 
 ---
 
-## C3. Beam geometry / blockage / coverage analysis
+## C3. Beam geometry / blockage / coverage analysis — partly done
 
 HookEcho already models beam height. Extend it into a full analysis layer.
 
-- [ ] beam center and approximate beamwidth top/bottom
-- [ ] height readout at cursor
-- [ ] lowest usable beam map
-- [ ] terrain blockage estimate using existing elevation infrastructure
-- [ ] radar coverage comparison between neighboring sites
-- [ ] optional beam-rise overlay in cross-section and 3D
+- [x] beam center and approximate beamwidth top/bottom — `wxdata::beam_geometry::beam_extent`
+  (elevation ± half the WSR-88D half-power beamwidth) plus `horizontal_beam_width_km` for the
+  cross-beam extent; both hoisted from `suitability.rs`'s private copy so the suitability ranking,
+  the gate inspector, and the cross-section overlay below all read one shared constant rather than
+  three independently-typed 0.925s. Surfaced live in the gate inspector as "Beam top/bottom" and
+  "Beam width", next to the existing beam-centre height. Not a claim of the true antenna pattern —
+  see the doc comment on `WSR88D_BEAMWIDTH_DEG` for what the half-power convention does and does
+  not model, and that this is a WSR-88D-shaped number even for a non-WSR-88D candidate.
+- [x] height readout at cursor — this was already the gate inspector's "Beam height" row from B4;
+  what was missing (top/bottom, width) is filled in above rather than duplicated as a second
+  readout.
+- [ ] lowest usable beam map — a gridded "which tilt actually reaches ground level here" layer;
+  distinct from the per-site suitability ranking (C-adjacent, already built) and from the terrain
+  blockage raster (done, next item), neither of which answers this on its own.
+- [x] terrain blockage estimate using existing elevation infrastructure — **predates this pass**,
+  found already fully built and wired while surveying this section: `crate::elevation`'s DEM tile
+  cache and `blockage_image`/`BeamSite` compute an occultation-angle raster from the site's own
+  antenna height, exposed as the "Blockage" overlay toggle (chase mode). The roadmap simply hadn't
+  been updated to say so.
+- [ ] radar coverage comparison between neighboring sites — the suitability ranking answers "which
+  site has the lowest beam here" one point at a time; a coverage *map* comparing two sites' full
+  footprints is a different, larger visualization not attempted here.
+- [x] optional beam-rise overlay in cross-section — `wxdata::xsection::build` now returns one
+  `BeamRiseLine` per distinct tilt in the volume (deduplicated so a SAILS/MRLE repeat doesn't draw
+  itself twice), sampled at the same radar-relative ground range each panel column already uses
+  for its reflectivity gate — so the two are geometrically consistent by construction, not two
+  separate calculations that happen to agree. Drawn as a color-coded overlay with a per-tilt
+  legend, toggleable ("Beam rise" checkbox) independently of rebuilding the panel, since the
+  geometry is already sitting in the built `CrossSection` regardless of whether it's drawn.
+  Verified live: KTLX cross-section through real echo west of the site showed eight tilts'
+  beam-centre curves (0.4°…6.4°) climbing correctly left-to-right over the sampled reflectivity,
+  and unchecking the box removed only the lines. **3D beam-rise remains open** — the raymarch and
+  observed-gate 3D paths have no equivalent overlay yet.
 - [ ] warn when a sampled feature is below/above sampled beam coverage
 
 Do not imply perfect propagation; clearly label 4/3-earth assumptions.

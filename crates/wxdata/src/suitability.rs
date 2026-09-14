@@ -23,11 +23,10 @@
 
 use crate::sites::SiteEntry;
 
-/// Half-power beamwidth WSR-88D antennas are built to, degrees. The only value this module
-/// assumes for every candidate today, which is why beam width here is a WSR-88D-shaped estimate
-/// even for a TDWR/DWD/OPERA candidate in the ranking — those networks' real antennas differ
-/// (a TDWR's beam is narrower), a gap this doesn't paper over so much as not claim to have closed.
-const WSR88D_BEAMWIDTH_DEG: f64 = 0.925;
+// The only antenna-shape assumption this module makes for every candidate — see
+// `crate::beam_geometry::WSR88D_BEAMWIDTH_DEG`'s own doc comment for why that is a real gap for
+// a TDWR/DWD/OPERA candidate in the ranking, not one this module claims to have closed.
+use crate::beam_geometry::horizontal_beam_width_km;
 
 /// One candidate radar's geometry at a target point.
 #[derive(Debug, Clone, Copy)]
@@ -64,7 +63,7 @@ pub fn rank(lon: f64, lat: f64, elevation_deg: f64, limit: usize) -> Vec<RadarCa
             );
             let slant_km = crate::xsection::slant_from_ground_km(distance_km, elevation_deg);
             let beam_height_m = crate::xsection::beam_height_km(slant_km, elevation_deg) * 1_000.0;
-            let beam_width_km = distance_km * WSR88D_BEAMWIDTH_DEG.to_radians();
+            let beam_width_km = horizontal_beam_width_km(distance_km);
             RadarCandidate {
                 site,
                 distance_km,

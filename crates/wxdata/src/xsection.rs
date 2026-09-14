@@ -19,6 +19,21 @@ pub struct CrossSection {
     pub max_height_km: f32,
     pub length_km: f64,
     pub dbz: Vec<Option<f32>>,
+    /// suggestions.md §3.2 / ROADMAP_NEW C3: one line per tilt actually present in the volume,
+    /// for a "beam-rise" overlay drawn atop the panel — the same curve a beam-vs-terrain diagram
+    /// draws, so an analyst can see directly why a feature reads weaker/absent higher up the
+    /// panel: the beam has climbed clear of it, not that the storm actually weakened there.
+    pub beam_lines: Vec<BeamRiseLine>,
+}
+
+/// One tilt's beam-centre height (km) at each column of a [`CrossSection`]'s panel, aligned with
+/// its `cols` so the two can be drawn on the same axes with no further transform.
+#[derive(Debug, Clone)]
+pub struct BeamRiseLine {
+    pub elevation_deg: f32,
+    /// `None` at a column where this tilt's beam has already climbed above the panel's
+    /// `max_height_km` — nothing to draw there, not a height of zero.
+    pub height_km: Vec<Option<f32>>,
 }
 
 impl CrossSection {
@@ -151,6 +166,20 @@ pub fn build(
     let mut dbz = vec![None; cols * rows];
     let mut samples: Vec<(f64, f32)> = Vec::with_capacity(sweeps.len());
 
+    // One beam-rise line per distinct elevation. A SAILS/MRLE volume repeats a low tilt several
+    // times within one volume; those repeats share the same angle and so the same geometry, and
+    // would otherwise draw the identical line on top of itself `sweeps.len()` times.
+    let mut elevations: Vec<f32> = sweeps.iter().map(|s| s.elevation_deg).collect();
+    elevations.sort_by(f32::total_cmp);
+    elevations.dedup_by(|a, b| (*a - *b).abs() < 0.05);
+    let mut beam_lines: Vec<BeamRiseLine> = elevations
+        .iter()
+        .map(|&elevation_deg| BeamRiseLine {
+            elevation_deg,
+            height_km: vec![None; cols],
+        })
+        .collect();
+
     for i in 0..cols {
         let t = i as f64 / (cols - 1) as f64;
         let plon = a.0 + (b.0 - a.0) * t;
@@ -164,6 +193,18 @@ pub fn build(
             let hr = max_height_km as f64 * (1.0 - r as f64 / (rows - 1) as f64); // row 0 = top
             dbz[r * cols + i] = sample_profile(&samples, hr);
         }
+
+        // The beam-rise line is *radar-relative* geometry — how high this tilt's beam is above
+        // the ground at this column's actual ground range from the radar — which is not the same
+        // axis as "distance along A→B" whenever the cut line doesn't pass through the radar. The
+        // panel's own x-axis is A→B, so the line is stored per-column exactly like `dbz` is; the
+        // geometry underneath still comes from `ground_km`, matching what `column_samples` above
+        // used to decide which gate was sampled into this same column.
+        for line in &mut beam_lines {
+            let e = line.elevation_deg as f64;
+            let h = beam_height_km(slant_from_ground_km(ground_km, e), e);
+            line.height_km[i] = (h <= max_height_km as f64).then_some(h as f32);
+        }
     }
 
     Some(CrossSection {
@@ -172,6 +213,7 @@ pub fn build(
         max_height_km,
         length_km,
         dbz,
+        beam_lines,
     })
 }
 
@@ -208,6 +250,83 @@ pub(crate) fn sample_profile(samples: &[(f64, f32)], hr: f64) -> Option<f32> {
 mod tests {
     use super::*;
 
+    /// A minimal binned sweep for beam-rise geometry tests, which don't care what the sweep's
+    /// data actually says — only its elevation and where its radar sits.
+    fn fixture_sweep(elevation_deg: f32, radar_lon: f32, radar_lat: f32) -> BinnedSweep {
+        let (az_bins, gate_count) = (16usize, 4usize);
+        BinnedSweep {
+            moment: crate::level2::Moment::Reflectivity,
+            az_bins,
+            gate_count,
+            data: vec![0u8; az_bins * gate_count],
+            first_gate_km: 0.0,
+            gate_interval_km: 1.0,
+            radar_lat,
+            radar_lon,
+            elevation_deg,
+            value_min: -30.0,
+            value_max: 75.0,
+            ..Default::default()
+        }
+    }
+
+    /// A SAILS/MRLE volume repeats a low tilt several times; the overlay must draw one line for
+    /// that angle, not one per repeated sweep on top of itself.
+    #[test]
+    fn beam_lines_cover_every_distinct_elevation_once() {
+        let (rlon, rlat) = (-97.0f32, 35.0f32);
+        let sweeps = vec![
+            fixture_sweep(0.5, rlon, rlat),
+            fixture_sweep(0.5, rlon, rlat), // repeated low cut
+            fixture_sweep(4.0, rlon, rlat),
+        ];
+        let (blon, blat) =
+            crate::beam_geometry::destination_lonlat(rlon as f64, rlat as f64, 90.0, 100_000.0);
+        let xs = build(&sweeps, (rlon as f64, rlat as f64), (blon, blat), 10, 10, 15.0).unwrap();
+        let elevs: Vec<f32> = xs.beam_lines.iter().map(|l| l.elevation_deg).collect();
+        assert_eq!(elevs, vec![0.5, 4.0]);
+    }
+
+    /// The line has to be the same geometry the rest of this module already trusts — not a second,
+    /// independent calculation that happens to look similar.
+    #[test]
+    fn beam_line_height_matches_beam_height_km() {
+        let (rlon, rlat) = (-97.0f32, 35.0f32);
+        let sweeps = vec![fixture_sweep(0.5, rlon, rlat)];
+        let (blon, blat) =
+            crate::beam_geometry::destination_lonlat(rlon as f64, rlat as f64, 90.0, 100_000.0);
+        let xs = build(&sweeps, (rlon as f64, rlat as f64), (blon, blat), 5, 5, 15.0).unwrap();
+        let line = &xs.beam_lines[0];
+        // Column 0 sits at the radar itself: zero ground range, zero beam height (up to the
+        // floating-point noise `dist_bearing`'s acos(~1.0) leaves at zero distance).
+        assert!(line.height_km[0].unwrap() < 1e-3, "{:?}", line.height_km[0]);
+        let expected = beam_height_km(slant_from_ground_km(xs.length_km, 0.5), 0.5) as f32;
+        assert!(
+            (line.height_km[4].unwrap() - expected).abs() < 1e-4,
+            "{:?} vs {expected}",
+            line.height_km[4]
+        );
+    }
+
+    /// Once a tilt's beam has climbed above the panel's own ceiling there is nothing there to
+    /// draw — the line has to stop, not report a height it never actually reached inside the
+    /// panel (or worse, one clamped to the ceiling, which would draw a false flat line).
+    #[test]
+    fn beam_line_height_is_none_once_the_beam_climbs_above_the_panel() {
+        let (rlon, rlat) = (-97.0f32, 35.0f32);
+        let sweeps = vec![fixture_sweep(19.5, rlon, rlat)]; // steepest common VCP tilt
+        let (blon, blat) =
+            crate::beam_geometry::destination_lonlat(rlon as f64, rlat as f64, 90.0, 200_000.0);
+        let xs = build(&sweeps, (rlon as f64, rlat as f64), (blon, blat), 5, 5, 3.0).unwrap();
+        let line = &xs.beam_lines[0];
+        assert!(line.height_km[0].unwrap() < 1e-3, "{:?}", line.height_km[0]);
+        assert!(
+            line.height_km[4].is_none(),
+            "expected a 19.5° beam to have climbed above 3 km by 200 km out, got {:?}",
+            line.height_km[4]
+        );
+    }
+
     #[test]
     fn csv_grid_matches_the_slice() {
         let xs = CrossSection {
@@ -216,6 +335,7 @@ mod tests {
             max_height_km: 12.0,
             length_km: 40.0,
             dbz: vec![None, Some(5.0), None, None, Some(50.0), None],
+            beam_lines: Vec::new(),
         };
         let csv = xs.to_csv();
         let lines: Vec<&str> = csv.lines().collect();

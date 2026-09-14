@@ -19,12 +19,77 @@ pub fn to_image(xs: &CrossSection, table: &ColorTable) -> egui::ColorImage {
     egui::ColorImage::from_rgba_unmultiplied([xs.cols, xs.rows], &buf)
 }
 
+/// Draw each tilt's beam-centre curve over the already-rendered panel `rect` (ROADMAP_NEW C3 /
+/// suggestions.md §3.2). `xs.beam_lines` is radar-relative geometry already computed alongside the
+/// reflectivity grid — this only maps it onto the same pixels the image was stretched to.
+fn draw_beam_rise(ui: &egui::Ui, rect: egui::Rect, xs: &CrossSection) {
+    let painter = ui.painter();
+    // A handful of fixed hues cycled by tilt index rather than one flat color: with several tilts
+    // in frame (a full VCP can be a dozen-plus), telling "which line is which" apart needs some
+    // differentiation, but a full rainbow would fight the reflectivity palette underneath it for
+    // attention. Muted and desaturated on purpose.
+    const HUES: [egui::Color32; 6] = [
+        egui::Color32::from_rgb(255, 255, 255),
+        egui::Color32::from_rgb(255, 210, 120),
+        egui::Color32::from_rgb(140, 210, 255),
+        egui::Color32::from_rgb(200, 160, 255),
+        egui::Color32::from_rgb(160, 255, 200),
+        egui::Color32::from_rgb(255, 160, 190),
+    ];
+    let cols = xs.cols.max(2) as f32;
+    for (i, line) in xs.beam_lines.iter().enumerate() {
+        let color = HUES[i % HUES.len()].gamma_multiply(0.8);
+        let stroke = egui::Stroke::new(1.3, color);
+        // Break the polyline at every gap (the beam left the panel, or hasn't reached it yet)
+        // rather than joining across one — a straight line spanning a None run would draw a false
+        // segment that never corresponds to this tilt's actual geometry in that gap.
+        let mut segment: Vec<egui::Pos2> = Vec::new();
+        let mut flush = |segment: &mut Vec<egui::Pos2>| {
+            if segment.len() >= 2 {
+                painter.line(segment.clone(), stroke);
+            }
+            segment.clear();
+        };
+        for (col, h) in line.height_km.iter().enumerate() {
+            match h {
+                Some(h) => {
+                    let x = rect.left() + rect.width() * col as f32 / (cols - 1.0);
+                    let frac_from_top = 1.0 - (h / xs.max_height_km.max(f32::EPSILON)).clamp(0.0, 1.0);
+                    let y = rect.top() + rect.height() * frac_from_top;
+                    segment.push(egui::pos2(x, y));
+                }
+                None => flush(&mut segment),
+            }
+        }
+        flush(&mut segment);
+    }
+    if !xs.beam_lines.is_empty() {
+        // A small color-coded legend along the panel's top-right — one label per tilt, in the
+        // same color as its line, rather than plain text that would need its own key.
+        let mut x = rect.right() - 6.0;
+        let y = rect.top() + 4.0;
+        for (i, line) in xs.beam_lines.iter().enumerate().rev() {
+            let color = HUES[i % HUES.len()];
+            let label = format!("{:.1}°", line.elevation_deg);
+            let galley = ui.painter().layout_no_wrap(
+                label,
+                egui::FontId::proportional(9.5),
+                color,
+            );
+            x -= galley.size().x;
+            painter.galley(egui::pos2(x, y), galley, color);
+            x -= 6.0;
+        }
+    }
+}
+
 /// Show the cross-section window. Returns `false` when it should close.
 pub fn show(
     ctx: &egui::Context,
     xs: &CrossSection,
     tex: &egui::TextureHandle,
     moment: &mut wxdata::level2::Moment,
+    beam_rise: &mut bool,
     drawer: &mut crate::ui::drawer::Drawer,
 ) -> bool {
     use wxdata::level2::Moment;
@@ -74,6 +139,17 @@ pub fn show(
                 );
             });
         });
+        // Its own row rather than crammed into the one above: that row already holds the length
+        // label, three moment buttons and two CSV buttons, and a narrow window (a laptop split
+        // pane, this window's own minimum before the user resizes it) left no room for a sixth
+        // control without the two competing layouts overlapping their text.
+        ui.horizontal(|ui| {
+            ui.checkbox(beam_rise, "Beam rise").on_hover_text(
+                "Draw each tilt's beam-centre height across the panel, so a feature reading \
+                 weaker higher up can be told apart from the beam simply climbing clear of it \
+                 (4/3-earth model, approximate).",
+            );
+        });
         ui.separator();
         // Draw the panel stretched to a readable size (distance wide, height tall).
         let avail = ui.available_size();
@@ -85,6 +161,9 @@ pub fn show(
         let resp = ui.add(img);
         // Axis captions along the drawn rect.
         let rect = resp.rect;
+        if *beam_rise {
+            draw_beam_rise(ui, rect, xs);
+        }
         let cap = |ui: &egui::Ui, pos, anchor, txt: &str| {
             ui.painter().text(
                 pos,

@@ -8,6 +8,41 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: beam top/bottom, beam width, and a cross-section beam-rise overlay
+
+`suggestions.md` §3.1's ask was "show beam height, not just elevation angle" — the gate inspector
+already had beam-centre height, but not the width or vertical extent that turn "here's the beam
+centre" into "here's what this gate's reading actually covers."
+
+- New `wxdata::beam_geometry::beam_extent`: a beam's top/bottom edges at one slant range, from the
+  standard analyst convention `elevation ± half the antenna's half-power beamwidth`, alongside
+  `horizontal_beam_width_km` for the cross-beam extent. Both were previously private, differently-
+  typed copies inside `suitability.rs`'s ranking; hoisted so the ranking, the gate inspector, and
+  the new cross-section overlay below all read one shared constant.
+- The gate inspector gained "Beam top/bottom" and "Beam width" rows next to the existing beam
+  height. Verified live: at 116 km range on a 0.48° tilt, beam height 5846 ft sits between top/
+  bottom 8931/2761 ft, and beam width (1.88 km) visibly grows with range.
+- The cross-section window gained an optional **beam-rise overlay**: one color-coded curve per
+  tilt in the volume, sampled at the exact radar-relative ground range each panel column already
+  uses for its reflectivity gate, so the curve and the data underneath are geometrically
+  consistent by construction. A repeated SAILS/MRLE low cut draws one line, not one per repeat.
+  Toggleable independently of rebuilding the panel — the geometry is already part of the built
+  `CrossSection` regardless of whether it's drawn. Verified live on real KTLX data: eight tilts'
+  curves climbing correctly across a 120 km cut through actual echo, and unchecking the box
+  removing only the lines.
+- Found and fixed along the way: the checkbox's first placement crammed a sixth control into a row
+  already holding the length label, three moment buttons and two CSV buttons — fine at the
+  window's default width, but overlapping illegibly once the window was as narrow as this pane's
+  own 800×600 viewport made it. Caught by looking at the live render, not by a unit test (a text
+  layout collision has no natural assertion); given its own row instead.
+- **Also discovered, not built this pass:** `crate::elevation`'s terrain-vs-beam blockage raster
+  (`blockage_image`/`BeamSite`, the "Blockage" chase-mode overlay) already fully implements
+  ROADMAP_NEW C3's "terrain blockage estimate" item — the roadmap simply hadn't been updated to
+  say so. Corrected there rather than duplicated here.
+- Still open from the same roadmap section: a gridded "lowest usable beam" map, a coverage
+  comparison between two sites, 3D beam-rise (only the 2D cross-section has the overlay), and a
+  warning when a sampled feature sits outside the beam's modeled coverage.
+
 ### Changed: CC in 3D is an anomaly view now, not a denoise floor
 
 The 3D controls were built around "high is interesting", which is true of every radar moment

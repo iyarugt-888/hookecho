@@ -3212,6 +3212,10 @@ pub struct HookEchoApp {
     xsection_pts: Vec<[f64; 2]>,
     xsection: Option<wxdata::xsection::CrossSection>,
     xsection_tex: Option<egui::TextureHandle>,
+    /// Whether the cross-section window draws its beam-rise overlay (ROADMAP_NEW C3 /
+    /// suggestions.md §3.2). Pure display state — the geometry is already sitting in `xsection`'s
+    /// own `beam_lines` regardless, so toggling this never needs a rebuild.
+    xsection_beam_rise: bool,
     /// Lazily-loaded textures for uploaded marker icons, keyed by filename. `None` = load failed
     /// (negative-cached so a missing/corrupt file isn't retried every frame).
     marker_icon_tex: ui::marker_window::IconTextures,
@@ -3961,6 +3965,7 @@ impl HookEchoApp {
             xsection_pts: Vec::new(),
             xsection: None,
             xsection_tex: None,
+            xsection_beam_rise: true,
             marker_icon_tex: Default::default(),
             show_3d: false,
             vol3d: Default::default(),
@@ -19070,7 +19075,14 @@ impl eframe::App for HookEchoApp {
         }
         if let (Some(xs), Some(tex)) = (&self.xsection, &self.xsection_tex) {
             let mut moment = self.xsection_moment;
-            let open = ui::xsection_window::show(ctx, xs, tex, &mut moment, &mut self.drawer);
+            let open = ui::xsection_window::show(
+                ctx,
+                xs,
+                tex,
+                &mut moment,
+                &mut self.xsection_beam_rise,
+                &mut self.drawer,
+            );
             if !open {
                 self.xsection = None;
                 self.xsection_tex = None;

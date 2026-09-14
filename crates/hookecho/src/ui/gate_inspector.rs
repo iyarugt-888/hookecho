@@ -145,6 +145,14 @@ pub(crate) fn attributes(
                 ("Slant range", format!("{:.2} km", i.sample.range_km)),
                 ("Ground range", format!("{:.2} km", i.ground_range_km)),
                 ("Beam height", format!("{:.0} ft", i.beam_height_ft)),
+                (
+                    "Beam top/bottom",
+                    format!(
+                        "{:.0} / {:.0} ft",
+                        i.beam_top_bottom_ft.0, i.beam_top_bottom_ft.1
+                    ),
+                ),
+                ("Beam width", format!("{:.2} km", i.beam_width_km)),
                 ("Gate spacing", format!("{:.3} km", i.gate_interval_km)),
                 ("Gate index", i.sample.gate.to_string()),
             ],
@@ -207,6 +215,8 @@ mod tests {
                 dealiased_value: (moment == Moment::Velocity).then_some(28.0),
                 ground_range_km: 45.0,
                 beam_height_ft: 6200.0,
+                beam_top_bottom_ft: (7100.0, 5300.0),
+                beam_width_km: 0.73,
                 gate_interval_km: 0.25,
                 elevation_deg: 0.5,
                 nyquist_mps: (moment == Moment::Velocity).then_some(32.0),
@@ -248,6 +258,8 @@ mod tests {
         assert!(labels.iter().any(|s| s == "45.60 km"), "{labels:?}");
         assert!(labels.iter().any(|s| s == "45.00 km"), "{labels:?}");
         assert!(labels.iter().any(|s| s == "6200 ft"), "{labels:?}");
+        assert!(labels.iter().any(|s| s == "7100 / 5300 ft"), "{labels:?}");
+        assert!(labels.iter().any(|s| s == "0.73 km"), "{labels:?}");
         assert!(labels.iter().any(|s| s == "182"), "{labels:?}");
         assert!(labels.iter().any(|s| s == "42.5 dBZ"), "{labels:?}");
     }
