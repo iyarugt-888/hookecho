@@ -1667,6 +1667,9 @@ pub(crate) enum AppWindow {
     Cappi,
     Volume3d,
     StormTable,
+    /// Phase C1: define/edit GR2Analyst-style formula products, evaluated live in the gate
+    /// inspector.
+    UdpProducts,
     /// Shortcuts, vocabulary, the tour, and what changed — one searchable page.
     #[serde(alias = "Glossary")]
     Help,
@@ -2649,6 +2652,8 @@ pub struct HookEchoApp {
     /// [`App::placefile_labels`] memoised, keyed by [`PlaceLabelKey`].
     placefile_label_cache: Option<(PlaceLabelKey, std::sync::Arc<[PlaceLabel]>)>,
     placefile_window: ui::placefile_window::PlacefileWindow,
+    /// Phase C1's formula-product manager.
+    udp_window: ui::udp_window::UdpWindow,
     /// Last map viewport size (px), used to estimate the view range for placefile thresholds.
     last_viewport: (f32, f32),
     /// Active left-click map tool.
@@ -3622,6 +3627,7 @@ impl HookEchoApp {
             placefiles: Vec::new(),
             placefile_label_cache: None,
             placefile_window: Default::default(),
+            udp_window: Default::default(),
             last_viewport: (1000.0, 800.0),
             tool: MapTool::default(),
             ribbon_mode: RibbonMode::default(),
@@ -6498,6 +6504,49 @@ impl HookEchoApp {
         });
     }
 
+    /// Phase C1's gate-inspector inputs: every moment a user-defined product can reference, plus
+    /// geometry, sampled at `(lon, lat)` on `tilt`. Binning is cached on `vol` (LRU) — sampling a
+    /// moment the pane's own display hasn't already binned costs one bin, everything else is free.
+    fn udp_gate_inputs(vol: &mut Volume, tilt: usize, lon: f64, lat: f64) -> wxdata::udp::GateInputs {
+        let mut out = wxdata::udp::GateInputs::default();
+        for m in [
+            Moment::Reflectivity,
+            Moment::Velocity,
+            Moment::SpectrumWidth,
+            Moment::DifferentialReflectivity,
+            Moment::SpecificDifferentialPhase,
+            Moment::CorrelationCoefficient,
+        ] {
+            let Ok(binned) = vol.binned(m, tilt, false) else {
+                continue;
+            };
+            let Some(sample) = binned.sample_at(lon, lat) else {
+                continue;
+            };
+            let elevation_deg = binned.elevation_deg;
+            match m {
+                Moment::Reflectivity => out.reflectivity = sample.value,
+                Moment::Velocity => out.velocity = sample.value,
+                Moment::SpectrumWidth => out.spectrum_width = sample.value,
+                Moment::DifferentialReflectivity => out.differential_reflectivity = sample.value,
+                Moment::SpecificDifferentialPhase => out.specific_diff_phase = sample.value,
+                Moment::CorrelationCoefficient => out.correlation_coefficient = sample.value,
+                _ => {}
+            }
+            // Geometry is the same point regardless of which moment answered first — grab it
+            // once, from whichever moment happens to be present at this gate.
+            if out.azimuth_deg.is_none() {
+                out.azimuth_deg = Some(sample.azimuth_deg);
+                out.range_km = Some(wxdata::xsection::ground_from_slant_km(
+                    sample.range_km as f64,
+                    elevation_deg as f64,
+                ) as f32);
+                out.elevation_deg = Some(elevation_deg);
+            }
+        }
+        out
+    }
+
     /// Phase B4's gate inspector: everything about the point at `(lon, lat)` on the active pane's
     /// currently displayed moment/tilt, or `None` when there is no volume here, this moment has
     /// no data on this tilt, or the point falls outside the sweep's coverage (past its last
@@ -6533,12 +6582,14 @@ impl HookEchoApp {
         let raw = vol.binned(moment, tilt, false).ok()?.clone();
         let inspection = raw.inspect(lon, lat, dealiased.as_ref())?;
         let time_range = level2::sweep_time_range(&scan, elevation_deg, moment);
+        let gate_inputs = Self::udp_gate_inputs(vol, tilt, lon, lat);
         Some(ui::gate_inspector::GateInspectorPopup {
             site,
             vcp,
             moment,
             time_range,
             inspection,
+            gate_inputs,
         })
     }
 
@@ -8252,6 +8303,7 @@ impl HookEchoApp {
                 W::Settings => self.settings_window.open = true,
                 W::Markers => self.marker_window.open = true,
                 W::Placefiles => self.placefile_window.open = true,
+                W::UdpProducts => self.udp_window.open = true,
                 W::Palettes => self.palette_editor.open = true,
                 W::Events => self.event_window.open = true,
                 W::ChaseReplay => self.chase_replay.open = true,
@@ -18005,6 +18057,7 @@ impl eframe::App for HookEchoApp {
             .collect();
         self.placefile_window
             .show(ctx, &mut self.settings, &pf_status, &mut self.drawer);
+        self.udp_window.show(ctx, &mut self.settings, &mut self.drawer);
         // Names come from the action registry, so a layer reads the same here as in the layers
         // panel — the enum's Debug spelling ("Mrms") is not a label.
         let names: std::collections::HashMap<crate::render::FieldLayer, String> =
@@ -18555,7 +18608,13 @@ impl eframe::App for HookEchoApp {
         }
         if let Some(popup) = &self.gate_popup {
             let tz = self.active_tz();
-            if !ui::gate_inspector::show(ctx, popup, tz, &mut self.popovers) {
+            if !ui::gate_inspector::show(
+                ctx,
+                popup,
+                tz,
+                &self.settings.udp_products,
+                &mut self.popovers,
+            ) {
                 self.gate_popup = None;
             }
         }

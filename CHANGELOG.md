@@ -8,6 +8,37 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: user-defined radar products (Phase C1)
+
+- A safe formula engine for GR2Analyst-style user-defined products: combine a gate's own moments
+  (`REF`, `VEL`, `SW`, `ZDR`, `KDP`, `CC`) and geometry (`RANGE_KM`, `AZIMUTH_DEG`,
+  `ELEVATION_DEG`) with arithmetic, comparisons, `&&`/`||`/`!`, a `cond ? a : b` ternary, and
+  `min`/`max`/`clamp`/`abs` — e.g. `REF > 55 && ZDR < 1 ? REF : 0` for a rough hail signature. No
+  native code ever runs: a formula parses to a fixed expression tree or fails with a specific,
+  located error message ("expected an expression (at character 5)"), never a crash. New
+  `wxdata::udp` module, extensively unit-tested (parser, evaluator, missing-input propagation, and
+  a real bug this session's own tests caught: the first version of the parser stack-overflowed on
+  deeply nested parentheses instead of returning a parse error — fixed with a deterministic
+  recursion-depth limit).
+- New "User-defined products…" manager (search for it, or Tools in the command palette): add,
+  edit, and remove formulas, with live compile-error feedback as you type. Saved products persist
+  with the rest of your settings (including through settings export/import).
+- A saved product's value is evaluated live wherever you click the map — the gate inspector (B4)
+  gained a "USER-DEFINED" section showing each product's name and current value at that exact
+  point, re-evaluated fresh every frame so an edit shows up without another click.
+- **What this is not, yet**: a user-defined product cannot be rendered as its own map layer/pane —
+  that means plugging a new value into the polar per-tilt rendering pipeline (palettes, 3D,
+  thresholds, all keyed by the fixed `Moment` enum), a separate and substantially larger piece of
+  work than this pass, and there is no GPU/WGSL codegen path or vertical/layer aggregate functions
+  (`max_vertical`, layer heights) or environmental-height inputs (freezing level) — all called out
+  as remaining in `ROADMAP_NEW.md` rather than claimed done. "Synced" and "exported" (the roadmap's
+  own acceptance criteria) are satisfied only via the existing whole-settings export/import, not a
+  dedicated per-product mechanism.
+- Verified live: added a product through the manager, watched it read 0 against a weak-echo gate
+  and the raw reflectivity value against the same gate after loosening the threshold — with no
+  re-click between the edit and the updated reading — and confirmed a broken formula (`REF +`)
+  shows its parse error inline instead of silently failing.
+
 ### Added: a "Follow low" mode that jumps to the newest low-level cut mid-volume (Phase B5)
 
 - New "Follow low" toggle next to the Tilt angle pills: while following live, it jumps the display

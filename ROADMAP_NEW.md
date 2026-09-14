@@ -501,37 +501,46 @@ requirement nobody has yet, not a feature. Revisit when a concrete second provid
 
 **Priority: P0/P1. This is what moves HookEcho from viewer to analyst workstation.**
 
-## C1. User-defined radar product engine
+## C1. User-defined radar product engine — partly done
 
 Implement a safe expression/DSL system inspired by the flexibility of GR2Analyst user-defined products, but designed around HookEcho’s Rust/WGPU architecture.
+
+The evaluator half is done: `wxdata::udp` parses and evaluates a formula against one gate, and
+`ui::udp_window`/the gate inspector's "USER-DEFINED" section let a user define one and see it
+live against real data. What remains is rendering a product as its own map layer — a separate,
+larger piece of work (see below) — plus the vertical/layer aggregate functions and environmental
+inputs that need a whole column of tilts or external model data, not one gate.
 
 ### First version capabilities
 
 Inputs:
 
-- REF
-- VEL
-- SW
-- ZDR
-- CC
-- KDP
-- gate altitude
-- range
-- azimuth
-- elevation
-- freezing level / -10C / -20C environmental heights when available
+- [x] REF
+- [x] VEL
+- [x] SW
+- [x] ZDR
+- [x] CC
+- [x] KDP
+- [ ] gate altitude (beam height is computable per gate — `BinnedSweep::beam_height_ft` — but not
+  yet wired in as a formula input)
+- [x] range — ground range, matching the gate inspector's own "Ground range" label
+- [x] azimuth
+- [x] elevation
+- [ ] freezing level / -10C / -20C environmental heights when available
 
 Functions:
 
-- min / max / mean
-- clamp
-- conditional masks
-- threshold
-- vertical max/min
-- layer max/min/mean
-- first/last height crossing
-- count gates meeting condition
-- arithmetic
+- [x] min / max
+- [ ] mean
+- [x] clamp
+- [x] conditional masks — via `cond ? a : b`, not the roadmap's original `where` syntax (a where
+  clause only made sense paired with the vertical aggregate functions below, which aren't built)
+- [x] threshold — via comparison operators, which also work as functions in their own right
+- [ ] vertical max/min
+- [ ] layer max/min/mean
+- [ ] first/last height crossing
+- [ ] count gates meeting condition
+- [x] arithmetic
 
 Example conceptual expressions:
 
@@ -542,36 +551,62 @@ max_layer(ZDR, freezing_level + 2km, freezing_level + 6km)
 max_layer(KDP, minus10c_height, minus20c_height)
 ```
 
+None of these four run today — they're exactly the unchecked vertical/layer/environmental items
+above. What runs instead, in the same spirit: `REF > 55 && ZDR < 1 ? REF : 0`.
+
 ### Safety/implementation constraints
 
 Do **not** execute arbitrary native code.
 
 Preferred implementation order:
 
-1. parsed AST evaluated on CPU for correctness
-2. typed expression validation
-3. optional AST-to-WGSL generation for parallel products
-4. deterministic resource limits
+1. [x] parsed AST evaluated on CPU for correctness
+2. [ ] typed expression validation — today's only validation is "does it parse"; there is no
+   separate type/unit-checking pass (every value is just `f32`, so e.g. adding an angle to a
+   reflectivity silently type-checks — a real gap if this grows more input kinds)
+3. [ ] optional AST-to-WGSL generation for parallel products
+4. [x] deterministic resource limits — a recursion-depth ceiling on the parser (`MAX_EXPR_DEPTH`),
+   found necessary by this session's own test suite: the first version stack-overflowed the
+   process on deeply nested parentheses instead of erroring
 
 ### Product definition format
 
 Use TOML/JSON/YAML-like portable definitions containing:
 
-- name
-- units
-- input moments
-- expression
-- default palette
-- min/max
-- missing value
-- optional environmental requirements
+- [x] name
+- [x] units
+- [ ] input moments — not stored explicitly; a product implicitly reads whatever inputs its
+  expression references, discovered at evaluation time rather than declared up front
+- [x] expression
+- [ ] default palette — meaningless without a render path to apply one to
+- [ ] min/max
+- [ ] missing value — `None`/"—" always means missing; there is no way to configure a different
+  sentinel
+- [ ] optional environmental requirements
+
+`ProductDef` (`wxdata::udp`) is a plain serde struct, saved as part of `Settings` — JSON on disk
+(or `localStorage` on web), not a dedicated TOML/YAML file format of its own.
 
 ### Acceptance criteria
 
-- invalid formulas cannot crash the app
-- same formula produces matching CPU/GPU results within tolerance
-- product can be saved, synced and exported
-- user-defined product can be rendered in a normal pane and sampled
+- [x] invalid formulas cannot crash the app — unit-tested directly, including the stack-overflow
+  fix above
+- [ ] same formula produces matching CPU/GPU results within tolerance — no GPU path exists yet
+- [x] product can be saved... — [ ] ...synced and exported — saved products ride along with the
+  existing whole-`Settings` export/import; there is no dedicated per-product sync or export
+- [x] user-defined product can be... sampled — [ ] ...rendered in a normal pane — sampling (the
+  gate inspector) is done; rendering a product as its own layer is the large remaining piece,
+  blocked on the same architectural question raised below
+
+**Why rendering is a separate future increment, not attempted here:** every existing radar layer
+(2D polar sweep, 3D Observed, palettes, thresholds, the legend) is keyed by the fixed
+[`Moment`] enum across dozens of call sites. A user-defined product's output doesn't fit that
+without either (a) inventing a "dynamic Moment" that touches all of them, or (b) rendering it
+through the *other* existing pipeline instead — the lat/lon-grid `FieldLayer`/`MrmsField` system
+`wxdata::derived` already uses for locally-computed products (composite reflectivity, VIL, hail).
+(b) is the safer path (it has a working precedent to follow) but is still a real, multi-file
+change to a rendering pipeline this pass didn't need to touch, and deserves its own scoped attempt
+rather than being rushed into this one.
 
 ---
 
@@ -1923,12 +1958,13 @@ This is the explicit “what are we still missing?” list for agents.
 
 ## GR2Analyst-class gaps
 
-- [ ] user-defined radar product system
+- [x] user-defined radar product system — formula evaluation + a live gate-side readout (see C1);
+  rendering a product as its own map layer is not built
 - [ ] maximum/minimum value trails
 - [ ] mature transfer-function 3D
 - [ ] isosurfaces
 - [ ] movable slicing planes / clip slabs
-- [ ] deeper radar metadata/quality inspection
+- [x] deeper radar metadata/quality inspection — B4's gate inspector
 
 ## RadarScope-class operational gaps
 

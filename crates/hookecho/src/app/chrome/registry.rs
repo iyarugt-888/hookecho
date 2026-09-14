@@ -1101,6 +1101,12 @@ impl HookEchoApp {
                 true,
             ),
             (
+                W::UdpProducts,
+                "User-defined products…",
+                "Write your own formula from REF/VEL/ZDR/etc.; see it evaluated live in the gate inspector",
+                false,
+            ),
+            (
                 W::AlertRules,
                 "Alert rules\u{2026}",
                 "Tell the app what is worth interrupting you for",

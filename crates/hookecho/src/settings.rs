@@ -167,6 +167,10 @@ pub struct Settings {
     pub placefiles: Vec<PlacefileConfig>,
     /// User-placed location markers.
     pub markers: Vec<Marker>,
+    /// User-defined radar products (Phase C1): saved GR2Analyst-style formulas, evaluated live at
+    /// whatever gate the inspector is showing. See `wxdata::udp`.
+    #[serde(default)]
+    pub udp_products: Vec<wxdata::udp::ProductDef>,
     /// Recolour reflectivity by the MRMS surface precipitation type: blue where it is falling
     /// as snow, pink where it is freezing rain or sleet.
     #[serde(default)]
@@ -1138,6 +1142,7 @@ impl Default for Settings {
             ui_scale: 1.0,
             placefiles: Vec::new(),
             markers: Vec::new(),
+            udp_products: Vec::new(),
             precip_tint: false,
             dealias_velocity: false,
             mapbox_key: String::new(),
@@ -1662,6 +1667,11 @@ mod tests {
                 url: "http://x/p.txt".to_string(),
                 enabled: true,
                 opacity: 1.0,
+            }],
+            udp_products: vec![wxdata::udp::ProductDef {
+                name: "Test product".to_string(),
+                units: "dBZ".to_string(),
+                expression: "REF + 1".to_string(),
             }],
             markers: vec![Marker {
                 id: new_marker_id(),

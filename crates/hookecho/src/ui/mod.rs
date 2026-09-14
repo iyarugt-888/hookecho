@@ -129,6 +129,8 @@ pub mod style;
 /// The optional spotlight tour of the live chrome.
 pub mod tour;
 pub mod tropical_window;
+/// Phase C1's user-defined-product manager.
+pub mod udp_window;
 pub mod verify_window;
 pub mod video_window;
 /// WSV3-style ribbon chrome primitives.
