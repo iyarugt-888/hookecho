@@ -16880,11 +16880,15 @@ fn nearest_goes(
     t: chrono::DateTime<chrono::Utc>,
 ) -> Option<chrono::DateTime<chrono::Utc>> {
     const TOLERANCE_MIN: i64 = 30;
-    times
-        .iter()
-        .copied()
-        .min_by_key(|x| (*x - t).num_seconds().abs())
-        .filter(|x| (*x - t).num_minutes().abs() <= TOLERANCE_MIN)
+    let frames: Vec<_> = times.iter().copied().map(|valid| wxdata::time_align::FrameTime {
+        valid,
+        run: None,
+    }).collect();
+    let index = wxdata::time_align::select(&frames, t,
+        wxdata::time_align::TimePolicy::Nearest,
+        Some(chrono::Duration::minutes(TOLERANCE_MIN)),
+        wxdata::field::ValueKind::Scalar)?.single_index()?;
+    Some(times[index])
 }
 
 /// Compass point for a bearing in degrees from north (used in alarm text).

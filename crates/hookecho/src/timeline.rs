@@ -206,15 +206,14 @@ impl Timeline {
 
     /// Index of the frame whose time is closest to `target`.
     fn nearest_frame(&self, target: DateTime<Utc>) -> Option<usize> {
-        self.frames
-            .iter()
-            .enumerate()
-            .filter_map(|(i, id)| {
-                id.date_time()
-                    .map(|t| (i, (t - target).num_seconds().abs()))
-            })
-            .min_by_key(|(_, d)| *d)
-            .map(|(i, _)| i)
+        let available: Vec<_> = self.frames.iter().enumerate()
+            .filter_map(|(index, id)| id.date_time().map(|valid| (index, wxdata::time_align::FrameTime { valid, run: None })))
+            .collect();
+        let frames: Vec<_> = available.iter().map(|(_, time)| *time).collect();
+        let selected = wxdata::time_align::select(&frames, target,
+            wxdata::time_align::TimePolicy::Nearest, None,
+            wxdata::field::ValueKind::Scalar)?.single_index()?;
+        Some(available[selected].0)
     }
 
     /// Jump straight to the volume nearest `hour:minute` UTC on the currently-selected day.

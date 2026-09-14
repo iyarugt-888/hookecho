@@ -71,6 +71,7 @@ pub mod torclimo;
 pub mod towers;
 pub mod tropical;
 pub mod tz;
+pub mod time_align;
 pub mod verify;
 pub mod volume3d;
 pub mod vtec;
