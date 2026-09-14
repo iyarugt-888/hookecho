@@ -338,6 +338,11 @@ pub struct MapView {
     /// whenever the stream isn't actively feeding this pane (stream end, site change) so a stale
     /// in-progress reading never lingers on screen.
     pub live_progress: Option<wxdata::live::ScanProgress>,
+    /// Chunk fetch retries on the current live stream connection so far — see
+    /// `wxdata::live::Update::retries`. Reset to 0 whenever the stream itself restarts (a fresh
+    /// connection has a clean slate), not merely on a display change, so it answers "has this
+    /// connection been flaky" rather than "was some earlier connection ever flaky."
+    pub live_retries: u32,
     /// National field layers drawn in this pane. Per-pane rather than app-wide: two panes is how
     /// you compare two fields, and the model-difference layer would rather be a pair of panes
     /// than a subtraction. The grids themselves stay in one shared cache — only the choice of
@@ -379,6 +384,7 @@ impl MapView {
             error: None,
             last_live_arrival: None,
             live_progress: None,
+            live_retries: 0,
             fields_on: Default::default(),
             moments_seen: [false; Moment::ALL.len()],
         }

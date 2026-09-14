@@ -1178,10 +1178,11 @@ pub fn run_live(out_path: &str, site: &str, moment: Moment) -> anyhow::Result<()
             .ok_or_else(|| anyhow::anyhow!("stream closed before first update"))?;
         handle.abort();
         println!(
-            "live update: {} ({} sweeps, {} changed tilts)",
+            "live update: {} ({} sweeps, {} changed tilts, {} retries)",
             update.name,
             update.scan.sweeps().len(),
-            update.changed.len()
+            update.changed.len(),
+            update.retries
         );
         level2::bin_scan(&update.scan, moment, 0)
     })?;

@@ -50,6 +50,11 @@ pub struct Update {
     /// Elevation angles (deg) whose sweeps changed vs. the previous update — the app uses
     /// this to evict only the affected tilts from its binned-sweep cache.
     pub changed: Vec<f32>,
+    /// Chunk fetch failures retried (not dropped — a stream that runs out of retries ends
+    /// instead, see [`tolerate_failure`]) since this stream connection started. Zero for a
+    /// perfectly healthy connection; a rising count on an otherwise-working stream is a sign of a
+    /// flaky network, surfaced so that isn't invisible the way it was before this field existed.
+    pub retries: u32,
 }
 
 /// Stream live chunks for `site`, starting from `base` (the last polled volume), calling
@@ -134,7 +139,8 @@ where
     // sweep boundary are re-assembled (plus the start chunk, which carries the VCP and site
     // metadata assembly needs). Re-decoding every accumulated chunk at every boundary was O(n^2)
     // over a volume, and the chunk count grows to ~55.
-    emit(&it, &chunks, &mut merged, &mut on_update).await;
+    let mut total_retries = 0u32;
+    emit(&it, &chunks, &mut merged, total_retries, &mut on_update).await;
     let mut window_start = chunks.len();
 
     let mut fails = 0u32;
@@ -195,13 +201,14 @@ where
                         .chain(chunks[window_start..].iter())
                         .cloned()
                         .collect();
-                    emit(&it, &window, &mut merged, &mut on_update).await;
+                    emit(&it, &window, &mut merged, total_retries, &mut on_update).await;
                     window_start = chunks.len();
                 }
             }
             Ok(None) => { /* not available yet; loop and wait again */ }
             Err(e) => {
                 fails += 1;
+                total_retries += 1;
                 if !tolerate_failure(fails) {
                     return Err(anyhow::anyhow!("chunk stream: {e}"));
                 }
@@ -283,6 +290,7 @@ async fn emit<F: FnMut(Update)>(
     it: &ChunkIterator,
     chunks: &[Chunk<'static>],
     merged: &mut Arc<Scan>,
+    retries: u32,
     on_update: &mut F,
 ) {
     // Re-assembling every accumulated chunk at each sweep boundary is the heaviest CPU on this
@@ -330,6 +338,7 @@ async fn emit<F: FnMut(Update)>(
         time,
         scan: Arc::clone(merged),
         changed,
+        retries,
     });
 }
 

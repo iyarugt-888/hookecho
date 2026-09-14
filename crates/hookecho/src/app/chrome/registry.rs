@@ -39,7 +39,7 @@ fn field_layer_is_health_tracked(layer: crate::render::FieldLayer) -> bool {
         )
 }
 
-/// The ingest-lag reading `radar_health`'s detail line shows: how far behind wall clock the
+/// The ingest-lag reading `radar_health`'s detail lines show: how far behind wall clock the
 /// data already was the moment this client actually received it (the radar's own timestamp
 /// against this client's receipt) — not the local network/decode time on top of that. `None`
 /// until the first live arrival lands. A free function, like `field_layer_is_health_tracked`
@@ -50,6 +50,19 @@ fn ingest_lag_detail(
     last_live_arrival.map(|(received_at, valid_time)| {
         let lag = (received_at - valid_time).num_seconds().max(0);
         ("Provider lag", humanize(lag))
+    })
+}
+
+/// The retry-count detail line: only shown once the current live stream connection has actually
+/// had to retry a chunk fetch — a perfectly healthy connection (the common case) doesn't earn a
+/// permanent "0 retries" line taking up space for nothing. A free function for the same reason as
+/// `ingest_lag_detail` above.
+fn retry_detail(retries: u32) -> Option<(&'static str, String)> {
+    (retries > 0).then(|| {
+        (
+            "Stream retries",
+            format!("{retries} chunk fetch retr{}", if retries == 1 { "y" } else { "ies" }),
+        )
     })
 }
 
@@ -72,7 +85,13 @@ impl HookEchoApp {
         });
         // Phase B3's provider-ingest-lag reading; never set from an archive scrub or a loop's
         // replayed frame, only a genuine live arrival — see `last_live_arrival`'s own doc comment.
-        let detail = ingest_lag_detail(v.last_live_arrival);
+        let details = [
+            ingest_lag_detail(v.last_live_arrival),
+            retry_detail(v.live_retries),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
         SourceHealth {
             source: v
                 .site
@@ -86,7 +105,7 @@ impl HookEchoApp {
             // Shared with the scrubber's own Live/Stale badge (`RADAR_FRESH_SECS`) so the two
             // can never disagree about what counts as fresh — see that constant's doc comment.
             cadence: std::time::Duration::from_secs(RADAR_FRESH_SECS as u64),
-            detail,
+            details,
         }
     }
 
@@ -1187,7 +1206,7 @@ impl HookEchoApp {
 
 #[cfg(test)]
 mod tests {
-    use super::{field_layer_is_health_tracked, ingest_lag_detail};
+    use super::{field_layer_is_health_tracked, ingest_lag_detail, retry_detail};
 
     /// Every MRMS catalog product must be health-tracked without being named here — that is the
     /// whole point of checking `descriptor().is_some()` first. A product added to the catalog
@@ -1241,5 +1260,19 @@ mod tests {
         let received = valid - chrono::Duration::seconds(3);
         let (_, value) = ingest_lag_detail(Some((received, valid))).unwrap();
         assert_eq!(value, "0s");
+    }
+
+    #[test]
+    fn a_healthy_stream_with_no_retries_earns_no_detail_line() {
+        assert!(retry_detail(0).is_none());
+    }
+
+    #[test]
+    fn one_retry_is_singular_more_are_plural() {
+        let (label, value) = retry_detail(1).unwrap();
+        assert_eq!(label, "Stream retries");
+        assert_eq!(value, "1 chunk fetch retry");
+        let (_, value) = retry_detail(3).unwrap();
+        assert_eq!(value, "3 chunk fetch retries");
     }
 }

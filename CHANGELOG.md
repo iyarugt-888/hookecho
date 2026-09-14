@@ -8,6 +8,23 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: a live-stream retry count in the Radar source-health popup (Phase B3)
+
+- The chunk stream already retried a hiccupped fetch in place (S3 blip, laptop lid, Wi-Fi
+  handover) rather than tearing the whole connection down, but did so silently — nothing on
+  screen ever showed it happened. `wxdata::live::Update` now carries `retries`, a running count of
+  chunk fetch retries since the current stream connection started; it reaches the Radar row's
+  health popup as a new "Stream retries" line, shown only once the count is above zero so a
+  healthy connection (the common case) doesn't carry a permanent "0 retries" line for nothing.
+  Resets to zero when the stream itself reconnects, not on every display change — it answers "has
+  this connection been flaky," not "was some earlier one."
+- `SourceHealth`'s single `detail` field is now `details: Vec<(&'static str, String)>` to carry
+  both this and the existing provider-lag line without one crowding out the other.
+- Unit-tested (`retry_detail`); the surrounding plumbing was exercised live (native + web builds,
+  a running stream), though triggering an actual retry needs a real network hiccup, so the exact
+  popup line wasn't independently re-confirmed pixel-by-pixel this round — the rendering change is
+  a mechanical `Option` → `Vec` generalization of the already-live-verified "Provider lag" line.
+
 ### Added: a scan-strategy popup on the VCP chip (Phase B5)
 
 - The ribbon's "VCP 35" readout is now clickable: it opens a popup with the full pattern

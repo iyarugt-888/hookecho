@@ -535,10 +535,10 @@ pub(crate) struct SourceHealth {
     pub last_failure: Option<std::time::Duration>,
     pub error: Option<String>,
     pub cadence: std::time::Duration,
-    /// An extra labeled line the popup shows verbatim, for a source with one fact worth a
-    /// permanent line of its own rather than a hover aside — radar's provider ingest lag so far,
-    /// the only source that currently sets this.
-    pub detail: Option<(&'static str, String)>,
+    /// Extra labeled lines the popup shows verbatim, for a source with facts worth a permanent
+    /// line of their own rather than a hover aside — radar's provider ingest lag and live-stream
+    /// retry count are the only ones that currently set this. Empty for every other source.
+    pub details: Vec<(&'static str, String)>,
 }
 
 impl SourceHealth {
@@ -633,7 +633,7 @@ impl RequestBook {
                 last_failure: None,
                 error: None,
                 cadence: lane.cadence(),
-                detail: None,
+                details: Vec::new(),
             };
         };
         SourceHealth {
@@ -647,7 +647,7 @@ impl RequestBook {
                 .map(|(t, _)| now.saturating_duration_since(*t)),
             error: s.last_failure.as_ref().map(|(_, e)| e.clone()),
             cadence: s.cadence,
-            detail: None,
+            details: Vec::new(),
         }
     }
 }
@@ -2025,6 +2025,9 @@ enum DataMsg {
         /// Already shared with the streaming task's running volume (see `wxdata::live::Update`).
         scan: Arc<Scan>,
         changed: Vec<f32>,
+        /// Chunk fetch retries since this stream connection started — see
+        /// `wxdata::live::Update::retries`.
+        retries: u32,
     },
     /// The live stream for `view` ended (error or clean exit); polling resumes.
     LiveEnded {
@@ -9879,6 +9882,7 @@ impl HookEchoApp {
                     // than none — the chunk it described may be minutes old by the next glance.
                     if view < self.views.len() {
                         self.views[view].live_progress = None;
+                        self.views[view].live_retries = 0;
                     }
                 }
                 continue;
@@ -9969,6 +9973,7 @@ impl HookEchoApp {
                     time,
                     scan,
                     changed,
+                    retries,
                     ..
                 } => {
                     let v = &mut self.views[view];
@@ -9983,6 +9988,7 @@ impl HookEchoApp {
                     // The sweep this was tracking just landed as a full merge; the next progress
                     // reading (for whichever sweep comes next) replaces it.
                     v.live_progress = None;
+                    v.live_retries = retries;
                     v.loading = false;
                     v.error = None;
                     v.clamp_tilt();
@@ -10113,6 +10119,7 @@ impl HookEchoApp {
                             time: u.time,
                             scan: u.scan,
                             changed: u.changed,
+                            retries: u.retries,
                         });
                         cb_ctx.request_repaint();
                     }),
@@ -19855,7 +19862,7 @@ mod request_book_tests {
             last_failure: failure.map(std::time::Duration::from_secs),
             error,
             cadence,
-            detail: None,
+            details: Vec::new(),
         };
         assert_eq!(health(true, None, None, None).state(), HealthState::Fetching);
         assert_eq!(health(false, Some(5), None, None).state(), HealthState::Fresh);

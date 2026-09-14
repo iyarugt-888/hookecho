@@ -398,8 +398,14 @@ Add a compact source/latency diagnostic:
   fixing the LIVE badge, see Unreleased/CHANGELOG) is the site's own newest known frame,
   independent of what a rolling loop is currently displaying; the badge, its age readout, and
   `radar_health()` all read it now instead of the displayed volume.
-- dropped/retried chunks
-- provider failover state
+- dropped/retried chunks — **done**: `wxdata::live::Update::retries` counts chunk fetches retried
+  (not dropped outright — a stream that exhausts its retries ends instead) since the current
+  stream connection started; shown as a "Stream retries" line in the same health popup as provider
+  lag, only once it is above zero. Unit-tested; not independently pixel-confirmed live this round
+  since triggering a real retry needs an actual network hiccup — see CHANGELOG for the honest
+  caveat.
+- provider failover state — deferred to B6, which doesn't exist to report on yet (see B6's own
+  note: this app has exactly one provider today)
 
 ## B4. Radar metadata inspector — done
 
@@ -450,7 +456,13 @@ The two unchecked items are a different, larger kind of change — they touch ti
 semantics rather than adding a read-only surface over already-decoded data — and are deferred
 rather than attempted in the same pass that shipped the display-only half.
 
-## B6. Feed failover
+## B6. Feed failover — not started
+
+This app has exactly one `Level2LiveProvider` implementation (`UnidataLevel2Provider`, see B1) and
+the trait is deliberately not `dyn`-safe because nothing yet needs to choose between two at
+runtime. Every item below needs a second, real provider to fail over *to* before it means
+anything — inventing one just to exercise this checklist would be scaffolding built on a
+requirement nobody has yet, not a feature. Revisit when a concrete second provider becomes real.
 
 - [ ] provider priority list
 - [ ] health probes
