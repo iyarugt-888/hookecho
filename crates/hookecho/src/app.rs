@@ -1721,6 +1721,15 @@ pub(crate) enum AppWindow {
 pub(crate) enum PaletteAction {
     /// Select a radar moment; the bool is the storm-relative flag (velocity only).
     SetMoment(Moment, bool),
+    /// Switch the active pane straight to this radar site — the search box's answer to typing a
+    /// station id or a city name, rather than only opening the site picker dialog to do it in a
+    /// second step. A fixed, zero-padded byte buffer rather than a `String`/`&str`: this enum
+    /// derives `Copy` and round-trips through the keybind system's JSON, and a borrowed
+    /// `&'static str` cannot implement `Deserialize` (its lifetime would have to outlive the
+    /// deserializer's own input). Site ids top out at 5 ASCII characters today (OPERA); 8 bytes
+    /// is comfortable headroom. Build one with [`encode_site_id`], read it back with
+    /// [`decode_site_id`].
+    SetSite([u8; 8]),
     /// Four panes, one product, four distinct tilts, cameras linked.
     AllTilts,
     /// Two panes, one model's own field in each (`app.diff_field`), cameras linked — the
@@ -1752,6 +1761,22 @@ pub(crate) enum PaletteAction {
     /// Restore the saved workspace at this index (an index, not the workspace itself, so the enum
     /// stays `Copy` and the palette rows stay cheap).
     ApplyWorkspace(usize),
+}
+
+/// Pack a site id into [`PaletteAction::SetSite`]'s fixed buffer. Truncates past 8 bytes, which
+/// no real site id reaches (see that variant's own doc comment).
+pub(crate) fn encode_site_id(id: &str) -> [u8; 8] {
+    let mut buf = [0u8; 8];
+    let bytes = id.as_bytes();
+    let n = bytes.len().min(buf.len());
+    buf[..n].copy_from_slice(&bytes[..n]);
+    buf
+}
+
+/// The inverse of [`encode_site_id`].
+pub(crate) fn decode_site_id(buf: [u8; 8]) -> String {
+    let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
+    String::from_utf8_lossy(&buf[..end]).into_owned()
 }
 
 /// A placefile label/marker the egui painter draws over the map.
@@ -8209,6 +8234,19 @@ impl HookEchoApp {
                 v.moment = m;
                 if m == Moment::Velocity {
                     v.srv = srv;
+                }
+            }
+            PaletteAction::SetSite(buf) => {
+                let id = decode_site_id(buf);
+                let v = &mut self.views[self.active];
+                if v.site.as_deref() != Some(id.as_str()) {
+                    v.site = Some(id);
+                    // Mirrors `try_pick_site`'s own cleanup: a popup left open for the previous
+                    // site's feature under the old camera position answers nothing once the pane
+                    // has jumped elsewhere.
+                    self.cell_popup = None;
+                    self.warning_popup = None;
+                    self.detail = None;
                 }
             }
             PaletteAction::ToggleField(layer) => {
@@ -19524,6 +19562,22 @@ mod field_lut_tests {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn site_id_round_trips_through_the_palette_action_buffer() {
+        use super::{decode_site_id, encode_site_id};
+        for id in ["KTLX", "TADW", "DEAS", "BEHEL"] {
+            assert_eq!(decode_site_id(encode_site_id(id)), id);
+        }
+    }
+
+    #[test]
+    fn an_id_shorter_than_the_buffer_does_not_carry_trailing_junk() {
+        use super::{decode_site_id, encode_site_id};
+        // The buffer is zero-padded; a 4-character id must not decode with the 4 trailing zero
+        // bytes read back as anything other than "the string ends here".
+        assert_eq!(decode_site_id(encode_site_id("KTLX")).len(), 4);
+    }
 
     #[test]
     fn wheel_and_trackpad_zoom_count_as_live_gestures() {

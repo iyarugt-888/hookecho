@@ -8,8 +8,9 @@ use crate::ui::a11y::Named as _;
 use egui::{vec2, Color32, RichText, Stroke};
 
 /// Category order in the panel (anything else falls to the bottom, in registry order).
-pub(crate) const CATEGORIES: [&str; 7] = [
+pub(crate) const CATEGORIES: [&str; 8] = [
     "Radar",
+    "Sites",
     "National",
     "Severe",
     "Obs",
@@ -66,6 +67,7 @@ const ROW_H: f32 = 32.0;
 fn category_name(category: &str) -> &'static str {
     match category {
         "Radar" => "Radar products",
+        "Sites" => "Radar sites",
         "National" => "National weather",
         "Severe" => "Severe weather",
         "Obs" => "Observations",
@@ -79,6 +81,7 @@ fn category_glyph(category: &str) -> &'static str {
     use egui_phosphor::regular as ph;
     match category {
         "Radar" => ph::BROADCAST,
+        "Sites" => ph::MAP_PIN,
         "National" => ph::GLOBE,
         "Severe" => ph::WARNING,
         "Obs" => ph::THERMOMETER,

@@ -273,6 +273,26 @@ impl HookEchoApp {
             );
         }
 
+        // --- Radar sites: type a station id or a city and switch straight to it. ---
+        //
+        // `common: false` — with ~200 of these across four networks, showing them all in the
+        // default (unsearched) list would bury everything else; they still surface the moment
+        // a query matches one. `label` carries the id and the city/state a query might name (the
+        // panel's own search only reads `label`, not `desc` — see `layers_panel::matches`), so
+        // `desc` is one shared, static hint instead of a per-site format!() this struct's field
+        // type couldn't hold anyway.
+        let cur_site = self.views[self.active].site.as_deref();
+        for s in wxdata::sites::all() {
+            push(
+                &format!("{} \u{2014} {}, {}", s.id, s.city, s.state),
+                "Sites",
+                "Switch this pane to this radar",
+                false,
+                PaletteAction::SetSite(crate::app::encode_site_id(s.id)),
+                Some(cur_site == Some(s.id)),
+            );
+        }
+
         for product in wxdata::mrms::catalog::PRODUCTS {
             if let Some(layer) = FL::from_slug(product.field.id.0) {
                 push(

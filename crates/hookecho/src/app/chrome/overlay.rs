@@ -158,29 +158,19 @@ impl HookEchoApp {
                     }
                     return;
                 }
-                // One title and one way out. The previous brand + Data/Alerts tab row looked like
-                // three unrelated navigation systems before the actual layer controls even began.
+                // One title and one way out. On the phone sheet this row is the only title/close
+                // this panel gets, so it still draws both there; on desktop the window wrapping
+                // this body (below) already has its own title bar and close button, so drawing
+                // this panel's own copy on top of that would just be the same two things twice.
                 ui.horizontal(|ui| {
-                    ui.label(
-                        egui::RichText::new(if alerts_tab { "Alerts" } else { "Layers" })
-                            .size(crate::ui::style::FONT_TITLE)
-                            .strong(),
-                    );
+                    if phone() {
+                        ui.label(
+                            egui::RichText::new(if alerts_tab { "Alerts" } else { "Layers" })
+                                .size(crate::ui::style::FONT_TITLE)
+                                .strong(),
+                        );
+                    }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if !phone()
-                            && ui
-                                .add(
-                                    egui::Button::new(
-                                        egui::RichText::new(egui_phosphor::regular::X).size(14.0),
-                                    )
-                                    .fill(egui::Color32::TRANSPARENT)
-                                    .stroke(egui::Stroke::NONE),
-                                )
-                                .named("Close this panel")
-                                .clicked()
-                        {
-                            hide = true;
-                        }
                         let switch = if alerts_tab {
                             format!("{}  Layers", egui_phosphor::regular::STACK)
                         } else if alert_count == 0 {
@@ -336,16 +326,16 @@ impl HookEchoApp {
             // Two-finger gestures are read raw off the input state, which knows nothing about
             // egui's layers — without this rect a pinch on the sheet zoomed the map under it.
             self.mobile_occlusion.push(rect);
-        } else {
+        } else if phone() {
+            // Not compact enough for a modal sheet (a tablet, or a phone in landscape) but still
+            // touch — a fixed docked rail, not a freely draggable/resizable window: a resize
+            // handle is a fiddly target with a finger, and there is no keyboard shortcut to
+            // recenter a window someone has dragged off into a corner.
             egui::Area::new(egui::Id::new("panel"))
                 .constrain_to(chrome)
                 .anchor(egui::Align2::LEFT_TOP, egui::vec2(PANEL_X, PANEL_TOP))
                 .show(ctx, |ui| {
-                    ui.set_width(if phone() {
-                        crate::ui::m3::RAIL_W
-                    } else {
-                        PANEL_W
-                    });
+                    ui.set_width(crate::ui::m3::RAIL_W);
                     ui.set_max_height(max_h);
                     egui::ScrollArea::vertical()
                         .id_salt(("floating_panel_scroll", settings_page_was))
@@ -354,6 +344,51 @@ impl HookEchoApp {
                             body(ui);
                         });
                 });
+        } else {
+            // Desktop/web: a real window rather than a card pinned to one corner — resizable and
+            // movable like every other tool window in the app, not a special case among them.
+            let title = if alerts_tab_was { "Alerts" } else { "Layers" };
+            let mut open = true;
+            egui::Window::new(title)
+                // Fixed, independent of `title`: the title text changes with the Alerts/Layers
+                // tab, and a `Window`'s default id is derived from its title — without this, egui
+                // would see a "different" window each time the tab switched and forget wherever
+                // the user had moved or resized it.
+                .id(egui::Id::new("panel_window"))
+                .open(&mut open)
+                .resizable(true)
+                .collapsible(true)
+                // Keeps the whole window on screen; no `.max_height(max_h)` beyond that — `max_h`
+                // was sized to clear the scrubber pill for the old fixed-position, non-resizable
+                // card, which could never be dragged out of that pill's way. A resizable window
+                // can: capping it there too just left a visible dead gap at the bottom, real
+                // content the window otherwise has room for.
+                .constrain_to(chrome)
+                .default_pos(egui::pos2(PANEL_X, PANEL_TOP))
+                .default_size(egui::vec2(PANEL_W, max_h))
+                .min_width(260.0)
+                .min_height(160.0)
+                .show(ctx, |ui| {
+                    // `max_height` here (not `auto_shrink`): `body`'s own internal scroll area
+                    // sizes itself off `ui.available_height()` at the call site below, and an
+                    // unbounded outer area made that circular — the window wants to size to its
+                    // content, the content wants to size to the window. A concrete cap breaks the
+                    // loop, the same way the old fixed-position card's `ui.set_max_height` did.
+                    // `ui.available_height()` here rather than the outer `max_h`: this `ui` is
+                    // already inside the window's content area, past the title bar, so `max_h`
+                    // (sized for the old card, which had no title bar of its own to give up room
+                    // to) left an unexplained gap at the bottom instead of using all of it.
+                    let inner_h = ui.available_height();
+                    egui::ScrollArea::vertical()
+                        .id_salt(("floating_panel_scroll", settings_page_was))
+                        .max_height(inner_h)
+                        .show(ui, |ui| {
+                            body(ui);
+                        });
+                });
+            if !open {
+                hide = true;
+            }
         }
         ctx.data_mut(|d| d.insert_temp(settings_id, settings_page));
         self.show_alert_panel = alerts_tab;

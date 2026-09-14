@@ -8,6 +8,25 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: the Layers panel is a real window, and its search finds radar sites
+
+- The Layers/Alerts panel (desktop and web) was a fixed card pinned to the top-left corner — the
+  one surface in the app that still worked that way after the 3D map controls and every other
+  floating panel had already moved to a real, draggable/resizable `egui::Window`. It's now the
+  same: drag its title bar to move it, drag a corner to resize it, and its own "Layers"/"Alerts"
+  label no longer duplicates what the window's title bar already says. A phone still gets its own
+  docked rail or modal sheet — a resize handle is a fiddly target with a finger, and this only
+  ever applied to desktop/web.
+- The universal search box (the same one product/tool/layer search already used) now also matches
+  every radar site by station id or by city/state — type "Tulsa" or "KINX" and pick "KINX — Tulsa,
+  OK" to switch the active pane straight there, rather than needing the separate site picker
+  dialog to do it in a second step. New `PaletteAction::SetSite`, one entry per site across all
+  four networks (WSR-88D, TDWR, DWD, OPERA) in a new "Sites" category — ~200 more searchable rows,
+  each showing only when a query matches (not in the always-visible default list).
+- Verified live: dragged and resized the window, then searched "Tulsa" and "velocity" and
+  confirmed both landed on the right result — the site search actually switching the active pane's
+  radar in one click, camera fly-to and all.
+
 ### Added: a movable vertical clip plane in the 3D volume views (Phase H4)
 
 - Both 3D raymarch views — the standalone "3D Reflectivity" window and the main map's "3D map"
