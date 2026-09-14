@@ -261,6 +261,52 @@ pub async fn fetch_field(
     Err(last_err.unwrap_or_else(|| anyhow::anyhow!("no HRRR run found")))
 }
 
+/// Fetch the newest available cycle whose forecast lead lands exactly on `target_valid`.
+/// This lets HRRR/RAP comparisons share a valid time even when one model's latest cycle is
+/// still posting. A missing aligned field is an error, never an unmatched fallback.
+pub async fn fetch_field_aligned(
+    http: &reqwest::Client,
+    model: Model,
+    var: &str,
+    level: &str,
+    target_valid: DateTime<Utc>,
+    min_valid: f64,
+) -> anyhow::Result<HrrrForecast> {
+    let mut last_err = None;
+    for (run, fh) in aligned_run_hours(model, target_valid, Utc::now()) {
+        match fetch_run_field(http, model, run, fh, var, level, min_valid).await {
+            Ok(field) => {
+                return Ok(HrrrForecast {
+                    field,
+                    run,
+                    fcst_hour: fh,
+                    fcst_minutes: None,
+                })
+            }
+            Err(err) => last_err = Some(err),
+        }
+    }
+    Err(last_err.unwrap_or_else(|| {
+        anyhow::anyhow!("no {} cycle aligns with {target_valid}", model.label())
+    }))
+}
+
+/// Newest cycles first, with only whole-hour leads in the published 0..=18 h range.
+fn aligned_run_hours(
+    model: Model,
+    target_valid: DateTime<Utc>,
+    now: DateTime<Utc>,
+) -> Vec<(DateTime<Utc>, u8)> {
+    recent_cycles(model, now)
+        .into_iter()
+        .filter_map(|run| {
+            let lead = target_valid - run;
+            let fh = u8::try_from(lead.num_hours()).ok()?;
+            (fh <= 18 && lead == chrono::Duration::hours(i64::from(fh))).then_some((run, fh))
+        })
+        .collect()
+}
+
 /// The six most recent cycles of `model` that could plausibly be posted, newest first.
 ///
 /// Stepping back an hour at a time is right for the hourly models and useless for the NAM nest,
@@ -729,6 +775,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn aligned_candidates_use_exact_valid_time_and_newest_cycle_first() {
+        use chrono::TimeZone;
+        let now = Utc.with_ymd_and_hms(2026, 9, 14, 12, 30, 0).unwrap();
+        let target = Utc.with_ymd_and_hms(2026, 9, 14, 11, 0, 0).unwrap();
+        let candidates = aligned_run_hours(Model::Rap, target, now);
+        assert_eq!(candidates[0], (target, 0));
+        assert_eq!(candidates[1], (target - chrono::Duration::hours(1), 1));
+        assert!(candidates
+            .iter()
+            .all(|(run, fh)| { *run + chrono::Duration::hours(i64::from(*fh)) == target }));
+        assert!(
+            aligned_run_hours(Model::Rap, target + chrono::Duration::minutes(15), now).is_empty()
+        );
+        assert!(aligned_run_hours(Model::Rap, target - chrono::Duration::days(2), now).is_empty());
+    }
+
+    #[test]
     fn subhourly_idx_picks_the_right_15min_step() {
         // Real wrfsubhf01 layout: four REFC:entire atmosphere messages, one per 15-min step.
         let idx = "1:0:d=2024060112:REFC:entire atmosphere:15 min fcst:\n\
@@ -966,7 +1029,10 @@ mod tests {
             .filter(|v| v.is_finite())
             .fold(f32::MIN, f32::max);
         eprintln!("NAM 0-3km SRH max {srh_max:.0} m2/s2");
-        assert!((-2000.0..2000.0).contains(&srh_max), "implausible SRH {srh_max}");
+        assert!(
+            (-2000.0..2000.0).contains(&srh_max),
+            "implausible SRH {srh_max}"
+        );
     }
 
     #[tokio::test]

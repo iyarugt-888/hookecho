@@ -256,15 +256,21 @@ enum OverlayMsg {
         crate::render::FieldLayer,
         wxdata::field::Stamped<wxdata::mrms::MrmsField>,
     ),
-    /// A model-difference grid plus the two valid times it compared, for the layer's own row.
-    ModelDiff(wxdata::mrms::MrmsField, (String, String)),
-    /// Both sides of a comparison, unsubtracted, plus their valid times — the field is included
+    /// A model-difference grid with exact shared valid time and both source runs.
+    ModelDiff(
+        crate::fielddiff::DiffField,
+        u16,
+        wxdata::mrms::MrmsField,
+        crate::fielddiff::ComparisonTimes,
+    ),
+    /// Both sides of a comparison, unsubtracted, plus their shared valid time — the field is included
     /// so a selection change in flight is easy to detect as stale (see the handler).
     Compare(
         crate::fielddiff::DiffField,
+        u16,
         wxdata::mrms::MrmsField,
         wxdata::mrms::MrmsField,
-        (String, String),
+        crate::fielddiff::ComparisonTimes,
     ),
     /// `(0 °C, −20 °C)` level heights above sea level, in metres, at the active radar.
     FreezingLevels(f64, f64),
@@ -663,58 +669,6 @@ enum OverlayDelivery {
     },
 }
 
-/// Fetch both models/fields behind a `DiffField` at forecast hour `fh`, aligned to one valid
-/// time where alignment is possible. `(a, b)` in `DiffField::pair()`'s order, with each side's
-/// own valid time formatted for display — shared by the subtraction layer (`ModelDiff`) and the
-/// side-by-side comparison layers (`CompareA`/`CompareB`), which differ only in what they do with
-/// the same two grids afterward.
-async fn fetch_diff_pair(
-    http: &reqwest::Client,
-    field: crate::fielddiff::DiffField,
-    fh: u16,
-) -> anyhow::Result<(wxdata::mrms::MrmsField, wxdata::mrms::MrmsField, (String, String))> {
-    use crate::fielddiff::DiffField;
-    use wxdata::global::{GlobalField, GlobalModel};
-    match field {
-        DiffField::Global(kind) => {
-            let g: GlobalField = kind.into();
-            let gfs = wxdata::global::fetch(http, GlobalModel::Gfs, g, fh).await?;
-            // Align ECMWF onto GFS's exact valid time rather than its own independently
-            // walked-back cycle at the same nominal `fh`: the two services post on the same
-            // 6-hourly cadence but not at the same wall-clock speed, so "same fh" can silently
-            // mean two different instants for hours at a stretch. Falls back to the old (honestly
-            // mismatched, labeled as such) pair if ECMWF simply hasn't published the aligned hour.
-            let ecmwf = match wxdata::global::fetch_aligned(http, GlobalModel::Ecmwf, g, gfs.valid())
-                .await
-            {
-                Ok(f) => f,
-                Err(_) => wxdata::global::fetch(http, GlobalModel::Ecmwf, g, fh).await?,
-            };
-            let valid = (
-                gfs.valid().format("%d %H:%MZ").to_string(),
-                ecmwf.valid().format("%d %H:%MZ").to_string(),
-            );
-            Ok((gfs.field, ecmwf.field, valid))
-        }
-        DiffField::Cape | DiffField::Srh => {
-            let (var, level, min_valid) = match field {
-                DiffField::Srh => ("HLCY", "3000-0 m above ground", f64::NEG_INFINITY),
-                _ => ("CAPE", "surface", 0.0),
-            };
-            let (hrrr, rap) = futures_util::future::try_join(
-                wxdata::hrrr::fetch_field(http, wxdata::hrrr::Model::Hrrr, var, level, 0, min_valid),
-                wxdata::hrrr::fetch_field(http, wxdata::hrrr::Model::Rap, var, level, 0, min_valid),
-            )
-            .await?;
-            let valid = (
-                hrrr.run.format("%d %H:%MZ").to_string(),
-                rap.run.format("%d %H:%MZ").to_string(),
-            );
-            Ok((hrrr.field, rap.field, valid))
-        }
-    }
-}
-
 impl OverlaySource {
     fn lane(&self) -> RequestLane {
         use crate::render::FieldLayer as FL;
@@ -862,14 +816,14 @@ impl OverlaySource {
                 OverlayMsg::Field(layer, fc.field)
             }
             OverlaySource::ModelDiff(field, fh) => {
-                let (a, b, valid) = fetch_diff_pair(http, field, fh).await?;
-                let d = crate::fielddiff::diff(&a, &b)
+                let pair = crate::fielddiff::fetch_pair(http, field, fh).await?;
+                let d = crate::fielddiff::diff(&pair.a, &pair.b)
                     .ok_or_else(|| anyhow::anyhow!("the two models cover nothing in common"))?;
-                OverlayMsg::ModelDiff(d, valid)
+                OverlayMsg::ModelDiff(field, fh, d, pair.times)
             }
             OverlaySource::Compare(field, fh) => {
-                let (a, b, valid) = fetch_diff_pair(http, field, fh).await?;
-                OverlayMsg::Compare(field, a, b, valid)
+                let pair = crate::fielddiff::fetch_pair(http, field, fh).await?;
+                OverlayMsg::Compare(field, fh, pair.a, pair.b, pair.times)
             }
             OverlaySource::StormReports(bucket) => {
                 // Archive bucket: the 6 h of reports ending at the bucket's close; live: last 6 h.
@@ -2569,10 +2523,10 @@ pub struct HookEchoApp {
     /// The (model, hour) each global layer was last fetched for, so a change refetches at once.
     global_layer_key:
         std::collections::HashMap<crate::render::FieldLayer, (wxdata::global::GlobalModel, u16)>,
-    /// What the difference layer differences, and the two valid times its last fetch compared —
-    /// the pair rarely shares a cycle, and a difference between two instants has to say so.
+    /// What the difference layer differences and the exact shared valid time/source runs.
     diff_field: crate::fielddiff::DiffField,
-    diff_valid: Option<(String, String)>,
+    diff_valid: Option<crate::fielddiff::ComparisonTimes>,
+    diff_error: Option<String>,
     /// Which `settings.goes_satellite_west` each GOES band was last fetched for, so flipping the
     /// satellite refetches at once instead of waiting out the normal cadence.
     goes_west_key: std::collections::HashMap<crate::render::FieldLayer, bool>,
@@ -2588,9 +2542,9 @@ pub struct HookEchoApp {
     diff_grid: Option<wxdata::mrms::MrmsField>,
     /// The field the difference layer was last fetched for, so a change refetches at once.
     diff_key: Option<(crate::fielddiff::DiffField, u16)>,
-    /// The compare panes' two valid times — same shape and same reason as `diff_valid`, since
-    /// they come from the exact same fetch.
-    compare_valid: Option<(String, String)>,
+    /// The compare panes' shared valid time and distinct source runs.
+    compare_valid: Option<crate::fielddiff::ComparisonTimes>,
+    compare_error: Option<String>,
     /// Both sides' grids, kept on the CPU for the same cursor-readout reason as `diff_grid`.
     compare_grid: Option<(wxdata::mrms::MrmsField, wxdata::mrms::MrmsField)>,
     /// The field the compare panes were last fetched for, so a change refetches at once.
@@ -3591,6 +3545,7 @@ impl HookEchoApp {
             global_layer_key: std::collections::HashMap::new(),
             diff_field: crate::fielddiff::DiffField::default(),
             diff_valid: None,
+            diff_error: None,
             diff_grid: None,
             goes_west_key: std::collections::HashMap::new(),
             goto_poll: None,
@@ -3598,6 +3553,7 @@ impl HookEchoApp {
             last_goto_hash: None,
             diff_key: None,
             compare_valid: None,
+            compare_error: None,
             compare_grid: None,
             compare_key: None,
             sounding_at: None,
@@ -8383,6 +8339,28 @@ impl HookEchoApp {
                     match result {
                         Ok(msg) => msg,
                         Err(err) => {
+                            use crate::render::FieldLayer as FL;
+                            match &lane {
+                                RequestLane::Field(FL::ModelDiff) => {
+                                    self.diff_valid = None;
+                                    self.diff_grid = None;
+                                    self.diff_error = Some(err.clone());
+                                    if let Some(state) = self.fields.get_mut(&FL::ModelDiff) {
+                                        state.pending = None;
+                                    }
+                                }
+                                RequestLane::Field(FL::CompareA) => {
+                                    self.compare_valid = None;
+                                    self.compare_grid = None;
+                                    self.compare_error = Some(err.clone());
+                                    for layer in [FL::CompareA, FL::CompareB] {
+                                        if let Some(state) = self.fields.get_mut(&layer) {
+                                            state.pending = None;
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
                             note_feed_error(lane.label(), err);
                             continue;
                         }
@@ -8491,7 +8469,9 @@ impl HookEchoApp {
                 OverlayMsg::StampedField(layer, field) => {
                     self.accept_field(layer, field.data, Some(field.stamp));
                 }
-                OverlayMsg::ModelDiff(field, valid) => {
+                OverlayMsg::ModelDiff(kind, fh, field, valid)
+                    if kind == self.diff_field && fh == self.global_fcst_hour =>
+                {
                     let layer = crate::render::FieldLayer::ModelDiff;
                     let (range, deadband) = self.diff_field.range();
                     let scale = self.diff_field.input_scale();
@@ -8504,13 +8484,13 @@ impl HookEchoApp {
                         s.pending = Some(upload);
                     }
                     self.diff_valid = Some(valid);
+                    self.diff_error = None;
                     self.diff_grid = Some(field);
                 }
-                OverlayMsg::Compare(field, a, b, valid) => {
-                    // A selection change in flight must not overwrite the field now selected —
-                    // unlike `ModelDiff`'s handler above (which predates this guard), the message
-                    // here carries the field it was actually fetched for, so checking is free.
-                    if field == self.diff_field {
+                OverlayMsg::ModelDiff(..) => {}
+                OverlayMsg::Compare(field, fh, a, b, valid) => {
+                    // A selection change in flight must not overwrite the field now selected.
+                    if field == self.diff_field && fh == self.global_fcst_hour {
                         use crate::render::FieldLayer as FL;
                         let source = field.source_layer();
                         let upload_a = self.field_upload(source, &a);
@@ -8522,6 +8502,7 @@ impl HookEchoApp {
                             s.pending = Some(upload_b);
                         }
                         self.compare_valid = Some(valid);
+                        self.compare_error = None;
                         self.compare_grid = Some((a, b));
                     }
                 }
@@ -12543,6 +12524,7 @@ impl HookEchoApp {
         let field_draws: Vec<(crate::render::FieldLayer, f32)> = self.views[idx]
             .fields_on
             .iter()
+            .filter(|layer| crate::fielddiff::layer_ready(**layer, self.diff_valid, self.compare_valid))
             .map(|k| {
                 (
                     *k,
@@ -14493,6 +14475,17 @@ impl HookEchoApp {
             );
         }
 
+        ui::comparison_status::paint_for_view(
+            &painter,
+            prect,
+            &view.fields_on,
+            self.diff_field,
+            self.diff_valid,
+            self.compare_valid,
+            self.diff_error.as_deref(),
+            self.compare_error.as_deref(),
+        );
+
         // Placefile labels/icons.
         for label in placefile_labels {
             // An anchored label is placed by projecting its object's anchor and then stepping the
@@ -15054,7 +15047,10 @@ impl HookEchoApp {
             if let Some(top) = crate::render::FieldLayer::DRAW_ORDER
                 .iter()
                 .rev()
-                .find(|l| view.fields_on.contains(l))
+                .find(|l| {
+                    view.fields_on.contains(l)
+                        && crate::fielddiff::layer_ready(**l, self.diff_valid, self.compare_valid)
+                })
             {
                 use crate::render::FieldLayer as FL;
                 if *top == FL::ModelDiff {
@@ -17395,6 +17391,11 @@ impl eframe::App for HookEchoApp {
                 });
             let changed = on && self.diff_key != Some((self.diff_field, fh));
             if stale || changed {
+                if changed {
+                    self.diff_valid = None;
+                    self.diff_grid = None;
+                }
+                self.diff_error = None;
                 if let Some(s) = self.fields.get_mut(&layer) {
                     s.last_fetch = Some(Instant::now());
                 }
@@ -17415,6 +17416,11 @@ impl eframe::App for HookEchoApp {
                 });
             let changed = on && self.compare_key != Some((self.diff_field, fh));
             if stale || changed {
+                if changed {
+                    self.compare_valid = None;
+                    self.compare_grid = None;
+                }
+                self.compare_error = None;
                 for layer in [FL::CompareA, FL::CompareB] {
                     if let Some(s) = self.fields.get_mut(&layer) {
                         s.last_fetch = Some(Instant::now());

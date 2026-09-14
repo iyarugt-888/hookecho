@@ -54,16 +54,17 @@ fn stp_source(model: wxdata::hrrr::Model) -> bool {
     matches!(model, wxdata::hrrr::Model::Hrrr)
 }
 
-/// The valid-time caption for a difference/comparison fetch — shared by `ModelDiff` and the
-/// compare panes, since both come from the same two-model fetch and the two models rarely share
-/// a cycle: a reading built from two different instants is only honest if it says which two.
-fn valid_time_note(valid: Option<&(String, String)>, a: &str, b: &str) -> Option<String> {
-    match valid {
-        Some((va, vb)) if va != vb => Some(format!(
-            "⚠ {a} valid {va}, {b} valid {vb} — not the same time."
-        )),
-        Some((va, _)) => Some(format!("Both valid {va}.")),
-        None => None,
+/// Both grids must have the same valid time; source runs and leads may differ.
+fn valid_time_note(
+    valid: Option<&crate::fielddiff::ComparisonTimes>,
+    error: Option<&str>,
+    a: &str,
+    b: &str,
+) -> String {
+    match (valid, error) {
+        (Some(times), _) => times.label(a, b),
+        (None, Some(error)) => format!("⚠ Comparison unavailable: {error}"),
+        (None, None) => "Waiting for models at one shared valid time; no comparison is drawn.".into(),
     }
 }
 
@@ -95,10 +96,12 @@ pub(crate) fn show(
     // Global models: which one, and how far into its run.
     global_model: &mut wxdata::global::GlobalModel,
     global_fcst_hour: &mut u16,
-    // Model difference: which field, and the two valid times the last fetch actually compared.
+    // Model difference: selected field, shared valid time, and both source runs.
     diff_field: &mut crate::fielddiff::DiffField,
-    diff_valid: Option<&(String, String)>,
-    compare_valid: Option<&(String, String)>,
+    diff_valid: Option<&crate::fielddiff::ComparisonTimes>,
+    compare_valid: Option<&crate::fielddiff::ComparisonTimes>,
+    diff_error: Option<&str>,
+    compare_error: Option<&str>,
     // Lightning: NLDN averaging window, and whether GLM also polls GOES-West.
     lightning_minutes: &mut u16,
     show_glm: bool,
@@ -261,9 +264,7 @@ pub(crate) fn show(
                 "{a} minus {b}, in {}. Red = {a} higher, blue = {b} higher; where they agree, nothing is drawn.",
                 diff_field.units()
             ));
-            if let Some(note) = valid_time_note(diff_valid, a, b) {
-                ui.weak(note);
-            }
+            ui.weak(valid_time_note(diff_valid, diff_error, a, b));
         }
         if showing_compare {
             let label = diff_field.label();
@@ -272,9 +273,7 @@ pub(crate) fn show(
                  difference in the field itself (not just where they disagree) is easy to spot \
                  by eye."
             ));
-            if let Some(note) = valid_time_note(compare_valid, a, b) {
-                ui.weak(note);
-            }
+            ui.weak(valid_time_note(compare_valid, compare_error, a, b));
         }
         if ui
             .button(if showing_compare {

@@ -261,7 +261,7 @@ The current timeline is radar-centered. Convert it into a general valid-time coo
 
 - [ ] one selected analysis time shared across panes
 - [ ] per-layer time offsets visible in the UI
-- [ ] valid-time alignment for model differences
+- [x] valid-time alignment for the currently offered GFS/ECMWF and HRRR/RAP differences
 - [ ] run-time alignment for run-to-run comparison
 - [ ] radar/satellite/MRMS nearest-frame synchronization
 - [ ] “lock all panes to valid time” toggle
@@ -276,6 +276,10 @@ An opt-in **Link pane archive times** control now seeks each NEXRAD pane to its 
 volume when the active pane scrubs, with UTC scan times and offsets shown on every pane. Saved
 workspaces retain the link. Live panes continue polling their own heads; model and MRMS time
 coordination remains to be built.
+The current model-difference and side-by-side pairs now require one exact valid time and verify
+the decoded GRIB timestamp. The map shows that time, while Layer settings show each run and lead;
+an unavailable pair hides any previous grid instead of displaying a mismatched subtraction.
+General run-to-run and broader model comparison remain open.
 
 ### Acceptance criteria
 

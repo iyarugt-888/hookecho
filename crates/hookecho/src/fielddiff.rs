@@ -10,8 +10,196 @@
 //! draw detail that is not there. GFS and ECMWF already share one lattice, so that pair does not
 //! resample at all.
 
+use chrono::{DateTime, Duration, Utc};
 use wxdata::global::GlobalField;
 use wxdata::mrms::MrmsField;
+
+/// One exact valid time, with the source run and lead retained for each model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ComparisonTimes {
+    pub valid: DateTime<Utc>,
+    pub a_run: DateTime<Utc>,
+    pub a_lead_hours: u16,
+    pub b_run: DateTime<Utc>,
+    pub b_lead_hours: u16,
+}
+
+impl ComparisonTimes {
+    pub fn new(
+        a_run: DateTime<Utc>,
+        a_lead_hours: u16,
+        b_run: DateTime<Utc>,
+        b_lead_hours: u16,
+    ) -> anyhow::Result<Self> {
+        let a_valid = a_run + Duration::hours(i64::from(a_lead_hours));
+        let b_valid = b_run + Duration::hours(i64::from(b_lead_hours));
+        anyhow::ensure!(
+            a_valid == b_valid,
+            "model valid times differ: {a_valid} vs {b_valid}"
+        );
+        Ok(Self {
+            valid: a_valid,
+            a_run,
+            a_lead_hours,
+            b_run,
+            b_lead_hours,
+        })
+    }
+
+    pub fn label(self, a: &str, b: &str) -> String {
+        format!(
+            "Both valid {} · {a} run {} +{}h · {b} run {} +{}h",
+            self.valid.format("%Y-%m-%d %H:%MZ"),
+            self.a_run.format("%Y-%m-%d %H:%MZ"),
+            self.a_lead_hours,
+            self.b_run.format("%Y-%m-%d %H:%MZ"),
+            self.b_lead_hours
+        )
+    }
+}
+
+pub struct ComparisonPair {
+    pub a: MrmsField,
+    pub b: MrmsField,
+    pub times: ComparisonTimes,
+}
+
+/// A resident GPU grid is drawable only while its metadata belongs to the current selection.
+pub fn layer_ready(
+    layer: crate::render::FieldLayer,
+    diff: Option<ComparisonTimes>,
+    compare: Option<ComparisonTimes>,
+) -> bool {
+    use crate::render::FieldLayer as FL;
+    match layer {
+        FL::ModelDiff => diff.is_some(),
+        FL::CompareA | FL::CompareB => compare.is_some(),
+        _ => true,
+    }
+}
+
+fn verify_field_valid(
+    model: &str,
+    field: &MrmsField,
+    expected: DateTime<Utc>,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        field.time == expected,
+        "{model} GRIB valid time {} differs from requested {expected}",
+        field.time
+    );
+    Ok(())
+}
+
+/// Fetch two models at one exact valid time. If the first model's newest cycle cannot be paired,
+/// try the second model's newest cycle as the anchor. Never subtract grids from different times.
+pub async fn fetch_pair(
+    http: &reqwest::Client,
+    field: DiffField,
+    fh: u16,
+) -> anyhow::Result<ComparisonPair> {
+    use wxdata::global::{GlobalField, GlobalModel};
+    match field {
+        DiffField::Global(GlobalFieldKind::Precip) => {
+            anyhow::bail!(
+                "GFS precipitable water and ECMWF total precipitation are different quantities"
+            )
+        }
+        DiffField::Global(kind) => {
+            let g: GlobalField = kind.into();
+            let (gfs, ecmwf) = futures_util::future::try_join(
+                wxdata::global::fetch(http, GlobalModel::Gfs, g, fh),
+                wxdata::global::fetch(http, GlobalModel::Ecmwf, g, fh),
+            )
+            .await?;
+            let (gfs, ecmwf) = if gfs.valid() == ecmwf.valid() {
+                (gfs, ecmwf)
+            } else {
+                match wxdata::global::fetch_aligned(http, GlobalModel::Ecmwf, g, gfs.valid()).await
+                {
+                    Ok(aligned) => (gfs, aligned),
+                    Err(_) => {
+                        let target = ecmwf.valid();
+                        let aligned =
+                            wxdata::global::fetch_aligned(http, GlobalModel::Gfs, g, target)
+                                .await
+                                .map_err(|err| {
+                                    anyhow::anyhow!(
+                                        "no GFS/ECMWF pair shares valid time {target}: {err}"
+                                    )
+                                })?;
+                        (aligned, ecmwf)
+                    }
+                }
+            };
+            let times = ComparisonTimes::new(gfs.run, gfs.fcst_hour, ecmwf.run, ecmwf.fcst_hour)?;
+            verify_field_valid("GFS", &gfs.field, times.valid)?;
+            verify_field_valid("ECMWF", &ecmwf.field, times.valid)?;
+            Ok(ComparisonPair {
+                a: gfs.field,
+                b: ecmwf.field,
+                times,
+            })
+        }
+        DiffField::Cape | DiffField::Srh => {
+            use wxdata::hrrr::Model;
+            let (var, level, min_valid) = match field {
+                DiffField::Srh => ("HLCY", "3000-0 m above ground", f64::NEG_INFINITY),
+                _ => ("CAPE", "surface", 0.0),
+            };
+            let (hrrr, rap) = futures_util::future::try_join(
+                wxdata::hrrr::fetch_field(http, Model::Hrrr, var, level, 0, min_valid),
+                wxdata::hrrr::fetch_field(http, Model::Rap, var, level, 0, min_valid),
+            )
+            .await?;
+            let (hrrr, rap) = if hrrr.valid() == rap.valid() {
+                (hrrr, rap)
+            } else {
+                match wxdata::hrrr::fetch_field_aligned(
+                    http,
+                    Model::Rap,
+                    var,
+                    level,
+                    hrrr.valid(),
+                    min_valid,
+                )
+                .await
+                {
+                    Ok(aligned) => (hrrr, aligned),
+                    Err(_) => {
+                        let target = rap.valid();
+                        let aligned = wxdata::hrrr::fetch_field_aligned(
+                            http,
+                            Model::Hrrr,
+                            var,
+                            level,
+                            target,
+                            min_valid,
+                        )
+                        .await
+                        .map_err(|err| {
+                            anyhow::anyhow!("no HRRR/RAP pair shares valid time {target}: {err}")
+                        })?;
+                        (aligned, rap)
+                    }
+                }
+            };
+            let times = ComparisonTimes::new(
+                hrrr.run,
+                u16::from(hrrr.fcst_hour),
+                rap.run,
+                u16::from(rap.fcst_hour),
+            )?;
+            verify_field_valid("HRRR", &hrrr.field, times.valid)?;
+            verify_field_valid("RAP", &rap.field, times.valid)?;
+            Ok(ComparisonPair {
+                a: hrrr.field,
+                b: rap.field,
+                times,
+            })
+        }
+    }
+}
 
 /// What the difference layer is differencing, and therefore which two models it asks for.
 ///
@@ -166,9 +354,12 @@ impl DiffField {
 
 /// `a - b`, on the coarser of the two lattices, over the part of the world both cover.
 ///
-/// The time is `a`'s: a difference is only meaningful for one instant, and the caller is
-/// responsible for saying which two cycles it compared (see the layer options row).
+/// Rejects inputs with different valid times before sampling. `fetch_pair` also records both
+/// source runs and leads; this guard protects direct callers of the pure subtraction.
 pub fn diff(a: &MrmsField, b: &MrmsField) -> Option<MrmsField> {
+    if a.time != b.time {
+        return None;
+    }
     let lon_west = a.lon_west.max(b.lon_west);
     let lon_east = a.lon_east.min(b.lon_east);
     let lat_south = a.lat_south.max(b.lat_south);
@@ -242,11 +433,7 @@ fn sample(f: &MrmsField, lon: f64, lat: f64) -> Option<f32> {
     let (tx, ty) = ((x - x0 as f64) as f32, (y - y0 as f64) as f32);
     let at = |r: usize, c: usize| {
         let v = f.values[r * f.nx + c];
-        if v.is_finite() {
-            Some(v)
-        } else {
-            None
-        }
+        if v.is_finite() { Some(v) } else { None }
     };
     // One missing corner poisons the cell rather than being treated as zero — a hole in a model
     // field is not a value of zero, and a difference against zero is a fabricated gradient.
@@ -305,6 +492,38 @@ pub fn diff_index(v: f32, range: f32) -> u8 {
 mod tests {
     use super::*;
 
+    #[test]
+    fn comparison_requires_one_valid_time_and_retains_both_runs() {
+        let a_run = DateTime::from_timestamp(1_700_000_000, 0).unwrap();
+        let b_run = a_run - Duration::hours(1);
+        let times = ComparisonTimes::new(a_run, 0, b_run, 1).unwrap();
+        assert_eq!(times.valid, a_run);
+        assert_eq!(times.b_lead_hours, 1);
+        assert!(times.label("HRRR", "RAP").contains("RAP run"));
+        assert!(ComparisonTimes::new(a_run, 0, b_run, 0).is_err());
+        assert!(!layer_ready(
+            crate::render::FieldLayer::ModelDiff,
+            None,
+            None
+        ));
+        assert!(layer_ready(
+            crate::render::FieldLayer::ModelDiff,
+            Some(times),
+            None
+        ));
+        assert!(!layer_ready(
+            crate::render::FieldLayer::CompareA,
+            Some(times),
+            None
+        ));
+
+        let mut field = grid(2, 2, -100.0, -99.0, 30.0, 31.0, 1.0);
+        field.time = times.valid;
+        assert!(verify_field_valid("HRRR", &field, times.valid).is_ok());
+        field.time -= Duration::hours(1);
+        assert!(verify_field_valid("HRRR", &field, times.valid).is_err());
+    }
+
     fn grid(
         nx: usize,
         ny: usize,
@@ -322,7 +541,7 @@ mod tests {
             lon_east: east,
             lat_north: north,
             lat_south: south,
-            time: chrono::Utc::now(),
+            time: DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
         }
     }
 
@@ -333,6 +552,14 @@ mod tests {
         let d = diff(&a, &b).expect("overlapping");
         assert_eq!((d.nx, d.ny), (11, 11));
         assert!(d.values.iter().all(|v| (v - 3.0).abs() < 1e-4));
+    }
+
+    #[test]
+    fn different_valid_times_cannot_be_subtracted() {
+        let a = grid(2, 2, -100.0, -99.0, 30.0, 31.0, 8.0);
+        let mut b = grid(2, 2, -100.0, -99.0, 30.0, 31.0, 5.0);
+        b.time += Duration::hours(1);
+        assert!(diff(&a, &b).is_none());
     }
 
     #[test]
@@ -386,8 +613,8 @@ mod tests {
 
     #[test]
     fn every_field_maps_to_its_own_single_model_layer() {
-        use crate::render::field_ramps::ramp_for;
         use crate::render::FieldLayer as FL;
+        use crate::render::field_ramps::ramp_for;
         let expected = [
             (DiffField::Global(GlobalFieldKind::Mslp), FL::GlobalMslp),
             (
@@ -399,7 +626,10 @@ mod tests {
                 DiffField::Global(GlobalFieldKind::Dewpoint2m),
                 FL::GlobalDewpoint2m,
             ),
-            (DiffField::Global(GlobalFieldKind::Wind10m), FL::GlobalWind10m),
+            (
+                DiffField::Global(GlobalFieldKind::Wind10m),
+                FL::GlobalWind10m,
+            ),
             (DiffField::Cape, FL::Cape),
             (DiffField::Srh, FL::Srh),
         ];
@@ -408,7 +638,10 @@ mod tests {
         assert_eq!(expected.len(), DiffField::ALL.len());
         for (f, layer) in expected {
             assert_eq!(f.source_layer(), layer, "{f:?} mapped to the wrong layer");
-            assert!(ramp_for(layer).is_some(), "{layer:?} must have a ramp to borrow");
+            assert!(
+                ramp_for(layer).is_some(),
+                "{layer:?} must have a ramp to borrow"
+            );
         }
     }
 }

@@ -253,8 +253,8 @@ pub async fn fetch_point_series(
 /// and the forecast hour that reaches `target_valid` from there always exists in principle — the
 /// walk-back here is purely for the same "not posted yet" latency [`fetch`] already tolerates.
 /// What is not guaranteed is that the model has *published* that specific forecast hour (some
-/// only post every third or sixth hour past a range); that failure is the caller's to handle, by
-/// falling back to [`fetch`] at its own `fh` and honestly labelling the mismatch as before.
+/// only post every third or sixth hour past a range). A difference caller must treat that failure
+/// as unavailable or try aligning the other model; it must never subtract unmatched times.
 pub async fn fetch_aligned(
     http: &reqwest::Client,
     model: GlobalModel,

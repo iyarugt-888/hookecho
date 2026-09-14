@@ -259,6 +259,8 @@ impl HookEchoApp {
                                     &mut self.diff_field,
                                     self.diff_valid.as_ref(),
                                     self.compare_valid.as_ref(),
+                                    self.diff_error.as_deref(),
+                                    self.compare_error.as_deref(),
                                     &mut self.settings.lightning_minutes,
                                     glm_options,
                                     &mut self.settings.glm_goes_west,
