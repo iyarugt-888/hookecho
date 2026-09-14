@@ -8,6 +8,26 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: a scan-strategy popup on the VCP chip (Phase B5)
+
+- The ribbon's "VCP 35" readout is now clickable: it opens a popup with the full pattern
+  description (e.g. "VCP 212 (Precipitation, SZ-2)") and a table of every tilt, how many times
+  the current VCP scans it per volume, and whether any of those passes are SAILS or MRLE
+  supplemental low-level rescans — none of which the app surfaced anywhere before, even though
+  the decoder already extracts it in full (`VolumeCoveragePattern::elevation_cuts`, unused until
+  now).
+- The Tilt angle pills mark a repeated tilt with a small bullet and a hover tooltip ("Scanned 3
+  times per volume (2 SAILS cuts)"), so a SAILS/MRLE insert reads as one rather than looking like
+  any other cut.
+- Read straight from the decoded VCP message, not inferred from the sweep count seen so far, so a
+  SAILS insert a still-arriving live volume hasn't reached yet is already marked correctly.
+- Deliberately distinguishes real SAILS/MRLE inserts from an ordinary split cut (e.g. VCP 35's
+  SZ-2 low tilts, scanned twice for phase-coded range unfolding, not resampled for temporal
+  resolution) — verified live against a real VCP 35 volume, where every tilt correctly reported
+  "—" (no scheme) despite two of them showing "2" cuts/volume.
+- New `wxdata::level2::tilt_cuts`, unit-tested against a constructed VCP 212-shaped pattern with
+  SAILS and MRLE inserts at different tilts.
+
 ### Added: live scan-progress reporting (Phase B2)
 
 - The live chunk stream now reports how far into the current sweep it has scanned between the

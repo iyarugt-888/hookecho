@@ -22,6 +22,40 @@ fn ribbon_group(ui: &mut egui::Ui, w: f32, add: impl FnOnce(&mut egui::Ui)) {
     wsv3::vsep(ui);
 }
 
+/// Phase B5: the VCP chip's popup — the full pattern description plus, per tilt, how many times
+/// this volume revisits it and under what scheme (SAILS/MRLE). Everything here comes straight off
+/// the decoded VCP message; nothing is inferred from how much of the volume has arrived.
+fn scan_strategy_popup(ui: &mut egui::Ui, vcp: &str, cuts: &[wxdata::level2::TiltCuts]) {
+    ui.set_min_width(230.0);
+    ui.strong(if vcp.is_empty() { "Scan strategy" } else { vcp });
+    if cuts.is_empty() {
+        ui.weak("No volume loaded yet.");
+        return;
+    }
+    ui.add_space(4.0);
+    egui::Grid::new("wsv3_scan_strategy")
+        .num_columns(3)
+        .spacing([12.0, 3.0])
+        .show(ui, |ui| {
+            ui.weak("Tilt");
+            ui.weak("Cuts/vol");
+            ui.weak("Scheme");
+            ui.end_row();
+            for c in cuts {
+                ui.label(format!("{:.1}\u{b0}", c.elevation_deg));
+                ui.label(c.cuts.to_string());
+                let scheme = match (c.sails_cuts, c.mrle_cuts) {
+                    (0, 0) => "\u{2014}".to_string(),
+                    (s, 0) => format!("SAILS \u{d7}{s}"),
+                    (0, m) => format!("MRLE \u{d7}{m}"),
+                    (s, m) => format!("SAILS \u{d7}{s}, MRLE \u{d7}{m}"),
+                };
+                ui.label(scheme);
+                ui.end_row();
+            }
+        });
+}
+
 impl HookEchoApp {
     /// The docked ribbon. Call on the eframe root `Ui`, before `chrome_rect` is captured, so the
     /// floating windows constrain to the map area below it.
@@ -50,6 +84,17 @@ impl HookEchoApp {
             .volume
             .as_ref()
             .map(|v| v.vcp.split(" (").next().unwrap_or_default().to_string())
+            .unwrap_or_default();
+        let vcp_full = self.views[self.active]
+            .volume
+            .as_ref()
+            .map(|v| v.vcp.clone())
+            .unwrap_or_default();
+        // One entry per tilt in `elevations` order, so index `i` below lines up with `elevations[i]`.
+        let tilt_cuts = self.views[self.active]
+            .volume
+            .as_ref()
+            .map(|v| wxdata::level2::tilt_cuts(&v.scan))
             .unwrap_or_default();
         let health = self.radar_health();
         let (health_txt, health_col) = ui::layers_panel::health_look(health.state());
@@ -189,15 +234,41 @@ impl HookEchoApp {
                         } else {
                             ui.horizontal_wrapped(|ui| {
                                 for (i, a) in elevations.iter().enumerate() {
-                                    if wsv3::pill_sized(
-                                        ui,
-                                        &format!("{a:.1}\u{b0}"),
-                                        i == tilt,
-                                        accent,
-                                        42.0,
-                                    )
-                                    .clicked()
-                                    {
+                                    // Marked whenever this VCP revisits the tilt mid-volume
+                                    // (SAILS/MRLE) — otherwise identical to any other cut, so
+                                    // nothing on screen said "you've already seen this angle
+                                    // once this volume."
+                                    let cut = tilt_cuts.get(i).copied();
+                                    let repeated =
+                                        cut.is_some_and(|c| c.sails_cuts > 0 || c.mrle_cuts > 0);
+                                    let label = if repeated {
+                                        format!("{a:.1}\u{b0}\u{2022}")
+                                    } else {
+                                        format!("{a:.1}\u{b0}")
+                                    };
+                                    let resp =
+                                        wsv3::pill_sized(ui, &label, i == tilt, accent, 42.0);
+                                    let resp = match cut {
+                                        Some(c) if c.sails_cuts > 0 && c.mrle_cuts > 0 => resp
+                                            .on_hover_text(format!(
+                                                "Scanned {} times per volume: {} SAILS, {} MRLE",
+                                                c.cuts, c.sails_cuts, c.mrle_cuts
+                                            )),
+                                        Some(c) if c.sails_cuts > 0 => resp.on_hover_text(format!(
+                                            "Scanned {} times per volume ({} SAILS cut{})",
+                                            c.cuts,
+                                            c.sails_cuts,
+                                            if c.sails_cuts == 1 { "" } else { "s" }
+                                        )),
+                                        Some(c) if c.mrle_cuts > 0 => resp.on_hover_text(format!(
+                                            "Scanned {} times per volume ({} MRLE cut{})",
+                                            c.cuts,
+                                            c.mrle_cuts,
+                                            if c.mrle_cuts == 1 { "" } else { "s" }
+                                        )),
+                                        _ => resp,
+                                    };
+                                    if resp.clicked() {
                                         pick_tilt = Some(i);
                                     }
                                 }
@@ -223,9 +294,16 @@ impl HookEchoApp {
                                     .color(health_col),
                             );
                             if !vcp.is_empty() {
-                                ui.label(
-                                    RichText::new(&vcp).size(11.0).color(wsv3::STATUS_FG),
-                                );
+                                let vcp_resp = ui
+                                    .add(
+                                        egui::Button::new(
+                                            RichText::new(&vcp).size(11.0).color(wsv3::STATUS_FG),
+                                        )
+                                        .frame(false),
+                                    )
+                                    .on_hover_text("Scan strategy \u{2014} click for detail");
+                                egui::Popup::menu(&vcp_resp)
+                                    .show(|ui| scan_strategy_popup(ui, &vcp_full, &tilt_cuts));
                             }
                         });
                         wsv3::check(ui, "Smoothing", &mut smooth);

@@ -819,6 +819,53 @@ pub fn elevation_angles(scan: &Scan) -> Vec<f32> {
     angles
 }
 
+/// How many times one volume revisits [`TiltCuts::elevation_deg`], and under what scheme —
+/// SAILS (Supplemental Adaptive Intra-volume Low-level Scan) and MRLE (Mid-volume Rescan of Low
+/// Elevation) both insert extra passes at a low tilt partway through the volume rather than only
+/// at its one "normal" place in the sequence.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TiltCuts {
+    pub elevation_deg: f32,
+    /// Total sweeps at this angle in one volume — 1 for an ordinary tilt, more under SAILS/MRLE.
+    pub cuts: usize,
+    pub sails_cuts: usize,
+    pub mrle_cuts: usize,
+    /// Whether any pass at this angle is VCP 12/212's dedicated low-PRF "base tilt" cut.
+    pub base_tilt: bool,
+}
+
+/// [`TiltCuts`] for every tilt in [`elevation_angles`] order.
+///
+/// Read from the scan's own [`nexrad_model::data::VolumeCoveragePattern`] — the VCP message
+/// already carries a flag per elevation cut for exactly this — rather than inferred from how many
+/// sweeps have actually streamed in so far: a SAILS insert a still-arriving live volume hasn't
+/// reached yet is still a SAILS insert, and this says so before it arrives.
+pub fn tilt_cuts(scan: &Scan) -> Vec<TiltCuts> {
+    let defined = scan.coverage_pattern().elevation_cuts();
+    elevation_angles(scan)
+        .into_iter()
+        .map(|elevation_deg| {
+            let mut t = TiltCuts {
+                elevation_deg,
+                cuts: 0,
+                sails_cuts: 0,
+                mrle_cuts: 0,
+                base_tilt: false,
+            };
+            for cut in defined
+                .iter()
+                .filter(|c| (c.elevation_angle_degrees() as f32 - elevation_deg).abs() < 0.15)
+            {
+                t.cuts += 1;
+                t.sails_cuts += cut.is_sails_cut() as usize;
+                t.mrle_cuts += cut.is_mrle_cut() as usize;
+                t.base_tilt |= cut.is_base_tilt_cut();
+            }
+            t
+        })
+        .collect()
+}
+
 /// Which moments this volume actually carries, indexed by [`Moment::index`].
 ///
 /// Not every radar sends everything: a TDWR has only reflectivity and velocity, and volumes from
@@ -1559,6 +1606,125 @@ mod tests {
             false,
             Vec::new(),
         )
+    }
+
+    // One elevation cut at `elevation_deg`, otherwise a plausible-but-arbitrary configuration —
+    // `tilt_cuts` only reads the angle and the SAILS/MRLE/base-tilt flags.
+    fn elevation_cut(
+        elevation_deg: f64,
+        sails: bool,
+        mrle: bool,
+        base_tilt: bool,
+    ) -> nexrad_model::data::ElevationCut {
+        use nexrad_model::data::{ChannelConfiguration, ElevationCut, WaveformType};
+        ElevationCut::new(
+            elevation_deg,
+            ChannelConfiguration::ConstantPhase,
+            WaveformType::CS,
+            18.0,
+            false,
+            false,
+            false,
+            false,
+            0,
+            0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            sails,
+            0,
+            mrle,
+            0,
+            false,
+            base_tilt,
+        )
+    }
+
+    // A VCP 212-shaped strategy: 0.5deg scanned three times (a base tilt plus two SAILS
+    // inserts), 0.9deg scanned twice (one MRLE insert), 1.3deg scanned once, plain.
+    fn sails_mrle_vcp() -> nexrad_model::data::VolumeCoveragePattern {
+        use nexrad_model::data::{PulseWidth, VolumeCoveragePattern};
+        VolumeCoveragePattern::new(
+            212,
+            0,
+            0.5,
+            PulseWidth::Short,
+            true,
+            2,
+            true,
+            1,
+            false,
+            true,
+            1,
+            false,
+            false,
+            vec![
+                elevation_cut(0.5, false, false, true),
+                elevation_cut(0.9, false, false, false),
+                elevation_cut(1.3, false, false, false),
+                elevation_cut(0.5, true, false, false),
+                elevation_cut(0.9, false, true, false),
+                elevation_cut(0.5, true, false, false),
+            ],
+        )
+    }
+
+    fn sails_mrle_scan() -> Scan {
+        let sweep_at = |elevation: f32| Sweep::new(1, vec![radial_with(Moment::Reflectivity, elevation)]);
+        let site = nexrad_model::meta::Site::new(*b"KTLX", 35.33, -97.28, 380, 0);
+        Scan::with_site(
+            site,
+            sails_mrle_vcp(),
+            vec![
+                sweep_at(0.5),
+                sweep_at(0.9),
+                sweep_at(1.3),
+                sweep_at(0.5),
+                sweep_at(0.9),
+                sweep_at(0.5),
+            ],
+        )
+    }
+
+    #[test]
+    fn tilt_cuts_counts_sails_and_mrle_revisits_per_tilt() {
+        let cuts = tilt_cuts(&sails_mrle_scan());
+        assert_eq!(
+            cuts.iter().map(|t| t.elevation_deg).collect::<Vec<_>>(),
+            vec![0.5, 0.9, 1.3],
+            "one entry per deduped tilt, same order as elevation_angles"
+        );
+
+        let low = cuts[0];
+        assert_eq!(low.cuts, 3, "base tilt plus two SAILS inserts");
+        assert_eq!(low.sails_cuts, 2);
+        assert_eq!(low.mrle_cuts, 0);
+        assert!(low.base_tilt);
+
+        let mid = cuts[1];
+        assert_eq!(mid.cuts, 2, "the normal pass plus one MRLE insert");
+        assert_eq!(mid.sails_cuts, 0);
+        assert_eq!(mid.mrle_cuts, 1);
+        assert!(!mid.base_tilt);
+
+        let high = cuts[2];
+        assert_eq!(high.cuts, 1, "scanned once, no supplemental cuts");
+        assert_eq!(high.sails_cuts, 0);
+        assert_eq!(high.mrle_cuts, 0);
+        assert!(!high.base_tilt);
+    }
+
+    #[test]
+    fn tilt_cuts_is_empty_for_a_vcp_with_no_declared_elevation_cuts() {
+        // minimal_vcp's elevation_cuts is empty even though the scan has real sweeps — a scan
+        // whose VCP message hasn't been decoded yet (or a synthetic one, as in other tests here)
+        // should report zero cuts everywhere rather than panicking or guessing.
+        let cuts = tilt_cuts(&two_tilt_scan());
+        assert_eq!(cuts.len(), 2, "still one entry per tilt, just with no cut detail");
+        assert!(cuts.iter().all(|t| t.cuts == 0 && !t.base_tilt));
     }
 
     // Two sweeps at ~0.5deg: a reflectivity-only surveillance cut and a velocity-only

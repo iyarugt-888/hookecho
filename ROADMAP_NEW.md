@@ -429,13 +429,26 @@ and velocity gates, folded and unfolded.
 - [x] sweep timestamp (aggregated across every sweep at that elevation, so a repeated
   SAILS/MRLE cut reports the full span it was collected over, not one arbitrary pass)
 
-## B5. VCP / SAILS / MESO-SAILS awareness
+## B5. VCP / SAILS / MESO-SAILS awareness — partly done
 
-- [ ] parse/display current VCP details
-- [ ] identify repeated low-level cuts
-- [ ] show scan strategy in analyst panel
+- [x] parse/display current VCP details — the ribbon's VCP chip (`crates/hookecho/src/app/chrome/
+  ribbon.rs`) is now clickable and opens a popup with the full pattern description and a per-tilt
+  table. Nothing new to parse: `nexrad_model::data::VolumeCoveragePattern` already carried
+  `sails_enabled`/`mrle_enabled`/`elevation_cuts` (with `is_sails_cut`/`is_mrle_cut`/
+  `is_base_tilt_cut` per cut) from decode, entirely unused by the app until now.
+- [x] identify repeated low-level cuts — `wxdata::level2::tilt_cuts` (unit-tested with a
+  constructed VCP 212-shaped pattern) reports, per tilt, how many sweeps one volume takes there and
+  how many are SAILS/MRLE, read from the decoded VCP rather than inferred from sweep counts seen so
+  far (so a not-yet-arrived live SAILS insert is still correctly identified). Correctly leaves an
+  ordinary split cut's second pass (e.g. VCP 35's SZ-2 low tilts) unmarked — verified live.
+- [x] show scan strategy in analyst panel — the same popup; not a separate panel, but reachable
+  from the one place the app already shows the VCP number.
 - [ ] make timeline order reflect actual sweep chronology
 - [ ] allow “follow newest 0.5° cut” mode independent of full-volume completion
+
+The two unchecked items are a different, larger kind of change — they touch timeline/live-head
+semantics rather than adding a read-only surface over already-decoded data — and are deferred
+rather than attempted in the same pass that shipped the display-only half.
 
 ## B6. Feed failover
 
