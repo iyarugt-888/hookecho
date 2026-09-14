@@ -33,8 +33,10 @@
 //! ```
 //!
 //! Identifiers are case-insensitive. Inputs: `REF`, `VEL`, `SW`, `ZDR`, `KDP`, `CC`, `RANGE_KM`
-//! (ground range), `AZIMUTH_DEG`, `ELEVATION_DEG`. Functions: `min`, `max` (2 args), `clamp` (3
-//! args: value, low, high), `abs` (1 arg). Comparisons and logical operators produce `1.0`
+//! (ground range), `AZIMUTH_DEG`, `ELEVATION_DEG`, `BEAM_HEIGHT_M` (above radar), and
+//! `BEAM_ALTITUDE_M` (above sea level when site elevation is known). Functions:
+//! `min`, `max` (2 args), `mean` (2–8 args), `clamp` (3 args: value, low, high), `abs` (1 arg).
+//! Comparisons and logical operators produce `1.0`
 //! (true) or `0.0` (false); the ternary's condition treats any nonzero value as true.
 //!
 //! `None` (a moment absent at this gate — below threshold, range-folded, or simply not carried by
@@ -58,6 +60,10 @@ pub enum Input {
     RangeKm,
     AzimuthDeg,
     ElevationDeg,
+    /// Beam center height above the radar, metres; not altitude above sea level.
+    BeamHeightM,
+    /// Approximate beam center altitude above sea level, metres; unavailable without site elevation.
+    BeamAltitudeM,
 }
 
 impl Input {
@@ -72,12 +78,14 @@ impl Input {
             "RANGE_KM" => Self::RangeKm,
             "AZIMUTH_DEG" => Self::AzimuthDeg,
             "ELEVATION_DEG" => Self::ElevationDeg,
+            "BEAM_HEIGHT_M" => Self::BeamHeightM,
+            "BEAM_ALTITUDE_M" => Self::BeamAltitudeM,
             _ => return None,
         })
     }
 
     /// Every input name a formula can reference — for building an editor's autocomplete/help list.
-    pub const ALL: [Input; 9] = [
+    pub const ALL: [Input; 11] = [
         Input::Reflectivity,
         Input::Velocity,
         Input::SpectrumWidth,
@@ -87,6 +95,8 @@ impl Input {
         Input::RangeKm,
         Input::AzimuthDeg,
         Input::ElevationDeg,
+        Input::BeamHeightM,
+        Input::BeamAltitudeM,
     ];
 
     /// The exact spelling a formula uses for this input.
@@ -101,6 +111,8 @@ impl Input {
             Self::RangeKm => "RANGE_KM",
             Self::AzimuthDeg => "AZIMUTH_DEG",
             Self::ElevationDeg => "ELEVATION_DEG",
+            Self::BeamHeightM => "BEAM_HEIGHT_M",
+            Self::BeamAltitudeM => "BEAM_ALTITUDE_M",
         }
     }
 }
@@ -118,6 +130,8 @@ pub struct GateInputs {
     pub range_km: Option<f32>,
     pub azimuth_deg: Option<f32>,
     pub elevation_deg: Option<f32>,
+    pub beam_height_m: Option<f32>,
+    pub beam_altitude_m: Option<f32>,
 }
 
 impl GateInputs {
@@ -132,6 +146,8 @@ impl GateInputs {
             Input::RangeKm => self.range_km,
             Input::AzimuthDeg => self.azimuth_deg,
             Input::ElevationDeg => self.elevation_deg,
+            Input::BeamHeightM => self.beam_height_m,
+            Input::BeamAltitudeM => self.beam_altitude_m,
         }
     }
 }
@@ -156,17 +172,19 @@ enum BinOp {
 enum Func {
     Min,
     Max,
+    Mean,
     Clamp,
     Abs,
 }
 
 impl Func {
-    fn parse(name: &str) -> Option<(Self, usize)> {
+    fn parse(name: &str) -> Option<(Self, usize, usize)> {
         Some(match name.to_ascii_lowercase().as_str() {
-            "min" => (Self::Min, 2),
-            "max" => (Self::Max, 2),
-            "clamp" => (Self::Clamp, 3),
-            "abs" => (Self::Abs, 1),
+            "min" => (Self::Min, 2, 2),
+            "max" => (Self::Max, 2, 2),
+            "mean" => (Self::Mean, 2, 8),
+            "clamp" => (Self::Clamp, 3, 3),
+            "abs" => (Self::Abs, 1, 1),
             _ => return None,
         })
     }
@@ -257,6 +275,7 @@ fn eval_node(node: &ExprNode, inputs: &GateInputs) -> Option<f32> {
             Some(match (func, vals.as_slice()) {
                 (Func::Min, [a, b]) => a.min(*b),
                 (Func::Max, [a, b]) => a.max(*b),
+                (Func::Mean, values) => values.iter().sum::<f32>() / values.len() as f32,
                 (Func::Clamp, [x, lo, hi]) => x.clamp(*lo, *hi),
                 (Func::Abs, [x]) => x.abs(),
                 _ => unreachable!("Func::parse's arity matches evaluate's arm for it"),
@@ -436,6 +455,7 @@ fn tokenize(src: &str) -> Result<Vec<(Token, usize)>, ParseError> {
 /// pasted or generated formula fails with a clear parse error instead of a stack overflow. Far
 /// beyond anything a hand-typed formula needs.
 const MAX_EXPR_DEPTH: usize = 64;
+const MAX_FUNCTION_ARGS: usize = 8;
 
 struct Parser<'a> {
     tokens: &'a [(Token, usize)],
@@ -595,6 +615,9 @@ impl Parser<'_> {
                     if self.peek() != Some(&Token::RParen) {
                         loop {
                             args.push(self.ternary()?);
+                            if args.len() > MAX_FUNCTION_ARGS {
+                                return Err(self.error("too many function arguments"));
+                            }
                             if self.peek() == Some(&Token::Comma) {
                                 self.pos += 1;
                             } else {
@@ -603,17 +626,22 @@ impl Parser<'_> {
                         }
                     }
                     self.eat(&Token::RParen)?;
-                    let Some((func, arity)) = Func::parse(&name) else {
+                    let Some((func, min_arity, max_arity)) = Func::parse(&name) else {
                         return Err(ParseError {
                             message: format!("'{name}' is not a known function"),
                             position: self.pos_at(self.pos.saturating_sub(1)),
                         });
                     };
-                    if args.len() != arity {
+                    if !(min_arity..=max_arity).contains(&args.len()) {
+                        let arity = if min_arity == max_arity {
+                            min_arity.to_string()
+                        } else {
+                            format!("{min_arity} to {max_arity}")
+                        };
                         return Err(ParseError {
                             message: format!(
                                 "{name} takes {arity} argument{}, got {}",
-                                if arity == 1 { "" } else { "s" },
+                                if max_arity == 1 { "" } else { "s" },
                                 args.len()
                             ),
                             position: self.pos_at(self.pos.saturating_sub(1)),
@@ -674,6 +702,8 @@ mod tests {
             range_km: Some(80.0),
             azimuth_deg: Some(270.0),
             elevation_deg: Some(0.5),
+            beam_height_m: Some(1200.0),
+            beam_altitude_m: Some(1500.0),
         }
     }
 
@@ -715,9 +745,11 @@ mod tests {
     }
 
     #[test]
-    fn functions_min_max_clamp_abs() {
+    fn functions_min_max_mean_clamp_abs() {
         assert_eq!(eval("max(REF, 50)"), Some(50.0));
         assert_eq!(eval("min(REF, 50)"), Some(45.0));
+        assert_eq!(eval("mean(REF, 50)"), Some(47.5));
+        assert_eq!(eval("mean(REF, 50, 55)"), Some(50.0));
         assert_eq!(eval("clamp(REF, 0, 40)"), Some(40.0));
         assert_eq!(eval("abs(VEL)"), Some(12.0));
     }
@@ -737,6 +769,8 @@ mod tests {
         // A missing input under a function is missing too, not silently skipped.
         let expr = parse("max(REF, 10)").unwrap();
         assert_eq!(evaluate(&expr, &i), None);
+        let expr = parse("mean(REF, 10, 20)").unwrap();
+        assert_eq!(evaluate(&expr, &i), None);
     }
 
     #[test]
@@ -744,6 +778,8 @@ mod tests {
         assert_eq!(eval("RANGE_KM"), Some(80.0));
         assert_eq!(eval("AZIMUTH_DEG"), Some(270.0));
         assert_eq!(eval("ELEVATION_DEG"), Some(0.5));
+        assert_eq!(eval("BEAM_HEIGHT_M"), Some(1200.0));
+        assert_eq!(eval("BEAM_ALTITUDE_M"), Some(1500.0));
     }
 
     #[test]
@@ -758,6 +794,9 @@ mod tests {
         assert!(err.message.contains("2 arguments"), "message: {}", err.message);
         let err = parse("clamp(REF, 0)").unwrap_err();
         assert!(err.message.contains("3 arguments"), "message: {}", err.message);
+        let err = parse("mean(REF)").unwrap_err();
+        assert!(err.message.contains("2 to 8 arguments"), "message: {}", err.message);
+        assert!(parse("mean(1,2,3,4,5,6,7,8,9)").is_err());
     }
 
     #[test]

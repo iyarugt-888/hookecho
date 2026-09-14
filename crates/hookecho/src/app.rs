@@ -6463,7 +6463,13 @@ impl HookEchoApp {
     /// Phase C1's gate-inspector inputs: every moment a user-defined product can reference, plus
     /// geometry, sampled at `(lon, lat)` on `tilt`. Binning is cached on `vol` (LRU) — sampling a
     /// moment the pane's own display hasn't already binned costs one bin, everything else is free.
-    fn udp_gate_inputs(vol: &mut Volume, tilt: usize, lon: f64, lat: f64) -> wxdata::udp::GateInputs {
+    fn udp_gate_inputs(
+        vol: &mut Volume,
+        tilt: usize,
+        lon: f64,
+        lat: f64,
+        antenna_altitude_m: Option<f64>,
+    ) -> wxdata::udp::GateInputs {
         let mut out = wxdata::udp::GateInputs::default();
         for m in [
             Moment::Reflectivity,
@@ -6498,6 +6504,13 @@ impl HookEchoApp {
                     elevation_deg as f64,
                 ) as f32);
                 out.elevation_deg = Some(elevation_deg);
+                let height_m = wxdata::xsection::beam_height_km(
+                    sample.range_km as f64,
+                    elevation_deg as f64,
+                ) * 1000.0;
+                out.beam_height_m = Some(height_m as f32);
+                out.beam_altitude_m =
+                    antenna_altitude_m.map(|altitude| (altitude + height_m) as f32);
             }
         }
         out
@@ -6516,6 +6529,10 @@ impl HookEchoApp {
     ) -> Option<ui::gate_inspector::GateInspectorPopup> {
         let v = &mut self.views[idx];
         let site = v.site.clone();
+        let antenna_altitude_m = site
+            .as_deref()
+            .and_then(wxdata::sites::site_by_id)
+            .map(|site| site.elevation_meters as f64 + wxdata::towers::tower_m(site.id));
         let moment = v.moment;
         let tilt = v.tilt;
         let (scan, vcp, elevation_deg) = {
@@ -6538,7 +6555,7 @@ impl HookEchoApp {
         let raw = vol.binned(moment, tilt, false).ok()?.clone();
         let inspection = raw.inspect(lon, lat, dealiased.as_ref())?;
         let time_range = level2::sweep_time_range(&scan, elevation_deg, moment);
-        let gate_inputs = Self::udp_gate_inputs(vol, tilt, lon, lat);
+        let gate_inputs = Self::udp_gate_inputs(vol, tilt, lon, lat, antenna_altitude_m);
         Some(ui::gate_inspector::GateInspectorPopup {
             site,
             vcp,

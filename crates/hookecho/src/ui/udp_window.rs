@@ -139,7 +139,12 @@ fn reference(ui: &mut egui::Ui) {
             }
         });
         ui.add_space(4.0);
-        ui.label("Functions: min(a,b)  max(a,b)  clamp(x,lo,hi)  abs(x)");
+        ui.label(
+            "Functions: min(a,b)  max(a,b)  mean(a,b,...) [2–8 values]  clamp(x,lo,hi)  abs(x)",
+        );
+        ui.weak(
+            "BEAM_HEIGHT_M is above the radar; BEAM_ALTITUDE_M is above sea level when site elevation is known.",
+        );
         ui.label("Operators: + - * /   < <= > >= == !=   && || !   cond ? a : b");
         ui.add_space(4.0);
         ui.weak(

@@ -525,8 +525,8 @@ Inputs:
 - [x] ZDR
 - [x] CC
 - [x] KDP
-- [ ] gate altitude (beam height is computable per gate — `BinnedSweep::beam_height_ft` — but not
-  yet wired in as a formula input)
+- [x] gate altitude — formulas can use `BEAM_HEIGHT_M` above radar or `BEAM_ALTITUDE_M` above sea
+  level (site elevation plus tower height); missing site metadata leaves the latter unavailable
 - [x] range — ground range, matching the gate inspector's own "Ground range" label
 - [x] azimuth
 - [x] elevation
@@ -535,7 +535,7 @@ Inputs:
 Functions:
 
 - [x] min / max
-- [ ] mean
+- [x] mean — `mean(a,b,...)` accepts 2–8 gate values, propagating missing inputs
 - [x] clamp
 - [x] conditional masks — via `cond ? a : b`, not the roadmap's original `where` syntax (a where
   clause only made sense paired with the vertical aggregate functions below, which aren't built)
