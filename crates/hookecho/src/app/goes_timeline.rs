@@ -31,17 +31,12 @@ pub(super) fn nearest_goes(
 fn offset_label(
     radar: chrono::DateTime<chrono::Utc>,
     imagery: chrono::DateTime<chrono::Utc>,
+    tolerance: chrono::Duration,
 ) -> String {
-    let secs = (imagery - radar).num_seconds();
-    let magnitude = secs.unsigned_abs();
-    let offset = format!(
-        "{}{minutes}m{seconds:02}s",
-        if secs < 0 { "−" } else { "+" },
-        minutes = magnitude / 60,
-        seconds = magnitude % 60
-    );
-    if magnitude > 30 * 60 {
-        format!("⚠ {offset} (>30m)")
+    let comparison = wxdata::time_align::TimeOffset::between(imagery, radar, tolerance);
+    let offset = crate::ui::data_inspector::offset_label(comparison.offset);
+    if comparison.outside_tolerance {
+        format!("⚠ {offset}")
     } else {
         format!("Δ{offset}")
     }
@@ -53,11 +48,27 @@ mod tests {
     #[test]
     fn mismatch_readout_names_the_exact_source_offset() {
         let radar = chrono::DateTime::from_timestamp(1_000_000, 0).unwrap();
-        assert!(offset_label(radar, radar + chrono::Duration::minutes(30)).contains("Δ+30m00s"));
-        assert!(offset_label(radar, radar + chrono::Duration::seconds(1801))
-            .contains("⚠ +30m01s (>30m)"));
-        assert!(offset_label(radar, radar - chrono::Duration::seconds(1801))
-            .contains("⚠ −30m01s (>30m)"));
+        let tolerance = chrono::Duration::minutes(10);
+        assert_eq!(
+            offset_label(radar, radar + tolerance, tolerance),
+            "Δ+10m 00s"
+        );
+        assert_eq!(
+            offset_label(
+                radar,
+                radar + tolerance + chrono::Duration::seconds(1),
+                tolerance
+            ),
+            "⚠ +10m 01s"
+        );
+        assert_eq!(
+            offset_label(
+                radar,
+                radar - tolerance - chrono::Duration::seconds(1),
+                tolerance
+            ),
+            "⚠ -10m 01s"
+        );
     }
 }
 
@@ -100,7 +111,8 @@ impl HookEchoApp {
                             .selectable_label(self.goes_follow_radar, "⟲ radar time")
                             .on_hover_text(
                                 "Keep the satellite on the radar's clock — scrub the timeline \
-                                 and the imagery follows",
+                                 and the imagery follows. If no frame is within 30 minutes, \
+                                 the latest indexed frame is shown with a time-offset warning.",
                             )
                             .clicked()
                         {
@@ -124,8 +136,9 @@ impl HookEchoApp {
                         );
                         ui.monospace(label);
                         if let Some(radar) = self.views[self.active].volume.as_ref() {
-                            ui.label(offset_label(radar.time, self.goes_times[cur]))
-                                .on_hover_text("GOES image valid time minus the displayed radar scan time; ⚠ means outside the 30-minute alignment limit.");
+                            let tolerance = chrono::Duration::minutes(self.settings.time_mismatch_minutes as i64);
+                            ui.label(offset_label(radar.time, self.goes_times[cur], tolerance))
+                                .on_hover_text(format!("GOES image valid time minus the displayed radar scan time; ⚠ means outside your {}-minute layer time warning threshold.", self.settings.time_mismatch_minutes));
                         }
                         if ui
                             .add_enabled(

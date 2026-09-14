@@ -269,8 +269,9 @@ The current timeline is radar-centered. Convert it into a general valid-time coo
 - [ ] explicit warning when sources differ by more than a configurable tolerance
 
 Current increment: stamped MRMS fields show their signed offset from the displayed radar scan
-in the data inspector. The layer panel and WSV3 status bar warn beyond a configurable threshold
-(10 minutes by default). Full multi-source synchronization and shared pane time remain open.
+in the data inspector. The layer panel, WSV3 status bar, and GOES time control warn beyond a
+shared configurable threshold (10 minutes by default). Full multi-source synchronization and
+shared pane time remain open.
 
 ### Acceptance criteria
 
