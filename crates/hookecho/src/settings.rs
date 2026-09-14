@@ -547,6 +547,14 @@ pub struct Settings {
     /// and a renamed action just falls back to its default place.
     #[serde(default)]
     pub layer_order: Vec<String>,
+    /// ROADMAP_NEW D1/D3 "recent products": [`crate::render::FieldLayer`] slugs the user has
+    /// turned on, most-recent-first, capped at [`crate::ui::layers_panel::RECENT_LAYERS_CAP`].
+    /// Only a genuine user toggle pushes here (`apply_palette`'s `ToggleField` arm) — workspace
+    /// restore and internal bookkeeping (HRRR sub-mode, model compare A/B) write `fields_on`
+    /// directly and never touch this, so loading a saved workspace does not masquerade as
+    /// something the user just picked.
+    #[serde(default)]
+    pub recent_layers: Vec<String>,
     /// Thresholds the signature detectors fire at (see [`DetectorTuning`]).
     #[serde(default)]
     pub detectors: DetectorTuning,
@@ -1122,6 +1130,7 @@ impl Default for Settings {
             tile_disk_cache_mb: 0,
             share_card: true,
             layer_order: Vec::new(),
+            recent_layers: Vec::new(),
             mping_key: String::new(),
             etop_dbz: default_etop_dbz(),
             poll_interval_secs: 30,
@@ -1641,6 +1650,7 @@ mod tests {
             smooth_radar: false,
             share_card: true,
             layer_order: Vec::new(),
+            recent_layers: Vec::new(),
             mping_key: String::new(),
             etop_dbz: 30.0,
             default_site: "KFWS".to_string(),

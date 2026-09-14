@@ -238,6 +238,52 @@ pub static PRODUCTS: &[Product] = &[
 mod tests {
     use super::*;
 
+    /// Every path a catalog entry can produce (default and every published window) has at least
+    /// one live object under it today or yesterday — the D1 rule this catalog is supposed to
+    /// follow: "do not blindly list a product unless a feed contract test confirms it exists."
+    /// Checked against `latest_key`, the exact S3 listing a real product-toggle fetch depends on,
+    /// not a separate approximation of it.
+    ///
+    /// Network-gated: `cargo test -p wxdata -- --ignored the_mrms_catalog_paths_are_real`.
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn the_mrms_catalog_paths_are_real() {
+        let http = reqwest::Client::new();
+        let mut checked = 0usize;
+        for product in PRODUCTS {
+            let paths: Vec<&'static str> = match product.fetch {
+                FetchMapping::Fixed(p) => vec![p],
+                FetchMapping::Rotation => [30, 60, 120]
+                    .iter()
+                    .map(|&m| super::super::rotation_track(m))
+                    .collect(),
+                FetchMapping::Lightning => [1, 5, 15, 30]
+                    .iter()
+                    .map(|&m| super::super::lightning_density(m))
+                    .collect(),
+                FetchMapping::Hail => [30, 60, 120, 240, 360, 1440]
+                    .iter()
+                    .map(|&m| super::super::hail_swath(m))
+                    .collect(),
+            };
+            for path in paths {
+                match super::super::latest_key(&http, path).await {
+                    Ok(key) => {
+                        assert!(
+                            key.starts_with(&format!("{path}/")),
+                            "{} claims {path} but the listing returned {key}",
+                            product.field.name
+                        );
+                        checked += 1;
+                    }
+                    Err(e) => panic!("{} ({path}) has no live objects: {e}", product.field.name),
+                }
+            }
+        }
+        assert!(checked >= PRODUCTS.len(), "expected at least one path per product, got {checked}");
+        println!("{checked} MRMS catalog paths confirmed live");
+    }
+
     #[test]
     fn catalog_ids_and_fixed_paths_are_unique() {
         let mut ids = std::collections::HashSet::new();

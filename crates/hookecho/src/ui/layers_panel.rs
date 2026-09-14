@@ -162,6 +162,35 @@ pub(crate) fn reorder(pref: &mut Vec<String>, seq: &[String], drag: &str, before
     pref.extend(next);
 }
 
+/// How many slugs [`note_recent`] keeps. Enough to matter (a session usually cycles through a
+/// handful of products) without turning "Recent" into a second copy of the whole catalog.
+pub(crate) const RECENT_LAYERS_CAP: usize = 6;
+
+/// Record that `slug` was just turned on, most-recent-first. Re-toggling something already in the
+/// list moves it to the front rather than duplicating it — the point is "what have I been
+/// looking at", not a tally of how many times.
+pub(crate) fn note_recent(recent: &mut Vec<String>, slug: &str) {
+    recent.retain(|s| s != slug);
+    recent.insert(0, slug.to_string());
+    recent.truncate(RECENT_LAYERS_CAP);
+}
+
+/// The catalog rows named by `recent`, in recency order, dropping any slug that no longer
+/// resolves to an entry — a renamed or removed action must not leave a dead row the user can
+/// click into nothing, the same failure mode [`reorder`]'s own doc comment guards `layer_order`
+/// against.
+pub(crate) fn recent_entries<'a>(entries: &'a [PaletteEntry], recent: &[String]) -> Vec<&'a PaletteEntry> {
+    recent
+        .iter()
+        .filter_map(|slug| {
+            entries.iter().find(|e| match e.action {
+                PaletteAction::ToggleField(l) => l.slug() == slug,
+                _ => false,
+            })
+        })
+        .collect()
+}
+
 /// One full-width row: the name, a state dot on the right, the description on hover. It used to
 /// be a two-line 52 px card, which turned a category into a wall and pushed everything below the
 /// fold; the description is a hint, not something you read twenty times in a row.
@@ -558,6 +587,7 @@ pub(crate) fn body(
     max_height: f32,
     focus_search: bool,
     pref: &mut Vec<String>,
+    recent: &[String],
     mut after_radar: impl FnMut(&mut egui::Ui),
 ) -> Option<PaletteAction> {
     let mut chosen = None;
@@ -683,6 +713,29 @@ pub(crate) fn body(
                 return;
             }
             if category.is_none() {
+                // Recent, above the category grid: the landing screen otherwise starts cold every
+                // time, asking the user to re-navigate to whatever they were just looking at.
+                let recents = recent_entries(entries, recent);
+                if !recents.is_empty() {
+                    ui.label(
+                        RichText::new("RECENT")
+                            .size(11.0)
+                            .color(ui.visuals().weak_text_color()),
+                    );
+                    for entry in recents {
+                        let hit = row(ui, entry, accent, false);
+                        if hit.clicked {
+                            chosen = Some(entry.action);
+                        }
+                        if let Some(t) = hit.explain {
+                            chosen = Some(PaletteAction::Explain(t));
+                        }
+                        ui.add_space(2.0);
+                    }
+                    ui.add_space(6.0);
+                    ui.separator();
+                    ui.add_space(6.0);
+                }
                 let width = (ui.available_width() - 8.0) * 0.5;
                 let categories: Vec<_> = CATEGORIES
                     .into_iter()
@@ -971,6 +1024,7 @@ mod tests {
                         700.0,
                         false,
                         &mut pref,
+                        &[],
                         |_| {},
                     );
                 });
@@ -1030,6 +1084,7 @@ mod tests {
                         100.0,
                         frame == 0,
                         &mut pref,
+                        &[],
                         |_| {},
                     );
                     ui.add_space(200.0);
@@ -1041,6 +1096,140 @@ mod tests {
             offset > 150.0,
             "focused search stayed behind the keyboard: {offset}"
         );
+    }
+
+    #[test]
+    fn note_recent_moves_a_repeat_to_the_front_without_duplicating_it() {
+        let mut recent = Vec::new();
+        note_recent(&mut recent, "mesh");
+        note_recent(&mut recent, "rotation");
+        note_recent(&mut recent, "lightning");
+        assert_eq!(recent, vec!["lightning", "rotation", "mesh"]);
+        // Picking something already on the list moves it up rather than listing it twice.
+        note_recent(&mut recent, "mesh");
+        assert_eq!(recent, vec!["mesh", "lightning", "rotation"]);
+    }
+
+    #[test]
+    fn note_recent_caps_at_the_configured_length() {
+        let mut recent = Vec::new();
+        for slug in ["a", "b", "c", "d", "e", "f", "g", "h"] {
+            note_recent(&mut recent, slug);
+        }
+        assert_eq!(recent.len(), RECENT_LAYERS_CAP);
+        // Most-recent-first, oldest fallen off the end.
+        assert_eq!(recent, vec!["h", "g", "f", "e", "d", "c"]);
+    }
+
+    /// A slug that no longer resolves to a catalog entry — a removed or renamed action — must be
+    /// skipped rather than producing a row with nothing behind it.
+    #[test]
+    fn recent_entries_drops_slugs_that_no_longer_resolve() {
+        use crate::render::FieldLayer as FL;
+        let entries = [
+            PaletteEntry {
+                label: "Hail size (MESH)".into(),
+                category: "National",
+                action: PaletteAction::ToggleField(FL::Mesh),
+                on: Some(false),
+                desc: "",
+                common: true,
+                key: None,
+                health: None,
+            },
+            PaletteEntry {
+                label: "Rotation tracks".into(),
+                category: "National",
+                action: PaletteAction::ToggleField(FL::Rotation),
+                on: Some(false),
+                desc: "",
+                common: true,
+                key: None,
+                health: None,
+            },
+        ];
+        let recent = vec![
+            "mesh".to_string(),
+            "no-longer-exists".to_string(),
+            "rotation".to_string(),
+        ];
+        let resolved = recent_entries(&entries, &recent);
+        let labels: Vec<&str> = resolved.iter().map(|e| e.label.as_str()).collect();
+        assert_eq!(labels, vec!["Hail size (MESH)", "Rotation tracks"]);
+    }
+
+    /// End to end through the same `body` the app renders: a recent slug shows up under a
+    /// "RECENT" heading on the empty-query landing screen, above the category grid, and clicking
+    /// its row returns the same toggle action the category browse path would.
+    #[test]
+    fn recent_section_renders_above_the_category_grid_and_is_clickable() {
+        use crate::render::FieldLayer as FL;
+        let entries = [PaletteEntry {
+            label: "Hail size (MESH)".into(),
+            category: "National",
+            action: PaletteAction::ToggleField(FL::Mesh),
+            on: Some(false),
+            desc: "Estimated largest hail size",
+            common: true,
+            key: None,
+            health: None,
+        }];
+        let recent = vec!["mesh".to_string()];
+        let ctx = egui::Context::default();
+        let mut query = String::new();
+        let mut pref = Vec::new();
+        let mut run = |ctx: &egui::Context, events: Vec<egui::Event>| {
+            let mut chosen = None;
+            let out = ctx.run_ui(
+                egui::RawInput {
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    ui.set_width(308.0);
+                    chosen = body(
+                        ui, &entries, &mut query, Color32::WHITE, 700.0, false, &mut pref,
+                        &recent, |_| {},
+                    );
+                },
+            );
+            (chosen, out)
+        };
+        // Warm-up frame: lay out the row and find where its label landed.
+        let (_, out) = run(&ctx, vec![]);
+        let texts: Vec<(String, egui::Pos2)> = out
+            .shapes
+            .iter()
+            .filter_map(|s| match &s.shape {
+                egui::Shape::Text(t) => Some((t.galley.job.text.clone(), t.pos)),
+                _ => None,
+            })
+            .collect();
+        assert!(texts.iter().any(|(s, _)| s == "RECENT"), "{texts:?}");
+        let pos = texts
+            .iter()
+            .find(|(s, _)| s == "Hail size (MESH)")
+            .map(|(_, p)| *p)
+            .unwrap_or_else(|| panic!("recent row label not drawn: {texts:?}"));
+        // Same click-simulation pattern as `style.rs`'s toggle test: move onto the row, press,
+        // then release — `row()` reports a click on release, matching every other button in
+        // this UI (a press alone must not fire the action, or a drag-away would still trigger it).
+        run(&ctx, vec![
+            egui::Event::PointerMoved(pos),
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: Default::default(),
+            },
+        ]);
+        let (chosen, _) = run(&ctx, vec![egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: Default::default(),
+        }]);
+        assert_eq!(chosen, Some(PaletteAction::ToggleField(FL::Mesh)));
     }
 
     #[test]

@@ -204,43 +204,74 @@ Optional user-configured relays/providers are allowed when required for speciali
 
 **Priority: P0. Required before broad model/MRMS/satellite expansion.**
 
-## A1. Generic field/product registry
+## A1. Generic field/product registry — mostly done, found already built
 
-Create a common description layer for scalar grids, vectors, categorical grids and radar-derived fields.
+This section's checkboxes had gone stale: most of it was already implemented (`wxdata::field` +
+`wxdata::mrms::catalog`, plus `ui::data_inspector`) by the time this pass looked, without the
+roadmap being updated to say so — the same pattern as C3's terrain-blockage discovery. Corrected
+here rather than rebuilt.
 
 ### Implement
 
-- [ ] `FieldId` stable identifier
-- [ ] `DataSource` enum/ID
-- [ ] `FieldFamily`: radar / MRMS / satellite / model / analysis / observation-derived / user-defined
-- [ ] `ValueKind`: scalar / categorical / vector / probability / accumulation / mask
-- [ ] unit metadata and conversion
-- [ ] default palette and range
-- [ ] contour interval defaults
-- [ ] missing-data semantics
-- [ ] valid domain / bounds
-- [ ] native grid metadata
-- [ ] product search aliases
-- [ ] favorite/recent products
-- [ ] source/provenance inspector
+- [x] `FieldId` stable identifier — `wxdata::field::FieldId(&'static str)`
+- [ ] `DataSource` enum/ID — `FieldDescriptor.source` is a plain `&'static str` ("NOAA MRMS"),
+  not a typed enum. Works fine for search/display; a real gap if something later needs to branch
+  on source identity rather than just show it.
+- [x] `FieldFamily`: radar / MRMS / satellite / model / analysis / observation-derived / user-defined
+- [x] `ValueKind`: scalar / categorical / vector / probability / accumulation / mask
+- [x] unit metadata and conversion — `Unit::symbol`/`Unit::convert`, dimension-checked (rejects
+  e.g. mm → mm/hr), missing/non-finite values never silently convert
+- [x] default palette — `PaletteId`, a stable enum the renderer maps to an actual color table
+- [ ] contour interval defaults — no interval field on `FieldDescriptor`; MRMS's own layers are
+  filled ramps rather than contoured, so this hasn't been needed yet. Real gap for a future
+  contoured product (e.g. a model field) using this same descriptor.
+- [x] missing-data semantics — `FieldDescriptor::normalize_missing` masks a product's own sentinel
+  values (and non-finite ones) to NaN once, at the boundary, so nothing downstream has to know a
+  product's magic numbers
+- [ ] valid domain / bounds — not a descriptor field; every grid already carries its own
+  west/south/east/north (`GridGeometry`), so a global "valid domain" would either duplicate that
+  or need to mean something else (e.g. "this product doesn't cover Alaska") not implemented
+- [x] native grid metadata — `wxdata::field::{GridGeometry, GridProvenance, DisplayTransform}`:
+  native vs. displayed grid dimensions/bounds and which reduction (`Native` /
+  `MaximumPool{factor}` / `NearestCell`) got a field there, wired into the real fetch path
+  (`Stamped::for_display`) and shown in `ui::data_inspector`
+- [x] product search aliases — `FieldDescriptor.aliases` + `search_text()`, feeding the same fuzzy
+  search every other action in the app uses
+- [x] favorite/recent products (recent half) — new this pass, see the Unreleased CHANGELOG entry:
+  `Settings.recent_layers`, most-recent-first, capped, surfaced as a "RECENT" section above the
+  Layers panel's category grid. **Favorites are still unbuilt** — no pin/star affordance exists.
+- [x] source/provenance inspector — `ui::data_inspector`: source, product, valid time (with signed
+  offset from the pane's analysis time), received time, age, issue/run time, forecast/derived
+  flags, quality, and the grid-transform detail above. This is `DataStamp` (§2.3's own mandatory
+  provenance object) rendered, not a separate ad hoc panel.
 
 ### Integrate first
 
 Migrate existing:
 
-- MRMS fields from `crates/wxdata/src/mrms.rs`
-- HRRR/RAP gridded fields
-- global model fields used by `fielddiff.rs`
+- [x] MRMS fields from `crates/wxdata/src/mrms.rs` — `wxdata::mrms::catalog`, 11 products,
+  generated Layers-panel/search rows, feed-contract-tested (see Phase D below)
+- [ ] HRRR/RAP gridded fields — still the per-call literal var/level strings `wxdata::model`
+  (Phase F1) catalogs by model, not yet expressed as `FieldDescriptor`s in this registry
+- [ ] global model fields used by `fielddiff.rs` — same gap, not migrated
 
 Do not migrate every layer at once. Prove the registry on those three families, then use it for all new work.
 
 ### Acceptance criteria
 
-- adding a new MRMS scalar product requires a descriptor + fetch mapping, not a new menu implementation
-- the layer browser can search by product name, source, unit and category
-- legends are created from product metadata
-- sampling uses one common API
-- provenance UI works for migrated products
+- [x] adding a new MRMS scalar product requires a descriptor + fetch mapping, not a new menu
+  implementation — verified by `mrms::catalog::the_mrms_catalog_paths_are_real` existing at all,
+  and by the Layers panel/search generating its MRMS rows straight from `catalog::PRODUCTS`
+- [x] the layer browser can search by product name, source, unit and category — `search_text()`
+  folds all of these into one fuzzy-matched string
+- [ ] legends are created from product metadata — legends still come from a separate
+  `render::field_ramps` table keyed by `FieldLayer`, not from `FieldDescriptor` directly. Close in
+  spirit (`default_palette: PaletteId` is the intended seam) but a second MRMS-shaped product with
+  the same `PaletteId` would still need its own `FieldLayer` variant and ramp-table entry, not just
+  a descriptor.
+- [x] sampling uses one common API — `FieldDescriptor::sample`, categorical/mask fields always
+  nearest-neighbor, everything else bilinear
+- [x] provenance UI works for migrated products — `ui::data_inspector`, as above
 
 ---
 
@@ -757,9 +788,13 @@ Do not present heuristic detections as official warnings.
 
 The current `mrms.rs` contains a valuable but hand-selected subset. Replace the hard-coded-growth model with a metadata-driven MRMS catalog.
 
-## D1. MRMS product catalog
+## D1. MRMS product catalog — partly done, found already built
 
-Create `wxdata::mrms::catalog` (or equivalent) with descriptors.
+`wxdata::mrms::catalog` exists (see A1's corrected notes above) with 11 products as
+`FieldDescriptor`s: national composite reflectivity, rotation tracks (30/60/120 min), MESH,
+MESH swaths (30/60/120/240/360/1440 min), azimuthal shear, lightning density (1/5/15/30 min),
+precip rate, QPE 1h and 24h, precip type, and FLASH ARI-30. Verified live against the real bucket
+(see D1's own "Rules" item below) rather than just declared.
 
 Target operational groups:
 
@@ -802,38 +837,69 @@ Target operational groups:
 
 - MRMS snow/precipitation-type products when published in the operational bucket
 
+The 11 products above cover composite reflectivity, rotation/azshear, MESH + swaths, precip
+rate/QPE/type, lightning and flash-flood rarity. **Not yet cataloged**, all genuine gaps rather
+than oversights: low-level (single-tilt) reflectivity, MRMS's own national echo-tops and VIL
+grids (distinct from the locally-derived `EtopLocal`/`VilLocal` computed from the pane's own
+Level II volume), 0°C/-20°C layer-height products, POSH, QPE-to-ARI exceedance fields beyond the
+one 30-minute window, 3/6/12-hour QPE accumulations, streamflow products, and MRMS's winter/
+precip-type-family products beyond the one flag already cataloged.
+
 ### Rules
 
-Do not blindly list a product unless a feed contract test confirms it exists.
+- [x] Do not blindly list a product unless a feed contract test confirms it exists —
+  `mrms::catalog::the_mrms_catalog_paths_are_real` (network-gated) asks the live bucket for every
+  path every product's `FetchMapping` can produce (default plus every published window), the same
+  listing a real fetch depends on. Passing today: 21/21 paths (11 products, several with more than
+  one published window) confirmed live.
 
-## D2. Generic MRMS fetch/decode path
+## D2. Generic MRMS fetch/decode path — done
 
-One code path should support any catalog scalar grid:
+One code path already supports any catalog scalar grid, and has since before this pass looked:
 
-- path template
-- latest-file discovery
-- gzip handling
-- GRIB decode
-- product-specific scale/missing rules
-- max texture dimension handling
-- correct interpolation method by field type
+- [x] path template — a plain product path string; `Product::path()` resolves the window variants
+- [x] latest-file discovery — `latest_key`, incremental (`start-after`) after the first listing
+- [x] gzip handling — `gunzip`
+- [x] GRIB decode — `decode_grib2` / `crate::mrms::decode_grib2` (shared with NOHRSC snowfall,
+  which decodes identically)
+- [x] product-specific scale/missing rules — `FieldDescriptor::normalize_missing`, per-product
+  sentinel list
+- [x] max texture dimension handling — `Stamped::for_display`'s `max_dim` reduction
+- [x] correct interpolation method by field type — categorical/mask fields resample nearest-cell
+  through the reduction pipeline and sample nearest-neighbor at read time
+  (`FieldDescriptor::sample`); everything else bilinear. Verified by
+  `categorical_sampling_never_creates_an_intermediate_class`.
 
-Categorical products must never use bilinear interpolation.
+Categorical products must never use bilinear interpolation — enforced by the type dispatch above,
+not a convention callers have to remember.
 
-## D3. MRMS browser UI
+## D3. MRMS browser UI — partly done
 
-Add:
-
-- search
-- category
-- favorites
-- recent
-- accumulation selector
-- valid time
-- native resolution
-- source age
-- point sample
-- animation
+- [x] search — the same fuzzy search/command-palette every action in the app uses, reading
+  `FieldDescriptor::search_text()` (name, source, family, units, description, aliases)
+- [x] category — "National" in the Layers panel's category grid
+- [ ] favorites — no pin/star affordance exists; still open
+- [x] recent — new this pass: `Settings.recent_layers`, a "RECENT" section above the category
+  grid on the Layers panel's landing screen, most-recent-first, capped at 6. Only a genuine user
+  toggle records one — workspace restore and internal bookkeeping (HRRR sub-mode, model compare
+  A/B) write layer state directly and never touch it, so loading a saved workspace never
+  masquerades as something just picked. Verified live: toggling a product on, then back to the
+  Browse landing screen, shows it under "RECENT"; the entry survived a full page reload, proving
+  the round trip through actual settings persistence, not just in-memory state.
+- [ ] accumulation selector — QPE has only two fixed windows (1h, 24h) as separate catalog
+  entries; rotation/lightning/hail *do* already have a window picker (their `FetchMapping`
+  variants), so the pattern exists but hasn't been extended to QPE's 3/6/12h windows, which aren't
+  cataloged yet either (see D1).
+- [x] valid time — `ui::data_inspector`'s "Valid" row, with signed offset from the pane's analysis
+  time
+- [x] native resolution — `GridProvenance.native`, shown as part of the same inspector's grid
+  detail
+- [x] source age — `DataStamp::age_at`/`receipt_age_at`, the inspector's "Age"/"Received" rows
+- [x] point sample — `FieldDescriptor::sample`, the one common sampling API A1 asked for
+- [ ] animation — not verified either way; MRMS layers appear to always fetch "latest" rather
+  than loop an archived sequence the way the radar timeline does (consistent with A3's own note
+  that MRMS/model/satellite caching, which archived playback would need, isn't built). Marked
+  open rather than assumed.
 
 ## D4. MRMS 3D/vertical products
 
@@ -847,10 +913,14 @@ Do not fabricate 3D from a 2D surface product.
 
 ### Acceptance criteria
 
-- new scalar MRMS product can be added through catalog metadata with minimal/no new UI code
-- at least the major WeatherFront-class MRMS groups are covered
-- categorical fields use nearest-neighbor
-- all products show exact valid time and units
+- [x] new scalar MRMS product can be added through catalog metadata with minimal/no new UI code —
+  true for the fetch/decode/search/legend-palette/provenance path; D3's per-product UI niceties
+  (an accumulation-window picker, a favorite star) are not automatic yet, only the core plumbing
+- [ ] at least the major WeatherFront-class MRMS groups are covered — 11 products across
+  reflectivity/severe/precipitation/lightning/hydrology; several groups from D1's own target list
+  (echo tops, VIL, layer heights, POSH, streamflow, most QPE accumulation windows) are not
+- [x] categorical fields use nearest-neighbor
+- [x] all products show exact valid time and units — `DataStamp` + `Unit::symbol`
 
 ---
 

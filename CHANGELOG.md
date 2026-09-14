@@ -8,6 +8,29 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: recent products, an MRMS live-feed contract test, and a roadmap correction
+
+While scoping the next slice of ROADMAP_NEW's Phase A/D, found that the "generic field/product
+registry" and "MRMS product catalog" sections were marked almost entirely unchecked despite both
+being substantially built already — `wxdata::field` (`FieldDescriptor`, `DataStamp`,
+`GridProvenance`), `wxdata::mrms::catalog`, and `ui::data_inspector` all predate this pass and
+were simply never reflected in the roadmap's checkboxes. Corrected there rather than duplicated;
+see ROADMAP_NEW.md's A1 and D1-D3 for the honest accounting of what exists and what's still open.
+
+- **New: "Recent" products.** The Layers panel's Browse landing screen gained a "RECENT" section
+  above the category grid, listing the last few products you've turned on, most-recent-first. Only
+  a genuine click counts — loading a saved workspace or the HRRR sub-mode/model-compare bookkeeping
+  never touches it, so restoring a workspace doesn't masquerade as something you just picked.
+  Persisted in settings (`recent_layers`), capped at 6. Verified live: toggling Hail size (MESH)
+  and then Rotation tracks put "Rotation tracks" at the top of "RECENT" on the landing screen, and
+  it survived a full page reload. Favorites (a pin/star) remain unbuilt — this is the "recent" half
+  of that roadmap item only.
+- **New: an MRMS catalog feed-contract test.** D1's own rule was "do not blindly list a product
+  unless a feed contract test confirms it exists" — nothing enforced that. A network-gated test
+  now asks the live MRMS S3 bucket for every path every catalog product's fetch mapping can
+  produce, including every published accumulation/averaging window, not just the default. Passing
+  today: 21/21 paths confirmed live across the 11 cataloged products.
+
 ### Added: beam top/bottom, beam width, and a cross-section beam-rise overlay
 
 `suggestions.md` §3.1's ask was "show beam height, not just elevation angle" — the gate inspector

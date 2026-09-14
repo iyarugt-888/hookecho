@@ -8261,6 +8261,13 @@ impl HookEchoApp {
                 // show two fields.
                 let on = self.views[self.active].fields_on.contains(&layer);
                 self.set_field(layer, !on);
+                // ROADMAP_NEW D1/D3 "recent products": only a genuine click here, not a
+                // workspace restore or the HRRR sub-mode/model-compare bookkeeping that write
+                // `fields_on` directly elsewhere — and only turning it *on*, so closing something
+                // doesn't bump it to the top of a list meant for finding it again.
+                if !on {
+                    ui::layers_panel::note_recent(&mut self.settings.recent_layers, layer.slug());
+                }
             }
             PaletteAction::ToggleOverlay(t) => {
                 let f = self.overlay_flag(t);
