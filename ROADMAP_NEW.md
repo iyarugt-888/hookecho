@@ -1190,14 +1190,25 @@ Controls:
 
 Never smooth the source values silently; smoothing must be explicit display processing.
 
-## H4. Movable clipping and slicing planes
+## H4. Movable clipping and slicing planes — partly done
 
-- arbitrary vertical plane
-- horizontal CAPPI plane
-- slab thickness
-- clip box
-- storm-centered clip
-- cross-section line visible in map pane
+- [x] arbitrary vertical plane — `render3d::VerticalPlane` (bearing + offset), a new field in
+  `raymarch.wgsl`'s uniform, checked per-sample in the march. One implementation shared by both
+  raymarch consumers (the standalone "3D Reflectivity" window and the main map's "3D map" Smooth
+  representations) via `View3d`, with one shared UI widget (`ui::volume3d_window::plane_controls`)
+  used by both. Verified against real data on real GPU hardware via a new `--headless-3d ... --plane
+  BEARING,OFFSET` CLI flag: sweeping the offset from one box edge to the other took the rendered
+  echo pixel count continuously from the unclipped baseline down to zero.
+- [ ] horizontal CAPPI plane *inside the 3D view* — a flat constant-altitude slice already exists
+  as its own separate 2D tool (`wxdata::volume3d::cappi`, the CAPPI window), but nothing shows that
+  plane's position *within* the 3D view the way the vertical plane above now does
+- [ ] slab thickness — the existing axis-aligned `clip` already gives an adjustable-thickness slab
+  along each axis (e.g. a thin `z0..z1` range is exactly this for the vertical axis); a slab
+  perpendicular to the *new* arbitrary plane (two parallel planes with a gap) is not built
+- [x] clip box — the pre-existing axis-aligned `clip: [f32;6]` slab, independent of this pass
+- [x] storm-centered clip — pre-existing `volume3d::clip_around`, independent of this pass
+- [ ] cross-section line visible in map pane — nothing draws the vertical plane's ground track on
+  the 2D map, which would tie the 3D exploration back to geographic context
 
 ## H5. Beam visualization in 3D
 
@@ -1963,7 +1974,9 @@ This is the explicit “what are we still missing?” list for agents.
 - [ ] maximum/minimum value trails
 - [ ] mature transfer-function 3D
 - [ ] isosurfaces
-- [ ] movable slicing planes / clip slabs
+- [x] movable slicing planes / clip slabs — see H4: an arbitrary-bearing vertical plane plus the
+  pre-existing axis-aligned box; a horizontal in-view CAPPI plane and a map-pane cross-section
+  line remain unbuilt
 - [x] deeper radar metadata/quality inspection — B4's gate inspector
 
 ## RadarScope-class operational gaps

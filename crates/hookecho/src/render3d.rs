@@ -15,6 +15,9 @@ pub struct Uniforms {
     ctl: [f32; 4],  // minimum reflectivity index to draw; rest spare
     clip_min: [f32; 4],
     clip_max: [f32; 4],
+    /// See `shaders/raymarch.wgsl`'s own field of the same name: xy a world-space unit normal, z
+    /// the signed distance along it, w whether the plane is active at all.
+    plane: [f32; 4],
 }
 
 /// A new volume grid to upload: `data` is `n×n×nz` R8 indices, `lut` a 256-entry RGBA table.
@@ -32,6 +35,22 @@ pub struct Volume3dUpload {
 const BOX_MIN: Vec3 = Vec3::new(-1.0, -1.0, 0.0);
 const BOX_MAX: Vec3 = Vec3::new(1.0, 1.0, 0.5);
 
+/// An additional vertical clip plane at any bearing (Phase H4) — the axis-aligned `clip` slab can
+/// only ever cut along the box's own east-west/north-south faces, so cutting into a storm at the
+/// angle it actually leans or approaches from needs a plane that isn't locked to those axes.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct VerticalPlane {
+    /// Which way the plane's normal points, degrees clockwise from north (the volume is kept on
+    /// the side the normal points toward) — the same bearing convention as everywhere else in
+    /// this app (storm motion, azimuth).
+    pub bearing_deg: f32,
+    /// Signed offset of the plane from the box center along its normal, as a fraction of the
+    /// box's half-width (`-1.0..=1.0`) — matches `View3d::clip`'s own fraction-of-box convention,
+    /// so it reads the same regardless of which box (the orbit window's fixed one, or the
+    /// main map's dynamically-sized one) it is applied to.
+    pub offset: f32,
+}
+
 /// What the viewer is looking at, beyond the camera: the reflectivity floor and the slab the
 /// raymarch is confined to. Defaults draw the whole volume, which is the old behaviour.
 #[derive(Clone, Copy, Debug)]
@@ -40,6 +59,8 @@ pub struct View3d {
     pub threshold_idx: f32,
     /// Slab bounds as fractions of the box, `[x0, x1, y0, y1, z0, z1]`.
     pub clip: [f32; 6],
+    /// `None` disables the plane clip entirely (the common case).
+    pub plane: Option<VerticalPlane>,
 }
 
 impl Default for View3d {
@@ -47,8 +68,25 @@ impl Default for View3d {
         Self {
             threshold_idx: 2.0,
             clip: [0.0, 1.0, 0.0, 1.0, 0.0, 1.0],
+            plane: None,
         }
     }
+}
+
+/// The `plane` uniform field for a box spanning `box_min..box_max`: world-space unit normal, the
+/// signed distance along it, and whether it's active — `[0,0,0,0]` (inert; `pos.x*0+pos.y*0 < 0`
+/// is never true) when `plane` is `None`, so callers don't need their own separate enable check.
+fn plane_uniform(plane: Option<VerticalPlane>, box_min: Vec3, box_max: Vec3) -> [f32; 4] {
+    let Some(p) = plane else {
+        return [0.0, 0.0, 0.0, 0.0];
+    };
+    let theta = p.bearing_deg.to_radians();
+    // Compass bearing (0 = north, 90 = east) onto the box's own x = east, y = north axes.
+    let (nx, ny) = (theta.sin(), theta.cos());
+    let center = (box_min + box_max) * 0.5;
+    let half_extent = ((box_max.x - box_min.x).abs()).max((box_max.y - box_min.y).abs()) * 0.5;
+    let d = nx * center.x + ny * center.y + p.offset * half_extent;
+    [nx, ny, d, 1.0]
 }
 
 /// Orbit-camera uniforms: azimuth/elevation in degrees, `dist` from the box center, view `aspect`.
@@ -79,6 +117,7 @@ pub fn orbit_uniform(
         ctl: [v3.threshold_idx, 1.0, 0.0, 0.0],
         clip_min: [v3.clip[0], v3.clip[2], v3.clip[4], 0.0],
         clip_max: [v3.clip[1], v3.clip[3], v3.clip[5], 0.0],
+        plane: plane_uniform(v3.plane, BOX_MIN, BOX_MAX),
     }
 }
 
@@ -127,6 +166,7 @@ pub fn map_uniform(
         ctl: [view.threshold_idx, opacity.clamp(0.0, 1.0), 0.0, 0.0],
         clip_min: [view.clip[0], view.clip[2], view.clip[4], 0.0],
         clip_max: [view.clip[1], view.clip[3], view.clip[5], 0.0],
+        plane: plane_uniform(view.plane, box_min, box_max),
     }
 }
 
@@ -728,5 +768,76 @@ impl egui_wgpu::CallbackTrait for MapVolume3dCallback {
         if let Some(res) = resources.get::<MapVolume3dResources>() {
             res.record_for_pane(self.pane as usize, pass);
         }
+    }
+}
+
+#[cfg(test)]
+mod plane_tests {
+    use super::{plane_uniform, VerticalPlane};
+    use glam::Vec3;
+
+    // A 2x2x1 box centered on the origin, same shape `orbit_uniform` and `map_uniform` both hand
+    // in (they differ only in where that box sits and how big it is).
+    const BOX_MIN: Vec3 = Vec3::new(-1.0, -1.0, 0.0);
+    const BOX_MAX: Vec3 = Vec3::new(1.0, 1.0, 1.0);
+
+    #[test]
+    fn disabled_plane_is_inert() {
+        assert_eq!(plane_uniform(None, BOX_MIN, BOX_MAX), [0.0, 0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn north_bearing_is_a_unit_normal_pointing_north() {
+        let p = VerticalPlane { bearing_deg: 0.0, offset: 0.0 };
+        let [nx, ny, _, on] = plane_uniform(Some(p), BOX_MIN, BOX_MAX);
+        assert_eq!(on, 1.0);
+        assert!(nx.abs() < 1e-5, "north has no east component: {nx}");
+        assert!((ny - 1.0).abs() < 1e-5, "north is +y: {ny}");
+    }
+
+    #[test]
+    fn east_bearing_is_a_unit_normal_pointing_east() {
+        let p = VerticalPlane { bearing_deg: 90.0, offset: 0.0 };
+        let [nx, ny, _, _] = plane_uniform(Some(p), BOX_MIN, BOX_MAX);
+        assert!((nx - 1.0).abs() < 1e-5, "east is +x: {nx}");
+        assert!(ny.abs() < 1e-5, "east has no north component: {ny}");
+    }
+
+    #[test]
+    fn zero_offset_passes_through_the_box_center() {
+        // Center is (0,0) here, so the plane's distance along any normal is 0.
+        let p = VerticalPlane { bearing_deg: 37.0, offset: 0.0 };
+        let [.., d, _] = plane_uniform(Some(p), BOX_MIN, BOX_MAX);
+        assert!(d.abs() < 1e-5, "plane through a centered box's own center: {d}");
+    }
+
+    #[test]
+    fn offset_scales_with_the_box_half_width_not_a_fixed_distance() {
+        // This box's half-width is 1.0 (spans -1..1); offset 0.5 should land the plane at
+        // world distance 0.5 along its normal from the box center.
+        let p = VerticalPlane { bearing_deg: 0.0, offset: 0.5 };
+        let [_, ny, d, _] = plane_uniform(Some(p), BOX_MIN, BOX_MAX);
+        assert!((ny - 1.0).abs() < 1e-5);
+        assert!((d - 0.5).abs() < 1e-5, "d: {d}");
+
+        // A box twice as wide (still centered on the origin) scales the same fractional offset
+        // to twice the world distance.
+        let wide_min = Vec3::new(-2.0, -2.0, 0.0);
+        let wide_max = Vec3::new(2.0, 2.0, 1.0);
+        let [_, _, d_wide, _] = plane_uniform(Some(p), wide_min, wide_max);
+        assert!((d_wide - 1.0).abs() < 1e-5, "d_wide: {d_wide}");
+    }
+
+    #[test]
+    fn a_box_not_centered_on_the_origin_offsets_the_plane_with_it() {
+        // Same shape as BOX_MIN..BOX_MAX but shifted +5 in x and +3 in y — as map_uniform's box
+        // is, sitting wherever the radar is on screen rather than at a fixed origin.
+        let shifted_min = BOX_MIN + Vec3::new(5.0, 3.0, 0.0);
+        let shifted_max = BOX_MAX + Vec3::new(5.0, 3.0, 0.0);
+        let p = VerticalPlane { bearing_deg: 0.0, offset: 0.0 };
+        let [_, ny, d, _] = plane_uniform(Some(p), shifted_min, shifted_max);
+        assert!((ny - 1.0).abs() < 1e-5);
+        // The plane through the (shifted) center: d = normal . center = 1*3 = 3.
+        assert!((d - 3.0).abs() < 1e-5, "d: {d}");
     }
 }

@@ -8,6 +8,30 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: a movable vertical clip plane in the 3D volume views (Phase H4)
+
+- Both 3D raymarch views — the standalone "3D Reflectivity" window and the main map's "3D map"
+  Smooth representations — already had an axis-aligned clip slab (a box you can shrink along
+  east-west/north-south/up), but no way to cut through a storm at the angle it actually leans or
+  approaches from. A new "Vertical plane" toggle in each Slice section adds exactly that: a
+  bearing (0-360°) and an offset slider, clipping the volume to whichever side the plane's bearing
+  points toward. Independent of and composes with the existing slab.
+- One shared implementation (`render3d::VerticalPlane`/`plane_uniform`, a new field in
+  `raymarch.wgsl`) backs both views — the standalone window's `ui/volume3d_window.rs` and the main
+  map's `map_3d_controls` reuse the identical widget and math rather than two copies.
+- Unit-tested (bearing-to-normal math, offset scaling with box size, a box not centered on the
+  origin) and verified live with a new `--headless-3d SITE OUT.png [--threshold DBZ] [--plane
+  BEARING,OFFSET]` CLI flag against a real volume on real GPU hardware: an east-facing plane
+  through the box center rendered roughly half the echo pixels of the unclipped baseline, pushing
+  the plane to the west edge reproduced the baseline exactly (nothing clipped), and pushing it to
+  the east edge cleared the frame entirely (everything clipped) — confirming the math is both
+  correct and continuous across its range, not just non-crashing.
+- Movable clip/slicing planes' other roadmap items — a horizontal CAPPI plane visible inside the
+  3D view itself (a flat CAPPI slice already exists as its own separate 2D tool), a storm-centered
+  auto-clip (the axis-aligned box already has one, `volume3d::clip_around`), and a cross-section
+  line drawn on the 2D map showing where the plane cuts — are either already covered by existing
+  features or remain unbuilt; see `ROADMAP_NEW.md` for the honest breakdown.
+
 ### Added: user-defined radar products (Phase C1)
 
 - A safe formula engine for GR2Analyst-style user-defined products: combine a gate's own moments

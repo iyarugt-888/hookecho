@@ -11220,6 +11220,7 @@ impl HookEchoApp {
         let view = crate::render3d::View3d {
             threshold_idx,
             clip: state.clip,
+            plane: state.plane,
         };
         // Same visual-guard clamp as the standalone 3D Reflectivity window: a phone under thermal
         // or battery pressure gets the coarsest march regardless of what quality was chosen.
@@ -11597,6 +11598,11 @@ impl HookEchoApp {
                                     if ui.button("Whole volume").clicked() {
                                         view.map_3d.clip = [0.0, 1.0, 0.0, 1.0, 0.0, 1.0];
                                     }
+                                    ui.separator();
+                                    ui::volume3d_window::plane_controls(
+                                        ui,
+                                        &mut view.map_3d.plane,
+                                    );
                                 });
                         }
                         ui.weak("Right-drag rotates · drag pans · wheel zooms");

@@ -63,6 +63,10 @@ pub struct Map3dState {
     /// Lets the user cut into a storm instead of only ever viewing it from outside. Unused by
     /// `ObservedSweeps`, which has no box to slice.
     pub clip: [f32; 6],
+    /// An additional vertical clip plane at any bearing (Phase H4) — the axis-aligned `clip`
+    /// slab above can only cut along the box's own east-west/north-south faces. `None` disables
+    /// it. Unused by `ObservedSweeps`, same as `clip`.
+    pub plane: Option<crate::render3d::VerticalPlane>,
     /// Raymarch samples per pixel for the resampled volume. Higher = smoother gradients and
     /// fewer banding artifacts at the cost of GPU time; unused by `ObservedSweeps`, which draws
     /// real gate instances rather than raymarching.
@@ -110,6 +114,7 @@ impl Default for Map3dState {
             reflectivity_floor_dbz: 18.0,
             sw_floor_ms: 8.0,
             clip: [0.0, 1.0, 0.0, 1.0, 0.0, 1.0],
+            plane: None,
             quality_steps: if cfg!(target_os = "android") { 64 } else { 128 },
             fill_gaps: true,
             selected_layer_elevs: Vec::new(),

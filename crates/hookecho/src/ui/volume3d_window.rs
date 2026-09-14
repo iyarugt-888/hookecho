@@ -14,6 +14,9 @@ pub struct Volume3dState {
     pub threshold_dbz: f32,
     /// Slab bounds as fractions of the box, `[x0, x1, y0, y1, z0, z1]`.
     pub clip: [f32; 6],
+    /// An additional vertical clip plane at any bearing (Phase H4), independent of the
+    /// axis-aligned slab above. `None` disables it.
+    pub plane: Option<crate::render3d::VerticalPlane>,
     /// Raymarch samples per pixel. The cost of the window is almost entirely this number, so it
     /// is the one knob worth exposing on a phone or an integrated GPU.
     pub steps: u32,
@@ -31,6 +34,7 @@ impl Default for Volume3dState {
             // The volume's own floor: nothing hidden until the user asks.
             threshold_dbz: f32::NEG_INFINITY,
             clip: [0.0, 1.0, 0.0, 1.0, 0.0, 1.0],
+            plane: None,
             // ponytail: a phone is the one place the full march reliably misses frame budget, so
             // pick by platform rather than benchmarking the GPU.
             steps: if cfg!(target_os = "android") { 96 } else { 256 },
@@ -48,6 +52,42 @@ fn axis_slice(ui: &mut egui::Ui, label: &str, lo: &mut f32, hi: &mut f32) {
     // Keep the pair ordered so an inverted drag empties the view instead of inverting the slab.
     if *lo > *hi {
         std::mem::swap(lo, hi);
+    }
+}
+
+/// Phase H4: an extra vertical clip plane at any bearing, on top of the axis-aligned slab above —
+/// the one way to cut into a storm along the angle it actually leans or approaches from rather
+/// than only the box's own east-west/north-south faces. Shared with the main map's own "3D map"
+/// Slice section (`app.rs`'s `map_3d_controls`), which raymarches the same kind of volume.
+pub(crate) fn plane_controls(ui: &mut egui::Ui, plane: &mut Option<crate::render3d::VerticalPlane>) {
+    let mut on = plane.is_some();
+    if ui
+        .checkbox(&mut on, "Vertical plane")
+        .on_hover_text("Cut the volume with a plane at any angle, not just the box's own faces")
+        .changed()
+    {
+        *plane = on.then(|| crate::render3d::VerticalPlane {
+            bearing_deg: 0.0,
+            offset: 0.0,
+        });
+    }
+    if let Some(p) = plane {
+        ui.horizontal(|ui| {
+            ui.label("Bearing");
+            ui.add(
+                egui::Slider::new(&mut p.bearing_deg, 0.0..=360.0)
+                    .suffix("\u{b0}")
+                    .custom_formatter(|v, _| format!("{v:.0}")),
+            );
+        });
+        ui.horizontal(|ui| {
+            ui.label("Offset");
+            ui.add(egui::Slider::new(&mut p.offset, -1.0..=1.0).show_value(false));
+        })
+        .response
+        .on_hover_text(
+            "Slides the plane through the volume; the side the bearing points toward is kept",
+        );
     }
 }
 
@@ -124,6 +164,8 @@ pub fn show(
                 if ui.button("Whole volume").clicked() {
                     st.clip = [0.0, 1.0, 0.0, 1.0, 0.0, 1.0];
                 }
+                ui.separator();
+                plane_controls(ui, &mut st.plane);
             });
         let (rect, resp) = ui.allocate_exact_size(ui.available_size(), egui::Sense::drag());
         if resp.dragged() {
@@ -152,6 +194,7 @@ pub fn show(
                 2.0
             },
             clip: st.clip,
+            plane: st.plane,
         };
         let uniform = orbit_uniform(
             st.az,

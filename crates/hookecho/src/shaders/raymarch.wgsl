@@ -3,6 +3,10 @@
 // A fullscreen triangle casts one ray per pixel from an orbit camera, intersects the volume's
 // axis-aligned box, marches it taking the max reflectivity index, and colors that via the
 // reflectivity LUT. Empty rays are transparent so the egui window background shows through.
+//
+// Phase H4: an optional vertical plane at any angle (not just the box's own axes) further clips
+// what the march can see, per-sample rather than by tightening the box intersection above — one
+// extra comparison per step, and it composes with the axis slab for free.
 
 struct Uniforms {
     inv_view_proj: mat4x4<f32>,
@@ -16,6 +20,11 @@ struct Uniforms {
     // changing how a world position maps to a voxel.
     clip_min: vec4<f32>,
     clip_max: vec4<f32>,
+    // An additional vertical half-space clip, at any angle rather than only the box's own axes:
+    // xy is a world-space unit normal, z the signed distance from the origin along it, w whether
+    // this is active at all (1.0) or ignored (0.0). A sample is kept only on the side the normal
+    // points toward — see `fs_main`.
+    plane: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -70,11 +79,17 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     for (var s = 0; s < steps; s = s + 1) {
         let t = tmin + (tmax - tmin) * (f32(s) + 0.5) / f32(steps);
         let pos = ro + rd * t;
-        let uvw = (pos - u.box_min.xyz) / span;
-        let voxel = vec3<i32>(clamp(uvw * dims, vec3<f32>(0.0), dims - 1.0));
-        let idx = textureLoad(vol, voxel, 0).r;
-        if (idx >= floor_idx && idx > max_idx) {
-            max_idx = idx;
+        // A sample beyond the plane (the side its normal points away from) is treated as empty
+        // for this ray, same as a sample outside the axis-aligned slab above.
+        let clipped_by_plane = u.plane.w > 0.5
+            && (pos.x * u.plane.x + pos.y * u.plane.y) < u.plane.z;
+        if (!clipped_by_plane) {
+            let uvw = (pos - u.box_min.xyz) / span;
+            let voxel = vec3<i32>(clamp(uvw * dims, vec3<f32>(0.0), dims - 1.0));
+            let idx = textureLoad(vol, voxel, 0).r;
+            if (idx >= floor_idx && idx > max_idx) {
+                max_idx = idx;
+            }
         }
     }
 

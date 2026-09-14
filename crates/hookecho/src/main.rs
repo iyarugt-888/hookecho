@@ -550,7 +550,21 @@ fn main() -> eframe::Result<()> {
             .position(|a| a == "--threshold")
             .and_then(|i| args.get(i + 1))
             .and_then(|v| v.parse::<f32>().ok());
-        if let Err(e) = headless::run_3d(site, out, threshold) {
+        // `--plane BEARING,OFFSET`: an extra vertical clip plane, for exercising Phase H4's
+        // slicing feature without a GUI — e.g. `--plane 90,0.2` cuts along a plane facing east,
+        // offset a fifth of the way toward the box edge.
+        let plane = args
+            .iter()
+            .position(|a| a == "--plane")
+            .and_then(|i| args.get(i + 1))
+            .and_then(|v| {
+                let (bearing, offset) = v.split_once(',')?;
+                Some(hookecho::render3d::VerticalPlane {
+                    bearing_deg: bearing.trim().parse().ok()?,
+                    offset: offset.trim().parse().ok()?,
+                })
+            });
+        if let Err(e) = headless::run_3d(site, out, threshold, plane) {
             eprintln!("headless 3d render failed: {e}");
             std::process::exit(1);
         }

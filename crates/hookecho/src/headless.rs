@@ -2625,7 +2625,12 @@ pub fn run_cappi(site: &str, alt_km: f32, out_path: &str) -> anyhow::Result<()> 
     Ok(())
 }
 
-pub fn run_3d(site: &str, out_path: &str, threshold_dbz: Option<f32>) -> anyhow::Result<()> {
+pub fn run_3d(
+    site: &str,
+    out_path: &str,
+    threshold_dbz: Option<f32>,
+    plane: Option<crate::render3d::VerticalPlane>,
+) -> anyhow::Result<()> {
     const N: usize = 192;
     const NZ: usize = 48;
     let rt = tokio::runtime::Builder::new_multi_thread()
@@ -2675,6 +2680,7 @@ pub fn run_3d(site: &str, out_path: &str, threshold_dbz: Option<f32>) -> anyhow:
             Some(dbz) => crate::render3d::threshold_index(dbz, (v3_min, v3_max)),
             None => 2.0,
         },
+        plane,
         ..Default::default()
     };
     let uniform =
