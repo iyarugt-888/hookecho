@@ -127,6 +127,8 @@ pub mod sounding_window;
 /// Live station telemetry cards.
 pub mod station_card;
 pub mod style;
+/// The radar-suitability popup (which nearby radars actually see a clicked point best).
+pub mod suitability_popup;
 /// The optional spotlight tour of the live chrome.
 pub mod tour;
 pub mod tropical_window;

@@ -8,6 +8,29 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: a radar-suitability tool — which nearby radar actually sees a point
+
+- New "Radar suitability" map tool (`suggestions.md`'s review of a real December 2021 Kentucky
+  tornado case: the nearest radar to part of the storm's early track was not obviously the best
+  one once beam geometry was actually accounted for). Click a point and it ranks the nearest
+  radars — across all four networks (WSR-88D, TDWR, DWD, OPERA) — showing each one's distance,
+  beam-centre height, and beam width at that exact point, with a one-click "Switch" to jump the
+  active pane straight there (reusing the new site-search action). New `wxdata::suitability`
+  module.
+- Documented honestly rather than oversold: for one fixed elevation angle, beam height at a ground
+  point is a strictly increasing function of distance, so this ranking's *order* is provably
+  identical to sorting by distance alone (locked in with a test). What it actually adds is the
+  beam-height/width numbers themselves — the case that prompted this had two "nearby" radars by
+  distance, and only the beam geometry said which one still had useful low-level coverage. A
+  ranking that genuinely reorders vs. distance would need each candidate's real lowest achievable
+  elevation (which differs by network and VCP), not implemented here rather than guessed at.
+  Newest-volume age, terrain blockage, and per-site product availability — the other suitability
+  factors `suggestions.md` lists — all need a live poll of every candidate and stay unbuilt.
+- Verified live: clicked a point and got a ranked table (Tulsa's TTUL and KINX ahead of the more
+  distant KTLX/KSRX/TOKC/KVNX, matching their real geography), switched to TTUL with one click, and
+  watched the popup's "current" marker follow — including across a network boundary (NEXRAD KTLX
+  to TDWR TTUL), the same jump the site-search feature above drives.
+
 ### Added: the Layers panel is a real window, and its search finds radar sites
 
 - The Layers/Alerts panel (desktop and web) was a fixed card pinned to the top-left corner — the

@@ -565,6 +565,7 @@ impl HookEchoApp {
                             for (tool, label) in [
                                 (MapTool::Interrogate, "Explore"),
                                 (MapTool::GateInspector, "Gate inspector"),
+                                (MapTool::RadarSuitability, "Radar suitability"),
                                 (MapTool::Measure, "Measure"),
                                 (MapTool::Marker, "Marker"),
                                 (MapTool::CrossSection, "X-section"),

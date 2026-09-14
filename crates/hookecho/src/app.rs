@@ -1314,6 +1314,8 @@ pub(crate) enum MapTool {
     Interrogate,
     /// Sample the exact radar gate and open its inspector on a map click.
     GateInspector,
+    /// Click a point to rank nearby radars by beam geometry there, not just distance.
+    RadarSuitability,
     /// Measure great-circle distance/bearing between two clicks.
     Measure,
     /// Drop a location marker at the clicked point.
@@ -2611,6 +2613,9 @@ pub struct HookEchoApp {
     /// Open gate-inspector popup: every geometry/value fact about the point sampled with the
     /// explicit Gate inspector tool.
     gate_popup: Option<ui::gate_inspector::GateInspectorPopup>,
+    /// Open radar-suitability popup: nearby radars ranked by beam geometry at the point sampled
+    /// with the explicit Radar suitability tool.
+    suitability_popup: Option<ui::suitability_popup::SuitabilityPopup>,
     /// Which of `settings.markers` the tapped-marker popup is editing.
     // ponytail: index identity — markers have no id, and their names aren't unique ("Marker 3"
     // comes back after a delete). A bounds check closes the popup if the list shrinks under it.
@@ -3638,6 +3643,7 @@ impl HookEchoApp {
             detail: None,
             cell_popup: None,
             gate_popup: None,
+            suitability_popup: None,
             marker_popup: None,
             global_model: wxdata::global::GlobalModel::default(),
             global_fcst_hour: 0,
@@ -12353,6 +12359,16 @@ impl HookEchoApp {
                         self.detail = None;
                         self.gate_popup = self.inspect_gate(idx, lon, lat);
                     }
+                    MapTool::RadarSuitability => {
+                        self.cell_popup = None;
+                        self.warning_popup = None;
+                        self.detail = None;
+                        self.suitability_popup = Some(ui::suitability_popup::SuitabilityPopup {
+                            lon,
+                            lat,
+                            candidates: wxdata::suitability::rank(lon, lat, 0.5, 6),
+                        });
+                    }
                     // Labelled so the storm-marker shortcut below can bail out of the hit-test
                     // chain without returning from `render_pane` and costing this pane its
                     // tiles and radar for the frame.
@@ -18852,6 +18868,20 @@ impl eframe::App for HookEchoApp {
                 &mut self.popovers,
             ) {
                 self.gate_popup = None;
+            }
+        }
+        if let Some(popup) = &self.suitability_popup {
+            let current_site = self.views[self.active].site.clone();
+            let (keep_open, switch_to) =
+                ui::suitability_popup::show(ctx, popup, current_site.as_deref(), &mut self.popovers);
+            if let Some(id) = switch_to {
+                self.apply_palette(
+                    PaletteAction::SetSite(encode_site_id(id)),
+                    ctx,
+                );
+            }
+            if !keep_open {
+                self.suitability_popup = None;
             }
         }
         if let Some(i) = self.marker_popup {

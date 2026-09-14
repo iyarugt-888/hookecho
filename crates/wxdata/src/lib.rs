@@ -62,6 +62,7 @@ pub mod spoken;
 pub mod spotters;
 pub mod stations;
 pub mod stats;
+pub mod suitability;
 pub mod synoptic;
 pub mod task;
 pub mod tds;

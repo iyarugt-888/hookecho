@@ -996,6 +996,12 @@ impl HookEchoApp {
                 true,
             ),
             (
+                MapTool::RadarSuitability,
+                "Tool: Radar suitability",
+                "Click a point to rank nearby radars by beam height there, not just distance",
+                false,
+            ),
+            (
                 MapTool::Measure,
                 "Tool: Measure",
                 "Drag to measure distance and bearing",

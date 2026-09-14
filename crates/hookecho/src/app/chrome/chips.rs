@@ -184,6 +184,11 @@ impl HookEchoApp {
         // sentence of instructions as the only sign anything changed.
         let (glyph, name, hint) = match self.tool {
             MapTool::GateInspector => (ph::CROSSHAIR, "Gate inspector", "click a radar gate"),
+            MapTool::RadarSuitability => (
+                ph::BROADCAST,
+                "Radar suitability",
+                "click a point to rank nearby radars",
+            ),
             MapTool::Measure => (ph::RULER, "Measure", "click two points"),
             MapTool::Marker => (ph::MAP_PIN, "Drop marker", "click the map"),
             MapTool::CrossSection => (ph::CHART_LINE, "Cross-section", "click two points"),
@@ -211,6 +216,7 @@ impl HookEchoApp {
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
             self.tool = MapTool::Interrogate;
             self.gate_popup = None;
+            self.suitability_popup = None;
             return;
         }
         egui::Area::new(egui::Id::new("info_chip"))
