@@ -136,6 +136,7 @@ pub(crate) fn show(
                     "{} · {} · {:?}",
                     field.name, field.units.symbol(), field.value_kind
                 ));
+                ui.label(format!("Missing/no coverage codes: {:?} (masked)", field.missing_values));
             }
             super::data_inspector::show(ui, stamp);
         });

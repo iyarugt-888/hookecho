@@ -34,6 +34,10 @@ grid's timestamps, and invalid GRIB timestamps produce an error. See
 [the field migration note](field-registry.md) for scope and remaining work.
 
 The existing 11 direct MRMS layer families now share a product catalog. Layer
+fetches use its product-specific missing and no-coverage codes from the
+[NOAA operational table](https://www.nssl.noaa.gov/projects/mrms/operational/tables.php),
+so uncovered cells are absent rather than sampled as a measurement. The
+precipitation-type value `0` remains the valid “no precipitation” class. Layer
 search accepts source names (`NOAA MRMS`), units (`mm/hr`), and aliases such as
 `NLDN` or `hydrology`. The source inspector also shows native product units and
 value kind. Product paths and selectable rotation/lightning/hail windows retain

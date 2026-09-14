@@ -13,8 +13,11 @@ pub struct GridGeometry {
 
 impl From<&MrmsField> for GridGeometry {
     fn from(grid: &MrmsField) -> Self {
-        Self { nx: grid.nx, ny: grid.ny,
-            bounds: [grid.lon_west, grid.lat_south, grid.lon_east, grid.lat_north] }
+        Self {
+            nx: grid.nx,
+            ny: grid.ny,
+            bounds: [grid.lon_west, grid.lat_south, grid.lon_east, grid.lat_north],
+        }
     }
 }
 
@@ -34,7 +37,11 @@ pub struct GridProvenance {
 
 impl GridProvenance {
     pub fn native(grid: &MrmsField) -> Self {
-        Self { native: grid.into(), displayed: grid.into(), transform: DisplayTransform::Native }
+        Self {
+            native: grid.into(),
+            displayed: grid.into(),
+            transform: DisplayTransform::Native,
+        }
     }
 }
 
@@ -42,8 +49,16 @@ impl Stamped<MrmsField> {
     /// Reduce a freshly decoded field for display. Categories are sampled, never max-pooled.
     /// Native geometry is retained; this does not retain the native value array for probing.
     pub fn for_display(mut self, max_dim: usize, kind: ValueKind) -> Self {
-        let factor = self.data.nx.max(self.data.ny).div_ceil(max_dim.max(1)).max(1);
-        let metadata = self.stamp.grid.get_or_insert_with(|| GridProvenance::native(&self.data));
+        let factor = self
+            .data
+            .nx
+            .max(self.data.ny)
+            .div_ceil(max_dim.max(1))
+            .max(1);
+        let metadata = self
+            .stamp
+            .grid
+            .get_or_insert_with(|| GridProvenance::native(&self.data));
         if factor > 1 {
             if matches!(kind, ValueKind::Categorical | ValueKind::Mask) {
                 let grid = &self.data;
@@ -53,7 +68,12 @@ impl Stamped<MrmsField> {
                     for x in 0..nx {
                         let sx = ((x as f64 + 0.5) * grid.nx as f64 / nx as f64) as usize;
                         let sy = ((y as f64 + 0.5) * grid.ny as f64 / ny as f64) as usize;
-                        values.push(grid.values.get(sy * grid.nx + sx).copied().unwrap_or(f32::NAN));
+                        values.push(
+                            grid.values
+                                .get(sy * grid.nx + sx)
+                                .copied()
+                                .unwrap_or(f32::NAN),
+                        );
                     }
                 }
                 self.data.values = values;

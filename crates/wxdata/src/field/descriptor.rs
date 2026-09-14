@@ -101,9 +101,21 @@ pub struct FieldDescriptor {
     pub value_kind: ValueKind,
     pub aliases: &'static str,
     pub default_palette: PaletteId,
+    /// GRIB values that indicate missing, folded, or no-coverage cells.
+    pub missing_values: &'static [f32],
 }
 
 impl FieldDescriptor {
+    pub fn normalize_missing(&self, values: &mut [f32]) -> usize {
+        let mut masked = 0;
+        for value in values {
+            if !value.is_finite() || self.missing_values.contains(value) {
+                *value = f32::NAN;
+                masked += 1;
+            }
+        }
+        masked
+    }
     pub fn search_text(&self) -> String {
         format!(
             "{} {} {} {:?} {} {} {}",

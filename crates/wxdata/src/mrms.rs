@@ -297,8 +297,11 @@ pub async fn fetch_latest_stamped(
     let raw = gunzip(&gz)?;
     // gribberish can panic on some MRMS product packings (a slice off-by-one on rotation-track /
     // AzShear grids). Contain it so a bad product surfaces as an error, never a process abort.
-    let data = crate::task::guarded(|| decode_grib2(&raw))
+    let mut data = crate::task::guarded(|| decode_grib2(&raw))
         .unwrap_or_else(|_| anyhow::bail!("grib decode panicked for {product}"))?;
+    if let Some(descriptor) = catalog::find_by_path(product) {
+        descriptor.field.normalize_missing(&mut data.values);
+    }
     let stamp = crate::field::DataStamp {
         source_id: BUCKET.into(),
         product_id: product.into(),
@@ -480,6 +483,33 @@ mod tests {
         assert_eq!(result.data.time, stamp.valid_time);
         assert_eq!(result.stamp, stamp);
         assert_eq!(result.stamp.age_at(stamp.received_time).num_seconds(), 42);
+    }
+
+    #[test]
+    fn display_reduction_records_native_geometry_and_keeps_categories_discrete() {
+        use crate::field::{DataStamp, DisplayTransform, QualitySummary, Stamped, ValueKind};
+        let mut grid = linear_field();
+        grid.values = (0..16).map(|v| (v % 2) as f32).collect();
+        let stamp = DataStamp {
+            source_id: BUCKET.into(), product_id: PRECIP_TYPE.into(),
+            issue_time: None, run_time: None, valid_time: grid.time,
+            received_time: grid.time, source_latency: None,
+            is_forecast: false, is_derived: true, quality: QualitySummary::Unknown,
+            grid: Some(crate::field::GridProvenance::native(&grid)),
+        };
+        let categorical = Stamped { data: grid.clone(), stamp: stamp.clone() }
+            .for_display(2, ValueKind::Categorical);
+        assert_eq!(categorical.data.values.len(), 4);
+        assert!(categorical.data.values.iter().all(|v| *v == 0.0 || *v == 1.0));
+        let geometry = categorical.stamp.grid.unwrap();
+        assert_eq!((geometry.native.nx, geometry.native.ny), (4, 4));
+        assert_eq!((geometry.displayed.nx, geometry.displayed.ny), (2, 2));
+        assert_eq!(geometry.transform, DisplayTransform::NearestCell);
+
+        let scalar = Stamped { data: grid, stamp }.for_display(2, ValueKind::Scalar);
+        let geometry = scalar.stamp.grid.unwrap();
+        assert_eq!(geometry.transform, DisplayTransform::MaximumPool { factor: 2 });
+        assert_eq!(scalar.data.values, vec![1.0; 4]);
     }
 
     /// A message that declares more bytes than it carries used to send the decoder scanning for

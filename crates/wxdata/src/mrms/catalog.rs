@@ -37,6 +37,22 @@ pub fn find(id: &str) -> Option<&'static Product> {
     PRODUCTS.iter().find(|product| product.field.id.0 == id)
 }
 
+/// Resolve a concrete fetch path, including products with selectable windows.
+pub fn find_by_path(path: &str) -> Option<&'static Product> {
+    PRODUCTS.iter().find(|product| match product.fetch {
+        FetchMapping::Fixed(fixed) => path == fixed,
+        FetchMapping::Rotation => [30, 60, 120]
+            .iter()
+            .any(|&minutes| path == super::rotation_track(minutes)),
+        FetchMapping::Lightning => [1, 5, 15, 30]
+            .iter()
+            .any(|&minutes| path == super::lightning_density(minutes)),
+        FetchMapping::Hail => [30, 60, 120, 240, 360, 1440]
+            .iter()
+            .any(|&minutes| path == super::hail_swath(minutes)),
+    })
+}
+
 pub static PRODUCTS: &[Product] = &[
     Product {
         field: FieldDescriptor {
@@ -49,6 +65,7 @@ pub static PRODUCTS: &[Product] = &[
             value_kind: ValueKind::Scalar,
             aliases: "reflectivity composite radar",
             default_palette: PaletteId::Reflectivity,
+            missing_values: &[-99.0, -999.0],
         },
         common: true,
         fetch: FetchMapping::Fixed(super::REFLECTIVITY),
@@ -64,6 +81,7 @@ pub static PRODUCTS: &[Product] = &[
             value_kind: ValueKind::Scalar,
             aliases: "azimuthal shear swath",
             default_palette: PaletteId::Rotation,
+            missing_values: &[0.0],
         },
         common: true,
         fetch: FetchMapping::Rotation,
@@ -79,6 +97,7 @@ pub static PRODUCTS: &[Product] = &[
             value_kind: ValueKind::Scalar,
             aliases: "hail severe",
             default_palette: PaletteId::HailSize,
+            missing_values: &[-1.0, -3.0],
         },
         common: true,
         fetch: FetchMapping::Fixed(super::MESH),
@@ -96,6 +115,7 @@ pub static PRODUCTS: &[Product] = &[
             value_kind: ValueKind::Scalar,
             aliases: "NLDN cloud ground strikes",
             default_palette: PaletteId::LightningDensity,
+            missing_values: &[-1.0, -3.0],
         },
         common: true,
         fetch: FetchMapping::Lightning,
@@ -111,6 +131,7 @@ pub static PRODUCTS: &[Product] = &[
             value_kind: ValueKind::Scalar,
             aliases: "azimuthal shear severe",
             default_palette: PaletteId::Rotation,
+            missing_values: &[0.0],
         },
         common: false,
         fetch: FetchMapping::Fixed(super::AZSHEAR),
@@ -126,6 +147,7 @@ pub static PRODUCTS: &[Product] = &[
             value_kind: ValueKind::Scalar,
             aliases: "precipitation rainfall rate",
             default_palette: PaletteId::PrecipitationRate,
+            missing_values: &[-1.0, -3.0],
         },
         common: false,
         fetch: FetchMapping::Fixed(super::PRECIP_RATE),
@@ -141,6 +163,7 @@ pub static PRODUCTS: &[Product] = &[
             value_kind: ValueKind::Accumulation,
             aliases: "precipitation accumulation gauge corrected Pass2",
             default_palette: PaletteId::Precipitation1h,
+            missing_values: &[-1.0, -3.0],
         },
         common: false,
         fetch: FetchMapping::Fixed(super::QPE_01H),
@@ -156,6 +179,7 @@ pub static PRODUCTS: &[Product] = &[
             value_kind: ValueKind::Accumulation,
             aliases: "precipitation accumulation gauge corrected Pass2",
             default_palette: PaletteId::Precipitation24h,
+            missing_values: &[-1.0, -3.0],
         },
         common: false,
         fetch: FetchMapping::Fixed(super::QPE_24H),
@@ -171,6 +195,7 @@ pub static PRODUCTS: &[Product] = &[
             value_kind: ValueKind::Categorical,
             aliases: "precipitation flag rain snow hail",
             default_palette: PaletteId::PrecipitationType,
+            missing_values: &[-1.0, -3.0],
         },
         common: false,
         fetch: FetchMapping::Fixed(super::PRECIP_TYPE),
@@ -186,6 +211,7 @@ pub static PRODUCTS: &[Product] = &[
             value_kind: ValueKind::Scalar,
             aliases: "hydrology recurrence interval ARI",
             default_palette: PaletteId::FloodRecurrence,
+            missing_values: &[-999.0],
         },
         common: false,
         fetch: FetchMapping::Fixed(super::FLASH_ARI30),
@@ -201,6 +227,7 @@ pub static PRODUCTS: &[Product] = &[
             value_kind: ValueKind::Scalar,
             aliases: "MESH maximum severe",
             default_palette: PaletteId::HailSwath,
+            missing_values: &[-1.0, -3.0],
         },
         common: false,
         fetch: FetchMapping::Hail,
@@ -225,6 +252,12 @@ mod tests {
         }
         assert_eq!(PRODUCTS.len(), 11);
         assert!(find("hrrr").is_none());
+        for product in PRODUCTS {
+            assert!(std::ptr::eq(
+                find_by_path(product.path(30, 5, 1440)).unwrap(),
+                product
+            ));
+        }
     }
 
     #[test]
@@ -237,6 +270,7 @@ mod tests {
             (999, "CONUS/RotationTrack30min_00.50"),
         ] {
             assert_eq!(rotation.path(minutes, 5, 1440), path);
+            assert_eq!(find_by_path(path).unwrap().field.id, rotation.field.id);
         }
         let lightning = find("lightning").unwrap();
         for minutes in [1, 5, 15, 30, 999] {
@@ -244,11 +278,41 @@ mod tests {
                 lightning.path(30, minutes, 1440),
                 crate::mrms::lightning_density(minutes)
             );
+            assert_eq!(
+                find_by_path(lightning.path(30, minutes, 1440)).unwrap().field.id,
+                lightning.field.id
+            );
         }
         let hail = find("hailswath").unwrap();
         for minutes in [30, 60, 120, 240, 360, 1440, 720] {
             assert_eq!(hail.path(30, 5, minutes), crate::mrms::hail_swath(minutes));
+            assert_eq!(
+                find_by_path(hail.path(30, 5, minutes)).unwrap().field.id,
+                hail.field.id
+            );
         }
+        assert!(find_by_path("CONUS/unpublished_product").is_none());
+    }
+
+    #[test]
+    fn product_missing_codes_do_not_erase_valid_zero_or_negative_reflectivity() {
+        let precip = &find("preciptype").unwrap().field;
+        let mut codes = vec![-3.0, -1.0, 0.0, 3.0, 7.0];
+        assert_eq!(precip.normalize_missing(&mut codes), 2);
+        assert!(codes[0].is_nan() && codes[1].is_nan());
+        assert_eq!(&codes[2..], &[0.0, 3.0, 7.0]);
+
+        let reflectivity = &find("mrms").unwrap().field;
+        let mut dbz = vec![-999.0, -99.0, -30.0, 0.0, 60.0];
+        assert_eq!(reflectivity.normalize_missing(&mut dbz), 2);
+        assert_eq!(&dbz[2..], &[-30.0, 0.0, 60.0]);
+
+        let mut shear = vec![0.0, -12.0, 18.0];
+        assert_eq!(
+            find("azshear").unwrap().field.normalize_missing(&mut shear),
+            1
+        );
+        assert_eq!(&shear[1..], &[-12.0, 18.0]);
     }
 
     #[test]
