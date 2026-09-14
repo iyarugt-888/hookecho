@@ -96,6 +96,10 @@ fn default_custom_tile_max_z() -> u8 {
     19
 }
 
+fn default_time_mismatch_minutes() -> u16 {
+    10
+}
+
 fn default_volume() -> f32 {
     0.2
 }
@@ -154,6 +158,9 @@ pub struct Settings {
     /// Whether radar timestamps read in the site's local time or in UTC.
     #[serde(default)]
     pub time_display: TimeDisplay,
+    /// Maximum allowed difference between a displayed radar scan and another layer's valid time.
+    #[serde(default = "default_time_mismatch_minutes")]
+    pub time_mismatch_minutes: u16,
     /// UI text/widget zoom factor (egui `zoom_factor`); also captures Ctrl+= / Ctrl+- / Ctrl+0.
     pub ui_scale: f32,
     /// User-added GRLevelX placefile overlays.
@@ -1124,6 +1131,7 @@ impl Default for Settings {
             velocity_unit: VelocityUnit::default(),
             temp_unit: TempUnit::default(),
             time_display: TimeDisplay::default(),
+            time_mismatch_minutes: default_time_mismatch_minutes(),
             // 1.0 everywhere: this multiplies the native scale factor, and Android's display
             // density already sizes widgets for touch — an extra 1.3 shrank the S24's logical
             // canvas to ~277 pt wide (nothing fit).
@@ -1641,6 +1649,7 @@ mod tests {
             velocity_unit: VelocityUnit::Mph,
             temp_unit: TempUnit::Celsius,
             time_display: TimeDisplay::Utc,
+            time_mismatch_minutes: 15,
             ui_scale: 1.2,
             sync_client_id: String::new(),
             sync_client_secret: String::new(),
@@ -1865,6 +1874,7 @@ mod tests {
         let s: Settings = serde_json::from_str(json).unwrap();
         assert_eq!(s.default_site, "KDMX");
         assert_eq!(s.poll_interval_secs, 30, "missing field defaults");
+        assert_eq!(s.time_mismatch_minutes, 10);
     }
 
     /// The Android alert service (`android/app/src/main/kotlin/.../AlertService.kt`) parses

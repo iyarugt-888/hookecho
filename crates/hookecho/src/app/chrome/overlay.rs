@@ -200,6 +200,11 @@ impl HookEchoApp {
                 }
                 // A drag rewrites the order in place, so persist it when it moves.
                 let order_was = self.settings.layer_order.clone();
+                let layer_settings_label = if self.field_time_mismatches().is_empty() {
+                    "Layer settings"
+                } else {
+                    "Layer settings ⚠ time mismatch"
+                };
                 chosen = ui::layers_panel::body(
                     ui,
                     &entries,
@@ -218,7 +223,7 @@ impl HookEchoApp {
                     |ui| {
                         // Knobs for the layers that are already on, drawn between the Radar group
                         // and the rest. Collapsed by default: the list is still the panel's job.
-                        egui::CollapsingHeader::new("Layer settings")
+                        egui::CollapsingHeader::new(layer_settings_label)
                             .default_open(false)
                             .show(ui, |ui| {
                                 let glm_options = self.show_glm
@@ -230,6 +235,10 @@ impl HookEchoApp {
                                     &mut self.filters,
                                     &mut self.fields,
                                     &self.views[self.active].fields_on.clone(),
+                                    self.views[self.active].volume.as_ref().map(|v| v.time),
+                                    chrono::Duration::minutes(
+                                        self.settings.time_mismatch_minutes as i64,
+                                    ),
                                     &mut self.rotation_minutes,
                                     &mut self.hail_minutes,
                                     &mut self.hrrr_fcst_hour,

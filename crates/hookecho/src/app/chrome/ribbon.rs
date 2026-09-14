@@ -590,6 +590,32 @@ impl HookEchoApp {
             .timeline
             .current()
             .and_then(|id| id.date_time());
+        let time_warning = {
+            let mismatches = self.field_time_mismatches();
+            mismatches
+                .iter()
+                .max_by_key(|(_, offset)| offset.num_seconds().abs())
+                .map(|worst| {
+                    let caption = format!(
+                        "⚠ {} layer time mismatch{} (max {})",
+                        mismatches.len(),
+                        if mismatches.len() == 1 { "" } else { "es" },
+                        crate::ui::data_inspector::offset_label(worst.1)
+                    );
+                    let details = mismatches
+                        .iter()
+                        .map(|(slug, offset)| {
+                            format!(
+                                "{}: {} from radar scan",
+                                slug.slug(),
+                                crate::ui::data_inspector::offset_label(*offset)
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    (caption, details)
+                })
+        };
         let tz = self.active_tz();
         let valid = valid_dt
             .map(|d| crate::timefmt::fmt_clock(d, tz, false))
@@ -614,6 +640,15 @@ impl HookEchoApp {
                             None => format!("{site}  \u{b7}  live only"),
                         },
                     );
+                    if let Some((caption, details)) = &time_warning {
+                        ui.separator();
+                        ui.label(
+                            RichText::new(caption)
+                                .size(11.0)
+                                .color(Color32::from_rgb(255, 197, 92)),
+                        )
+                        .on_hover_text(details);
+                    }
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         ui.add_space(8.0);
                         lab(ui, format!("{lat:.3}, {lon:.3}   \u{7c}   z{zoom:.1}"));

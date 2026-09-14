@@ -525,6 +525,11 @@ fn units_tab(ui: &mut egui::Ui, settings: &mut Settings) {
         .response
         .on_hover_text("Site local reads the clock the radar is standing in; UTC is the Zulu time on the wire");
         ui.end_row();
+
+        ui.label("Layer time warning (min)");
+        ui.add(egui::DragValue::new(&mut settings.time_mismatch_minutes).range(0..=120))
+            .on_hover_text("Warn when a layer's valid time differs from the radar scan on screen by more than this many minutes");
+        ui.end_row();
     });
     ui.weak("Reflectivity stays dBZ; internal data is unchanged (display-only).");
 }

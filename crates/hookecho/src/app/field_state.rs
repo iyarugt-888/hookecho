@@ -1,6 +1,7 @@
 //! Field delivery state, shared by pane rendering and the provenance inspector.
 use super::{HookEchoApp, Instant, PrecipGrid};
 use crate::render::{FieldLayer, MrmsUpload};
+use wxdata::time_align::TimeOffset;
 use wxdata::{field::DataStamp, mrms::MrmsField};
 
 #[derive(Default)]
@@ -13,6 +14,28 @@ pub(crate) struct FieldState {
 }
 
 impl HookEchoApp {
+    /// Enabled stamped fields whose valid times do not match the radar scan on screen.
+    pub(crate) fn field_time_mismatches(&self) -> Vec<(FieldLayer, chrono::Duration)> {
+        let view = &self.views[self.active];
+        let Some(volume) = view.volume.as_ref() else {
+            return Vec::new();
+        };
+        let tolerance = chrono::Duration::minutes(self.settings.time_mismatch_minutes as i64);
+        let mut mismatches: Vec<_> = view
+            .fields_on
+            .iter()
+            .filter_map(|layer| {
+                let stamp = self.fields.get(layer)?.stamp.as_ref()?;
+                let comparison = TimeOffset::between(stamp.valid_time, volume.time, tolerance);
+                comparison
+                    .outside_tolerance
+                    .then_some((*layer, comparison.offset))
+            })
+            .collect();
+        mismatches.sort_by_key(|(layer, _)| layer.slug());
+        mismatches
+    }
+
     pub(super) fn accept_field(
         &mut self,
         layer: FieldLayer,

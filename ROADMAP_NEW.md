@@ -268,6 +268,10 @@ The current timeline is radar-centered. Convert it into a general valid-time coo
 - [ ] “lock to source frame” option for exact radar analysis
 - [ ] explicit warning when sources differ by more than a configurable tolerance
 
+Current increment: stamped MRMS fields show their signed offset from the displayed radar scan
+in the data inspector. The layer panel and WSV3 status bar warn beyond a configurable threshold
+(10 minutes by default). Full multi-source synchronization and shared pane time remain open.
+
 ### Acceptance criteria
 
 Opening radar + GOES + MRMS + HRRR in four panes and scrubbing time keeps all panes at the nearest scientifically appropriate valid time while showing each layer’s exact source time.
@@ -2240,4 +2244,3 @@ Current public feature sets consulted in September 2026:
 - NOAA RRFS v1 evaluation — https://www.emc.ncep.noaa.gov/users/meg/rrfsv1/
 
 These are feature targets, not implementation dependencies. Prefer NOAA/NWS/public machine-readable sources whenever practical.
-

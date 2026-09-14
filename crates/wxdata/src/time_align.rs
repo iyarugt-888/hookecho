@@ -18,6 +18,28 @@ pub struct FrameTime {
     pub run: Option<DateTime<Utc>>,
 }
 
+/// Signed difference between a source frame and the analysis time shown on screen.
+/// Positive means the source is newer; negative means it is older.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TimeOffset {
+    pub offset: Duration,
+    pub outside_tolerance: bool,
+}
+
+impl TimeOffset {
+    pub fn between(
+        source_valid: DateTime<Utc>,
+        analysis_valid: DateTime<Utc>,
+        tolerance: Duration,
+    ) -> Self {
+        let offset = source_valid - analysis_valid;
+        Self {
+            offset,
+            outside_tolerance: tolerance < Duration::zero() || offset.abs() > tolerance,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum FrameSelection {
     Single {
@@ -123,6 +145,17 @@ mod tests {
             valid: t(minutes),
             run: None,
         }
+    }
+
+    #[test]
+    fn source_offset_is_signed_and_tolerance_inclusive() {
+        let tolerance = Duration::minutes(10);
+        let ahead = TimeOffset::between(t(20), t(10), tolerance);
+        assert_eq!(ahead.offset, tolerance);
+        assert!(!ahead.outside_tolerance);
+        let behind = TimeOffset::between(t(0), t(11), tolerance);
+        assert_eq!(behind.offset, Duration::minutes(-11));
+        assert!(behind.outside_tolerance);
     }
 
     #[test]

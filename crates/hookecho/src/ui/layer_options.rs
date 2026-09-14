@@ -75,6 +75,8 @@ pub(crate) fn show(
     // Which layers the active pane draws. Visibility is per-pane now; the map above is the shared
     // fetch state, which is what `fields` is still needed for (clearing a refetch clock).
     on: &std::collections::HashSet<crate::render::FieldLayer>,
+    analysis_time: Option<chrono::DateTime<chrono::Utc>>,
+    time_tolerance: chrono::Duration,
     rotation_minutes: &mut u16,
     hail_minutes: &mut u16,
     hrrr_fcst_hour: &mut u8,
@@ -130,7 +132,16 @@ pub(crate) fn show(
         .collect();
     stamped.sort_by_key(|(slug, _)| *slug);
     for (slug, stamp) in stamped {
-        ui.collapsing(format!("Data source · {slug}"), |ui| {
+        let mismatch = analysis_time.is_some_and(|analysis_time| {
+            wxdata::time_align::TimeOffset::between(stamp.valid_time, analysis_time, time_tolerance)
+                .outside_tolerance
+        });
+        let caption = if mismatch {
+            format!("⚠ Data source · {slug} · time mismatch")
+        } else {
+            format!("Data source · {slug}")
+        };
+        ui.collapsing(caption, |ui| {
             if let Some(field) = FL::from_slug(slug).and_then(FL::descriptor) {
                 ui.label(format!(
                     "{} · {} · {:?}",
@@ -138,7 +149,7 @@ pub(crate) fn show(
                 ));
                 ui.label(format!("Missing/no coverage codes: {:?} (masked)", field.missing_values));
             }
-            super::data_inspector::show(ui, stamp);
+            super::data_inspector::show(ui, stamp, analysis_time, time_tolerance);
         });
     }
 
