@@ -1,5 +1,5 @@
 //! Field delivery state, shared by pane rendering and the provenance inspector.
-use super::{HookEchoApp, Instant, PrecipGrid};
+use super::{HookEchoApp, Instant, MrmsRequest, PrecipGrid};
 use crate::render::{FieldLayer, MrmsUpload};
 use wxdata::time_align::TimeOffset;
 use wxdata::{
@@ -56,13 +56,17 @@ pub(crate) struct FieldState {
     /// Since when no pane has drawn this layer; drives GPU texture eviction.
     pub off_since: Option<Instant>,
     pub stamp: Option<DataStamp>,
+    pub(super) mrms_request: Option<MrmsRequest>,
 }
 
 impl HookEchoApp {
-    /// Enabled stamped fields whose valid times do not match the radar scan on screen.
+    /// Enabled stamped fields whose valid times exceed the selected analysis tolerance.
     pub(crate) fn field_time_mismatches(&self) -> Vec<(FieldLayer, chrono::Duration)> {
         let view = &self.views[self.active];
-        let Some(volume) = view.volume.as_ref() else {
+        let Some(analysis_time) = self
+            .linked_analysis_time()
+            .or_else(|| view.volume.as_ref().map(|volume| volume.time))
+        else {
             return Vec::new();
         };
         let tolerance = chrono::Duration::minutes(self.settings.time_mismatch_minutes as i64);
@@ -70,8 +74,11 @@ impl HookEchoApp {
             .fields_on
             .iter()
             .filter_map(|layer| {
+                if !self.mrms_ready(*layer) {
+                    return None;
+                }
                 let stamp = self.fields.get(layer)?.stamp.as_ref()?;
-                let comparison = TimeOffset::between(stamp.valid_time, volume.time, tolerance);
+                let comparison = TimeOffset::between(stamp.valid_time, analysis_time, tolerance);
                 comparison
                     .outside_tolerance
                     .then_some((*layer, comparison.offset))
@@ -106,6 +113,34 @@ impl HookEchoApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mrms_request_rejects_other_products_and_times_outside_archive_tolerance() {
+        let target = chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap();
+        let field = MrmsField {
+            values: vec![1.0],
+            nx: 1,
+            ny: 1,
+            lon_west: -100.0,
+            lon_east: -100.0,
+            lat_north: 35.0,
+            lat_south: 35.0,
+            time: target,
+        };
+        let mut stamp = model_stamp("MRMS", "CONUS/Test", &field, None, true);
+        let request = MrmsRequest {
+            product: "CONUS/Test".into(),
+            archive: Some((target, 2)),
+        };
+        assert!(request.accepts(&stamp));
+        stamp.valid_time = target + chrono::Duration::minutes(2);
+        assert!(request.accepts(&stamp));
+        stamp.valid_time += chrono::Duration::seconds(1);
+        assert!(!request.accepts(&stamp));
+        stamp.valid_time = target;
+        stamp.product_id = "CONUS/Other".into();
+        assert!(!request.accepts(&stamp));
+    }
 
     #[test]
     fn model_provenance_uses_decoded_valid_time_and_keeps_run() {

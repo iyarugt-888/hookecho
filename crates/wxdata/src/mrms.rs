@@ -6,6 +6,7 @@
 
 use gribberish::data_message::DataMessage;
 pub mod catalog;
+use chrono::{DateTime, Duration, Timelike, Utc};
 use gribberish::message::read_message;
 
 const BUCKET: &str = "https://noaa-mrms-pds.s3.amazonaws.com";
@@ -285,6 +286,128 @@ pub async fn fetch_latest_stamped(
     product: &str,
 ) -> anyhow::Result<crate::field::Stamped<MrmsField>> {
     let key = latest_key(http, product).await?;
+    fetch_key_stamped(http, product, &key).await
+}
+
+/// Fetch the nearest archived MRMS object within a strict valid-time tolerance.
+/// An unavailable hour is an error; it must never silently become the current live field.
+pub async fn fetch_nearest_stamped(
+    http: &reqwest::Client,
+    product: &str,
+    target: DateTime<Utc>,
+    tolerance: Duration,
+) -> anyhow::Result<crate::field::Stamped<MrmsField>> {
+    anyhow::ensure!(
+        tolerance >= Duration::zero() && tolerance <= Duration::minutes(120),
+        "MRMS archive tolerance must be between 0 and 120 minutes"
+    );
+    let first = hour_start(target - tolerance)?;
+    let last = hour_start(target + tolerance)?;
+    let mut hours = Vec::new();
+    let mut hour = first;
+    loop {
+        hours.push(hour);
+        if hour == last {
+            break;
+        }
+        hour = hour
+            .checked_add_signed(Duration::hours(1))
+            .ok_or_else(|| anyhow::anyhow!("MRMS archive hour overflow"))?;
+    }
+    let lists = futures_util::future::try_join_all(hours.into_iter().map(|hour| async move {
+        let prefix = archive_hour_prefix(product, hour);
+        let xml = http
+            .get(format!(
+                "{BUCKET}/?list-type=2&prefix={prefix}&max-keys=1000"
+            ))
+            .send()
+            .await?
+            .error_for_status()?
+            .text()
+            .await?;
+        anyhow::ensure!(
+            !xml.contains("<IsTruncated>true</IsTruncated>"),
+            "MRMS archive listing was truncated for {prefix}"
+        );
+        Ok::<_, anyhow::Error>(keys_in_listing(&xml, product))
+    }))
+    .await?;
+    let candidates: Vec<_> = lists.into_iter().flatten().collect();
+    let key = nearest_archive_key(&candidates, target, tolerance)
+        .ok_or_else(|| anyhow::anyhow!("no {product} MRMS frame within {tolerance} of {target}"))?;
+    let field = fetch_key_stamped(http, product, key).await?;
+    anyhow::ensure!(
+        !crate::time_align::TimeOffset::between(field.stamp.valid_time, target, tolerance)
+            .outside_tolerance,
+        "{product} decoded valid time {} differs from requested {target} by more than {tolerance}",
+        field.stamp.valid_time
+    );
+    Ok(field)
+}
+
+fn nearest_archive_key(
+    candidates: &[(String, DateTime<Utc>)],
+    target: DateTime<Utc>,
+    tolerance: Duration,
+) -> Option<&str> {
+    let frames: Vec<_> = candidates
+        .iter()
+        .map(|(_, valid)| crate::time_align::FrameTime {
+            valid: *valid,
+            run: None,
+        })
+        .collect();
+    let index = crate::time_align::select(
+        &frames,
+        target,
+        crate::time_align::TimePolicy::Nearest,
+        Some(tolerance),
+        crate::field::ValueKind::Scalar,
+    )
+    .and_then(crate::time_align::FrameSelection::single_index)?;
+    Some(candidates[index].0.as_str())
+}
+
+fn hour_start(time: DateTime<Utc>) -> anyhow::Result<DateTime<Utc>> {
+    time.with_minute(0)
+        .and_then(|t| t.with_second(0))
+        .and_then(|t| t.with_nanosecond(0))
+        .ok_or_else(|| anyhow::anyhow!("invalid MRMS archive hour"))
+}
+
+fn archive_hour_prefix(product: &str, hour: DateTime<Utc>) -> String {
+    let day = hour.format("%Y%m%d");
+    let filename = product.rsplit('/').next().unwrap_or_default();
+    format!("{product}/{day}/MRMS_{filename}_{day}-{:02}", hour.hour())
+}
+
+fn keys_in_listing(xml: &str, product: &str) -> Vec<(String, DateTime<Utc>)> {
+    let filename = product.rsplit('/').next().unwrap_or_default();
+    let filename_prefix = format!("MRMS_{filename}_");
+    xml.match_indices("<Key>")
+        .filter_map(|(start, _)| {
+            let rest = &xml[start + 5..];
+            let end = rest.find("</Key>")?;
+            let key = &rest[..end];
+            let basename = key.strip_prefix(product)?.strip_prefix('/')?;
+            let (day, name) = basename.split_once('/')?;
+            let timestamp = name
+                .strip_prefix(&filename_prefix)?
+                .strip_suffix(".grib2.gz")?;
+            if !timestamp.starts_with(day) {
+                return None;
+            }
+            let naive = chrono::NaiveDateTime::parse_from_str(timestamp, "%Y%m%d-%H%M%S").ok()?;
+            Some((key.to_string(), naive.and_utc()))
+        })
+        .collect()
+}
+
+async fn fetch_key_stamped(
+    http: &reqwest::Client,
+    product: &str,
+    key: &str,
+) -> anyhow::Result<crate::field::Stamped<MrmsField>> {
     let url = format!("{BUCKET}/{key}");
     let gz = http
         .get(&url)
@@ -455,6 +578,32 @@ fn last_key(xml: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn archive_keys_select_nearest_across_utc_midnight_without_live_fallback() {
+        let product = REFLECTIVITY;
+        let xml = format!(
+            "<ListBucketResult><Contents><Key>{product}/20260717/MRMS_MergedReflectivityQCComposite_00.50_20260717-235800.grib2.gz</Key></Contents>\
+             <Contents><Key>{product}/20260718/MRMS_MergedReflectivityQCComposite_00.50_20260718-000200.grib2.gz</Key></Contents>\
+             <Contents><Key>{product}/20260718/latest.grib2.gz</Key></Contents>\
+             <Contents><Key>CONUS/Other/20260718/20260718-000000.grib2.gz</Key></Contents></ListBucketResult>"
+        );
+        let candidates = keys_in_listing(&xml, product);
+        assert_eq!(candidates.len(), 2);
+        let target = DateTime::parse_from_rfc3339("2026-07-18T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        assert_eq!(
+            archive_hour_prefix(product, hour_start(target).unwrap()),
+            format!("{product}/20260718/MRMS_MergedReflectivityQCComposite_00.50_20260718-00")
+        );
+        assert!(nearest_archive_key(&candidates, target, Duration::minutes(1)).is_none());
+        let earlier = format!("{product}/20260717/MRMS_MergedReflectivityQCComposite_00.50_20260717-235800.grib2.gz");
+        assert_eq!(
+            nearest_archive_key(&candidates, target, Duration::minutes(2)),
+            Some(earlier.as_str())
+        );
+    }
 
     #[test]
     fn display_decimation_retains_source_provenance() {

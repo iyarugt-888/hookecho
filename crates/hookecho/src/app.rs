@@ -222,6 +222,27 @@ impl Default for OverlayFilters {
 /// few refresh cycles and the set is complete and stays complete.
 const TFR_BATCH: usize = 25;
 
+/// The selected cursor travels with an MRMS reply so late frames cannot replace a new choice.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MrmsRequest {
+    product: String,
+    archive: Option<(chrono::DateTime<chrono::Utc>, u16)>,
+}
+
+impl MrmsRequest {
+    fn accepts(&self, stamp: &wxdata::field::DataStamp) -> bool {
+        stamp.product_id == self.product
+            && self.archive.is_none_or(|(target, minutes)| {
+                !wxdata::time_align::TimeOffset::between(
+                    stamp.valid_time,
+                    target,
+                    chrono::Duration::minutes(minutes as i64),
+                )
+                .outside_tolerance
+            })
+    }
+}
+
 /// Background overlay fetch results.
 enum OverlayMsg {
     Alerts(Vec<GeoFeature>),
@@ -255,6 +276,11 @@ enum OverlayMsg {
     StampedField(
         crate::render::FieldLayer,
         wxdata::field::Stamped<wxdata::mrms::MrmsField>,
+    ),
+    MrmsField(
+        crate::render::FieldLayer,
+        wxdata::field::Stamped<wxdata::mrms::MrmsField>,
+        MrmsRequest,
     ),
     /// A model-difference grid with exact shared valid time and both source runs.
     ModelDiff(
@@ -370,7 +396,7 @@ enum OverlaySource {
     Cells(String),
     Placefile(String),
     /// A national field layer plus the MRMS S3 product path to fetch it from.
-    Field(crate::render::FieldLayer, String),
+    Field(crate::render::FieldLayer, MrmsRequest),
     /// Local storm reports: live (`None`) or a 30-min archive bucket (Unix secs / 1800).
     StormReports(Option<i64>),
     Spotters,
@@ -792,11 +818,19 @@ impl OverlaySource {
                     Err(e) => OverlayMsg::PlacefileError(key, e.to_string()),
                 }
             }
-            OverlaySource::Field(layer, product) => {
-                OverlayMsg::StampedField(
-                    layer,
-                    wxdata::mrms::fetch_latest_stamped(http, &product).await?,
-                )
+            OverlaySource::Field(layer, request) => {
+                let field = if let Some((target, minutes)) = request.archive {
+                    wxdata::mrms::fetch_nearest_stamped(
+                        http,
+                        &request.product,
+                        target,
+                        chrono::Duration::minutes(minutes as i64),
+                    )
+                    .await?
+                } else {
+                    wxdata::mrms::fetch_latest_stamped(http, &request.product).await?
+                };
+                OverlayMsg::MrmsField(layer, field, request)
             }
             OverlaySource::SnowBands => {
                 // Both grids at once: the mask is useless without the echo and vice versa.
@@ -4412,6 +4446,10 @@ impl HookEchoApp {
                         OverlayMsg::StampedField(layer, f) => {
                             let kind = layer.descriptor().map_or(wxdata::field::ValueKind::Scalar, |d| d.value_kind);
                             OverlayMsg::StampedField(layer, f.for_display(cap, kind))
+                        }
+                        OverlayMsg::MrmsField(layer, f, request) => {
+                            let kind = layer.descriptor().map_or(wxdata::field::ValueKind::Scalar, |d| d.value_kind);
+                            OverlayMsg::MrmsField(layer, f.for_display(cap, kind), request)
                         }
                         other => other,
                     })
@@ -8528,6 +8566,17 @@ impl HookEchoApp {
                 OverlayMsg::StampedField(layer, field) => {
                     self.accept_field(layer, field.data, Some(field.stamp));
                 }
+                OverlayMsg::MrmsField(layer, field, request) => {
+                    if self.mrms_request(layer).as_ref() == Some(&request)
+                        && request.accepts(&field.stamp)
+                    {
+                        self.accept_field(layer, field.data, Some(field.stamp));
+                        if let Some(state) = self.fields.get_mut(&layer) {
+                            state.mrms_request = Some(request);
+                            state.last_fetch = Some(Instant::now());
+                        }
+                    }
+                }
                 OverlayMsg::ModelDiff(kind, fh, field, valid)
                     if kind == self.diff_field && fh == self.global_fcst_hour =>
                 {
@@ -10441,6 +10490,31 @@ impl HookEchoApp {
                 .to_string(),
         )
     }
+    fn mrms_request(&self, layer: crate::render::FieldLayer) -> Option<MrmsRequest> {
+        Some(MrmsRequest {
+            product: self.mrms_product(layer)?,
+            archive: self
+                .linked_archive_time()
+                .map(|target| (target, self.settings.time_mismatch_minutes)),
+        })
+    }
+
+    fn mrms_ready(&self, layer: crate::render::FieldLayer) -> bool {
+        // These two current-only composites do not have archive selection yet. A previous live
+        // texture must not be painted over a linked archive scan.
+        if self.linked_archive_time().is_some()
+            && matches!(layer, crate::render::FieldLayer::Mosaic | crate::render::FieldLayer::SnowBands)
+        {
+            return false;
+        }
+        let Some(request) = self.mrms_request(layer) else {
+            return true;
+        };
+        self.fields.get(&layer).is_some_and(|state| {
+            state.mrms_request.as_ref() == Some(&request)
+                && state.stamp.as_ref().is_some_and(|stamp| request.accepts(stamp))
+        })
+    }
     /// Per-frame per-pane: react to site changes, keep the timeline current, and (for the active
     /// pane) manage the live stream. Each pane fetches its own volume via its view index.
     fn sync_pane(&mut self, idx: usize, ctx: &egui::Context) {
@@ -10917,11 +10991,10 @@ impl HookEchoApp {
             crate::colormap::effective_table(&self.palettes, moment, self.settings.theme);
         let table = &table_owned;
         // Cheap handle taken before the volume is borrowed mutably below.
-        let precip = self
-            .settings
-            .precip_tint
-            .then(|| self.precip_flag_grid.clone())
-            .flatten();
+        let precip = (self.settings.precip_tint
+            && self.mrms_ready(crate::render::FieldLayer::PrecipType))
+        .then(|| self.precip_flag_grid.clone())
+        .flatten();
         let upload = {
             let Some(vol) = self.views[data].volume.as_mut() else {
                 return (None, true);
@@ -12598,7 +12671,10 @@ impl HookEchoApp {
         let field_draws: Vec<(crate::render::FieldLayer, f32)> = self.views[idx]
             .fields_on
             .iter()
-            .filter(|layer| crate::fielddiff::layer_ready(**layer, self.diff_valid, self.compare_valid))
+            .filter(|layer| {
+                crate::fielddiff::layer_ready(**layer, self.diff_valid, self.compare_valid)
+                    && self.mrms_ready(**layer)
+            })
             .map(|k| {
                 (
                     *k,
@@ -17346,27 +17422,42 @@ impl eframe::App for HookEchoApp {
         use crate::render::FieldLayer as FL;
         for layer in FL::DRAW_ORDER {
             // Layers with a fetch block of their own answer `None` and are skipped here.
-            let Some(product) = self.mrms_product(layer) else {
+            let Some(request) = self.mrms_request(layer) else {
                 continue;
             };
             // The reflectivity tint reads the precipitation-type grid whether or not that
             // layer is being drawn, so wanting the tint counts as wanting the layer's data.
             let wanted =
                 self.field_wanted(layer) || (layer == FL::PrecipType && self.settings.precip_tint);
+            let selection_changed = self
+                .fields
+                .get(&layer)
+                .is_none_or(|s| s.mrms_request.as_ref() != Some(&request));
             let stale = wanted
                 && self.fields.get(&layer).is_none_or(|s| {
-                    s.last_fetch
+                    selection_changed || s.last_fetch
                         .is_none_or(|t| t.elapsed().as_secs() >= field_refresh_secs(layer))
                 });
             if stale {
-                self.fields.entry(layer).or_default().last_fetch = Some(Instant::now());
-                self.spawn_overlay(ctx, OverlaySource::Field(layer, product));
+                let state = self.fields.entry(layer).or_default();
+                if selection_changed {
+                    state.pending = None;
+                    state.stamp = None;
+                    state.mrms_request = Some(request.clone());
+                    if layer == FL::PrecipType {
+                        self.precip_flag_grid = None;
+                        self.precip_flag_gen = self.precip_flag_gen.wrapping_add(1);
+                    }
+                }
+                state.last_fetch = Some(Instant::now());
+                self.spawn_overlay(ctx, OverlaySource::Field(layer, request));
             }
         }
         // Snow bands: the mosaic and the precipitation-type grid, cut to the banded snow.
         {
             let layer = FL::SnowBands;
-            let stale = self.field_wanted(layer)
+            let stale = self.linked_archive_time().is_none()
+                && self.field_wanted(layer)
                 && self.fields.get(&layer).is_none_or(|s| {
                     s.last_fetch
                         .is_none_or(|t| t.elapsed().as_secs() >= field_refresh_secs(layer))

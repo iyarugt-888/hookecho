@@ -213,6 +213,16 @@ impl HookEchoApp {
             .flatten()
     }
 
+    pub(super) fn linked_archive_time(&self) -> Option<DateTime<Utc>> {
+        if !self.link_times {
+            return None;
+        }
+        match self.linked_analysis.cursor {
+            Some(AnalysisCursor::Archive(target)) => Some(target),
+            _ => None,
+        }
+    }
+
     /// Show the scan actually painted in each pane and its offset from the selected analysis
     /// instant. This matters most when sites scan at different cadences or a frame is still
     /// downloading: linked cursors must never imply identical source times.

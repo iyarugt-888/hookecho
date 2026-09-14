@@ -289,7 +289,12 @@ selecting a nearby scan in another pane cannot drift the whole layout. GOES foll
 that instant for frame selection and its time-offset readout, even while a radar scan is loading.
 With GOES set to follow analysis time, stepping its frame arrows moves the shared cursor and
 seeks the radar panes; the GOES Latest button returns the linked view to live.
-MRMS and model archive seeking, and independent per-pane GOES frame caches, remain open.
+MRMS catalog layers now select the nearest archived S3 frame within the shared tolerance when
+the linked cursor is scrubbed. The decoded GRIB valid time is checked against that target;
+an unavailable frame leaves the layer hidden rather than painting a previous live grid. Returning
+to live refreshes the current field. Current-only local mosaic and snow-band composites are hidden
+while linked archive mode is active. Model archive seeking and independent per-pane GOES frame
+caches remain open.
 
 ### Acceptance criteria
 
