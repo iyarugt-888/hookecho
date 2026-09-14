@@ -937,6 +937,19 @@ Agents should work through this in the following order and make small, reviewabl
 5. Historical ground-truth overlays.
 6. Robust versioned share-state.
 
+## Phase F — low-latency operational radar
+
+1. Emit usable live radial/chunk batches before elevation completion.
+2. Update only affected radial ranges in persistent GPU sweep storage.
+3. Retain previous-sweep sectors until new data replace them; track current/previous/missing state explicitly.
+4. Preserve radial acquisition timestamps and show an optional smooth radial-reveal effect without misrepresenting network arrival semantics.
+5. Add beam/sample-to-screen latency diagnostics.
+6. Evolve `Level2LiveProvider` into runtime-selectable providers with normalized health/provenance.
+7. Add active-active provider selection so the first valid copy of a live Level II record wins and backups can fill gaps without a slow global failover.
+8. Keep direct public-data acquisition as a bypass if any HookEcho-hosted push path is unavailable.
+9. Add a push-oriented ingest path, then later add a lower-latency direct/LDM-class provider when legitimately available.
+10. Feed the same incremental live events into 3D so the active volume grows as elevations are scanned.
+
 ---
 
 # 16. Definition of "mature analyst feature"
@@ -965,13 +978,16 @@ For analyst functionality, require:
 If only a small number of items can be implemented next, do these first:
 
 1. **Atomic frame-state commits** — eliminate timestamp / URL / volume ambiguity.
-2. **Separate 2D tilt vs 3D tilt-set controls** — remove current UI ambiguity.
-3. **Per-tilt acquisition time and temporal-age display** — expose that a radar volume is not instantaneous.
-4. **Beam-height / beam-width inspector** — immediately improves scientific interpretation.
-5. **Native-gate inspector with provenance** — moves the project toward true analysis software.
-6. **Radar suitability ranking** — especially useful for long-track storms crossing radar domains.
-7. **KPAH + KHPX synchronized Mayfield case study** — strong test case for the entire architecture.
-8. **Cross sections + clipping** — the most valuable next-generation 3D interaction features.
+2. **Incremental live-sweep rendering** — use already-arriving partial Level II chunks before an elevation completes.
+3. **Live latency/provenance telemetry** — preserve radial sample time and measure sample-to-screen delay.
+4. **Separate 2D tilt vs 3D tilt-set controls** — remove current UI ambiguity.
+5. **Per-tilt acquisition time and temporal-age display** — expose that a radar volume is not instantaneous.
+6. **Beam-height / beam-width inspector** — immediately improves scientific interpretation.
+7. **Native-gate inspector with provenance** — moves the project toward true analysis software.
+8. **Provider multiplexing/fallback foundation** — prepare for multiple live Level II sources without putting network logic in `app.rs`.
+9. **Radar suitability ranking** — especially useful for long-track storms crossing radar domains.
+10. **KPAH + KHPX synchronized Mayfield case study** — strong test case for the entire architecture.
+11. **Cross sections + clipping** — high-value next-generation 3D interaction features.
 
 ---
 
@@ -1015,6 +1031,8 @@ The goal should not be to imitate one competitor. A compelling HookEcho analyst 
 
 The strongest current differentiator is the browser-friendly 3D radar-volume workflow. The next step is to make that visualization scientifically self-describing, deterministic, and inspectable enough that an analyst can trust exactly **what** was sampled, **where**, **when**, and **how it became the geometry on screen**.
 
+For operational maturity, the next major target is **incremental live Level II display with measured latency and provider resilience**. A fast-looking animation is not enough: HookEcho should be able to prove when a radial was sampled, when it reached the client, which provider supplied it, and whether any part of the displayed sweep is retained from an older scan or filled by a fallback source.
+
 ---
 
 # 20. External validation references
@@ -1027,6 +1045,12 @@ Use primary meteorological documentation wherever possible during implementation
   - https://training.weather.gov/wdtd/
 - NOAA / NCEI NEXRAD Level II archive information:
   - https://www.ncei.noaa.gov/products/radar/next-generation-weather-radar
+- NOAA ROC WSR-88D technical documentation / Message 31 interface documentation:
+  - https://www.roc.noaa.gov/public-documents/icds/2620002J.pdf
+- Unidata NEXRAD Level II / real-time distribution information:
+  - https://www.unidata.ucar.edu/data/radar/levelii
+- NOAA NEXRAD open-data registry:
+  - https://registry.opendata.aws/noaa-nexrad/
 - GRLevelX / GR2Analyst manual for competitive workflow reference:
   - https://www.grlevelx.com/manuals/gr2analyst/
 - RadarScope product information for competitive workflow reference:
@@ -1035,3 +1059,38 @@ Use primary meteorological documentation wherever possible during implementation
   - https://wsv3.com/
 
 When behavior in a competitor conflicts with official radar documentation, follow the official radar documentation.
+
+---
+
+# 21. P0 — low-latency live Level II and fallback requirements
+
+The current live path already receives partial Level II information during a sweep, but visible radar updates should no longer wait for the entire elevation to finish. Treat a usable radial/chunk batch as the live rendering unit while keeping complete-sweep and complete-volume events for bookkeeping.
+
+Required implementation behavior:
+
+- decode and surface each usable incoming live batch as soon as possible;
+- preserve original radial acquisition times, azimuths, elevation, gate geometry, and missing/range-folded state;
+- update only the corresponding radial range in persistent GPU storage rather than rebuilding the whole sweep/volume;
+- leave the previous sweep visible in sectors not yet replaced by the new sweep;
+- maintain an explicit current/previous/missing generation mask so retained old data are never confused with newly scanned data;
+- optionally animate received radials into view in acquisition order, but clearly treat that as presentation of already-received data rather than literal per-gate network delivery;
+- expose sample-to-screen latency and source provenance in diagnostics and, where useful, the gate inspector;
+- support multiple live Level II providers behind one normalized provider interface;
+- prefer first-valid-record-wins behavior so already-connected backups can fill missing live data without waiting for a long global failover timeout;
+- detect duplicate/conflicting copies of the same radar/volume/sequence identity rather than silently mixing inconsistent bytes;
+- keep direct public-data acquisition available if a hosted push source is unavailable;
+- visually label degraded modes when falling back to completed Level II or Level III products;
+- extend the same incremental event model to native 3D after the 2D live path is proven stable.
+
+### Acceptance criteria
+
+- a partial live elevation can visibly update before sweep completion;
+- unchanged radial ranges are not re-decoded/re-uploaded unnecessarily;
+- missing data remain distinct from zero/below-threshold values;
+- provider/source identity survives mixed-source fallback;
+- reconnect/out-of-order/duplicate/missing-batch cases are covered by tests;
+- SAILS/MRLE repeated low-level cuts remain correctly ordered and identifiable;
+- latency metrics can report at least sample time, client receive time, decode completion, and GPU commit time when those timestamps are available;
+- progressive 3D never presents a partially sampled multi-minute volume as an instantaneous complete observation.
+
+This P0 work should be developed alongside Section 2 state correctness. The short-term win is to use the partial Level II data HookEcho already receives; provider/relay improvements should reduce upstream delay afterward rather than blocking incremental rendering on infrastructure work.
