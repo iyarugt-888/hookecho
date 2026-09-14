@@ -272,7 +272,7 @@ Current increment: stamped MRMS fields show their signed offset from the display
 in the data inspector. The layer panel, WSV3 status bar, and GOES time control warn beyond a
 shared configurable threshold (10 minutes by default). Full multi-source synchronization and
 shared pane time remain open.
-An opt-in **Link pane archive times** control now seeks each NEXRAD pane to its own nearest
+An opt-in **Link pane analysis time** control now seeks each NEXRAD pane to its own nearest
 volume when the active pane scrubs, with UTC scan times and offsets shown on every pane. Saved
 workspaces retain the link. Live panes continue polling their own heads; model and MRMS time
 coordination remains to be built.
@@ -284,6 +284,12 @@ Single-model global, HRRR/RAP and NBM grid overlays now carry decoded valid time
 into the existing per-layer provenance inspector. Difference and side-by-side layers also show
 their own source clocks there. The shared tolerance flags model/radar offsets; these overlays
 remain live forecasts rather than being sought to the radar archive cursor.
+Linked radar panes now retain an explicit analysis instant across focus and site changes, so
+selecting a nearby scan in another pane cannot drift the whole layout. GOES follow mode uses
+that instant for frame selection and its time-offset readout, even while a radar scan is loading.
+With GOES set to follow analysis time, stepping its frame arrows moves the shared cursor and
+seeks the radar panes; the GOES Latest button returns the linked view to live.
+MRMS and model archive seeking, and independent per-pane GOES frame caches, remain open.
 
 ### Acceptance criteria
 

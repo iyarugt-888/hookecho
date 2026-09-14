@@ -862,8 +862,8 @@ impl HookEchoApp {
             (
                 T::LinkTimes,
                 "Reference",
-                "Link pane archive times",
-                "Scrubbing one NEXRAD pane selects each other radar's nearest volume by valid time; live panes keep following their own feeds",
+                "Link pane analysis time",
+                "Radar scrubs and GOES follow-mode steps share one selected time; each NEXRAD pane seeks its nearest scan, while live panes follow their own feeds",
                 false,
             ),
             (

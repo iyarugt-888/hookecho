@@ -2762,6 +2762,7 @@ pub struct HookEchoApp {
     /// When true, all panes share the active pane's camera.
     link_cameras: bool,
     link_times: bool,
+    linked_analysis: pane_time::LinkedTimeState,
     /// The always-on-top mini-loop window is open (desktop only; see `mini_loop_viewport`).
     mini_loop: bool,
     /// The mini loop's own camera while it is open; `None` until it borrows the pane's.
@@ -3683,6 +3684,7 @@ impl HookEchoApp {
             loop_export: None,
             link_cameras: false,
             link_times: false,
+            linked_analysis: pane_time::LinkedTimeState::default(),
             mini_loop: false,
             #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
             mini_cam: None,
@@ -15338,6 +15340,7 @@ impl HookEchoApp {
         self.active = ws.active.min(self.views.len() - 1);
         self.link_cameras = ws.link_cameras;
         self.link_times = ws.link_times;
+        self.linked_analysis = pane_time::LinkedTimeState::default();
         // Overlay names this build doesn't know are skipped, same as the settings restore.
         for t in OverlayToggle::ALL {
             if t.session_only() {
@@ -15813,6 +15816,13 @@ impl HookEchoApp {
             v.timeline.seek_target = Some(t);
         } else {
             v.timeline.go_head();
+        }
+        if self.link_times {
+            self.linked_analysis.select_explicit(
+                self.active,
+                self.views[self.active].site.as_deref(),
+                time,
+            );
         }
     }
 
@@ -18819,16 +18829,19 @@ impl eframe::App for HookEchoApp {
         self.show_toasts(ctx);
 
         // Turn this frame's UI mutations into uploads/fetches before painting the map.
-        if self.link_times && self.views.len() > 1 {
+        if self.link_times && !self.views.is_empty() {
             let active = self.active.min(self.views.len() - 1);
             self.sync_pane(active, ctx);
-            self.sync_linked_pane_times();
+            if self.sync_linked_pane_times() {
+                ctx.request_repaint();
+            }
             for idx in 0..self.views.len() {
                 if idx != active {
                     self.sync_pane(idx, ctx);
                 }
             }
         } else {
+            self.linked_analysis = pane_time::LinkedTimeState::default();
             for idx in 0..self.views.len() {
                 self.sync_pane(idx, ctx);
             }
@@ -18914,10 +18927,12 @@ impl eframe::App for HookEchoApp {
                 // Which hour of imagery to ask for: the pane's own clock when it is replaying an
                 // archive, otherwise the live window ending now. GIBS keeps GeoColor about two
                 // weeks and Band 13 several months, so a replayed event usually has satellite.
-                let radar_time = self.views[self.active.min(n - 1)]
-                    .volume
-                    .as_ref()
-                    .map(|v| v.time);
+                let radar_time = self.linked_analysis_time().or_else(|| {
+                    self.views[self.active.min(n - 1)]
+                        .volume
+                        .as_ref()
+                        .map(|v| v.time)
+                });
                 let (hour, from, to) = crate::tiles::goes_window(chrono::Utc::now(), radar_time);
                 if self.goes_times_style != Some(raster_style) || self.goes_hour != hour {
                     self.goes_times_style = Some(raster_style);
@@ -18938,10 +18953,7 @@ impl eframe::App for HookEchoApp {
                 // take the satellite back with it, which is the whole reason to look at both.
                 // Stepping the GOES arrows by hand drops out of it.
                 let selected = if self.goes_follow_radar {
-                    self.views[self.active.min(n - 1)]
-                        .volume
-                        .as_ref()
-                        .map(|v| v.time)
+                    radar_time
                         .and_then(|t| nearest_goes(&self.goes_times, t))
                 } else {
                     self.goes_time_idx

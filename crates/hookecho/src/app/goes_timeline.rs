@@ -29,11 +29,11 @@ pub(super) fn nearest_goes(
 }
 
 fn offset_label(
-    radar: chrono::DateTime<chrono::Utc>,
+    analysis: chrono::DateTime<chrono::Utc>,
     imagery: chrono::DateTime<chrono::Utc>,
     tolerance: chrono::Duration,
 ) -> String {
-    let comparison = wxdata::time_align::TimeOffset::between(imagery, radar, tolerance);
+    let comparison = wxdata::time_align::TimeOffset::between(imagery, analysis, tolerance);
     let offset = crate::ui::data_inspector::offset_label(comparison.offset);
     if comparison.outside_tolerance {
         format!("⚠ {offset}")
@@ -81,12 +81,10 @@ impl HookEchoApp {
         if !active_is_timed || self.goes_times.is_empty() {
             return;
         }
-        // While following, the readout is whichever frame the radar clock picked.
+        // While following, the readout is whichever frame the selected analysis clock picked.
         let followed = self.goes_follow_radar.then(|| {
-            self.views[self.active]
-                .volume
-                .as_ref()
-                .map(|v| v.time)
+            self.linked_analysis_time()
+                .or_else(|| self.views[self.active].volume.as_ref().map(|v| v.time))
                 .and_then(|t| nearest_goes(&self.goes_times, t))
         });
         egui::Area::new(egui::Id::new("goes_time_bar"))
@@ -108,12 +106,15 @@ impl HookEchoApp {
                         };
                         ui.label("🛰 GOES:");
                         if ui
-                            .selectable_label(self.goes_follow_radar, "⟲ radar time")
-                            .on_hover_text(
-                                "Keep the satellite on the radar's clock — scrub the timeline \
-                                 and the imagery follows. If no frame is within 30 minutes, \
-                                 the latest indexed frame is shown with a time-offset warning.",
+                            .selectable_label(
+                                self.goes_follow_radar,
+                                if self.link_times { "⟲ analysis time" } else { "⟲ radar time" },
                             )
+                            .on_hover_text(if self.link_times {
+                                "Keep satellite imagery on the selected analysis time. While selected, the arrows step that shared time and linked radar panes follow. If no frame is within 30 minutes, the latest indexed frame is shown with a time-offset warning."
+                            } else {
+                                "Keep the satellite on the radar's clock — scrub the timeline and the imagery follows. If no frame is within 30 minutes, the latest indexed frame is shown with a time-offset warning."
+                            })
                             .clicked()
                         {
                             self.goes_follow_radar = !self.goes_follow_radar;
@@ -126,8 +127,14 @@ impl HookEchoApp {
                             )
                             .clicked()
                         {
-                            self.goes_follow_radar = false;
-                            self.goes_time_idx = Some(cur.saturating_sub(1));
+                            let previous = cur.saturating_sub(1);
+                            if self.link_times && self.goes_follow_radar {
+                                self.linked_analysis
+                                    .select_external(Some(self.goes_times[previous]));
+                            } else {
+                                self.goes_follow_radar = false;
+                                self.goes_time_idx = Some(previous);
+                            }
                         }
                         let label = crate::timefmt::fmt_clock(
                             self.goes_times[cur],
@@ -135,10 +142,10 @@ impl HookEchoApp {
                             false,
                         );
                         ui.monospace(label);
-                        if let Some(radar) = self.views[self.active].volume.as_ref() {
+                        if let Some(analysis_time) = self.linked_analysis_time().or_else(|| self.views[self.active].volume.as_ref().map(|volume| volume.time)) {
                             let tolerance = chrono::Duration::minutes(self.settings.time_mismatch_minutes as i64);
-                            ui.label(offset_label(radar.time, self.goes_times[cur], tolerance))
-                                .on_hover_text(format!("GOES image valid time minus the displayed radar scan time; ⚠ means outside your {}-minute layer time warning threshold.", self.settings.time_mismatch_minutes));
+                            ui.label(offset_label(analysis_time, self.goes_times[cur], tolerance))
+                                .on_hover_text(format!("GOES image valid time minus the selected analysis time; ⚠ means outside your {}-minute layer time warning threshold.", self.settings.time_mismatch_minutes));
                         }
                         if ui
                             .add_enabled(
@@ -147,9 +154,13 @@ impl HookEchoApp {
                             )
                             .clicked()
                         {
-                            self.goes_follow_radar = false;
                             let ni = cur + 1;
-                            self.goes_time_idx = if ni >= n - 1 { None } else { Some(ni) };
+                            if self.link_times && self.goes_follow_radar {
+                                self.linked_analysis.select_external(Some(self.goes_times[ni]));
+                            } else {
+                                self.goes_follow_radar = false;
+                                self.goes_time_idx = if ni >= n - 1 { None } else { Some(ni) };
+                            }
                         }
                         if ui
                             .add_enabled(
@@ -158,8 +169,12 @@ impl HookEchoApp {
                             )
                             .clicked()
                         {
-                            self.goes_follow_radar = false;
-                            self.goes_time_idx = None;
+                            if self.link_times && self.goes_follow_radar {
+                                self.linked_analysis.select_external(None);
+                            } else {
+                                self.goes_follow_radar = false;
+                                self.goes_time_idx = None;
+                            }
                         }
                     });
                 });
