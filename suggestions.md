@@ -1082,6 +1082,13 @@ Required implementation behavior:
 - visually label degraded modes when falling back to completed Level II or Level III products;
 - extend the same incremental event model to native 3D after the 2D live path is proven stable.
 
+Implemented so far: the 2D renderer retains its polar GPU texture and diffs successive binned
+sweeps by azimuth row, coalescing adjacent changed rows into one texture write. This satisfies the
+GPU upload half of the incremental path; avoiding the upstream full merged-scan clone and selected
+tilt re-bin remains CPU work to complete. Native and smooth 3D already invalidate on every accepted
+live revision, while observed 3D retains and rewrites its gate buffer rather than recreating GPU
+resources.
+
 ### Acceptance criteria
 
 - a partial live elevation can visibly update before sweep completion;

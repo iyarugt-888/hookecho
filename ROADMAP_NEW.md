@@ -421,8 +421,12 @@ Instead of waiting for a sweep/volume boundary:
   (~120 radials, a 60° wedge of super-res) rather than only on the chunk that completes a sweep.
   The emit window advances each time, so the total assembly work is about what the per-sweep path
   cost, not six times it.
-- [ ] update GPU polar texture incrementally — still a whole-texture replace per emit, and
-  `merge_scan` still deep-clones its sweeps, now ~6× more often. This is the remaining cost item.
+- [x] update GPU polar texture incrementally — `RadarGpu` retains a CPU mirror of its persistent
+  polar texture, diffs it by azimuth row, coalesces adjacent changed rows, and writes only those
+  spans. A live chunk normally becomes one texture write; a wedge crossing north becomes two.
+- [ ] stop cloning/re-binning unchanged live sweeps — `merge_scan` still deep-clones the merged
+  scan and the selected tilt is re-binned on each emit before the renderer can compute its row
+  diff. This is now the remaining CPU-side cost item.
 - [x] preserve previous sweep underneath not-yet-updated azimuths — `stitch()` keeps the older
   radial in any azimuth the new pass has not reached (bounded to 15 min) instead of replacing the
   whole tilt and blanking the unswept sectors.
@@ -454,8 +458,9 @@ Instead of waiting for a sweep/volume boundary:
 What remains is the *incremental GPU upload*: the display is now correct and honest about
 generations. The observed 3D renderer now retains its GPU buffer, LUT texture and bind group across
 live revisions and grows the buffer geometrically, so a chunk no longer recreates all of those
-resources; each emit still writes the whole gate buffer rather than only the radial range that
-actually changed. That is the remaining cost item in this section.
+resources; each observed-3D emit still writes the whole gate buffer rather than only the radial
+range that actually changed. That and the CPU-side clone/re-bin above are the remaining cost items
+in this section.
 
 ## B3. Latency dashboard — mostly done
 

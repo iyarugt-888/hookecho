@@ -489,6 +489,9 @@ struct RadarGpu {
     lut: wgpu::Texture,
     uni: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
+    /// CPU mirror of the polar texture. Live updates compare one azimuth row at a time and only
+    /// write the changed contiguous spans to `tex`.
+    data: Vec<u8>,
     /// (gate_count, az_bins) and the precipitation-flag grid size, so a later upload of the same
     /// shape writes into these textures instead of building new ones with a new bind group.
     dims: (u32, u32),
@@ -1127,10 +1130,13 @@ impl RenderResources {
         let flag_dims = flag_dims(r);
         // Same shape: write into the retained textures and keep the bind group. Dimensions are
         // the only thing a bind group depends on here, so nothing else can go stale.
-        if let Some(g) = existing {
+        if let Some(mut g) = existing {
             if g.dims == (r.gate_count, r.az_bins) && g.flag_dims == flag_dims {
                 if !r.lut_only {
-                    write_r8(queue, &g.tex, g.dims, &r.data);
+                    for rows in changed_row_ranges(&g.data, &r.data, r.gate_count as usize) {
+                        write_r8_rows(queue, &g.tex, g.dims, &r.data, rows);
+                    }
+                    g.data.clone_from(&r.data);
                     write_r8(queue, &g.flag, g.flag_dims, &flag_bytes(r, g.flag_dims));
                 }
                 queue.write_buffer(&g.uni, 0, bytemuck::cast_slice(&r.uniform));
@@ -1277,6 +1283,7 @@ impl RenderResources {
             lut: lut_tex,
             uni,
             bind_group,
+            data: r.data.clone(),
             dims: (r.gate_count, r.az_bins),
             flag_dims,
         })
@@ -1993,9 +2000,40 @@ fn ancestor_uv(x: u32, y: u32, up: u8) -> ([f32; 2], [f32; 2]) {
     ([fx, fy], [fx + 1.0 / n, fy + 1.0 / n])
 }
 
+/// Contiguous azimuth-row spans whose gate bytes differ. A mechanically scanned live chunk is
+/// normally one span; a wedge crossing north produces two. Coalescing rows keeps the number of
+/// queue writes bounded without uploading unchanged sectors.
+fn changed_row_ranges(old: &[u8], new: &[u8], row_width: usize) -> Vec<std::ops::Range<usize>> {
+    if row_width == 0 || new.is_empty() {
+        return Vec::new();
+    }
+    let rows = new.len() / row_width;
+    if old.len() != new.len() || new.len() % row_width != 0 {
+        return std::iter::once(0..rows).collect();
+    }
+    let mut ranges = Vec::new();
+    let mut start = None;
+    for row in 0..rows {
+        let at = row * row_width;
+        let changed = old[at..at + row_width] != new[at..at + row_width];
+        match (start, changed) {
+            (None, true) => start = Some(row),
+            (Some(from), false) => {
+                ranges.push(from..row);
+                start = None;
+            }
+            _ => {}
+        }
+    }
+    if let Some(from) = start {
+        ranges.push(from..rows);
+    }
+    ranges
+}
+
 #[cfg(test)]
 mod tests {
-    use super::ancestor_uv;
+    use super::{ancestor_uv, changed_row_ranges};
 
     #[test]
     fn ancestor_uv_picks_the_right_quadrant() {
@@ -2009,6 +2047,21 @@ mod tests {
         let (min, max) = ancestor_uv(7, 7, 3);
         assert_eq!(min, [0.875, 0.875]);
         assert_eq!(max, [1.0, 1.0]);
+    }
+
+    #[test]
+    fn live_texture_diff_coalesces_changed_azimuth_rows() {
+        let old = vec![0u8; 8 * 10];
+        let mut new = old.clone();
+        for row in 2..5 {
+            new[row * 8 + 3] = 1;
+        }
+        for row in 8..10 {
+            new[row * 8 + 7] = 2;
+        }
+        assert_eq!(changed_row_ranges(&old, &new, 8), vec![2..5, 8..10]);
+        assert!(changed_row_ranges(&new, &new, 8).is_empty());
+        assert_eq!(changed_row_ranges(&old[..40], &new, 8), vec![0..10]);
     }
 }
 
@@ -2049,6 +2102,46 @@ fn write_r8(queue: &wgpu::Queue, tex: &wgpu::Texture, dims: (u32, u32), data: &[
         wgpu::Extent3d {
             width,
             height,
+            depth_or_array_layers: 1,
+        },
+    );
+}
+
+/// Write only `rows` from a row-major R8 texture mirror.
+fn write_r8_rows(
+    queue: &wgpu::Queue,
+    tex: &wgpu::Texture,
+    dims: (u32, u32),
+    data: &[u8],
+    rows: std::ops::Range<usize>,
+) {
+    let (width, height) = dims;
+    let end = rows.end.min(height as usize);
+    if rows.start >= end {
+        return;
+    }
+    let start_byte = rows.start * width as usize;
+    let end_byte = end * width as usize;
+    queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture: tex,
+            mip_level: 0,
+            origin: wgpu::Origin3d {
+                x: 0,
+                y: rows.start as u32,
+                z: 0,
+            },
+            aspect: wgpu::TextureAspect::All,
+        },
+        &data[start_byte..end_byte],
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(width),
+            rows_per_image: Some((end - rows.start) as u32),
+        },
+        wgpu::Extent3d {
+            width,
+            height: (end - rows.start) as u32,
             depth_or_array_layers: 1,
         },
     );
