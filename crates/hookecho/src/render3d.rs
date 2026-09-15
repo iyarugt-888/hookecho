@@ -217,6 +217,154 @@ pub fn cc_anomaly_uniform(
     ]
 }
 
+/// This tilt's beam altitude (m, antenna-relative before `antenna_altitude_m` is added) at
+/// ground range `ground_km` — the CPU mirror of `radar_observed.wgsl`'s `beam_world`, which is
+/// also the function [`pick_observed_tilt`] inverts. Kept in lock-step with the shader on purpose:
+/// see that function's own comment for why only the earth-curvature half of the rise is
+/// exaggerated and the flat-earth angle half never is.
+fn tilt_altitude_m(ground_km: f64, elevation_deg: f32, vertical_exaggeration: f64) -> f64 {
+    let slant_km = wxdata::xsection::slant_from_ground_km(ground_km, elevation_deg as f64);
+    let angle_height_m = slant_km * 1_000.0 * (elevation_deg as f64).to_radians().sin();
+    let true_height_m = wxdata::xsection::beam_height_km(slant_km, elevation_deg as f64) * 1_000.0;
+    let curvature_height_m = true_height_m - angle_height_m;
+    angle_height_m + curvature_height_m * vertical_exaggeration
+}
+
+/// How many `t` samples to scan for a sign change before bisecting.
+const PICK_SAMPLES: usize = 400;
+/// Bisection refinements once a crossing is bracketed — 24 halvings of even the widest bracket
+/// narrows it to sub-metre `t` resolution.
+const PICK_BISECT_STEPS: u32 = 24;
+/// `t = 1` is the far clip plane by construction (`Camera::screen_ray` unprojects clip-space
+/// `z = -1`/`+1` to get the near/far points `screen_ray` returns), and `view_projection` sets that
+/// plane at 40x the camera's own distance from the ground — deliberately generous headroom for the
+/// raymarched volume, not a distance real radar coverage (≤ ~460 km) ever approaches. Scanning is
+/// bounded at exactly 1 rather than beyond it: nothing past the far plane is ever rendered, so
+/// nothing past it can be what a click was aiming at.
+const PICK_T_MAX: f32 = 1.0;
+/// Sample spacing is `t = PICK_T_MAX * (i / PICK_SAMPLES) ^ PICK_SAMPLE_POWER` rather than linear:
+/// real content sits within a small fraction of `t`'s full 0..1 range (the far plane's 40x
+/// headroom means a target at even the maximum real radar range can correspond to `t` under 0.05),
+/// so linear sampling spent the vast majority of its budget scanning empty space beyond any tilt's
+/// actual surface. A power curve concentrates samples near the camera, where the content is,
+/// without needing to know the camera's exact distance to pick a tighter bound up front.
+const PICK_SAMPLE_POWER: f32 = 4.0;
+
+/// Which tilt (and where) a 3D click on the Observed radar volume actually lands on, by casting
+/// the click ray against each tilt's own beam-height surface — the same geometry
+/// `radar_observed.wgsl`'s `beam_world` places every gate on — instead of the map's flat ground
+/// plane. A ground-plane click resolves to the same point no matter how high up the
+/// visually-clicked echo actually sits, which is why a 3D gate-inspector click used to report
+/// whatever tilt was already selected for the flat 2D view, regardless of what the user actually
+/// clicked on.
+///
+/// Returns the index into `elevations_deg` (lowest-scanned-first, matching `MapView::elevations`)
+/// of the tilt closest to the camera along the ray, and the ground `(lon, lat)` under that hit —
+/// `None` when the ray doesn't cross any tilt's surface at all (a click past the radar's coverage,
+/// or on empty sky above every tilt).
+#[allow(clippy::too_many_arguments)]
+pub fn pick_observed_tilt(
+    camera: &crate::render::mercator::Camera,
+    px: (f32, f32),
+    viewport_px: (f32, f32),
+    radar_lon: f64,
+    radar_lat: f64,
+    antenna_altitude_m: f64,
+    vertical_exaggeration: f64,
+    elevations_deg: &[f32],
+) -> Option<(usize, f64, f64)> {
+    let (near, dir) = camera.screen_ray(px, viewport_px)?;
+    pick_along_ray(
+        near,
+        dir,
+        camera.center,
+        camera.world_per_pixel(),
+        radar_lon,
+        radar_lat,
+        antenna_altitude_m,
+        vertical_exaggeration,
+        elevations_deg,
+    )
+}
+
+/// [`pick_observed_tilt`]'s geometry, taking the click ray directly rather than unprojecting it
+/// from a screen pixel and camera — split out so the root-finding itself is testable against a
+/// hand-built ray, without also having to construct a perspective camera whose particular pitch,
+/// bearing and zoom don't happen to put the ray somewhere geometrically adversarial (grazing the
+/// radar at a shallow angle, or genuinely passing behind a nearer tilt that legitimately occludes
+/// the one under test — both real, both irrelevant to whether this function's own arithmetic is
+/// right).
+#[allow(clippy::too_many_arguments)]
+fn pick_along_ray(
+    near: Vec3,
+    dir: Vec3,
+    camera_center: (f64, f64),
+    wpp: f64,
+    radar_lon: f64,
+    radar_lat: f64,
+    antenna_altitude_m: f64,
+    vertical_exaggeration: f64,
+    elevations_deg: &[f32],
+) -> Option<(usize, f64, f64)> {
+    let metres_to_px = crate::render::mercator::Camera::world_units_per_metre(radar_lat) / wpp;
+
+    // Ground range (km) from the radar and altitude (m) above it, at ray parameter `t`, plus the
+    // (lon, lat) under that point — computed together since every candidate needs at least two of
+    // the three and the lon/lat is only needed once, for whichever `t` wins.
+    let at = |t: f32| -> (f64, f64, f64, f64) {
+        let p = near + dir * t;
+        let world = (
+            (camera_center.0 + p.x as f64 * wpp).rem_euclid(1.0),
+            camera_center.1 - p.y as f64 * wpp,
+        );
+        let (lon, lat) = crate::render::mercator::world_to_lonlat(world.0, world.1);
+        let (ground_km, _) = crate::geo::great_circle([radar_lon, radar_lat], [lon, lat]);
+        let altitude_m = p.z as f64 / metres_to_px;
+        (ground_km, altitude_m, lon, lat)
+    };
+    // `f(t)` for one candidate tilt: positive above its beam surface, negative below.
+    let f = |t: f32, elevation_deg: f32| -> f64 {
+        let (ground_km, altitude_m, ..) = at(t);
+        altitude_m - antenna_altitude_m
+            - tilt_altitude_m(ground_km, elevation_deg, vertical_exaggeration)
+    };
+
+    let mut best: Option<(f32, usize)> = None;
+    for (i, &elevation_deg) in elevations_deg.iter().enumerate() {
+        let mut prev_t = 0.0f32;
+        let mut prev_f = f(prev_t, elevation_deg);
+        for step in 1..=PICK_SAMPLES {
+            let t =
+                PICK_T_MAX * (step as f32 / PICK_SAMPLES as f32).powf(PICK_SAMPLE_POWER);
+            let cur_f = f(t, elevation_deg);
+            if prev_f.is_finite() && cur_f.is_finite() && prev_f.signum() != cur_f.signum() {
+                let (mut lo, mut hi, mut flo) = (prev_t, t, prev_f);
+                for _ in 0..PICK_BISECT_STEPS {
+                    let mid = (lo + hi) * 0.5;
+                    let fmid = f(mid, elevation_deg);
+                    if fmid.signum() == flo.signum() {
+                        lo = mid;
+                        flo = fmid;
+                    } else {
+                        hi = mid;
+                    }
+                }
+                let hit_t = (lo + hi) * 0.5;
+                if best.is_none_or(|(best_t, _)| hit_t < best_t) {
+                    best = Some((hit_t, i));
+                }
+                break; // this tilt's nearest crossing only — a farther one is occluded by this one
+            }
+            prev_t = t;
+            prev_f = cur_f;
+        }
+    }
+
+    let (hit_t, tilt) = best?;
+    let (_, _, lon, lat) = at(hit_t);
+    Some((tilt, lon, lat))
+}
+
 struct Gpu {
     _tex: wgpu::Texture,
     _lut: wgpu::Texture,
@@ -991,5 +1139,209 @@ mod plane_tests {
         assert!((ny - 1.0).abs() < 1e-5);
         // The plane through the (shifted) center: d = normal . center = 1*3 = 3.
         assert!((d - 3.0).abs() < 1e-5, "d: {d}");
+    }
+}
+
+#[cfg(test)]
+mod pick_tests {
+    use super::*;
+    use crate::render::mercator::Camera;
+    use glam::Vec4;
+
+    /// Forward transform mirroring `radar_observed.wgsl`'s `beam_world`, in the same local
+    /// pixel/metre-preserving coordinate system [`pick_observed_tilt`] works in. Used only to
+    /// build a known point for the round-trip tests below — [`pick_observed_tilt`] must recover
+    /// exactly what this places.
+    #[allow(clippy::too_many_arguments)]
+    fn beam_world_local(
+        camera: &Camera,
+        radar_lon: f64,
+        radar_lat: f64,
+        antenna_altitude_m: f64,
+        vertical_exaggeration: f64,
+        bearing_deg: f64,
+        ground_km: f64,
+        elevation_deg: f32,
+    ) -> Vec3 {
+        let [lon, lat] =
+            crate::geo::destination_point([radar_lon, radar_lat], bearing_deg, ground_km);
+        let world = crate::render::mercator::lonlat_to_world(lon, lat);
+        let wpp = camera.world_per_pixel();
+        let mut dx = world.0 - camera.center.0;
+        dx -= (dx + 0.5).floor(); // wrap to (-0.5, 0.5], matching `beam_world`'s own wrap
+        let dy = world.1 - camera.center.1;
+        let metres_to_px = Camera::world_units_per_metre(radar_lat) / wpp;
+        let altitude_m =
+            antenna_altitude_m + tilt_altitude_m(ground_km, elevation_deg, vertical_exaggeration);
+        Vec3::new(
+            (dx / wpp) as f32,
+            (-dy / wpp) as f32,
+            (altitude_m * metres_to_px) as f32,
+        )
+    }
+
+    /// Where `beam_world_local`'s point actually lands on screen — the same clip-space ->
+    /// viewport-pixel conversion `Camera::world_to_screen`'s 3D branch does, generalized to a
+    /// point that isn't pinned to the ground (`z = 0`) the way a map label always is.
+    fn project(camera: &Camera, viewport_px: (f32, f32), point: Vec3) -> Option<(f32, f32)> {
+        let clip = camera.view_projection(viewport_px) * Vec4::new(point.x, point.y, point.z, 1.0);
+        if clip.w <= f32::EPSILON {
+            return None; // behind the camera
+        }
+        let ndc = clip.truncate() / clip.w;
+        Some((
+            (ndc.x + 1.0) * viewport_px.0 * 0.5,
+            (1.0 - ndc.y) * viewport_px.1 * 0.5,
+        ))
+    }
+
+    fn test_camera() -> Camera {
+        // Zoom 8 (a typical *2D* metro-area zoom) puts the 3D camera's own altitude at ~360 km
+        // real-world — the tilts under test differ by a few km at most, so that's most of a
+        // scene's depth spent on a needle nobody asked to find. Zoom 12 is closer to what a
+        // pitched storm-scale view actually uses, bringing the camera down to ~20 km: still well
+        // above any tilt, but by a margin the geometry can resolve cleanly.
+        let mut cam = Camera::at_lonlat(-97.5, 35.3, 12.0);
+        cam.pitch = 45.0;
+        cam.bearing = 0.0;
+        cam
+    }
+
+    /// The whole point of `pick_observed_tilt`: given the exact screen pixel a known point on one
+    /// specific tilt's beam surface projects to, it has to recover *that* tilt (not whichever one
+    /// happened to be selected for the flat 2D view) and a ground position close to the real one.
+    #[test]
+    fn recovers_the_tilt_and_ground_position_a_known_point_was_placed_at() {
+        let camera = test_camera();
+        let viewport = (800.0, 600.0);
+        let (radar_lon, radar_lat) = (-97.5, 35.3);
+        let (antenna_altitude_m, vertical_exaggeration) = (400.0, 3.0);
+        let elevations = [1.8f32];
+        let (bearing_deg, ground_km, tilt_idx) = (0.0, 40.0, 0);
+
+        let point = beam_world_local(
+            &camera,
+            radar_lon,
+            radar_lat,
+            antenna_altitude_m,
+            vertical_exaggeration,
+            bearing_deg,
+            ground_km,
+            elevations[tilt_idx],
+        );
+        let px = project(&camera, viewport, point).expect("point should be in front of the camera");
+
+        let (picked_tilt, lon, lat) = pick_observed_tilt(
+            &camera,
+            px,
+            viewport,
+            radar_lon,
+            radar_lat,
+            antenna_altitude_m,
+            vertical_exaggeration,
+            &elevations,
+        )
+        .expect("the ray should cross the known tilt's beam surface");
+
+        assert_eq!(picked_tilt, tilt_idx);
+        let [expect_lon, expect_lat] =
+            crate::geo::destination_point([radar_lon, radar_lat], bearing_deg, ground_km);
+        let (drift_km, _) = crate::geo::great_circle([expect_lon, expect_lat], [lon, lat]);
+        assert!(drift_km < 0.5, "picked ({lon}, {lat}), expected near ({expect_lon}, {expect_lat}), drift {drift_km} km");
+    }
+
+    /// A steeper tilt's beam is *always* higher than a shallower one's at the same ground range —
+    /// its height grows faster with range from the same antenna, and the two curves only meet at
+    /// range zero — so a ray dropping straight down onto a point on the shallow tilt's cone
+    /// necessarily passes through the steep tilt's cone first. That is exactly what a z-buffered
+    /// render would show (the steep tilt's gates in front, hiding the shallow ones behind them,
+    /// unless one layer is pulled clear of the stack — `radar_observed.wgsl`'s `pull_m`, not
+    /// modeled here) — so the crossing nearer the camera has to win regardless of which tilt a
+    /// caller was aiming for. This is the property the "nearest crossing wins" logic exists for;
+    /// pinning it down here means a future change that broke it (e.g. always preferring the first
+    /// tilt in the list) would fail loudly rather than merely stop matching the real render.
+    #[test]
+    fn when_two_tilts_cross_the_same_ray_the_one_nearer_the_camera_wins() {
+        let (radar_lon, radar_lat) = (-97.5, 35.3);
+        let (antenna_altitude_m, vertical_exaggeration) = (400.0, 3.0);
+        let elevations = [0.5f32, 4.5]; // steep (index 1) must win every time below
+        let wpp = 1.0e-5; // an arbitrary, realistic-scale world-per-pixel
+        let metres_to_px = Camera::world_units_per_metre(radar_lat) / wpp;
+        let camera_center = (0.5, 0.5); // arbitrary; only the offset from it matters here
+
+        for ground_km in [3.0, 10.0, 60.0] {
+            let shallow_altitude_m =
+                antenna_altitude_m + tilt_altitude_m(ground_km, elevations[0], vertical_exaggeration);
+            let [lon, lat] = crate::geo::destination_point([radar_lon, radar_lat], 0.0, ground_km);
+            let world = crate::render::mercator::lonlat_to_world(lon, lat);
+            let mut dx = world.0 - camera_center.0;
+            dx -= (dx + 0.5).floor();
+            let dy = world.1 - camera_center.1;
+            let xy = Vec3::new((dx / wpp) as f32, (-dy / wpp) as f32, 0.0);
+            // A vertical ray straight down through this ground column, starting 5 km above the
+            // shallow tilt's own point — comfortably above both cones at every range tested.
+            let near = Vec3::new(
+                xy.x,
+                xy.y,
+                ((shallow_altitude_m + 5_000.0) * metres_to_px) as f32,
+            );
+            // `t` only ranges 0..=1 (`PICK_T_MAX`), so the direction vector — not just its sign —
+            // has to carry the whole descent: a unit vector would move the ray a single local
+            // unit over that whole range, nowhere near the ~15 unit drop needed to clear both
+            // cones and reach the ground at this `metres_to_px` scale.
+            let dir = Vec3::new(0.0, 0.0, -near.z * 2.0);
+
+            let (tilt, ..) = pick_along_ray(
+                near,
+                dir,
+                camera_center,
+                wpp,
+                radar_lon,
+                radar_lat,
+                antenna_altitude_m,
+                vertical_exaggeration,
+                &elevations,
+            )
+            .expect("a straight drop from above should cross the steep tilt's cone");
+            assert_eq!(tilt, 1, "at ground_km={ground_km}");
+        }
+    }
+
+    /// A click on empty sky above every tilt's beam surface finds nothing — it must not silently
+    /// fall back to some default tilt, which would be exactly the bug this function replaces.
+    #[test]
+    fn a_click_above_every_tilt_finds_nothing() {
+        let (radar_lon, radar_lat) = (-97.5, 35.3);
+        let (antenna_altitude_m, vertical_exaggeration) = (400.0, 3.0);
+        let elevations = [0.5f32, 0.9, 1.8];
+        let wpp = 1.0e-5;
+        let metres_to_px = Camera::world_units_per_metre(radar_lat) / wpp;
+        // 10 km out, where the steepest tilt tested (1.8°) is still only a few hundred metres up
+        // — nowhere near this ray, which stays between 20 and 50 km altitude the whole way and
+        // never approaches the ground at all.
+        let [lon, lat] = crate::geo::destination_point([radar_lon, radar_lat], 0.0, 10.0);
+        let camera_center = crate::render::mercator::lonlat_to_world(radar_lon, radar_lat);
+        let world = crate::render::mercator::lonlat_to_world(lon, lat);
+        let mut dx = world.0 - camera_center.0;
+        dx -= (dx + 0.5).floor();
+        let dy = world.1 - camera_center.1;
+        let near = Vec3::new(
+            (dx / wpp) as f32,
+            (-dy / wpp) as f32,
+            (50_000.0 * metres_to_px) as f32,
+        );
+        let dir = Vec3::new(0.0, 0.0, (-30_000.0 * metres_to_px) as f32);
+        assert!(pick_along_ray(
+            near,
+            dir,
+            camera_center,
+            wpp,
+            radar_lon,
+            radar_lat,
+            antenna_altitude_m,
+            vertical_exaggeration,
+            &elevations,
+        )
+        .is_none());
     }
 }

@@ -8,6 +8,25 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: the Gate Inspector always reported the 2D-selected tilt in the 3D map view
+
+Reported live: in the pitched "Observed" 3D view, which draws several tilts stacked at once,
+clicking any of them with the Gate Inspector always reported the same elevation angle — whatever
+tilt happened to be selected back in the flat 2D picker — no matter which one was actually under
+the cursor. The click itself was never 3D: it only ever intersected the ground plane at `z = 0`,
+then sampled the pane's `v.tilt` at whatever ground point that landed on, discarding the height the
+user actually clicked at entirely.
+
+A real click now casts a ray against each tilt's own beam-height surface — the exact geometry
+`radar_observed.wgsl`'s `beam_world` places every gate on — and reports whichever surface is
+nearest the camera along that ray, the same tilt a z-buffered render would actually show there
+(`render3d::pick_observed_tilt`). A steeper tilt legitimately does occlude a farther, shallower one
+under the same line of sight from a downward-looking camera — that's real geometry, not a bug, and
+the picker matches it rather than fighting it. Verified live against a real volume (reported
+elevation tracked the click, distinct from the 2D tilt picker's own selection) and with a
+round-trip unit test that places a known point on a known tilt's surface and confirms the picker
+recovers it.
+
 ### Added: an animated live-sweep indicator on the scrubber's Live badge
 
 Next to the "Live" badge, while a chunk stream is actually updating the pane: a small ring showing

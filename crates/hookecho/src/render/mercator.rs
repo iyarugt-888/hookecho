@@ -216,7 +216,16 @@ impl Camera {
         )
     }
 
-    fn screen_to_ground(&self, px: (f32, f32), viewport_px: (f32, f32)) -> Option<(f64, f64)> {
+    /// The click ray in the local pixel/metre-preserving coordinate system 3D radar geometry
+    /// uses — the same one [`Self::view_projection`]'s own doc comment describes, and the one
+    /// `radar_observed.wgsl`'s `beam_world` places gates in. A point on the ray (`near`, at the
+    /// near clip plane) plus its direction (`far - near`); `None` when the screen point is
+    /// degenerate (behind the camera, or the matrix isn't invertible there).
+    ///
+    /// Split out of [`Self::screen_to_ground`] so a caller that needs more than "where does this
+    /// ray cross the ground" — [`crate::render3d::pick_observed_tilt`] crosses it against each
+    /// tilt's own beam-height surface instead — doesn't have to re-derive the unprojection.
+    pub fn screen_ray(&self, px: (f32, f32), viewport_px: (f32, f32)) -> Option<(Vec3, Vec3)> {
         let x = px.0 / viewport_px.0.max(1.0) * 2.0 - 1.0;
         let y = 1.0 - px.1 / viewport_px.1.max(1.0) * 2.0;
         let inv = self.view_projection(viewport_px).inverse();
@@ -227,7 +236,11 @@ impl Camera {
         }
         let near = near4.truncate() / near4.w;
         let far = far4.truncate() / far4.w;
-        let ray = far - near;
+        Some((near, far - near))
+    }
+
+    fn screen_to_ground(&self, px: (f32, f32), viewport_px: (f32, f32)) -> Option<(f64, f64)> {
+        let (near, ray) = self.screen_ray(px, viewport_px)?;
         if ray.z.abs() <= 1e-6 {
             return None;
         }

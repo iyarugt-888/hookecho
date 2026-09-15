@@ -6630,15 +6630,21 @@ impl HookEchoApp {
     }
 
     /// Phase B4's gate inspector: everything about the point at `(lon, lat)` on the active pane's
-    /// currently displayed moment/tilt, or `None` when there is no volume here, this moment has
-    /// no data on this tilt, or the point falls outside the sweep's coverage (past its last
-    /// gate). Synchronous and local — unlike `fetch_sounding`/`query_climatology`, nothing here
-    /// reaches the network: the volume this samples is already decoded and on screen.
+    /// currently displayed moment, or `None` when there is no volume here, this moment has no
+    /// data on this tilt, or the point falls outside the sweep's coverage (past its last gate).
+    /// Synchronous and local — unlike `fetch_sounding`/`query_climatology`, nothing here reaches
+    /// the network: the volume this samples is already decoded and on screen.
+    ///
+    /// `tilt_override`, when given, samples that tilt index instead of the pane's own selected
+    /// `v.tilt` — the 3D map-pitch view can show several tilts stacked in one frame, so a click
+    /// there names a specific tilt via [`crate::render3d::pick_observed_tilt`] rather than always
+    /// meaning whichever one the 2D tilt picker happens to have selected.
     fn inspect_gate(
         &mut self,
         idx: usize,
         lon: f64,
         lat: f64,
+        tilt_override: Option<usize>,
     ) -> Option<ui::gate_inspector::GateInspectorPopup> {
         let v = &mut self.views[idx];
         let site = v.site.clone();
@@ -6647,7 +6653,7 @@ impl HookEchoApp {
             .and_then(wxdata::sites::site_by_id)
             .map(|site| site.elevation_meters as f64 + wxdata::towers::tower_m(site.id));
         let moment = v.moment;
-        let tilt = v.tilt;
+        let tilt = tilt_override.unwrap_or(v.tilt);
         let (scan, vcp, elevation_deg) = {
             let vol = v.volume.as_ref()?;
             (
@@ -12485,7 +12491,37 @@ impl HookEchoApp {
                         self.cell_popup = None;
                         self.warning_popup = None;
                         self.detail = None;
-                        self.gate_popup = self.inspect_gate(idx, lon, lat);
+                        // The map-pitch 3D view can show several tilts stacked in one frame, so a
+                        // click there is a real 3D pick against each tilt's own beam-height
+                        // surface — see `render3d::pick_observed_tilt`'s doc comment for why a
+                        // flat ground-plane click (what `lon`/`lat` above already are) cannot
+                        // tell those tilts apart. `SmoothVolume`/`SmoothDebris`/
+                        // `SmoothSpectrumWidth` are a resampled Cartesian grid, not discrete
+                        // tilts, so this only applies to `ObservedSweeps`.
+                        let picked_3d = (self.views[idx].map_3d.enabled
+                            && self.views[idx].map_3d.representation
+                                == crate::view::Map3dRepresentation::ObservedSweeps)
+                            .then(|| {
+                                let v = &self.views[idx];
+                                let site = v.site.as_deref().and_then(wxdata::sites::site_by_id)?;
+                                let elevations = &v.volume.as_ref()?.elevations;
+                                crate::render3d::pick_observed_tilt(
+                                    &cam,
+                                    px,
+                                    vp,
+                                    site.longitude as f64,
+                                    site.latitude as f64,
+                                    site.elevation_meters as f64 + wxdata::towers::tower_m(site.id),
+                                    v.map_3d.vertical_exaggeration as f64,
+                                    elevations,
+                                )
+                            })
+                            .flatten();
+                        let (gate_lon, gate_lat, tilt) = match picked_3d {
+                            Some((tilt, plon, plat)) => (plon, plat, Some(tilt)),
+                            None => (lon, lat, None),
+                        };
+                        self.gate_popup = self.inspect_gate(idx, gate_lon, gate_lat, tilt);
                     }
                     MapTool::RadarSuitability => {
                         self.cell_popup = None;
