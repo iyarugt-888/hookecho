@@ -3616,6 +3616,149 @@ mod golden_tests {
         );
     }
 
+    /// The observed-gate 3D renderer retains its GPU instance buffer, LUT and bind group across
+    /// live revisions instead of tearing them down every chunk (ROADMAP_NEW B2's remaining
+    /// "incremental GPU upload" item — this is the observed-3D half of it). A live sweep grows a
+    /// wedge at a time and can later shrink to a fresh, smaller partial tilt; both have to render
+    /// correctly out of the *same* retained, geometrically-grown buffer. A stale tail past the new
+    /// instance count leaking onto screen is exactly the class of bug this catches and a unit test
+    /// on the Rust side cannot: the bug would live in what the draw call reads off the GPU buffer,
+    /// not in what Rust wrote to it.
+    ///
+    /// Run with `HOOKECHO_GPU_FALLBACK=1 cargo test -p hookecho -- --ignored gpu`.
+    #[test]
+    #[ignore = "gpu"]
+    fn retained_observed_buffer_grows_and_shrinks_correctly_across_uploads() {
+        use crate::render::ObservedGateInstance;
+        use crate::view::MAX_HIGHLIGHTED_LAYERS;
+
+        let (radar_lon, radar_lat) = (-97.0f32, 35.0f32);
+        let lut: Vec<u8> = (0..256).flat_map(|_| [255u8, 255, 255, 255]).collect();
+        // Each radial gets 40 range gates, matching the CC-anomaly test's own geometry — proven
+        // there to paint a reliably countable patch at this camera/zoom.
+        let wedge = |az0: f32, radials: usize| -> Vec<ObservedGateInstance> {
+            (0..radials)
+                .flat_map(|k| {
+                    (0..40).map(move |g| ObservedGateInstance {
+                        polar: [az0 + k as f32, 1.2, 8.0 + g as f32, 1.0],
+                        data: [0.5, 255.0, g as f32, 0.0],
+                    })
+                })
+                .collect()
+        };
+
+        let camera = Camera::at_lonlat(radar_lon as f64, radar_lat as f64, 8.0);
+        let (center, scale) =
+            camera.world_to_clip_uniform((GOLDEN_SIZE as f32, GOLDEN_SIZE as f32));
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let Ok((device, queue, _adapter)) = init_gpu(&rt) else {
+            println!("SKIP: no wgpu adapter");
+            return;
+        };
+        let format = wgpu::TextureFormat::Rgba8UnormSrgb;
+        let mut res = RenderResources::new(&device, format);
+        let target = new_target(&device, format, GOLDEN_SIZE);
+        let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+        let uniform = crate::app::observed_uniform(
+            [
+                radar_lat,
+                radar_lon,
+                0.0,
+                1.0, // vertical exaggeration
+                1.0, // opacity
+                2.0, // threshold index: draw everything
+                Camera::world_units_per_metre(radar_lat as f64) as f32,
+                0.0, // srv off
+                0.0,
+                0.0,
+                0.5, // min elevation
+            ],
+            [0.0; 4],
+            [f32::NEG_INFINITY; MAX_HIGHLIGHTED_LAYERS],
+        );
+        let mut render = |instances: Vec<ObservedGateInstance>| {
+            let cb = MapCallback {
+                pane: 0,
+                camera_center: center,
+                camera_scale: scale,
+                world_per_pixel: camera.world_per_pixel() as f32,
+                camera_view_proj: camera
+                    .view_projection_uniform((GOLDEN_SIZE as f32, GOLDEN_SIZE as f32)),
+                camera_3d: 1.0,
+                basemap_key: 0,
+                vector_over_raster: false,
+                new_tiles: Vec::new(),
+                visible: Vec::new(),
+                radar_upload: None,
+                draw_radar: false,
+                observed_upload: Some(crate::render::ObservedSweepUpload {
+                    instances,
+                    uniform,
+                    lut: lut.clone(),
+                }),
+                draw_observed: true,
+                overlay_upload: None,
+                draw_overlay: false,
+                field_uploads: Vec::new(),
+                field_draws: Vec::new(),
+                clear_tiles: false,
+                drop_tiles: Vec::new(),
+                drop_fields: Vec::new(),
+                new_vector_tiles: Vec::new(),
+                visible_vector: Vec::new(),
+                clear_vector: false,
+                drop_vector_tiles: Vec::new(),
+                wind_upload: None,
+                wind: None,
+            };
+            res.render_once(&device, &queue, &view, &cb, wgpu::Color::BLACK);
+            read_target(&device, &queue, &target, GOLDEN_SIZE)
+        };
+
+        let n = GOLDEN_SIZE as usize;
+        let bright_px = |px: &[u8], east: bool| -> usize {
+            (0..n)
+                .flat_map(|y| (0..n).map(move |x| (x, y)))
+                .filter(|&(x, _)| (x > n / 2) == east)
+                .filter(|&(x, y)| px[(y * n + x) * 4] > 200)
+                .count()
+        };
+
+        // Pass 1: east wedge only — a fresh buffer, comfortably under its reserved power-of-two
+        // capacity (15 radials x 40 gates x 32 bytes = 19,200, reserved to the next power of two,
+        // 32,768) so the next upload can grow into this same allocation rather than reallocating.
+        let a = render(wedge(60.0, 15));
+        let (east_a, west_a) = (bright_px(&a, true), bright_px(&a, false));
+        assert!(east_a > 500, "east wedge did not draw: {east_a} px");
+        assert_eq!(west_a, 0, "nothing scanned west yet: {west_a} px");
+
+        // Pass 2: the sweep has grown — east plus a newly-scanned west wedge. 25 radials x 40 x 32
+        // = 32,000 bytes, still within pass 1's 32,768-byte capacity: this must reuse the retained
+        // buffer, not rebuild it.
+        let mut grown = wedge(60.0, 15);
+        grown.extend(wedge(240.0, 10));
+        let b = render(grown);
+        let (east_b, west_b) = (bright_px(&b, true), bright_px(&b, false));
+        assert!(
+            east_b > 500 && west_b > 300,
+            "grown sweep should draw both wedges: {east_b}/{west_b}"
+        );
+
+        // Pass 3: a fresh, smaller partial tilt — west only. The retained buffer's tail still
+        // physically holds pass 2's east bytes; if the draw call ever read past the new instance
+        // count instead of stopping at it, the east wedge would still show up here.
+        let c = render(wedge(240.0, 8));
+        let (east_c, west_c) = (bright_px(&c, true), bright_px(&c, false));
+        assert_eq!(
+            east_c, 0,
+            "shrinking must not leak the retained buffer's stale tail: {east_c} px"
+        );
+        assert!(west_c > 200, "the new, smaller west wedge should still draw: {west_c} px");
+    }
+
     /// The generation mask has to survive all the way to the framebuffer, and it has to land on
     /// the right side of the display. A unit test on `previous_pass_arc` proves the arc is
     /// computed correctly; only a render proves the shader dims *that* wedge and not its mirror

@@ -8,6 +8,55 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: suite-wide search commands, and 3D now tracks a live sweep chunk by chunk
+
+Picking up mid-flight work: scoped search prefixes (`station KTLX`, `site `, `tool `), typed
+timeline commands (`time 21:30Z`, `at 2026-09-14 03:00`, `goto live`), and a search-context label
+("Radar station · KTLX", "Timeline · Seek timeline to...") on each result row so a broad query's
+results are legible at a glance. The ribbon's new "Search all" pill (and Ctrl+K) opens the same
+search always scoped to everything, regardless of whether the panel was last left on the Active
+list or inside a category.
+
+The bigger piece: both 3D representations — Observed and the resampled Smooth/Debris volume — now
+track a live sweep as it fills in, not just when a tilt or the whole volume completes. Every
+accepted merged chunk advances a per-pane revision counter that is part of each 3D upload's cache
+key, so a new wedge inside a tilt already on screen, or a repeated SAILS/MRLE low-level cut,
+invalidates and rebuilds 3D even though the volume's name and tilt count haven't changed — this is
+the "level 2 live sweep, shown in 3D as it comes in" work suggestions.md and ROADMAP_NEW B2 asked
+for on the observed-3D side.
+
+Verified live end to end: pointed a pane at KMPX during a real severe-weather volume (VCP 215),
+opened 3D Observed, and watched the "Live" badge and scrubber advance on their own while the
+volume kept streaming — the 3D gates are the same real Level II volume the 2D plan view is
+watching, not a separate poll.
+
+Also landed alongside it, since a chunk-by-chunk 3D rebuild made the GPU cost of the naive
+approach immediately visible: the observed-gate 3D renderer now **retains its GPU instance buffer,
+LUT texture and bind group across live revisions** instead of tearing all three down and
+reallocating them on every chunk. The instance buffer grows geometrically (reserved to the next
+power of two), so ordinary chunk-to-chunk growth within a tilt reuses the same allocation, and only
+a genuine capacity overflow triggers a real rebuild. Verified on a real GPU: a new headless render
+test grows a wedge across three uploads and confirms the retained buffer's stale tail never leaks
+onto screen once a later, smaller upload shrinks the drawn instance count — the kind of bug that
+lives entirely in what the draw call reads off the GPU buffer and that no CPU-side test can catch.
+The remaining item in this area is a genuinely incremental upload — writing only the changed
+radial range instead of the whole buffer each time — which is now a cost problem rather than a
+correctness one.
+
+**A real bug found while verifying this, not fixed here:** the floating Layers panel's search
+results render *nothing* — not even a "No matches" placeholder — for any query broad enough to
+match more than roughly one entry, on the panel's normal (non-maximized) size. Diagnosed with
+temporary logging (removed before this commit): the search and ranking logic is completely
+correct — a one-character query against the full ~420-entry registry correctly narrows to 165
+matches — but by the point the result list is reached, the surrounding layout reports **zero**
+remaining height to draw them in, and egui does not fall back to scrolling or clipping-with-a-
+visible-partial-row; the rows are simply never painted. The bug is in how the floating card budgets
+its own vertical space among the product controls, the search box, and the results list above it,
+not in search itself. The radar site picker (a separate dialog, unaffected) still works and was
+used for this session's own live verification. Left as a clearly-flagged follow-up rather than
+patched under this pass, since fixing it properly means revisiting that panel's height budget as
+a whole rather than one more special case squeezed into it.
+
 ### Added: recent products, an MRMS live-feed contract test, and a roadmap correction
 
 While scoping the next slice of ROADMAP_NEW's Phase A/D, found that the "generic field/product

@@ -446,9 +446,10 @@ Instead of waiting for a sweep/volume boundary:
 - [ ] keep animation smooth while updates stream
 
 What remains is the *incremental GPU upload*: the display is now correct and honest about
-generations, but each emit still ships a whole 720×N texture rather than the radial range that
-actually changed. That is a cost problem, not a correctness one, and it is the item to take next
-in this section.
+generations. The observed 3D renderer now retains its GPU buffer, LUT texture and bind group across
+live revisions and grows the buffer geometrically, so a chunk no longer recreates all of those
+resources; each emit still writes the whole gate buffer rather than only the radial range that
+actually changed. That is the remaining cost item in this section.
 
 ## B3. Latency dashboard — mostly done
 

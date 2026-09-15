@@ -496,11 +496,12 @@ struct RadarGpu {
 }
 
 struct ObservedGpu {
-    _lut: wgpu::Texture,
+    lut: wgpu::Texture,
     uniform: wgpu::Buffer,
     instances: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
     count: u32,
+    capacity: u64,
 }
 
 struct OverlayGpu {
@@ -1286,17 +1287,37 @@ impl RenderResources {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         up: &ObservedSweepUpload,
+        existing: Option<ObservedGpu>,
     ) -> ObservedGpu {
+        let bytes = bytemuck::cast_slice(&up.instances);
+        if let Some(mut gpu) = existing {
+            if bytes.len() as u64 <= gpu.capacity {
+                queue.write_buffer(&gpu.uniform, 0, bytemuck::cast_slice(&up.uniform));
+                if !bytes.is_empty() {
+                    queue.write_buffer(&gpu.instances, 0, bytes);
+                }
+                write_observed_lut(queue, &gpu.lut, &up.lut);
+                gpu.count = up.instances.len() as u32;
+                return gpu;
+            }
+        }
         let uniform = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("observed_radar_uniform"),
             contents: bytemuck::cast_slice(&up.uniform),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
-        let instances = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        // Live tilts grow a wedge at a time. Reserve geometrically so those updates rewrite the
+        // retained buffer instead of allocating a new GPU buffer and bind group for every chunk.
+        let capacity = (bytes.len() as u64).max(1).next_power_of_two();
+        let instances = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("observed_radar_instances"),
-            contents: bytemuck::cast_slice(&up.instances),
-            usage: wgpu::BufferUsages::VERTEX,
+            size: capacity,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
+        if !bytes.is_empty() {
+            queue.write_buffer(&instances, 0, bytes);
+        }
         let lut_size = wgpu::Extent3d {
             width: 256,
             height: 1,
@@ -1343,11 +1364,12 @@ impl RenderResources {
             ],
         });
         ObservedGpu {
-            _lut: lut,
+            lut,
             uniform,
             instances,
             bind_group,
             count: up.instances.len() as u32,
+            capacity,
         }
     }
 
@@ -1481,10 +1503,13 @@ impl RenderResources {
             }
             None => None,
         };
-        let new_observed = cb
-            .observed_upload
-            .as_ref()
-            .map(|up| self.build_observed(device, queue, up));
+        let new_observed = cb.observed_upload.as_ref().map(|up| {
+            let existing = self
+                .panes
+                .get_mut(&cb.pane)
+                .and_then(|pane| pane.observed.take());
+            self.build_observed(device, queue, up, existing)
+        });
         // Build the tile quad list against the shared tile cache before mutably borrowing the pane
         // — a tile with no texture yet borrows one from the tiles around it (see `tile_quads`).
         // Skipped outright when nothing it depends on moved: a still map rebuilt up to 512 tiles
@@ -2047,6 +2072,29 @@ fn write_lut(queue: &wgpu::Queue, tex: &wgpu::Texture, lut: &[u8]) {
         wgpu::Extent3d {
             width: 256,
             height: 3,
+            depth_or_array_layers: 1,
+        },
+    );
+}
+
+/// Write the observed renderer's single-row 256-entry RGBA color LUT.
+fn write_observed_lut(queue: &wgpu::Queue, tex: &wgpu::Texture, lut: &[u8]) {
+    queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture: tex,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        lut,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(256 * 4),
+            rows_per_image: Some(1),
+        },
+        wgpu::Extent3d {
+            width: 256,
+            height: 1,
             depth_or_array_layers: 1,
         },
     );
