@@ -62,7 +62,9 @@ pub struct RadarUpload {
     /// ~1.3 MB gate texture it was already showing.
     pub lut_only: bool,
     /// One-shot live-update timing: receipt on the UI thread to GPU queue writes completed.
-    pub telemetry: Option<(std::time::Instant, std::sync::Arc<std::sync::atomic::AtomicU64>)>,
+    /// `wxdata::clock::Instant`, not `std::time::Instant` — the latter can't measure elapsed time
+    /// on wasm32, and every caller already carries the former (`View::live_render_started`).
+    pub telemetry: Option<(wxdata::clock::Instant, std::sync::Arc<std::sync::atomic::AtomicU64>)>,
 }
 
 #[repr(C)]
