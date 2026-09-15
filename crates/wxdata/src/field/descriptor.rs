@@ -7,18 +7,22 @@ pub struct FieldId(pub &'static str);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DataSource {
     NoaaMrms,
+    /// NOAA/NCEP regional and blended numerical guidance (HRRR, RAP, NAM and NBM).
+    NoaaNcepModels,
 }
 
 impl DataSource {
     pub const fn id(self) -> &'static str {
         match self {
             Self::NoaaMrms => "noaa-mrms",
+            Self::NoaaNcepModels => "noaa-ncep-models",
         }
     }
 
     pub const fn display_name(self) -> &'static str {
         match self {
             Self::NoaaMrms => "NOAA MRMS",
+            Self::NoaaNcepModels => "NOAA/NCEP models",
         }
     }
 }
@@ -62,6 +66,13 @@ pub enum Unit {
     StrikesPerSquareKmPerMinute,
     Years,
     Category,
+    JoulesPerKilogram,
+    SquareMetersPerSquareSecond,
+    Meters,
+    KilogramsPerCubicMeter,
+    Pascals,
+    Kelvin,
+    Percent,
 }
 
 impl Unit {
@@ -77,6 +88,13 @@ impl Unit {
             Self::StrikesPerSquareKmPerMinute => "strikes/km²/min",
             Self::Years => "years",
             Self::Category => "category",
+            Self::JoulesPerKilogram => "J/kg",
+            Self::SquareMetersPerSquareSecond => "m²/s²",
+            Self::Meters => "m",
+            Self::KilogramsPerCubicMeter => "kg/m³",
+            Self::Pascals => "Pa",
+            Self::Kelvin => "K",
+            Self::Percent => "%",
         }
     }
 
@@ -115,6 +133,15 @@ pub enum PaletteId {
     Precipitation24h,
     PrecipitationType,
     FloodRecurrence,
+    Cape,
+    Helicity,
+    UpdraftHelicity,
+    Snowfall,
+    ThunderProbability,
+    Smoke,
+    MeanSeaLevelPressure,
+    Temperature,
+    Dewpoint,
 }
 
 #[derive(Debug)]
@@ -128,6 +155,9 @@ pub struct FieldDescriptor {
     pub value_kind: ValueKind,
     pub aliases: &'static str,
     pub default_palette: PaletteId,
+    /// Preferred isoline spacing in the descriptor's native units. `None` means the field is
+    /// normally rendered as a filled raster or has no meaningful generic contour interval.
+    pub default_contour_interval: Option<f32>,
     /// GRIB values that indicate missing, folded, or no-coverage cells.
     pub missing_values: &'static [f32],
 }
@@ -203,6 +233,11 @@ mod tests {
         assert_eq!(DataSource::NoaaMrms.id(), "noaa-mrms");
         assert_eq!(DataSource::NoaaMrms.display_name(), "NOAA MRMS");
         assert_eq!(DataSource::NoaaMrms.to_string(), "NOAA MRMS");
+        assert_eq!(DataSource::NoaaNcepModels.id(), "noaa-ncep-models");
+        assert_eq!(
+            DataSource::NoaaNcepModels.display_name(),
+            "NOAA/NCEP models"
+        );
     }
 
     #[test]

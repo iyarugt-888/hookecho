@@ -25,6 +25,21 @@ All existing direct MRMS field-layer fetches use the stamped API. Legacy callers
 
 MRMS browser rows and source-inspector units come from this catalog. Search includes source, units, family, and aliases, with label matches ranked first. `FieldDescriptor::sample` uses nearest-cell selection for categories/masks and the existing NaN-aware bilinear sampler for continuous fields. Malformed grids and nonfinite coordinates return no sample. The API samples the supplied grid; it does not retain native grids or add a map probe by itself.
 
+## Regional model migration
+
+All twelve existing `wxdata::model::ModelField` meanings now expose the same `FieldDescriptor`
+contract as MRMS: stable product identity, typed NOAA/NCEP source identity, family/value kind,
+native units, aliases, palette, missing-data policy, and an optional native-unit contour interval.
+Model availability and GRIB spelling remain provider-specific in `ModelField::grib`; this keeps a
+single physical field definition while still recording that, for example, NBM does not publish
+updraft helicity.
+
+The HRRR/RAP/NBM map layers bridge to these descriptors, so their existing renderer ramps now
+resolve through `PaletteId`. The MSLP, 2 m temperature/dewpoint, CAPE, and 0–3 km SRH contour path
+also reads its GRIB key and default interval from `ModelField` rather than a second literal table.
+Intervals are stored in native units; the UI converts pressure and temperature for display and
+retains the conventional rounded 5 °F temperature interval.
+
 ## Remaining registry work
 
 Catalog `PaletteId` selections now route both GPU upload and legend generation through the existing shared `FieldRamp` objects. Regression tests verify that each migrated product retains its exact palette, scale, and category mapping. Reflectivity still uses the user's `.pal` table, and lightning retains its density mapping. Range values remain owned by the shared renderer scale rather than duplicated in the catalog.
@@ -37,8 +52,8 @@ Source-health tracking (`app/chrome/registry.rs::field_layer_is_health_tracked`)
 
 The source inspector records native and displayed grid dimensions and bounds plus the display reduction method. Scalar grids use maximum pooling; categorical grids use nearest-cell reduction. This explains the displayed texture, but the full native value array is not retained for scientific sampling.
 
-Expose renderer range metadata and contour defaults through the inspector. Preserve native grids for scientific sampling: display pooling/smoothing must never be represented as raw source values. Explicit accumulation windows and domain specifications remain to be added. Follow with HRRR/RAP and global difference inputs, then timeline alignment and persistent browser caching. Favorites and full provenance for other sources remain future work. No roadmap phase checkbox is marked complete.
+Expose renderer range metadata through the inspector. Preserve native grids for scientific sampling: display pooling/smoothing must never be represented as raw source values. Explicit accumulation windows and field-level domain specifications remain to be added. Follow with global difference inputs, then timeline alignment and persistent browser caching.
 
 ## Validation
 
-Deterministic tests cover signed ages, unknown metadata, serialization, preservation through grid decimation, unique catalog IDs/paths, window mapping, unit conversion, categorical versus continuous sampling, missing/malformed grids, saved layer resolution, and metadata search. Existing MRMS decoding/sampling tests protect the unchanged renderer payload. Normal tests do not require live NOAA services.
+Deterministic tests cover signed ages, unknown metadata, serialization, preservation through grid decimation, unique catalog IDs/paths, window mapping, unit conversion, categorical versus continuous sampling, missing/malformed grids, saved layer resolution, metadata search, total/unique model descriptors, native contour defaults, and model palette preservation. Existing MRMS decoding/sampling tests protect the unchanged renderer payload. Normal tests do not require live NOAA services.

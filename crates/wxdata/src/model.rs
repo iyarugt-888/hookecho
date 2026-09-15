@@ -16,6 +16,7 @@
 //! The fetch/regrid machinery still lives in [`crate::hrrr`] and is unchanged; this is the
 //! metadata layer F1 asks for, which F2–F8 would build on.
 
+use crate::field::{DataSource, FieldDescriptor, FieldFamily, FieldId, PaletteId, Unit, ValueKind};
 use crate::hrrr::Model;
 
 /// Where a model's grid covers. Used to reject a point before spending a request on it, and to
@@ -260,20 +261,25 @@ pub struct GribKey {
 
 impl ModelField {
     pub fn label(self) -> &'static str {
-        match self {
-            Self::CompositeReflectivity => "Composite reflectivity",
-            Self::SurfaceCape => "Surface CAPE",
-            Self::MixedLayerCape => "Mixed-layer CAPE",
-            Self::Srh1km => "0–1 km SRH",
-            Self::Srh3km => "0–3 km SRH",
-            Self::UpdraftHelicity => "Updraft helicity (2–5 km max)",
-            Self::Snowfall => "Accumulated snowfall",
-            Self::ThunderProbability => "Thunder probability",
-            Self::Smoke => "Near-surface smoke",
-            Self::MeanSeaLevelPressure => "MSLP",
-            Self::Temperature2m => "2 m temperature",
-            Self::Dewpoint2m => "2 m dewpoint",
-        }
+        self.descriptor().name
+    }
+
+    /// Source-independent field metadata shared by every model that publishes this quantity.
+    /// Provider-specific availability and GRIB spelling remain in [`Self::grib`].
+    pub fn descriptor(self) -> &'static FieldDescriptor {
+        FIELD_DEFS
+            .iter()
+            .find(|entry| entry.model_field == self)
+            .map(|entry| &entry.descriptor)
+            .expect("every ModelField has a FieldDescriptor")
+    }
+
+    /// Look up a model field by the descriptor's stable product ID.
+    pub fn from_id(id: &str) -> Option<Self> {
+        FIELD_DEFS
+            .iter()
+            .find(|entry| entry.descriptor.id.0 == id)
+            .map(|entry| entry.model_field)
     }
 
     /// The GRIB key for this field in `model`, or `None` when that model does not publish it.
@@ -283,7 +289,13 @@ impl ModelField {
     /// carries no hourly-max UH because it is not convection-allowing at all. A caller that gets
     /// `None` should grey the field out rather than fire a request it knows will 404.
     pub fn grib(self, model: Model) -> Option<GribKey> {
-        let key = |var, level, min_valid| Some(GribKey { var, level, min_valid });
+        let key = |var, level, min_valid| {
+            Some(GribKey {
+                var,
+                level,
+                min_valid,
+            })
+        };
         use Model::*;
         // Every entry below was read off a real `.idx` rather than assumed — the contract test
         // at the bottom of this file is what keeps it that way. Several of these exceptions are
@@ -389,6 +401,171 @@ pub const ALL_FIELDS: &[ModelField] = &[
     ModelField::Dewpoint2m,
 ];
 
+struct FieldEntry {
+    model_field: ModelField,
+    descriptor: FieldDescriptor,
+}
+
+macro_rules! model_field {
+    ($kind:ident, $id:literal, $name:literal, $description:literal, $units:ident,
+     $value_kind:ident, $aliases:literal, $palette:ident, $interval:expr) => {
+        FieldEntry {
+            model_field: ModelField::$kind,
+            descriptor: FieldDescriptor {
+                id: FieldId($id),
+                source: DataSource::NoaaNcepModels,
+                family: FieldFamily::Model,
+                name: $name,
+                description: $description,
+                units: Unit::$units,
+                value_kind: ValueKind::$value_kind,
+                aliases: $aliases,
+                default_palette: PaletteId::$palette,
+                default_contour_interval: $interval,
+                // The decoder has already converted GRIB bitmap and threshold exclusions to NaN.
+                missing_values: &[],
+            },
+        }
+    };
+}
+
+/// The fields HookEcho already requests from HRRR/RAP/NAM/NBM. This table owns presentation and
+/// contour defaults; the GRIB mapping above owns each provider's wire spelling.
+static FIELD_DEFS: &[FieldEntry] = &[
+    model_field!(
+        CompositeReflectivity,
+        "model-composite-reflectivity",
+        "Composite reflectivity",
+        "Forecast radar reflectivity through the full atmospheric column",
+        Dbz,
+        Scalar,
+        "future radar REFC HRRR RAP NAM",
+        Reflectivity,
+        None
+    ),
+    model_field!(
+        SurfaceCape,
+        "surface-cape",
+        "Surface CAPE",
+        "Convective available potential energy for a surface parcel",
+        JoulesPerKilogram,
+        Scalar,
+        "storm fuel instability SBCAPE HRRR RAP NAM NBM",
+        Cape,
+        Some(500.0)
+    ),
+    model_field!(
+        MixedLayerCape,
+        "mixed-layer-cape",
+        "Mixed-layer CAPE",
+        "Convective available potential energy for the lowest 90 hPa mixed layer",
+        JoulesPerKilogram,
+        Scalar,
+        "storm fuel instability MLCAPE HRRR RAP NAM",
+        Cape,
+        Some(500.0)
+    ),
+    model_field!(
+        Srh1km,
+        "srh-1km",
+        "0–1 km SRH",
+        "Storm-relative helicity in the lowest kilometre",
+        SquareMetersPerSquareSecond,
+        Scalar,
+        "storm spin helicity tornado HRRR RAP NAM",
+        Helicity,
+        Some(50.0)
+    ),
+    model_field!(
+        Srh3km,
+        "srh-3km",
+        "0–3 km SRH",
+        "Storm-relative helicity in the lowest three kilometres",
+        SquareMetersPerSquareSecond,
+        Scalar,
+        "storm spin helicity supercell HRRR RAP NAM",
+        Helicity,
+        Some(100.0)
+    ),
+    model_field!(
+        UpdraftHelicity,
+        "updraft-helicity",
+        "Updraft helicity (2–5 km max)",
+        "Hourly maximum rotating-updraft proxy in the 2–5 km layer",
+        SquareMetersPerSquareSecond,
+        Scalar,
+        "future rotation tracks UH MXUPHL HRRR NAM nest",
+        UpdraftHelicity,
+        Some(25.0)
+    ),
+    model_field!(
+        Snowfall,
+        "model-snowfall",
+        "Accumulated snowfall",
+        "Forecast snowfall accumulated since the model run began",
+        Meters,
+        Accumulation,
+        "snow accumulation ASNOW HRRR RAP NBM",
+        Snowfall,
+        None
+    ),
+    model_field!(
+        ThunderProbability,
+        "thunder-probability",
+        "Thunder probability",
+        "Calibrated probability of thunder during the forecast hour",
+        Percent,
+        Probability,
+        "chance thunderstorms lightning NBM TSTM",
+        ThunderProbability,
+        Some(10.0)
+    ),
+    model_field!(
+        Smoke,
+        "near-surface-smoke",
+        "Near-surface smoke",
+        "Smoke mass density eight metres above ground",
+        KilogramsPerCubicMeter,
+        Scalar,
+        "wildfire air quality MASSDEN HRRR RAP",
+        Smoke,
+        None
+    ),
+    model_field!(
+        MeanSeaLevelPressure,
+        "regional-mslp",
+        "MSLP",
+        "Atmospheric pressure reduced to mean sea level",
+        Pascals,
+        Scalar,
+        "surface pressure isobars MSLMA MSLET HRRR RAP NAM",
+        MeanSeaLevelPressure,
+        Some(200.0)
+    ),
+    model_field!(
+        Temperature2m,
+        "regional-temperature-2m",
+        "2 m temperature",
+        "Air temperature two metres above ground",
+        Kelvin,
+        Scalar,
+        "surface temperature TMP HRRR RAP NAM NBM",
+        Temperature,
+        Some(2.0)
+    ),
+    model_field!(
+        Dewpoint2m,
+        "regional-dewpoint-2m",
+        "2 m dewpoint",
+        "Dewpoint temperature two metres above ground",
+        Kelvin,
+        Scalar,
+        "surface moisture DPT HRRR RAP NAM NBM",
+        Dewpoint,
+        Some(2.0)
+    ),
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -444,6 +621,12 @@ mod tests {
     #[test]
     fn every_field_maps_to_at_least_one_model() {
         for &f in ALL_FIELDS {
+            let descriptor = f.descriptor();
+            assert!(!descriptor.id.0.is_empty(), "{f:?}");
+            assert_eq!(descriptor.source, DataSource::NoaaNcepModels);
+            assert_eq!(descriptor.family, FieldFamily::Model);
+            assert_eq!(ModelField::from_id(descriptor.id.0), Some(f));
+            assert!(descriptor.search_text().contains("NOAA/NCEP models"));
             let models = f.models();
             assert!(!models.is_empty(), "{:?} maps to no model", f);
             for m in models {
@@ -451,6 +634,32 @@ mod tests {
                 assert!(!k.var.is_empty() && !k.level.is_empty(), "{f:?}/{m:?}");
             }
         }
+        assert_eq!(FIELD_DEFS.len(), ALL_FIELDS.len());
+        let unique_ids: std::collections::HashSet<_> =
+            FIELD_DEFS.iter().map(|entry| entry.descriptor.id).collect();
+        assert_eq!(unique_ids.len(), FIELD_DEFS.len());
+    }
+
+    #[test]
+    fn contour_defaults_use_native_units() {
+        assert_eq!(
+            ModelField::MeanSeaLevelPressure
+                .descriptor()
+                .default_contour_interval,
+            Some(200.0)
+        );
+        assert_eq!(
+            ModelField::Temperature2m
+                .descriptor()
+                .default_contour_interval,
+            Some(2.0)
+        );
+        assert_eq!(
+            ModelField::CompositeReflectivity
+                .descriptor()
+                .default_contour_interval,
+            None
+        );
     }
 
     /// Signed fields must keep their negative half. Dropping values below zero from helicity

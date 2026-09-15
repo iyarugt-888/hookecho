@@ -752,6 +752,15 @@ pub fn ramp_for(layer: FieldLayer) -> Option<&'static FieldRamp> {
             PaletteId::Precipitation24h => Some(&QPE_24H),
             PaletteId::PrecipitationType => Some(&PRECIP_TYPE),
             PaletteId::FloodRecurrence => Some(&FLASH_FLOOD),
+            PaletteId::Cape => Some(&CAPE),
+            PaletteId::Helicity => Some(&SRH),
+            PaletteId::UpdraftHelicity => Some(&UPDRAFT_HELICITY),
+            PaletteId::Snowfall => Some(&SNOWFALL),
+            PaletteId::ThunderProbability => Some(&THUNDER_PROB),
+            PaletteId::Smoke => Some(&SMOKE),
+            PaletteId::MeanSeaLevelPressure => Some(&GLOBAL_MSLP),
+            PaletteId::Temperature => Some(&GLOBAL_TEMP_2M),
+            PaletteId::Dewpoint => Some(&GLOBAL_DEWPOINT_2M),
         };
     }
     Some(match layer {
@@ -831,6 +840,23 @@ mod tests {
         // These retain their user-configured and density-specific upload paths.
         assert!(ramp_for(FieldLayer::Mrms).is_none());
         assert!(ramp_for(FieldLayer::Lightning).is_none());
+    }
+
+    #[test]
+    fn model_catalog_palettes_preserve_existing_scales() {
+        for (layer, expected) in [
+            (FieldLayer::Cape, &CAPE),
+            (FieldLayer::Srh, &SRH),
+            (FieldLayer::UpdraftHelicity, &UPDRAFT_HELICITY),
+            (FieldLayer::Snowfall, &SNOWFALL),
+            (FieldLayer::ThunderProb, &THUNDER_PROB),
+            (FieldLayer::Smoke, &SMOKE),
+        ] {
+            assert!(layer.descriptor().is_some(), "{layer:?}");
+            assert!(std::ptr::eq(ramp_for(layer).unwrap(), expected), "{layer:?}");
+        }
+        assert!(FieldLayer::Hrrr.descriptor().is_some());
+        assert!(ramp_for(FieldLayer::Hrrr).is_none());
     }
 
     /// Only the two Kelvin-wire fields ask the legend to convert; every other ramp's `lo`/`hi`

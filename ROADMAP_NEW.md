@@ -222,9 +222,10 @@ here rather than rebuilt.
 - [x] unit metadata and conversion — `Unit::symbol`/`Unit::convert`, dimension-checked (rejects
   e.g. mm → mm/hr), missing/non-finite values never silently convert
 - [x] default palette — `PaletteId`, a stable enum the renderer maps to an actual color table
-- [ ] contour interval defaults — no interval field on `FieldDescriptor`; MRMS's own layers are
-  filled ramps rather than contoured, so this hasn't been needed yet. Real gap for a future
-  contoured product (e.g. a model field) using this same descriptor.
+- [x] contour interval defaults — `FieldDescriptor.default_contour_interval` stores native-unit
+  spacing. The existing HRRR/RAP MSLP, temperature, dewpoint, CAPE and SRH contour path now reads
+  both its GRIB key and interval from `ModelField` metadata; display conversion still rounds the
+  customary Fahrenheit spacing to 5 °F.
 - [x] missing-data semantics — `FieldDescriptor::normalize_missing` masks a product's own sentinel
   values (and non-finite ones) to NaN once, at the boundary, so nothing downstream has to know a
   product's magic numbers
@@ -252,8 +253,11 @@ Migrate existing:
 
 - [x] MRMS fields from `crates/wxdata/src/mrms.rs` — `wxdata::mrms::catalog`, 11 products,
   generated Layers-panel/search rows, feed-contract-tested (see Phase D below)
-- [ ] HRRR/RAP gridded fields — still the per-call literal var/level strings `wxdata::model`
-  (Phase F1) catalogs by model, not yet expressed as `FieldDescriptor`s in this registry
+- [x] HRRR/RAP gridded fields — all 12 existing `wxdata::model::ModelField` meanings now expose a
+  `FieldDescriptor` with stable ID, typed NOAA/NCEP source, units, value kind, aliases, palette and
+  contour default. The map's HRRR/RAP/NBM layers resolve those descriptors, and the contour fetch
+  path no longer maintains a second literal GRIB/interval table. Provider-specific availability
+  and GRIB spelling remain in `ModelField::grib`, where feed contract tests already cover them.
 - [ ] global model fields used by `fielddiff.rs` — same gap, not migrated
 
 Do not migrate every layer at once. Prove the registry on those three families, then use it for all new work.
