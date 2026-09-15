@@ -8,6 +8,29 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: the archive date picker could land on the wrong time, or seemingly nowhere
+
+Reported live: loading an archived day worked from a `hookecho://goto/…` URL but was unreliable
+from the calendar. The day-step carets, the typed date field, and the calendar picker all just
+wrote `t.date = d` directly — none of them cleared the old day's stale `frames`/`playhead`, or told
+the timeline what moment on the new day to land on. A URL/permalink jump never had this problem
+because it already went through `Timeline::seek_to_valid_time`, which does both.
+
+Until the new day's listing happened to land on an in-range index by coincidence, the pane kept
+showing the *previous* day's volume; once it landed, the playhead's old numeric index carried over
+unchanged, showing whatever arbitrary moment that index happened to mean on the new day — from a
+few minutes off to a different day with fewer volumes leaving it clamped to the wrong end of the
+list entirely. The wrong-time cases looked like a random small mismatch; a day with far fewer
+frames than the index pointed past looked like the load had silently failed.
+
+All three now go through a shared `seek_to_day` (`app/chrome/scrubber.rs`), which clears the stale
+axis and lands near the *same time of day* that was showing before the jump (noon if nothing was
+on screen yet) via `seek_to_valid_time`, or returns to the live head via `follow_day` when the jump
+lands on today. Verified live: picking July 16 from the calendar while viewing 15:35Z landed the
+archived KTLX volume at 16:58Z on July 16 (real storm coverage, the archive's own VCP/tilt list);
+stepping forward a day with the caret preserved 16:59Z on July 17; typing today's date back in
+returned to the live head with the LIVE badge and current VCP restored.
+
 ### Added: hide the WSV3 ribbon for a full-window map view
 
 Requested directly: a way to get the top ribbon and its docked colour scale out of the way

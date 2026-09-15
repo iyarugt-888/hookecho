@@ -304,20 +304,14 @@ impl HookEchoApp {
                                 ui.label("Date:");
                                 if ui.button(egui_phosphor::regular::CARET_LEFT).clicked() {
                                     if let Some(d) = t.date.pred_opt() {
-                                        t.date = d;
-                                        t.following = false;
+                                        seek_to_day(t, &site, d);
                                     }
                                 }
                                 // The carets are still the fastest way to step a day, but they
                                 // were the *only* way: reaching a storm from years back meant
                                 // thousands of clicks. The archive runs to June 1991.
-                                let today = chrono::Utc::now().date_naive();
                                 if let Some(d) = archive_day_input(ui, t.date) {
-                                    // Clamp rather than trust the input: neither a calendar
-                                    // widget nor a typed string knows where the archive starts
-                                    // or that the future is empty.
-                                    t.date = d.clamp(wxdata::level2::ARCHIVE_START, today);
-                                    t.following = t.date >= today;
+                                    seek_to_day(t, &site, d);
                                 }
                                 let is_today = t.date >= chrono::Utc::now().date_naive();
                                 if ui
@@ -328,14 +322,12 @@ impl HookEchoApp {
                                     .clicked()
                                 {
                                     if let Some(d) = t.date.succ_opt() {
-                                        t.date = d;
+                                        seek_to_day(t, &site, d);
                                     }
                                 }
                             });
-                            let today = chrono::Utc::now().date_naive();
                             if let Some(d) = archive_day_calendar(ui, t.date) {
-                                t.date = d.clamp(wxdata::level2::ARCHIVE_START, today);
-                                t.following = t.date >= today;
+                                seek_to_day(t, &site, d);
                             }
                             // A typed jump to an exact hour:minute, next to the day it applies
                             // to — the track below is drag-precise, but "3:47Z" specifically is
@@ -529,6 +521,106 @@ impl HookEchoApp {
         if go_head {
             self.views[self.active].timeline.go_head();
         }
+    }
+}
+
+/// Jump the timeline to a different UTC day, landing near the same time of day it was already
+/// showing (noon if nothing was on screen yet) — shared by the day-step carets, the typed date
+/// field, and the calendar picker so all three land correctly instead of only overwriting `t.date`
+/// and leaving `t.frames`/`t.playhead` to mean nothing on the new day until the next listing
+/// happens to land on an in-range index by coincidence. That was the bug behind archived scans
+/// "not always" loading from the calendar: a plain `t.date = d` never cleared the old day's stale
+/// playhead index, so a jump to a day with fewer frames than that index could silently show
+/// nothing, and even a jump that stayed in range showed whatever arbitrary moment the old index
+/// happened to land on rather than the day the user actually asked to see. A URL/permalink jump
+/// never had this problem because it already went through `seek_to_valid_time`.
+fn seek_to_day(t: &mut crate::timeline::Timeline, site: &str, new_date: chrono::NaiveDate) {
+    let today = chrono::Utc::now().date_naive();
+    // Clamp rather than trust the input: neither a calendar widget, a typed string, nor a
+    // one-day step knows where the archive starts or that the future is empty.
+    let new_date = new_date.clamp(wxdata::level2::ARCHIVE_START, today);
+    if new_date >= today {
+        t.follow_day(new_date);
+        return;
+    }
+    let time_of_day = t
+        .current()
+        .and_then(|id| id.date_time())
+        .map(|dt| dt.time())
+        .unwrap_or_else(|| chrono::NaiveTime::from_hms_opt(12, 0, 0).unwrap());
+    t.seek_to_valid_time(site, new_date.and_time(time_of_day).and_utc());
+}
+
+#[cfg(test)]
+mod seek_to_day_tests {
+    use super::seek_to_day;
+    use crate::timeline::Timeline;
+    use wxdata::level2::Identifier;
+
+    fn frames_at(date: chrono::NaiveDate, times: &[(u32, u32)]) -> Vec<Identifier> {
+        times
+            .iter()
+            .map(|&(h, m)| Identifier::new(format!("KTLX{}_{h:02}{m:02}00_V06", date.format("%Y%m%d"))))
+            .collect()
+    }
+
+    /// The bug this function fixes: `t.date = d` alone left the old day's numeric playhead index
+    /// in place, so a jump to a differently-shaped day showed whatever arbitrary moment that index
+    /// happened to mean there — not the day, let alone the time, the user actually picked. A
+    /// correct jump lands near the *same time of day* regardless of how many frames either day has.
+    #[test]
+    fn the_new_days_frame_is_picked_by_time_of_day_not_by_reusing_the_old_index() {
+        let day1 = chrono::NaiveDate::from_ymd_opt(2026, 8, 19).unwrap();
+        let day2 = chrono::NaiveDate::from_ymd_opt(2026, 8, 20).unwrap();
+        let mut t = Timeline::default();
+        t.date = day1;
+        // Three volumes on day1; the playhead sits on the last one, 23:55.
+        t.set_frames(frames_at(day1, &[(0, 0), (12, 0), (23, 55)]), ("KTLX".into(), day1));
+        t.playhead = 2;
+
+        seek_to_day(&mut t, "KTLX", day2);
+        assert_eq!(t.date, day2, "the day itself changed immediately");
+
+        // day2's listing lands with far more frames than day1 had (a full day, 5 minutes apart) —
+        // under the old bug, playhead=2 would stay in range and land on day2's own index 2
+        // (00:10), nowhere near 23:55.
+        let day2_frames: Vec<(u32, u32)> = (0..288).map(|i| (i * 5 / 60, i * 5 % 60)).collect();
+        t.set_frames(frames_at(day2, &day2_frames), ("KTLX".into(), day2));
+        assert_eq!(
+            t.current().unwrap().date_time().unwrap().format("%H:%M").to_string(),
+            "23:55",
+            "should land near the same time of day that was showing before the jump"
+        );
+    }
+
+    /// A day with nothing shown yet (fresh pane, no current frame) has no time of day to carry
+    /// over — falls back to noon rather than panicking or picking an arbitrary hour.
+    #[test]
+    fn with_nothing_on_screen_yet_it_falls_back_to_noon() {
+        let day = chrono::NaiveDate::from_ymd_opt(2026, 8, 19).unwrap();
+        let mut t = Timeline::default();
+        seek_to_day(&mut t, "KTLX", day);
+        t.set_frames(
+            frames_at(day, &[(0, 0), (11, 55), (12, 0), (23, 55)]),
+            ("KTLX".into(), day),
+        );
+        assert_eq!(
+            t.current().unwrap().date_time().unwrap().format("%H:%M").to_string(),
+            "12:00"
+        );
+    }
+
+    /// Jumping to today (or past it) must return to the live head via `follow_day`, not defer an
+    /// archive seek that a same-day listing would then have to resolve against a moving target.
+    #[test]
+    fn jumping_to_today_goes_live_instead_of_seeking() {
+        let today = chrono::Utc::now().date_naive();
+        let mut t = Timeline::default();
+        t.date = today - chrono::Duration::days(3);
+        t.following = false;
+        seek_to_day(&mut t, "KTLX", today);
+        assert_eq!(t.date, today);
+        assert!(t.following, "back on today should mean back on live");
     }
 }
 
