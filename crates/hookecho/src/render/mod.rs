@@ -61,6 +61,8 @@ pub struct RadarUpload {
     /// textures keep their contents. A palette drag writes 3 KB instead of re-uploading the
     /// ~1.3 MB gate texture it was already showing.
     pub lut_only: bool,
+    /// One-shot live-update timing: receipt on the UI thread to GPU queue writes completed.
+    pub telemetry: Option<(std::time::Instant, std::sync::Arc<std::sync::atomic::AtomicU64>)>,
 }
 
 #[repr(C)]
@@ -1141,6 +1143,7 @@ impl RenderResources {
                 }
                 queue.write_buffer(&g.uni, 0, bytemuck::cast_slice(&r.uniform));
                 write_lut(queue, &g.lut, &r.lut);
+                record_radar_queue_time(r);
                 return Some(g);
             }
         }
@@ -1277,6 +1280,7 @@ impl RenderResources {
                 },
             ],
         });
+        record_radar_queue_time(r);
         Some(RadarGpu {
             tex,
             flag: flag_tex,
@@ -1998,6 +2002,13 @@ fn ancestor_uv(x: u32, y: u32, up: u8) -> ([f32; 2], [f32; 2]) {
     let fx = (x & ((1 << up) - 1)) as f32 / n;
     let fy = (y & ((1 << up) - 1)) as f32 / n;
     ([fx, fy], [fx + 1.0 / n, fy + 1.0 / n])
+}
+
+fn record_radar_queue_time(upload: &RadarUpload) {
+    if let Some((started, metric)) = &upload.telemetry {
+        let micros = started.elapsed().as_micros().max(1).min(u64::MAX as u128) as u64;
+        metric.store(micros, std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
 /// Contiguous azimuth-row spans whose gate bytes differ. A mechanically scanned live chunk is

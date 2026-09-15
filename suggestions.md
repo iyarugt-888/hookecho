@@ -1088,7 +1088,9 @@ GPU upload half of the incremental path. Cached plain moments now also update on
 newest radial timestamp advanced; KDP and dealiased velocity retain whole-field re-bins by design.
 Avoiding the upstream full merged-scan clone remains CPU work to complete. Native and smooth 3D
 already invalidate on every accepted live revision, while observed 3D retains and rewrites its gate
-buffer rather than recreating GPU resources.
+buffer rather than recreating GPU resources. The Radar health popup also reports the measured
+client receipt-to-GPU-queue duration for the last live 2D update, separately from provider lag and
+decode time.
 
 ### Acceptance criteria
 

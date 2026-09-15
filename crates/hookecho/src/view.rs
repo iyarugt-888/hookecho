@@ -457,6 +457,10 @@ pub struct MapView {
     /// `wxdata::live::Update::decode_time`. Only ever set from a live-stream sweep merge, so it
     /// stays meaningful (not zeroed by an unrelated redraw) between updates.
     pub last_decode_time: Option<std::time::Duration>,
+    /// One-shot start for the next 2D upload after a live update, and its last measured
+    /// receipt-to-GPU-queue duration in microseconds (0 means no live upload measured yet).
+    pub live_render_started: Option<Instant>,
+    pub live_gpu_queue_micros: Arc<std::sync::atomic::AtomicU64>,
     /// National field layers drawn in this pane. Per-pane rather than app-wide: two panes is how
     /// you compare two fields, and the model-difference layer would rather be a pair of panes
     /// than a subtraction. The grids themselves stay in one shared cache — only the choice of
@@ -502,6 +506,8 @@ impl MapView {
             live_scan_revision: 0,
             live_retries: 0,
             last_decode_time: None,
+            live_render_started: None,
+            live_gpu_queue_micros: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             fields_on: Default::default(),
             moments_seen: [false; Moment::ALL.len()],
         }

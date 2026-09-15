@@ -8,6 +8,15 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: measured live radar render-queue latency
+
+Each accepted live Level II update now carries a one-shot timestamp from the UI receive path into
+the 2D radar upload. After the renderer has queued the changed polar-texture rows, uniforms, and
+color table, it stores the elapsed receipt-to-queue duration. The Radar health popup displays this
+as "Render queue" alongside the existing provider-lag and decode-time readings. It deliberately
+describes the measurable CPU/GPU queue boundary rather than claiming the frame has already been
+presented by the GPU.
+
 ### Added: warn when a hovered cross-section point isn't real beam coverage
 
 ROADMAP_NEW C3's last open item. `wxdata::xsection::sample_profile` fills a thin band just past

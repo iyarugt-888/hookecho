@@ -10273,6 +10273,7 @@ impl HookEchoApp {
                     if v.timeline.playing {
                         continue; // looping pane owns its displayed frame (cf. Volume above)
                     }
+                    v.live_render_started = Some(Instant::now());
                     log::debug!(
                         target: "hookecho::live_sweep",
                         "{}: live chunk merged into {name} ({time}), {} tilt(s) changed, \
@@ -11140,6 +11141,12 @@ impl HookEchoApp {
         .then(|| self.precip_flag_grid.clone())
         .flatten();
         let upload = {
+            let telemetry = self.views[data].live_render_started.map(|started| {
+                (
+                    started,
+                    Arc::clone(&self.views[data].live_gpu_queue_micros),
+                )
+            });
             let Some(vol) = self.views[data].volume.as_mut() else {
                 return (None, true);
             };
@@ -11157,11 +11164,13 @@ impl HookEchoApp {
                     storm_uv,
                     precip.as_deref(),
                     lut_only,
+                    telemetry,
                 )
             })
         };
         match upload {
             Ok(up) => {
+                self.views[data].live_render_started = None;
                 self.pane_shown.insert(idx, key);
                 self.pane_lut.insert(idx, lut_gen);
                 (Some(up), true)
@@ -16717,6 +16726,7 @@ pub(crate) fn to_upload(
     // Only the color table changed, so the sweep and precipitation-flag bytes the GPU already
     // holds are still correct and are not copied.
     lut_only: bool,
+    telemetry: Option<(Instant, Arc<std::sync::atomic::AtomicU64>)>,
 ) -> RadarUpload {
     use crate::render::mercator::lonlat_to_world;
     let max_range_km = s.first_gate_km + s.gate_count as f32 * s.gate_interval_km;
@@ -16809,6 +16819,7 @@ pub(crate) fn to_upload(
         world_min: [wx0 as f32, wy0 as f32],
         world_max: [wx1 as f32, wy1 as f32],
         lut_only,
+        telemetry,
     }
 }
 
@@ -19962,8 +19973,8 @@ mod tests {
             ..Default::default()
         };
         let table = crate::colormap::default_table(wxdata::level2::Moment::Reflectivity);
-        let full = super::to_upload(&sweep, table, None, false, None, None, false);
-        let lut = super::to_upload(&sweep, table, None, false, None, None, true);
+        let full = super::to_upload(&sweep, table, None, false, None, None, false, None);
+        let lut = super::to_upload(&sweep, table, None, false, None, None, true, None);
         assert_eq!(full.data.len(), 360 * 200);
         assert!(lut.data.is_empty(), "the gate texture is already uploaded");
         assert_eq!(lut.lut, full.lut, "the color table is what changed");

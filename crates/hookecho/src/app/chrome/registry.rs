@@ -74,6 +74,15 @@ fn decode_time_detail(last: Option<std::time::Duration>) -> Option<(&'static str
     last.map(|d| ("Decode time", format_millis(d)))
 }
 
+fn render_queue_detail(micros: u64) -> Option<(&'static str, String)> {
+    (micros > 0).then(|| {
+        (
+            "Render queue",
+            format_millis(std::time::Duration::from_micros(micros)),
+        )
+    })
+}
+
 /// Sub-second precision below 1s (decode times are normally tens to low hundreds of ms, where
 /// `humanize`'s whole-second granularity would round everything down to a useless "0s"); whole
 /// tenths of a second above that, since a decode slow enough to reach a second is already
@@ -108,6 +117,10 @@ impl HookEchoApp {
         let details = [
             ingest_lag_detail(v.last_live_arrival),
             decode_time_detail(v.last_decode_time),
+            render_queue_detail(
+                v.live_gpu_queue_micros
+                    .load(std::sync::atomic::Ordering::Relaxed),
+            ),
             retry_detail(v.live_retries),
         ]
         .into_iter()
@@ -1273,7 +1286,10 @@ impl HookEchoApp {
 
 #[cfg(test)]
 mod tests {
-    use super::{decode_time_detail, field_layer_is_health_tracked, ingest_lag_detail, retry_detail};
+    use super::{
+        decode_time_detail, field_layer_is_health_tracked, ingest_lag_detail, render_queue_detail,
+        retry_detail,
+    };
 
     /// Every MRMS catalog product must be health-tracked without being named here — that is the
     /// whole point of checking `descriptor().is_some()` first. A product added to the catalog
@@ -1364,5 +1380,13 @@ mod tests {
         let (_, value) =
             decode_time_detail(Some(std::time::Duration::from_millis(1_500))).unwrap();
         assert_eq!(value, "1.5s");
+    }
+
+    #[test]
+    fn render_queue_detail_is_hidden_until_a_live_upload_commits() {
+        assert!(render_queue_detail(0).is_none());
+        let (label, value) = render_queue_detail(18_250).unwrap();
+        assert_eq!(label, "Render queue");
+        assert_eq!(value, "18ms");
     }
 }

@@ -478,11 +478,11 @@ Add a compact source/latency diagnostic:
 - provider ingest delay — **done**: `View::last_live_arrival` records `(received_at, valid_time)`
   at every live-poll and live-stream arrival (never an archive scrub or a loop's replayed frame);
   the Radar row's health popup (Layers panel) shows it as "Provider lag". Verified live.
-- decode/render delay — **done**: `wxdata::live::Update::decode_time` measures the wall clock spent
-  assembling and merging each live-stream sweep, shown as "Decode time" in the same health popup.
-  Unit-tested; not seen rendering live this round because the popup's trigger only appears for a
-  source that isn't Fresh (`active_row` in `layers_panel.rs`) and nothing available here was
-  unhealthy — see CHANGELOG for the honest caveat.
+- decode/render delay — **done**: `wxdata::live::Update::decode_time` measures assembly and merge
+  time. A one-shot timestamp then follows each accepted live update through binning and the render
+  callback; after the polar texture spans, uniforms, and LUT are queued, the renderer records the
+  receipt-to-queue duration. The Radar health popup shows both "Decode time" and "Render queue".
+  This is a CPU/GPU queue boundary measurement, not a claim that the GPU has finished presenting.
 - latest complete volume age — **done** via B2-adjacent work: `Timeline::newest()` (added while
   fixing the LIVE badge, see Unreleased/CHANGELOG) is the site's own newest known frame,
   independent of what a rolling loop is currently displaying; the badge, its age readout, and

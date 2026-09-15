@@ -472,7 +472,7 @@ pub fn run(
         basemap_key: basemap.key(),
         vector_over_raster: false,
         radar_upload: Some(crate::app::to_upload(
-            &sweep, &table, None, smooth, storm_uv, None, false,
+            &sweep, &table, None, smooth, storm_uv, None, false, None,
         )),
         draw_radar: true,
         observed_upload: None,
@@ -532,7 +532,7 @@ pub fn run_multipane(site: &str, out_a: &str, out_b: &str) -> anyhow::Result<()>
             new_tiles: Vec::new(),
             visible: Vec::new(),
             radar_upload: Some(crate::app::to_upload(
-                &sweep, &table, None, false, None, None, false,
+                &sweep, &table, None, false, None, None, false, None,
             )),
             draw_radar: true,
             observed_upload: None,
@@ -1244,7 +1244,7 @@ pub fn run_live(out_path: &str, site: &str, moment: Moment) -> anyhow::Result<()
         new_tiles: Vec::new(),
         visible: Vec::new(),
         radar_upload: Some(crate::app::to_upload(
-            &sweep, &table, None, false, None, None, false,
+            &sweep, &table, None, false, None, None, false, None,
         )),
         draw_radar: true,
         observed_upload: None,
@@ -3365,7 +3365,7 @@ mod golden_tests {
                 new_tiles: Vec::new(),
                 visible: Vec::new(),
                 radar_upload: Some(crate::app::to_upload(
-                    &sweep, &table, None, false, None, None, lut_only,
+                    &sweep, &table, None, false, None, None, lut_only, None,
                 )),
                 draw_radar: true,
                 observed_upload: None,
@@ -3806,7 +3806,7 @@ mod golden_tests {
                 new_tiles: Vec::new(),
                 visible: Vec::new(),
                 radar_upload: Some(crate::app::to_upload(
-                    sweep, &table, None, false, None, None, false,
+                    sweep, &table, None, false, None, None, false, None,
                 )),
                 draw_radar: true,
                 observed_upload: None,
@@ -3886,7 +3886,7 @@ mod golden_tests {
             new_tiles: Vec::new(),
             visible: Vec::new(),
             radar_upload: Some(crate::app::to_upload(
-                &sweep, &table, None, false, None, None, false,
+                &sweep, &table, None, false, None, None, false, None,
             )),
             draw_radar: true,
             observed_upload: None,
