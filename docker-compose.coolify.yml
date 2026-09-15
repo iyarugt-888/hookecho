@@ -5,6 +5,13 @@
 # is long (native release + two wasm builds) — raise the build timeout if it trips.
 #
 # Standalone: `docker compose -f docker-compose.coolify.yml up -d --build`, then open :8882.
+#
+# The developer-log admin panel (container port 8884, see scripts/docker-entrypoint.sh and
+# crates/hookecho/src/devlog_admin.rs) is mapped to host :8885 below for direct access. Coolify's
+# proxy only wires up the one domain you set in its UI — reach 8884 through this host port, or
+# give it its own domain/port mapping in Coolify if you want it reachable the same way as :8080.
+# Set HOOKECHO_DEVLOG_TOKEN before exposing it anywhere this host isn't already trusted: it can
+# read, and erase, every log line any instance has shipped it.
 
 name: hookecho
 
@@ -18,9 +25,11 @@ services:
     cpus: 2.0
     pids_limit: 256
     # Host 8882 → container 8080 (8080 is taken on the host). Coolify's proxy targets the
-    # container port (8080); this mapping is for direct host access.
+    # container port (8080); this mapping is for direct host access. Host 8885 → container 8884
+    # is the devlog admin panel, same reasoning.
     ports:
       - "8882:8080"
+      - "8885:8884"
     volumes:
       - hookecho-config:/root/.config/hookecho
       - hookecho-cache:/root/.cache/hookecho
@@ -29,6 +38,10 @@ services:
       # prefer the settings.json route; this env var is not read by the app — it is a reminder.
       # HOOKECHO_SERVE_TOKEN: "change-me"
       RUST_LOG: "warn"
+      # Locks the devlog admin panel (see scripts/docker-entrypoint.sh) the same way
+      # HOOKECHO_SERVE_TOKEN locks the main app — uncomment before mapping :8884/:8885 anywhere
+      # this host isn't already trusted.
+      # HOOKECHO_DEVLOG_TOKEN: "change-me-too"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8080/"]
       interval: 30s

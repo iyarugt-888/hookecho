@@ -86,23 +86,33 @@ impl Store {
 }
 
 /// Serve until killed. `bind` is an address like `127.0.0.1` or `0.0.0.0` — loopback by default,
-/// the same deliberate-act-to-open-up posture as [`crate::serve::run`].
-pub fn run(bind: &str, port: u16) -> anyhow::Result<()> {
+/// the same deliberate-act-to-open-up posture as [`crate::serve::run`]. `token`, if non-empty, is
+/// the bearer every request must carry (header or `?token=`) — the same all-or-nothing scheme
+/// `serve.rs` uses, because this panel can read (and, via `/api/clear`, erase) every log line any
+/// instance has ever shipped it, which is worse to leave open on a public deploy than `--serve`'s
+/// own read-only status routes.
+pub fn run(bind: &str, port: u16, token: String) -> anyhow::Result<()> {
     let listener = TcpListener::bind((bind, port))?;
     let store: Arc<Mutex<Store>> = Arc::new(Mutex::new(Store::default()));
+    let token = Arc::new(token);
     log::info!("devlog admin serving on http://{bind}:{port}");
     if bind == "0.0.0.0" {
-        log::warn!(
-            "devlog admin bound to all interfaces — anyone on this network can read every log \
-             line any instance ships here, and clear them"
-        );
+        if token.is_empty() {
+            log::warn!(
+                "devlog admin bound to all interfaces with no token — anyone on this network can \
+                 read every log line any instance ships here, and clear them"
+            );
+        } else {
+            log::info!("devlog admin bound to all interfaces, bearer token required");
+        }
     }
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
                 let store = Arc::clone(&store);
+                let token = Arc::clone(&token);
                 std::thread::spawn(move || {
-                    if let Err(e) = handle(&store, stream) {
+                    if let Err(e) = handle(&store, &token, stream) {
                         log::debug!("devlog connection ended: {e}");
                     }
                 });
@@ -113,7 +123,7 @@ pub fn run(bind: &str, port: u16) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn handle(store: &Mutex<Store>, mut stream: TcpStream) -> anyhow::Result<()> {
+fn handle(store: &Mutex<Store>, token: &str, mut stream: TcpStream) -> anyhow::Result<()> {
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut line = String::new();
     reader.read_line(&mut line)?;
@@ -126,20 +136,39 @@ fn handle(store: &Mutex<Store>, mut stream: TcpStream) -> anyhow::Result<()> {
         None => (target.to_string(), String::new()),
     };
 
+    let mut bearer: Option<String> = None;
     let mut content_length: usize = 0;
     for _ in 0..64 {
         let mut h = String::new();
         if reader.read_line(&mut h)? == 0 || h.trim().is_empty() {
             break;
         }
-        if let Some((name, value)) = h.split_once(':') {
-            if name.trim().eq_ignore_ascii_case("content-length") {
-                content_length = value.trim().parse().unwrap_or(0);
+        let Some((name, value)) = h.split_once(':') else {
+            continue;
+        };
+        let name = name.trim();
+        if name.eq_ignore_ascii_case("content-length") {
+            content_length = value.trim().parse().unwrap_or(0);
+        } else if name.eq_ignore_ascii_case("authorization") {
+            if let Some(b) = value.trim().strip_prefix("Bearer ") {
+                bearer = Some(b.trim().to_string());
             }
         }
     }
+    let authorized = authorize(token, bearer.as_deref(), &query);
 
-    let (status, ctype, body) = if content_length > MAX_BODY {
+    let (status, ctype, body) = if method == "OPTIONS" {
+        // The preflight itself never carries the token — it's the browser asking "may I even send
+        // this method/these headers", not the real request — so it has to pass regardless of
+        // `authorized`, or a token'd server could never be shipped to from another origin at all.
+        route(store, &method, &path, &query, &[])
+    } else if !authorized {
+        (
+            "401 Unauthorized",
+            "application/json",
+            br#"{"error":"missing or bad bearer token"}"#.to_vec(),
+        )
+    } else if content_length > MAX_BODY {
         (
             "413 Payload Too Large",
             "application/json",
@@ -156,13 +185,29 @@ fn handle(store: &Mutex<Store>, mut stream: TcpStream) -> anyhow::Result<()> {
          Cache-Control: no-cache\r\n\
          Access-Control-Allow-Origin: *\r\n\
          Access-Control-Allow-Methods: GET, POST\r\n\
-         Access-Control-Allow-Headers: Content-Type\r\n\
+         Access-Control-Allow-Headers: Content-Type, Authorization\r\n\
          Connection: close\r\n\r\n",
         body.len()
     );
     stream.write_all(head.as_bytes())?;
     stream.write_all(&body)?;
     Ok(())
+}
+
+/// Whether a request may proceed: no token configured (fully open, the default), or a supplied
+/// bearer header or `?token=` query parameter exactly matches it. Split out of `handle` so the
+/// decision itself is testable without a socket.
+fn authorize(token: &str, bearer: Option<&str>, query: &str) -> bool {
+    if token.is_empty() {
+        return true;
+    }
+    if bearer.is_some_and(|b| crate::serve::constant_time_eq(b, token)) {
+        return true;
+    }
+    // The admin page itself has no header to set on a bookmark, and neither does a native/web
+    // instance's shipper if an operator would rather bake the token into the one URL it already
+    // POSTs to — `?token=` on that same endpoint just works, no extra plumbing.
+    crate::cloud::param(query, "token").is_some_and(|t| crate::serve::constant_time_eq(&t, token))
 }
 
 fn route(
@@ -408,6 +453,16 @@ tr:hover { background:#161b22; }
 <script>
 const $ = (id) => document.getElementById(id);
 const scroll = $("scroll");
+// A token'd server is reached with `?token=`, same as `--serve`'s own dashboard; every fetch this
+// page makes has to carry it too, since there's no header to set on a bookmark.
+const token = new URLSearchParams(location.search).get("token");
+function authed(path) {
+  if (!token) return path;
+  const [base, qs] = path.split("?");
+  const params = new URLSearchParams(qs || "");
+  params.set("token", token);
+  return base + "?" + params.toString();
+}
 let sinceId = 0;
 let rowCount = 0;
 const MAX_ROWS = 5000; // client-side cap so a long session doesn't grow the DOM without bound
@@ -481,7 +536,7 @@ async function pollLogs() {
   p.set("since_id", live ? String(sinceId) : "0");
   p.set("limit", "1000");
   try {
-    const r = await fetch("/api/logs?" + p.toString());
+    const r = await fetch(authed("/api/logs?" + p.toString()));
     if (!r.ok) throw new Error("HTTP " + r.status);
     const items = await r.json();
     if (myGeneration !== generation) return; // a newer filter/reset has since started
@@ -503,7 +558,7 @@ async function pollLogs() {
 
 async function pollMeta() {
   try {
-    const r = await fetch("/api/meta");
+    const r = await fetch(authed("/api/meta"));
     if (!r.ok) return;
     const meta = await r.json();
     const targets = $("targets");
@@ -539,7 +594,7 @@ $("live").addEventListener("change", () => { resetView(); pollLogs(); });
 $("clear").addEventListener("click", async () => {
   if (!confirm("Clear every buffered log entry on this admin server? This can't be undone."))
     return;
-  await fetch("/api/clear", { method: "POST" });
+  await fetch(authed("/api/clear"), { method: "POST" });
   resetView();
   pollLogs();
 });
@@ -743,5 +798,27 @@ mod tests {
         let (status, _, body) = route(&store, "OPTIONS", "/ingest", "", &[]);
         assert_eq!(status, "204 No Content");
         assert!(body.is_empty());
+    }
+
+    #[test]
+    fn no_token_configured_means_every_request_is_authorized() {
+        assert!(authorize("", None, ""));
+        assert!(authorize("", Some("literally anything"), ""));
+    }
+
+    #[test]
+    fn a_configured_token_refuses_a_missing_or_wrong_credential() {
+        assert!(!authorize("secret", None, ""));
+        assert!(!authorize("secret", Some("wrong"), ""));
+        assert!(!authorize("secret", None, "token=wrong"));
+    }
+
+    #[test]
+    fn a_configured_token_accepts_either_the_bearer_header_or_the_query_parameter() {
+        assert!(authorize("secret", Some("secret"), ""));
+        assert!(authorize("secret", None, "token=secret"));
+        // Whichever the caller could actually set — a native shipper's header, a bookmarked
+        // admin-page URL's query string — either alone has to be enough.
+        assert!(authorize("secret", Some("wrong"), "token=secret"));
     }
 }

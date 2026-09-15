@@ -376,7 +376,11 @@ fn query_token(query: &str) -> Option<String> {
 
 /// Compare without leaking where the two differ through timing. Length is not a secret here (the
 /// user chose it), but the content is.
-fn constant_time_eq(a: &str, b: &str) -> bool {
+///
+/// `pub(crate)` rather than private: [`crate::devlog_admin`] wants the same comparison for its
+/// own bearer token, and a second hand-rolled copy of anything timing-sensitive is a second place
+/// for it to quietly stop being constant-time.
+pub(crate) fn constant_time_eq(a: &str, b: &str) -> bool {
     if a.len() != b.len() {
         return false;
     }

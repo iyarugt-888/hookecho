@@ -117,9 +117,12 @@ fn main() -> eframe::Result<()> {
         return Ok(());
     }
 
-    // Developer log admin panel: `hookecho --devlog-serve [PORT] [--bind ADDR]` — the viewer
-    // `HOOKECHO_DEVLOG`/`?devlog=` ship to. Loopback by default, same posture as `--serve`; a
-    // separate process and a separate port so the main app's own UI never carries this.
+    // Developer log admin panel: `hookecho --devlog-serve [PORT] [--bind ADDR] [--devlog-token
+    // TOKEN]` — the viewer `HOOKECHO_DEVLOG`/`?devlog=` ship to. Loopback by default, same posture
+    // as `--serve`; a separate process and a separate port so the main app's own UI never carries
+    // this. `--devlog-token` (or `HOOKECHO_DEVLOG_TOKEN`) locks it down the same way
+    // `--serve-token` does — worth setting before `--bind 0.0.0.0` on a real deployment, since
+    // this panel can read, and erase, every log line any instance has ever shipped it.
     if let Some(pos) = args.iter().position(|a| a == "--devlog-serve") {
         let port = args
             .get(pos + 1)
@@ -127,7 +130,11 @@ fn main() -> eframe::Result<()> {
             .and_then(|p| p.parse::<u16>().ok())
             .unwrap_or(8884);
         let bind = flag_value(&args, "--bind").unwrap_or("127.0.0.1");
-        if let Err(e) = hookecho::devlog_admin::run(bind, port) {
+        let token = flag_value(&args, "--devlog-token")
+            .map(str::to_string)
+            .or_else(|| std::env::var("HOOKECHO_DEVLOG_TOKEN").ok())
+            .unwrap_or_default();
+        if let Err(e) = hookecho::devlog_admin::run(bind, port, token) {
             eprintln!("devlog-serve failed: {e}");
             std::process::exit(1);
         }

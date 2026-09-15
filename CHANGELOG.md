@@ -8,6 +8,33 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: an animated live-sweep indicator on the scrubber's Live badge
+
+Next to the "Live" badge, while a chunk stream is actually updating the pane: a small ring showing
+how far the current volume has scanned (a static arc) and, unless motion is reduced, a segment that
+spins continuously so "still connected, nothing stalled" is visible without reading the badge's
+hover text — plus a slim tilt-progress bar underneath naming the exact tilt and chunk on hover.
+Both read off `wxdata::live::ScanProgress`, which the chunk-stream code already computed and threw
+away. New "Live sweep indicator" toggle in Map settings (on by default) turns it off entirely for
+anyone who'd rather the badge stay a plain dot.
+
+### Fixed: the devlog admin panel had no path to production, and no lock on the door
+
+Landed alongside the developer log below, this closes the gap noticed trying to actually reach it
+on a live deploy: `Dockerfile.coolify` ran only the main `--serve` process, with no way to reach
+`--devlog-serve` at all. A new `scripts/docker-entrypoint.sh` starts both in one container —
+`--devlog-serve` in the background, `--serve` `exec`'d into PID 1 so Docker's stop signal still
+reaches the process actually serving traffic — and `HOOKECHO_DEVLOG` defaults on for that `--serve`
+process, so a deployed instance ships its own logs to the co-located panel with no extra
+configuration. Port 8884 is now `EXPOSE`d and mapped to host `:8885` in
+`docker-compose.coolify.yml`.
+
+Since this is the change that makes the panel reachable from outside a single trusted machine for
+the first time, it also gained the lock `--serve` already had: `--devlog-token` (or
+`HOOKECHO_DEVLOG_TOKEN`) gates every route but the CORS preflight behind a bearer token, checked
+via header or `?token=`, using the same constant-time comparison `--serve-token` does. Unset —
+still the default — the panel is exactly as open as before.
+
 ### Added: a developer log — every `log::` call, filterable and searchable, on its own admin panel
 
 A live-sweep stall, a TDS/TVS false trip, or an error only a browser instance somewhere ever hit

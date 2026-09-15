@@ -1,8 +1,11 @@
 # HookEcho, full web deployment: the interactive browser app (WebAssembly) + the JSON/snapshot
-# API + the CORS proxy the browser build needs, all served by one `--serve` process.
+# API + the CORS proxy the browser build needs, served by a `--serve` process, plus a second
+# `--devlog-serve` process (the developer-log admin panel) — see scripts/docker-entrypoint.sh for
+# how the one container runs both.
 #
 # This is the image Coolify (or any Docker host) deploys from `docker-compose.coolify.yml`. The
-# lighter `Dockerfile` at the repo root builds only the `--serve` API, no browser bundle.
+# lighter `Dockerfile` at the repo root builds only the `--serve` API, no browser bundle, no devlog
+# panel.
 #
 # The build is heavy: a release build of the native binary (fat LTO) plus two `wasm32` builds
 # (the app and the lite viewer) plus a one-time `cargo install wasm-bindgen-cli`. Budget 20–40
@@ -66,14 +69,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY --from=build /src/target/release/hookecho /usr/local/bin/hookecho
 COPY --from=build /src/web ./web
+COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Settings (saved locations the JSON routes report on; add `serve_token` here to lock the
 # instance down) and the tile/volume cache.
 VOLUME ["/root/.config/hookecho", "/root/.cache/hookecho"]
 
-EXPOSE 8080
+# 8080: the app, the JSON/snapshot API, the CORS proxy. 8884: the developer-log admin panel (see
+# scripts/docker-entrypoint.sh) — also bound to 0.0.0.0, so set HOOKECHO_DEVLOG_TOKEN before
+# mapping it publicly, the same way `serve_token` locks 8080 down.
+EXPOSE 8080 8884
 
-# 0.0.0.0 inside the container is the whole point. No token by default → fully open, which is
-# what a public radar site wants; set `serve_token` in the mounted settings.json to lock it and
-# add `--public` back here if the site still needs to embed the preset frames.
-ENTRYPOINT ["hookecho", "--serve", "8080", "--bind", "0.0.0.0", "--web-root", "/app/web"]
+# 0.0.0.0 inside the container is the whole point for 8080. No `serve_token` by default → fully
+# open, which is what a public radar site wants; set it in the mounted settings.json to lock it
+# and add `--public` back to the entrypoint script if the site still needs to embed the preset
+# frames.
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
