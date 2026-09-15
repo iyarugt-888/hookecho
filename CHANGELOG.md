@@ -8,6 +8,24 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: hide the WSV3 ribbon for a full-window map view
+
+Requested directly: a way to get the top ribbon and its docked colour scale out of the way
+entirely, rather than only ever reserving `RIBBON_H + COLORBAR_H` at the top of the window. A new
+small button — floating at the top-center edge, styled like a window's own resize grip rather than
+a call-to-action, since it's a permanent fixture — hides the ribbon outright; the same spot brings
+it back. Bound to `T` and reachable from Ctrl+K ("Top bar") like every other panel toggle in the
+app. Collapsing doesn't just visually cover the ribbon: the panel itself is never created that
+frame, so the map's own available space grows to fill what the ribbon would have reserved, not
+just paint over it.
+
+The corner was chosen to avoid the two spots already claimed in that strip: the timestamp pill's
+top-left (`wsv3_timestamp`) and the OS window buttons' top-right (`window_frame`). Runtime state,
+not a setting (`ribbon_collapsed`) — same convention as the Layers panel's own open/closed flag —
+so a collapsed ribbon doesn't stay collapsed the next time the app opens. Verified live: clicking
+the button, and separately pressing `T`, hid the ribbon and grew the map into its space in both
+directions; toggling back restored the ribbon exactly as it was.
+
 ### Added: slab thickness for the 3D vertical clip plane
 
 ROADMAP_NEW H4's arbitrary vertical plane could only ever cut the volume in half — keep everything

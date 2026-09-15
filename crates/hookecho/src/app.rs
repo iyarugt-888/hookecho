@@ -1746,6 +1746,8 @@ pub(crate) enum PaletteAction {
     /// Show/hide the docked timeline bar under the map (desktop).
     /// Show/hide the docked sidebar on the left (desktop).
     TogglePanel,
+    /// Show/hide the WSV3 ribbon and its docked colour scale, for a full-window map view.
+    ToggleRibbon,
     Reload,
     InstantReplay,
     GoLive,
@@ -2977,6 +2979,10 @@ pub struct HookEchoApp {
     panel_open: bool,
     /// Is the background picker slid out beside the control column?
     basemap_open: bool,
+    /// Is the WSV3 ribbon (and its docked colour scale) hidden for a full-window map view?
+    /// Runtime state, not a setting, same as `panel_open`: reopen the app and the ribbon is back.
+    /// No-op outside the WSV3 layout, which is the only one that docks a ribbon at all.
+    ribbon_collapsed: bool,
     sidebar_focus_search: bool,
     /// The `?` keyboard cheat sheet is up.
     show_cheatsheet: bool,
@@ -3847,6 +3853,7 @@ impl HookEchoApp {
             layers_query: String::new(),
             panel_open: false,
             basemap_open: false,
+            ribbon_collapsed: false,
             sidebar_focus_search: false,
             show_cheatsheet: false,
             capture_key: false,
@@ -8393,6 +8400,7 @@ impl HookEchoApp {
             PaletteAction::ToggleMute => self.apply_action(BindableAction::ToggleMute, ctx),
             PaletteAction::Explain(i) => self.help_hub.explain(i),
             PaletteAction::TogglePanel => self.panel_open = !self.panel_open,
+            PaletteAction::ToggleRibbon => self.ribbon_collapsed = !self.ribbon_collapsed,
             PaletteAction::Reload => self.trigger_reload(ctx),
             PaletteAction::InstantReplay => self.instant_replay(),
             PaletteAction::GoLive => self.views[self.active].timeline.go_head(),

@@ -972,6 +972,14 @@ impl HookEchoApp {
             Some(self.panel_open),
         );
         push(
+            "Top bar",
+            "Reference",
+            "The WSV3 ribbon and its colour scale \u{2014} hide it for a full-window map view",
+            false,
+            PaletteAction::ToggleRibbon,
+            Some(!self.ribbon_collapsed),
+        );
+        push(
             "About HookEcho",
             "Reference",
             "Version, links, and whether a newer release is out",

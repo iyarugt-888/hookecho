@@ -100,7 +100,16 @@ fn live_sweep_strip(ui: &mut egui::Ui, pill_rect: egui::Rect, p: wxdata::live::S
 impl HookEchoApp {
     /// The docked ribbon. Call on the eframe root `Ui`, before `chrome_rect` is captured, so the
     /// floating windows constrain to the map area below it.
+    ///
+    /// Collapsed (`ribbon_collapsed`), this draws nothing but the small corner button that brings
+    /// it back — the panel itself is never created, so `chrome_rect` (captured right after this
+    /// call returns) naturally grows to cover the space the ribbon would have reserved, handing
+    /// the whole window to the map.
     pub(crate) fn wsv3_ribbon(&mut self, root: &mut egui::Ui, ctx: &egui::Context) {
+        if self.ribbon_collapsed {
+            self.ribbon_collapse_button(ctx);
+            return;
+        }
         let accent = wsv3::WSV3_BLUE;
         let mut actions = ui::layer_options::UiActions::default();
 
@@ -687,6 +696,9 @@ impl HookEchoApp {
                 );
                 wsv3::colorbar(ui.painter(), cb, &table, disp_f, disp_l);
             });
+        // Drawn after the panel above (not before it), so it paints on top of the ribbon's own
+        // background gradient rather than underneath it.
+        self.ribbon_collapse_button(ctx);
 
         // --- apply ---
         if open_command_search {
@@ -864,6 +876,50 @@ impl HookEchoApp {
                     .show(ui, |ui| {
                         ui.label(RichText::new(text).size(12.5).color(Color32::WHITE));
                     });
+            });
+    }
+
+    /// Hides/shows the ribbon for a full-window map view. Floats at the top-center edge rather
+    /// than a corner: the left corner is the timestamp pill's spot (`wsv3_timestamp`) and the
+    /// right is the OS window buttons' (`window_frame`) plus the docked colour scale's keepout —
+    /// top-center is the one strip neither claims. Small and low-contrast on purpose, like a
+    /// window's own resize grip, since it's a permanent fixture rather than an action to draw
+    /// attention to.
+    fn ribbon_collapse_button(&mut self, ctx: &egui::Context) {
+        use crate::ui::a11y::Named as _;
+        let (glyph, hint) = if self.ribbon_collapsed {
+            (
+                egui_phosphor::regular::CARET_DOWN,
+                "Show the top bar (T)",
+            )
+        } else {
+            (egui_phosphor::regular::CARET_UP, "Hide the top bar for a full-window map view (T)")
+        };
+        egui::Area::new(egui::Id::new("wsv3_ribbon_collapse"))
+            .anchor(egui::Align2::CENTER_TOP, vec2(0.0, 2.0))
+            .interactable(true)
+            .show(ctx, |ui| {
+                let resp = ui
+                    .add(
+                        egui::Button::new(
+                            RichText::new(glyph)
+                                .size(11.0)
+                                .color(Color32::from_white_alpha(160)),
+                        )
+                        .min_size(vec2(36.0, 12.0))
+                        .fill(Color32::from_rgba_unmultiplied(0x14, 0x18, 0x1e, 190))
+                        .stroke(egui::Stroke::NONE)
+                        .corner_radius(egui::CornerRadius {
+                            nw: 0,
+                            ne: 0,
+                            sw: 6,
+                            se: 6,
+                        }),
+                    )
+                    .named(hint);
+                if resp.clicked() {
+                    self.ribbon_collapsed = !self.ribbon_collapsed;
+                }
             });
     }
 }

@@ -121,6 +121,7 @@ pub(crate) fn defaults() -> Vec<Binding> {
         plain(K::R, A::Palette(P::InstantReplay)),
         plain(K::M, A::ToggleMute),
         plain(K::F11, A::Fullscreen),
+        plain(K::T, A::Palette(P::ToggleRibbon)),
         plain(K::Questionmark, A::CheatSheet),
         // `?` stays the shortcut overlay; F1 is the searchable hub the overlay points at.
         plain(K::F1, A::Palette(P::OpenWindow(AppWindow::Help))),
