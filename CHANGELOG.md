@@ -8,6 +8,17 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: the web deployment build failed to compile
+
+`RadarUpload.telemetry` (the live-render-queue-latency timing added alongside the render-queue
+metric above) was typed `std::time::Instant`, while every caller already carried
+`wxdata::clock::Instant` — the two are the same type on native (`wxdata::clock` re-exports
+`std::time::Instant` there) but distinct types on wasm32 (`web_time::Instant`), where
+`std::time::Instant` can't measure elapsed time at all. `cargo check` on native never caught it;
+Coolify's web build (`scripts/web/build.sh`, wasm32 target) did, failing every deploy since the
+render-queue-latency feature landed. Fixed by giving the field the same cross-platform clock type
+its callers already used. Verified: `cargo check --target wasm32-unknown-unknown` compiles clean.
+
 ### Added: shared metadata for regional model fields and contours
 
 All twelve HRRR/RAP/NAM/NBM field meanings now expose `FieldDescriptor` metadata with stable IDs,
