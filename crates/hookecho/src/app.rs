@@ -1470,30 +1470,33 @@ impl ContourKind {
         })
     }
 
-    /// GRIB `(var, level, contour interval)` in display units, or `None` for `Off`.
+    fn model_field(self) -> Option<wxdata::model::ModelField> {
+        use wxdata::model::ModelField as MF;
+        Some(match self {
+            ContourKind::Mslp => MF::MeanSeaLevelPressure,
+            ContourKind::T2m => MF::Temperature2m,
+            ContourKind::Td2m => MF::Dewpoint2m,
+            ContourKind::Cape => MF::SurfaceCape,
+            ContourKind::Srh => MF::Srh3km,
+            _ => return None,
+        })
+    }
+
+    /// GRIB `(var, level, native contour interval)`, or `None` for `Off` and derived composites.
+    /// HRRR and RAP intentionally share these spellings; the model-catalog contract test protects
+    /// that invariant because this contour UI can switch between them without changing fields.
     pub(crate) fn params(self) -> Option<(&'static str, &'static str, f32)> {
-        match self {
-            ContourKind::Off => None,
-            ContourKind::Mslp => Some(("MSLMA", "mean sea level", 2.0)), // hPa
-            ContourKind::T2m => Some(("TMP", "2 m above ground", 5.0)),  // °F
-            ContourKind::Td2m => Some(("DPT", "2 m above ground", 5.0)), // °F
-            ContourKind::Cape => Some(("CAPE", "surface", 500.0)),       // J/kg
-            ContourKind::Srh => Some(("HLCY", "3000-0 m above ground", 100.0)), // m²/s²
-            // Composites are built from several fields — see `severe()` / `severe_interval()`.
-            ContourKind::Stp
-            | ContourKind::Scp
-            | ContourKind::Ehi
-            | ContourKind::Lapse700500
-            | ContourKind::Lapse850500
-            | ContourKind::EffShear
-            | ContourKind::EffSrh
-            | ContourKind::StpEff => None,
-        }
+        let field = self.model_field()?;
+        let key = field.grib(wxdata::hrrr::Model::Hrrr)?;
+        Some((key.var, key.level, field.descriptor().default_contour_interval?))
     }
 
     pub(crate) fn interval(self, temp_unit: crate::settings::TempUnit) -> f32 {
         match (self, temp_unit) {
-            (ContourKind::T2m | ContourKind::Td2m, crate::settings::TempUnit::Celsius) => 2.0,
+            // Two kelvin is a useful metric interval; five Fahrenheit is the conventional rounded
+            // chart interval rather than the awkward exact conversion (3.6 °F).
+            (ContourKind::T2m | ContourKind::Td2m, crate::settings::TempUnit::Fahrenheit) => 5.0,
+            (ContourKind::Mslp, _) => self.params().map_or(2.0, |(_, _, pa)| pa / 100.0),
             _ => self
                 .params()
                 .map_or_else(|| self.severe_interval(), |(_, _, interval)| interval),

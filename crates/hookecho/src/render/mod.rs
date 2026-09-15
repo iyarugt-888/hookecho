@@ -287,7 +287,21 @@ impl FieldLayer {
     /// written by a newer build names a layer this one skips rather than failing to load.
     /// Generic metadata for migrated fields; legacy layers remain usable without a descriptor.
     pub fn descriptor(self) -> Option<&'static wxdata::field::FieldDescriptor> {
-        wxdata::mrms::catalog::find(self.slug()).map(|product| &product.field)
+        if let Some(product) = wxdata::mrms::catalog::find(self.slug()) {
+            return Some(&product.field);
+        }
+        use wxdata::model::ModelField as MF;
+        Some(match self {
+            FieldLayer::Hrrr => MF::CompositeReflectivity,
+            FieldLayer::Cape => MF::SurfaceCape,
+            FieldLayer::Srh => MF::Srh3km,
+            FieldLayer::UpdraftHelicity => MF::UpdraftHelicity,
+            FieldLayer::Smoke => MF::Smoke,
+            FieldLayer::Snowfall => MF::Snowfall,
+            FieldLayer::ThunderProb => MF::ThunderProbability,
+            _ => return None,
+        }
+        .descriptor())
     }
 
     pub fn slug(self) -> &'static str {

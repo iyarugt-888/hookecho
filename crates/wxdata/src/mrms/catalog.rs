@@ -65,6 +65,7 @@ pub static PRODUCTS: &[Product] = &[
             value_kind: ValueKind::Scalar,
             aliases: "reflectivity composite radar",
             default_palette: PaletteId::Reflectivity,
+            default_contour_interval: None,
             missing_values: &[-99.0, -999.0],
         },
         common: true,
@@ -81,6 +82,7 @@ pub static PRODUCTS: &[Product] = &[
             value_kind: ValueKind::Scalar,
             aliases: "azimuthal shear swath",
             default_palette: PaletteId::Rotation,
+            default_contour_interval: None,
             missing_values: &[0.0],
         },
         common: true,
@@ -97,6 +99,7 @@ pub static PRODUCTS: &[Product] = &[
             value_kind: ValueKind::Scalar,
             aliases: "hail severe",
             default_palette: PaletteId::HailSize,
+            default_contour_interval: None,
             missing_values: &[-1.0, -3.0],
         },
         common: true,
@@ -108,13 +111,13 @@ pub static PRODUCTS: &[Product] = &[
             source: DataSource::NoaaMrms,
             family: FieldFamily::Mrms,
             name: "Lightning density (CG)",
-            description:
-                "Ground strikes only: NLDN cloud-to-ground density, averaged over a window you \
+            description: "Ground strikes only: NLDN cloud-to-ground density, averaged over a window you \
                  pick. Pair it with satellite lightning (GLM) to see total vs cloud-to-ground.",
             units: Unit::StrikesPerSquareKmPerMinute,
             value_kind: ValueKind::Scalar,
             aliases: "NLDN cloud ground strikes",
             default_palette: PaletteId::LightningDensity,
+            default_contour_interval: None,
             missing_values: &[-1.0, -3.0],
         },
         common: true,
@@ -131,6 +134,7 @@ pub static PRODUCTS: &[Product] = &[
             value_kind: ValueKind::Scalar,
             aliases: "azimuthal shear severe",
             default_palette: PaletteId::Rotation,
+            default_contour_interval: None,
             missing_values: &[0.0],
         },
         common: false,
@@ -147,6 +151,7 @@ pub static PRODUCTS: &[Product] = &[
             value_kind: ValueKind::Scalar,
             aliases: "precipitation rainfall rate",
             default_palette: PaletteId::PrecipitationRate,
+            default_contour_interval: None,
             missing_values: &[-1.0, -3.0],
         },
         common: false,
@@ -163,6 +168,7 @@ pub static PRODUCTS: &[Product] = &[
             value_kind: ValueKind::Accumulation,
             aliases: "precipitation accumulation gauge corrected Pass2",
             default_palette: PaletteId::Precipitation1h,
+            default_contour_interval: None,
             missing_values: &[-1.0, -3.0],
         },
         common: false,
@@ -179,6 +185,7 @@ pub static PRODUCTS: &[Product] = &[
             value_kind: ValueKind::Accumulation,
             aliases: "precipitation accumulation gauge corrected Pass2",
             default_palette: PaletteId::Precipitation24h,
+            default_contour_interval: None,
             missing_values: &[-1.0, -3.0],
         },
         common: false,
@@ -195,6 +202,7 @@ pub static PRODUCTS: &[Product] = &[
             value_kind: ValueKind::Categorical,
             aliases: "precipitation flag rain snow hail",
             default_palette: PaletteId::PrecipitationType,
+            default_contour_interval: None,
             missing_values: &[-1.0, -3.0],
         },
         common: false,
@@ -211,6 +219,7 @@ pub static PRODUCTS: &[Product] = &[
             value_kind: ValueKind::Scalar,
             aliases: "hydrology recurrence interval ARI",
             default_palette: PaletteId::FloodRecurrence,
+            default_contour_interval: None,
             missing_values: &[-999.0],
         },
         common: false,
@@ -227,6 +236,7 @@ pub static PRODUCTS: &[Product] = &[
             value_kind: ValueKind::Scalar,
             aliases: "MESH maximum severe",
             default_palette: PaletteId::HailSwath,
+            default_contour_interval: None,
             missing_values: &[-1.0, -3.0],
         },
         common: false,
@@ -280,7 +290,10 @@ mod tests {
                 }
             }
         }
-        assert!(checked >= PRODUCTS.len(), "expected at least one path per product, got {checked}");
+        assert!(
+            checked >= PRODUCTS.len(),
+            "expected at least one path per product, got {checked}"
+        );
         println!("{checked} MRMS catalog paths confirmed live");
     }
 
@@ -325,7 +338,10 @@ mod tests {
                 crate::mrms::lightning_density(minutes)
             );
             assert_eq!(
-                find_by_path(lightning.path(30, minutes, 1440)).unwrap().field.id,
+                find_by_path(lightning.path(30, minutes, 1440))
+                    .unwrap()
+                    .field
+                    .id,
                 lightning.field.id
             );
         }

@@ -8,6 +8,15 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: shared metadata for regional model fields and contours
+
+All twelve HRRR/RAP/NAM/NBM field meanings now expose `FieldDescriptor` metadata with stable IDs,
+typed NOAA/NCEP source identity, native units, value kind, aliases, palette, and optional native
+contour spacing. Existing future-radar, CAPE, SRH, rotation-track, snowfall, smoke, and thunder
+layers resolve their colors through these descriptors. The HRRR/RAP contour fetch path now reads
+its GRIB key and interval from the same model catalog instead of maintaining a second literal
+table; pressure and temperature conversion remain display-unit aware.
+
 ### Added: typed product source identity
 
 `FieldDescriptor.source` now uses a `DataSource` enum instead of a display string. Sources expose a
