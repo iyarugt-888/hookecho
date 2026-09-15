@@ -237,9 +237,10 @@ here rather than rebuilt.
   (`Stamped::for_display`) and shown in `ui::data_inspector`
 - [x] product search aliases — `FieldDescriptor.aliases` + `search_text()`, feeding the same fuzzy
   search every other action in the app uses
-- [x] favorite/recent products (recent half) — new this pass, see the Unreleased CHANGELOG entry:
-  `Settings.recent_layers`, most-recent-first, capped, surfaced as a "RECENT" section above the
-  Layers panel's category grid. **Favorites are still unbuilt** — no pin/star affordance exists.
+- [x] favorite/recent products — see the Unreleased CHANGELOG entries: `Settings.recent_layers`
+  (most-recent-first, capped, a "RECENT" section above the Layers panel's category grid) and
+  `Settings.favorite_layers` (a star on every layer row, no cap, a "FAVORITES" section above
+  "RECENT").
 - [x] source/provenance inspector — `ui::data_inspector`: source, product, valid time (with signed
   offset from the pane's analysis time), received time, age, issue/run time, forecast/derived
   flags, quality, and the grid-transform detail above. This is `DataStamp` (§2.3's own mandatory
@@ -884,7 +885,13 @@ not a convention callers have to remember.
 - [x] search — the same fuzzy search/command-palette every action in the app uses, reading
   `FieldDescriptor::search_text()` (name, source, family, units, description, aliases)
 - [x] category — "National" in the Layers panel's category grid
-- [ ] favorites — no pin/star affordance exists; still open
+- [x] favorites — new this pass, see the Unreleased CHANGELOG entry: `Settings.favorite_layers`, a
+  star on every layer row (search results, category-browse, RECENT), independent of the row's own
+  click target — starring never toggles the layer, toggling never stars it. Starred layers surface
+  in a "FAVORITES" section above "RECENT" on the landing screen, no cap, no move-to-front on
+  re-click (a curated list, not a recency trail). Verified live: starring "Rotation tracks" moved it
+  into "FAVORITES" with the star lit in accent color and "Active" count unchanged; unstarring
+  returned it to "RECENT" with the star back to weak-text color.
 - [x] recent — new this pass: `Settings.recent_layers`, a "RECENT" section above the category
   grid on the Layers panel's landing screen, most-recent-first, capped at 6. Only a genuine user
   toggle records one — workspace restore and internal bookkeeping (HRRR sub-mode, model compare
@@ -921,7 +928,7 @@ Do not fabricate 3D from a 2D surface product.
 
 - [x] new scalar MRMS product can be added through catalog metadata with minimal/no new UI code —
   true for the fetch/decode/search/legend-palette/provenance path; D3's per-product UI niceties
-  (an accumulation-window picker, a favorite star) are not automatic yet, only the core plumbing
+  (an accumulation-window picker) are not automatic yet, only the core plumbing
 - [ ] at least the major WeatherFront-class MRMS groups are covered — 11 products across
   reflectivity/severe/precipitation/lightning/hydrology; several groups from D1's own target list
   (echo tops, VIL, layer heights, POSH, streamflow, most QPE accumulation windows) are not

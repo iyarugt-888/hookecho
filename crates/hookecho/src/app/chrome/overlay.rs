@@ -213,6 +213,7 @@ impl HookEchoApp {
                     std::mem::take(&mut focus_search),
                     &mut self.settings.layer_order,
                     &self.settings.recent_layers,
+                    &mut self.settings.favorite_layers,
                     |ui| {
                         // Knobs for the layers that are already on, drawn between the Radar group
                         // and the rest. Collapsed by default: the list is still the panel's job.

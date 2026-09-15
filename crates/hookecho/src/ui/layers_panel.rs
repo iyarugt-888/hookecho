@@ -275,6 +275,35 @@ pub(crate) fn recent_entries<'a>(entries: &'a [PaletteEntry], recent: &[String])
         .collect()
 }
 
+/// Flip whether `slug` is starred — the star affordance on every row (`row`'s trailing column)
+/// calls this directly rather than routing through a `PaletteAction`, since favoriting is pure
+/// bookkeeping with no effect on the layer itself, same reasoning as [`reorder`] mutating
+/// `layer_order` in place instead of becoming an action.
+pub(crate) fn toggle_favorite(favorites: &mut Vec<String>, slug: &str) {
+    if let Some(pos) = favorites.iter().position(|s| s == slug) {
+        favorites.remove(pos);
+    } else {
+        favorites.push(slug.to_string());
+    }
+}
+
+/// The catalog rows named by `favorites`, oldest-starred-first, dropping any slug that no longer
+/// resolves to an entry — same reasoning as [`recent_entries`].
+pub(crate) fn favorite_entries<'a>(
+    entries: &'a [PaletteEntry],
+    favorites: &[String],
+) -> Vec<&'a PaletteEntry> {
+    favorites
+        .iter()
+        .filter_map(|slug| {
+            entries.iter().find(|e| match e.action {
+                PaletteAction::ToggleField(l) => l.slug() == slug,
+                _ => false,
+            })
+        })
+        .collect()
+}
+
 /// One full-width row: the name, a state dot on the right, the description on hover. It used to
 /// be a two-line 52 px card, which turned a category into a wall and pushed everything below the
 /// fold; the description is a hint, not something you read twenty times in a row.
@@ -285,6 +314,9 @@ struct Hit {
     clicked: bool,
     /// Index into [`crate::ui::glossary::ENTRIES`], when the ⓘ was the thing clicked.
     explain: Option<usize>,
+    /// The slug to flip favorite-status on, when the star was the thing clicked instead of the
+    /// row itself.
+    toggle_favorite: Option<String>,
     resp: egui::Response,
 }
 
@@ -370,7 +402,14 @@ fn search_context(action: PaletteAction) -> &'static str {
     }
 }
 
-fn row(ui: &mut egui::Ui, e: &PaletteEntry, accent: Color32, draggable: bool, search: bool) -> Hit {
+fn row(
+    ui: &mut egui::Ui,
+    e: &PaletteEntry,
+    accent: Color32,
+    draggable: bool,
+    search: bool,
+    favorites: &[String],
+) -> Hit {
     let on = e.on.unwrap_or(false);
     let (fg, bg) = if on {
         (
@@ -385,7 +424,15 @@ fn row(ui: &mut egui::Ui, e: &PaletteEntry, accent: Color32, draggable: bool, se
     } else {
         ui.visuals().weak_text_color()
     });
+    // Only a `ToggleField` layer has a slug `favorite_layers` can name — a tool or a bare
+    // action (e.g. "Fly to…") has nothing stable to remember it by, and nothing to look it back
+    // up against on the landing screen's FAVORITES section either.
+    let favorite_slug = match e.action {
+        PaletteAction::ToggleField(layer) => Some(layer.slug()),
+        _ => None,
+    };
     let mut clicked = false;
+    let mut toggle_favorite = None;
     let outer = ui
         .horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 4.0;
@@ -403,7 +450,13 @@ fn row(ui: &mut egui::Ui, e: &PaletteEntry, accent: Color32, draggable: bool, se
             } else {
                 ui.label(icon);
             }
-            let w = ui.available_width();
+            // A real trailing column for the star, not a painter overlay like the explain/health
+            // marks below: those are informational and can afford to sit over long label text,
+            // but a clickable control needs its own reserved space so it never fights the row's
+            // own click for the same pixels.
+            const STAR_W: f32 = 22.0;
+            let star_w = if favorite_slug.is_some() { STAR_W } else { 0.0 };
+            let w = (ui.available_width() - star_w).max(0.0);
             // A justified child layout, not a plain `add`: inside a horizontal row egui centers a
             // button's text, and a column of centered labels is unreadable.
             let mut resp = ui
@@ -436,6 +489,32 @@ fn row(ui: &mut egui::Ui, e: &PaletteEntry, accent: Color32, draggable: bool, se
                 resp = resp.on_hover_text(e.desc);
             }
             clicked = resp.clicked();
+            if let Some(slug) = favorite_slug {
+                let is_fav = favorites.iter().any(|s| s == slug);
+                let star = ui
+                    .add(
+                        egui::Button::new(
+                            RichText::new(egui_phosphor::regular::STAR)
+                                .size(14.0)
+                                .color(if is_fav {
+                                    accent
+                                } else {
+                                    ui.visuals().weak_text_color()
+                                }),
+                        )
+                        .min_size(vec2(STAR_W, ROW_H))
+                        .fill(Color32::TRANSPARENT)
+                        .stroke(Stroke::NONE),
+                    )
+                    .on_hover_text(if is_fav {
+                        "Remove from Favorites"
+                    } else {
+                        "Add to Favorites"
+                    });
+                if star.clicked() {
+                    toggle_favorite = Some(slug.to_string());
+                }
+            }
             resp
         })
         .inner;
@@ -494,6 +573,7 @@ fn row(ui: &mut egui::Ui, e: &PaletteEntry, accent: Color32, draggable: bool, se
     Hit {
         clicked,
         explain,
+        toggle_favorite,
         resp,
     }
 }
@@ -691,6 +771,7 @@ pub(crate) fn body(
     focus_search: bool,
     pref: &mut Vec<String>,
     recent: &[String],
+    favorites: &mut Vec<String>,
     mut after_radar: impl FnMut(&mut egui::Ui),
 ) -> Option<PaletteAction> {
     let mut chosen = None;
@@ -811,7 +892,7 @@ pub(crate) fn body(
             if !query.is_empty() {
                 // Searching: one flat best-first list — categories only add noise here.
                 if let Some(command) = &command {
-                    let hit = row(ui, command, accent, false, true);
+                    let hit = row(ui, command, accent, false, true, favorites);
                     if hit.clicked {
                         chosen = Some(command.action);
                     }
@@ -820,18 +901,44 @@ pub(crate) fn body(
                 for i in &order {
                     // No dragging in search results: the order you're looking at is the ranking,
                     // not the list you'd be reordering.
-                    let hit = row(ui, &entries[*i], accent, false, true);
+                    let hit = row(ui, &entries[*i], accent, false, true, favorites);
                     if hit.clicked {
                         chosen = Some(entries[*i].action);
                     }
                     if let Some(t) = hit.explain {
                         chosen = Some(PaletteAction::Explain(t));
                     }
+                    if let Some(slug) = hit.toggle_favorite {
+                        toggle_favorite(favorites, &slug);
+                    }
                     ui.add_space(2.0);
                 }
                 return;
             }
             if category.is_none() {
+                // Favorites, above Recent: a deliberate pick belongs ahead of an incidental one.
+                let favs = favorite_entries(entries, favorites);
+                if !favs.is_empty() {
+                    ui.label(
+                        RichText::new("FAVORITES")
+                            .size(11.0)
+                            .color(ui.visuals().weak_text_color()),
+                    );
+                    for entry in favs {
+                        let hit = row(ui, entry, accent, false, false, favorites);
+                        if hit.clicked {
+                            chosen = Some(entry.action);
+                        }
+                        if let Some(t) = hit.explain {
+                            chosen = Some(PaletteAction::Explain(t));
+                        }
+                        if let Some(slug) = hit.toggle_favorite {
+                            toggle_favorite(favorites, &slug);
+                        }
+                        ui.add_space(2.0);
+                    }
+                    ui.add_space(6.0);
+                }
                 // Recent, above the category grid: the landing screen otherwise starts cold every
                 // time, asking the user to re-navigate to whatever they were just looking at.
                 let recents = recent_entries(entries, recent);
@@ -842,12 +949,15 @@ pub(crate) fn body(
                             .color(ui.visuals().weak_text_color()),
                     );
                     for entry in recents {
-                        let hit = row(ui, entry, accent, false, false);
+                        let hit = row(ui, entry, accent, false, false, favorites);
                         if hit.clicked {
                             chosen = Some(entry.action);
                         }
                         if let Some(t) = hit.explain {
                             chosen = Some(PaletteAction::Explain(t));
+                        }
+                        if let Some(slug) = hit.toggle_favorite {
+                            toggle_favorite(favorites, &slug);
                         }
                         ui.add_space(2.0);
                     }
@@ -995,13 +1105,17 @@ pub(crate) fn body(
                     let Hit {
                         clicked,
                         explain,
+                        toggle_favorite: toggle_fav,
                         resp,
-                    } = row(ui, &entries[i], accent, true, false);
+                    } = row(ui, &entries[i], accent, true, false, favorites);
                     if clicked {
                         chosen = Some(entries[i].action);
                     }
                     if let Some(t) = explain {
                         chosen = Some(PaletteAction::Explain(t));
+                    }
+                    if let Some(slug) = toggle_fav {
+                        toggle_favorite(favorites, &slug);
                     }
                     // Insertion line above the row the pointer is over, so a drop lands
                     // where the preview says it will.
@@ -1169,6 +1283,7 @@ mod tests {
             let ctx = egui::Context::default();
             let mut query = search.to_string();
             let mut pref = Vec::new();
+            let mut favorites = Vec::new();
             let mut text = Vec::new();
             for _ in 0..3 {
                 let out = ctx.run_ui(egui::RawInput::default(), |ui| {
@@ -1186,6 +1301,7 @@ mod tests {
                         false,
                         &mut pref,
                         &[],
+                        &mut favorites,
                         |_| {},
                     );
                 });
@@ -1223,6 +1339,7 @@ mod tests {
         let ctx = egui::Context::default();
         let mut query = String::new();
         let mut pref = Vec::new();
+        let mut favorites = Vec::new();
         let mut offset = 0.0;
         for frame in 0..12 {
             let height = if frame < 3 { 800.0 } else { 300.0 };
@@ -1247,6 +1364,7 @@ mod tests {
                         frame == 0,
                         &mut pref,
                         &[],
+                        &mut favorites,
                         |_| {},
                     );
                     ui.add_space(200.0);
@@ -1320,6 +1438,128 @@ mod tests {
         assert_eq!(labels, vec!["Hail size (MESH)", "Rotation tracks"]);
     }
 
+    #[test]
+    fn toggle_favorite_adds_then_removes() {
+        let mut favorites = Vec::new();
+        toggle_favorite(&mut favorites, "mesh");
+        assert_eq!(favorites, vec!["mesh".to_string()]);
+        toggle_favorite(&mut favorites, "rotation");
+        assert_eq!(favorites, vec!["mesh".to_string(), "rotation".to_string()]);
+        // Starring something already starred un-stars it, at whatever position it was in — a
+        // plain toggle, not a "move to front" like `note_recent`'s recency ordering.
+        toggle_favorite(&mut favorites, "mesh");
+        assert_eq!(favorites, vec!["rotation".to_string()]);
+    }
+
+    /// Same failure mode `recent_entries` guards against: a starred slug that no longer resolves
+    /// to a catalog entry (removed or renamed action) must be skipped, not left as a dead row.
+    #[test]
+    fn favorite_entries_drops_slugs_that_no_longer_resolve() {
+        use crate::render::FieldLayer as FL;
+        let entries = [
+            PaletteEntry {
+                label: "Hail size (MESH)".into(),
+                category: "National",
+                action: PaletteAction::ToggleField(FL::Mesh),
+                on: Some(false),
+                desc: "",
+                common: true,
+                key: None,
+                health: None,
+            },
+            PaletteEntry {
+                label: "Rotation tracks".into(),
+                category: "National",
+                action: PaletteAction::ToggleField(FL::Rotation),
+                on: Some(false),
+                desc: "",
+                common: true,
+                key: None,
+                health: None,
+            },
+        ];
+        let favorites = vec![
+            "mesh".to_string(),
+            "no-longer-exists".to_string(),
+            "rotation".to_string(),
+        ];
+        let resolved = favorite_entries(&entries, &favorites);
+        let labels: Vec<&str> = resolved.iter().map(|e| e.label.as_str()).collect();
+        assert_eq!(labels, vec!["Hail size (MESH)", "Rotation tracks"]);
+    }
+
+    /// The star affordance on a row toggles favorite-status without toggling the layer itself —
+    /// the two have to land in genuinely separate hit-areas, or starring something would also
+    /// flip it on/off as a side effect nobody asked for.
+    #[test]
+    fn the_star_toggles_favorite_status_without_toggling_the_layer() {
+        use crate::render::FieldLayer as FL;
+        let entries = [PaletteEntry {
+            label: "Hail size (MESH)".into(),
+            category: "National",
+            action: PaletteAction::ToggleField(FL::Mesh),
+            on: Some(false),
+            desc: "Estimated largest hail size",
+            common: true,
+            key: None,
+            health: None,
+        }];
+        // Seeds the landing screen's RECENT section so the row (and its star) are actually drawn
+        // — with both `recent` and `favorites` empty, the entry only shows as an unexpanded
+        // category tile, which draws no row at all.
+        let recent: Vec<String> = vec!["mesh".to_string()];
+        let ctx = egui::Context::default();
+        let mut query = String::new();
+        let mut pref = Vec::new();
+        let mut favorites = Vec::new();
+        let mut run = |ctx: &egui::Context, favorites: &mut Vec<String>, events: Vec<egui::Event>| {
+            let mut chosen = None;
+            let out = ctx.run_ui(
+                egui::RawInput {
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    ui.set_width(308.0);
+                    chosen = body(
+                        ui, &entries, &mut query, Color32::WHITE, 700.0,
+                        chrono::Utc::now().date_naive(), false, &mut pref,
+                        &recent, favorites, |_| {},
+                    );
+                },
+            );
+            (chosen, out)
+        };
+        let (_, out) = run(&ctx, &mut favorites, vec![]);
+        let star_pos = out
+            .shapes
+            .iter()
+            .find_map(|s| match &s.shape {
+                egui::Shape::Text(t) if t.galley.job.text == egui_phosphor::regular::STAR => {
+                    Some(t.pos)
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("star glyph not drawn"));
+        run(&ctx, &mut favorites, vec![
+            egui::Event::PointerMoved(star_pos),
+            egui::Event::PointerButton {
+                pos: star_pos,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: Default::default(),
+            },
+        ]);
+        let (chosen, _) = run(&ctx, &mut favorites, vec![egui::Event::PointerButton {
+            pos: star_pos,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: Default::default(),
+        }]);
+        assert_eq!(chosen, None, "clicking the star must not also toggle the layer");
+        assert_eq!(favorites, vec!["mesh".to_string()]);
+    }
+
     /// End to end through the same `body` the app renders: a recent slug shows up under a
     /// "RECENT" heading on the empty-query landing screen, above the category grid, and clicking
     /// its row returns the same toggle action the category browse path would.
@@ -1340,6 +1580,7 @@ mod tests {
         let ctx = egui::Context::default();
         let mut query = String::new();
         let mut pref = Vec::new();
+        let mut favorites = Vec::new();
         let mut run = |ctx: &egui::Context, events: Vec<egui::Event>| {
             let mut chosen = None;
             let out = ctx.run_ui(
@@ -1352,7 +1593,7 @@ mod tests {
                     chosen = body(
                         ui, &entries, &mut query, Color32::WHITE, 700.0,
                         chrono::Utc::now().date_naive(), false, &mut pref,
-                        &recent, |_| {},
+                        &recent, &mut favorites, |_| {},
                     );
                 },
             );

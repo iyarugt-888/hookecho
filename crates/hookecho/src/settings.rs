@@ -559,6 +559,13 @@ pub struct Settings {
     /// something the user just picked.
     #[serde(default)]
     pub recent_layers: Vec<String>,
+    /// ROADMAP_NEW D3 "favorites": [`crate::render::FieldLayer`] slugs the user has explicitly
+    /// starred, in the order they were added — unlike `recent_layers`, nothing here happens except
+    /// by clicking the star, and there is no cap: a short list the user curated on purpose is the
+    /// opposite case from an automatic recency trail, which is exactly why it needed a cap to stay
+    /// useful.
+    #[serde(default)]
+    pub favorite_layers: Vec<String>,
     /// Thresholds the signature detectors fire at (see [`DetectorTuning`]).
     #[serde(default)]
     pub detectors: DetectorTuning,
@@ -1135,6 +1142,7 @@ impl Default for Settings {
             share_card: true,
             layer_order: Vec::new(),
             recent_layers: Vec::new(),
+            favorite_layers: Vec::new(),
             mping_key: String::new(),
             etop_dbz: default_etop_dbz(),
             poll_interval_secs: 30,
@@ -1657,6 +1665,7 @@ mod tests {
             share_card: true,
             layer_order: Vec::new(),
             recent_layers: Vec::new(),
+            favorite_layers: Vec::new(),
             mping_key: String::new(),
             etop_dbz: 30.0,
             default_site: "KFWS".to_string(),

@@ -8,6 +8,20 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: favorites — a pin/star for layers
+
+ROADMAP_NEW D3 called out "favorites — no pin/star affordance exists" as the other half of the
+Recent-products work; this closes it. Every layer row in the Layers panel (search results,
+category-browse, RECENT) now has a star at its far right, independent of the row's own click
+target — starring a layer never toggles it on/off, and toggling it on/off never stars it. Starred
+layers show, most-recently-added order, in a new "FAVORITES" section on the landing screen, placed
+above "RECENT": a deliberate pick belongs ahead of an incidental one. Unlike Recent, Favorites has
+no cap and no "move to front" on re-click — it's a curated list, not a recency trail. Persisted in
+settings (`favorite_layers`). Verified live: starring "Rotation tracks" moved it into a "FAVORITES"
+heading with the star lit in the accent color and left "Active" count unchanged; unstarring it
+returned the row to "RECENT" with the star back to its default weak-text color, again without
+touching the active-layers count.
+
 ### Fixed: the Gate Inspector always reported the 2D-selected tilt in the 3D map view
 
 Reported live: in the pitched "Observed" 3D view, which draws several tilts stacked at once,
