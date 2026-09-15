@@ -111,6 +111,12 @@ impl Moment {
     }
 }
 
+/// Whether a sweep has at least one radial carrying `moment` (KDP uses its transmitted PhiDP
+/// input). Shared by full and incremental live bin selection so split cuts choose identically.
+pub fn sweep_carries_moment(sweep: &Sweep, moment: Moment) -> bool {
+    sweep.radials().iter().any(|radial| moment.select(radial).is_some())
+}
+
 /// A sweep resampled onto a fixed azimuth grid, ready for GPU upload.
 ///
 /// `data` is row-major `[az_bin][gate]`, one `u8` per gate:
@@ -1125,6 +1131,79 @@ pub fn bin_sweep(
     bin_sweep_opts(sweep, moment, radar_lat, radar_lon, false)
 }
 
+/// Refresh an existing plain-moment polar grid from a stitched live sweep, touching only bins
+/// whose newest radial timestamp advanced. Derived KDP and dealiased velocity require whole-field
+/// context and deliberately stay on the full re-bin path.
+pub fn update_binned_sweep_live(
+    binned: &mut BinnedSweep,
+    sweep: &Sweep,
+) -> anyhow::Result<Vec<std::ops::Range<usize>>> {
+    if binned.moment == Moment::SpecificDifferentialPhase {
+        anyhow::bail!("KDP requires a full sweep re-bin");
+    }
+    if binned.az_bins == 0
+        || binned.gate_count == 0
+        || binned.data.len() != binned.az_bins * binned.gate_count
+        || binned.bin_time_ms.len() != binned.az_bins
+    {
+        anyhow::bail!("existing polar grid has incompatible dimensions");
+    }
+    let bin_deg = 360.0 / binned.az_bins as f32;
+    let span = (binned.value_max - binned.value_min).max(f32::EPSILON);
+    let normalize = |v: f32| 2 + (((v - binned.value_min) / span).clamp(0.0, 1.0) * 253.0) as u8;
+    let mut changed = vec![false; binned.az_bins];
+    for radial in sweep.radials() {
+        let Some(moment) = binned.moment.select(radial) else {
+            continue;
+        };
+        if moment.gate_count() as usize != binned.gate_count
+            || (moment.first_gate_range_km() as f32 - binned.first_gate_km).abs() > 0.001
+            || (moment.gate_interval_km() as f32 - binned.gate_interval_km).abs() > 0.001
+        {
+            anyhow::bail!("live radial geometry changed");
+        }
+        let bin = ((radial.azimuth_angle_degrees().rem_euclid(360.0) / bin_deg) as usize)
+            % binned.az_bins;
+        let bins = ((radial.azimuth_spacing_degrees() / bin_deg).round() as usize).max(1);
+        let timestamp = radial.collection_timestamp();
+        for offset in 0..bins {
+            let row_index = (bin + binned.az_bins - offset) % binned.az_bins;
+            if timestamp <= binned.bin_time_ms[row_index] {
+                continue;
+            }
+            let row = &mut binned.data
+                [row_index * binned.gate_count..(row_index + 1) * binned.gate_count];
+            row.fill(0);
+            for (gate, value) in moment.iter().enumerate().take(binned.gate_count) {
+                row[gate] = match value {
+                    MomentValue::BelowThreshold => 0,
+                    MomentValue::RangeFolded => 1,
+                    MomentValue::Value(v) => normalize(v),
+                };
+            }
+            binned.bin_time_ms[row_index] = timestamp;
+            changed[row_index] = true;
+        }
+    }
+    binned.stale_arc_deg = previous_pass_arc(&binned.bin_time_ms, binned.az_bins);
+    let mut ranges = Vec::new();
+    let mut start = None;
+    for (index, &is_changed) in changed.iter().enumerate() {
+        match (start, is_changed) {
+            (None, true) => start = Some(index),
+            (Some(from), false) => {
+                ranges.push(from..index);
+                start = None;
+            }
+            _ => {}
+        }
+    }
+    if let Some(from) = start {
+        ranges.push(from..changed.len());
+    }
+    Ok(ranges)
+}
+
 /// Like [`bin_sweep`] but `dealias` unfolds aliased Doppler velocity (ignored for other moments).
 pub fn bin_sweep_opts(
     sweep: &Sweep,
@@ -1460,6 +1539,56 @@ mod tests {
         let sample = binned.sample_at(west, 35.0).expect("a gate due west");
         assert!((sample.azimuth_deg - 270.0).abs() < 1.0, "{sample:?}");
         assert_eq!(sample.collected_ms, Some(1_000_000 + 540 * 20));
+    }
+
+    #[test]
+    fn live_incremental_binning_only_rewrites_newer_radial_rows() {
+        use nexrad_model::data::RadialStatus;
+        let radial = |timestamp, number, angle, raw| {
+            Radial::new(
+                timestamp,
+                number,
+                angle,
+                0.5,
+                RadialStatus::ScanStart,
+                1,
+                0.5,
+                Some(MomentData::from_fixed_point(
+                    2,
+                    2125,
+                    250,
+                    8,
+                    2.0,
+                    66.0,
+                    vec![raw, raw + 2],
+                )),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+        };
+        let first = radial(1_000_000, 20, 10.0, 80);
+        let mut binned = bin_sweep(
+            &Sweep::new(1, vec![first.clone()]),
+            Moment::Reflectivity,
+            35.0,
+            -97.0,
+        )
+        .unwrap();
+        let old_row = binned.data[20 * 2..21 * 2].to_vec();
+        let second = radial(1_000_100, 40, 20.0, 100);
+        let ranges = update_binned_sweep_live(
+            &mut binned,
+            &Sweep::new(1, vec![first, second]),
+        )
+        .unwrap();
+        assert_eq!(ranges, vec![40..41]);
+        assert_eq!(&binned.data[20 * 2..21 * 2], old_row.as_slice());
+        assert_ne!(&binned.data[40 * 2..41 * 2], &[0, 0]);
+        assert_eq!(binned.bin_time_ms[40], 1_000_100);
     }
 
     /// The bucket carries a metadata-message sidecar next to the volumes. It parses as an

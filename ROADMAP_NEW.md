@@ -424,9 +424,11 @@ Instead of waiting for a sweep/volume boundary:
 - [x] update GPU polar texture incrementally — `RadarGpu` retains a CPU mirror of its persistent
   polar texture, diffs it by azimuth row, coalesces adjacent changed rows, and writes only those
   spans. A live chunk normally becomes one texture write; a wedge crossing north becomes two.
-- [ ] stop cloning/re-binning unchanged live sweeps — `merge_scan` still deep-clones the merged
-  scan and the selected tilt is re-binned on each emit before the renderer can compute its row
-  diff. This is now the remaining CPU-side cost item.
+- [ ] stop cloning unchanged live sweeps — cached plain moments now update only azimuth rows whose
+  radial acquisition timestamp advanced (`update_binned_sweep_live`), with full re-bins retained
+  for KDP and dealiased velocity because they require whole-field context. `merge_scan` still
+  deep-clones the merged scan on each emit; removing that copy requires an upstream mutable/move
+  API for `nexrad_model::Scan` and is the remaining general CPU-side cost item.
 - [x] preserve previous sweep underneath not-yet-updated azimuths — `stitch()` keeps the older
   radial in any azimuth the new pass has not reached (bounded to 15 min) instead of replacing the
   whole tilt and blanking the unswept sectors.

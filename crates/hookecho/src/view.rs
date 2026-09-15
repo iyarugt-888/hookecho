@@ -302,14 +302,33 @@ impl Volume {
         } else {
             for angle in changed {
                 if let Some(idx) = new_elev.iter().position(|e| (e - angle).abs() < 0.15) {
-                    let stale: Vec<_> = self
+                    let affected: Vec<_> = self
                         .binned
                         .iter()
                         .map(|(k, _)| *k)
                         .filter(|(_, t, _)| *t == idx)
                         .collect();
-                    for k in stale {
-                        self.binned.pop(&k);
+                    for key @ (moment, tilt, dealias) in affected {
+                        let incremental = (!dealias
+                            && moment != Moment::SpecificDifferentialPhase)
+                            .then(|| {
+                                let target = new_elev[tilt];
+                                self.scan.sweeps().iter().find(|sweep| {
+                                    sweep.elevation_angle_degrees().is_some_and(|e| {
+                                        (e - target).abs() < 0.15
+                                            && level2::sweep_carries_moment(sweep, moment)
+                                    })
+                                })
+                            })
+                            .flatten();
+                        let updated = incremental.is_some_and(|sweep| {
+                            self.binned.get_mut(&key).is_some_and(|binned| {
+                                level2::update_binned_sweep_live(binned, sweep).is_ok()
+                            })
+                        });
+                        if !updated {
+                            self.binned.pop(&key);
+                        }
                     }
                 }
             }

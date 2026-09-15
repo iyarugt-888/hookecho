@@ -1084,10 +1084,11 @@ Required implementation behavior:
 
 Implemented so far: the 2D renderer retains its polar GPU texture and diffs successive binned
 sweeps by azimuth row, coalescing adjacent changed rows into one texture write. This satisfies the
-GPU upload half of the incremental path; avoiding the upstream full merged-scan clone and selected
-tilt re-bin remains CPU work to complete. Native and smooth 3D already invalidate on every accepted
-live revision, while observed 3D retains and rewrites its gate buffer rather than recreating GPU
-resources.
+GPU upload half of the incremental path. Cached plain moments now also update only rows whose
+newest radial timestamp advanced; KDP and dealiased velocity retain whole-field re-bins by design.
+Avoiding the upstream full merged-scan clone remains CPU work to complete. Native and smooth 3D
+already invalidate on every accepted live revision, while observed 3D retains and rewrites its gate
+buffer rather than recreating GPU resources.
 
 ### Acceptance criteria
 
