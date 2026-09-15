@@ -8,6 +8,23 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: warn when a hovered cross-section point isn't real beam coverage
+
+ROADMAP_NEW C3's last open item. `wxdata::xsection::sample_profile` fills a thin band just past
+each tilt's real beam (up to 1.5 km) by holding its nearest sample over, so the panel doesn't cut
+off with a hard edge at the true coverage boundary — a deliberate, reasonable rendering choice, but
+one that reads as a real sample at a glance, with nothing distinguishing it from actual data
+underneath the cursor.
+
+`CrossSection` now carries a parallel `beam_covered` grid alongside `dbz`, and hovering the panel
+shows a tooltip with the sampled position, its value, and — when the cell is filled only by that
+held-over extension — an explicit warning that no beam actually passes through the point. A true
+gap (no value at all) still just says "No beam coverage here", as before.
+
+Verified live: hovering a KTLX cross-section showed "11.2 dBZ / \u{26a0} outside beam coverage —
+nearest tilt held over across the gap, not an actual sample here" in the held-over band, and "No
+beam coverage here" (no dBZ, no warning icon) above it where `dbz` is genuinely `None`.
+
 ### Fixed: the archive date picker could land on the wrong time, or seemingly nowhere
 
 Reported live: loading an archived day worked from a `hookecho://goto/…` URL but was unreliable

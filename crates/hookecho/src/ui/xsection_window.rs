@@ -2,6 +2,7 @@
 //! volume's stacked tilts, colored with the reflectivity palette.
 
 use crate::colormap::ColorTable;
+use wxdata::level2::Moment;
 use wxdata::xsection::CrossSection;
 
 /// Turn a cross-section into an egui image (row 0 = top of panel), colored via `table`.
@@ -17,6 +18,43 @@ pub fn to_image(xs: &CrossSection, table: &ColorTable) -> egui::ColorImage {
         }
     }
     egui::ColorImage::from_rgba_unmultiplied([xs.cols, xs.rows], &buf)
+}
+
+/// What to show for the pixel under `pos` within the drawn panel `rect`: its position (distance
+/// along the cut, height), its value if any, and — ROADMAP_NEW C3's "warn when a sampled feature
+/// is below/above sampled beam coverage" — an explicit note when that value is only there because
+/// [`wxdata::xsection::sample_profile`] held the nearest real beam sample over past the true
+/// coverage boundary, which otherwise reads indistinguishably from a real sample at a glance.
+/// `None` when `pos` isn't over the panel at all.
+fn hover_readout(xs: &CrossSection, moment: Moment, rect: egui::Rect, pos: egui::Pos2) -> Option<String> {
+    if !rect.contains(pos) || xs.cols < 2 || xs.rows < 2 {
+        return None;
+    }
+    let tx = ((pos.x - rect.left()) / rect.width()).clamp(0.0, 1.0);
+    let ty = ((pos.y - rect.top()) / rect.height()).clamp(0.0, 1.0);
+    let col = (tx * (xs.cols - 1) as f32).round() as usize;
+    let row = (ty * (xs.rows - 1) as f32).round() as usize;
+    let dist_km = xs.length_km * col as f64 / (xs.cols - 1) as f64;
+    let height_km = xs.max_height_km * (1.0 - row as f32 / (xs.rows - 1) as f32);
+    let mut s = format!("{dist_km:.0} km along \u{b7} {height_km:.1} km up");
+    match xs.at(col, row) {
+        Some(v) => {
+            let units = moment.units();
+            if units.is_empty() {
+                s.push_str(&format!("\n{v:.2}"));
+            } else {
+                s.push_str(&format!("\n{v:.1} {units}"));
+            }
+            if !xs.is_covered(col, row) {
+                s.push_str(
+                    "\n\u{26a0} outside beam coverage \u{2014} nearest tilt held over across \
+                     the gap, not an actual sample here",
+                );
+            }
+        }
+        None => s.push_str("\nNo beam coverage here"),
+    }
+    Some(s)
 }
 
 /// Draw each tilt's beam-centre curve over the already-rendered panel `rect` (ROADMAP_NEW C3 /
@@ -161,6 +199,14 @@ pub fn show(
         let resp = ui.add(img);
         // Axis captions along the drawn rect.
         let rect = resp.rect;
+        // ROADMAP_NEW C3: "warn when a sampled feature is below/above sampled beam coverage" — a
+        // hovered pixel gets its position (distance, height), its value, and — when the pixel is
+        // filled only because `sample_profile` held a beam sample over past the true coverage
+        // boundary — an explicit warning that no beam actually passes through that point.
+        let hover = resp.hover_pos().and_then(|pos| hover_readout(xs, *moment, rect, pos));
+        if let Some(text) = hover {
+            resp.on_hover_text(text);
+        }
         if *beam_rise {
             draw_beam_rise(ui, rect, xs);
         }

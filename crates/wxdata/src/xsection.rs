@@ -19,6 +19,14 @@ pub struct CrossSection {
     pub max_height_km: f32,
     pub length_km: f64,
     pub dbz: Vec<Option<f32>>,
+    /// Parallel to `dbz`: `true` where a cell's value came from real interpolation between two
+    /// tilts' beams; `false` where `dbz` is `None` (no coverage at all) *or* where it holds a
+    /// value only because [`sample_profile`] extended the nearest real beam sample up to 1.5 km
+    /// past it, to avoid a hard edge at the coverage boundary. ROADMAP_NEW C3's "warn when a
+    /// sampled feature is below/above sampled beam coverage": that extension reads as real data
+    /// at a glance, and this is what lets a caller (the cross-section window's hover readout)
+    /// say so rather than imply a beam actually passed through the point.
+    pub beam_covered: Vec<bool>,
     /// suggestions.md §3.2 / ROADMAP_NEW C3: one line per tilt actually present in the volume,
     /// for a "beam-rise" overlay drawn atop the panel — the same curve a beam-vs-terrain diagram
     /// draws, so an analyst can see directly why a feature reads weaker/absent higher up the
@@ -39,6 +47,16 @@ pub struct BeamRiseLine {
 impl CrossSection {
     pub fn at(&self, col: usize, row: usize) -> Option<f32> {
         self.dbz.get(row * self.cols + col).copied().flatten()
+    }
+
+    /// Whether `at(col, row)` (when `Some`) reflects real interpolation between two tilts' beams,
+    /// as opposed to the nearest real sample held over past the true coverage boundary. Meaningless
+    /// where `at` is already `None` — that's already the plainer "no coverage at all" case.
+    pub fn is_covered(&self, col: usize, row: usize) -> bool {
+        self.beam_covered
+            .get(row * self.cols + col)
+            .copied()
+            .unwrap_or(false)
     }
 
     /// The slice as a CSV grid: a header of distances (km) along the cut, then one row per height,
@@ -164,6 +182,7 @@ pub fn build(
     let rows = rows.max(2);
     let length_km = dist_bearing(a.0, a.1, b.0, b.1).0;
     let mut dbz = vec![None; cols * rows];
+    let mut beam_covered = vec![false; cols * rows];
     let mut samples: Vec<(f64, f32)> = Vec::with_capacity(sweeps.len());
 
     // One beam-rise line per distinct elevation. A SAILS/MRLE volume repeats a low tilt several
@@ -191,7 +210,9 @@ pub fn build(
 
         for r in 0..rows {
             let hr = max_height_km as f64 * (1.0 - r as f64 / (rows - 1) as f64); // row 0 = top
-            dbz[r * cols + i] = sample_profile(&samples, hr);
+            let (v, covered) = sample_profile(&samples, hr);
+            dbz[r * cols + i] = v;
+            beam_covered[r * cols + i] = covered;
         }
 
         // The beam-rise line is *radar-relative* geometry — how high this tilt's beam is above
@@ -213,23 +234,30 @@ pub fn build(
         max_height_km,
         length_km,
         dbz,
+        beam_covered,
         beam_lines,
     })
 }
 
 /// Interpolate the vertical profile at height `hr` (km): linear between the two bracketing tilt
 /// beams when the gap is reasonable (< 4 km), nearest within 1.5 km at the panel edges, else None.
-pub(crate) fn sample_profile(samples: &[(f64, f32)], hr: f64) -> Option<f32> {
+///
+/// The second element of the result is whether this is real coverage (linear interpolation
+/// between two beams that actually bracket `hr`) as opposed to a nearest-sample extension past the
+/// true boundary — `false` whenever the first element is `None` too, so a caller can match on the
+/// value alone and only consult this when it wants to. See [`CrossSection::beam_covered`].
+pub(crate) fn sample_profile(samples: &[(f64, f32)], hr: f64) -> (Option<f32>, bool) {
     if samples.is_empty() {
-        return None;
+        return (None, false);
     }
-    // Below the lowest / above the highest beam: use the nearest if it's close.
+    // Below the lowest / above the highest beam: use the nearest if it's close. This is a filled
+    // pixel with no beam actually passing through it — never "covered".
     if hr <= samples[0].0 {
-        return (samples[0].0 - hr < 1.5).then_some(samples[0].1);
+        return ((samples[0].0 - hr < 1.5).then_some(samples[0].1), false);
     }
     if hr >= samples[samples.len() - 1].0 {
         let last = samples[samples.len() - 1];
-        return (hr - last.0 < 1.5).then_some(last.1);
+        return ((hr - last.0 < 1.5).then_some(last.1), false);
     }
     // Between two beams: linear interpolate if the vertical gap isn't a huge void.
     for w in samples.windows(2) {
@@ -237,13 +265,13 @@ pub(crate) fn sample_profile(samples: &[(f64, f32)], hr: f64) -> Option<f32> {
         let (h1, v1) = w[1];
         if hr >= h0 && hr <= h1 {
             if h1 - h0 > 4.0 {
-                return None;
+                return (None, false);
             }
             let k = ((hr - h0) / (h1 - h0)) as f32;
-            return Some(v0 + (v1 - v0) * k);
+            return (Some(v0 + (v1 - v0) * k), true);
         }
     }
-    None
+    (None, false)
 }
 
 #[cfg(test)]
@@ -335,6 +363,7 @@ mod tests {
             max_height_km: 12.0,
             length_km: 40.0,
             dbz: vec![None, Some(5.0), None, None, Some(50.0), None],
+            beam_covered: vec![false; 6],
             beam_lines: Vec::new(),
         };
         let csv = xs.to_csv();
@@ -357,9 +386,21 @@ mod tests {
     #[test]
     fn profile_interpolates_between_beams() {
         let s = vec![(1.0, 20.0f32), (3.0, 40.0)];
-        assert_eq!(sample_profile(&s, 2.0), Some(30.0)); // midpoint
-        assert_eq!(sample_profile(&s, 1.0), Some(20.0));
-        assert_eq!(sample_profile(&s, 10.0), None); // far above top beam
+        assert_eq!(sample_profile(&s, 2.0), (Some(30.0), true)); // midpoint, real coverage
+        assert_eq!(sample_profile(&s, 10.0), (None, false)); // far above top beam
+    }
+
+    /// A height right at the edge of coverage still gets a value (the "nearest, if close" rule),
+    /// but that value is a held-over sample rather than a beam actually passing through it —
+    /// ROADMAP_NEW C3's "warn when a sampled feature is below/above sampled beam coverage" needs
+    /// exactly this distinction to tell the two apart.
+    #[test]
+    fn a_held_over_edge_sample_is_not_marked_covered() {
+        let s = vec![(1.0, 20.0f32), (3.0, 40.0)];
+        // 0.2 km below the lowest beam: close enough to hold over, but no beam is actually there.
+        let (value, covered) = sample_profile(&s, 0.8);
+        assert_eq!(value, Some(20.0));
+        assert!(!covered, "held over from the nearest beam, not real coverage");
     }
 
     /// The slant/ground conversion has to round-trip, or the cross-section is sampling the wrong

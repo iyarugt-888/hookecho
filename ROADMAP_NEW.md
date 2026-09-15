@@ -748,7 +748,13 @@ HookEcho already models beam height. Extend it into a full analysis layer.
   beam-centre curves (0.4°…6.4°) climbing correctly left-to-right over the sampled reflectivity,
   and unchecking the box removed only the lines. **3D beam-rise remains open** — the raymarch and
   observed-gate 3D paths have no equivalent overlay yet.
-- [ ] warn when a sampled feature is below/above sampled beam coverage
+- [x] warn when a sampled feature is below/above sampled beam coverage — new this pass, see the
+  Unreleased CHANGELOG entry: `CrossSection.beam_covered`, a grid parallel to `dbz` marking cells
+  that only have a value because `sample_profile` held the nearest real beam sample over past the
+  true boundary (up to 1.5 km) rather than a real interpolated sample; a hover tooltip on the
+  cross-section panel now says so explicitly instead of reading indistinguishably from real data.
+  Verified live: hovering the held-over band showed the warning alongside a real dBZ value, and
+  hovering a genuine gap (`dbz` truly `None`) still just said "No beam coverage here".
 
 Do not imply perfect propagation; clearly label 4/3-earth assumptions.
 

@@ -74,7 +74,7 @@ pub fn build(
 
             for k in 0..nz {
                 let z = top_km as f64 * k as f64 / (nz - 1) as f64;
-                if let Some(v) = sample_profile(&samples, z) {
+                if let (Some(v), _) = sample_profile(&samples, z) {
                     let t = ((v - value_min) / span).clamp(0.0, 1.0);
                     data[i + n * j + n * n * k] = 2 + (t * 253.0) as u8;
                 }
@@ -167,7 +167,7 @@ pub fn cappi(sweeps: &[BinnedSweep], alt_km: f32, n: usize, half_km: f32) -> Opt
                 continue;
             }
             samples.sort_by(|p, q| p.0.partial_cmp(&q.0).unwrap_or(std::cmp::Ordering::Equal));
-            dbz[i + n * j] = sample_profile(&samples, alt_km as f64);
+            dbz[i + n * j] = sample_profile(&samples, alt_km as f64).0;
         }
     }
 
