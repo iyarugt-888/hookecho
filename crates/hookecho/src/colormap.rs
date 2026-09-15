@@ -536,9 +536,7 @@ pub fn effective_table(
     moment: Moment,
     theme: crate::settings::Theme,
 ) -> ColorTable {
-    if crate::theme::is_high_contrast(theme)
-        && palettes.table(moment) == default_table(moment)
-    {
+    if crate::theme::is_high_contrast(theme) && palettes.table(moment) == default_table(moment) {
         if let Some(name) = crate::theme::high_contrast_alt_name(moment) {
             if let Some(hc) = builtin_alt(name) {
                 return hc;

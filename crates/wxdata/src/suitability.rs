@@ -101,7 +101,9 @@ mod tests {
         let ranked = rank(-97.28, 35.33, 0.5, 8);
         assert_eq!(ranked.len(), 8);
         assert!(
-            ranked.windows(2).all(|w| w[0].beam_height_m <= w[1].beam_height_m),
+            ranked
+                .windows(2)
+                .all(|w| w[0].beam_height_m <= w[1].beam_height_m),
             "{:?}",
             ranked.iter().map(|c| c.beam_height_m).collect::<Vec<_>>()
         );
@@ -115,10 +117,7 @@ mod tests {
     fn ranking_matches_distance_order_for_one_fixed_elevation() {
         let ranked = rank(-97.28, 35.33, 0.5, 30);
         let distances: Vec<f64> = ranked.iter().map(|c| c.distance_km).collect();
-        assert!(
-            distances.windows(2).all(|w| w[0] <= w[1]),
-            "{distances:?}"
-        );
+        assert!(distances.windows(2).all(|w| w[0] <= w[1]), "{distances:?}");
     }
 
     #[test]
@@ -129,7 +128,8 @@ mod tests {
         // enough candidate list at each, rather than assuming it ranks first (it needn't, once
         // the target is far enough that a closer site's beam is lower there).
         let at = |km: f64| -> RadarCandidate {
-            let (lon, lat) = crate::beam_geometry::destination_lonlat(klon, klat, 90.0, km * 1_000.0);
+            let (lon, lat) =
+                crate::beam_geometry::destination_lonlat(klon, klat, 90.0, km * 1_000.0);
             rank(lon, lat, 0.5, 200)
                 .into_iter()
                 .find(|c| c.site.id == "KTLX")
@@ -137,7 +137,13 @@ mod tests {
         };
         let near = at(40.0);
         let far = at(160.0);
-        assert!(far.beam_width_km > near.beam_width_km, "{far:?} vs {near:?}");
-        assert!(far.beam_height_m > near.beam_height_m, "{far:?} vs {near:?}");
+        assert!(
+            far.beam_width_km > near.beam_width_km,
+            "{far:?} vs {near:?}"
+        );
+        assert!(
+            far.beam_height_m > near.beam_height_m,
+            "{far:?} vs {near:?}"
+        );
     }
 }

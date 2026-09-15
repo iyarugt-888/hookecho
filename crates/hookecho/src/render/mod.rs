@@ -64,7 +64,10 @@ pub struct RadarUpload {
     /// One-shot live-update timing: receipt on the UI thread to GPU queue writes completed.
     /// `wxdata::clock::Instant`, not `std::time::Instant` — the latter can't measure elapsed time
     /// on wasm32, and every caller already carries the former (`View::live_render_started`).
-    pub telemetry: Option<(wxdata::clock::Instant, std::sync::Arc<std::sync::atomic::AtomicU64>)>,
+    pub telemetry: Option<(
+        wxdata::clock::Instant,
+        std::sync::Arc<std::sync::atomic::AtomicU64>,
+    )>,
 }
 
 #[repr(C)]
@@ -299,17 +302,19 @@ impl FieldLayer {
             return Some(&product.field);
         }
         use wxdata::model::ModelField as MF;
-        Some(match self {
-            FieldLayer::Hrrr => MF::CompositeReflectivity,
-            FieldLayer::Cape => MF::SurfaceCape,
-            FieldLayer::Srh => MF::Srh3km,
-            FieldLayer::UpdraftHelicity => MF::UpdraftHelicity,
-            FieldLayer::Smoke => MF::Smoke,
-            FieldLayer::Snowfall => MF::Snowfall,
-            FieldLayer::ThunderProb => MF::ThunderProbability,
-            _ => return None,
-        }
-        .descriptor())
+        Some(
+            match self {
+                FieldLayer::Hrrr => MF::CompositeReflectivity,
+                FieldLayer::Cape => MF::SurfaceCape,
+                FieldLayer::Srh => MF::Srh3km,
+                FieldLayer::UpdraftHelicity => MF::UpdraftHelicity,
+                FieldLayer::Smoke => MF::Smoke,
+                FieldLayer::Snowfall => MF::Snowfall,
+                FieldLayer::ThunderProb => MF::ThunderProbability,
+                _ => return None,
+            }
+            .descriptor(),
+        )
     }
 
     pub fn slug(self) -> &'static str {
@@ -1561,7 +1566,8 @@ impl RenderResources {
         );
         let quads = (self.panes.get(&cb.pane).map(|p| p.quads_key) != Some(Some(quads_key)))
             .then(|| self.tile_verts(cb));
-        let visible_vector = vector_draw_tiles(&cb.visible_vector, self.vector_tiles.keys().copied());
+        let visible_vector =
+            vector_draw_tiles(&cb.visible_vector, self.vector_tiles.keys().copied());
         let overlay_present = self.overlay.is_some();
 
         let pane = self.pane_mut(device, cb.pane);
@@ -1974,7 +1980,10 @@ impl egui_wgpu::CallbackTrait for MapCallback {
 
 /// Keep cached geography visible while a new zoom level loads. Coarse tiles draw first,
 /// then finer fallbacks, then the requested tiles so current detail always wins.
-pub(crate) fn vector_draw_tiles(visible: &[TileId], resident: impl Iterator<Item = TileId>) -> Vec<TileId> {
+pub(crate) fn vector_draw_tiles(
+    visible: &[TileId],
+    resident: impl Iterator<Item = TileId>,
+) -> Vec<TileId> {
     let resident: Vec<_> = resident.collect();
     let mut fallback = Vec::new();
     // ponytail: bounded tile-cache scan; add a spatial index only if the cache grows substantially.
@@ -1983,9 +1992,12 @@ pub(crate) fn vector_draw_tiles(visible: &[TileId], resident: impl Iterator<Item
             continue;
         }
         // Prefer the nearest ancestor instead of stacking every cached zoom level.
-        if let Some(parent) = resident.iter().copied().filter(|&(rz, rx, ry)| {
-            rz < z && (x >> (z - rz), y >> (z - rz)) == (rx, ry)
-        }).max_by_key(|id| id.0) {
+        if let Some(parent) = resident
+            .iter()
+            .copied()
+            .filter(|&(rz, rx, ry)| rz < z && (x >> (z - rz), y >> (z - rz)) == (rx, ry))
+            .max_by_key(|id| id.0)
+        {
             fallback.push(parent);
         }
         for &(rz, rx, ry) in &resident {
@@ -2011,11 +2023,26 @@ mod vector_fallback_tests {
         let sibling = (5, 7, 10);
         let far = (5, 20, 20);
         let grandparent = (3, 1, 2);
-        assert_eq!(vector_draw_tiles(&[child], [grandparent, parent].into_iter()), vec![parent]);
-        assert_eq!(vector_draw_tiles(&[child], [parent, far].into_iter()), vec![parent]);
-        assert_eq!(vector_draw_tiles(&[parent], [child, far].into_iter()), vec![child]);
-        assert_eq!(vector_draw_tiles(&[child, sibling], [parent, child].into_iter()), vec![parent, child]);
-        assert_eq!(vector_draw_tiles(&[child], [parent, child].into_iter()), vec![child]);
+        assert_eq!(
+            vector_draw_tiles(&[child], [grandparent, parent].into_iter()),
+            vec![parent]
+        );
+        assert_eq!(
+            vector_draw_tiles(&[child], [parent, far].into_iter()),
+            vec![parent]
+        );
+        assert_eq!(
+            vector_draw_tiles(&[parent], [child, far].into_iter()),
+            vec![child]
+        );
+        assert_eq!(
+            vector_draw_tiles(&[child, sibling], [parent, child].into_iter()),
+            vec![parent, child]
+        );
+        assert_eq!(
+            vector_draw_tiles(&[child], [parent, child].into_iter()),
+            vec![child]
+        );
         assert!(vector_draw_tiles(&[child], [far].into_iter()).is_empty());
     }
 }

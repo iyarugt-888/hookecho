@@ -1,9 +1,11 @@
 //! Source-independent provenance for weather fields. Unknown times remain unknown.
 mod descriptor;
 mod grid;
-pub use grid::{DisplayTransform, GridGeometry, GridProvenance};
-pub use descriptor::{DataSource, FieldDescriptor, FieldFamily, FieldId, PaletteId, Unit, ValueKind};
 use chrono::{DateTime, Duration, Utc};
+pub use descriptor::{
+    DataSource, FieldDescriptor, FieldFamily, FieldId, PaletteId, Unit, ValueKind,
+};
+pub use grid::{DisplayTransform, GridGeometry, GridProvenance};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

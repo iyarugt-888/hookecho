@@ -114,7 +114,10 @@ impl Moment {
 /// Whether a sweep has at least one radial carrying `moment` (KDP uses its transmitted PhiDP
 /// input). Shared by full and incremental live bin selection so split cuts choose identically.
 pub fn sweep_carries_moment(sweep: &Sweep, moment: Moment) -> bool {
-    sweep.radials().iter().any(|radial| moment.select(radial).is_some())
+    sweep
+        .radials()
+        .iter()
+        .any(|radial| moment.select(radial).is_some())
 }
 
 /// A sweep resampled onto a fixed azimuth grid, ready for GPU upload.
@@ -410,7 +413,11 @@ pub fn observed_gates(
     let gate_stride = requested_stride.max(1).max(budget_stride);
     let mut gates = Vec::with_capacity((total_gates / gate_stride).min(budget));
     'sweeps: for (sweep_idx, sweep) in carrying.iter().enumerate() {
-        let fill_elevation_deg = if fill_gaps { fill_toward[sweep_idx] } else { None };
+        let fill_elevation_deg = if fill_gaps {
+            fill_toward[sweep_idx]
+        } else {
+            None
+        };
         for radial in sweep.radials() {
             let Some(data) = moment.select(radial) else {
                 continue;
@@ -602,13 +609,21 @@ impl BinnedSweep {
     /// and its gate value is what the radar actually measured before any unfolding. `dealiased`
     /// is the same moment's dealiased sweep, when the caller has one (velocity only); its own
     /// sample fills in [`GateInspection::dealiased_value`].
-    pub fn inspect(&self, lon: f64, lat: f64, dealiased: Option<&BinnedSweep>) -> Option<GateInspection> {
+    pub fn inspect(
+        &self,
+        lon: f64,
+        lat: f64,
+        dealiased: Option<&BinnedSweep>,
+    ) -> Option<GateInspection> {
         let sample = self.sample_at(lon, lat)?;
-        let ground_range_km =
-            crate::xsection::ground_from_slant_km(sample.range_km as f64, self.elevation_deg as f64)
-                as f32;
+        let ground_range_km = crate::xsection::ground_from_slant_km(
+            sample.range_km as f64,
+            self.elevation_deg as f64,
+        ) as f32;
         Some(GateInspection {
-            dealiased_value: dealiased.and_then(|d| d.sample_at(lon, lat)).and_then(|s| s.value),
+            dealiased_value: dealiased
+                .and_then(|d| d.sample_at(lon, lat))
+                .and_then(|s| s.value),
             ground_range_km,
             beam_height_ft: self.beam_height_ft(sample.range_km),
             beam_top_bottom_ft: self.beam_top_bottom_ft(sample.range_km),
@@ -1580,11 +1595,8 @@ mod tests {
         .unwrap();
         let old_row = binned.data[20 * 2..21 * 2].to_vec();
         let second = radial(1_000_100, 40, 20.0, 100);
-        let ranges = update_binned_sweep_live(
-            &mut binned,
-            &Sweep::new(1, vec![first, second]),
-        )
-        .unwrap();
+        let ranges =
+            update_binned_sweep_live(&mut binned, &Sweep::new(1, vec![first, second])).unwrap();
         assert_eq!(ranges, vec![40..41]);
         assert_eq!(&binned.data[20 * 2..21 * 2], old_row.as_slice());
         assert_ne!(&binned.data[40 * 2..41 * 2], &[0, 0]);
@@ -2090,7 +2102,8 @@ mod tests {
     }
 
     fn sails_mrle_scan() -> Scan {
-        let sweep_at = |elevation: f32| Sweep::new(1, vec![radial_with(Moment::Reflectivity, elevation)]);
+        let sweep_at =
+            |elevation: f32| Sweep::new(1, vec![radial_with(Moment::Reflectivity, elevation)]);
         let site = nexrad_model::meta::Site::new(*b"KTLX", 35.33, -97.28, 380, 0);
         Scan::with_site(
             site,
@@ -2140,7 +2153,11 @@ mod tests {
         // whose VCP message hasn't been decoded yet (or a synthetic one, as in other tests here)
         // should report zero cuts everywhere rather than panicking or guessing.
         let cuts = tilt_cuts(&two_tilt_scan());
-        assert_eq!(cuts.len(), 2, "still one entry per tilt, just with no cut detail");
+        assert_eq!(
+            cuts.len(),
+            2,
+            "still one entry per tilt, just with no cut detail"
+        );
         assert!(cuts.iter().all(|t| t.cuts == 0 && !t.base_tilt));
     }
 
@@ -2178,13 +2195,19 @@ mod tests {
 
     #[test]
     fn observed_gates_reports_one_layer_per_tilt_with_real_stats() {
-        let observed = observed_gates(&two_tilt_scan(), Moment::Reflectivity, 1, 1_000_000, false)
-            .unwrap();
+        let observed =
+            observed_gates(&two_tilt_scan(), Moment::Reflectivity, 1, 1_000_000, false).unwrap();
         assert_eq!(observed.layers.len(), 2, "one summary per tilt");
-        assert_eq!(observed.layers[0].elevation_deg, 0.5, "ascending by elevation");
+        assert_eq!(
+            observed.layers[0].elevation_deg, 0.5,
+            "ascending by elevation"
+        );
         assert_eq!(observed.layers[1].elevation_deg, 1.5);
         assert_eq!(observed.layers[0].coverage_gates, 1);
-        assert!(observed.layers[0].max_value.is_some(), "the one gate carried a value");
+        assert!(
+            observed.layers[0].max_value.is_some(),
+            "the one gate carried a value"
+        );
     }
 
     #[test]
@@ -2202,7 +2225,11 @@ mod tests {
                 .iter()
                 .any(|g| (g.elevation_deg - 1.0).abs() < 1e-4),
             "expected a synthetic gate at the 0.5°/1.5° midpoint, got {:?}",
-            filled.gates.iter().map(|g| g.elevation_deg).collect::<Vec<_>>()
+            filled
+                .gates
+                .iter()
+                .map(|g| g.elevation_deg)
+                .collect::<Vec<_>>()
         );
     }
 

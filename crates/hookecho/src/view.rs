@@ -154,8 +154,14 @@ pub struct Map3dState {
     /// still-streaming volume re-uploads within a tilt and for repeated SAILS/MRLE cuts; `fill_gaps`, the four
     /// CC-anomaly ramp slots and the `MAX_HIGHLIGHTED_LAYERS` selected-elevation slots (all as
     /// bits) follow, so any of those changing rebuilds too.
-    pub observed_key:
-        Option<(String, u64, Moment, usize, u64, [u32; 12 + MAX_HIGHLIGHTED_LAYERS])>,
+    pub observed_key: Option<(
+        String,
+        u64,
+        Moment,
+        usize,
+        u64,
+        [u32; 12 + MAX_HIGHLIGHTED_LAYERS],
+    )>,
 }
 
 impl Default for Map3dState {
@@ -217,11 +223,7 @@ const BINNED_CACHE: usize = if cfg!(target_arch = "wasm32") { 16 } else { 32 };
 /// Compared with the same 0.15 degree tolerance the caller uses to match a changed tilt: the angles
 /// are recomputed from the merged scan each time and need not be bit-identical.
 fn tilts_only_grew(old: &[f32], new: &[f32]) -> bool {
-    new.len() >= old.len()
-        && old
-            .iter()
-            .zip(new)
-            .all(|(a, b)| (a - b).abs() < 0.15)
+    new.len() >= old.len() && old.iter().zip(new).all(|(a, b)| (a - b).abs() < 0.15)
 }
 
 /// How many volumes a pane keeps after the playhead has moved off them.
@@ -314,8 +316,7 @@ impl Volume {
                         .filter(|(_, t, _)| *t == idx)
                         .collect();
                     for key @ (moment, tilt, dealias) in affected {
-                        let incremental = (!dealias
-                            && moment != Moment::SpecificDifferentialPhase)
+                        let incremental = (!dealias && moment != Moment::SpecificDifferentialPhase)
                             .then(|| {
                                 let target = new_elev[tilt];
                                 self.scan.sweeps().iter().find(|sweep| {

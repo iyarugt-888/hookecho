@@ -86,7 +86,10 @@ fn parse_layer(
 ) -> anyhow::Result<Vec<GeoFeature>> {
     let mut out = Vec::new();
     for_each_feature(json, |geom, props| {
-        let dn = props.get("dn").and_then(serde_json::Value::as_i64).unwrap_or(0);
+        let dn = props
+            .get("dn")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(0);
         let (label, rgb) = color_of(dn);
         let valid = props
             .get("valid")
@@ -124,11 +127,9 @@ pub async fn fetch(client: &reqwest::Client, day: u8) -> anyhow::Result<Vec<GeoF
         anyhow::bail!("fire weather outlook is Day 1-2 only");
     };
     // Two independent ArcGIS queries — fetched concurrently rather than one after the other.
-    let (risk_json, dryt_json) = futures_util::future::try_join(
-        fetch_layer(client, risk),
-        fetch_layer(client, dryt),
-    )
-    .await?;
+    let (risk_json, dryt_json) =
+        futures_util::future::try_join(fetch_layer(client, risk), fetch_layer(client, dryt))
+            .await?;
     let mut out = parse_layer(&risk_json, day, risk_color, "SPC Fire Weather Outlook")?;
     out.extend(parse_layer(
         &dryt_json,
@@ -166,8 +167,14 @@ mod tests {
     #[test]
     fn dry_thunderstorm_layer_uses_its_own_two_tier_scale() {
         let feats = parse_layer(RISK_SAMPLE, 2, dryt_color, "dry thunderstorm risk").unwrap();
-        assert_eq!(feats[0].title, "Day 2 Fire Weather: Scattered dry thunderstorms");
-        assert_eq!(feats[1].title, "Day 2 Fire Weather: Isolated dry thunderstorms");
+        assert_eq!(
+            feats[0].title,
+            "Day 2 Fire Weather: Scattered dry thunderstorms"
+        );
+        assert_eq!(
+            feats[1].title,
+            "Day 2 Fire Weather: Isolated dry thunderstorms"
+        );
     }
 
     #[test]

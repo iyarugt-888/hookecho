@@ -136,8 +136,8 @@ pub mod tropical_window;
 pub mod udp_window;
 pub mod verify_window;
 pub mod video_window;
-/// WSV3-style ribbon chrome primitives.
-pub mod wsv3;
 pub mod volume3d_window;
 pub mod warning_window;
+/// WSV3-style ribbon chrome primitives.
+pub mod wsv3;
 pub mod xsection_window;

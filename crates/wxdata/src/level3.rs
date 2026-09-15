@@ -666,16 +666,24 @@ async fn fetch_latest(
     for day in [today, today.pred_opt().unwrap_or(today)] {
         let prefix = format!("{site}_{product}_{}", day.format("%Y_%m_%d"));
         let url = format!("{BUCKET}/?list-type=2&prefix={prefix}");
-        let Ok(resp) = http.get(crate::net::fetch_url(&url))
-        .timeout(crate::net::FEED_TIMEOUT).send().await else {
+        let Ok(resp) = http
+            .get(crate::net::fetch_url(&url))
+            .timeout(crate::net::FEED_TIMEOUT)
+            .send()
+            .await
+        else {
             continue;
         };
         let Ok(xml) = resp.text().await else { continue };
         crate::stats::net(xml.len());
         if let Some(key) = last_key(&xml) {
             let obj_url = format!("{BUCKET}/{key}");
-            if let Ok(resp) = http.get(crate::net::fetch_url(&obj_url))
-            .timeout(crate::net::FEED_TIMEOUT).send().await {
+            if let Ok(resp) = http
+                .get(crate::net::fetch_url(&obj_url))
+                .timeout(crate::net::FEED_TIMEOUT)
+                .send()
+                .await
+            {
                 if let Ok(bytes) = resp.bytes().await {
                     crate::stats::net(bytes.len());
                     match decode(&bytes) {

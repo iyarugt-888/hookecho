@@ -370,7 +370,9 @@ mod tests {
     #[test]
     fn regional_roads_are_thin_and_grow_to_street_scale() {
         assert_eq!(road_scale(3.0), 0.25);
-        let width = stroke(Palette::Dark, "transportation", "motorway").unwrap().1;
+        let width = stroke(Palette::Dark, "transportation", "motorway")
+            .unwrap()
+            .1;
         assert!(road_scale(5.3) * f64::from(width) < 1.2);
         assert!(road_scale(9.0) > road_scale(5.3));
         assert_eq!(road_scale(13.0), 1.0);

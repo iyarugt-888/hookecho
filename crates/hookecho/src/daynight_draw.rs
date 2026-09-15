@@ -48,7 +48,12 @@ fn terminator_color() -> Color32 {
 /// projects `(lon, lat)`; `clip` is the pane rect; `now` is always the real clock — the sun's
 /// position for an archived storm would need threading a non-live instant in here, which nothing
 /// upstream currently tracks, so this always draws the sun where it is right now.
-pub fn draw(painter: &Painter, clip: Rect, to_screen: impl Fn(f64, f64) -> Pos2, now: DateTime<Utc>) {
+pub fn draw(
+    painter: &Painter,
+    clip: Rect,
+    to_screen: impl Fn(f64, f64) -> Pos2,
+    now: DateTime<Utc>,
+) {
     let painter = painter.with_clip_rect(clip);
     let subsolar = subsolar_point(now);
 
@@ -61,7 +66,11 @@ pub fn draw(painter: &Painter, clip: Rect, to_screen: impl Fn(f64, f64) -> Pos2,
 /// currently dark at that meridian. Which pole that is comes from probing the actual zenith-angle
 /// formula a fraction of a degree off the terminator, rather than reasoning about it in the
 /// abstract — the formula already knows, and it is the one thing that cannot be gotten backwards.
-fn draw_night_shading(painter: &Painter, to_screen: &impl Fn(f64, f64) -> Pos2, subsolar: (f64, f64)) {
+fn draw_night_shading(
+    painter: &Painter,
+    to_screen: &impl Fn(f64, f64) -> Pos2,
+    subsolar: (f64, f64),
+) {
     let step = 360.0 / SAMPLES as f64;
     let mut lon = -180.0;
     for _ in 0..SAMPLES {
@@ -82,7 +91,11 @@ fn draw_night_shading(painter: &Painter, to_screen: &impl Fn(f64, f64) -> Pos2, 
                 to_screen(lon_hi, lat_b),
                 to_screen(lon, lat_b),
             ];
-            painter.add(Shape::convex_polygon(quad, night_fill_color(), Stroke::NONE));
+            painter.add(Shape::convex_polygon(
+                quad,
+                night_fill_color(),
+                Stroke::NONE,
+            ));
         }
         // At the rare instant the sun sits exactly over the equator, `terminator_lat_deg` is
         // `None` for every longitude (see its own doc comment) — this sample's strip is simply
@@ -93,7 +106,11 @@ fn draw_night_shading(painter: &Painter, to_screen: &impl Fn(f64, f64) -> Pos2, 
 
 /// The terminator itself: an open polyline from lon -180 to +180. Open, not a closed ring, so
 /// there is no "last point back to first" edge to get wrong across the map's full width.
-fn draw_terminator_line(painter: &Painter, to_screen: &impl Fn(f64, f64) -> Pos2, subsolar: (f64, f64)) {
+fn draw_terminator_line(
+    painter: &Painter,
+    to_screen: &impl Fn(f64, f64) -> Pos2,
+    subsolar: (f64, f64),
+) {
     let step = 360.0 / SAMPLES as f64;
     let mut pts = Vec::with_capacity(SAMPLES + 1);
     let mut lon = -180.0;
@@ -104,7 +121,12 @@ fn draw_terminator_line(painter: &Painter, to_screen: &impl Fn(f64, f64) -> Pos2
         lon += step;
     }
     if pts.len() >= 2 {
-        painter.add(Shape::dashed_line(&pts, Stroke::new(1.5, terminator_color()), 6.0, 4.0));
+        painter.add(Shape::dashed_line(
+            &pts,
+            Stroke::new(1.5, terminator_color()),
+            6.0,
+            4.0,
+        ));
     }
 }
 

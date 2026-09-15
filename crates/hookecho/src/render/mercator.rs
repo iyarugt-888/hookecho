@@ -167,7 +167,9 @@ impl Camera {
     /// Screen pixel (origin top-left) -> world coord.
     pub fn screen_to_world(&self, px: (f32, f32), viewport_px: (f32, f32)) -> (f64, f64) {
         if self.is_3d() {
-            return self.screen_to_ground(px, viewport_px).unwrap_or(self.center);
+            return self
+                .screen_to_ground(px, viewport_px)
+                .unwrap_or(self.center);
         }
         let wpp = self.world_per_pixel();
         let wx = self.center.0 + (px.0 as f64 - viewport_px.0 as f64 / 2.0) * wpp;
@@ -181,8 +183,7 @@ impl Camera {
             let wpp = self.world_per_pixel();
             let dx = wrapped_delta(world.0, self.center.0) / wpp;
             let dy = (self.center.1 - world.1) / wpp;
-            let p = self.view_projection(viewport_px)
-                * Vec4::new(dx as f32, dy as f32, 0.0, 1.0);
+            let p = self.view_projection(viewport_px) * Vec4::new(dx as f32, dy as f32, 0.0, 1.0);
             // `w <= 0` means the point is on or behind the camera plane — genuinely off screen.
             // Push it far outside the viewport so `rect.contains` culls it; dividing by a
             // non-positive `w` (the old `w.abs()` test) mirrored those points back onto the map,

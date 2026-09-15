@@ -2271,12 +2271,15 @@ pub fn run_env(slug: &str, out_path: &str, model_id: &str) -> anyhow::Result<()>
         other => anyhow::bail!("unknown env slug '{other}' (sbcape|mlcape|srh1|srh3)"),
     };
     let model = wxdata::hrrr::Model::from_id(model_id).ok_or_else(|| {
-        let ids: Vec<&str> = wxdata::model::ALL_MODELS.iter().map(|m| m.def().id).collect();
+        let ids: Vec<&str> = wxdata::model::ALL_MODELS
+            .iter()
+            .map(|m| m.def().id)
+            .collect();
         anyhow::anyhow!("unknown model '{model_id}' (one of {})", ids.join("|"))
     })?;
-    let key = field.grib(model).ok_or_else(|| {
-        anyhow::anyhow!("{} does not publish {}", model.label(), field.label())
-    })?;
+    let key = field
+        .grib(model)
+        .ok_or_else(|| anyhow::anyhow!("{} does not publish {}", model.label(), field.label()))?;
     let (var, level, min_valid) = (key.var, key.level, key.min_valid);
     println!("{} {} -> {var}:{level}", model.label(), field.label());
     let rt = tokio::runtime::Builder::new_multi_thread()
@@ -2369,7 +2372,10 @@ pub fn run_hrrr_layer(
     use crate::render::{mercator::lonlat_to_world, FieldLayer, MrmsUpload};
     use wxdata::model::ModelField as MF;
     let model = wxdata::hrrr::Model::from_id(model_id).ok_or_else(|| {
-        let ids: Vec<&str> = wxdata::model::ALL_MODELS.iter().map(|m| m.def().id).collect();
+        let ids: Vec<&str> = wxdata::model::ALL_MODELS
+            .iter()
+            .map(|m| m.def().id)
+            .collect();
         anyhow::anyhow!("unknown model '{model_id}' (one of {})", ids.join("|"))
     })?;
     let field = match layer {
@@ -2377,10 +2383,16 @@ pub fn run_hrrr_layer(
         FieldLayer::Smoke => MF::Smoke,
         _ => MF::CompositeReflectivity,
     };
-    let key = field.grib(model).ok_or_else(|| {
-        anyhow::anyhow!("{} does not publish {}", model.label(), field.label())
-    })?;
-    println!("{} {} -> {}:{}", model.label(), field.label(), key.var, key.level);
+    let key = field
+        .grib(model)
+        .ok_or_else(|| anyhow::anyhow!("{} does not publish {}", model.label(), field.label()))?;
+    println!(
+        "{} {} -> {}:{}",
+        model.label(),
+        field.label(),
+        key.var,
+        key.level
+    );
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
@@ -3364,7 +3376,8 @@ mod golden_tests {
                 camera_center: center,
                 camera_scale: scale,
                 world_per_pixel: camera.world_per_pixel() as f32,
-                camera_view_proj: camera.view_projection_uniform((GOLDEN_SIZE as f32, GOLDEN_SIZE as f32)),
+                camera_view_proj: camera
+                    .view_projection_uniform((GOLDEN_SIZE as f32, GOLDEN_SIZE as f32)),
                 camera_3d: 0.0,
                 basemap_key: 0,
                 vector_over_raster: false,
@@ -3402,7 +3415,6 @@ mod golden_tests {
         );
         assert_eq!(quads, 1, "a still camera keeps its tile quads");
     }
-
 
     #[test]
     #[ignore = "gpu"]
@@ -3447,9 +3459,13 @@ mod golden_tests {
         let view = target.create_view(&Default::default());
         cb.overlay_upload = Some(OverlayUpload {
             vertices: [(-0.02, -2.0), (0.02, -2.0), (0.02, 2.0), (-0.02, 2.0)]
-                .into_iter().map(|(x, y)| OverlayVertex {
-                    world: [center[0] + x, center[1]], color: [1.0; 4], offset: [0.0, y, 0.0],
-                }).collect(),
+                .into_iter()
+                .map(|(x, y)| OverlayVertex {
+                    world: [center[0] + x, center[1]],
+                    color: [1.0; 4],
+                    offset: [0.0, y, 0.0],
+                })
+                .collect(),
             indices: vec![0, 1, 2, 0, 2, 3],
         });
         for zoom in [7.0, 9.25, 6.5, 12.0] {
@@ -3461,7 +3477,9 @@ mod golden_tests {
             res.render_once(&device, &queue, &view, &cb, wgpu::Color::BLACK);
             cb.overlay_upload = None;
             let pixels = read_target(&device, &queue, &target, 200);
-            let width = (0..200).filter(|&y| pixels[(y * 200 + 100) * 4] > 200).count();
+            let width = (0..200)
+                .filter(|&y| pixels[(y * 200 + 100) * 4] > 200)
+                .count();
             assert_eq!(width, 4, "stroke changed width at zoom {zoom}");
         }
     }
@@ -3524,11 +3542,11 @@ mod golden_tests {
                     radar_lat,
                     radar_lon,
                     0.0,
-                    1.0,  // vertical exaggeration
-                    1.0,  // opacity
-                    2.0,  // threshold index: draw everything
+                    1.0, // vertical exaggeration
+                    1.0, // opacity
+                    2.0, // threshold index: draw everything
                     Camera::world_units_per_metre(radar_lat as f64) as f32,
-                    0.0,  // srv off
+                    0.0, // srv off
                     0.0,
                     0.0,
                     0.5, // min elevation
@@ -3762,7 +3780,10 @@ mod golden_tests {
             east_c, 0,
             "shrinking must not leak the retained buffer's stale tail: {east_c} px"
         );
-        assert!(west_c > 200, "the new, smaller west wedge should still draw: {west_c} px");
+        assert!(
+            west_c > 200,
+            "the new, smaller west wedge should still draw: {west_c} px"
+        );
     }
 
     /// The generation mask has to survive all the way to the framebuffer, and it has to land on
@@ -3885,7 +3906,8 @@ mod golden_tests {
             camera_center: center,
             camera_scale: scale,
             world_per_pixel: camera.world_per_pixel() as f32,
-            camera_view_proj: camera.view_projection_uniform((GOLDEN_SIZE as f32, GOLDEN_SIZE as f32)),
+            camera_view_proj: camera
+                .view_projection_uniform((GOLDEN_SIZE as f32, GOLDEN_SIZE as f32)),
             camera_3d: 0.0,
             basemap_key: 0,
             vector_over_raster: false,

@@ -110,9 +110,7 @@ pub fn decode(bytes: Vec<u8>, out_nx: usize, out_ny: usize) -> anyhow::Result<Mr
 
     let x = f.read_f64("x").map_err(|e| anyhow::anyhow!("x: {e}"))?;
     let y = f.read_f64("y").map_err(|e| anyhow::anyhow!("y: {e}"))?;
-    let cmi = f
-        .read_f64("CMI")
-        .map_err(|e| anyhow::anyhow!("CMI: {e}"))?;
+    let cmi = f.read_f64("CMI").map_err(|e| anyhow::anyhow!("CMI: {e}"))?;
     let (nx, ny) = (x.len(), y.len());
     anyhow::ensure!(
         cmi.len() == nx * ny,
@@ -132,8 +130,12 @@ pub fn decode(bytes: Vec<u8>, out_nx: usize, out_ny: usize) -> anyhow::Result<Mr
     // Forward-project every source pixel once, then bin it into whichever output cell it lands
     // in — the output grid's bounds are the scene's own projected extent, found in the same pass.
     let mut lonlat = Vec::with_capacity(nx * ny);
-    let (mut lon_min, mut lon_max, mut lat_min, mut lat_max) =
-        (f64::INFINITY, f64::NEG_INFINITY, f64::INFINITY, f64::NEG_INFINITY);
+    let (mut lon_min, mut lon_max, mut lat_min, mut lat_max) = (
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+    );
     for (row, &yv) in y.iter().enumerate() {
         for (col, &xv) in x.iter().enumerate() {
             let v = cmi[row * nx + col];
@@ -151,7 +153,10 @@ pub fn decode(bytes: Vec<u8>, out_nx: usize, out_ny: usize) -> anyhow::Result<Mr
             lonlat.push(ll.map(|(lon, lat)| (lon, lat, v)));
         }
     }
-    anyhow::ensure!(lon_max > lon_min && lat_max > lat_min, "no on-disk pixels decoded");
+    anyhow::ensure!(
+        lon_max > lon_min && lat_max > lat_min,
+        "no on-disk pixels decoded"
+    );
 
     let (out_nx, out_ny) = (out_nx.max(2), out_ny.max(2));
     let mut values = vec![f32::NAN; out_nx * out_ny];
@@ -277,7 +282,10 @@ mod tests {
     #[test]
     fn a_scan_angle_off_the_disk_is_none() {
         let proj = goes_east_projection();
-        assert!(proj.scan_to_lonlat(1.0, 1.0).is_none(), "1 radian is way off-disk");
+        assert!(
+            proj.scan_to_lonlat(1.0, 1.0).is_none(),
+            "1 radian is way off-disk"
+        );
     }
 
     /// Small scan angles east/north of straight-down move lon/lat in the expected direction —
@@ -298,8 +306,14 @@ mod tests {
     fn from_attrs_reads_the_real_attribute_set() {
         use std::collections::HashMap;
         let mut attrs = HashMap::new();
-        attrs.insert("semi_major_axis".to_string(), hdf5lite::Value::Num(6_378_137.0));
-        attrs.insert("semi_minor_axis".to_string(), hdf5lite::Value::Num(6_356_752.31414));
+        attrs.insert(
+            "semi_major_axis".to_string(),
+            hdf5lite::Value::Num(6_378_137.0),
+        );
+        attrs.insert(
+            "semi_minor_axis".to_string(),
+            hdf5lite::Value::Num(6_356_752.31414),
+        );
         attrs.insert(
             "perspective_point_height".to_string(),
             hdf5lite::Value::Num(35_786_023.0),
@@ -349,9 +363,16 @@ mod tests {
             field.lat_north
         );
         let finite = field.values.iter().filter(|v| v.is_finite()).count();
-        assert!(finite > field.values.len() / 2, "too many unfilled cells: {finite}/{}", field.values.len());
+        assert!(
+            finite > field.values.len() / 2,
+            "too many unfilled cells: {finite}/{}",
+            field.values.len()
+        );
         for &v in field.values.iter().filter(|v| v.is_finite()) {
-            assert!((150.0..350.0).contains(&v), "implausible brightness temp {v} K");
+            assert!(
+                (150.0..350.0).contains(&v),
+                "implausible brightness temp {v} K"
+            );
         }
     }
 
@@ -364,7 +385,12 @@ mod tests {
             .expect("fetch_latest_conus");
         eprintln!(
             "CONUS band 13: {}x{} lon {:.1}..{:.1} lat {:.1}..{:.1} at {}",
-            field.nx, field.ny, field.lon_west, field.lon_east, field.lat_south, field.lat_north,
+            field.nx,
+            field.ny,
+            field.lon_west,
+            field.lon_east,
+            field.lat_south,
+            field.lat_north,
             field.time
         );
         let finite = field.values.iter().filter(|v| v.is_finite()).count();
@@ -385,13 +411,21 @@ mod tests {
             .expect("fetch_latest_conus");
         eprintln!(
             "CONUS band 2: {}x{} lon {:.1}..{:.1} lat {:.1}..{:.1} at {}",
-            field.nx, field.ny, field.lon_west, field.lon_east, field.lat_south, field.lat_north,
+            field.nx,
+            field.ny,
+            field.lon_west,
+            field.lon_east,
+            field.lat_south,
+            field.lat_north,
             field.time
         );
         let finite = field.values.iter().filter(|v| v.is_finite()).count();
         assert!(finite > field.values.len() / 2);
         for &v in field.values.iter().filter(|v| v.is_finite()) {
-            assert!((0.0..2.0).contains(&v), "implausible reflectance factor {v}");
+            assert!(
+                (0.0..2.0).contains(&v),
+                "implausible reflectance factor {v}"
+            );
         }
     }
 
@@ -404,13 +438,21 @@ mod tests {
             .expect("fetch_latest_conus");
         eprintln!(
             "CONUS band 8: {}x{} lon {:.1}..{:.1} lat {:.1}..{:.1} at {}",
-            field.nx, field.ny, field.lon_west, field.lon_east, field.lat_south, field.lat_north,
+            field.nx,
+            field.ny,
+            field.lon_west,
+            field.lon_east,
+            field.lat_south,
+            field.lat_north,
             field.time
         );
         let finite = field.values.iter().filter(|v| v.is_finite()).count();
         assert!(finite > field.values.len() / 2);
         for &v in field.values.iter().filter(|v| v.is_finite()) {
-            assert!((150.0..300.0).contains(&v), "implausible brightness temp {v} K");
+            assert!(
+                (150.0..300.0).contains(&v),
+                "implausible brightness temp {v} K"
+            );
         }
     }
 }

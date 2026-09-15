@@ -58,10 +58,7 @@ pub fn draw_vertical(
     let span = (vmax - vmin).max(f32::EPSILON);
     let bar = Rect::from_min_size(
         egui::pos2(rect.right() - W - INSET, rect.top() + INSET + HEAD_H),
-        Vec2::new(
-            W,
-            (rect.height() - INSET * 2.0 - HEAD_H).clamp(1.0, 300.0),
-        ),
+        Vec2::new(W, (rect.height() - INSET * 2.0 - HEAD_H).clamp(1.0, 300.0)),
     );
     let y_of = |value: f32| bar.bottom() - ((value - vmin) / span).clamp(0.0, 1.0) * bar.height();
     let col = |c: [u8; 4]| Color32::from_rgb(c[0], c[1], c[2]);
@@ -282,7 +279,12 @@ pub fn draw_diff(
 ///
 /// Returns the height consumed, same convention as [`draw_field`]/[`draw_ramp`], so it composes
 /// with either the way `draw_diff` does.
-pub fn draw_compare_label(painter: &egui::Painter, map_rect: Rect, y_offset: f32, model: &str) -> f32 {
+pub fn draw_compare_label(
+    painter: &egui::Painter,
+    map_rect: Rect,
+    y_offset: f32,
+    model: &str,
+) -> f32 {
     let font = FontId::proportional(11.0);
     let at = map_rect.left_top() + Vec2::new(INSET, INSET + y_offset);
     for d in [Vec2::new(1.0, 1.0), Vec2::ZERO] {

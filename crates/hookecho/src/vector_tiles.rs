@@ -85,16 +85,26 @@ pub struct PlaceLabel {
 
 impl PlaceLabel {
     pub fn visible_at(&self, zoom: f64) -> bool {
-        zoom >= self.min_zoom as f64 && (zoom >= 8.0 || self.shield != RoadShield::Interstate
-            || self.name.trim_end_matches(|c: char| c.is_ascii_alphabetic())
-                .parse::<u16>().is_ok_and(|n| n < 100))
+        zoom >= self.min_zoom as f64
+            && (zoom >= 8.0
+                || self.shield != RoadShield::Interstate
+                || self
+                    .name
+                    .trim_end_matches(|c: char| c.is_ascii_alphabetic())
+                    .parse::<u16>()
+                    .is_ok_and(|n| n < 100))
     }
 
     pub fn priority(&self) -> u8 {
-        if self.city && self.rank <= 3 { 0 }
-        else if self.shield == RoadShield::Interstate { 1 }
-        else if self.city { 2 }
-        else { 3 }
+        if self.city && self.rank <= 3 {
+            0
+        } else if self.shield == RoadShield::Interstate {
+            1
+        } else if self.city {
+            2
+        } else {
+            3
+        }
     }
 }
 
@@ -369,8 +379,11 @@ pub fn build_tile_with_theme(
                     let normal = v.normal();
                     let half_px = (w as f64 / px_to_tile * 0.5) as f32;
                     OverlayVertex {
-                        offset: [normal.x * half_px, normal.y * half_px,
-                            if *layer == "transportation" { 1.0 } else { 0.0 }],
+                        offset: [
+                            normal.x * half_px,
+                            normal.y * half_px,
+                            if *layer == "transportation" { 1.0 } else { 0.0 },
+                        ],
                         world: [
                             ((txf + p.x as f64) / n) as f32,
                             ((tyf + p.y as f64) / n) as f32,
@@ -549,9 +562,8 @@ fn road_anchors(geometry: &geo_types::Geometry<f32>, shield: bool) -> Vec<(f32, 
     let fractions: &[f32] = if shield { &[0.5, 0.25, 0.75] } else { &[0.5] };
     let mut anchors = Vec::new();
     for line in lines {
-        let length = |pair: &[geo_types::Coord<f32>]| {
-            (pair[1].x - pair[0].x).hypot(pair[1].y - pair[0].y)
-        };
+        let length =
+            |pair: &[geo_types::Coord<f32>]| (pair[1].x - pair[0].x).hypot(pair[1].y - pair[0].y);
         let total: f32 = line.0.windows(2).map(length).sum();
         if total <= 0.0 || !total.is_finite() {
             continue;
@@ -750,7 +762,11 @@ pub async fn fetch_tilejson(
 // OpenMapTiles starts transportation_name at z6. Fetch that detail once interstate
 // labels become visible, while keeping the cheaper tiles for the national view.
 fn label_detail_bias(zoom: f64) -> f64 {
-    if (5.0..6.0).contains(&zoom) { 6.0 - zoom } else { 0.0 }
+    if (5.0..6.0).contains(&zoom) {
+        6.0 - zoom
+    } else {
+        0.0
+    }
 }
 
 /// Headless helper: fetch + tessellate all `visible` vector tiles, returning GPU-ready geometry
@@ -811,13 +827,24 @@ struct FetchedVector {
 
 // Reuse the radar worker and its transferred buffers: no additional worker or WASM heap.
 #[cfg(any(target_arch = "wasm32", test))]
-type VectorJob = (Vec<u8>, TileId, basemap_style::Palette, f64, crate::settings::Theme);
+type VectorJob = (
+    Vec<u8>,
+    TileId,
+    basemap_style::Palette,
+    f64,
+    crate::settings::Theme,
+);
 
 #[cfg(any(target_arch = "wasm32", test))]
 pub(crate) fn build_worker_tile(payload: &[u8]) -> Result<Vec<u8>, postcard::Error> {
     let (bytes, id, palette, zoom, theme): VectorJob = postcard::from_bytes(payload)?;
     let (vertices, indices, labels) = build_tile_with_theme(&bytes, id, palette, zoom, theme);
-    postcard::to_allocvec(&FetchedVector { id, vertices, indices, labels })
+    postcard::to_allocvec(&FetchedVector {
+        id,
+        vertices,
+        indices,
+        labels,
+    })
 }
 
 /// Async vector-tile manager for the GUI (mirrors [`crate::tiles::TileManager`]).
@@ -944,8 +971,12 @@ impl VectorTileManager {
             self.template_failed = t.is_none().then(wxdata::clock::Instant::now);
             self.template = t;
         }
-        if self.template.is_some() || self.template_requested
-            || self.template_failed.is_some_and(|t| t.elapsed() < RETRY_AFTER) {
+        if self.template.is_some()
+            || self.template_requested
+            || self
+                .template_failed
+                .is_some_and(|t| t.elapsed() < RETRY_AFTER)
+        {
             return;
         }
         self.template_requested = true;
@@ -954,7 +985,9 @@ impl VectorTileManager {
         let dir = self.cache_root.clone();
         self.spawner.spawn(async move {
             let t = wxdata::task::timeout(TILE_TIMEOUT, fetch_tilejson(&client, dir.as_deref()))
-                .await.ok().flatten();
+                .await
+                .ok()
+                .flatten();
             let _ = tx.send(t);
         });
     }
@@ -997,7 +1030,8 @@ impl VectorTileManager {
             #[cfg(not(target_arch = "wasm32"))]
             let blocking = self.spawner.clone();
             let inflight = self.inflight.clone();
-            self.inflight.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            self.inflight
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             self.spawner.spawn(async move {
                 let bytes = wxdata::task::timeout(
                     TILE_TIMEOUT + crate::tiles::BACKSTOP,
@@ -1018,20 +1052,31 @@ impl VectorTileManager {
                 let finish = move |result| {
                     let _ = tx.send((generation, result));
                     inflight.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-                    if let Some(ctx) = ctx { ctx.request_repaint(); }
+                    if let Some(ctx) = ctx {
+                        ctx.request_repaint();
+                    }
                 };
                 #[cfg(target_arch = "wasm32")]
                 {
                     let payload = postcard::to_allocvec(&(bytes, id, palette, tess_zoom, theme));
                     let result = match payload {
                         Ok(payload) => {
-                            let encoded = match wxdata::wasm_worker::tessellate_vector(payload.clone()).await {
-                                Ok(encoded) => Some(encoded),
-                                Err(wxdata::wasm_worker::Error::Unavailable) => build_worker_tile(&payload).ok(),
-                                Err(e) => { log::warn!("vector tile worker: {e}"); None }
-                            };
-                            encoded.and_then(|data| postcard::from_bytes::<FetchedVector>(&data).ok())
-                                .filter(|tile| tile.id == id).ok_or(id)
+                            let encoded =
+                                match wxdata::wasm_worker::tessellate_vector(payload.clone()).await
+                                {
+                                    Ok(encoded) => Some(encoded),
+                                    Err(wxdata::wasm_worker::Error::Unavailable) => {
+                                        build_worker_tile(&payload).ok()
+                                    }
+                                    Err(e) => {
+                                        log::warn!("vector tile worker: {e}");
+                                        None
+                                    }
+                                };
+                            encoded
+                                .and_then(|data| postcard::from_bytes::<FetchedVector>(&data).ok())
+                                .filter(|tile| tile.id == id)
+                                .ok_or(id)
                         }
                         Err(_) => Err(id),
                     };
@@ -1039,8 +1084,14 @@ impl VectorTileManager {
                 }
                 #[cfg(not(target_arch = "wasm32"))]
                 blocking.spawn_blocking(move || {
-                    let (vertices, indices, labels) = build_tile_with_theme(&bytes, id, palette, tess_zoom, theme);
-                    finish(Ok(FetchedVector { id, vertices, indices, labels }));
+                    let (vertices, indices, labels) =
+                        build_tile_with_theme(&bytes, id, palette, tess_zoom, theme);
+                    finish(Ok(FetchedVector {
+                        id,
+                        vertices,
+                        indices,
+                        labels,
+                    }));
                 });
             });
         }
@@ -1167,12 +1218,17 @@ impl VectorTileManager {
             for source in &sources {
                 if let Some(tile_labels) = self.labels.get(source) {
                     labels.extend(tile_labels.iter().filter(|l| {
-                        ((l.world[0] * n).floor() as u32, (l.world[1] * n).floor() as u32)
-                            == (id.1, id.2)
+                        (
+                            (l.world[0] * n).floor() as u32,
+                            (l.world[1] * n).floor() as u32,
+                        ) == (id.1, id.2)
                             && !sources.iter().any(|&(z, x, y)| {
                                 let n = (1u32 << z) as f32;
-                                z > source.0 && ((l.world[0] * n).floor() as u32,
-                                    (l.world[1] * n).floor() as u32) == (x, y)
+                                z > source.0
+                                    && (
+                                        (l.world[0] * n).floor() as u32,
+                                        (l.world[1] * n).floor() as u32,
+                                    ) == (x, y)
                             })
                     }));
                 }
@@ -1221,19 +1277,41 @@ mod tests {
         let child = (5, 6, 10);
         let sibling = (5, 7, 10);
         let label = |name: &str, x| PlaceLabel {
-            name: name.into(), world: [x, 10.5 / 32.0], city: true,
-            rank: 1, shield: RoadShield::None, min_zoom: 0.0,
+            name: name.into(),
+            world: [x, 10.5 / 32.0],
+            city: true,
+            rank: 1,
+            shield: RoadShield::None,
+            min_zoom: 0.0,
         };
-        manager.labels.insert(parent, vec![label("old left", 6.5 / 32.0), label("right", 7.5 / 32.0)]);
-        assert_eq!(manager.labels_for([&child, &sibling].into_iter()).len(), 2,
-            "zoom-in must retain names before child tiles arrive");
-        manager.labels.insert(child, vec![label("new left", 6.5 / 32.0)]);
-        let names: Vec<_> = manager.labels_for([&child, &sibling].into_iter())
-            .into_iter().map(|l| l.name.as_str()).collect();
-        assert_eq!(names, ["new left", "right"], "partial loads must not duplicate or erase neighbors");
+        manager.labels.insert(
+            parent,
+            vec![label("old left", 6.5 / 32.0), label("right", 7.5 / 32.0)],
+        );
+        assert_eq!(
+            manager.labels_for([&child, &sibling].into_iter()).len(),
+            2,
+            "zoom-in must retain names before child tiles arrive"
+        );
+        manager
+            .labels
+            .insert(child, vec![label("new left", 6.5 / 32.0)]);
+        let names: Vec<_> = manager
+            .labels_for([&child, &sibling].into_iter())
+            .into_iter()
+            .map(|l| l.name.as_str())
+            .collect();
+        assert_eq!(
+            names,
+            ["new left", "right"],
+            "partial loads must not duplicate or erase neighbors"
+        );
         manager.labels.remove(&parent);
-        assert_eq!(manager.labels_for([&parent].into_iter())[0].name, "new left",
-            "zoom-out retains child labels while its parent loads");
+        assert_eq!(
+            manager.labels_for([&parent].into_iter())[0].name,
+            "new left",
+            "zoom-out retains child labels while its parent loads"
+        );
     }
 
     #[test]
@@ -1246,7 +1324,10 @@ mod tests {
         let result: FetchedVector = postcard::from_bytes(&encoded).unwrap();
         let (vertices, indices, labels) = build_tile_with_theme(&[], id, palette, 8.0, theme);
         assert_eq!(result.id, id);
-        assert_eq!(bytemuck::cast_slice::<_, u8>(&result.vertices), bytemuck::cast_slice::<_, u8>(&vertices));
+        assert_eq!(
+            bytemuck::cast_slice::<_, u8>(&result.vertices),
+            bytemuck::cast_slice::<_, u8>(&vertices)
+        );
         assert_eq!(result.indices, indices);
         assert_eq!(result.labels.len(), labels.len());
         assert!(build_worker_tile(b"not a tile job").is_err());
@@ -1261,11 +1342,24 @@ mod tests {
         manager.requested.insert(id);
         manager.render_generation = 1;
         for _ in 0..2 {
-            manager.tx.send((1, Ok(FetchedVector {
-                id, vertices: vec![], indices: vec![], labels: vec![],
-            }))).unwrap();
+            manager
+                .tx
+                .send((
+                    1,
+                    Ok(FetchedVector {
+                        id,
+                        vertices: vec![],
+                        indices: vec![],
+                        labels: vec![],
+                    }),
+                ))
+                .unwrap();
         }
-        assert_eq!(manager.drain_ready().len(), 1, "replace once, ignore duplicates");
+        assert_eq!(
+            manager.drain_ready().len(),
+            1,
+            "replace once, ignore duplicates"
+        );
         assert_eq!(manager.uploaded.peek(&id), Some(&1));
         assert!(manager.take_evicted().is_empty());
     }
@@ -1278,11 +1372,33 @@ mod tests {
         manager.set_style(basemap_style::Palette::Light);
         manager.requested.insert(id);
         manager.tx.send((old, Err(id))).unwrap();
-        manager.tx.send((old, Ok(FetchedVector { id, vertices: vec![], indices: vec![], labels: vec![] }))).unwrap();
+        manager
+            .tx
+            .send((
+                old,
+                Ok(FetchedVector {
+                    id,
+                    vertices: vec![],
+                    indices: vec![],
+                    labels: vec![],
+                }),
+            ))
+            .unwrap();
         assert!(manager.drain_ready().is_empty());
         assert!(manager.requested.contains(&id));
         assert!(!manager.failed.contains_key(&id));
-        manager.tx.send((manager.render_generation, Ok(FetchedVector { id, vertices: vec![], indices: vec![], labels: vec![] }))).unwrap();
+        manager
+            .tx
+            .send((
+                manager.render_generation,
+                Ok(FetchedVector {
+                    id,
+                    vertices: vec![],
+                    indices: vec![],
+                    labels: vec![],
+                }),
+            ))
+            .unwrap();
         assert_eq!(manager.drain_ready().len(), 1);
     }
 
@@ -1294,7 +1410,10 @@ mod tests {
         manager.ensure_template();
         assert!(!manager.template_requested);
         assert!(manager.template_failed.is_some());
-        manager.template_tx.send(Some("https://example.test/{z}/{x}/{y}".into())).unwrap();
+        manager
+            .template_tx
+            .send(Some("https://example.test/{z}/{x}/{y}".into()))
+            .unwrap();
         manager.ensure_template();
         assert!(manager.template.is_some());
         assert!(manager.template_failed.is_none());
@@ -1302,7 +1421,14 @@ mod tests {
 
     #[test]
     fn regional_labels_keep_major_cities_and_through_routes() {
-        let mut label = PlaceLabel { world: [0.0, 0.0], name: "35E".into(), rank: 100, city: false, shield: RoadShield::Interstate, min_zoom: 5.0 };
+        let mut label = PlaceLabel {
+            world: [0.0, 0.0],
+            name: "35E".into(),
+            rank: 100,
+            city: false,
+            shield: RoadShield::Interstate,
+            min_zoom: 5.0,
+        };
         assert!(label.visible_at(5.3));
         let highway_priority = label.priority();
         label.name = "635".into();
@@ -1346,13 +1472,22 @@ mod tests {
     fn road_shields_have_alternatives_on_each_component() {
         use geo_types::{Geometry, LineString, MultiLineString};
         let line = LineString::from(vec![(0.0, 0.0), (1.0, 0.0), (100.0, 0.0)]);
-        assert_eq!(road_anchors(&Geometry::LineString(line.clone()), true),
-            vec![(50.0, 0.0), (25.0, 0.0), (75.0, 0.0)]);
+        assert_eq!(
+            road_anchors(&Geometry::LineString(line.clone()), true),
+            vec![(50.0, 0.0), (25.0, 0.0), (75.0, 0.0)]
+        );
         let other = LineString::from(vec![(0.0, 10.0), (100.0, 10.0)]);
-        let anchors = road_anchors(&Geometry::MultiLineString(MultiLineString(vec![line, other])), true);
+        let anchors = road_anchors(
+            &Geometry::MultiLineString(MultiLineString(vec![line, other])),
+            true,
+        );
         assert_eq!(anchors.len(), 6);
         assert!(anchors.contains(&(50.0, 10.0)));
-        assert!(road_anchors(&Geometry::LineString(LineString::from(vec![(0.0, 0.0), (0.0, 0.0)])), true).is_empty());
+        assert!(road_anchors(
+            &Geometry::LineString(LineString::from(vec![(0.0, 0.0), (0.0, 0.0)])),
+            true
+        )
+        .is_empty());
     }
 
     #[test]
@@ -1369,12 +1504,12 @@ mod tests {
     fn road_labels_survive_tiles_without_places() {
         // MVT with one interstate line and no `place` layer.
         let bytes = &[
-            26, 102, 10, 19, 116, 114, 97, 110, 115, 112, 111, 114, 116, 97, 116, 105, 111, 110, 95, 110,
-            97, 109, 101, 18, 18, 18, 6, 0, 0, 1, 1, 2, 2, 24, 2, 34, 6, 9, 20, 20,
-            10, 20, 0, 26, 5, 99, 108, 97, 115, 115, 26, 7, 110, 101, 116, 119, 111, 114, 107, 26,
-            3, 114, 101, 102, 34, 10, 10, 8, 109, 111, 116, 111, 114, 119, 97, 121, 34, 15, 10, 13,
-            117, 115, 45, 105, 110, 116, 101, 114, 115, 116, 97, 116, 101, 34, 4, 10, 2, 51, 53, 40,
-            128, 32, 120, 2,
+            26, 102, 10, 19, 116, 114, 97, 110, 115, 112, 111, 114, 116, 97, 116, 105, 111, 110,
+            95, 110, 97, 109, 101, 18, 18, 18, 6, 0, 0, 1, 1, 2, 2, 24, 2, 34, 6, 9, 20, 20, 10,
+            20, 0, 26, 5, 99, 108, 97, 115, 115, 26, 7, 110, 101, 116, 119, 111, 114, 107, 26, 3,
+            114, 101, 102, 34, 10, 10, 8, 109, 111, 116, 111, 114, 119, 97, 121, 34, 15, 10, 13,
+            117, 115, 45, 105, 110, 116, 101, 114, 115, 116, 97, 116, 101, 34, 4, 10, 2, 51, 53,
+            40, 128, 32, 120, 2,
         ];
         let (_, _, labels) = build_tile(bytes, (5, 7, 12), basemap_style::Palette::Dark, 5.0);
         assert_eq!(labels.len(), 3);
@@ -1406,13 +1541,7 @@ mod tests {
         );
         assert_eq!(
             road_label("minor", "", "Main Street".into(), String::new()),
-            Some((
-                "Main Street".into(),
-                14.0,
-                160,
-                RoadShield::None
-            ))
+            Some(("Main Street".into(), 14.0, 160, RoadShield::None))
         );
     }
-
 }

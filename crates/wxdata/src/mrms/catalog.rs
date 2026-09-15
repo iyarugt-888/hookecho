@@ -111,7 +111,8 @@ pub static PRODUCTS: &[Product] = &[
             source: DataSource::NoaaMrms,
             family: FieldFamily::Mrms,
             name: "Lightning density (CG)",
-            description: "Ground strikes only: NLDN cloud-to-ground density, averaged over a window you \
+            description:
+                "Ground strikes only: NLDN cloud-to-ground density, averaged over a window you \
                  pick. Pair it with satellite lightning (GLM) to see total vs cloud-to-ground.",
             units: Unit::StrikesPerSquareKmPerMinute,
             value_kind: ValueKind::Scalar,

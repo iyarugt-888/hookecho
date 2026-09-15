@@ -213,7 +213,15 @@ pub fn detect_volume(
         HashMap::new();
 
     for (vel, z) in sweeps {
-        for h in detect(vel, z, g2g_min_ms, z_min, min_range_km, max_range_km, min_gates) {
+        for h in detect(
+            vel,
+            z,
+            g2g_min_ms,
+            z_min,
+            min_range_km,
+            max_range_km,
+            min_gates,
+        ) {
             let key = ((h.lon / CELL).round() as i64, (h.lat / CELL).round() as i64);
             let w = h.gates as f64;
             let e = cells
@@ -232,30 +240,32 @@ pub fn detect_volume(
 
     let mut out: Vec<CoupletHit> = cells
         .into_values()
-        .map(|(gates, slon, slat, srange, vrot_ms, g2g_ms, tilts, top_km)| {
-            let w = gates.max(1) as f64;
-            // Vertical extent matters more than raw gate count: a couplet that repeats through
-            // several tilts is a real, established circulation, while a wide but single-tilt
-            // patch is exactly the shape a gust front or a data glitch makes. ~3 km AGL saturates
-            // the height term, matching `tds`'s own reference height.
-            let height_term = (top_km / 3.0).clamp(0.0, 1.0);
-            // Absolute, not "what fraction of the tilts a caller happened to check" — a caller
-            // that only ever looks at the lowest tilt must not make a lone hit read as the whole
-            // column just because it's 1 out of the 1 it checked. Saturates at 3 tilts.
-            let depth_term = ((tilts as f32 - 1.0) / 2.0).clamp(0.0, 1.0);
-            let confidence = (0.5 * height_term + 0.5 * depth_term).clamp(0.0, 1.0);
-            CoupletHit {
-                lon: slon / w,
-                lat: slat / w,
-                vrot_ms,
-                g2g_ms,
-                range_km: (srange / w) as f32,
-                gates,
-                tilts,
-                top_km,
-                confidence,
-            }
-        })
+        .map(
+            |(gates, slon, slat, srange, vrot_ms, g2g_ms, tilts, top_km)| {
+                let w = gates.max(1) as f64;
+                // Vertical extent matters more than raw gate count: a couplet that repeats through
+                // several tilts is a real, established circulation, while a wide but single-tilt
+                // patch is exactly the shape a gust front or a data glitch makes. ~3 km AGL saturates
+                // the height term, matching `tds`'s own reference height.
+                let height_term = (top_km / 3.0).clamp(0.0, 1.0);
+                // Absolute, not "what fraction of the tilts a caller happened to check" — a caller
+                // that only ever looks at the lowest tilt must not make a lone hit read as the whole
+                // column just because it's 1 out of the 1 it checked. Saturates at 3 tilts.
+                let depth_term = ((tilts as f32 - 1.0) / 2.0).clamp(0.0, 1.0);
+                let confidence = (0.5 * height_term + 0.5 * depth_term).clamp(0.0, 1.0);
+                CoupletHit {
+                    lon: slon / w,
+                    lat: slat / w,
+                    vrot_ms,
+                    g2g_ms,
+                    range_km: (srange / w) as f32,
+                    gates,
+                    tilts,
+                    top_km,
+                    confidence,
+                }
+            },
+        )
         .collect();
     out.sort_by(|a, b| b.confidence.total_cmp(&a.confidence));
     out
@@ -300,7 +310,12 @@ mod tests {
     /// radial, 2°/~0.5 km tangential at this range) so it lands inside one ~4 km cluster cell —
     /// `couplet_sweep`'s wider wedge straddles two, which is fine for tests that only ever check
     /// `hits[0]`, but would make a single-hit-per-tilt assumption wrong.
-    fn couplet_sweep_tilt(elevation_deg: f32, inbound: f32, outbound: f32, background: f32) -> BinnedSweep {
+    fn couplet_sweep_tilt(
+        elevation_deg: f32,
+        inbound: f32,
+        outbound: f32,
+        background: f32,
+    ) -> BinnedSweep {
         let (az_bins, gate_count) = (720usize, 200usize);
         let (lo, hi) = Moment::Velocity.value_range();
         let idx = |v: f32| (2.0 + (v - lo) / (hi - lo) * 253.0).round() as u8;
@@ -387,11 +402,27 @@ mod tests {
     fn ignores_weak_and_same_sign_shear() {
         let z = z_sweep(0.5, Some(45.0));
         // Weak couplet: ±8 m/s is well under the 25 m/s criterion.
-        assert!(detect(&couplet_sweep(-8.0, 8.0, 0.0), &z, 25.0, 20.0, 5.0, 150.0, 3).is_empty());
+        assert!(detect(
+            &couplet_sweep(-8.0, 8.0, 0.0),
+            &z,
+            25.0,
+            20.0,
+            5.0,
+            150.0,
+            3
+        )
+        .is_empty());
         // Strong shear but both sides inbound: convergence, not rotation.
-        assert!(
-            detect(&couplet_sweep(-40.0, -5.0, -5.0), &z, 25.0, 20.0, 5.0, 150.0, 3).is_empty()
-        );
+        assert!(detect(
+            &couplet_sweep(-40.0, -5.0, -5.0),
+            &z,
+            25.0,
+            20.0,
+            5.0,
+            150.0,
+            3
+        )
+        .is_empty());
     }
 
     #[test]
@@ -424,15 +455,27 @@ mod tests {
             150.0,
             3,
         );
-        assert!(hits.is_empty(), "no real echo behind the shear — not rotation");
+        assert!(
+            hits.is_empty(),
+            "no real echo behind the shear — not rotation"
+        );
     }
 
     #[test]
     fn a_couplet_seen_through_two_tilts_scores_higher_than_one() {
-        let one_tilt = [(couplet_sweep_tilt(0.5, -30.0, 30.0, 0.0), z_sweep(0.5, Some(45.0)))];
+        let one_tilt = [(
+            couplet_sweep_tilt(0.5, -30.0, 30.0, 0.0),
+            z_sweep(0.5, Some(45.0)),
+        )];
         let two_tilts = [
-            (couplet_sweep_tilt(0.5, -30.0, 30.0, 0.0), z_sweep(0.5, Some(45.0))),
-            (couplet_sweep_tilt(1.5, -30.0, 30.0, 0.0), z_sweep(1.5, Some(45.0))),
+            (
+                couplet_sweep_tilt(0.5, -30.0, 30.0, 0.0),
+                z_sweep(0.5, Some(45.0)),
+            ),
+            (
+                couplet_sweep_tilt(1.5, -30.0, 30.0, 0.0),
+                z_sweep(1.5, Some(45.0)),
+            ),
         ];
 
         let single = detect_volume(&one_tilt, 25.0, 20.0, 5.0, 150.0, 3);
@@ -461,7 +504,10 @@ mod tests {
     #[test]
     fn detect_volume_still_reports_a_lone_single_tilt_hit() {
         let hits = detect_volume(
-            &[(couplet_sweep_tilt(0.5, -30.0, 30.0, 0.0), z_sweep(0.5, Some(45.0)))],
+            &[(
+                couplet_sweep_tilt(0.5, -30.0, 30.0, 0.0),
+                z_sweep(0.5, Some(45.0)),
+            )],
             25.0,
             20.0,
             5.0,

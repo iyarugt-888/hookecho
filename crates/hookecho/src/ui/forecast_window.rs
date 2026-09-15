@@ -144,7 +144,10 @@ pub fn show(
                 series_changed = model_series_section(ui, series_ui, series_state, tz);
             });
         });
-    ForecastResult { open, series_changed }
+    ForecastResult {
+        open,
+        series_changed,
+    }
 }
 
 fn body(ui: &mut egui::Ui, f: &PointForecast, tz: Option<wxdata::tz::Tz>) {
@@ -158,42 +161,46 @@ fn body(ui: &mut egui::Ui, f: &PointForecast, tz: Option<wxdata::tz::Tz>) {
     ui.add_space(2.0);
     // Capped, not left to fill whatever room the window has: an uncapped scroll area here ate
     // the entire rest of the window, leaving nothing for the model-forecast section below it.
-    egui::ScrollArea::vertical().max_height(150.0).show(ui, |ui| {
-        for p in &f.daily {
-            ui.horizontal(|ui| {
-                ui.add_sized(
-                    [104.0, 18.0],
-                    egui::Label::new(RichText::new(&p.name).strong()).selectable(false),
-                );
-                let temp = RichText::new(format!("{:.0}°", p.temp_f))
-                    .strong()
-                    .color(if p.is_day {
-                        Color32::from_rgb(245, 190, 90)
-                    } else {
-                        Color32::from_rgb(150, 180, 240)
-                    });
-                ui.add_sized([44.0, 18.0], egui::Label::new(temp).selectable(false));
-                if let Some(pc) = p.precip_pct {
+    egui::ScrollArea::vertical()
+        .max_height(150.0)
+        .show(ui, |ui| {
+            for p in &f.daily {
+                ui.horizontal(|ui| {
                     ui.add_sized(
-                        [42.0, 18.0],
-                        egui::Label::new(
-                            RichText::new(format!("{pc}%")).color(Color32::from_rgb(110, 180, 240)),
-                        )
-                        .selectable(false),
+                        [104.0, 18.0],
+                        egui::Label::new(RichText::new(&p.name).strong()).selectable(false),
                     );
+                    let temp =
+                        RichText::new(format!("{:.0}°", p.temp_f))
+                            .strong()
+                            .color(if p.is_day {
+                                Color32::from_rgb(245, 190, 90)
+                            } else {
+                                Color32::from_rgb(150, 180, 240)
+                            });
+                    ui.add_sized([44.0, 18.0], egui::Label::new(temp).selectable(false));
+                    if let Some(pc) = p.precip_pct {
+                        ui.add_sized(
+                            [42.0, 18.0],
+                            egui::Label::new(
+                                RichText::new(format!("{pc}%"))
+                                    .color(Color32::from_rgb(110, 180, 240)),
+                            )
+                            .selectable(false),
+                        );
+                    } else {
+                        ui.add_sized([42.0, 18.0], egui::Label::new("").selectable(false));
+                    }
+                    ui.label(&p.short);
+                })
+                .response
+                .on_hover_text(if p.wind.is_empty() {
+                    p.short.clone()
                 } else {
-                    ui.add_sized([42.0, 18.0], egui::Label::new("").selectable(false));
-                }
-                ui.label(&p.short);
-            })
-            .response
-            .on_hover_text(if p.wind.is_empty() {
-                p.short.clone()
-            } else {
-                format!("{}\nWind {}", p.short, p.wind)
-            });
-        }
-    });
+                    format!("{}\nWind {}", p.short, p.wind)
+                });
+            }
+        });
 }
 
 /// Model/field/period pickers, the graph, and a min/max/avg line. Returns whether any picker
@@ -279,8 +286,8 @@ fn display_value(field: wxdata::global::GlobalField, raw: f32) -> f32 {
         // `GLOBAL_WIND_10M` ramp already shows (`RampScale::Abs`) rather than a graph that
         // reads as calm every time the wind happens to blow from the east.
         GF::Wind10m => raw.abs() * 2.236_936, // m/s -> mph
-        GF::Mslp => raw * 0.01,         // Pa -> hPa
-        GF::Height500 => raw * 0.1,     // m -> dam
+        GF::Mslp => raw * 0.01,               // Pa -> hPa
+        GF::Height500 => raw * 0.1,           // m -> dam
         GF::Precip => raw,
     }
 }
@@ -341,7 +348,8 @@ fn series_chart(
         (lo, hi)
     };
     let x_of = |i: usize| body.left() + (i as f32 + 0.5) / points.len() as f32 * body.width();
-    let y_of = |v: f32| body.bottom() - ((v - lo) / (hi - lo).max(f32::EPSILON)) * body.height() * 0.82;
+    let y_of =
+        |v: f32| body.bottom() - ((v - lo) / (hi - lo).max(f32::EPSILON)) * body.height() * 0.82;
 
     // Contiguous runs of `Some` become separate polylines, so a gap breaks the line instead of
     // drawing a straight connector across an hour that failed to fetch.
@@ -421,7 +429,9 @@ fn series_stats(
         .iter()
         .fold((f32::MAX, f32::MIN), |(a, b), &v| (a.min(v), b.max(v)));
     let mean = values.iter().sum::<f32>() / values.len() as f32;
-    ui.weak(format!("min {min:.0}{unit} · max {max:.0}{unit} · avg {mean:.0}{unit}"));
+    ui.weak(format!(
+        "min {min:.0}{unit} · max {max:.0}{unit} · avg {mean:.0}{unit}"
+    ));
 }
 
 /// Minute-by-minute rain over the point for the next hour, advected from the current radar scan.

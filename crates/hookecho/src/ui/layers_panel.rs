@@ -88,22 +88,21 @@ fn command_entry(query: &str, selected_day: chrono::NaiveDate) -> Option<Palette
         return None;
     }
     let value = value.trim();
-    let (label, action, desc) = if value.eq_ignore_ascii_case("live")
-        || value.eq_ignore_ascii_case("now")
-    {
-        (
-            "Return timeline to live".to_string(),
-            PaletteAction::GoLive,
-            "Resume the newest radar scan",
-        )
-    } else {
-        let target = parse_utc_time(value, selected_day)?;
-        (
-            format!("Seek timeline to {} UTC", target.format("%Y-%m-%d %H:%M")),
-            PaletteAction::SeekTime(target.timestamp()),
-            "Seek the active radar pane to the nearest scan at this UTC time",
-        )
-    };
+    let (label, action, desc) =
+        if value.eq_ignore_ascii_case("live") || value.eq_ignore_ascii_case("now") {
+            (
+                "Return timeline to live".to_string(),
+                PaletteAction::GoLive,
+                "Resume the newest radar scan",
+            )
+        } else {
+            let target = parse_utc_time(value, selected_day)?;
+            (
+                format!("Seek timeline to {} UTC", target.format("%Y-%m-%d %H:%M")),
+                PaletteAction::SeekTime(target.timestamp()),
+                "Seek the active radar pane to the nearest scan at this UTC time",
+            )
+        };
     Some(PaletteEntry {
         label,
         category: "Tools",
@@ -263,7 +262,10 @@ pub(crate) fn note_recent(recent: &mut Vec<String>, slug: &str) {
 /// resolves to an entry — a renamed or removed action must not leave a dead row the user can
 /// click into nothing, the same failure mode [`reorder`]'s own doc comment guards `layer_order`
 /// against.
-pub(crate) fn recent_entries<'a>(entries: &'a [PaletteEntry], recent: &[String]) -> Vec<&'a PaletteEntry> {
+pub(crate) fn recent_entries<'a>(
+    entries: &'a [PaletteEntry],
+    recent: &[String],
+) -> Vec<&'a PaletteEntry> {
     recent
         .iter()
         .filter_map(|slug| {
@@ -585,9 +587,10 @@ fn active_layer(e: &PaletteEntry) -> bool {
         && match e.action {
             PaletteAction::SetMoment(..) | PaletteAction::ToggleField(_) => true,
             PaletteAction::SetContours(kind) => kind != ContourKind::Off,
-            PaletteAction::ToggleOverlay(toggle) => {
-                !matches!(toggle, T::AlertPanel | T::LinkCameras | T::LinkTimes | T::MiniLoop)
-            }
+            PaletteAction::ToggleOverlay(toggle) => !matches!(
+                toggle,
+                T::AlertPanel | T::LinkCameras | T::LinkTimes | T::MiniLoop
+            ),
             _ => false,
         }
 }
@@ -1193,9 +1196,7 @@ mod tests {
         assert_eq!(command.label, "Seek timeline to 2026-09-14 21:30 UTC");
         assert_eq!(
             command.action,
-            PaletteAction::SeekTime(
-                day.and_hms_opt(21, 30, 0).unwrap().and_utc().timestamp()
-            )
+            PaletteAction::SeekTime(day.and_hms_opt(21, 30, 0).unwrap().and_utc().timestamp())
         );
         assert_eq!(
             command_entry("time now", day).unwrap().action,
@@ -1512,24 +1513,33 @@ mod tests {
         let mut query = String::new();
         let mut pref = Vec::new();
         let mut favorites = Vec::new();
-        let mut run = |ctx: &egui::Context, favorites: &mut Vec<String>, events: Vec<egui::Event>| {
-            let mut chosen = None;
-            let out = ctx.run_ui(
-                egui::RawInput {
-                    events,
-                    ..Default::default()
-                },
-                |ui| {
-                    ui.set_width(308.0);
-                    chosen = body(
-                        ui, &entries, &mut query, Color32::WHITE, 700.0,
-                        chrono::Utc::now().date_naive(), false, &mut pref,
-                        &recent, favorites, |_| {},
-                    );
-                },
-            );
-            (chosen, out)
-        };
+        let mut run =
+            |ctx: &egui::Context, favorites: &mut Vec<String>, events: Vec<egui::Event>| {
+                let mut chosen = None;
+                let out = ctx.run_ui(
+                    egui::RawInput {
+                        events,
+                        ..Default::default()
+                    },
+                    |ui| {
+                        ui.set_width(308.0);
+                        chosen = body(
+                            ui,
+                            &entries,
+                            &mut query,
+                            Color32::WHITE,
+                            700.0,
+                            chrono::Utc::now().date_naive(),
+                            false,
+                            &mut pref,
+                            &recent,
+                            favorites,
+                            |_| {},
+                        );
+                    },
+                );
+                (chosen, out)
+            };
         let (_, out) = run(&ctx, &mut favorites, vec![]);
         let star_pos = out
             .shapes
@@ -1541,22 +1551,33 @@ mod tests {
                 _ => None,
             })
             .unwrap_or_else(|| panic!("star glyph not drawn"));
-        run(&ctx, &mut favorites, vec![
-            egui::Event::PointerMoved(star_pos),
-            egui::Event::PointerButton {
+        run(
+            &ctx,
+            &mut favorites,
+            vec![
+                egui::Event::PointerMoved(star_pos),
+                egui::Event::PointerButton {
+                    pos: star_pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Default::default(),
+                },
+            ],
+        );
+        let (chosen, _) = run(
+            &ctx,
+            &mut favorites,
+            vec![egui::Event::PointerButton {
                 pos: star_pos,
                 button: egui::PointerButton::Primary,
-                pressed: true,
+                pressed: false,
                 modifiers: Default::default(),
-            },
-        ]);
-        let (chosen, _) = run(&ctx, &mut favorites, vec![egui::Event::PointerButton {
-            pos: star_pos,
-            button: egui::PointerButton::Primary,
-            pressed: false,
-            modifiers: Default::default(),
-        }]);
-        assert_eq!(chosen, None, "clicking the star must not also toggle the layer");
+            }],
+        );
+        assert_eq!(
+            chosen, None,
+            "clicking the star must not also toggle the layer"
+        );
         assert_eq!(favorites, vec!["mesh".to_string()]);
     }
 
@@ -1591,9 +1612,17 @@ mod tests {
                 |ui| {
                     ui.set_width(308.0);
                     chosen = body(
-                        ui, &entries, &mut query, Color32::WHITE, 700.0,
-                        chrono::Utc::now().date_naive(), false, &mut pref,
-                        &recent, &mut favorites, |_| {},
+                        ui,
+                        &entries,
+                        &mut query,
+                        Color32::WHITE,
+                        700.0,
+                        chrono::Utc::now().date_naive(),
+                        false,
+                        &mut pref,
+                        &recent,
+                        &mut favorites,
+                        |_| {},
                     );
                 },
             );
@@ -1618,21 +1647,27 @@ mod tests {
         // Same click-simulation pattern as `style.rs`'s toggle test: move onto the row, press,
         // then release — `row()` reports a click on release, matching every other button in
         // this UI (a press alone must not fire the action, or a drag-away would still trigger it).
-        run(&ctx, vec![
-            egui::Event::PointerMoved(pos),
-            egui::Event::PointerButton {
+        run(
+            &ctx,
+            vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Default::default(),
+                },
+            ],
+        );
+        let (chosen, _) = run(
+            &ctx,
+            vec![egui::Event::PointerButton {
                 pos,
                 button: egui::PointerButton::Primary,
-                pressed: true,
+                pressed: false,
                 modifiers: Default::default(),
-            },
-        ]);
-        let (chosen, _) = run(&ctx, vec![egui::Event::PointerButton {
-            pos,
-            button: egui::PointerButton::Primary,
-            pressed: false,
-            modifiers: Default::default(),
-        }]);
+            }],
+        );
         assert_eq!(chosen, Some(PaletteAction::ToggleField(FL::Mesh)));
     }
 
@@ -1658,12 +1693,17 @@ mod tests {
             .collect();
         assert_eq!(matches(&entries, "NOAA MRMS").len(), entries.len());
         for (query, slug) in [
-            ("mm/hr", "preciprate"), ("NLDN", "lightning"),
-            ("hydrology", "flashflood"), ("gauge corrected", "qpe1h"),
+            ("mm/hr", "preciprate"),
+            ("NLDN", "lightning"),
+            ("hydrology", "flashflood"),
+            ("gauge corrected", "qpe1h"),
         ] {
-            let action = PaletteAction::ToggleField(crate::render::FieldLayer::from_slug(slug).unwrap());
+            let action =
+                PaletteAction::ToggleField(crate::render::FieldLayer::from_slug(slug).unwrap());
             assert!(
-                matches(&entries, query).iter().any(|i| entries[*i].action == action),
+                matches(&entries, query)
+                    .iter()
+                    .any(|i| entries[*i].action == action),
                 "{query} must find {slug}"
             );
         }

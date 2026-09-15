@@ -66,7 +66,12 @@ fn scan_strategy_popup(ui: &mut egui::Ui, vcp: &str, cuts: &[wxdata::level2::Til
 /// the scrubber's own live-activity ring uses, for the same reason: the fill still answers "how
 /// far", the pulse is only what answers "is it moving right now", and reduced motion asked to drop
 /// the second question, not both.
-fn live_sweep_strip(ui: &mut egui::Ui, pill_rect: egui::Rect, p: wxdata::live::ScanProgress, accent: Color32) {
+fn live_sweep_strip(
+    ui: &mut egui::Ui,
+    pill_rect: egui::Rect,
+    p: wxdata::live::ScanProgress,
+    accent: Color32,
+) {
     if !ui.is_rect_visible(pill_rect) {
         return;
     }
@@ -888,12 +893,12 @@ impl HookEchoApp {
     fn ribbon_collapse_button(&mut self, ctx: &egui::Context) {
         use crate::ui::a11y::Named as _;
         let (glyph, hint) = if self.ribbon_collapsed {
-            (
-                egui_phosphor::regular::CARET_DOWN,
-                "Show the top bar (T)",
-            )
+            (egui_phosphor::regular::CARET_DOWN, "Show the top bar (T)")
         } else {
-            (egui_phosphor::regular::CARET_UP, "Hide the top bar for a full-window map view (T)")
+            (
+                egui_phosphor::regular::CARET_UP,
+                "Hide the top bar for a full-window map view (T)",
+            )
         };
         egui::Area::new(egui::Id::new("wsv3_ribbon_collapse"))
             .anchor(egui::Align2::CENTER_TOP, vec2(0.0, 2.0))
@@ -953,7 +958,12 @@ mod tests {
         };
         let pill_rect = egui::Rect::from_min_size(egui::pos2(10.0, 10.0), egui::vec2(42.0, 24.0));
         let output = ctx.run_ui(input, |ui| {
-            live_sweep_strip(ui, pill_rect, sample_progress(1, 3), Color32::from_rgb(0, 120, 255));
+            live_sweep_strip(
+                ui,
+                pill_rect,
+                sample_progress(1, 3),
+                Color32::from_rgb(0, 120, 255),
+            );
         });
         let rects: Vec<egui::Rect> = output
             .shapes
@@ -963,7 +973,11 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(rects.len(), 2, "expected a track and a fill rect: {rects:?}");
+        assert_eq!(
+            rects.len(),
+            2,
+            "expected a track and a fill rect: {rects:?}"
+        );
     }
 
     /// At zero chunks scanned so far the fill still has to show *something* — an empty bar reads
@@ -981,7 +995,12 @@ mod tests {
         };
         let pill_rect = egui::Rect::from_min_size(egui::pos2(10.0, 10.0), egui::vec2(42.0, 24.0));
         let output = ctx.run_ui(input, |ui| {
-            live_sweep_strip(ui, pill_rect, sample_progress(0, 3), Color32::from_rgb(0, 120, 255));
+            live_sweep_strip(
+                ui,
+                pill_rect,
+                sample_progress(0, 3),
+                Color32::from_rgb(0, 120, 255),
+            );
         });
         let widths: Vec<f32> = output
             .shapes

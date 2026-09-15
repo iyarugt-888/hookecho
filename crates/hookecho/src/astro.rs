@@ -322,7 +322,10 @@ mod tests {
         // the Arctic/Antarctic Circle, the classic solstice polar-day/polar-night boundary.
         let sub = (23.44, 0.0);
         let lat = terminator_lat_deg(sub.1, sub).unwrap();
-        assert!((lat + (90.0 - sub.0)).abs() < 0.1, "expected the antarctic circle, got {lat}");
+        assert!(
+            (lat + (90.0 - sub.0)).abs() < 0.1,
+            "expected the antarctic circle, got {lat}"
+        );
     }
 
     #[test]

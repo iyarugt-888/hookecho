@@ -180,9 +180,7 @@ pub fn detect_volume(
         for h in detect(z, cc, cc_max, z_min, max_range_km, min_gates) {
             let key = ((h.lon / CELL).round() as i64, (h.lat / CELL).round() as i64);
             let w = h.gates as f64;
-            let e = cells
-                .entry(key)
-                .or_insert((0, 0.0, 0.0, 0.0, 1.05, 0, 0.0));
+            let e = cells.entry(key).or_insert((0, 0.0, 0.0, 0.0, 1.05, 0, 0.0));
             e.0 += h.gates;
             e.1 += h.lon * w;
             e.2 += h.lat * w;
@@ -337,7 +335,13 @@ mod tests {
         let cc_cold = idx(Moment::CorrelationCoefficient, 0.98);
         let z_hot = idx(Moment::Reflectivity, 52.0);
         let z_cold = idx(Moment::Reflectivity, 20.0);
-        let cc = sweep(Moment::CorrelationCoefficient, cc_hot, cc_cold, 100..101, 40..80);
+        let cc = sweep(
+            Moment::CorrelationCoefficient,
+            cc_hot,
+            cc_cold,
+            100..101,
+            40..80,
+        );
         let z = sweep(Moment::Reflectivity, z_hot, z_cold, 100..101, 40..80);
         assert!(
             detect(&z, &cc, 0.80, 40.0, 150.0, 4).is_empty(),

@@ -63,7 +63,10 @@ fn axis_slice(ui: &mut egui::Ui, label: &str, lo: &mut f32, hi: &mut f32) {
 /// the one way to cut into a storm along the angle it actually leans or approaches from rather
 /// than only the box's own east-west/north-south faces. Shared with the main map's own "3D map"
 /// Slice section (`app.rs`'s `map_3d_controls`), which raymarches the same kind of volume.
-pub(crate) fn plane_controls(ui: &mut egui::Ui, plane: &mut Option<crate::render3d::VerticalPlane>) {
+pub(crate) fn plane_controls(
+    ui: &mut egui::Ui,
+    plane: &mut Option<crate::render3d::VerticalPlane>,
+) {
     let mut on = plane.is_some();
     if ui
         .checkbox(&mut on, "Vertical plane")

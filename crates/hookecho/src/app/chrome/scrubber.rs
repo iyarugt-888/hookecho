@@ -24,7 +24,8 @@ impl HookEchoApp {
             .timeline
             .newest()
             .and_then(|id| id.date_time());
-        let fresh = newest_time.is_some_and(|t| (chrono::Utc::now() - t).num_seconds() < RADAR_FRESH_SECS);
+        let fresh =
+            newest_time.is_some_and(|t| (chrono::Utc::now() - t).num_seconds() < RADAR_FRESH_SECS);
         // Site and data age used to live in the docked status bar; the clock belongs with the clock.
         let site = self.views[self.active]
             .site
@@ -560,7 +561,9 @@ mod seek_to_day_tests {
     fn frames_at(date: chrono::NaiveDate, times: &[(u32, u32)]) -> Vec<Identifier> {
         times
             .iter()
-            .map(|&(h, m)| Identifier::new(format!("KTLX{}_{h:02}{m:02}00_V06", date.format("%Y%m%d"))))
+            .map(|&(h, m)| {
+                Identifier::new(format!("KTLX{}_{h:02}{m:02}00_V06", date.format("%Y%m%d")))
+            })
             .collect()
     }
 
@@ -575,7 +578,10 @@ mod seek_to_day_tests {
         let mut t = Timeline::default();
         t.date = day1;
         // Three volumes on day1; the playhead sits on the last one, 23:55.
-        t.set_frames(frames_at(day1, &[(0, 0), (12, 0), (23, 55)]), ("KTLX".into(), day1));
+        t.set_frames(
+            frames_at(day1, &[(0, 0), (12, 0), (23, 55)]),
+            ("KTLX".into(), day1),
+        );
         t.playhead = 2;
 
         seek_to_day(&mut t, "KTLX", day2);
@@ -587,7 +593,12 @@ mod seek_to_day_tests {
         let day2_frames: Vec<(u32, u32)> = (0..288).map(|i| (i * 5 / 60, i * 5 % 60)).collect();
         t.set_frames(frames_at(day2, &day2_frames), ("KTLX".into(), day2));
         assert_eq!(
-            t.current().unwrap().date_time().unwrap().format("%H:%M").to_string(),
+            t.current()
+                .unwrap()
+                .date_time()
+                .unwrap()
+                .format("%H:%M")
+                .to_string(),
             "23:55",
             "should land near the same time of day that was showing before the jump"
         );
@@ -605,7 +616,12 @@ mod seek_to_day_tests {
             ("KTLX".into(), day),
         );
         assert_eq!(
-            t.current().unwrap().date_time().unwrap().format("%H:%M").to_string(),
+            t.current()
+                .unwrap()
+                .date_time()
+                .unwrap()
+                .format("%H:%M")
+                .to_string(),
             "12:00"
         );
     }
@@ -642,7 +658,11 @@ fn live_progress_ring(ui: &mut egui::Ui, p: wxdata::live::ScanProgress, accent: 
     let painter = ui.painter();
     let center = rect.center();
     let radius = DIAM / 2.0 - 1.2;
-    painter.circle_stroke(center, radius, egui::Stroke::new(1.4, egui::Color32::from_gray(90)));
+    painter.circle_stroke(
+        center,
+        radius,
+        egui::Stroke::new(1.4, egui::Color32::from_gray(90)),
+    );
     let fraction = if p.total_elevations > 0 {
         (p.elevation_number as f32 / p.total_elevations as f32).clamp(0.0, 1.0)
     } else {
@@ -698,7 +718,9 @@ fn arc_points(center: egui::Pos2, radius: f32, start: f32, sweep: f32) -> Vec<eg
     if sweep.abs() < 1e-3 {
         return Vec::new();
     }
-    let steps = ((sweep.abs() / std::f32::consts::TAU) * 48.0).ceil().max(4.0) as usize;
+    let steps = ((sweep.abs() / std::f32::consts::TAU) * 48.0)
+        .ceil()
+        .max(4.0) as usize;
     (0..=steps)
         .map(|i| {
             let t = start + sweep * (i as f32 / steps as f32);
@@ -719,7 +741,12 @@ mod ring_tests {
     fn a_quarter_turn_from_twelve_lands_at_three_oclock() {
         let center = egui::pos2(0.0, 0.0);
         let radius = 10.0;
-        let points = arc_points(center, radius, -std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
+        let points = arc_points(
+            center,
+            radius,
+            -std::f32::consts::FRAC_PI_2,
+            std::f32::consts::FRAC_PI_2,
+        );
         let first = *points.first().unwrap();
         let last = *points.last().unwrap();
         assert!((first.x).abs() < 1e-3 && (first.y - (-radius)).abs() < 1e-3); // 12 o'clock

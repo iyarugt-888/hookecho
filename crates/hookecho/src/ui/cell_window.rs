@@ -192,7 +192,10 @@ mod tests {
         let mut labels = Vec::new();
         for _ in 0..3 {
             let input = egui::RawInput {
-                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1600.0, 1000.0))),
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1600.0, 1000.0),
+                )),
                 ..Default::default()
             };
             let output = ctx.run_ui(input, |ui| {
@@ -205,7 +208,9 @@ mod tests {
                 .shapes
                 .iter()
                 .filter_map(|s| match &s.shape {
-                    egui::Shape::Text(t) if s.clip_rect.contains(t.pos) => Some(t.galley.job.text.clone()),
+                    egui::Shape::Text(t) if s.clip_rect.contains(t.pos) => {
+                        Some(t.galley.job.text.clone())
+                    }
                     _ => None,
                 })
                 .collect();
@@ -214,7 +219,10 @@ mod tests {
         assert!(labels.iter().any(|s| s == "ENE · 19 kt"), "{labels:?}");
         assert!(labels.iter().any(|s| s == "Latitude"));
         assert!(labels.iter().any(|s| s == "Forecast error"));
-        assert!(labels.iter().any(|s| s == "View in 3D"), "actions must fit without scrolling: {labels:?}");
+        assert!(
+            labels.iter().any(|s| s == "View in 3D"),
+            "actions must fit without scrolling: {labels:?}"
+        );
     }
 
     #[test]

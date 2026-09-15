@@ -131,7 +131,10 @@ pub(crate) fn attributes(
         (
             "POSITION",
             vec![
-                ("Radar site", popup.site.clone().unwrap_or_else(|| "—".into())),
+                (
+                    "Radar site",
+                    popup.site.clone().unwrap_or_else(|| "—".into()),
+                ),
                 ("VCP", popup.vcp.clone()),
                 ("Elevation angle", format!("{:.2}°", i.elevation_deg)),
                 ("Azimuth", format!("{:.1}°", i.sample.azimuth_deg)),
@@ -157,20 +160,14 @@ pub(crate) fn attributes(
                 ("Gate index", i.sample.gate.to_string()),
             ],
         ),
-        (
-            popup.moment.short_name(),
-            {
-                let mut rows = vec![("Raw value", raw_value)];
-                if popup.moment == Moment::Velocity {
-                    rows.push(("Dealiased value", opt(i.dealiased_value, " m/s", 1)));
-                    rows.push((
-                        "Nyquist velocity (est.)",
-                        opt(i.nyquist_mps, " m/s", 1),
-                    ));
-                }
-                rows
-            },
-        ),
+        (popup.moment.short_name(), {
+            let mut rows = vec![("Raw value", raw_value)];
+            if popup.moment == Moment::Velocity {
+                rows.push(("Dealiased value", opt(i.dealiased_value, " m/s", 1)));
+                rows.push(("Nyquist velocity (est.)", opt(i.nyquist_mps, " m/s", 1)));
+            }
+            rows
+        }),
     ];
     if !udp_rows.is_empty() {
         groups.push(("USER-DEFINED", udp_rows));
@@ -401,10 +398,7 @@ mod tests {
             expression: "REF +".into(),
         }];
         let labels = labels_for(&popup, &products);
-        assert!(
-            labels.iter().any(|s| s.starts_with("Error:")),
-            "{labels:?}"
-        );
+        assert!(labels.iter().any(|s| s.starts_with("Error:")), "{labels:?}");
     }
 
     /// A formula referencing an input this gate doesn't have reads "—", the same convention

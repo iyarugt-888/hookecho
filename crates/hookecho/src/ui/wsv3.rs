@@ -70,7 +70,13 @@ pub fn pill(ui: &mut Ui, label: &str, selected: bool, accent: Color32) -> Respon
 }
 
 /// [`pill`] with a minimum width (so a row of related pills lines up).
-pub fn pill_sized(ui: &mut Ui, label: &str, selected: bool, accent: Color32, min_w: f32) -> Response {
+pub fn pill_sized(
+    ui: &mut Ui,
+    label: &str,
+    selected: bool,
+    accent: Color32,
+    min_w: f32,
+) -> Response {
     let font = FontId::proportional(13.0);
     let text_w = ui
         .painter()
@@ -137,7 +143,11 @@ pub fn vsep(ui: &mut Ui) {
     let x = rect.center().x;
     let p = ui.painter();
     let yr = egui::Rangef::new(rect.top() + 6.0, rect.bottom() - 6.0);
-    p.vline(x - 0.5, yr, Stroke::new(1.0, Color32::from_black_alpha(150)));
+    p.vline(
+        x - 0.5,
+        yr,
+        Stroke::new(1.0, Color32::from_black_alpha(150)),
+    );
     p.vline(x + 0.5, yr, Stroke::new(1.0, Color32::from_white_alpha(12)));
     ui.add_space(7.0);
 }

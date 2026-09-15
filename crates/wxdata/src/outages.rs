@@ -215,7 +215,10 @@ mod tests {
         );
         let f = parse(&json).unwrap();
         assert_eq!(f.len(), 3);
-        let order: Vec<&str> = f.iter().map(|x| x.title.split(':').next().unwrap()).collect();
+        let order: Vec<&str> = f
+            .iter()
+            .map(|x| x.title.split(':').next().unwrap())
+            .collect();
         assert_eq!(
             order,
             ["Lorain, OH", "Wyandot, OH", "Ashtabula, OH"],
@@ -289,4 +292,3 @@ mod tests {
         }
     }
 }
-

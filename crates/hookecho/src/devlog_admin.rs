@@ -301,7 +301,11 @@ fn logs_json(store: &Mutex<Store>, query: &str) -> (&'static str, &'static str, 
         .iter()
         .filter(|s| s.id > since_id)
         .filter(|s| min_level.is_none_or(|min| level_rank(&s.level).is_some_and(|r| r <= min)))
-        .filter(|s| target_prefix.as_deref().is_none_or(|t| s.target.starts_with(t)))
+        .filter(|s| {
+            target_prefix
+                .as_deref()
+                .is_none_or(|t| s.target.starts_with(t))
+        })
         .filter(|s| source.as_deref().is_none_or(|src| s.source == src))
         .filter(|s| instance.as_deref().is_none_or(|inst| s.instance == inst))
         .filter(|s| {
@@ -683,7 +687,10 @@ mod tests {
             ],
         ));
         let items = logs(&store, "level=WARN");
-        let messages: Vec<_> = items.iter().map(|v| v["message"].as_str().unwrap()).collect();
+        let messages: Vec<_> = items
+            .iter()
+            .map(|v| v["message"].as_str().unwrap())
+            .collect();
         assert_eq!(messages, ["boom", "hmm"]); // DEBUG is less severe than WARN, excluded
     }
 
@@ -724,13 +731,20 @@ mod tests {
         let store = Mutex::new(Store::default());
         {
             let mut s = store.lock().unwrap();
-            s.ingest(batch("native-1", "native", vec![entry("INFO", "a", "from native")]));
+            s.ingest(batch(
+                "native-1",
+                "native",
+                vec![entry("INFO", "a", "from native")],
+            ));
             s.ingest(batch("web-1", "web", vec![entry("INFO", "a", "from web")]));
         }
         assert_eq!(logs(&store, "source=web").len(), 1);
         assert_eq!(logs(&store, "source=web")[0]["message"], "from web");
         assert_eq!(logs(&store, "instance=native-1").len(), 1);
-        assert_eq!(logs(&store, "instance=native-1")[0]["message"], "from native");
+        assert_eq!(
+            logs(&store, "instance=native-1")[0]["message"],
+            "from native"
+        );
     }
 
     #[test]
@@ -748,7 +762,10 @@ mod tests {
             .unwrap()
             .ingest(batch("inst-a", "native", vec![entry("INFO", "a", "three")]));
         let items = logs(&store, &format!("since_id={first_id}"));
-        let messages: Vec<_> = items.iter().map(|v| v["message"].as_str().unwrap()).collect();
+        let messages: Vec<_> = items
+            .iter()
+            .map(|v| v["message"].as_str().unwrap())
+            .collect();
         assert_eq!(messages, ["two", "three"]);
     }
 
@@ -758,7 +775,11 @@ mod tests {
         {
             let mut s = store.lock().unwrap();
             s.ingest(batch("inst-a", "native", vec![entry("INFO", "a", "one")]));
-            s.ingest(batch("inst-a", "native", vec![entry("INFO", "a", "two"), entry("INFO", "a", "three")]));
+            s.ingest(batch(
+                "inst-a",
+                "native",
+                vec![entry("INFO", "a", "two"), entry("INFO", "a", "three")],
+            ));
         }
         let (status, _, body) = meta_json(&store);
         assert_eq!(status, "200 OK");
@@ -777,12 +798,19 @@ mod tests {
         // Ingest one over the cap; cheap to do one at a time since MAX_ENTRIES is a constant, not
         // a config the test has to plumb through.
         for i in 0..(MAX_ENTRIES + 1) {
-            store.ingest(batch("inst-a", "native", vec![entry("INFO", "a", &i.to_string())]));
+            store.ingest(batch(
+                "inst-a",
+                "native",
+                vec![entry("INFO", "a", &i.to_string())],
+            ));
         }
         assert_eq!(store.entries.len(), MAX_ENTRIES);
         // The very first entry (id 0, message "0") should have been evicted; the newest survives.
         assert_eq!(store.entries.front().unwrap().message, "1");
-        assert_eq!(store.entries.back().unwrap().message, MAX_ENTRIES.to_string());
+        assert_eq!(
+            store.entries.back().unwrap().message,
+            MAX_ENTRIES.to_string()
+        );
     }
 
     /// The web build ships its logs from a different origin than this admin panel almost by

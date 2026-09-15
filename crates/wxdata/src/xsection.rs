@@ -86,8 +86,7 @@ impl CrossSection {
 
 /// 4/3-earth beam height (km) at slant range `slant_km` and elevation `elev_deg`.
 pub fn beam_height_km(slant_km: f64, elev_deg: f64) -> f64 {
-    crate::beam_geometry::beam_point(slant_km * 1_000.0, elev_deg, 0.0)
-        .height_above_radar_m
+    crate::beam_geometry::beam_point(slant_km * 1_000.0, elev_deg, 0.0).height_above_radar_m
         / 1_000.0
 }
 
@@ -118,8 +117,7 @@ pub fn slant_from_ground_km(ground_km: f64, elev_deg: f64) -> f64 {
 /// Ground range (km) under the beam at slant range `slant_km` — the inverse of
 /// [`slant_from_ground_km`], used to check it.
 pub fn ground_from_slant_km(slant_km: f64, elev_deg: f64) -> f64 {
-    crate::beam_geometry::beam_point(slant_km * 1_000.0, elev_deg, 0.0).ground_range_m
-        / 1_000.0
+    crate::beam_geometry::beam_point(slant_km * 1_000.0, elev_deg, 0.0).ground_range_m / 1_000.0
 }
 
 /// Great-circle distance (km) and initial bearing (deg from north) from `(lon0,lat0)` to `(lon,lat)`.
@@ -310,7 +308,15 @@ mod tests {
         ];
         let (blon, blat) =
             crate::beam_geometry::destination_lonlat(rlon as f64, rlat as f64, 90.0, 100_000.0);
-        let xs = build(&sweeps, (rlon as f64, rlat as f64), (blon, blat), 10, 10, 15.0).unwrap();
+        let xs = build(
+            &sweeps,
+            (rlon as f64, rlat as f64),
+            (blon, blat),
+            10,
+            10,
+            15.0,
+        )
+        .unwrap();
         let elevs: Vec<f32> = xs.beam_lines.iter().map(|l| l.elevation_deg).collect();
         assert_eq!(elevs, vec![0.5, 4.0]);
     }
@@ -323,7 +329,15 @@ mod tests {
         let sweeps = vec![fixture_sweep(0.5, rlon, rlat)];
         let (blon, blat) =
             crate::beam_geometry::destination_lonlat(rlon as f64, rlat as f64, 90.0, 100_000.0);
-        let xs = build(&sweeps, (rlon as f64, rlat as f64), (blon, blat), 5, 5, 15.0).unwrap();
+        let xs = build(
+            &sweeps,
+            (rlon as f64, rlat as f64),
+            (blon, blat),
+            5,
+            5,
+            15.0,
+        )
+        .unwrap();
         let line = &xs.beam_lines[0];
         // Column 0 sits at the radar itself: zero ground range, zero beam height (up to the
         // floating-point noise `dist_bearing`'s acos(~1.0) leaves at zero distance).
@@ -400,7 +414,10 @@ mod tests {
         // 0.2 km below the lowest beam: close enough to hold over, but no beam is actually there.
         let (value, covered) = sample_profile(&s, 0.8);
         assert_eq!(value, Some(20.0));
-        assert!(!covered, "held over from the nearest beam, not real coverage");
+        assert!(
+            !covered,
+            "held over from the nearest beam, not real coverage"
+        );
     }
 
     /// The slant/ground conversion has to round-trip, or the cross-section is sampling the wrong

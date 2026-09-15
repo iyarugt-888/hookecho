@@ -718,7 +718,10 @@ End:
         assert_eq!(pf.items.len(), 1);
         match &pf.items[0].kind {
             PlaceKind::Image { url, verts } => {
-                assert_eq!(url, "http://adds.aviationweather.gov/data/satellite/latest_DTW_vis.jpg");
+                assert_eq!(
+                    url,
+                    "http://adds.aviationweather.gov/data/satellite/latest_DTW_vis.jpg"
+                );
                 assert_eq!(verts.len(), 3);
                 // Stored as [lon, lat]
                 assert_eq!(verts[0].0, [-86.91, 45.45]);

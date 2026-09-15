@@ -141,7 +141,12 @@ fn plane_slab_uniform(plane: Option<VerticalPlane>, box_min: Vec3, box_max: Vec3
 /// `cappi_km` is `None`, `top_km` isn't positive, or the altitude falls outside the box — pinning
 /// an out-of-range altitude to the nearest edge would show a plane at the wrong height, which is
 /// worse than not showing one.
-fn cappi_marker_uniform(cappi_km: Option<f32>, top_km: f32, box_min: Vec3, box_max: Vec3) -> [f32; 4] {
+fn cappi_marker_uniform(
+    cappi_km: Option<f32>,
+    top_km: f32,
+    box_min: Vec3,
+    box_max: Vec3,
+) -> [f32; 4] {
     let Some(km) = cappi_km else {
         return [0.0, 0.0, 0.0, 0.0];
     };
@@ -170,8 +175,16 @@ fn cappi_marker_uniform(cappi_km: Option<f32>, top_km: f32, box_min: Vec3, box_m
 /// Mirrors [`plane_uniform`]'s geometry: the plane's own line runs perpendicular to its normal
 /// (`bearing_deg`), offset from the site by `offset * half_km` along the normal. `half_km * sqrt(2)`
 /// on each side of that foot point covers the box's diagonal regardless of where the offset put it.
-pub fn plane_ground_track(plane: VerticalPlane, radar: [f64; 2], half_km: f32) -> ([f64; 2], [f64; 2]) {
-    let foot = crate::geo::destination_point(radar, plane.bearing_deg as f64, (plane.offset * half_km) as f64);
+pub fn plane_ground_track(
+    plane: VerticalPlane,
+    radar: [f64; 2],
+    half_km: f32,
+) -> ([f64; 2], [f64; 2]) {
+    let foot = crate::geo::destination_point(
+        radar,
+        plane.bearing_deg as f64,
+        (plane.offset * half_km) as f64,
+    );
     let half_len = half_km as f64 * std::f64::consts::SQRT_2;
     let a = crate::geo::destination_point(foot, plane.bearing_deg as f64 + 90.0, half_len);
     let b = crate::geo::destination_point(foot, plane.bearing_deg as f64 - 90.0, half_len);
@@ -253,11 +266,19 @@ pub fn map_uniform(
     );
     let eye = camera.eye_position(viewport);
     Uniforms {
-        inv_view_proj: camera.view_projection(viewport).inverse().to_cols_array_2d(),
+        inv_view_proj: camera
+            .view_projection(viewport)
+            .inverse()
+            .to_cols_array_2d(),
         cam_pos: [eye.x, eye.y, eye.z, 1.0],
         box_min: [box_min.x, box_min.y, box_min.z, 0.0],
         box_max: [box_max.x, box_max.y, box_max.z, 0.0],
-        dims: [upload.n as f32, upload.n as f32, upload.nz as f32, steps as f32],
+        dims: [
+            upload.n as f32,
+            upload.n as f32,
+            upload.nz as f32,
+            steps as f32,
+        ],
         ctl: [view.threshold_idx, opacity.clamp(0.0, 1.0), 0.0, 0.0],
         clip_min: [view.clip[0], view.clip[2], view.clip[4], 0.0],
         clip_max: [view.clip[1], view.clip[3], view.clip[5], 0.0],
@@ -415,7 +436,8 @@ fn pick_along_ray(
     // `f(t)` for one candidate tilt: positive above its beam surface, negative below.
     let f = |t: f32, elevation_deg: f32| -> f64 {
         let (ground_km, altitude_m, ..) = at(t);
-        altitude_m - antenna_altitude_m
+        altitude_m
+            - antenna_altitude_m
             - tilt_altitude_m(ground_km, elevation_deg, vertical_exaggeration)
     };
 
@@ -424,8 +446,7 @@ fn pick_along_ray(
         let mut prev_t = 0.0f32;
         let mut prev_f = f(prev_t, elevation_deg);
         for step in 1..=PICK_SAMPLES {
-            let t =
-                PICK_T_MAX * (step as f32 / PICK_SAMPLES as f32).powf(PICK_SAMPLE_POWER);
+            let t = PICK_T_MAX * (step as f32 / PICK_SAMPLES as f32).powf(PICK_SAMPLE_POWER);
             let cur_f = f(t, elevation_deg);
             if prev_f.is_finite() && cur_f.is_finite() && prev_f.signum() != cur_f.signum() {
                 let (mut lo, mut hi, mut flo) = (prev_t, t, prev_f);
@@ -962,7 +983,9 @@ impl MapVolume3dResources {
         );
         let tex_view = tex.create_view(&wgpu::TextureViewDescriptor::default());
         let lut_view = lut.create_view(&wgpu::TextureViewDescriptor::default());
-        let uniform_buf = self.uniform_bufs[pane].as_ref().expect("just created above");
+        let uniform_buf = self.uniform_bufs[pane]
+            .as_ref()
+            .expect("just created above");
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("map_raymarch_bg"),
             layout: &self.bgl,
@@ -1096,10 +1119,22 @@ mod cc_anomaly_tests {
         let a = CcAnomaly::default();
         let at = |cc| alpha_at(cc, a, false);
         assert!(at(0.99) <= 0.06, "background should be nearly transparent");
-        assert!((0.03..0.15).contains(&at(0.96)), "0.95-0.97 should be faint");
-        assert!((0.15..0.45).contains(&at(0.92)), "0.90-0.95 should be visible");
-        assert!((0.55..0.95).contains(&at(0.85)), "0.80-0.90 should be strong");
-        assert!(at(0.70) >= 0.99, "below the solid edge should be full strength");
+        assert!(
+            (0.03..0.15).contains(&at(0.96)),
+            "0.95-0.97 should be faint"
+        );
+        assert!(
+            (0.15..0.45).contains(&at(0.92)),
+            "0.90-0.95 should be visible"
+        );
+        assert!(
+            (0.55..0.95).contains(&at(0.85)),
+            "0.80-0.90 should be strong"
+        );
+        assert!(
+            at(0.70) >= 0.99,
+            "below the solid edge should be full strength"
+        );
     }
 
     /// The debris volume is raymarched with its indices flipped, so its ramp has to run the other
@@ -1133,7 +1168,10 @@ mod cc_anomaly_tests {
             ..CcAnomaly::default()
         };
         let [clear, full, ..] = cc_anomaly_uniform(a, CC, false);
-        assert!((clear - full).abs() > f32::EPSILON, "span collapsed to zero");
+        assert!(
+            (clear - full).abs() > f32::EPSILON,
+            "span collapsed to zero"
+        );
         assert!(alpha_at(0.95, a, false).is_finite());
         assert!(alpha_at(0.85, a, false) > alpha_at(0.95, a, false));
     }
@@ -1178,7 +1216,11 @@ mod plane_tests {
 
     #[test]
     fn north_bearing_is_a_unit_normal_pointing_north() {
-        let p = VerticalPlane { bearing_deg: 0.0, offset: 0.0, thickness: None };
+        let p = VerticalPlane {
+            bearing_deg: 0.0,
+            offset: 0.0,
+            thickness: None,
+        };
         let [nx, ny, _, on] = plane_uniform(Some(p), BOX_MIN, BOX_MAX);
         assert_eq!(on, 1.0);
         assert!(nx.abs() < 1e-5, "north has no east component: {nx}");
@@ -1187,7 +1229,11 @@ mod plane_tests {
 
     #[test]
     fn east_bearing_is_a_unit_normal_pointing_east() {
-        let p = VerticalPlane { bearing_deg: 90.0, offset: 0.0, thickness: None };
+        let p = VerticalPlane {
+            bearing_deg: 90.0,
+            offset: 0.0,
+            thickness: None,
+        };
         let [nx, ny, _, _] = plane_uniform(Some(p), BOX_MIN, BOX_MAX);
         assert!((nx - 1.0).abs() < 1e-5, "east is +x: {nx}");
         assert!(ny.abs() < 1e-5, "east has no north component: {ny}");
@@ -1196,16 +1242,27 @@ mod plane_tests {
     #[test]
     fn zero_offset_passes_through_the_box_center() {
         // Center is (0,0) here, so the plane's distance along any normal is 0.
-        let p = VerticalPlane { bearing_deg: 37.0, offset: 0.0, thickness: None };
+        let p = VerticalPlane {
+            bearing_deg: 37.0,
+            offset: 0.0,
+            thickness: None,
+        };
         let [.., d, _] = plane_uniform(Some(p), BOX_MIN, BOX_MAX);
-        assert!(d.abs() < 1e-5, "plane through a centered box's own center: {d}");
+        assert!(
+            d.abs() < 1e-5,
+            "plane through a centered box's own center: {d}"
+        );
     }
 
     #[test]
     fn offset_scales_with_the_box_half_width_not_a_fixed_distance() {
         // This box's half-width is 1.0 (spans -1..1); offset 0.5 should land the plane at
         // world distance 0.5 along its normal from the box center.
-        let p = VerticalPlane { bearing_deg: 0.0, offset: 0.5, thickness: None };
+        let p = VerticalPlane {
+            bearing_deg: 0.0,
+            offset: 0.5,
+            thickness: None,
+        };
         let [_, ny, d, _] = plane_uniform(Some(p), BOX_MIN, BOX_MAX);
         assert!((ny - 1.0).abs() < 1e-5);
         assert!((d - 0.5).abs() < 1e-5, "d: {d}");
@@ -1224,7 +1281,11 @@ mod plane_tests {
         // is, sitting wherever the radar is on screen rather than at a fixed origin.
         let shifted_min = BOX_MIN + Vec3::new(5.0, 3.0, 0.0);
         let shifted_max = BOX_MAX + Vec3::new(5.0, 3.0, 0.0);
-        let p = VerticalPlane { bearing_deg: 0.0, offset: 0.0, thickness: None };
+        let p = VerticalPlane {
+            bearing_deg: 0.0,
+            offset: 0.0,
+            thickness: None,
+        };
         let [_, ny, d, _] = plane_uniform(Some(p), shifted_min, shifted_max);
         assert!((ny - 1.0).abs() < 1e-5);
         // The plane through the (shifted) center: d = normal . center = 1*3 = 3.
@@ -1233,8 +1294,15 @@ mod plane_tests {
 
     #[test]
     fn no_thickness_means_no_slab() {
-        let p = VerticalPlane { bearing_deg: 0.0, offset: 0.0, thickness: None };
-        assert_eq!(super::plane_slab_uniform(Some(p), BOX_MIN, BOX_MAX), [0.0; 4]);
+        let p = VerticalPlane {
+            bearing_deg: 0.0,
+            offset: 0.0,
+            thickness: None,
+        };
+        assert_eq!(
+            super::plane_slab_uniform(Some(p), BOX_MIN, BOX_MAX),
+            [0.0; 4]
+        );
         // A disabled plane has no slab either, same as it has no normal.
         assert_eq!(super::plane_slab_uniform(None, BOX_MIN, BOX_MAX), [0.0; 4]);
     }
@@ -1244,9 +1312,16 @@ mod plane_tests {
         // Same box/fraction relationship `offset_scales_with_the_box_half_width_not_a_fixed_
         // distance` proves for `d` — `thickness` uses the same `half_extent` helper, so it should
         // agree exactly on a box with half-width 1.0.
-        let p = VerticalPlane { bearing_deg: 0.0, offset: 0.0, thickness: Some(0.25) };
+        let p = VerticalPlane {
+            bearing_deg: 0.0,
+            offset: 0.0,
+            thickness: Some(0.25),
+        };
         let [half_thickness, ..] = super::plane_slab_uniform(Some(p), BOX_MIN, BOX_MAX);
-        assert!((half_thickness - 0.25).abs() < 1e-5, "half_thickness: {half_thickness}");
+        assert!(
+            (half_thickness - 0.25).abs() < 1e-5,
+            "half_thickness: {half_thickness}"
+        );
 
         let wide_min = Vec3::new(-2.0, -2.0, 0.0);
         let wide_max = Vec3::new(2.0, 2.0, 1.0);
@@ -1268,10 +1343,7 @@ mod cappi_marker_tests {
 
     #[test]
     fn disabled_marker_is_inert() {
-        assert_eq!(
-            cappi_marker_uniform(None, 18.0, BOX_MIN, BOX_MAX),
-            [0.0; 4]
-        );
+        assert_eq!(cappi_marker_uniform(None, 18.0, BOX_MIN, BOX_MAX), [0.0; 4]);
     }
 
     #[test]
@@ -1311,7 +1383,10 @@ mod cappi_marker_tests {
 
     #[test]
     fn a_non_positive_top_km_is_inert() {
-        assert_eq!(cappi_marker_uniform(Some(3.0), 0.0, BOX_MIN, BOX_MAX), [0.0; 4]);
+        assert_eq!(
+            cappi_marker_uniform(Some(3.0), 0.0, BOX_MIN, BOX_MAX),
+            [0.0; 4]
+        );
     }
 
     #[test]
@@ -1338,7 +1413,11 @@ mod ground_track_tests {
     fn zero_offset_runs_through_the_radar_site() {
         // Same fact `zero_offset_passes_through_the_box_center` proves for the shader uniform:
         // an unoffset plane passes through the box center, which on the main map *is* the site.
-        let p = VerticalPlane { bearing_deg: 37.0, offset: 0.0, thickness: None };
+        let p = VerticalPlane {
+            bearing_deg: 37.0,
+            offset: 0.0,
+            thickness: None,
+        };
         let (a, b) = plane_ground_track(p, RADAR, 150.0);
         // The site sits on the segment `a..b`, i.e. equidistant-ish from both ends and each end
         // is `half_km * sqrt(2)` from the site — check the endpoint distances directly rather
@@ -1354,7 +1433,11 @@ mod ground_track_tests {
     fn the_line_runs_perpendicular_to_the_planes_bearing() {
         // A north-pointing plane (bearing 0) cuts an east-west line: both endpoints should bear
         // due east/west (90/270) from the offset foot point, not north/south.
-        let p = VerticalPlane { bearing_deg: 0.0, offset: 0.0, thickness: None };
+        let p = VerticalPlane {
+            bearing_deg: 0.0,
+            offset: 0.0,
+            thickness: None,
+        };
         let (a, b) = plane_ground_track(p, RADAR, 150.0);
         let (_, brg_a) = great_circle(RADAR, a);
         let (_, brg_b) = great_circle(RADAR, b);
@@ -1367,7 +1450,11 @@ mod ground_track_tests {
         // A north-pointing plane offset 0.5 (half the box) should have its line's foot point
         // 75 km (half of 150) due north of the site — same distance/bearing math `offset_scales_
         // with_the_box_half_width_not_a_fixed_distance` proves for the shader's own `d`.
-        let p = VerticalPlane { bearing_deg: 0.0, offset: 0.5, thickness: None };
+        let p = VerticalPlane {
+            bearing_deg: 0.0,
+            offset: 0.5,
+            thickness: None,
+        };
         let (a, b) = plane_ground_track(p, RADAR, 150.0);
         let midpoint_bearing_from_radar = {
             let (km_a, brg_a) = great_circle(RADAR, a);
@@ -1379,19 +1466,35 @@ mod ground_track_tests {
         };
         // Endpoints bear roughly NE/NW from the site now, not due E/W, since the line itself
         // moved north of the radar.
-        assert!(midpoint_bearing_from_radar.0 < 90.0, "brg_a: {:?}", midpoint_bearing_from_radar);
-        assert!(midpoint_bearing_from_radar.1 > 270.0, "brg_b: {:?}", midpoint_bearing_from_radar);
+        assert!(
+            midpoint_bearing_from_radar.0 < 90.0,
+            "brg_a: {:?}",
+            midpoint_bearing_from_radar
+        );
+        assert!(
+            midpoint_bearing_from_radar.1 > 270.0,
+            "brg_b: {:?}",
+            midpoint_bearing_from_radar
+        );
     }
 
     #[test]
     fn negative_offset_moves_the_line_the_opposite_way() {
         let north = plane_ground_track(
-            VerticalPlane { bearing_deg: 0.0, offset: 0.5, thickness: None },
+            VerticalPlane {
+                bearing_deg: 0.0,
+                offset: 0.5,
+                thickness: None,
+            },
             RADAR,
             150.0,
         );
         let south = plane_ground_track(
-            VerticalPlane { bearing_deg: 0.0, offset: -0.5, thickness: None },
+            VerticalPlane {
+                bearing_deg: 0.0,
+                offset: -0.5,
+                thickness: None,
+            },
             RADAR,
             150.0,
         );
@@ -1400,7 +1503,10 @@ mod ground_track_tests {
         let (_, brg_north_a) = great_circle(RADAR, north.0);
         let (_, brg_south_a) = great_circle(RADAR, south.0);
         assert!(brg_north_a < 90.0, "north.0 bearing: {brg_north_a}");
-        assert!(brg_south_a > 90.0 && brg_south_a < 180.0, "south.0 bearing: {brg_south_a}");
+        assert!(
+            brg_south_a > 90.0 && brg_south_a < 180.0,
+            "south.0 bearing: {brg_south_a}"
+        );
     }
 }
 
@@ -1532,8 +1638,8 @@ mod pick_tests {
         let camera_center = (0.5, 0.5); // arbitrary; only the offset from it matters here
 
         for ground_km in [3.0, 10.0, 60.0] {
-            let shallow_altitude_m =
-                antenna_altitude_m + tilt_altitude_m(ground_km, elevations[0], vertical_exaggeration);
+            let shallow_altitude_m = antenna_altitude_m
+                + tilt_altitude_m(ground_km, elevations[0], vertical_exaggeration);
             let [lon, lat] = crate::geo::destination_point([radar_lon, radar_lat], 0.0, ground_km);
             let world = crate::render::mercator::lonlat_to_world(lon, lat);
             let mut dx = world.0 - camera_center.0;

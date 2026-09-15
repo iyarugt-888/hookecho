@@ -288,9 +288,8 @@ fn high_contrast_feature_colors(
         // meant to be equally visible: a watch box is stored at alpha 18 precisely so it reads as
         // a backdrop to the warnings drawn inside it. A floor of 90 erased that ordering and put
         // the watch at the same weight as the tornado warning on top of it.
-        let scale = |a: u8, target: u8, from: u8| {
-            (a as u16 * target as u16 / from as u16).min(255) as u8
-        };
+        let scale =
+            |a: u8, target: u8, from: u8| (a as u16 * target as u16 / from as u16).min(255) as u8;
         let boosted_fill = [fill[0], fill[1], fill[2], scale(fill[3], fill_a, 45)];
         // Outlines are the one thing high contrast does raise outright — an edge is either legible
         // or it is not, and every feature here already stores its stroke near-opaque.
@@ -312,10 +311,24 @@ mod high_contrast_tests {
         // contrast has to make both more visible and still leave the watch behind the warning —
         // raising every fill to a floor made them the same weight, which is the one thing a
         // backdrop must never do.
-        let watch = high_contrast_feature_colors([230, 200, 30, 18], [230, 200, 30, 235], Theme::HighContrast);
-        let warning = high_contrast_feature_colors([230, 40, 40, 45], [230, 40, 40, 235], Theme::HighContrast);
-        assert_eq!(warning.0[3], 90, "the warning fill hits its high-contrast target");
-        assert_eq!(watch.0[3], 36, "the watch fill is scaled by the same factor, not floored");
+        let watch = high_contrast_feature_colors(
+            [230, 200, 30, 18],
+            [230, 200, 30, 235],
+            Theme::HighContrast,
+        );
+        let warning = high_contrast_feature_colors(
+            [230, 40, 40, 45],
+            [230, 40, 40, 235],
+            Theme::HighContrast,
+        );
+        assert_eq!(
+            warning.0[3], 90,
+            "the warning fill hits its high-contrast target"
+        );
+        assert_eq!(
+            watch.0[3], 36,
+            "the watch fill is scaled by the same factor, not floored"
+        );
         assert!(watch.0[3] < warning.0[3]);
         // Outlines are raised outright, and the RGB is never touched.
         assert_eq!(watch.1[3], 255);

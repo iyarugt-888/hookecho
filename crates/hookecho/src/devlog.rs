@@ -195,7 +195,9 @@ mod native {
                 // relationship to the render loop or the feed fetchers, and starting it before
                 // `HookEchoApp` exists (the `--serve` path never builds one at all) would
                 // otherwise be a chicken-and-egg problem.
-                let Ok(rt) = tokio::runtime::Builder::new_current_thread().enable_all().build()
+                let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
                 else {
                     return;
                 };

@@ -559,7 +559,11 @@ mod tests {
                 f.field.values.len(),
                 100.0 * finite as f64 / f.field.values.len() as f64,
             );
-            assert!(finite > f.field.values.len() / 2, "{}: too many gaps", field.label());
+            assert!(
+                finite > f.field.values.len() / 2,
+                "{}: too many gaps",
+                field.label()
+            );
         }
     }
 
@@ -578,19 +582,22 @@ mod tests {
             GlobalModel::Gefs,
             GlobalModel::Gdps,
         ] {
-            let series = match fetch_point_series(&http, model, GlobalField::Temp2m, -97.5, 35.5, &hours).await {
-                Ok(s) => s,
-                // GDPS reads Datamart's rolling "today" window, which has no "yesterday" to fall
-                // back to (see `GDPS_BASE`'s doc comment) — a walk-back that crosses a UTC
-                // midnight can come up empty for a cycle that really did post. That is a real,
-                // disclosed limitation of the source, not this function; don't fail the other
-                // three models' coverage over it.
-                Err(e) if model == GlobalModel::Gdps => {
-                    eprintln!("GDPS: {e} (known Datamart today-only limitation, skipping)");
-                    continue;
-                }
-                Err(e) => panic!("{}: {e}", model.label()),
-            };
+            let series =
+                match fetch_point_series(&http, model, GlobalField::Temp2m, -97.5, 35.5, &hours)
+                    .await
+                {
+                    Ok(s) => s,
+                    // GDPS reads Datamart's rolling "today" window, which has no "yesterday" to fall
+                    // back to (see `GDPS_BASE`'s doc comment) — a walk-back that crosses a UTC
+                    // midnight can come up empty for a cycle that really did post. That is a real,
+                    // disclosed limitation of the source, not this function; don't fail the other
+                    // three models' coverage over it.
+                    Err(e) if model == GlobalModel::Gdps => {
+                        eprintln!("GDPS: {e} (known Datamart today-only limitation, skipping)");
+                        continue;
+                    }
+                    Err(e) => panic!("{}: {e}", model.label()),
+                };
             assert_eq!(series.len(), hours.len());
             let finite = series.iter().filter(|(_, v)| v.is_some()).count();
             println!(
@@ -603,14 +610,23 @@ mod tests {
             assert!(finite > 0, "{}: every hour came back empty", model.label());
             for (_, v) in &series {
                 if let Some(k) = v {
-                    assert!((250.0..330.0).contains(k), "{}: implausible temp {k} K", model.label());
+                    assert!(
+                        (250.0..330.0).contains(k),
+                        "{}: implausible temp {k} K",
+                        model.label()
+                    );
                 }
             }
             // Every valid time is exactly `fh` hours after the first — same cycle throughout.
             let first_valid = series[0].0;
             for (i, &fh) in hours.iter().enumerate() {
                 let expected = first_valid + chrono::Duration::hours(fh as i64);
-                assert_eq!(series[i].0, expected, "{}: hour {fh} drifted cycle", model.label());
+                assert_eq!(
+                    series[i].0,
+                    expected,
+                    "{}: hour {fh} drifted cycle",
+                    model.label()
+                );
             }
         }
     }

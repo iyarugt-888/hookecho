@@ -1440,7 +1440,10 @@ mod activity_tests {
     fn the_first_frame_is_not_a_resume_but_a_later_gap_is() {
         // Two frames back to back: no gap between them, so nothing to catch up on.
         activity::mark_frame(true);
-        assert!(!activity::mark_frame(true), "consecutive frames are not a resume");
+        assert!(
+            !activity::mark_frame(true),
+            "consecutive frames are not a resume"
+        );
     }
 }
 

@@ -75,15 +75,11 @@ fn body(
             for c in &popup.candidates {
                 let is_current = current_site == Some(c.site.id);
                 let label = format!("{} \u{2014} {}, {}", c.site.id, c.site.city, c.site.state);
-                ui.label(
-                    egui::RichText::new(label)
-                        .strong()
-                        .color(if is_current {
-                            egui::Color32::from_rgb(120, 200, 255)
-                        } else {
-                            ui.visuals().text_color()
-                        }),
-                );
+                ui.label(egui::RichText::new(label).strong().color(if is_current {
+                    egui::Color32::from_rgb(120, 200, 255)
+                } else {
+                    ui.visuals().text_color()
+                }));
                 ui.label(format!("{:.0} km", c.distance_km));
                 ui.label(format!("{:.0} m", c.beam_height_m));
                 ui.label(format!("{:.1} km", c.beam_width_km));

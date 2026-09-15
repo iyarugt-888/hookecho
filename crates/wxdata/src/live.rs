@@ -323,13 +323,14 @@ async fn emit<F: FnMut(Update)>(
     // window to the same Web Worker the archive decode uses, and assemble inline only if there
     // is no worker to send it to.
     #[cfg(target_arch = "wasm32")]
-    let assembled = match crate::wasm_worker::assemble_chunks(frame(chunks.iter().map(|c| c.data()))).await {
-        Ok(wire) => crate::level2::scan_from_wire(&wire),
-        Err(crate::wasm_worker::Error::Unavailable) => {
-            assemble_volume(chunks.iter().cloned()).map_err(|e| anyhow::anyhow!("{e}"))
-        }
-        Err(e) => Err(anyhow::anyhow!("{e}")),
-    };
+    let assembled =
+        match crate::wasm_worker::assemble_chunks(frame(chunks.iter().map(|c| c.data()))).await {
+            Ok(wire) => crate::level2::scan_from_wire(&wire),
+            Err(crate::wasm_worker::Error::Unavailable) => {
+                assemble_volume(chunks.iter().cloned()).map_err(|e| anyhow::anyhow!("{e}"))
+            }
+            Err(e) => Err(anyhow::anyhow!("{e}")),
+        };
     let partial = match assembled {
         Ok(s) => s,
         Err(e) => {
@@ -607,7 +608,10 @@ mod tests {
     #[test]
     fn radials_far_older_than_the_newest_are_dropped_rather_than_kept_forever() {
         let base = Scan::new(vcp(212), vec![wedge(1, 0..720, 1_000)]);
-        let partial = Scan::new(vcp(212), vec![wedge(1, 0..120, 1_000 + super::RETAIN_MS + 1)]);
+        let partial = Scan::new(
+            vcp(212),
+            vec![wedge(1, 0..120, 1_000 + super::RETAIN_MS + 1)],
+        );
         let (merged, _) = merge_scan(&base, partial);
         assert_eq!(
             merged.sweeps()[0].radials().len(),
@@ -653,6 +657,8 @@ mod retry_tests {
         }
         assert!(split_framed(&framed[..framed.len() - 1]).is_err());
         assert!(split_framed(&framed[..2]).is_err());
-        assert!(split_framed(&[]).expect("empty framing is an empty window").is_empty());
+        assert!(split_framed(&[])
+            .expect("empty framing is an empty window")
+            .is_empty());
     }
 }

@@ -448,7 +448,11 @@ fn sample(f: &MrmsField, lon: f64, lat: f64) -> Option<f32> {
     let (tx, ty) = ((x - x0 as f64) as f32, (y - y0 as f64) as f32);
     let at = |r: usize, c: usize| {
         let v = f.values[r * f.nx + c];
-        if v.is_finite() { Some(v) } else { None }
+        if v.is_finite() {
+            Some(v)
+        } else {
+            None
+        }
     };
     // One missing corner poisons the cell rather than being treated as zero — a hole in a model
     // field is not a value of zero, and a difference against zero is a fabricated gradient.
@@ -628,8 +632,8 @@ mod tests {
 
     #[test]
     fn every_field_maps_to_its_own_single_model_layer() {
-        use crate::render::FieldLayer as FL;
         use crate::render::field_ramps::ramp_for;
+        use crate::render::FieldLayer as FL;
         let expected = [
             (DiffField::Global(GlobalFieldKind::Mslp), FL::GlobalMslp),
             (

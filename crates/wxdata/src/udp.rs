@@ -227,7 +227,11 @@ impl std::error::Error for ParseError {}
 /// Parse a formula. Case-insensitive identifiers; whitespace anywhere between tokens.
 pub fn parse(src: &str) -> Result<Expr, ParseError> {
     let tokens = tokenize(src)?;
-    let mut p = Parser { tokens: &tokens, pos: 0, depth: 0 };
+    let mut p = Parser {
+        tokens: &tokens,
+        pos: 0,
+        depth: 0,
+    };
     let node = p.ternary()?;
     if p.pos != p.tokens.len() {
         return Err(p.error("unexpected trailing input"));
@@ -427,7 +431,10 @@ fn tokenize(src: &str) -> Result<Vec<(Token, usize)>, ParseError> {
                     out.push((Token::AndAnd, start));
                     i += 2;
                 } else {
-                    return Err(ParseError { message: "'&' must be '&&'".into(), position: start });
+                    return Err(ParseError {
+                        message: "'&' must be '&&'".into(),
+                        position: start,
+                    });
                 }
             }
             '|' => {
@@ -435,7 +442,10 @@ fn tokenize(src: &str) -> Result<Vec<(Token, usize)>, ParseError> {
                     out.push((Token::OrOr, start));
                     i += 2;
                 } else {
-                    return Err(ParseError { message: "'|' must be '||'".into(), position: start });
+                    return Err(ParseError {
+                        message: "'|' must be '||'".into(),
+                        position: start,
+                    });
                 }
             }
             other => {
@@ -470,14 +480,16 @@ impl Parser<'_> {
     }
 
     fn pos_at(&self, idx: usize) -> usize {
-        self.tokens.get(idx).map_or_else(
-            || self.tokens.last().map_or(0, |(_, p)| p + 1),
-            |(_, p)| *p,
-        )
+        self.tokens
+            .get(idx)
+            .map_or_else(|| self.tokens.last().map_or(0, |(_, p)| p + 1), |(_, p)| *p)
     }
 
     fn error(&self, message: &str) -> ParseError {
-        ParseError { message: message.to_string(), position: self.pos_at(self.pos) }
+        ParseError {
+            message: message.to_string(),
+            position: self.pos_at(self.pos),
+        }
     }
 
     fn advance(&mut self) -> Option<&Token> {
@@ -791,11 +803,23 @@ mod tests {
     #[test]
     fn wrong_arity_is_a_parse_error() {
         let err = parse("max(REF)").unwrap_err();
-        assert!(err.message.contains("2 arguments"), "message: {}", err.message);
+        assert!(
+            err.message.contains("2 arguments"),
+            "message: {}",
+            err.message
+        );
         let err = parse("clamp(REF, 0)").unwrap_err();
-        assert!(err.message.contains("3 arguments"), "message: {}", err.message);
+        assert!(
+            err.message.contains("3 arguments"),
+            "message: {}",
+            err.message
+        );
         let err = parse("mean(REF)").unwrap_err();
-        assert!(err.message.contains("2 to 8 arguments"), "message: {}", err.message);
+        assert!(
+            err.message.contains("2 to 8 arguments"),
+            "message: {}",
+            err.message
+        );
         assert!(parse("mean(1,2,3,4,5,6,7,8,9)").is_err());
     }
 
@@ -842,7 +866,11 @@ mod tests {
             expression: "REF > 55 && ZDR < 1 ? REF : 0".into(),
         };
         let expr = def.compile().unwrap();
-        assert_eq!(evaluate(&expr, &inputs()), Some(0.0), "this gate's ZDR is 2.5, not < 1");
+        assert_eq!(
+            evaluate(&expr, &inputs()),
+            Some(0.0),
+            "this gate's ZDR is 2.5, not < 1"
+        );
     }
 
     #[test]
@@ -862,7 +890,11 @@ mod tests {
         // process (stack overflow) on input like this rather than returning a `ParseError`.
         let src = format!("{}1{}", "(".repeat(2_000), ")".repeat(2_000));
         let err = parse(&src).unwrap_err();
-        assert!(err.message.contains("nested too deeply"), "message: {}", err.message);
+        assert!(
+            err.message.contains("nested too deeply"),
+            "message: {}",
+            err.message
+        );
     }
 
     #[test]

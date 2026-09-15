@@ -487,13 +487,15 @@ pub fn piper_problem() -> Option<String> {
 /// How loud a spoken warning is. Piper's own output has no volume of its own, and speech that is
 /// louder than the tone that introduced it is a jump-scare.
 #[cfg(not(target_arch = "wasm32"))]
-static VOLUME: std::sync::atomic::AtomicU32 =
-    std::sync::atomic::AtomicU32::new(1.0_f32.to_bits());
+static VOLUME: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1.0_f32.to_bits());
 
 /// Tell the speech path how loud to be. Takes the same slider the alert tones use.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn set_volume(v: f32) {
-    VOLUME.store(v.clamp(0.0, 1.0).to_bits(), std::sync::atomic::Ordering::Relaxed);
+    VOLUME.store(
+        v.clamp(0.0, 1.0).to_bits(),
+        std::sync::atomic::Ordering::Relaxed,
+    );
 }
 
 /// The browser mixes speech itself and `SpeechSynthesisUtterance` carries its own volume, so

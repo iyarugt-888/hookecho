@@ -180,7 +180,7 @@ pub async fn fetch_volume(
         let http = http.clone();
         async move {
             http.get(crate::net::fetch_url(&url))
-            .timeout(crate::net::FEED_TIMEOUT)
+                .timeout(crate::net::FEED_TIMEOUT)
                 .send()
                 .await
                 .ok()?

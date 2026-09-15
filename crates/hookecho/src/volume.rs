@@ -151,11 +151,14 @@ impl Level2LiveProvider for UnidataLevel2Provider {
                     let pname = p.name().to_string();
                     let ptime = p.date_time().unwrap_or_else(chrono::Utc::now);
                     log::debug!("newest volume unusable ({e}); falling back to {pname}");
-                    fetch(p, false, None).await.map(|scan| LatestVolume::New {
-                        name: pname,
-                        time: ptime,
-                        scan,
-                    }).map_err(|_| e)
+                    fetch(p, false, None)
+                        .await
+                        .map(|scan| LatestVolume::New {
+                            name: pname,
+                            time: ptime,
+                            scan,
+                        })
+                        .map_err(|_| e)
                 }
                 _ => Err(e),
             },
@@ -183,7 +186,10 @@ mod tests {
         let provider = UnidataLevel2Provider;
         let name = match provider.latest_complete_volume("KTLX", None).await.unwrap() {
             LatestVolume::New { name, scan, .. } => {
-                assert!(scan.site().is_some(), "a real volume decodes with site metadata");
+                assert!(
+                    scan.site().is_some(),
+                    "a real volume decodes with site metadata"
+                );
                 name
             }
             LatestVolume::UpToDate => panic!("nothing to be up to date with on the first call"),

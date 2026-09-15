@@ -69,8 +69,7 @@ pub fn beam_point(slant_range_m: f64, elevation_deg: f64, antenna_altitude_m: f6
     let r = slant_range_m.max(0.0);
     let e = elevation_deg.to_radians();
     let ae = EFFECTIVE_EARTH_RADIUS_M;
-    let height_above_radar_m =
-        (r * r + ae * ae + 2.0 * r * ae * e.sin()).sqrt() - ae;
+    let height_above_radar_m = (r * r + ae * ae + 2.0 * r * ae * e.sin()).sqrt() - ae;
     let central_angle_rad = (r * e.cos()).atan2(ae + r * e.sin());
     let ground_range_m = ae * central_angle_rad;
     BeamPoint {
@@ -96,8 +95,7 @@ pub fn destination_lonlat(
     let sin_phi2 = phi1.sin() * delta.cos() + phi1.cos() * delta.sin() * bearing.cos();
     let phi2 = sin_phi2.clamp(-1.0, 1.0).asin();
     let lambda2 = lambda1
-        + (bearing.sin() * delta.sin() * phi1.cos())
-            .atan2(delta.cos() - phi1.sin() * phi2.sin());
+        + (bearing.sin() * delta.sin() * phi1.cos()).atan2(delta.cos() - phi1.sin() * phi2.sin());
     let lon = (lambda2.to_degrees() + 180.0).rem_euclid(360.0) - 180.0;
     (lon, phi2.to_degrees())
 }

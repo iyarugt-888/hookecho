@@ -250,12 +250,20 @@ pub fn is_high_contrast(theme: Theme) -> bool {
 /// High contrast roughly doubles the outline so it stays legible in direct sunlight and for
 /// low-vision users — the chrome uses `palette` instead, this is purely for map geometry.
 pub fn overlay_stroke_scale(theme: Theme) -> f32 {
-    if is_high_contrast(theme) { 2.2 } else { 1.0 }
+    if is_high_contrast(theme) {
+        2.2
+    } else {
+        1.0
+    }
 }
 
 /// Stroke-width multiplier for vector basemap strokes (roads, boundaries, waterways).
 pub fn vector_stroke_scale(theme: Theme) -> f32 {
-    if is_high_contrast(theme) { 1.8 } else { 1.0 }
+    if is_high_contrast(theme) {
+        1.8
+    } else {
+        1.0
+    }
 }
 
 /// Boost fill/stroke alphas for warning polygons under high contrast so the polygon remains

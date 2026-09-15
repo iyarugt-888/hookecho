@@ -325,10 +325,8 @@ async fn auto_cache_entries(db: &IdbDatabase) -> Vec<(String, AutoCacheMeta)> {
     let (Ok(keys_req), Ok(vals_req)) = (s.get_all_keys(), s.get_all()) else {
         return Vec::new();
     };
-    let (Ok(keys), Ok(vals)) = (
-        await_request(keys_req).await,
-        await_request(vals_req).await,
-    ) else {
+    let (Ok(keys), Ok(vals)) = (await_request(keys_req).await, await_request(vals_req).await)
+    else {
         return Vec::new();
     };
     // `get_all`/`get_all_keys` both return their results in the same (ascending key) order, so
@@ -606,7 +604,11 @@ mod tests {
         assert_eq!(entries_over_cap(&entries, 25.0), vec!["oldest".to_string()]);
         assert_eq!(
             entries_over_cap(&entries, 5.0),
-            vec!["oldest".to_string(), "middle".to_string(), "newest".to_string()]
+            vec![
+                "oldest".to_string(),
+                "middle".to_string(),
+                "newest".to_string()
+            ]
         );
     }
 

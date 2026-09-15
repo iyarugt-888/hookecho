@@ -26,7 +26,12 @@ pub fn to_image(xs: &CrossSection, table: &ColorTable) -> egui::ColorImage {
 /// [`wxdata::xsection::sample_profile`] held the nearest real beam sample over past the true
 /// coverage boundary, which otherwise reads indistinguishably from a real sample at a glance.
 /// `None` when `pos` isn't over the panel at all.
-fn hover_readout(xs: &CrossSection, moment: Moment, rect: egui::Rect, pos: egui::Pos2) -> Option<String> {
+fn hover_readout(
+    xs: &CrossSection,
+    moment: Moment,
+    rect: egui::Rect,
+    pos: egui::Pos2,
+) -> Option<String> {
     if !rect.contains(pos) || xs.cols < 2 || xs.rows < 2 {
         return None;
     }
@@ -92,7 +97,8 @@ fn draw_beam_rise(ui: &egui::Ui, rect: egui::Rect, xs: &CrossSection) {
             match h {
                 Some(h) => {
                     let x = rect.left() + rect.width() * col as f32 / (cols - 1.0);
-                    let frac_from_top = 1.0 - (h / xs.max_height_km.max(f32::EPSILON)).clamp(0.0, 1.0);
+                    let frac_from_top =
+                        1.0 - (h / xs.max_height_km.max(f32::EPSILON)).clamp(0.0, 1.0);
                     let y = rect.top() + rect.height() * frac_from_top;
                     segment.push(egui::pos2(x, y));
                 }
@@ -109,11 +115,9 @@ fn draw_beam_rise(ui: &egui::Ui, rect: egui::Rect, xs: &CrossSection) {
         for (i, line) in xs.beam_lines.iter().enumerate().rev() {
             let color = HUES[i % HUES.len()];
             let label = format!("{:.1}°", line.elevation_deg);
-            let galley = ui.painter().layout_no_wrap(
-                label,
-                egui::FontId::proportional(9.5),
-                color,
-            );
+            let galley = ui
+                .painter()
+                .layout_no_wrap(label, egui::FontId::proportional(9.5), color);
             x -= galley.size().x;
             painter.galley(egui::pos2(x, y), galley, color);
             x -= 6.0;
@@ -203,7 +207,9 @@ pub fn show(
         // hovered pixel gets its position (distance, height), its value, and — when the pixel is
         // filled only because `sample_profile` held a beam sample over past the true coverage
         // boundary — an explicit warning that no beam actually passes through that point.
-        let hover = resp.hover_pos().and_then(|pos| hover_readout(xs, *moment, rect, pos));
+        let hover = resp
+            .hover_pos()
+            .and_then(|pos| hover_readout(xs, *moment, rect, pos));
         if let Some(text) = hover {
             resp.on_hover_text(text);
         }

@@ -604,7 +604,9 @@ mod tests {
             format!("{product}/20260718/MRMS_MergedReflectivityQCComposite_00.50_20260718-00")
         );
         assert!(nearest_archive_key(&candidates, target, Duration::minutes(1)).is_none());
-        let earlier = format!("{product}/20260717/MRMS_MergedReflectivityQCComposite_00.50_20260717-235800.grib2.gz");
+        let earlier = format!(
+            "{product}/20260717/MRMS_MergedReflectivityQCComposite_00.50_20260717-235800.grib2.gz"
+        );
         assert_eq!(
             nearest_archive_key(&candidates, target, Duration::minutes(2)),
             Some(earlier.as_str())
@@ -646,16 +648,29 @@ mod tests {
         let mut grid = linear_field();
         grid.values = (0..16).map(|v| (v % 2) as f32).collect();
         let stamp = DataStamp {
-            source_id: BUCKET.into(), product_id: PRECIP_TYPE.into(),
-            issue_time: None, run_time: None, valid_time: grid.time,
-            received_time: grid.time, source_latency: None,
-            is_forecast: false, is_derived: true, quality: QualitySummary::Unknown,
+            source_id: BUCKET.into(),
+            product_id: PRECIP_TYPE.into(),
+            issue_time: None,
+            run_time: None,
+            valid_time: grid.time,
+            received_time: grid.time,
+            source_latency: None,
+            is_forecast: false,
+            is_derived: true,
+            quality: QualitySummary::Unknown,
             grid: Some(crate::field::GridProvenance::native(&grid)),
         };
-        let categorical = Stamped { data: grid.clone(), stamp: stamp.clone() }
-            .for_display(2, ValueKind::Categorical);
+        let categorical = Stamped {
+            data: grid.clone(),
+            stamp: stamp.clone(),
+        }
+        .for_display(2, ValueKind::Categorical);
         assert_eq!(categorical.data.values.len(), 4);
-        assert!(categorical.data.values.iter().all(|v| *v == 0.0 || *v == 1.0));
+        assert!(categorical
+            .data
+            .values
+            .iter()
+            .all(|v| *v == 0.0 || *v == 1.0));
         let geometry = categorical.stamp.grid.unwrap();
         assert_eq!((geometry.native.nx, geometry.native.ny), (4, 4));
         assert_eq!((geometry.displayed.nx, geometry.displayed.ny), (2, 2));
@@ -663,7 +678,10 @@ mod tests {
 
         let scalar = Stamped { data: grid, stamp }.for_display(2, ValueKind::Scalar);
         let geometry = scalar.stamp.grid.unwrap();
-        assert_eq!(geometry.transform, DisplayTransform::MaximumPool { factor: 2 });
+        assert_eq!(
+            geometry.transform,
+            DisplayTransform::MaximumPool { factor: 2 }
+        );
         assert_eq!(scalar.data.values, vec![1.0; 4]);
     }
 

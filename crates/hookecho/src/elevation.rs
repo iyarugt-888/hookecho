@@ -290,7 +290,10 @@ pub async fn lowest_usable_tilt_image(
     let radar_msl = site.ground_m + site.tower_m;
     let polar = occultation(client, site, radar_msl).await;
     render_occultation(site, &polar, world, |occult| {
-        match tilts.iter().position(|&t| blockage_fraction(occult, t) < 0.5) {
+        match tilts
+            .iter()
+            .position(|&t| blockage_fraction(occult, t) < 0.5)
+        {
             Some(i) => tilt_rank_color(i, tilts.len()),
             // Not even the volume's highest tilt clears the terrain here at all.
             None => egui::Color32::from_rgba_unmultiplied(120, 40, 160, 140),
@@ -302,7 +305,11 @@ pub async fn lowest_usable_tilt_image(
 /// list) — a single-tilt volume paints solid green wherever it clears at all, which is correct:
 /// there is nothing lower to prefer.
 fn tilt_rank_color(i: usize, n: usize) -> egui::Color32 {
-    let t = if n <= 1 { 0.0 } else { i as f64 / (n - 1) as f64 };
+    let t = if n <= 1 {
+        0.0
+    } else {
+        i as f64 / (n - 1) as f64
+    };
     let (r, g) = if t < 0.5 {
         ((t * 2.0 * 230.0) as u8, 200u8)
     } else {
@@ -355,11 +362,25 @@ mod tests {
         // than fixed thresholds sidesteps that and tests the actual invariant that matters.
         let colors: Vec<_> = (0..6).map(|i| tilt_rank_color(i, 6)).collect();
         for w in colors.windows(2) {
-            assert!(w[0].g() >= w[1].g(), "green must not rise as rank rises: {:?}", w);
-            assert!(w[0].r() <= w[1].r(), "red must not fall as rank rises: {:?}", w);
+            assert!(
+                w[0].g() >= w[1].g(),
+                "green must not rise as rank rises: {:?}",
+                w
+            );
+            assert!(
+                w[0].r() <= w[1].r(),
+                "red must not fall as rank rises: {:?}",
+                w
+            );
         }
-        assert!(colors[0].g() > colors[5].g(), "lowest rank should read greener than highest");
-        assert!(colors[0].r() < colors[5].r(), "highest rank should read redder than lowest");
+        assert!(
+            colors[0].g() > colors[5].g(),
+            "lowest rank should read greener than highest"
+        );
+        assert!(
+            colors[0].r() < colors[5].r(),
+            "highest rank should read redder than lowest"
+        );
         // A single-tilt volume has nothing lower to prefer — its only rank must match the lowest
         // rank of a longer list, not some midpoint color that would suggest a better tilt exists.
         assert_eq!(tilt_rank_color(0, 1), tilt_rank_color(0, 6));
@@ -502,7 +523,10 @@ mod tests {
         let img = lowest_usable_tilt_image(&http, site, &[6.0], world).await;
         let none_clear = egui::Color32::from_rgba_unmultiplied(120, 40, 160, 140);
         assert!(
-            img.pixels.iter().filter(|&&p| p != egui::Color32::TRANSPARENT).all(|&p| p != none_clear),
+            img.pixels
+                .iter()
+                .filter(|&&p| p != egui::Color32::TRANSPARENT)
+                .all(|&p| p != none_clear),
             "a 6\u{b0} tilt clears this terrain everywhere in frame"
         );
         // A tilt list with only a low, mostly-blocked angle: some pixels have to fall back to

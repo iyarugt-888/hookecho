@@ -55,14 +55,16 @@ impl UdpWindow {
             ui.separator();
 
             let mut remove: Option<usize> = None;
-            egui::ScrollArea::vertical().max_height(280.0).show(ui, |ui| {
-                for i in 0..settings.udp_products.len() {
-                    ui.push_id(i, |ui| {
-                        row(ui, settings, i, &mut remove);
-                    });
-                    ui.separator();
-                }
-            });
+            egui::ScrollArea::vertical()
+                .max_height(280.0)
+                .show(ui, |ui| {
+                    for i in 0..settings.udp_products.len() {
+                        ui.push_id(i, |ui| {
+                            row(ui, settings, i, &mut remove);
+                        });
+                        ui.separator();
+                    }
+                });
             if let Some(i) = remove {
                 settings.udp_products.remove(i);
             }

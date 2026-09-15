@@ -70,7 +70,8 @@ fn decode_nearest(bytes: &[u8], now: DateTime<Utc>) -> anyhow::Result<MrmsField>
             Some(((t - now).num_seconds().abs(), t, m))
         })
         .min_by_key(|(dt, ..)| *dt);
-    let (_, time, msg) = best.ok_or_else(|| anyhow::anyhow!("no usable GRIB2 message in NDFD file"))?;
+    let (_, time, msg) =
+        best.ok_or_else(|| anyhow::anyhow!("no usable GRIB2 message in NDFD file"))?;
 
     use gribberish::data_message::DataMessage;
     let dm = DataMessage::try_from(&msg).map_err(|e| anyhow::anyhow!("ndfd decode: {e:?}"))?;
@@ -120,11 +121,20 @@ mod tests {
         let field = fetch(&client, NdfdField::Temp).await.expect("fetch");
         eprintln!(
             "NDFD temp: {}x{} lon {:.1}..{:.1} lat {:.1}..{:.1} at {}",
-            field.nx, field.ny, field.lon_west, field.lon_east, field.lat_south, field.lat_north,
+            field.nx,
+            field.ny,
+            field.lon_west,
+            field.lon_east,
+            field.lat_south,
+            field.lat_north,
             field.time
         );
         let finite = field.values.iter().filter(|v| v.is_finite()).count();
-        assert!(finite > field.values.len() / 4, "too few finite cells: {finite}/{}", field.values.len());
+        assert!(
+            finite > field.values.len() / 4,
+            "too few finite cells: {finite}/{}",
+            field.values.len()
+        );
         for &v in field.values.iter().filter(|v| v.is_finite()) {
             assert!((150.0..350.0).contains(&v), "implausible temperature {v} K");
         }
@@ -136,7 +146,11 @@ mod tests {
         let client = reqwest::Client::new();
         let field = fetch(&client, NdfdField::WindSpeed).await.expect("fetch");
         let finite = field.values.iter().filter(|v| v.is_finite()).count();
-        assert!(finite > field.values.len() / 4, "too few finite cells: {finite}/{}", field.values.len());
+        assert!(
+            finite > field.values.len() / 4,
+            "too few finite cells: {finite}/{}",
+            field.values.len()
+        );
         for &v in field.values.iter().filter(|v| v.is_finite()) {
             assert!((0.0..100.0).contains(&v), "implausible wind speed {v} m/s");
         }
@@ -148,7 +162,11 @@ mod tests {
         let client = reqwest::Client::new();
         let field = fetch(&client, NdfdField::WindGust).await.expect("fetch");
         let finite = field.values.iter().filter(|v| v.is_finite()).count();
-        assert!(finite > field.values.len() / 4, "too few finite cells: {finite}/{}", field.values.len());
+        assert!(
+            finite > field.values.len() / 4,
+            "too few finite cells: {finite}/{}",
+            field.values.len()
+        );
         for &v in field.values.iter().filter(|v| v.is_finite()) {
             assert!((0.0..120.0).contains(&v), "implausible wind gust {v} m/s");
         }
@@ -160,7 +178,11 @@ mod tests {
         let client = reqwest::Client::new();
         let field = fetch(&client, NdfdField::Snow).await.expect("fetch");
         let finite = field.values.iter().filter(|v| v.is_finite()).count();
-        assert!(finite > field.values.len() / 4, "too few finite cells: {finite}/{}", field.values.len());
+        assert!(
+            finite > field.values.len() / 4,
+            "too few finite cells: {finite}/{}",
+            field.values.len()
+        );
         for &v in field.values.iter().filter(|v| v.is_finite()) {
             assert!((0.0..20.0).contains(&v), "implausible snow depth {v} m");
         }

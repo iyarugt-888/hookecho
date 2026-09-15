@@ -548,7 +548,7 @@ pub async fn fetch_field_swath(
                     run,
                     fcst_hour: through,
                     fcst_minutes: None,
-                })
+                });
             }
             (e, _) => last_err = e.or(last_err),
         }

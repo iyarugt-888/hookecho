@@ -11,8 +11,8 @@
 use std::path::PathBuf;
 
 fn sample() -> Vec<u8> {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/data/regression/abi_cmip_m6c13.nc");
+    let path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/data/regression/abi_cmip_m6c13.nc");
     std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
 }
 
@@ -30,7 +30,11 @@ fn brightness_temperatures_decode_to_a_physically_plausible_range() {
     let cmi = f.read_f64("CMI").expect("CMI dataset");
     assert_eq!(cmi.len(), 500 * 500, "500x500 mesoscale sector");
     let finite: Vec<f64> = cmi.iter().copied().filter(|v| v.is_finite()).collect();
-    assert_eq!(finite.len(), cmi.len(), "band 13 has no fill in this granule");
+    assert_eq!(
+        finite.len(),
+        cmi.len(),
+        "band 13 has no fill in this granule"
+    );
     let (min, max) = finite
         .iter()
         .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), &v| {

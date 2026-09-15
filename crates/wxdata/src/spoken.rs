@@ -273,9 +273,17 @@ pub fn spoken_area(area: &str) -> String {
 /// `"Cleveland"` in Oklahoma is a county; in Louisiana it would be a parish; in Ontario it is just
 /// a place. A name that already says what it is keeps its own word.
 fn with_kind(name: &str, code: &str) -> String {
-    let already = ["County", "Parish", "Borough", "City", "Municipality", "Census Area", "Island"]
-        .iter()
-        .any(|k| name.ends_with(k));
+    let already = [
+        "County",
+        "Parish",
+        "Borough",
+        "City",
+        "Municipality",
+        "Census Area",
+        "Island",
+    ]
+    .iter()
+    .any(|k| name.ends_with(k));
     if already || NOT_COUNTY.contains(&code) {
         name.to_string()
     } else if code == "LA" {
@@ -598,7 +606,10 @@ mod tests {
         a.max_hail_in = None;
         a.damage_threat = None;
         let s = warning_script(&a, "covering NW Farm", "");
-        assert!(s.starts_with("Tornado warning covering NW Farm, for "), "{s}");
+        assert!(
+            s.starts_with("Tornado warning covering NW Farm, for "),
+            "{s}"
+        );
     }
 
     #[test]

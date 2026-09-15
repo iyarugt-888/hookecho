@@ -282,7 +282,14 @@ mod tests {
 
         tick(&ctx, &mut d, |ctx, d| {
             let mut open = true;
-            let _ = d.page_sized(ctx, "Test", &mut open, false, 300.0, egui::Window::new("Test"));
+            let _ = d.page_sized(
+                ctx,
+                "Test",
+                &mut open,
+                false,
+                300.0,
+                egui::Window::new("Test"),
+            );
         });
         assert!(d.is_open(), "the page claimed the stack");
 
@@ -290,7 +297,10 @@ mod tests {
         // `page_sized` from here on — only `end_frame` runs, inside `tick`.
         tick(&ctx, &mut d, |_, _| {});
         tick(&ctx, &mut d, |_, _| {});
-        assert!(!d.is_open(), "two quiet frames is enough to notice nothing is open");
+        assert!(
+            !d.is_open(),
+            "two quiet frames is enough to notice nothing is open"
+        );
     }
 
     /// The back-stack feature this module's doc comment describes: opening a second page hides

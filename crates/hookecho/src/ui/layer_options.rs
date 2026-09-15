@@ -64,7 +64,9 @@ fn valid_time_note(
     match (valid, error) {
         (Some(times), _) => times.label(a, b),
         (None, Some(error)) => format!("⚠ Comparison unavailable: {error}"),
-        (None, None) => "Waiting for models at one shared valid time; no comparison is drawn.".into(),
+        (None, None) => {
+            "Waiting for models at one shared valid time; no comparison is drawn.".into()
+        }
     }
 }
 
@@ -148,9 +150,14 @@ pub(crate) fn show(
             if let Some(field) = FL::from_slug(slug).and_then(FL::descriptor) {
                 ui.label(format!(
                     "{} · {} · {:?}",
-                    field.name, field.units.symbol(), field.value_kind
+                    field.name,
+                    field.units.symbol(),
+                    field.value_kind
                 ));
-                ui.label(format!("Missing/no coverage codes: {:?} (masked)", field.missing_values));
+                ui.label(format!(
+                    "Missing/no coverage codes: {:?} (masked)",
+                    field.missing_values
+                ));
             }
             super::data_inspector::show(ui, stamp, analysis_time, time_tolerance);
         });

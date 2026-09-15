@@ -415,8 +415,8 @@ fn reset_after(header: Option<&str>, now_epoch: i64) -> Option<std::time::Durati
 /// that is already gone and failing. `X-RateLimit-Reset` is sent for exactly this.
 #[cfg(not(target_arch = "wasm32"))]
 fn back_off(reset_header: Option<&str>) {
-    let wait = reset_after(reset_header, chrono::Utc::now().timestamp())
-        .unwrap_or(RATE_LIMIT_COOLDOWN);
+    let wait =
+        reset_after(reset_header, chrono::Utc::now().timestamp()).unwrap_or(RATE_LIMIT_COOLDOWN);
     if let Ok(mut g) = COOLDOWN_UNTIL.lock() {
         // Never shorten a cooldown already in force: several requests fly at once, and the last
         // one to land must not talk the others back into trying.
@@ -584,7 +584,10 @@ pub fn alerts_in_view(body: &str, bounds: (f64, f64, f64, f64)) -> Vec<(String, 
         let Some(link) = f
             .get("links")
             .and_then(|l| l.as_array())
-            .and_then(|ls| ls.iter().find(|l| l.get("rel").and_then(|r| r.as_str()) == Some("json")))
+            .and_then(|ls| {
+                ls.iter()
+                    .find(|l| l.get("rel").and_then(|r| r.as_str()) == Some("json"))
+            })
             .and_then(|l| l.get("href"))
             .and_then(|h| h.as_str())
         else {
@@ -726,7 +729,12 @@ async fn fetch_edr(
     // The CAP links are pre-signed and public, so these carry no key — and must not, since they
     // point at object storage rather than at the API.
     let caps = futures_util::future::join_all(links.into_iter().map(|(id, url)| async move {
-        match client.get(&url).timeout(crate::net::FEED_TIMEOUT).send().await {
+        match client
+            .get(&url)
+            .timeout(crate::net::FEED_TIMEOUT)
+            .send()
+            .await
+        {
             Ok(r) => r.error_for_status().ok()?.text().await.ok(),
             Err(e) => {
                 log::warn!("meteoalarm alert {id}: fetch failed ({e})");
@@ -745,7 +753,6 @@ async fn fetch_edr(
     }
     Ok(out)
 }
-
 
 #[cfg(test)]
 mod tests {

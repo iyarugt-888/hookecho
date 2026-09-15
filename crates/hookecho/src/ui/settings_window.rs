@@ -302,11 +302,10 @@ impl SettingsWindow {
         ));
 
         ui.add_space(4.0);
-        ui.label("Offline packs")
-            .on_hover_text(
-                "Loops you saved for offline playback. Manage them from the timeline's archive \
+        ui.label("Offline packs").on_hover_text(
+            "Loops you saved for offline playback. Manage them from the timeline's archive \
                  menu (\u{22ef}).",
-            );
+        );
         ui.weak(format!(
             "{} \u{2014} {} pack{}",
             crate::storage::human(pack_bytes),
@@ -1317,8 +1316,10 @@ fn alerts_tab(ui: &mut egui::Ui, settings: &mut Settings) {
             "The tone first, then the words: which counties, the towns in the path, where it sits \
              from your saved place, and what to do \u{2014} for when your eyes are on the road",
         );
-    ui.weak("Piper below is the good voice; without it Linux uses spd-say or espeak, macOS and \
-             Windows their own, Android its own.");
+    ui.weak(
+        "Piper below is the good voice; without it Linux uses spd-say or espeak, macOS and \
+             Windows their own, Android its own.",
+    );
     // Hearing it once beats reading three settings and waiting for weather to find out that the
     // engine was never installed.
     if ui

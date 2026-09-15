@@ -164,13 +164,25 @@ fn handle(server: &Server, mut stream: TcpStream) -> anyhow::Result<()> {
         }
     }
     let reply = if authorized {
-        route(server, path, query, if_none_match.as_deref(), range.as_deref())
+        route(
+            server,
+            path,
+            query,
+            if_none_match.as_deref(),
+            range.as_deref(),
+        )
     } else if server.public {
         // The public hostname serves the fixed frames the site embeds and nothing else. Anything
         // else — another size, another product, a status page — needs the token, which is how the
         // owner keeps the full parameter surface without handing it to the internet.
         if is_preset(path, query) {
-            route(server, path, query, if_none_match.as_deref(), range.as_deref())
+            route(
+                server,
+                path,
+                query,
+                if_none_match.as_deref(),
+                range.as_deref(),
+            )
         } else {
             count("denied");
             (
@@ -1938,7 +1950,10 @@ mod tests {
         let body = route(&server, "/lite/", "", None, None).body;
         assert_eq!(String::from_utf8_lossy(&body), "<!doctype html>lite");
         // Still no way out of the root, trailing slash or not.
-        assert_eq!(route(&server, "/../", "", None, None).status, "404 Not Found");
+        assert_eq!(
+            route(&server, "/../", "", None, None).status,
+            "404 Not Found"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 

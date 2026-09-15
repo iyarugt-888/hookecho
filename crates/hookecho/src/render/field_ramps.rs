@@ -449,13 +449,13 @@ static GOES_IR: FieldRamp = FieldRamp {
         RampScale::Linear,
         255,
         &[
-            (0.00, [255, 60, 0]),     // ~180 K: extreme overshooting top
-            (0.06, [255, 230, 0]),    // ~188 K
-            (0.13, [255, 255, 255]),  // ~198 K: deep convective cloud tops
-            (0.35, [180, 180, 180]),  // ~229 K: cold cirrus/anvil
-            (0.55, [100, 100, 100]),  // ~257 K: mid-level cloud
-            (0.75, [40, 40, 40]),     // ~285 K: warm cloud / low stratus
-            (1.00, [0, 0, 0]),        // 320 K: clear, warm ground
+            (0.00, [255, 60, 0]),    // ~180 K: extreme overshooting top
+            (0.06, [255, 230, 0]),   // ~188 K
+            (0.13, [255, 255, 255]), // ~198 K: deep convective cloud tops
+            (0.35, [180, 180, 180]), // ~229 K: cold cirrus/anvil
+            (0.55, [100, 100, 100]), // ~257 K: mid-level cloud
+            (0.75, [40, 40, 40]),    // ~285 K: warm cloud / low stratus
+            (1.00, [0, 0, 0]),       // 320 K: clear, warm ground
         ]
     )
 };
@@ -843,12 +843,18 @@ mod tests {
     #[test]
     fn catalog_palettes_preserve_existing_scales() {
         for (id, expected) in [
-            ("rotation", &ROTATION), ("azshear", &ROTATION), ("mesh", &MESH),
-            ("hailswath", &HAIL_SWATH), ("preciprate", &PRECIP_RATE),
+            ("rotation", &ROTATION),
+            ("azshear", &ROTATION),
+            ("mesh", &MESH),
+            ("hailswath", &HAIL_SWATH),
+            ("preciprate", &PRECIP_RATE),
             ("qpe1h", &QPE_1H),
-            ("qpe3h", &QPE_MID), ("qpe6h", &QPE_MID), ("qpe12h", &QPE_MID),
+            ("qpe3h", &QPE_MID),
+            ("qpe6h", &QPE_MID),
+            ("qpe12h", &QPE_MID),
             ("qpe24h", &QPE_24H),
-            ("preciptype", &PRECIP_TYPE), ("flashflood", &FLASH_FLOOD),
+            ("preciptype", &PRECIP_TYPE),
+            ("flashflood", &FLASH_FLOOD),
         ] {
             let layer = FieldLayer::from_slug(id).unwrap();
             assert!(std::ptr::eq(ramp_for(layer).unwrap(), expected), "{id}");
@@ -869,7 +875,10 @@ mod tests {
             (FieldLayer::Smoke, &SMOKE),
         ] {
             assert!(layer.descriptor().is_some(), "{layer:?}");
-            assert!(std::ptr::eq(ramp_for(layer).unwrap(), expected), "{layer:?}");
+            assert!(
+                std::ptr::eq(ramp_for(layer).unwrap(), expected),
+                "{layer:?}"
+            );
         }
         assert!(FieldLayer::Hrrr.descriptor().is_some());
         assert!(ramp_for(FieldLayer::Hrrr).is_none());
@@ -880,7 +889,10 @@ mod tests {
     #[test]
     fn only_the_kelvin_ramps_ask_for_temperature_conversion() {
         assert!(GLOBAL_TEMP_2M.is_temp_kelvin, "labelled K, must convert");
-        assert!(GLOBAL_DEWPOINT_2M.is_temp_kelvin, "labelled K, must convert");
+        assert!(
+            GLOBAL_DEWPOINT_2M.is_temp_kelvin,
+            "labelled K, must convert"
+        );
         for (name, r) in [
             ("MSLP", &GLOBAL_MSLP),
             ("500mb height", &GLOBAL_HEIGHT_500),
