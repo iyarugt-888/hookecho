@@ -228,6 +228,16 @@ static QPE_24H: FieldRamp = ramp!(
     255,
     QPE_STOPS
 );
+// Shared by the 3/6/12 h windows: a working middle ground between the 1 h and 24 h scales.
+static QPE_MID: FieldRamp = ramp!(
+    "Rain (3-12 h)",
+    "mm",
+    0.25,
+    150.0,
+    RampScale::Log,
+    255,
+    QPE_STOPS
+);
 
 static CAPE: FieldRamp = ramp!(
     "CAPE",
@@ -749,6 +759,7 @@ pub fn ramp_for(layer: FieldLayer) -> Option<&'static FieldRamp> {
             PaletteId::HailSwath => Some(&HAIL_SWATH),
             PaletteId::PrecipitationRate => Some(&PRECIP_RATE),
             PaletteId::Precipitation1h => Some(&QPE_1H),
+            PaletteId::PrecipitationAccum => Some(&QPE_MID),
             PaletteId::Precipitation24h => Some(&QPE_24H),
             PaletteId::PrecipitationType => Some(&PRECIP_TYPE),
             PaletteId::FloodRecurrence => Some(&FLASH_FLOOD),
@@ -809,6 +820,9 @@ pub fn ramp_for(layer: FieldLayer) -> Option<&'static FieldRamp> {
         | FL::HailSwath
         | FL::PrecipRate
         | FL::Qpe1h
+        | FL::Qpe3h
+        | FL::Qpe6h
+        | FL::Qpe12h
         | FL::Qpe24h
         | FL::FlashFlood
         | FL::PrecipType
@@ -831,7 +845,9 @@ mod tests {
         for (id, expected) in [
             ("rotation", &ROTATION), ("azshear", &ROTATION), ("mesh", &MESH),
             ("hailswath", &HAIL_SWATH), ("preciprate", &PRECIP_RATE),
-            ("qpe1h", &QPE_1H), ("qpe24h", &QPE_24H),
+            ("qpe1h", &QPE_1H),
+            ("qpe3h", &QPE_MID), ("qpe6h", &QPE_MID), ("qpe12h", &QPE_MID),
+            ("qpe24h", &QPE_24H),
             ("preciptype", &PRECIP_TYPE), ("flashflood", &FLASH_FLOOD),
         ] {
             let layer = FieldLayer::from_slug(id).unwrap();

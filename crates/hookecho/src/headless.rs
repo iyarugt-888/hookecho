@@ -1621,11 +1621,14 @@ pub fn run_field(slug: &str, out_path: &str) -> anyhow::Result<()> {
         "mesh" => (wxdata::mrms::MESH.to_string(), FL::Mesh),
         "azshear" => (wxdata::mrms::AZSHEAR.to_string(), FL::AzShear),
         "qpe1h" => (wxdata::mrms::QPE_01H.to_string(), FL::Qpe1h),
+        "qpe3h" => (wxdata::mrms::QPE_03H.to_string(), FL::Qpe3h),
+        "qpe6h" => (wxdata::mrms::QPE_06H.to_string(), FL::Qpe6h),
+        "qpe12h" => (wxdata::mrms::QPE_12H.to_string(), FL::Qpe12h),
         "qpe24h" => (wxdata::mrms::QPE_24H.to_string(), FL::Qpe24h),
         "preciptype" => (wxdata::mrms::PRECIP_TYPE.to_string(), FL::PrecipType),
         "flashflood" => (wxdata::mrms::FLASH_ARI30.to_string(), FL::FlashFlood),
         "hailswath" => (wxdata::mrms::MESH_1440.to_string(), FL::HailSwath),
-        other => anyhow::bail!("unknown field slug '{other}' (rotation30|rotation60|rotation120|mesh|azshear|qpe1h|qpe24h|preciptype|flashflood|hailswath)"),
+        other => anyhow::bail!("unknown field slug '{other}' (rotation30|rotation60|rotation120|mesh|azshear|qpe1h|qpe3h|qpe6h|qpe12h|qpe24h|preciptype|flashflood|hailswath)"),
     };
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()

@@ -50,6 +50,12 @@ pub fn hail_swath(minutes: u16) -> &'static str {
 pub const AZSHEAR: &str = "CONUS/MergedAzShear_0-2kmAGL_00.50";
 /// Multi-sensor 1-hour QPE accumulation, Pass-2 gauge-corrected (mm).
 pub const QPE_01H: &str = "CONUS/MultiSensor_QPE_01H_Pass2_00.00";
+/// Multi-sensor 3-hour QPE accumulation, Pass-2 gauge-corrected (mm).
+pub const QPE_03H: &str = "CONUS/MultiSensor_QPE_03H_Pass2_00.00";
+/// Multi-sensor 6-hour QPE accumulation, Pass-2 gauge-corrected (mm).
+pub const QPE_06H: &str = "CONUS/MultiSensor_QPE_06H_Pass2_00.00";
+/// Multi-sensor 12-hour QPE accumulation, Pass-2 gauge-corrected (mm).
+pub const QPE_12H: &str = "CONUS/MultiSensor_QPE_12H_Pass2_00.00";
 /// Multi-sensor 24-hour QPE accumulation, Pass-2 gauge-corrected (mm; storm-total scale).
 pub const QPE_24H: &str = "CONUS/MultiSensor_QPE_24H_Pass2_00.00";
 /// Instantaneous surface precipitation rate (mm/hr), 2-minute cadence.

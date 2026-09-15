@@ -103,6 +103,9 @@ pub enum FieldLayer {
     /// as against the QPE layers' how much has fallen.
     PrecipRate,
     Qpe1h,
+    Qpe3h,
+    Qpe6h,
+    Qpe12h,
     Qpe24h,
     /// HRRR surface CAPE (environment suite).
     Cape,
@@ -226,7 +229,7 @@ impl FieldLayer {
     }
 
     /// Fixed bottom-to-top paint order within each band.
-    pub const DRAW_ORDER: [FieldLayer; 47] = [
+    pub const DRAW_ORDER: [FieldLayer; 50] = [
         // Below-radar context band (bottom to top). The global models sit at the very bottom:
         // they are the synoptic backdrop everything else is drawn against — satellite included,
         // since it is the same kind of backdrop and the radar itself paints over it just the same.
@@ -265,6 +268,9 @@ impl FieldLayer {
         FieldLayer::SnowBands,
         FieldLayer::PrecipRate,
         FieldLayer::Qpe1h,
+        FieldLayer::Qpe3h,
+        FieldLayer::Qpe6h,
+        FieldLayer::Qpe12h,
         FieldLayer::Qpe24h,
         FieldLayer::FlashFlood,
         FieldLayer::HailSwath,
@@ -316,6 +322,9 @@ impl FieldLayer {
             FieldLayer::Lightning => "lightning",
             FieldLayer::PrecipRate => "preciprate",
             FieldLayer::Qpe1h => "qpe1h",
+            FieldLayer::Qpe3h => "qpe3h",
+            FieldLayer::Qpe6h => "qpe6h",
+            FieldLayer::Qpe12h => "qpe12h",
             FieldLayer::Qpe24h => "qpe24h",
             FieldLayer::Cape => "cape",
             FieldLayer::Srh => "srh",

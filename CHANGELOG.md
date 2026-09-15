@@ -8,6 +8,25 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: 3h/6h/12h MRMS QPE accumulation windows
+
+ROADMAP_NEW D1/D3's QPE coverage gap: the catalog only had the two ends of the accumulation
+range (1h, 24h) cataloged as `wxdata::mrms::catalog` products, leaving the 3/6/12-hour windows
+unreachable even though rotation/lightning/hail already prove the multi-window `FetchMapping`
+pattern works for this catalog. Added three new fixed catalog entries (`qpe3h`, `qpe6h`,
+`qpe12h`) against the real `CONUS/MultiSensor_QPE_{03,06,12}H_Pass2_00.00` S3 paths, each a
+standalone `FieldLayer` alongside the existing `Qpe1h`/`Qpe24h` — kept separate rather than
+collapsed into one runtime-window-picker layer, since that would change the on-disk slug of the
+two existing QPE layers and risk breaking saved workspaces that reference them.
+
+They pick up the Layers panel/search integration for free (the panel already iterates
+`wxdata::mrms::catalog::PRODUCTS`, so a new catalog entry needs no separate menu wiring) and
+share the QPE layers' 2-minute refresh cadence. A new `PrecipitationAccum` palette/ramp
+(0.25-150mm, log scale, the existing QPE color stops) sits between the 1h and 24h scales rather
+than reusing either directly, since 150mm is a more plausible ceiling for a half-day window than
+either endpoint's own scale. Verified live: all five QPE window paths
+(`CONUS/MultiSensor_QPE_{01,03,06,12,24}H_Pass2_00.00`) resolve against the real MRMS S3 bucket.
+
 ### Added: a "lowest usable tilt" terrain overlay
 
 ROADMAP_NEW C3's last open item: a gridded "which tilt actually reaches ground level here" layer,

@@ -176,6 +176,57 @@ pub static PRODUCTS: &[Product] = &[
     },
     Product {
         field: FieldDescriptor {
+            id: FieldId("qpe3h"),
+            source: DataSource::NoaaMrms,
+            family: FieldFamily::Mrms,
+            name: "Rain so far, 3 hours (QPE)",
+            description: "How much rain has fallen in the last 3 hours",
+            units: Unit::Millimeters,
+            value_kind: ValueKind::Accumulation,
+            aliases: "precipitation accumulation gauge corrected Pass2",
+            default_palette: PaletteId::PrecipitationAccum,
+            default_contour_interval: None,
+            missing_values: &[-1.0, -3.0],
+        },
+        common: false,
+        fetch: FetchMapping::Fixed(super::QPE_03H),
+    },
+    Product {
+        field: FieldDescriptor {
+            id: FieldId("qpe6h"),
+            source: DataSource::NoaaMrms,
+            family: FieldFamily::Mrms,
+            name: "Rain so far, 6 hours (QPE)",
+            description: "How much rain has fallen in the last 6 hours",
+            units: Unit::Millimeters,
+            value_kind: ValueKind::Accumulation,
+            aliases: "precipitation accumulation gauge corrected Pass2",
+            default_palette: PaletteId::PrecipitationAccum,
+            default_contour_interval: None,
+            missing_values: &[-1.0, -3.0],
+        },
+        common: false,
+        fetch: FetchMapping::Fixed(super::QPE_06H),
+    },
+    Product {
+        field: FieldDescriptor {
+            id: FieldId("qpe12h"),
+            source: DataSource::NoaaMrms,
+            family: FieldFamily::Mrms,
+            name: "Rain so far, 12 hours (QPE)",
+            description: "How much rain has fallen in the last 12 hours",
+            units: Unit::Millimeters,
+            value_kind: ValueKind::Accumulation,
+            aliases: "precipitation accumulation gauge corrected Pass2",
+            default_palette: PaletteId::PrecipitationAccum,
+            default_contour_interval: None,
+            missing_values: &[-1.0, -3.0],
+        },
+        common: false,
+        fetch: FetchMapping::Fixed(super::QPE_12H),
+    },
+    Product {
+        field: FieldDescriptor {
             id: FieldId("qpe24h"),
             source: DataSource::NoaaMrms,
             family: FieldFamily::Mrms,
@@ -309,7 +360,7 @@ mod tests {
             assert!(path.starts_with("CONUS/"));
             assert!(paths.insert(path));
         }
-        assert_eq!(PRODUCTS.len(), 11);
+        assert_eq!(PRODUCTS.len(), 14);
         assert!(find("hrrr").is_none());
         for product in PRODUCTS {
             assert!(std::ptr::eq(

@@ -826,11 +826,11 @@ The current `mrms.rs` contains a valuable but hand-selected subset. Replace the 
 
 ## D1. MRMS product catalog — partly done, found already built
 
-`wxdata::mrms::catalog` exists (see A1's corrected notes above) with 11 products as
+`wxdata::mrms::catalog` exists (see A1's corrected notes above) with 14 products as
 `FieldDescriptor`s: national composite reflectivity, rotation tracks (30/60/120 min), MESH,
 MESH swaths (30/60/120/240/360/1440 min), azimuthal shear, lightning density (1/5/15/30 min),
-precip rate, QPE 1h and 24h, precip type, and FLASH ARI-30. Verified live against the real bucket
-(see D1's own "Rules" item below) rather than just declared.
+precip rate, QPE 1h/3h/6h/12h/24h, precip type, and FLASH ARI-30. Verified live against the real
+bucket (see D1's own "Rules" item below) rather than just declared.
 
 Target operational groups:
 
@@ -873,13 +873,13 @@ Target operational groups:
 
 - MRMS snow/precipitation-type products when published in the operational bucket
 
-The 11 products above cover composite reflectivity, rotation/azshear, MESH + swaths, precip
-rate/QPE/type, lightning and flash-flood rarity. **Not yet cataloged**, all genuine gaps rather
-than oversights: low-level (single-tilt) reflectivity, MRMS's own national echo-tops and VIL
-grids (distinct from the locally-derived `EtopLocal`/`VilLocal` computed from the pane's own
-Level II volume), 0°C/-20°C layer-height products, POSH, QPE-to-ARI exceedance fields beyond the
-one 30-minute window, 3/6/12-hour QPE accumulations, streamflow products, and MRMS's winter/
-precip-type-family products beyond the one flag already cataloged.
+The 14 products above cover composite reflectivity, rotation/azshear, MESH + swaths, precip
+rate/QPE (1/3/6/12/24h)/type, lightning and flash-flood rarity. **Not yet cataloged**, all genuine
+gaps rather than oversights: low-level (single-tilt) reflectivity, MRMS's own national echo-tops
+and VIL grids (distinct from the locally-derived `EtopLocal`/`VilLocal` computed from the pane's
+own Level II volume), 0°C/-20°C layer-height products, POSH, QPE-to-ARI exceedance fields beyond
+the one 30-minute window, streamflow products, and MRMS's winter/precip-type-family products
+beyond the one flag already cataloged.
 
 ### Rules
 
@@ -928,10 +928,15 @@ not a convention callers have to remember.
   masquerades as something just picked. Verified live: toggling a product on, then back to the
   Browse landing screen, shows it under "RECENT"; the entry survived a full page reload, proving
   the round trip through actual settings persistence, not just in-memory state.
-- [ ] accumulation selector — QPE has only two fixed windows (1h, 24h) as separate catalog
-  entries; rotation/lightning/hail *do* already have a window picker (their `FetchMapping`
-  variants), so the pattern exists but hasn't been extended to QPE's 3/6/12h windows, which aren't
-  cataloged yet either (see D1).
+- [ ] accumulation selector — QPE now has five windows (1h, 3h, 6h, 12h, 24h) cataloged, closing
+  the D1 coverage gap, but each is still its own fixed catalog entry/layer rather than one layer
+  with a runtime window picker the way rotation/lightning/hail use their `FetchMapping::Rotation`
+  /`Lightning`/`Hail` variants. Collapsing the existing `qpe1h`/`qpe24h` layers into a single
+  picker-driven entry was deliberately avoided here — it would change the on-disk layer slug for
+  two long-lived layers and risk breaking saved workspaces/settings that reference them by slug.
+  A true picker (one `FieldLayer::Qpe` + a window setting, `FetchMapping`-style) is still open if
+  wanted; verified live that all five window paths (`CONUS/MultiSensor_QPE_{01,03,06,12,24}H_Pass2_00.00`)
+  resolve against the real MRMS S3 bucket.
 - [x] valid time — `ui::data_inspector`'s "Valid" row, with signed offset from the pane's analysis
   time
 - [x] native resolution — `GridProvenance.native`, shown as part of the same inspector's grid
@@ -958,9 +963,9 @@ Do not fabricate 3D from a 2D surface product.
 - [x] new scalar MRMS product can be added through catalog metadata with minimal/no new UI code —
   true for the fetch/decode/search/legend-palette/provenance path; D3's per-product UI niceties
   (an accumulation-window picker) are not automatic yet, only the core plumbing
-- [ ] at least the major WeatherFront-class MRMS groups are covered — 11 products across
-  reflectivity/severe/precipitation/lightning/hydrology; several groups from D1's own target list
-  (echo tops, VIL, layer heights, POSH, streamflow, most QPE accumulation windows) are not
+- [ ] at least the major WeatherFront-class MRMS groups are covered — 14 products across
+  reflectivity/severe/precipitation/lightning/hydrology (QPE now spans 1h/3h/6h/12h/24h); several
+  groups from D1's own target list (echo tops, VIL, layer heights, POSH, streamflow) are not
 - [x] categorical fields use nearest-neighbor
 - [x] all products show exact valid time and units — `DataStamp` + `Unit::symbol`
 

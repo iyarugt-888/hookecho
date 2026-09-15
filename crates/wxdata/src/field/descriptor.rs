@@ -130,6 +130,7 @@ pub enum PaletteId {
     LightningDensity,
     PrecipitationRate,
     Precipitation1h,
+    PrecipitationAccum,
     Precipitation24h,
     PrecipitationType,
     FloodRecurrence,
