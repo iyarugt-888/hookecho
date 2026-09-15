@@ -37,10 +37,13 @@ fn main() -> eframe::Result<()> {
     hookecho::perf::mark_start();
     // zbus (via ksni, notify-rust, ashpd, accesskit) logs every D-Bus dispatch at INFO through
     // tracing-log, which buried this app's own lines. RUST_LOG still overrides the lot.
-    env_logger::Builder::from_env(
+    //
+    // `devlog::install_native` wraps this builder rather than calling its own `.init()`: terminal
+    // output and `RUST_LOG` filtering are exactly as before, plus every record that passes the
+    // filter is also captured for `HOOKECHO_DEVLOG` (see that module's doc comment) to ship out.
+    hookecho::devlog::install_native(env_logger::Builder::from_env(
         env_logger::Env::default().default_filter_or("info,zbus=warn,tracing=warn,ksni=warn"),
-    )
-    .init();
+    ));
     // A panic on the desktop goes to a terminal nobody launched the app from; leave a report the
     // next start can offer back instead.
     hookecho::crash::install_hook();
@@ -104,8 +107,28 @@ fn main() -> eframe::Result<()> {
         // `--public` serves the site's preset frames to callers with no token, and 403s
         // everything else. Without it a token still means "all or nothing".
         let public = args.iter().any(|a| a == "--public");
+        // Ships this process's own logs too, if `HOOKECHO_DEVLOG` says to — a `--serve` box has
+        // no terminal anyone is watching either.
+        hookecho::devlog::maybe_spawn_native_shipper();
         if let Err(e) = hookecho::serve::run(spots, bind, port, web_root, token, public) {
             eprintln!("serve failed: {e}");
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
+
+    // Developer log admin panel: `hookecho --devlog-serve [PORT] [--bind ADDR]` — the viewer
+    // `HOOKECHO_DEVLOG`/`?devlog=` ship to. Loopback by default, same posture as `--serve`; a
+    // separate process and a separate port so the main app's own UI never carries this.
+    if let Some(pos) = args.iter().position(|a| a == "--devlog-serve") {
+        let port = args
+            .get(pos + 1)
+            .filter(|a| !a.starts_with("--"))
+            .and_then(|p| p.parse::<u16>().ok())
+            .unwrap_or(8884);
+        let bind = flag_value(&args, "--bind").unwrap_or("127.0.0.1");
+        if let Err(e) = hookecho::devlog_admin::run(bind, port) {
+            eprintln!("devlog-serve failed: {e}");
             std::process::exit(1);
         }
         return Ok(());
@@ -1011,6 +1034,7 @@ fn main() -> eframe::Result<()> {
         std::env::set_var("HOOKECHO_GOTO", link);
     }
     single_instance::listen();
+    hookecho::devlog::maybe_spawn_native_shipper();
 
     hookecho::run_desktop()
 }

@@ -6951,6 +6951,13 @@ impl HookEchoApp {
             return Vec::new(); // no dual-pol CC on this volume (legacy pre-dual-pol, or TDWR)
         }
         let hits = wxdata::tds::detect_volume(&pairs, 0.80, 40.0, 150.0, 4);
+        let site = self.views[idx].site.as_deref().unwrap_or("?");
+        log::debug!(
+            target: "wxdata::tds",
+            "{site}: {} tilt(s) scanned, {} debris signature(s)",
+            pairs.len(),
+            hits.len(),
+        );
         // Rising-edge alert.
         let now_active = !hits.is_empty();
         if now_active && !self.tds_active {
@@ -6958,6 +6965,14 @@ impl HookEchoApp {
             use std::io::Write;
             let _ = std::io::stdout().flush();
             let best = hits[0]; // sorted strongest-first (by confidence)
+            log::info!(
+                target: "wxdata::tds",
+                "{site}: TDS detected — {:.0}% confidence, {} tilt{}, lofted to {:.1} km",
+                best.confidence * 100.0,
+                best.tilts,
+                if best.tilts == 1 { "" } else { "s" },
+                best.top_km,
+            );
             self.banner(
                 "⚠ TDS detected".to_string(),
                 format!(
@@ -6978,6 +6993,8 @@ impl HookEchoApp {
             if self.settings.alert_sound {
                 self.play_alert_urgent(&self.settings.tds_sound.clone());
             }
+        } else if self.tds_active && !now_active {
+            log::debug!(target: "wxdata::tds", "{site}: TDS cleared");
         }
         self.tds_active = now_active;
         hits
@@ -7148,14 +7165,27 @@ impl HookEchoApp {
         // usable range band (nearer, clutter fakes couplets; farther, the beam is too high and
         // too coarsely sampled).
         let hits = wxdata::rotation::detect_volume(&pairs, 25.0, 20.0, 15.0, 150.0, 3);
+        let site = self.views[idx].site.clone().unwrap_or_default();
+        log::debug!(
+            target: "wxdata::rotation",
+            "{site}: {} tilt(s) scanned, {} couplet(s)",
+            pairs.len(),
+            hits.len(),
+        );
         let now_active = !hits.is_empty();
         if now_active && !self.rot_active {
             let h = hits[0]; // sorted strongest-first (by confidence, now that height/depth count)
-            let site = self.views[idx].site.clone().unwrap_or_default();
             let kt = h.vrot_ms * 1.943_844;
             let (km, bearing) =
                 crate::geo::great_circle([radar_lon as f64, radar_lat as f64], [h.lon, h.lat]);
             let where_ = format!("{:.0} km {} of {site}", km, cardinal(bearing));
+            log::info!(
+                target: "wxdata::rotation",
+                "{site}: rotation detected — {kt:.0} kt, {where_}, {:.0}% confidence, {} tilt{}",
+                h.confidence * 100.0,
+                h.tilts,
+                if h.tilts == 1 { "" } else { "s" },
+            );
             self.banner(
                 "⟳ Rotation detected".to_string(),
                 format!(
@@ -7173,6 +7203,8 @@ impl HookEchoApp {
             if self.settings.alert_sound {
                 self.play_alert_urgent(&self.settings.rotation_sound.clone());
             }
+        } else if self.rot_active && !now_active {
+            log::debug!(target: "wxdata::rotation", "{site}: rotation cleared");
         }
         self.rot_active = now_active;
         self.rotation_near_you(&hits);
@@ -10171,6 +10203,11 @@ impl HookEchoApp {
                                 false
                             }
                         };
+                    log::debug!(
+                        target: "hookecho::live_sweep",
+                        "{}: volume loaded {name} ({time}), live_poll={live_poll}",
+                        v.site.as_deref().unwrap_or("?"),
+                    );
                     // While looping, the playhead frame owns the display; a genuinely new head is
                     // only appended, not shown. Every other case updates the displayed volume.
                     if !(looping && new_head) {
@@ -10217,6 +10254,15 @@ impl HookEchoApp {
                     if v.timeline.playing {
                         continue; // looping pane owns its displayed frame (cf. Volume above)
                     }
+                    log::debug!(
+                        target: "hookecho::live_sweep",
+                        "{}: live chunk merged into {name} ({time}), {} tilt(s) changed, \
+                         decode {:.0} ms, {retries} retr{}",
+                        v.site.as_deref().unwrap_or("?"),
+                        changed.len(),
+                        decode_time.as_secs_f64() * 1000.0,
+                        if retries == 1 { "y" } else { "ies" },
+                    );
                     match &mut v.volume {
                         Some(vol) => vol.apply_live(scan, name, time, &changed),
                         None => v.volume = Some(Volume::new(scan, name, time)),

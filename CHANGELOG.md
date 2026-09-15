@@ -8,6 +8,31 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: a developer log — every `log::` call, filterable and searchable, on its own admin panel
+
+A live-sweep stall, a TDS/TVS false trip, or an error only a browser instance somewhere ever hit
+used to mean asking whoever saw it to paste a console — if the log line even existed at all.
+`hookecho --devlog-serve [PORT]` (default 8884) now starts a small standalone admin panel, in the
+spirit of `--serve`'s own dashboard rather than a window bolted onto the app: filter by severity
+(warn and worse, say), by category (`wxdata::tds`, `wxdata::rotation`, `hookecho::live_sweep`, or
+any other module path — nothing to register, `record.target()` already carries it), by which
+running instance said it, and free-text search across the message, with a live tail that follows
+new lines as they arrive.
+
+Every native and web launch can ship its own buffered log lines there: `HOOKECHO_DEVLOG=1` (or a
+URL, for a viewer on another machine) on the desktop app or `--serve`, `?devlog=<url>` in the page
+URL for the web build — including a deployed build on a different origin than the admin panel,
+which is the ordinary case for the web build and needed its own CORS preflight handling to work at
+all. Off by default, like every network-facing thing in this app: nothing opens a socket or reads
+an env var for this unless asked to.
+
+Two subsystems that ran silently before now actually say something: TDS and TVS/rotation detection
+log a debug line every volume they scan and an info line on the rising edge of a real detection
+(the same rising-edge alert that already fires the banner and chime), and the live-sweep pipeline
+logs each arriving chunk and completed volume load. All of it reaches the terminal or browser
+console exactly as before — capture wraps the existing logger rather than replacing it, so nothing
+here changes what a call site already said, only where else it can end up.
+
 ### Fixed: the Layers panel's search results could render nothing at all
 
 - Reported live: typing a query that matched more than about one entry showed the search box and

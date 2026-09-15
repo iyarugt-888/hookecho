@@ -26,6 +26,12 @@ pub mod colormap;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod crash;
 pub mod daynight_draw;
+/// Capture of every `log::` record into a small buffer, and its opt-in shipping to
+/// [`devlog_admin`] — see that module's doc comment for the whole picture.
+pub mod devlog;
+/// `--devlog-serve`: the standalone admin panel [`devlog`] ships to.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod devlog_admin;
 pub mod dialog;
 pub mod digest;
 /// Terrain heights (DEM) and the beam-vs-terrain blockage raster.
@@ -215,8 +221,11 @@ pub fn tessellate_vector_tile(payload: Vec<u8>) -> Result<Vec<u8>, wasm_bindgen:
 pub async fn start(canvas_id: String) -> Result<(), wasm_bindgen::JsValue> {
     use wasm_bindgen::JsCast as _;
     console_error_panic_hook::set_once();
-    // Browser console logging: the app logs through `log`, same as everywhere else.
-    let _ = console_log::init_with_level(log::Level::Info);
+    // Browser console logging: the app logs through `log`, same as everywhere else. `devlog`
+    // wraps `console_log` rather than replacing it, so this is unchanged apart from also
+    // capturing into the buffer `?devlog=` (see the module doc) can opt into shipping out.
+    devlog::install_wasm(log::Level::Info);
+    devlog::maybe_spawn_wasm_shipper();
 
     // nexrad-data builds its S3 URLs itself and fetches them directly, which is the one feed path
     // that never saw `net::fetch_url`. Point it at the same same-origin proxy as everything else:
