@@ -417,6 +417,68 @@ pub fn spawn_auto_cache_put(name: String, bytes: Vec<u8>) {
     });
 }
 
+/// What the Storage tab reads for the automatic archive-volume cache: total bytes, entry count,
+/// and whether a measurement has ever completed. Same "ask once, fill later" shape as `STATE`
+/// below, kept separate because the auto-cache and the pack list refresh independently — clearing
+/// one has no reason to re-measure the other.
+#[cfg(target_arch = "wasm32")]
+static AUTO_CACHE_STATE: std::sync::Mutex<(u64, usize, bool)> =
+    std::sync::Mutex::new((0, 0, false));
+
+#[cfg(target_arch = "wasm32")]
+async fn refresh_auto_cache() {
+    let Ok(db) = open().await else { return };
+    let entries = auto_cache_entries(&db).await;
+    let bytes: u64 = entries.iter().map(|(_, m)| m.bytes as u64).sum();
+    if let Ok(mut s) = AUTO_CACHE_STATE.lock() {
+        *s = (bytes, entries.len(), true);
+    }
+}
+
+/// Bytes and entry count in the automatic archive-volume cache, for the Storage tab. The first
+/// call kicks off the read that fills them; until it lands this returns `(0, 0)`.
+#[cfg(target_arch = "wasm32")]
+pub fn known_auto_cache() -> (u64, usize) {
+    let asked = {
+        let Ok(mut s) = AUTO_CACHE_STATE.lock() else {
+            return (0, 0);
+        };
+        std::mem::replace(&mut s.2, true)
+    };
+    if !asked {
+        wasm_bindgen_futures::spawn_local(refresh_auto_cache());
+    }
+    AUTO_CACHE_STATE
+        .lock()
+        .map(|s| (s.0, s.1))
+        .unwrap_or((0, 0))
+}
+
+/// Force a fresh measurement of the automatic archive-volume cache, for the Storage tab's Refresh
+/// button — unlike [`known_auto_cache`], this re-measures even if one already landed.
+#[cfg(target_arch = "wasm32")]
+pub fn spawn_refresh_auto_cache() {
+    wasm_bindgen_futures::spawn_local(refresh_auto_cache());
+}
+
+/// Delete every entry in the automatic archive-volume cache, then re-measure it so the Storage tab
+/// reflects the clear without a separate Refresh click.
+#[cfg(target_arch = "wasm32")]
+pub fn spawn_clear_auto_cache() {
+    wasm_bindgen_futures::spawn_local(async {
+        if let Ok(db) = open().await {
+            for name in [AUTO_VOLUMES, AUTO_VOLUMES_META] {
+                if let Ok(s) = store(&db, name, IdbTransactionMode::Readwrite) {
+                    if let Ok(req) = s.clear() {
+                        let _ = await_request(req).await;
+                    }
+                }
+            }
+        }
+        refresh_auto_cache().await;
+    });
+}
+
 /// What the UI reads: the packs on hand and the last progress line. Filled by the async saves and
 /// loads, which have nowhere else to put a result — the picker is drawn from a `&mut self` the
 /// spawned task cannot hold.

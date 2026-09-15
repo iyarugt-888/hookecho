@@ -8,6 +8,23 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: a Storage settings tab for the web build
+
+The Settings window's Storage tab — cache sizes and their Clear buttons — was `#[cfg(not(wasm32))]`
+outright, so the web build had no Storage tab at all, even though it has been quietly filling
+IndexedDB since the archive-volume auto-cache shipped (`webcache.rs`'s `auto_cached_volume`): a
+chaser on the web build had no way to see how much space that cache held, let alone clear it,
+short of the browser's own site-data settings.
+
+The tab is now unconditional. On the web build it shows two rows: "Auto-cache" (the automatic
+archived-volume cache, with a real Clear button — the one cache that had no UI of its own anywhere
+in the app) and "Offline packs" (saved loops, read-only here since they already have per-pack
+delete in the timeline's own archive menu). `storage::human` (byte formatting) moved out from under
+the module's native-only gate to be shared by both; the rest of `storage.rs` (the filesystem walk
+native uses for its own cache rows) stays native-only, unchanged. Verified live: opening Storage
+after some radar scrubbing showed "143.8 MB in IndexedDB" with "Auto-cache 143.8 MB — 26 volumes";
+Clear brought both down to "0 B" immediately, no reload needed.
+
 ### Added: favorites — a pin/star for layers
 
 ROADMAP_NEW D3 called out "favorites — no pin/star affordance exists" as the other half of the

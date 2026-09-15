@@ -356,7 +356,12 @@ parallel implementations of the same idea.
 - [x] immutable object cache for archived frames — radar archive volumes only
 - [ ] partial/range-response caching where useful for GRIB
 - [ ] checksum/content-length verification when available
-- [ ] storage statistics in existing Storage UI
+- [x] storage statistics in existing Storage UI — new this pass, see the Unreleased CHANGELOG
+  entry: the Storage tab (cache sizes plus Clear buttons) was native-only outright; it's now
+  unconditional, with a web-build view of `webcache.rs`'s IndexedDB stores (auto-cache bytes/count
+  with a Clear button, offline-pack bytes/count read-only since per-pack delete already lives in
+  the timeline's archive menu). Verified live: 143.8 MB / 26 volumes shown after scrubbing, Clear
+  brought it to 0 B with no reload.
 
 ### Acceptance criteria
 

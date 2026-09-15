@@ -16,7 +16,6 @@ enum Tab {
     Alerts,
     Hotkeys,
     Sync,
-    #[cfg(not(target_arch = "wasm32"))]
     Storage,
 }
 
@@ -84,6 +83,8 @@ impl SettingsWindow {
             {
                 self.storage_rows = None; // and re-measure the caches, which move between visits
             }
+            #[cfg(target_arch = "wasm32")]
+            crate::webcache::spawn_refresh_auto_cache();
         }
         self.prev_open = self.open;
 
@@ -112,7 +113,6 @@ impl SettingsWindow {
                     (Tab::Alerts, "Alerts"),
                     (Tab::Hotkeys, "Hotkeys"),
                     (Tab::Sync, "Sync"),
-                    #[cfg(not(target_arch = "wasm32"))]
                     (Tab::Storage, "Storage"),
                 ] {
                     // Chips on the phone: a `selectable_value` is a text-height target, and
@@ -135,7 +135,6 @@ impl SettingsWindow {
                 Tab::Alerts => alerts_tab(ui, settings),
                 Tab::Hotkeys => self.hotkeys_tab(ui, settings, entries),
                 Tab::Sync => action = sync_tab(ui, settings, &sync),
-                #[cfg(not(target_arch = "wasm32"))]
                 Tab::Storage => self.storage_tab(ui, settings),
             }
         });
@@ -252,6 +251,68 @@ impl SettingsWindow {
             });
         }
         ui.weak("New limits apply at the next start.");
+    }
+
+    /// What the browser has put in IndexedDB. Offline packs already have per-pack delete in the
+    /// timeline's archive popup (`\u{22ef}`), so this shows their total rather than duplicating
+    /// that control here; the automatic archive-volume cache has no other UI anywhere, so it gets
+    /// a real Clear button.
+    #[cfg(target_arch = "wasm32")]
+    fn storage_tab(&mut self, ui: &mut egui::Ui, _settings: &mut Settings) {
+        let (auto_bytes, auto_count) = crate::webcache::known_auto_cache();
+        let packs = crate::webcache::known_packs();
+        let pack_bytes: u64 = packs.iter().map(|p| p.bytes as u64).sum();
+
+        ui.horizontal(|ui| {
+            ui.strong(format!(
+                "{} in IndexedDB",
+                crate::storage::human(auto_bytes + pack_bytes)
+            ));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button("Refresh").clicked() {
+                    crate::webcache::spawn_refresh_auto_cache();
+                }
+            });
+        });
+        ui.weak("Everything here is re-downloadable. Clearing costs the next fetch, nothing else.");
+        ui.separator();
+
+        // Label and Clear share a row, but the byte/count readout gets its own line below rather
+        // than fighting the label for the same row's width — this window is narrow enough (see
+        // the Layers panel's own width fights) that a long label plus a right-aligned readout on
+        // one line draws the two on top of each other instead of wrapping.
+        ui.horizontal(|ui| {
+            ui.label("Auto-cache");
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button("Clear").clicked() {
+                    crate::webcache::spawn_clear_auto_cache();
+                }
+            });
+        })
+        .response
+        .on_hover_text(
+            "Archived (never-live) volumes you've scrubbed to, kept so revisiting the same hour \
+             re-reads them instead of re-fetching from the archive.",
+        );
+        ui.weak(format!(
+            "{} \u{2014} {} volume{}",
+            crate::storage::human(auto_bytes),
+            auto_count,
+            if auto_count == 1 { "" } else { "s" }
+        ));
+
+        ui.add_space(4.0);
+        ui.label("Offline packs")
+            .on_hover_text(
+                "Loops you saved for offline playback. Manage them from the timeline's archive \
+                 menu (\u{22ef}).",
+            );
+        ui.weak(format!(
+            "{} \u{2014} {} pack{}",
+            crate::storage::human(pack_bytes),
+            packs.len(),
+            if packs.len() == 1 { "" } else { "s" }
+        ));
     }
 
     /// Rebindable keyboard shortcuts. Rows come from the binding table itself, so anything the

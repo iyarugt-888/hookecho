@@ -85,8 +85,9 @@ pub mod stationlayer;
 /// The `--status` report; native only — it builds its own runtime.
 #[cfg(not(target_arch = "wasm32"))]
 pub mod status;
-/// Cache sizes and the buttons that clear them; needs a filesystem, so not on the web.
-#[cfg(not(target_arch = "wasm32"))]
+/// Cache sizes and the buttons that clear them. Most of it needs a filesystem and is native-only;
+/// `storage::human` (byte formatting) is plain and shared with the web build's own IndexedDB
+/// storage stats in the Storage settings tab.
 pub mod storage;
 pub mod textview;
 pub mod theme;

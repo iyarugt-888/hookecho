@@ -8,9 +8,11 @@
 //! Sizes come from a directory walk, which on a full 2 GB tile cache is tens of thousands of
 //! files. That runs on a background thread, once, when the tab is opened — never per frame.
 
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::{Path, PathBuf};
 
 /// One row of the storage report.
+#[cfg(not(target_arch = "wasm32"))]
 pub struct Entry {
     pub label: &'static str,
     pub path: PathBuf,
@@ -21,6 +23,7 @@ pub struct Entry {
 
 /// Total bytes of every file under `root`, following subdirectories. Missing directories are 0,
 /// not an error — a cache nothing has written to yet simply doesn't exist.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn dir_size(root: &Path) -> u64 {
     let Ok(rd) = std::fs::read_dir(root) else {
         return 0;
@@ -35,6 +38,7 @@ pub fn dir_size(root: &Path) -> u64 {
 }
 
 /// Every cache the app writes, measured. Blocking — call it off the UI thread.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn report() -> Vec<Entry> {
     let Some(root) = crate::paths::cache_dir() else {
         return Vec::new();
@@ -87,6 +91,7 @@ pub fn report() -> Vec<Entry> {
 
 /// Delete a cache directory's contents. The directory itself is recreated, because the writers
 /// that use it assume it exists.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn clear(path: &Path) -> std::io::Result<()> {
     if path.is_dir() {
         std::fs::remove_dir_all(path)?;
