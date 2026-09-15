@@ -302,19 +302,31 @@ impl FieldLayer {
             return Some(&product.field);
         }
         use wxdata::model::ModelField as MF;
-        Some(
-            match self {
-                FieldLayer::Hrrr => MF::CompositeReflectivity,
-                FieldLayer::Cape => MF::SurfaceCape,
-                FieldLayer::Srh => MF::Srh3km,
-                FieldLayer::UpdraftHelicity => MF::UpdraftHelicity,
-                FieldLayer::Smoke => MF::Smoke,
-                FieldLayer::Snowfall => MF::Snowfall,
-                FieldLayer::ThunderProb => MF::ThunderProbability,
-                _ => return None,
-            }
-            .descriptor(),
-        )
+        if let Some(mf) = match self {
+            FieldLayer::Hrrr => Some(MF::CompositeReflectivity),
+            FieldLayer::Cape => Some(MF::SurfaceCape),
+            FieldLayer::Srh => Some(MF::Srh3km),
+            FieldLayer::UpdraftHelicity => Some(MF::UpdraftHelicity),
+            FieldLayer::Smoke => Some(MF::Smoke),
+            FieldLayer::Snowfall => Some(MF::Snowfall),
+            FieldLayer::ThunderProb => Some(MF::ThunderProbability),
+            _ => None,
+        } {
+            return Some(mf.descriptor());
+        }
+        use wxdata::global::GlobalField as GF;
+        if let Some(gf) = match self {
+            FieldLayer::GlobalMslp => Some(GF::Mslp),
+            FieldLayer::GlobalHeight500 => Some(GF::Height500),
+            FieldLayer::GlobalTemp2m => Some(GF::Temp2m),
+            FieldLayer::GlobalDewpoint2m => Some(GF::Dewpoint2m),
+            FieldLayer::GlobalWind10m => Some(GF::Wind10m),
+            FieldLayer::GlobalPrecip => Some(GF::Precip),
+            _ => None,
+        } {
+            return Some(gf.descriptor());
+        }
+        None
     }
 
     pub fn slug(self) -> &'static str {

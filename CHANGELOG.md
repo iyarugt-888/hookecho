@@ -8,6 +8,28 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: field-registry metadata for the global-model comparison layers
+
+ROADMAP_NEW A1's last open migration item: `wxdata::global::GlobalField` (MSLP, 500 hPa height,
+2 m temp/dewpoint, 10 m wind, precipitable water — the fields `fielddiff.rs`'s GFS/ECMWF compare
+and difference layers read) had no `FieldDescriptor`, unlike the HRRR/RAP fields a prior pass
+already migrated. Gave it one, the same way: a `GlobalField::descriptor()` table under a new
+`DataSource::GlobalModels` (GFS/ECMWF/GEFS/GDPS span multiple agencies, so this names the class of
+model rather than one publisher). `FieldLayer::descriptor()` now resolves the six `Global*` layers
+through it, so they get provenance (`ui::data_inspector`), fuzzy search, and palette-by-metadata
+for free — the same win the HRRR/RAP migration already banked. Two new `Unit`/three new
+`PaletteId` values (`MetersPerSecond`; `Height500`, `Wind10m`, `PrecipitableWater`) cover the
+fields that had no shared palette identity yet; MSLP/temperature/dewpoint reuse the regional
+fields' existing `PaletteId`s, since it's the same physical quantity on the same ramp either way.
+
+`fielddiff.rs`'s own `DiffField::units`/`range`/`input_scale` — which describe the *difference*
+in forecaster-facing display units (hPa, dam, kt), not the source field's native GRIB units — are
+a genuinely different concept from a field's own descriptor and were deliberately left alone
+rather than folded into this migration. Verified with a new descriptor-completeness test
+(`every_global_field_has_a_unique_searchable_descriptor`) and a palette-preservation test
+confirming all six `Global*` layers still draw with the exact ramp they always did
+(`global_catalog_palettes_preserve_existing_scales`).
+
 ### Added: a CAPPI-altitude reference plane in the 3D view
 
 ROADMAP_NEW H4's last open item: the CAPPI window has sliced the volume at a constant altitude

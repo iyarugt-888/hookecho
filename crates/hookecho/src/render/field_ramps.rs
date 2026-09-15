@@ -772,6 +772,9 @@ pub fn ramp_for(layer: FieldLayer) -> Option<&'static FieldRamp> {
             PaletteId::MeanSeaLevelPressure => Some(&GLOBAL_MSLP),
             PaletteId::Temperature => Some(&GLOBAL_TEMP_2M),
             PaletteId::Dewpoint => Some(&GLOBAL_DEWPOINT_2M),
+            PaletteId::Height500 => Some(&GLOBAL_HEIGHT_500),
+            PaletteId::Wind10m => Some(&GLOBAL_WIND_10M),
+            PaletteId::PrecipitableWater => Some(&GLOBAL_PRECIP),
         };
     }
     Some(match layer {
@@ -882,6 +885,28 @@ mod tests {
         }
         assert!(FieldLayer::Hrrr.descriptor().is_some());
         assert!(ramp_for(FieldLayer::Hrrr).is_none());
+    }
+
+    /// Phase A1's global-model migration: the six `Global*` layers must resolve through
+    /// `GlobalField::descriptor` (provenance, search, palette) rather than the old bare
+    /// fallback-match arms, while still drawing with the exact same ramp those arms named —
+    /// migrating the metadata must not silently swap in a different color scale.
+    #[test]
+    fn global_catalog_palettes_preserve_existing_scales() {
+        for (layer, expected) in [
+            (FieldLayer::GlobalMslp, &GLOBAL_MSLP),
+            (FieldLayer::GlobalHeight500, &GLOBAL_HEIGHT_500),
+            (FieldLayer::GlobalTemp2m, &GLOBAL_TEMP_2M),
+            (FieldLayer::GlobalDewpoint2m, &GLOBAL_DEWPOINT_2M),
+            (FieldLayer::GlobalWind10m, &GLOBAL_WIND_10M),
+            (FieldLayer::GlobalPrecip, &GLOBAL_PRECIP),
+        ] {
+            assert!(layer.descriptor().is_some(), "{layer:?}");
+            assert!(
+                std::ptr::eq(ramp_for(layer).unwrap(), expected),
+                "{layer:?}"
+            );
+        }
     }
 
     /// Only the two Kelvin-wire fields ask the legend to convert; every other ramp's `lo`/`hi`

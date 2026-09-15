@@ -9,6 +9,10 @@ pub enum DataSource {
     NoaaMrms,
     /// NOAA/NCEP regional and blended numerical guidance (HRRR, RAP, NAM and NBM).
     NoaaNcepModels,
+    /// Deterministic and ensemble global models (GFS, ECMWF open IFS, GEFS, GDPS) — genuinely
+    /// multi-agency (ECMWF is European, GDPS is Environment Canada's), so this names the class of
+    /// model rather than a single publisher the way `NoaaNcepModels` can.
+    GlobalModels,
 }
 
 impl DataSource {
@@ -16,6 +20,7 @@ impl DataSource {
         match self {
             Self::NoaaMrms => "noaa-mrms",
             Self::NoaaNcepModels => "noaa-ncep-models",
+            Self::GlobalModels => "global-models",
         }
     }
 
@@ -23,6 +28,7 @@ impl DataSource {
         match self {
             Self::NoaaMrms => "NOAA MRMS",
             Self::NoaaNcepModels => "NOAA/NCEP models",
+            Self::GlobalModels => "Global models (GFS/ECMWF/GEFS/GDPS)",
         }
     }
 }
@@ -73,6 +79,7 @@ pub enum Unit {
     Pascals,
     Kelvin,
     Percent,
+    MetersPerSecond,
 }
 
 impl Unit {
@@ -95,6 +102,7 @@ impl Unit {
             Self::Pascals => "Pa",
             Self::Kelvin => "K",
             Self::Percent => "%",
+            Self::MetersPerSecond => "m/s",
         }
     }
 
@@ -143,6 +151,9 @@ pub enum PaletteId {
     MeanSeaLevelPressure,
     Temperature,
     Dewpoint,
+    Height500,
+    Wind10m,
+    PrecipitableWater,
 }
 
 #[derive(Debug)]

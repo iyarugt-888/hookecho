@@ -251,14 +251,23 @@ here rather than rebuilt.
 
 Migrate existing:
 
-- [x] MRMS fields from `crates/wxdata/src/mrms.rs` — `wxdata::mrms::catalog`, 11 products,
+- [x] MRMS fields from `crates/wxdata/src/mrms.rs` — `wxdata::mrms::catalog`, 14 products,
   generated Layers-panel/search rows, feed-contract-tested (see Phase D below)
 - [x] HRRR/RAP gridded fields — all 12 existing `wxdata::model::ModelField` meanings now expose a
   `FieldDescriptor` with stable ID, typed NOAA/NCEP source, units, value kind, aliases, palette and
   contour default. The map's HRRR/RAP/NBM layers resolve those descriptors, and the contour fetch
   path no longer maintains a second literal GRIB/interval table. Provider-specific availability
   and GRIB spelling remain in `ModelField::grib`, where feed contract tests already cover them.
-- [ ] global model fields used by `fielddiff.rs` — same gap, not migrated
+- [x] global model fields used by `fielddiff.rs` — `wxdata::global::GlobalField` (Mslp/Height500/
+  Temp2m/Dewpoint2m/Wind10m/Precip) now expose a `FieldDescriptor` the same way, under a new
+  `DataSource::GlobalModels` (GFS/ECMWF/GEFS/GDPS aren't one publisher, so this names the class of
+  model rather than a single agency the way `NoaaNcepModels` could). `FieldLayer::descriptor()`
+  resolves the six `Global*` layers through it, so they pick up provenance
+  (`ui::data_inspector`)/search/palette-by-metadata for free, same as the HRRR/RAP row above.
+  `fielddiff.rs`'s own difference-specific display scaling (`DiffField::units`/`range`/
+  `input_scale`, which describe the *subtracted* value in forecaster-facing units like hPa/dam/kt,
+  not the field's own native GRIB units) is a genuinely separate concept from a source field's
+  descriptor and is correctly left as its own table, not folded in.
 
 Do not migrate every layer at once. Prove the registry on those three families, then use it for all new work.
 

@@ -156,7 +156,113 @@ impl GlobalField {
             GlobalField::Precip => ("Precip-Accum", "Sfc"),
         }
     }
+
+    /// Source-independent field metadata (Phase A1) shared by every global model that publishes
+    /// this quantity — the same pattern `wxdata::model::ModelField::descriptor` established for
+    /// HRRR/RAP's regional fields. Provider-specific wire spelling stays in `gfs_key`/`ecmwf_key`/
+    /// `gdps_key` above; this owns presentation (units, palette, contour default) instead.
+    pub fn descriptor(self) -> &'static crate::field::FieldDescriptor {
+        GLOBAL_FIELD_DEFS
+            .iter()
+            .find(|entry| entry.global_field == self)
+            .map(|entry| &entry.descriptor)
+            .expect("every GlobalField has a FieldDescriptor")
+    }
 }
+
+struct GlobalFieldEntry {
+    global_field: GlobalField,
+    descriptor: crate::field::FieldDescriptor,
+}
+
+macro_rules! global_field {
+    ($kind:ident, $id:literal, $name:literal, $description:literal, $units:ident,
+     $aliases:literal, $palette:ident, $interval:expr) => {
+        GlobalFieldEntry {
+            global_field: GlobalField::$kind,
+            descriptor: crate::field::FieldDescriptor {
+                id: crate::field::FieldId($id),
+                source: crate::field::DataSource::GlobalModels,
+                family: crate::field::FieldFamily::Model,
+                name: $name,
+                description: $description,
+                units: crate::field::Unit::$units,
+                value_kind: crate::field::ValueKind::Scalar,
+                aliases: $aliases,
+                default_palette: crate::field::PaletteId::$palette,
+                default_contour_interval: $interval,
+                // The decoder has already converted GRIB bitmap/threshold exclusions to NaN.
+                missing_values: &[],
+            },
+        }
+    };
+}
+
+/// One entry per [`GlobalField`] variant. Native GRIB units (Pa, m, K, m/s) — the display-scaled
+/// units a legend actually shows (hPa, dam, kt) are a rendering concern the ramp's own
+/// `input_scale` applies, same split `wxdata::model`'s regional fields already use.
+static GLOBAL_FIELD_DEFS: &[GlobalFieldEntry] = &[
+    global_field!(
+        Mslp,
+        "global-mslp",
+        "MSLP",
+        "Atmospheric pressure reduced to mean sea level",
+        Pascals,
+        "surface pressure isobars synoptic PRMSL msl GFS ECMWF",
+        MeanSeaLevelPressure,
+        Some(200.0)
+    ),
+    global_field!(
+        Height500,
+        "global-height500",
+        "500 hPa height",
+        "Geopotential height at the 500 hPa pressure surface — the mid-level steering flow",
+        Meters,
+        "steering flow trough ridge HGT gh GFS ECMWF",
+        Height500,
+        Some(60.0)
+    ),
+    global_field!(
+        Temp2m,
+        "global-temp2m",
+        "2 m temperature",
+        "Air temperature two metres above ground",
+        Kelvin,
+        "surface temperature TMP 2t GFS ECMWF",
+        Temperature,
+        Some(2.0)
+    ),
+    global_field!(
+        Dewpoint2m,
+        "global-dewpoint2m",
+        "2 m dewpoint",
+        "Dewpoint temperature two metres above ground",
+        Kelvin,
+        "surface moisture DPT 2d GFS ECMWF",
+        Dewpoint,
+        Some(2.0)
+    ),
+    global_field!(
+        Wind10m,
+        "global-wind10m",
+        "10 m wind",
+        "Wind speed ten metres above ground",
+        MetersPerSecond,
+        "surface wind UGRD 10u GFS ECMWF",
+        Wind10m,
+        None
+    ),
+    global_field!(
+        Precip,
+        "global-precip",
+        "Precipitable water",
+        "Total column water vapor — how wet the air mass is, not how much has fallen",
+        Millimeters,
+        "moisture PWAT tp GFS ECMWF",
+        PrecipitableWater,
+        None
+    ),
+];
 
 /// One decoded global field plus the cycle it came from.
 pub struct GlobalForecast {
@@ -500,6 +606,28 @@ mod tests {
             assert_eq!(GlobalField::from_slug(f.slug()), Some(f));
         }
         assert_eq!(GlobalField::from_slug("nope"), None);
+    }
+
+    /// Phase A1: every `GlobalField` must resolve to a real, uniquely-identified
+    /// `FieldDescriptor` under the shared `GlobalModels` source — the same completeness check
+    /// `wxdata::model`'s `ModelField` table runs for HRRR/RAP's regional fields.
+    #[test]
+    fn every_global_field_has_a_unique_searchable_descriptor() {
+        use crate::field::{DataSource, FieldFamily};
+        let mut ids = std::collections::HashSet::new();
+        for f in GlobalField::ALL {
+            let d = f.descriptor();
+            assert!(!d.id.0.is_empty(), "{f:?}");
+            assert_eq!(d.source, DataSource::GlobalModels);
+            assert_eq!(d.family, FieldFamily::Model);
+            assert!(
+                d.search_text().contains("Global models"),
+                "{f:?} search text: {}",
+                d.search_text()
+            );
+            assert!(ids.insert(d.id), "{f:?} reuses another field's id");
+        }
+        assert_eq!(ids.len(), GlobalField::ALL.len());
     }
 
     /// Both sources, live, at the newest usable cycle.
