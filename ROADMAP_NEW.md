@@ -265,11 +265,12 @@ Do not migrate every layer at once. Prove the registry on those three families, 
   and by the Layers panel/search generating its MRMS rows straight from `catalog::PRODUCTS`
 - [x] the layer browser can search by product name, source, unit and category — `search_text()`
   folds all of these into one fuzzy-matched string
-- [ ] legends are created from product metadata — legends still come from a separate
-  `render::field_ramps` table keyed by `FieldLayer`, not from `FieldDescriptor` directly. Close in
-  spirit (`default_palette: PaletteId` is the intended seam) but a second MRMS-shaped product with
-  the same `PaletteId` would still need its own `FieldLayer` variant and ramp-table entry, not just
-  a descriptor.
+- [x] legends are created from product metadata — migrated layers resolve
+  `FieldDescriptor.default_palette` through `render::field_ramps::ramp_for`; both
+  `field_upload_indexed` (GPU colors) and `ui::legend::draw_field` consume that same `FieldRamp`.
+  `catalog_palettes_preserve_existing_scales` covers every migrated fixed ramp and the explicit
+  reflectivity/lightning paths, while `every_layer_is_either_ramped_or_explicitly_exempt` prevents
+  a new layer from silently shipping without a legend.
 - [x] sampling uses one common API — `FieldDescriptor::sample`, categorical/mask fields always
   nearest-neighbor, everything else bilinear
 - [x] provenance UI works for migrated products — `ui::data_inspector`, as above
