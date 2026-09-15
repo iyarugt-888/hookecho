@@ -7702,6 +7702,11 @@ impl HookEchoApp {
                 view.smooth = smooth;
             }
         }
+        ui.checkbox(&mut self.settings.live_scan_indicator, "Live sweep indicator")
+            .on_hover_text(
+                "Show an animated ring and tilt-progress bar next to the scrubber's Live badge \
+                 while a live chunk stream is actively updating this pane.",
+            );
         let (view, settings) = (&mut self.views[self.active], &mut self.settings);
 
         // A download in flight stays above the disclosure — progress you can't find reads as a hang.

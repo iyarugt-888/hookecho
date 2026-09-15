@@ -43,6 +43,7 @@ impl HookEchoApp {
             .is_some_and(|(v, _, _)| *v == self.active);
         // Read before `t` below takes its mutable borrow of the same view's `timeline` field.
         let live_progress = self.views[self.active].live_progress;
+        let show_live_indicator = self.settings.live_scan_indicator;
         // TDWR and DWD radars publish no archive, so their timeline is empty by design and stays
         // live. Saying "(no volumes)" there reads as a failed fetch while a live volume is on
         // screen; only a site that HAS an archive can be genuinely missing one.
@@ -241,6 +242,17 @@ impl HookEchoApp {
                             "Scrubbed to an archive day. Click to jump back to live.".to_string(),
                         )
                     };
+                    // The animated ring: "still connected, here's roughly how far through this
+                    // volume the radar is" at a glance, without reading the badge's own hover
+                    // text. Only while the same condition already turns the badge green — a ring
+                    // spinning next to a stale or archived badge would say the opposite of what's
+                    // actually happening.
+                    if show_live_indicator && t.following && fresh && streaming {
+                        if let Some(p) = live_progress {
+                            live_progress_ring(ui, p, accent);
+                            ui.add_space(2.0);
+                        }
+                    }
                     let badge = ui.add(
                         egui::Button::new(
                             egui::RichText::new(format!("● {text}"))
@@ -454,6 +466,38 @@ impl HookEchoApp {
                 if let Some(rect) = &mut scrub_rect {
                     *rect = rect.union(row.response.rect);
                 }
+                // The tilt-progress bar: how far the current live volume has scanned, as a
+                // fraction of its total elevations — the linear complement to the ring's glance
+                // read, precise enough to actually name the tilt in its hover text.
+                if show_live_indicator && t.following && fresh && streaming {
+                    if let Some(p) = live_progress {
+                        ui.add_space(3.0);
+                        let fraction = if p.total_elevations > 0 {
+                            p.elevation_number as f32 / p.total_elevations as f32
+                        } else {
+                            0.0
+                        };
+                        let bar = ui
+                            .add(
+                                egui::ProgressBar::new(fraction)
+                                    .desired_height(4.0)
+                                    .fill(accent)
+                                    .corner_radius(2.0),
+                            )
+                            .on_hover_text(format!(
+                                "Tilt {}/{} at {:.1}\u{b0} \u{2014} chunk {}/{} of the current \
+                                 sweep",
+                                p.elevation_number,
+                                p.total_elevations,
+                                p.elevation_angle_deg,
+                                p.chunk_index,
+                                p.chunks_in_sweep,
+                            ));
+                        if let Some(rect) = &mut scrub_rect {
+                            *rect = rect.union(bar.rect);
+                        }
+                    }
+                }
                 if narrow {
                     let status = if !t.following {
                         t.date.format("%Y-%m-%d").to_string()
@@ -485,6 +529,192 @@ impl HookEchoApp {
         if go_head {
             self.views[self.active].timeline.go_head();
         }
+    }
+}
+
+/// A small "still connected" ring beside the Live badge: a static arc showing how far the radar
+/// has scanned into the current volume (the same fraction the bar below it draws linearly), plus
+/// — unless motion is reduced — a short highlight segment that spins continuously while drawn, so
+/// "the stream is open and nothing has stalled" is visible without reading the badge's own hover
+/// text or watching the clock advance.
+///
+/// Static under [`crate::ui::motion::reduced`] rather than skipped outright: the progress arc
+/// still answers "what tilt", the spin is only what answers "is it alive right now", and reduced
+/// motion asked to drop the second question, not both of them.
+fn live_progress_ring(ui: &mut egui::Ui, p: wxdata::live::ScanProgress, accent: egui::Color32) {
+    const DIAM: f32 = 14.0;
+    let (rect, _response) = ui.allocate_exact_size(egui::vec2(DIAM, DIAM), egui::Sense::hover());
+    if !ui.is_rect_visible(rect) {
+        return;
+    }
+    let painter = ui.painter();
+    let center = rect.center();
+    let radius = DIAM / 2.0 - 1.2;
+    painter.circle_stroke(center, radius, egui::Stroke::new(1.4, egui::Color32::from_gray(90)));
+    let fraction = if p.total_elevations > 0 {
+        (p.elevation_number as f32 / p.total_elevations as f32).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    // 12 o'clock start, sweeping clockwise like a clock face — not egui's own angle convention
+    // (0 = 3 o'clock, increasing counter-clockwise).
+    ring_arc(
+        painter,
+        center,
+        radius,
+        -std::f32::consts::FRAC_PI_2,
+        fraction * std::f32::consts::TAU,
+        egui::Stroke::new(2.0, accent),
+    );
+    if !crate::ui::motion::reduced() {
+        let phase = ui.input(|i| i.time) as f32 * std::f32::consts::TAU * 0.5; // one turn ~2s
+        ring_arc(
+            painter,
+            center,
+            radius,
+            phase,
+            0.5,
+            egui::Stroke::new(2.0, egui::Color32::WHITE.gamma_multiply(0.9)),
+        );
+        ui.ctx().request_repaint();
+    }
+}
+
+/// A stroked arc from `start` (radians) sweeping `sweep` radians clockwise, sampled coarsely —
+/// this draws a 12-14 px ring, not a chart, so a handful of segments already looks smooth.
+fn ring_arc(
+    painter: &egui::Painter,
+    center: egui::Pos2,
+    radius: f32,
+    start: f32,
+    sweep: f32,
+    stroke: egui::Stroke,
+) {
+    let points = arc_points(center, radius, start, sweep);
+    if points.len() >= 2 {
+        painter.add(egui::Shape::line(points, stroke));
+    }
+}
+
+/// The polyline for [`ring_arc`], split out so the geometry is testable without a `Painter`.
+///
+/// `start` is in radians using egui's screen convention (Y grows downward, so increasing angle
+/// already turns clockwise as drawn) — `-FRAC_PI_2` is straight up, i.e. 12 o'clock, which is
+/// where every caller here starts a sweep so the ring reads like a clock face rather than egui's
+/// native 3-o'clock/counter-clockwise zero.
+fn arc_points(center: egui::Pos2, radius: f32, start: f32, sweep: f32) -> Vec<egui::Pos2> {
+    if sweep.abs() < 1e-3 {
+        return Vec::new();
+    }
+    let steps = ((sweep.abs() / std::f32::consts::TAU) * 48.0).ceil().max(4.0) as usize;
+    (0..=steps)
+        .map(|i| {
+            let t = start + sweep * (i as f32 / steps as f32);
+            center + egui::vec2(t.cos(), t.sin()) * radius
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod ring_tests {
+    use super::*;
+
+    /// The ring starts every sweep at 12 o'clock and reads clockwise as the fraction (elevation
+    /// number over total elevations) grows — this pins down that "clockwise" actually means what
+    /// it looks like on screen, not egui's own angle convention (0 = 3 o'clock, increasing
+    /// counter-clockwise), which would draw the exact opposite of a clock face.
+    #[test]
+    fn a_quarter_turn_from_twelve_lands_at_three_oclock() {
+        let center = egui::pos2(0.0, 0.0);
+        let radius = 10.0;
+        let points = arc_points(center, radius, -std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
+        let first = *points.first().unwrap();
+        let last = *points.last().unwrap();
+        assert!((first.x).abs() < 1e-3 && (first.y - (-radius)).abs() < 1e-3); // 12 o'clock
+        assert!((last.x - radius).abs() < 1e-3 && (last.y).abs() < 1e-3); // 3 o'clock
+    }
+
+    #[test]
+    fn a_full_turn_ends_where_it_started() {
+        let points = arc_points(egui::pos2(5.0, -3.0), 8.0, 0.3, std::f32::consts::TAU);
+        let first = *points.first().unwrap();
+        let last = *points.last().unwrap();
+        assert!((first.x - last.x).abs() < 1e-3);
+        assert!((first.y - last.y).abs() < 1e-3);
+    }
+
+    /// A stalled or brand-new pane (no progress arc yet) must draw nothing rather than a
+    /// zero-length line egui would otherwise be asked to stroke.
+    #[test]
+    fn zero_sweep_draws_nothing() {
+        assert!(arc_points(egui::pos2(0.0, 0.0), 10.0, 0.0, 0.0).is_empty());
+    }
+
+    /// The widget's actual paint output, not just its geometry helper: a mid-volume scan has to
+    /// produce both the background track (a full circle) and the progress arc (a path) — the two
+    /// pieces someone glancing at the pill actually sees, as opposed to `arc_points` returning
+    /// sensible numbers nobody ever painted.
+    #[test]
+    fn live_progress_ring_paints_the_track_and_the_progress_arc() {
+        let ctx = egui::Context::default();
+        let progress = wxdata::live::ScanProgress {
+            elevation_number: 3,
+            total_elevations: 14,
+            elevation_angle_deg: 0.9,
+            chunk_index: 2,
+            chunks_in_sweep: 3,
+        };
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(200.0, 200.0),
+            )),
+            ..Default::default()
+        };
+        let output = ctx.run_ui(input, |ui| {
+            live_progress_ring(ui, progress, egui::Color32::from_rgb(255, 0, 0));
+        });
+        assert!(
+            output
+                .shapes
+                .iter()
+                .any(|s| matches!(s.shape, egui::Shape::Circle(_))),
+            "expected the background track circle: {:?}",
+            output.shapes
+        );
+        assert!(
+            output
+                .shapes
+                .iter()
+                .any(|s| matches!(s.shape, egui::Shape::Path(_))),
+            "expected the progress arc: {:?}",
+            output.shapes
+        );
+    }
+
+    /// A volume with no dual-pol... no, a fresh connection with no reported total yet
+    /// (`total_elevations == 0`) is a real, if brief, state — the fraction has to fall back to 0
+    /// rather than divide by zero and paint a NaN-shaped arc.
+    #[test]
+    fn a_zero_total_elevations_does_not_panic_or_produce_nan() {
+        let ctx = egui::Context::default();
+        let progress = wxdata::live::ScanProgress {
+            elevation_number: 0,
+            total_elevations: 0,
+            elevation_angle_deg: 0.0,
+            chunk_index: 1,
+            chunks_in_sweep: 3,
+        };
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(200.0, 200.0),
+            )),
+            ..Default::default()
+        };
+        let _ = ctx.run_ui(input, |ui| {
+            live_progress_ring(ui, progress, egui::Color32::from_rgb(255, 0, 0));
+        });
     }
 }
 

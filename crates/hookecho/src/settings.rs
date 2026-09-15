@@ -277,6 +277,10 @@ pub struct Settings {
     /// Interpolate radar gates (and the color lookup) instead of drawing hard gate squares.
     #[serde(default = "default_true")]
     pub smooth_radar: bool,
+    /// Show the animated ring and tilt-progress bar beside the scrubber's Live badge while a live
+    /// chunk stream is actively updating the active pane.
+    #[serde(default = "default_true")]
+    pub live_scan_indicator: bool,
     /// ntfy.sh topic for push notifications when a warning covers a saved location (empty = off).
     #[serde(default)]
     pub ntfy_topic: String,
@@ -1177,6 +1181,7 @@ impl Default for Settings {
             spotter_range_km: default_spotter_range_km(),
             alert_sound: true,
             smooth_radar: true,
+            live_scan_indicator: true,
             ntfy_topic: String::new(),
             discord_webhook: String::new(),
             slack_webhook: String::new(),
@@ -1648,6 +1653,7 @@ mod tests {
             workspaces: Vec::new(),
             seeded_workspaces: false,
             smooth_radar: false,
+            live_scan_indicator: false,
             share_card: true,
             layer_order: Vec::new(),
             recent_layers: Vec::new(),
