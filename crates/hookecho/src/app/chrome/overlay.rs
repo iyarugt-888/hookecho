@@ -343,6 +343,9 @@ impl HookEchoApp {
                     egui::ScrollArea::vertical()
                         .id_salt(("floating_panel_scroll", settings_page_was))
                         .max_height(max_h)
+                        // See the desktop `Window` branch below for why: without this the area
+                        // shrinks to fit content instead of always claiming `max_h`.
+                        .auto_shrink([false, false])
                         .show(ui, |ui| {
                             body(ui);
                         });
@@ -372,19 +375,23 @@ impl HookEchoApp {
                 .min_width(260.0)
                 .min_height(160.0)
                 .show(ctx, |ui| {
-                    // `max_height` here (not `auto_shrink`): `body`'s own internal scroll area
-                    // sizes itself off `ui.available_height()` at the call site below, and an
-                    // unbounded outer area made that circular — the window wants to size to its
-                    // content, the content wants to size to the window. A concrete cap breaks the
-                    // loop, the same way the old fixed-position card's `ui.set_max_height` did.
-                    // `ui.available_height()` here rather than the outer `max_h`: this `ui` is
-                    // already inside the window's content area, past the title bar, so `max_h`
-                    // (sized for the old card, which had no title bar of its own to give up room
-                    // to) left an unexplained gap at the bottom instead of using all of it.
-                    let inner_h = ui.available_height();
+                    // `max_h` (from `self.chrome_rect`, stable regardless of this window's own
+                    // size) with `auto_shrink(false)`, not `ui.available_height()` with the
+                    // default auto-shrinking area: the window has no forced height, so it
+                    // auto-sizes to whatever this area claims, and the default `auto_shrink`
+                    // makes the area claim only as much as its content needs. A frame that
+                    // rendered short — before content settled, or because the chrome above the
+                    // results (product info, search box, Browse/Active row) ate most of a modest
+                    // starting height — shrank the window, leaving even less room next frame, and
+                    // so on: a real, live bug (search results rendering *nothing*, not even "No
+                    // matches" — see CHANGELOG), not a hypothetical one. Pinning to `max_h`
+                    // unconditionally breaks that loop; `body`'s own inner `ScrollArea` still only
+                    // draws as tall as its content needs, and the window's resize state and
+                    // `constrain_to` still govern what actually ends up visible on screen.
                     egui::ScrollArea::vertical()
                         .id_salt(("floating_panel_scroll", settings_page_was))
-                        .max_height(inner_h)
+                        .max_height(max_h)
+                        .auto_shrink([false, false])
                         .show(ui, |ui| {
                             body(ui);
                         });

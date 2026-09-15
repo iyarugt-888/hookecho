@@ -8,6 +8,21 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: the Layers panel's search results could render nothing at all
+
+- Reported live: typing a query that matched more than about one entry showed the search box and
+  the Browse/Active row, then nothing below them — not even a "No matches" placeholder. The
+  floating panel's outer `ScrollArea` (and, on the touch rail, the `Area` wrapping it) used egui's
+  default auto-shrinking behavior: with no forced height, it claims only as much as its content
+  needs, up to its cap. Since the window itself has no forced height either, it auto-sizes around
+  whatever the scroll area claims — so a frame that rendered short (before content settled, or
+  because the chrome above the results ate most of a modest starting height) shrank the window,
+  leaving even less room the next frame, and so on. The panel could settle at a stable size too
+  short for even one 32px result row, with no way back short of a reload. Both scroll areas now
+  pin to their computed height budget with `.auto_shrink([false, false])`, so they claim it
+  unconditionally instead of bidding on it based on last frame's content — breaking the loop.
+  Verified live: a broad query ("m", "reflectivity") now shows its ranked matches immediately.
+
 ### Added: suite-wide search commands, and 3D now tracks a live sweep chunk by chunk
 
 Picking up mid-flight work: scoped search prefixes (`station KTLX`, `site `, `tool `), typed
