@@ -20,11 +20,15 @@ struct Uniforms {
     // changing how a world position maps to a voxel.
     clip_min: vec4<f32>,
     clip_max: vec4<f32>,
-    // An additional vertical half-space clip, at any angle rather than only the box's own axes:
-    // xy is a world-space unit normal, z the signed distance from the origin along it, w whether
-    // this is active at all (1.0) or ignored (0.0). A sample is kept only on the side the normal
-    // points toward — see `fs_main`.
+    // An additional vertical clip at any angle rather than only the box's own axes: xy is a
+    // world-space unit normal, z the signed distance from the origin along it, w whether this is
+    // active at all (1.0) or ignored (0.0). With no slab (below), a sample is kept only on the
+    // side the normal points toward — see `fs_main`.
     plane: vec4<f32>,
+    // x: half-width (world units) of an optional slab straddling `plane`. 0.0 means no slab —
+    // `plane` cuts the volume in half as before. > 0.0 keeps only a band of that half-width
+    // centered on the plane instead of clipping one whole side away.
+    plane_slab: vec4<f32>,
     // CC-anomaly opacity ramp: x the index that draws faintest, y the index that draws solid,
     // z that faintest multiplier, w whether this is active at all. x and y are already in this
     // volume's own index space — for the inverted debris volume x > y — so one signed ratio
@@ -84,10 +88,18 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     for (var s = 0; s < steps; s = s + 1) {
         let t = tmin + (tmax - tmin) * (f32(s) + 0.5) / f32(steps);
         let pos = ro + rd * t;
-        // A sample beyond the plane (the side its normal points away from) is treated as empty
-        // for this ray, same as a sample outside the axis-aligned slab above.
-        let clipped_by_plane = u.plane.w > 0.5
-            && (pos.x * u.plane.x + pos.y * u.plane.y) < u.plane.z;
+        // A sample outside the plane's kept region is treated as empty for this ray, same as a
+        // sample outside the axis-aligned slab above. With no slab thickness that region is a
+        // half-space (the side the normal points toward); with one, it's a band of that
+        // half-width straddling the plane instead.
+        let n_dot = pos.x * u.plane.x + pos.y * u.plane.y;
+        // Parenthesized: WGSL's parser treats a bare `<`/`>` in call-argument position as the
+        // start of a template-argument list (as in `vec3<f32>`) unless it's wrapped.
+        let clipped_by_plane = u.plane.w > 0.5 && select(
+            (n_dot < u.plane.z),
+            (abs(n_dot - u.plane.z) > u.plane_slab.x),
+            u.plane_slab.x > 0.0,
+        );
         if (!clipped_by_plane) {
             let uvw = (pos - u.box_min.xyz) / span;
             let voxel = vec3<i32>(clamp(uvw * dims, vec3<f32>(0.0), dims - 1.0));

@@ -589,18 +589,24 @@ fn main() -> eframe::Result<()> {
             .position(|a| a == "--threshold")
             .and_then(|i| args.get(i + 1))
             .and_then(|v| v.parse::<f32>().ok());
-        // `--plane BEARING,OFFSET`: an extra vertical clip plane, for exercising Phase H4's
-        // slicing feature without a GUI — e.g. `--plane 90,0.2` cuts along a plane facing east,
-        // offset a fifth of the way toward the box edge.
+        // `--plane BEARING,OFFSET[,THICKNESS]`: an extra vertical clip plane, for exercising
+        // Phase H4's slicing feature without a GUI — e.g. `--plane 90,0.2` cuts along a plane
+        // facing east, offset a fifth of the way toward the box edge. A third component keeps
+        // only a slab of that half-width straddling the plane instead of cutting one whole side
+        // away — e.g. `--plane 90,0,0.1` keeps a thin north-south band through the box center.
         let plane = args
             .iter()
             .position(|a| a == "--plane")
             .and_then(|i| args.get(i + 1))
             .and_then(|v| {
-                let (bearing, offset) = v.split_once(',')?;
+                let mut parts = v.split(',');
+                let bearing_deg = parts.next()?.trim().parse().ok()?;
+                let offset = parts.next()?.trim().parse().ok()?;
+                let thickness = parts.next().and_then(|t| t.trim().parse().ok());
                 Some(hookecho::render3d::VerticalPlane {
-                    bearing_deg: bearing.trim().parse().ok()?,
-                    offset: offset.trim().parse().ok()?,
+                    bearing_deg,
+                    offset,
+                    thickness,
                 })
             });
         if let Err(e) = headless::run_3d(site, out, threshold, plane) {

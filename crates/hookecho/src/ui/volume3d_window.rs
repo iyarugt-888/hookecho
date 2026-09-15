@@ -69,6 +69,7 @@ pub(crate) fn plane_controls(ui: &mut egui::Ui, plane: &mut Option<crate::render
         *plane = on.then(|| crate::render3d::VerticalPlane {
             bearing_deg: 0.0,
             offset: 0.0,
+            thickness: None,
         });
     }
     if let Some(p) = plane {
@@ -88,6 +89,23 @@ pub(crate) fn plane_controls(ui: &mut egui::Ui, plane: &mut Option<crate::render
         .on_hover_text(
             "Slides the plane through the volume; the side the bearing points toward is kept",
         );
+        let mut slab = p.thickness.is_some();
+        if ui
+            .checkbox(&mut slab, "Slab")
+            .on_hover_text(
+                "Keep only a band straddling the plane instead of cutting one whole side away — \
+                 two parallel planes with a gap rather than one",
+            )
+            .changed()
+        {
+            p.thickness = slab.then_some(0.1);
+        }
+        if let Some(t) = &mut p.thickness {
+            ui.horizontal(|ui| {
+                ui.label("Thickness");
+                ui.add(egui::Slider::new(t, 0.02..=1.0).show_value(false));
+            });
+        }
     }
 }
 

@@ -18,6 +18,11 @@ pub struct Uniforms {
     /// See `shaders/raymarch.wgsl`'s own field of the same name: xy a world-space unit normal, z
     /// the signed distance along it, w whether the plane is active at all.
     plane: [f32; 4],
+    /// Half-width of an optional slab straddling `plane`, in the same world units as
+    /// `box_min`/`box_max` (Phase H4's "slab thickness") — `x = 0.0` keeps `plane`'s old
+    /// half-space clip (cut away everything on the far side); `x > 0.0` keeps only a band of that
+    /// half-width centered on the plane instead. y/z/w spare.
+    plane_slab: [f32; 4],
     /// CC-anomaly opacity ramp: `[clear_idx, full_idx, faintest, enabled]`. See
     /// [`cc_anomaly_uniform`]; all-zero means off, which is what every non-CC volume passes.
     cc: [f32; 4],
@@ -52,6 +57,12 @@ pub struct VerticalPlane {
     /// so it reads the same regardless of which box (the orbit window's fixed one, or the
     /// main map's dynamically-sized one) it is applied to.
     pub offset: f32,
+    /// Half-width of an optional slab straddling the plane, as a fraction of the box's half-width
+    /// (same convention as `offset`) — `None` keeps the plane's old behavior: clip away
+    /// everything on the far side. `Some(t)` keeps only a band of half-width `t` centered on the
+    /// plane instead ("slab thickness": two parallel planes with a gap, rather than one plane
+    /// cutting the volume in half).
+    pub thickness: Option<f32>,
 }
 
 /// What the viewer is looking at, beyond the camera: the reflectivity floor and the slab the
@@ -79,6 +90,12 @@ impl Default for View3d {
     }
 }
 
+/// Half of the box's larger horizontal span — the same "fraction of the box" scale both `offset`
+/// and `thickness` are expressed in, shared so the two agree on what "1.0" means.
+fn half_extent(box_min: Vec3, box_max: Vec3) -> f32 {
+    ((box_max.x - box_min.x).abs()).max((box_max.y - box_min.y).abs()) * 0.5
+}
+
 /// The `plane` uniform field for a box spanning `box_min..box_max`: world-space unit normal, the
 /// signed distance along it, and whether it's active — `[0,0,0,0]` (inert; `pos.x*0+pos.y*0 < 0`
 /// is never true) when `plane` is `None`, so callers don't need their own separate enable check.
@@ -90,9 +107,20 @@ fn plane_uniform(plane: Option<VerticalPlane>, box_min: Vec3, box_max: Vec3) -> 
     // Compass bearing (0 = north, 90 = east) onto the box's own x = east, y = north axes.
     let (nx, ny) = (theta.sin(), theta.cos());
     let center = (box_min + box_max) * 0.5;
-    let half_extent = ((box_max.x - box_min.x).abs()).max((box_max.y - box_min.y).abs()) * 0.5;
-    let d = nx * center.x + ny * center.y + p.offset * half_extent;
+    let d = nx * center.x + ny * center.y + p.offset * half_extent(box_min, box_max);
     [nx, ny, d, 1.0]
+}
+
+/// The `plane_slab` uniform field: `x` is the optional slab's half-width in world units, `0.0`
+/// when there is no plane at all or its `thickness` is `None` (the shader then falls back to
+/// `plane`'s old half-space clip). Scaled by the same `half_extent` as `plane`'s own `offset`, so
+/// a `thickness` of `0.1` means the same real width regardless of which box it applies to.
+fn plane_slab_uniform(plane: Option<VerticalPlane>, box_min: Vec3, box_max: Vec3) -> [f32; 4] {
+    let half_thickness = plane
+        .and_then(|p| p.thickness)
+        .map(|t| t * half_extent(box_min, box_max))
+        .unwrap_or(0.0);
+    [half_thickness, 0.0, 0.0, 0.0]
 }
 
 /// Ground-track endpoints of `plane`'s line on the map (Phase H4's "cross-section line visible in
@@ -143,6 +171,7 @@ pub fn orbit_uniform(
         clip_min: [v3.clip[0], v3.clip[2], v3.clip[4], 0.0],
         clip_max: [v3.clip[1], v3.clip[3], v3.clip[5], 0.0],
         plane: plane_uniform(v3.plane, BOX_MIN, BOX_MAX),
+        plane_slab: plane_slab_uniform(v3.plane, BOX_MIN, BOX_MAX),
         cc: v3.cc,
     }
 }
@@ -193,6 +222,7 @@ pub fn map_uniform(
         clip_min: [view.clip[0], view.clip[2], view.clip[4], 0.0],
         clip_max: [view.clip[1], view.clip[3], view.clip[5], 0.0],
         plane: plane_uniform(view.plane, box_min, box_max),
+        plane_slab: plane_slab_uniform(view.plane, box_min, box_max),
         cc: view.cc,
     }
 }
@@ -1107,7 +1137,7 @@ mod plane_tests {
 
     #[test]
     fn north_bearing_is_a_unit_normal_pointing_north() {
-        let p = VerticalPlane { bearing_deg: 0.0, offset: 0.0 };
+        let p = VerticalPlane { bearing_deg: 0.0, offset: 0.0, thickness: None };
         let [nx, ny, _, on] = plane_uniform(Some(p), BOX_MIN, BOX_MAX);
         assert_eq!(on, 1.0);
         assert!(nx.abs() < 1e-5, "north has no east component: {nx}");
@@ -1116,7 +1146,7 @@ mod plane_tests {
 
     #[test]
     fn east_bearing_is_a_unit_normal_pointing_east() {
-        let p = VerticalPlane { bearing_deg: 90.0, offset: 0.0 };
+        let p = VerticalPlane { bearing_deg: 90.0, offset: 0.0, thickness: None };
         let [nx, ny, _, _] = plane_uniform(Some(p), BOX_MIN, BOX_MAX);
         assert!((nx - 1.0).abs() < 1e-5, "east is +x: {nx}");
         assert!(ny.abs() < 1e-5, "east has no north component: {ny}");
@@ -1125,7 +1155,7 @@ mod plane_tests {
     #[test]
     fn zero_offset_passes_through_the_box_center() {
         // Center is (0,0) here, so the plane's distance along any normal is 0.
-        let p = VerticalPlane { bearing_deg: 37.0, offset: 0.0 };
+        let p = VerticalPlane { bearing_deg: 37.0, offset: 0.0, thickness: None };
         let [.., d, _] = plane_uniform(Some(p), BOX_MIN, BOX_MAX);
         assert!(d.abs() < 1e-5, "plane through a centered box's own center: {d}");
     }
@@ -1134,7 +1164,7 @@ mod plane_tests {
     fn offset_scales_with_the_box_half_width_not_a_fixed_distance() {
         // This box's half-width is 1.0 (spans -1..1); offset 0.5 should land the plane at
         // world distance 0.5 along its normal from the box center.
-        let p = VerticalPlane { bearing_deg: 0.0, offset: 0.5 };
+        let p = VerticalPlane { bearing_deg: 0.0, offset: 0.5, thickness: None };
         let [_, ny, d, _] = plane_uniform(Some(p), BOX_MIN, BOX_MAX);
         assert!((ny - 1.0).abs() < 1e-5);
         assert!((d - 0.5).abs() < 1e-5, "d: {d}");
@@ -1153,11 +1183,37 @@ mod plane_tests {
         // is, sitting wherever the radar is on screen rather than at a fixed origin.
         let shifted_min = BOX_MIN + Vec3::new(5.0, 3.0, 0.0);
         let shifted_max = BOX_MAX + Vec3::new(5.0, 3.0, 0.0);
-        let p = VerticalPlane { bearing_deg: 0.0, offset: 0.0 };
+        let p = VerticalPlane { bearing_deg: 0.0, offset: 0.0, thickness: None };
         let [_, ny, d, _] = plane_uniform(Some(p), shifted_min, shifted_max);
         assert!((ny - 1.0).abs() < 1e-5);
         // The plane through the (shifted) center: d = normal . center = 1*3 = 3.
         assert!((d - 3.0).abs() < 1e-5, "d: {d}");
+    }
+
+    #[test]
+    fn no_thickness_means_no_slab() {
+        let p = VerticalPlane { bearing_deg: 0.0, offset: 0.0, thickness: None };
+        assert_eq!(super::plane_slab_uniform(Some(p), BOX_MIN, BOX_MAX), [0.0; 4]);
+        // A disabled plane has no slab either, same as it has no normal.
+        assert_eq!(super::plane_slab_uniform(None, BOX_MIN, BOX_MAX), [0.0; 4]);
+    }
+
+    #[test]
+    fn thickness_scales_with_the_box_half_width_like_offset_does() {
+        // Same box/fraction relationship `offset_scales_with_the_box_half_width_not_a_fixed_
+        // distance` proves for `d` — `thickness` uses the same `half_extent` helper, so it should
+        // agree exactly on a box with half-width 1.0.
+        let p = VerticalPlane { bearing_deg: 0.0, offset: 0.0, thickness: Some(0.25) };
+        let [half_thickness, ..] = super::plane_slab_uniform(Some(p), BOX_MIN, BOX_MAX);
+        assert!((half_thickness - 0.25).abs() < 1e-5, "half_thickness: {half_thickness}");
+
+        let wide_min = Vec3::new(-2.0, -2.0, 0.0);
+        let wide_max = Vec3::new(2.0, 2.0, 1.0);
+        let [half_thickness_wide, ..] = super::plane_slab_uniform(Some(p), wide_min, wide_max);
+        assert!(
+            (half_thickness_wide - 0.5).abs() < 1e-5,
+            "half_thickness_wide: {half_thickness_wide}"
+        );
     }
 }
 
@@ -1172,7 +1228,7 @@ mod ground_track_tests {
     fn zero_offset_runs_through_the_radar_site() {
         // Same fact `zero_offset_passes_through_the_box_center` proves for the shader uniform:
         // an unoffset plane passes through the box center, which on the main map *is* the site.
-        let p = VerticalPlane { bearing_deg: 37.0, offset: 0.0 };
+        let p = VerticalPlane { bearing_deg: 37.0, offset: 0.0, thickness: None };
         let (a, b) = plane_ground_track(p, RADAR, 150.0);
         // The site sits on the segment `a..b`, i.e. equidistant-ish from both ends and each end
         // is `half_km * sqrt(2)` from the site — check the endpoint distances directly rather
@@ -1188,7 +1244,7 @@ mod ground_track_tests {
     fn the_line_runs_perpendicular_to_the_planes_bearing() {
         // A north-pointing plane (bearing 0) cuts an east-west line: both endpoints should bear
         // due east/west (90/270) from the offset foot point, not north/south.
-        let p = VerticalPlane { bearing_deg: 0.0, offset: 0.0 };
+        let p = VerticalPlane { bearing_deg: 0.0, offset: 0.0, thickness: None };
         let (a, b) = plane_ground_track(p, RADAR, 150.0);
         let (_, brg_a) = great_circle(RADAR, a);
         let (_, brg_b) = great_circle(RADAR, b);
@@ -1201,7 +1257,7 @@ mod ground_track_tests {
         // A north-pointing plane offset 0.5 (half the box) should have its line's foot point
         // 75 km (half of 150) due north of the site — same distance/bearing math `offset_scales_
         // with_the_box_half_width_not_a_fixed_distance` proves for the shader's own `d`.
-        let p = VerticalPlane { bearing_deg: 0.0, offset: 0.5 };
+        let p = VerticalPlane { bearing_deg: 0.0, offset: 0.5, thickness: None };
         let (a, b) = plane_ground_track(p, RADAR, 150.0);
         let midpoint_bearing_from_radar = {
             let (km_a, brg_a) = great_circle(RADAR, a);
@@ -1220,12 +1276,12 @@ mod ground_track_tests {
     #[test]
     fn negative_offset_moves_the_line_the_opposite_way() {
         let north = plane_ground_track(
-            VerticalPlane { bearing_deg: 0.0, offset: 0.5 },
+            VerticalPlane { bearing_deg: 0.0, offset: 0.5, thickness: None },
             RADAR,
             150.0,
         );
         let south = plane_ground_track(
-            VerticalPlane { bearing_deg: 0.0, offset: -0.5 },
+            VerticalPlane { bearing_deg: 0.0, offset: -0.5, thickness: None },
             RADAR,
             150.0,
         );

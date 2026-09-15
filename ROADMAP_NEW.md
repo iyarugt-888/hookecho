@@ -1371,9 +1371,12 @@ Never smooth the source values silently; smoothing must be explicit display proc
 - [ ] horizontal CAPPI plane *inside the 3D view* — a flat constant-altitude slice already exists
   as its own separate 2D tool (`wxdata::volume3d::cappi`, the CAPPI window), but nothing shows that
   plane's position *within* the 3D view the way the vertical plane above now does
-- [ ] slab thickness — the existing axis-aligned `clip` already gives an adjustable-thickness slab
-  along each axis (e.g. a thin `z0..z1` range is exactly this for the vertical axis); a slab
-  perpendicular to the *new* arbitrary plane (two parallel planes with a gap) is not built
+- [x] slab thickness — new this pass, see the Unreleased CHANGELOG entry: `VerticalPlane` gained an
+  optional `thickness` (same fraction-of-box convention as `offset`); the shader keeps only a band
+  of that half-width straddling the plane instead of cutting one whole side away when set. Verified
+  on real GPU hardware via `--headless-3d --plane BEARING,OFFSET,THICKNESS`: KTLX echo pixel counts
+  grew monotonically with thickness (9,181 → 35,682 → 167,468 at 0.02/0.15/1.0), with 1.0 landing
+  exactly on the unclipped baseline.
 - [x] clip box — the pre-existing axis-aligned `clip: [f32;6]` slab, independent of this pass
 - [x] storm-centered clip — pre-existing `volume3d::clip_around`, independent of this pass
 - [x] cross-section line visible in map pane — new this pass, see the Unreleased CHANGELOG entry:

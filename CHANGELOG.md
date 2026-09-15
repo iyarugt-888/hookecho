@@ -8,6 +8,25 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: slab thickness for the 3D vertical clip plane
+
+ROADMAP_NEW H4's arbitrary vertical plane could only ever cut the volume in half — keep everything
+on the side the bearing points toward, discard the rest. "Slab thickness" was the one variant of
+this feature left unbuilt: two parallel planes with a gap, keeping only a band that straddles the
+plane instead. `VerticalPlane` gained an optional `thickness` (same fraction-of-box convention as
+`offset`); the raymarch shader now keeps a sample only within that half-width of the plane when set
+(`plane_slab` uniform), falling back to the old cut-one-side-away behavior when it's `None`. A new
+"Slab" checkbox and thickness slider sit under both the standalone 3D window's and the main map's
+Vertical plane controls (`plane_controls`, shared by both as before); the `--headless-3d --plane
+BEARING,OFFSET,THICKNESS` CLI flag takes the same optional third component.
+
+Verified on real GPU hardware via `--headless-3d`, mirroring the original plane feature's own
+sweep-and-count method: at KTLX, thickness 0.02 kept 9,181 echo pixels, 0.15 kept 35,682, and 1.0
+(a slab as wide as the whole box) kept 167,468 — identical, pixel for pixel, to the unclipped
+baseline (167,468) and to rendering with no thickness set at all. Monotonic growth with thickness,
+converging exactly to "no clip at all" at the box's full width, is exactly the behavior a slab
+should have.
+
 ### Added: the 3D map's vertical clip plane draws its ground track on the 2D map
 
 ROADMAP_NEW H4 called out that the arbitrary vertical clip plane (bearing + offset, from the
