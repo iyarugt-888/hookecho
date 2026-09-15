@@ -2707,6 +2707,7 @@ pub fn run_3d(
     out_path: &str,
     threshold_dbz: Option<f32>,
     plane: Option<crate::render3d::VerticalPlane>,
+    cappi_km: Option<f32>,
 ) -> anyhow::Result<()> {
     const N: usize = 192;
     const NZ: usize = 48;
@@ -2758,10 +2759,12 @@ pub fn run_3d(
             None => 2.0,
         },
         plane,
+        cappi_km,
         ..Default::default()
     };
-    let uniform =
-        crate::render3d::orbit_uniform(30.0, 25.0, 3.0, 1.0, N as u32, NZ as u32, 256, view);
+    let uniform = crate::render3d::orbit_uniform(
+        30.0, 25.0, 3.0, 1.0, N as u32, NZ as u32, v3.top_km, 256, view,
+    );
 
     let (device, queue, adapter) = init_gpu(&rt)?;
     println!("adapter: {}", adapter.get_info().name);

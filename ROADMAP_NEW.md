@@ -1388,7 +1388,7 @@ Controls:
 
 Never smooth the source values silently; smoothing must be explicit display processing.
 
-## H4. Movable clipping and slicing planes — partly done
+## H4. Movable clipping and slicing planes — done
 
 - [x] arbitrary vertical plane — `render3d::VerticalPlane` (bearing + offset), a new field in
   `raymarch.wgsl`'s uniform, checked per-sample in the march. One implementation shared by both
@@ -1397,9 +1397,21 @@ Never smooth the source values silently; smoothing must be explicit display proc
   used by both. Verified against real data on real GPU hardware via a new `--headless-3d ... --plane
   BEARING,OFFSET` CLI flag: sweeping the offset from one box edge to the other took the rendered
   echo pixel count continuously from the unclipped baseline down to zero.
-- [ ] horizontal CAPPI plane *inside the 3D view* — a flat constant-altitude slice already exists
-  as its own separate 2D tool (`wxdata::volume3d::cappi`, the CAPPI window), but nothing shows that
-  plane's position *within* the 3D view the way the vertical plane above now does
+- [x] horizontal CAPPI plane *inside the 3D view* — new this pass, see the Unreleased CHANGELOG
+  entry: a translucent horizontal reference plane at the CAPPI window's own altitude (shared, not
+  a second value — dragging its slider moves the marker live), drawn in both raymarch consumers via
+  a new `View3d.cappi_km` field, same sharing pattern as the vertical plane above. An analytic
+  ray/band test in `raymarch.wgsl` (mirroring the box-slab intersection already there) composites
+  it as a faint backdrop *behind* whatever the volume itself draws, so real echo always wins where
+  a ray crosses both — it reads as "where this height sits relative to the storm" rather than a
+  haze sitting on top of it. `render3d::cappi_marker_uniform` treats an altitude outside the
+  volume's own vertical span as disabled rather than pinning it to the nearest edge, which would
+  show a plane at the wrong height. Verified against real data on real GPU hardware via a new
+  `--headless-3d ... --cappi ALT_KM` CLI flag: with the reflectivity threshold pushed impossibly
+  high (so the volume itself contributes zero pixels), a 3 km marker alone painted 346,318 echo
+  pixels over the clear background, and a 25 km marker (above the volume's 18 km top) painted zero
+  — inert exactly as designed rather than pinned to the ceiling.
+
 - [x] slab thickness — new this pass, see the Unreleased CHANGELOG entry: `VerticalPlane` gained an
   optional `thickness` (same fraction-of-box convention as `offset`); the shader keeps only a band
   of that half-width straddling the plane instead of cutting one whole side away when set. Verified

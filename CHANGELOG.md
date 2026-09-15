@@ -8,6 +8,31 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: a CAPPI-altitude reference plane in the 3D view
+
+ROADMAP_NEW H4's last open item: the CAPPI window has sliced the volume at a constant altitude
+as its own separate 2D tool for a while, but nothing showed *where* that altitude sat relative to
+the storm in the 3D raymarch views — unlike the vertical clip plane added earlier this phase, whose
+position is always visible as the edge of what it cuts away.
+
+Both raymarch consumers (the standalone "3D Reflectivity" window and the main map's "3D map"
+Smooth representations) gained a "CAPPI altitude" checkbox next to the existing vertical-plane
+controls, sharing the CAPPI window's own altitude value rather than a second one — dragging its
+slider moves the 3D marker live. `render3d::View3d` carries the new `cappi_km: Option<f32>`; a new
+`cappi_marker_uniform` places it as a fraction of the box's own vertical span (the same "beam
+height above the radar" unit `wxdata::volume3d::build`'s z-grid and `cappi`'s `alt_km` already
+share), disabling it rather than pinning it to an edge when the altitude falls outside the volume's
+own top. `raymarch.wgsl` composites it as a thin translucent band *behind* whatever the volume
+itself draws, via an analytic ray/band intersection mirroring the box-slab test already there — real
+echo always wins where a ray crosses both, so it reads as a reference plane rather than a haze.
+
+Verified against real data on real GPU hardware via a new `--headless-3d ... --cappi ALT_KM` CLI
+flag: with the reflectivity threshold pushed impossibly high (so the volume itself paints nothing),
+a 3 km marker alone still put 346,318 echo pixels on screen, and a 25 km marker (above the volume's
+18 km top) put zero — inert exactly as designed. A normal render at KTLX went from 264,023 to
+351,840 echo pixels with the same 3 km marker enabled, all in the regions the storm itself doesn't
+cover.
+
 ### Added: 3h/6h/12h MRMS QPE accumulation windows
 
 ROADMAP_NEW D1/D3's QPE coverage gap: the catalog only had the two ends of the accumulation

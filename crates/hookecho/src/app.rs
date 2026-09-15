@@ -118,6 +118,10 @@ fn first_url(text: &str) -> Option<String> {
 /// resolve a hail core, small enough to resample in about a second.
 const VOL3D_N: usize = 192;
 const VOL3D_NZ: usize = 48;
+/// Top of the 3D volume's vertical span (km), same "beam height above the radar" unit as the
+/// CAPPI window's altitude slider — shared so the 3D view's CAPPI reference plane (Phase H4) can
+/// place itself without guessing what the volume it's drawn against actually covers.
+const VOL3D_TOP_KM: f32 = 18.0;
 
 /// Squared screen-space hit radius (px²) for a tap/click target of nominal `px` radius. Android
 /// finger taps need a fatter target than a mouse cursor, so targets grow ~1.8× there; desktop is
@@ -5713,7 +5717,7 @@ impl HookEchoApp {
         self.spawner.spawn(async move {
             // Off the UI thread: this is pure CPU on tens of MB and would drop a second of frames.
             let built = wxdata::task::blocking(move || {
-                let v3 = wxdata::volume3d::build(&sweeps, VOL3D_N, VOL3D_NZ, 150.0, 18.0)?;
+                let v3 = wxdata::volume3d::build(&sweeps, VOL3D_N, VOL3D_NZ, 150.0, VOL3D_TOP_KM)?;
                 let lut =
                     crate::colormap::bake_lut(&table, (v3.value_min, v3.value_max), None).to_vec();
                 Some((
@@ -11555,7 +11559,7 @@ impl HookEchoApp {
                         self.spawner.spawn(async move {
                             let built = wxdata::task::blocking(move || {
                                 let mut v3 =
-                                    wxdata::volume3d::build(&sweeps, VOL3D_N, VOL3D_NZ, 150.0, 18.0)?;
+                                    wxdata::volume3d::build(&sweeps, VOL3D_N, VOL3D_NZ, 150.0, VOL3D_TOP_KM)?;
                                 if invert {
                                     wxdata::volume3d::invert_in_place(&mut v3);
                                 }
@@ -11635,6 +11639,7 @@ impl HookEchoApp {
             clip: state.clip,
             plane: state.plane,
             cc,
+            cappi_km: state.cappi_marker.then_some(self.cappi_alt_km),
         };
         // Same visual-guard clamp as the standalone 3D Reflectivity window: a phone under thermal
         // or battery pressure gets the coarsest march regardless of what quality was chosen.
@@ -11680,6 +11685,10 @@ impl HookEchoApp {
             )
             .show(ctx, |ui| {
                 {
+                        // Read before `view` borrows `self.views[idx]`: a different field of
+                        // `self`, but taken up front keeps the split obviously safe rather than
+                        // relying on the borrow checker's disjoint-field-capture analysis.
+                        let cappi_alt_km = self.cappi_alt_km;
                         let view = &mut self.views[idx];
                         let was_enabled = view.map_3d.enabled;
                         ui.horizontal(|ui| {
@@ -12026,6 +12035,11 @@ impl HookEchoApp {
                                     ui::volume3d_window::plane_controls(
                                         ui,
                                         &mut view.map_3d.plane,
+                                    );
+                                    ui::volume3d_window::cappi_marker_controls(
+                                        ui,
+                                        &mut view.map_3d.cappi_marker,
+                                        cappi_alt_km,
                                     );
                                 });
                         }
@@ -19392,7 +19406,9 @@ impl eframe::App for HookEchoApp {
                 &mut self.vol3d_pending,
                 VOL3D_N as u32,
                 VOL3D_NZ as u32,
+                VOL3D_TOP_KM,
                 self.vol3d_range,
+                self.cappi_alt_km,
                 &mut self.drawer,
                 ui::motion::degraded(),
             );

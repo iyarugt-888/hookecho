@@ -26,6 +26,10 @@ pub struct Uniforms {
     /// CC-anomaly opacity ramp: `[clear_idx, full_idx, faintest, enabled]`. See
     /// [`cc_anomaly_uniform`]; all-zero means off, which is what every non-CC volume passes.
     cc: [f32; 4],
+    /// Horizontal CAPPI-altitude reference plane (Phase H4's last open item): `[z, half_width,
+    /// spare, enabled]` in the same world units as `box_min`/`box_max`. See
+    /// [`cappi_marker_uniform`]; all-zero means off, same convention as `plane`/`cc`.
+    cappi_marker: [f32; 4],
 }
 
 /// A new volume grid to upload: `data` is `n×n×nz` R8 indices, `lut` a 256-entry RGBA table.
@@ -77,6 +81,12 @@ pub struct View3d {
     pub plane: Option<VerticalPlane>,
     /// CC-anomaly ramp from [`cc_anomaly_uniform`], or all-zero for the volumes that aren't CC.
     pub cc: [f32; 4],
+    /// Altitude (km, same "beam height above the radar" convention as `wxdata::volume3d::build`'s
+    /// z-grid and `wxdata::volume3d::cappi`'s `alt_km`) of a horizontal reference plane to draw
+    /// inside the 3D view — Phase H4's last open item: the CAPPI window already slices the volume
+    /// at this height as its own separate 2D tool, but nothing showed *where* that height sits
+    /// relative to the storm until now. `None` disables it (the common case).
+    pub cappi_km: Option<f32>,
 }
 
 impl Default for View3d {
@@ -86,6 +96,7 @@ impl Default for View3d {
             clip: [0.0, 1.0, 0.0, 1.0, 0.0, 1.0],
             plane: None,
             cc: [0.0; 4],
+            cappi_km: None,
         }
     }
 }
@@ -123,6 +134,31 @@ fn plane_slab_uniform(plane: Option<VerticalPlane>, box_min: Vec3, box_max: Vec3
     [half_thickness, 0.0, 0.0, 0.0]
 }
 
+/// The `cappi_marker` uniform field for a box spanning `box_min..box_max`: world-space z of the
+/// reference plane, its half-width band, and whether it's active. `cappi_km` is in the same
+/// "beam height above the radar" unit as `top_km` (both from `wxdata::volume3d`), so the box's own
+/// z=0..z=(box_max.z-box_min.z) span is treated as 0..`top_km` km. Inert (`[0,0,0,0]`) when
+/// `cappi_km` is `None`, `top_km` isn't positive, or the altitude falls outside the box — pinning
+/// an out-of-range altitude to the nearest edge would show a plane at the wrong height, which is
+/// worse than not showing one.
+fn cappi_marker_uniform(cappi_km: Option<f32>, top_km: f32, box_min: Vec3, box_max: Vec3) -> [f32; 4] {
+    let Some(km) = cappi_km else {
+        return [0.0, 0.0, 0.0, 0.0];
+    };
+    if top_km <= 0.0 {
+        return [0.0, 0.0, 0.0, 0.0];
+    }
+    let frac = km / top_km;
+    if !(0.0..=1.0).contains(&frac) {
+        return [0.0, 0.0, 0.0, 0.0];
+    }
+    let z = box_min.z + frac * (box_max.z - box_min.z);
+    // A thin band rather than an infinitely-thin plane, so it survives float precision and reads
+    // as a visible line rather than flickering in and out as the camera moves.
+    let half_width = ((box_max.z - box_min.z) * 0.006).max(1e-4);
+    [z, half_width, 0.0, 1.0]
+}
+
 /// Ground-track endpoints of `plane`'s line on the map (Phase H4's "cross-section line visible in
 /// map pane"), for drawing it in the 2D pane the same way the cross-section tool draws its own
 /// two-point line — ties the 3D plane clip back to geographic context instead of leaving it
@@ -143,6 +179,8 @@ pub fn plane_ground_track(plane: VerticalPlane, radar: [f64; 2], half_km: f32) -
 }
 
 /// Orbit-camera uniforms: azimuth/elevation in degrees, `dist` from the box center, view `aspect`.
+/// `top_km` is the volume's own vertical span (`wxdata::volume3d::Volume3d::top_km`), needed only
+/// to place `v3.cappi_km`'s reference plane at the right fraction of the fixed orbit box.
 #[allow(clippy::too_many_arguments)]
 pub fn orbit_uniform(
     az_deg: f32,
@@ -151,6 +189,7 @@ pub fn orbit_uniform(
     aspect: f32,
     n: u32,
     nz: u32,
+    top_km: f32,
     steps: u32,
     v3: View3d,
 ) -> Uniforms {
@@ -173,6 +212,7 @@ pub fn orbit_uniform(
         plane: plane_uniform(v3.plane, BOX_MIN, BOX_MAX),
         plane_slab: plane_slab_uniform(v3.plane, BOX_MIN, BOX_MAX),
         cc: v3.cc,
+        cappi_marker: cappi_marker_uniform(v3.cappi_km, top_km, BOX_MIN, BOX_MAX),
     }
 }
 
@@ -224,6 +264,7 @@ pub fn map_uniform(
         plane: plane_uniform(view.plane, box_min, box_max),
         plane_slab: plane_slab_uniform(view.plane, box_min, box_max),
         cc: view.cc,
+        cappi_marker: cappi_marker_uniform(view.cappi_km, upload.top_km, box_min, box_max),
     }
 }
 
@@ -1213,6 +1254,75 @@ mod plane_tests {
         assert!(
             (half_thickness_wide - 0.5).abs() < 1e-5,
             "half_thickness_wide: {half_thickness_wide}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod cappi_marker_tests {
+    use super::cappi_marker_uniform;
+    use glam::Vec3;
+
+    const BOX_MIN: Vec3 = Vec3::new(-1.0, -1.0, 0.0);
+    const BOX_MAX: Vec3 = Vec3::new(1.0, 1.0, 18.0);
+
+    #[test]
+    fn disabled_marker_is_inert() {
+        assert_eq!(
+            cappi_marker_uniform(None, 18.0, BOX_MIN, BOX_MAX),
+            [0.0; 4]
+        );
+    }
+
+    #[test]
+    fn zero_altitude_lands_on_the_box_floor() {
+        let [z, _, _, on] = cappi_marker_uniform(Some(0.0), 18.0, BOX_MIN, BOX_MAX);
+        assert_eq!(on, 1.0);
+        assert!((z - BOX_MIN.z).abs() < 1e-5, "z: {z}");
+    }
+
+    #[test]
+    fn top_km_altitude_lands_on_the_box_ceiling() {
+        let [z, _, _, on] = cappi_marker_uniform(Some(18.0), 18.0, BOX_MIN, BOX_MAX);
+        assert_eq!(on, 1.0);
+        assert!((z - BOX_MAX.z).abs() < 1e-5, "z: {z}");
+    }
+
+    #[test]
+    fn half_altitude_lands_at_the_box_midpoint() {
+        let [z, ..] = cappi_marker_uniform(Some(9.0), 18.0, BOX_MIN, BOX_MAX);
+        let mid = (BOX_MIN.z + BOX_MAX.z) * 0.5;
+        assert!((z - mid).abs() < 1e-5, "z: {z}, mid: {mid}");
+    }
+
+    #[test]
+    fn an_altitude_outside_the_volumes_own_top_is_inert_rather_than_pinned() {
+        // Pinning to the nearest edge would show a plane at the wrong height, which is worse than
+        // not showing one at all.
+        assert_eq!(
+            cappi_marker_uniform(Some(25.0), 18.0, BOX_MIN, BOX_MAX),
+            [0.0; 4]
+        );
+        assert_eq!(
+            cappi_marker_uniform(Some(-1.0), 18.0, BOX_MIN, BOX_MAX),
+            [0.0; 4]
+        );
+    }
+
+    #[test]
+    fn a_non_positive_top_km_is_inert() {
+        assert_eq!(cappi_marker_uniform(Some(3.0), 0.0, BOX_MIN, BOX_MAX), [0.0; 4]);
+    }
+
+    #[test]
+    fn the_band_is_a_small_fraction_of_the_box_height_not_a_fixed_world_distance() {
+        let [_, half_width, ..] = cappi_marker_uniform(Some(9.0), 18.0, BOX_MIN, BOX_MAX);
+        let wide_min = Vec3::new(-1.0, -1.0, 0.0);
+        let wide_max = Vec3::new(1.0, 1.0, 36.0);
+        let [_, half_width_wide, ..] = cappi_marker_uniform(Some(18.0), 18.0, wide_min, wide_max);
+        assert!(
+            (half_width_wide - half_width * 2.0).abs() < 1e-4,
+            "half_width: {half_width}, half_width_wide: {half_width_wide}"
         );
     }
 }

@@ -128,6 +128,10 @@ pub struct Map3dState {
     /// slab above can only cut along the box's own east-west/north-south faces. `None` disables
     /// it. Unused by `ObservedSweeps`, same as `clip`.
     pub plane: Option<crate::render3d::VerticalPlane>,
+    /// Whether to draw a horizontal reference plane at the app's shared CAPPI altitude
+    /// (`HookEchoApp::cappi_alt_km`) — Phase H4's last open item. Off by default, same as
+    /// `plane`. Unused by `ObservedSweeps`, same as `clip`/`plane`.
+    pub cappi_marker: bool,
     /// Raymarch samples per pixel for the resampled volume. Higher = smoother gradients and
     /// fewer banding artifacts at the cost of GPU time; unused by `ObservedSweeps`, which draws
     /// real gate instances rather than raymarching.
@@ -178,6 +182,7 @@ impl Default for Map3dState {
             cc_anomaly: CcAnomaly::default(),
             clip: [0.0, 1.0, 0.0, 1.0, 0.0, 1.0],
             plane: None,
+            cappi_marker: false,
             quality_steps: if cfg!(target_os = "android") { 64 } else { 128 },
             fill_gaps: true,
             selected_layer_elevs: Vec::new(),

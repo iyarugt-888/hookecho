@@ -609,7 +609,14 @@ fn main() -> eframe::Result<()> {
                     thickness,
                 })
             });
-        if let Err(e) = headless::run_3d(site, out, threshold, plane) {
+        // `--cappi ALT_KM`: Phase H4's horizontal CAPPI-altitude reference plane, for exercising
+        // it without a GUI — e.g. `--cappi 3` marks 3 km above the radar.
+        let cappi = args
+            .iter()
+            .position(|a| a == "--cappi")
+            .and_then(|i| args.get(i + 1))
+            .and_then(|v| v.trim().parse().ok());
+        if let Err(e) = headless::run_3d(site, out, threshold, plane, cappi) {
             eprintln!("headless 3d render failed: {e}");
             std::process::exit(1);
         }

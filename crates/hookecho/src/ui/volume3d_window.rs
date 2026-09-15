@@ -17,6 +17,9 @@ pub struct Volume3dState {
     /// An additional vertical clip plane at any bearing (Phase H4), independent of the
     /// axis-aligned slab above. `None` disables it.
     pub plane: Option<crate::render3d::VerticalPlane>,
+    /// Whether to draw a horizontal reference plane at the CAPPI window's shared altitude
+    /// (Phase H4's last open item). Off by default, same as `plane`.
+    pub cappi_marker: bool,
     /// Raymarch samples per pixel. The cost of the window is almost entirely this number, so it
     /// is the one knob worth exposing on a phone or an integrated GPU.
     pub steps: u32,
@@ -35,6 +38,7 @@ impl Default for Volume3dState {
             threshold_dbz: f32::NEG_INFINITY,
             clip: [0.0, 1.0, 0.0, 1.0, 0.0, 1.0],
             plane: None,
+            cappi_marker: false,
             // ponytail: a phone is the one place the full march reliably misses frame budget, so
             // pick by platform rather than benchmarking the GPU.
             steps: if cfg!(target_os = "android") { 96 } else { 256 },
@@ -109,10 +113,23 @@ pub(crate) fn plane_controls(ui: &mut egui::Ui, plane: &mut Option<crate::render
     }
 }
 
+/// Phase H4's last open item: a horizontal reference plane inside the 3D view showing where the
+/// CAPPI window's altitude sits, since that window already slices the volume at that height as
+/// its own separate 2D tool but nothing showed *where* until now. Shares the CAPPI window's own
+/// altitude (`alt_km`) rather than keeping a second value here, so dragging its slider moves this
+/// marker live. Shared with the main map's own "3D map" Slice section, same as `plane_controls`.
+pub(crate) fn cappi_marker_controls(ui: &mut egui::Ui, on: &mut bool, alt_km: f32) {
+    ui.checkbox(on, "CAPPI altitude").on_hover_text(format!(
+        "Show a reference plane at the CAPPI window's altitude ({alt_km:.1} km)"
+    ));
+}
+
 /// Show the 3D window. `pending` is a one-shot volume upload consumed by the first paint;
-/// `n`/`nz` are the grid dimensions and `range` the volume's `(value_min, value_max)` dBZ span.
-// ponytail: eight loose arguments rather than a params struct — every one of them is already a
-// field on the caller, and a struct here would just be that call site written twice.
+/// `n`/`nz` are the grid dimensions, `top_km` the volume's own vertical span (needed only to
+/// place `cappi_alt_km`'s reference plane), and `range` the volume's `(value_min, value_max)`
+/// dBZ span.
+// ponytail: loose arguments rather than a params struct — every one of them is already a field
+// on the caller, and a struct here would just be that call site written twice.
 #[allow(clippy::too_many_arguments)]
 pub fn show(
     ctx: &egui::Context,
@@ -121,7 +138,9 @@ pub fn show(
     pending: &mut Option<Volume3dUpload>,
     n: u32,
     nz: u32,
+    top_km: f32,
     range: (f32, f32),
+    cappi_alt_km: f32,
     drawer: &mut crate::ui::drawer::Drawer,
     degraded: bool,
 ) {
@@ -184,6 +203,7 @@ pub fn show(
                 }
                 ui.separator();
                 plane_controls(ui, &mut st.plane);
+                cappi_marker_controls(ui, &mut st.cappi_marker, cappi_alt_km);
             });
         let (rect, resp) = ui.allocate_exact_size(ui.available_size(), egui::Sense::drag());
         if resp.dragged() {
@@ -216,6 +236,7 @@ pub fn show(
             // The standalone orbit window is the reflectivity viewer; CC never reaches it, so it
             // has no anomaly ramp to carry.
             cc: [0.0; 4],
+            cappi_km: st.cappi_marker.then_some(cappi_alt_km),
         };
         let uniform = orbit_uniform(
             st.az,
@@ -224,6 +245,7 @@ pub fn show(
             aspect,
             n,
             nz,
+            top_km,
             effective_steps(st.steps, degraded),
             view,
         );

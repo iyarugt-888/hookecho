@@ -34,6 +34,12 @@ struct Uniforms {
     // volume's own index space — for the inverted debris volume x > y — so one signed ratio
     // works without the shader knowing which volume it has.
     cc: vec4<f32>,
+    // Phase H4's horizontal CAPPI-altitude reference plane: x the world-space z of the plane, y
+    // the half-width (world units) of the thin band straddling it, w whether this is active at
+    // all (1.0) or ignored (0.0). z spare. Drawn as a faint translucent band composited behind
+    // whatever the volume itself draws, so it reads as "where this height sits" rather than
+    // hiding the storm.
+    cappi_marker: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -77,6 +83,25 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         discard;
     }
 
+    // CAPPI reference plane: an analytic ray/slab test against the thin horizontal band
+    // (mirrors the box slab test above, but for one axis-aligned pair of planes rather than
+    // three), bounded to the same [tmin, tmax] range so a plane outside the sliced box — or
+    // behind a closer clip face — never shows through.
+    var marker_hit = false;
+    if (u.cappi_marker.w > 0.5) {
+        let near_z = u.cappi_marker.x - u.cappi_marker.y;
+        let far_z = u.cappi_marker.x + u.cappi_marker.y;
+        if (abs(rd.z) < 1e-6) {
+            marker_hit = ro.z >= near_z && ro.z <= far_z;
+        } else {
+            let ta = (near_z - ro.z) / rd.z;
+            let tb = (far_z - ro.z) / rd.z;
+            let band_min = max(min(ta, tb), tmin);
+            let band_max = min(max(ta, tb), tmax);
+            marker_hit = band_max > band_min;
+        }
+    }
+
     let steps = i32(u.dims.w);
     // Voxel lookup always uses the full box: slicing must not restretch the texture.
     let span = full_span;
@@ -110,29 +135,50 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         }
     }
 
-    if (max_idx < floor_idx) {
+    let has_volume = max_idx >= floor_idx;
+    if (!has_volume && !marker_hit) {
         discard;
     }
-    let color = textureLoad(lut, vec2<i32>(i32(max_idx), 0), 0);
-    var alpha: f32;
-    if (u.cc.w > 0.5) {
-        // CC anomaly: opacity is a function of how far this voxel's correlation coefficient sits
-        // below ordinary meteorological scatter, so the background storm fades out and the
-        // low-CC pocket inside it is what stays solid. This *replaces* the generic ramp below
-        // rather than scaling it — the two are competing opacity models, and multiplying them
-        // drove background CC to invisible instead of to the faint trace that keeps a debris
-        // ball legibly embedded in the storm around it.
-        let t = clamp((f32(max_idx) - u.cc.x) / (u.cc.y - u.cc.x), 0.0, 1.0);
-        // Smoothstep, not a linear ramp: it flattens at both ends, which is what makes the
-        // progression read as the intended tiers without banding the volume into hard shells.
-        let shaped = t * t * (3.0 - 2.0 * t);
-        alpha = (u.cc.z + (1.0 - u.cc.z) * shaped) * u.ctl.y;
-    } else {
-        // Opacity ramps from the threshold, not from zero: with a 45 dBZ floor the surviving
-        // cores read solid instead of uniformly hazy.
-        let head = max(255.0 - f32(floor_idx), 1.0);
-        alpha = clamp((f32(max_idx) - f32(floor_idx)) / head * 1.6 + 0.15, 0.0, 1.0) * u.ctl.y;
+
+    // The CAPPI marker composites first, as a faint backdrop the volume then draws over — real
+    // echo always wins where a ray hits both, so the plane reads as "where this height sits"
+    // rather than a haze sitting on top of the storm.
+    var out_rgb = vec3<f32>(0.0);
+    var out_a = 0.0;
+    if (marker_hit) {
+        // Pale cyan: a hue that rarely turns up in a reflectivity ramp, at low enough alpha to
+        // read as a measurement overlay rather than data.
+        let marker_rgb = vec3<f32>(0.65, 0.92, 1.0);
+        let marker_a = 0.22;
+        out_rgb = marker_rgb * marker_a;
+        out_a = marker_a;
     }
-    if (alpha <= 0.0) { discard; }
-    return vec4<f32>(color.rgb * alpha, alpha);
+    if (has_volume) {
+        let color = textureLoad(lut, vec2<i32>(i32(max_idx), 0), 0);
+        var alpha: f32;
+        if (u.cc.w > 0.5) {
+            // CC anomaly: opacity is a function of how far this voxel's correlation coefficient
+            // sits below ordinary meteorological scatter, so the background storm fades out and
+            // the low-CC pocket inside it is what stays solid. This *replaces* the generic ramp
+            // below rather than scaling it — the two are competing opacity models, and
+            // multiplying them drove background CC to invisible instead of to the faint trace
+            // that keeps a debris ball legibly embedded in the storm around it.
+            let t = clamp((f32(max_idx) - u.cc.x) / (u.cc.y - u.cc.x), 0.0, 1.0);
+            // Smoothstep, not a linear ramp: it flattens at both ends, which is what makes the
+            // progression read as the intended tiers without banding the volume into hard shells.
+            let shaped = t * t * (3.0 - 2.0 * t);
+            alpha = (u.cc.z + (1.0 - u.cc.z) * shaped) * u.ctl.y;
+        } else {
+            // Opacity ramps from the threshold, not from zero: with a 45 dBZ floor the surviving
+            // cores read solid instead of uniformly hazy.
+            let head = max(255.0 - f32(floor_idx), 1.0);
+            alpha = clamp((f32(max_idx) - f32(floor_idx)) / head * 1.6 + 0.15, 0.0, 1.0) * u.ctl.y;
+        }
+        if (alpha > 0.0) {
+            out_rgb = color.rgb * alpha + out_rgb * (1.0 - alpha);
+            out_a = alpha + out_a * (1.0 - alpha);
+        }
+    }
+    if (out_a <= 0.0) { discard; }
+    return vec4<f32>(out_rgb, out_a);
 }
