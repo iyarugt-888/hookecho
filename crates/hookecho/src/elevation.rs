@@ -184,7 +184,9 @@ pub fn terrain_angle_deg(radar_msl_m: f64, terrain_msl_m: f64, ground_km: f64) -
     ((rise_km - drop_km) / ground_km).atan().to_degrees()
 }
 
-/// The radar this raster is drawn for.
+/// The radar this raster is drawn for. Geometry only — which tilt(s) to shade for is a separate
+/// parameter on each rendering function below, since [`lowest_usable_tilt_image`] needs a whole
+/// elevation list rather than the single displayed tilt [`blockage_image`] shades for.
 #[derive(Debug, Clone, Copy)]
 pub struct BeamSite {
     pub lon: f64,
@@ -193,8 +195,6 @@ pub struct BeamSite {
     pub ground_m: f64,
     /// Antenna height above `ground_m`, from [`wxdata::towers::tower_m`].
     pub tower_m: f64,
-    /// Elevation angle of the tilt being displayed, in degrees.
-    pub tilt_deg: f64,
 }
 
 /// Antenna height above the site's registry ground elevation, for a site we have no measurement
@@ -244,17 +244,83 @@ async fn occultation(client: &reqwest::Client, site: BeamSite, radar_msl: f64) -
     polar
 }
 
-/// Build the beam-blockage raster covering the world-space rect `[wx0, wy0, wx1, wy1]`.
+/// Build the beam-blockage raster covering the world-space rect `[wx0, wy0, wx1, wy1]`, for the
+/// single `tilt_deg` currently on screen.
 ///
 /// The rect is Mercator world space, which maps linearly to screen, so the caller paints the
 /// result as one image with no reprojection.
 pub async fn blockage_image(
     client: &reqwest::Client,
     site: BeamSite,
+    tilt_deg: f64,
     world: [f64; 4],
 ) -> egui::ColorImage {
     let radar_msl = site.ground_m + site.tower_m;
     let polar = occultation(client, site, radar_msl).await;
+    render_occultation(site, &polar, world, |occult| {
+        let frac = blockage_fraction(occult, tilt_deg);
+        // Below a tenth of the beam the bias is not worth painting over the radar.
+        if frac < 0.1 {
+            return egui::Color32::TRANSPARENT;
+        }
+        // Amber where the beam is clipped, red where it is gone. Alpha tracks the fraction so
+        // the edge of a shadow fades instead of stepping.
+        if frac < 0.5 {
+            egui::Color32::from_rgba_unmultiplied(230, 170, 40, (frac * 130.0) as u8)
+        } else {
+            egui::Color32::from_rgba_unmultiplied(200, 40, 40, (frac * 150.0) as u8)
+        }
+    })
+}
+
+/// ROADMAP_NEW C3's "lowest usable beam map": per pixel, the lowest angle in `tilts` (a volume's
+/// own elevation list, ascending) whose beam clears the terrain here — distinct from
+/// [`blockage_image`]'s "how blocked is this one displayed tilt". An analyst reads this as "which
+/// tilt do I actually need at this point", not "is my current tilt any good here".
+///
+/// A tilt "clears" once its beam centre is at least half above the terrain occultation angle — the
+/// same halfway point [`blockage_image`] treats as the edge of a usable beam, so the two overlays
+/// agree on what "usable" means.
+pub async fn lowest_usable_tilt_image(
+    client: &reqwest::Client,
+    site: BeamSite,
+    tilts: &[f64],
+    world: [f64; 4],
+) -> egui::ColorImage {
+    let radar_msl = site.ground_m + site.tower_m;
+    let polar = occultation(client, site, radar_msl).await;
+    render_occultation(site, &polar, world, |occult| {
+        match tilts.iter().position(|&t| blockage_fraction(occult, t) < 0.5) {
+            Some(i) => tilt_rank_color(i, tilts.len()),
+            // Not even the volume's highest tilt clears the terrain here at all.
+            None => egui::Color32::from_rgba_unmultiplied(120, 40, 160, 140),
+        }
+    })
+}
+
+/// Green (the lowest tilt already clears) through amber to red (needs the highest tilt in the
+/// list) — a single-tilt volume paints solid green wherever it clears at all, which is correct:
+/// there is nothing lower to prefer.
+fn tilt_rank_color(i: usize, n: usize) -> egui::Color32 {
+    let t = if n <= 1 { 0.0 } else { i as f64 / (n - 1) as f64 };
+    let (r, g) = if t < 0.5 {
+        ((t * 2.0 * 230.0) as u8, 200u8)
+    } else {
+        (230u8, (200.0 * (1.0 - (t - 0.5) * 2.0)) as u8)
+    };
+    egui::Color32::from_rgba_unmultiplied(r, g, 30, 120)
+}
+
+/// Shared per-pixel loop over a world-space rect: for each cell, resolve its `(lon, lat)`, look up
+/// its ray's cumulative occultation angle in `polar` (already scanned for `site`), and let `color`
+/// turn that angle into a pixel. [`blockage_image`] and [`lowest_usable_tilt_image`] differ only in
+/// `color`.
+fn render_occultation(
+    site: BeamSite,
+    polar: &[f32],
+    world: [f64; 4],
+    color: impl Fn(f64) -> egui::Color32,
+) -> egui::ColorImage {
     let mut px = vec![egui::Color32::TRANSPARENT; RASTER_N * RASTER_N];
     let (wx0, wy0, wx1, wy1) = (world[0], world[1], world[2], world[3]);
     for row in 0..RASTER_N {
@@ -268,18 +334,7 @@ pub async fn blockage_image(
             }
             let a = ((az / 360.0 * N_AZ as f64) as usize).min(N_AZ - 1);
             let occult = polar[a * N_RANGE + (km as usize).min(N_RANGE - 1)] as f64;
-            let frac = blockage_fraction(occult, site.tilt_deg);
-            // Below a tenth of the beam the bias is not worth painting over the radar.
-            if frac < 0.1 {
-                continue;
-            }
-            // Amber where the beam is clipped, red where it is gone. Alpha tracks the fraction so
-            // the edge of a shadow fades instead of stepping.
-            px[row * RASTER_N + col] = if frac < 0.5 {
-                egui::Color32::from_rgba_unmultiplied(230, 170, 40, (frac * 130.0) as u8)
-            } else {
-                egui::Color32::from_rgba_unmultiplied(200, 40, 40, (frac * 150.0) as u8)
-            };
+            px[row * RASTER_N + col] = color(occult);
         }
     }
     egui::ColorImage {
@@ -292,6 +347,23 @@ pub async fn blockage_image(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tilt_rank_color_runs_green_to_red_and_is_stable_for_one_tilt() {
+        // Color32's accessors read back its internal premultiplied bytes, not the unmultiplied
+        // literals `tilt_rank_color` was written with — comparing ranks against each other rather
+        // than fixed thresholds sidesteps that and tests the actual invariant that matters.
+        let colors: Vec<_> = (0..6).map(|i| tilt_rank_color(i, 6)).collect();
+        for w in colors.windows(2) {
+            assert!(w[0].g() >= w[1].g(), "green must not rise as rank rises: {:?}", w);
+            assert!(w[0].r() <= w[1].r(), "red must not fall as rank rises: {:?}", w);
+        }
+        assert!(colors[0].g() > colors[5].g(), "lowest rank should read greener than highest");
+        assert!(colors[0].r() < colors[5].r(), "highest rank should read redder than lowest");
+        // A single-tilt volume has nothing lower to prefer — its only rank must match the lowest
+        // rank of a longer list, not some midpoint color that would suggest a better tilt exists.
+        assert_eq!(tilt_rank_color(0, 1), tilt_rank_color(0, 6));
+    }
 
     #[test]
     fn terrarium_decodes_signed_metres() {
@@ -391,12 +463,12 @@ mod tests {
             lat: 42.081,
             ground_m: summit as f64,
             tower_m: wxdata::towers::tower_m("KMAX"),
-            tilt_deg: 0.5,
         };
         let (cx, cy) = crate::render::mercator::lonlat_to_world(site.lon, site.lat);
         // ~250 km across, so the whole shadowed disk is in frame.
         let half = 0.0042;
-        let img = blockage_image(&http, site, [cx - half, cy - half, cx + half, cy + half]).await;
+        let world = [cx - half, cy - half, cx + half, cy + half];
+        let img = blockage_image(&http, site, 0.5, world).await;
         let shaded = img.pixels.iter().filter(|p| p.a() > 0).count();
         let total = img.pixels.len();
         // Real answer for this site is a percent or two of a 125 km window: the Cascade peaks
@@ -407,11 +479,38 @@ mod tests {
         );
         // Same terrain, a tilt that clears all of it: nothing at all should be shaded. Without
         // this, a raster that shaded everything would pass the check above.
-        let high = BeamSite {
-            tilt_deg: 6.0,
-            ..site
-        };
-        let img = blockage_image(&http, high, [cx - half, cy - half, cx + half, cy + half]).await;
+        let img = blockage_image(&http, site, 6.0, world).await;
         assert_eq!(img.pixels.iter().filter(|p| p.a() > 0).count(), 0);
+    }
+
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn lowest_usable_tilt_prefers_the_lowest_clear_angle() {
+        let http = reqwest::Client::new();
+        let summit = elevation_m(&http, 42.081, -122.717).await.unwrap();
+        let site = BeamSite {
+            lon: -122.717,
+            lat: 42.081,
+            ground_m: summit as f64,
+            tower_m: wxdata::towers::tower_m("KMAX"),
+        };
+        let (cx, cy) = crate::render::mercator::lonlat_to_world(site.lon, site.lat);
+        let half = 0.0042;
+        let world = [cx - half, cy - half, cx + half, cy + half];
+        // A single tilt that clears everything: every in-range pixel gets that tilt's own rank
+        // color (index 0 of a length-1 list), never the "nothing clears" color.
+        let img = lowest_usable_tilt_image(&http, site, &[6.0], world).await;
+        let none_clear = egui::Color32::from_rgba_unmultiplied(120, 40, 160, 140);
+        assert!(
+            img.pixels.iter().filter(|&&p| p != egui::Color32::TRANSPARENT).all(|&p| p != none_clear),
+            "a 6\u{b0} tilt clears this terrain everywhere in frame"
+        );
+        // A tilt list with only a low, mostly-blocked angle: some pixels have to fall back to
+        // "nothing clears" where the 0.5\u{b0} tests above found real shadow.
+        let img = lowest_usable_tilt_image(&http, site, &[0.5], world).await;
+        assert!(
+            img.pixels.iter().any(|&p| p == none_clear),
+            "a lone 0.5\u{b0} tilt should not clear this terrain everywhere"
+        );
     }
 }

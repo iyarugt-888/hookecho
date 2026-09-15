@@ -8,6 +8,29 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: a "lowest usable tilt" terrain overlay
+
+ROADMAP_NEW C3's last open item: a gridded "which tilt actually reaches ground level here" layer,
+distinct from the existing beam-blockage shading (how blocked is *this one displayed* tilt) and
+from the per-site suitability ranking (one point at a time, not a map). `elevation::
+lowest_usable_tilt_image` reuses the same terrain-occultation scan `blockage_image` already
+performs, but instead of shading one fixed tilt's own blockage, it walks the volume's real
+elevation list (low to high, SAILS/MRLE repeats deduplicated like the cross-section's beam-rise
+lines) and colors each pixel by the lowest one that actually clears the terrain there — green
+where the lowest tilt already does the job, through amber to red as a higher tilt becomes
+necessary, purple where nothing in the volume clears at all.
+
+New "Lowest usable tilt (terrain)" overlay toggle, built and cached the same way the existing
+Blockage overlay already is (a background DEM-fetching task, a `LowestTiltKey` cache keyed by
+site + the whole tilt list + the visible world rect, the previous raster kept on screen — stretched
+to its own rect — while a rebuild is in flight so panning doesn't blink).
+
+Verified against real terrain at KMAX (Mount Ashland, OR, a site with genuine beam blockage):
+a single tilt known to clear the whole frame (6°) paints its own color everywhere in range with no
+"nothing clears" pixels; a single tilt known to be significantly shadowed there (0.5°, the same
+terrain the pre-existing blockage test measures) does produce "nothing clears" pixels, in exactly
+the region that test already proved was real shadow.
+
 ### Fixed: the web deployment build failed to compile
 
 `RadarUpload.telemetry` (the live-render-queue-latency timing added alongside the render-queue

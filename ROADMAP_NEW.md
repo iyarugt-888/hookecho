@@ -738,9 +738,15 @@ HookEcho already models beam height. Extend it into a full analysis layer.
 - [x] height readout at cursor — this was already the gate inspector's "Beam height" row from B4;
   what was missing (top/bottom, width) is filled in above rather than duplicated as a second
   readout.
-- [ ] lowest usable beam map — a gridded "which tilt actually reaches ground level here" layer;
-  distinct from the per-site suitability ranking (C-adjacent, already built) and from the terrain
-  blockage raster (done, next item), neither of which answers this on its own.
+- [x] lowest usable beam map — new this pass, see the Unreleased CHANGELOG entry:
+  `elevation::lowest_usable_tilt_image` reuses the same terrain-occultation scan
+  `blockage_image` already built, but colors each pixel by the *lowest* tilt in the volume's own
+  elevation list that clears the terrain there (green → red as the required tilt rises) rather
+  than shading how blocked one fixed displayed tilt is. New "Lowest usable tilt (terrain)" overlay
+  toggle, wired the same way as the pre-existing Blockage one. Verified against real DEM terrain
+  at KMAX (Mount Ashland, OR): a tilt that clears everywhere paints its own rank color with no
+  "nothing clears" pixels; a tilt that's mostly blocked shows "nothing clears" exactly where the
+  existing blockage test already proved real shadow exists.
 - [x] terrain blockage estimate using existing elevation infrastructure — **predates this pass**,
   found already fully built and wired while surveying this section: `crate::elevation`'s DEM tile
   cache and `blockage_image`/`BeamSite` compute an occultation-angle raster from the site's own

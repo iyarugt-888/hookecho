@@ -61,7 +61,10 @@ fn retry_detail(retries: u32) -> Option<(&'static str, String)> {
     (retries > 0).then(|| {
         (
             "Stream retries",
-            format!("{retries} chunk fetch retr{}", if retries == 1 { "y" } else { "ies" }),
+            format!(
+                "{retries} chunk fetch retr{}",
+                if retries == 1 { "y" } else { "ies" }
+            ),
         )
     })
 }
@@ -109,9 +112,11 @@ impl HookEchoApp {
         // deliberately keeps its playhead frame on screen while a genuinely new head is appended
         // behind the scenes (see the `DataMsg::Volume` handler's `looping && new_head` case), so
         // `v.volume.time` can be well behind the feed's actual cadence while looping plays.
-        let age = v.timeline.newest().and_then(|id| id.date_time()).map(|t| {
-            (chrono::Utc::now() - t).to_std().unwrap_or_default()
-        });
+        let age = v
+            .timeline
+            .newest()
+            .and_then(|id| id.date_time())
+            .map(|t| (chrono::Utc::now() - t).to_std().unwrap_or_default());
         // Phase B3's provider-ingest-lag reading; never set from an archive scrub or a loop's
         // replayed frame, only a genuine live arrival — see `last_live_arrival`'s own doc comment.
         let details = [
@@ -156,7 +161,11 @@ impl HookEchoApp {
                 // (see `OverlaySource::Compare`'s own `lane()`); ask for that lane regardless of
                 // which of the two the toggle is for, so CompareB's health isn't perpetually
                 // "unknown" just because nothing was ever filed under its own name.
-                let layer = if layer == FL::CompareB { FL::CompareA } else { layer };
+                let layer = if layer == FL::CompareB {
+                    FL::CompareA
+                } else {
+                    layer
+                };
                 RequestLane::Field(layer)
             }
             PaletteAction::ToggleOverlay(toggle) => match toggle {
@@ -177,9 +186,7 @@ impl HookEchoApp {
                 T::Tfr => RequestLane::Feed("Temporary flight restrictions"),
                 T::Sensors => RequestLane::Feed("Radar observations"),
                 T::Hodo => RequestLane::Feed("VAD profile"),
-                T::Cells | T::Tracks | T::ArrivalCones => {
-                    RequestLane::Feed("Storm cells")
-                }
+                T::Cells | T::Tracks | T::ArrivalCones => RequestLane::Feed("Storm cells"),
                 T::Mds => RequestLane::Feed("Mesoscale discussions"),
                 T::Mping => RequestLane::Feed("mPING reports"),
                 T::Pireps => RequestLane::Feed("Pilot reports"),
@@ -841,6 +848,14 @@ impl HookEchoApp {
                 false,
             ),
             (
+                T::LowestTilt,
+                "Reference",
+                "Lowest usable tilt (terrain)",
+                "Shade by which tilt is the lowest that actually clears the terrain here \u{2014} \
+                 green needs a low angle, red needs a high one",
+                false,
+            ),
+            (
                 T::RadarSites,
                 "Reference",
                 "Radar sites",
@@ -1298,8 +1313,13 @@ mod tests {
     #[test]
     fn every_catalog_product_is_health_tracked() {
         for product in wxdata::mrms::catalog::PRODUCTS {
-            let layer = crate::render::FieldLayer::from_slug(product.field.id.0)
-                .unwrap_or_else(|| panic!("catalog product {} has no FieldLayer slug", product.field.id.0));
+            let layer =
+                crate::render::FieldLayer::from_slug(product.field.id.0).unwrap_or_else(|| {
+                    panic!(
+                        "catalog product {} has no FieldLayer slug",
+                        product.field.id.0
+                    )
+                });
             assert!(
                 field_layer_is_health_tracked(layer),
                 "{} (catalog product {}) should be health-tracked",
@@ -1377,8 +1397,7 @@ mod tests {
 
     #[test]
     fn a_decode_at_or_past_one_second_shows_tenths() {
-        let (_, value) =
-            decode_time_detail(Some(std::time::Duration::from_millis(1_500))).unwrap();
+        let (_, value) = decode_time_detail(Some(std::time::Duration::from_millis(1_500))).unwrap();
         assert_eq!(value, "1.5s");
     }
 

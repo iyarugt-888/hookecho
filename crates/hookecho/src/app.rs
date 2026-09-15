@@ -1596,6 +1596,11 @@ pub(crate) enum OverlayToggle {
     MiniLoop,
     /// Beam-vs-terrain blockage shading for the displayed tilt (chase mode).
     Blockage,
+    /// ROADMAP_NEW C3's "lowest usable beam map": which of the volume's tilts is the lowest one
+    /// that actually clears the terrain, shaded green (low tilt reaches) to red (needs a high
+    /// one) — "which tilt do I need here", distinct from `Blockage`'s "is my current tilt good
+    /// here".
+    LowestTilt,
     /// Day/night shading, the terminator line, and the lat/lon graticule.
     DayNight,
 }
@@ -1611,10 +1616,20 @@ pub(crate) struct BlockageKey {
     world: [i64; 4],
 }
 
+/// What a computed lowest-usable-tilt raster was built for — the same shape as [`BlockageKey`],
+/// but keyed by the volume's whole elevation list (in millidegrees) rather than one tilt, since
+/// this overlay answers a question about every tilt at once.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LowestTiltKey {
+    site: String,
+    tilts_mdeg: Vec<i32>,
+    world: [i64; 4],
+}
+
 impl OverlayToggle {
     /// Every toggle, for the persistence sweep. A new variant belongs here too, or it silently
     /// stops being remembered across restarts.
-    pub(crate) const ALL: [OverlayToggle; 43] = [
+    pub(crate) const ALL: [OverlayToggle; 44] = [
         Self::AlertPanel,
         Self::StormReports,
         Self::Spotters,
@@ -1657,6 +1672,7 @@ impl OverlayToggle {
         Self::LinkTimes,
         Self::MiniLoop,
         Self::Blockage,
+        Self::LowestTilt,
         Self::DayNight,
     ];
 
@@ -2970,6 +2986,14 @@ pub struct HookEchoApp {
     blockage_pending: Option<(BlockageKey, Instant)>,
     blockage_rx: Receiver<(BlockageKey, [f64; 4], egui::ColorImage)>,
     blockage_tx: Sender<(BlockageKey, [f64; 4], egui::ColorImage)>,
+    /// ROADMAP_NEW C3's "lowest usable beam map": same shape as the blockage fields above, but
+    /// keyed by the volume's whole elevation list rather than one displayed tilt — it answers
+    /// "which tilt do I need here", not "is my current tilt good here".
+    show_lowest_tilt: bool,
+    lowest_tilt_tex: Option<(LowestTiltKey, egui::TextureHandle, [f64; 4])>,
+    lowest_tilt_pending: Option<(LowestTiltKey, Instant)>,
+    lowest_tilt_rx: Receiver<(LowestTiltKey, [f64; 4], egui::ColorImage)>,
+    lowest_tilt_tx: Sender<(LowestTiltKey, [f64; 4], egui::ColorImage)>,
     /// Layers panel (floating, searchable layer picker): open flag + its search text.
     /// Viewport minus the docked bars, refreshed each frame — floating `Area`s constrain to this
     /// instead of `content_rect`, which egui measures before panels take their bite.
@@ -3501,6 +3525,7 @@ impl HookEchoApp {
         drop(ipgeo_tx); // native never asks; the receiver just stays empty
         let (pf_icon_tx, pf_icon_rx) = std::sync::mpsc::channel();
         let (blockage_tx, blockage_rx) = std::sync::mpsc::channel();
+        let (lowest_tilt_tx, lowest_tilt_rx) = std::sync::mpsc::channel();
         // Every app-level fetch (alerts, overlays, placefiles, radar index) goes through this one.
         // A hung request with no timeout leaves whatever it was loading stuck loading forever.
         let http = crate::platform::http_timeouts(reqwest::Client::builder())
@@ -3850,6 +3875,11 @@ impl HookEchoApp {
             blockage_pending: None,
             blockage_rx,
             blockage_tx,
+            show_lowest_tilt: false,
+            lowest_tilt_tex: None,
+            lowest_tilt_pending: None,
+            lowest_tilt_rx,
+            lowest_tilt_tx,
             // Map-first by default on both platforms: the floating chrome covers the common paths,
             // and the full toolbox is one "Advanced" tap away.
             chrome_rect: egui::Rect::EVERYTHING,
@@ -4315,14 +4345,77 @@ impl HookEchoApp {
             // The site registry is the elevation source; the tower table adds the antenna.
             ground_m: site.elevation_meters as f64,
             tower_m: wxdata::towers::tower_m(site.id),
-            tilt_deg: tilt_deg as f64,
         };
         self.blockage_pending = Some((key.clone(), Instant::now()));
         let http = self.http.clone();
         let tx = self.blockage_tx.clone();
         let ctx = ctx.clone();
+        let tilt_deg64 = tilt_deg as f64;
         self.spawner.spawn(async move {
-            let image = crate::elevation::blockage_image(&http, beam, world).await;
+            let image = crate::elevation::blockage_image(&http, beam, tilt_deg64, world).await;
+            let _ = tx.send((key, world, image));
+            ctx.request_repaint();
+        });
+    }
+
+    /// Keep the lowest-usable-tilt raster in step with the camera, the site, and the volume's own
+    /// elevation list — see `update_blockage`, which this otherwise mirrors exactly.
+    fn update_lowest_tilt(&mut self, ctx: &egui::Context) {
+        while let Ok((key, world, image)) = self.lowest_tilt_rx.try_recv() {
+            let tex = ctx.load_texture("lowest_tilt", image, egui::TextureOptions::LINEAR);
+            self.lowest_tilt_tex = Some((key, tex, world));
+            self.lowest_tilt_pending = None;
+        }
+        if !self.show_lowest_tilt {
+            self.lowest_tilt_tex = None;
+            self.lowest_tilt_pending = None;
+            return;
+        }
+        let view = &self.views[self.active];
+        let (Some(site), Some(vol)) = (
+            view.site.as_deref().and_then(wxdata::sites::site_by_id),
+            view.volume.as_ref(),
+        ) else {
+            return;
+        };
+        if vol.elevations.is_empty() {
+            return;
+        }
+        let cam = &view.camera;
+        let vp = self.last_viewport;
+        let (wx0, wy0) = cam.screen_to_world((0.0, 0.0), vp);
+        let (wx1, wy1) = cam.screen_to_world((vp.0, vp.1), vp);
+        let world = [wx0, wy0, wx1, wy1];
+        // Ascending, and deduplicated the same way the cross-section's beam-rise lines are: a
+        // SAILS/MRLE repeat of a low cut must not count as two separate rungs on the color ramp.
+        let mut tilts_deg: Vec<f32> = vol.elevations.clone();
+        tilts_deg.sort_by(f32::total_cmp);
+        tilts_deg.dedup_by(|a, b| (*a - *b).abs() < 0.05);
+        let key = LowestTiltKey {
+            site: site.id.to_string(),
+            tilts_mdeg: tilts_deg.iter().map(|&t| (t * 1000.0) as i32).collect(),
+            world: world.map(|w| (w * 1e7) as i64),
+        };
+        if self.lowest_tilt_tex.as_ref().is_some_and(|(k, ..)| *k == key)
+            || self.lowest_tilt_pending.as_ref().is_some_and(|(k, at)| {
+                *k == key || at.elapsed() < std::time::Duration::from_millis(600)
+            })
+        {
+            return;
+        }
+        let beam = crate::elevation::BeamSite {
+            lon: site.longitude as f64,
+            lat: site.latitude as f64,
+            ground_m: site.elevation_meters as f64,
+            tower_m: wxdata::towers::tower_m(site.id),
+        };
+        self.lowest_tilt_pending = Some((key.clone(), Instant::now()));
+        let http = self.http.clone();
+        let tx = self.lowest_tilt_tx.clone();
+        let ctx = ctx.clone();
+        let tilts: Vec<f64> = tilts_deg.iter().map(|&t| t as f64).collect();
+        self.spawner.spawn(async move {
+            let image = crate::elevation::lowest_usable_tilt_image(&http, beam, &tilts, world).await;
             let _ = tx.send((key, world, image));
             ctx.request_repaint();
         });
@@ -8283,6 +8376,7 @@ impl HookEchoApp {
             T::LinkTimes => &mut self.link_times,
             T::MiniLoop => &mut self.mini_loop,
             T::Blockage => &mut self.show_blockage,
+            T::LowestTilt => &mut self.show_lowest_tilt,
             T::DayNight => &mut self.show_daynight,
         }
     }
@@ -15005,6 +15099,24 @@ impl HookEchoApp {
             }
         }
 
+        // Lowest-usable-tilt shading, same registration approach as blockage above.
+        if self.show_lowest_tilt {
+            if let Some((_, tex, world)) = &self.lowest_tilt_tex {
+                let a = cam.world_to_screen((world[0], world[1]), vp);
+                let b = cam.world_to_screen((world[2], world[3]), vp);
+                let rect = egui::Rect::from_two_pos(
+                    egui::pos2(prect.left() + a.0, prect.top() + a.1),
+                    egui::pos2(prect.left() + b.0, prect.top() + b.1),
+                );
+                painter.image(
+                    tex.id(),
+                    rect,
+                    egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                    egui::Color32::WHITE,
+                );
+            }
+        }
+
         // Range rings + azimuth spokes around this pane's site (feature HH).
         if self.show_range_rings {
             if let Some(site) = view.site.as_deref().and_then(wxdata::sites::site_by_id) {
@@ -18213,6 +18325,7 @@ impl eframe::App for HookEchoApp {
         self.recompute_derived(ctx);
         // Beam-blockage raster: rebuilt when the camera, site, or tilt moves (DEM tiles are cached).
         self.update_blockage(ctx);
+        self.update_lowest_tilt(ctx);
         // Gridded L3 products (DVL/EET): per-site, refetch on the L3 cadence or a site change.
         let l3_site = self.views[self.active].site.clone();
         let site_changed = self.l3grid_site != l3_site;
