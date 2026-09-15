@@ -56,6 +56,47 @@ fn scan_strategy_popup(ui: &mut egui::Ui, vcp: &str, cuts: &[wxdata::level2::Til
         });
 }
 
+/// A strip inside the bottom edge of the tilt pill the live chunk stream is currently updating —
+/// filled by how far the current sweep has scanned (`chunk_index`/`chunks_in_sweep`) and pulsing
+/// gently while drawn, so "the stream is alive and here's the tilt it's actually on right now" is
+/// visible without a tooltip. Painted after `pill_sized` returns, directly over its own rect, so
+/// it needs no layout space of its own that could collide with a pill wrapped onto the next row.
+///
+/// Skips the pulse (but keeps the fill) under [`crate::ui::motion::reduced`] — the same convention
+/// the scrubber's own live-activity ring uses, for the same reason: the fill still answers "how
+/// far", the pulse is only what answers "is it moving right now", and reduced motion asked to drop
+/// the second question, not both.
+fn live_sweep_strip(ui: &mut egui::Ui, pill_rect: egui::Rect, p: wxdata::live::ScanProgress, accent: Color32) {
+    if !ui.is_rect_visible(pill_rect) {
+        return;
+    }
+    const HEIGHT: f32 = 3.0;
+    const INSET: f32 = 3.0;
+    let track = egui::Rect::from_min_max(
+        egui::pos2(pill_rect.left() + INSET, pill_rect.bottom() - HEIGHT - 1.0),
+        egui::pos2(pill_rect.right() - INSET, pill_rect.bottom() - 1.0),
+    );
+    let painter = ui.painter();
+    painter.rect_filled(track, 1.5, Color32::from_black_alpha(90));
+    let fraction = if p.chunks_in_sweep > 0 {
+        (p.chunk_index as f32 / p.chunks_in_sweep as f32).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    // A sliver even at 0/N: an empty bar reads as "not live" at a glance, which is the one thing
+    // this strip exists to say is false.
+    let filled_w = track.width() * fraction.max(0.12);
+    let fill = egui::Rect::from_min_size(track.min, egui::vec2(filled_w, track.height()));
+    let alpha = if crate::ui::motion::reduced() {
+        1.0
+    } else {
+        let t = ui.input(|i| i.time) as f32;
+        ui.ctx().request_repaint();
+        0.55 + 0.45 * (t * std::f32::consts::TAU * 0.5).sin().abs()
+    };
+    painter.rect_filled(fill, 1.5, accent.gamma_multiply(alpha));
+}
+
 impl HookEchoApp {
     /// The docked ribbon. Call on the eframe root `Ui`, before `chrome_rect` is captured, so the
     /// floating windows constrain to the map area below it.
@@ -96,6 +137,12 @@ impl HookEchoApp {
             .as_ref()
             .map(|v| wxdata::level2::tilt_cuts(&v.scan))
             .unwrap_or_default();
+        let show_live_indicator = self.settings.live_scan_indicator;
+        let streaming = self
+            .live_stream
+            .as_ref()
+            .is_some_and(|(v, _, _)| *v == self.active);
+        let live_progress = self.views[self.active].live_progress;
         let health = self.radar_health();
         let (health_txt, health_col) = ui::layers_panel::health_look(health.state());
         let panes = self.views.len();
@@ -266,6 +313,21 @@ impl HookEchoApp {
                                     };
                                     let resp =
                                         wsv3::pill_sized(ui, &label, i == tilt, accent, 42.0);
+                                    // The live chunk stream keeps scanning through the VCP
+                                    // regardless of which tilt is on screen (`i == tilt`, the
+                                    // pill's own highlight above) — this is a second, independent
+                                    // answer to "which one is that", drawn as a strip inside the
+                                    // pill's own bottom edge so it never needs layout space of its
+                                    // own that could collide with a wrapped-to-the-next-row pill.
+                                    if show_live_indicator
+                                        && streaming
+                                        && live_progress
+                                            .is_some_and(|p| p.elevation_number.wrapping_sub(1) == i)
+                                    {
+                                        if let Some(p) = live_progress {
+                                            live_sweep_strip(ui, resp.rect, p, accent);
+                                        }
+                                    }
                                     let resp = match cut {
                                         Some(c) if c.sails_cuts > 0 && c.mrle_cuts > 0 => resp
                                             .on_hover_text(format!(
@@ -803,5 +865,79 @@ impl HookEchoApp {
                         ui.label(RichText::new(text).size(12.5).color(Color32::WHITE));
                     });
             });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_progress(chunk_index: usize, chunks_in_sweep: usize) -> wxdata::live::ScanProgress {
+        wxdata::live::ScanProgress {
+            elevation_number: 1,
+            total_elevations: 14,
+            elevation_angle_deg: 0.5,
+            chunk_index,
+            chunks_in_sweep,
+        }
+    }
+
+    /// The strip has to paint both pieces every time it's asked to: the dark track (so a viewer
+    /// can tell "how much room is there" even at 0 progress) and the accent-coloured fill (so the
+    /// pull request that wired the flag through the pill loop doesn't silently draw nothing).
+    #[test]
+    fn paints_a_track_and_a_fill() {
+        let ctx = egui::Context::default();
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(200.0, 200.0),
+            )),
+            ..Default::default()
+        };
+        let pill_rect = egui::Rect::from_min_size(egui::pos2(10.0, 10.0), egui::vec2(42.0, 24.0));
+        let output = ctx.run_ui(input, |ui| {
+            live_sweep_strip(ui, pill_rect, sample_progress(1, 3), Color32::from_rgb(0, 120, 255));
+        });
+        let rects: Vec<egui::Rect> = output
+            .shapes
+            .iter()
+            .filter_map(|s| match &s.shape {
+                egui::Shape::Rect(r) => Some(r.rect),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(rects.len(), 2, "expected a track and a fill rect: {rects:?}");
+    }
+
+    /// At zero chunks scanned so far the fill still has to show *something* — an empty bar reads
+    /// as "not live", which is exactly the state this strip exists to distinguish from "live, just
+    /// hasn't scanned this sweep's first chunk yet".
+    #[test]
+    fn a_fresh_sweep_still_paints_a_visible_sliver() {
+        let ctx = egui::Context::default();
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(200.0, 200.0),
+            )),
+            ..Default::default()
+        };
+        let pill_rect = egui::Rect::from_min_size(egui::pos2(10.0, 10.0), egui::vec2(42.0, 24.0));
+        let output = ctx.run_ui(input, |ui| {
+            live_sweep_strip(ui, pill_rect, sample_progress(0, 3), Color32::from_rgb(0, 120, 255));
+        });
+        let widths: Vec<f32> = output
+            .shapes
+            .iter()
+            .filter_map(|s| match &s.shape {
+                egui::Shape::Rect(r) => Some(r.rect.width()),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            widths.iter().any(|&w| w > 0.5),
+            "expected a visible fill sliver even at zero progress: {widths:?}"
+        );
     }
 }

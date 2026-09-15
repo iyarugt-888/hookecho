@@ -27,6 +27,15 @@ elevation tracked the click, distinct from the 2D tilt picker's own selection) a
 round-trip unit test that places a known point on a known tilt's surface and confirms the picker
 recovers it.
 
+### Added: the live-sweep indicator also lives on the tilt pill itself now
+
+Reported live: the scrubber badge's ring (below) sits on a pill that's easy to miss entirely, and
+doesn't say *which* WSV3 tilt pill the live chunk stream is actually updating. A thin strip now
+fills in from the bottom edge of that specific tilt pill in the ribbon — filled by how far the
+current sweep has scanned, pulsing gently while the stream is open — independent of whichever tilt
+is selected for viewing (the pill's own highlight), since the live scan keeps moving through the
+VCP regardless of what's on screen. Same "Live sweep indicator" setting turns both off together.
+
 ### Added: an animated live-sweep indicator on the scrubber's Live badge
 
 Next to the "Live" badge, while a chunk stream is actually updating the pane: a small ring showing
