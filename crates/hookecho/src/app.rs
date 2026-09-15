@@ -1728,6 +1728,8 @@ pub(crate) enum PaletteAction {
     /// is comfortable headroom. Build one with [`encode_site_id`], read it back with
     /// [`decode_site_id`].
     SetSite([u8; 8]),
+    /// Seek the active radar timeline to a UTC instant (Unix seconds).
+    SeekTime(i64),
     /// Four panes, one product, four distinct tilts, cameras linked.
     AllTilts,
     /// Two panes, one model's own field in each (`app.diff_field`), cameras linked — the
@@ -3244,7 +3246,7 @@ pub struct HookEchoApp {
     /// the small geometry facts (`n, nz, half_km, top_km`) of whatever is currently GPU-resident,
     /// kept separately from the (heavy) upload so the frames between rebuilds don't need the
     /// tens-of-MB volume held twice just to recompute the camera uniform.
-    smooth_vol_key: [Option<(String, usize, Moment)>; 4],
+    smooth_vol_key: [Option<(String, u64, Moment)>; 4],
     #[allow(clippy::type_complexity)]
     smooth_vol_rx: [Option<std::sync::mpsc::Receiver<crate::render3d::Volume3dUpload>>; 4],
     smooth_vol_pending: [Option<crate::render3d::Volume3dUpload>; 4],
@@ -8256,6 +8258,26 @@ impl HookEchoApp {
                     self.detail = None;
                 }
             }
+            PaletteAction::SeekTime(seconds) => {
+                if let Some(target) = chrono::DateTime::from_timestamp(seconds, 0) {
+                    let view = &mut self.views[self.active];
+                    let site = view.site.as_deref().unwrap_or_default();
+                    let stale_axis = view.timeline.seek_to_valid_time(site, target);
+                    let selected = view.timeline.current().map(|frame| frame.name());
+                    let shown = view.volume.as_ref().map(|volume| volume.name.as_str());
+                    if stale_axis || selected.as_deref() != shown {
+                        view.volume = None;
+                        view.loading = false;
+                    }
+                    if self.link_times {
+                        self.linked_analysis.select_explicit(
+                            self.active,
+                            self.views[self.active].site.as_deref(),
+                            Some(target),
+                        );
+                    }
+                }
+            }
             PaletteAction::ToggleField(layer) => {
                 // The active pane's choice, not the app's: that is what makes two panes able to
                 // show two fields.
@@ -10199,6 +10221,7 @@ impl HookEchoApp {
                         Some(vol) => vol.apply_live(scan, name, time, &changed),
                         None => v.volume = Some(Volume::new(scan, name, time)),
                     }
+                    v.live_scan_revision = v.live_scan_revision.wrapping_add(1);
                     // Phase B5's "follow newest low-level cut": jump to the lowest tilt the
                     // instant a sweep there lands, including a SAILS/MRLE mid-volume rescan,
                     // rather than waiting for the tilt already selected or the volume as a whole.
@@ -11176,6 +11199,7 @@ impl HookEchoApp {
         );
         let key = (
             name,
+            self.views[data].live_scan_revision,
             moment,
             self.views[idx].map_3d.gate_stride,
             palette_gen,
@@ -11335,11 +11359,17 @@ impl HookEchoApp {
             }
         }
 
-        // Kick off a (re)build when the volume or its tilt count changed and nothing is already
-        // in flight for this pane.
+        // Kick off a (re)build when the volume or its live contents changed and nothing is already
+        // in flight for this pane. The revision covers new wedges in an existing tilt and repeated
+        // low-level SAILS/MRLE cuts, where the volume name and elevation count stay unchanged.
         if self.smooth_vol_rx[idx].is_none() {
+            let live_scan_revision = self.views[data].live_scan_revision;
             if let Some(vol) = self.views[data].volume.as_mut() {
-                let key = (vol.name.clone(), vol.elevations.len(), resample_moment);
+                let key = (
+                    vol.name.clone(),
+                    live_scan_revision,
+                    resample_moment,
+                );
                 if self.smooth_vol_key[idx].as_ref() != Some(&key) {
                     let sweeps = vol.moment_tilts(resample_moment);
                     if !sweeps.is_empty() {

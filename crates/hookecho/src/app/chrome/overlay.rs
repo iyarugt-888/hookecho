@@ -83,6 +83,7 @@ impl HookEchoApp {
             settings_page = None;
         }
         let settings_page_was = settings_page;
+        let selected_day = self.views[self.active].timeline.date;
         let (alert_count, _) = self.alert_badge();
         let bounds = self.view_bounds();
         let feats = self.active_alert_features().to_vec();
@@ -208,6 +209,7 @@ impl HookEchoApp {
                     } else {
                         (ui.available_height() - 110.0).max(120.0)
                     },
+                    selected_day,
                     std::mem::take(&mut focus_search),
                     &mut self.settings.layer_order,
                     &self.settings.recent_layers,

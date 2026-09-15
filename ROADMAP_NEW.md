@@ -438,6 +438,11 @@ Instead of waiting for a sweep/volume boundary:
   against a real site.
 - [x] show age since radar timestamp and age since local receipt separately — **done** via B3's
   provider-lag reading (`View::last_live_arrival`, see below); not duplicated here.
+- [x] keep both 3D representations synchronized with progressive live updates — every accepted
+  merged chunk advances `MapView::live_scan_revision`, which is part of the observed-gate upload
+  and smooth-volume resample cache keys. New wedges inside an existing tilt and repeated
+  SAILS/MRLE low-level cuts now invalidate 3D even when the volume name and tilt count stay the
+  same.
 - [ ] keep animation smooth while updates stream
 
 What remains is the *incremental GPU upload*: the display is now correct and honest about

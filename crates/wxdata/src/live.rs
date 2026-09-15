@@ -3,14 +3,13 @@
 //! NEXRAD publishes a volume as a sequence of small "chunks" to an S3 bucket during the scan
 //! itself, so a display can update sweep-by-sweep instead of waiting ~5 min for the archived
 //! volume. [`stream`] drives `nexrad-data`'s pull-based [`ChunkIterator`], assembles the
-//! accumulated chunks into a [`Scan`] at every sweep boundary, merges it into the running
+//! newest chunk into a [`Scan`] as it arrives, merges it into the running
 //! volume, and hands the caller a full updated [`Scan`] via `on_update`.
 //!
 //! All merged state lives on this task; the UI thread only ever receives a finished `Scan`.
 //!
-//! [`ScanProgress`] is the lighter-weight sibling: `on_progress` fires on *every* chunk, not just
-//! ones that complete a sweep, so a UI can show how far into the current tilt the radar has
-//! scanned between the heavier `Update`s the merged volume actually arrives on. It carries no
+//! [`ScanProgress`] is the lighter-weight sibling: `on_progress` also fires on every chunk before
+//! the merged [`Update`], so a UI can show how far into the current tilt the radar has scanned. It carries no
 //! scan data and costs nothing to compute — the chunk's own metadata already has the answer —
 //! so this does not change how often the expensive reassembly in `emit` runs (Phase B2's
 //! "expose current elevation, VCP, sweep number and scan progress").
@@ -62,7 +61,7 @@ pub struct Update {
 }
 
 /// Stream live chunks for `site`, starting from `base` (the last polled volume), calling
-/// `on_update` with a full merged [`Scan`] at each sweep boundary.
+/// `on_update` with a full merged [`Scan`] after each chunk.
 ///
 /// `active` is polled before each chunk fetch; returning false ends the stream cleanly, so a
 /// backgrounded phone stops pulling chunks over mobile data and stops holding a timer awake (the

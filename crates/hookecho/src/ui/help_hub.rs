@@ -19,6 +19,7 @@ const CHANGELOG: &str = include_str!("../../../../CHANGELOG.md");
 const TIPS: &[&str] = &[
     "Drag the scrubber to travel in time; the LIVE badge takes you back to now.",
     "Ctrl+K searches every command in the app, including ones with no button.",
+    "Search examples: reflectivity, station KTLX, tool measure, or time 21:30Z.",
     "Long-press or right-click the map to interrogate a pixel: every moment at that point.",
     "Panes can each run their own site, product and tilt — set panes to 4 and compare tilts.",
     "Alert rules decide what is worth interrupting you for. Nothing else makes a sound.",

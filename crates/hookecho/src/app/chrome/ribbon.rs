@@ -127,6 +127,7 @@ impl HookEchoApp {
         let mut hrrr_min = self.hrrr_fcst_min;
         let mut hrrr_sub_toggled = false;
         let mut all_tilts = false;
+        let mut open_command_search = false;
         // Global/env model source + lead, edited through locals so the sync loop refetches.
         let mut global_model = self.global_model;
         let mut global_hour = self.global_fcst_hour;
@@ -149,6 +150,17 @@ impl HookEchoApp {
                     .show(ui, |ui| {
                     ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                     ui.add_space(6.0);
+
+                    ribbon_group(ui, 136.0, |ui| {
+                        wsv3::group_label(ui, "Search");
+                        if wsv3::pill(ui, "Search all", false, accent)
+                            .on_hover_text("Search products, stations, tools, and UTC times (Ctrl+K)")
+                            .clicked()
+                        {
+                            open_command_search = true;
+                        }
+                        ui.label(RichText::new("product · station · time").size(10.0).color(wsv3::STATUS_FG));
+                    });
 
                     // ---- DATA (mode switch — WSV3 swaps its whole toolbar by data type) ----
                     ribbon_group(ui, 76.0, |ui| {
@@ -615,6 +627,11 @@ impl HookEchoApp {
             });
 
         // --- apply ---
+        if open_command_search {
+            self.panel_open = true;
+            self.show_alert_panel = false;
+            self.sidebar_focus_search = true;
+        }
         if let Some(i) = pick_tilt {
             self.views[self.active].tilt = i;
         }

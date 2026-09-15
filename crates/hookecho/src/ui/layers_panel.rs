@@ -41,17 +41,33 @@ pub(crate) fn fuzzy(needle: &str, hay: &str) -> Option<usize> {
 
 /// Filter + sort entry indices for `query` (best match first, registry order within a tie).
 pub(crate) fn matches(entries: &[PaletteEntry], query: &str) -> Vec<usize> {
+    let trimmed = query.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    let (scope, needle) = if lower.starts_with("switch station ") {
+        (Some("Sites"), &trimmed[15..])
+    } else if lower.starts_with("station ") {
+        (Some("Sites"), &trimmed[8..])
+    } else if lower.starts_with("site ") {
+        (Some("Sites"), &trimmed[5..])
+    } else if lower.starts_with("tool ") {
+        (Some("Tools"), &trimmed[5..])
+    } else {
+        (None, trimmed)
+    };
     let mut hits: Vec<(usize, usize)> = entries
         .iter()
         .enumerate()
         .filter_map(|(i, e)| {
+            if scope.is_some_and(|category| e.category != category) {
+                return None;
+            }
             let metadata = match e.action {
                 PaletteAction::ToggleField(layer) => layer.descriptor(),
                 _ => None,
             };
-            let score = fuzzy(query, &e.label).or_else(|| {
+            let score = fuzzy(needle, &e.label).or_else(|| {
                 metadata
-                    .and_then(|field| fuzzy(query, &field.search_text()))
+                    .and_then(|field| fuzzy(needle, &field.search_text()))
                     .map(|score| score.saturating_add(1000))
             });
             score.map(|score| (score, i))
@@ -59,6 +75,74 @@ pub(crate) fn matches(entries: &[PaletteEntry], query: &str) -> Vec<usize> {
         .collect();
     hits.sort_by_key(|(s, i)| (*s, *i));
     hits.into_iter().map(|(_, i)| i).collect()
+}
+
+/// Typed timeline commands share the same result list as the action registry. Times without a
+/// date use the day currently selected on the radar timeline; every displayed time is UTC.
+fn command_entry(query: &str, selected_day: chrono::NaiveDate) -> Option<PaletteEntry> {
+    let (verb, value) = query.trim().split_once(' ')?;
+    if !["time", "at", "goto"]
+        .iter()
+        .any(|word| verb.eq_ignore_ascii_case(word))
+    {
+        return None;
+    }
+    let value = value.trim();
+    let (label, action, desc) = if value.eq_ignore_ascii_case("live")
+        || value.eq_ignore_ascii_case("now")
+    {
+        (
+            "Return timeline to live".to_string(),
+            PaletteAction::GoLive,
+            "Resume the newest radar scan",
+        )
+    } else {
+        let target = parse_utc_time(value, selected_day)?;
+        (
+            format!("Seek timeline to {} UTC", target.format("%Y-%m-%d %H:%M")),
+            PaletteAction::SeekTime(target.timestamp()),
+            "Seek the active radar pane to the nearest scan at this UTC time",
+        )
+    };
+    Some(PaletteEntry {
+        label,
+        category: "Tools",
+        action,
+        on: None,
+        desc,
+        common: false,
+        key: None,
+        health: None,
+    })
+}
+
+fn parse_utc_time(
+    value: &str,
+    selected_day: chrono::NaiveDate,
+) -> Option<chrono::DateTime<chrono::Utc>> {
+    if let Ok(time) = chrono::DateTime::parse_from_rfc3339(value) {
+        return Some(time.with_timezone(&chrono::Utc));
+    }
+    let value = value.trim_end_matches(['Z', 'z']);
+    for pattern in [
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M",
+    ] {
+        if let Ok(time) = chrono::NaiveDateTime::parse_from_str(value, pattern) {
+            return Some(time.and_utc());
+        }
+    }
+    if let Ok(day) = chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d") {
+        return day.and_hms_opt(0, 0, 0).map(|time| time.and_utc());
+    }
+    for pattern in ["%H:%M:%S", "%H:%M"] {
+        if let Ok(time) = chrono::NaiveTime::parse_from_str(value, pattern) {
+            return Some(selected_day.and_time(time).and_utc());
+        }
+    }
+    None
 }
 
 /// Row height: one line, tall enough to scan without turning the panel into a wall.
@@ -273,7 +357,20 @@ fn health_popup(ui: &mut egui::Ui, health: &SourceHealth) {
     }
 }
 
-fn row(ui: &mut egui::Ui, e: &PaletteEntry, accent: Color32, draggable: bool) -> Hit {
+fn search_context(action: PaletteAction) -> &'static str {
+    match action {
+        PaletteAction::SetMoment(..) => "Radar product",
+        PaletteAction::SetSite(..) => "Radar station",
+        PaletteAction::SeekTime(..) | PaletteAction::GoLive => "Timeline",
+        PaletteAction::Tool(..) => "Map tool",
+        PaletteAction::ToggleField(..) => "Weather layer",
+        PaletteAction::ToggleOverlay(..) => "Map overlay",
+        PaletteAction::OpenWindow(..) => "Window",
+        _ => "Command",
+    }
+}
+
+fn row(ui: &mut egui::Ui, e: &PaletteEntry, accent: Color32, draggable: bool, search: bool) -> Hit {
     let on = e.on.unwrap_or(false);
     let (fg, bg) = if on {
         (
@@ -314,8 +411,13 @@ fn row(ui: &mut egui::Ui, e: &PaletteEntry, accent: Color32, draggable: bool) ->
                     vec2(w, ROW_H),
                     egui::Layout::top_down_justified(egui::Align::LEFT),
                     |ui| {
+                        let label = if search {
+                            format!("{}  ·  {}", search_context(e.action), e.label)
+                        } else {
+                            e.label.clone()
+                        };
                         ui.add(
-                            egui::Button::new(RichText::new(&e.label).size(13.0).color(fg))
+                            egui::Button::new(RichText::new(label).size(13.0).color(fg))
                                 .min_size(vec2(w, ROW_H))
                                 .fill(bg)
                                 .corner_radius(7.0)
@@ -585,6 +687,7 @@ pub(crate) fn body(
     query: &mut String,
     accent: Color32,
     max_height: f32,
+    selected_day: chrono::NaiveDate,
     focus_search: bool,
     pref: &mut Vec<String>,
     recent: &[String],
@@ -596,6 +699,11 @@ pub(crate) fn body(
         d.get_temp::<(bool, Option<String>)>(nav_id)
             .unwrap_or_default()
     });
+    if focus_search {
+        // Ctrl+K and the ribbon's Search all entry point always search the full suite.
+        active_only = false;
+        category = None;
+    }
     // (dragged label, label it was dropped on) — applied after the loop so the borrow of `pref`
     // doesn't have to live inside the scroll area.
     let mut moved: Option<(String, String)> = None;
@@ -610,7 +718,7 @@ pub(crate) fn body(
                 .hint_text(if active_only {
                     "Filter active layers…"
                 } else {
-                    "Find a layer, tool, or place…"
+                    "Search or type: reflectivity, station KTLX, time 21:30Z…"
                 })
                 .margin(egui::vec2(8.0, 8.0))
                 .desired_width(ui.available_width() - 4.0),
@@ -647,6 +755,7 @@ pub(crate) fn body(
         }
     });
     ui.add_space(10.0);
+    let command = command_entry(query, selected_day);
     let order: Vec<_> = matches(entries, query)
         .into_iter()
         .filter(|i| !active_only || active_layer(&entries[*i]))
@@ -654,6 +763,9 @@ pub(crate) fn body(
     // Enter runs the top-ranked match. Type-and-Enter was the whole point of the command palette
     // this drawer replaced; without it the search box is a filter, not a launcher.
     if !query.is_empty() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+        if let Some(command) = &command {
+            return Some(command.action);
+        }
         if let Some(i) = order.first() {
             return Some(entries[*i].action);
         }
@@ -661,7 +773,7 @@ pub(crate) fn body(
     let out = egui::ScrollArea::vertical()
         .max_height(max_height)
         .show(ui, |ui| {
-            if order.is_empty() {
+            if order.is_empty() && command.is_none() {
                 ui.add_space(8.0);
                 ui.weak(if active_only && query.is_empty() {
                     "No active layers."
@@ -670,7 +782,7 @@ pub(crate) fn body(
                 });
                 return;
             }
-            if active_only {
+            if active_only && command.is_none() {
                 for cat in CATEGORIES {
                     let group: Vec<_> = order
                         .iter()
@@ -698,10 +810,17 @@ pub(crate) fn body(
             }
             if !query.is_empty() {
                 // Searching: one flat best-first list — categories only add noise here.
+                if let Some(command) = &command {
+                    let hit = row(ui, command, accent, false, true);
+                    if hit.clicked {
+                        chosen = Some(command.action);
+                    }
+                    ui.add_space(2.0);
+                }
                 for i in &order {
                     // No dragging in search results: the order you're looking at is the ranking,
                     // not the list you'd be reordering.
-                    let hit = row(ui, &entries[*i], accent, false);
+                    let hit = row(ui, &entries[*i], accent, false, true);
                     if hit.clicked {
                         chosen = Some(entries[*i].action);
                     }
@@ -723,7 +842,7 @@ pub(crate) fn body(
                             .color(ui.visuals().weak_text_color()),
                     );
                     for entry in recents {
-                        let hit = row(ui, entry, accent, false);
+                        let hit = row(ui, entry, accent, false, false);
                         if hit.clicked {
                             chosen = Some(entry.action);
                         }
@@ -877,7 +996,7 @@ pub(crate) fn body(
                         clicked,
                         explain,
                         resp,
-                    } = row(ui, &entries[i], accent, true);
+                    } = row(ui, &entries[i], accent, true, false);
                     if clicked {
                         chosen = Some(entries[i].action);
                     }
@@ -954,6 +1073,47 @@ mod tests {
     use super::*;
 
     #[test]
+    fn typed_time_commands_use_the_selected_utc_day() {
+        let day = chrono::NaiveDate::from_ymd_opt(2026, 9, 14).unwrap();
+        let command = command_entry("time 21:30Z", day).unwrap();
+        assert_eq!(command.label, "Seek timeline to 2026-09-14 21:30 UTC");
+        assert_eq!(
+            command.action,
+            PaletteAction::SeekTime(
+                day.and_hms_opt(21, 30, 0).unwrap().and_utc().timestamp()
+            )
+        );
+        assert_eq!(
+            command_entry("time now", day).unwrap().action,
+            PaletteAction::GoLive
+        );
+        assert!(command_entry("time 25:99", day).is_none());
+        assert_eq!(
+            parse_utc_time("2026-09-15T00:15:00+02:00", day)
+                .unwrap()
+                .to_rfc3339(),
+            "2026-09-14T22:15:00+00:00"
+        );
+    }
+
+    #[test]
+    fn station_prefix_limits_search_to_site_actions() {
+        let entry = |category| PaletteEntry {
+            label: "KTLX Oklahoma City".into(),
+            category,
+            action: PaletteAction::TogglePanel,
+            on: None,
+            desc: "",
+            common: false,
+            key: None,
+            health: None,
+        };
+        let entries = [entry("Radar"), entry("Sites")];
+        assert_eq!(matches(&entries, "switch station ktlx"), vec![1]);
+        assert_eq!(matches(&entries, "station ktlx"), vec![1]);
+    }
+
+    #[test]
     fn active_list_excludes_commands_and_off_contours() {
         use crate::app::{ContourKind, OverlayToggle as T};
         let mut entry = PaletteEntry {
@@ -1022,6 +1182,7 @@ mod tests {
                         &mut query,
                         Color32::WHITE,
                         700.0,
+                        chrono::Utc::now().date_naive(),
                         false,
                         &mut pref,
                         &[],
@@ -1054,7 +1215,7 @@ mod tests {
         assert!(!active.iter().any(|s| s == "National layer"));
         assert!(render(false, Some("Radar"), "National")
             .iter()
-            .any(|s| s == "National layer"));
+            .any(|s| s.contains("National layer")));
     }
 
     #[test]
@@ -1082,6 +1243,7 @@ mod tests {
                         &mut query,
                         Color32::WHITE,
                         100.0,
+                        chrono::Utc::now().date_naive(),
                         frame == 0,
                         &mut pref,
                         &[],
@@ -1188,7 +1350,8 @@ mod tests {
                 |ui| {
                     ui.set_width(308.0);
                     chosen = body(
-                        ui, &entries, &mut query, Color32::WHITE, 700.0, false, &mut pref,
+                        ui, &entries, &mut query, Color32::WHITE, 700.0,
+                        chrono::Utc::now().date_naive(), false, &mut pref,
                         &recent, |_| {},
                     );
                 },

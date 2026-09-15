@@ -146,11 +146,12 @@ pub struct Map3dState {
     /// every frame.
     pub observed_layers: Vec<level2::ObservedLayer>,
     /// Upload identity. Camera state is intentionally absent: moving the camera updates uniforms,
-    /// never the millions-of-gates buffer. The `sweep_count` slot is the volume's tilt count, so
-    /// a still-streaming volume re-uploads as each higher sweep arrives; `fill_gaps`, the four
+    /// never the millions-of-gates buffer. The live revision changes for every merged chunk, so a
+    /// still-streaming volume re-uploads within a tilt and for repeated SAILS/MRLE cuts; `fill_gaps`, the four
     /// CC-anomaly ramp slots and the `MAX_HIGHLIGHTED_LAYERS` selected-elevation slots (all as
     /// bits) follow, so any of those changing rebuilds too.
-    pub observed_key: Option<(String, Moment, usize, u64, [u32; 12 + MAX_HIGHLIGHTED_LAYERS])>,
+    pub observed_key:
+        Option<(String, u64, Moment, usize, u64, [u32; 12 + MAX_HIGHLIGHTED_LAYERS])>,
 }
 
 impl Default for Map3dState {
@@ -424,6 +425,9 @@ pub struct MapView {
     /// whenever the stream isn't actively feeding this pane (stream end, site change) so a stale
     /// in-progress reading never lingers on screen.
     pub live_progress: Option<wxdata::live::ScanProgress>,
+    /// Monotonic identity for the merged live scan. The volume object name stays constant while
+    /// chunks fill a tilt, so 3D caches include this revision to expose each accepted update.
+    pub live_scan_revision: u64,
     /// Chunk fetch retries on the current live stream connection so far — see
     /// `wxdata::live::Update::retries`. Reset to 0 whenever the stream itself restarts (a fresh
     /// connection has a clean slate), not merely on a display change, so it answers "has this
@@ -476,6 +480,7 @@ impl MapView {
             error: None,
             last_live_arrival: None,
             live_progress: None,
+            live_scan_revision: 0,
             live_retries: 0,
             last_decode_time: None,
             fields_on: Default::default(),
