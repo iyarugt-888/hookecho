@@ -97,6 +97,38 @@ pub fn cache_dir() -> Option<PathBuf> {
     root("cache")
 }
 
+/// Total bytes on disk under [`cache_dir`], for ROADMAP_NEW N4's diagnostics bundle.
+pub fn cache_dir_bytes() -> u64 {
+    cache_dir().map(|d| dir_bytes(&d)).unwrap_or(0)
+}
+
+/// Total bytes of every regular file under `root`, walked iteratively (not recursively — the
+/// cache tree is a handful of levels deep, but a stack avoids assuming that stays true).
+/// Best-effort: a directory that can't be read (permissions, or it simply doesn't exist)
+/// contributes 0 for that branch rather than failing the whole walk over one unreadable entry.
+/// A free function, not inlined into [`cache_dir_bytes`], so it is testable against a real
+/// temporary directory without touching the process-global cache root.
+fn dir_bytes(root: &std::path::Path) -> u64 {
+    let mut total = 0u64;
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            match entry.file_type() {
+                Ok(ft) if ft.is_dir() => stack.push(path),
+                Ok(ft) if ft.is_file() => {
+                    total += entry.metadata().map(|m| m.len()).unwrap_or(0);
+                }
+                _ => {}
+            }
+        }
+    }
+    total
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -108,5 +140,48 @@ mod tests {
         assert!(config_dir().is_some());
         assert!(data_dir().is_some());
         assert!(cache_dir().is_some());
+    }
+
+    /// A throwaway directory under the OS temp root, unique per test invocation (pid + a counter)
+    /// so parallel test runs never collide — deliberately not the app's own `cache_dir()`, per
+    /// `dir_bytes`'s own doc comment on why it takes an arbitrary path.
+    fn scratch_dir(tag: &str) -> PathBuf {
+        static SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!(
+            "hookecho_paths_test_{tag}_{}_{n}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).expect("create scratch dir");
+        dir
+    }
+
+    #[test]
+    fn dir_bytes_sums_files_at_every_depth() {
+        let dir = scratch_dir("sums");
+        std::fs::write(dir.join("a.txt"), b"12345").unwrap(); // 5 bytes
+        let nested = dir.join("nested");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(nested.join("b.txt"), b"1234567890").unwrap(); // 10 bytes
+        assert_eq!(dir_bytes(&dir), 15);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn dir_bytes_of_a_missing_directory_is_zero_not_an_error() {
+        let dir = std::env::temp_dir().join("hookecho_paths_test_does_not_exist_at_all");
+        let _ = std::fs::remove_dir_all(&dir); // in case a previous run left it
+        assert_eq!(dir_bytes(&dir), 0);
+    }
+
+    #[test]
+    fn cache_dir_bytes_matches_a_manual_walk_of_the_real_cache_dir() {
+        // Not a scratch dir: this exercises `cache_dir_bytes` end to end against whatever the
+        // real cache root resolves to (see `desktop_roots_resolve_without_override` — it always
+        // resolves on this platform, even if empty).
+        let Some(root) = cache_dir() else {
+            return;
+        };
+        assert_eq!(cache_dir_bytes(), dir_bytes(&root));
     }
 }

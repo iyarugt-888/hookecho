@@ -1942,19 +1942,39 @@ Create network tests that run on schedule, not every PR, for public feeds:
 
 Alert CI maintainers when schemas/paths change.
 
-## N4. Local diagnostics bundle
+## N4. Local diagnostics bundle — done
+
+New this pass, see the Unreleased CHANGELOG entry: an "Export diagnostics…" button in Settings →
+Backup, beside the existing settings-bundle export, saving through the same cross-platform
+`dialog::save_bytes` (native save dialog, Android SAF, browser download) rather than a new
+mechanism. Every field below already existed somewhere in the app (Phase B3's health tracking,
+`wxdata::stats`'s performance counters, the devlog capture buffer) — this pass wired them together
+into one exportable JSON rather than inventing new instrumentation, plus the one field with no
+existing source at all (on-disk cache size).
 
 User can export a diagnostics text/JSON file containing:
 
-- app version
-- platform
-- renderer/backend
-- source health
-- recent errors
-- cache sizes
-- performance counters
+- [x] app version — `ui::about_window::VERSION`
+- [x] platform — `std::env::consts::OS`
+- [x] renderer/backend — the GPU adapter name/device-type/backend already logged once at
+  startup, now also kept on `HookEchoApp` rather than only scrolling past in the log
+- [x] source health — reuses `ui::source_health_window::active_health_rows`, the exact same
+  function and "active" definition N1's health window lists, so the two can never disagree
+- [x] recent errors — new `devlog::recent_warnings`, a *non-destructive* read of the capture
+  buffer (WARN/ERROR only, most recent 200) — deliberately not `drain`, which the devlog shipper
+  depends on to hand a batch off exactly once; a one-off diagnostics export must not silently
+  steal entries the shipper still needs to send
+- [x] cache sizes — new `paths::cache_dir_bytes`, an iterative walk of the on-disk cache root
+  (tiles, vector tiles, climatology CSV); no such number existed for the native build before
+  (the browser build already had one, `webcache::known_auto_cache`, for its own IndexedDB store)
+- [x] performance counters — `wxdata::stats::snapshot`, the same counters the dev-only Perf
+  window reads; gained a wasm stub (empty, like every other function in that module on wasm)
+  since nothing had ever called it from a cross-platform path before
 
-No location history, API keys or private tokens in the bundle.
+No location history, API keys or private tokens in the bundle — the same discipline `crash.rs`'s
+own panic report already commits to. Verified with a full test suite covering the two genuinely
+new pieces (`recent_warnings`'s non-destructive read, `cache_dir_bytes`'s directory walk against a
+real temporary directory) rather than a screenshot of the export button itself.
 
 ---
 

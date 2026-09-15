@@ -29,8 +29,10 @@ fn severity_rank(state: HealthState) -> u8 {
 }
 
 /// Every active, health-tracked source from this frame's registry, worst-first — the pure half of
-/// [`show`], kept separate so the ordering is testable without an `egui::Context`.
-fn active_health_rows(entries: &[PaletteEntry]) -> Vec<&SourceHealth> {
+/// [`show`], kept separate so the ordering is testable without an `egui::Context`. Also the source
+/// ROADMAP_NEW N4's diagnostics bundle reads, so the two features can never disagree about what
+/// counts as an active source.
+pub(crate) fn active_health_rows(entries: &[PaletteEntry]) -> Vec<&SourceHealth> {
     let mut rows: Vec<&SourceHealth> = entries
         .iter()
         .filter(|e| active_layer(e))

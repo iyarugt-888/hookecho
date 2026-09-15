@@ -605,6 +605,32 @@ impl SourceHealth {
     }
 }
 
+/// One [`SourceHealth`] row as it goes into ROADMAP_NEW N4's diagnostics bundle — durations become
+/// plain seconds so the export needs no serde duration helper, and `status` is the same label the
+/// Layers panel's own popup shows rather than the bare `HealthState` variant name.
+#[derive(serde::Serialize)]
+struct DiagnosticsSourceHealth {
+    source: String,
+    status: &'static str,
+    last_success_secs: Option<u64>,
+    cadence_secs: u64,
+    error: Option<String>,
+}
+
+/// ROADMAP_NEW N4's local diagnostics bundle. See `HookEchoApp::export_diagnostics_bundle` for
+/// what deliberately isn't in here.
+#[derive(serde::Serialize)]
+struct DiagnosticsBundle {
+    generated_at: String,
+    version: &'static str,
+    platform: &'static str,
+    renderer: String,
+    cache_bytes: u64,
+    performance_counters: std::collections::BTreeMap<&'static str, u64>,
+    source_health: Vec<DiagnosticsSourceHealth>,
+    recent_warnings: Vec<crate::devlog::LogEntry>,
+}
+
 struct RequestStatus {
     fetching: bool,
     last_attempt: Instant,
@@ -3040,6 +3066,10 @@ pub struct HookEchoApp {
     /// ROADMAP_NEW N1's "Data Source Health panel": open flag only — the content reads straight
     /// from this frame's `palette_entries()`, no separate state to keep in sync.
     show_data_health: bool,
+    /// GPU name/device-type/backend, captured once at startup (see the `wgpu_render_state` block
+    /// in `new`) — ROADMAP_NEW N4's diagnostics bundle wants it long after that log line scrolled
+    /// away.
+    gpu_info: String,
     /// Layers panel (floating, searchable layer picker): open flag + its search text.
     /// Viewport minus the docked bars, refreshed each frame — floating `Area`s constrain to this
     /// instead of `content_rect`, which egui measures before panels take their bite.
@@ -3408,8 +3438,9 @@ impl HookEchoApp {
         let render_state = cc.wgpu_render_state.as_ref().expect("wgpu backend");
         // Which GPU actually got picked. One line, at startup, because every performance report
         // is unreadable without it — "the map is choppy" means one thing on a discrete adapter
-        // and another on llvmpipe, and nothing in the app said which one was running.
-        {
+        // and another on llvmpipe, and nothing in the app said which one was running. Kept (not
+        // just logged) for ROADMAP_NEW N4's diagnostics bundle, which wants it long after startup.
+        let gpu_info = {
             let info = render_state.adapter.get_info();
             log::info!(
                 "gpu: {} ({:?}, {:?}) driver {}",
@@ -3418,7 +3449,8 @@ impl HookEchoApp {
                 info.backend,
                 info.driver
             );
-        }
+            format!("{} ({:?}, {:?})", info.name, info.device_type, info.backend)
+        };
         // Device loss on wasm is unrecoverable from inside the app: WebGPU (Safari 26+) loses
         // devices silently — black canvas, `webglcontextlost` can never fire — and on the WebGL
         // fallback (WebKitGTK) wgpu marks the device lost for gles errors that never surface as
@@ -3929,6 +3961,7 @@ impl HookEchoApp {
             coverage_compare: None,
             coverage_compare_tex: None,
             show_data_health: false,
+            gpu_info,
             // Map-first by default on both platforms: the floating chrome covers the common paths,
             // and the full toolbox is one "Advanced" tap away.
             chrome_rect: egui::Rect::EVERYTHING,
@@ -16348,6 +16381,16 @@ impl HookEchoApp {
                 {
                     self.import_settings_bundle();
                 }
+                if ui
+                    .button("Export diagnostics…")
+                    .on_hover_text(
+                        "Version, renderer, source health, recent warnings and cache size — \
+                         for a bug report. No location history, keys or tokens.",
+                    )
+                    .clicked()
+                {
+                    self.export_diagnostics_bundle();
+                }
             });
         }
 
@@ -16463,6 +16506,54 @@ impl HookEchoApp {
             crate::dialog::Saved::Failed(e) => {
                 log::warn!("settings export failed: {e}");
                 self.toast(ToastKind::Error, format!("Settings export failed: {e}"));
+            }
+            crate::dialog::Saved::Cancelled => {}
+        }
+    }
+
+    /// ROADMAP_NEW N4's local diagnostics bundle: app version, platform, renderer, every active
+    /// source's current health, recent warnings/errors, on-disk cache size, and the process-life
+    /// performance counters, as one exportable JSON. Deliberately absent: no location history, no
+    /// API keys, no filesystem paths of the user's own — the same discipline `crash.rs`'s own
+    /// panic report already commits to.
+    fn export_diagnostics_bundle(&mut self) {
+        let entries = self.palette_entries();
+        let source_health: Vec<DiagnosticsSourceHealth> =
+            ui::source_health_window::active_health_rows(&entries)
+                .into_iter()
+                .map(|h| DiagnosticsSourceHealth {
+                    source: h.source.clone(),
+                    status: ui::layers_panel::health_look(h.state()).0,
+                    last_success_secs: h.last_success.map(|d| d.as_secs()),
+                    cadence_secs: h.cadence.as_secs(),
+                    error: h.error.clone(),
+                })
+                .collect();
+        let bundle = DiagnosticsBundle {
+            generated_at: chrono::Utc::now().to_rfc3339(),
+            version: ui::about_window::VERSION,
+            platform: std::env::consts::OS,
+            renderer: self.gpu_info.clone(),
+            cache_bytes: crate::paths::cache_dir_bytes(),
+            performance_counters: wxdata::stats::snapshot().into_iter().collect(),
+            source_health,
+            recent_warnings: crate::devlog::recent_warnings(200),
+        };
+        let json = match serde_json::to_string_pretty(&bundle) {
+            Ok(json) => json,
+            Err(e) => {
+                log::warn!("diagnostics export failed: {e}");
+                self.toast(ToastKind::Error, format!("Diagnostics export failed: {e}"));
+                return;
+            }
+        };
+        match crate::dialog::save_bytes("hookecho-diagnostics.json", "json", json.as_bytes()) {
+            crate::dialog::Saved::Where(w) => {
+                self.toast(ToastKind::Success, format!("Diagnostics saved to {w}"))
+            }
+            crate::dialog::Saved::Failed(e) => {
+                log::warn!("diagnostics export failed: {e}");
+                self.toast(ToastKind::Error, format!("Diagnostics export failed: {e}"));
             }
             crate::dialog::Saved::Cancelled => {}
         }

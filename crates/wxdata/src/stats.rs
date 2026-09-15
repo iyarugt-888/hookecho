@@ -100,6 +100,13 @@ pub fn snapshot() -> Vec<(&'static str, u64)> {
         .collect()
 }
 
+/// Empty on wasm, same as every other function here — nothing was counted, so there is nothing to
+/// report rather than a fabricated all-zero table.
+#[cfg(target_arch = "wasm32")]
+pub fn snapshot() -> Vec<(&'static str, u64)> {
+    Vec::new()
+}
+
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;

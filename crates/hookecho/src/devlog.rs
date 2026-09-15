@@ -76,6 +76,25 @@ fn drain() -> Vec<LogEntry> {
     buf.drain(..).collect()
 }
 
+/// The most recent `limit` warning/error records, oldest first, *without* removing them — unlike
+/// [`drain`], which the shipper depends on to hand a batch off exactly once. ROADMAP_NEW N4's
+/// local diagnostics bundle is the one caller: a snapshot for a one-off export must not silently
+/// steal entries the shipper (if it's running) still needs to send.
+pub fn recent_warnings(limit: usize) -> Vec<LogEntry> {
+    let Ok(buf) = buffer().lock() else {
+        return Vec::new();
+    };
+    let mut out: Vec<LogEntry> = buf
+        .iter()
+        .rev()
+        .filter(|e| e.level == "WARN" || e.level == "ERROR")
+        .take(limit)
+        .cloned()
+        .collect();
+    out.reverse();
+    out
+}
+
 /// A per-launch id, stable for the process (native) or page load (web), so the admin panel can
 /// tell one instance's chatter from another's without either naming itself.
 pub fn instance_id() -> &'static str {
@@ -310,6 +329,20 @@ mod tests {
         assert_eq!(entries.len(), CAPACITY);
         assert_eq!(entries.first().unwrap().message, "5");
         assert_eq!(entries.last().unwrap().message, (CAPACITY + 4).to_string());
+
+        // `recent_warnings`: unlike `drain`, a read that leaves the buffer alone — filtered to
+        // warning/error severity, oldest-first, capped at the requested count.
+        push(log::Level::Info, "wxdata::tds", "routine");
+        push(log::Level::Warn, "hookecho::app", "first warning");
+        push(log::Level::Error, "hookecho::app", "then an error");
+        push(log::Level::Debug, "wxdata::tds", "noise");
+        let warnings = recent_warnings(10);
+        assert_eq!(warnings.len(), 2, "info/debug must be filtered out");
+        assert_eq!(warnings[0].message, "first warning");
+        assert_eq!(warnings[1].message, "then an error");
+        assert_eq!(recent_warnings(1).len(), 1, "the limit is respected");
+        // A read, not a drain: the shipper's own drain still sees everything just pushed.
+        assert_eq!(drain().len(), 4);
     }
 
     #[test]

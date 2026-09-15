@@ -8,6 +8,24 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: a one-click diagnostics export for bug reports
+
+ROADMAP_NEW N4: a new "Export diagnostics…" button in Settings → Backup saves a JSON snapshot of
+app version, platform, GPU renderer, every active source's current health, the last 200 warnings/
+errors, on-disk cache size, and the process's performance counters — everything a bug report
+usually needs a back-and-forth to collect, in one file. Saved through the same cross-platform
+`dialog::save_bytes` the settings-backup export already uses (native save dialog, Android SAF,
+browser download).
+
+No new instrumentation: every field already existed somewhere in the app (Phase B3's health
+tracking, `wxdata::stats`'s counters, the devlog capture buffer) except on-disk cache size, which
+gets a new `paths::cache_dir_bytes`. The one new devlog function, `recent_warnings`, is a
+non-destructive read — unlike `drain`, which the devlog shipper depends on to hand a batch off
+exactly once, so a one-off export must not silently steal entries the shipper still needs to send.
+
+Same privacy discipline as the existing crash reporter: no location history, API keys, private
+tokens, or filesystem paths of the user's own.
+
 ### Added: a consolidated data source health window
 
 ROADMAP_NEW N1: every active source's fetch health already existed (Phase B3's latency dashboard
