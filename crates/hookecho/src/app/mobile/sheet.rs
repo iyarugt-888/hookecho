@@ -14,6 +14,7 @@ use egui::{pos2, vec2, Align, Color32, Id, Layout, Rect, RichText, Sense, Stroke
 
 use egui_phosphor::regular as ph;
 
+use crate::ui::a11y::Named as _;
 use crate::ui::m3;
 
 /// The sheet's own surface color: the theme's panel fill lifted by an M3 surface tint so the sheet
@@ -158,7 +159,10 @@ pub(crate) fn modal_sheet<R>(
                         );
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                             let accent = ui.visuals().selection.bg_fill;
-                            if icon_button(ui, ph::X, false, accent).clicked() {
+                            if icon_button(ui, ph::X, false, accent)
+                                .named(&format!("Close {title}"))
+                                .clicked()
+                            {
                                 *close = true;
                             }
                         });

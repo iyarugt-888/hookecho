@@ -8,6 +8,7 @@
 //! Every field is on the row already; there is nothing a dialog would add but a dialog.
 
 use crate::settings::{AlertRule, RulePlace, RuleTrigger, Settings};
+use crate::ui::a11y::Named as _;
 
 #[derive(Default)]
 pub struct RulesWindow {
@@ -121,7 +122,7 @@ pub fn show(
                                 "How long before this rule may fire for the same place again",
                             )
                             .changed();
-                        if ui.button("🗑").on_hover_text("Delete this rule").clicked() {
+                        if ui.button("🗑").named("Delete this rule").clicked() {
                             remove = Some(i);
                         }
                     });
@@ -394,7 +395,7 @@ fn extra_row(ui: &mut egui::Ui, i: usize, rule: &mut AlertRule, changed: &mut bo
                     *changed = true;
                 }
             }
-            if ui.small_button("✕").clicked() {
+            if ui.small_button("✕").named("Remove condition").clicked() {
                 drop = Some(j);
             }
         }

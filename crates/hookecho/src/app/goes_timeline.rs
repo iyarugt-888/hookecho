@@ -1,5 +1,6 @@
 //! GOES frame-time selection and the shared radar/satellite scrub control.
 use super::*;
+use crate::ui::a11y::Named as _;
 
 /// The GOES frame closest to `t`, or `None` when the nearest one is too far off to be the same
 /// weather (or there are no frames yet).
@@ -125,6 +126,7 @@ impl HookEchoApp {
                                 cur > 0,
                                 egui::Button::new(egui_phosphor::regular::CARET_LEFT),
                             )
+                            .named("Previous satellite frame")
                             .clicked()
                         {
                             let previous = cur.saturating_sub(1);
@@ -152,6 +154,7 @@ impl HookEchoApp {
                                 cur + 1 < n,
                                 egui::Button::new(egui_phosphor::regular::CARET_RIGHT),
                             )
+                            .named("Next satellite frame")
                             .clicked()
                         {
                             let ni = cur + 1;

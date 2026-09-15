@@ -3,6 +3,7 @@
 //! returned action.
 
 use crate::settings::Settings;
+use crate::ui::a11y::Named as _;
 use chrono::{DateTime, Utc};
 
 /// What the app should do after the window is shown.
@@ -53,7 +54,7 @@ impl EventWindow {
                     ui.horizontal(|ui| {
                         if ui
                             .button(egui_phosphor::regular::CARET_RIGHT)
-                            .on_hover_text("Jump the active pane here")
+                            .named(&format!("Jump to {}", e.name))
                             .clicked()
                         {
                             action = Some(EventAction::Goto {
@@ -81,7 +82,11 @@ impl EventWindow {
                 }
                 for (i, b) in settings.bookmarks.iter().enumerate() {
                     ui.horizontal(|ui| {
-                        if ui.button(egui_phosphor::regular::CARET_RIGHT).clicked() {
+                        if ui
+                            .button(egui_phosphor::regular::CARET_RIGHT)
+                            .named(&format!("Jump to {}", b.name))
+                            .clicked()
+                        {
                             let (lon, lat) = crate::render::mercator::world_to_lonlat(b.x, b.y);
                             action = Some(EventAction::Goto {
                                 site: b.site.clone(),
@@ -101,7 +106,11 @@ impl EventWindow {
                                 "· archive".to_string()
                             });
                         }
-                        if ui.button("✖").clicked() {
+                        if ui
+                            .button("✖")
+                            .named(&format!("Remove bookmark {}", b.name))
+                            .clicked()
+                        {
                             remove = Some(i);
                         }
                     });

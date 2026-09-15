@@ -4,6 +4,7 @@ use crate::app::PaletteEntry;
 use crate::colormap::Palettes;
 use crate::hotkeys::{self, BindableAction, Binding};
 use crate::settings::{Settings, Theme, TimeDisplay, VelocityUnit};
+use crate::ui::a11y::Named as _;
 use wxdata::level2::Moment;
 
 #[derive(Default, PartialEq, Clone, Copy)]
@@ -732,7 +733,7 @@ pub(crate) fn key_field(ui: &mut egui::Ui, label: &str, value: &mut String) {
         if !value.is_empty()
             && ui
                 .small_button(egui_phosphor::regular::X)
-                .on_hover_text("Clear")
+                .named("Clear")
                 .clicked()
         {
             value.clear();

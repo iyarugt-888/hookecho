@@ -20674,6 +20674,7 @@ fn archive_day_input(ui: &mut egui::Ui, date: chrono::NaiveDate) -> Option<chron
 /// full width. `Some` on the frame a day is clicked. Closes itself on a pick, since picking a day
 /// is the natural end of browsing.
 fn archive_day_calendar(ui: &mut egui::Ui, date: chrono::NaiveDate) -> Option<chrono::NaiveDate> {
+    use crate::ui::a11y::Named as _;
     use chrono::Datelike;
     let open_id = egui::Id::new("archive-day-calendar-open");
     if !ui.data_mut(|d| d.get_temp(open_id)).unwrap_or(false) {
@@ -20688,7 +20689,11 @@ fn archive_day_calendar(ui: &mut egui::Ui, date: chrono::NaiveDate) -> Option<ch
 
     ui.separator();
     ui.horizontal(|ui| {
-        if ui.button(egui_phosphor::regular::CARET_LEFT).clicked() {
+        if ui
+            .button(egui_phosphor::regular::CARET_LEFT)
+            .named("Previous month")
+            .clicked()
+        {
             (year, month) = if month == 1 {
                 (year - 1, 12)
             } else {
@@ -20706,7 +20711,11 @@ fn archive_day_calendar(ui: &mut egui::Ui, date: chrono::NaiveDate) -> Option<ch
                 .map(|d| d.format("%B").to_string())
                 .unwrap_or_default(),
         );
-        if ui.button(egui_phosphor::regular::CARET_RIGHT).clicked() {
+        if ui
+            .button(egui_phosphor::regular::CARET_RIGHT)
+            .named("Next month")
+            .clicked()
+        {
             (year, month) = if month == 12 {
                 (year + 1, 1)
             } else {

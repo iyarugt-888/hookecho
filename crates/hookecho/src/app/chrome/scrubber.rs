@@ -303,7 +303,11 @@ impl HookEchoApp {
 
                             ui.horizontal(|ui| {
                                 ui.label("Date:");
-                                if ui.button(egui_phosphor::regular::CARET_LEFT).clicked() {
+                                if ui
+                                    .button(egui_phosphor::regular::CARET_LEFT)
+                                    .named("Previous day")
+                                    .clicked()
+                                {
                                     if let Some(d) = t.date.pred_opt() {
                                         seek_to_day(t, &site, d);
                                     }
@@ -320,6 +324,7 @@ impl HookEchoApp {
                                         !is_today,
                                         egui::Button::new(egui_phosphor::regular::CARET_RIGHT),
                                     )
+                                    .named("Next day")
                                     .clicked()
                                 {
                                     if let Some(d) = t.date.succ_opt() {

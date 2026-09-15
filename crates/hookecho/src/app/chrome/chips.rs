@@ -1,6 +1,7 @@
 //! Transient chrome over the map: toasts, warning banners, info and error chips.
 
 use super::*;
+use crate::ui::a11y::Named as _;
 
 impl HookEchoApp {
     /// Persistent, session-only notice while the automatic performance guard is active.
@@ -323,7 +324,7 @@ impl HookEchoApp {
                             );
                             if ui
                                 .small_button(egui_phosphor::regular::X)
-                                .on_hover_text("Dismiss until next launch")
+                                .named("Dismiss until next launch")
                                 .clicked()
                             {
                                 hide = true;

@@ -12,6 +12,7 @@
 
 pub(crate) mod sheet;
 
+use crate::ui::a11y::Named as _;
 use egui::{pos2, vec2, Align2, Color32, Id, Mesh, Rect, Shape};
 use egui_phosphor::regular as ph;
 use wxdata::level2::Moment;
@@ -253,7 +254,15 @@ impl super::HookEchoApp {
                 } else {
                     ph::EYE_SLASH
                 };
-                if square_btn(ui, g, self.mobile_chrome_hidden, OMEGA_ORANGE).clicked() {
+                let name = if self.mobile_chrome_hidden {
+                    "Show chrome"
+                } else {
+                    "Hide chrome"
+                };
+                if square_btn(ui, g, self.mobile_chrome_hidden, OMEGA_ORANGE)
+                    .named(name)
+                    .clicked()
+                {
                     self.mobile_chrome_hidden = !self.mobile_chrome_hidden;
                     self.panel_open = false;
                     self.basemap_open = false;

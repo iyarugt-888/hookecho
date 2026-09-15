@@ -2109,14 +2109,30 @@ Add compact mode:
 - dockable optional analyst panels while preserving current full-map default
 - high-information status footer option
 
-## Q3. Accessibility
+## Q3. Accessibility — ongoing, swept this pass
 
 Preserve current accesskit/high-contrast work and ensure new controls have:
 
-- semantic names
-- keyboard access
-- non-color-only state indication
-- scalable text
+- [x] semantic names — `ui::a11y::Named`'s `.named()`/`.named_toggle()` already covers most of the
+  icon-only chrome (21 call sites before this pass). New this pass, see the Unreleased CHANGELOG
+  entry: an audit turned up 15 icon-only buttons across 9 files that had fallen through that sweep
+  — some with a tooltip but no accessible name (a bare `.on_hover_text` doing only half the job
+  `Named` does), several with neither. Fixed all 15; verified none were missed by re-running the
+  same search patterns (`small_button`/`Button::new` wrapping a bare Phosphor glyph or a raw ✕/✖/🗑
+  symbol) and confirming every remaining hit already chains `.named()`. This is a sweep, not a
+  guarantee — a *new* icon-only control added without this pass's checklist in mind will quietly
+  reintroduce the gap; nothing here enforces it at compile time.
+- [x] keyboard access — inherited for free from egui's own focus/tab order and Enter/Space
+  activation on every `ui.button`/`ui.small_button` in this app; nothing found bypassing it
+- [ ] non-color-only state indication — spot-checked, not swept: this pass's own new coverage
+  overlay (`coverage_compare`) and the pre-existing model-diff overlay (`fielddiff`) are both
+  genuinely color-only on the map itself (a text legend states what the colors mean, but the
+  per-pixel data has no second channel) — accepted as a property of this class of diverging-color
+  data visualization, not audited for whether a discrete status *control* elsewhere shares the gap
+- [ ] scalable text — not investigated this pass; most sizes in this codebase are literal point
+  values (`FONT_BASE`, `.size(14.0)`, etc.) rather than derived from a user/OS text-scale
+  preference, but whether that actually fails to scale (egui may apply a global pixels-per-point
+  factor above these) wasn't checked
 
 ## Q4. macOS
 
