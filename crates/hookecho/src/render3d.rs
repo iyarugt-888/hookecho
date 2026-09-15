@@ -95,6 +95,25 @@ fn plane_uniform(plane: Option<VerticalPlane>, box_min: Vec3, box_max: Vec3) -> 
     [nx, ny, d, 1.0]
 }
 
+/// Ground-track endpoints of `plane`'s line on the map (Phase H4's "cross-section line visible in
+/// map pane"), for drawing it in the 2D pane the same way the cross-section tool draws its own
+/// two-point line — ties the 3D plane clip back to geographic context instead of leaving it
+/// visible only from inside the 3D view. `radar` is `[lon, lat]`; `half_km` is the same box
+/// half-extent `pane_smooth_volume`'s raymarch box uses (the main map's box is centered on the
+/// radar site, unlike the standalone orbit window's fixed abstract one), so the returned line
+/// lands at the same real-world offset the raymarch actually cuts at.
+///
+/// Mirrors [`plane_uniform`]'s geometry: the plane's own line runs perpendicular to its normal
+/// (`bearing_deg`), offset from the site by `offset * half_km` along the normal. `half_km * sqrt(2)`
+/// on each side of that foot point covers the box's diagonal regardless of where the offset put it.
+pub fn plane_ground_track(plane: VerticalPlane, radar: [f64; 2], half_km: f32) -> ([f64; 2], [f64; 2]) {
+    let foot = crate::geo::destination_point(radar, plane.bearing_deg as f64, (plane.offset * half_km) as f64);
+    let half_len = half_km as f64 * std::f64::consts::SQRT_2;
+    let a = crate::geo::destination_point(foot, plane.bearing_deg as f64 + 90.0, half_len);
+    let b = crate::geo::destination_point(foot, plane.bearing_deg as f64 - 90.0, half_len);
+    (a, b)
+}
+
 /// Orbit-camera uniforms: azimuth/elevation in degrees, `dist` from the box center, view `aspect`.
 #[allow(clippy::too_many_arguments)]
 pub fn orbit_uniform(
@@ -1139,6 +1158,83 @@ mod plane_tests {
         assert!((ny - 1.0).abs() < 1e-5);
         // The plane through the (shifted) center: d = normal . center = 1*3 = 3.
         assert!((d - 3.0).abs() < 1e-5, "d: {d}");
+    }
+}
+
+#[cfg(test)]
+mod ground_track_tests {
+    use super::{plane_ground_track, VerticalPlane};
+    use crate::geo::great_circle;
+
+    const RADAR: [f64; 2] = [-97.5, 35.3];
+
+    #[test]
+    fn zero_offset_runs_through_the_radar_site() {
+        // Same fact `zero_offset_passes_through_the_box_center` proves for the shader uniform:
+        // an unoffset plane passes through the box center, which on the main map *is* the site.
+        let p = VerticalPlane { bearing_deg: 37.0, offset: 0.0 };
+        let (a, b) = plane_ground_track(p, RADAR, 150.0);
+        // The site sits on the segment `a..b`, i.e. equidistant-ish from both ends and each end
+        // is `half_km * sqrt(2)` from the site — check the endpoint distances directly rather
+        // than midpoint arithmetic on lon/lat, which isn't linear.
+        let half_len = 150.0 * std::f64::consts::SQRT_2;
+        let (km_a, _) = great_circle(RADAR, a);
+        let (km_b, _) = great_circle(RADAR, b);
+        assert!((km_a - half_len).abs() < 0.5, "km_a: {km_a}");
+        assert!((km_b - half_len).abs() < 0.5, "km_b: {km_b}");
+    }
+
+    #[test]
+    fn the_line_runs_perpendicular_to_the_planes_bearing() {
+        // A north-pointing plane (bearing 0) cuts an east-west line: both endpoints should bear
+        // due east/west (90/270) from the offset foot point, not north/south.
+        let p = VerticalPlane { bearing_deg: 0.0, offset: 0.0 };
+        let (a, b) = plane_ground_track(p, RADAR, 150.0);
+        let (_, brg_a) = great_circle(RADAR, a);
+        let (_, brg_b) = great_circle(RADAR, b);
+        assert!((brg_a - 90.0).abs() < 0.5, "brg_a: {brg_a}");
+        assert!((brg_b - 270.0).abs() < 0.5, "brg_b: {brg_b}");
+    }
+
+    #[test]
+    fn offset_moves_the_line_along_the_bearing_not_the_line_itself() {
+        // A north-pointing plane offset 0.5 (half the box) should have its line's foot point
+        // 75 km (half of 150) due north of the site — same distance/bearing math `offset_scales_
+        // with_the_box_half_width_not_a_fixed_distance` proves for the shader's own `d`.
+        let p = VerticalPlane { bearing_deg: 0.0, offset: 0.5 };
+        let (a, b) = plane_ground_track(p, RADAR, 150.0);
+        let midpoint_bearing_from_radar = {
+            let (km_a, brg_a) = great_circle(RADAR, a);
+            let (km_b, brg_b) = great_circle(RADAR, b);
+            // Both endpoints are still ~equidistant from the site's due-north line, confirming
+            // the line shifted north as a whole rather than tilting.
+            assert!((km_a - km_b).abs() < 0.5, "km_a: {km_a}, km_b: {km_b}");
+            (brg_a, brg_b)
+        };
+        // Endpoints bear roughly NE/NW from the site now, not due E/W, since the line itself
+        // moved north of the radar.
+        assert!(midpoint_bearing_from_radar.0 < 90.0, "brg_a: {:?}", midpoint_bearing_from_radar);
+        assert!(midpoint_bearing_from_radar.1 > 270.0, "brg_b: {:?}", midpoint_bearing_from_radar);
+    }
+
+    #[test]
+    fn negative_offset_moves_the_line_the_opposite_way() {
+        let north = plane_ground_track(
+            VerticalPlane { bearing_deg: 0.0, offset: 0.5 },
+            RADAR,
+            150.0,
+        );
+        let south = plane_ground_track(
+            VerticalPlane { bearing_deg: 0.0, offset: -0.5 },
+            RADAR,
+            150.0,
+        );
+        // The two feet are symmetric about the site: the north-offset line's near endpoint is
+        // north of the site, the negative-offset line's near endpoint is south.
+        let (_, brg_north_a) = great_circle(RADAR, north.0);
+        let (_, brg_south_a) = great_circle(RADAR, south.0);
+        assert!(brg_north_a < 90.0, "north.0 bearing: {brg_north_a}");
+        assert!(brg_south_a > 90.0 && brg_south_a < 180.0, "south.0 bearing: {brg_south_a}");
     }
 }
 

@@ -15365,6 +15365,36 @@ impl HookEchoApp {
             }
         }
 
+        // The 3D map's own vertical clip plane (H4's "cross-section line visible in map pane"):
+        // ties the 3D view's cut back to geographic context instead of leaving it visible only
+        // from inside the 3D view itself. Only meaningful for the Smooth representations —
+        // ObservedSweeps raymarches real gate instances with no box for a plane to cut into.
+        let map3d = &self.views[idx].map_3d;
+        if map3d.enabled && map3d.representation != Map3dRepresentation::ObservedSweeps {
+            if let (Some(plane), Some((.., half_km, _))) =
+                (map3d.plane, self.smooth_vol_dims[idx])
+            {
+                if let Some(site) = self.views[idx]
+                    .site
+                    .as_deref()
+                    .and_then(wxdata::sites::site_by_id)
+                {
+                    let (a, b) = crate::render3d::plane_ground_track(
+                        plane,
+                        [site.longitude as f64, site.latitude as f64],
+                        half_km,
+                    );
+                    let col = egui::Color32::from_rgb(200, 130, 255);
+                    let screen = |ll: [f64; 2]| {
+                        let w = crate::render::mercator::lonlat_to_world(ll[0], ll[1]);
+                        let (sx, sy) = cam.world_to_screen(w, vp);
+                        egui::pos2(prect.left() + sx, prect.top() + sy)
+                    };
+                    painter.line_segment([screen(a), screen(b)], egui::Stroke::new(2.0, col));
+                }
+            }
+        }
+
         // Historical tornado tracks from the last climatology query (magnitude-colored segments).
         if self.climo_open && !self.climo_hits.is_empty() {
             let screen = |lon: f64, lat: f64| {

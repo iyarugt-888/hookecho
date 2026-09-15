@@ -8,6 +8,23 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: the 3D map's vertical clip plane draws its ground track on the 2D map
+
+ROADMAP_NEW H4 called out that the arbitrary vertical clip plane (bearing + offset, from the
+earlier "3D map" Slice controls) was visible only from inside the 3D view itself — nothing tied
+that cut back to geographic context on the flat map underneath it. Enabling "Vertical plane" now
+draws its ground track as a line across the 2D map pane, the same way the cross-section tool draws
+its own two-point line, in a distinct violet so the two are never confused.
+
+The line is the plane's actual cut, not an approximation: `render3d::plane_ground_track` derives it
+from the same bearing/offset math `plane_uniform` feeds the raymarch shader, anchored at the radar
+site and scaled by the same `half_km` box extent the Smooth raymarch itself uses, so the drawn line
+and the rendered cut agree by construction. Only shown for the Smooth representations — Observed
+raymarches real gate instances with no box for a plane to cut into. Verified live: toggling
+"Vertical plane" drew a line straight through KTLX; dragging Bearing to 310° rotated the line in
+place around the site, and dragging Offset shifted it off to the side, both matching the 3D view's
+own cut.
+
 ### Added: a Storage settings tab for the web build
 
 The Settings window's Storage tab — cache sizes and their Clear buttons — was `#[cfg(not(wasm32))]`

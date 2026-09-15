@@ -1376,8 +1376,12 @@ Never smooth the source values silently; smoothing must be explicit display proc
   perpendicular to the *new* arbitrary plane (two parallel planes with a gap) is not built
 - [x] clip box — the pre-existing axis-aligned `clip: [f32;6]` slab, independent of this pass
 - [x] storm-centered clip — pre-existing `volume3d::clip_around`, independent of this pass
-- [ ] cross-section line visible in map pane — nothing draws the vertical plane's ground track on
-  the 2D map, which would tie the 3D exploration back to geographic context
+- [x] cross-section line visible in map pane — new this pass, see the Unreleased CHANGELOG entry:
+  `render3d::plane_ground_track` derives the plane's ground track from the same bearing/offset math
+  `plane_uniform` feeds the shader, drawn as a violet line on the 2D map (Smooth representations
+  only — Observed has no box for a plane to cut into). Verified live: the line ran through the
+  radar site at bearing 0/offset 0, rotated in place when Bearing moved to 310°, and shifted
+  sideways when Offset moved, all matching the 3D view's own cut.
 
 ## H5. Beam visualization in 3D
 
