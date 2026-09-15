@@ -322,7 +322,7 @@ struct Hit {
     resp: egui::Response,
 }
 
-fn compact_age(age: std::time::Duration) -> String {
+pub(crate) fn compact_age(age: std::time::Duration) -> String {
     let seconds = age.as_secs();
     match seconds {
         0..=4 => "now".into(),
@@ -343,7 +343,7 @@ pub(crate) fn health_look(state: HealthState) -> (&'static str, Color32) {
     }
 }
 
-fn age_line(age: Option<std::time::Duration>) -> String {
+pub(crate) fn age_line(age: Option<std::time::Duration>) -> String {
     age.map_or_else(|| "never".into(), |d| format!("{} ago", compact_age(d)))
 }
 
@@ -581,7 +581,11 @@ fn row(
 }
 
 /// Registry selection also describes tools and layouts; those are not visible map layers.
-fn active_layer(e: &PaletteEntry) -> bool {
+///
+/// Shared with `ui::source_health_window`, which lists health for the same set of entries this
+/// panel would flag a warning icon on — the two must agree on what counts as "active" or an
+/// analyst could see a source healthy in one and missing from the other.
+pub(crate) fn active_layer(e: &PaletteEntry) -> bool {
     use crate::app::{ContourKind, OverlayToggle as T};
     e.on == Some(true)
         && match e.action {

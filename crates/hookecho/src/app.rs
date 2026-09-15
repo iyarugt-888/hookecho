@@ -1760,6 +1760,8 @@ pub(crate) enum AppWindow {
     /// The spotlight tour of the live chrome.
     Tour,
     About,
+    /// ROADMAP_NEW N1: every active source's fetch health in one list.
+    DataHealth,
 }
 
 /// One thing the user can do, addressable from any surface (layers panel, command palette,
@@ -3035,6 +3037,9 @@ pub struct HookEchoApp {
     /// channel pair needed.
     coverage_compare: Option<(String, String)>,
     coverage_compare_tex: Option<(CoverageCompareKey, egui::TextureHandle, [f64; 4])>,
+    /// ROADMAP_NEW N1's "Data Source Health panel": open flag only — the content reads straight
+    /// from this frame's `palette_entries()`, no separate state to keep in sync.
+    show_data_health: bool,
     /// Layers panel (floating, searchable layer picker): open flag + its search text.
     /// Viewport minus the docked bars, refreshed each frame — floating `Area`s constrain to this
     /// instead of `content_rect`, which egui measures before panels take their bite.
@@ -3923,6 +3928,7 @@ impl HookEchoApp {
             lowest_tilt_tx,
             coverage_compare: None,
             coverage_compare_tex: None,
+            show_data_health: false,
             // Map-first by default on both platforms: the floating chrome covers the common paths,
             // and the full toolbox is one "Advanced" tap away.
             chrome_rect: egui::Rect::EVERYTHING,
@@ -8715,6 +8721,7 @@ impl HookEchoApp {
                     self.about_open = true;
                     self.check_for_update(ctx);
                 }
+                W::DataHealth => self.show_data_health = true,
             },
         }
     }
@@ -19564,6 +19571,15 @@ impl eframe::App for HookEchoApp {
                 None => ui::cappi_window::show_empty(ctx, &mut self.drawer),
             };
             self.show_cappi = open;
+        }
+        if self.show_data_health {
+            let entries = self.palette_entries();
+            ui::source_health_window::show(
+                ctx,
+                &entries,
+                &mut self.show_data_health,
+                &mut self.drawer,
+            );
         }
         self.show_warning_banners(ctx);
         self.show_toasts(ctx);

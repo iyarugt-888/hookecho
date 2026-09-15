@@ -34,6 +34,7 @@ pub(crate) fn window_for_page(title: &str) -> Option<AppWindow> {
         "Warning Verification" => AppWindow::Verify,
         "3D Reflectivity" => AppWindow::Volume3d,
         "Tornado climatology" => AppWindow::Climatology,
+        "Data source health" => AppWindow::DataHealth,
         _ => return None,
     })
 }
@@ -71,6 +72,10 @@ mod tests {
         assert_eq!(
             super::window_for_page("Tornado climatology"),
             Some(super::AppWindow::Climatology)
+        );
+        assert_eq!(
+            super::window_for_page("Data source health"),
+            Some(super::AppWindow::DataHealth)
         );
         // A page from a newer build, or one that isn't a window at all: skipped, not fatal.
         assert_eq!(super::window_for_page("Storm 42 Attributes"), None);

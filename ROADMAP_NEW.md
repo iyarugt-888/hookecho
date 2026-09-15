@@ -1874,29 +1874,50 @@ Add where practical:
 
 Top-tier operational software needs to make feed quality visible.
 
-## N1. Data Source Health panel
+## N1. Data Source Health panel — partly done, found already built
+
+`app::SourceHealth`/`HealthState` and the per-lane `RequestBook` already tracked almost everything
+below, one source at a time, surfaced as a hover popup on that source's own row in the Layers
+panel (Phase B3's latency dashboard). What was actually missing was a single consolidated view —
+"for every active source" meant hunting row by row rather than one screen. New this pass, see the
+Unreleased CHANGELOG entry: a "Data source health…" window (`ui::source_health_window`, opened
+from the command palette/Layers panel like any other tool) lists every currently-active,
+health-tracked source worst-first, reusing the exact `SourceHealth` data and `active_layer` filter
+the per-row popups already use — the two views can never disagree about what counts as "active" or
+what a source's status is, because there is only one health computation feeding both.
 
 For every active source:
 
-- provider
-- endpoint family
-- last successful request
-- latest valid data time
-- age
-- expected cadence
-- rolling success/failure count
-- current backoff
-- cache state
-- fallback provider
+- [x] provider — `SourceHealth.source`
+- [ ] endpoint family — not a tracked field; `source` is a human label ("KTLX radar", "Model
+  contours"), not a bucket/API family identifier
+- [x] last successful request — `SourceHealth.last_success` (an age, not a timestamp — see
+  "latest valid data time" below for why the two are kept separate)
+- [ ] latest valid data time — only radar's own health row derives one (via the timeline's
+  newest-frame lookup); the generalized `palette_health` path only ever computed an age, not the
+  absolute valid time behind it
+- [x] age — `last_success`/`last_attempt`/`last_failure`, all ages from "now"
+- [x] expected cadence — `SourceHealth.cadence`
+- [ ] rolling success/failure count — `RequestStatus`/`SourceHealth` keep only the most recent
+  attempt/success/failure, not a running tally over a window
+- [x] current backoff — `SourceHealth::next_retry()`
+- [ ] cache state — no field for it; the request book tracks fetch health, not cache residency
+- [ ] fallback provider — no source in this app has one yet (see B1/B6: there is exactly one
+  `Level2LiveProvider` implementation, and every other source has exactly one endpoint), so there
+  is nothing to name here honestly rather than a field that would always read "none"
 
 Status states:
 
-- Live
-- Delayed
-- Stale
-- Failed
-- Cached
-- Experimental
+- [x] Live — `HealthState::Fresh`
+- [ ] Delayed — no separate state between "on cadence" and "off cadence"; `HealthState` jumps
+  straight from `Fresh` to `Stale`
+- [x] Stale — `HealthState::Stale`
+- [x] Failed — `HealthState::Failed`
+- [ ] Cached — no state names "the fetch failed but a previous value is still shown"; the closest
+  today is `Failed` plus a separate `last_success.is_some()` check the Layers panel's own popup
+  already renders as "Failed — showing previous data (degraded)", not a state of its own
+- [ ] Experimental — no source in this app is marked experimental yet (see F2's Tier 2 targets,
+  which do ask for an explicit EXPERIMENTAL label on future AI-guidance products)
 
 ## N2. Stale-data policy
 

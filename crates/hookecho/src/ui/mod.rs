@@ -124,6 +124,8 @@ pub mod sensor_window;
 pub mod settings_window;
 pub mod site_dialog;
 pub mod sounding_window;
+/// ROADMAP_NEW N1: every active source's fetch health in one list.
+pub mod source_health_window;
 /// Live station telemetry cards.
 pub mod station_card;
 pub mod style;

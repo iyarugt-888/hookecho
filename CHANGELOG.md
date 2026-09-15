@@ -8,6 +8,24 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: a consolidated data source health window
+
+ROADMAP_NEW N1: every active source's fetch health already existed (Phase B3's latency dashboard
+tracks it per source, one hover popup at a time on that source's own Layers-panel row), but
+"for every active source" meant checking them one row at a time — there was no single place to
+see what's broken across the whole app.
+
+A new "Data source health…" window, opened the same way as any other tool (command palette,
+Layers panel), lists every currently-active, health-tracked source worst-first — Failed sources on
+top, then Stale, then Waiting, then Fetching, then Fresh at the bottom. It adds no new health
+tracking: it reads the exact same `SourceHealth` data and the exact same `active_layer` filter the
+existing per-row popups already use, so the two views can never disagree about what counts as
+active or what a source's status is.
+
+Genuinely still open, not silently assumed: a rolling success/failure *count* (only the most
+recent attempt is tracked), cache state, and fallback provider — `SourceHealth` has no fields for
+any of the three yet, and no source in the app has a fallback provider to name in the first place.
+
 ### Added: radar coverage comparison between neighboring sites
 
 ROADMAP_NEW C3's last open item, now closing out the whole section: the radar-suitability popup

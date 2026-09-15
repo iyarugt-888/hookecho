@@ -1222,6 +1222,12 @@ impl HookEchoApp {
                 "A 60-second walk through the app's controls",
                 false,
             ),
+            (
+                W::DataHealth,
+                "Data source health…",
+                "Every active source's status in one place — provider, freshness, backoff, last error",
+                false,
+            ),
         ] {
             // The raymarch samples a `texture_3d<u32>`, which WebGL2 does not guarantee; on wasm
             // the entry would open a black window.
