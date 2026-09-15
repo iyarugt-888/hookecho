@@ -23,6 +23,8 @@ pub mod chaselog;
 pub mod chrome;
 pub mod cloud;
 pub mod colormap;
+/// Per-pixel beam-height comparison between two chosen radar sites.
+pub mod coverage_compare;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod crash;
 pub mod daynight_draw;

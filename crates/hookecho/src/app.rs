@@ -1646,6 +1646,16 @@ pub(crate) struct LowestTiltKey {
     world: [i64; 4],
 }
 
+/// What a computed coverage-comparison raster was built for. Fixed at 0.5° — the same elevation
+/// the suitability popup itself ranks candidates at — so the overlay always agrees with the
+/// numbers the user just read there; a pan/zoom past the quantization still rebuilds it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CoverageCompareKey {
+    site_a: String,
+    site_b: String,
+    world: [i64; 4],
+}
+
 impl OverlayToggle {
     /// Every toggle, for the persistence sweep. A new variant belongs here too, or it silently
     /// stops being remembered across restarts.
@@ -3018,6 +3028,13 @@ pub struct HookEchoApp {
     lowest_tilt_pending: Option<(LowestTiltKey, Instant)>,
     lowest_tilt_rx: Receiver<(LowestTiltKey, [f64; 4], egui::ColorImage)>,
     lowest_tilt_tx: Sender<(LowestTiltKey, [f64; 4], egui::ColorImage)>,
+    /// ROADMAP_NEW C3's "radar coverage comparison between neighboring sites": the two site ids
+    /// being compared (set from the suitability popup's "Compare" button), or `None` when the
+    /// overlay is off. Pure geometry (`crate::coverage_compare`) rather than a DEM fetch, so
+    /// unlike `blockage_tex`/`lowest_tilt_tex` above it rebuilds synchronously — no pending/
+    /// channel pair needed.
+    coverage_compare: Option<(String, String)>,
+    coverage_compare_tex: Option<(CoverageCompareKey, egui::TextureHandle, [f64; 4])>,
     /// Layers panel (floating, searchable layer picker): open flag + its search text.
     /// Viewport minus the docked bars, refreshed each frame — floating `Area`s constrain to this
     /// instead of `content_rect`, which egui measures before panels take their bite.
@@ -3904,6 +3921,8 @@ impl HookEchoApp {
             lowest_tilt_pending: None,
             lowest_tilt_rx,
             lowest_tilt_tx,
+            coverage_compare: None,
+            coverage_compare_tex: None,
             // Map-first by default on both platforms: the floating chrome covers the common paths,
             // and the full toolbox is one "Advanced" tap away.
             chrome_rect: egui::Rect::EVERYTHING,
@@ -4447,6 +4466,48 @@ impl HookEchoApp {
             let _ = tx.send((key, world, image));
             ctx.request_repaint();
         });
+    }
+
+    /// Keep the coverage-comparison raster in step with the camera and the chosen site pair.
+    /// Pure geometry (`crate::coverage_compare::coverage_compare_image`) rather than a DEM fetch,
+    /// so unlike `update_blockage`/`update_lowest_tilt` this rebuilds inline on the UI thread —
+    /// a 256×256 raster of beam-height arithmetic is well under a frame budget.
+    fn update_coverage_compare(&mut self, ctx: &egui::Context) {
+        let Some((a_id, b_id)) = self.coverage_compare.clone() else {
+            self.coverage_compare_tex = None;
+            return;
+        };
+        let (Some(site_a), Some(site_b)) = (
+            wxdata::sites::site_by_id(&a_id),
+            wxdata::sites::site_by_id(&b_id),
+        ) else {
+            self.coverage_compare = None;
+            self.coverage_compare_tex = None;
+            return;
+        };
+        let view = &self.views[self.active];
+        let cam = &view.camera;
+        let vp = self.last_viewport;
+        let (wx0, wy0) = cam.screen_to_world((0.0, 0.0), vp);
+        let (wx1, wy1) = cam.screen_to_world((vp.0, vp.1), vp);
+        let world = [wx0, wy0, wx1, wy1];
+        let key = CoverageCompareKey {
+            site_a: site_a.id.to_string(),
+            site_b: site_b.id.to_string(),
+            world: world.map(|w| (w * 1e7) as i64),
+        };
+        if self
+            .coverage_compare_tex
+            .as_ref()
+            .is_some_and(|(k, ..)| *k == key)
+        {
+            return;
+        }
+        // 0.5°: the same fixed elevation the suitability popup itself ranks candidates at, so
+        // this overlay always agrees with the "Beam height" numbers the user just read there.
+        let image = crate::coverage_compare::coverage_compare_image(site_a, site_b, 0.5, world);
+        let tex = ctx.load_texture("coverage_compare", image, egui::TextureOptions::LINEAR);
+        self.coverage_compare_tex = Some((key, tex, world));
     }
 
     /// Recompute the locally derived products (VIL, VIL density, echo tops) when the active pane's
@@ -15152,6 +15213,34 @@ impl HookEchoApp {
             }
         }
 
+        // Coverage-comparison shading (ROADMAP_NEW C3), same registration approach as blockage.
+        // Toggle: the suitability popup's "Compare" button on the same pair again turns it off,
+        // and closing that popup clears it too — see the call site in `apply_palette`/the update
+        // loop rather than a second dedicated close control here.
+        if let (Some((a_id, b_id)), Some((_, tex, world))) =
+            (&self.coverage_compare, &self.coverage_compare_tex)
+        {
+            let a = cam.world_to_screen((world[0], world[1]), vp);
+            let b = cam.world_to_screen((world[2], world[3]), vp);
+            let rect = egui::Rect::from_two_pos(
+                egui::pos2(prect.left() + a.0, prect.top() + a.1),
+                egui::pos2(prect.left() + b.0, prect.top() + b.1),
+            );
+            painter.image(
+                tex.id(),
+                rect,
+                egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                egui::Color32::WHITE,
+            );
+            painter.text(
+                prect.left_top() + egui::vec2(8.0, 8.0),
+                egui::Align2::LEFT_TOP,
+                format!("Coverage: {a_id} (blue) vs {b_id} (red)"),
+                egui::FontId::proportional(12.0),
+                egui::Color32::from_gray(230),
+            );
+        }
+
         // Range rings + azimuth spokes around this pane's site (feature HH).
         if self.show_range_rings {
             if let Some(site) = view.site.as_deref().and_then(wxdata::sites::site_by_id) {
@@ -18376,6 +18465,7 @@ impl eframe::App for HookEchoApp {
         // Beam-blockage raster: rebuilt when the camera, site, or tilt moves (DEM tiles are cached).
         self.update_blockage(ctx);
         self.update_lowest_tilt(ctx);
+        self.update_coverage_compare(ctx);
         // Gridded L3 products (DVL/EET): per-site, refetch on the L3 cadence or a site change.
         let l3_site = self.views[self.active].site.clone();
         let site_changed = self.l3grid_site != l3_site;
@@ -19339,7 +19429,7 @@ impl eframe::App for HookEchoApp {
         }
         if let Some(popup) = &self.suitability_popup {
             let current_site = self.views[self.active].site.clone();
-            let (keep_open, switch_to) = ui::suitability_popup::show(
+            let (keep_open, switch_to, compare_with) = ui::suitability_popup::show(
                 ctx,
                 popup,
                 current_site.as_deref(),
@@ -19348,8 +19438,17 @@ impl eframe::App for HookEchoApp {
             if let Some(id) = switch_to {
                 self.apply_palette(PaletteAction::SetSite(encode_site_id(id)), ctx);
             }
+            if let Some(id) = compare_with {
+                if let Some(cur) = current_site {
+                    let pair = (cur, id.to_string());
+                    // Clicking "Compare" again on the same pair turns the overlay back off.
+                    self.coverage_compare =
+                        (self.coverage_compare.as_ref() != Some(&pair)).then_some(pair);
+                }
+            }
             if !keep_open {
                 self.suitability_popup = None;
+                self.coverage_compare = None;
             }
         }
         if let Some(i) = self.marker_popup {

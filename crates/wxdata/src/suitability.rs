@@ -45,6 +45,33 @@ pub struct RadarCandidate {
     pub beam_width_km: f64,
 }
 
+/// `site`'s beam geometry at `(lon, lat)` for `elevation_deg` — the one computation [`rank`] runs
+/// for every candidate, pulled out so a caller who already knows which two (or more) sites it
+/// wants (see [`crate::sites::SiteEntry`]) doesn't need [`rank`]'s own nearest-neighbor scan and
+/// truncation just to ask about a specific site.
+///
+/// `elevation_deg` is normally the lowest tilt a site actually scans (0.5° for a WSR-88D
+/// precipitation VCP); pass whatever the caller's active elevation is to score the tilt actually
+/// being looked at rather than always assuming the base scan.
+pub fn candidate_at(
+    site: &'static crate::sites::SiteEntry,
+    lon: f64,
+    lat: f64,
+    elevation_deg: f64,
+) -> RadarCandidate {
+    let (distance_km, _bearing_deg) =
+        crate::xsection::dist_bearing(site.longitude as f64, site.latitude as f64, lon, lat);
+    let slant_km = crate::xsection::slant_from_ground_km(distance_km, elevation_deg);
+    let beam_height_m = crate::xsection::beam_height_km(slant_km, elevation_deg) * 1_000.0;
+    let beam_width_km = horizontal_beam_width_km(distance_km);
+    RadarCandidate {
+        site,
+        distance_km,
+        beam_height_m,
+        beam_width_km,
+    }
+}
+
 /// The nearest `limit` radars to `(lon, lat)`, ranked by beam height at the target for
 /// `elevation_deg` (ascending — lowest beam first) rather than by raw distance. Ties (there
 /// usually aren't any at this precision) fall back to distance.
@@ -54,23 +81,7 @@ pub struct RadarCandidate {
 /// actually being looked at rather than always assuming the base scan.
 pub fn rank(lon: f64, lat: f64, elevation_deg: f64, limit: usize) -> Vec<RadarCandidate> {
     let mut candidates: Vec<RadarCandidate> = crate::sites::all()
-        .map(|site| {
-            let (distance_km, _bearing_deg) = crate::xsection::dist_bearing(
-                site.longitude as f64,
-                site.latitude as f64,
-                lon,
-                lat,
-            );
-            let slant_km = crate::xsection::slant_from_ground_km(distance_km, elevation_deg);
-            let beam_height_m = crate::xsection::beam_height_km(slant_km, elevation_deg) * 1_000.0;
-            let beam_width_km = horizontal_beam_width_km(distance_km);
-            RadarCandidate {
-                site,
-                distance_km,
-                beam_height_m,
-                beam_width_km,
-            }
-        })
+        .map(|site| candidate_at(site, lon, lat, elevation_deg))
         .collect();
     candidates.sort_by(|a, b| {
         a.beam_height_m
@@ -94,6 +105,23 @@ mod tests {
         assert_eq!(ranked[0].site.id, "KTLX");
         assert!(ranked[0].distance_km < 0.01, "{}", ranked[0].distance_km);
         assert!(ranked[0].beam_height_m < 1.0, "{}", ranked[0].beam_height_m);
+    }
+
+    /// `candidate_at` is what `rank` calls per candidate — the two must agree on the same site
+    /// at the same point, or the refactor that split them changed behavior by accident.
+    #[test]
+    fn candidate_at_agrees_with_rank_for_the_same_site() {
+        let ktlx = crate::sites::site_by_id("KTLX").unwrap();
+        let (lon, lat) = (-97.28, 35.33);
+        let from_rank = rank(lon, lat, 0.5, 30)
+            .into_iter()
+            .find(|c| c.site.id == "KTLX")
+            .expect("KTLX in range");
+        let direct = candidate_at(ktlx, lon, lat, 0.5);
+        assert_eq!(direct.site.id, from_rank.site.id);
+        assert!((direct.distance_km - from_rank.distance_km).abs() < 1e-9);
+        assert!((direct.beam_height_m - from_rank.beam_height_m).abs() < 1e-9);
+        assert!((direct.beam_width_km - from_rank.beam_width_km).abs() < 1e-9);
     }
 
     #[test]

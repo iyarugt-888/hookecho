@@ -8,6 +8,24 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: radar coverage comparison between neighboring sites
+
+ROADMAP_NEW C3's last open item, now closing out the whole section: the radar-suitability popup
+(click a point, see nearby radars ranked by beam height rather than just distance) could only ever
+answer "which site is best here" one point at a time. Every non-current row now has a "Compare"
+button that paints the same beam-height math as a map overlay instead — blue where the current
+site's beam is lower at that point, red/orange where the compared site's is, transparent inside a
+~150 m deadband (real differences that small are noise against the beam-height model's own
+approximations) and fading out past a ~4 km ceiling where neither radar is telling an analyst
+anything about low-level structure anymore. Clicking "Compare" again on the same pair turns it back
+off, and closing the popup clears it.
+
+New `wxdata::suitability::candidate_at` (the per-candidate half of `rank`, pulled out so a caller
+who already knows which two sites it wants doesn't need `rank`'s nearest-neighbor scan) and a new
+`crate::coverage_compare` module. Pure geometry, same scope as `wxdata::suitability` itself — no
+terrain, no network — so unlike the DEM-backed Blockage/Lowest-tilt overlays it rebuilds
+synchronously on the UI thread rather than through a background fetch.
+
 ### Added: field-registry metadata for the global-model comparison layers
 
 ROADMAP_NEW A1's last open migration item: `wxdata::global::GlobalField` (MSLP, 500 hPa height,

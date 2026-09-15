@@ -732,7 +732,7 @@ Historic supercell replay produces a stable rotation/hail trail that can be inde
 
 ---
 
-## C3. Beam geometry / blockage / coverage analysis — partly done
+## C3. Beam geometry / blockage / coverage analysis — done
 
 HookEcho already models beam height. Extend it into a full analysis layer.
 
@@ -761,9 +761,25 @@ HookEcho already models beam height. Extend it into a full analysis layer.
   cache and `blockage_image`/`BeamSite` compute an occultation-angle raster from the site's own
   antenna height, exposed as the "Blockage" overlay toggle (chase mode). The roadmap simply hadn't
   been updated to say so.
-- [ ] radar coverage comparison between neighboring sites — the suitability ranking answers "which
-  site has the lowest beam here" one point at a time; a coverage *map* comparing two sites' full
-  footprints is a different, larger visualization not attempted here.
+- [x] radar coverage comparison between neighboring sites — new this pass, see the Unreleased
+  CHANGELOG entry: a "Compare" button on each non-current row of the suitability popup paints a
+  map overlay of the same beam-height math the ranking already runs, this time point by point
+  across a rect instead of once at the clicked location — blue where the current site's beam is
+  lower, red/orange where the compared site's is, transparent within a ~150 m deadband (real
+  numbers that close are noise against the beam-height model's own approximations) and fading out
+  past a ~4 km ceiling where neither radar is telling an analyst anything about low-level
+  structure anymore. Pure geometry, same scope as `wxdata::suitability` itself — no terrain, no
+  network, no live data, so unlike the terrain-based Blockage/Lowest-tilt overlays it rebuilds
+  synchronously on the UI thread rather than through a background DEM fetch. Deliberately does not
+  fold in per-site terrain blockage (a second, independent overlay already covers that) or attempt
+  a general N-site "who covers this whole area best" map — a two-site comparison from the tool
+  that already ranks candidates, not the larger footprint-fusion visualization this bullet
+  originally described. Verified with a full geometry test suite (antisymmetry swapping the pair,
+  a site favoring itself at its own antenna, the deadband/ceiling color behavior, and the raster
+  only painting where at least one site is within range) rather than a screenshot — this app's
+  desktop UI has no browser-based visual verification path in this environment (see prior
+  sessions' notes on the Layers panel), the same reason `elevation`'s own overlays are verified
+  against real DEM data via `--ignored` tests instead.
 - [x] optional beam-rise overlay in cross-section — `wxdata::xsection::build` now returns one
   `BeamRiseLine` per distinct tilt in the volume (deduplicated so a SAILS/MRLE repeat doesn't draw
   itself twice), sampled at the same radar-relative ground range each panel column already uses
@@ -1139,8 +1155,24 @@ Create common APIs for:
   per-model byte-range strategy F1 deliberately did not invent yet.
 - [ ] RRFSv1 deterministic
 - [ ] REFS / RRFS ensemble members
-- [ ] GEFS
-- [ ] NBM
+- [x] GEFS — found already fully built while surveying this section, the same pattern as A1/C3/D1's
+  own stale checkboxes: `wxdata::global::GlobalModel::Gefs` fetches the real 0.5° ensemble-mean
+  bucket (`noaa-gefs-pds`), is one of the four pills in the ribbon's model-mode source picker
+  (`app/chrome/ribbon.rs`) and the layer-options global-model list, and is covered by the
+  `global_live`/`point_series_live` network tests. Re-verified live this pass: `global_live`
+  fetched real GEFS-mean MSLP (600×300, 100% finite) alongside GFS/ECMWF/GDPS in the same run.
+- [ ] NBM — genuinely open, not stale: `wxdata::hrrr::Model::Nbm` already has real GRIB mappings
+  for the fields it publishes (confirmed live against `blend.t18z.core.f001.co.grib2.idx`:
+  `TMP`/`DPT` at "2 m above ground" match the existing generic key exactly), and explicit `None`
+  opt-outs for the fields it genuinely doesn't (composite reflectivity, mixed-layer CAPE, SRH,
+  MSLP) — but it publishes wind as a direct `WIND` speed scalar rather than `UGRD`/`VGRD`
+  components, and there is no regional 10 m wind `ModelField` at all yet (F3's "10 m wind/gust"
+  target), only the separate vector-wind fetch path the particle layer uses. Nowhere in the UI
+  offers NBM as a general model to browse today: the one ribbon group that lists alternate models
+  (HRRR/RAP/NAM/NAM12) is specifically the CAPE/SRH environment suite, and NBM cannot serve two of
+  those three fields — adding it there would offer a model that silently breaks half of what the
+  picker is for. Making NBM genuinely browsable needs its own field-based (not per-model-list)
+  surface, consistent with A1/F1's own registry philosophy, not a one-line addition to that picker.
 
 ### RRFS timing note
 
