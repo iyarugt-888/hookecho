@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: typed product source identity
+
+`FieldDescriptor.source` now uses a `DataSource` enum instead of a display string. Sources expose a
+stable machine ID separately from their human provenance label, allowing future cache namespaces,
+quotas, and filters to branch on identity without comparing UI text. All existing MRMS catalog
+entries now use `DataSource::NoaaMrms`; product search includes both `noaa-mrms` and `NOAA MRMS`.
+
 ### Added: measured live radar render-queue latency
 
 Each accepted live Level II update now carries a one-shot timestamp from the UI receive path into

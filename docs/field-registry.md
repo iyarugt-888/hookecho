@@ -21,7 +21,7 @@ All existing direct MRMS field-layer fetches use the stamped API. Legacy callers
 
 ## Implemented catalog contract
 
-`wxdata::field::FieldDescriptor` now defines stable `FieldId`, source, family, value kind, units/conversions, names, descriptions, and search aliases. `wxdata::mrms::catalog` describes all 11 existing direct MRMS layer families. Separate fetch mappings retain rotation, lightning, and hail window selection and fallbacks. Existing `FieldLayer` slugs bridge to descriptors, preserving saved workspace IDs.
+`wxdata::field::FieldDescriptor` now defines stable `FieldId`, typed `DataSource`, family, value kind, units/conversions, names, descriptions, and search aliases. Each source separates a stable machine ID (for cache/configuration namespaces) from its human provenance label. `wxdata::mrms::catalog` describes all 11 existing direct MRMS layer families with `DataSource::NoaaMrms`. Separate fetch mappings retain rotation, lightning, and hail window selection and fallbacks. Existing `FieldLayer` slugs bridge to descriptors, preserving saved workspace IDs.
 
 MRMS browser rows and source-inspector units come from this catalog. Search includes source, units, family, and aliases, with label matches ranked first. `FieldDescriptor::sample` uses nearest-cell selection for categories/masks and the existing NaN-aware bilinear sampler for continuous fields. Malformed grids and nonfinite coordinates return no sample. The API samples the supplied grid; it does not retain native grids or add a map probe by itself.
 

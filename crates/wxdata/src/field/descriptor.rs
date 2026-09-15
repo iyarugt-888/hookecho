@@ -2,6 +2,33 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FieldId(pub &'static str);
 
+/// Stable source identity for product catalogs. `id` is suitable for cache namespaces and saved
+/// configuration; `display_name` is the human-facing provenance label.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DataSource {
+    NoaaMrms,
+}
+
+impl DataSource {
+    pub const fn id(self) -> &'static str {
+        match self {
+            Self::NoaaMrms => "noaa-mrms",
+        }
+    }
+
+    pub const fn display_name(self) -> &'static str {
+        match self {
+            Self::NoaaMrms => "NOAA MRMS",
+        }
+    }
+}
+
+impl std::fmt::Display for DataSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.display_name())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FieldFamily {
     Radar,
@@ -93,7 +120,7 @@ pub enum PaletteId {
 #[derive(Debug)]
 pub struct FieldDescriptor {
     pub id: FieldId,
-    pub source: &'static str,
+    pub source: DataSource,
     pub family: FieldFamily,
     pub name: &'static str,
     pub description: &'static str,
@@ -118,10 +145,11 @@ impl FieldDescriptor {
     }
     pub fn search_text(&self) -> String {
         format!(
-            "{} {} {} {:?} {} {} {}",
+            "{} {} {} {} {:?} {} {} {}",
             self.id.0,
             self.name,
-            self.source,
+            self.source.display_name(),
+            self.source.id(),
             self.family,
             self.units.symbol(),
             self.description,
@@ -169,6 +197,14 @@ impl FieldDescriptor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn data_source_has_separate_stable_and_display_identity() {
+        assert_eq!(DataSource::NoaaMrms.id(), "noaa-mrms");
+        assert_eq!(DataSource::NoaaMrms.display_name(), "NOAA MRMS");
+        assert_eq!(DataSource::NoaaMrms.to_string(), "NOAA MRMS");
+    }
+
     #[test]
     fn conversion_preserves_dimensions_and_missing_values() {
         assert!((Unit::MilliPerSecond.convert(20.0, Unit::PerSecond).unwrap() - 0.02).abs() < 1e-8);

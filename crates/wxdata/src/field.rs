@@ -2,7 +2,7 @@
 mod descriptor;
 mod grid;
 pub use grid::{DisplayTransform, GridGeometry, GridProvenance};
-pub use descriptor::{FieldDescriptor, FieldFamily, FieldId, PaletteId, Unit, ValueKind};
+pub use descriptor::{DataSource, FieldDescriptor, FieldFamily, FieldId, PaletteId, Unit, ValueKind};
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 

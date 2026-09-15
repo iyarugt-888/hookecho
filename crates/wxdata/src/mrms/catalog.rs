@@ -1,6 +1,6 @@
 //! Catalog of the MRMS products already supported by HookEcho.
 //! Existing layer slugs are stable IDs; window functions retain their historical fallbacks.
-use crate::field::{FieldDescriptor, FieldFamily, FieldId, PaletteId, Unit, ValueKind};
+use crate::field::{DataSource, FieldDescriptor, FieldFamily, FieldId, PaletteId, Unit, ValueKind};
 
 #[derive(Debug, Clone, Copy)]
 pub enum FetchMapping {
@@ -57,7 +57,7 @@ pub static PRODUCTS: &[Product] = &[
     Product {
         field: FieldDescriptor {
             id: FieldId("mrms"),
-            source: "NOAA MRMS",
+            source: DataSource::NoaaMrms,
             family: FieldFamily::Mrms,
             name: "National mosaic (MRMS)",
             description: "Every radar in the country stitched into one picture",
@@ -73,7 +73,7 @@ pub static PRODUCTS: &[Product] = &[
     Product {
         field: FieldDescriptor {
             id: FieldId("rotation"),
-            source: "NOAA MRMS",
+            source: DataSource::NoaaMrms,
             family: FieldFamily::Mrms,
             name: "Rotation tracks",
             description: "Where rotation has passed over the last hour — the tornado-track map",
@@ -89,7 +89,7 @@ pub static PRODUCTS: &[Product] = &[
     Product {
         field: FieldDescriptor {
             id: FieldId("mesh"),
-            source: "NOAA MRMS",
+            source: DataSource::NoaaMrms,
             family: FieldFamily::Mrms,
             name: "Hail size (MESH)",
             description: "Estimated largest hail size each storm is producing",
@@ -105,7 +105,7 @@ pub static PRODUCTS: &[Product] = &[
     Product {
         field: FieldDescriptor {
             id: FieldId("lightning"),
-            source: "NOAA MRMS",
+            source: DataSource::NoaaMrms,
             family: FieldFamily::Mrms,
             name: "Lightning density (CG)",
             description:
@@ -123,7 +123,7 @@ pub static PRODUCTS: &[Product] = &[
     Product {
         field: FieldDescriptor {
             id: FieldId("azshear"),
-            source: "NOAA MRMS",
+            source: DataSource::NoaaMrms,
             family: FieldFamily::Mrms,
             name: "Rotation strength (AzShear, 0–2 km)",
             description: "Low-level rotation strength, right now",
@@ -139,7 +139,7 @@ pub static PRODUCTS: &[Product] = &[
     Product {
         field: FieldDescriptor {
             id: FieldId("preciprate"),
-            source: "NOAA MRMS",
+            source: DataSource::NoaaMrms,
             family: FieldFamily::Mrms,
             name: "Rain rate",
             description: "How hard it is coming down right now, rather than how much has fallen",
@@ -155,7 +155,7 @@ pub static PRODUCTS: &[Product] = &[
     Product {
         field: FieldDescriptor {
             id: FieldId("qpe1h"),
-            source: "NOAA MRMS",
+            source: DataSource::NoaaMrms,
             family: FieldFamily::Mrms,
             name: "Rain so far, 1 hour (QPE)",
             description: "How much rain has fallen in the last hour",
@@ -171,7 +171,7 @@ pub static PRODUCTS: &[Product] = &[
     Product {
         field: FieldDescriptor {
             id: FieldId("qpe24h"),
-            source: "NOAA MRMS",
+            source: DataSource::NoaaMrms,
             family: FieldFamily::Mrms,
             name: "Rain so far, 24 hours (QPE)",
             description: "How much rain has fallen in the last day",
@@ -187,7 +187,7 @@ pub static PRODUCTS: &[Product] = &[
     Product {
         field: FieldDescriptor {
             id: FieldId("preciptype"),
-            source: "NOAA MRMS",
+            source: DataSource::NoaaMrms,
             family: FieldFamily::Mrms,
             name: "Rain or snow (precip type)",
             description: "Rain, snow, sleet or freezing rain at the surface",
@@ -203,7 +203,7 @@ pub static PRODUCTS: &[Product] = &[
     Product {
         field: FieldDescriptor {
             id: FieldId("flashflood"),
-            source: "NOAA MRMS",
+            source: DataSource::NoaaMrms,
             family: FieldFamily::Mrms,
             name: "Flash-flood rarity (FLASH ARI)",
             description: "How rare this much rain is here — flash-flood risk",
@@ -219,7 +219,7 @@ pub static PRODUCTS: &[Product] = &[
     Product {
         field: FieldDescriptor {
             id: FieldId("hailswath"),
-            source: "NOAA MRMS",
+            source: DataSource::NoaaMrms,
             family: FieldFamily::Mrms,
             name: "Hail swaths",
             description: "Where hail has fallen — over the past day, or a window you pick",

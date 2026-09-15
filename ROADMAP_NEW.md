@@ -214,9 +214,9 @@ here rather than rebuilt.
 ### Implement
 
 - [x] `FieldId` stable identifier — `wxdata::field::FieldId(&'static str)`
-- [ ] `DataSource` enum/ID — `FieldDescriptor.source` is a plain `&'static str` ("NOAA MRMS"),
-  not a typed enum. Works fine for search/display; a real gap if something later needs to branch
-  on source identity rather than just show it.
+- [x] `DataSource` enum/ID — `FieldDescriptor.source` is a typed `DataSource`; each variant exposes
+  a stable machine ID for cache/configuration namespaces and a separate human display name.
+  The migrated MRMS catalog uses `DataSource::NoaaMrms`, and search includes both identities.
 - [x] `FieldFamily`: radar / MRMS / satellite / model / analysis / observation-derived / user-defined
 - [x] `ValueKind`: scalar / categorical / vector / probability / accumulation / mask
 - [x] unit metadata and conversion — `Unit::symbol`/`Unit::convert`, dimension-checked (rejects
