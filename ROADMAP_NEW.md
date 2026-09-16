@@ -1570,17 +1570,30 @@ A county-level shapefile in a non-WGS84 but declared projection renders in the c
 
 HookEcho already has saved workspaces and up to four panes. Extend this into a serious analysis layout system.
 
-## J1. Layouts
+## J1. Layouts — partly done
 
 Support:
 
-- 1 pane
-- 2 horizontal/vertical
-- 3 pane
-- 4 pane
-- 6 pane
-- 9 pane on desktop/web where practical
-- AWIPS-style asymmetric layouts
+- [x] 1 pane
+- [x] 2 horizontal/vertical — `pane_rects` already picked orientation adaptively (stacked in
+  portrait, side-by-side in landscape)
+- [x] 3 pane — new this pass, see the Unreleased CHANGELOG entry: `pane_rects` gave `n == 3` its
+  own case (three columns in landscape, three rows in portrait, same adaptive rule as 2-pane)
+  instead of falling through to the 2x2 grid truncated to three cells, which left one quadrant of
+  screen permanently blank. Exposed as a fourth pill next to 1/2/4 in the ribbon and a fourth
+  "N pane(s)" command-palette entry — `set_pane_count`'s own `clamp(1, 4)` already allowed 3
+  through, so nothing downstream needed to change to reach it, only the layout math and the UI
+  that was missing an entry point for it.
+- [x] 4 pane
+- [ ] 6 pane — genuinely blocked on more than layout math: several per-pane caches are fixed-size
+  4-element arrays (`smooth_vol_dims`, `smooth_vol_pending`, the blockage/lowest-tilt textures'
+  keying, …), and `set_pane_count`'s own `clamp(1, 4)` stops it before those would ever be
+  exercised. Generalizing those arrays (to a `Vec` sized to the actual pane count, or a fixed
+  larger cap) is real, separate work, not attempted here.
+- [ ] 9 pane on desktop/web where practical — same blocker as 6 pane
+- [ ] AWIPS-style asymmetric layouts — a different, larger feature (one large pane plus several
+  small ones, or a user-arranged split) than the even N-way splits `pane_rects` does today; not
+  attempted here
 
 Android may use fewer panes based on screen size.
 

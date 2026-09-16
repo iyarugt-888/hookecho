@@ -1262,7 +1262,7 @@ impl HookEchoApp {
             None,
         );
         let panes = self.views.len();
-        for n in [1usize, 2, 4] {
+        for n in [1usize, 2, 3, 4] {
             push(
                 &format!("{n} pane{}", if n == 1 { "" } else { "s" }),
                 "Tools",

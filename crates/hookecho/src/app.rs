@@ -3395,6 +3395,33 @@ fn pane_rects(r: egui::Rect, n: usize) -> Vec<egui::Rect> {
                 ]
             }
         }
+        3 => {
+            // ROADMAP_NEW J1's "3 pane": the same adaptive orientation as the 2-pane split above
+            // (three rows in portrait, three columns in landscape) rather than falling through to
+            // the 2x2 grid below truncated to three cells, which used to leave one quadrant of
+            // screen permanently blank instead of splitting the space three ways.
+            if r.height() >= r.width() {
+                let h = (r.height() - gap * 2.0) / 3.0;
+                (0..3)
+                    .map(|i| {
+                        egui::Rect::from_min_size(
+                            egui::pos2(r.min.x, r.min.y + (h + gap) * i as f32),
+                            egui::vec2(r.width(), h),
+                        )
+                    })
+                    .collect()
+            } else {
+                let w = (r.width() - gap * 2.0) / 3.0;
+                (0..3)
+                    .map(|i| {
+                        egui::Rect::from_min_size(
+                            egui::pos2(r.min.x + (w + gap) * i as f32, r.min.y),
+                            egui::vec2(w, r.height()),
+                        )
+                    })
+                    .collect()
+            }
+        }
         _ => {
             let w = (r.width() - gap) / 2.0;
             let h = (r.height() - gap) / 2.0;
@@ -3412,6 +3439,77 @@ fn pane_rects(r: egui::Rect, n: usize) -> Vec<egui::Rect> {
             v.truncate(n.clamp(1, 4));
             v
         }
+    }
+}
+
+#[cfg(test)]
+mod pane_rects_tests {
+    use super::pane_rects;
+    use egui::Rect;
+
+    fn landscape() -> Rect {
+        Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1000.0, 600.0))
+    }
+    fn portrait() -> Rect {
+        Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(600.0, 1000.0))
+    }
+
+    #[test]
+    fn one_pane_is_the_whole_rect() {
+        let r = landscape();
+        assert_eq!(pane_rects(r, 1), vec![r]);
+    }
+
+    #[test]
+    fn three_panes_returns_exactly_three_rects() {
+        // ROADMAP_NEW J1: this used to fall through to the 2x2 grid truncated to three cells,
+        // silently leaving one quadrant of screen blank instead of splitting the space three ways.
+        assert_eq!(pane_rects(landscape(), 3).len(), 3);
+        assert_eq!(pane_rects(portrait(), 3).len(), 3);
+    }
+
+    #[test]
+    fn three_panes_are_columns_in_landscape_and_rows_in_portrait() {
+        let r = landscape();
+        let cols = pane_rects(r, 3);
+        // Columns: same height as the source rect, and each narrower than half of it (three
+        // panes must be narrower than a two-pane split would make them).
+        for c in &cols {
+            assert!((c.height() - r.height()).abs() < 0.01, "{c:?}");
+            assert!(c.width() < r.width() / 2.0, "{c:?}");
+        }
+        let p = portrait();
+        let rows = pane_rects(p, 3);
+        for row in &rows {
+            assert!((row.width() - p.width()).abs() < 0.01, "{row:?}");
+            assert!(row.height() < p.height() / 2.0, "{row:?}");
+        }
+    }
+
+    #[test]
+    fn three_panes_tile_the_source_rect_without_gaps_or_overlap() {
+        // Each pane's leading edge should sit right after the previous one's trailing edge (plus
+        // the fixed gap), and the whole strip should span start to finish.
+        let r = landscape();
+        let cols = pane_rects(r, 3);
+        assert!((cols[0].min.x - r.min.x).abs() < 0.01);
+        for w in cols.windows(2) {
+            assert!(w[1].min.x > w[0].max.x, "{:?} vs {:?}", w[0], w[1]);
+        }
+        assert!((cols[2].max.x - r.max.x).abs() < 0.01);
+    }
+
+    #[test]
+    fn four_panes_is_still_a_two_by_two_grid() {
+        let rects = pane_rects(landscape(), 4);
+        assert_eq!(rects.len(), 4);
+        // Two distinct x positions and two distinct y positions, i.e. a real grid, not a strip.
+        let xs: std::collections::BTreeSet<i64> =
+            rects.iter().map(|r| (r.min.x * 100.0) as i64).collect();
+        let ys: std::collections::BTreeSet<i64> =
+            rects.iter().map(|r| (r.min.y * 100.0) as i64).collect();
+        assert_eq!(xs.len(), 2, "{xs:?}");
+        assert_eq!(ys.len(), 2, "{ys:?}");
     }
 }
 

@@ -8,6 +8,25 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: a proper 3-pane layout
+
+ROADMAP_NEW J1: the pane-count picker only ever offered 1, 2, or 4 — asking for 3 panes any other
+way (a saved workspace from a future version, say) fell through `pane_rects`' fallback, which
+always built a 2x2 grid and truncated it to three cells, leaving one quadrant of screen visibly
+blank instead of splitting the space three ways.
+
+`pane_rects` now gives `n == 3` its own case: three columns in landscape, three rows in portrait,
+the same adaptive-orientation rule the existing 2-pane split already uses. A fourth pill ("3×")
+sits next to 1/2/4 in the ribbon, and a fourth entry joins the command palette's pane-count list.
+`set_pane_count`'s own bounds already allowed three panes through — only the layout math and the
+UI entry point were missing.
+
+6 and 9 pane (also in ROADMAP_NEW J1) are a larger, separate change: several per-pane caches are
+fixed-size 4-element arrays today, and generalizing those wasn't attempted here.
+
+Verified with 5 new geometry tests (`pane_rects_tests`): exact rect count, adaptive orientation,
+edge-to-edge tiling with no gaps or overlap, and that 4-pane's own 2x2 grid is unchanged.
+
 ### Fixed: 15 icon-only buttons had no accessible name
 
 ROADMAP_NEW Q3: `ui::a11y::Named` exists precisely so a screen reader announces "Dismiss" instead

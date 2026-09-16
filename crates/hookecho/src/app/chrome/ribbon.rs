@@ -414,7 +414,7 @@ impl HookEchoApp {
                         wsv3::check(ui, "Map legend", &mut legend_on);
                         ui.add_space(1.0);
                         ui.horizontal(|ui| {
-                            for n in [1usize, 2, 4] {
+                            for n in [1usize, 2, 3, 4] {
                                 if wsv3::pill_sized(
                                     ui,
                                     &format!("{n}\u{d7}"),
