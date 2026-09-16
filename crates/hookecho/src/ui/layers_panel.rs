@@ -448,7 +448,7 @@ fn row(
                 )
                 .response
                 .on_hover_cursor(egui::CursorIcon::Grab)
-                .on_hover_text("Drag to reorder");
+                .named(&format!("Drag {} to reorder", e.label));
             } else {
                 ui.label(icon);
             }
@@ -508,10 +508,10 @@ fn row(
                         .fill(Color32::TRANSPARENT)
                         .stroke(Stroke::NONE),
                     )
-                    .on_hover_text(if is_fav {
-                        "Remove from Favorites"
+                    .named(&if is_fav {
+                        format!("Remove {} from Favorites", e.label)
                     } else {
-                        "Add to Favorites"
+                        format!("Add {} to Favorites", e.label)
                     });
                 if star.clicked() {
                     toggle_favorite = Some(slug.to_string());

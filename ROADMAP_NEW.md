@@ -2141,13 +2141,16 @@ Preserve current accesskit/high-contrast work and ensure new controls have:
 
 - [x] semantic names — `ui::a11y::Named`'s `.named()`/`.named_toggle()` already covers most of the
   icon-only chrome (21 call sites before this pass). New this pass, see the Unreleased CHANGELOG
-  entry: an audit turned up 15 icon-only buttons across 9 files that had fallen through that sweep
-  — some with a tooltip but no accessible name (a bare `.on_hover_text` doing only half the job
-  `Named` does), several with neither. Fixed all 15; verified none were missed by re-running the
-  same search patterns (`small_button`/`Button::new` wrapping a bare Phosphor glyph or a raw ✕/✖/🗑
-  symbol) and confirming every remaining hit already chains `.named()`. This is a sweep, not a
-  guarantee — a *new* icon-only control added without this pass's checklist in mind will quietly
-  reintroduce the gap; nothing here enforces it at compile time.
+  entry: a two-pass audit turned up 19 icon-only buttons across 10 files that had fallen through
+  that sweep — some with a tooltip but no accessible name (a bare `.on_hover_text` doing only half
+  the job `Named` does), several with neither. The first pass searched for
+  `small_button`/`Button::new` wrapping a bare Phosphor glyph or a raw ✕/✖/🗑 symbol directly and
+  found 15; the second widened that to also catch the `Button::new(RichText::new(icon)…)` form
+  (an icon with its own `.size()`/`.color()`), which the first missed entirely, and found 4 more —
+  including a "choose radar site" button on both the desktop and mobile ribbons. Fixed all 19;
+  verified by confirming every remaining hit of both search shapes already chains `.named()`. This
+  is a sweep, not a guarantee — a *new* icon-only control added without this pass's checklist in
+  mind will quietly reintroduce the gap; nothing here enforces it at compile time.
 - [x] keyboard access — inherited for free from egui's own focus/tab order and Enter/Space
   activation on every `ui.button`/`ui.small_button` in this app; nothing found bypassing it
 - [ ] non-color-only state indication — spot-checked, not swept: this pass's own new coverage

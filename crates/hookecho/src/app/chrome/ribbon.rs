@@ -111,6 +111,7 @@ impl HookEchoApp {
     /// call returns) naturally grows to cover the space the ribbon would have reserved, handing
     /// the whole window to the map.
     pub(crate) fn wsv3_ribbon(&mut self, root: &mut egui::Ui, ctx: &egui::Context) {
+        use crate::ui::a11y::Named as _;
         if self.ribbon_collapsed {
             self.ribbon_collapse_button(ctx);
             return;
@@ -253,6 +254,7 @@ impl HookEchoApp {
                                     .fill(wsv3::PILL_BG)
                                     .corner_radius(17.0),
                                 )
+                                .named("Choose the radar site")
                                 .clicked()
                             {
                                 actions.open_site_dialog = true;

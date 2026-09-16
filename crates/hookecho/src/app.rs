@@ -8234,6 +8234,7 @@ impl HookEchoApp {
     /// this section owns everything about the *current* product — the tilt picker and the expert
     /// options that used to hide in the toolbox. All of it writes the same fields the hotkeys do.
     fn product_section(&mut self, ui: &mut egui::Ui, actions: &mut ui::layer_options::UiActions) {
+        use crate::ui::a11y::Named as _;
         use crate::ui::style;
         let (moment, srv, tilt) = {
             let v = &self.views[self.active];
@@ -8275,7 +8276,7 @@ impl HookEchoApp {
                         egui::RichText::new(egui_phosphor::regular::BROADCAST)
                             .size(24.0).color(crate::theme::accent(self.settings.theme)))
                         .min_size(egui::vec2(42.0, 42.0)).corner_radius(21.0))
-                        .on_hover_text("Choose the radar site").clicked() {
+                        .named("Choose the radar site").clicked() {
                         actions.open_site_dialog = true;
                     }
                     ui.vertical(|ui| {

@@ -42,18 +42,21 @@ fixed-size 4-element arrays today, and generalizing those wasn't attempted here.
 Verified with 5 new geometry tests (`pane_rects_tests`): exact rect count, adaptive orientation,
 edge-to-edge tiling with no gaps or overlap, and that 4-pane's own 2x2 grid is unchanged.
 
-### Fixed: 15 icon-only buttons had no accessible name
+### Fixed: 19 icon-only buttons had no accessible name
 
 ROADMAP_NEW Q3: `ui::a11y::Named` exists precisely so a screen reader announces "Dismiss" instead
 of reading out the private-use codepoint an icon font glyph sits at, and most of the app's
-icon-only chrome already uses it. An audit swept every `small_button`/`Button::new` wrapping a bare
-Phosphor glyph or a raw ✕/✖/🗑 symbol and found 15 across 9 files that had fallen through: the
-scrubber's day-step carets, the GOES timeline's frame-step carets, the archive calendar's
-month-step carets, the update-available chip's dismiss, a settings field's clear button, the
-mobile chrome-hide eye and modal-sheet close button, an alert rule's condition/delete buttons, and
-the event library's per-row jump/remove-bookmark buttons — some had a tooltip but no accessible
-name (a bare `.on_hover_text` only does half of what `.named()` does), several had neither. All 15
-now carry a real name, several of them specific to the row they're on (e.g. "Jump to {event name}"
+icon-only chrome already uses it. A two-pass audit — the second pass widening the search after the
+first missed every `Button::new(RichText::new(icon))` form, not just the bare
+`Button::new(icon)`/`small_button(icon)` ones — swept every icon-only button in the app and found
+19 across 10 files that had fallen through: the scrubber's day-step carets, the GOES timeline's
+frame-step carets, the archive calendar's month-step carets, the update-available chip's dismiss,
+a settings field's clear button, the mobile chrome-hide eye and modal-sheet close button, an alert
+rule's condition/delete buttons, the event library's per-row jump/remove-bookmark buttons, the
+desktop and mobile "choose radar site" buttons, and the Layers panel's per-row favorite-star and
+drag-to-reorder handle. Some had a tooltip but no accessible name (a bare `.on_hover_text` only
+does half of what `.named()` does), several had neither. All 19 now carry a real name, several of
+them specific to the row they're on (e.g. "Jump to {event name}", "Add {layer} to Favorites"
 rather than one generic label repeated down a whole list).
 
 Not a new enforcement mechanism — a future icon-only control can still reintroduce this gap
