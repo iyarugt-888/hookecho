@@ -7053,6 +7053,22 @@ impl HookEchoApp {
         out
     }
 
+    /// Every tilt's own [`Self::udp_gate_inputs`] at the same `(lon, lat)`, low to high — the
+    /// "column" a vertical/layer user-defined-product function (ROADMAP_NEW C1) reduces over.
+    /// Skips a tilt this point falls outside of rather than padding the column with an empty
+    /// entry that has no height to sort or filter by.
+    fn udp_column_inputs(
+        vol: &mut Volume,
+        lon: f64,
+        lat: f64,
+        antenna_altitude_m: Option<f64>,
+    ) -> Vec<wxdata::udp::GateInputs> {
+        (0..vol.elevations.len())
+            .map(|tilt| Self::udp_gate_inputs(vol, tilt, lon, lat, antenna_altitude_m))
+            .filter(|g| g.beam_height_m.is_some())
+            .collect()
+    }
+
     /// Phase B4's gate inspector: everything about the point at `(lon, lat)` on the active pane's
     /// currently displayed moment, or `None` when there is no volume here, this moment has no
     /// data on this tilt, or the point falls outside the sweep's coverage (past its last gate).
@@ -7099,6 +7115,7 @@ impl HookEchoApp {
         let inspection = raw.inspect(lon, lat, dealiased.as_ref())?;
         let time_range = level2::sweep_time_range(&scan, elevation_deg, moment);
         let gate_inputs = Self::udp_gate_inputs(vol, tilt, lon, lat, antenna_altitude_m);
+        let column_inputs = Self::udp_column_inputs(vol, lon, lat, antenna_altitude_m);
         Some(ui::gate_inspector::GateInspectorPopup {
             site,
             vcp,
@@ -7106,6 +7123,7 @@ impl HookEchoApp {
             time_range,
             inspection,
             gate_inputs,
+            column_inputs,
         })
     }
 

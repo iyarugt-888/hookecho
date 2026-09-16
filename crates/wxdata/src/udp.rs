@@ -3,16 +3,17 @@
 //! products, scoped to what this pass can build and verify.
 //!
 //! This is deliberately the *evaluator* half only. It answers "what does this formula compute at
-//! one gate", which is enough to drive a live readout (the gate inspector) against real data. It
-//! does not yet render a user-defined product as its own map layer — plugging a new value into
-//! the polar per-tilt rendering pipeline (palettes, 3D, thresholds, all keyed by the fixed
+//! one gate" (or, for the vertical/layer functions below, "at one point's whole tilt column"),
+//! which is enough to drive a live readout (the gate inspector) against real data. It does not
+//! yet render a user-defined product as its own map layer — plugging a new value into the polar
+//! per-tilt rendering pipeline (palettes, 3D, thresholds, all keyed by the fixed
 //! [`crate::level2::Moment`] enum) is a separate, larger piece of work, called out as such in
 //! `ROADMAP_NEW.md` rather than attempted here.
 //!
-//! Also out of scope for this pass, and noted for the same reason: the roadmap's vertical/layer
-//! aggregate functions (`max_vertical`, `layer_mean`, height-crossing) and environmental-height
-//! inputs (freezing level, -10C/-20C heights) — both need a whole column of tilts or external
-//! model data, not just the one gate this evaluator sees.
+//! Still out of scope for this pass, and noted for the same reason: environmental-height inputs
+//! (freezing level, -10C/-20C heights) — these need external model data, not just a decoded
+//! volume, so a `max_layer(ZDR, freezing_level + 2km, freezing_level + 6km)`-style formula has to
+//! spell its height bounds as literal numbers today rather than naming those levels directly.
 //!
 //! No native code ever runs: expressions parse to a fixed [`Expr`] tree and every node the parser
 //! can produce is one this module's own evaluator interprets, so a malformed or malicious formula
@@ -38,6 +39,16 @@
 //! `min`, `max` (2 args), `mean` (2–8 args), `clamp` (3 args: value, low, high), `abs` (1 arg).
 //! Comparisons and logical operators produce `1.0`
 //! (true) or `0.0` (false); the ternary's condition treats any nonzero value as true.
+//!
+//! Vertical/layer functions (ROADMAP_NEW C1) reduce an expression over a whole tilt column —
+//! every tilt's own inputs at one point, low to high — rather than one gate, and evaluate as
+//! missing unless the caller has a column to give them (see [`evaluate_at_column`]):
+//! `max_vertical(expr)` / `max_vertical(expr, cond)` and `min_vertical` the same way (the
+//! optional second argument stands in for the roadmap's own `where` clause, which isn't part of
+//! this grammar); `max_layer(expr, lo, hi)` / `min_layer` / `mean_layer` restrict to entries whose
+//! `BEAM_HEIGHT_M` falls in `[lo, hi]`; `first_height_above(expr, threshold)` /
+//! `last_height_above` return the height of the lowest/highest qualifying entry;
+//! `count_above(expr, threshold)` counts qualifying entries.
 //!
 //! `None` (a moment absent at this gate — below threshold, range-folded, or simply not carried by
 //! this radial) propagates through every operator: a formula referencing a missing input has no
@@ -175,6 +186,24 @@ enum Func {
     Mean,
     Clamp,
     Abs,
+    /// `max_vertical(expr)` / `max_vertical(expr, cond)` — the largest `expr` across every tilt
+    /// in the column, optionally restricted to entries where `cond` is truthy. The roadmap's own
+    /// conceptual `max_vertical(REF where REF >= 40)` — `where` itself isn't part of this
+    /// grammar (see the module doc comment), so the condition is the function's own optional
+    /// second argument instead.
+    MaxVertical,
+    MinVertical,
+    /// `max_layer(expr, lo, hi)` — `expr` reduced over column entries whose `BEAM_HEIGHT_M` falls
+    /// in `[lo, hi]`.
+    MaxLayer,
+    MinLayer,
+    MeanLayer,
+    /// `first_height_above(expr, threshold)` — `BEAM_HEIGHT_M` of the lowest column entry where
+    /// `expr >= threshold`; `last_height_above` the highest.
+    FirstHeightAbove,
+    LastHeightAbove,
+    /// `count_above(expr, threshold)` — how many column entries have `expr >= threshold`.
+    CountAbove,
 }
 
 impl Func {
@@ -185,8 +214,35 @@ impl Func {
             "mean" => (Self::Mean, 2, 8),
             "clamp" => (Self::Clamp, 3, 3),
             "abs" => (Self::Abs, 1, 1),
+            "max_vertical" => (Self::MaxVertical, 1, 2),
+            "min_vertical" => (Self::MinVertical, 1, 2),
+            "max_layer" => (Self::MaxLayer, 3, 3),
+            "min_layer" => (Self::MinLayer, 3, 3),
+            "mean_layer" => (Self::MeanLayer, 3, 3),
+            "first_height_above" => (Self::FirstHeightAbove, 2, 2),
+            "last_height_above" => (Self::LastHeightAbove, 2, 2),
+            "count_above" => (Self::CountAbove, 2, 2),
             _ => return None,
         })
+    }
+
+    /// Whether this function reduces over the whole tilt column (ROADMAP_NEW C1's "vertical
+    /// max/min", "layer max/min/mean", "first/last height crossing", "count gates meeting
+    /// condition") rather than combining already-evaluated scalar arguments the ordinary way.
+    /// Its first argument stays an unevaluated sub-expression, re-evaluated once per column
+    /// entry, instead of being resolved to one number up front.
+    fn is_column_aware(self) -> bool {
+        matches!(
+            self,
+            Self::MaxVertical
+                | Self::MinVertical
+                | Self::MaxLayer
+                | Self::MinLayer
+                | Self::MeanLayer
+                | Self::FirstHeightAbove
+                | Self::LastHeightAbove
+                | Self::CountAbove
+        )
     }
 }
 
@@ -240,24 +296,35 @@ pub fn parse(src: &str) -> Result<Expr, ParseError> {
 }
 
 /// Evaluate a parsed formula against one gate's inputs. `None` when the formula (or any input it
-/// touches) has no value here — never a panic or a made-up number.
+/// touches) has no value here — never a panic or a made-up number. A formula that uses a
+/// vertical/layer function (ROADMAP_NEW C1) has no column to reduce over through this entry
+/// point, so it evaluates as missing here too — call [`evaluate_at_column`] instead when one is
+/// available.
 pub fn evaluate(expr: &Expr, inputs: &GateInputs) -> Option<f32> {
-    eval_node(&expr.0, inputs)
+    eval_node(&expr.0, inputs, None)
+}
+
+/// Evaluate a parsed formula at one gate (`point`), with `column` — every tilt's own inputs at
+/// that same point, low to high (see [`GateInputs`]'s callers for how a column like this gets
+/// built) — available to any vertical/layer function the formula uses. A formula that touches no
+/// such function behaves exactly like [`evaluate`].
+pub fn evaluate_at_column(expr: &Expr, point: &GateInputs, column: &[GateInputs]) -> Option<f32> {
+    eval_node(&expr.0, point, Some(column))
 }
 
 fn truthy(v: f32) -> bool {
     v != 0.0
 }
 
-fn eval_node(node: &ExprNode, inputs: &GateInputs) -> Option<f32> {
+fn eval_node(node: &ExprNode, inputs: &GateInputs, column: Option<&[GateInputs]>) -> Option<f32> {
     match node {
         ExprNode::Number(n) => Some(*n),
         ExprNode::Var(input) => inputs.get(*input),
-        ExprNode::Neg(a) => eval_node(a, inputs).map(|v| -v),
-        ExprNode::Not(a) => eval_node(a, inputs).map(|v| f32::from(!truthy(v))),
+        ExprNode::Neg(a) => eval_node(a, inputs, column).map(|v| -v),
+        ExprNode::Not(a) => eval_node(a, inputs, column).map(|v| f32::from(!truthy(v))),
         ExprNode::Bin(op, a, b) => {
-            let a = eval_node(a, inputs)?;
-            let b = eval_node(b, inputs)?;
+            let a = eval_node(a, inputs, column)?;
+            let b = eval_node(b, inputs, column)?;
             Some(match op {
                 BinOp::Add => a + b,
                 BinOp::Sub => a - b,
@@ -273,8 +340,12 @@ fn eval_node(node: &ExprNode, inputs: &GateInputs) -> Option<f32> {
                 BinOp::Or => f32::from(truthy(a) || truthy(b)),
             })
         }
+        ExprNode::Call(func, args) if func.is_column_aware() => {
+            eval_column_call(*func, args, inputs, column?)
+        }
         ExprNode::Call(func, args) => {
-            let vals: Option<Vec<f32>> = args.iter().map(|a| eval_node(a, inputs)).collect();
+            let vals: Option<Vec<f32>> =
+                args.iter().map(|a| eval_node(a, inputs, column)).collect();
             let vals = vals?;
             Some(match (func, vals.as_slice()) {
                 (Func::Min, [a, b]) => a.min(*b),
@@ -286,9 +357,113 @@ fn eval_node(node: &ExprNode, inputs: &GateInputs) -> Option<f32> {
             })
         }
         ExprNode::Ternary(cond, a, b) => {
-            let cond = eval_node(cond, inputs)?;
-            eval_node(if truthy(cond) { a } else { b }, inputs)
+            let cond = eval_node(cond, inputs, column)?;
+            eval_node(if truthy(cond) { a } else { b }, inputs, column)
         }
+    }
+}
+
+/// The vertical/layer functions (ROADMAP_NEW C1): each reduces `args[0]` — re-evaluated once per
+/// `column` entry rather than resolved to one number up front — over the whole tilt column,
+/// optionally restricted by a condition, a height range, or a threshold depending on the
+/// function. A column entry the sub-expression is missing at (or, for the layer/height
+/// functions, one with no `BEAM_HEIGHT_M`) is simply skipped, never treated as zero.
+fn eval_column_call(
+    func: Func,
+    args: &[ExprNode],
+    point: &GateInputs,
+    column: &[GateInputs],
+) -> Option<f32> {
+    match func {
+        Func::MaxVertical | Func::MinVertical => {
+            let mut best: Option<f32> = None;
+            for entry in column {
+                let Some(v) = eval_node(&args[0], entry, Some(column)) else {
+                    continue;
+                };
+                if let Some(cond_node) = args.get(1) {
+                    match eval_node(cond_node, entry, Some(column)) {
+                        Some(c) if truthy(c) => {}
+                        _ => continue,
+                    }
+                }
+                best = Some(match best {
+                    None => v,
+                    Some(b) if func == Func::MaxVertical => b.max(v),
+                    Some(b) => b.min(v),
+                });
+            }
+            best
+        }
+        Func::MaxLayer | Func::MinLayer | Func::MeanLayer => {
+            let lo = eval_node(&args[1], point, Some(column))?;
+            let hi = eval_node(&args[2], point, Some(column))?;
+            let (lo, hi) = (lo.min(hi), lo.max(hi));
+            let mut sum = 0.0f32;
+            let mut count = 0usize;
+            let mut best: Option<f32> = None;
+            for entry in column {
+                let Some(h) = entry.beam_height_m else {
+                    continue;
+                };
+                if h < lo || h > hi {
+                    continue;
+                }
+                let Some(v) = eval_node(&args[0], entry, Some(column)) else {
+                    continue;
+                };
+                sum += v;
+                count += 1;
+                best = Some(match (best, func) {
+                    (None, _) => v,
+                    (Some(b), Func::MaxLayer) => b.max(v),
+                    (Some(b), _) => b.min(v),
+                });
+            }
+            if count == 0 {
+                return None;
+            }
+            Some(if func == Func::MeanLayer {
+                sum / count as f32
+            } else {
+                best.expect("count > 0 implies best was set")
+            })
+        }
+        Func::FirstHeightAbove | Func::LastHeightAbove => {
+            let threshold = eval_node(&args[1], point, Some(column))?;
+            let mut sorted: Vec<&GateInputs> = column
+                .iter()
+                .filter(|g| g.beam_height_m.is_some())
+                .collect();
+            sorted.sort_by(|a, b| {
+                a.beam_height_m
+                    .partial_cmp(&b.beam_height_m)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            let entries: Box<dyn Iterator<Item = &&GateInputs>> = if func == Func::FirstHeightAbove
+            {
+                Box::new(sorted.iter())
+            } else {
+                Box::new(sorted.iter().rev())
+            };
+            for entry in entries {
+                if eval_node(&args[0], entry, Some(column)).is_some_and(|v| v >= threshold) {
+                    return entry.beam_height_m;
+                }
+            }
+            None
+        }
+        Func::CountAbove => {
+            let threshold = eval_node(&args[1], point, Some(column))?;
+            let count = column
+                .iter()
+                .filter(|entry| {
+                    eval_node(&args[0], entry, Some(column)).is_some_and(|v| v >= threshold)
+                })
+                .count();
+            Some(count as f32)
+        }
+        _ => unreachable!("Func::is_column_aware's arms match this match's arms"),
     }
 }
 
@@ -901,5 +1076,104 @@ mod tests {
     fn ordinary_nesting_well_under_the_limit_still_works() {
         let src = format!("{}1{}", "(".repeat(10), ")".repeat(10));
         assert_eq!(evaluate(&parse(&src).unwrap(), &inputs()), Some(1.0));
+    }
+
+    /// A synthetic vertical profile: REF peaks at the second tilt (a hail core aloft), CC dips at
+    /// that same height (the debris/hail signature that goes with it), and the highest tilt
+    /// carries no REF at all — past where this moment was recorded, same as a real volume where
+    /// not every tilt reaches every moment at every point.
+    fn column() -> Vec<GateInputs> {
+        vec![
+            GateInputs {
+                reflectivity: Some(45.0),
+                correlation_coefficient: Some(0.98),
+                beam_height_m: Some(500.0),
+                ..Default::default()
+            },
+            GateInputs {
+                reflectivity: Some(55.0),
+                correlation_coefficient: Some(0.85),
+                beam_height_m: Some(1500.0),
+                ..Default::default()
+            },
+            GateInputs {
+                reflectivity: Some(40.0),
+                correlation_coefficient: Some(0.99),
+                beam_height_m: Some(3000.0),
+                ..Default::default()
+            },
+            GateInputs {
+                reflectivity: Some(20.0),
+                correlation_coefficient: Some(0.99),
+                beam_height_m: Some(5000.0),
+                ..Default::default()
+            },
+            GateInputs {
+                reflectivity: None,
+                correlation_coefficient: Some(0.99),
+                beam_height_m: Some(8000.0),
+                ..Default::default()
+            },
+        ]
+    }
+
+    fn eval_col(src: &str) -> Option<f32> {
+        evaluate_at_column(&parse(src).unwrap(), &inputs(), &column())
+    }
+
+    #[test]
+    fn vertical_max_and_min_reduce_over_the_whole_column() {
+        assert_eq!(eval_col("max_vertical(REF)"), Some(55.0));
+        // The missing top tilt is skipped, not treated as zero.
+        assert_eq!(eval_col("min_vertical(REF)"), Some(20.0));
+    }
+
+    #[test]
+    fn vertical_functions_take_an_optional_condition_in_place_of_where() {
+        // The roadmap's own worked example: the lowest CC among tilts that actually have
+        // reflectivity at or above 40 dBZ — the debris signature riding with the hail core.
+        assert_eq!(eval_col("min_vertical(CC, REF >= 40)"), Some(0.85));
+        assert_eq!(eval_col("max_vertical(CC, REF >= 40)"), Some(0.99));
+    }
+
+    #[test]
+    fn layer_functions_restrict_to_a_height_range() {
+        // Within [1000, 4000] m: the 1500 m (REF 55) and 3000 m (REF 40) tilts only.
+        assert_eq!(eval_col("max_layer(REF, 1000, 4000)"), Some(55.0));
+        assert_eq!(eval_col("min_layer(REF, 1000, 4000)"), Some(40.0));
+        assert_eq!(eval_col("mean_layer(REF, 1000, 4000)"), Some(47.5));
+        // A range with nothing in it is missing, not zero.
+        assert_eq!(eval_col("max_layer(REF, 100000, 200000)"), None);
+        // Bounds given high-to-low still work — the function sorts them itself.
+        assert_eq!(eval_col("max_layer(REF, 4000, 1000)"), Some(55.0));
+    }
+
+    #[test]
+    fn height_crossing_and_count_scan_the_column() {
+        // Lowest tilt with REF >= 40 is the 500 m one; highest is the 3000 m one (the 5000 m tilt
+        // is 20 dBZ, the 8000 m tilt has no REF at all).
+        assert_eq!(eval_col("first_height_above(REF, 40)"), Some(500.0));
+        assert_eq!(eval_col("last_height_above(REF, 40)"), Some(3000.0));
+        assert_eq!(eval_col("count_above(REF, 40)"), Some(3.0));
+        // Nothing qualifies past the column's own maximum.
+        assert_eq!(eval_col("first_height_above(REF, 90)"), None);
+        assert_eq!(eval_col("count_above(REF, 90)"), Some(0.0));
+    }
+
+    #[test]
+    fn vertical_functions_are_missing_without_a_column_to_reduce_over() {
+        // `evaluate` (no column) must not panic or guess — a formula using a vertical function
+        // simply has no value through that entry point.
+        let expr = parse("max_vertical(REF)").unwrap();
+        assert_eq!(evaluate(&expr, &inputs()), None);
+        assert_eq!(evaluate_at_column(&expr, &inputs(), &[]), None);
+    }
+
+    #[test]
+    fn vertical_functions_have_their_own_arities() {
+        assert!(parse("max_vertical()").is_err());
+        assert!(parse("max_vertical(REF, REF > 0, 1)").is_err());
+        assert!(parse("max_layer(REF, 1)").is_err());
+        assert!(parse("first_height_above(REF)").is_err());
     }
 }

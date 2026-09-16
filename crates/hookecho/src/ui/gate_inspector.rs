@@ -21,6 +21,10 @@ pub struct GateInspectorPopup {
     /// same point — kept separate from `inspection` so the products shown here update if the
     /// saved list changes without needing another click.
     pub gate_inputs: wxdata::udp::GateInputs,
+    /// Every tilt's own `gate_inputs` at this same point, low to high — what a vertical/layer
+    /// user-defined-product formula (`max_vertical`, `max_layer`, …; ROADMAP_NEW C1) reduces
+    /// over. A tilt this point falls outside of is simply absent, not a placeholder entry.
+    pub column_inputs: Vec<wxdata::udp::GateInputs>,
 }
 
 pub fn show(
@@ -118,7 +122,11 @@ pub(crate) fn attributes(
         .iter()
         .map(|def| {
             let value = match def.compile() {
-                Ok(expr) => match wxdata::udp::evaluate(&expr, &popup.gate_inputs) {
+                Ok(expr) => match wxdata::udp::evaluate_at_column(
+                    &expr,
+                    &popup.gate_inputs,
+                    &popup.column_inputs,
+                ) {
                     Some(v) => format!("{v:.2} {}", def.units).trim_end().to_string(),
                     None => "—".to_string(),
                 },
@@ -219,6 +227,7 @@ mod tests {
                 nyquist_mps: (moment == Moment::Velocity).then_some(32.0),
             },
             gate_inputs: wxdata::udp::GateInputs::default(),
+            column_inputs: Vec::new(),
         }
     }
 

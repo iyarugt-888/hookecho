@@ -8,6 +8,25 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: vertical/layer functions for user-defined radar products
+
+ROADMAP_NEW C1: the user-defined-product formula language (`wxdata::udp`) could only read one
+gate at a time — `REF > 55 && ZDR < 1 ? REF : 0`, no way to ask "what's the highest reflectivity
+anywhere above this point" or "what's the lowest correlation coefficient in the layer where
+there's actual hail-core reflectivity". Five new functions reduce over a point's whole tilt
+column instead of one gate: `max_vertical(expr)` / `min_vertical(expr)` (each with an optional
+second "condition" argument — `min_vertical(CC, REF >= 40)` finds the debris/hail signature that
+rides with a hail core, without needing the roadmap's own `where` syntax, which still isn't part
+of this grammar), `max_layer(expr, lo, hi)` / `min_layer` / `mean_layer` (restricted to tilts
+whose beam height falls in `[lo, hi]`), `first_height_above(expr, threshold)` /
+`last_height_above(expr, threshold)`, and `count_above(expr, threshold)`. The gate inspector now
+builds the column (every tilt's own reading at the clicked point, low to high) and evaluates
+saved products against it; a formula using one of these functions anywhere else `wxdata::udp`'s
+plain single-gate `evaluate()` is still called reads as missing rather than a wrong or guessed
+number, since those call sites have no column to give it. Environmental-height inputs (freezing
+level, -10C/-20C heights) are still not implemented, so a layer function's bounds have to be
+literal metres for now rather than named levels.
+
 ### Added: "Blink A/B" model comparison mode
 
 ROADMAP_NEW F6/J4: alongside the existing "A minus B" subtraction overlay and "View side by side"

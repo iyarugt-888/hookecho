@@ -613,11 +613,12 @@ requirement nobody has yet, not a feature. Revisit when a concrete second provid
 
 Implement a safe expression/DSL system inspired by the flexibility of GR2Analyst user-defined products, but designed around HookEcho’s Rust/WGPU architecture.
 
-The evaluator half is done: `wxdata::udp` parses and evaluates a formula against one gate, and
-`ui::udp_window`/the gate inspector's "USER-DEFINED" section let a user define one and see it
-live against real data. What remains is rendering a product as its own map layer — a separate,
-larger piece of work (see below) — plus the vertical/layer aggregate functions and environmental
-inputs that need a whole column of tilts or external model data, not one gate.
+The evaluator half is done, including the vertical/layer aggregate functions: `wxdata::udp`
+parses and evaluates a formula against one gate or, for those functions, one point's whole tilt
+column, and `ui::udp_window`/the gate inspector's "USER-DEFINED" section let a user define one and
+see it live against real data. What remains is rendering a product as its own map layer — a
+separate, larger piece of work (see below) — plus environmental inputs (freezing level, -10C/-20C
+heights) that need external model data, not just a decoded volume.
 
 ### First version capabilities
 
@@ -644,23 +645,36 @@ Functions:
 - [x] conditional masks — via `cond ? a : b`, not the roadmap's original `where` syntax (a where
   clause only made sense paired with the vertical aggregate functions below, which aren't built)
 - [x] threshold — via comparison operators, which also work as functions in their own right
-- [ ] vertical max/min
-- [ ] layer max/min/mean
-- [ ] first/last height crossing
-- [ ] count gates meeting condition
+- [x] vertical max/min — new this pass, see the Unreleased CHANGELOG entry: `max_vertical(expr)`
+  / `min_vertical(expr)`, plus an optional second "condition" argument standing in for the
+  roadmap's own `where` clause (still not itself part of the grammar — see below)
+- [x] layer max/min/mean — new this pass: `max_layer(expr, lo, hi)` / `min_layer` / `mean_layer`,
+  restricted to tilts whose `BEAM_HEIGHT_M` falls in `[lo, hi]`
+- [x] first/last height crossing — new this pass: `first_height_above(expr, threshold)` /
+  `last_height_above(expr, threshold)`
+- [x] count gates meeting condition — new this pass: `count_above(expr, threshold)`
 - [x] arithmetic
 
-Example conceptual expressions:
+All five new functions evaluate as missing (not zero, not an error) through the plain
+single-gate `evaluate()` entry point — they need `evaluate_at_column()` and an actual column,
+which only the gate inspector currently builds (one call per tilt in the volume, at the clicked
+point). A saved product using one of them therefore only shows a value from the gate-inspector
+click path, not (yet) anywhere else `wxdata::udp::evaluate` is called with just one gate.
+
+Example conceptual expressions, and what actually runs today in this grammar:
 
 ```text
-max_vertical(REF where REF >= 40)
-min_vertical(CC where REF >= 35)
-max_layer(ZDR, freezing_level + 2km, freezing_level + 6km)
-max_layer(KDP, minus10c_height, minus20c_height)
+max_vertical(REF where REF >= 40)        ->  max_vertical(REF, REF >= 40)
+min_vertical(CC where REF >= 35)         ->  min_vertical(CC, REF >= 35)
+max_layer(ZDR, freezing_level + 2km, freezing_level + 6km)   -- freezing_level isn't an input yet;
+                                              max_layer(ZDR, 2000, 6000) runs with literal heights
+max_layer(KDP, minus10c_height, minus20c_height)             -- same environmental-input gap
 ```
 
-None of these four run today — they're exactly the unchecked vertical/layer/environmental items
-above. What runs instead, in the same spirit: `REF > 55 && ZDR < 1 ? REF : 0`.
+The first two run exactly as shown (translated to this grammar's own `where`-free spelling); the
+last two need the still-unbuilt environmental-height inputs to spell their bounds by name rather
+than as literal metres. What ran before this pass, in the same spirit: `REF > 55 && ZDR < 1 ? REF
+: 0` — still works unchanged.
 
 ### Safety/implementation constraints
 
