@@ -472,6 +472,11 @@ pub struct MapView {
     /// than a subtraction. The grids themselves stay in one shared cache — only the choice of
     /// what to draw lives here.
     pub fields_on: std::collections::HashSet<crate::render::FieldLayer>,
+    /// ROADMAP_NEW F6/J4 "blink A/B": while true, this pane alternates which of `CompareA`/
+    /// `CompareB` is in `fields_on` on a timer, so the two models' own fields can be compared in
+    /// one pane instead of needing "View side by side"'s two linked panes. Session state, not
+    /// persisted — same as `srv`, nothing here belongs in a saved workspace.
+    pub blink_compare: bool,
     /// Every moment seen in any volume from `loaded_site`, cleared when the site changes.
     ///
     /// A single live volume is only as complete as the tilts that have arrived: early in a scan
@@ -515,6 +520,7 @@ impl MapView {
             live_render_started: None,
             live_gpu_queue_micros: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             fields_on: Default::default(),
+            blink_compare: false,
             moments_seen: [false; Moment::ALL.len()],
         }
     }

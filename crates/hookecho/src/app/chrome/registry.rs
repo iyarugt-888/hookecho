@@ -1288,6 +1288,14 @@ impl HookEchoApp {
             PaletteAction::CompareInPanes,
             None,
         );
+        push(
+            "Blink between compared models",
+            "Models",
+            "Alternate this pane between each model's own field on a timer, instead of two panes",
+            false,
+            PaletteAction::ToggleBlinkCompare,
+            Some(self.views[self.active].blink_compare),
+        );
         let panes = self.views.len();
         for n in [1usize, 2, 3, 4] {
             push(

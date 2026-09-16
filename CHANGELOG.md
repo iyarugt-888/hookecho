@@ -8,6 +8,23 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: "Blink A/B" model comparison mode
+
+ROADMAP_NEW F6/J4: alongside the existing "A minus B" subtraction overlay and "View side by side"
+(two linked panes), a new "Blink A/B" button alternates the active pane's own field between each
+compared model's own value on a 1.5 s timer — a classic radar-analyst comparison technique, now
+usable in one pane instead of needing two. It reuses `CompareA`/`CompareB` and the exact same
+per-frame `fields_on` → `field_draws` path "View side by side" already goes through, so no
+GPU/shader change was needed: blinking is just which one of the two layers is a member this
+frame, flipped on a clock read from egui's own frame time rather than a continuous per-frame
+animation (it schedules the next repaint exactly at the next flip). Turning on "View side by
+side" while blinking stops the blink, since two persistent panes already show both fields at
+once. "Swipe divider" (a draggable split within one pane) was investigated but not attempted:
+`CompareA`/`CompareB` are GPU paint callbacks sharing one pane's field-selection state between
+`prepare()` and `paint()`, and two clipped callbacks for the same pane in one frame would race on
+whose field selection survives — real plumbing (a dedicated single-field paint path) that's out
+of scope for this pass; noted honestly in ROADMAP_NEW rather than shipped half-working.
+
 ### Fixed: station cards judged every network's staleness by the same 5-minute clock
 
 ROADMAP_NEW N2: the station-card header colored the "updated Xs/Xmin ago" line amber past a flat

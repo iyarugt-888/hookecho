@@ -1869,6 +1869,9 @@ pub(crate) enum PaletteAction {
     /// Two panes, one model's own field in each (`app.diff_field`), cameras linked — the
     /// side-by-side alternative to the `ModelDiff` subtraction layer.
     CompareInPanes,
+    /// ROADMAP_NEW F6/J4 "blink A/B": alternate the active pane's own field between the two
+    /// compared models on a timer, instead of splitting into two linked panes.
+    ToggleBlinkCompare,
     ToggleField(crate::render::FieldLayer),
     ToggleOverlay(OverlayToggle),
     SetContours(ContourKind),
@@ -8890,6 +8893,20 @@ impl HookEchoApp {
             }
             PaletteAction::AllTilts => self.apply_all_tilts(),
             PaletteAction::CompareInPanes => self.apply_compare_panes(),
+            PaletteAction::ToggleBlinkCompare => {
+                use crate::render::FieldLayer as FL;
+                let view = &mut self.views[self.active];
+                view.blink_compare = !view.blink_compare;
+                if view.blink_compare {
+                    // Start on A, and make sure the subtraction layer isn't also drawn under it —
+                    // three overlapping fields answers a question nobody asked.
+                    view.fields_on.insert(FL::CompareA);
+                    view.fields_on.remove(&FL::CompareB);
+                    view.fields_on.remove(&FL::ModelDiff);
+                }
+                // Turning it off leaves whichever field was showing at the moment as a static
+                // single-field view, rather than snapping back to some other mode on its own.
+            }
             PaletteAction::CycleBasemap => {
                 let (mb, mt) = (
                     !self.settings.mapbox_key.is_empty(),
@@ -12606,6 +12623,19 @@ impl HookEchoApp {
         Some(v * self.diff_field.input_scale())
     }
 
+    /// ROADMAP_NEW F6/J4 "blink A/B": which side of the comparison a pane should show at wall
+    /// clock `t` (egui's own clock, not `Instant` — the phase only has to be consistent within
+    /// one running session, not survive a restart). `true` means B is up.
+    fn blink_showing_b(t: f64, half_cycle_secs: f64) -> bool {
+        (t / half_cycle_secs) as i64 % 2 == 1
+    }
+
+    /// How long until `blink_showing_b` next flips — used to schedule the next repaint instead of
+    /// animating every frame while nothing on screen is actually changing.
+    fn blink_seconds_until_flip(t: f64, half_cycle_secs: f64) -> f64 {
+        (half_cycle_secs - t.rem_euclid(half_cycle_secs)).max(0.01)
+    }
+
     /// Render one pane into `prect`: input, tiles, radar, paint callback, and painter overlays.
     #[allow(clippy::too_many_arguments)]
     fn render_pane(
@@ -12631,6 +12661,27 @@ impl HookEchoApp {
         let is_vector = pane_style.vector_palette().is_some();
         let is_raster = pane_style.is_raster();
         let vp = (prect.width(), prect.height());
+        // ROADMAP_NEW F6/J4 "blink A/B": flip which compare field is in `fields_on` on a timer.
+        // `field_draws` (built later this same frame from `fields_on`) picks this straight up
+        // through the exact same path "View side by side" already uses — no GPU/shader change
+        // needed, blinking is just which single layer is a member this frame.
+        if self.views[idx].blink_compare {
+            use crate::render::FieldLayer as FL;
+            const HALF_CYCLE_SECS: f64 = 1.5;
+            let t = ctx.input(|i| i.time);
+            let (on, off) = if Self::blink_showing_b(t, HALF_CYCLE_SECS) {
+                (FL::CompareB, FL::CompareA)
+            } else {
+                (FL::CompareA, FL::CompareB)
+            };
+            self.views[idx].fields_on.insert(on);
+            self.views[idx].fields_on.remove(&off);
+            // Wake exactly at the next flip rather than every frame — blinking is not a
+            // continuous animation loop.
+            ctx.request_repaint_after(std::time::Duration::from_secs_f64(
+                Self::blink_seconds_until_flip(t, HALF_CYCLE_SECS),
+            ));
+        }
         let response = ui.interact(
             prect,
             egui::Id::new(("pane", idx)),
@@ -16135,6 +16186,9 @@ impl HookEchoApp {
             view.fields_on.insert(add);
             view.fields_on.remove(&remove);
             view.fields_on.remove(&FL::ModelDiff);
+            // Side by side already shows both fields, persistently, one per pane — blinking on
+            // top of that would fight the very point of splitting into two panes.
+            view.blink_compare = false;
         }
         // Two panes of the same field only reads if both look at the same place.
         self.link_cameras = true;
@@ -20790,6 +20844,28 @@ mod tests {
         inserted_other_order.insert(ContourKind::Cape);
         inserted_other_order.insert(ContourKind::Mslp);
         assert_eq!(summarize_contours(&inserted_other_order), "MSLP, SB-CAPE");
+    }
+
+    #[test]
+    fn blink_alternates_on_a_clean_half_cycle_boundary() {
+        // A is up for the first half of every cycle, B for the second — starting on A at t=0.
+        assert!(!HookEchoApp::blink_showing_b(0.0, 1.5));
+        assert!(!HookEchoApp::blink_showing_b(1.49, 1.5));
+        assert!(HookEchoApp::blink_showing_b(1.5, 1.5));
+        assert!(HookEchoApp::blink_showing_b(2.9, 1.5));
+        // A second full cycle later, the phase repeats rather than drifting.
+        assert!(!HookEchoApp::blink_showing_b(3.0, 1.5));
+        assert!(HookEchoApp::blink_showing_b(4.5, 1.5));
+    }
+
+    #[test]
+    fn blink_schedules_the_next_repaint_exactly_at_the_flip() {
+        assert_eq!(HookEchoApp::blink_seconds_until_flip(0.0, 1.5), 1.5);
+        assert!((HookEchoApp::blink_seconds_until_flip(1.0, 1.5) - 0.5).abs() < 1e-9);
+        assert!((HookEchoApp::blink_seconds_until_flip(1.5, 1.5) - 1.5).abs() < 1e-9);
+        // Never schedules a zero or negative delay, which would either spin every frame or panic
+        // the `Duration` conversion at the call site.
+        assert!(HookEchoApp::blink_seconds_until_flip(1.499_999_999, 1.5) > 0.0);
     }
 
     #[test]

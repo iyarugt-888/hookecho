@@ -104,6 +104,10 @@ pub(crate) fn show(
     compare_valid: Option<&crate::fielddiff::ComparisonTimes>,
     diff_error: Option<&str>,
     compare_error: Option<&str>,
+    // Whether the active pane is currently blinking between the two compared models' own
+    // fields (ROADMAP_NEW F6/J4) — read-only here; the toggle itself goes through
+    // `PaletteAction::ToggleBlinkCompare` since it also has to touch `fields_on`.
+    blink_compare: bool,
     // Lightning: NLDN averaging window, and whether GLM also polls GOES-West.
     lightning_minutes: &mut u16,
     show_glm: bool,
@@ -258,6 +262,10 @@ pub(crate) fn show(
     }
 
     let showing_compare = on.contains(&FL::CompareA) || on.contains(&FL::CompareB);
+    // Blinking also keeps exactly one of CompareA/CompareB in `fields_on` (see
+    // `render_pane`'s own comment), so `showing_compare` alone can't tell true two-pane side by
+    // side apart from one pane alternating between the two on a timer.
+    let in_side_by_side = showing_compare && !blink_compare;
     if section == "Model comparison" && (on.contains(&FL::ModelDiff) || showing_compare) {
         let (a, b) = diff_field.pair();
         ui.horizontal_wrapped(|ui| {
@@ -275,31 +283,54 @@ pub(crate) fn show(
         }
         if showing_compare {
             let label = diff_field.label();
-            ui.weak(format!(
-                "Pane A: {a}'s own {label}. Pane B: {b}'s own {label} — same scale, so a \
-                 difference in the field itself (not just where they disagree) is easy to spot \
-                 by eye."
-            ));
+            if blink_compare {
+                ui.weak(format!(
+                    "Blinking between {a}'s own {label} and {b}'s own {label} every 1.5 s — same \
+                     scale, so a difference in the field itself is easy to spot by eye."
+                ));
+            } else {
+                ui.weak(format!(
+                    "Pane A: {a}'s own {label}. Pane B: {b}'s own {label} — same scale, so a \
+                     difference in the field itself (not just where they disagree) is easy to spot \
+                     by eye."
+                ));
+            }
             ui.weak(valid_time_note(compare_valid, compare_error, a, b));
         }
         // A run-to-run field has no distinct "previous run" layer of its own yet, so side by side
         // would draw the same current-run layer in both panes — hidden rather than shipped
         // half-working (see `DiffField::supports_side_by_side`'s own doc comment).
         if diff_field.supports_side_by_side() {
-            if ui
-                .button(if showing_compare {
-                    "Rearrange panes"
-                } else {
-                    "View side by side (2 panes)"
-                })
-                .on_hover_text(
-                    "Puts one model's own field in each of two panes with linked cameras, instead \
-                     of one subtracted layer",
-                )
-                .clicked()
-            {
-                actions.palette = Some(crate::app::PaletteAction::CompareInPanes);
-            }
+            ui.horizontal_wrapped(|ui| {
+                if ui
+                    .button(if in_side_by_side {
+                        "Rearrange panes"
+                    } else {
+                        "View side by side (2 panes)"
+                    })
+                    .on_hover_text(
+                        "Puts one model's own field in each of two panes with linked cameras, \
+                         instead of one subtracted layer",
+                    )
+                    .clicked()
+                {
+                    actions.palette = Some(crate::app::PaletteAction::CompareInPanes);
+                }
+                if ui
+                    .button(if blink_compare {
+                        "Stop blinking"
+                    } else {
+                        "Blink A/B"
+                    })
+                    .on_hover_text(
+                        "Alternate this one pane between each model's own field on a timer, \
+                         instead of splitting into two panes",
+                    )
+                    .clicked()
+                {
+                    actions.palette = Some(crate::app::PaletteAction::ToggleBlinkCompare);
+                }
+            });
         }
     }
 

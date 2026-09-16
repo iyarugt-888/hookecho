@@ -255,6 +255,7 @@ impl HookEchoApp {
                                     self.compare_valid.as_ref(),
                                     self.diff_error.as_deref(),
                                     self.compare_error.as_deref(),
+                                    self.views[self.active].blink_compare,
                                     &mut self.settings.lightning_minutes,
                                     glm_options,
                                     &mut self.settings.glm_goes_west,

@@ -1294,17 +1294,31 @@ Support:
 Only CAPE is wired up so far — the roadmap's own worked example, not the full field set F3
 eventually wants comparable this way.
 
-## F6. Model-to-model comparison
+## F6. Model-to-model comparison — partly done
 
 Expand existing `fielddiff.rs` into a general comparison system.
 
 Modes:
 
-- A - B difference
-- side by side
-- swipe divider
-- blink A/B
-- disagreement mask
+- [x] A - B difference — predates this pass: the `ModelDiff` subtraction overlay
+- [x] side by side — predates this pass: `PaletteAction::CompareInPanes`, two linked panes
+- [ ] swipe divider — not attempted. `CompareA`/`CompareB` are GPU paint callbacks
+  (`egui_wgpu::CallbackTrait`), and the pane's field selection (`PaneGpu.field_draws`) is shared
+  mutable state written in `prepare()` and read in `paint()` by pane id — egui_wgpu runs every
+  pane's `prepare()` before any `paint()`, so queuing two clipped callbacks for the *same* pane
+  (one showing A on the left half, one showing B on the right) would race on which `prepare()`
+  call's field selection survives to both `paint()`s. A real swipe needs either a second,
+  smaller paint-callback type that draws one named field directly (bypassing `field_draws`
+  entirely) or threading the field selection through the callback struct itself instead of
+  shared per-pane state — real plumbing, not a small addition, so left for its own pass rather
+  than shipped as a divider that silently shows the wrong field on one side under load.
+- [x] blink A/B — new this pass, see the Unreleased CHANGELOG entry: a "Blink A/B" button
+  alternates the *active pane's own* `fields_on` between `CompareA` and `CompareB` on a 1.5 s
+  timer, reusing the exact same render path "View side by side" already uses (`field_draws` is
+  built fresh from `fields_on` every frame) — no GPU/shader change needed at all, unlike swipe.
+- [ ] disagreement mask — not attempted; a third rendering mode (categorical "do these two models
+  even roughly agree here" rather than a signed difference or either model's own value) with no
+  existing partial implementation to build on
 
 ## F7. Ensemble workstation
 
@@ -1681,13 +1695,19 @@ Moving cursor in one pane should optionally show corresponding point in linked p
   model layers on) still gets a row — its site and selected moment — but a "—" for value and time
   rather than a wrong or guessed number.
 
-## J4. Compare modes
+## J4. Compare modes — partly done
 
-- swipe
-- blink
-- difference
-- transparent overlay
-- side-by-side
+Same modes F6 asks for, applied to model comparison specifically — see F6's own checklist for
+what's done and why swipe isn't:
+
+- [ ] swipe — not attempted; see F6's own entry for the exact architectural blocker
+- [x] blink — new this pass, see F6 and the Unreleased CHANGELOG entry
+- [x] difference — predates this pass (`ModelDiff`)
+- [ ] transparent overlay — not attempted; distinct from `ModelDiff`'s subtraction and from
+  `CompareA`/`CompareB`'s full-opacity single-field panes, this would draw one model's field at
+  reduced opacity directly over the other's at full opacity in one pane — no existing partial
+  implementation
+- [x] side-by-side — predates this pass (`PaletteAction::CompareInPanes`)
 
 ## J5. Analyst presets — partly done
 
