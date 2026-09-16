@@ -8,6 +8,21 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: three new analyst preset workspaces
+
+ROADMAP_NEW J5: alongside "Chase", "National overview" and "Analysis", three new starter
+workspaces — "Tornado analysis" (0.5° REF/SRV/CC/ZDR, four panes linked on camera/time/site/
+cursor, with ProbSevere and storm cells on), "Hail analysis" (REF/ZDR/CC/KDP with the MESH hail
+swath layer on), and "Mesoscale analysis" (one national-scale pane with GOES IR, CAPE, SRH, and
+2 m dewpoint field layers). Each reuses exactly the same pane/link/overlay/field-layer mechanism
+the first three starters already use — a preset is a saved arrangement, not a new capability. The
+roadmap's fourth preset, "Forecast comparison" (HRRR/RRFS/ensemble probability vs.
+observed/MRMS), isn't shipped: RRFS isn't a data source this app has and ensemble probability is
+its own not-started roadmap item, and a preset built from only the pieces that already exist would
+silently drop half of what it's supposed to show. The roadmap also asks "Hail analysis" to open
+the sounding panel automatically; workspaces don't capture open windows by design, so that stays a
+manual step.
+
 ### Fixed: the 3D volume/CAPPI clipped far storms out of the box entirely
 
 The 3D reflectivity volume, its "Smooth" per-pane representation, and the CAPPI slice window all

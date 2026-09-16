@@ -1689,39 +1689,55 @@ Moving cursor in one pane should optionally show corresponding point in linked p
 - transparent overlay
 - side-by-side
 
-## J5. Analyst presets
+## J5. Analyst presets — partly done
 
 Ship presets such as:
 
-### Tornado analysis
+### Tornado analysis — done
 
-- 0.5 REF
-- 0.5 SRV
-- 0.5 CC
-- 0.5 ZDR
-- ProbSevere/storm table visible
+New this pass, see the Unreleased CHANGELOG entry: a "Tornado analysis" starter workspace
+(`workspace::starters`) alongside the existing Chase/National overview/Analysis three.
 
-### Hail analysis
+- [x] 0.5 REF
+- [x] 0.5 SRV
+- [x] 0.5 CC
+- [x] 0.5 ZDR
+- [x] ProbSevere/storm table visible — the `ProbSevere` overlay toggle is on by default; "storm
+  table" reads as the existing storm-cells overlay (`Cells`), also on — there is no separate
+  tabular storm-list surface to open alongside it
 
-- REF
-- ZDR
-- CC/KDP
-- MESH
-- sounding panel
+### Hail analysis — mostly done
 
-### Mesoscale analysis
+New this pass, see the Unreleased CHANGELOG entry.
 
-- surface theta-e/dewpoint
-- CAPE
-- SRH/shear
-- satellite
+- [x] REF
+- [x] ZDR
+- [x] CC/KDP — both get their own pane rather than picking one
+- [x] MESH
+- [ ] sounding panel — workspaces deliberately don't capture open windows (see `workspace.rs`'s
+  own module doc comment, predating this pass); opening the sounding window is a manual step after
+  loading this preset, not something a saved arrangement can do on its own without extending that
+  design
 
-### Forecast comparison
+### Mesoscale analysis — done
 
-- HRRR
-- RRFS
-- ensemble probability
-- observed/MRMS
+New this pass, see the Unreleased CHANGELOG entry: one national-scale pane with GOES IR, CAPE,
+SRH and 2 m dewpoint field layers on together — the environment fields that set the stage rather
+than one storm's own radar signature. "Surface theta-e" itself isn't a tracked field anywhere in
+this app; dewpoint is the roadmap's own listed alternative for that bullet.
+
+### Forecast comparison — not attempted
+
+- [ ] HRRR
+- [ ] RRFS — not a data source this app has; `wxdata::hrrr::Model` only wires up HRRR/RAP/NAM/NAM
+  nest, and adding an entirely new model provider is well past what a "ship a preset" pass should
+  take on
+- [ ] ensemble probability — F7 "Ensemble workstation" is itself not started
+- [ ] observed/MRMS
+
+Shipping this preset from only the pieces that already exist (HRRR vs. observed/MRMS) would
+silently drop RRFS and ensemble probability rather than honestly leave the whole preset undone —
+better to wait until F7 and an RRFS source exist and build the real thing.
 
 ## J6. Keyboard-first workflows
 

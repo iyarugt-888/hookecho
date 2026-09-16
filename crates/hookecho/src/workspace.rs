@@ -182,8 +182,8 @@ fn pane(moment: wxdata::level2::Moment, tilt: usize, srv: bool) -> PaneSnap {
     }
 }
 
-/// The three arrangements worth having before you have built any of your own. Seeded once, on
-/// first run; deleting them is final (see `Settings::seeded_workspaces`).
+/// The arrangements worth having before you have built any of your own. Seeded once, on first
+/// run; deleting them is final (see `Settings::seeded_workspaces`).
 pub fn starters() -> Vec<Workspace> {
     use wxdata::level2::Moment;
     vec![
@@ -254,6 +254,105 @@ pub fn starters() -> Vec<Workspace> {
             overlays_on: vec!["Alerts".into(), "Cells".into(), "RangeRings".into()],
             adopt_site: true,
             fields_on: Vec::new(),
+            chrome: None,
+        },
+        // ROADMAP_NEW J5's first three analyst presets. Each reuses exactly the same
+        // pane/link/overlay mechanism as the three starters above — a preset is a description of
+        // "when I sit down for this kind of event, this is the arrangement I rebuild by hand every
+        // time", not a new capability. "Forecast comparison" (HRRR/RRFS/ensemble probability vs.
+        // observed) is not shipped as a fourth preset: RRFS isn't a data source this app has, and
+        // ensemble probability is F7's own not-started feature — a preset built only from what
+        // HRRR-vs-observed comparison already exists would silently drop half of what the roadmap
+        // actually asks this preset to show.
+        Workspace {
+            name: "Tornado analysis".into(),
+            // The lowest cut of every dual-pol moment that actually separates a debris signature
+            // from rain: reflectivity for the hook, storm-relative velocity for the couplet, CC
+            // for non-meteorological scatterers, ZDR for the drop/debris size split.
+            panes: vec![
+                pane(Moment::Reflectivity, 0, false),
+                pane(Moment::Velocity, 0, true),
+                pane(Moment::CorrelationCoefficient, 0, false),
+                pane(Moment::DifferentialReflectivity, 0, false),
+            ],
+            active: 0,
+            link_cameras: true,
+            link_times: true,
+            lock_source_time: false,
+            link_site: true,
+            // The roadmap's own worked example for J3's synchronized crosshair: probing the same
+            // point across all four panes at once is exactly how these moments get read together.
+            link_cursor: true,
+            overlays_on: vec![
+                "Alerts".into(),
+                "Cells".into(),
+                "StormReports".into(),
+                "ProbSevere".into(),
+                "Tds".into(),
+            ],
+            adopt_site: true,
+            fields_on: Vec::new(),
+            chrome: None,
+        },
+        Workspace {
+            name: "Hail analysis".into(),
+            // REF for the core, ZDR/KDP/CC for size and phase, MESH for the swath a single tilt
+            // can't show by itself. The roadmap also asks for the sounding panel open on this
+            // preset; workspaces deliberately don't capture open windows (see this module's own
+            // doc comment), so that part opens by hand rather than being silently dropped.
+            panes: vec![
+                pane(Moment::Reflectivity, 0, false),
+                pane(Moment::DifferentialReflectivity, 0, false),
+                pane(Moment::CorrelationCoefficient, 0, false),
+                pane(Moment::SpecificDifferentialPhase, 0, false),
+            ],
+            active: 0,
+            link_cameras: true,
+            link_times: true,
+            lock_source_time: false,
+            link_site: true,
+            link_cursor: true,
+            overlays_on: vec!["Alerts".into(), "Cells".into(), "StormReports".into()],
+            adopt_site: true,
+            fields_on: vec!["mesh".into()],
+            chrome: None,
+        },
+        Workspace {
+            name: "Mesoscale analysis".into(),
+            // One national-scale pane: the environment fields that set the stage rather than one
+            // storm's own radar signature. CAPE/SRH read from the Environment section's own model
+            // choice, same as everywhere else they appear.
+            panes: vec![PaneSnap {
+                site: None,
+                moment: Moment::Reflectivity,
+                tilt: 0,
+                srv: false,
+                basemap: "dark".into(),
+                lon: -97.0,
+                lat: 38.5,
+                zoom: 4.0,
+                fields_on: Some(vec![
+                    "goes-ir".into(),
+                    "cape".into(),
+                    "srh".into(),
+                    "global-dewpoint2m".into(),
+                ]),
+                thresholds: Vec::new(),
+            }],
+            active: 0,
+            link_cameras: false,
+            link_times: false,
+            lock_source_time: false,
+            link_site: false,
+            link_cursor: false,
+            overlays_on: vec!["Alerts".into(), "Fronts".into(), "StormReports".into()],
+            adopt_site: false,
+            fields_on: vec![
+                "goes-ir".into(),
+                "cape".into(),
+                "srh".into(),
+                "global-dewpoint2m".into(),
+            ],
             chrome: None,
         },
     ]

@@ -3687,8 +3687,8 @@ impl HookEchoApp {
         let (tray_rx_init, tray_present_init) = crate::tray::spawn();
 
         let mut settings = Settings::load();
-        // Three arrangements worth having before you have built any of your own. Once only: the
-        // flag is what makes deleting them stick.
+        // The starter arrangements worth having before you have built any of your own. Once
+        // only: the flag is what makes deleting them stick.
         if settings.workspaces.is_empty() && !settings.seeded_workspaces {
             settings.workspaces = crate::workspace::starters();
             settings.seeded_workspaces = true;
