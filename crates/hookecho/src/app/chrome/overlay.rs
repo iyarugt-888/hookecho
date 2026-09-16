@@ -241,7 +241,7 @@ impl HookEchoApp {
                                     &mut self.env_cape_ml,
                                     &mut self.env_srh_km,
                                     &mut self.env_model,
-                                    &mut self.contour_kind,
+                                    &mut self.active_contours,
                                     &mut etop_dbz,
                                     &mut self.snow_hours,
                                     &self.show_tropical,

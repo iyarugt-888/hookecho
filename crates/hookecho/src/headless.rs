@@ -2700,7 +2700,6 @@ pub fn run_xsection(
 /// Fetch a volume, slice a CAPPI at `alt_km`, print filled-cell count, and save the slice PNG.
 pub fn run_cappi(site: &str, alt_km: f32, out_path: &str) -> anyhow::Result<()> {
     const N: usize = 256;
-    const HALF_KM: f32 = 150.0;
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
@@ -2718,7 +2717,8 @@ pub fn run_cappi(site: &str, alt_km: f32, out_path: &str) -> anyhow::Result<()> 
     let sweeps: Vec<_> = (0..elevs.len())
         .filter_map(|t| level2::bin_scan_opts(&scan, Moment::Reflectivity, t, false).ok())
         .collect();
-    let c = wxdata::volume3d::cappi(&sweeps, alt_km, N, HALF_KM)
+    let half_km = wxdata::volume3d::max_sample_range_km(&sweeps).max(50.0);
+    let c = wxdata::volume3d::cappi(&sweeps, alt_km, N, half_km)
         .ok_or_else(|| anyhow::anyhow!("no sweeps for CAPPI"))?;
     let filled = c.dbz.iter().filter(|v| v.is_some()).count();
     println!(
@@ -2765,7 +2765,10 @@ pub fn run_3d(
     let sweeps: Vec<_> = (0..elevs.len())
         .filter_map(|t| level2::bin_scan_opts(&scan, Moment::Reflectivity, t, false).ok())
         .collect();
-    let v3 = wxdata::volume3d::build(&sweeps, N, NZ, 150.0, 18.0)
+    // Match `app.rs`'s `build_volume3d`: cover what this scan actually sampled rather than a
+    // fixed radius that clipped far storms out of the volume.
+    let half_km = wxdata::volume3d::max_sample_range_km(&sweeps).max(50.0);
+    let v3 = wxdata::volume3d::build(&sweeps, N, NZ, half_km, 18.0)
         .ok_or_else(|| anyhow::anyhow!("no sweeps for 3D volume"))?;
     let filled = v3.data.iter().filter(|&&b| b >= 2).count();
     println!(

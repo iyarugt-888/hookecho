@@ -21,6 +21,19 @@ pub struct Volume3d {
     pub value_max: f32,
 }
 
+/// The farthest ground range any of these tilts actually samples — a scan's true footprint,
+/// not a guessed radius. Intended as `build`'s `half_km`, so the 3D volume covers what the radar
+/// actually reported (superres reflectivity commonly reaches 300+ km) instead of clipping
+/// everything past an arbitrary fixed distance, which left far storms outside the volume
+/// entirely — including out of reach of the clipping-plane slice, which can only cut into
+/// whatever the volume already contains.
+pub fn max_sample_range_km(sweeps: &[BinnedSweep]) -> f32 {
+    sweeps
+        .iter()
+        .map(|s| s.first_gate_km + s.gate_count as f32 * s.gate_interval_km)
+        .fold(0.0f32, f32::max)
+}
+
 /// Build an `n × n × nz` reflectivity volume out to `half_km` horizontally and `top_km` up.
 /// Returns `None` if there are no sweeps.
 pub fn build(
@@ -234,6 +247,24 @@ mod tests {
             value_max,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn max_sample_range_km_reads_off_the_farthest_tilt_not_a_guessed_radius() {
+        // Every synthetic tilt shares the same gate layout (200 gates, 1 km apart, from 0 km).
+        let sweeps = vec![sweep(0.5), sweep(1.5), sweep(2.4)];
+        assert_eq!(max_sample_range_km(&sweeps), 200.0);
+
+        // A tilt reporting a longer range than the others must win, not be averaged away or
+        // ignored in favor of the first one in the list.
+        let mut far = sweep(4.0);
+        far.gate_count = 800;
+        far.gate_interval_km = 0.5;
+        far.first_gate_km = 0.25;
+        let with_far = vec![sweep(0.5), far, sweep(2.4)];
+        assert_eq!(max_sample_range_km(&with_far), 0.25 + 800.0 * 0.5);
+
+        assert_eq!(max_sample_range_km(&[]), 0.0, "no tilts, no range");
     }
 
     #[test]

@@ -8,6 +8,37 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: the 3D volume/CAPPI clipped far storms out of the box entirely
+
+The 3D reflectivity volume, its "Smooth" per-pane representation, and the CAPPI slice window all
+built their grid to a fixed 150 km half-width regardless of what the radar actually scanned —
+superres reflectivity commonly reaches 300+ km, so a storm beyond 150 km was outside the volume
+before the clipping-plane slice ever got a chance at it; no slice angle could recover data the
+volume never contained. `wxdata::volume3d::max_sample_range_km` now reads the farthest range any
+of a scan's own tilts reported and sizes the volume to that instead of a guessed radius, so the 3D
+view and CAPPI cover what the radar actually published. The "jump to this storm in 3D" action from
+the storm-cells popup, which used the same fixed radius to compute its zoomed-in clip box, now
+derives it from the same real sweep data so the box stays meaningful against whatever gets built.
+
+### Changed: the ribbon's radar product list scrolls instead of overflowing
+
+The WSV3 ribbon's "Radar" group laid its product pills out in a fixed-height box with no scrollbar
+— content past that height had nowhere to go. It's now a vertical `ScrollArea`: unchanged when
+everything fits, and scrollable rather than clipped or overlapping the map when it doesn't.
+
+### Added: overlay more than one model-contour field at once
+
+Model contours (MSLP / 2 m temp / dewpoint / SB-CAPE / 0-3 km SRH / STP / SCP / EHI / lapse rates
+/ effective-layer shear-SRH-STP) used to be an exclusive pick — turning one on turned the last one
+off. Both contour pickers (the WSV3 ribbon's "Contours" group and the Environment drawer section)
+are now checklists, so MSLP and CAPE, say, can be drawn together, each in its own color and each
+independently fetched, cached, and refreshed on the model's own cadence. The command palette and
+layers panel already showed a per-field checkmark; they now actually toggle that one field instead
+of behaving like a hidden radio group. STP/STP-effective are hidden from both pickers, and cleared
+from whatever is already active, when the selected source model has no LCL height to compute them
+from (RAP analysis, NAM 12 km, NAM 3 km nest) — previously only the fixed-layer STP variant was
+consistently hidden in the Environment picker even though the model-change guard cleared both.
+
 ### Added: synchronized cursor across linked panes
 
 ROADMAP_NEW J3: a new "Link pane crosshair" toggle shares whichever pane is hovered as one

@@ -630,12 +630,10 @@ fn active_row(ui: &mut egui::Ui, e: &PaletteEntry, accent: Color32) -> Option<Pa
                 .named_toggle(&format!("Show {}", e.label), true)
                 .clicked()
             {
-                chosen = Some(match e.action {
-                    PaletteAction::SetContours(_) => {
-                        PaletteAction::SetContours(crate::app::ContourKind::Off)
-                    }
-                    action => action,
-                });
+                // This row is only shown while its own kind is active (`active_layer` below), so
+                // reusing the same action here toggles just this kind off — the other active
+                // kinds, if any, are untouched.
+                chosen = Some(e.action);
             }
             if let Some(health) = warning {
                 let (label, color) = health_look(health.state());

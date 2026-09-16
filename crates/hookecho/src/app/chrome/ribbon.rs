@@ -176,7 +176,7 @@ impl HookEchoApp {
         let hrrr_sub = self.hrrr_subhourly;
         let tz_l = self.active_tz();
         let mode = self.ribbon_mode;
-        let contour_kind = self.contour_kind;
+        let active_contours = self.active_contours.clone();
 
         let (disp_f, disp_l) = display_units(moment, &self.settings);
         let table = self.palettes.table(moment).clone();
@@ -184,7 +184,8 @@ impl HookEchoApp {
         let mut pick_tilt: Option<usize> = None;
         let mut pick_panes: Option<usize> = None;
         let mut pick_mode: Option<crate::app::RibbonMode> = None;
-        let mut pick_contour: Option<crate::app::ContourKind> = None;
+        // Toggled this frame — several kinds can be active, so this isn't an exclusive pick.
+        let mut pick_contour: Vec<crate::app::ContourKind> = Vec::new();
         let mut hrrr_hour = self.hrrr_fcst_hour;
         let mut hrrr_min = self.hrrr_fcst_min;
         let mut hrrr_sub_toggled = false;
@@ -282,25 +283,34 @@ impl HookEchoApp {
                             });
                         });
                         ui.add_space(1.0);
-                        for chunk in crate::products::PRODUCTS.chunks(4) {
-                            ui.horizontal(|ui| {
-                                for p in chunk {
-                                    if wsv3::pill_sized(
-                                        ui,
-                                        p.short,
-                                        p.moment == moment,
-                                        accent,
-                                        40.0,
-                                    )
-                                    .on_hover_text(p.blurb)
-                                    .clicked()
-                                    {
-                                        actions.palette =
-                                            Some(PaletteAction::SetMoment(p.moment, srv));
-                                    }
+                        // Vertically scrollable rather than a fixed number of wrapped rows: the
+                        // ribbon group's own height is fixed (`ribbon_group`'s allocation), so a
+                        // product list that grows past it used to spill out of its box instead of
+                        // staying reachable.
+                        egui::ScrollArea::vertical()
+                            .id_salt("wsv3_products_scroll")
+                            .max_height(ui.available_height())
+                            .show(ui, |ui| {
+                                for chunk in crate::products::PRODUCTS.chunks(4) {
+                                    ui.horizontal(|ui| {
+                                        for p in chunk {
+                                            if wsv3::pill_sized(
+                                                ui,
+                                                p.short,
+                                                p.moment == moment,
+                                                accent,
+                                                40.0,
+                                            )
+                                            .on_hover_text(p.blurb)
+                                            .clicked()
+                                            {
+                                                actions.palette =
+                                                    Some(PaletteAction::SetMoment(p.moment, srv));
+                                            }
+                                        }
+                                    });
                                 }
                             });
-                        }
                     });
 
                     // ---- TILT ----
@@ -510,20 +520,36 @@ impl HookEchoApp {
                     });
 
                     // ---- CONTOURS ----
+                    // A checklist, not an exclusive pick: several model-contour fields (e.g. MSLP
+                    // and CAPE) can be overlaid together.
                     ribbon_group(ui, 140.0, |ui| {
                         wsv3::group_label(ui, "Contours");
-                        let mut sel = contour_kind;
+                        // STP needs an LCL height only the HRRR surface file carries — see
+                        // `ui::layer_options::stp_source`.
+                        let stp_ok = matches!(env_model, wxdata::hrrr::Model::Hrrr);
                         egui::ComboBox::from_id_salt("wsv3_contours")
-                            .selected_text(contour_kind.label())
+                            .selected_text(crate::app::summarize_contours(&active_contours))
                             .width(120.0)
                             .show_ui(ui, |ui| {
                                 for ck in crate::app::ContourKind::ALL {
-                                    ui.selectable_value(&mut sel, ck, ck.label());
+                                    if ck == crate::app::ContourKind::Off {
+                                        continue;
+                                    }
+                                    if !stp_ok
+                                        && matches!(
+                                            ck,
+                                            crate::app::ContourKind::Stp
+                                                | crate::app::ContourKind::StpEff
+                                        )
+                                    {
+                                        continue;
+                                    }
+                                    let mut on = active_contours.contains(&ck);
+                                    if ui.checkbox(&mut on, ck.label()).changed() {
+                                        pick_contour.push(ck);
+                                    }
                                 }
                             });
-                        if sel != contour_kind {
-                            pick_contour = Some(sel);
-                        }
                     });
 
                     // ---- FUTURE RADAR (HRRR) ----
@@ -731,7 +757,7 @@ impl HookEchoApp {
         if let Some(m) = pick_mode {
             self.ribbon_mode = m;
         }
-        if let Some(k) = pick_contour {
+        for k in pick_contour {
             self.apply_palette(PaletteAction::SetContours(k), ctx);
         }
         // Model source / lead: the global sync loop refetches on any change to these, so a plain
@@ -749,13 +775,10 @@ impl HookEchoApp {
                     s.last_fetch = None;
                 }
             }
-            if !matches!(env_model, wxdata::hrrr::Model::Hrrr)
-                && matches!(
-                    self.contour_kind,
-                    crate::app::ContourKind::Stp | crate::app::ContourKind::StpEff
-                )
-            {
-                self.contour_kind = crate::app::ContourKind::Off;
+            if !matches!(env_model, wxdata::hrrr::Model::Hrrr) {
+                self.active_contours.remove(&crate::app::ContourKind::Stp);
+                self.active_contours
+                    .remove(&crate::app::ContourKind::StpEff);
             }
         }
         // The per-frame sync in `update` refetches when the selected lead changes; a no-op write

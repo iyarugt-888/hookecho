@@ -88,7 +88,7 @@ pub(crate) fn show(
     env_cape_ml: &mut bool,
     env_srh_km: &mut u8,
     env_model: &mut wxdata::hrrr::Model,
-    contour_kind: &mut crate::app::ContourKind,
+    active_contours: &mut std::collections::BTreeSet<crate::app::ContourKind>,
     etop_dbz: &mut f32,
     snow_hours: &mut u16,
     show_tropical: &bool,
@@ -507,27 +507,42 @@ pub(crate) fn show(
                 }
             }
             // STP needs an LCL height the RAP file doesn't carry (see wxdata::severe::fetch_grid).
-            if !stp_source(*env_model) && *contour_kind == crate::app::ContourKind::Stp {
-                *contour_kind = crate::app::ContourKind::Off;
+            if !stp_source(*env_model) {
+                active_contours.remove(&crate::app::ContourKind::Stp);
+                active_contours.remove(&crate::app::ContourKind::StpEff);
             }
             changed = true;
         }
 
-        // Model contours (isolines) — MSLP / 2 m temp / dewpoint / SB-CAPE / 0-3 km SRH.
+        // Model contours (isolines) — MSLP / 2 m temp / dewpoint / SB-CAPE / 0-3 km SRH / … .
+        // Several can be on at once (e.g. MSLP and CAPE together), so this is a checklist rather
+        // than an exclusive picker.
         ui.label("Contours");
         egui::ComboBox::from_id_salt("environment_contours")
             .width(ui.available_width() - 8.0)
-            .selected_text(contour_kind.label())
+            .selected_text(crate::app::summarize_contours(active_contours))
             .show_ui(ui, |ui| {
                 for k in crate::app::ContourKind::ALL {
-                    if k == crate::app::ContourKind::Stp && !stp_source(*env_model) {
+                    if k == crate::app::ContourKind::Off {
+                        continue; // "no kinds checked" already means Off
+                    }
+                    if (k == crate::app::ContourKind::Stp || k == crate::app::ContourKind::StpEff)
+                        && !stp_source(*env_model)
+                    {
                         continue; // no LCL height in these files
                     }
-                    ui.selectable_value(contour_kind, k, k.label());
+                    let mut on = active_contours.contains(&k);
+                    if ui.checkbox(&mut on, k.label()).changed() {
+                        if on {
+                            active_contours.insert(k);
+                        } else {
+                            active_contours.remove(&k);
+                        }
+                    }
                 }
             })
             .response
-            .on_hover_text("Draw a surface field as labeled contour lines (f00)");
+            .on_hover_text("Draw one or more surface fields as labeled contour lines (f00)");
     }
 
     // Everything below belongs to a layer that has to be on for it to mean anything.

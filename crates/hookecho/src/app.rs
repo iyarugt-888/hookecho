@@ -1399,7 +1399,19 @@ impl RibbonMode {
 
 /// HRRR model field drawn as contour lines over the radar (surface `f00`). SB-CAPE / 0-3 km SRH
 /// are fixed here — `// ponytail: not wired to the env suite's env_cape_ml / env_srh_km toggles.`
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Default,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub(crate) enum ContourKind {
     #[default]
     Off,
@@ -1587,6 +1599,30 @@ impl ContourKind {
             ContourKind::Off => egui::Color32::WHITE,
         }
     }
+}
+
+/// Text for a multi-select contour picker's collapsed summary: "Off" for none active, the one
+/// label when exactly one is, otherwise a joined list — so the picker always says what's actually
+/// drawn without needing to open it.
+pub(crate) fn summarize_contours(active: &std::collections::BTreeSet<ContourKind>) -> String {
+    if active.is_empty() {
+        return ContourKind::Off.label().to_string();
+    }
+    active
+        .iter()
+        .map(|k| k.label())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// One active [`ContourKind`]'s own fetched state — kept per kind so several contour overlays can
+/// be in flight, cached, and stale-refreshed independently of each other.
+#[derive(Default)]
+pub(crate) struct ContourEntry {
+    pub lines: Vec<wxdata::contour::ContourLine>,
+    pub valid: Option<DateTime<Utc>>,
+    pub last_fetch: Option<Instant>,
+    pub fetched_key: Option<(wxdata::hrrr::Model, crate::settings::TempUnit)>,
 }
 
 /// A boolean overlay/panel toggle addressable by name, so the layers panel and command palette
@@ -2994,13 +3030,14 @@ pub struct HookEchoApp {
     gauges: Vec<wxdata::river::Gauge>,
     gauge_last_fetch: Option<Instant>,
     gauge_bounds: Option<(f64, f64, f64, f64)>,
-    /// HRRR model contours: selected field, current polylines, valid time, fetch clock, and the
-    /// kind the current lines were fetched for (drives refetch-on-change).
-    contour_kind: ContourKind,
-    contours: Vec<wxdata::contour::ContourLine>,
-    contour_valid: Option<DateTime<Utc>>,
-    contour_last_fetch: Option<Instant>,
-    contour_fetched_kind: Option<(ContourKind, wxdata::hrrr::Model, crate::settings::TempUnit)>,
+    /// HRRR model contours: which fields are on — several can be at once, e.g. MSLP and CAPE
+    /// overlaid together, each independently fetched and drawn in its own color. `Off` is never a
+    /// member; `PaletteAction::SetContours(Off)` clears the whole set instead of toggling it in.
+    active_contours: std::collections::BTreeSet<ContourKind>,
+    /// One entry per active kind: its current polylines, valid time, fetch clock, and the
+    /// (model, unit) the current lines were fetched for (drives refetch-on-change). Entries for a
+    /// kind that's no longer active are dropped by `sync_contours` rather than left to go stale.
+    contours: std::collections::HashMap<ContourKind, ContourEntry>,
     /// NHC tropical suite (feature V): toggle, fetched data, refresh clock. On by default like
     /// the other severe layers — an active hurricane is not something to have to go and enable.
     show_tropical: bool,
@@ -4035,11 +4072,8 @@ impl HookEchoApp {
             gauges: Vec::new(),
             gauge_last_fetch: None,
             gauge_bounds: None,
-            contour_kind: ContourKind::Off,
-            contours: Vec::new(),
-            contour_valid: None,
-            contour_last_fetch: None,
-            contour_fetched_kind: None,
+            active_contours: std::collections::BTreeSet::new(),
+            contours: std::collections::HashMap::new(),
             env_model: wxdata::hrrr::Model::Hrrr,
             show_tropical: true,
             tropical: None,
@@ -5985,7 +6019,13 @@ impl HookEchoApp {
         self.spawner.spawn(async move {
             // Off the UI thread: this is pure CPU on tens of MB and would drop a second of frames.
             let built = wxdata::task::blocking(move || {
-                let v3 = wxdata::volume3d::build(&sweeps, VOL3D_N, VOL3D_NZ, 150.0, VOL3D_TOP_KM)?;
+                // The volume covers whatever range this scan actually reported, not a fixed
+                // radius — an old hardcoded 150 km half-width was clipping every storm beyond
+                // it out of the 3D volume entirely, which no clipping-plane slice can recover
+                // since a slice can only cut into range the volume already contains.
+                let half_km = wxdata::volume3d::max_sample_range_km(&sweeps).max(50.0);
+                let v3 =
+                    wxdata::volume3d::build(&sweeps, VOL3D_N, VOL3D_NZ, half_km, VOL3D_TOP_KM)?;
                 let lut =
                     crate::colormap::bake_lut(&table, (v3.value_min, v3.value_max), None).to_vec();
                 Some((
@@ -6031,7 +6071,6 @@ impl HookEchoApp {
     /// Re-slice the active pane's cached volume into a CAPPI at `cappi_alt_km` when the key
     /// (volume name + altitude) changed, and refresh the window texture (feature AA).
     fn update_cappi(&mut self, ctx: &egui::Context) {
-        const HALF_KM: f32 = 150.0;
         const N: usize = 256;
         let Some(name) = self.views[self.active]
             .volume
@@ -6053,7 +6092,10 @@ impl HookEchoApp {
         if sweeps.is_empty() {
             return;
         }
-        let Some(c) = wxdata::volume3d::cappi(&sweeps, self.cappi_alt_km, N, HALF_KM) else {
+        // Same fix as `build_volume3d`: slice out to what this scan actually sampled, not a
+        // fixed radius that cut the CAPPI off well short of far reflectivity returns.
+        let half_km = wxdata::volume3d::max_sample_range_km(&sweeps).max(50.0);
+        let Some(c) = wxdata::volume3d::cappi(&sweeps, self.cappi_alt_km, N, half_km) else {
             return;
         };
         let hc_table = crate::colormap::effective_table(
@@ -8815,7 +8857,15 @@ impl HookEchoApp {
                     self.rebuild_overlays();
                 }
             }
-            PaletteAction::SetContours(k) => self.contour_kind = k,
+            // `Off` clears every active contour; any real kind toggles just that one, so several
+            // can be layered on at once (each row in the command palette/layers panel already
+            // shows its own checked state — this is what makes clicking one leave the rest alone).
+            PaletteAction::SetContours(ContourKind::Off) => self.active_contours.clear(),
+            PaletteAction::SetContours(k) => {
+                if !self.active_contours.remove(&k) {
+                    self.active_contours.insert(k);
+                }
+            }
             // Tapping the armed tool disarms it. Interrogate is the resting state, so "off" means
             // back to it — without this the row read ON with no way to turn it off.
             PaletteAction::Tool(t) => {
@@ -9335,10 +9385,12 @@ impl HookEchoApp {
                 }
                 OverlayMsg::Gauges(g) => self.gauges = g,
                 OverlayMsg::Contours(kind, lines, valid) => {
-                    // Keep only if the selection didn't change while the fetch was in flight.
-                    if kind == self.contour_kind {
-                        self.contours = lines;
-                        self.contour_valid = Some(valid);
+                    // Keep only if this kind is still active — it may have been turned off while
+                    // the fetch was in flight.
+                    if self.active_contours.contains(&kind) {
+                        let entry = self.contours.entry(kind).or_default();
+                        entry.lines = lines;
+                        entry.valid = Some(valid);
                     }
                 }
                 OverlayMsg::Tropical(data) => self.tropical = Some(data),
@@ -10064,33 +10116,35 @@ impl HookEchoApp {
         }
     }
 
-    /// Drive the HRRR contour fetch: refetch on a kind change or every 15 min. The HRRR surface
-    /// run updates hourly and contouring is cheap enough to redo on the model cadence.
+    /// Drive the HRRR contour fetch for every active kind: refetch on a kind's own selection/model
+    /// change or every 15 min. The HRRR surface run updates hourly and contouring is cheap enough
+    /// to redo on the model cadence. Several kinds can be active at once (ROADMAP_NEW J4-adjacent:
+    /// overlaying more than one model-contour field, e.g. MSLP and CAPE together) — each fetches
+    /// and refreshes independently, keyed by its own kind.
     fn sync_contours(&mut self, ctx: &egui::Context) {
-        if self.contour_kind == ContourKind::Off {
-            if !self.contours.is_empty() {
-                self.contours.clear();
-                self.contour_valid = None;
+        // Drop entries for a kind that was turned off — otherwise a deselected field's last-drawn
+        // lines would linger in the map forever, since nothing else ever clears them.
+        self.contours
+            .retain(|k, _| self.active_contours.contains(k));
+        for kind in self.active_contours.clone() {
+            let key = (self.env_model, self.settings.temp_unit);
+            let entry = self.contours.entry(kind).or_default();
+            let changed = entry.fetched_key != Some(key);
+            let stale = entry
+                .last_fetch
+                .is_none_or(|t| t.elapsed().as_secs() >= 900);
+            if changed {
+                entry.lines.clear();
+                entry.valid = None;
             }
-            self.contour_fetched_kind = None;
-            return;
-        }
-        let key = (self.contour_kind, self.env_model, self.settings.temp_unit);
-        let changed = self.contour_fetched_kind != Some(key);
-        let stale = self
-            .contour_last_fetch
-            .is_none_or(|t| t.elapsed().as_secs() >= 900);
-        if changed {
-            self.contours.clear();
-            self.contour_valid = None;
-        }
-        if changed || stale {
-            self.contour_last_fetch = Some(Instant::now());
-            self.contour_fetched_kind = Some(key);
-            self.spawn_overlay(
-                ctx,
-                OverlaySource::Contours(self.contour_kind, self.env_model, self.settings.temp_unit),
-            );
+            if changed || stale {
+                entry.last_fetch = Some(Instant::now());
+                entry.fetched_key = Some(key);
+                self.spawn_overlay(
+                    ctx,
+                    OverlaySource::Contours(kind, self.env_model, self.settings.temp_unit),
+                );
+            }
         }
     }
 
@@ -11931,11 +11985,16 @@ impl HookEchoApp {
                         self.smooth_vol_rx[idx] = Some(rx);
                         self.spawner.spawn(async move {
                             let built = wxdata::task::blocking(move || {
+                                // See `build_volume3d`'s matching comment: derive the volume's
+                                // horizontal extent from what this scan actually sampled instead
+                                // of a fixed radius that clipped far storms out of the volume.
+                                let half_km =
+                                    wxdata::volume3d::max_sample_range_km(&sweeps).max(50.0);
                                 let mut v3 = wxdata::volume3d::build(
                                     &sweeps,
                                     VOL3D_N,
                                     VOL3D_NZ,
-                                    150.0,
+                                    half_km,
                                     VOL3D_TOP_KM,
                                 )?;
                                 if invert {
@@ -13938,14 +13997,16 @@ impl HookEchoApp {
             }
         }
 
-        // HRRR model contours (MSLP / 2 m temp / dewpoint / CAPE / SRH): labeled isolines + banner.
-        if self.contour_kind != ContourKind::Off && !self.contours.is_empty() {
+        // HRRR model contours (MSLP / 2 m temp / dewpoint / CAPE / SRH / …): labeled isolines plus
+        // one stacked banner per active kind. Several can be on at once, each independently
+        // fetched and colored — overlaying, say, MSLP and CAPE together rather than one exclusive
+        // choice.
+        if !self.active_contours.is_empty() {
             let to_screen = |lon: f64, lat: f64| {
                 let w = crate::render::mercator::lonlat_to_world(lon, lat);
                 let (sx, sy) = cam.world_to_screen(w, vp);
                 egui::pos2(prect.left() + sx, prect.top() + sy)
             };
-            let col = self.contour_kind.color();
             // This pane's lon/lat bounds, for culling lines by their precomputed bbox BEFORE
             // projecting any points — CAPE/SRH carry thousands of small rings.
             let (vmin_lon, vmin_lat, vmax_lon, vmax_lat) = {
@@ -13961,68 +14022,85 @@ impl HookEchoApp {
                     lat0.max(lat1),
                 )
             };
-            for line in &self.contours {
-                let (bx0, by0, bx1, by1) = line.bbox;
-                if bx1 < vmin_lon || bx0 > vmax_lon || by1 < vmin_lat || by0 > vmax_lat {
-                    continue; // fully off-view
+            let mut banner_row = 0;
+            for kind in self.active_contours.clone() {
+                let Some(entry) = self.contours.get(&kind) else {
+                    continue;
+                };
+                if entry.lines.is_empty() {
+                    continue;
                 }
-                let pts: Vec<egui::Pos2> = line
-                    .pts
-                    .iter()
-                    .map(|&(lon, lat)| to_screen(lon, lat))
-                    .collect();
-                // Label the longest segment's midpoint when the line spans enough pixels.
-                let seg = longest_segment(&pts);
-                painter.add(egui::Shape::line(pts, egui::Stroke::new(1.2, col)));
-                if let Some((a, b)) = seg {
-                    if a.distance(b) > 60.0 {
-                        let mid = a + (b - a) * 0.5;
-                        let txt = match self.contour_kind.unit(self.settings.temp_unit) {
-                            Some(unit) => format!("{:.0}{unit}", line.level),
-                            None => format!("{:.0}", line.level),
-                        };
-                        let font = egui::FontId::proportional(11.0);
-                        for dx in [-1.0, 1.0] {
-                            for dy in [-1.0, 1.0] {
-                                painter.text(
-                                    mid + egui::vec2(dx, dy),
-                                    egui::Align2::CENTER_CENTER,
-                                    &txt,
-                                    font.clone(),
-                                    egui::Color32::from_black_alpha(200),
-                                );
+                let col = kind.color();
+                for line in &entry.lines {
+                    let (bx0, by0, bx1, by1) = line.bbox;
+                    if bx1 < vmin_lon || bx0 > vmax_lon || by1 < vmin_lat || by0 > vmax_lat {
+                        continue; // fully off-view
+                    }
+                    let pts: Vec<egui::Pos2> = line
+                        .pts
+                        .iter()
+                        .map(|&(lon, lat)| to_screen(lon, lat))
+                        .collect();
+                    // Label the longest segment's midpoint when the line spans enough pixels.
+                    let seg = longest_segment(&pts);
+                    painter.add(egui::Shape::line(pts, egui::Stroke::new(1.2, col)));
+                    if let Some((a, b)) = seg {
+                        if a.distance(b) > 60.0 {
+                            let mid = a + (b - a) * 0.5;
+                            let txt = match kind.unit(self.settings.temp_unit) {
+                                Some(unit) => format!("{:.0}{unit}", line.level),
+                                None => format!("{:.0}", line.level),
+                            };
+                            let font = egui::FontId::proportional(11.0);
+                            for dx in [-1.0, 1.0] {
+                                for dy in [-1.0, 1.0] {
+                                    painter.text(
+                                        mid + egui::vec2(dx, dy),
+                                        egui::Align2::CENTER_CENTER,
+                                        &txt,
+                                        font.clone(),
+                                        egui::Color32::from_black_alpha(200),
+                                    );
+                                }
                             }
+                            painter.text(mid, egui::Align2::CENTER_CENTER, &txt, font, col);
                         }
-                        painter.text(mid, egui::Align2::CENTER_CENTER, &txt, font, col);
                     }
                 }
-            }
-            if idx == self.active {
-                let vt = self
-                    .contour_valid
-                    .map(|t| crate::timefmt::fmt_clock(t, self.active_tz(), false))
-                    .unwrap_or_default();
-                let text = format!(
-                    "HRRR {} contours — valid {vt}",
-                    self.contour_kind.display_label(self.settings.temp_unit)
-                );
-                let font = egui::FontId::proportional(12.0);
-                let anchor = egui::pos2(prect.left() + 8.0, prect.top() + 40.0);
-                let galley =
-                    painter.layout_no_wrap(text.clone(), font.clone(), egui::Color32::WHITE);
-                let bg = egui::Rect::from_min_size(anchor, galley.size() + egui::vec2(10.0, 4.0));
-                painter.rect_filled(
-                    bg,
-                    3.0,
-                    egui::Color32::from_rgba_unmultiplied(60, 90, 60, 200),
-                );
-                painter.text(
-                    anchor + egui::vec2(5.0, 2.0),
-                    egui::Align2::LEFT_TOP,
-                    &text,
-                    font,
-                    egui::Color32::WHITE,
-                );
+                if idx == self.active {
+                    let vt = entry
+                        .valid
+                        .map(|t| crate::timefmt::fmt_clock(t, self.active_tz(), false))
+                        .unwrap_or_default();
+                    let text = format!(
+                        "HRRR {} contours — valid {vt}",
+                        kind.display_label(self.settings.temp_unit)
+                    );
+                    let font = egui::FontId::proportional(12.0);
+                    // Stack this kind's banner below any already drawn this frame rather than
+                    // overlapping them.
+                    let anchor = egui::pos2(
+                        prect.left() + 8.0,
+                        prect.top() + 40.0 + banner_row as f32 * 22.0,
+                    );
+                    banner_row += 1;
+                    let galley =
+                        painter.layout_no_wrap(text.clone(), font.clone(), egui::Color32::WHITE);
+                    let bg =
+                        egui::Rect::from_min_size(anchor, galley.size() + egui::vec2(10.0, 4.0));
+                    painter.rect_filled(
+                        bg,
+                        3.0,
+                        egui::Color32::from_rgba_unmultiplied(60, 90, 60, 200),
+                    );
+                    painter.text(
+                        anchor + egui::vec2(5.0, 2.0),
+                        egui::Align2::LEFT_TOP,
+                        &text,
+                        font,
+                        egui::Color32::WHITE,
+                    );
+                }
             }
         }
 
@@ -19709,10 +19787,11 @@ impl eframe::App for HookEchoApp {
             let tz = self.active_tz();
             let (open, toggled, to_3d) =
                 ui::cell_window::show(ctx, cell, trend, following, tz, &mut self.popovers);
-            // Crop the volume to this storm before opening it: the full 300 km box is a wall of
+            // Crop the volume to this storm before opening it: a wall-to-wall box is a wall of
             // echo you would then have to hunt through by hand. The clip is computed here, where
             // the cell is still borrowed, and applied below.
             if to_3d {
+                let (cell_lat, cell_lon) = (cell.lat, cell.lon);
                 open_3d = Some(
                     self.views[self.active]
                         .site
@@ -19720,9 +19799,22 @@ impl eframe::App for HookEchoApp {
                         .and_then(wxdata::sites::site_by_id)
                         .map(|site| {
                             let (slat, slon) = (site.latitude as f64, site.longitude as f64);
-                            let dy = ((cell.lat - slat) * 111.0) as f32;
-                            let dx = ((cell.lon - slon) * 111.0 * slat.to_radians().cos()) as f32;
-                            wxdata::volume3d::clip_around(150.0, dx, dy, 30.0)
+                            let dy = ((cell_lat - slat) * 111.0) as f32;
+                            let dx = ((cell_lon - slon) * 111.0 * slat.to_radians().cos()) as f32;
+                            // `build_volume3d` (called right below once this clip is set) derives
+                            // its own half_km from these same sweeps, so computing it again here
+                            // — rather than guessing a fixed radius — keeps the clip box's [0,1]
+                            // fractions meaningful against the box that actually gets built.
+                            let half_km = self.views[self.active]
+                                .volume
+                                .as_mut()
+                                .map(|v| {
+                                    wxdata::volume3d::max_sample_range_km(&v.reflectivity_tilts())
+                                })
+                                .filter(|h| *h > 0.0)
+                                .unwrap_or(150.0)
+                                .max(50.0);
+                            wxdata::volume3d::clip_around(half_km, dx, dy, 30.0)
                         })
                         .unwrap_or([0.0, 1.0, 0.0, 1.0, 0.0, 1.0]),
                 );
@@ -20682,6 +20774,22 @@ mod tests {
             "the fetch key must change with units"
         );
         assert_eq!(ContourKind::Mslp.interval(TempUnit::Celsius), 2.0);
+    }
+
+    #[test]
+    fn contour_summary_names_what_is_actually_on() {
+        let mut active = std::collections::BTreeSet::new();
+        assert_eq!(summarize_contours(&active), "Off");
+        active.insert(ContourKind::Mslp);
+        assert_eq!(summarize_contours(&active), "MSLP");
+        // Order follows the enum's own declaration order (`BTreeSet`'s derived `Ord`), not
+        // insertion order, so the summary reads the same regardless of which was toggled first.
+        active.insert(ContourKind::Cape);
+        assert_eq!(summarize_contours(&active), "MSLP, SB-CAPE");
+        let mut inserted_other_order = std::collections::BTreeSet::new();
+        inserted_other_order.insert(ContourKind::Cape);
+        inserted_other_order.insert(ContourKind::Mslp);
+        assert_eq!(summarize_contours(&inserted_other_order), "MSLP, SB-CAPE");
     }
 
     #[test]

@@ -595,9 +595,15 @@ impl HookEchoApp {
                 Some(on),
             );
         }
+        // Each real kind toggles independently — several can be active at once (e.g. MSLP and
+        // CAPE together) — while "Off" is the one exclusive action, clearing every active kind.
         for k in ContourKind::ALL {
             let label = format!("Contours: {}", k.display_label(self.settings.temp_unit));
-            let on = self.contour_kind == k;
+            let on = if k == ContourKind::Off {
+                self.active_contours.is_empty()
+            } else {
+                self.active_contours.contains(&k)
+            };
             push(
                 &label,
                 "Models",
