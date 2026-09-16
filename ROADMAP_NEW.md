@@ -2012,15 +2012,36 @@ Status states:
 - [ ] Experimental — no source in this app is marked experimental yet (see F2's Tier 2 targets,
   which do ask for an explicit EXPERIMENTAL label on future AI-guidance products)
 
-## N2. Stale-data policy
+## N2. Stale-data policy — partly done
 
 Define per source family.
 
 Examples:
 
-- radar: prominently stale after expected scan cadence threshold
-- METAR: normal hourly cadence, do not mark stale after 10 minutes
-- model: show run age rather than simplistic stale flag
+- [x] radar: prominently stale after expected scan cadence threshold — predates this pass:
+  `RADAR_FRESH_SECS` (15 min) drives both the scrubber's Live/Stale badge and radar's own
+  `SourceHealth` cadence, so the two can't disagree.
+- [x] METAR: normal hourly cadence, do not mark stale after 10 minutes — new this pass, see the
+  Unreleased CHANGELOG entry: the station-card header used one 5-minute-amber threshold for every
+  network, which read every completely normal 20-, 30-, 45-minute-old METAR as stale. Each
+  `wxdata::stations::Network` now has its own threshold (METAR 75 min, matching its hourly
+  cadence with slack for a late post; the near-real-time PWS/mesonet networks keep short
+  thresholds appropriate to their own reporting rate).
+- [x] model: show run age rather than simplistic stale flag — new this pass: the source/provenance
+  inspector's "Run"/"Issue" rows now show a computed age (`3h 08m old`) alongside the absolute
+  timestamp, not the timestamp alone. This is a data-inspector improvement, not a "flag" per se —
+  there was no simplistic stale flag on a model run to begin with, only the absolute time; this
+  closes the actual gap (the time reader had to do their own mental subtraction against whatever
+  time it is right now).
+
+Note found while researching this item: this app already conflates two different meanings of
+"stale" — *fetch* staleness (`SourceHealth`/`HealthState`, "are we still polling this feed
+successfully") and *data* staleness (this section's actual subject, "is the observation/run
+itself old for its own kind"). `RequestLane::cadence()` is the former; nothing before this pass
+implemented the latter as a first-class per-family concept. Not unified into one shared policy
+struct here — the three concrete gaps above were fixable as targeted, independent fixes, and
+inventing a generic "staleness policy" abstraction with only three call sites to serve would be
+speculative generality this codebase's own engineering rules argue against.
 
 ## N3. Provider contract tests
 

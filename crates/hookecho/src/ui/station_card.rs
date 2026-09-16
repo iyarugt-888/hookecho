@@ -300,6 +300,24 @@ fn chip(ui: &mut egui::Ui, text: &str, bg: Color32) {
         });
 }
 
+/// ROADMAP_NEW N2: how old an observation from this network can be before its age reads as stale
+/// (amber) rather than fresh (green) — each network's own normal reporting cadence, not one
+/// threshold for every network. METAR posts roughly hourly with occasional specials in between;
+/// coloring it amber at the same few-minute mark a near-real-time PWS network uses would flag
+/// every completely normal METAR reading as stale.
+fn stale_after_secs(network: wxdata::stations::Network) -> i64 {
+    use wxdata::stations::Network;
+    match network {
+        // Generous past a full hour: a late-posting station shouldn't read as broken the moment
+        // the top of the hour passes.
+        Network::Metar => 75 * 60,
+        Network::Tempest => 5 * 60,
+        Network::WeatherUnderground => 10 * 60,
+        // Synoptic aggregates many member networks at varying cadences; sit between the two.
+        Network::Synoptic => 20 * 60,
+    }
+}
+
 /// Where the station is, what time it is there, and how old the reading is.
 fn header(ui: &mut egui::Ui, card: &Card, tz: Option<wxdata::tz::Tz>) {
     ui.horizontal_wrapped(|ui| {
@@ -322,16 +340,15 @@ fn header(ui: &mut egui::Ui, card: &Card, tz: Option<wxdata::tz::Tz>) {
         ui.label(RichText::new(clock).size(12.0).strong());
         if let Some(t) = card.ob.time {
             let age = (now - t).num_seconds().max(0);
-            let (txt, col) = if age < 300 {
-                (
-                    format!("updated {age}s ago"),
-                    Color32::from_rgb(120, 200, 130),
-                )
+            let txt = if age < 60 {
+                format!("updated {age}s ago")
             } else {
-                (
-                    format!("updated {} min ago", age / 60),
-                    Color32::from_rgb(220, 180, 90),
-                )
+                format!("updated {} min ago", age / 60)
+            };
+            let col = if age < stale_after_secs(card.ob.network) {
+                Color32::from_rgb(120, 200, 130)
+            } else {
+                Color32::from_rgb(220, 180, 90)
             };
             ui.label(RichText::new(txt).size(10.5).color(col));
         }
@@ -544,6 +561,18 @@ mod tests {
             precip_rate_mmh: None,
             elev_m: None,
         }
+    }
+
+    #[test]
+    fn metar_tolerates_a_much_longer_gap_than_near_real_time_networks() {
+        // A 45-minute-old METAR reading is completely normal between hourly posts; the same age
+        // from a network that reports every minute or few means something has actually stopped
+        // updating.
+        let age = 45 * 60;
+        assert!(age < stale_after_secs(Network::Metar));
+        assert!(age > stale_after_secs(Network::Tempest));
+        assert!(age > stale_after_secs(Network::WeatherUnderground));
+        assert!(stale_after_secs(Network::Metar) > stale_after_secs(Network::Synoptic));
     }
 
     #[test]

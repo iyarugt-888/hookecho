@@ -8,6 +8,17 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: station cards judged every network's staleness by the same 5-minute clock
+
+ROADMAP_NEW N2: the station-card header colored the "updated Xs/Xmin ago" line amber past a flat
+5-minute threshold regardless of which network reported it, so a completely normal 20- or
+40-minute-old METAR read as stale next to a 1-minute Tempest reading that actually would be. Each
+network now has its own threshold matching its real reporting cadence — METAR 75 minutes (its
+hourly cadence plus slack for a late post), Weather Underground 10 minutes, Synoptic mesonet 20
+minutes, Tempest unchanged at 5. Also added a computed run age ("3h 08m old") next to the source
+inspector's absolute Issue/Run timestamps, so reading a model layer's age no longer means doing
+the subtraction against the current time by hand.
+
 ### Added: three new analyst preset workspaces
 
 ROADMAP_NEW J5: alongside "Chase", "National overview" and "Analysis", three new starter

@@ -16,6 +16,21 @@ pub(crate) fn offset_label(offset: Duration) -> String {
     }
 }
 
+/// ROADMAP_NEW N2: "model: show run age rather than simplistic stale flag" — an absolute run/
+/// issue timestamp alone forces the reader to do the subtraction themselves against whatever time
+/// it is right now. `age` is always non-negative (elapsed time), unlike `offset_label`'s signed
+/// direction-and-distance.
+fn age_label(age: Duration) -> String {
+    let seconds = age.num_seconds().max(0);
+    if seconds >= 3600 {
+        format!("{}h {:02}m", seconds / 3600, seconds % 3600 / 60)
+    } else if seconds >= 60 {
+        format!("{}m {:02}s", seconds / 60, seconds % 60)
+    } else {
+        format!("{seconds}s")
+    }
+}
+
 pub(crate) fn show(
     ui: &mut egui::Ui,
     stamp: &DataStamp,
@@ -55,11 +70,10 @@ pub(crate) fn show(
         stamp.receipt_age_at(now).num_seconds()
     ));
     for (name, time) in [("Issue", stamp.issue_time), ("Run", stamp.run_time)] {
-        ui.label(format!(
-            "{name}: {}",
-            time.map(|t| t.to_string())
-                .unwrap_or_else(|| "Unknown".into())
-        ));
+        ui.label(match time {
+            Some(t) => format!("{name}: {t} ({} old)", age_label(now - t)),
+            None => format!("{name}: Unknown"),
+        });
     }
     ui.label(format!(
         "Provider ingest latency: {}",
@@ -96,5 +110,20 @@ pub(crate) fn show(
             }
         };
         ui.label(format!("Display transform: {transform}"));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn age_label_reads_as_elapsed_time_not_a_signed_offset() {
+        assert_eq!(age_label(Duration::seconds(45)), "45s");
+        assert_eq!(age_label(Duration::seconds(125)), "2m 05s");
+        assert_eq!(age_label(Duration::seconds(3 * 3600 + 8 * 60)), "3h 08m");
+        // A run/issue time in the future (clock skew, or a forecast valid time reused here by
+        // mistake) reads as "0s old" rather than a nonsensical negative age.
+        assert_eq!(age_label(Duration::seconds(-30)), "0s");
     }
 }
