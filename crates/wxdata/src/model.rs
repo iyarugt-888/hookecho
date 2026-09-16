@@ -16,34 +16,15 @@
 //! The fetch/regrid machinery still lives in [`crate::hrrr`] and is unchanged; this is the
 //! metadata layer F1 asks for, which F2–F8 would build on.
 
-use crate::field::{DataSource, FieldDescriptor, FieldFamily, FieldId, PaletteId, Unit, ValueKind};
+use crate::field::{
+    DataSource, FieldDescriptor, FieldFamily, FieldId, GeographicBounds, PaletteId, Unit,
+    ValueKind,
+};
 use crate::hrrr::Model;
 
 /// Where a model's grid covers. Used to reject a point before spending a request on it, and to
 /// answer "which models can I even ask about this location".
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Domain {
-    pub west: f32,
-    pub east: f32,
-    pub south: f32,
-    pub north: f32,
-}
-
-impl Domain {
-    /// Generous CONUS box covering every model here. Deliberately the *published* domain of the
-    /// grid rather than a tight hull of it: a point just inside the corner of a Lambert grid is
-    /// still a legitimate request, and a too-tight box would refuse it.
-    const CONUS: Self = Self {
-        west: -134.0,
-        east: -60.0,
-        south: 20.0,
-        north: 53.0,
-    };
-
-    pub fn contains(&self, lon: f32, lat: f32) -> bool {
-        (self.west..=self.east).contains(&lon) && (self.south..=self.north).contains(&lat)
-    }
-}
+pub use crate::field::GeographicBounds as Domain;
 
 /// A model's role in an ensemble, for F7. Every model wired up today is deterministic; the field
 /// exists so an ensemble member can be added as a definition rather than as a parallel code path.
@@ -137,7 +118,7 @@ static DEFS: &[Entry] = &[
             extended_lead_h: 48,
             extended_cycles: &[0, 6, 12, 18],
             grid_km: 3.0,
-            domain: Domain::CONUS,
+            domain: GeographicBounds::CONUS,
             typical_latency_min: 50,
             ensemble: Ensemble::Deterministic,
         },
@@ -152,7 +133,7 @@ static DEFS: &[Entry] = &[
             extended_lead_h: 48,
             extended_cycles: &[0, 6, 12, 18],
             grid_km: 3.0,
-            domain: Domain::CONUS,
+            domain: GeographicBounds::CONUS,
             typical_latency_min: 55,
             ensemble: Ensemble::Deterministic,
         },
@@ -167,7 +148,7 @@ static DEFS: &[Entry] = &[
             extended_lead_h: 51,
             extended_cycles: &[3, 9, 15, 21],
             grid_km: 13.0,
-            domain: Domain::CONUS,
+            domain: GeographicBounds::CONUS,
             typical_latency_min: 55,
             ensemble: Ensemble::Deterministic,
         },
@@ -182,7 +163,7 @@ static DEFS: &[Entry] = &[
             extended_lead_h: 60,
             extended_cycles: &[],
             grid_km: 3.0,
-            domain: Domain::CONUS,
+            domain: GeographicBounds::CONUS,
             typical_latency_min: 85,
             ensemble: Ensemble::Deterministic,
         },
@@ -197,7 +178,7 @@ static DEFS: &[Entry] = &[
             extended_lead_h: 84,
             extended_cycles: &[],
             grid_km: 12.0,
-            domain: Domain::CONUS,
+            domain: GeographicBounds::CONUS,
             typical_latency_min: 80,
             ensemble: Ensemble::Deterministic,
         },
@@ -212,7 +193,7 @@ static DEFS: &[Entry] = &[
             extended_lead_h: 264,
             extended_cycles: &[],
             grid_km: 2.5,
-            domain: Domain::CONUS,
+            domain: GeographicBounds::CONUS,
             typical_latency_min: 75,
             ensemble: Ensemble::PostProcessed,
         },
@@ -422,6 +403,7 @@ macro_rules! model_field {
                 aliases: $aliases,
                 default_palette: PaletteId::$palette,
                 default_contour_interval: $interval,
+                valid_domain: Some(GeographicBounds::CONUS),
                 // The decoder has already converted GRIB bitmap and threshold exclusions to NaN.
                 missing_values: &[],
             },
@@ -625,6 +607,8 @@ mod tests {
             assert!(!descriptor.id.0.is_empty(), "{f:?}");
             assert_eq!(descriptor.source, DataSource::NoaaNcepModels);
             assert_eq!(descriptor.family, FieldFamily::Model);
+            assert!(descriptor.supports_location(-97.0, 35.0));
+            assert!(!descriptor.supports_location(-150.0, 60.0));
             assert_eq!(ModelField::from_id(descriptor.id.0), Some(f));
             assert!(descriptor.search_text().contains("NOAA/NCEP models"));
             let models = f.models();

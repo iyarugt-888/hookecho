@@ -3,7 +3,8 @@ mod descriptor;
 mod grid;
 use chrono::{DateTime, Duration, Utc};
 pub use descriptor::{
-    DataSource, FieldDescriptor, FieldFamily, FieldId, PaletteId, Unit, ValueKind,
+    DataSource, FieldDescriptor, FieldFamily, FieldId, GeographicBounds, PaletteId, Unit,
+    ValueKind,
 };
 pub use grid::{DisplayTransform, GridGeometry, GridProvenance};
 use serde::{Deserialize, Serialize};

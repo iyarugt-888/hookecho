@@ -229,9 +229,11 @@ here rather than rebuilt.
 - [x] missing-data semantics — `FieldDescriptor::normalize_missing` masks a product's own sentinel
   values (and non-finite ones) to NaN once, at the boundary, so nothing downstream has to know a
   product's magic numbers
-- [ ] valid domain / bounds — not a descriptor field; every grid already carries its own
-  west/south/east/north (`GridGeometry`), so a global "valid domain" would either duplicate that
-  or need to mean something else (e.g. "this product doesn't cover Alaska") not implemented
+- [x] valid domain / bounds — `FieldDescriptor.valid_domain` carries published coverage through
+  `GeographicBounds`, distinct from each response's actual `GridGeometry`. CONUS MRMS and regional
+  model descriptors use the shared published CONUS domain; global fields use world bounds.
+  Common sampling enforces the product domain, and point HRRR soundings/global meteograms reject
+  unsupported or invalid coordinates before issuing network requests.
 - [x] native grid metadata — `wxdata::field::{GridGeometry, GridProvenance, DisplayTransform}`:
   native vs. displayed grid dimensions/bounds and which reduction (`Native` /
   `MaximumPool{factor}` / `NearestCell`) got a field there, wired into the real fetch path

@@ -21,7 +21,13 @@ All existing direct MRMS field-layer fetches use the stamped API. Legacy callers
 
 ## Implemented catalog contract
 
-`wxdata::field::FieldDescriptor` now defines stable `FieldId`, typed `DataSource`, family, value kind, units/conversions, names, descriptions, and search aliases. Each source separates a stable machine ID (for cache/configuration namespaces) from its human provenance label. `wxdata::mrms::catalog` describes all 11 existing direct MRMS layer families with `DataSource::NoaaMrms`. Separate fetch mappings retain rotation, lightning, and hail window selection and fallbacks. Existing `FieldLayer` slugs bridge to descriptors, preserving saved workspace IDs.
+`wxdata::field::FieldDescriptor` now defines stable `FieldId`, typed `DataSource`, family, value kind, units/conversions, names, descriptions, and search aliases. Each source separates a stable machine ID (for cache/configuration namespaces) from its human provenance label. `wxdata::mrms::catalog` describes all 14 existing direct MRMS layer families with `DataSource::NoaaMrms`. Separate fetch mappings retain rotation, lightning, and hail window selection and fallbacks. Existing `FieldLayer` slugs bridge to descriptors, preserving saved workspace IDs.
+
+`FieldDescriptor.valid_domain` records published geographic coverage separately from the exact
+bounds on a fetched grid in `GridGeometry`. MRMS and regional model products share the published
+CONUS bounds; global fields use world bounds. Sampling honors those limits, HRRR point soundings
+fail outside the regional domain before opening their range-request fanout, and global point
+series reject invalid coordinates before fetching.
 
 MRMS browser rows and source-inspector units come from this catalog. Search includes source, units, family, and aliases, with label matches ranked first. `FieldDescriptor::sample` uses nearest-cell selection for categories/masks and the existing NaN-aware bilinear sampler for continuous fields. Malformed grids and nonfinite coordinates return no sample. The API samples the supplied grid; it does not retain native grids or add a map probe by itself.
 
@@ -52,7 +58,7 @@ Source-health tracking (`app/chrome/registry.rs::field_layer_is_health_tracked`)
 
 The source inspector records native and displayed grid dimensions and bounds plus the display reduction method. Scalar grids use maximum pooling; categorical grids use nearest-cell reduction. This explains the displayed texture, but the full native value array is not retained for scientific sampling.
 
-Expose renderer range metadata through the inspector. Preserve native grids for scientific sampling: display pooling/smoothing must never be represented as raw source values. Explicit accumulation windows and field-level domain specifications remain to be added. Follow with global difference inputs, then timeline alignment and persistent browser caching.
+Expose renderer range metadata through the inspector. Preserve native grids for scientific sampling: display pooling/smoothing must never be represented as raw source values. Explicit accumulation windows remain to be added. Follow with global difference inputs, then timeline alignment and persistent browser caching.
 
 ## Validation
 

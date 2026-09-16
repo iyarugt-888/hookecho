@@ -8,6 +8,14 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: published coverage bounds for field metadata
+
+`FieldDescriptor.valid_domain` now records whether a product is published for CONUS or globally,
+separately from the exact bounds of an individual fetched grid. Field sampling enforces that
+coverage. HRRR point soundings and global point-series requests now reject unsupported or invalid
+coordinates before opening network requests, and regional `ModelDef` entries reuse the same
+`GeographicBounds` type rather than maintaining a second bounds representation.
+
 ### Added: link panes to the same radar site
 
 ROADMAP_NEW J2: alongside the existing "Link pane cameras" and "Link pane analysis time" toggles,

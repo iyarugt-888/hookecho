@@ -2,6 +2,40 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FieldId(pub &'static str);
 
+/// Published geographic coverage, independent of the exact bounds on any one fetched grid.
+/// Bounds are `[west, south, east, north]` in longitude/latitude degrees.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GeographicBounds {
+    pub west: f64,
+    pub south: f64,
+    pub east: f64,
+    pub north: f64,
+}
+
+impl GeographicBounds {
+    pub const WORLD: Self = Self {
+        west: -180.0,
+        south: -90.0,
+        east: 180.0,
+        north: 90.0,
+    };
+
+    /// Generous published-domain box shared by regional NOAA grids and CONUS MRMS products.
+    pub const CONUS: Self = Self {
+        west: -134.0,
+        south: 20.0,
+        east: -60.0,
+        north: 53.0,
+    };
+
+    pub fn contains(self, lon: f64, lat: f64) -> bool {
+        lon.is_finite()
+            && lat.is_finite()
+            && (self.west..=self.east).contains(&lon)
+            && (self.south..=self.north).contains(&lat)
+    }
+}
+
 /// Stable source identity for product catalogs. `id` is suitable for cache namespaces and saved
 /// configuration; `display_name` is the human-facing provenance label.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -170,11 +204,19 @@ pub struct FieldDescriptor {
     /// Preferred isoline spacing in the descriptor's native units. `None` means the field is
     /// normally rendered as a filled raster or has no meaningful generic contour interval.
     pub default_contour_interval: Option<f32>,
+    /// Published coverage. This answers whether a request is meaningful before fetching; the
+    /// exact decoded grid bounds remain in `GridGeometry` provenance.
+    pub valid_domain: Option<GeographicBounds>,
     /// GRIB values that indicate missing, folded, or no-coverage cells.
     pub missing_values: &'static [f32],
 }
 
 impl FieldDescriptor {
+    pub fn supports_location(&self, lon: f64, lat: f64) -> bool {
+        self.valid_domain
+            .is_none_or(|domain| domain.contains(lon, lat))
+    }
+
     pub fn normalize_missing(&self, values: &mut [f32]) -> usize {
         let mut masked = 0;
         for value in values {
@@ -202,8 +244,7 @@ impl FieldDescriptor {
     /// Sample an existing regular grid, with categorical/mask fields never interpolated.
     /// This reads the supplied grid; callers must supply native data for raw-value inspection.
     pub fn sample(&self, grid: &crate::mrms::MrmsField, lon: f64, lat: f64) -> Option<f32> {
-        if !lon.is_finite()
-            || !lat.is_finite()
+        if !self.supports_location(lon, lat)
             || grid.nx == 0
             || grid.ny == 0
             || grid.nx.checked_mul(grid.ny)? != grid.values.len()
@@ -250,6 +291,13 @@ mod tests {
             DataSource::NoaaNcepModels.display_name(),
             "NOAA/NCEP models"
         );
+    }
+
+    #[test]
+    fn published_domains_reject_invalid_or_outside_locations() {
+        assert!(GeographicBounds::CONUS.contains(-97.0, 35.0));
+        assert!(!GeographicBounds::CONUS.contains(-150.0, 60.0));
+        assert!(!GeographicBounds::WORLD.contains(f64::NAN, 0.0));
     }
 
     #[test]

@@ -191,6 +191,7 @@ macro_rules! global_field {
                 aliases: $aliases,
                 default_palette: crate::field::PaletteId::$palette,
                 default_contour_interval: $interval,
+                valid_domain: Some(crate::field::GeographicBounds::WORLD),
                 // The decoder has already converted GRIB bitmap/threshold exclusions to NaN.
                 missing_values: &[],
             },
@@ -330,6 +331,11 @@ pub async fn fetch_point_series(
     lat: f64,
     hours: &[u16],
 ) -> anyhow::Result<Vec<(DateTime<Utc>, Option<f32>)>> {
+    anyhow::ensure!(
+        field.descriptor().supports_location(lon, lat),
+        "{} location {lat:.3}, {lon:.3} is outside the published field domain",
+        field.label()
+    );
     let Some((&first, rest)) = hours.split_first() else {
         return Ok(Vec::new());
     };
@@ -620,6 +626,8 @@ mod tests {
             assert!(!d.id.0.is_empty(), "{f:?}");
             assert_eq!(d.source, DataSource::GlobalModels);
             assert_eq!(d.family, FieldFamily::Model);
+            assert!(d.supports_location(179.0, -45.0));
+            assert!(!d.supports_location(f64::NAN, 0.0));
             assert!(
                 d.search_text().contains("Global models"),
                 "{f:?} search text: {}",
@@ -628,6 +636,21 @@ mod tests {
             assert!(ids.insert(d.id), "{f:?} reuses another field's id");
         }
         assert_eq!(ids.len(), GlobalField::ALL.len());
+    }
+
+    #[tokio::test]
+    async fn point_series_rejects_invalid_coordinates_before_fetching() {
+        let err = fetch_point_series(
+            &reqwest::Client::new(),
+            GlobalModel::Gfs,
+            GlobalField::Temp2m,
+            f64::NAN,
+            35.0,
+            &[0],
+        )
+        .await
+        .unwrap_err();
+        assert!(err.to_string().contains("outside the published field domain"));
     }
 
     /// Both sources, live, at the newest usable cycle.

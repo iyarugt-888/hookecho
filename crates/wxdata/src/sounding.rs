@@ -370,6 +370,11 @@ pub async fn fetch_at(
     lat: f64,
     fh: u8,
 ) -> anyhow::Result<Sounding> {
+    let domain = crate::hrrr::Model::HrrrPressure.def().domain;
+    anyhow::ensure!(
+        domain.contains(lon, lat),
+        "HRRR sounding location {lat:.3}, {lon:.3} is outside the published model domain"
+    );
     let now = Utc::now();
     let mut last_err = None;
     for back in 1..=6 {
@@ -536,6 +541,15 @@ fn sample_nearest(raw: &[u8], lon: f64, lat: f64) -> anyhow::Result<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn fetch_rejects_locations_outside_hrrr_before_network() {
+        let err = match fetch_at(&reqwest::Client::new(), -150.0, 60.0, 0).await {
+            Ok(_) => panic!("out-of-domain sounding should fail before fetching"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("outside the published model domain"));
+    }
 
     #[test]
     fn idx_finds_var_at_level() {
