@@ -307,19 +307,27 @@ The current timeline is radar-centered. Convert it into a general valid-time coo
 
 ### Implement
 
-- [ ] one selected analysis time shared across panes
-- [ ] per-layer time offsets visible in the UI
+- [x] one selected analysis time shared across panes — `LinkedTimeState::cursor` retains one live
+  or archive instant across focus/site changes and seeks every linked NEXRAD pane against it
+- [x] per-layer time offsets visible in the UI — linked pane badges, the source inspector, WSV3
+  status bar and GOES controls show signed source-minus-analysis offsets
 - [x] valid-time alignment for the currently offered GFS/ECMWF and HRRR/RAP differences
 - [ ] run-time alignment for run-to-run comparison
-- [ ] radar/satellite/MRMS nearest-frame synchronization
-- [ ] “lock all panes to valid time” toggle
+- [x] radar/satellite/MRMS nearest-frame synchronization — linked radar panes seek their nearest
+  scan, GOES follow mode selects against the retained cursor, and catalog MRMS requests use the
+  nearest archive object within tolerance while refusing stale/live fallbacks
+- [x] “lock all panes to valid time” toggle — the saved `Link pane analysis time` action controls
+  this behavior and starter workspaces can enable it
 - [ ] “lock to source frame” option for exact radar analysis
-- [ ] explicit warning when sources differ by more than a configurable tolerance
+- [x] explicit warning when sources differ by more than a configurable tolerance —
+  `Settings.time_mismatch_minutes` drives pane badges, layer status and source-inspector warnings
 
+The shared `wxdata::time_align::TimePolicy` selector implements `Exact`, `Nearest`, `NearestPast`,
+`HoldLast`, scalar/probability-only `InterpolateLinear`, and run-qualified `ForecastLead`, with
+tolerance and cross-run interpolation guards covered by deterministic tests.
 Current increment: stamped MRMS fields show their signed offset from the displayed radar scan
 in the data inspector. The layer panel, WSV3 status bar, and GOES time control warn beyond a
-shared configurable threshold (10 minutes by default). Full multi-source synchronization and
-shared pane time remain open.
+shared configurable threshold (10 minutes by default).
 An opt-in **Link pane analysis time** control now seeks each NEXRAD pane to its own nearest
 volume when the active pane scrubs, with UTC scan times and offsets shown on every pane. Saved
 workspaces retain the link. Live panes continue polling their own heads; model and MRMS time
@@ -342,7 +350,7 @@ the linked cursor is scrubbed. The decoded GRIB valid time is checked against th
 an unavailable frame leaves the layer hidden rather than painting a previous live grid. Returning
 to live refreshes the current field. Current-only local mosaic and snow-band composites are hidden
 while linked archive mode is active. Model archive seeking and independent per-pane GOES frame
-caches remain open.
+caches remain open. Run-to-run model alignment and an explicit exact-source-frame lock remain open.
 
 ### Acceptance criteria
 
