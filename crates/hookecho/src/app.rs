@@ -1638,6 +1638,8 @@ pub(crate) enum OverlayToggle {
     LinkCameras,
     /// Align archive radar panes by valid time, using each site's nearest volume.
     LinkTimes,
+    /// Snap the shared analysis cursor to the active radar's exact source frame after seeking.
+    LockSourceTime,
     /// ROADMAP_NEW J2: picking a new radar site in one pane sets it in every other pane too —
     /// each pane keeps its own product/tilt, so this is for comparing several products of one
     /// storm rather than making every pane identical.
@@ -1689,7 +1691,7 @@ pub(crate) struct CoverageCompareKey {
 impl OverlayToggle {
     /// Every toggle, for the persistence sweep. A new variant belongs here too, or it silently
     /// stops being remembered across restarts.
-    pub(crate) const ALL: [OverlayToggle; 45] = [
+    pub(crate) const ALL: [OverlayToggle; 46] = [
         Self::AlertPanel,
         Self::StormReports,
         Self::Spotters,
@@ -1730,6 +1732,7 @@ impl OverlayToggle {
         Self::Wind,
         Self::LinkCameras,
         Self::LinkTimes,
+        Self::LockSourceTime,
         Self::LinkSite,
         Self::MiniLoop,
         Self::Blockage,
@@ -1743,7 +1746,11 @@ impl OverlayToggle {
     pub(crate) fn session_only(self) -> bool {
         matches!(
             self,
-            Self::LinkCameras | Self::LinkTimes | Self::LinkSite | Self::MiniLoop
+            Self::LinkCameras
+                | Self::LinkTimes
+                | Self::LockSourceTime
+                | Self::LinkSite
+                | Self::MiniLoop
         )
     }
 
@@ -2916,6 +2923,9 @@ pub struct HookEchoApp {
     /// When true, all panes share the active pane's camera.
     link_cameras: bool,
     link_times: bool,
+    /// When linked, use the active radar scan's actual timestamp as the analysis cursor rather
+    /// than retaining an external source's requested valid time.
+    lock_source_time: bool,
     /// ROADMAP_NEW J2: when true, `PaletteAction::SetSite` sets every pane's site, not just the
     /// active one's — each pane keeps its own product/tilt, so four panes can compare products
     /// of one storm instead of becoming four copies of the same pane.
@@ -3974,6 +3984,7 @@ impl HookEchoApp {
             loop_export: None,
             link_cameras: false,
             link_times: false,
+            lock_source_time: false,
             link_site: false,
             linked_analysis: pane_time::LinkedTimeState::default(),
             mini_loop: false,
@@ -8628,6 +8639,7 @@ impl HookEchoApp {
             T::Recon => &mut self.show_recon,
             T::LinkCameras => &mut self.link_cameras,
             T::LinkTimes => &mut self.link_times,
+            T::LockSourceTime => &mut self.lock_source_time,
             T::LinkSite => &mut self.link_site,
             T::MiniLoop => &mut self.mini_loop,
             T::Blockage => &mut self.show_blockage,
@@ -16053,6 +16065,7 @@ impl HookEchoApp {
             active: self.active,
             link_cameras: self.link_cameras,
             link_times: self.link_times,
+            lock_source_time: self.lock_source_time,
             link_site: self.link_site,
             overlays_on,
             // A workspace you saved records the sites you had open; only the shipped starters
@@ -16094,6 +16107,7 @@ impl HookEchoApp {
         self.active = ws.active.min(self.views.len() - 1);
         self.link_cameras = ws.link_cameras;
         self.link_times = ws.link_times;
+        self.lock_source_time = ws.lock_source_time;
         self.link_site = ws.link_site;
         self.linked_analysis = pane_time::LinkedTimeState::default();
         // Overlay names this build doesn't know are skipped, same as the settings restore.

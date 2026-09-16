@@ -915,6 +915,13 @@ impl HookEchoApp {
                 false,
             ),
             (
+                T::LockSourceTime,
+                "Reference",
+                "Lock analysis to radar frame",
+                "After a linked seek, make the active radar's exact scan time the analysis time so satellite and MRMS align to that source frame",
+                false,
+            ),
+            (
                 T::LinkSite,
                 "Reference",
                 "Link pane radar site",

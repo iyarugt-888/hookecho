@@ -318,7 +318,9 @@ The current timeline is radar-centered. Convert it into a general valid-time coo
   nearest archive object within tolerance while refusing stale/live fallbacks
 - [x] “lock all panes to valid time” toggle — the saved `Link pane analysis time` action controls
   this behavior and starter workspaces can enable it
-- [ ] “lock to source frame” option for exact radar analysis
+- [x] “lock to source frame” option for exact radar analysis — the saved
+  `Lock analysis to radar frame` action snaps an external valid-time request to the active
+  radar's actual settled scan before the other panes, GOES and MRMS align
 - [x] explicit warning when sources differ by more than a configurable tolerance —
   `Settings.time_mismatch_minutes` drives pane badges, layer status and source-inspector warnings
 
@@ -350,7 +352,7 @@ the linked cursor is scrubbed. The decoded GRIB valid time is checked against th
 an unavailable frame leaves the layer hidden rather than painting a previous live grid. Returning
 to live refreshes the current field. Current-only local mosaic and snow-band composites are hidden
 while linked archive mode is active. Model archive seeking and independent per-pane GOES frame
-caches remain open. Run-to-run model alignment and an explicit exact-source-frame lock remain open.
+caches remain open. Run-to-run model alignment remains open.
 
 ### Acceptance criteria
 

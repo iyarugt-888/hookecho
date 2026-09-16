@@ -27,6 +27,10 @@ pub struct Workspace {
     /// Archive pane time linking. Older workspaces remain independent.
     #[serde(default)]
     pub link_times: bool,
+    /// Snap the linked analysis cursor to the active radar's actual scan after a nearest-frame
+    /// seek. Older workspaces retain the requested valid time.
+    #[serde(default)]
+    pub lock_source_time: bool,
     /// ROADMAP_NEW J2: picking a new radar site in one pane sets it in every other pane too.
     /// `default` so a workspace saved before this field existed loads with it off.
     #[serde(default)]
@@ -189,6 +193,7 @@ pub fn starters() -> Vec<Workspace> {
             active: 0,
             link_cameras: true,
             link_times: true,
+            lock_source_time: false,
             link_site: true,
             overlays_on: vec![
                 "Alerts".into(),
@@ -219,6 +224,7 @@ pub fn starters() -> Vec<Workspace> {
             active: 0,
             link_cameras: false,
             link_times: false,
+            lock_source_time: false,
             link_site: false,
             overlays_on: vec!["Alerts".into(), "StormReports".into(), "Fronts".into()],
             adopt_site: false,
@@ -235,6 +241,7 @@ pub fn starters() -> Vec<Workspace> {
             active: 0,
             link_cameras: true,
             link_times: true,
+            lock_source_time: true,
             link_site: true,
             overlays_on: vec!["Alerts".into(), "Cells".into(), "RangeRings".into()],
             adopt_site: true,
@@ -358,6 +365,7 @@ mod tests {
             active: 0,
             link_cameras: true,
             link_times: true,
+            lock_source_time: true,
             link_site: true,
             overlays_on: vec!["Alerts".into(), "Cells".into()],
             adopt_site: false,
@@ -381,6 +389,7 @@ mod tests {
         let ws: Workspace = serde_json::from_str(json).unwrap();
         assert!(ws.fields_on.is_empty() && !ws.adopt_site && ws.chrome.is_none());
         assert!(!ws.link_times);
+        assert!(!ws.lock_source_time);
         assert!(!ws.link_site);
     }
 

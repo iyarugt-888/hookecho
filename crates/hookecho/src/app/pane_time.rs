@@ -127,6 +127,18 @@ impl LinkedTimeState {
             AnalysisCursor::Live => self.live_time,
         }
     }
+
+    /// Make a settled radar frame authoritative. This is deliberately separate from
+    /// `select_explicit`: the frame has already loaded, so marking it as settling would cause the
+    /// next UI pass to treat the same scan as another pending seek.
+    fn lock_to_source(&mut self, active: usize, site: Option<&str>, observed: DateTime<Utc>) {
+        self.cursor = Some(AnalysisCursor::Archive(observed));
+        self.active = Some(active);
+        self.site = site.map(str::to_owned);
+        self.observed = Some(observed);
+        self.following = false;
+        self.settling = false;
+    }
 }
 
 fn pane_selected_time(view: &crate::view::MapView) -> Option<DateTime<Utc>> {
@@ -146,6 +158,19 @@ fn pane_selected_time(view: &crate::view::MapView) -> Option<DateTime<Utc>> {
 
 fn clear_stale_volume(stale_axis: bool, selected: Option<&str>, shown: Option<&str>) -> bool {
     stale_axis || shown.is_some_and(|name| selected != Some(name))
+}
+
+fn settled_source_lock(
+    enabled: bool,
+    retarget_active: bool,
+    pending: bool,
+    following: bool,
+    is_nexrad: bool,
+    observed: Option<DateTime<Utc>>,
+) -> Option<DateTime<Utc>> {
+    (enabled && !retarget_active && !pending && !following && is_nexrad)
+        .then_some(observed)
+        .flatten()
 }
 
 impl HookEchoApp {
@@ -168,6 +193,17 @@ impl HookEchoApp {
             source.timeline.following,
             pending,
         );
+        if let Some(source_time) = settled_source_lock(
+            self.lock_source_time,
+            retarget_active,
+            pending,
+            source.timeline.following,
+            source.site.as_deref().is_some_and(wxdata::sites::is_nexrad),
+            observed,
+        ) {
+            self.linked_analysis
+                .lock_to_source(active, source.site.as_deref(), source_time);
+        }
         let Some(cursor) = self.linked_analysis.cursor else {
             return false;
         };
@@ -373,5 +409,33 @@ mod tests {
         assert!(clear_stale_volume(false, Some("new"), Some("old")));
         assert!(clear_stale_volume(false, None, Some("old")));
         assert!(clear_stale_volume(true, None, None));
+    }
+
+    #[test]
+    fn source_lock_replaces_an_external_request_with_the_settled_radar_frame() {
+        let mut state = LinkedTimeState::default();
+        state.select_external(Some(t(200)));
+        state.lock_to_source(0, Some("KTLX"), t(203));
+        assert_eq!(state.cursor, Some(AnalysisCursor::Archive(t(203))));
+        assert_eq!(state.selected_time(), Some(t(203)));
+        assert!(!state.settling);
+    }
+
+    #[test]
+    fn source_lock_waits_for_the_requested_radar_frame_to_settle() {
+        assert_eq!(
+            settled_source_lock(true, true, false, false, true, Some(t(100))),
+            None,
+            "the old source frame must not cancel a new external request"
+        );
+        assert_eq!(
+            settled_source_lock(true, false, true, false, true, Some(t(200))),
+            None,
+            "the requested frame is still loading"
+        );
+        assert_eq!(
+            settled_source_lock(true, false, false, false, true, Some(t(203))),
+            Some(t(203))
+        );
     }
 }
