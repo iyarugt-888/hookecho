@@ -1597,16 +1597,29 @@ Support:
 
 Android may use fewer panes based on screen size.
 
-## J2. Link groups
+## J2. Link groups — partly done
+
+This section's own three pre-existing items (camera, zoom, time) are not independent *groups* in
+the sense the rest of this section asks for — one global on/off per attribute, shared by every
+pane, rather than each pane choosing which of several named groups to join. Documented honestly
+as the simpler thing it is rather than claimed as the fuller feature; building real multi-group
+membership (a pane picking "Group A" vs "Group B" per attribute) is separate, larger work not
+attempted here.
 
 Each pane should independently join link groups for:
 
-- camera/location
-- zoom
-- time
-- cursor/crosshair
-- radar site
-- storm selection
+- [x] camera/location — `link_cameras`, predates this pass
+- [x] zoom — the same `link_cameras` flag; the copied camera struct carries zoom, so the two were
+  never separable in this app's model
+- [x] time — `link_times`, predates this pass
+- [ ] cursor/crosshair — see J3, its own larger feature with a compact cross-pane value table
+- [x] radar site — new this pass, see the Unreleased CHANGELOG entry: a `link_site` toggle
+  (`OverlayToggle::LinkSite`) that makes `PaletteAction::SetSite` set every pane's site, not just
+  the active one's. Each pane keeps its own product/tilt, so this is for "four products of one
+  storm" rather than making every pane identical — the "Chase" and "Analysis" starter workspaces
+  (which already show one site across every pane) now default it on; "National overview" (one
+  pane) defaults it off, same as its existing `link_cameras`.
+- [ ] storm selection — no cross-pane storm-selection concept exists yet to link at all
 
 This enables, for example, four products locked in location/time but not product.
 

@@ -8,6 +8,21 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: link panes to the same radar site
+
+ROADMAP_NEW J2: alongside the existing "Link pane cameras" and "Link pane analysis time" toggles,
+a new "Link pane radar site" makes picking a new site in one pane set it in every pane — each pane
+keeps its own product and tilt, so this is for watching several products of one storm across
+panes rather than turning every pane into a copy of the active one. The "Chase" and "Analysis"
+starter workspaces, which already show one site across all their panes, now ship with it on by
+default; older saved workspaces load with it off, same as the two existing link toggles did when
+they were introduced.
+
+Not full "link groups" in the sense the rest of J2 asks for (each pane independently choosing
+which of several named groups to join) — this is a third global on/off, the same simpler shape
+the pre-existing camera/time links already use. Documented in the roadmap as the simpler thing it
+is rather than claimed as the fuller feature.
+
 ### Added: a proper 3-pane layout
 
 ROADMAP_NEW J1: the pane-count picker only ever offered 1, 2, or 4 — asking for 3 panes any other

@@ -27,6 +27,10 @@ pub struct Workspace {
     /// Archive pane time linking. Older workspaces remain independent.
     #[serde(default)]
     pub link_times: bool,
+    /// ROADMAP_NEW J2: picking a new radar site in one pane sets it in every other pane too.
+    /// `default` so a workspace saved before this field existed loads with it off.
+    #[serde(default)]
+    pub link_site: bool,
     /// Overlay toggles that were on, by slug — the same names `Settings::overlays_on` uses, so an
     /// unknown one from a newer build is skipped rather than fatal.
     #[serde(default)]
@@ -185,6 +189,7 @@ pub fn starters() -> Vec<Workspace> {
             active: 0,
             link_cameras: true,
             link_times: true,
+            link_site: true,
             overlays_on: vec![
                 "Alerts".into(),
                 "Cells".into(),
@@ -214,6 +219,7 @@ pub fn starters() -> Vec<Workspace> {
             active: 0,
             link_cameras: false,
             link_times: false,
+            link_site: false,
             overlays_on: vec!["Alerts".into(), "StormReports".into(), "Fronts".into()],
             adopt_site: false,
             fields_on: vec!["mrms".into()],
@@ -229,6 +235,7 @@ pub fn starters() -> Vec<Workspace> {
             active: 0,
             link_cameras: true,
             link_times: true,
+            link_site: true,
             overlays_on: vec!["Alerts".into(), "Cells".into(), "RangeRings".into()],
             adopt_site: true,
             fields_on: Vec::new(),
@@ -351,6 +358,7 @@ mod tests {
             active: 0,
             link_cameras: true,
             link_times: true,
+            link_site: true,
             overlays_on: vec!["Alerts".into(), "Cells".into()],
             adopt_site: false,
             fields_on: vec!["mrms".into()],
@@ -373,6 +381,7 @@ mod tests {
         let ws: Workspace = serde_json::from_str(json).unwrap();
         assert!(ws.fields_on.is_empty() && !ws.adopt_site && ws.chrome.is_none());
         assert!(!ws.link_times);
+        assert!(!ws.link_site);
     }
 
     #[test]

@@ -915,6 +915,13 @@ impl HookEchoApp {
                 false,
             ),
             (
+                T::LinkSite,
+                "Reference",
+                "Link pane radar site",
+                "Picking a new site in one pane sets it in every pane; each keeps its own product and tilt",
+                false,
+            ),
+            (
                 T::MiniLoop,
                 "Reference",
                 "Mini loop window",

@@ -1638,6 +1638,10 @@ pub(crate) enum OverlayToggle {
     LinkCameras,
     /// Align archive radar panes by valid time, using each site's nearest volume.
     LinkTimes,
+    /// ROADMAP_NEW J2: picking a new radar site in one pane sets it in every other pane too —
+    /// each pane keeps its own product/tilt, so this is for comparing several products of one
+    /// storm rather than making every pane identical.
+    LinkSite,
     /// The always-on-top mini-loop window (desktop only).
     MiniLoop,
     /// Beam-vs-terrain blockage shading for the displayed tilt (chase mode).
@@ -1685,7 +1689,7 @@ pub(crate) struct CoverageCompareKey {
 impl OverlayToggle {
     /// Every toggle, for the persistence sweep. A new variant belongs here too, or it silently
     /// stops being remembered across restarts.
-    pub(crate) const ALL: [OverlayToggle; 44] = [
+    pub(crate) const ALL: [OverlayToggle; 45] = [
         Self::AlertPanel,
         Self::StormReports,
         Self::Spotters,
@@ -1726,6 +1730,7 @@ impl OverlayToggle {
         Self::Wind,
         Self::LinkCameras,
         Self::LinkTimes,
+        Self::LinkSite,
         Self::MiniLoop,
         Self::Blockage,
         Self::LowestTilt,
@@ -1736,7 +1741,10 @@ impl OverlayToggle {
     /// are captured by a saved workspace but are not global layer preferences; the mini loop is
     /// a window and is not persisted.
     pub(crate) fn session_only(self) -> bool {
-        matches!(self, Self::LinkCameras | Self::LinkTimes | Self::MiniLoop)
+        matches!(
+            self,
+            Self::LinkCameras | Self::LinkTimes | Self::LinkSite | Self::MiniLoop
+        )
     }
 
     /// Stable name used in the settings file. Persisted as a string, not as the enum: an unknown
@@ -2908,6 +2916,10 @@ pub struct HookEchoApp {
     /// When true, all panes share the active pane's camera.
     link_cameras: bool,
     link_times: bool,
+    /// ROADMAP_NEW J2: when true, `PaletteAction::SetSite` sets every pane's site, not just the
+    /// active one's — each pane keeps its own product/tilt, so four panes can compare products
+    /// of one storm instead of becoming four copies of the same pane.
+    link_site: bool,
     linked_analysis: pane_time::LinkedTimeState,
     /// The always-on-top mini-loop window is open (desktop only; see `mini_loop_viewport`).
     mini_loop: bool,
@@ -3962,6 +3974,7 @@ impl HookEchoApp {
             loop_export: None,
             link_cameras: false,
             link_times: false,
+            link_site: false,
             linked_analysis: pane_time::LinkedTimeState::default(),
             mini_loop: false,
             #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
@@ -8614,6 +8627,7 @@ impl HookEchoApp {
             T::Recon => &mut self.show_recon,
             T::LinkCameras => &mut self.link_cameras,
             T::LinkTimes => &mut self.link_times,
+            T::LinkSite => &mut self.link_site,
             T::MiniLoop => &mut self.mini_loop,
             T::Blockage => &mut self.show_blockage,
             T::LowestTilt => &mut self.show_lowest_tilt,
@@ -8634,15 +8648,27 @@ impl HookEchoApp {
             }
             PaletteAction::SetSite(buf) => {
                 let id = decode_site_id(buf);
-                let v = &mut self.views[self.active];
-                if v.site.as_deref() != Some(id.as_str()) {
-                    v.site = Some(id);
+                let active = self.active;
+                let v = &mut self.views[active];
+                let changed = v.site.as_deref() != Some(id.as_str());
+                if changed {
+                    v.site = Some(id.clone());
                     // Mirrors `try_pick_site`'s own cleanup: a popup left open for the previous
                     // site's feature under the old camera position answers nothing once the pane
                     // has jumped elsewhere.
                     self.cell_popup = None;
                     self.warning_popup = None;
                     self.detail = None;
+                }
+                // ROADMAP_NEW J2: each pane keeps its own product/tilt, only the site follows —
+                // this is for comparing several products of one storm, not making every pane
+                // identical.
+                if changed && self.link_site {
+                    for (i, other) in self.views.iter_mut().enumerate() {
+                        if i != active {
+                            other.site = Some(id.clone());
+                        }
+                    }
                 }
             }
             PaletteAction::SeekTime(seconds) => {
@@ -16026,6 +16052,7 @@ impl HookEchoApp {
             active: self.active,
             link_cameras: self.link_cameras,
             link_times: self.link_times,
+            link_site: self.link_site,
             overlays_on,
             // A workspace you saved records the sites you had open; only the shipped starters
             // adopt whatever is on screen.
@@ -16066,6 +16093,7 @@ impl HookEchoApp {
         self.active = ws.active.min(self.views.len() - 1);
         self.link_cameras = ws.link_cameras;
         self.link_times = ws.link_times;
+        self.link_site = ws.link_site;
         self.linked_analysis = pane_time::LinkedTimeState::default();
         // Overlay names this build doesn't know are skipped, same as the settings restore.
         for t in OverlayToggle::ALL {
