@@ -2722,7 +2722,7 @@ pub fn run_cappi(site: &str, alt_km: f32, out_path: &str) -> anyhow::Result<()> 
         .ok_or_else(|| anyhow::anyhow!("no sweeps for CAPPI"))?;
     let filled = c.dbz.iter().filter(|v| v.is_some()).count();
     println!(
-        "CAPPI {site} @ {alt_km:.1} km  {N}x{N}  filled {}/{}",
+        "CAPPI {site} @ {alt_km:.1} km  {N}x{N}  half_km {half_km:.1}  filled {}/{}",
         filled,
         c.dbz.len()
     );
@@ -2772,7 +2772,7 @@ pub fn run_3d(
         .ok_or_else(|| anyhow::anyhow!("no sweeps for 3D volume"))?;
     let filled = v3.data.iter().filter(|&&b| b >= 2).count();
     println!(
-        "3D volume {} tilts, {}x{}x{}, filled voxels {}/{}",
+        "3D volume {} tilts, {}x{}x{}, half_km {half_km:.1}, filled voxels {}/{}",
         sweeps.len(),
         v3.n,
         v3.n,

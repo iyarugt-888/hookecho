@@ -21,17 +21,65 @@ pub struct Volume3d {
     pub value_max: f32,
 }
 
-/// The farthest ground range any of these tilts actually samples — a scan's true footprint,
-/// not a guessed radius. Intended as `build`'s `half_km`, so the 3D volume covers what the radar
-/// actually reported (superres reflectivity commonly reaches 300+ km) instead of clipping
-/// everything past an arbitrary fixed distance, which left far storms outside the volume
-/// entirely — including out of reach of the clipping-plane slice, which can only cut into
-/// whatever the volume already contains.
+/// The farthest ground range any of these tilts' *actual reported echo* reaches — not the gate
+/// array's raw instrument capacity. Intended as `build`'s `half_km`, so the 3D volume covers real
+/// echo instead of clipping it (superres reflectivity's declared capacity commonly reaches
+/// 300-460 km, well past where any real storm's echo stops) — but also so it does NOT stretch the
+/// volume out to that full theoretical reach for an ordinary nearby storm with nothing beyond it,
+/// which would silently coarsen every close-in storm's cell size (the fixed `n`/`nz` grid spans
+/// `half_km`, so a bigger box means bigger cells) for no benefit: a first version of this function
+/// used the array's declared capacity directly and, because most VCPs' reflectivity tilt reports
+/// hundreds of km of *capacity* regardless of where the echo actually is, ended up stretching
+/// nearly every volume out to that near-maximum reach and washing out real detail (hail cores in
+/// particular) that used to be visible at the old fixed-150-km resolution.
+///
+/// `0`/`1` are the binner's own below-threshold/range-folded sentinels (see [`BinnedSweep::data`]'s
+/// own doc comment); anything `>= 2` is a real reported value.
+///
+/// A single stray gate does not count: ground-clutter/anomalous-propagation breakthrough under a
+/// temperature inversion classically shows up as an isolated speckle far past a storm's real
+/// echo, on one or two azimuths at one or two gates — exactly the "surprisingly large half_km on
+/// an otherwise unremarkable volume" case that motivated requiring a real, spatially coherent run
+/// of echo (see [`MIN_CONTIGUOUS_KM`]) rather than trusting the single farthest reported gate.
 pub fn max_sample_range_km(sweeps: &[BinnedSweep]) -> f32 {
-    sweeps
-        .iter()
-        .map(|s| s.first_gate_km + s.gate_count as f32 * s.gate_interval_km)
-        .fold(0.0f32, f32::max)
+    let mut max_range = 0.0f32;
+    for s in sweeps {
+        if s.gate_count == 0 || s.gate_interval_km <= 0.0 {
+            continue;
+        }
+        let min_run = ((MIN_CONTIGUOUS_KM / s.gate_interval_km).ceil() as usize).max(1);
+        let farthest_gate = s
+            .data
+            .chunks_exact(s.gate_count)
+            .filter_map(|row| farthest_gate_ending_a_run(row, min_run))
+            .max();
+        if let Some(gate) = farthest_gate {
+            let range = s.first_gate_km + (gate + 1) as f32 * s.gate_interval_km;
+            max_range = max_range.max(range);
+        }
+    }
+    max_range
+}
+
+/// How much contiguous real echo, radially, counts as a genuine return rather than a speckle —
+/// a real storm's echo is essentially always far larger than this in every dimension.
+const MIN_CONTIGUOUS_KM: f32 = 1.5;
+
+/// The farthest index in `row` that ends an unbroken run of at least `min_run` gates `>= 2`,
+/// scanning from the far end inward. `None` if no such run exists.
+fn farthest_gate_ending_a_run(row: &[u8], min_run: usize) -> Option<usize> {
+    let mut run = 0usize;
+    for (i, &v) in row.iter().enumerate().rev() {
+        if v >= 2 {
+            run += 1;
+            if run >= min_run {
+                return Some(i + min_run - 1);
+            }
+        } else {
+            run = 0;
+        }
+    }
+    None
 }
 
 /// Build an `n × n × nz` reflectivity volume out to `half_km` horizontally and `top_km` up.
@@ -249,22 +297,99 @@ mod tests {
         }
     }
 
-    #[test]
-    fn max_sample_range_km_reads_off_the_farthest_tilt_not_a_guessed_radius() {
-        // Every synthetic tilt shares the same gate layout (200 gates, 1 km apart, from 0 km).
-        let sweeps = vec![sweep(0.5), sweep(1.5), sweep(2.4)];
-        assert_eq!(max_sample_range_km(&sweeps), 200.0);
+    /// A sweep whose gate array could hold `gate_count` gates out to a large declared capacity,
+    /// but whose only real echo (index `>= 2`) is a genuine 10-gate-wide run ending at
+    /// `echo_gate` — everything past it, and everything before the run, is the binner's own
+    /// below-threshold sentinel (`0`), same as a real clear-air tail past a storm's actual echo.
+    fn sweep_with_echo_at(
+        gate_count: usize,
+        gate_interval_km: f32,
+        first_gate_km: f32,
+        echo_gate: usize,
+    ) -> BinnedSweep {
+        let az_bins = 720usize;
+        let mut data = vec![0u8; az_bins * gate_count];
+        let run_start = echo_gate.saturating_sub(9);
+        for bin in 150..210 {
+            for g in run_start..=echo_gate {
+                data[bin * gate_count + g] = 200;
+            }
+        }
+        let (value_min, value_max) = Moment::Reflectivity.value_range();
+        BinnedSweep {
+            moment: Moment::Reflectivity,
+            az_bins,
+            gate_count,
+            data,
+            first_gate_km,
+            gate_interval_km,
+            radar_lat: 35.0,
+            radar_lon: -97.0,
+            elevation_deg: 0.5,
+            value_min,
+            value_max,
+            ..Default::default()
+        }
+    }
 
-        // A tilt reporting a longer range than the others must win, not be averaged away or
-        // ignored in favor of the first one in the list.
-        let mut far = sweep(4.0);
-        far.gate_count = 800;
-        far.gate_interval_km = 0.5;
-        far.first_gate_km = 0.25;
+    #[test]
+    fn max_sample_range_km_follows_real_echo_not_the_gate_arrays_declared_capacity() {
+        // Every synthetic tilt shares the same gate layout (200 gates, 1 km apart, from 0 km),
+        // with real echo only out to gate 59 — a 60 km storm, not a 200 km one. Superres
+        // reflectivity commonly *declares* 300-460 km of gate capacity regardless of where the
+        // echo actually is; using that capacity directly (an earlier version of this function did)
+        // stretched the volume out to nearly that full reach for every ordinary nearby storm,
+        // coarsening cell size and washing out real detail like hail cores for no benefit.
+        let sweeps = vec![sweep(0.5), sweep(1.5), sweep(2.4)];
+        assert_eq!(max_sample_range_km(&sweeps), 60.0);
+
+        // A tilt whose real echo reaches farther than the others must win, not be averaged away
+        // or ignored in favor of the first one in the list — even with a different gate layout.
+        let far = sweep_with_echo_at(800, 0.5, 0.25, 700);
         let with_far = vec![sweep(0.5), far, sweep(2.4)];
-        assert_eq!(max_sample_range_km(&with_far), 0.25 + 800.0 * 0.5);
+        assert_eq!(max_sample_range_km(&with_far), 0.25 + 701.0 * 0.5);
+
+        // A tilt with no real echo anywhere (an empty gate array, or nothing above threshold)
+        // contributes nothing — it must not win over a tilt that actually has echo, and a set of
+        // only such tilts must not panic.
+        let mut clear_air = sweep_with_echo_at(200, 1.0, 0.0, 0);
+        clear_air.data.fill(0);
+        assert_eq!(max_sample_range_km(&[clear_air.clone()]), 0.0);
+        assert_eq!(max_sample_range_km(&[clear_air, sweep(0.5)]), 60.0);
 
         assert_eq!(max_sample_range_km(&[]), 0.0, "no tilts, no range");
+    }
+
+    #[test]
+    fn an_isolated_speckle_far_past_the_real_echo_does_not_win() {
+        // Ground-clutter/anomalous-propagation breakthrough under a temperature inversion is the
+        // classic false-far-echo case: one or two stray gates, nowhere near a genuine storm's
+        // spatial extent. A single bad reading here must not stretch the volume out to it.
+        let mut with_speckle = sweep(0.5);
+        // The real echo (a 20-gate run) is already at gates 40..60; add an isolated 1-gate blip
+        // at gate 150 on a handful of azimuths — nowhere close to the 10-gate run
+        // `farthest_gate_ending_a_run` requires.
+        for bin in 150..156 {
+            with_speckle.data[bin * 200 + 150] = 200;
+        }
+        assert_eq!(
+            max_sample_range_km(std::slice::from_ref(&with_speckle)),
+            60.0,
+            "an isolated far speckle must not move the result past the real echo"
+        );
+
+        // The same far gates, but as a genuine run (not a speckle), DO win — this isn't "ignore
+        // anything past 60 km", it's "ignore anything that isn't real echo".
+        let mut with_real_far_echo = sweep(0.5);
+        for bin in 150..156 {
+            for g in 141..=150 {
+                with_real_far_echo.data[bin * 200 + g] = 200;
+            }
+        }
+        assert_eq!(
+            max_sample_range_km(std::slice::from_ref(&with_real_far_echo)),
+            151.0
+        );
     }
 
     #[test]

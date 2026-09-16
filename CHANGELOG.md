@@ -38,13 +38,21 @@ manual step.
 
 The 3D reflectivity volume, its "Smooth" per-pane representation, and the CAPPI slice window all
 built their grid to a fixed 150 km half-width regardless of what the radar actually scanned —
-superres reflectivity commonly reaches 300+ km, so a storm beyond 150 km was outside the volume
-before the clipping-plane slice ever got a chance at it; no slice angle could recover data the
-volume never contained. `wxdata::volume3d::max_sample_range_km` now reads the farthest range any
-of a scan's own tilts reported and sizes the volume to that instead of a guessed radius, so the 3D
-view and CAPPI cover what the radar actually published. The "jump to this storm in 3D" action from
-the storm-cells popup, which used the same fixed radius to compute its zoomed-in clip box, now
-derives it from the same real sweep data so the box stays meaningful against whatever gets built.
+superres reflectivity commonly *declares* 300-460 km of gate capacity, so a storm beyond 150 km
+was outside the volume before the clipping-plane slice ever got a chance at it; no slice angle
+could recover data the volume never contained. `wxdata::volume3d::max_sample_range_km` now sizes
+the volume to where a scan's own tilts actually report echo, not a guessed fixed radius — and, as
+importantly, not the gate array's raw *declared* capacity either: a first version of this fix used
+that declared capacity directly, and because most VCPs' reflectivity tilt reports hundreds of km
+of capacity regardless of where the echo actually is, it ended up stretching nearly every volume
+out to that near-maximum reach and visibly coarsening every ordinary nearby storm's cell size —
+washing out real detail (a supercell's hail core, specifically) that used to be visible at the old
+fixed-150-km resolution. The volume now follows real, spatially coherent echo instead — a single
+isolated stray gate (ground-clutter/anomalous-propagation breakthrough under a temperature
+inversion is the classic case) is rejected rather than trusted, so an isolated far speckle can't
+blow the box out the same way. The "jump to this storm in 3D" action from the storm-cells popup,
+which used the same fixed radius for its own clip-box math, now derives it from the same real
+sweep data so the box stays meaningful against whatever actually gets built.
 
 ### Changed: the ribbon's radar product list scrolls instead of overflowing
 
