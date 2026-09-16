@@ -96,6 +96,7 @@ pub mod cell_window;
 pub mod cells_window;
 pub mod chase_replay;
 pub mod cheatsheet;
+pub mod cursor_probe;
 pub mod detail_window;
 pub mod digest_window;
 pub mod drawer;

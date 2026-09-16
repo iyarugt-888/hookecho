@@ -929,6 +929,13 @@ impl HookEchoApp {
                 false,
             ),
             (
+                T::LinkCursor,
+                "Reference",
+                "Link pane crosshair",
+                "Hovering one pane shows the same point on every other pane, plus a compact probe table of each pane's value there",
+                false,
+            ),
+            (
                 T::MiniLoop,
                 "Reference",
                 "Mini loop window",

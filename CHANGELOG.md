@@ -8,6 +8,21 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: synchronized cursor across linked panes
+
+ROADMAP_NEW J3: a new "Link pane crosshair" toggle shares whichever pane is hovered as one
+geographic point across every pane. Each pane draws its own crosshair at that point using its own
+camera, so panes at different zooms or locations still mark the same spot rather than mirroring
+one screen position — the point is cleared the instant the pointer leaves every pane, so a stale
+mark never lingers. Alongside it, a compact always-visible "Cursor probe" table lists
+Pane/Source/Product/Time/Value for every pane, reusing the same `inspect_gate` sampler the
+Interrogate tool's click already used, so probing four panes at once needs no extra clicking.
+Only radar-moment panes are sampled — there is no generic "read this pane's active grid at a
+point" helper yet the way there is for a single clicked gate, so an MRMS/model-only pane's row
+shows its site with a "—" for value rather than a guess. The "Chase" and "Analysis" starter
+workspaces, which already link camera/time/site, ship with it on by default; "National overview"
+(one pane) and older saved workspaces load with it off, same as the other link toggles.
+
 ### Added: run-to-run model comparison
 
 ROADMAP_NEW F5: a new "Surface CAPE (run to run)" model-comparison field subtracts HRRR's current

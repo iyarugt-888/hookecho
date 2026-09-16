@@ -1644,6 +1644,10 @@ pub(crate) enum OverlayToggle {
     /// each pane keeps its own product/tilt, so this is for comparing several products of one
     /// storm rather than making every pane identical.
     LinkSite,
+    /// ROADMAP_NEW J3: hovering any pane shows the same geographic point on every other pane, plus
+    /// a compact per-pane value table — a shared crosshair rather than each pane's own independent
+    /// cursor.
+    LinkCursor,
     /// The always-on-top mini-loop window (desktop only).
     MiniLoop,
     /// Beam-vs-terrain blockage shading for the displayed tilt (chase mode).
@@ -1691,7 +1695,7 @@ pub(crate) struct CoverageCompareKey {
 impl OverlayToggle {
     /// Every toggle, for the persistence sweep. A new variant belongs here too, or it silently
     /// stops being remembered across restarts.
-    pub(crate) const ALL: [OverlayToggle; 46] = [
+    pub(crate) const ALL: [OverlayToggle; 47] = [
         Self::AlertPanel,
         Self::StormReports,
         Self::Spotters,
@@ -1734,6 +1738,7 @@ impl OverlayToggle {
         Self::LinkTimes,
         Self::LockSourceTime,
         Self::LinkSite,
+        Self::LinkCursor,
         Self::MiniLoop,
         Self::Blockage,
         Self::LowestTilt,
@@ -1750,6 +1755,7 @@ impl OverlayToggle {
                 | Self::LinkTimes
                 | Self::LockSourceTime
                 | Self::LinkSite
+                | Self::LinkCursor
                 | Self::MiniLoop
         )
     }
@@ -2930,6 +2936,14 @@ pub struct HookEchoApp {
     /// active one's — each pane keeps its own product/tilt, so four panes can compare products
     /// of one storm instead of becoming four copies of the same pane.
     link_site: bool,
+    /// ROADMAP_NEW J3: when true, hovering any pane records the geographic point under the cursor
+    /// here, so every pane can draw a matching crosshair and the probe table can sample all of
+    /// them at once — a shared cursor rather than each pane's own independent hover.
+    link_cursor: bool,
+    /// The point `link_cursor` is currently sharing across panes, refreshed every frame from
+    /// whichever pane the mouse is actually over and cleared when the pointer leaves every pane.
+    /// Not persisted — a live hover position, not a saved preference.
+    linked_probe: Option<(f64, f64)>,
     linked_analysis: pane_time::LinkedTimeState,
     /// The always-on-top mini-loop window is open (desktop only; see `mini_loop_viewport`).
     mini_loop: bool,
@@ -3986,6 +4000,8 @@ impl HookEchoApp {
             link_times: false,
             lock_source_time: false,
             link_site: false,
+            link_cursor: false,
+            linked_probe: None,
             linked_analysis: pane_time::LinkedTimeState::default(),
             mini_loop: false,
             #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
@@ -7048,6 +7064,68 @@ impl HookEchoApp {
         })
     }
 
+    /// One row of the ROADMAP_NEW J3 cursor-probe table: this pane's own moment sampled at the
+    /// linked hover point, reusing `inspect_gate` exactly as the Interrogate tool's click does.
+    /// `None` fields describe *why* a pane has nothing to show (no volume, no data at this point)
+    /// rather than the row vanishing — the table always lists every visible pane.
+    fn probe_row(&mut self, idx: usize, lon: f64, lat: f64) -> ui::cursor_probe::ProbeRow {
+        let moment = self.views[idx].moment;
+        match self.inspect_gate(idx, lon, lat, None) {
+            Some(popup) => ui::cursor_probe::ProbeRow {
+                pane: idx,
+                site: popup.site,
+                moment: popup.moment,
+                time: popup.time_range.map(|(_, end)| end),
+                value: popup.inspection.sample.value,
+                folded: popup.inspection.sample.folded,
+            },
+            None => ui::cursor_probe::ProbeRow {
+                pane: idx,
+                site: self.views[idx].site.clone(),
+                moment,
+                time: None,
+                value: None,
+                folded: false,
+            },
+        }
+    }
+
+    /// ROADMAP_NEW J3: while `link_cursor` is on and some pane is hovered, draw a matching
+    /// crosshair on every pane at the same geographic point and show the compact probe table.
+    /// Only radar-moment panes are sampled — MRMS/model grid layers have no shared "point value"
+    /// helper the way `inspect_gate` is for radar, so those panes read as an empty pane rather
+    /// than a wrong or misleading number.
+    fn paint_linked_cursor(&mut self, ui: &egui::Ui, rects: &[egui::Rect], solo: bool) {
+        if !self.link_cursor || solo || rects.len() < 2 {
+            return;
+        }
+        let Some((lon, lat)) = self.linked_probe else {
+            return;
+        };
+        let world = crate::render::mercator::lonlat_to_world(lon, lat);
+        let color = egui::Color32::from_rgb(255, 214, 92);
+        let mut rows = Vec::with_capacity(rects.len());
+        for (idx, rect) in rects.iter().enumerate() {
+            let vp = (rect.width(), rect.height());
+            let screen = self.views[idx].camera.world_to_screen(world, vp);
+            let pos = egui::pos2(rect.left() + screen.0, rect.top() + screen.1);
+            if rect.contains(pos) {
+                let painter = ui.painter_at(*rect);
+                painter.line_segment(
+                    [pos - egui::vec2(9.0, 0.0), pos + egui::vec2(9.0, 0.0)],
+                    egui::Stroke::new(1.5, color),
+                );
+                painter.line_segment(
+                    [pos - egui::vec2(0.0, 9.0), pos + egui::vec2(0.0, 9.0)],
+                    egui::Stroke::new(1.5, color),
+                );
+                painter.circle_stroke(pos, 4.0, egui::Stroke::new(1.5, color));
+            }
+            rows.push(self.probe_row(idx, lon, lat));
+        }
+        ui::cursor_probe::show(ui.ctx(), &rows, self.active_tz());
+    }
+
     fn fetch_sounding(&mut self, lon: f64, lat: f64) {
         self.sounding_window.fh = 0;
         self.sounding_at = Some((lon, lat));
@@ -8641,6 +8719,7 @@ impl HookEchoApp {
             T::LinkTimes => &mut self.link_times,
             T::LockSourceTime => &mut self.lock_source_time,
             T::LinkSite => &mut self.link_site,
+            T::LinkCursor => &mut self.link_cursor,
             T::MiniLoop => &mut self.mini_loop,
             T::Blockage => &mut self.show_blockage,
             T::LowestTilt => &mut self.show_lowest_tilt,
@@ -12595,6 +12674,13 @@ impl HookEchoApp {
         let (zoom, scroll) = ui.input(|i| (i.zoom_delta(), i.smooth_scroll_delta));
         if let Some(pos) = response.hover_pos().filter(|p| prect.contains(*p)) {
             let cursor = (pos.x - prect.left(), pos.y - prect.top());
+            // ROADMAP_NEW J3: share this pane's hovered geo point with every other pane. Reused
+            // directly as the probe table's sample point in `paint_linked_cursor`, called once
+            // after every pane has had a chance to update it this frame.
+            if self.link_cursor {
+                let w = self.views[idx].camera.screen_to_world(cursor, vp);
+                self.linked_probe = Some(crate::render::mercator::world_to_lonlat(w.0, w.1));
+            }
             // `zoom_delta()` reports a live touchscreen pinch too, which the gesture block below
             // already owns (and it is the one that knows about the mobile chrome) — skip it here
             // or a phone pinch zooms twice.
@@ -16067,6 +16153,7 @@ impl HookEchoApp {
             link_times: self.link_times,
             lock_source_time: self.lock_source_time,
             link_site: self.link_site,
+            link_cursor: self.link_cursor,
             overlays_on,
             // A workspace you saved records the sites you had open; only the shipped starters
             // adopt whatever is on screen.
@@ -16109,6 +16196,8 @@ impl HookEchoApp {
         self.link_times = ws.link_times;
         self.lock_source_time = ws.lock_source_time;
         self.link_site = ws.link_site;
+        self.link_cursor = ws.link_cursor;
+        self.linked_probe = None;
         self.linked_analysis = pane_time::LinkedTimeState::default();
         // Overlay names this build doesn't know are skipped, same as the settings restore.
         for t in OverlayToggle::ALL {
@@ -19974,6 +20063,10 @@ impl eframe::App for HookEchoApp {
             // Which pane carries the once-per-frame work (tile-cache clears, the shared label
             // pass): the first one actually drawn, which under `solo` is the active one.
             let head = if solo { self.active.min(n - 1) } else { 0 };
+            // Cleared before every pane gets a chance to re-set it this frame (`render_pane`'s
+            // hover block does, when `link_cursor` is on): leaving the map area with no pane
+            // hovered must drop the shared point rather than leave the last one drawn everywhere.
+            self.linked_probe = None;
             for (i, prect) in rects.iter().enumerate() {
                 if solo && i != head {
                     continue;
@@ -19993,6 +20086,7 @@ impl eframe::App for HookEchoApp {
             }
 
             self.paint_linked_time_badges(ui, &rects, solo);
+            self.paint_linked_cursor(ui, &rects, solo);
 
             // Pane borders; the active pane gets an accent outline. Nothing to outline under
             // `solo` — there is one pane on screen and the strip says which.

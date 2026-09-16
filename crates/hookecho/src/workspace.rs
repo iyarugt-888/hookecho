@@ -35,6 +35,11 @@ pub struct Workspace {
     /// `default` so a workspace saved before this field existed loads with it off.
     #[serde(default)]
     pub link_site: bool,
+    /// ROADMAP_NEW J3: hovering any pane shows the same geographic point on every other pane, plus
+    /// a compact probe table. `default` so a workspace saved before this field existed loads with
+    /// it off.
+    #[serde(default)]
+    pub link_cursor: bool,
     /// Overlay toggles that were on, by slug — the same names `Settings::overlays_on` uses, so an
     /// unknown one from a newer build is skipped rather than fatal.
     #[serde(default)]
@@ -195,6 +200,7 @@ pub fn starters() -> Vec<Workspace> {
             link_times: true,
             lock_source_time: false,
             link_site: true,
+            link_cursor: true,
             overlays_on: vec![
                 "Alerts".into(),
                 "Cells".into(),
@@ -226,6 +232,7 @@ pub fn starters() -> Vec<Workspace> {
             link_times: false,
             lock_source_time: false,
             link_site: false,
+            link_cursor: false,
             overlays_on: vec!["Alerts".into(), "StormReports".into(), "Fronts".into()],
             adopt_site: false,
             fields_on: vec!["mrms".into()],
@@ -243,6 +250,7 @@ pub fn starters() -> Vec<Workspace> {
             link_times: true,
             lock_source_time: true,
             link_site: true,
+            link_cursor: true,
             overlays_on: vec!["Alerts".into(), "Cells".into(), "RangeRings".into()],
             adopt_site: true,
             fields_on: Vec::new(),
@@ -367,6 +375,7 @@ mod tests {
             link_times: true,
             lock_source_time: true,
             link_site: true,
+            link_cursor: true,
             overlays_on: vec!["Alerts".into(), "Cells".into()],
             adopt_site: false,
             fields_on: vec!["mrms".into()],
@@ -391,6 +400,7 @@ mod tests {
         assert!(!ws.link_times);
         assert!(!ws.lock_source_time);
         assert!(!ws.link_site);
+        assert!(!ws.link_cursor);
     }
 
     #[test]
