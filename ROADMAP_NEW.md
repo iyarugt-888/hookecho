@@ -204,7 +204,7 @@ Optional user-configured relays/providers are allowed when required for speciali
 
 **Priority: P0. Required before broad model/MRMS/satellite expansion.**
 
-## A1. Generic field/product registry — mostly done, found already built
+## A1. Generic field/product registry — done
 
 This section's checkboxes had gone stale: most of it was already implemented (`wxdata::field` +
 `wxdata::mrms::catalog`, plus `ui::data_inspector`) by the time this pass looked, without the
@@ -292,7 +292,7 @@ Do not migrate every layer at once. Prove the registry on those three families, 
 
 ---
 
-## A2. Unified timeline alignment engine
+## A2. Unified timeline alignment engine — done
 
 The current timeline is radar-centered. Convert it into a general valid-time coordinator.
 
@@ -312,7 +312,9 @@ The current timeline is radar-centered. Convert it into a general valid-time coo
 - [x] per-layer time offsets visible in the UI — linked pane badges, the source inspector, WSV3
   status bar and GOES controls show signed source-minus-analysis offsets
 - [x] valid-time alignment for the currently offered GFS/ECMWF and HRRR/RAP differences
-- [ ] run-time alignment for run-to-run comparison
+- [x] run-time alignment for run-to-run comparison — new this pass, see the Unreleased CHANGELOG
+  entry and F5 below: `wxdata::hrrr::fetch_field_previous_run` walks back from a specific run
+  (not `Utc::now()`) so it can never return the same cycle it's meant to be compared against
 - [x] radar/satellite/MRMS nearest-frame synchronization — linked radar panes seek their nearest
   scan, GOES follow mode selects against the retained cursor, and catalog MRMS requests use the
   nearest archive object within tolerance while refusing stale/live fallbacks
@@ -1259,19 +1261,38 @@ Every appropriate field should support:
 - point sample
 - time series
 
-## F5. Run-to-run comparison
+## F5. Run-to-run comparison — partly done
 
 Example:
 
-- current HRRR run minus previous HRRR run at same valid time
+- [x] current HRRR run minus previous HRRR run at same valid time — new this pass, see the
+  Unreleased CHANGELOG entry: `DiffField::RunToRunCape`, fed by a new
+  `wxdata::hrrr::fetch_field_previous_run` that walks back from a specific run (not `Utc::now()`)
+  so it can never return the same cycle as the one it's compared against. Fixed at the analysis
+  hour (lead 0) on both sides, the same choice the existing HRRR/RAP comparison makes and for the
+  same reason — a larger lead would need the previous cycle to still be within its own 18 h
+  publish window for the same valid time, which isn't always true. Verified live: comparing
+  HRRR's 03Z and 02Z cycles (one real hour apart, confirmed from the fetched runs' own
+  timestamps) produced a real subtracted CAPE grid (median 0 J/kg, middle-90% spread
+  −280..390 J/kg — visibly tighter than the ±1500 J/kg cross-model HRRR/RAP range, exactly the
+  "same model, one cycle apart" character this comparison is supposed to have).
 
 Support:
 
-- scalar difference
-- absolute difference
-- percentage difference where meaningful
-- threshold highlighting
-- synchronized side-by-side panes
+- [x] scalar difference — the subtraction itself, reusing `fielddiff::diff`
+- [ ] absolute difference — only the signed difference is drawn; an `|a − b|` variant (no
+  direction, just magnitude) is not offered for any comparison field yet, run-to-run included
+- [ ] percentage difference where meaningful — not implemented for any comparison field
+- [x] threshold highlighting — the existing deadband mechanism (`DiffField::range`'s second
+  number): differences inside it draw as fully transparent, same as every other comparison field
+- [ ] synchronized side-by-side panes — deliberately not offered for this field: the compare-panes
+  mode shows each side's own distinct single-model layer, and there is no distinct "previous run"
+  layer to show yet (both panes would draw today's current-run CAPE). `DiffField::
+  supports_side_by_side` returns `false` for it and the UI hides the button rather than shipping
+  a panel that would silently show the same data twice.
+
+Only CAPE is wired up so far — the roadmap's own worked example, not the full field set F3
+eventually wants comparable this way.
 
 ## F6. Model-to-model comparison
 

@@ -282,19 +282,24 @@ pub(crate) fn show(
             ));
             ui.weak(valid_time_note(compare_valid, compare_error, a, b));
         }
-        if ui
-            .button(if showing_compare {
-                "Rearrange panes"
-            } else {
-                "View side by side (2 panes)"
-            })
-            .on_hover_text(
-                "Puts one model's own field in each of two panes with linked cameras, instead \
-                 of one subtracted layer",
-            )
-            .clicked()
-        {
-            actions.palette = Some(crate::app::PaletteAction::CompareInPanes);
+        // A run-to-run field has no distinct "previous run" layer of its own yet, so side by side
+        // would draw the same current-run layer in both panes — hidden rather than shipped
+        // half-working (see `DiffField::supports_side_by_side`'s own doc comment).
+        if diff_field.supports_side_by_side() {
+            if ui
+                .button(if showing_compare {
+                    "Rearrange panes"
+                } else {
+                    "View side by side (2 panes)"
+                })
+                .on_hover_text(
+                    "Puts one model's own field in each of two panes with linked cameras, instead \
+                     of one subtracted layer",
+                )
+                .clicked()
+            {
+                actions.palette = Some(crate::app::PaletteAction::CompareInPanes);
+            }
         }
     }
 

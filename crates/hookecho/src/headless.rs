@@ -1849,6 +1849,30 @@ pub fn run_diff(slug: &str, out_path: &str) -> anyhow::Result<()> {
                 let (va, vb) = (hrrr.run.to_string(), rap.run.to_string());
                 anyhow::Ok((hrrr.field, rap.field, va, vb))
             }
+            DiffField::RunToRunCape => {
+                let (var, level, min_valid) = ("CAPE", "surface", 0.0);
+                let current = wxdata::hrrr::fetch_field(
+                    &client,
+                    wxdata::hrrr::Model::Hrrr,
+                    var,
+                    level,
+                    0,
+                    min_valid,
+                )
+                .await?;
+                let previous = wxdata::hrrr::fetch_field_previous_run(
+                    &client,
+                    wxdata::hrrr::Model::Hrrr,
+                    var,
+                    level,
+                    current.run,
+                    current.valid(),
+                    min_valid,
+                )
+                .await?;
+                let (va, vb) = (current.run.to_string(), previous.run.to_string());
+                anyhow::Ok((current.field, previous.field, va, vb))
+            }
         }
     })?;
     let (na, nb) = field.pair();

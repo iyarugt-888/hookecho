@@ -8,6 +8,32 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: run-to-run model comparison
+
+ROADMAP_NEW F5: a new "Surface CAPE (run to run)" model-comparison field subtracts HRRR's current
+run from its own immediately-previous run, both at the analysis hour for the same valid time —
+how much the model's own initial state changed cycle to cycle, distinct from the existing
+model-to-model comparisons which show two different models disagreeing at the same time. Backed
+by a new `wxdata::hrrr::fetch_field_previous_run`, which walks back from a specific run (not
+`Utc::now()`) so it can never return the same cycle as the one it's being compared against, with
+the same multi-candidate fallback the rest of the aligned-fetch machinery uses if the immediately
+prior cycle hasn't posted the field yet. Uses a tighter difference range than the cross-model CAPE
+comparison, since a one-hour HRRR-to-HRRR change is typically much smaller than a genuine
+cross-model disagreement. "View side by side" is hidden for this field — unlike a model-to-model
+comparison, there's no second distinct single-model layer to show in a second pane, only the same
+current-run CAPE twice, so the button is withheld rather than shipped half-working.
+
+### Added: lock the shared analysis time to the radar's actual scan
+
+ROADMAP_NEW A2's last open "lock to source frame" item: a new "Lock analysis to radar frame"
+toggle (alongside the existing "Link pane analysis time") makes a linked seek settle on the active
+radar's *actual* scan timestamp rather than retaining the valid time that was originally requested
+— so satellite and MRMS layers reading the shared analysis cursor align to the real source frame
+a NEXRAD scan landed on, not an approximation of it. Waits for the requested frame to actually
+finish loading before locking, so an in-flight seek is never overwritten by the previous frame's
+timestamp mid-request. Persisted per workspace the same way the other link toggles are (older
+saved workspaces load with it off).
+
 ### Added: published coverage bounds for field metadata
 
 `FieldDescriptor.valid_domain` now records whether a product is published for CONUS or globally,

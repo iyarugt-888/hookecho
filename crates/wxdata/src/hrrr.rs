@@ -294,6 +294,42 @@ pub async fn fetch_field_aligned(
     }))
 }
 
+/// Fetch `var`/`level` from a `model` cycle strictly earlier than `current_run`, at the same
+/// `target_valid` — the "previous run" side of a run-to-run comparison (ROADMAP_NEW F5). Walks
+/// back further if the immediately-previous cycle hasn't posted this field yet, the same
+/// multi-candidate fallback [`fetch_field_aligned`] uses, just seeded one cycle further back so it
+/// can never return `current_run` itself.
+pub async fn fetch_field_previous_run(
+    http: &reqwest::Client,
+    model: Model,
+    var: &str,
+    level: &str,
+    current_run: DateTime<Utc>,
+    target_valid: DateTime<Utc>,
+    min_valid: f64,
+) -> anyhow::Result<HrrrForecast> {
+    let mut last_err = None;
+    for (run, fh) in aligned_run_hours(model, target_valid, current_run) {
+        match fetch_run_field(http, model, run, fh, var, level, min_valid).await {
+            Ok(field) => {
+                return Ok(HrrrForecast {
+                    field,
+                    run,
+                    fcst_hour: fh,
+                    fcst_minutes: None,
+                })
+            }
+            Err(err) => last_err = Some(err),
+        }
+    }
+    Err(last_err.unwrap_or_else(|| {
+        anyhow::anyhow!(
+            "no {} cycle before {current_run} aligns with {target_valid}",
+            model.label()
+        )
+    }))
+}
+
 /// Newest cycles first, with only whole-hour leads in the published 0..=18 h range.
 fn aligned_run_hours(
     model: Model,
@@ -817,6 +853,24 @@ mod tests {
             aligned_run_hours(Model::Rap, target + chrono::Duration::minutes(15), now).is_empty()
         );
         assert!(aligned_run_hours(Model::Rap, target - chrono::Duration::days(2), now).is_empty());
+    }
+
+    /// `fetch_field_previous_run` (ROADMAP_NEW F5's run-to-run comparison) seeds its search with
+    /// `current_run` itself rather than `Utc::now()`, precisely so it can never hand back the
+    /// same run it is meant to be compared against. This checks that seed choice in isolation,
+    /// without a network fetch.
+    #[test]
+    fn aligned_candidates_seeded_at_the_current_run_never_include_it() {
+        use chrono::TimeZone;
+        let current_run = Utc.with_ymd_and_hms(2026, 9, 14, 12, 0, 0).unwrap();
+        let target_valid = current_run; // the analysis-hour (fh=0) case fetch_pair uses
+        let candidates = aligned_run_hours(Model::Hrrr, target_valid, current_run);
+        assert!(
+            candidates.iter().all(|(run, _)| *run < current_run),
+            "{candidates:?}"
+        );
+        // The immediately-previous cycle, one lead hour out, is the first (newest) candidate.
+        assert_eq!(candidates[0], (current_run - chrono::Duration::hours(1), 1));
     }
 
     #[test]

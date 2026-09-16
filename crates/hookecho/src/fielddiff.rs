@@ -213,6 +213,45 @@ pub async fn fetch_pair(
                 times,
             })
         }
+        DiffField::RunToRunCape => {
+            use wxdata::hrrr::Model;
+            use wxdata::model::ModelField;
+            // ROADMAP_NEW F5: current HRRR run minus the previous one, at the analysis hour
+            // (lead 0) — the same fixed-lead choice the HRRR/RAP comparison above makes, and for
+            // the same reason: a larger lead would need the previous cycle to still be within its
+            // own 18 h publish window for the same valid time, which isn't always true.
+            let key = ModelField::SurfaceCape
+                .grib(Model::Hrrr)
+                .ok_or_else(|| anyhow::anyhow!("HRRR does not publish surface CAPE"))?;
+            let (var, level, min_valid) = (key.var, key.level, key.min_valid);
+            let current = wxdata::hrrr::fetch_field(http, Model::Hrrr, var, level, 0, min_valid)
+                .await
+                .map_err(|err| anyhow::anyhow!("no current HRRR cycle: {err}"))?;
+            let previous = wxdata::hrrr::fetch_field_previous_run(
+                http,
+                Model::Hrrr,
+                var,
+                level,
+                current.run,
+                current.valid(),
+                min_valid,
+            )
+            .await
+            .map_err(|err| anyhow::anyhow!("no earlier HRRR cycle to compare against: {err}"))?;
+            let times = ComparisonTimes::new(
+                current.run,
+                u16::from(current.fcst_hour),
+                previous.run,
+                u16::from(previous.fcst_hour),
+            )?;
+            verify_field_valid("current HRRR run", &current.field, times.valid)?;
+            verify_field_valid("previous HRRR run", &previous.field, times.valid)?;
+            Ok(ComparisonPair {
+                a: current.field,
+                b: previous.field,
+                times,
+            })
+        }
     }
 }
 
@@ -230,6 +269,10 @@ pub enum DiffField {
     Cape,
     /// HRRR − RAP storm-relative helicity.
     Srh,
+    /// ROADMAP_NEW F5: HRRR's current run minus its own previous run, both at the analysis hour
+    /// (lead 0) for the same valid time — how much the model's own initial state has changed
+    /// cycle to cycle, not a disagreement between two different models.
+    RunToRunCape,
 }
 
 /// `GlobalField` again, because that one is not `Hash`/`Serialize` and this is used as a settings
@@ -268,7 +311,7 @@ impl DiffField {
     /// units, so the subtraction means something. Column moisture still is not — GFS publishes
     /// precipitable water and ECMWF total precipitation, and subtracting them subtracts two
     /// different things. A plausible looking map of nonsense is worse than no map.
-    pub const ALL: [DiffField; 7] = [
+    pub const ALL: [DiffField; 8] = [
         DiffField::Global(GlobalFieldKind::Mslp),
         DiffField::Global(GlobalFieldKind::Height500),
         DiffField::Global(GlobalFieldKind::Temp2m),
@@ -276,6 +319,7 @@ impl DiffField {
         DiffField::Global(GlobalFieldKind::Wind10m),
         DiffField::Cape,
         DiffField::Srh,
+        DiffField::RunToRunCape,
     ];
 
     /// Native units → display units, the same conversion the single-model ramps apply. Grids
@@ -295,7 +339,19 @@ impl DiffField {
         match self {
             DiffField::Global(_) => ("GFS", "ECMWF"),
             DiffField::Cape | DiffField::Srh => ("HRRR", "RAP"),
+            // Distinct labels even though it's one model: "HRRR minus HRRR" would read as a
+            // typo, not "the same model's own initial state one cycle apart".
+            DiffField::RunToRunCape => ("HRRR (latest)", "HRRR (previous)"),
         }
+    }
+
+    /// The "view side by side" compare-panes mode shows each side's own single-model layer
+    /// unsubtracted — meaningful for two different models (`FieldLayer::GlobalMslp` genuinely is
+    /// "GFS's own MSLP" and "ECMWF's own MSLP" in the two panes), but a run-to-run field has no
+    /// distinct "previous run" layer of its own yet, so both panes would show today's current-run
+    /// CAPE with nothing to tell them apart. Hidden rather than shipped half-working.
+    pub fn supports_side_by_side(self) -> bool {
+        !matches!(self, DiffField::RunToRunCape)
     }
 
     /// The single-model layer whose color scale represents this field's own physical units.
@@ -316,6 +372,9 @@ impl DiffField {
             DiffField::Global(GlobalFieldKind::Precip) => FL::GlobalPrecip,
             DiffField::Cape => FL::Cape,
             DiffField::Srh => FL::Srh,
+            // Reused rather than a distinct layer: see `supports_side_by_side`'s doc comment on
+            // why the side-by-side mode this feeds is hidden for this field anyway.
+            DiffField::RunToRunCape => FL::Cape,
         }
     }
 
@@ -324,6 +383,7 @@ impl DiffField {
             DiffField::Global(k) => GlobalField::from(k).label(),
             DiffField::Cape => "Surface CAPE",
             DiffField::Srh => "Storm-relative helicity",
+            DiffField::RunToRunCape => "Surface CAPE (run to run)",
         }
     }
 
@@ -332,6 +392,7 @@ impl DiffField {
             DiffField::Global(k) => GlobalField::from(k).slug(),
             DiffField::Cape => "cape",
             DiffField::Srh => "srh",
+            DiffField::RunToRunCape => "cape-run-to-run",
         }
     }
 
@@ -348,6 +409,10 @@ impl DiffField {
             DiffField::Global(GlobalFieldKind::Precip) => (20.0, 1.0),
             DiffField::Cape => (1500.0, 200.0),
             DiffField::Srh => (150.0, 25.0),
+            // Tighter than the cross-model CAPE range above: this is the same model's own
+            // analysis one cycle apart, not two independent physics packages, so agreement is
+            // the common case and a smaller swing is already worth flagging.
+            DiffField::RunToRunCape => (800.0, 100.0),
         }
     }
 
@@ -363,6 +428,7 @@ impl DiffField {
 
             DiffField::Cape => "J/kg",
             DiffField::Srh => "m²/s²",
+            DiffField::RunToRunCape => "J/kg",
         }
     }
 }
@@ -651,6 +717,7 @@ mod tests {
             ),
             (DiffField::Cape, FL::Cape),
             (DiffField::Srh, FL::Srh),
+            (DiffField::RunToRunCape, FL::Cape),
         ];
         // Every field the UI actually offers (`DiffField::ALL`) is covered above — this catches a
         // new entry added to one list and not the other.
@@ -662,6 +729,21 @@ mod tests {
                 "{layer:?} must have a ramp to borrow"
             );
         }
+    }
+
+    /// ROADMAP_NEW F5: a run-to-run field compares one model against itself, so `pair()` must not
+    /// return the same label twice ("HRRR minus HRRR" reads as a typo, not "one cycle apart"),
+    /// and the side-by-side compare mode — which has no distinct "previous run" layer to show —
+    /// must be turned off rather than silently drawing the same current-run layer in both panes.
+    #[test]
+    fn run_to_run_fields_get_distinct_pair_labels_and_no_side_by_side_mode() {
+        let (a, b) = DiffField::RunToRunCape.pair();
+        assert_ne!(a, b, "pair: {a:?} vs {b:?}");
+        assert!(!DiffField::RunToRunCape.supports_side_by_side());
+        // Every other field keeps the mode it already had.
+        assert!(DiffField::Cape.supports_side_by_side());
+        assert!(DiffField::Srh.supports_side_by_side());
+        assert!(DiffField::Global(GlobalFieldKind::Mslp).supports_side_by_side());
     }
 
     /// The HRRR-vs-RAP comparison fetches one GRIB key and uses it for both models. That is only
