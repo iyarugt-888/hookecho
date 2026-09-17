@@ -90,11 +90,17 @@ blow the box out the same way. The "jump to this storm in 3D" action from the st
 which used the same fixed radius for its own clip-box math, now derives it from the same real
 sweep data so the box stays meaningful against whatever actually gets built.
 
-### Changed: the ribbon's radar product list scrolls instead of overflowing
+### Changed: every WSV3 ribbon group scrolls instead of overflowing
 
-The WSV3 ribbon's "Radar" group laid its product pills out in a fixed-height box with no scrollbar
-— content past that height had nowhere to go. It's now a vertical `ScrollArea`: unchanged when
-everything fits, and scrollable rather than clipped or overlapping the map when it doesn't.
+Every WSV3 ribbon group laid its content out in a fixed-height box with no scrollbar — content
+past that height had nowhere to go, and depending on the group, either overlapped whatever came
+after it or was simply unreachable (reported live: "Model", "Color fill", "MRMS national" and
+"Tools" all have enough items to wrap past the ribbon's own height at ordinary window widths).
+Fixed once at the root instead of one group at a time: `ribbon_group` now wraps every group's
+content in a vertical `ScrollArea` itself, so all thirteen groups get it uniformly rather than
+whichever ones a bug report happened to name. Unchanged in appearance when everything already
+fits (no scrollbar appears) — the "Search"/"Data"/"View"/"Overlays"/"Capture" groups, which never
+had enough content to overflow, look exactly as before.
 
 ### Added: overlay more than one model-contour field at once
 

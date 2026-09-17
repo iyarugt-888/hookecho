@@ -10,14 +10,27 @@ use super::*;
 use crate::ui::wsv3;
 use egui::{vec2, Align, Color32, Layout, RichText};
 
-/// One fixed-width ribbon group laid out top-down, followed by a hairline divider. Fixed width
-/// because `horizontal_wrapped` inside a group otherwise claims the whole remaining ribbon width
-/// as its own and strands every group after it far to the right.
-fn ribbon_group(ui: &mut egui::Ui, w: f32, add: impl FnOnce(&mut egui::Ui)) {
+/// One fixed-width ribbon group: a label, then `add`'s content in a vertical scroll area, then a
+/// hairline divider. Fixed width because `horizontal_wrapped` inside a group otherwise claims the
+/// whole remaining ribbon width as its own and strands every group after it far to the right.
+///
+/// Scrollable rather than however many wrapped rows `add` happens to produce: the group's own
+/// height is fixed (`RIBBON_H`), and a plain `horizontal_wrapped`/manually-chunked row layout has
+/// no way to reach content that wraps past that — it either overlapped the next group or the map
+/// below the ribbon, and either way some pills were simply unreachable. A `ScrollArea` costs
+/// nothing when everything already fits (no scrollbar appears), so every group gets it rather
+/// than only the ones a bug report happened to name.
+fn ribbon_group(ui: &mut egui::Ui, label: &str, w: f32, add: impl FnOnce(&mut egui::Ui)) {
     ui.allocate_ui_with_layout(
         vec2(w, wsv3::RIBBON_H - 6.0),
         Layout::top_down(Align::Min),
-        add,
+        |ui| {
+            wsv3::group_label(ui, label);
+            egui::ScrollArea::vertical()
+                .id_salt(("ribbon_group_scroll", label))
+                .max_height(ui.available_height())
+                .show(ui, add);
+        },
     );
     wsv3::vsep(ui);
 }
@@ -214,8 +227,7 @@ impl HookEchoApp {
                     ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                     ui.add_space(6.0);
 
-                    ribbon_group(ui, 136.0, |ui| {
-                        wsv3::group_label(ui, "Search");
+                    ribbon_group(ui, "Search", 136.0, |ui| {
                         if wsv3::pill(ui, "Search all", false, accent)
                             .on_hover_text("Search products, stations, tools, and UTC times (Ctrl+K)")
                             .clicked()
@@ -226,8 +238,7 @@ impl HookEchoApp {
                     });
 
                     // ---- DATA (mode switch — WSV3 swaps its whole toolbar by data type) ----
-                    ribbon_group(ui, 76.0, |ui| {
-                        wsv3::group_label(ui, "Data");
+                    ribbon_group(ui, "Data", 76.0, |ui| {
                         for m in crate::app::RibbonMode::ALL {
                             if wsv3::pill_sized(ui, m.label(), mode == m, accent, 62.0).clicked() {
                                 pick_mode = Some(m);
@@ -241,8 +252,7 @@ impl HookEchoApp {
 
                     if radar_mode {
                     // ---- RADAR ----
-                    ribbon_group(ui, 208.0, |ui| {
-                        wsv3::group_label(ui, "Radar");
+                    ribbon_group(ui, "Radar", 208.0, |ui| {
                         ui.horizontal(|ui| {
                             if ui
                                 .add(
@@ -283,39 +293,29 @@ impl HookEchoApp {
                             });
                         });
                         ui.add_space(1.0);
-                        // Vertically scrollable rather than a fixed number of wrapped rows: the
-                        // ribbon group's own height is fixed (`ribbon_group`'s allocation), so a
-                        // product list that grows past it used to spill out of its box instead of
-                        // staying reachable.
-                        egui::ScrollArea::vertical()
-                            .id_salt("wsv3_products_scroll")
-                            .max_height(ui.available_height())
-                            .show(ui, |ui| {
-                                for chunk in crate::products::PRODUCTS.chunks(4) {
-                                    ui.horizontal(|ui| {
-                                        for p in chunk {
-                                            if wsv3::pill_sized(
-                                                ui,
-                                                p.short,
-                                                p.moment == moment,
-                                                accent,
-                                                40.0,
-                                            )
-                                            .on_hover_text(p.blurb)
-                                            .clicked()
-                                            {
-                                                actions.palette =
-                                                    Some(PaletteAction::SetMoment(p.moment, srv));
-                                            }
-                                        }
-                                    });
+                        for chunk in crate::products::PRODUCTS.chunks(4) {
+                            ui.horizontal(|ui| {
+                                for p in chunk {
+                                    if wsv3::pill_sized(
+                                        ui,
+                                        p.short,
+                                        p.moment == moment,
+                                        accent,
+                                        40.0,
+                                    )
+                                    .on_hover_text(p.blurb)
+                                    .clicked()
+                                    {
+                                        actions.palette =
+                                            Some(PaletteAction::SetMoment(p.moment, srv));
+                                    }
                                 }
                             });
+                        }
                     });
 
                     // ---- TILT ----
-                    ribbon_group(ui, 250.0, |ui| {
-                        wsv3::group_label(ui, "Tilt angle");
+                    ribbon_group(ui, "Tilt angle", 250.0, |ui| {
                         if elevations.is_empty() {
                             ui.label(
                                 RichText::new("loading\u{2026}")
@@ -401,8 +401,7 @@ impl HookEchoApp {
                     });
 
                     // ---- VIEW ----
-                    ribbon_group(ui, 148.0, |ui| {
-                        wsv3::group_label(ui, "View");
+                    ribbon_group(ui, "View", 148.0, |ui| {
                         ui.horizontal(|ui| {
                             ui.label(
                                 RichText::new(format!("\u{25cf} {health_txt}"))
@@ -446,8 +445,7 @@ impl HookEchoApp {
 
                     if model_mode {
                     // ---- MODEL SOURCE ----
-                    ribbon_group(ui, 168.0, |ui| {
-                        wsv3::group_label(ui, "Model");
+                    ribbon_group(ui, "Model", 168.0, |ui| {
                         ui.horizontal_wrapped(|ui| {
                             for gm in [
                                 wxdata::global::GlobalModel::Gfs,
@@ -496,8 +494,7 @@ impl HookEchoApp {
                     });
 
                     // ---- COLOR FILL ----
-                    ribbon_group(ui, 210.0, |ui| {
-                        wsv3::group_label(ui, "Color fill");
+                    ribbon_group(ui, "Color fill", 210.0, |ui| {
                         ui.horizontal_wrapped(|ui| {
                             use crate::render::FieldLayer as FL;
                             for (fl, label) in [
@@ -522,8 +519,7 @@ impl HookEchoApp {
                     // ---- CONTOURS ----
                     // A checklist, not an exclusive pick: several model-contour fields (e.g. MSLP
                     // and CAPE) can be overlaid together.
-                    ribbon_group(ui, 140.0, |ui| {
-                        wsv3::group_label(ui, "Contours");
+                    ribbon_group(ui, "Contours", 140.0, |ui| {
                         // STP needs an LCL height only the HRRR surface file carries — see
                         // `ui::layer_options::stp_source`.
                         let stp_ok = matches!(env_model, wxdata::hrrr::Model::Hrrr);
@@ -553,8 +549,7 @@ impl HookEchoApp {
                     });
 
                     // ---- FUTURE RADAR (HRRR) ----
-                    ribbon_group(ui, 150.0, |ui| {
-                        wsv3::group_label(ui, "Future radar");
+                    ribbon_group(ui, "Future radar", 150.0, |ui| {
                         if wsv3::pill(ui, "HRRR future", hrrr_on, accent)
                             .on_hover_text(
                                 "HRRR composite-reflectivity forecast — future radar out to 18 h",
@@ -623,8 +618,7 @@ impl HookEchoApp {
 
                     if mrms_mode {
                     // ---- MRMS ----
-                    ribbon_group(ui, 268.0, |ui| {
-                        wsv3::group_label(ui, "MRMS national");
+                    ribbon_group(ui, "MRMS national", 268.0, |ui| {
                         ui.horizontal_wrapped(|ui| {
                             use crate::render::FieldLayer as FL;
                             for (fl, label) in [
@@ -650,8 +644,7 @@ impl HookEchoApp {
                     } // mrms_mode
 
                     // ---- OVERLAYS ----
-                    ribbon_group(ui, 108.0, |ui| {
-                        wsv3::group_label(ui, "Overlays");
+                    ribbon_group(ui, "Overlays", 108.0, |ui| {
                         if wsv3::pill(ui, "Layers", layers_on, accent).clicked() {
                             self.panel_open = !layers_on;
                             self.show_alert_panel = false;
@@ -675,8 +668,7 @@ impl HookEchoApp {
                     });
 
                     // ---- TOOLS ----
-                    ribbon_group(ui, 250.0, |ui| {
-                        wsv3::group_label(ui, "Tools");
+                    ribbon_group(ui, "Tools", 250.0, |ui| {
                         ui.horizontal_wrapped(|ui| {
                             for (tool, label) in [
                                 (MapTool::Interrogate, "Explore"),
@@ -704,8 +696,7 @@ impl HookEchoApp {
                     });
 
                     // ---- CAPTURE ----
-                    ribbon_group(ui, 118.0, |ui| {
-                        wsv3::group_label(ui, "Capture");
+                    ribbon_group(ui, "Capture", 118.0, |ui| {
                         if wsv3::pill(ui, "Share view", false, accent).clicked() {
                             actions.palette = Some(PaletteAction::CopyViewLink);
                         }
