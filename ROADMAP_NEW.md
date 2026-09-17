@@ -984,6 +984,18 @@ Build B6 in increments so the existing fast path remains usable throughout:
      which of that section's bullets this satisfies — auth/rate-limiting and a completed-volume
      endpoint are explicitly not yet done.
 5. [ ] LDM/IDD input adapter using a configured permitted upstream peer
+   - **Blocked on a genuine external dependency, not skipped.** `radar-ingest::ldm::LdmSourceConfig`
+     reads the external configuration a live adapter needs (host/port/feed pattern/site allowlist,
+     via `RADAR_INGEST_LDM_*` env vars — no default host is assumed, per B6.2). The LDM6/7 wire
+     protocol itself (`ldmd`'s peer protocol) is stateful and effectively impossible to implement
+     correctly without a real upstream peer to develop and validate the handshake/framing against;
+     no such peer or credentials exist in this environment. This matches the roadmap's own
+     anticipated blocker ("unavailable credentials/upstream LDM access") and its own accommodation
+     ("LDM integration tests use replay fixtures unless CI has an explicitly configured LDM feed",
+     B6.10). Everything downstream of ingestion (B6.11 steps 1-4) is already provider-agnostic — a
+     live LDM adapter, once buildable against a real peer, only needs to implement
+     `crate::input::InputAdapter`, the same trait `ReplayInputAdapter` already implements and every
+     later step already tests against. Work continues on the unblocked steps below.
 6. [ ] client `HookEchoRelayLevel2Provider`
 7. [ ] run Unidata + relay simultaneously and expose comparative health without switching
 8. [ ] per-site failover arbiter with bounded failure/staleness criteria

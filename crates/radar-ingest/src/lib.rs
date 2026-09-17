@@ -20,13 +20,18 @@
 //! - [`pipeline`]: wires the rechunker to block retention and live-subscriber fan-out.
 //! - [`wire`]: the JSON wire types for [`server`]'s HTTP/WebSocket API.
 //! - [`server`]: the WebSocket live stream and HTTP resume/backfill API (B6.4).
+//! - [`ldm`]: external configuration for a live LDM/IDD upstream peer (B6.11 step 5) — see that
+//!   module's doc comment for why this is configuration only, not a live protocol client: it
+//!   documents a genuine external blocker (no upstream peer/credentials are available to develop
+//!   or validate a wire-protocol implementation against), not an oversight.
 //!
-//! Deliberately absent so far: a live LDM connection (B6.11 step 5) and the client-side
-//! `HookEchoRelayLevel2Provider` (step 6) — those are later steps in ROADMAP_NEW B6.11's
-//! implementation order.
+//! Deliberately absent so far: a live LDM connection (blocked, see [`ldm`]) and the client-side
+//! `HookEchoRelayLevel2Provider` (B6.11 step 6) — the latter is unblocked and is where work
+//! continues next, feeding the pipeline via [`input::ReplayInputAdapter`] in the meantime.
 
 pub mod block_store;
 pub mod input;
+pub mod ldm;
 pub mod pipeline;
 pub mod rechunk;
 pub mod server;

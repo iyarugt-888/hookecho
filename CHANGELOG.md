@@ -8,6 +8,19 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: external LDM upstream configuration in `radar-ingest` (B6.11 step 5, partial)
+
+ROADMAP_NEW B6.11 step 5: `radar-ingest::ldm::LdmSourceConfig` reads a live LDM/IDD upstream peer's
+configuration (host, port, feed pattern, site allowlist) from `RADAR_INGEST_LDM_*` environment
+variables — no default host is assumed, matching B6.2's "treat LDM access as deployment
+configuration, not an entitlement." This step stops at configuration: the LDM6/7 wire protocol
+itself cannot be implemented and validated without a real upstream peer to test against, and none
+is available in this environment. That's a genuine external blocker the roadmap's own B6 planning
+anticipated, not a gap papered over — see the module's doc comment and ROADMAP_NEW's B6.11 step 5
+note for the full reasoning. Everything downstream of ingestion is already provider-agnostic, so a
+live adapter slots in later behind the same `input::InputAdapter` trait `ReplayInputAdapter`
+already implements, with no other changes needed.
+
 ### Added: WebSocket live stream and HTTP resume API for `radar-ingest` (B6.11 step 4)
 
 ROADMAP_NEW B6.11 step 4: `radar-ingest` now serves the blocks its rechunker produces over the
