@@ -681,18 +681,37 @@ The service must:
   FT28/CRAFT/NEXRD2) from a configured upstream peer
 - [ ] treat LDM access as deployment configuration, not an entitlement: do not assume a direct
   NSF Unidata feed is available to a non-academic/self-hosted deployment
-- [ ] provide an adapter boundary between LDM product arrival and HookEcho's ingest core so tests
+- [x] provide an adapter boundary between LDM product arrival and HookEcho's ingest core so tests
   can replay recorded Level II bytes without a live LDM process
-- [ ] support site allowlists so a deployment can ingest a selected radar set instead of being
+  - Implementation note: new `crates/radar-ingest` crate, `input::InputAdapter` — a `dyn`-safe
+    (`async-trait`, same pattern as `hookecho::volume::Level2LiveProvider`) consuming trait over a
+    bounded `tokio::mpsc::Sender<RawProduct>`. `input::ReplayInputAdapter` implements it against an
+    in-memory fixture list; the live LDM adapter (B6.11 step 5) implements the same trait.
+- [x] support site allowlists so a deployment can ingest a selected radar set instead of being
   forced to retain the entire national feed
+  - Implementation note: `store::IngestStore::with_allowlist`.
 - [ ] timestamp every product/block at backend receipt using a monotonic processing clock plus UTC
   wall time for provenance
+  - Partial: `input::RawProduct::received_at` stamps UTC wall time at ingest; a monotonic
+    processing-clock component is not yet added.
 - [ ] validate site ID, message framing, declared sizes and decompression boundaries before data
   enter the live ring buffer
+  - Partial: `store::IngestStore::ingest` validates site ID shape and declared size (rejecting
+    empty/oversized products) before admitting to the ring buffer. Message framing and
+    decompression-boundary validation require Level II message parsing and land with the
+    rechunker (B6.3) — raw products are still opaque bytes at this layer.
 - [ ] reject malformed/oversized input without killing the stream
-- [ ] use bounded queues and explicit backpressure; a slow client must never grow ingest memory
+  - Partial: oversized/empty/invalid-site products are rejected per-product without affecting
+    other sites' streams (see `RejectReason`); "malformed" in the message-framing sense needs B6.3.
+- [x] use bounded queues and explicit backpressure; a slow client must never grow ingest memory
   without bound
+  - Implementation note: `InputAdapter::run` sends into a bounded `mpsc::Sender`, which awaits
+    (applies backpressure) when full; `store::SiteRingBuffer` is bounded on both item count and
+    total bytes independently, per site.
 - [ ] maintain per-site rolling state and enough recent blocks for reconnect/resume
+  - Partial: `store::SiteRingBuffer`/`IngestStore` maintain bounded per-site rolling state now;
+    "enough ... for reconnect/resume" depends on the sequence numbering and resume protocol landing
+    in B6.3/B6.4.
 - [ ] optionally assemble completed volumes in parallel for verification/backfill without delaying
   publication of live blocks
 - [ ] expose health/readiness endpoints and machine-readable metrics
@@ -890,8 +909,14 @@ am I looking at, and how old is its newest radar data?”
 
 Build B6 in increments so the existing fast path remains usable throughout:
 
-1. [ ] canonical provider capabilities + radial/block provenance
-2. [ ] `radar-ingest` replay input and in-memory per-site ring buffer
+1. [x] canonical provider capabilities + radial/block provenance
+   - `wxdata::live_block` (`ProviderCapabilities`, `VolumeKey`, `CutKey`/`CutTracker`,
+     `RadialIdentity`, `ProviderSwitchReason`, `LiveLevel2Block`), wired into
+     `hookecho::volume::Level2LiveProvider` as a `capabilities()` method.
+2. [x] `radar-ingest` replay input and in-memory per-site ring buffer
+   - New `crates/radar-ingest` crate: `input::{RawProduct, InputAdapter, ReplayInputAdapter}` and
+     `store::{SiteRingBuffer, IngestStore, IngestLimits, RejectReason}`. See the B6.2 implementation
+     notes above for exactly which of that section's bullets this satisfies.
 3. [ ] lossless rechunker + manifest/sequence model
 4. [ ] WebSocket live stream + HTTP resume/backfill API
 5. [ ] LDM/IDD input adapter using a configured permitted upstream peer

@@ -1,0 +1,24 @@
+[package]
+name = "radar-ingest"
+description = "HookEcho's self-hostable LDM/IDD Level II ingest backend (ROADMAP_NEW B6)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+wxdata = { path = "../wxdata" }
+anyhow.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+chrono.workspace = true
+log.workspace = true
+# Same dyn-safety need as `hookecho::volume::Level2LiveProvider` (see that module's doc comment):
+# `InputAdapter` is `async fn`-bearing and needs to be usable behind `Box<dyn InputAdapter>` so the
+# ingest core can be handed either a `ReplayInputAdapter` (tests, local dev) or a live LDM adapter
+# (B6.11 step 5) without knowing which at compile time. This crate is native-only (a server), so
+# there is no wasm32 `?Send` accommodation to make here.
+async-trait = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util", "macros"] }

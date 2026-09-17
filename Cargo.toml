@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/hdf5lite","crates/nexrad-level3", "crates/wxdata", "crates/hookecho", "crates/hookecho-ffi", "crates/hookecho-lite"]
+    "crates/hdf5lite","crates/nexrad-level3", "crates/wxdata", "crates/hookecho", "crates/hookecho-ffi", "crates/hookecho-lite", "crates/radar-ingest"]
 # The fuzz targets need a nightly toolchain and their own profile; they are built by
 # `cargo +nightly fuzz run`, never by `cargo test --workspace`.
 # The strikes relay is a standalone daemon a user runs on their own box (see

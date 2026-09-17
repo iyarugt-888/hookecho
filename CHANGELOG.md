@@ -8,6 +8,20 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: `radar-ingest` backend crate — replay input and per-site ring buffer (B6.11 steps 1-2)
+
+ROADMAP_NEW B6.11 steps 1-2: the first two increments of the self-hostable `radar-ingest` LDM/IDD
+backend service. `wxdata::live_block` supplies the canonical provider-neutral identity/provenance
+model (volume/cut/radial identity, SAILS/MRLE-aware cut tracking, provider capabilities and switch
+reasons — already wired into `hookecho::volume::Level2LiveProvider`). The new `crates/radar-ingest`
+crate adds the adapter boundary between "wherever raw LDM products come from" and the ingest core
+(`input::InputAdapter`, `dyn`-safe the same way as `Level2LiveProvider`) with a fixture-driven
+`ReplayInputAdapter` so ingest logic is tested deterministically without a live LDM process, plus a
+bounded per-site in-memory holding area (`store::IngestStore`/`SiteRingBuffer`) that validates site
+ID and product size, supports a site allowlist, and enforces backpressure and memory bounds on both
+item count and total bytes per site. No live LDM connection, rechunking, or network distribution
+yet — those are later B6 increments; this crate is not built or deployed by the GUI app.
+
 ### Added: runtime-selectable live-radar provider boundary (B6.1)
 
 ROADMAP_NEW B6.1: `Level2LiveProvider` (the trait behind live radar updates) is now `dyn`-safe, so
