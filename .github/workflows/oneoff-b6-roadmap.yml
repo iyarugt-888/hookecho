@@ -1,0 +1,410 @@
+name: One-off B6 roadmap update
+
+on:
+  push:
+    branches:
+      - feat/wsv3-redesign
+    paths:
+      - .github/workflows/oneoff-b6-roadmap.yml
+
+permissions:
+  contents: write
+
+jobs:
+  update-roadmap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/wsv3-redesign
+          fetch-depth: 0
+
+      - name: Expand B6 redundant Level II architecture
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("ROADMAP_NEW.md")
+          text = path.read_text(encoding="utf-8")
+
+          old_b1 = '''- [ ] optional user-configured direct/LDM/NOAAPort-compatible relay provider — out of scope: this
+            needs a satellite dish/dedicated feed a typical user does not have, not something a client
+            app can add on its own. Revisit only if a concrete second provider (a different aggregator)
+            becomes realistic.'''
+
+          new_b1 = '''- [ ] independent HookEcho backend Level II ingest/relay — implement in B6 as a self-hostable
+            `radar-ingest` service fed from a permitted NEXRAD2 LDM/IDD upstream. It must ingest raw
+            Archive II/Level II data continuously, maintain a hot per-site rolling state, rechunk the
+            stream for HookEcho clients, and expose the same progressive-radial semantics as the current
+            Unidata/AWS path. Do **not** assume NSF Unidata will provide a direct IDD peer to every
+            deployment; upstream LDM peering must be configured with a provider/institution willing to
+            feed the deployment. The desktop/web/Android clients must not need to run LDM themselves.'''
+
+          if text.count(old_b1) != 1:
+              raise SystemExit(f"expected exactly one old B1 relay placeholder, found {text.count(old_b1)}")
+          text = text.replace(old_b1, new_b1, 1)
+
+          start_marker = "## B6. Feed failover — not started"
+          end_marker = "\n---\n\n# 5. Phase C — Advanced radar analysis engine"
+          start = text.index(start_marker)
+          end = text.index(end_marker, start)
+
+          new_b6 = r'''## B6. Redundant Level II ingest, rechunking and seamless feed failover — not started
+
+The target is no longer merely “try another URL if the current Level II request fails.” HookEcho
+should own a **transport-independent real-time radar stream** with enough redundancy to preserve
+progressive in-progress sweeps when one acquisition path fails. The design should go beyond simple
+multi-endpoint client failover: keep two genuinely different acquisition paths hot, normalize both
+into one canonical radial stream, and make provider changes a first-class, observable event.
+
+The initial topology is:
+
+```text
+                       NEXRAD Level II / Archive II
+                                │
+                ┌───────────────┴────────────────┐
+                │                                │
+      Path A — existing public feed      Path B — HookEcho ingest
+      Unidata/AWS live chunks            permitted LDM/IDD upstream
+                │                                │
+                │                         radar-ingest service
+                │                                │
+                │                            rechunker
+                │                                │
+                └───────────────┬────────────────┘
+                                │
+                     canonical radial blocks
+                     + source/provenance stamp
+                                │
+                     per-site failover arbiter
+                                │
+                 VolumeAssembler / live sweep state
+                                │
+                    2D + 3D HookEcho renderers
+                                │
+                NOAA TGFTP completed-volume fallback
+                     (degraded continuity only)
+```
+
+The Unidata/AWS live-chunk path remains the first implementation and can remain the preferred
+source when it is healthiest/fastest. The independent fallback is a **HookEcho-owned backend
+LDM/IDD ingester and rechunker**, not another URL backed by the same chunk service. NOAA TGFTP is
+the last-resort completed-volume path; it must never be presented as feature-equivalent to a
+sub-volume live stream.
+
+### B6.1 Make the provider boundary runtime-selectable
+
+The current `Level2LiveProvider` has one implementation and was intentionally left non-`dyn`-safe.
+B6 is the concrete reason to finish the abstraction.
+
+- [ ] make the live-provider boundary runtime-selectable, using either a `dyn`-safe trait or a
+  small provider enum if that produces simpler Rust; do not box merely for style
+- [ ] separate **transport capabilities** from provider identity; at minimum advertise:
+  `progressive_radials`, `resume`, `completed_volume`, `historical_backfill`, and
+  `server_push`
+- [ ] keep the decode/render path source-neutral: providers deliver canonical raw blocks/events;
+  existing Level II decoding, binning, stitching and 2D/3D rendering remain downstream
+- [ ] provider priority is configured per deployment/user, but automatic selection is based on
+  actual per-site health and freshness rather than a single global provider switch
+- [ ] preserve a manual provider override in Advanced settings for diagnostics
+
+A conceptual capability shape is sufficient; exact names can follow existing code style:
+
+```rust
+pub struct ProviderCapabilities {
+    pub progressive_radials: bool,
+    pub resume: bool,
+    pub completed_volume: bool,
+    pub historical_backfill: bool,
+    pub server_push: bool,
+}
+```
+
+### B6.2 Add a self-hostable `radar-ingest` backend service
+
+Create a focused backend service rather than embedding LDM into the GUI application. It should be
+usable in the project's Docker/Coolify deployment model and independently deployable on Linux.
+Suggested ownership is a new service/crate such as `services/radar-ingest` or
+`crates/radar-ingest`; do not grow `app.rs`.
+
+The service must:
+
+- [ ] accept a **permitted LDM/IDD NEXRAD2 feed** (`NEXRAD2`, historically also identified as
+  FT28/CRAFT/NEXRD2) from a configured upstream peer
+- [ ] treat LDM access as deployment configuration, not an entitlement: do not assume a direct
+  NSF Unidata feed is available to a non-academic/self-hosted deployment
+- [ ] provide an adapter boundary between LDM product arrival and HookEcho's ingest core so tests
+  can replay recorded Level II bytes without a live LDM process
+- [ ] support site allowlists so a deployment can ingest a selected radar set instead of being
+  forced to retain the entire national feed
+- [ ] timestamp every product/block at backend receipt using a monotonic processing clock plus UTC
+  wall time for provenance
+- [ ] validate site ID, message framing, declared sizes and decompression boundaries before data
+  enter the live ring buffer
+- [ ] reject malformed/oversized input without killing the stream
+- [ ] use bounded queues and explicit backpressure; a slow client must never grow ingest memory
+  without bound
+- [ ] maintain per-site rolling state and enough recent blocks for reconnect/resume
+- [ ] optionally assemble completed volumes in parallel for verification/backfill without delaying
+  publication of live blocks
+- [ ] expose health/readiness endpoints and machine-readable metrics
+
+The backend is infrastructure, **not** a mandatory HookEcho account service. A user may point the
+client at their own relay, and core public-data functionality must continue without an account.
+
+### B6.3 Rechunk without destroying Level II fidelity
+
+The rechunker exists to make the backend stream efficient and resumable; it must not invent new
+radar values or silently resample gates.
+
+- [ ] preserve the original Level II/Archive II radar messages as the authoritative payload where
+  practical; attach HookEcho transport metadata around them rather than converting them into a
+  lossy synthetic radar format
+- [ ] parse enough message metadata to identify site, volume, elevation/cut, azimuth/radial span,
+  radar time range and sequence continuity
+- [ ] emit **sub-volume blocks immediately when upstream bytes make them available**; do not wait
+  for sweep or volume completion
+- [ ] use configurable size/time flush limits so a partially filled block cannot be held
+  indefinitely just to reach a target radial count
+- [ ] do not claim that splitting an already-arrived LDM product reduces upstream latency; measure
+  `radar -> backend`, `backend -> emitted block`, and `block -> client/render` separately
+- [ ] compute a content hash/checksum for transport integrity and deduplication
+- [ ] assign a monotonic per-site transport sequence number for resume/replay
+- [ ] retain original radar timestamps separately from backend receipt/emission timestamps
+- [ ] never reorder radials merely to make prettier chunks; canonical ordering belongs in the
+  downstream assembler, which already has to tolerate out-of-order arrival
+
+Suggested envelope, not a frozen wire contract:
+
+```rust
+pub struct LiveLevel2Block {
+    pub site: RadarSite,
+    pub volume_key: VolumeKey,
+    pub elevation_number: Option<u16>,
+    pub elevation_angle: Option<f32>,
+    pub first_azimuth: Option<f32>,
+    pub last_azimuth: Option<f32>,
+    pub radar_start: DateTime<Utc>,
+    pub radar_end: DateTime<Utc>,
+    pub received_at: DateTime<Utc>,
+    pub emitted_at: DateTime<Utc>,
+    pub sequence: u64,
+    pub source_id: String,
+    pub checksum: [u8; 32],
+    pub payload: Bytes, // original lossless Level II message/block bytes
+}
+```
+
+### B6.4 Backend distribution protocol
+
+The relay must support both true live push and deterministic recovery after a network interruption.
+
+- [ ] WebSocket or equivalent server-push stream for live blocks
+- [ ] HTTP endpoint to fetch a specific recent block by site/sequence/checksum
+- [ ] per-site `head`/manifest endpoint describing newest sequence, current volume/sweep and latest
+  complete volume
+- [ ] reconnect with `resume_after=<sequence>` semantics so a client can fill a short gap without
+  resetting an otherwise valid in-progress volume
+- [ ] bounded rolling retention for recent blocks, configurable by time and memory/disk budget
+- [ ] optional completed-volume endpoint generated from the exact same retained source bytes
+- [ ] compression only when it produces a measured win over already-compressed Level II payloads;
+  do not burn CPU recompressing data by default without evidence
+- [ ] TLS handled by the deployment/reverse proxy, with optional relay token/auth for private
+  instances; public deployments need rate limiting and connection caps
+
+### B6.5 Canonical radial normalization and identity
+
+Both the current Unidata chunks and backend-rechunked LDM data must converge below acquisition into
+one identity/provenance model before they reach `VolumeAssembler`.
+
+- [ ] normalize source-specific objects into one `RadialBlock`/`RadialEvent` representation
+- [ ] carry `provider_id`, acquisition path, radar timestamp, local/backend receipt time and any
+  source sequence/checksum through the entire live pipeline
+- [ ] define a stable logical identity for deduplication using radar site + volume identity + cut/
+  elevation + radial/message identity; use payload hash as an integrity signal, not as the only
+  meteorological identity
+- [ ] handle SAILS/MRLE repeated low-level cuts without collapsing two legitimate passes into one
+- [ ] reject or quarantine impossible cross-source conflicts rather than silently choosing whichever
+  radial arrived last
+- [ ] keep provenance at block/radial granularity where the source changed inside a volume
+
+A provider switch must therefore be inspectable after the fact: the UI and diagnostics bundle
+should be able to say which source supplied each span of the live volume.
+
+### B6.6 Hot-standby failover arbiter — per radar site
+
+Do **not** wait for the primary to fail before starting the secondary. For sites actively being
+viewed/monitored, keep the independent source warm enough to know whether it is current.
+
+Track independently for every site/provider:
+
+- newest radar timestamp received
+- newest source sequence/object seen
+- wall-clock receipt time
+- rolling request/stream success and failure counts
+- reconnect count
+- missing sequence/radial count
+- duplicate/conflict count
+- measured source latency
+- backend processing latency where applicable
+- current capability mode (`progressive`, `completed-volume-only`, etc.)
+
+Then implement:
+
+- [ ] bounded automatic failover on repeated transport failures **or** source-data staleness
+- [ ] freshness comparison against the backup before switching; do not fail over to an even older
+  stream simply because it responds to a health request
+- [ ] per-site decisions — KTLX may fail over while KOHX remains on the primary
+- [ ] hysteresis/cooldown before failback so a flapping primary cannot bounce the renderer between
+  sources every few seconds
+- [ ] failback only after the preferred source has produced multiple consecutive healthy/current
+  observations
+- [ ] explicit switch reason (`transport_error`, `stale_data`, `sequence_gap`, `manual_override`,
+  `recovery`, etc.) recorded in provenance and diagnostics
+- [ ] never use provider HTTP reachability alone as “healthy”; data freshness is the decisive
+  operational signal
+
+Thresholds should be configurable and benchmarked against real scan cadence. Do not hard-code a
+marketing latency target as the health rule.
+
+### B6.7 Seamless mid-volume continuation, with strict safety rules
+
+The stretch goal — and the main step beyond ordinary endpoint failover — is to continue an
+in-progress live sweep from the backup instead of blanking the display or waiting for the next
+completed volume.
+
+- [ ] permit cross-provider continuation only when radar site, volume identity/time, VCP/cut and
+  radial chronology are demonstrably compatible
+- [ ] deduplicate overlapping radials/blocks already rendered from the old source
+- [ ] accept newer backup radials into the same live volume when identity is certain
+- [ ] never roll the visible sweep backwards because a backup's last-seen sequence is behind
+- [ ] preserve the previous-sweep-under-new-wedge behavior already implemented in B2
+- [ ] if identity is ambiguous, **do not mix**: reset live assembly at a safe sweep/volume boundary
+  and make that discontinuity visible in provider state
+- [ ] test provider changes during SAILS/MRLE inserts, not only ordinary single-pass VCPs
+- [ ] keep 3D `live_scan_revision`, observed-gate buffers and smooth-volume caches synchronized
+  when the source changes within an otherwise continuous logical volume
+
+The invariant is: **availability may degrade; scientific identity may not.** A visibly brief reset
+is preferable to silently composing radials from incompatible scans.
+
+### B6.8 Completed-volume emergency continuity via NOAA TGFTP
+
+Add NOAA/NCEP TGFTP Level II as the final fallback mode for availability when neither progressive
+source is usable.
+
+- [ ] implement a `NoaaTgftpLevel2Provider` for latest completed `.bz2` Level II volumes
+- [ ] poll efficiently using the site's directory/index metadata rather than redownloading listings
+  unnecessarily
+- [ ] reuse the same Level II decoder and `VolumeAssembler` validation path
+- [ ] label the mode **completed-volume fallback** in UI/provenance; do not show live chunk progress
+  when no progressive feed exists
+- [ ] automatically return to a progressive provider only through the same hysteresis/freshness
+  policy used above
+- [ ] cache the most recent valid completed volume so a total network outage degrades to an honest
+  stale display rather than a blank/crash
+
+### B6.9 Source-health and latency UI
+
+Extend B3/N1 rather than creating a second unrelated diagnostics system.
+
+- [ ] show active provider/path for the current radar site
+- [ ] show standby provider and whether it is caught up
+- [ ] show radar-time age, provider receipt lag, backend rechunk latency, network-to-client delay,
+  decode time and render-queue time as distinct measurements where available
+- [ ] show current failover state: `PRIMARY`, `BACKUP`, `DEGRADED_VOLUME`, `STALE`, `MANUAL`
+- [ ] show last provider transition time and reason
+- [ ] expose sequence gaps/retries/duplicates/conflicts
+- [ ] add these fields to the local diagnostics bundle
+- [ ] optional developer view: both providers' freshness side-by-side for the same site
+
+Do not hide a source change. The operator should always be able to answer “which acquisition path
+am I looking at, and how old is its newest radar data?”
+
+### B6.10 Deployment and operations
+
+- [ ] add a Docker image/service for the backend ingester/rechunker
+- [ ] make upstream LDM host/feed pattern, site allowlist, retention, listen address and public URL
+  environment-configurable
+- [ ] provide a Coolify/docker-compose example without making hosted HookEcho infrastructure
+  mandatory
+- [ ] document how an operator supplies their own permitted LDM peer; do not ship credentials or
+  assume access to an upstream that has not agreed to feed the deployment
+- [ ] implement graceful restart: persist enough sequence/manifest state to reconnect clients or
+  deliberately announce a new stream epoch so old sequence IDs cannot collide
+- [ ] bounded memory/disk usage with per-site eviction
+- [ ] structured logs and `/health`, `/ready`, `/metrics`-style observability (exact routes may
+  follow project conventions)
+- [ ] network contract test for the current Unidata chunks and NOAA TGFTP; LDM integration tests
+  use replay fixtures unless CI has an explicitly configured LDM feed
+
+### B6.11 Implementation order
+
+Build B6 in increments so the existing fast path remains usable throughout:
+
+1. [ ] canonical provider capabilities + radial/block provenance
+2. [ ] `radar-ingest` replay input and in-memory per-site ring buffer
+3. [ ] lossless rechunker + manifest/sequence model
+4. [ ] WebSocket live stream + HTTP resume/backfill API
+5. [ ] LDM/IDD input adapter using a configured permitted upstream peer
+6. [ ] client `HookEchoRelayLevel2Provider`
+7. [ ] run Unidata + relay simultaneously and expose comparative health without switching
+8. [ ] per-site failover arbiter with bounded failure/staleness criteria
+9. [ ] safe mid-volume continuation + deduplication/conflict handling
+10. [ ] NOAA TGFTP completed-volume degraded provider
+11. [ ] source-health UI, manual override and diagnostics export
+12. [ ] chaos/replay/performance tests, then enable automatic failover by default
+
+Do not make the renderer wait for this entire list. Each increment should keep the current
+Unidata path working and should land with deterministic replay tests.
+
+### B6.12 Acceptance tests
+
+- [ ] synthetic chunks/blocks arriving out of order produce the correct final sweep
+- [ ] duplicate blocks from both providers are rendered once
+- [ ] a missing radial block does not corrupt adjacent azimuths
+- [ ] primary stream failure mid-sweep switches to a caught-up independent LDM relay without
+  waiting for full-volume completion when identity is compatible
+- [ ] an intentionally incompatible backup volume is **not** mixed into the current live volume
+- [ ] failover never moves the visible newest-radar timestamp backwards
+- [ ] SAILS/MRLE repeated low-level cuts survive cross-provider deduplication correctly
+- [ ] a short client disconnect resumes from sequence without rebuilding the whole current volume
+- [ ] backend restart creates an unambiguous stream epoch/resume outcome
+- [ ] slow-client/backpressure test remains within configured memory bounds
+- [ ] malformed/oversized Level II input is rejected without terminating healthy site streams
+- [ ] provider flapping does not cause rapid source oscillation because failback hysteresis works
+- [ ] when both progressive feeds fail, NOAA TGFTP supplies the next completed volume and the UI
+  clearly changes to `DEGRADED_VOLUME`
+- [ ] completed volume reconstructed from each progressive path matches the same archived Level II
+  volume within decode tolerance
+- [ ] measured radar/provider/backend/client/decode latency fields are internally consistent and
+  shown with exact provenance
+- [ ] 2D progressive sweep, gate inspector, cross sections, derived products and both 3D modes
+  continue updating across a safe provider transition
+
+### B6.13 Definition of done
+
+B6 is not complete merely because a second endpoint can return a radar file. It is complete when
+HookEcho has **two independently acquired progressive Level II paths**, one of them the self-hosted
+LDM/IDD backend ingester/rechunker, both feeding the same canonical radial pipeline; automatic
+per-site failover can continue a compatible in-progress scan without duplicate/rollback artifacts;
+provider provenance is visible and exportable; and NOAA TGFTP provides an explicitly degraded
+completed-volume continuity mode when both live paths are unavailable.
+'''
+
+          text = text[:start] + new_b6 + text[end:]
+          path.write_text(text, encoding="utf-8")
+          PY
+
+      - name: Commit roadmap and remove one-off workflow
+        shell: bash
+        run: |
+          rm .github/workflows/oneoff-b6-roadmap.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ROADMAP_NEW.md .github/workflows/oneoff-b6-roadmap.yml
+          git diff --cached --check
+          git diff --cached --quiet && { echo "No changes produced"; exit 1; }
+          git commit -m "docs: expand B6 redundant Level II ingest plan"
+          git push origin HEAD:feat/wsv3-redesign
