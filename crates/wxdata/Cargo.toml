@@ -30,6 +30,10 @@ geojson = "1.0.0"
 # bounded concurrency instead of one at a time.
 futures-util = { version = "0.3", default-features = false, features = ["std", "async-await-macro"] }
 chrono-tz = { version = "0.10", default-features = false, features = ["filter-by-regex"] }
+# ROADMAP_NEW B6: content-hash/checksum for live radar block transport integrity and
+# deduplication (`live_block::checksum`). Already a direct dependency of `hookecho` (cache file
+# naming) and therefore already resolved in the lockfile — no new transitive weight.
+sha2 = "0.10"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio.workspace = true

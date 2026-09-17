@@ -33,6 +33,7 @@ pub mod kdp;
 pub mod level2;
 pub mod level3;
 pub mod live;
+pub mod live_block;
 pub mod lsr;
 pub mod metar;
 pub mod meteoalarm;
