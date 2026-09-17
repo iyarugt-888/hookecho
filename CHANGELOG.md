@@ -8,6 +8,19 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: "Dear ImGui" theme
+
+Requested live, with reference screenshots of Dear ImGui's own demo/example apps: a new theme
+reproducing `ImGui::StyleColorsDark()` as closely as this app's single-accent palette lets it —
+near-black `#0F0F0F` window fill (ImGui's own `WindowBg`), pure-white text, and the exact "ImGui
+blue" accent (`#4296FA`, `(0.26, 0.59, 0.98)` — ImGui's `CheckMark`/`Header`/`SliderGrabActive`).
+The idle/hovered input-field colors aren't guessed: they're `ImGuiCol_FrameBg` and
+`FrameBgHovered` — ImGui's own translucent navy-blue accent washes — alpha-composited over
+`WindowBg` by hand, the same blend ImGui's renderer does at those exact alpha values, so the
+muted-navy look of an idle slider or radio button in the reference screenshots comes through
+rather than a guessed flat color. Selectable anywhere the existing seven themes are (Settings
+already lists every `Theme::ALL` entry generically) — no new picker UI needed.
+
 ### Added: rolling success/failure count in source health
 
 ROADMAP_NEW N1: the per-source health popup and the consolidated "Data source health" window

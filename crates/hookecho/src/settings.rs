@@ -24,11 +24,17 @@ pub enum Theme {
     Aurora,
     HighContrast,
     Oled,
+    /// Dear ImGui's own default dark style, reproduced as closely as this app's single-accent
+    /// palette abstraction can: near-black window fill, the exact "ImGui blue" accent
+    /// (`#4296FA`, `ImGuiCol_CheckMark`/`ImGuiCol_Header` in `StyleColorsDark()`), and the muted
+    /// navy `FrameBg` blend for idle input fields that gives ImGui's widgets their identifiable
+    /// look.
+    DearImGui,
 }
 
 impl Theme {
     /// All themes in menu order.
-    pub const ALL: [Theme; 7] = [
+    pub const ALL: [Theme; 8] = [
         Theme::Dark,
         Theme::Light,
         Theme::System,
@@ -36,6 +42,7 @@ impl Theme {
         Theme::Aurora,
         Theme::HighContrast,
         Theme::Oled,
+        Theme::DearImGui,
     ];
 
     pub fn label(self) -> &'static str {
@@ -47,6 +54,7 @@ impl Theme {
             Theme::Aurora => "Aurora",
             Theme::HighContrast => "High contrast",
             Theme::Oled => "OLED black",
+            Theme::DearImGui => "Dear ImGui",
         }
     }
 }

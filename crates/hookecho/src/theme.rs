@@ -129,6 +129,24 @@ fn palette(theme: Theme, system_dark: bool) -> Palette {
             text: c(0xc8d0da),
             accent: ACCENT,
         },
+        // Dear ImGui's own StyleColorsDark(), reproduced within this app's single-accent
+        // abstraction. `widget`/`widget_hover` are ImGui's FrameBg/FrameBgHovered (its
+        // translucent navy-blue accent washes, `(0.16,0.29,0.48,0.54)` and
+        // `(0.26,0.59,0.98,0.40)`) alpha-composited over ImGui's own WindowBg `(0.06,0.06,0.06)`
+        // — the exact math a real ImGui frame does, just baked to opaque colors since this
+        // palette has no separate alpha channel per role. `accent` is ImGui's literal
+        // CheckMark/Header/SliderGrabActive blue, `(0.26,0.59,0.98)`.
+        Theme::DearImGui => Palette {
+            is_dark: true,
+            bg: c(0x0f0f0f),
+            extreme: c(0x000000),
+            faint: c(0x1a1a1a),
+            stroke: c(0x3a3d46),
+            widget: c(0x1d2f49),
+            widget_hover: c(0x24456d),
+            text: c(0xffffff),
+            accent: c(0x4296fa),
+        },
     }
 }
 
@@ -436,4 +454,50 @@ pub fn section<R>(
             r
         })
         .body_returned
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::settings::Theme;
+
+    #[test]
+    fn dear_imgui_is_a_real_selectable_theme() {
+        assert!(Theme::ALL.contains(&Theme::DearImGui));
+        assert_eq!(Theme::DearImGui.label(), "Dear ImGui");
+    }
+
+    #[test]
+    fn dear_imgui_reproduces_the_exact_imgui_blue_accent() {
+        // ImGuiCol_CheckMark / Header / SliderGrabActive in StyleColorsDark(): (0.26, 0.59, 0.98).
+        assert_eq!(
+            accent(Theme::DearImGui),
+            Color32::from_rgb(0x42, 0x96, 0xfa)
+        );
+    }
+
+    #[test]
+    fn dear_imgui_is_dark_with_a_near_black_background() {
+        let bg = preview_bg(Theme::DearImGui);
+        // ImGui's own WindowBg, (0.06, 0.06, 0.06) — dark enough that no channel clears 0x20.
+        assert!(bg.r() < 0x20 && bg.g() < 0x20 && bg.b() < 0x20, "{bg:?}");
+    }
+
+    #[test]
+    fn every_theme_has_a_distinct_accent_or_is_explicitly_sharing_the_default() {
+        // Themes with their own identity (Synthwave's pink, Aurora's green, High contrast's
+        // yellow, and now Dear ImGui's blue) must not accidentally collide with another theme's
+        // accent — that would silently erase the whole point of picking one over the other.
+        let named = [
+            Theme::Synthwave,
+            Theme::Aurora,
+            Theme::HighContrast,
+            Theme::DearImGui,
+        ];
+        for (i, a) in named.iter().enumerate() {
+            for b in &named[i + 1..] {
+                assert_ne!(accent(*a), accent(*b), "{a:?} vs {b:?}");
+            }
+        }
+    }
 }
