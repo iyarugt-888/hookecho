@@ -8,6 +8,24 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: NOAA TGFTP degraded completed-volume provider (B6.11 step 10)
+
+ROADMAP_NEW B6.11 step 10: `hookecho::tgftp_provider::NoaaTgftpLevel2Provider` — the last-resort
+`Level2LiveProvider` for when neither progressive live path (Unidata or the HookEcho relay) is
+usable. Polls NOAA's TGFTP mirror's small `dir.list` index rather than a full directory listing,
+downloading a volume file only when a genuinely new one appears, and decodes it through the exact
+same `wxdata::level2::decode_volume` the AWS archive path already uses — no second decoder. Built
+and verified against the real, live TGFTP service (not only deterministic fixtures): fetched and
+decoded an actual current volume, and along the way confirmed from real header bytes that the
+`.bz2` filename suffix does not mean a whole-file compression wrapper, just the standard per-record
+bzip2 Archive II format `decode_volume` already handles. `capabilities()` correctly advertises
+`progressive_radials: false`, and `subscribe` never calls `on_progress` — there is no progressive
+signal to fake. Every successful fetch updates an in-memory cache so a total network outage
+degrades `latest_complete_volume` to serving the last known-good volume instead of erroring out to
+a blank pane; the very first call with nothing cached yet still surfaces a real error. Cross-
+platform (native and wasm32) — needs only `reqwest` and `wxdata::task::sleep_while`. Not yet
+selected by the failover arbiter as an actual last resort; that wiring is B6.11 step 11.
+
 ### Added: safe mid-volume continuation and cross-provider deduplication (B6.11 step 9)
 
 ROADMAP_NEW B6.11 step 9: `wxdata::continuation` answers the two questions a safe cross-provider

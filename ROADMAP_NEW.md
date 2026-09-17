@@ -962,16 +962,40 @@ is preferable to silently composing radials from incompatible scans.
 Add NOAA/NCEP TGFTP Level II as the final fallback mode for availability when neither progressive
 source is usable.
 
-- [ ] implement a `NoaaTgftpLevel2Provider` for latest completed `.bz2` Level II volumes
-- [ ] poll efficiently using the site's directory/index metadata rather than redownloading listings
+- [x] implement a `NoaaTgftpLevel2Provider` for latest completed `.bz2` Level II volumes
+  - Implementation note: `hookecho::tgftp_provider::NoaaTgftpLevel2Provider`, against
+    `https://tgftp.nws.noaa.gov/data/radar/nexrad_level2/{SITE}/`. Verified against the real, live
+    service while building this (not just replay fixtures): fetched and decoded an actual current
+    volume successfully. The `.bz2` filename suffix does not mean a whole-file compression
+    wrapper — confirmed from a real downloaded volume's raw header bytes (`AR2V0006....`
+    immediately followed by a `BZh9`-prefixed first record) that these are plain Archive II files
+    with the standard per-record bzip2 compression, the exact shape
+    `wxdata::level2::decode_volume` already decodes for the AWS archive path.
+- [x] poll efficiently using the site's directory/index metadata rather than redownloading listings
   unnecessarily
-- [ ] reuse the same Level II decoder and `VolumeAssembler` validation path
-- [ ] label the mode **completed-volume fallback** in UI/provenance; do not show live chunk progress
+  - Implementation note: polls the small `dir.list` index (`<size> <filename>` per line, a few KB)
+    rather than the full HTML directory listing; only downloads a volume file itself when
+    `dir.list`'s newest entry differs from what's already held.
+- [x] reuse the same Level II decoder and `VolumeAssembler` validation path
+  - Implementation note: `wxdata::level2::decode_volume` — the identical function the AWS archive
+    path already uses; no separate decoder.
+- [x] label the mode **completed-volume fallback** in UI/provenance; do not show live chunk progress
   when no progressive feed exists
+  - Implementation note: `label()` returns `"NOAA TGFTP (degraded)"`; `capabilities()` returns
+    `ProviderCapabilities::tgftp()` (`progressive_radials: false`); `subscribe`'s `on_progress`
+    callback is never invoked. Actually surfacing this in the UI is step 11's job.
 - [ ] automatically return to a progressive provider only through the same hysteresis/freshness
   policy used above
-- [ ] cache the most recent valid completed volume so a total network outage degrades to an honest
+  - Not this provider's job — recovering to a progressive source is the failover arbiter's
+    responsibility (B6.6/step 8, already implemented); this provider only needs to exist and be
+    selectable as the arbiter's last resort, which is step 11's wiring.
+- [x] cache the most recent valid completed volume so a total network outage degrades to an honest
   stale display rather than a blank/crash
+  - Implementation note: every successful fetch updates an in-memory `last_known` cache;
+    `latest_complete_volume` falls back to serving it (as `UpToDate` or `New`, whichever is
+    correct for what the caller already has) when a fetch fails, rather than propagating the
+    error, once at least one fetch has ever succeeded. The very first call with nothing cached yet
+    still surfaces a real error rather than fabricating data.
 
 ### B6.9 Source-health and latency UI
 
@@ -1087,7 +1111,14 @@ Build B6 in increments so the existing fast path remains usable throughout:
      — pure identity/bookkeeping logic, no network, no rendering. See the B6.7 implementation
      notes above for exactly which of that section's bullets this satisfies; wiring this into the
      live render pipeline so a real switch actually happens safely is step 11.
-10. [ ] NOAA TGFTP completed-volume degraded provider
+10. [x] NOAA TGFTP completed-volume degraded provider
+    - New `hookecho::tgftp_provider::NoaaTgftpLevel2Provider` — cross-platform (native + wasm32,
+      unlike `relay_provider`/`provider_health`; needs only `reqwest` and
+      `wxdata::task::sleep_while`). See the B6.8 implementation notes above for exactly which of
+      that section's bullets this satisfies. Verified against the real, live TGFTP service, not
+      only deterministic fixtures — a genuine current volume was fetched and decoded successfully
+      while building this. Not yet selected by the failover arbiter as an actual last resort
+      (step 11's wiring).
 11. [ ] source-health UI, manual override and diagnostics export
 12. [ ] chaos/replay/performance tests, then enable automatic failover by default
 

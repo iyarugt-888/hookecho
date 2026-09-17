@@ -105,6 +105,11 @@ pub mod status;
 /// storage stats in the Storage settings tab.
 pub mod storage;
 pub mod textview;
+/// ROADMAP_NEW B6.11 step 10: `Level2LiveProvider` for NOAA's TGFTP completed-volume mirror, the
+/// last-resort degraded fallback when neither progressive path is usable. Cross-platform (needs
+/// only `reqwest` and `wxdata::task::sleep_while`, both already cross-platform here) — unlike
+/// `relay_provider`/`provider_health`, this one is not native-only.
+pub mod tgftp_provider;
 pub mod theme;
 pub mod tiles;
 pub mod timefmt;
