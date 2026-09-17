@@ -2025,8 +2025,13 @@ For every active source:
   absolute valid time behind it
 - [x] age — `last_success`/`last_attempt`/`last_failure`, all ages from "now"
 - [x] expected cadence — `SourceHealth.cadence`
-- [ ] rolling success/failure count — `RequestStatus`/`SourceHealth` keep only the most recent
-  attempt/success/failure, not a running tally over a window
+- [x] rolling success/failure count — new this pass, see the Unreleased CHANGELOG entry:
+  `RequestStatus.outcomes`, a capped `VecDeque<bool>` (last 20 finished requests) that
+  `SourceHealth.recent_outcomes` reports as `(successes, failures)`. `None` for radar, whose
+  health is built from `MapView` fields directly rather than through `RequestBook` and has no
+  outcome history to report honestly. Shown in both the per-row popup ("Recent: 18/20 succeeded")
+  and the consolidated Data source health window (a new "Recent" column), and carried into the N4
+  diagnostics bundle.
 - [x] current backoff — `SourceHealth::next_retry()`
 - [ ] cache state — no field for it; the request book tracks fetch health, not cache residency
 - [ ] fallback provider — no source in this app has one yet (see B1/B6: there is exactly one

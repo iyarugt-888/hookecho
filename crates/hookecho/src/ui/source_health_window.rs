@@ -7,9 +7,11 @@
 //! the Layers panel itself uses to decide which rows earn a warning icon, so the two can never
 //! disagree about what counts as "active".
 //!
-//! Not yet covered here, genuinely open rather than silently assumed: a rolling success/failure
-//! *count* (only the most recent attempt/success/failure is tracked), cache state, and fallback
-//! provider — `SourceHealth` has no fields for any of the three yet.
+//! ROADMAP_NEW N1's "rolling success/failure count" is the one item that DOES have tracking now:
+//! `SourceHealth.recent_outcomes` — successes out of the last `RequestBook::OUTCOME_WINDOW`
+//! finished requests, `None` for a source (radar) that doesn't track a request-outcome history at
+//! all. Still not covered here, genuinely open rather than silently assumed: cache state and
+//! fallback provider — `SourceHealth` has no fields for either yet.
 
 use crate::app::{HealthState, PaletteEntry, SourceHealth};
 use crate::ui::layers_panel::{active_layer, age_line, compact_age, health_look};
@@ -73,7 +75,7 @@ pub(crate) fn show(
         ui.separator();
         egui::ScrollArea::vertical().show(ui, |ui| {
             egui::Grid::new("source_health_grid")
-                .num_columns(5)
+                .num_columns(6)
                 .spacing([12.0, 6.0])
                 .striped(true)
                 .show(ui, |ui| {
@@ -81,6 +83,8 @@ pub(crate) fn show(
                     ui.weak("Source");
                     ui.weak("Last success");
                     ui.weak("Cadence");
+                    ui.weak("Recent")
+                        .on_hover_text("Successes out of the last 20 finished requests");
                     ui.weak("Last error");
                     ui.end_row();
                     for h in rows {
@@ -90,6 +94,14 @@ pub(crate) fn show(
                         ui.label(&h.source);
                         ui.label(age_line(h.last_success));
                         ui.label(compact_age(h.cadence));
+                        match h.recent_outcomes {
+                            Some((successes, failures)) => {
+                                ui.label(format!("{successes}/{}", successes + failures));
+                            }
+                            None => {
+                                ui.weak("—");
+                            }
+                        }
                         match &h.error {
                             Some(e) => {
                                 ui.label(RichText::new(e).color(Color32::from_rgb(230, 120, 120)))
@@ -137,6 +149,7 @@ mod tests {
                 last_failure,
                 error: (state == HealthState::Failed).then(|| "boom".to_string()),
                 cadence: std::time::Duration::from_secs(120),
+                recent_outcomes: None,
                 details: Vec::new(),
             }),
         }

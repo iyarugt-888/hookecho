@@ -378,6 +378,11 @@ fn health_popup(ui: &mut egui::Ui, health: &SourceHealth) {
                     .map_or_else(|| "waiting".into(), |d| format!("in {}", compact_age(d)))
             });
             ui.end_row();
+            if let Some((successes, failures)) = health.recent_outcomes {
+                ui.weak("Recent");
+                ui.label(format!("{successes}/{} succeeded", successes + failures));
+                ui.end_row();
+            }
             for (label, value) in &health.details {
                 ui.weak(*label);
                 ui.label(value);

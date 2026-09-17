@@ -8,6 +8,17 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: rolling success/failure count in source health
+
+ROADMAP_NEW N1: the per-source health popup and the consolidated "Data source health" window
+only ever showed the single most recent attempt/success/failure, not how a source has actually
+been behaving lately. `RequestStatus` now keeps a rolling window of the last 20 finished
+requests' outcomes, and `SourceHealth.recent_outcomes` reports it as "18/20 succeeded" — shown in
+the per-row popup, a new "Recent" column in the consolidated window, and carried into the N4
+diagnostics bundle. Radar's own health, built from `MapView` fields directly rather than through
+the shared `RequestBook` every other source goes through, has no outcome history to report and
+shows "—" rather than a misleading zero.
+
 ### Added: vertical/layer functions for user-defined radar products
 
 ROADMAP_NEW C1: the user-defined-product formula language (`wxdata::udp`) could only read one

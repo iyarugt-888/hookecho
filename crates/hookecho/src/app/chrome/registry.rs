@@ -144,6 +144,10 @@ impl HookEchoApp {
             // Shared with the scrubber's own Live/Stale badge (`RADAR_FRESH_SECS`) so the two
             // can never disagree about what counts as fresh — see that constant's doc comment.
             cadence: std::time::Duration::from_secs(RADAR_FRESH_SECS as u64),
+            // Radar's health is built from `MapView` fields directly, not `RequestBook`, so
+            // there is no rolling outcome history to report here — see `recent_outcomes`'s own
+            // doc comment.
+            recent_outcomes: None,
             details,
         }
     }

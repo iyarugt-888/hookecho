@@ -575,6 +575,13 @@ pub(crate) struct SourceHealth {
     pub last_failure: Option<std::time::Duration>,
     pub error: Option<String>,
     pub cadence: std::time::Duration,
+    /// ROADMAP_NEW N1's "rolling success/failure count": `(successes, failures)` over the last
+    /// `RequestBook::OUTCOME_WINDOW` finished requests. `None` for a source with no rolling
+    /// tally to report — radar's own health is built from `MapView` fields directly (see
+    /// `HookEchoApp::radar_health`), which track ingest lag and a live-stream retry count but not
+    /// a request-outcome history the way `RequestBook`-tracked lanes do; showing `Some((0, 0))`
+    /// there would read as "always healthy" rather than "not tracked".
+    pub recent_outcomes: Option<(u32, u32)>,
     /// Extra labeled lines the popup shows verbatim, for a source with facts worth a permanent
     /// line of their own rather than a hover aside — radar's provider ingest lag and live-stream
     /// retry count are the only ones that currently set this. Empty for every other source.
@@ -614,6 +621,10 @@ struct DiagnosticsSourceHealth {
     status: &'static str,
     last_success_secs: Option<u64>,
     cadence_secs: u64,
+    /// ROADMAP_NEW N1's rolling success/failure count, `None` for a source that doesn't track
+    /// one — see `SourceHealth.recent_outcomes`'s own doc comment.
+    recent_successes: Option<u32>,
+    recent_failures: Option<u32>,
     error: Option<String>,
 }
 
@@ -637,6 +648,12 @@ struct RequestStatus {
     last_success: Option<Instant>,
     last_failure: Option<(Instant, String)>,
     cadence: std::time::Duration,
+    /// ROADMAP_NEW N1's rolling success/failure count: the outcome of each finished request,
+    /// oldest first, capped at `RequestBook::OUTCOME_WINDOW` — `true` a success, `false` a
+    /// failure. A `VecDeque` rather than just two running totals so the window actually rolls
+    /// (an old failure eventually ages out) instead of a failure from hours ago permanently
+    /// dragging down a source that has since recovered.
+    outcomes: std::collections::VecDeque<bool>,
 }
 
 /// Latest generation and fetch health in each result lane.
@@ -648,6 +665,11 @@ struct RequestBook {
 }
 
 impl RequestBook {
+    /// How many recent finished requests `SourceHealth.recent_outcomes` reports over. Large
+    /// enough to smooth over a single transient blip, small enough that a source's tally reflects
+    /// its current behavior rather than its whole session history.
+    const OUTCOME_WINDOW: usize = 20;
+
     fn start(&mut self, lane: RequestLane) -> u64 {
         self.next = self.next.wrapping_add(1);
         self.latest.insert(lane.clone(), self.next);
@@ -666,6 +688,7 @@ impl RequestBook {
                 last_success: None,
                 last_failure: None,
                 cadence,
+                outcomes: std::collections::VecDeque::new(),
             });
         self.next
     }
@@ -685,6 +708,10 @@ impl RequestBook {
                 Some(e) => s.last_failure = Some((Instant::now(), e.to_string())),
                 None => s.last_success = Some(Instant::now()),
             }
+            s.outcomes.push_back(error.is_none());
+            if s.outcomes.len() > Self::OUTCOME_WINDOW {
+                s.outcomes.pop_front();
+            }
         }
         true
     }
@@ -700,9 +727,14 @@ impl RequestBook {
                 last_failure: None,
                 error: None,
                 cadence: lane.cadence(),
+                recent_outcomes: None,
                 details: Vec::new(),
             };
         };
+        let recent_outcomes = (!s.outcomes.is_empty()).then(|| {
+            let successes = s.outcomes.iter().filter(|ok| **ok).count() as u32;
+            (successes, s.outcomes.len() as u32 - successes)
+        });
         SourceHealth {
             source: lane.label(),
             fetching: s.fetching,
@@ -714,6 +746,7 @@ impl RequestBook {
                 .map(|(t, _)| now.saturating_duration_since(*t)),
             error: s.last_failure.as_ref().map(|(_, e)| e.clone()),
             cadence: s.cadence,
+            recent_outcomes,
             details: Vec::new(),
         }
     }
@@ -16906,6 +16939,8 @@ impl HookEchoApp {
                     status: ui::layers_panel::health_look(h.state()).0,
                     last_success_secs: h.last_success.map(|d| d.as_secs()),
                     cadence_secs: h.cadence.as_secs(),
+                    recent_successes: h.recent_outcomes.map(|(s, _)| s),
+                    recent_failures: h.recent_outcomes.map(|(_, f)| f),
                     error: h.error.clone(),
                 })
                 .collect();
@@ -21365,7 +21400,54 @@ mod request_book_tests {
         let health = book.health(&cape);
         assert_eq!(health.state(), HealthState::Fresh);
         assert!(health.error.is_none());
+        // The rejected late failure must not count — only the one request that actually mutated
+        // state does.
+        assert_eq!(health.recent_outcomes, Some((1, 0)));
         assert_eq!(book.health(&srh).state(), HealthState::Fetching);
+    }
+
+    #[test]
+    fn recent_outcomes_is_none_until_a_request_has_finished() {
+        let mut book = RequestBook::default();
+        let lane = RequestLane::Field(FieldLayer::Cape);
+        assert_eq!(
+            book.health(&lane).recent_outcomes,
+            None,
+            "no lane started yet"
+        );
+        let gen = book.start(lane.clone());
+        assert_eq!(
+            book.health(&lane).recent_outcomes,
+            None,
+            "started but not finished"
+        );
+        book.finish(&lane, gen, None);
+        assert_eq!(book.health(&lane).recent_outcomes, Some((1, 0)));
+    }
+
+    #[test]
+    fn recent_outcomes_rolls_off_the_oldest_result_past_the_window() {
+        let mut book = RequestBook::default();
+        let lane = RequestLane::Field(FieldLayer::Cape);
+        // Fill the window with failures, then succeed enough times to push every failure out.
+        for _ in 0..RequestBook::OUTCOME_WINDOW {
+            let gen = book.start(lane.clone());
+            book.finish(&lane, gen, Some("down"));
+        }
+        assert_eq!(
+            book.health(&lane).recent_outcomes,
+            Some((0, RequestBook::OUTCOME_WINDOW as u32)),
+            "window full of failures"
+        );
+        for _ in 0..RequestBook::OUTCOME_WINDOW {
+            let gen = book.start(lane.clone());
+            book.finish(&lane, gen, None);
+        }
+        assert_eq!(
+            book.health(&lane).recent_outcomes,
+            Some((RequestBook::OUTCOME_WINDOW as u32, 0)),
+            "every failure has aged out of the window, not just been outnumbered"
+        );
     }
 
     #[test]
@@ -21382,6 +21464,7 @@ mod request_book_tests {
             last_failure: failure.map(std::time::Duration::from_secs),
             error,
             cadence,
+            recent_outcomes: None,
             details: Vec::new(),
         };
         assert_eq!(
