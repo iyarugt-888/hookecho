@@ -39,6 +39,10 @@ pub mod digest;
 /// Terrain heights (DEM) and the beam-vs-terrain blockage raster.
 pub mod elevation;
 pub mod events;
+/// ROADMAP_NEW B6.11 step 8: the per-site failover decision state machine. Pure logic (no
+/// network, no platform dependency), so unlike `relay_provider`/`provider_health` this one builds
+/// everywhere, wasm32 included.
+pub mod failover_arbiter;
 pub mod fielddiff;
 pub mod fonts;
 pub mod fronts_draw;

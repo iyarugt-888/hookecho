@@ -873,18 +873,38 @@ Track independently for every site/provider:
 
 Then implement:
 
-- [ ] bounded automatic failover on repeated transport failures **or** source-data staleness
-- [ ] freshness comparison against the backup before switching; do not fail over to an even older
+- [x] bounded automatic failover on repeated transport failures **or** source-data staleness
+  - Implementation note: `hookecho::failover_arbiter::SiteArbiter::evaluate` — configurable
+    `max_consecutive_failures` and `staleness_threshold` (`ArbiterConfig`).
+- [x] freshness comparison against the backup before switching; do not fail over to an even older
   stream simply because it responds to a health request
+  - Implementation note: `is_fresher` requires the candidate to beat the current side by
+    `min_freshness_margin`; a property test (`switching_never_moves_the_visible_newest_radar_time_
+    backwards`) checks this directly across a scripted sequence.
 - [ ] per-site decisions — KTLX may fail over while KOHX remains on the primary
-- [ ] hysteresis/cooldown before failback so a flapping primary cannot bounce the renderer between
+  - Partial: `SiteArbiter` is already a per-site instance by construction (one arbiter per site is
+    the intended lifetime, per its own doc comment) — what's not yet built is the app-level map
+    from site to its own `SiteArbiter`/`HealthBoard` pair, since this hasn't been wired into
+    `MapView`/the UI yet (B6.11 step 11).
+- [x] hysteresis/cooldown before failback so a flapping primary cannot bounce the renderer between
   sources every few seconds
-- [ ] failback only after the preferred source has produced multiple consecutive healthy/current
+  - Implementation note: `failback_consecutive_healthy` requires that many *consecutive* healthy
+    primary observations; any unhealthy one resets the streak to zero — tested directly
+    (`an_interrupted_recovery_streak_resets_and_does_not_fail_back_early`).
+- [x] failback only after the preferred source has produced multiple consecutive healthy/current
   observations
-- [ ] explicit switch reason (`transport_error`, `stale_data`, `sequence_gap`, `manual_override`,
+  - Same mechanism as above.
+- [x] explicit switch reason (`transport_error`, `stale_data`, `sequence_gap`, `manual_override`,
   `recovery`, etc.) recorded in provenance and diagnostics
-- [ ] never use provider HTTP reachability alone as “healthy”; data freshness is the decisive
+  - Implementation note: every `Transition` carries a `wxdata::live_block::ProviderSwitchReason`.
+    `sequence_gap` is not yet produced — it needs the cross-provider radial identity comparison
+    B6.5/B6.7 add, not just per-provider freshness/failure counts. "Recorded in diagnostics" is
+    not yet done — the arbiter produces transitions, but nothing persists them to the diagnostics
+    bundle yet (that lands with the UI wiring in step 11).
+- [x] never use provider HTTP reachability alone as “healthy”; data freshness is the decisive
   operational signal
+  - Implementation note: `ArbiterInput` only carries `newest_radar_time` and
+    `consecutive_failures` — there is no reachability/ping signal for the arbiter to even consult.
 
 Thresholds should be configurable and benchmarked against real scan cadence. Do not hard-code a
 marketing latency target as the health rule.
@@ -1029,7 +1049,12 @@ Build B6 in increments so the existing fast path remains usable throughout:
      duplicate/conflict counts (those compare two providers' *data*, which needs B6.5/B6.7's
      identity work, not just per-provider bookkeeping) and measured network/backend-processing
      latency breakdowns (needs per-stage timestamps threaded through, B6.9's job).
-8. [ ] per-site failover arbiter with bounded failure/staleness criteria
+8. [x] per-site failover arbiter with bounded failure/staleness criteria
+   - New `hookecho::failover_arbiter::SiteArbiter` — a pure decision state machine (no network, no
+     platform dependency; builds on wasm32 too, unlike `relay_provider`/`provider_health`). See the
+     B6.6 implementation notes above for exactly which of that section's bullets this satisfies.
+     Not yet wired to actually switch which provider's data reaches `MapView` — this step builds
+     and tests the decision logic itself; wiring it into the live render pipeline is step 11.
 9. [ ] safe mid-volume continuation + deduplication/conflict handling
 10. [ ] NOAA TGFTP completed-volume degraded provider
 11. [ ] source-health UI, manual override and diagnostics export

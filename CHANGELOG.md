@@ -8,6 +8,22 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: per-site failover decision arbiter (B6.11 step 8)
+
+ROADMAP_NEW B6.11 step 8: `hookecho::failover_arbiter::SiteArbiter` decides which of a primary and
+backup live radar provider should be active for one site, from freshness and failure signals alone
+— never from HTTP reachability. It fails over on repeated consecutive transport failures or on the
+active side's data going stale, but only when the other side is demonstrably fresher by a
+configurable margin, so a switch can never move the visible newest-radar timestamp backwards.
+Failing back to the preferred (primary) side requires several *consecutive* healthy observations,
+not just one, so a flapping primary can't bounce the active side back and forth; any unhealthy
+observation resets that streak to zero. Every transition carries an explicit
+`wxdata::live_block::ProviderSwitchReason`. A manual override (for Advanced-settings diagnostics)
+holds the active side fixed until explicitly cleared. Pure decision logic — no network, no
+platform dependency, builds on wasm32 too — and not yet wired into `MapView` or the renderer; that
+starts at B6.11 step 11. Nine tests, including a property check that a switch never regresses the
+visible newest-radar timestamp across a scripted sequence.
+
 ### Added: run both live radar providers concurrently and compare their health (B6.11 step 7)
 
 ROADMAP_NEW B6.11 step 7: `hookecho::provider_health` can now run any number of
