@@ -1015,7 +1015,20 @@ Build B6 in increments so the existing fast path remains usable throughout:
      trusting it. Proven against a real, in-process `radar-ingest` server over a real
      `TcpListener`/WebSocket in `hookecho`'s own test suite (`relay_provider::integration_tests`),
      not just unit-tested in isolation.
-7. [ ] run Unidata + relay simultaneously and expose comparative health without switching
+7. [x] run Unidata + relay simultaneously and expose comparative health without switching
+   - New `hookecho::provider_health` (native only, same reasoning as `relay_provider`):
+     `spawn_dual_feed_monitor` runs `monitor_provider` for each given `Level2LiveProvider`
+     concurrently, each restarting its own `subscribe` on error/end (with a backoff) and updating
+     a shared `HealthBoard` — newest radar time, last receipt time, success/failure/reconnect
+     counts, last error, capabilities — keyed by provider label. Deliberately does **not** call
+     any caller-supplied `on_update`: a health monitor cannot end up feeding the renderer by
+     construction, so "without switching" is structural, not just a convention to remember. Not
+     yet wired into `MapView`/the UI (that starts at step 11); tested against a deterministic
+     scripted fake provider (success, failure+reconnect, and two providers tracked independently),
+     not live network. What B6.6's full tracked-state list doesn't have yet: sequence-gap/
+     duplicate/conflict counts (those compare two providers' *data*, which needs B6.5/B6.7's
+     identity work, not just per-provider bookkeeping) and measured network/backend-processing
+     latency breakdowns (needs per-stage timestamps threaded through, B6.9's job).
 8. [ ] per-site failover arbiter with bounded failure/staleness criteria
 9. [ ] safe mid-volume continuation + deduplication/conflict handling
 10. [ ] NOAA TGFTP completed-volume degraded provider

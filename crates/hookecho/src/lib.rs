@@ -69,6 +69,11 @@ pub mod platform;
 pub mod plugins;
 pub mod products;
 pub mod profiling;
+/// ROADMAP_NEW B6.11 step 7: run more than one `Level2LiveProvider` for a site concurrently and
+/// compare their health, without changing which one is rendered. Native only, like
+/// `relay_provider` — see that module's doc comment for why.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod provider_health;
 pub mod rain_arrival;
 /// ROADMAP_NEW B6.11 step 6: `Level2LiveProvider` for a self-hosted `radar-ingest` relay. Native
 /// only — see the module's own doc comment for why.

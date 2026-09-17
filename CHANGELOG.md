@@ -8,6 +8,20 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: run both live radar providers concurrently and compare their health (B6.11 step 7)
+
+ROADMAP_NEW B6.11 step 7: `hookecho::provider_health` can now run any number of
+`Level2LiveProvider`s for a site side by side — the Unidata/AWS path and the new HookEcho relay,
+in particular — purely to observe and compare their health, without touching which one is actually
+rendered. `spawn_dual_feed_monitor` starts a reconnecting `monitor_provider` task per provider,
+recording newest radar time, last receipt time, success/failure/reconnect counts, and the last
+error into a shared, thread-safe `HealthBoard` keyed by provider label. It's structurally
+impossible for a monitored provider's data to end up on screen through this path — the monitor
+never calls a rendering `on_update`, only its own bookkeeping closure — so "without switching" is
+guaranteed by the code shape, not just documented as a rule to follow. Not yet wired into the UI
+(the existing per-pane radar health display is unchanged); tested against a deterministic scripted
+fake provider rather than live network. Native only, matching `relay_provider`.
+
 ### Added: `HookEchoRelayLevel2Provider`, the second live radar path (B6.11 step 6)
 
 ROADMAP_NEW B6.11 step 6: HookEcho can now receive live Level II from a self-hosted `radar-ingest`
