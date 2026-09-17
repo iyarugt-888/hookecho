@@ -484,6 +484,13 @@ pub struct MapView {
     /// dual-pol rows blink out of the sidebar once a volume. What a radar sends doesn't change
     /// mid-session, so remember it.
     pub moments_seen: [bool; Moment::ALL.len()],
+    /// ROADMAP_NEW B6.11 step 11: this pane's dual-feed health/failover decision for live NEXRAD
+    /// radar. `None` off a NEXRAD site, or before the pane has started following one live —
+    /// `crate::app::HookEchoApp` owns creating/replacing/dropping it (site changes, relay URL
+    /// settings changes) since only it knows the current site and settings. Native only, like
+    /// `crate::radar_provider_manager` itself.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub radar_providers: Option<crate::radar_provider_manager::SiteProviders>,
 }
 
 impl MapView {
@@ -522,6 +529,8 @@ impl MapView {
             fields_on: Default::default(),
             blink_compare: false,
             moments_seen: [false; Moment::ALL.len()],
+            #[cfg(not(target_arch = "wasm32"))]
+            radar_providers: None,
         }
     }
 

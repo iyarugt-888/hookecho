@@ -33,6 +33,11 @@ pub struct ProviderHealth {
     pub last_receipt_at: Option<DateTime<Utc>>,
     pub successes: u32,
     pub failures: u32,
+    /// Failed/errored `subscribe` attempts in a row since the last successful `on_update`, reset
+    /// to zero the instant one arrives — [`crate::failover_arbiter::ArbiterInput`]'s own field of
+    /// the same name wants exactly this, not the lifetime `failures` total below it (an old
+    /// failure hours ago shouldn't still count against a provider that has since recovered).
+    pub consecutive_failures: u32,
     /// How many times `subscribe` has ended (cleanly or with an error) and been restarted.
     pub reconnects: u32,
     pub last_error: Option<String>,
@@ -47,6 +52,7 @@ impl ProviderHealth {
             last_receipt_at: None,
             successes: 0,
             failures: 0,
+            consecutive_failures: 0,
             reconnects: 0,
             last_error: None,
         }
@@ -95,6 +101,7 @@ pub async fn monitor_provider(
                         health.newest_radar_time = Some(update.time);
                         health.last_receipt_at = Some(Utc::now());
                         health.successes += 1;
+                        health.consecutive_failures = 0;
                     }
                 }),
                 Box::new(|_progress| {}),
@@ -110,6 +117,7 @@ pub async fn monitor_provider(
             if let Some(health) = board_guard.get_mut(label) {
                 if let Err(e) = &result {
                     health.failures += 1;
+                    health.consecutive_failures += 1;
                     health.last_error = Some(e.to_string());
                 }
                 if active() {
@@ -318,7 +326,102 @@ mod tests {
         let board = board.lock().unwrap();
         let health = board.get("Scripted B").expect("provider must be tracked");
         assert_eq!(health.failures, 1);
+        assert_eq!(health.consecutive_failures, 1);
         assert_eq!(health.last_error.as_deref(), Some("scripted failure"));
+    }
+
+    /// Fails `fail_first_n` `subscribe` attempts, then sends one update and ends cleanly.
+    struct FlakyThenHealthyProvider {
+        label: &'static str,
+        fail_first_n: u32,
+        attempts: AtomicU32,
+    }
+
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+    impl Level2LiveProvider for FlakyThenHealthyProvider {
+        fn label(&self) -> &'static str {
+            self.label
+        }
+
+        fn capabilities(&self) -> ProviderCapabilities {
+            ProviderCapabilities::unidata()
+        }
+
+        async fn subscribe(
+            &self,
+            _site: String,
+            base: Arc<Scan>,
+            _active: Box<dyn Fn() -> bool + Send + Sync>,
+            mut on_update: Box<dyn FnMut(wxdata::live::Update) + Send>,
+            _on_progress: Box<dyn FnMut(wxdata::live::ScanProgress) + Send>,
+        ) -> anyhow::Result<()> {
+            let attempt = self.attempts.fetch_add(1, Ordering::Relaxed);
+            if attempt < self.fail_first_n {
+                anyhow::bail!("flaky attempt {attempt}");
+            }
+            on_update(wxdata::live::Update {
+                name: "recovered".to_string(),
+                time: Utc::now(),
+                scan: base,
+                changed: vec![0.5],
+                retries: 0,
+                decode_time: std::time::Duration::ZERO,
+            });
+            Ok(())
+        }
+
+        async fn latest_complete_volume(
+            &self,
+            _site: &str,
+            _current_name: Option<&str>,
+        ) -> anyhow::Result<LatestVolume> {
+            Ok(LatestVolume::UpToDate)
+        }
+    }
+
+    #[tokio::test]
+    async fn a_success_resets_consecutive_failures_to_zero() {
+        let provider = Arc::new(FlakyThenHealthyProvider {
+            label: "Flaky",
+            fail_first_n: 2,
+            attempts: AtomicU32::new(0),
+        });
+        let board: HealthBoard = Arc::new(Mutex::new(HashMap::new()));
+        let active = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let active_read = {
+            let active = active.clone();
+            move || active.load(Ordering::Relaxed)
+        };
+
+        let board_clone = board.clone();
+        let handle = tokio::spawn(async move {
+            monitor_provider(
+                provider,
+                "KTLX".to_string(),
+                Arc::new(empty_scan()),
+                Arc::new(active_read),
+                board_clone,
+            )
+            .await;
+        });
+
+        // Two failures, each followed by the monitor's 2s reconnect backoff, then a success —
+        // generous enough to clear both backoffs before the recovery is observed.
+        tokio::time::sleep(std::time::Duration::from_millis(4500)).await;
+        active.store(false, Ordering::Relaxed);
+        tokio::time::timeout(std::time::Duration::from_secs(3), handle)
+            .await
+            .expect("monitor task did not stop after active() went false")
+            .unwrap();
+
+        let board = board.lock().unwrap();
+        let health = board.get("Flaky").expect("provider must be tracked");
+        assert_eq!(health.failures, 2);
+        assert_eq!(
+            health.consecutive_failures, 0,
+            "a subsequent success must reset the consecutive-failure count the arbiter reads"
+        );
+        assert_eq!(health.successes, 1);
     }
 
     #[tokio::test]

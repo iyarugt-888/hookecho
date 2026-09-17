@@ -4710,6 +4710,7 @@ dependencies = [
  "async-trait",
  "axum",
  "chrono",
+ "env_logger",
  "futures-util",
  "http-body-util",
  "log",

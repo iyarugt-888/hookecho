@@ -86,6 +86,83 @@ fn render_queue_detail(micros: u64) -> Option<(&'static str, String)> {
     })
 }
 
+/// ROADMAP_NEW B6.9's source-health additions: which of the three failover tiers is active, the
+/// standby side's own freshness, and the last transition — when this pane has a
+/// `radar_provider_manager::SiteProviders` running for its site. Appended to `radar_health()`'s
+/// `details` rather than replacing the B3 latency lines above, which describe the *active*
+/// provider's own performance regardless of which one that is.
+#[cfg(not(target_arch = "wasm32"))]
+fn failover_details(
+    providers: &crate::radar_provider_manager::SiteProviders,
+) -> Vec<(&'static str, String)> {
+    use crate::radar_provider_manager::SelectedTier;
+    let snap = providers.snapshot();
+    let mut out = vec![(
+        "Active provider",
+        crate::radar_provider_manager::label_for_tier(snap.selected).to_string(),
+    )];
+    let state = if snap.manual_override {
+        "MANUAL"
+    } else {
+        match snap.selected {
+            SelectedTier::Primary => "PRIMARY",
+            SelectedTier::Backup => "BACKUP",
+            SelectedTier::Degraded => "DEGRADED_VOLUME",
+        }
+    };
+    out.push(("Failover state", state.to_string()));
+    out.push((
+        "Standby provider",
+        if snap.has_backup {
+            let standby = match snap.selected {
+                SelectedTier::Primary => snap.backup.as_ref(),
+                _ => snap.primary.as_ref(),
+            };
+            standby
+                .map(standby_freshness_detail)
+                .unwrap_or_else(|| "not yet reporting".to_string())
+        } else {
+            "no relay configured".to_string()
+        },
+    ));
+    if let Some((at, reason, tier)) = snap.last_transition {
+        let ago = (chrono::Utc::now() - at).num_seconds().max(0);
+        out.push((
+            "Last transition",
+            format!(
+                "{} ({}), {} ago",
+                crate::radar_provider_manager::label_for_tier(tier),
+                switch_reason_label(reason),
+                humanize(ago)
+            ),
+        ));
+    }
+    out
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn standby_freshness_detail(h: &crate::provider_health::ProviderHealth) -> String {
+    match h.newest_radar_time {
+        Some(t) => {
+            let age = (chrono::Utc::now() - t).num_seconds().max(0);
+            format!("{} ({} behind)", h.label, humanize(age))
+        }
+        None => format!("{} (no data yet)", h.label),
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn switch_reason_label(reason: wxdata::live_block::ProviderSwitchReason) -> &'static str {
+    use wxdata::live_block::ProviderSwitchReason as R;
+    match reason {
+        R::TransportError => "transport error",
+        R::StaleData => "stale data",
+        R::SequenceGap => "sequence gap",
+        R::ManualOverride => "manual override",
+        R::Recovery => "recovery",
+    }
+}
+
 /// Sub-second precision below 1s (decode times are normally tens to low hundreds of ms, where
 /// `humanize`'s whole-second granularity would round everything down to a useless "0s"); whole
 /// tenths of a second above that, since a decode slow enough to reach a second is already
@@ -119,7 +196,7 @@ impl HookEchoApp {
             .map(|t| (chrono::Utc::now() - t).to_std().unwrap_or_default());
         // Phase B3's provider-ingest-lag reading; never set from an archive scrub or a loop's
         // replayed frame, only a genuine live arrival — see `last_live_arrival`'s own doc comment.
-        let details = [
+        let mut details: Vec<(&'static str, String)> = [
             ingest_lag_detail(v.last_live_arrival),
             decode_time_detail(v.last_decode_time),
             render_queue_detail(
@@ -131,6 +208,10 @@ impl HookEchoApp {
         .into_iter()
         .flatten()
         .collect();
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(providers) = v.radar_providers.as_ref() {
+            details.extend(failover_details(providers));
+        }
         SourceHealth {
             source: v
                 .site

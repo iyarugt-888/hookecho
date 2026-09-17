@@ -626,6 +626,12 @@ struct DiagnosticsSourceHealth {
     recent_successes: Option<u32>,
     recent_failures: Option<u32>,
     error: Option<String>,
+    /// `SourceHealth.details` verbatim — for radar, this is where ROADMAP_NEW B6.9's active/
+    /// standby provider, failover state and last-transition lines land once a
+    /// `radar_provider_manager::SiteProviders` is running (see `registry.rs::failover_details`);
+    /// every other source's own B3-style detail lines ride along the same way.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    details: Vec<(&'static str, String)>,
 }
 
 /// ROADMAP_NEW N4's local diagnostics bundle. See `HookEchoApp::export_diagnostics_bundle` for
@@ -2698,10 +2704,14 @@ pub struct HookEchoApp {
     /// Active color tables (one per moment); reloaded when the palette settings change.
     palettes: Palettes,
     /// Live chunk stream for the active view: (view index, site, the generation it was spawned
-    /// at). Cancellation is a counter bump rather than a task abort, because the browser has no
-    /// abort — `spawn_local` hands back nothing to hold. The stream reads the counter before
-    /// every chunk fetch and ends itself when it no longer recognizes its own generation.
-    live_stream: Option<(usize, String, u64)>,
+    /// at, the provider label it was started with). Cancellation is a counter bump rather than a
+    /// task abort, because the browser has no abort — `spawn_local` hands back nothing to hold.
+    /// The stream reads the counter before every chunk fetch and ends itself when it no longer
+    /// recognizes its own generation. The label is `None` on wasm32 (no failover manager exists
+    /// there, so it never disagrees with itself); on native it's ROADMAP_NEW B6.11 step 11's own
+    /// addition — a live tier switch aborts the running stream on the spot rather than waiting
+    /// for it to fail/end on its own before the new tier is picked up.
+    live_stream: Option<(usize, String, u64, Option<&'static str>)>,
     /// Bumped to cancel whatever stream is running. Shared with the spawned task.
     live_gen: Arc<std::sync::atomic::AtomicU64>,
     last_stream_attempt: Option<Instant>,
@@ -10747,7 +10757,7 @@ impl HookEchoApp {
                     if self
                         .live_stream
                         .as_ref()
-                        .is_some_and(|(v, _, g)| *v == view && *g == gen)
+                        .is_some_and(|(v, _, g, _)| *v == view && *g == gen)
                     {
                         self.live_stream = None; // interval polling resumes automatically
                     }
@@ -10953,16 +10963,33 @@ impl HookEchoApp {
             )
         };
 
-        // Abort an existing stream if it no longer matches the active view/site or isn't wanted.
-        if let Some((sv, ss, _)) = &self.live_stream {
-            if !want || *sv != idx || Some(ss.as_str()) != site.as_deref() {
+        // ROADMAP_NEW B6.11 step 11: keep the dual-feed health/failover decision for this pane's
+        // site current, on the same lifetime as `want` above (no point monitoring a backup path
+        // for a site nothing is actively following live), *before* the abort check below — a tier
+        // change needs to actually abort a running stream on the old tier, not just be picked up
+        // the next time one happens to restart on its own.
+        #[cfg(not(target_arch = "wasm32"))]
+        self.sync_radar_providers(idx, want, site.as_deref(), base.as_ref());
+        #[cfg(not(target_arch = "wasm32"))]
+        let desired_label = self.views[idx]
+            .radar_providers
+            .as_ref()
+            .map(|p| crate::radar_provider_manager::label_for_tier(p.selected_tier()));
+        #[cfg(target_arch = "wasm32")]
+        let desired_label: Option<&'static str> = None;
+
+        // Abort an existing stream if it no longer matches the active view/site/desired provider,
+        // or isn't wanted.
+        if let Some((sv, ss, _, sl)) = &self.live_stream {
+            if !want || *sv != idx || Some(ss.as_str()) != site.as_deref() || *sl != desired_label {
                 // ponytail: the cancelled stream notices within a second (its wait is sliced),
                 // so a fast site switch overlaps two streams for about that long and at most
                 // one in-flight chunk fetch. An abort channel if even that shows up.
                 self.live_gen
                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 self.live_stream = None;
-                // A new site shouldn't inherit the old one's 60 s retry gate.
+                // A new site (or a failover switch) shouldn't inherit the old one's 60 s retry
+                // gate — a switch away from a stalled/failing provider should reconnect promptly.
                 self.last_stream_attempt = None;
             }
         }
@@ -10976,8 +11003,66 @@ impl HookEchoApp {
                 self.last_stream_attempt = Some(Instant::now());
                 let gen = self.live_gen.load(std::sync::atomic::Ordering::Relaxed);
                 self.spawn_stream(idx, site.clone(), base, ctx.clone(), gen);
-                self.live_stream = Some((idx, site, gen));
+                self.live_stream = Some((idx, site, gen, desired_label));
             }
+        }
+    }
+
+    /// Create, refresh or drop this pane's [`crate::radar_provider_manager::SiteProviders`] to
+    /// match the current site and settings, then advance its arbiter one tick. Called every frame
+    /// from `manage_stream`, same as that function's own site-change bookkeeping — a couple of
+    /// `HashMap` lookups and pure arithmetic, not worth throttling separately.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn sync_radar_providers(
+        &mut self,
+        idx: usize,
+        want: bool,
+        site: Option<&str>,
+        base: Option<&Arc<Scan>>,
+    ) {
+        use crate::radar_provider_manager::SiteProviders;
+
+        let relay_url = (!self.settings.radar_relay_url.trim().is_empty())
+            .then(|| self.settings.radar_relay_url.trim().to_string());
+        let override_tier = match self.settings.radar_provider_override {
+            crate::settings::RadarProviderOverride::Auto => None,
+            crate::settings::RadarProviderOverride::Primary => {
+                Some(crate::radar_provider_manager::SelectedTier::Primary)
+            }
+            crate::settings::RadarProviderOverride::Backup => {
+                Some(crate::radar_provider_manager::SelectedTier::Backup)
+            }
+            crate::settings::RadarProviderOverride::Degraded => {
+                Some(crate::radar_provider_manager::SelectedTier::Degraded)
+            }
+        };
+
+        let v = &mut self.views[idx];
+        if !want {
+            v.radar_providers = None; // drops it, which stops its monitor tasks (see its `Drop`)
+            return;
+        }
+        let (Some(site), Some(base)) = (site, base) else {
+            v.radar_providers = None;
+            return;
+        };
+        let stale = match &v.radar_providers {
+            Some(p) => p.site() != site || p.relay_url() != relay_url.as_deref(),
+            None => true,
+        };
+        if stale {
+            v.radar_providers = Some(SiteProviders::start(
+                site.to_string(),
+                relay_url,
+                Arc::clone(base),
+            ));
+        }
+        if let Some(p) = v.radar_providers.as_mut() {
+            match override_tier {
+                Some(tier) => p.set_manual_override(tier),
+                None => p.clear_manual_override(),
+            }
+            p.tick();
         }
     }
 
@@ -10998,7 +11083,19 @@ impl HookEchoApp {
             live_gen.load(std::sync::atomic::Ordering::Relaxed) == gen
                 && crate::platform::activity::is_active()
         };
+        // ROADMAP_NEW B6.11 step 11: subscribe with whichever tier this pane's failover manager
+        // currently selects (Unidata primary, the relay backup, or the NOAA TGFTP degraded
+        // fallback) instead of always the hardcoded Unidata path. No manager (not native, or one
+        // hasn't been created for this site yet) falls back to exactly the old behavior.
+        #[cfg(not(target_arch = "wasm32"))]
+        let provider: Arc<dyn crate::volume::Level2LiveProvider + Send + Sync> = self.views
+            [view_idx]
+            .radar_providers
+            .as_ref()
+            .map(|p| p.provider())
+            .unwrap_or_else(|| Arc::new(crate::volume::UnidataLevel2Provider));
         self.spawner.spawn(async move {
+            #[cfg(target_arch = "wasm32")]
             use crate::volume::{Level2LiveProvider, UnidataLevel2Provider};
             let end_site = site.clone();
             let cb_tx = tx.clone();
@@ -11007,34 +11104,43 @@ impl HookEchoApp {
             let progress_tx = tx.clone();
             let progress_ctx = ctx.clone();
             let progress_site = site.clone();
+            let active: Box<dyn Fn() -> bool + Send + Sync> = Box::new(active);
+            let on_update: Box<dyn FnMut(wxdata::live::Update) + Send> = Box::new(move |u| {
+                let _ = cb_tx.send(DataMsg::Live {
+                    view: view_idx,
+                    site: cb_site.clone(),
+                    name: u.name,
+                    time: u.time,
+                    scan: u.scan,
+                    changed: u.changed,
+                    retries: u.retries,
+                    decode_time: u.decode_time,
+                });
+                cb_ctx.request_repaint();
+            });
+            let on_progress: Box<dyn FnMut(wxdata::live::ScanProgress) + Send> =
+                Box::new(move |progress| {
+                    let _ = progress_tx.send(DataMsg::LiveProgress {
+                        view: view_idx,
+                        site: progress_site.clone(),
+                        progress,
+                    });
+                    progress_ctx.request_repaint();
+                });
+            #[cfg(not(target_arch = "wasm32"))]
+            log::info!(
+                "live stream started for {end_site} via {}",
+                provider.label()
+            );
+            #[cfg(target_arch = "wasm32")]
             log::info!("live stream started for {end_site}");
+            #[cfg(not(target_arch = "wasm32"))]
+            let res = provider
+                .subscribe(site, base, active, on_update, on_progress)
+                .await;
+            #[cfg(target_arch = "wasm32")]
             let res = UnidataLevel2Provider
-                .subscribe(
-                    site,
-                    base,
-                    Box::new(active),
-                    Box::new(move |u| {
-                        let _ = cb_tx.send(DataMsg::Live {
-                            view: view_idx,
-                            site: cb_site.clone(),
-                            name: u.name,
-                            time: u.time,
-                            scan: u.scan,
-                            changed: u.changed,
-                            retries: u.retries,
-                            decode_time: u.decode_time,
-                        });
-                        cb_ctx.request_repaint();
-                    }),
-                    Box::new(move |progress| {
-                        let _ = progress_tx.send(DataMsg::LiveProgress {
-                            view: view_idx,
-                            site: progress_site.clone(),
-                            progress,
-                        });
-                        progress_ctx.request_repaint();
-                    }),
-                )
+                .subscribe(site, base, active, on_update, on_progress)
                 .await;
             if let Err(e) = &res {
                 log::warn!("live stream for {end_site} ended: {e}");
@@ -16942,6 +17048,7 @@ impl HookEchoApp {
                     recent_successes: h.recent_outcomes.map(|(s, _)| s),
                     recent_failures: h.recent_outcomes.map(|(_, f)| f),
                     error: h.error.clone(),
+                    details: h.details.clone(),
                 })
                 .collect();
         let bundle = DiagnosticsBundle {

@@ -643,6 +643,51 @@ fn custom_tile_source(ui: &mut egui::Ui, settings: &mut Settings) {
     });
 }
 
+/// ROADMAP_NEW B6.11 step 11's Advanced-settings surface: the self-hosted `radar-ingest` relay URL
+/// (B6's second, independently-acquired live Level II path) and the manual failover override
+/// (B6.9's "preserve a manual provider override in Advanced settings for diagnostics"). Native
+/// only — `crate::radar_provider_manager` doesn't build on wasm32, and neither does the relay
+/// client it would configure.
+fn radar_relay_section(ui: &mut egui::Ui, settings: &mut Settings) {
+    ui.strong("Radar relay (advanced)");
+    ui.weak(
+        "Optional second live Level II source: your own self-hosted radar-ingest relay, run \
+         alongside the built-in Unidata/AWS feed for redundancy. Never a hosted HookEcho service \
+         \u{2014} you point this at infrastructure you or someone you trust runs.",
+    );
+    ui.add_space(6.0);
+    ui.horizontal(|ui| {
+        ui.label("Relay URL");
+        ui.add(
+            egui::TextEdit::singleline(&mut settings.radar_relay_url)
+                .hint_text("https://relay.example.com")
+                .desired_width(300.0),
+        );
+    });
+    ui.add_space(8.0);
+    ui.horizontal(|ui| {
+        ui.label("Force data source (testing)");
+        egui::ComboBox::from_id_salt("radar_provider_override")
+            .selected_text(settings.radar_provider_override.label())
+            .show_ui(ui, |ui| {
+                for opt in crate::settings::RadarProviderOverride::ALL {
+                    ui.selectable_value(&mut settings.radar_provider_override, opt, opt.label());
+                }
+            });
+    });
+    if settings.radar_provider_override != crate::settings::RadarProviderOverride::Auto {
+        ui.colored_label(
+            egui::Color32::YELLOW,
+            "\u{26a0} Forcing a source overrides automatic failover until set back to Auto.",
+        );
+    }
+    ui.weak(
+        "For testing: pin live radar to one specific path regardless of health, to check that a \
+         source actually works or to reproduce a problem on it deliberately. Auto (default) lets \
+         the failover arbiter pick automatically.",
+    );
+}
+
 fn basemaps_tab(ui: &mut egui::Ui, settings: &mut Settings) {
     ui.label("Provider API keys unlock additional raster basemap styles.");
     ui.add_space(6.0);
@@ -939,6 +984,12 @@ fn general_tab(
     .on_hover_text(
         "Closing the window minimizes instead of quitting, so alert polling + push keep going",
     );
+
+    if !cfg!(target_arch = "wasm32") {
+        ui.add_space(8.0);
+        ui.separator();
+        radar_relay_section(ui, settings);
+    }
 
     ui.add_space(8.0);
     ui.separator();

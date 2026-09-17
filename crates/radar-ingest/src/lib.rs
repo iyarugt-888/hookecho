@@ -25,11 +25,19 @@
 //!   documents a genuine external blocker (no upstream peer/credentials are available to develop
 //!   or validate a wire-protocol implementation against), not an oversight.
 //!
-//! Deliberately absent so far: a live LDM connection (blocked, see [`ldm`]) and the client-side
-//! `HookEchoRelayLevel2Provider` (B6.11 step 6) — the latter is unblocked and is where work
-//! continues next, feeding the pipeline via [`input::ReplayInputAdapter`] in the meantime.
+//! `HookEchoRelayLevel2Provider` (`crates/hookecho/src/relay_provider.rs`) is the client for this
+//! service (B6.11 step 6, done), and `bin/radar-ingest.rs` (ROADMAP_NEW B6.10) is the actual
+//! deployable service binary: it wires [`store::IngestStore`] admission checks in front of
+//! [`pipeline::Pipeline`], serves [`server::router`] on an environment-configured address, and —
+//! with no live LDM adapter to run yet — accepts an optional [`fixture`] file replayed through
+//! [`input::ReplayInputAdapter`] as its only input source today.
+//!
+//! Deliberately absent so far: a live LDM connection (blocked, see [`ldm`]).
 
 pub mod block_store;
+/// JSON fixture loading for the binary's `RADAR_INGEST_REPLAY_FILE` mode (ROADMAP_NEW B6.10) —
+/// the only input source this service can run without a live LDM peer.
+pub mod fixture;
 pub mod input;
 pub mod ldm;
 pub mod pipeline;

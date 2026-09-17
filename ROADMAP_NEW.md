@@ -650,11 +650,20 @@ B6 is the concrete reason to finish the abstraction.
     `ProviderCapabilities::unidata()`). Placed in `wxdata` rather than `hookecho` so a future
     standalone `radar-ingest` backend crate can share the same identity/capability model without
     depending on the GUI app.
-- [ ] keep the decode/render path source-neutral: providers deliver canonical raw blocks/events;
-  existing Level II decoding, binning, stitching and 2D/3D rendering remain downstream
-- [ ] provider priority is configured per deployment/user, but automatic selection is based on
-  actual per-site health and freshness rather than a single global provider switch
-- [ ] preserve a manual provider override in Advanced settings for diagnostics
+- [x] keep the decode/render path source-neutral: providers deliver canonical raw blocks/events;
+  existing Level II decoding, binning, stitching and 2D/3D rendering remain downstream — true by
+  construction since `radar_provider_manager::SiteProviders::provider()` hands `spawn_stream` a
+  plain `Arc<dyn Level2LiveProvider>`; the merge/binning/render path downstream of `DataMsg::Live`
+  never learns which tier produced it.
+- [x] provider priority is configured per deployment/user, but automatic selection is based on
+  actual per-site health and freshness rather than a single global provider switch — the relay URL
+  (`Settings.radar_relay_url`) is the per-deployment configuration; `SiteArbiter`/
+  `radar_provider_manager` decide per pane/site from `provider_health::HealthBoard` freshness, never
+  a single app-wide switch.
+- [x] preserve a manual provider override in Advanced settings for diagnostics — new this pass:
+  `Settings.radar_provider_override` (`RadarProviderOverride::{Auto,Primary,Backup,Degraded}`), a
+  General-tab "Radar relay (advanced)" section, wired through
+  `radar_provider_manager::SiteProviders::set_manual_override`/`clear_manual_override`.
 
 A conceptual capability shape is sufficient; exact names can follow existing code style:
 
@@ -881,11 +890,11 @@ Then implement:
   - Implementation note: `is_fresher` requires the candidate to beat the current side by
     `min_freshness_margin`; a property test (`switching_never_moves_the_visible_newest_radar_time_
     backwards`) checks this directly across a scripted sequence.
-- [ ] per-site decisions — KTLX may fail over while KOHX remains on the primary
-  - Partial: `SiteArbiter` is already a per-site instance by construction (one arbiter per site is
-    the intended lifetime, per its own doc comment) — what's not yet built is the app-level map
-    from site to its own `SiteArbiter`/`HealthBoard` pair, since this hasn't been wired into
-    `MapView`/the UI yet (B6.11 step 11).
+- [x] per-site decisions — KTLX may fail over while KOHX remains on the primary
+  - Implementation note: `radar_provider_manager::SiteProviders` (B6.11 step 11) is now owned per
+    `MapView` pane, one instance per site, created/replaced by `HookEchoApp::sync_radar_providers`
+    whenever a pane's site changes — each pane's `SiteArbiter`/`HealthBoard` pair is independent, so
+    a failure on one site's feed cannot affect another pane's provider choice.
 - [x] hysteresis/cooldown before failback so a flapping primary cannot bounce the renderer between
   sources every few seconds
   - Implementation note: `failback_consecutive_healthy` requires that many *consecutive* healthy
@@ -899,8 +908,10 @@ Then implement:
   - Implementation note: every `Transition` carries a `wxdata::live_block::ProviderSwitchReason`.
     `sequence_gap` is not yet produced — it needs the cross-provider radial identity comparison
     B6.5/B6.7 add, not just per-provider freshness/failure counts. "Recorded in diagnostics" is
-    not yet done — the arbiter produces transitions, but nothing persists them to the diagnostics
-    bundle yet (that lands with the UI wiring in step 11).
+    done as of B6.11 step 11: `radar_provider_manager::SiteProviders::snapshot().last_transition`
+    surfaces as a "Last transition" line in the radar health popup, which
+    `export_diagnostics_bundle` carries into the local diagnostics bundle verbatim
+    (`DiagnosticsSourceHealth.details`).
 - [x] never use provider HTTP reachability alone as “healthy”; data freshness is the decisive
   operational signal
   - Implementation note: `ArbiterInput` only carries `newest_radar_time` and
@@ -997,22 +1008,45 @@ source is usable.
     error, once at least one fetch has ever succeeded. The very first call with nothing cached yet
     still surfaces a real error rather than fabricating data.
 
-### B6.9 Source-health and latency UI
+### B6.9 Source-health and latency UI — partly done
 
 Extend B3/N1 rather than creating a second unrelated diagnostics system.
 
-- [ ] show active provider/path for the current radar site
-- [ ] show standby provider and whether it is caught up
+- [x] show active provider/path for the current radar site — new this pass, see the Unreleased
+  CHANGELOG entry: `registry.rs::failover_details` adds an "Active provider" line (the exact
+  `Level2LiveProvider::label()` of whichever tier is selected) to the same B3 radar health popup
+  every other radar latency reading already lives in — not a second panel.
+- [x] show standby provider and whether it is caught up — a "Standby provider" line shows the
+  *other* side's own label plus how far behind its newest radar time is (`"HookEcho Relay (12s
+  behind)"`), or "no relay configured" / "not yet reporting" when there's nothing to compare
+  against yet.
 - [ ] show radar-time age, provider receipt lag, backend rechunk latency, network-to-client delay,
-  decode time and render-queue time as distinct measurements where available
-- [ ] show current failover state: `PRIMARY`, `BACKUP`, `DEGRADED_VOLUME`, `STALE`, `MANUAL`
-- [ ] show last provider transition time and reason
-- [ ] expose sequence gaps/retries/duplicates/conflicts
-- [ ] add these fields to the local diagnostics bundle
-- [ ] optional developer view: both providers' freshness side-by-side for the same site
+  decode time and render-queue time as distinct measurements where available — the existing B3
+  lines (provider lag, decode time, render queue, stream retries) describe whichever provider is
+  *currently active*, automatically following a tier switch since they read live `MapView` fields
+  regardless of source; `radar-ingest`'s own backend-side stage latencies (backend rechunk latency,
+  network-to-client delay) are not surfaced client-side yet — B6.3/B6.4 flagged this as depending on
+  this exact client wiring, which now exists, so it's a natural next increment rather than blocked.
+- [x] show current failover state: `PRIMARY`, `BACKUP`, `DEGRADED_VOLUME`, `MANUAL` — a "Failover
+  state" line. `STALE` is deliberately not a separate state here: an active-but-aging source is
+  already visible via the existing "Provider lag" reading, and a genuinely unusable one shows as
+  `DEGRADED_VOLUME` once `radar_provider_manager::DEGRADED_AFTER` passes — a scoping choice, not an
+  oversight.
+- [x] show last provider transition time and reason — a "Last transition" line: which tier, the
+  `wxdata::live_block::ProviderSwitchReason` in plain words, and how long ago.
+- [ ] expose sequence gaps/retries/duplicates/conflicts — still needs B6.5's cross-provider radial
+  identity comparison, not built yet; `radar_provider_manager` only reasons about per-provider
+  freshness/failure counts today.
+- [x] add these fields to the local diagnostics bundle — `DiagnosticsSourceHealth` now carries
+  `SourceHealth.details` verbatim (`app.rs::export_diagnostics_bundle`), so radar's new failover
+  lines ride along automatically; no bespoke diagnostics struct needed.
+- [ ] optional developer view: both providers' freshness side-by-side for the same site — the
+  "Standby provider" line is one-sided (whichever side is currently *not* active); a real
+  side-by-side developer view showing both regardless of which is active is still open.
 
 Do not hide a source change. The operator should always be able to answer “which acquisition path
-am I looking at, and how old is its newest radar data?”
+am I looking at, and how old is its newest radar data?” — answered today via the radar health
+popup's new lines, described above.
 
 ### B6.10 Deployment and operations
 
@@ -1119,8 +1153,37 @@ Build B6 in increments so the existing fast path remains usable throughout:
       only deterministic fixtures — a genuine current volume was fetched and decoded successfully
       while building this. Not yet selected by the failover arbiter as an actual last resort
       (step 11's wiring).
-11. [ ] source-health UI, manual override and diagnostics export
-12. [ ] chaos/replay/performance tests, then enable automatic failover by default
+11. [x] source-health UI, manual override and diagnostics export — this pass wires everything
+    steps 1-10 built into the actual live pipeline:
+    `hookecho::radar_provider_manager::SiteProviders` (new) owns one `SiteArbiter` +
+    `provider_health::HealthBoard` pair per `MapView` pane, adds a third "degraded" tier on top of
+    the arbiter's own binary primary/backup choice (falling to `NoaaTgftpLevel2Provider` once
+    whichever side the arbiter prefers has itself gone stale past a fixed grace period — this
+    engages even with no relay configured at all, degrading a lone stalled Unidata feed rather than
+    leaving the pane stuck), and exposes `set_manual_override`/`clear_manual_override` across all
+    three tiers (wider than `SiteArbiter`'s own binary override). `HookEchoApp::sync_radar_providers`
+    creates/replaces/ticks one per pane every frame from `Settings.radar_relay_url` and the new
+    `Settings.radar_provider_override`; `spawn_stream` now asks it which `Level2LiveProvider` to
+    subscribe with instead of hard-coding `UnidataLevel2Provider`, and `manage_stream` aborts a
+    running stream immediately when the selected tier changes rather than waiting for it to fail on
+    its own. `registry.rs::failover_details` adds "Active provider"/"Standby provider"/"Failover
+    state"/"Last transition" lines to the existing B3 radar health popup (not a second panel), and
+    `DiagnosticsSourceHealth` now carries `SourceHealth.details` verbatim so those lines reach the
+    N4 diagnostics bundle for free. A new "Radar relay (advanced)" section in Settings → General
+    holds the relay URL and the manual-override dropdown. Explicitly **not** done here: wiring
+    `wxdata::continuation`'s `check_volume_continuation`/`RadialDedup` — a tier switch today resets
+    to the pane's last full volume and re-streams from there via the new provider (safe: it can
+    never mix two sources' radials, matching the roadmap's own "availability may degrade;
+    scientific identity may not" invariant) rather than the more ambitious *seamless* mid-sweep
+    handoff B6.7 describes; that stretch goal, plus sequence-gap detection and a true side-by-side
+    developer health view, remain open. See the Unreleased CHANGELOG entry.
+12. [ ] chaos/replay/performance tests, then enable automatic failover by default — automatic
+    failover already runs today (nothing gates it behind a feature flag: `SiteArbiter`/
+    `SiteProviders` are always active for a followed NEXRAD site), but only when a relay URL is
+    configured does that failover have a genuinely independent second progressive path to fail
+    over *to* — the primary/backup arbiter still trivially prefers primary with no backup running.
+    Chaos/replay/performance testing across the whole wired stack (as opposed to each module's own
+    isolated deterministic tests) is still open.
 
 Do not make the renderer wait for this entire list. Each increment should keep the current
 Unidata path working and should land with deterministic replay tests.

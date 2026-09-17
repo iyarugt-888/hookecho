@@ -78,6 +78,11 @@ pub mod profiling;
 /// `relay_provider` — see that module's doc comment for why.
 #[cfg(not(target_arch = "wasm32"))]
 pub mod provider_health;
+/// ROADMAP_NEW B6.11 step 11: wires the failover arbiter, dual-feed health monitor, relay provider
+/// and TGFTP degraded provider together into one per-site decision (`SiteProviders`). Native only,
+/// for the same reason as `relay_provider`/`provider_health` — see this module's own doc comment.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod radar_provider_manager;
 pub mod rain_arrival;
 /// ROADMAP_NEW B6.11 step 6: `Level2LiveProvider` for a self-hosted `radar-ingest` relay. Native
 /// only — see the module's own doc comment for why.

@@ -1,0 +1,35 @@
+# radar-ingest as a service (ROADMAP_NEW B6.10): the self-hostable Level II relay backend that
+# gives HookEcho clients a second, independently-acquired live radar path
+# (`hookecho::relay_provider::HookEchoRelayLevel2Provider`). This is NOT the main HookEcho app —
+# see `Dockerfile`/`Dockerfile.coolify` for that — and needs none of its GUI/audio/GPU dependencies:
+# it is a plain tokio+axum service, so the runtime image is small.
+#
+# There is no live LDM adapter yet (see `crates/radar-ingest/src/ldm.rs`'s own doc comment for why
+# that's a genuine external blocker, not an oversight) — set RADAR_INGEST_REPLAY_FILE to a JSON
+# fixture (`crates/radar-ingest/src/fixture.rs`) to run this against test/demo data in the
+# meantime. Every other setting is documented at the top of
+# `crates/radar-ingest/src/main.rs`.
+
+FROM rust:bookworm AS build
+
+WORKDIR /src
+COPY . .
+RUN cargo build --release -p radar-ingest --bin radar-ingest
+
+FROM debian:bookworm-slim
+
+# No ca-certificates: this service makes no outbound TLS connections of its own (a future live
+# LDM adapter is a raw TCP/IDD peer, not HTTPS).
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=build /src/target/release/radar-ingest /usr/local/bin/radar-ingest
+
+EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -fsS http://127.0.0.1:8080/health || exit 1
+
+# 0.0.0.0 inside the container is the whole point of the container; publish the port deliberately
+# (`-p 127.0.0.1:8080:8080` to keep it off the public interface) and put a reverse proxy with TLS
+# in front for a real deployment — this service speaks plain HTTP/WS only (ROADMAP_NEW B6.4).
+ENTRYPOINT ["radar-ingest"]

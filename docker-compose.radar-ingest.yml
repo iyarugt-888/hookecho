@@ -1,0 +1,48 @@
+# A self-hosted radar-ingest relay (ROADMAP_NEW B6), for Coolify or any Docker Compose host.
+#
+# This is what a HookEcho client's Settings -> General -> "Radar relay (advanced)" -> Relay URL
+# points at, to run the Backup path (crates/hookecho/src/relay_provider.rs) alongside the built-in
+# Unidata/AWS feed. Point clients at "https://<your-domain>" (or "http://host:8883" for direct
+# access) once this is up.
+#
+# Coolify: create a resource -> Docker Compose -> point it at this file; set the domain in Coolify's
+# UI (it wires its proxy to container port 8080, same as the main HookEcho compose file).
+# Standalone: `docker compose -f docker-compose.radar-ingest.yml up -d --build`, then
+# http://localhost:8883/health should answer "ok".
+#
+# There is no live LDM adapter yet (see crates/radar-ingest/src/ldm.rs) — RADAR_INGEST_REPLAY_FILE
+# below is commented out; uncomment and mount a fixture (crates/radar-ingest/src/fixture.rs) to run
+# this against test/demo data instead of an idle "nothing to ingest" service. Every environment
+# variable this service reads is documented at the top of crates/radar-ingest/src/main.rs.
+
+name: radar-ingest
+
+services:
+  radar-ingest:
+    build:
+      context: .
+      dockerfile: ./Dockerfile.radar-ingest
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 64
+    # Host 8883 -> container 8080: direct access. Coolify's proxy targets the container port.
+    ports:
+      - "8883:8080"
+    environment:
+      RUST_LOG: "info"
+      RADAR_INGEST_LISTEN_ADDR: "0.0.0.0:8080"
+      # Comma-separated: only retain/serve these sites. Unset accepts every site products arrive
+      # for — fine for a single-user relay, worth narrowing on a shared one.
+      # RADAR_INGEST_ALLOWED_SITES: "KTLX,KOHX"
+      # Mount a JSON fixture (see crates/radar-ingest/src/fixture.rs) and set this to replay it —
+      # the only input source until a live LDM adapter exists.
+      # RADAR_INGEST_REPLAY_FILE: "/fixtures/demo.json"
+    # volumes:
+    #   - ./my-fixture.json:/fixtures/demo.json:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

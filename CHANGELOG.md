@@ -8,6 +8,41 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: wire the failover arbiter, relay and TGFTP into live radar (B6.11 step 11)
+
+ROADMAP_NEW B6.11 step 11: everything steps 1-10 built (the failover arbiter, the dual-feed health
+monitor, the HookEcho relay client, the NOAA TGFTP degraded provider) was fully tested but
+completely dormant — `spawn_stream` always hard-coded `UnidataLevel2Provider` regardless. This pass
+wires it into the actual live pipeline. New `hookecho::radar_provider_manager::SiteProviders` owns
+one `failover_arbiter::SiteArbiter` + `provider_health::HealthBoard` pair per `MapView` pane, adds a
+third "degraded" tier on top of the arbiter's own binary primary/backup choice — falling to
+`NoaaTgftpLevel2Provider` once whichever side the arbiter currently prefers has itself gone stale
+past a fixed grace period, which engages even with no relay configured at all (a lone stalled
+Unidata feed degrades to TGFTP rather than leaving the pane stuck) — and exposes a three-way manual
+override wider than `SiteArbiter`'s own binary one. `HookEchoApp::sync_radar_providers` creates,
+replaces and ticks one `SiteProviders` per pane every frame from two new settings,
+`radar_relay_url` and `radar_provider_override` (a new "Radar relay (advanced)" section in Settings
+→ General); `spawn_stream` now asks the manager which `Level2LiveProvider` to subscribe with, and
+`manage_stream` aborts a running stream immediately when the selected tier changes instead of
+waiting for it to fail on its own — a real, observable failover, not just "the next reconnect picks
+a different provider." The existing B3 radar health popup gained "Active provider," "Standby
+provider," "Failover state" (`PRIMARY`/`BACKUP`/`DEGRADED_VOLUME`/`MANUAL`) and "Last transition"
+lines (`registry.rs::failover_details`) rather than a second panel, and `DiagnosticsSourceHealth`
+now carries `SourceHealth.details` verbatim so those same lines reach the N4 diagnostics bundle for
+free. `provider_health::ProviderHealth` gained a `consecutive_failures` counter (reset on success,
+incremented per failed `subscribe` attempt) since the arbiter needs exactly that, not the lifetime
+failure total it already tracked. Explicitly **not** done here: wiring `wxdata::continuation`'s
+`check_volume_continuation`/`RadialDedup` — a tier switch today resets to the pane's last full
+volume and re-streams from there via the new provider (safe: it can never mix two sources' radials,
+matching the roadmap's own "availability may degrade; scientific identity may not" invariant)
+rather than the more ambitious *seamless* mid-sweep handoff B6.7 describes; that stretch goal, plus
+sequence-gap detection and a true side-by-side developer health view, remain open for a later pass.
+Native only, like every module it wires together (`radar_provider_manager` doesn't build on
+wasm32); wasm32 keeps exactly its prior Unidata-only behavior, unchanged and unaffected. Eight new
+deterministic tests (`radar_provider_manager`'s own tier-selection/degradation/override suite, plus
+a new `provider_health` test proving a success actually resets `consecutive_failures`), no live
+network required.
+
 ### Added: NOAA TGFTP degraded completed-volume provider (B6.11 step 10)
 
 ROADMAP_NEW B6.11 step 10: `hookecho::tgftp_provider::NoaaTgftpLevel2Provider` — the last-resort

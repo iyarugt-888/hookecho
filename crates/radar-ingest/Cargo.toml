@@ -32,6 +32,9 @@ async-trait = "0.1"
 # B6.4's WebSocket live stream + HTTP resume/backfill API. `ws` is not in axum's default feature
 # set and must be requested explicitly.
 axum = { version = "0.8", features = ["ws"] }
+# Structured, leveled logs for the `radar-ingest` binary (ROADMAP_NEW B6.10) — same version
+# `hookecho` already pins, so this resolves to an already-locked dependency rather than a new one.
+env_logger = "0.11"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["test-util", "macros"] }

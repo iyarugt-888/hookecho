@@ -169,7 +169,7 @@ impl HookEchoApp {
         let streaming = self
             .live_stream
             .as_ref()
-            .is_some_and(|(v, _, _)| *v == self.active);
+            .is_some_and(|(v, _, _, _)| *v == self.active);
         let live_progress = self.views[self.active].live_progress;
         let health = self.radar_health();
         let (health_txt, health_col) = ui::layers_panel::health_look(health.state());

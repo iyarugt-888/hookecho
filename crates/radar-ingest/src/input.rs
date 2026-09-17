@@ -5,12 +5,20 @@
 //! view.
 
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 
 /// One raw product as delivered by the upstream feed, before any Level II message parsing or
 /// rechunking happens — that is [`wxdata::live_block`]'s and the future rechunker's job (B6.3).
 /// This type only carries enough to route the bytes to the right site's ring buffer and stamp
 /// their arrival.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// `Serialize`/`Deserialize` (new in ROADMAP_NEW B6.10) exist for exactly one purpose: letting
+/// [`crate::fixture`] read a JSON list of these for the `radar-ingest` binary's `--replay` mode —
+/// there being no live LDM adapter yet (see [`crate::ldm`]'s own doc comment), a fixture file is
+/// the only input source the binary can actually run today. `bytes` serializes as a plain JSON
+/// array of numbers rather than base64: simplicity for a hand-written test fixture beats a few
+/// bytes of encoding efficiency here.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RawProduct {
     /// Upper-case 4-character-ish site identifier as reported by the feed (e.g. `"KTLX"`).
     /// Case-normalized by [`crate::store::IngestStore`] on ingest, not here — this type is a

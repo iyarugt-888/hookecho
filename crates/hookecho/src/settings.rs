@@ -186,6 +186,16 @@ pub struct Settings {
     /// Unfold aliased Doppler velocity (region-based dealiasing) when displaying VEL.
     #[serde(default)]
     pub dealias_velocity: bool,
+    /// ROADMAP_NEW B6: base URL of a self-hosted `radar-ingest` relay (e.g.
+    /// `https://relay.example.com`), the second independently-acquired live Level II path. Empty
+    /// (default) means no relay is configured — live radar then runs Unidata-only with a NOAA
+    /// TGFTP degraded fallback, same as before B6. Never a hosted HookEcho service: you point this
+    /// at infrastructure you or someone you trust runs.
+    #[serde(default)]
+    pub radar_relay_url: String,
+    /// ROADMAP_NEW B6.9's manual failover override, for diagnostics. `Auto` in normal operation.
+    #[serde(default)]
+    pub radar_provider_override: RadarProviderOverride,
     /// Mapbox access token (enables the Mapbox raster basemap styles). Held locally only.
     #[serde(default)]
     pub mapbox_key: String,
@@ -1099,6 +1109,42 @@ impl TempUnit {
     }
 }
 
+/// ROADMAP_NEW B6.9's "preserve a manual provider override in Advanced settings for diagnostics" —
+/// forces which of the three [`crate::radar_provider_manager`] tiers is active for live NEXRAD
+/// radar, bypassing the automatic failover arbiter. `Auto` (default) is ordinary operation; the
+/// other three hold a specific source active regardless of health, until switched back to `Auto`.
+/// Native only in effect (the manager itself doesn't build on wasm32), but kept a plain settings
+/// enum rather than `#[cfg]`-gated so a settings file round-trips identically on every platform.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum RadarProviderOverride {
+    #[default]
+    Auto,
+    /// Force the Unidata/AWS chunk feed.
+    Primary,
+    /// Force the HookEcho relay (only meaningful with `radar_relay_url` set).
+    Backup,
+    /// Force the NOAA TGFTP completed-volume fallback.
+    Degraded,
+}
+
+impl RadarProviderOverride {
+    pub const ALL: [RadarProviderOverride; 4] = [
+        RadarProviderOverride::Auto,
+        RadarProviderOverride::Primary,
+        RadarProviderOverride::Backup,
+        RadarProviderOverride::Degraded,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            RadarProviderOverride::Auto => "Auto",
+            RadarProviderOverride::Primary => "Unidata (primary)",
+            RadarProviderOverride::Backup => "HookEcho relay (backup)",
+            RadarProviderOverride::Degraded => "NOAA TGFTP (degraded)",
+        }
+    }
+}
+
 /// Display unit for velocity products. GRLevelX defaults to knots; internal math is m/s.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum VelocityUnit {
@@ -1174,6 +1220,8 @@ impl Default for Settings {
             udp_products: Vec::new(),
             precip_tint: false,
             dealias_velocity: false,
+            radar_relay_url: String::new(),
+            radar_provider_override: RadarProviderOverride::default(),
             mapbox_key: String::new(),
             maptiler_key: String::new(),
             tempest_token: String::new(),
@@ -1717,6 +1765,8 @@ mod tests {
                 home: true,
             }],
             dealias_velocity: true,
+            radar_relay_url: "http://relay.local:8080".to_string(),
+            radar_provider_override: RadarProviderOverride::Backup,
             mapbox_key: "pk.test".to_string(),
             tempest_token: String::new(),
             wu_key: String::new(),
