@@ -32,9 +32,6 @@ async-trait = "0.1"
 # B6.4's WebSocket live stream + HTTP resume/backfill API. `ws` is not in axum's default feature
 # set and must be requested explicitly.
 axum = { version = "0.8", features = ["ws"] }
-# Already resolved in the lockfile at this exact version via `reqwest`'s wasm transport chain —
-# used here only to base64-encode a block's payload bytes for the JSON wire format.
-base64 = "0.22"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["test-util", "macros"] }

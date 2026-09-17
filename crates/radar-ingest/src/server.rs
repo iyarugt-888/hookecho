@@ -32,6 +32,7 @@ pub fn router(pipeline: Arc<Mutex<Pipeline>>) -> Router {
         .route("/ready", get(ready))
         .route("/sites/{site}/head", get(head))
         .route("/sites/{site}/blocks/{sequence}", get(block_by_sequence))
+        .route("/sites/{site}/volume/latest", get(latest_complete_volume))
         .route("/sites/{site}/live", get(live))
         .with_state(AppState { pipeline })
 }
@@ -71,6 +72,28 @@ async fn block_by_sequence(
     };
     match block {
         Some(block) => Json(BlockDto::from(&block)).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+/// Every retained block belonging to the site's latest completed volume, oldest first
+/// (ROADMAP_NEW B6.4's "optional completed-volume endpoint generated from the exact same
+/// retained source bytes") — a client without a live WebSocket connection reassembles a full
+/// scan from this, analogous to how `hookecho`'s `Level2LiveProvider::latest_complete_volume`
+/// polls a completed volume from the Unidata path today.
+async fn latest_complete_volume(
+    State(state): State<AppState>,
+    Path(site): Path<String>,
+) -> impl IntoResponse {
+    let blocks = {
+        let pipeline = state.pipeline.lock().unwrap();
+        pipeline.latest_complete_volume_blocks(&site)
+    };
+    match blocks {
+        Some(blocks) => {
+            let dtos: Vec<BlockDto> = blocks.iter().map(BlockDto::from).collect();
+            Json(dtos).into_response()
+        }
         None => StatusCode::NOT_FOUND.into_response(),
     }
 }
@@ -167,8 +190,10 @@ mod tests {
     use http_body_util::BodyExt;
     use tower::ServiceExt;
 
-    const VOLUME_START: u8 = 3;
+    const ELEVATION_START: u8 = 0;
     const ELEVATION_END: u8 = 2;
+    const VOLUME_START: u8 = 3;
+    const VOLUME_END: u8 = 4;
 
     fn pipeline_with_one_block() -> Arc<Mutex<Pipeline>> {
         let mut pipeline = Pipeline::new(
@@ -276,6 +301,60 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn latest_complete_volume_is_not_found_before_any_volume_completes() {
+        // pipeline_with_one_block() ends its one block on ElevationEnd, not VolumeScanEnd — no
+        // volume has actually completed yet.
+        let app = router(pipeline_with_one_block());
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/sites/KTLX/volume/latest")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn latest_complete_volume_returns_every_block_of_the_completed_volume() {
+        let mut pipeline = Pipeline::new(
+            RechunkConfig::default(),
+            BlockStoreLimits::default(),
+            "relay",
+        );
+        let bytes = [
+            synthetic_radial("KTLX", 1, 0.5, 0, VOLUME_START, Utc::now()),
+            synthetic_radial("KTLX", 1, 0.5, 1, ELEVATION_END, Utc::now()),
+            synthetic_radial("KTLX", 2, 1.5, 0, ELEVATION_START, Utc::now()),
+            synthetic_radial("KTLX", 2, 1.5, 1, VOLUME_END, Utc::now()),
+        ]
+        .concat();
+        pipeline.ingest(&RawProduct {
+            site: "KTLX".into(),
+            bytes,
+            received_at: Utc::now(),
+        });
+        let app = router(Arc::new(Mutex::new(pipeline)));
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/sites/KTLX/volume/latest")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let blocks: Vec<BlockDto> = serde_json::from_slice(&body).unwrap();
+        assert_eq!(blocks.len(), 2, "one block per elevation cut");
+        assert!(blocks.iter().all(|b| b.volume == blocks[0].volume));
     }
 
     /// End-to-end over a real socket: `oneshot` cannot exercise a protocol upgrade, so this binds

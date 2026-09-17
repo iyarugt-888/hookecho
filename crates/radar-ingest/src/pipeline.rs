@@ -79,6 +79,14 @@ impl Pipeline {
         self.blocks.after(site, sequence)
     }
 
+    /// Every retained block belonging to `site`'s latest completed volume, or `None` if the site
+    /// is unknown or has not yet completed a volume — the completed-volume HTTP endpoint's data
+    /// source (ROADMAP_NEW B6.4).
+    pub fn latest_complete_volume_blocks(&self, site: &str) -> Option<Vec<LiveLevel2Block>> {
+        let volume = self.manifest(site)?.latest_complete_volume?;
+        Some(self.blocks.blocks_for_volume(site, &volume))
+    }
+
     /// Subscribe to every block emitted for `site` from this point on. Combine with
     /// [`Pipeline::blocks_after`] (called first, while still holding the lock that serializes
     /// against `publish`) to backfill a resuming client without a gap or a duplicate — see

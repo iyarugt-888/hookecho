@@ -235,6 +235,35 @@ pub fn checksum(payload: &[u8]) -> [u8; 32] {
     hasher.finalize().into()
 }
 
+/// Reassembles a [`crate::level2::Scan`] from a set of canonical blocks — the piece a
+/// `Level2LiveProvider` for the HookEcho `radar-ingest` relay (ROADMAP_NEW B6.11 step 6) needs to
+/// turn received blocks back into something the existing render pipeline already understands.
+///
+/// Reuses `nexrad-data`'s own real-time assembly (`nexrad_data::aws::realtime::assemble_volume`)
+/// rather than a parallel decoder, per this engagement's explicit "reuse existing radar
+/// decode/assembly infra" rule: each block's raw, uncompressed message bytes are wrapped as an
+/// `IntermediateOrEnd` LDM record and handed straight to it. This works even though nothing here
+/// produces a "Start" chunk (with its Archive II volume header) because `assemble_volume` only
+/// *needs* one for the site identifier, which is optional — it still builds a `Scan` from whichever
+/// chunks carry a VCP (Volume Coverage Pattern) message and digital radar data, which every one of
+/// [`crate::live_block`]'s blocks legitimately might (radial blocks and pass-through blocks alike).
+///
+/// Blocks are consumed in the order given; callers are responsible for supplying them in arrival
+/// (sequence) order — this does not sort them, matching [`CutTracker`]'s own "arrival order is the
+/// only order that matters" stance.
+///
+/// Fails if none of the given blocks carries a VCP message, since `assemble_volume` itself cannot
+/// build a `Scan` without one — the same requirement the existing Unidata live path already has.
+pub fn assemble_scan(blocks: &[LiveLevel2Block]) -> anyhow::Result<crate::level2::Scan> {
+    use nexrad_data::aws::realtime::{assemble_volume, Chunk};
+    use nexrad_data::volume::Record;
+
+    let chunks = blocks
+        .iter()
+        .map(|b| Chunk::IntermediateOrEnd(Record::from_slice(&b.payload)));
+    assemble_volume(chunks).map_err(|e| anyhow::anyhow!("assembling relay blocks into a scan: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -362,5 +391,174 @@ mod tests {
         let c = checksum(b"hellO");
         assert_eq!(a, b);
         assert_ne!(a, c);
+    }
+
+    /// Builds the raw bytes of a minimal (zero data blocks) NEXRAD Level II Message Type 31
+    /// "Digital Radar Data" — see `radar-ingest`'s `rechunk::test_support::synthetic_radial` for
+    /// the from-first-principles derivation of this exact byte layout (28-byte transport header +
+    /// 32-byte digital-radar-data header); duplicated here rather than shared across crates
+    /// because wxdata sits below radar-ingest in the dependency graph.
+    fn synthetic_radial(
+        site: &str,
+        elevation_number: u8,
+        azimuth_number: u16,
+        radial_status: u8,
+        time: DateTime<Utc>,
+    ) -> Vec<u8> {
+        let mut msg = Vec::with_capacity(60);
+        let epoch = chrono::NaiveDate::from_ymd_opt(1970, 1, 1).unwrap();
+        let date_field = ((time.date_naive() - epoch).num_days() + 1) as u16;
+        let midnight = time.date_naive().and_hms_opt(0, 0, 0).unwrap();
+        let ms_past_midnight = (time.naive_utc() - midnight).num_milliseconds() as u32;
+
+        msg.extend_from_slice(&[0u8; 12]);
+        msg.extend_from_slice(&0u16.to_be_bytes());
+        msg.push(8);
+        msg.push(31);
+        msg.extend_from_slice(&1u16.to_be_bytes());
+        msg.extend_from_slice(&date_field.to_be_bytes());
+        msg.extend_from_slice(&ms_past_midnight.to_be_bytes());
+        msg.extend_from_slice(&0u16.to_be_bytes());
+        msg.extend_from_slice(&0u16.to_be_bytes());
+
+        let mut id = [b' '; 4];
+        for (dst, src) in id.iter_mut().zip(site.as_bytes()) {
+            *dst = *src;
+        }
+        msg.extend_from_slice(&id);
+        msg.extend_from_slice(&ms_past_midnight.to_be_bytes());
+        msg.extend_from_slice(&date_field.to_be_bytes());
+        msg.extend_from_slice(&azimuth_number.to_be_bytes());
+        msg.extend_from_slice(&0f32.to_be_bytes());
+        msg.push(0);
+        msg.push(0);
+        msg.extend_from_slice(&0u16.to_be_bytes());
+        msg.push(1);
+        msg.push(radial_status);
+        msg.push(elevation_number);
+        msg.push(0);
+        msg.extend_from_slice(&0f32.to_be_bytes());
+        msg.push(0);
+        msg.push(0);
+        msg.extend_from_slice(&0u16.to_be_bytes());
+        msg
+    }
+
+    /// Builds the raw bytes of a minimal, single-elevation NEXRAD Level II Message Type 5
+    /// "Volume Coverage Pattern" — a fixed-segment message (28-byte transport header + a
+    /// single 2432-byte frame whose content area holds the 22-byte VCP header followed by one
+    /// 46-byte elevation data block, zero-padded the rest of the way). Field values beyond
+    /// `pattern_type` (which the ICD fixes at 2) and `number_of_elevation_cuts` are arbitrary —
+    /// `assemble_scan`'s test only needs a VCP that decodes at all, not a scientifically
+    /// meaningful one.
+    fn synthetic_vcp(time: DateTime<Utc>) -> Vec<u8> {
+        const FRAME_SIZE: usize = 2432;
+        const HEADER_SIZE: usize = 28;
+        let epoch = chrono::NaiveDate::from_ymd_opt(1970, 1, 1).unwrap();
+        let date_field = ((time.date_naive() - epoch).num_days() + 1) as u16;
+        let midnight = time.date_naive().and_hms_opt(0, 0, 0).unwrap();
+        let ms_past_midnight = (time.naive_utc() - midnight).num_milliseconds() as u32;
+
+        let mut frame = vec![0u8; FRAME_SIZE];
+        // Outer 28-byte transport header: a single-segment fixed frame.
+        frame[12..14].copy_from_slice(&((FRAME_SIZE / 2) as u16).to_be_bytes()); // segment_size
+        frame[14] = 8; // redundant_channel
+        frame[15] = 5; // message_type = Volume Coverage Pattern
+        frame[16..18].copy_from_slice(&1u16.to_be_bytes()); // sequence_number
+        frame[18..20].copy_from_slice(&date_field.to_be_bytes());
+        frame[20..24].copy_from_slice(&ms_past_midnight.to_be_bytes());
+        frame[24..26].copy_from_slice(&1u16.to_be_bytes()); // segment_count
+        frame[26..28].copy_from_slice(&1u16.to_be_bytes()); // segment_number
+
+        // VCP content: 22-byte header + one 46-byte elevation data block.
+        let content = HEADER_SIZE;
+        frame[content..content + 2].copy_from_slice(&68u16.to_be_bytes()); // message_size (halfwords, unused by the parser)
+        frame[content + 2..content + 4].copy_from_slice(&2u16.to_be_bytes()); // pattern_type = 2 (fixed by the ICD)
+        frame[content + 4..content + 6].copy_from_slice(&12u16.to_be_bytes()); // pattern_number
+        frame[content + 6..content + 8].copy_from_slice(&1u16.to_be_bytes()); // number_of_elevation_cuts
+        frame[content + 8] = 1; // version
+                                // clutter_map_group_number, doppler_velocity_resolution, pulse_width, reserved_1,
+                                // vcp_sequencing, vcp_supplemental_data, reserved_2 all left zero — none of them
+                                // gate whether `assemble_volume` succeeds.
+                                // The single elevation data block starts right after the 22-byte header; every field left
+                                // zero decodes to a valid (if scientifically meaningless) cut.
+        frame
+    }
+
+    #[test]
+    fn assemble_scan_fails_without_a_vcp_among_the_blocks() {
+        let t = Utc::now();
+        let block = LiveLevel2Block {
+            site: "KTLX".into(),
+            volume: VolumeKey::new("KTLX", t),
+            cut: Some(CutKey {
+                elevation_number: 1,
+                repeat_index: 0,
+            }),
+            elevation_angle_deg: Some(0.5),
+            first_azimuth_number: Some(0),
+            last_azimuth_number: Some(0),
+            radar_start: t,
+            radar_end: t,
+            received_at: t,
+            emitted_at: t,
+            sequence: 0,
+            source_id: "relay".into(),
+            checksum: checksum(&synthetic_radial("KTLX", 1, 0, 3, t)),
+            payload: synthetic_radial("KTLX", 1, 0, 3, t),
+        };
+        assert!(
+            assemble_scan(&[block]).is_err(),
+            "a scan cannot be built without a VCP message among the blocks"
+        );
+    }
+
+    #[test]
+    fn assemble_scan_builds_a_scan_from_radial_and_vcp_blocks() {
+        let t = Utc::now();
+        let vcp_block = LiveLevel2Block {
+            site: "KTLX".into(),
+            volume: VolumeKey::new("KTLX", t),
+            cut: None,
+            elevation_angle_deg: None,
+            first_azimuth_number: None,
+            last_azimuth_number: None,
+            radar_start: t,
+            radar_end: t,
+            received_at: t,
+            emitted_at: t,
+            sequence: 0,
+            source_id: "relay".into(),
+            checksum: checksum(&synthetic_vcp(t)),
+            payload: synthetic_vcp(t),
+        };
+        let radial_payload = synthetic_radial("KTLX", 1, 0, 3, t);
+        let radial_block = LiveLevel2Block {
+            site: "KTLX".into(),
+            volume: VolumeKey::new("KTLX", t),
+            cut: Some(CutKey {
+                elevation_number: 1,
+                repeat_index: 0,
+            }),
+            elevation_angle_deg: Some(0.5),
+            first_azimuth_number: Some(0),
+            last_azimuth_number: Some(0),
+            radar_start: t,
+            radar_end: t,
+            received_at: t,
+            emitted_at: t,
+            sequence: 1,
+            source_id: "relay".into(),
+            checksum: checksum(&radial_payload),
+            payload: radial_payload,
+        };
+
+        let scan = assemble_scan(&[vcp_block, radial_block])
+            .expect("a VCP block plus a radial block must assemble into a scan");
+        assert_eq!(
+            scan.sweeps().len(),
+            1,
+            "the one radial's elevation must become one sweep"
+        );
     }
 }

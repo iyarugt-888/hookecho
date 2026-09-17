@@ -817,7 +817,11 @@ The relay must support both true live push and deterministic recovery after a ne
   - Implementation note: `block_store::{BlockStore, BlockRingBuffer}` — bounded on both item count
     and total bytes per site, same pattern as the B6.2 raw-product ring buffer. Time-based
     retention (evicting by block age rather than only count/bytes) is not yet implemented.
-- [ ] optional completed-volume endpoint generated from the exact same retained source bytes
+- [x] optional completed-volume endpoint generated from the exact same retained source bytes
+  - Implementation note: `GET /sites/{site}/volume/latest` (`server::latest_complete_volume`,
+    `BlockStore::blocks_for_volume`) returns every retained block belonging to the site's latest
+    completed volume, generated from the exact same `BlockStore` retention the live path and
+    `/blocks/{sequence}` read from — no separate storage or regeneration.
 - [ ] compression only when it produces a measured win over already-compressed Level II payloads;
   do not burn CPU recompressing data by default without evidence
   - Not applicable yet: no compression is applied at all (JSON+base64 over plain HTTP/WS), so
@@ -996,7 +1000,21 @@ Build B6 in increments so the existing fast path remains usable throughout:
      live LDM adapter, once buildable against a real peer, only needs to implement
      `crate::input::InputAdapter`, the same trait `ReplayInputAdapter` already implements and every
      later step already tests against. Work continues on the unblocked steps below.
-6. [ ] client `HookEchoRelayLevel2Provider`
+6. [x] client `HookEchoRelayLevel2Provider`
+   - New `hookecho::relay_provider` (native only for this increment — see its doc comment: a
+     browser WebSocket client is a genuinely different implementation than `tokio-tungstenite`,
+     deferred rather than built blind). Implements `Level2LiveProvider` against the `radar-ingest`
+     server from B6.11 steps 1-4: `subscribe` connects a real WebSocket and reassembles a `Scan`
+     from accumulated blocks via the new `wxdata::live_block::assemble_scan` (reusing
+     `nexrad-data`'s own real-time chunk assembly rather than a parallel decoder — each block's raw
+     message bytes are wrapped as an `IntermediateOrEnd` LDM record) plus `wxdata::live::merge_scan`
+     (the same incremental merge the Unidata path already uses); `latest_complete_volume` polls the
+     new `/sites/{site}/volume/latest` HTTP endpoint. `wxdata::relay_wire::BlockDto` (moved out of
+     `radar-ingest` so both server and client share one definition without `hookecho` taking on
+     `radar-ingest`'s server-only dependencies) verifies each block's checksum on receipt before
+     trusting it. Proven against a real, in-process `radar-ingest` server over a real
+     `TcpListener`/WebSocket in `hookecho`'s own test suite (`relay_provider::integration_tests`),
+     not just unit-tested in isolation.
 7. [ ] run Unidata + relay simultaneously and expose comparative health without switching
 8. [ ] per-site failover arbiter with bounded failure/staleness criteria
 9. [ ] safe mid-volume continuation + deduplication/conflict handling

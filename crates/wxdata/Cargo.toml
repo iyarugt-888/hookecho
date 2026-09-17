@@ -34,6 +34,10 @@ chrono-tz = { version = "0.10", default-features = false, features = ["filter-by
 # deduplication (`live_block::checksum`). Already a direct dependency of `hookecho` (cache file
 # naming) and therefore already resolved in the lockfile — no new transitive weight.
 sha2 = "0.10"
+# ROADMAP_NEW B6.4/B6.11 step 6: the JSON wire encoding (`relay_wire`) shared by the
+# `radar-ingest` server and any `Level2LiveProvider` client of it — base64 for block payload
+# bytes. Already resolved in the lockfile via `reqwest`'s wasm transport chain.
+base64 = "0.22"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio.workspace = true

@@ -70,6 +70,10 @@ pub mod plugins;
 pub mod products;
 pub mod profiling;
 pub mod rain_arrival;
+/// ROADMAP_NEW B6.11 step 6: `Level2LiveProvider` for a self-hosted `radar-ingest` relay. Native
+/// only — see the module's own doc comment for why.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod relay_provider;
 pub mod render;
 pub mod render3d;
 /// Where background work goes: a tokio runtime natively, the page's event loop on the web.

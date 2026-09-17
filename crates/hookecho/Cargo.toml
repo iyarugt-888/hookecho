@@ -93,6 +93,10 @@ getrandom = "0.3"
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 egui-wgpu = { version = "0.35", default-features = false, features = ["winit"] }
 tokio.workspace = true
+# ROADMAP_NEW B6.11 step 6: WebSocket client for `HookEchoRelayLevel2Provider`
+# (`relay_provider.rs`), native-only — a browser client would need `web_sys::WebSocket` instead,
+# a genuinely different implementation, so this stays out of the wasm32 dependency set for now.
+tokio-tungstenite = "0.24"
 eframe = { version = "0.35", default-features = false, features = ["accesskit", "default_fonts"] }
 egui = { version = "0.35", default-features = false, features = ["default_fonts"] }
 # Audio is native-only in the source already (`audio.rs` and `nwr.rs` are behind
@@ -160,6 +164,16 @@ egui-wgpu = { version = "0.35", default-features = false, features = ["macos-win
 # but not the constructors a synthetic sweep needs.
 [dev-dependencies]
 nexrad-model = "1.0.0-rc.2"
+
+# Tests only, native only: an in-process `radar-ingest` server to integration-test
+# `relay_provider::HookEchoRelayLevel2Provider` against a real WebSocket connection, rather than
+# only unit-testing it in isolation. Never built for a shipped binary or the wasm32 target — dev-
+# dependencies are only pulled in for `cargo test`'s own targets, not the `--lib` build wasm32
+# checks use.
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+radar-ingest = { path = "../radar-ingest" }
+tokio = { version = "1", features = ["rt-multi-thread"] }
+axum = "0.8"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 eframe = { version = "0.35", default-features = false, features = ["wayland", "x11"] }

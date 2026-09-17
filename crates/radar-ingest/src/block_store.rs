@@ -131,6 +131,28 @@ impl BlockStore {
     pub fn known_site(&self, site: &str) -> bool {
         self.sites.contains_key(&site.to_ascii_uppercase())
     }
+
+    /// Every retained block belonging to `volume`, in sequence (arrival) order — what a
+    /// completed-volume HTTP endpoint (ROADMAP_NEW B6.4's "optional completed-volume endpoint
+    /// generated from the exact same retained source bytes") serves, and what a client without a
+    /// live WebSocket connection reassembles a full scan from. A linear scan rather than a
+    /// secondary volume index: retention is bounded per site, so this stays cheap, and a second
+    /// index would need to stay correct under the same eviction this ring buffer already does.
+    pub fn blocks_for_volume(
+        &self,
+        site: &str,
+        volume: &wxdata::live_block::VolumeKey,
+    ) -> Vec<LiveLevel2Block> {
+        match self.sites.get(&site.to_ascii_uppercase()) {
+            Some(buf) => buf
+                .blocks
+                .values()
+                .filter(|b| &b.volume == volume)
+                .cloned()
+                .collect(),
+            None => Vec::new(),
+        }
+    }
 }
 
 #[cfg(test)]

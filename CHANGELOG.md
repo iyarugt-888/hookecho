@@ -8,6 +8,25 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: `HookEchoRelayLevel2Provider`, the second live radar path (B6.11 step 6)
+
+ROADMAP_NEW B6.11 step 6: HookEcho can now receive live Level II from a self-hosted `radar-ingest`
+relay, not only the existing Unidata/AWS chunk stream — the second independently acquired
+progressive path B6 is ultimately about. `hookecho::relay_provider::HookEchoRelayLevel2Provider`
+implements `Level2LiveProvider`: `subscribe` opens a real WebSocket to the relay's
+`/sites/{site}/live` and reassembles a `Scan` from accumulated blocks via a new
+`wxdata::live_block::assemble_scan`, which reuses `nexrad-data`'s own real-time chunk-assembly code
+(each block's raw message bytes wrapped as an `IntermediateOrEnd` LDM record) rather than a second
+decoder, then merges it in with the same `wxdata::live::merge_scan` the Unidata path already uses.
+`latest_complete_volume` polls a new relay endpoint, `GET /sites/{site}/volume/latest`, added to
+`radar-ingest` alongside this (every retained block for the site's latest completed volume, from
+the same retention the live path already has). The block DTO moved from `radar-ingest` into
+`wxdata::relay_wire` so both server and client share one JSON shape without `hookecho` taking on
+`radar-ingest`'s server-only dependencies (axum, tokio's `net` feature); every block is checksum-
+verified on receipt before being trusted. Proven end-to-end against a real in-process relay server
+over a real socket, not just unit-tested. Native only for now — a browser WebSocket client is
+future work, not built blind; this provider is opt-in and `UnidataLevel2Provider` is unchanged.
+
 ### Added: external LDM upstream configuration in `radar-ingest` (B6.11 step 5, partial)
 
 ROADMAP_NEW B6.11 step 5: `radar-ingest::ldm::LdmSourceConfig` reads a live LDM/IDD upstream peer's
