@@ -2562,6 +2562,7 @@ version = "0.12.0-beta.2"
 dependencies = [
  "android_logger",
  "anyhow",
+ "async-trait",
  "base64",
  "bytemuck",
  "chrono",

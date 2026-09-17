@@ -56,6 +56,11 @@ egui_extras = "0.35"
 wgpu = { version = "29", default-features = false, features = ["wgsl", "std"] }
 bytemuck.workspace = true
 anyhow.workspace = true
+# ROADMAP_NEW B6.1: makes `Level2LiveProvider` (volume.rs) object-safe despite its `async fn`
+# methods, so the failover arbiter can hold `Box<dyn Level2LiveProvider>` and choose between
+# providers at runtime — the exact moment the trait's own prior doc comment named as the reason to
+# add this rather than doing it up front.
+async-trait = "0.1"
 log.workspace = true
 env_logger = "0.11"
 # `ico` is added native-only below, and so is `gif`: both are encoder-only formats here — the loop

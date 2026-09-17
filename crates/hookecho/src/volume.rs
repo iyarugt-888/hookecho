@@ -56,25 +56,41 @@ pub async fn fetch(
 /// Formalizes what this app has always done — the Unidata/AWS chunk feed for live updates,
 /// falling back to interval polling of the same bucket's archive/current objects — behind one
 /// interface, so a second provider (a different aggregator, a user's own relay) could be added
-/// without every caller learning a new shape, and so a future automatic failover (Phase B6) has
-/// something to fail over between. Not `dyn`-safe on purpose: nothing yet needs to pick a
-/// provider at runtime, and boxing every method just to support a hypothetical second
-/// implementation before one exists is exactly the premature abstraction the roadmap's own rules
-/// warn against (section 2). Add the boxing when B6 actually needs to choose between two.
+/// without every caller learning a new shape, and so automatic failover (Phase B6) has something
+/// to fail over between.
 ///
-/// `async fn` in a `pub` trait normally warns because an external implementor could return a
-/// non-`Send` future — moot here since this crate is the only caller and the only implementor,
-/// and every current call site already awaits it inside a `Send` spawned task.
-#[allow(async_fn_in_trait)]
+/// `dyn`-safe as of B6.1: the per-site arbiter needs to hold `Box<dyn Level2LiveProvider>` and
+/// choose between providers at runtime — the exact moment this trait's own prior doc comment
+/// named as the reason to add `#[async_trait]`'s boxing, rather than doing it up front on the
+/// theory a second provider might someday exist (which this codebase's own engineering rules
+/// warn against, section 2). Before this pass, nothing needed to pick a provider at runtime;
+/// `UnidataLevel2Provider` was the only implementor and the only caller.
+// `?Send` on wasm32: a browser tab has one thread for everything, and `reqwest`'s wasm transport
+// holds `wasm_bindgen::Closure`s internally (not `Send`, since JS values never cross threads) —
+// `async_trait`'s default expansion boxes the returned future as `dyn Future + Send`, which is
+// simply the wrong bound on a target with no threads to send anything to. Native keeps the `Send`
+// bound: every current call site already awaits this inside a `Send`-spawned task, and dropping
+// the bound there would silently allow a future implementor to break that.
+// Deliberately no `Send + Sync` supertrait bound here: a wasm32 provider may hold non-`Send` JS
+// handles (see this cfg_attr's own doc comment on the macro invocation below), and a
+// single-threaded target has no use for the bound anyway. A native call site that needs to move a
+// boxed provider into a `Send` future adds `+ Send + Sync` at the point of use
+// (`Box<dyn Level2LiveProvider + Send + Sync>`), same as any other trait object would.
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 pub trait Level2LiveProvider {
     /// Stable label for source-health / diagnostics display.
-    #[allow(dead_code)] // read by a future B6 failover/health surface, not yet by anything
     fn label(&self) -> &'static str;
+
+    /// What this transport can and cannot do, independent of which provider it is — the per-site
+    /// arbiter (B6.6) reasons about capabilities, not provider identity, so a third progressive
+    /// source added later needs no arbiter changes. See
+    /// [`wxdata::live_block::ProviderCapabilities`]'s own doc comment for what each field means.
+    fn capabilities(&self) -> wxdata::live_block::ProviderCapabilities;
 
     /// Stream live updates for `site`, starting from `base` — see [`wxdata::live::stream`] for
     /// the exact contract `active`/`on_update`/`on_progress` follow. Boxed rather than generic so
-    /// the method itself stays a plain, nameable type — this trait has one implementor today, but
-    /// its shape should not change when a second one arrives.
+    /// the method itself stays a plain, nameable type across implementors.
     async fn subscribe(
         &self,
         site: String,
@@ -108,9 +124,15 @@ pub enum LatestVolume {
 /// updates, falling back to the same organization's archive/current-object bucket.
 pub struct UnidataLevel2Provider;
 
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl Level2LiveProvider for UnidataLevel2Provider {
     fn label(&self) -> &'static str {
         "Unidata Level II (AWS S3)"
+    }
+
+    fn capabilities(&self) -> wxdata::live_block::ProviderCapabilities {
+        wxdata::live_block::ProviderCapabilities::unidata()
     }
 
     async fn subscribe(
@@ -173,6 +195,28 @@ mod tests {
     #[test]
     fn the_provider_names_itself() {
         assert_eq!(UnidataLevel2Provider.label(), "Unidata Level II (AWS S3)");
+    }
+
+    #[test]
+    fn the_provider_advertises_its_own_capabilities() {
+        let caps = UnidataLevel2Provider.capabilities();
+        assert!(caps.progressive_radials);
+        assert!(
+            !caps.resume,
+            "the chunk stream restarts, it does not resume by sequence"
+        );
+    }
+
+    /// ROADMAP_NEW B6.1: the trait must actually be usable behind `dyn` — this is what "runtime-
+    /// selectable" means. A regression here would not be a failing assertion so much as a compile
+    /// error, but a compile-time property is still worth a named test: it documents *why* the
+    /// trait has the shape it has, and it fails loudly (a compile error naming this test) if a
+    /// future change to `subscribe`/`latest_complete_volume` accidentally reintroduces an
+    /// object-safety violation.
+    #[test]
+    fn the_provider_is_usable_as_a_trait_object() {
+        let boxed: Box<dyn Level2LiveProvider> = Box::new(UnidataLevel2Provider);
+        assert_eq!(boxed.label(), "Unidata Level II (AWS S3)");
     }
 
     /// A real end-to-end exercise of the fallback logic against the live network: the first call

@@ -632,11 +632,24 @@ sub-volume live stream.
 The current `Level2LiveProvider` has one implementation and was intentionally left non-`dyn`-safe.
 B6 is the concrete reason to finish the abstraction.
 
-- [ ] make the live-provider boundary runtime-selectable, using either a `dyn`-safe trait or a
+- [x] make the live-provider boundary runtime-selectable, using either a `dyn`-safe trait or a
   small provider enum if that produces simpler Rust; do not box merely for style
-- [ ] separate **transport capabilities** from provider identity; at minimum advertise:
+  - Implementation note: `Level2LiveProvider` (`crates/hookecho/src/volume.rs`) is now `dyn`-safe
+    via `#[async_trait::async_trait]`. Native keeps the default `Send`-bound expansion (every call
+    site already awaits inside a `Send`-spawned task); wasm32 uses `async_trait(?Send)` because
+    `reqwest`'s wasm transport holds non-`Send` `wasm_bindgen::Closure` values internally, and the
+    trait's `Send + Sync` supertrait bound was dropped entirely rather than conditionally compiled
+    (a native caller that needs it adds `+ Send + Sync` at the `dyn` use site instead). Verified
+    with `Box<dyn Level2LiveProvider>` in a test and a clean `cargo check --target
+    wasm32-unknown-unknown`.
+- [x] separate **transport capabilities** from provider identity; at minimum advertise:
   `progressive_radials`, `resume`, `completed_volume`, `historical_backfill`, and
   `server_push`
+  - Implementation note: landed as `wxdata::live_block::ProviderCapabilities`, with a
+    `Level2LiveProvider::capabilities()` method (`UnidataLevel2Provider` returns
+    `ProviderCapabilities::unidata()`). Placed in `wxdata` rather than `hookecho` so a future
+    standalone `radar-ingest` backend crate can share the same identity/capability model without
+    depending on the GUI app.
 - [ ] keep the decode/render path source-neutral: providers deliver canonical raw blocks/events;
   existing Level II decoding, binning, stitching and 2D/3D rendering remain downstream
 - [ ] provider priority is configured per deployment/user, but automatic selection is based on

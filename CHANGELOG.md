@@ -8,6 +8,20 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: runtime-selectable live-radar provider boundary (B6.1)
+
+ROADMAP_NEW B6.1: `Level2LiveProvider` (the trait behind live radar updates) is now `dyn`-safe, so
+a per-site arbiter can hold `Box<dyn Level2LiveProvider>` and choose between providers at runtime
+instead of the app being wired to exactly one live source. Made possible via `async-trait`, kept
+correct on both targets: native retains `Send`-bound futures (every call site already awaits
+inside a `Send`-spawned task), while wasm32 opts out with `async_trait(?Send)` because `reqwest`'s
+wasm transport holds non-`Send` `wasm_bindgen::Closure` values internally — the trait's
+`Send + Sync` supertrait bound was dropped rather than conditionally compiled, so a native caller
+that needs it adds `+ Send + Sync` at its own `dyn` use site. Providers also now advertise
+`wxdata::live_block::ProviderCapabilities` (`progressive_radials`/`resume`/`completed_volume`/
+`historical_backfill`/`server_push`), separating what a transport can do from which provider it
+is. No behavior change yet — `UnidataLevel2Provider` remains the only implementation in use.
+
 ### Added: "Dear ImGui" theme
 
 Requested live, with reference screenshots of Dear ImGui's own demo/example apps: a new theme
