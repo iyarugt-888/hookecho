@@ -8,6 +8,23 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: lossless Level II rechunker in `radar-ingest` (B6.11 step 3)
+
+ROADMAP_NEW B6.11 step 3: `radar-ingest::rechunk::Rechunker` turns raw ingested products into
+canonical `wxdata::live_block::LiveLevel2Block`s. It parses NEXRAD Level II Message Type 31
+(Digital Radar Data) headers via `nexrad_decode::messages::decode_messages` — the same
+message-level decoder `nexrad-data` already uses internally for whole-volume decode — just far
+enough to know site/volume/elevation-cut/azimuth/radar-time identity, correctly separating
+SAILS/MRLE mid-volume revisits via `wxdata::live_block::CutTracker`. Every message's original
+bytes are re-emitted verbatim as a block's payload; nothing is resampled, recompressed, or
+reformatted. A block flushes on whichever comes first: an elevation/volume boundary, a configured
+radial-count limit, or (via a periodic `tick`) an age limit, so a quiet stream never holds a
+partially filled block indefinitely. Any non-radial message (VCP, RDA status, etc.) is forwarded
+verbatim as its own pass-through block rather than being silently dropped. A per-site `SiteManifest`
+(newest sequence, current volume/cut, latest completed volume) is queryable independent of any one
+block — the data B6.4's future per-site head endpoint will serve. Network distribution and the live
+LDM connection are still later increments; this crate is not built or deployed by the GUI app.
+
 ### Added: `radar-ingest` backend crate — replay input and per-site ring buffer (B6.11 steps 1-2)
 
 ROADMAP_NEW B6.11 steps 1-2: the first two increments of the self-hostable `radar-ingest` LDM/IDD

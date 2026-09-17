@@ -13,11 +13,13 @@
 //!   "maintain per-site rolling state and enough recent blocks for reconnect/resume" (B6.2), with
 //!   the memory bound enforced on both item count and total bytes so one large-product site cannot
 //!   starve the others.
+//! - [`rechunk`]: parses raw products into canonical, lossless
+//!   [`wxdata::live_block::LiveLevel2Block`]s (B6.3) — the identity/provenance model
+//!   [`wxdata::live_block`] defines, applied to a live byte stream for the first time.
 //!
-//! Deliberately absent from this increment: Level II message parsing, rechunking into
-//! [`wxdata::live_block::LiveLevel2Block`] (B6.3), and any network distribution (B6.4) — those are
-//! later steps in ROADMAP_NEW B6.11's implementation order, and folding them in here would make
-//! this increment untestable in isolation.
+//! Deliberately absent from this increment: any network distribution (B6.4) or a live LDM
+//! connection (B6.11 step 5) — those are later steps in ROADMAP_NEW B6.11's implementation order.
 
 pub mod input;
+pub mod rechunk;
 pub mod store;

@@ -13,6 +13,12 @@ thiserror.workspace = true
 tokio.workspace = true
 chrono.workspace = true
 log.workspace = true
+# Message-level NEXRAD Level II decoding (site/volume/elevation/azimuth/radial-status identity) for
+# the rechunker (ROADMAP_NEW B6.3) — the same crate `nexrad-data` already uses internally for
+# whole-volume decode, but the rechunker needs to parse one arriving product's messages directly
+# rather than a fully assembled Archive II volume. Already resolved in the lockfile at this exact
+# version via `nexrad-data`, so this adds no new transitive dependency weight.
+nexrad-decode = "1.0.0-rc.3"
 # Same dyn-safety need as `hookecho::volume::Level2LiveProvider` (see that module's doc comment):
 # `InputAdapter` is `async fn`-bearing and needs to be usable behind `Box<dyn InputAdapter>` so the
 # ingest core can be handed either a `ReplayInputAdapter` (tests, local dev) or a live LDM adapter

@@ -724,22 +724,49 @@ client at their own relay, and core public-data functionality must continue with
 The rechunker exists to make the backend stream efficient and resumable; it must not invent new
 radar values or silently resample gates.
 
-- [ ] preserve the original Level II/Archive II radar messages as the authoritative payload where
+- [x] preserve the original Level II/Archive II radar messages as the authoritative payload where
   practical; attach HookEcho transport metadata around them rather than converting them into a
   lossy synthetic radar format
-- [ ] parse enough message metadata to identify site, volume, elevation/cut, azimuth/radial span,
+  - Implementation note: `radar-ingest::rechunk::Rechunker` concatenates each message's original,
+    unmodified bytes (`Message::offset()`/`size()` into the raw product) into a block's payload;
+    it parses just enough header fields to know identity, never gate/moment values.
+- [x] parse enough message metadata to identify site, volume, elevation/cut, azimuth/radial span,
   radar time range and sequence continuity
-- [ ] emit **sub-volume blocks immediately when upstream bytes make them available**; do not wait
+  - Implementation note: via `nexrad_decode::messages::decode_messages` on Message Type 31
+    (Digital Radar Data) headers — `radial_status()` drives volume/cut-boundary detection,
+    `elevation_number()` feeds `wxdata::live_block::CutTracker` (correctly separating SAILS/MRLE
+    revisits, covered by a dedicated test), `azimuth_number()` and `date_time()` fill the block's
+    azimuth span and radar time range.
+- [x] emit **sub-volume blocks immediately when upstream bytes make them available**; do not wait
   for sweep or volume completion
-- [ ] use configurable size/time flush limits so a partially filled block cannot be held
+  - Implementation note: a block flushes on whichever comes first — an elevation/volume boundary,
+    `RechunkConfig::max_radials_per_block`, or (via `Rechunker::tick`) its age — never waiting for
+    an elevation or volume to finish.
+- [x] use configurable size/time flush limits so a partially filled block cannot be held
   indefinitely just to reach a target radial count
+  - Implementation note: `RechunkConfig::{max_radials_per_block, max_block_age}`;
+    `Rechunker::tick`, called periodically by the service loop independent of new data, flushes a
+    stale partial block.
 - [ ] do not claim that splitting an already-arrived LDM product reduces upstream latency; measure
   `radar -> backend`, `backend -> emitted block`, and `block -> client/render` separately
-- [ ] compute a content hash/checksum for transport integrity and deduplication
-- [ ] assign a monotonic per-site transport sequence number for resume/replay
-- [ ] retain original radar timestamps separately from backend receipt/emission timestamps
-- [ ] never reorder radials merely to make prettier chunks; canonical ordering belongs in the
+  - Partial: `LiveLevel2Block` already carries `radar_start`/`radar_end`/`received_at`/
+    `emitted_at` separately, giving the first two latency stages for free; `block -> client/render`
+    instrumentation depends on B6.4's distribution protocol and the client side, not yet built.
+- [x] compute a content hash/checksum for transport integrity and deduplication
+  - Implementation note: `wxdata::live_block::checksum` (SHA-256) over each finished block's
+    payload, computed in `PendingBlock::finish`.
+- [x] assign a monotonic per-site transport sequence number for resume/replay
+  - Implementation note: `SiteState::sequence`, incremented once per emitted block (radial-chunked
+    or pass-through) — never per raw product, so a product yielding no immediately-flushed block
+    does not advance it.
+- [x] retain original radar timestamps separately from backend receipt/emission timestamps
+  - Implementation note: `LiveLevel2Block::{radar_start, radar_end}` come from decoded message
+    timestamps; `received_at` from the raw product; `emitted_at` is stamped at flush time in
+    `PendingBlock::finish`/`Rechunker::pass_through`.
+- [x] never reorder radials merely to make prettier chunks; canonical ordering belongs in the
   downstream assembler, which already has to tolerate out-of-order arrival
+  - Implementation note: `PendingBlock::push_radial` appends in arrival order only; blocks are
+    never sorted or buffered-and-reordered before flush.
 
 Suggested envelope, not a frozen wire contract:
 
@@ -917,7 +944,13 @@ Build B6 in increments so the existing fast path remains usable throughout:
    - New `crates/radar-ingest` crate: `input::{RawProduct, InputAdapter, ReplayInputAdapter}` and
      `store::{SiteRingBuffer, IngestStore, IngestLimits, RejectReason}`. See the B6.2 implementation
      notes above for exactly which of that section's bullets this satisfies.
-3. [ ] lossless rechunker + manifest/sequence model
+3. [x] lossless rechunker + manifest/sequence model
+   - New `radar-ingest::rechunk` module: `Rechunker` parses raw products into
+     `wxdata::live_block::LiveLevel2Block`s via `nexrad_decode::messages::decode_messages`, with
+     `SiteManifest` (newest sequence, current volume/cut, latest complete volume) queryable per
+     site. See the B6.3 implementation notes above for exactly which of that section's bullets
+     this satisfies (the cross-layer latency-measurement bullet is only partly done — it depends
+     on B6.4/the client side, which don't exist yet).
 4. [ ] WebSocket live stream + HTTP resume/backfill API
 5. [ ] LDM/IDD input adapter using a configured permitted upstream peer
 6. [ ] client `HookEchoRelayLevel2Provider`

@@ -4633,6 +4633,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "log",
+ "nexrad-decode",
  "thiserror 2.0.18",
  "tokio",
  "wxdata",
