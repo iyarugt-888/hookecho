@@ -8,6 +8,20 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: safe mid-volume continuation and cross-provider deduplication (B6.11 step 9)
+
+ROADMAP_NEW B6.11 step 9: `wxdata::continuation` answers the two questions a safe cross-provider
+switch mid-volume needs answered — "can these two sources' data be mixed right now?" and "have I
+already rendered this exact radial?" — enforcing the roadmap's own invariant: "availability may
+degrade; scientific identity may not." `check_volume_continuation` permits continuation only on
+*exact* `VolumeKey` equality; anything else, including two volumes that merely started close in
+time, is `Incompatible` — there is no fuzzy "probably fine" outcome. `RadialDedup` tracks which
+radials a live volume has already accepted and filters a newly-joined source's overlapping
+coverage, correctly treating a SAILS/MRLE revisit as new radials rather than duplicates of the base
+tilt (covered by a test named directly after ROADMAP_NEW B6.12's own acceptance-test wording).
+Pure identity/bookkeeping logic — no network, no rendering — and not yet wired into the live render
+pipeline; that's B6.11 step 11.
+
 ### Added: per-site failover decision arbiter (B6.11 step 8)
 
 ROADMAP_NEW B6.11 step 8: `hookecho::failover_arbiter::SiteArbiter` decides which of a primary and

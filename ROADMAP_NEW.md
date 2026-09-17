@@ -915,17 +915,44 @@ The stretch goal — and the main step beyond ordinary endpoint failover — is 
 in-progress live sweep from the backup instead of blanking the display or waiting for the next
 completed volume.
 
-- [ ] permit cross-provider continuation only when radar site, volume identity/time, VCP/cut and
+- [x] permit cross-provider continuation only when radar site, volume identity/time, VCP/cut and
   radial chronology are demonstrably compatible
-- [ ] deduplicate overlapping radials/blocks already rendered from the old source
-- [ ] accept newer backup radials into the same live volume when identity is certain
+  - Implementation note: `wxdata::continuation::check_volume_continuation` — compatible only on
+    *exact* `VolumeKey` equality (site + volume-start to the second), never a fuzzy/partial match.
+    VCP/cut compatibility is `RadialIdentity`'s job (it already carries `CutKey`, including SAILS/
+    MRLE `repeat_index`); radial chronology (accepting only genuinely newer radials, never
+    rewinding) is enforced by the failover arbiter's own freshness check (B6.6), not duplicated
+    here.
+- [x] deduplicate overlapping radials/blocks already rendered from the old source
+  - Implementation note: `wxdata::continuation::RadialDedup` — `accept_new` returns only the
+    radial identities a block covers that haven't already been seen, expanding a block's azimuth
+    span (`first_azimuth_number..=last_azimuth_number`) into individual `RadialIdentity`s.
+- [x] accept newer backup radials into the same live volume when identity is certain
+  - Implementation note: when `check_volume_continuation` returns `Compatible`, a caller feeds the
+    backup's blocks through the same `RadialDedup` the primary already uses — new radials pass
+    through `accept_new` normally.
 - [ ] never roll the visible sweep backwards because a backup's last-seen sequence is behind
+  - Not this module's job — sequence numbers are provider-local (`LiveLevel2Block::sequence`'s own
+    doc comment: "two different providers' sequence numbers are never compared to each other").
+    This is the failover arbiter's freshness-margin check (B6.6, already implemented and tested)
+    applied at switch time, plus radar-time-based ordering within `RadialDedup`'s consumer — not
+    yet wired together end-to-end (B6.11 step 11).
 - [ ] preserve the previous-sweep-under-new-wedge behavior already implemented in B2
-- [ ] if identity is ambiguous, **do not mix**: reset live assembly at a safe sweep/volume boundary
+  - Not yet touched — this is existing `MapView`/render-pipeline behavior this step hasn't wired
+    into.
+- [x] if identity is ambiguous, **do not mix**: reset live assembly at a safe sweep/volume boundary
   and make that discontinuity visible in provider state
-- [ ] test provider changes during SAILS/MRLE inserts, not only ordinary single-pass VCPs
+  - Implementation note: `ContinuationDecision::Incompatible` is the explicit "must not mix"
+    signal — there is no third, fuzzy outcome (`near_but_not_exactly_matching_volume_starts_are_
+    incompatible` tests this directly). Actually resetting live assembly and surfacing the
+    discontinuity in the UI is step 11's wiring, not this pure-logic step's job.
+- [x] test provider changes during SAILS/MRLE inserts, not only ordinary single-pass VCPs
+  - Implementation note: `a_sails_revisit_is_not_deduplicated_against_the_base_tilt` — a SAILS
+    revisit of elevation 1 (same elevation number, same azimuth range, `repeat_index` 1 instead of
+    0) is confirmed to dedup as entirely new radials, not collapse into the base tilt's.
 - [ ] keep 3D `live_scan_revision`, observed-gate buffers and smooth-volume caches synchronized
   when the source changes within an otherwise continuous logical volume
+  - Not yet touched — depends on the step 11 wiring into the actual live render pipeline.
 
 The invariant is: **availability may degrade; scientific identity may not.** A visibly brief reset
 is preferable to silently composing radials from incompatible scans.
@@ -1055,7 +1082,11 @@ Build B6 in increments so the existing fast path remains usable throughout:
      B6.6 implementation notes above for exactly which of that section's bullets this satisfies.
      Not yet wired to actually switch which provider's data reaches `MapView` — this step builds
      and tests the decision logic itself; wiring it into the live render pipeline is step 11.
-9. [ ] safe mid-volume continuation + deduplication/conflict handling
+9. [x] safe mid-volume continuation + deduplication/conflict handling
+   - New `wxdata::continuation` (`check_volume_continuation`, `RadialDedup`, `radial_identities`)
+     — pure identity/bookkeeping logic, no network, no rendering. See the B6.7 implementation
+     notes above for exactly which of that section's bullets this satisfies; wiring this into the
+     live render pipeline so a real switch actually happens safely is step 11.
 10. [ ] NOAA TGFTP completed-volume degraded provider
 11. [ ] source-health UI, manual override and diagnostics export
 12. [ ] chaos/replay/performance tests, then enable automatic failover by default
