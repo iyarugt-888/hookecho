@@ -374,19 +374,21 @@ impl Rechunker {
     }
 }
 
+/// Test-only fixture builder, shared across this crate's test modules (`rechunk`'s own tests plus
+/// [`crate::pipeline`]'s) — kept `pub(crate)` rather than duplicated, since the exact NEXRAD
+/// byte-level layout it constructs is fiddly enough that it should exist in exactly one place.
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use chrono::TimeZone;
+pub(crate) mod test_support {
+    use chrono::{DateTime, Utc};
 
     /// Builds the raw bytes of a single, minimal (zero data blocks) NEXRAD Level II Message Type
     /// 31 "Digital Radar Data" — the outer 28-byte transport [`nexrad_decode`] message header plus
-    /// the 32-byte digital-radar-data header, enough for [`digital_radar_data::Message::parse`] to
-    /// succeed and expose every field [`Rechunker`] reads. Zero data blocks is a legitimate
+    /// the 32-byte digital-radar-data header, enough for `digital_radar_data::Message::parse` to
+    /// succeed and expose every field [`super::Rechunker`] reads. Zero data blocks is a legitimate
     /// (if minimal) message per the format: `data_block_count = 0` means the pointer table is
     /// empty and there is nothing further to parse, which is all this rechunker needs — it never
     /// reads gate/moment data itself.
-    fn synthetic_radial(
+    pub(crate) fn synthetic_radial(
         site: &str,
         elevation_number: u8,
         elevation_angle: f32,
@@ -447,6 +449,13 @@ mod tests {
         );
         msg
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::test_support::synthetic_radial;
+    use super::*;
+    use chrono::TimeZone;
 
     fn product(site: &str, messages: &[Vec<u8>], received_at: DateTime<Utc>) -> RawProduct {
         let mut bytes = Vec::new();

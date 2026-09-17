@@ -10,9 +10,13 @@ repository.workspace = true
 wxdata = { path = "../wxdata" }
 anyhow.workspace = true
 thiserror.workspace = true
-tokio.workspace = true
+# `net` on top of the workspace feature set: this crate is the one server in the workspace, and
+# needs a real `TcpListener` for `axum::serve` (B6.4's HTTP/WebSocket distribution API).
+tokio = { workspace = true, features = ["net"] }
 chrono.workspace = true
 log.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 # Message-level NEXRAD Level II decoding (site/volume/elevation/azimuth/radial-status identity) for
 # the rechunker (ROADMAP_NEW B6.3) — the same crate `nexrad-data` already uses internally for
 # whole-volume decode, but the rechunker needs to parse one arriving product's messages directly
@@ -25,6 +29,22 @@ nexrad-decode = "1.0.0-rc.3"
 # (B6.11 step 5) without knowing which at compile time. This crate is native-only (a server), so
 # there is no wasm32 `?Send` accommodation to make here.
 async-trait = "0.1"
+# B6.4's WebSocket live stream + HTTP resume/backfill API. `ws` is not in axum's default feature
+# set and must be requested explicitly.
+axum = { version = "0.8", features = ["ws"] }
+# Already resolved in the lockfile at this exact version via `reqwest`'s wasm transport chain —
+# used here only to base64-encode a block's payload bytes for the JSON wire format.
+base64 = "0.22"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["test-util", "macros"] }
+# WebSocket client, for integration-testing the live stream endpoint from the outside (a real
+# `TcpListener` bind, not `tower::ServiceExt::oneshot`, since a protocol upgrade needs a real
+# duplex connection).
+tokio-tungstenite = "0.24"
+futures-util = "0.3"
+# `oneshot` (a one-request-in, one-response-out call against the router with no real socket) for
+# the plain HTTP endpoints.
+tower = { version = "0.5", features = ["util"] }
+# `.collect()` on an axum response body, to read it back out in tests.
+http-body-util = "0.1"

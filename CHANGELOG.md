@@ -8,6 +8,23 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: WebSocket live stream and HTTP resume API for `radar-ingest` (B6.11 step 4)
+
+ROADMAP_NEW B6.11 step 4: `radar-ingest` now serves the blocks its rechunker produces over the
+network. A new `pipeline::Pipeline` ties the rechunker to bounded per-site block retention
+(`block_store::BlockStore`, keyed by sequence, bounded on both item count and total bytes) and
+per-site live fan-out (`tokio::sync::broadcast`). `server::router` (axum) exposes `/health`,
+`/ready`, a per-site `/sites/{site}/head` manifest (newest sequence, current volume/cut, latest
+completed volume), `/sites/{site}/blocks/{sequence}` to fetch one retained block, and
+`/sites/{site}/live` — a WebSocket stream supporting `?resume_after=<sequence>` reconnect: the
+handler computes the backlog and subscribes to the live channel under one lock acquisition, so a
+reconnecting client is replayed exactly what it missed with no gap and no duplicate. Blocks travel
+as JSON (`wire::BlockDto`, checksum hex-encoded, payload base64-encoded) — plain and inspectable
+for now; the roadmap explicitly calls for compression only once a measured win exists, not by
+default. Auth/rate-limiting, a completed-volume HTTP endpoint, and the live LDM connection itself
+are still open — see ROADMAP_NEW's B6.4 notes for the precise list. This crate remains standalone;
+the GUI app does not yet talk to it (that's B6.11 step 6, `HookEchoRelayLevel2Provider`).
+
 ### Added: lossless Level II rechunker in `radar-ingest` (B6.11 step 3)
 
 ROADMAP_NEW B6.11 step 3: `radar-ingest::rechunk::Rechunker` turns raw ingested products into

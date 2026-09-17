@@ -793,18 +793,42 @@ pub struct LiveLevel2Block {
 
 The relay must support both true live push and deterministic recovery after a network interruption.
 
-- [ ] WebSocket or equivalent server-push stream for live blocks
-- [ ] HTTP endpoint to fetch a specific recent block by site/sequence/checksum
-- [ ] per-site `head`/manifest endpoint describing newest sequence, current volume/sweep and latest
+- [x] WebSocket or equivalent server-push stream for live blocks
+  - Implementation note: `radar-ingest::server` (axum, `ws` feature) — `GET /sites/{site}/live`
+    upgrades to a WebSocket and pushes each new block as JSON (`wire::BlockDto`) the instant
+    `Pipeline` publishes it, via a per-site `tokio::sync::broadcast` channel.
+- [x] HTTP endpoint to fetch a specific recent block by site/sequence/checksum
+  - Implementation note: `GET /sites/{site}/blocks/{sequence}`. Fetch by checksum is not
+    implemented (sequence is the primary key the resume protocol actually needs; a checksum-keyed
+    lookup can be added if a concrete consumer needs it).
+- [x] per-site `head`/manifest endpoint describing newest sequence, current volume/sweep and latest
   complete volume
-- [ ] reconnect with `resume_after=<sequence>` semantics so a client can fill a short gap without
+  - Implementation note: `GET /sites/{site}/head` returns `wire::ManifestDto`
+    (`rechunk::SiteManifest` converted to JSON) — newest sequence, current volume, current cut,
+    latest complete volume.
+- [x] reconnect with `resume_after=<sequence>` semantics so a client can fill a short gap without
   resetting an otherwise valid in-progress volume
-- [ ] bounded rolling retention for recent blocks, configurable by time and memory/disk budget
+  - Implementation note: `GET /sites/{site}/live?resume_after=<sequence>` — the handler computes
+    the backlog (`BlockStore::after`) and subscribes to the live broadcast channel under the same
+    lock acquisition, so no block can be lost or duplicated in the gap between the two. Covered by
+    an end-to-end test driving a real `tokio-tungstenite` client against a real bound
+    `TcpListener` (a protocol upgrade can't be exercised through `tower::ServiceExt::oneshot`).
+- [x] bounded rolling retention for recent blocks, configurable by time and memory/disk budget
+  - Implementation note: `block_store::{BlockStore, BlockRingBuffer}` — bounded on both item count
+    and total bytes per site, same pattern as the B6.2 raw-product ring buffer. Time-based
+    retention (evicting by block age rather than only count/bytes) is not yet implemented.
 - [ ] optional completed-volume endpoint generated from the exact same retained source bytes
 - [ ] compression only when it produces a measured win over already-compressed Level II payloads;
   do not burn CPU recompressing data by default without evidence
+  - Not applicable yet: no compression is applied at all (JSON+base64 over plain HTTP/WS), so
+    there is nothing to measure a win against. Revisit once real-world payload sizes are known.
 - [ ] TLS handled by the deployment/reverse proxy, with optional relay token/auth for private
   instances; public deployments need rate limiting and connection caps
+  - Not yet implemented: no auth/token check or rate limiting exists in `radar-ingest::server`
+    today. Deployment-time TLS termination is unaffected (this service only ever speaks plain
+    HTTP/WS and expects a reverse proxy in front of it), but auth and rate limiting are real gaps
+    for a public deployment — tracked for the hardening pass (B6.11 step 12) rather than silently
+    left undone.
 
 ### B6.5 Canonical radial normalization and identity
 
@@ -951,7 +975,14 @@ Build B6 in increments so the existing fast path remains usable throughout:
      site. See the B6.3 implementation notes above for exactly which of that section's bullets
      this satisfies (the cross-layer latency-measurement bullet is only partly done — it depends
      on B6.4/the client side, which don't exist yet).
-4. [ ] WebSocket live stream + HTTP resume/backfill API
+4. [x] WebSocket live stream + HTTP resume/backfill API
+   - New `radar-ingest::{server, pipeline, block_store, wire}` modules (axum). `Pipeline` ties the
+     rechunker to bounded per-site block retention (`block_store::BlockStore`) and per-site
+     `tokio::sync::broadcast` fan-out; `server::router` exposes `/health`, `/ready`,
+     `/sites/{site}/head`, `/sites/{site}/blocks/{sequence}`, and `/sites/{site}/live`
+     (WebSocket, `resume_after` query param). See the B6.4 implementation notes above for exactly
+     which of that section's bullets this satisfies — auth/rate-limiting and a completed-volume
+     endpoint are explicitly not yet done.
 5. [ ] LDM/IDD input adapter using a configured permitted upstream peer
 6. [ ] client `HookEchoRelayLevel2Provider`
 7. [ ] run Unidata + relay simultaneously and expose comparative health without switching
