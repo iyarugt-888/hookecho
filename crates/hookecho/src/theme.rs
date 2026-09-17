@@ -7,7 +7,7 @@
 
 use crate::settings::Theme;
 use crate::ui::m3::{self, Density};
-use egui::{Color32, CornerRadius, Margin, Stroke, Style, Visuals};
+use egui::{vec2, Color32, CornerRadius, Margin, Stroke, Style, Visuals};
 
 /// Default accent (matches the built-in Dark theme). Used only as a fallback where the selected
 /// theme isn't in scope; live UI accent comes from [`accent`] / `ui.visuals().hyperlink_color`.
@@ -178,9 +178,65 @@ fn accent_override() -> Option<Color32> {
     (p != 0).then(|| Color32::from_rgb((p >> 16) as u8, (p >> 8) as u8, p as u8))
 }
 
+/// Whether the "Dear ImGui" theme is active — a process-global for the same reason
+/// `ACCENT_OVERRIDE` is one: `wsv3.rs`'s hand-painted pill buttons, checkboxes, and ribbon
+/// background are free functions with no `&Settings` in scope, called from dozens of sites in
+/// `ribbon.rs`, and `apply()` is the only writer. The color palette alone (`palette()`) reads
+/// naturally through `ui.visuals()` everywhere; the *shape* of these specific custom-drawn
+/// widgets — square corners instead of a stadium pill, tight ImGui-proportioned padding instead
+/// of the WSV3 chrome's own sizing, no gloss wash — does not, since they never consult
+/// `ui.visuals()` for geometry at all. This flag is that one missing signal.
+static IMGUI_STYLE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn is_imgui_style() -> bool {
+    IMGUI_STYLE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// The background fill for a theme, for the settings swatch preview.
 pub fn preview_bg(theme: Theme) -> Color32 {
     palette(theme, true).bg
+}
+
+/// Frame/window geometry: widget and window/menu corner rounding, and the item spacing/button
+/// padding/interact height/window+menu margins. A pure function of `imgui_style` (and the
+/// density-derived metrics every other theme uses) so the actual numbers are unit-tested without
+/// needing a live `egui::Context` — `apply()` just applies whatever this returns.
+struct Geometry {
+    corner_radius: u8,
+    window_corner_radius: u8,
+    item_spacing: egui::Vec2,
+    button_padding: egui::Vec2,
+    interact_h: f32,
+    window_margin: i8,
+    menu_margin: i8,
+}
+
+/// Dear ImGui's default style rounds nothing (`FrameRounding`/`WindowRounding` both `0.0`) and
+/// uses its own tight, fixed `FramePadding`/`ItemSpacing`/`WindowPadding` — square corners and
+/// compact proportions are as much a part of its identity as the blue accent, so this theme gets
+/// its own geometry instead of this app's touch-aware density scale (`m3::metrics`).
+fn geometry(imgui_style: bool, m: &m3::Metrics) -> Geometry {
+    if imgui_style {
+        Geometry {
+            corner_radius: 0,
+            window_corner_radius: 0,
+            item_spacing: vec2(8.0, 4.0),   // ImGuiStyle::ItemSpacing
+            button_padding: vec2(4.0, 3.0), // ImGuiStyle::FramePadding
+            interact_h: 19.0,               // ~FramePadding.y*2 + a 13px line
+            window_margin: 8,               // ImGuiStyle::WindowPadding
+            menu_margin: 8,
+        }
+    } else {
+        Geometry {
+            corner_radius: 6,
+            window_corner_radius: 8,
+            item_spacing: m.item_spacing,
+            button_padding: m.button_padding,
+            interact_h: m.interact_h,
+            window_margin: m.window_margin,
+            menu_margin: m.menu_margin,
+        }
+    }
 }
 
 pub fn apply(
@@ -191,6 +247,8 @@ pub fn apply(
     accent_rgb: Option<[u8; 3]>,
 ) {
     set_accent_override(accent_rgb);
+    let imgui_style = theme == Theme::DearImGui;
+    IMGUI_STYLE.store(imgui_style, std::sync::atomic::Ordering::Relaxed);
     let mut pal = palette(theme, system_dark);
     if let Some(c) = accent_override() {
         pal.accent = c;
@@ -208,16 +266,18 @@ pub fn apply(
     };
 
     // Spacing and type come from one token table: touch on Android, else the density the user
-    // picked (`m3::COMFORT` / `m3::COMPACT`). No widget branches on density.
+    // picked (`m3::COMFORT` / `m3::COMPACT`) — except Dear ImGui, which uses its own fixed
+    // geometry regardless of density (see `geometry`'s own doc comment).
     let m = m3::metrics(density, cfg!(target_os = "android"));
-    style.spacing.item_spacing = m.item_spacing;
-    style.spacing.button_padding = m.button_padding;
-    style.spacing.interact_size.y = m.interact_h;
-    style.spacing.window_margin = Margin::same(m.window_margin);
-    style.spacing.menu_margin = Margin::same(m.menu_margin);
+    let g = geometry(imgui_style, &m);
+    style.spacing.item_spacing = g.item_spacing;
+    style.spacing.button_padding = g.button_padding;
+    style.spacing.interact_size.y = g.interact_h;
+    style.spacing.window_margin = Margin::same(g.window_margin);
+    style.spacing.menu_margin = Margin::same(g.menu_margin);
 
     // Rounding on every widget state.
-    let r = CornerRadius::same(6);
+    let r = CornerRadius::same(g.corner_radius);
     for w in [
         &mut style.visuals.widgets.noninteractive,
         &mut style.visuals.widgets.inactive,
@@ -227,8 +287,9 @@ pub fn apply(
     ] {
         w.corner_radius = r;
     }
-    style.visuals.window_corner_radius = CornerRadius::same(8);
-    style.visuals.menu_corner_radius = CornerRadius::same(8);
+    let window_r = CornerRadius::same(g.window_corner_radius);
+    style.visuals.window_corner_radius = window_r;
+    style.visuals.menu_corner_radius = window_r;
 
     // Type scale (egui's default face; sizes only).
     use egui::{FontFamily::Proportional, FontId, TextStyle};
@@ -460,6 +521,31 @@ pub fn section<R>(
 mod tests {
     use super::*;
     use crate::settings::Theme;
+
+    #[test]
+    fn dear_imgui_geometry_is_square_and_compact_regardless_of_density() {
+        let comfortable = m3::metrics(Density::Comfortable, false);
+        let compact = m3::metrics(Density::Compact, false);
+        for m in [&comfortable, &compact] {
+            let g = geometry(true, m);
+            assert_eq!(g.corner_radius, 0, "Dear ImGui rounds nothing");
+            assert_eq!(g.window_corner_radius, 0);
+            assert_eq!(g.button_padding, vec2(4.0, 3.0), "ImGuiStyle::FramePadding");
+            assert_eq!(g.item_spacing, vec2(8.0, 4.0), "ImGuiStyle::ItemSpacing");
+        }
+    }
+
+    #[test]
+    fn every_other_theme_keeps_the_existing_rounded_density_aware_geometry() {
+        let m = m3::metrics(Density::Comfortable, false);
+        let g = geometry(false, &m);
+        assert_eq!(g.corner_radius, 6);
+        assert_eq!(g.window_corner_radius, 8);
+        // Unchanged from the density table — this app's own touch-aware metrics, not ImGui's.
+        assert_eq!(g.button_padding, m.button_padding);
+        assert_eq!(g.item_spacing, m.item_spacing);
+        assert_eq!(g.interact_h, m.interact_h);
+    }
 
     #[test]
     fn dear_imgui_is_a_real_selectable_theme() {

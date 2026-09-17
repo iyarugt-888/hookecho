@@ -11,15 +11,28 @@ The rolling `latest` release tracks `main` and is not listed here.
 ### Added: "Dear ImGui" theme
 
 Requested live, with reference screenshots of Dear ImGui's own demo/example apps: a new theme
-reproducing `ImGui::StyleColorsDark()` as closely as this app's single-accent palette lets it —
-near-black `#0F0F0F` window fill (ImGui's own `WindowBg`), pure-white text, and the exact "ImGui
-blue" accent (`#4296FA`, `(0.26, 0.59, 0.98)` — ImGui's `CheckMark`/`Header`/`SliderGrabActive`).
-The idle/hovered input-field colors aren't guessed: they're `ImGuiCol_FrameBg` and
-`FrameBgHovered` — ImGui's own translucent navy-blue accent washes — alpha-composited over
-`WindowBg` by hand, the same blend ImGui's renderer does at those exact alpha values, so the
-muted-navy look of an idle slider or radio button in the reference screenshots comes through
-rather than a guessed flat color. Selectable anywhere the existing seven themes are (Settings
-already lists every `Theme::ALL` entry generically) — no new picker UI needed.
+reproducing `ImGui::StyleColorsDark()` — colors *and* shape, not a palette swap wearing this
+app's own widget geometry. Colors: near-black `#0F0F0F` window fill (ImGui's own `WindowBg`),
+pure-white text, and the exact "ImGui blue" accent (`#4296FA`, `(0.26, 0.59, 0.98)` — ImGui's
+`CheckMark`/`Header`/`SliderGrabActive`). The idle/hovered input-field colors aren't guessed:
+they're `ImGuiCol_FrameBg` and `FrameBgHovered` — ImGui's own translucent navy-blue accent
+washes — alpha-composited over `WindowBg` by hand, the same blend ImGui's renderer does at those
+exact alpha values.
+
+Shape: every widget/window/menu corner goes square (ImGui's `FrameRounding`/`WindowRounding` are
+both `0.0`), and spacing/button padding/interact height switch to ImGui's own tight, fixed
+`ItemSpacing`/`FramePadding` instead of this app's touch-aware density scale — this covers every
+plain `egui::Button`/`Checkbox` throughout Settings, popups, and drawer pages for free. The WSV3
+ribbon's hand-painted "pill" buttons and checkboxes, which draw their own shape and never consult
+the generic style, needed their own fix: under this theme they're flat, square-cornered, and
+sized close to their label (ImGui's `FramePadding`) instead of the glossy, generously-sized
+stadium pill every other theme still gets, with no gloss wash and no border on an idle/hovered
+frame (`FrameBorderSize` is `0.0` in ImGui's own default style) — a `theme::is_imgui_style()`
+flag is the one thing these free functions, with no `&Settings` in scope, needed to know which
+shape to draw. The ribbon's own navy→black gradient background is a flat `MenuBarBg`-style fill
+under this theme too, since Dear ImGui's style never uses a gradient anywhere. Selectable
+anywhere the existing seven themes are (Settings already lists every `Theme::ALL` entry
+generically) — no new picker UI needed.
 
 ### Added: rolling success/failure count in source health
 

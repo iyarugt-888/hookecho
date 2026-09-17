@@ -41,8 +41,22 @@ pub const STATUS_H: f32 = 22.0;
 /// from the edge and are ~100 px wide).
 pub const WINDOW_BTN_KEEPOUT: f32 = 178.0;
 
+/// Flat ribbon fill for the Dear ImGui theme (`ImGuiCol_MenuBarBg`, `(0.14, 0.14, 0.14, 1.00)`).
+/// Dear ImGui's own style never uses a gradient anywhere — flat fills only — so the theme gets a
+/// flat ribbon instead of the WSV3 navy→black sweep.
+const IMGUI_RIBBON_BG: Color32 = Color32::from_rgb(0x24, 0x24, 0x24);
+
 /// Paint the vertical ribbon gradient across `rect` and a hard hairline along its bottom edge.
 pub fn ribbon_gradient(painter: &egui::Painter, rect: Rect) {
+    if crate::theme::is_imgui_style() {
+        painter.rect_filled(rect, 0.0, IMGUI_RIBBON_BG);
+        painter.hline(
+            rect.x_range(),
+            rect.bottom() - 0.5,
+            Stroke::new(1.0, Color32::from_black_alpha(170)),
+        );
+        return;
+    }
     let mut mesh = Mesh::default();
     mesh.colored_vertex(rect.left_top(), RIBBON_TOP);
     mesh.colored_vertex(rect.right_top(), RIBBON_TOP);
@@ -70,6 +84,12 @@ pub fn pill(ui: &mut Ui, label: &str, selected: bool, accent: Color32) -> Respon
 }
 
 /// [`pill`] with a minimum width (so a row of related pills lines up).
+///
+/// Under the Dear ImGui theme ([`crate::theme::is_imgui_style`]) this draws a flat, square-cornered
+/// button sized to ImGui's own tight `FramePadding` instead of the WSV3 glossy stadium pill —
+/// the same widget, a different shape, matching how the reference screenshots' buttons actually
+/// look: no gloss, no rounding, no border on an idle/hovered frame, sized close to its label
+/// rather than a fixed generous pill.
 pub fn pill_sized(
     ui: &mut Ui,
     label: &str,
@@ -77,51 +97,67 @@ pub fn pill_sized(
     accent: Color32,
     min_w: f32,
 ) -> Response {
+    let imgui = crate::theme::is_imgui_style();
     let font = FontId::proportional(13.0);
     let text_w = ui
         .painter()
         .layout_no_wrap(label.to_owned(), font.clone(), Color32::WHITE)
         .size()
         .x;
-    let w = (text_w + 22.0).max(min_w);
-    let (rect, resp) = ui.allocate_exact_size(vec2(w, 27.0), Sense::click());
+    // ImGui's FramePadding is (4, 3): 4 px either side of the label, a ~19 px frame height for a
+    // 13 px line — tight, versus the WSV3 pill's fixed generous stadium size.
+    let (h_pad, height) = if imgui { (8.0, 19.0) } else { (22.0, 27.0) };
+    let w = (text_w + h_pad).max(min_w);
+    let (rect, resp) = ui.allocate_exact_size(vec2(w, height), Sense::click());
     let p = ui.painter();
-    let radius = rect.height() * 0.5;
+    let radius = if imgui { 0.0 } else { rect.height() * 0.5 };
     let base = if selected {
         accent
     } else if resp.hovered() {
-        Color32::from_rgb(0x26, 0x2b, 0x38)
+        if imgui {
+            ui.visuals().widgets.hovered.bg_fill
+        } else {
+            Color32::from_rgb(0x26, 0x2b, 0x38)
+        }
+    } else if imgui {
+        ui.visuals().widgets.inactive.bg_fill
     } else {
         PILL_BG
     };
     p.rect_filled(rect, radius, base);
-    // Gloss: a lighter wash over the top half.
-    let top = Rect::from_min_max(rect.min, pos2(rect.right(), rect.center().y));
-    p.rect_filled(
-        top,
-        radius,
-        Color32::from_white_alpha(if selected { 26 } else { 12 }),
-    );
-    p.rect_stroke(
-        rect,
-        radius,
-        Stroke::new(
-            1.0,
-            if selected {
-                accent
-            } else {
-                Color32::from_white_alpha(46)
-            },
-        ),
-        StrokeKind::Inside,
-    );
-    p.text(
-        rect.center(),
-        Align2::CENTER_CENTER,
-        label,
-        font,
-        if selected { Color32::WHITE } else { INK },
-    );
+    if !imgui {
+        // Gloss: a lighter wash over the top half. Dear ImGui's own frames are flat fills with no
+        // gradient anywhere, so this is skipped entirely for that theme rather than toned down.
+        let top = Rect::from_min_max(rect.min, pos2(rect.right(), rect.center().y));
+        p.rect_filled(
+            top,
+            radius,
+            Color32::from_white_alpha(if selected { 26 } else { 12 }),
+        );
+        // Likewise the hairline ring: ImGui's default style draws no border on a frame
+        // (`FrameBorderSize` is `0.0`) — the fill color alone carries idle/hovered/selected.
+        p.rect_stroke(
+            rect,
+            radius,
+            Stroke::new(
+                1.0,
+                if selected {
+                    accent
+                } else {
+                    Color32::from_white_alpha(46)
+                },
+            ),
+            StrokeKind::Inside,
+        );
+    }
+    let text_col = if selected {
+        Color32::WHITE
+    } else if imgui {
+        ui.visuals().text_color()
+    } else {
+        INK
+    };
+    p.text(rect.center(), Align2::CENTER_CENTER, label, font, text_col);
     resp
 }
 
@@ -154,7 +190,13 @@ pub fn vsep(ui: &mut Ui) {
 
 /// A compact toggle used for the checkbox-style options in the ribbon (Smoothing, Map legend…).
 /// Returns `true` on the frame it is clicked.
+///
+/// Under the Dear ImGui theme the box stays one flat, square, `FrameBg`-colored frame whether
+/// checked or not — ImGui's own checkbox never changes the box's fill, only whether a
+/// `CheckMark`-colored glyph is drawn inside it — rather than the WSV3 style's rounded box that
+/// turns solid blue when on.
 pub fn check(ui: &mut Ui, label: &str, on: &mut bool) -> bool {
+    let imgui = crate::theme::is_imgui_style();
     let font = FontId::proportional(12.0);
     let tw = ui
         .painter()
@@ -167,10 +209,19 @@ pub fn check(ui: &mut Ui, label: &str, on: &mut bool) -> bool {
     }
     let p = ui.painter();
     let box_r = Rect::from_center_size(pos2(rect.left() + 7.0, rect.center().y), vec2(12.0, 12.0));
-    p.rect_filled(box_r, 3.0, if *on { WSV3_BLUE } else { PILL_BG });
+    let radius = if imgui { 0.0 } else { 3.0 };
+    let accent = ui.visuals().hyperlink_color;
+    let fill = if imgui {
+        ui.visuals().widgets.inactive.bg_fill
+    } else if *on {
+        WSV3_BLUE
+    } else {
+        PILL_BG
+    };
+    p.rect_filled(box_r, radius, fill);
     p.rect_stroke(
         box_r,
-        3.0,
+        radius,
         Stroke::new(1.0, Color32::from_white_alpha(60)),
         StrokeKind::Inside,
     );
@@ -180,7 +231,7 @@ pub fn check(ui: &mut Ui, label: &str, on: &mut bool) -> bool {
             Align2::CENTER_CENTER,
             "\u{2713}",
             FontId::proportional(11.0),
-            Color32::WHITE,
+            if imgui { accent } else { Color32::WHITE },
         );
     }
     p.text(
@@ -188,7 +239,11 @@ pub fn check(ui: &mut Ui, label: &str, on: &mut bool) -> bool {
         Align2::LEFT_CENTER,
         label,
         font,
-        INK,
+        if imgui {
+            ui.visuals().text_color()
+        } else {
+            INK
+        },
     );
     resp.clicked()
 }
