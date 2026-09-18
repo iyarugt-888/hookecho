@@ -13000,14 +13000,31 @@ impl HookEchoApp {
                 // Zoom first, then pan: the translation is in screen pixels, and applying it at
                 // the pre-zoom scale over-moves the map by the pinch's own scale factor — which is
                 // what made the anchor trail the fingers.
+                //
+                // Belt-and-suspenders against a runaway single-frame gesture (reported on web
+                // touchscreens: the map "flies away" with multiple fingers down). egui's own
+                // `TouchState` already nulls the previous sample when the touch count changes
+                // within a frame (`begin_pass`'s `added_or_removed_touches` guard), so a clean
+                // 2-vs-3-finger centroid jump is not the mechanism — but browser touch-event
+                // dispatch upstream of egui is out of this app's control, so cap what one frame's
+                // gesture is allowed to do regardless of where an anomalous sample comes from. A
+                // real pinch/pan between consecutive touch samples never moves the centroid by a
+                // large fraction of the pane in one frame or halves/doubles the zoom in one frame.
+                let max_translation = prect.size().min_elem() * 0.4;
+                if mt.translation_delta.length() > max_translation {
+                    log::warn!(
+                        "multi-touch gesture translation clamped: {:.0}px requested, {:.0}px pane limit",
+                        mt.translation_delta.length(),
+                        max_translation
+                    );
+                }
+                let zoom_log2 = (mt.zoom_delta as f64).log2().clamp(-1.0, 1.0);
                 if (mt.zoom_delta - 1.0).abs() > f32::EPSILON {
                     let cursor = (
                         mt.center_pos.x - prect.left(),
                         mt.center_pos.y - prect.top(),
                     );
-                    self.views[idx]
-                        .camera
-                        .zoom_at((mt.zoom_delta as f64).log2(), cursor, vp);
+                    self.views[idx].camera.zoom_at(zoom_log2, cursor, vp);
                 }
                 if self.views[idx].map_3d.enabled && mt.rotation_delta.abs() > 0.001 {
                     self.views[idx].camera.bearing =
@@ -13015,7 +13032,10 @@ impl HookEchoApp {
                             .rem_euclid(360.0)
                             - 180.0;
                 }
-                let t = mt.translation_delta;
+                let t = mt.translation_delta.clamp(
+                    egui::vec2(-max_translation, -max_translation),
+                    egui::vec2(max_translation, max_translation),
+                );
                 if t != egui::Vec2::ZERO {
                     self.views[idx].camera.pan_pixels(t.x, t.y, vp);
                     self.follow_cell = None; // a manual pan takes over the camera (pinch-zoom does not)
@@ -15790,7 +15810,12 @@ impl HookEchoApp {
             );
         }
 
-        // Range rings + azimuth spokes around this pane's site (feature HH).
+        // Range rings + azimuth spokes around this pane's site (feature HH). Ring spacing follows
+        // the same US-vs-international-network rule the measure tool already uses
+        // (`self.metric_in`/`crate::geo::fmt_distance`) rather than a separate unit choice — a
+        // NEXRAD/TDWR site reads in miles, everything else in kilometers. The four ring radii are
+        // picked to be round numbers in whichever unit is showing; the geodesic math underneath
+        // (`destination_point`) always takes kilometers regardless.
         if self.show_range_rings {
             if let Some(site) = view.site.as_deref().and_then(wxdata::sites::site_by_id) {
                 let origin = [site.longitude as f64, site.latitude as f64];
@@ -15800,7 +15825,20 @@ impl HookEchoApp {
                     let (sx, sy) = cam.world_to_screen(w, vp);
                     egui::pos2(prect.left() + sx, prect.top() + sy)
                 };
-                for km in [50.0, 100.0, 150.0, 200.0] {
+                let metric = self.metric_in(idx);
+                let ring_values: [f64; 4] = if metric {
+                    [50.0, 100.0, 150.0, 200.0]
+                } else {
+                    [25.0, 50.0, 75.0, 100.0]
+                };
+                let mut max_ring_km = 0.0f64;
+                for value in ring_values {
+                    let km = if metric {
+                        value
+                    } else {
+                        value * crate::geo::KM_PER_MILE
+                    };
+                    max_ring_km = max_ring_km.max(km);
                     let pts: Vec<egui::Pos2> = (0..=72)
                         .map(|i| {
                             let p = crate::geo::destination_point(origin, i as f64 * 5.0, km);
@@ -15813,14 +15851,14 @@ impl HookEchoApp {
                         painter.text(
                             to_screen(top[0], top[1]),
                             egui::Align2::CENTER_BOTTOM,
-                            format!("{km:.0} km"),
+                            crate::geo::fmt_distance(km, metric, 0),
                             egui::FontId::proportional(10.0),
                             col,
                         );
                     }
                 }
                 for az in (0..360).step_by(45) {
-                    let far = crate::geo::destination_point(origin, az as f64, 200.0);
+                    let far = crate::geo::destination_point(origin, az as f64, max_ring_km);
                     painter.line_segment(
                         [to_screen(origin[0], origin[1]), to_screen(far[0], far[1])],
                         egui::Stroke::new(0.6, col.gamma_multiply(0.7)),

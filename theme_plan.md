@@ -106,47 +106,60 @@ Each bug below has enough of a lead to start; where the exact root cause needs c
 called out rather than guessed at further. Fix these independently of the theme work in §6-9 —
 they affect every layout/theme.
 
-### 2.1 Multi-touch pan sends the map flying (web, touchscreen) — [ ] not started
+### 2.1 Multi-touch pan sends the map flying (web, touchscreen) — [x] mitigated, root cause on egui's
+    side still unconfirmed
 
 **Where, confirmed exact:** `crates/hookecho/src/app.rs`, the per-pane input block, lines
-~12842-13024. `let gesture = ui.input(|i| i.multi_touch());` at line 12852; `gesture_tail`
-(150 ms grace after a gesture ends) at 12859-12861; `quiet` gate at 12862; single-finger drag
-(pan/double-tap-zoom) at 12893-12919, run only `if response.dragged() && quiet`; `zoom_delta()`
-wheel/trackpad path explicitly skipped `if gesture.is_some()` at 12951-12965; the two-finger
-gesture block itself at 12976-13024, which computes `occluded` (chrome/window layers over the
-gesture center, 12977-12997) then applies **zoom before pan** — a comment at 13000-13002 records
-that this ordering was chosen specifically because pan-then-zoom "over-moves the map by the pinch's
-own scale factor," a previously-fixed anchor-trailing bug of the same family as this one.
+~12842-13024 (line numbers shifted slightly after this fix; search for "Belt-and-suspenders against
+a runaway single-frame gesture"). `let gesture = ui.input(|i| i.multi_touch());` at line 12852;
+`gesture_tail` (150 ms grace after a gesture ends) at 12859-12861; `quiet` gate at 12862;
+single-finger drag (pan/double-tap-zoom) at 12893-12919, run only `if response.dragged() &&
+quiet`; the two-finger gesture block at 12976+, which computes `occluded` (chrome/window layers
+over the gesture center) then applies **zoom before pan** (a comment there records this ordering
+was chosen specifically because pan-then-zoom previously caused an anchor-trailing bug of the same
+family as this one).
 
-This is already fairly mature, gesture-aware code, not naive — which narrows where a new bug can
-hide. Two candidate mechanisms, both worth instrumenting/testing for rather than picking one blind:
+**Both of this plan's original candidate mechanisms are disproven — read egui 0.35.0's own source
+before acting on either.** `egui-0.35.0/src/input_state/touch_state.rs` was checked directly this
+session:
+- `TouchState::begin_pass` (line 140) sets `added_or_removed_touches = true` on any `Start`/`End`/
+  `Cancel` touch event, and immediately after (line 174-179) **nulls `gesture_state.previous`**
+  for that frame when that flag is set — `info()` (line 188) then substitutes `current` for the
+  missing `previous`, producing a **zero** `translation_delta`/`zoom_delta` for the transition
+  frame, not a spurious jump. A 2→3 or 3→2 finger count change inside egui's own gesture math is
+  already guarded against — this plan's original "mechanism 2" does not apply to this egui version.
+- `active_touches.insert`/`.remove` (lines 152, 162) happen synchronously before `update_gesture`
+  is called in the same `begin_pass` — so `multi_touch()` already reflects the current frame's true
+  touch count by the time HookEcho's `gesture`/`quiet` variables are computed. There is no
+  observable one-frame lag between a second finger landing and `multi_touch()` returning `Some` —
+  this plan's original "mechanism 1" doesn't hold up either, at least not inside egui itself.
 
-1. **A one-frame recognition lag.** `quiet` depends on `multi_touch()` returning `Some` the *same
-   frame* a second finger lands. If egui (particularly its web/wasm touch-event path) needs one
-   frame to recognize the second touch point, the single-finger drag block (12893-12919) can fire
-   once, unopposed, with whatever `drag_delta()` a half-registered two-finger touch produced before
-   `quiet` goes false — a single large, wrong pan.
-2. **A touch-count change mid-gesture** (2→3 fingers, e.g. a resting thumb, or 3→2 on lift). Egui's
-   `MultiTouchInfo::translation_delta`/`zoom_delta` are computed from the centroid of however many
-   points are currently down; a count change moves the centroid discontinuously between frames
-   (independent of any real finger motion), producing one spurious large delta.
+**What shipped instead of a mechanism-specific fix:** since the true trigger is upstream of egui
+(most likely browser/wasm touch-event dispatch quirks this session had no way to reproduce or
+instrument — no real touchscreen or browser multi-touch emulation available in this environment),
+a defensive **clamp** was added rather than chasing an unconfirmed root cause further: the
+two-finger gesture block now caps `mt.translation_delta`'s magnitude to 40% of the pane's smaller
+dimension, and `mt.zoom_delta`'s applied `log2` to `[-1.0, 1.0]` (halving/doubling zoom in one
+frame is already an extreme legitimate pinch rate). A `log::warn!` fires when the translation clamp
+actually engages, so a real occurrence is now visible in the field (and, once §4's Analyst Mode
+exists, in its live log) instead of just "the map jumped and nobody knows why." This bounds the
+damage regardless of cause; it does not explain the cause.
 
-**Fix approach:** whichever mechanism reproduces, the fix shape is the same — extract a pure,
-testable function that decides "should this frame's touch delta be applied at all" (currently this
-logic is inline in the `app.rs` block, untestable without a full `egui::Context`), and have it
-reject a frame where the touch-point count just changed (mechanism 2) and/or extend `gesture_tail`-
-style suppression to cover the *start* of a gesture, not just its end (mechanism 1) — e.g. require
-one frame of an unchanged, non-zero touch count before trusting that frame's delta. A cheap
-belt-and-suspenders addition regardless: clamp the applied translation to a generous per-frame pixel
-ceiling before calling `pan_pixels` — a real two-finger pan does not move hundreds of pixels in one
-frame, so this catches whichever mechanism is actually firing without needing to prove which one.
+**Still open, for whoever picks this back up:** reproduce on a real device or with Chrome DevTools'
+multi-touch emulation, watch whether `log::warn!`'s new clamp message fires, and if so capture what
+`mt.translation_delta`/`num_touches` actually were — that tells you whether the upstream event
+source (not egui, not this app's gesture logic) is delivering something egui's touch state doesn't
+expect. Consider instrumenting `web_sys`/`eframe`'s own touch-event → `egui::Event::Touch`
+translation path next, not `app.rs` or egui's `touch_state.rs` again — both were checked and are
+sound.
 
-**Acceptance:** [ ] a 3-touch-point synthetic input sequence (2 fingers panning, a 3rd touching down
-mid-gesture) does not produce a multi-hundred-pixel single-frame pan — cover this with a unit test
-against whatever pure function ends up owning the "should this frame's delta be applied" decision
-(extract it from the `app.rs` block into a testable free function rather than leaving it inline).
-[ ] manually verified on an actual touchscreen (or Chrome DevTools' touch emulation with multiple
-synthetic pointers) that a 3-finger touch on the map no longer causes a runaway pan.
+**Acceptance:** [x] a defensive per-frame magnitude clamp exists so no single frame's gesture can
+move the camera by more than a bounded fraction of the pane, regardless of cause. [ ] root cause
+confirmed against a real touch source (still open — mark this checkbox only once actually
+reproduced and explained, not just mitigated). [ ] manually verified on an actual touchscreen (or
+Chrome DevTools' touch emulation with multiple synthetic pointers) that a 3-finger touch on the map
+no longer produces a visibly large jump — the clamp should make this true today even without full
+root-cause confirmation; verify it actually does.
 
 ### 2.2 3D map basemap has empty gaps, mainly when zoomed out — [ ] not started
 
@@ -223,48 +236,39 @@ defaults to current (non-breaking) behavior. [ ] FAB mode renders correctly on b
 ~380px mobile viewport. [ ] screenshot comparison against Ref 1/Ref 2 shows a visually improved,
 consistent control in `Docked` mode.
 
-### 2.4 Radar range ring shows km instead of miles — [ ] not started
+### 2.4 Radar range ring shows km instead of miles — [x] done
 
-**Where, confirmed exact:** `crates/hookecho/src/app.rs`, lines ~15793-15829, gated by
-`self.show_range_rings` (field declared `app.rs:3155`, toggled via `Toggle::RangeRings`,
-`app.rs:1688`). The four ring radii are a hardcoded array, and the label format bakes in the unit:
+**Correction to this plan's original diagnosis — read before touching this again:** the first draft
+of this section proposed adding a brand-new `Settings.distance_unit` toggle, on the assumption that
+"no distance-unit groundwork exists at all." That assumption was wrong. **HookEcho already has an
+automatic miles-vs-km mechanism, used by the measure tool, that the range rings simply never got
+wired to:** `fn metric_in(&self, idx: usize) -> bool` (`app.rs:8384`) returns `false` (→ show miles)
+for NEXRAD/TDWR sites and `true` (→ km) for everything else (DWD/OPERA/international radars) — a
+per-site, network-derived choice, not a user setting. `crate::geo::fmt_distance(km, metric, decimals)`
+(`geo.rs:27`) formats a km value in whichever unit that bool selects. The measure tool
+(`app.rs:16120-16124`, `crate::geo::great_circle` + `fmt_distance(km, self.metric_in(idx), 1)`)
+already does this correctly; the range-ring block (`app.rs`, gated by `self.show_range_rings`,
+field at `app.rs:3155`, toggled via `Toggle::RangeRings` at `app.rs:1688`) just hardcoded km and
+never consulted `metric_in`. **There is no new user-facing setting here, and there should not be
+one** — adding a separate `DistanceUnit` preference would contradict the existing, already-correct
+automatic behavior and create two competing sources of truth for the same question. If a real need
+for a manual override surfaces later (e.g. a non-US user wanting km on a NEXRAD site), extend
+`metric_in` itself (a per-user override falling back to the network default), not a parallel enum.
 
-```rust
-for km in [50.0, 100.0, 150.0, 200.0] {
-    // ... polyline via crate::geo::destination_point ...
-    if cam.zoom >= 6.0 {
-        painter.text(..., format!("{km:.0} km"), ...);
-    }
-}
-```
+**What shipped:** the range-ring block now computes `let metric = self.metric_in(idx);`, picks ring
+radii that read as round numbers in the active unit (`[50.0, 100.0, 150.0, 200.0]` km when metric,
+`[25.0, 50.0, 75.0, 100.0]` mi — converted to km via `crate::geo::KM_PER_MILE` before being handed
+to `destination_point`, which always expects km regardless of display unit), formats each ring's
+label with `crate::geo::fmt_distance(km, metric, 0)` instead of the old hardcoded
+`format!("{km:.0} km")`, and draws the azimuth spokes out to whichever ring is actually the
+farthest (`max_ring_km`, tracked while building the rings) instead of a separately hardcoded `200.0`
+that would have silently stopped matching the rings once they became unit-dependent.
 
-Azimuth spokes at 45° intervals out to 200 km live in the same block. This is **not** in `render/`
-— it's drawn directly in the per-pane paint routine in `app.rs`.
-
-**Confirmed: no distance-unit groundwork exists at all** (unlike `VelocityUnit`/`TempUnit`, which
-already exist and this should mirror exactly — see `settings.rs`'s `VelocityUnit`, ~line 1104, for
-the shape: a `Copy` enum, an `ALL` const array, `label()`, a conversion factor/method). This is a
-**US-only app** (per `ROADMAP_NEW.md`'s own scope line) — miles should be the default, not an equal
-toggle defaulting to metric.
-
-**Fix approach:** add `DistanceUnit { Miles (default), Kilometers }` to `settings.rs`. Convert the
-ring radii array and spoke length to the display unit at the point they're computed (keep
-`destination_point`'s own input in whatever unit it actually expects — check its signature rather
-than assuming km — and convert only for the ring-radius values and the label text), and change
-`format!("{km:.0} km")` to read from the setting. Add a Units-tab row for it
-(`ui/settings_window.rs`'s `fn units_tab`, line 560, already has the exact `ui.horizontal` +
-`selectable_value`-over-`ALL` idiom for `VelocityUnit`/`TempUnit`/`TimeDisplay` — copy that pattern).
-**Scope note:** CAPPI altitude sliders (`ui/cappi_window.rs`, `" km"` suffix) and similar
-scientific-altitude inputs are a judgment call — altitude in km/kft is common even in US-market
-tools (GR2Analyst uses kft for altitude, miles for range); don't reflexively convert every "km"
-string in the codebase, only ground-range/distance displays like this one. Note any deliberately-
-left-as-km decision inline with a comment explaining why.
-
-**Acceptance:** [ ] range ring shows miles by default, km when the setting is switched, at the same
-four "ring intervals" conceptually (i.e. don't just relabel 50/100/150/200 km as if they were miles
-— pick sensible mile radii, e.g. 25/50/75/100 mi, and recompute the polylines from those). [ ] a
-unit test on the conversion factor, matching whatever test style `VelocityUnit`/`TempUnit` already
-use if any exist.
+**Acceptance:** [x] range ring reads in miles for NEXRAD/TDWR sites, km for international sites —
+automatically, consistent with the measure tool, no new setting to configure or forget to set.
+[x] `cargo check -p hookecho --lib` clean. [ ] not yet visually screenshot-verified against a real
+NEXRAD site per §1's "a visual change needs a screenshot" rule — do this before considering the
+item fully closed, not just compiled.
 
 ---
 
