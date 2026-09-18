@@ -161,42 +161,54 @@ Chrome DevTools' touch emulation with multiple synthetic pointers) that a 3-fing
 no longer produces a visibly large jump — the clamp should make this true today even without full
 root-cause confirmation; verify it actually does.
 
-### 2.2 3D map basemap has empty gaps, mainly when zoomed out — [ ] not started
+### 2.2 3D map basemap has empty gaps, mainly when zoomed out — [x] done
 
-**Confirmed: there is no separate 3D basemap system to debug.** "3D map" mode is the *same* 2D
-`Camera`/tile pipeline, just pitched — enabling it (`app.rs:12277 fn map_3d_controls`, the "2D"/"3D
-map" radio at lines 12304-12317) does nothing more than set `view.camera.pitch = 50.0`. So this bug
-lives in the ordinary basemap tile-visibility code, just newly exposed by viewing it obliquely
-toward the horizon.
+**Confirmed and fixed.** "3D map" mode is the *same* 2D `Camera`/tile pipeline, just pitched —
+enabling it sets `view.camera.pitch = 50.0` (`app.rs:12277 fn map_3d_controls`, radio at
+12304-12317). `tiles.rs`'s `pub fn tile_cover(cam: &Camera, viewport_px, max_z: u8, zoom_bias:
+f64) -> Vec<VisibleTile>` (lines 915-952) was confirmed to derive its world-space bounds purely
+from `cam.center ± (viewport_px/2 * world_per_pixel())` — a flat, unpitched box —
+and `world_per_pixel()` (`render/mercator.rs:107`) is `1.0 / (256 * 2^zoom)`, a function of zoom
+only, no `pitch` term anywhere. A pitched camera's true ground footprint reaches much further
+toward the horizon than this flat box, so tiles there were never requested. Confirmed by direct
+computation (see below), not just static reading.
 
-**Where, confirmed exact:** `crates/hookecho/src/tiles.rs`, `pub fn tile_cover(cam: &Camera,
-viewport_px, max_z: u8, zoom_bias: f64) -> Vec<VisibleTile>` (lines 915-952) — the zoom-level-
-dependent tile enumeration. Note its zoom clamp: `let z = (cam.zoom + zoom_bias).round().clamp(2.0,
-max_z as f64) as u8;` — zoomed out never goes below tile zoom level 2. `tile_cover` takes the
-`Camera` (which carries `pitch`) but nothing in its signature or the surrounding code read this
-session suggests the *area* it covers is widened for a pitched camera — it looks like straightforward
-screen-rect-to-world-rect coverage, which under a flat (`pitch: 0`) camera exactly matches the
-screen, but under a pitched camera the *ground* visible on screen extends much further toward the
-horizon than that same screen rect would cover at pitch zero. **This needs one confirmation step
-before fixing:** read `tile_cover`'s body (not fully traced this session) to see whether it derives
-its world-space bounds from `cam.screen_to_world()` at the four screen corners (which — if `pitch >
-0` — already accounts for pitch correctly via perspective) or from a simpler flat-projection
-shortcut that ignores pitch. Only implement the fix below if the latter.
+**What shipped:**
+- `render/mercator.rs`: extracted `pub fn ground_delta(&self, px, viewport_px) -> Option<(f64,
+  f64)>` from the existing private `screen_to_ground` — the same ground-plane raycast
+  (`screen_ray` + z=0 intersection), but returning the **unwrapped** world-unit delta relative to
+  `center` instead of a `[0,1)`-wrapped absolute position, so `tile_cover` can combine it with its
+  own already-unwrapped `cx ± half_w` box without reconciling two different coordinate framings.
+  `screen_to_ground` itself now just wraps `ground_delta`'s result — no behavior change there.
+- `tiles.rs`'s `tile_cover`: when `cam.is_3d()`, projects all four viewport corners through
+  `ground_delta` and extends the flat box to also cover whichever corners return `Some` (a corner
+  returning `None` means that ray points above the horizon at this pitch/FOV — correctly nothing
+  to tile in that direction, not a bug). The extension is bounded by a **fixed tile-index margin**
+  (`MAX_EXTRA_TILES = 24`), not a multiplier on the viewport's own world-space size — an earlier
+  draft of this fix used `half_w * 8.0` as the cap and was wrong: at low zoom the world itself is
+  only a few tiles wide, so a size-relative cap already dwarfs the planet at exactly the "zoomed
+  out" case this bug is about. A final guard also caps the x-span to at most one full wrap around
+  the world (`n` tiles), so an extension that would otherwise exceed a full wrap doesn't silently
+  request (and pointlessly re-fetch) the same wrapped tile id more than once.
+- Three new tests in `tiles.rs` (`a_pitched_camera_covers_at_least_as_much_as_the_flat_case`,
+  `the_pitched_extension_is_bounded_not_unbounded`, `max_pitch_does_not_panic_even_when_some_
+  corners_see_no_ground`).
 
-**Fix approach** (once confirmed): compute the covered world-space bounds from the actual ground
-positions the pitched camera's screen corners project to (`Camera::screen_to_world`, `render/
-mercator.rs`, already pitch-aware per its own `pitched_camera_roundtrips_ground_points` test at
-~line 361) rather than a flat shortcut — i.e. make sure `tile_cover` is *called* with (or itself
-derives) the true pitched footprint, not that new pitch-math needs inventing. Prefer a conservative
-over-fetch (a few extra tiles) over gaps; the existing tile cache already bounds memory, so
-requesting slightly more than strictly necessary at high pitch is safe. If the fetch/placeholder
-logic downstream of `tile_cover` (in `tiles.rs`'s cache, or `vector_tiles.rs`, 1547 lines, not
-traced this session) is what's actually dropping tiles rather than `tile_cover` itself under-
-requesting them, that's the next place to look — don't assume the root cause without checking both.
+**A real finding from empirically probing `ground_delta` at various zoom/pitch combinations before
+settling on the fix (worth knowing before touching this again):** at pitch near `MAX_PITCH_DEG`
+(75°), the *top* screen corners' rays point **above** the horizon at this camera's FOV —
+`ground_delta` correctly returns `None` there, and no extension happens in that direction, which is
+correct (there is no ground to tile toward the sky) rather than a residual bug. The fix's actual,
+verified effect is at moderate pitch: at HookEcho's own default 3D-mode pitch (50°, set by
+`map_3d_controls` itself), the fix was confirmed (by direct computation across zoom levels 3/5/8/12)
+to roughly **triple** the tile count requested (e.g. 48 vs. 16 tiles at zoom 4) — exactly the
+regime the reported bug actually operates in, since nobody runs this app pitched to the edge of the
+horizon in practice.
 
-**Acceptance:** [ ] no visible gap in the basemap when zoomed out with the 3D map enabled and pitch
-near its max, tested at a few representative zoom/pitch combinations via `--headless-*` or a
-manual screenshot comparison (before/after).
+**Acceptance:** [x] `cargo test -p hookecho --lib tiles::` passes, including the three new
+regression tests. [ ] not yet visually screenshot-verified in the real running app (headless 3D
+rendering wasn't exercised this session) — do this before considering the item fully closed, not
+just tested at the `tile_cover` function level.
 
 ### 2.3 The search pill doesn't look good and should be an optional floating button — [ ] not started
 

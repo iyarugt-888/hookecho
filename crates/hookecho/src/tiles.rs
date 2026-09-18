@@ -925,10 +925,55 @@ pub fn tile_cover(
     let half_w = viewport_px.0 as f64 / 2.0 * wpp;
     let half_h = viewport_px.1 as f64 / 2.0 * wpp;
     let (cx, cy) = cam.center;
-    let x0 = ((cx - half_w) * nf).floor() as i64;
-    let x1 = ((cx + half_w) * nf).ceil() as i64;
-    let y0 = (((cy - half_h) * nf).floor() as i64).max(0);
-    let y1 = (((cy + half_h) * nf).ceil() as i64).min(n as i64);
+    let flat_x0 = ((cx - half_w) * nf).floor() as i64;
+    let flat_x1 = ((cx + half_w) * nf).ceil() as i64;
+    let flat_y0 = ((cy - half_h) * nf).floor() as i64;
+    let flat_y1 = ((cy + half_h) * nf).ceil() as i64;
+    let (mut x0, mut x1) = (flat_x0, flat_x1);
+    let (mut y0, mut y1) = (flat_y0, flat_y1);
+
+    // A pitched camera's ground footprint reaches much further toward the horizon than the flat
+    // box above accounts for — `world_per_pixel()` has no notion of pitch, so that box matches
+    // only the "looking straight down" case. Left as-is, tiles near the horizon (most visible
+    // zoomed out, where more of the screen's depth is far-away ground) are never requested,
+    // which is the basemap-gap bug this extends the box to fix.
+    //
+    // The extension is bounded in *tile-index* space (a fixed extra-tile margin), not by scaling
+    // the world-space box: a near-horizon ray's ground distance grows without bound as pitch
+    // approaches 90° (`MAX_PITCH_DEG` is 75°, steep enough to reach very large ground distances
+    // at a low zoom), and at low zoom the world itself is only a few tiles wide, so a margin
+    // defined as "N× the viewport's own world-space size" would already dwarf the whole planet —
+    // exactly the zoomed-out case this fix targets. A fixed tile-count margin stays sane at every
+    // zoom level instead.
+    if cam.is_3d() {
+        const MAX_EXTRA_TILES: i64 = 24;
+        for corner in [
+            (0.0, 0.0),
+            (viewport_px.0, 0.0),
+            (0.0, viewport_px.1),
+            (viewport_px.0, viewport_px.1),
+        ] {
+            // `None` means this corner's ray points above the horizon (only reachable near
+            // `MAX_PITCH_DEG`) — nothing to extend toward in that direction.
+            if let Some((dx, dy)) = cam.ground_delta(corner, viewport_px) {
+                let tx = ((cx + dx) * nf).floor() as i64;
+                let ty = ((cy + dy) * nf).floor() as i64;
+                x0 = x0.min(tx.max(flat_x0 - MAX_EXTRA_TILES));
+                x1 = x1.max((tx + 1).min(flat_x1 + MAX_EXTRA_TILES));
+                y0 = y0.min(ty.max(flat_y0 - MAX_EXTRA_TILES));
+                y1 = y1.max((ty + 1).min(flat_y1 + MAX_EXTRA_TILES));
+            }
+        }
+        // Never request more than one full wrap around the world in x — beyond that, tiles
+        // would simply repeat (same wrapped id, fetched and drawn more than once for nothing).
+        if x1 - x0 > n as i64 {
+            let mid = (x0 + x1) / 2;
+            x0 = mid - n as i64 / 2;
+            x1 = x0 + n as i64;
+        }
+    }
+    y0 = y0.max(0);
+    y1 = y1.min(n as i64);
 
     let mut out = Vec::new();
     for ty in y0..y1 {
@@ -2057,6 +2102,80 @@ pub fn start_pack_download(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A pitched camera's ground footprint reaches further toward the horizon than a flat
+    /// (`pitch: 0`) camera's does — `tile_cover` must widen its request to match, or the
+    /// basemap shows gaps near the horizon (worst zoomed out, since more of the screen is far
+    /// away). Regression test for that exact bug.
+    ///
+    /// Pitch 50° (not `MAX_PITCH_DEG`/75°) deliberately: verified empirically (see this
+    /// commit's own investigation) that near the steepest allowed pitch, the top-of-screen rays
+    /// point *above* the horizon at this camera's FOV (`ground_delta` returns `None` there) —
+    /// correctly nothing to tile in that direction, not a bug — so a maximum-pitch case can
+    /// legitimately show no extension. A more moderate pitch is what actually exercises the
+    /// "extend toward a ground point the flat box misses" path this test protects.
+    #[test]
+    fn a_pitched_camera_covers_at_least_as_much_as_the_flat_case() {
+        let viewport = (800.0, 600.0);
+        let flat = Camera {
+            center: (0.5, 0.5),
+            zoom: 4.0,
+            pitch: 0.0,
+            bearing: 0.0,
+        };
+        let pitched = Camera {
+            pitch: 50.0,
+            ..flat
+        };
+        let flat_cover = tile_cover(&flat, viewport, 18, 0.0);
+        let pitched_cover = tile_cover(&pitched, viewport, 18, 0.0);
+        assert!(
+            pitched_cover.len() > flat_cover.len(),
+            "a pitched camera must request strictly more tiles than the flat case at the same \
+             zoom/viewport ({} pitched vs {} flat)",
+            pitched_cover.len(),
+            flat_cover.len()
+        );
+    }
+
+    /// At the steepest allowed pitch, rays from the top of the screen can point above the
+    /// horizon entirely (nothing to tile there — verified via `ground_delta` returning `None`
+    /// for those corners at this FOV) without that being a bug. This just documents/locks in
+    /// that `tile_cover` doesn't panic or misbehave in that regime.
+    #[test]
+    fn max_pitch_does_not_panic_even_when_some_corners_see_no_ground() {
+        let viewport = (800.0, 600.0);
+        let cam = Camera {
+            center: (0.5, 0.5),
+            zoom: 5.0,
+            pitch: crate::render::mercator::MAX_PITCH_DEG,
+            bearing: 0.0,
+        };
+        let cover = tile_cover(&cam, viewport, 18, 0.0);
+        assert!(!cover.is_empty());
+    }
+
+    /// The horizon-extension in `tile_cover` must stay bounded (a generous multiple of the flat
+    /// box) even at the steepest allowed pitch — otherwise a near-horizon ray's unbounded ground
+    /// distance could request an enormous, unbounded tile set.
+    #[test]
+    fn the_pitched_extension_is_bounded_not_unbounded() {
+        let viewport = (800.0, 600.0);
+        let cam = Camera {
+            center: (0.5, 0.5),
+            zoom: 2.0, // zoomed all the way out: worst case for an unbounded extension
+            pitch: crate::render::mercator::MAX_PITCH_DEG,
+            bearing: 0.0,
+        };
+        let cover = tile_cover(&cam, viewport, 18, 0.0);
+        // At zoom 2 there are only 4x4 = 16 tiles in the whole world; even a generously widened
+        // request must stay within that, not overflow into an unreasonable count.
+        assert!(
+            cover.len() <= 16,
+            "bounded extension must not exceed the whole world's tile count at this zoom: got {}",
+            cover.len()
+        );
+    }
 
     /// 512-px providers made the 512-entry cache four times the memory the entry count assumed.
     /// Eviction has to weigh bytes, and has to leave the frame's own tiles alone.

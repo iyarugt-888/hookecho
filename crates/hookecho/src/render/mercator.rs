@@ -240,7 +240,13 @@ impl Camera {
         Some((near, far - near))
     }
 
-    fn screen_to_ground(&self, px: (f32, f32), viewport_px: (f32, f32)) -> Option<(f64, f64)> {
+    /// Where a screen pixel's ray crosses the ground plane, as a world-unit delta *relative to
+    /// `self.center`* — unwrapped (not reduced into `[0, 1)`), the same continuous coordinate
+    /// frame [`tiles::tile_cover`] already works in for its own flat-camera bounding box (so a
+    /// caller combining the two doesn't need to reconcile a wrapped and an unwrapped frame).
+    /// `None` when the ray doesn't hit the ground ahead of the camera (looking above the
+    /// horizon — only reachable at a steep pitch).
+    pub fn ground_delta(&self, px: (f32, f32), viewport_px: (f32, f32)) -> Option<(f64, f64)> {
         let (near, ray) = self.screen_ray(px, viewport_px)?;
         if ray.z.abs() <= 1e-6 {
             return None;
@@ -251,10 +257,12 @@ impl Camera {
         }
         let ground = near + ray * t;
         let wpp = self.world_per_pixel();
-        Some((
-            (self.center.0 + ground.x as f64 * wpp).rem_euclid(1.0),
-            self.center.1 - ground.y as f64 * wpp,
-        ))
+        Some((ground.x as f64 * wpp, -(ground.y as f64) * wpp))
+    }
+
+    fn screen_to_ground(&self, px: (f32, f32), viewport_px: (f32, f32)) -> Option<(f64, f64)> {
+        let (dx, dy) = self.ground_delta(px, viewport_px)?;
+        Some(((self.center.0 + dx).rem_euclid(1.0), self.center.1 + dy))
     }
 }
 
