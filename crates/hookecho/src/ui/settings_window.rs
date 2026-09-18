@@ -1,4 +1,4 @@
-//! Settings window: General, Palettes, Units, Basemaps, Alerts, Hotkeys, Sync, Storage.
+//! Settings window: General, Appearance, Palettes, Units, Basemaps, Alerts, Hotkeys, Sync, Storage.
 
 use crate::app::PaletteEntry;
 use crate::colormap::Palettes;
@@ -11,6 +11,9 @@ use wxdata::level2::Moment;
 enum Tab {
     #[default]
     General,
+    /// theme_plan.md §3: split out of General — theme_plan.md §6.1's "Theme"/"Color scheme"
+    /// split, Density, the timeline style, and the floating-search toggle live here now.
+    Appearance,
     Palettes,
     Units,
     Basemaps,
@@ -108,6 +111,7 @@ impl SettingsWindow {
             ui.horizontal_wrapped(|ui| {
                 for (tab, label) in [
                     (Tab::General, "General"),
+                    (Tab::Appearance, "Appearance"),
                     (Tab::Palettes, "Palettes"),
                     (Tab::Units, "Units"),
                     (Tab::Basemaps, "Basemaps"),
@@ -130,6 +134,7 @@ impl SettingsWindow {
             ui.separator();
             match self.tab {
                 Tab::General => general_tab(ui, settings, &mut self.run_setup, &mut self.run_tour),
+                Tab::Appearance => appearance_tab(ui, settings),
                 Tab::Palettes => self.palettes_tab(ui, settings, palettes),
                 Tab::Units => units_tab(ui, settings),
                 Tab::Basemaps => basemaps_tab(ui, settings),
@@ -850,33 +855,19 @@ fn sync_tab(ui: &mut egui::Ui, settings: &mut Settings, sync: &SyncView) -> Opti
     action
 }
 
-fn general_tab(
-    ui: &mut egui::Ui,
-    settings: &mut Settings,
-    run_setup: &mut bool,
-    run_tour: &mut bool,
-) {
-    egui::Grid::new("general_grid")
+/// theme_plan.md §3: split out of `general_tab` — everything that changes how the app *looks*
+/// (colors, chrome, density, the timeline's own visual style) rather than how it *behaves*.
+/// `Theme` (this app's own chrome+color preset — the type is `Layout`, see that type's own doc
+/// comment for the naming story) reads as the primary choice here; `Color scheme` (just colors —
+/// the type is `Theme`) is the secondary, customize-further control underneath it, so a casual
+/// user picks one Theme and is done, while a power user can still override just the colors.
+/// Picking a Theme applies its `recommended_theme_and_density()` pair once, immediately; Color
+/// scheme and Density stay independently changeable right after (nothing re-forces them back).
+fn appearance_tab(ui: &mut egui::Ui, settings: &mut Settings) {
+    egui::Grid::new("appearance_grid")
         .num_columns(2)
         .spacing([12.0, 8.0])
         .show(ui, |ui| {
-            ui.label("Default site");
-            let mut site = settings.default_site.clone();
-            if ui.text_edit_singleline(&mut site).changed() {
-                settings.default_site = site.to_ascii_uppercase();
-            }
-            ui.end_row();
-
-            ui.label("Poll interval (s)");
-            ui.add(egui::DragValue::new(&mut settings.poll_interval_secs).range(10..=600));
-            ui.end_row();
-
-            // theme_plan.md §6.1: "Theme" (this app's own chrome+color preset, `Layout`) reads as
-            // the primary choice; "Color scheme" (just colors, `Theme`) is the secondary,
-            // customize-further control underneath it — so a casual user picks one Theme and is
-            // done, while a power user can still override just the colors. Picking a Theme here
-            // applies its `recommended_theme_and_density()` pair once, immediately; Color scheme
-            // and Density stay independently changeable right after (nothing re-forces them back).
             if !cfg!(target_os = "android") {
                 ui.label("Theme");
                 ui.horizontal(|ui| {
@@ -968,6 +959,29 @@ fn general_tab(
                     );
                 ui.end_row();
             }
+        });
+}
+
+fn general_tab(
+    ui: &mut egui::Ui,
+    settings: &mut Settings,
+    run_setup: &mut bool,
+    run_tour: &mut bool,
+) {
+    egui::Grid::new("general_grid")
+        .num_columns(2)
+        .spacing([12.0, 8.0])
+        .show(ui, |ui| {
+            ui.label("Default site");
+            let mut site = settings.default_site.clone();
+            if ui.text_edit_singleline(&mut site).changed() {
+                settings.default_site = site.to_ascii_uppercase();
+            }
+            ui.end_row();
+
+            ui.label("Poll interval (s)");
+            ui.add(egui::DragValue::new(&mut settings.poll_interval_secs).range(10..=600));
+            ui.end_row();
 
             ui.label("Motion");
             ui.checkbox(&mut settings.reduce_motion, "Reduce motion")
@@ -987,7 +1001,10 @@ fn general_tab(
             ui.add(egui::Slider::new(&mut settings.ui_scale, lo..=1.6).step_by(0.05));
             ui.end_row();
         });
-    ui.weak("UI scale also responds to Ctrl+= / Ctrl+- / Ctrl+0.");
+    ui.weak(
+        "UI scale also responds to Ctrl+= / Ctrl+- / Ctrl+0. Colors, chrome, density and the \
+             timeline live under the Appearance tab now.",
+    );
 
     let valid = wxdata::sites::site_by_id(&settings.default_site).is_some();
     if !valid && !settings.default_site.is_empty() {

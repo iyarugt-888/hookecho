@@ -282,46 +282,33 @@ item fully closed, not just compiled.
 
 ---
 
-## 3. Settings reorganization
+## 3. Settings reorganization — [x] done
 
 The reference video's own title calls out "Orderly Logical Settings Reorganization" as a real
-WSV3 v6 workstream — borrow that framing. Confirmed exact current tabs and dispatch
-(`crates/hookecho/src/ui/settings_window.rs`, `enum Tab` + the match at lines 132-139): General
-(`general_tab`, free fn, line 853), Palettes (`self.palettes_tab`, line 461), Units (`units_tab`,
-line 560), Basemaps (`basemaps_tab`, line 691), Alerts (`alerts_tab`, line 1107), Hotkeys
-(`self.hotkeys_tab`, line 320), Sync (`sync_tab`, line 791), Storage (`self.storage_tab`).
+WSV3 v6 workstream — borrowed that framing.
 
-`general_tab`'s single `egui::Grid` ("general_grid") currently holds, in this exact order: Default
-site → Poll interval → **Theme** [ComboBox + live swatch preview] → **Accent color** [custom RGB
-override] → **Density** [segmented control] → **Layout** [segmented control, hidden on Android] →
-Motion (`reduce_motion`). The four bolded rows are exactly what moves.
+**What shipped** (`crates/hookecho/src/ui/settings_window.rs`): a new `Tab::Appearance` variant
+and `appearance_tab` free function (same shape as `basemaps_tab`/`units_tab`/`alerts_tab` — takes
+`&mut egui::Ui, &mut Settings`, no `self`), inserted right after General in the tab bar. It holds,
+in order: **Theme** (the `Layout` picker, with the recommended-pair-on-pick behavior from §6.2),
+**Color scheme** (the `Theme` picker, relabeled per §6.1), **Accent color**, **Density**,
+**Timeline** (the `TimelineStyle` picker from §7), and **Floating search** (the toggle from
+§2.3). `general_tab` keeps: default site, poll interval, motion, UI scale, "Getting started,"
+Background, the "Radar relay (advanced)" section (left in General, under its own heading, rather
+than moved — it's a diagnostics/data-source concern, not an appearance one, so moving it to
+Appearance would have been the "split advanced settings across two tabs for no reason" this
+section's own draft warned against), Workspaces, and AI. "Palettes" (radar `.pal` tables) is
+untouched, per §0's naming-collision note. Analyst Mode (§4) is not implemented yet, so it isn't
+placed anywhere yet either — do that alongside building §4, not preemptively here.
 
-- [ ] **Split "General" into "General" and "Appearance."** General keeps: default site, poll
-  interval, motion/reduce-motion, UI scale, "Getting started," Background, Workspaces. Appearance
-  gets the four grid rows above (Theme/Accent/Density/Layout — relabeled per §6.1: "Color scheme"
-  for `Theme`, "Theme" for `Layout`), plus the new distance-unit control if it doesn't fit better
-  under Units, plus the new timeline-style control (§7). The "Radar relay (advanced)" section added
-  this session (`radar_relay_section`, `general_tab`, line 651) can move to Appearance too, or stay
-  in General under its own "Advanced" heading — pick one and be consistent, don't split
-  advanced/diagnostic settings across two tabs without a reason.
-- [ ] Add a new top-level `Tab::Appearance` variant and an `appearance_tab` free function, following
-  exactly the `basemaps_tab`/`units_tab`/`alerts_tab` shape (a free function taking `&mut egui::Ui,
-  &mut Settings`) — don't make `general_tab` a method just to share `self` state it doesn't need.
-- [ ] Leave "Palettes" (radar `.pal` tables, `palettes_tab`) exactly where it is, unrenamed — see
-  §0's naming collision note.
-- [ ] Add the new Analyst Mode toggle (§4) to Appearance or General — a "Diagnostics" mini-section,
-  consistent with where the diagnostics-bundle export button already lives (`app.rs`'s own "Backup"
-  drawer section, not this settings window — check whether Analyst Mode belongs there instead, for
-  consistency with where other diagnostic-adjacent controls already live).
-- [ ] While in this file: there are **two `fn storage_tab` definitions** (lines 152 and 262,
-  presumably `#[cfg]`-gated native/web variants) — not this plan's problem to fix, but if either is
-  actually dead code rather than a real platform split, flag it in a commit message rather than
-  silently leaving a growing pile of confusion for the next person touching this file.
+**Left alone, not this pass's problem:** the two `fn storage_tab` definitions (`#[cfg]`-gated
+native/web variants) noted in an earlier draft of this section — still there, still presumably a
+real platform split rather than dead code, not re-verified this pass.
 
-**Acceptance:** [ ] every existing setting is still reachable (nothing silently removed, only
-regrouped). [ ] `cargo test -p hookecho --lib settings::` still passes (the `roundtrips`/
-`tolerates_unknown_and_missing_fields` tests catch a broken serde shape, not tab layout, but confirm
-nothing in this reorg touches the `Settings` struct's serialized shape unless intentional).
+**Acceptance:** [x] every existing setting is still reachable — General lost exactly the six rows
+that moved to Appearance, nothing was deleted. [x] `cargo test -p hookecho --lib` (606 tests) and
+`cargo check` (native + wasm32) clean — the `Settings` struct's serialized shape is unchanged by
+this reorg (it only moved *which UI tab* reads/writes each field, not the fields themselves).
 
 ---
 
@@ -542,7 +529,7 @@ leaving something half-done. Rough grouping, batching the single gate run per gr
 
 1. **Bugs (§2)** — [x] all four done (2.1, 2.2, 2.3, 2.4).
 2. **Distance unit** — [x] done as part of 2.4 (turned out to need no new setting at all — see
-   that section's correction note). **Settings reorg (§3)** — not done; still open.
+   that section's correction note). **Settings reorg (§3)** — [x] done.
 3. **`Layout` rename + preset pairing (§6.2)** — [x] done.
 4. **New WSV3 theme (§6.3)** — [x] partly done (geometry + footer); the tab-row refactor and
    checkbox-dense rows are the tracked remainder — see that section's own "deliberately not done"
