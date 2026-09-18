@@ -460,6 +460,13 @@ port of WSV3's own feature set (see §1's "don't replicate feature-for-feature" 
   architecture work on its own — attempting it in the same pass as everything else above risked
   a half-finished refactor rather than a working denser theme. The theme still reads as
   meaningfully different today (geometry + footer); the tab-row grouping is the next increment.
+  A later pass sketched one concrete split (Radar/Products/Tools tabs, gated only on
+  `is_wsv3_theme()` so `CommandRibbon` stays untouched) and found a real conflict before writing
+  any code: `RibbonMode`'s existing Radar/Model/Mrms gate gets crossed with a tab selection, and
+  some combinations (e.g. a "Products" tab picked while `RibbonMode::Radar` is active) hide both
+  the mode-specific groups and the radar-only ones, leaving a near-empty ribbon — a functional
+  regression, not a cosmetic one. Confirms this needs an actual UI session to iterate against
+  rather than a design done blind; don't reuse that exact split without resolving the crossing.
 - **Checkbox-dense rows** for button-grid controls (reflectivity mode, satellite channel, warning
   types) — a cosmetic pass with real regression risk if done without live visual iteration (no
   browser/screenshot tooling was set up this session — see §1's own screenshot-verification rule,
