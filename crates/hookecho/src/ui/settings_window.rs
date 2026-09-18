@@ -1050,6 +1050,22 @@ fn general_tab(
 
     ui.add_space(8.0);
     ui.separator();
+    ui.strong("Diagnostics");
+    if ui
+        .checkbox(&mut settings.analyst_mode, "Analyst mode")
+        .on_hover_text(
+            "Raises the app's own log verbosity and opens a live filtered log of radar/provider \
+             detail that doesn't show up at the normal level \u{2014} sweep-by-sweep chunk \
+             arrival, tilt/VCP progress, and (when a relay is configured) provider health and \
+             failover transitions. Costs real log volume while on; negligible when off.",
+        )
+        .changed()
+    {
+        crate::devlog::set_analyst_mode(settings.analyst_mode);
+    }
+
+    ui.add_space(8.0);
+    ui.separator();
     ui.strong("Workspaces");
     if settings.workspaces.is_empty() {
         ui.weak("None yet \u{2014} arrange your panes, then run \"Save workspace\" from Ctrl+K.");

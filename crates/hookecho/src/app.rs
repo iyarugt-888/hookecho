@@ -3743,6 +3743,10 @@ impl HookEchoApp {
         }
         // Sample terrain at the resolution this user packs at, so a hi-res pack is actually read.
         crate::elevation::set_hires(settings.pack_hires_dem);
+        // theme_plan.md §4: a saved "Analyst mode: on" needs the log level raised again on this
+        // launch too — the Settings checkbox only catches a mid-session toggle, not a level that
+        // was already on when the process started.
+        crate::devlog::set_analyst_mode(settings.analyst_mode);
         // A decoded volume is tens of MB, so the phone's cache is sized to the loop window it can
         // actually afford (see ANDROID_LOOP_WINDOW) plus the head and the frame in flight —
         // enough that a loop stops re-downloading itself on every wrap, without the ~900 MB RSS
@@ -20246,6 +20250,8 @@ impl eframe::App for HookEchoApp {
                 &mut self.drawer,
             );
         }
+        // theme_plan.md §4: self-gates on `settings.analyst_mode`, so this costs nothing when off.
+        ui::analyst_log_window::show(ctx, &mut self.settings, &mut self.drawer);
         self.show_warning_banners(ctx);
         self.show_toasts(ctx);
 

@@ -90,6 +90,8 @@ pub mod a11y;
 pub mod about_window;
 pub mod afd_window;
 pub mod alert_panel;
+/// theme_plan.md §4: Analyst Mode's live filtered log — see that module's own doc comment.
+pub mod analyst_log_window;
 pub mod basemap_picker;
 pub mod cappi_window;
 pub mod cell_window;

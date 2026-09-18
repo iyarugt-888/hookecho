@@ -518,6 +518,13 @@ pub struct Settings {
     /// (see that section's own note on why it needs a different fix).
     #[serde(default)]
     pub floating_search_button: bool,
+    /// theme_plan.md §4: raises the process's log verbosity to debug (`crate::devlog`'s capture
+    /// buffer only ever holds what actually passed the ambient `RUST_LOG` filter, which defaults
+    /// to `info`) and opens a live filtered view of it — the level of detail an analyst wants
+    /// (live-sweep chunk arrival, provider/failover health) that `info` never surfaces. Off by
+    /// default: negligible cost when off (a boolean check), real log-volume cost when on.
+    #[serde(default)]
+    pub analyst_mode: bool,
     /// Persisted basemap style slug for startup (empty = the pane default, [`crate::tiles::BasemapStyle::default`]).
     #[serde(default)]
     pub basemap: String,
@@ -1388,6 +1395,7 @@ impl Default for Settings {
             live_loop_frames: default_live_loop_frames(),
             timeline_style: TimelineStyle::default(),
             floating_search_button: false,
+            analyst_mode: false,
             basemap: String::new(),
             overlays_on: None,
             window: None,
@@ -1854,6 +1862,19 @@ mod tests {
     }
 
     #[test]
+    fn analyst_mode_defaults_off_and_round_trips() {
+        let s: Settings = serde_json::from_str("{}").unwrap();
+        assert!(!s.analyst_mode);
+        let on = Settings {
+            analyst_mode: true,
+            ..Settings::default()
+        };
+        let json = serde_json::to_string(&on).unwrap();
+        let back: Settings = serde_json::from_str(&json).unwrap();
+        assert!(back.analyst_mode);
+    }
+
+    #[test]
     fn a_web_file_name_resolves_to_its_content() {
         let mut s = Settings::default();
         s.palettes.insert("REF".to_string(), "mine.pal".to_string());
@@ -2023,6 +2044,7 @@ mod tests {
             live_loop_frames: 12,
             timeline_style: TimelineStyle::Wsv3,
             floating_search_button: true,
+            analyst_mode: true,
             basemap: "carto-dark".to_string(),
             overlays_on: Some(vec!["Alerts".to_string(), "Wind".to_string()]),
             window: None,

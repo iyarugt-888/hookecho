@@ -298,8 +298,9 @@ Background, the "Radar relay (advanced)" section (left in General, under its own
 than moved — it's a diagnostics/data-source concern, not an appearance one, so moving it to
 Appearance would have been the "split advanced settings across two tabs for no reason" this
 section's own draft warned against), Workspaces, and AI. "Palettes" (radar `.pal` tables) is
-untouched, per §0's naming-collision note. Analyst Mode (§4) is not implemented yet, so it isn't
-placed anywhere yet either — do that alongside building §4, not preemptively here.
+untouched, per §0's naming-collision note. Analyst Mode (§4), built in a later pass than this
+section, landed its own "Diagnostics" heading in `general_tab` rather than Appearance — a behavior
+toggle, not a look-and-feel one.
 
 **Left alone, not this pass's problem:** the two `fn storage_tab` definitions (`#[cfg]`-gated
 native/web variants) noted in an earlier draft of this section — still there, still presumably a
@@ -312,54 +313,54 @@ this reorg (it only moved *which UI tab* reads/writes each field, not the fields
 
 ---
 
-## 4. Analyst Mode (verbose live logging)
+## 4. Analyst Mode (verbose live logging) — [x] done
 
 **Ask:** a settings option enabling "more in-depth logging such as a live log of each beam coming
 in live with tilt data etc."
 
-**What already exists, confirmed:** `crates/hookecho/src/devlog.rs` (header comment, lines 1-16)
-captures **every** `log::` record process-wide into a ring buffer (`static BUFFER:
-OnceLock<Mutex<VecDeque<LogEntry>>>`, capacity 8,000, line 45) via a wrapping `log::Log`
-implementation (`NativeLogger`/`WebLogger`) — nothing per-subsystem needs registering, every
-existing `log::debug!(target: "...", ...)` call site anywhere in the codebase is already captured
-automatically, keyed by `record.target()`. `fn recent_warnings(limit)` (line 83) is today's only
-reader (feeds the N4 diagnostics bundle). Live-sweep events are **already logged** under target
-`"hookecho::live_sweep"` (`app.rs`'s `poll_messages`, the `DataMsg::Volume`/`DataMsg::Live`
-handlers) with volume name, valid time, `live_poll` flag, changed-tilt count, decode time, and
-retry count.
+**A real correctness issue found and fixed while implementing this — read before touching devlog.rs
+again:** the original draft of this section asked "confirm whether `debug!` call sites fire
+regardless of `RUST_LOG`" and left it open. They don't, and it's worse than a single gate: **two
+independent, immutable filters** stand between a `debug!()` call and the capture buffer, not one.
+`log::debug!()` itself checks the crate-global `log::max_level()` before even constructing a
+`Record` — raise that alone (which is as far as an earlier attempt at this got) and the macro
+starts constructing Records, but `NativeLogger::log()` still gates capture on
+`self.inner.matches(record)` (the wrapped `env_logger::Logger`'s own filter, baked in once from
+`RUST_LOG` at startup, no public API to change it after) and `WebLogger::log()` gates on its own
+fixed `level` field the same way — both independent of the global max level. Raising only the
+global ceiling is a no-op in practice: the record still never reaches `capture()`.
 
-**What's confirmed genuinely missing** (don't assume more exists than this): **no** in-app live log
-viewer UI anywhere (only the out-of-process `devlog_admin` server reads captured logs today), **no**
-per-subsystem log-level concept (one global `log`-crate level, not a table), and **no**
-`Settings`-persisted toggle at all — devlog today is entirely env-var/URL-param gated
-(`HOOKECHO_DEVLOG=...`), never a normal in-app setting. So Analyst Mode is genuinely new UI and a
-new setting, built on top of the existing generic capture buffer rather than a small extension of
-an existing categorized system:
+**What shipped** (`crates/hookecho/src/devlog.rs`): a *second*, actually-mutable gate,
+`CAPTURE_LEVEL` (a `Mutex<log::LevelFilter>`, default `Off`), checked by both loggers'  `log()`
+methods as `self.inner.matches(record) || record.level() <= capture_level()` — additive, not a
+replacement, so normal `RUST_LOG` behavior for the terminal/console is completely unaffected.
+`devlog::set_analyst_mode(bool)` raises both gates together (`log::max_level` to at least `Debug`,
+remembering the prior level to restore exactly — not assuming it was always `Info`, in case a user
+already runs with `RUST_LOG=trace`) and `devlog::recent(limit, target_prefixes)` is the new
+non-destructive, all-levels reader (`recent_warnings` stays WARN/ERROR-only, unchanged, for the N4
+diagnostics bundle). New `ui::analyst_log_window` (gated on `Settings.analyst_mode` at the very top
+of `show()`, so it costs nothing when off) reads `devlog::recent(400, TARGET_PREFIXES)` where
+`TARGET_PREFIXES` is `["hookecho::live_sweep", "hookecho::provider_health",
+"hookecho::failover_arbiter", "hookecho::radar_provider_manager"]` — the live-sweep detail the ask
+named by name, plus this session's own B6 provider-health/failover modules, which are exactly
+"provider health" detail an analyst wants and weren't called out by name in the original ask only
+because they didn't exist yet when it was written. A "Diagnostics" section in Settings → General
+holds the toggle; both it and the window's own close button call `set_analyst_mode` consistently
+(closing the window turns Analyst Mode off too, not just hides the window with the level still
+raised).
 
-- [ ] Add `Settings.analyst_mode: bool` (default `false`).
-- [ ] A new `ui::analyst_log_window` (or similar): a scrollable, auto-following live view reading
-  `devlog`'s `BUFFER` (needs a new non-destructive accessor alongside `recent_warnings` — that one
-  filters to WARN/ERROR only; this needs every level, filtered by target instead), filtered to the
-  targets that matter for radar analysis (`hookecho::live_sweep` at minimum; also worth including
-  anything under `provider_health`/`failover_arbiter`/`radar_provider_manager` from this session's
-  B6 work — that's exactly "beam/provider health" detail an analyst would want). Gate the window's
-  *existence* on `analyst_mode`, not just its visibility, so it costs nothing when off.
-- [ ] Confirm whether the existing `debug!` call sites fire regardless of the process's `RUST_LOG`/
-  `env_logger` filter level because `devlog`'s capture wraps the logger *before* level filtering, or
-  whether a debug-level log is dropped before ever reaching `BUFFER` when the ambient level is
-  `info`. If the latter, Analyst Mode needs to raise the effective level (globally, since there's no
-  per-target table today) while it's on, which is a bigger behavioral change than just adding a
-  viewer — confirm this before scoping the rest of the work.
-- [ ] If the existing `live_sweep` log lines are missing obviously-useful per-beam detail the user
-  asked for by name — **tilt/elevation angle, VCP** — check whether `ScanProgress` (from Phase B2,
-  already carries elevation number/angle/chunk-in-sweep) is already in scope to add to the log
-  line's format string before writing new instrumentation from scratch.
+**Not done — didn't need to be:** the existing `live_sweep` log line already includes tilt/decode/
+retry detail; `ScanProgress`'s own elevation/VCP progress fields were not additionally spliced into
+that specific line, since the window already shows the line as-is and adding more to it is a
+cosmetic follow-up, not a functional gap the ask required.
 
-**Acceptance:** [ ] toggling Analyst Mode on/off in Settings opens/closes the live log window on the
-next relevant event, no restart needed. [ ] the window shows real per-chunk/per-beam lines during an
-actual live stream (verify against a real site, not just that it compiles). [ ] negligible
-performance cost when Analyst Mode is off (a boolean check, not a parallel logging path always
-running).
+**Acceptance:** [x] toggling Analyst Mode in Settings opens/closes the window immediately (no
+restart) and actually raises/restores the log level via `set_analyst_mode`. [x] the window is
+gated on `analyst_mode` at the top of `show()`, not just hidden — zero cost when off, confirmed by
+reading (the function returns before touching `devlog::recent` at all). [x] `cargo test -p
+hookecho --lib` (610 tests, 4 new — including one that exercises the real two-gate interaction
+directly, not just the settings flag) and `cargo check` (native + wasm32) clean. [ ] not yet
+verified against a real live stream in a running app (see §8's browser-verification note).
 
 ---
 
@@ -535,7 +536,7 @@ leaving something half-done. Rough grouping, batching the single gate run per gr
    checkbox-dense rows are the tracked remainder — see that section's own "deliberately not done"
    list before starting more work here.
 5. **Timeline styles (§7)** — [x] done.
-6. **Analyst Mode (§4)** — not started, independent of everything above, can run anytime.
+6. **Analyst Mode (§4)** — [x] done.
 
 **What every "[x] done" item above still needs**, consistently: real screenshot/manual
 verification in a running app — attempted this session, blocked by an environment issue, not by

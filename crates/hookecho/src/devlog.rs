@@ -95,6 +95,82 @@ pub fn recent_warnings(limit: usize) -> Vec<LogEntry> {
     out
 }
 
+/// The most recent `limit` records at *any* level whose target starts with one of
+/// `target_prefixes`, oldest first, without removing them (same non-destructive contract as
+/// [`recent_warnings`] — a live viewer reading this must not steal entries the shipper, if
+/// running, still needs to send). theme_plan.md §4's Analyst Mode is the one caller: `debug!`-
+/// level detail (live-sweep chunk arrival, provider/failover health) only ever reaches this
+/// buffer at all once something has raised the ambient level past the default `info` filter —
+/// see [`raise_level_for_analyst_mode`] — this function only reads what's already there.
+pub fn recent(limit: usize, target_prefixes: &[&str]) -> Vec<LogEntry> {
+    let Ok(buf) = buffer().lock() else {
+        return Vec::new();
+    };
+    let mut out: Vec<LogEntry> = buf
+        .iter()
+        .rev()
+        .filter(|e| target_prefixes.iter().any(|p| e.target.starts_with(p)))
+        .take(limit)
+        .cloned()
+        .collect();
+    out.reverse();
+    out
+}
+
+/// The ambient log level from just before Analyst Mode last raised it, so turning it back off
+/// restores exactly what was there — a user who already set `RUST_LOG=trace` themselves shouldn't
+/// have Analyst Mode quietly demote them back to `info` on exit. `None` means Analyst Mode isn't
+/// currently the reason the level is raised (either it was never turned on, or it's already been
+/// restored).
+static ANALYST_MODE_PREV_LEVEL: Mutex<Option<log::LevelFilter>> = Mutex::new(None);
+
+/// An *additional* capture threshold, independent of whatever [`native::NativeLogger`]'s wrapped
+/// `env_logger::Logger` or [`web::WebLogger`]'s own `level` field allow through to the terminal or
+/// console. Both of those are built once, from `RUST_LOG`/a fixed level, and have no public API to
+/// change their filter afterward — so raising [`set_analyst_mode`]'s global `log::max_level` alone
+/// is not enough: a `debug!` record would clear that first gate but then still be rejected by the
+/// wrapped logger's own unchanged filter before `capture()` is ever called. This is the second,
+/// actually-adjustable gate each logger's `log()` also checks. `Off` (the default) adds nothing —
+/// capture then depends only on the wrapped logger's own filter, exactly as before Analyst Mode
+/// existed.
+static CAPTURE_LEVEL: Mutex<log::LevelFilter> = Mutex::new(log::LevelFilter::Off);
+
+fn capture_level() -> log::LevelFilter {
+    CAPTURE_LEVEL
+        .lock()
+        .map(|g| *g)
+        .unwrap_or(log::LevelFilter::Off)
+}
+
+/// Raise (or restore) the process-wide log level for Analyst Mode. Two things happen together,
+/// both necessary: `log::set_max_level` gates `log::debug!`/`trace!` call sites *before* a
+/// `Record` is even constructed, and [`CAPTURE_LEVEL`] is the second gate each logger's `log()`
+/// checks once a `Record` does exist — see that constant's own doc comment for why both are
+/// needed. Idempotent: calling with the same `on` value twice in a row is a no-op the second time.
+pub fn set_analyst_mode(on: bool) {
+    let Ok(mut prev) = ANALYST_MODE_PREV_LEVEL.lock() else {
+        return;
+    };
+    match (on, *prev) {
+        (true, None) => {
+            let before = log::max_level();
+            *prev = Some(before);
+            log::set_max_level(log::LevelFilter::Debug.max(before));
+            if let Ok(mut cap) = CAPTURE_LEVEL.lock() {
+                *cap = log::LevelFilter::Debug;
+            }
+        }
+        (false, Some(before)) => {
+            log::set_max_level(before);
+            if let Ok(mut cap) = CAPTURE_LEVEL.lock() {
+                *cap = log::LevelFilter::Off;
+            }
+            *prev = None;
+        }
+        _ => {} // already in the requested state
+    }
+}
+
 /// A per-launch id, stable for the process (native) or page load (web), so the admin panel can
 /// tell one instance's chatter from another's without either naming itself.
 pub fn instance_id() -> &'static str {
@@ -174,7 +250,11 @@ mod native {
         }
 
         fn log(&self, record: &log::Record) {
-            if self.inner.matches(record) {
+            // `matches()` is `env_logger`'s own fixed filter (RUST_LOG at startup); `capture_level`
+            // is Analyst Mode's independently-adjustable one — see that function's doc comment for
+            // why both are checked rather than just one. Printing to the terminal stays governed
+            // by `RUST_LOG` alone (`self.inner.log` below), unaffected by Analyst Mode.
+            if self.inner.matches(record) || record.level() <= capture_level() {
                 capture(record);
             }
             self.inner.log(record);
@@ -247,8 +327,13 @@ mod web {
         }
 
         fn log(&self, record: &log::Record) {
+            // Console output stays governed by this logger's own fixed `level`, unaffected by
+            // Analyst Mode. Capture additionally follows `capture_level` — see that function's
+            // doc comment for why `self.enabled(...)` alone isn't enough once Analyst Mode is on.
             if self.enabled(record.metadata()) {
                 console_log::log(record);
+            }
+            if self.enabled(record.metadata()) || record.level() <= capture_level() {
                 capture(record);
             }
         }
@@ -348,5 +433,43 @@ mod tests {
     #[test]
     fn instance_id_is_stable_within_the_process() {
         assert_eq!(instance_id(), instance_id());
+    }
+
+    /// theme_plan.md §4's Analyst Mode. `CAPTURE_LEVEL`/`ANALYST_MODE_PREV_LEVEL` are process
+    /// globals distinct from `BUFFER` (untouched by the test above), but still worth keeping to
+    /// one test for the same reason: this also mutates the genuinely global `log::max_level()`,
+    /// and nothing else in this codebase reads or sets that (confirmed by grep before writing
+    /// this), so one self-contained test that restores it exactly is the safe shape.
+    #[test]
+    fn analyst_mode_raises_and_restores_the_capture_level() {
+        let starting_max = log::max_level();
+        assert_eq!(
+            capture_level(),
+            log::LevelFilter::Off,
+            "must start inert, adding nothing beyond each logger's own normal filter"
+        );
+
+        set_analyst_mode(true);
+        assert_eq!(capture_level(), log::LevelFilter::Debug);
+        assert!(
+            log::max_level() >= log::LevelFilter::Debug,
+            "debug!() call sites must actually be able to construct a Record now"
+        );
+
+        // Idempotent while already on: no double-raise, no losing track of the original level.
+        set_analyst_mode(true);
+        assert_eq!(capture_level(), log::LevelFilter::Debug);
+
+        set_analyst_mode(false);
+        assert_eq!(capture_level(), log::LevelFilter::Off);
+        assert_eq!(
+            log::max_level(),
+            starting_max,
+            "must restore exactly what was there before, not assume it was always Info"
+        );
+
+        // Idempotent while already off, too.
+        set_analyst_mode(false);
+        assert_eq!(capture_level(), log::LevelFilter::Off);
     }
 }
