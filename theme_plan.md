@@ -242,9 +242,13 @@ open the same drawer/registry-search panel; there is no separate command-palette
 narrow-width bug is fixed everywhere that width shows up (not just phone), and the ribbon's
 standalone control gained a real optional floating mode, rather than forcing one fix shape onto
 both. [x] both changes default to today's behavior (non-breaking). [x] `cargo test -p hookecho
---lib` (606 tests, 1 new) and `cargo check` (native + wasm32) clean. [ ] not yet screenshot-
-verified in a running app (see §8's note on this session's browser-verification attempt and why
-it didn't produce a usable screenshot).
+--lib` (606 tests, 1 new) and `cargo check` (native + wasm32) clean. [x]/[ ] partially
+screenshot-verified — see §8: a live session confirmed the "Floating search" toggle is present and
+reachable in Settings, but a couple of click attempts on it in that same session didn't produce a
+visible change, so the actual floating-button appearance is still unconfirmed (may be a misclick,
+not necessarily a bug — worth a direct check next time a stable session turns up). The docked
+"Search all" pill and the Minimal bar's narrow-width behavior were not specifically re-checked
+either.
 
 ### 2.4 Radar range ring shows km instead of miles — [x] done
 
@@ -359,8 +363,12 @@ restart) and actually raises/restores the log level via `set_analyst_mode`. [x] 
 gated on `analyst_mode` at the top of `show()`, not just hidden — zero cost when off, confirmed by
 reading (the function returns before touching `devlog::recent` at all). [x] `cargo test -p
 hookecho --lib` (610 tests, 4 new — including one that exercises the real two-gate interaction
-directly, not just the settings flag) and `cargo check` (native + wasm32) clean. [ ] not yet
-verified against a real live stream in a running app (see §8's browser-verification note).
+directly, not just the settings flag) and `cargo check` (native + wasm32) clean. [x] verified
+against a real live stream in a running app: toggled the checkbox on a live-following KTLX session
+(see §8) and watched the window fill in real time — `05:46:17.774 live_sweep KTLX: volume loaded
+KTLX20260918_053501_V06 (2026-09-18 05:35:01 UTC), live_poll=true`, with a fresh timestamped line
+landing roughly every 15-25s as the feed polled, growing to 6 lines buffered over about a minute of
+watching. Genuinely working end to end, not just wired.
 
 ---
 
@@ -618,6 +626,12 @@ about:
   loop-length dropdown (`10 ▾`), a `LOOP` label, and a live/stale badge that flipped from `LIVE` to
   `STALE` and back as the feed's own state changed underneath it. All three styles are genuinely,
   visibly distinct, not just switched on paper. [x] visually confirmed.
+- **§4 (Analyst Mode):** a second lucky load (same fresh-tab trick) landed on a live-following KTLX
+  session. Flipping the Diagnostics checkbox opened the Analyst log window immediately, and over
+  about a minute of watching it filled with real timestamped `live_sweep` lines
+  (`KTLX20260918_053501_V06 (2026-09-18 05:35:01 UTC), live_poll=true`) landing every 15-25s as the
+  feed polled, growing from 0 to 6 lines buffered. Genuinely working end to end against a real
+  stream, not just wired and unit-tested. [x] visually confirmed.
 - **Not reached this pass:** the WSV3 ribbon's own denser geometry vs. `CommandRibbon` was hard to
   judge by eye at the pane's resolution (both looked similarly tall side-by-side in screenshots,
   though the numbers in code do differ); the second footer telemetry row (zoom quick-picks +
@@ -626,8 +640,12 @@ about:
   `Timeline` row was already sitting flush with the bottom edge at every window size tried. The
   floating-search-button toggle didn't visibly respond to a couple of click attempts — worth a
   closer look next time a stable session turns up, though this could as easily be a misclick as a
-  real bug. None of these are new regressions being reported — they're just what one verification
-  window didn't get to before it was time to move on, honestly left open rather than assumed fine.
+  real bug. §2.4's range rings weren't specifically toggled on and checked either (ran out of
+  practical time in that first window; the toggle wasn't obviously reachable from the ribbon in the
+  brief look this pass gave it — a Layers-panel or keyboard-shortcut route probably exists and just
+  wasn't found in time). None of these are new regressions being reported — they're just what two
+  verification windows didn't get to before it was time to move on, honestly left open rather than
+  assumed fine.
 
 ## 9. Definition of done
 
