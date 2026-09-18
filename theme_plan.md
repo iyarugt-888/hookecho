@@ -233,13 +233,31 @@ component to rewrite, only these two trigger affordances.
 (a) better visual polish and (b) optionality — a small floating action button (FAB) toggle-able
 on/off, rather than a permanent bar/pill taking up chrome space.
 
-**Fix approach:** add a `Settings` field (e.g. `search_trigger_style: SearchTriggerStyle { Docked
-(default, today's behavior), Fab }`) and a toggle for it (General/Appearance tab). When `Fab`, both
-`ribbon.rs`'s "Search all" group and `overlay.rs`'s search pill render as a small round icon-only
-button instead of their current full pill; tapping either opens the exact same panel/focus behavior
-already wired — don't touch the panel logic, only the trigger widget. While in here, restyle the
-`Docked` variant too (rounded pill, consistent shadow/elevation with Minimal's existing right-edge
-control column, so it doesn't look like a third, unrelated visual language).
+**Correction after reading `overlay.rs::search_pill` in full (line 449-556) — read this before
+touching it:** the Minimal-layout "search pill" is not a standalone search trigger. It's the
+*entire* top control bar for that layout: a hamburger-style menu toggle (`egui_phosphor::LIST`,
+opens/closes `self.panel_open` — the same panel that holds Layers/Alerts/Share, not just search),
+the current radar site + VCP label (phone only), *and* the search hint, all in one horizontal
+bar. It already has a `phone()`-gated compact mode (line 469-480, 510-534): on a narrow viewport
+the search hint is already icon-only (`MAGNIFYING_GLASS` alone, no text, line 525-527) — Ref 2's
+screenshot showing the full "Search layers, tools, places" text means that capture's `phone()`
+check didn't trigger the compact path (check `phone()`'s own width threshold against the
+screenshot's actual viewport before assuming the compact mode doesn't work).
+
+**Given this, "make search an optional floating button" cannot mean hiding the whole bar** — that
+would also remove reach to the menu toggle and site picker, not just search. The narrower, correct
+scope: add a setting that forces the *search portion specifically* to render icon-only (the
+already-existing `phone()` compact treatment) regardless of platform/width, for a user who wants
+that even on desktop. This is a much smaller change than originally scoped — extending an existing
+`phone()` conditional with an `|| settings.compact_search_button`-style check, not building a new
+FAB component from scratch. Do the same check-before-assuming pass on `ribbon.rs`'s "Search all"
+group (line 230-238) before changing it — confirm whether it's genuinely a standalone control
+there (it looked like one from the code excerpt read this session) or whether it too carries more
+than search before deciding its fix shape.
+
+**Not yet implemented this session** — the correction above changes the fix's scope enough that it
+deserves its own pass rather than a rushed implementation riding on a since-corrected
+understanding. Left for the next increment.
 
 **Acceptance:** [ ] one setting controls both surfaces consistently (a user shouldn't get a FAB in
 Minimal but a full pill in the ribbon, or vice versa, unless that turns out to be the deliberate
