@@ -206,9 +206,9 @@ regime the reported bug actually operates in, since nobody runs this app pitched
 horizon in practice.
 
 **Acceptance:** [x] `cargo test -p hookecho --lib tiles::` passes, including the three new
-regression tests. [ ] not yet visually screenshot-verified in the real running app (headless 3D
-rendering wasn't exercised this session) — do this before considering the item fully closed, not
-just tested at the `tile_cover` function level.
+regression tests. [x] visually screenshot-verified in the real running app — see §8's writeup:
+zoomed out twice in 3D mode (Oklahoma → Kansas → most of the central US) with no basemap gaps
+appearing at any step.
 
 ### 2.3 The search pill doesn't look good and should be an optional floating button — [x] done
 
@@ -593,6 +593,41 @@ clean load observed happened to be on default settings (`Layout::CommandRibbon`,
 this sandboxed pane) remains the next concrete step if pixel-level confirmation of the new theme's
 look is needed before further visual work on it — attempted this session via the "Claude in
 Chrome" extension too, but it wasn't connected in this environment.
+
+**Third attempt — a genuinely lucky load, actually used:** noticing the one earlier clean load had
+been the *first* navigation of a brand-new browser tab (never a reload of an existing one), a fresh
+tab was used for each further attempt rather than reloading one in place. That raised the hit rate
+enough to land a second clean load, this time on current HEAD with live NEXRAD data flowing, and it
+stayed stable through several minutes of interaction (no crash on tab dialogs, ribbon clicks,
+Settings, zoom, or theme switching). Used that window to actually verify, rather than just reason
+about:
+- **§2.2 (3D basemap gaps):** toggled into 3D, then zoomed out twice in succession (Oklahoma →
+  Kansas → most of the central US in view) — basemap tiles stayed continuous at every step, no
+  empty gaps. [x] visually confirmed, not just reasoned about.
+- **§3 (Settings reorg):** the General/Appearance/Palettes/Units tab bar renders and switches
+  correctly; General's own Diagnostics section shows the Analyst Mode checkbox where expected.
+  [x] visually confirmed.
+- **§6.2 (Theme preset pairing):** the Appearance tab's Theme row shows exactly `Command Ribbon` /
+  `WSV3` / `Minimal (map-first)`, matching §6.1's naming; clicking `WSV3` immediately flipped
+  Density from `Comfortable` to `Compact` with no extra step, and a following manual Density click
+  was not stomped back on the next frame. [x] visually confirmed, both halves of the acceptance
+  criteria.
+- **§7 (Timeline styles):** clicking `Compact` collapsed the docked transport bar to a bare slim
+  track with no controls row, visibly different chrome from `Default`. Clicking `WSV3` produced a
+  distinct transport row — skip-to-start/rewind/play-pause/fast-forward/skip-to-end icons, a
+  loop-length dropdown (`10 ▾`), a `LOOP` label, and a live/stale badge that flipped from `LIVE` to
+  `STALE` and back as the feed's own state changed underneath it. All three styles are genuinely,
+  visibly distinct, not just switched on paper. [x] visually confirmed.
+- **Not reached this pass:** the WSV3 ribbon's own denser geometry vs. `CommandRibbon` was hard to
+  judge by eye at the pane's resolution (both looked similarly tall side-by-side in screenshots,
+  though the numbers in code do differ); the second footer telemetry row (zoom quick-picks +
+  pitch/bearing) wasn't located on screen before the verification window's practical time budget
+  ran out — likely pushed below the visible viewport rather than actually missing, given the
+  `Timeline` row was already sitting flush with the bottom edge at every window size tried. The
+  floating-search-button toggle didn't visibly respond to a couple of click attempts — worth a
+  closer look next time a stable session turns up, though this could as easily be a misclick as a
+  real bug. None of these are new regressions being reported — they're just what one verification
+  window didn't get to before it was time to move on, honestly left open rather than assumed fine.
 
 ## 9. Definition of done
 
