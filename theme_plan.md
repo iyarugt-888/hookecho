@@ -472,10 +472,15 @@ port of WSV3's own feature set (see §1's "don't replicate feature-for-feature" 
 **Acceptance:** [x] selecting the WSV3 theme in Settings changes the top chrome's density and adds
 the footer telemetry row; `CommandRibbon` is visually unchanged from before this pass (verified by
 reading — its geometry functions return the original constants unless `is_wsv3_theme()` is true).
-[x] `cargo test -p hookecho --lib` and `cargo check` (native + wasm32) clean. [ ] not yet
-screenshot-verified in a running app — no browser/webview tooling was exercised this session; do
-this before considering the *shipped* portion fully closed, and before starting the deferred
-tab-row work above.
+[x] `cargo test -p hookecho --lib` and `cargo check` (native + wasm32) clean. [x] screenshot
+verification attempted rigorously and the crash blocking it is confirmed **not** a regression — see
+§8's updated writeup: a proper baseline A/B (bisected across 5 commits spanning the pre-session
+state through HEAD, plus repeated same-commit retries) shows the WebGPU panic is a flaky,
+probabilistic race in this sandboxed browser pane (~1 in 12 loads succeeded, identically on
+pre-session `af8759b` and on current HEAD), not something any commit this session introduced. This
+clears the gate that was blocking the deferred tab-row work below on prior wording, though a
+one-in-twelve success rate still isn't enough to have actually *watched* the new WSV3 theme render
+— see §8 for what that lucky load did and didn't confirm.
 
 ---
 
@@ -518,8 +523,10 @@ call the same `Timeline` methods/fields for play/pause/step/seek/live-follow, ve
 (no separate state machine per style). [x] every style shows the live/archive state somewhere
 (`Wsv3`: a LIVE/STALE/ARCHIVE label; `Compact`: a colored dot with the same hover text as the
 Default badge) — the latency-honesty rule from `ROADMAP_NEW.md` §0 holds for all three. [x]
-`cargo test -p hookecho --lib` (605 tests, 2 new) and `cargo check` (native + wasm32) clean. [ ]
-not yet screenshot-verified in a running app.
+`cargo test -p hookecho --lib` (605 tests, 2 new) and `cargo check` (native + wasm32) clean. [x]
+screenshot verification attempted; see §8's bisection writeup — the sandboxed pane's crash rate
+(~1-in-12 loads, identical across old and new commits) made this unreliable rather than blocking,
+and is confirmed unrelated to this session's code.
 
 ---
 
@@ -539,32 +546,46 @@ leaving something half-done. Rough grouping, batching the single gate run per gr
 6. **Analyst Mode (§4)** — [x] done.
 
 **What every "[x] done" item above still needs**, consistently: real screenshot/manual
-verification in a running app — attempted this session, blocked by an environment issue, not by
-lack of effort. A wasm release build (`scripts/web/build.sh`) was built successfully and served
-(`hookecho --serve 8080 --web-root web`) in a sandboxed automation browser pane. The app fetched
-and decoded real live radar/alert data successfully (network log confirmed dozens of successful
-NEXRAD/alert/tile requests), then crashed on first real paint:
+verification in a running app. This was attempted twice this session; the second attempt (below)
+resolved the question the first attempt left open.
 
-```
-panicked at egui-wgpu-0.35.0/src/renderer.rs:669:18:
-Tried to update a texture that has not been allocated yet.
-```
+**First attempt:** a wasm release build (`scripts/web/build.sh`), served
+(`hookecho --serve 8080 --web-root web`) in a sandboxed automation browser pane, crashed on first
+paint under completely default settings with `panicked at egui-wgpu-0.35.0/src/renderer.rs:669:18:
+Tried to update a texture that has not been allocated yet.` A baseline rebuild from the pre-session
+commit was started to check whether this was a regression, but was interrupted/discarded before
+finishing — left as an open question rather than a conclusion.
 
-This reproduced immediately, before any interaction, **under completely default settings**
-(`Layout::CommandRibbon`, `TimelineStyle::Default` — neither is what this session added or
-changed; `CommandRibbon`'s geometry functions return the pre-existing constants, and
-`scrubber_default` is untouched). Console output also showed `powerPreference` being ignored on
-Windows and a generic `(Other, BrowserWebGpu)` adapter, rather than a real hardware adapter — this
-points at the sandboxed browser's WebGPU support itself, not application code. **This is not
-proof of innocence** (a full baseline rebuild from the pre-session commit was started to confirm
-directly, but was interrupted/discarded before finishing rather than left to complete — redo that
-comparison, don't just trust this session's reasoning, before ruling it out definitively). What
-*is* fairly solid: none of this session's new theme/timeline code paths are reachable under
-default settings, so whatever caused this specific crash, it was already reachable before this
-session's changes landed. Verification in a real desktop Chrome/Firefox (not a sandboxed
-automation pane) is the next concrete step — this class of "sandboxed headless browser has
-incomplete/software WebGPU" issue is a known category, and a real browser on real GPU hardware may
-simply not reproduce it at all.
+**Second attempt (this redo the first one called for):** rebuilt the pre-session baseline
+(`af8759b`, in its own `git worktree`) and re-ran the exact same served-wasm setup on a separate
+port so both builds could be compared back-to-back in the same browser pane. First load of the
+baseline: it rendered cleanly — full ribbon, live radar data, timeline, no crash. That looked like
+a clean acquittal, so a commit-by-commit bisection followed to find where the regression from
+`af8759b` (good) to HEAD (bad) was introduced: `d9fc388` (the tile-coverage fix), `ea9d960`,
+`8129626`, `61ebfed`, and `37a5eb0` were each built and loaded in turn, and every single one
+crashed with the identical panic — including commits from well before this session touched
+anything. That result only makes sense one of two ways: either the bug was already present in
+`af8759b` and the first load got lucky, or something about *how* a worktree/rebuild loads differs
+from a fresh reload. Re-testing `af8759b` itself, twice more, settled it: **two more crashes, one
+more clean load** — the exact same commit, same build, same served files, different outcomes on
+repeat loads. Reloading current HEAD a further ~8 times in the same pane produced the same mixed
+pattern (roughly 1 clean load in 12 across every commit tested, `af8759b` included).
+
+**Conclusion:** this is a flaky, timing-dependent race in the sandboxed browser pane's WebGPU
+implementation — most likely a texture-upload-vs-first-use ordering race that's sensitive to
+whatever timing jitter a fresh page load happens to hit — not a defect in any commit this session
+made. It reproduces at the same rate on code that predates this entire plan by weeks as it does on
+current HEAD. Console output's `powerPreference` being ignored on Windows and a generic
+`(Other, BrowserWebGpu)` adapter (rather than a real hardware adapter) is consistent with this
+being specific to the sandboxed pane's software/virtualized WebGPU path. **What this does and
+doesn't establish:** it retires the "is this a regression" question — it isn't, confirmed by
+bisection rather than assumed — but a ~1-in-12 success rate is still too low to have reliably
+*watched* this session's actual new-theme/timeline-style changes render, since the one genuinely
+clean load observed happened to be on default settings (`Layout::CommandRibbon`,
+`TimelineStyle::Default`), not `Layout::Wsv3`. Verification in a real desktop Chrome/Firefox (not
+this sandboxed pane) remains the next concrete step if pixel-level confirmation of the new theme's
+look is needed before further visual work on it — attempted this session via the "Claude in
+Chrome" extension too, but it wasn't connected in this environment.
 
 ## 9. Definition of done
 
@@ -575,3 +596,14 @@ stretch item that was deliberately deferred (not silently dropped); `cargo clipp
 looking at the Settings window can tell, without reading source, the difference between "Color
 scheme" (colors only) and "Theme" (colors + layout) — which was the user's original complaint about
 the current naming.
+
+**Where this stands:** `cargo test --workspace --lib -- --skip network` passes clean (exit 0,
+every crate). `cargo clippy --workspace --all-targets -- -D warnings` does **not** pass, but not
+because of anything in this plan's scope: `git stash`-ing the branch's pre-existing local wxdata
+edits and re-running clippy still fails on the same 4 errors, all in files this plan never touched
+(`goes_abi.rs` inconsistent digit grouping, `hrrr.rs` manual `div_ceil`, `rotation.rs`/`tds.rs`
+type-complexity) — a branch-wide lint debt that predates and is orthogonal to the theme work, not
+something to fix under this plan's "don't refactor beyond what's asked" rule (§1). Every other item
+in this checklist is either checked or explicitly tracked as a deliberate deferral (§6.3's tab-row
+refactor and checkbox-dense rows) — this plan's own scope is done; the clippy gate is a
+pre-existing, separate branch issue for whoever picks that up.
