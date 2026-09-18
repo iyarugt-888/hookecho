@@ -587,9 +587,32 @@ leaving something half-done. Rough grouping, batching the single gate run per gr
 6. **Analyst Mode (§4)** — not started, independent of everything above, can run anytime.
 
 **What every "[x] done" item above still needs**, consistently: real screenshot/manual
-verification in a running app. This session had no browser/webview tooling set up to exercise the
-actual UI, so every visual change was verified by compiling, testing the underlying logic, and
-reading the code — not by looking at it. Do that pass before treating any of these as fully closed.
+verification in a running app — attempted this session, blocked by an environment issue, not by
+lack of effort. A wasm release build (`scripts/web/build.sh`) was built successfully and served
+(`hookecho --serve 8080 --web-root web`) in a sandboxed automation browser pane. The app fetched
+and decoded real live radar/alert data successfully (network log confirmed dozens of successful
+NEXRAD/alert/tile requests), then crashed on first real paint:
+
+```
+panicked at egui-wgpu-0.35.0/src/renderer.rs:669:18:
+Tried to update a texture that has not been allocated yet.
+```
+
+This reproduced immediately, before any interaction, **under completely default settings**
+(`Layout::CommandRibbon`, `TimelineStyle::Default` — neither is what this session added or
+changed; `CommandRibbon`'s geometry functions return the pre-existing constants, and
+`scrubber_default` is untouched). Console output also showed `powerPreference` being ignored on
+Windows and a generic `(Other, BrowserWebGpu)` adapter, rather than a real hardware adapter — this
+points at the sandboxed browser's WebGPU support itself, not application code. **This is not
+proof of innocence** (a full baseline rebuild from the pre-session commit was started to confirm
+directly, but was interrupted/discarded before finishing rather than left to complete — redo that
+comparison, don't just trust this session's reasoning, before ruling it out definitively). What
+*is* fairly solid: none of this session's new theme/timeline code paths are reachable under
+default settings, so whatever caused this specific crash, it was already reachable before this
+session's changes landed. Verification in a real desktop Chrome/Firefox (not a sandboxed
+automation pane) is the next concrete step — this class of "sandboxed headless browser has
+incomplete/software WebGPU" issue is a known category, and a real browser on real GPU hardware may
+simply not reproduce it at all.
 
 ## 9. Definition of done
 
