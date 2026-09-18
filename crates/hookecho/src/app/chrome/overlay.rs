@@ -452,6 +452,17 @@ impl HookEchoApp {
         }
         let accent = crate::theme::accent(self.settings.theme);
         let mut anchor = None;
+        // theme_plan.md §2.3: `phone()` is a *platform* check (`cfg!(target_os = "android")`),
+        // not a screen-size one — the icon-only search hint below used to only ever trigger on an
+        // actual Android build, never a narrow desktop/web browser window no matter how narrow,
+        // which is exactly why a narrow mobile-web capture still showed the full "Search layers,
+        // tools, places" text. `compact(ctx)` is the real narrow-viewport check (M3 width-class
+        // based, already used a few lines up for `sheets()`); OR it in here rather than replacing
+        // `phone()` everywhere in this function — most of its other call sites are genuine
+        // platform-specific choices (the inline site/VCP label, Android's own haptics-adjacent
+        // sizing), not screen-size ones, and this fix only touches the search hint and the sizing
+        // it depends on.
+        let narrow_search = phone() || compact(ctx);
         // The phone's pill also carries the radar context — site and VCP — which the desktop keeps
         // in the scrubber. There is no room for both readouts down there on a 400 pt screen, and
         // the site is the one control a phone user reaches for most.
@@ -466,14 +477,14 @@ impl HookEchoApp {
             .as_ref()
             .map(|v| v.vcp.split(" (").next().unwrap_or_default().to_string())
             .unwrap_or_default();
-        let width = if phone() {
+        let width = if narrow_search {
             // Clear of the chrome-hide eye in the opposite corner, which is a 48 pt target with
             // a margin of its own.
             (self.chrome_rect.width() - crate::ui::m3::SP_3 * 3.0 - 48.0).max(180.0)
         } else {
             PANEL_W
         };
-        let (x, y) = if phone() {
+        let (x, y) = if narrow_search {
             (crate::ui::m3::SP_3, phone_top(ctx))
         } else {
             (PANEL_X, 10.0)
@@ -522,7 +533,7 @@ impl HookEchoApp {
                                 self.site_dialog = Some(Default::default());
                             }
                         }
-                        let hint = egui::RichText::new(if phone() {
+                        let hint = egui::RichText::new(if narrow_search {
                             egui_phosphor::regular::MAGNIFYING_GLASS.to_string()
                         } else {
                             format!(
@@ -535,7 +546,7 @@ impl HookEchoApp {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             let search = ui.add(
                                 egui::Button::new(hint)
-                                    .min_size(if phone() {
+                                    .min_size(if narrow_search {
                                         egui::vec2(40.0, 32.0)
                                     } else {
                                         egui::vec2(PANEL_W - 74.0, 26.0)

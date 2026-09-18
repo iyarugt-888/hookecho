@@ -511,6 +511,13 @@ pub struct Settings {
     /// theme_plan.md §7: which visual layout the bottom timeline draws itself in.
     #[serde(default)]
     pub timeline_style: TimelineStyle,
+    /// theme_plan.md §2.3: replace the WSV3 ribbon's docked "Search" group with a small floating
+    /// icon button over the map instead. Off by default (today's docked behavior unchanged). Only
+    /// affects the ribbon layouts (`Layout::is_ribbon()`) — the Minimal layout's own search pill
+    /// is a combined menu/site/search bar, not a standalone control, and isn't affected by this
+    /// (see that section's own note on why it needs a different fix).
+    #[serde(default)]
+    pub floating_search_button: bool,
     /// Persisted basemap style slug for startup (empty = the pane default, [`crate::tiles::BasemapStyle::default`]).
     #[serde(default)]
     pub basemap: String,
@@ -1380,6 +1387,7 @@ impl Default for Settings {
             alert_volume: default_volume(),
             live_loop_frames: default_live_loop_frames(),
             timeline_style: TimelineStyle::default(),
+            floating_search_button: false,
             basemap: String::new(),
             overlays_on: None,
             window: None,
@@ -1833,6 +1841,19 @@ mod tests {
     }
 
     #[test]
+    fn floating_search_button_defaults_off_and_round_trips() {
+        let s: Settings = serde_json::from_str("{}").unwrap();
+        assert!(!s.floating_search_button);
+        let on = Settings {
+            floating_search_button: true,
+            ..Settings::default()
+        };
+        let json = serde_json::to_string(&on).unwrap();
+        let back: Settings = serde_json::from_str(&json).unwrap();
+        assert!(back.floating_search_button);
+    }
+
+    #[test]
     fn a_web_file_name_resolves_to_its_content() {
         let mut s = Settings::default();
         s.palettes.insert("REF".to_string(), "mine.pal".to_string());
@@ -2001,6 +2022,7 @@ mod tests {
             alert_volume: 0.7,
             live_loop_frames: 12,
             timeline_style: TimelineStyle::Wsv3,
+            floating_search_button: true,
             basemap: "carto-dark".to_string(),
             overlays_on: Some(vec!["Alerts".to_string(), "Wind".to_string()]),
             window: None,

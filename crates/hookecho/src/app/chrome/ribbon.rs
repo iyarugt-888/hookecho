@@ -232,15 +232,20 @@ impl HookEchoApp {
                     ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                     ui.add_space(6.0);
 
-                    ribbon_group(ui, "Search", 136.0, |ui| {
-                        if wsv3::pill(ui, "Search all", false, accent)
-                            .on_hover_text("Search products, stations, tools, and UTC times (Ctrl+K)")
-                            .clicked()
-                        {
-                            open_command_search = true;
-                        }
-                        ui.label(RichText::new("product · station · time").size(10.0).color(wsv3::STATUS_FG));
-                    });
+                    // theme_plan.md §2.3: optionally pull this out of the ribbon entirely and
+                    // draw it as a floating icon button over the map instead (below, once the
+                    // ribbon panel is closed) — off by default, today's docked group unchanged.
+                    if !self.settings.floating_search_button {
+                        ribbon_group(ui, "Search", 136.0, |ui| {
+                            if wsv3::pill(ui, "Search all", false, accent)
+                                .on_hover_text("Search products, stations, tools, and UTC times (Ctrl+K)")
+                                .clicked()
+                            {
+                                open_command_search = true;
+                            }
+                            ui.label(RichText::new("product · station · time").size(10.0).color(wsv3::STATUS_FG));
+                        });
+                    }
 
                     // ---- DATA (mode switch — WSV3 swaps its whole toolbar by data type) ----
                     ribbon_group(ui, "Data", 76.0, |ui| {
@@ -728,6 +733,39 @@ impl HookEchoApp {
         // Drawn after the panel above (not before it), so it paints on top of the ribbon's own
         // background gradient rather than underneath it.
         self.ribbon_collapse_button(ctx);
+
+        // theme_plan.md §2.3's floating search button, for whoever turned the docked ribbon
+        // group off above. A small round icon button over the map's top-left corner, just below
+        // the ribbon + colour scale — the same trigger the docked group used
+        // (`open_command_search`), just a different widget.
+        if self.settings.floating_search_button {
+            egui::Area::new(egui::Id::new("wsv3_floating_search"))
+                .anchor(
+                    egui::Align2::LEFT_TOP,
+                    egui::vec2(8.0, wsv3::ribbon_h() + wsv3::colorbar_h() + 8.0),
+                )
+                .show(ctx, |ui| {
+                    crate::ui::style::glass(ui, 238).show(ui, |ui| {
+                        let btn = ui.add(
+                            egui::Button::new(
+                                RichText::new(egui_phosphor::regular::MAGNIFYING_GLASS)
+                                    .size(16.0)
+                                    .color(accent),
+                            )
+                            .min_size(vec2(34.0, 34.0))
+                            .fill(egui::Color32::TRANSPARENT)
+                            .stroke(egui::Stroke::NONE),
+                        );
+                        use crate::ui::a11y::Named as _;
+                        if btn
+                            .named("Search products, stations, tools, and UTC times (Ctrl+K)")
+                            .clicked()
+                        {
+                            open_command_search = true;
+                        }
+                    });
+                });
+        }
 
         // --- apply ---
         if open_command_search {

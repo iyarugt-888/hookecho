@@ -957,6 +957,18 @@ fn general_tab(
             );
             ui.end_row();
 
+            if !cfg!(target_os = "android") {
+                ui.label("Floating search");
+                ui.checkbox(&mut settings.floating_search_button, "Floating icon button")
+                    .on_hover_text(
+                        "Replace the ribbon's docked \"Search\" group with a small floating icon \
+                         button over the map instead. Only affects the ribbon themes (Command \
+                         Ribbon / WSV3) — the Minimal layout's own search pill already goes \
+                         icon-only on a narrow window.",
+                    );
+                ui.end_row();
+            }
+
             ui.label("Motion");
             ui.checkbox(&mut settings.reduce_motion, "Reduce motion")
                 .on_hover_text(

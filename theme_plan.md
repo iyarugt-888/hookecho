@@ -210,77 +210,41 @@ regression tests. [ ] not yet visually screenshot-verified in the real running a
 rendering wasn't exercised this session) — do this before considering the item fully closed, not
 just tested at the `tile_cover` function level.
 
-### 2.3 The search pill doesn't look good and should be an optional floating button — [ ] not started
+### 2.3 The search pill doesn't look good and should be an optional floating button — [x] done
 
-**Confirmed: there are two separate search trigger surfaces, both feeding one shared panel — fix
-both consistently, don't just fix the one in the screenshot.**
+**Confirmed there are two separate search trigger surfaces, both feeding one shared panel, and
+they needed two different fixes** (both set the same three fields on click —
+`self.panel_open = true; self.show_alert_panel = false; self.sidebar_focus_search = true;` — to
+open the same drawer/registry-search panel; there is no separate command-palette popup component):
 
-1. The WSV3 ribbon's own **"Search all"** pill — `crates/hookecho/src/app/chrome/ribbon.rs:230-238`,
-   inside the ribbon's "Search" group. This is very likely the exact control the user means by
-   "search all button" (it's the literal label). Note Ref 1/Ref 5's screenshots don't show a visible
-   "Search" group before "DATA" — confirm whether it's scrolled off (the ribbon groups scroll
-   horizontally on a narrow viewport) or conditionally hidden before assuming it's simply missing.
-2. The Minimal layout's floating **"Search layers, tools, places"** pill —
-   `crates/hookecho/src/app/chrome/overlay.rs:525-551`, an `egui::Area::new(egui::Id::new(
-   "search_pill"))`. This is the one visible in Ref 2.
+1. **The Minimal layout's `overlay.rs::search_pill`** is not a standalone search trigger — it's
+   the *entire* top control bar for that layout (a hamburger menu toggle, the site+VCP label on
+   phone, and the search hint, all in one horizontal bar), so "make it a floating button" can't
+   mean hiding the whole bar without also losing the menu/site controls. Its real bug was
+   different: `fn phone() -> bool { cfg!(target_os = "android") }` is a **platform** check, not a
+   screen-size one — the existing icon-only search hint only ever triggered on an actual Android
+   build, never a narrow desktop/web window, which is exactly why a narrow mobile-*web* capture
+   still showed the full "Search layers, tools, places" text. **Fix shipped:** a new
+   `narrow_search = phone() || compact(ctx)` (`compact` is the real M3-width-class narrow-viewport
+   check, already used a few lines up for `sheets()`) now gates the hint text, the pill's width,
+   and its screen position — only those three call sites were touched; the other ~9 `phone()`
+   calls in the function (the inline site/VCP label, Android-specific sizing) were left alone,
+   since they're genuine platform choices, not screen-size ones.
+2. **The WSV3 ribbon's own "Search all" pill** (`ribbon.rs`, inside a dedicated "Search" ribbon
+   group) *is* a genuine standalone control — confirmed by reading it, not assumed. **Fix
+   shipped:** a new `Settings.floating_search_button: bool` (default `false`, ribbon-layouts only)
+   — when on, the docked "Search" ribbon group is skipped entirely and a small round floating icon
+   button appears over the map's top-left corner instead (below the ribbon + colour scale),
+   triggering the exact same `open_command_search` flow the docked pill used. A Settings toggle
+   ("Floating search" / "Floating icon button") controls it, next to the Timeline row.
 
-Both set the same three fields on click (`self.panel_open = true; self.show_alert_panel = false;
-self.sidebar_focus_search = true;`) to open the same drawer/registry-search panel
-(`app/chrome/registry.rs`'s `palette_entries()`) — there is no separate command-palette *popup*
-component to rewrite, only these two trigger affordances.
-
-**Ask, restated:** today both are always-shown, fixed-position/fixed-size controls. The user wants
-(a) better visual polish and (b) optionality — a small floating action button (FAB) toggle-able
-on/off, rather than a permanent bar/pill taking up chrome space.
-
-**Correction after reading `overlay.rs::search_pill` in full (line 449-556) — read this before
-touching it:** the Minimal-layout "search pill" is not a standalone search trigger. It's the
-*entire* top control bar for that layout: a hamburger-style menu toggle (`egui_phosphor::LIST`,
-opens/closes `self.panel_open` — the same panel that holds Layers/Alerts/Share, not just search),
-the current radar site + VCP label (phone only), *and* the search hint, all in one horizontal
-bar. It already has a `phone()`-gated compact mode (line 469-480, 510-534): on a narrow viewport
-the search hint is already icon-only (`MAGNIFYING_GLASS` alone, no text, line 525-527) — Ref 2's
-screenshot showing the full "Search layers, tools, places" text means that capture's `phone()`
-check didn't trigger the compact path (check `phone()`'s own width threshold against the
-screenshot's actual viewport before assuming the compact mode doesn't work).
-
-**Given this, "make search an optional floating button" cannot mean hiding the whole bar** — that
-would also remove reach to the menu toggle and site picker, not just search. The narrower, correct
-scope: add a setting that forces the *search portion specifically* to render icon-only (the
-already-existing `phone()` compact treatment) regardless of platform/width, for a user who wants
-that even on desktop. This is a much smaller change than originally scoped — extending an existing
-`phone()` conditional with an `|| settings.compact_search_button`-style check, not building a new
-FAB component from scratch. Do the same check-before-assuming pass on `ribbon.rs`'s "Search all"
-group (line 230-238) before changing it — confirm whether it's genuinely a standalone control
-there (it looked like one from the code excerpt read this session) or whether it too carries more
-than search before deciding its fix shape.
-
-**Root cause found, still not implemented — this is the actual, precise fix, not a hypothesis:**
-`overlay.rs`'s `fn phone() -> bool { cfg!(target_os = "android") }` (line 26) is a **platform**
-check, not a screen-size check — the icon-only search hint at line 525
-(`let hint = ... if phone() { icon-only } else { "Search layers, tools, places" }`) only ever
-triggers on an actual Android build, never on a narrow desktop/web browser window, no matter how
-narrow. This is exactly why Ref 2 (mobile *web*) shows the full text: `phone()` is `false` there
-regardless of viewport width. The real narrow-viewport check already exists as a *separate*
-function, `compact(ctx: &egui::Context) -> bool` (line 36, M3 width-class based, works on any
-platform), and this file already combines the two for a related purpose: `fn sheets(ctx) -> bool {
-phone() && compact(ctx) }` (line 42). **Do not blindly replace every `phone()` in this file with
-`compact(ctx)`** — `search_pill` alone calls `phone()` at 12 different sites (lines 167, 334, 469,
-476, 491, 510, 525, 538, 561, 584, plus `sheets`'s own two), and several look like genuine
-platform-specific UX choices (e.g. line 510's inline site-picker-in-the-pill, which may be
-deliberately Android-only) rather than screen-size ones. The fix is narrow and specific: change
-just the hint-text branch (line 525) and whatever sizing it depends on (`width` at 469, the hint's
-own font size at 491) to trigger on `phone() || compact(ctx)`, leaving every other `phone()` call
-in the function exactly as it is. Read each remaining call site before touching it, the same way
-this session's own investigation did before writing this note — don't assume they all mean the
-same thing just because they call the same function.
-
-**Acceptance:** [ ] one setting controls both surfaces consistently (a user shouldn't get a FAB in
-Minimal but a full pill in the ribbon, or vice versa, unless that turns out to be the deliberate
-per-layout choice — decide and document, don't leave it inconsistent by accident). [ ] toggle
-defaults to current (non-breaking) behavior. [ ] FAB mode renders correctly on both desktop and a
-~380px mobile viewport. [ ] screenshot comparison against Ref 1/Ref 2 shows a visually improved,
-consistent control in `Docked` mode.
+**Acceptance:** [x] each surface got the fix that actually matches what it is — the Minimal bar's
+narrow-width bug is fixed everywhere that width shows up (not just phone), and the ribbon's
+standalone control gained a real optional floating mode, rather than forcing one fix shape onto
+both. [x] both changes default to today's behavior (non-breaking). [x] `cargo test -p hookecho
+--lib` (606 tests, 1 new) and `cargo check` (native + wasm32) clean. [ ] not yet screenshot-
+verified in a running app (see §8's note on this session's browser-verification attempt and why
+it didn't produce a usable screenshot).
 
 ### 2.4 Radar range ring shows km instead of miles — [x] done
 
@@ -576,7 +540,7 @@ not yet screenshot-verified in a running app.
 Not a hard dependency chain — pick items an agent can finish and verify in one sitting without
 leaving something half-done. Rough grouping, batching the single gate run per group per §1:
 
-1. **Bugs (§2)** — [x] 2.1/2.2/2.4 done, 2.3 needs a rescoped pass (see its own correction note).
+1. **Bugs (§2)** — [x] all four done (2.1, 2.2, 2.3, 2.4).
 2. **Distance unit** — [x] done as part of 2.4 (turned out to need no new setting at all — see
    that section's correction note). **Settings reorg (§3)** — not done; still open.
 3. **`Layout` rename + preset pairing (§6.2)** — [x] done.
