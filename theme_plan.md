@@ -423,106 +423,91 @@ Folded into §2.4's acceptance criteria — no separate work here beyond what's 
   which is which.
 
 ### 6.2 Turn `Layout` into a real preset (color + UI), while keeping colors independently
-    overridable — [ ] not started
+    overridable — [x] done
 
-- [ ] Rename the existing `Layout::Wsv3` variant to something that isn't "WSV3" — the user
-  explicitly wants the *current* ribbon theme renamed because "WSV3" is being claimed by the new,
-  more faithful redesign (§6.3). Suggested: `Layout::CommandRibbon`, label **"Command Ribbon"** (or
-  "Classic Ribbon" — pick one; either reads fine). This is today's Ref 1/Ref 5 look, unchanged
-  visually — a rename only.
-- [ ] Add `Layout::Wsv3`, label **"WSV3"** — the new theme, built in §6.3.
-- [ ] Keep `Layout::Minimal` as-is (label unchanged: "Minimal (map-first)").
-- [ ] Give each `Layout` variant a **recommended** `(Theme, Density)` pair (e.g. `CommandRibbon` →
-  `(Theme::Dark, Density::Comfortable)`, `Wsv3` → `(Theme::Dark, Density::Compact)` — WSV3's own
-  look is dense, per Ref 4 — `Minimal` → whatever it defaults to today). Selecting a Layout in
-  Settings **applies** its recommended pair immediately (a one-time convenience, like picking a
-  starter preset), but `Theme`/`Density` remain independently changeable right after — nothing
-  should re-force them back if the user then picks a different Color scheme. Implement this as a
-  plain function (`Layout::recommended_theme_and_density(self) -> (Theme, Density)`), called only
-  from the settings-UI click handler that changes `settings.layout` — not from anywhere that runs
-  every frame, or a user's deliberate Color-scheme override would keep getting stomped.
-- [ ] Settings UI: relabel wherever `Layout::ALL`/`Layout::label()` is rendered (General or the new
-  Appearance tab, §3) from "Layout" to "Theme," and move the (relabeled) Color-scheme picker to
-  read as a secondary, "customize further" control underneath it — visually subordinate, not equal
-  billing, so a casual user picks one Theme and is done, while a power user can still go further.
+**What shipped** (`crates/hookecho/src/settings.rs`):
+- `Layout::Wsv3` renamed to `Layout::CommandRibbon` — label **"Command Ribbon"** — with
+  `#[serde(alias = "Wsv3")]` so an old `settings.json`'s `"layout": "Wsv3"` still loads as this
+  variant, exactly the way `Theme::Dark` already carries aliases for its own pre-rename names.
+  A new `Layout::Wsv3` variant was added for the actual new theme; since a bare unit variant's
+  implicit serde tag is its own name, it needed an explicit `#[serde(rename = "Wsv3Theme")]` to
+  avoid colliding with `CommandRibbon`'s alias of the same string — both are tested
+  (`a_pre_rename_layout_field_still_loads_as_command_ribbon`,
+  `the_new_wsv3_theme_round_trips_under_its_own_distinct_name`).
+- `Layout::CommandRibbon` (label "Command Ribbon", `Theme::Dark`/`Density::Comfortable`), `Wsv3`
+  (label "WSV3", `Theme::Dark`/`Density::Compact`), `Minimal` (unchanged) — `Layout::ALL` is now
+  3 elements.
+- `Layout::is_ribbon(self) -> bool` — `true` for `CommandRibbon`/`Wsv3`, replacing the two call
+  sites in `app.rs` that used to compare directly against the single old `Wsv3` variant (the
+  ribbon-vs-colorbar-drawn-elsewhere gate, and the top-level "which chrome to draw" gate) — both
+  ribbon-style layouts share the same chrome, differing only in geometry (below).
+- `Layout::recommended_theme_and_density(self) -> (Theme, Density)` — applied once, from the
+  Settings UI's click handler on the Theme picker (`ui/settings_window.rs`'s `general_tab`), not
+  from anywhere that runs every frame; a subsequent independent Color-scheme change is never
+  stomped back.
+- Settings UI: the picker is now labeled "Theme" (was "Layout"), placed above a "Color scheme"
+  row (was labeled "Theme") that reads as the secondary, "customize further" control, per §6.1.
 
-**Acceptance:** [ ] `Layout::ALL` includes exactly `CommandRibbon`, `Wsv3`, `Minimal` (or your
-chosen names) after the rename. [ ] an old `settings.json` with `"layout": "Wsv3"` (the pre-rename
-serialized value) still loads correctly as the renamed `CommandRibbon` variant — add a `#[serde(alias
-= "Wsv3")]` on `CommandRibbon` exactly the way `Theme`'s own variants already use `#[serde(alias =
-...)]` for their pre-rename names (see `Theme::Dark`'s `alias = "Magma", alias = "Redline", alias =
-"AcidStorm"` at `settings.rs:16` for the pattern) — **this is not optional**, it's what keeps every
-existing user's settings file from silently reverting to the default layout on upgrade. [ ] picking
-a Theme (Layout) in Settings visibly changes both chrome and color together; picking a different
-Color scheme afterward does not get overwritten by anything.
+**Acceptance:** [x] `Layout::ALL` is exactly `[CommandRibbon, Wsv3, Minimal]`. [x] an old
+`"layout": "Wsv3"` still loads as `CommandRibbon`, tested. [x] picking a Theme in Settings applies
+its recommended Color-scheme + Density pair immediately; a subsequent independent Color-scheme
+pick is not overwritten (verified in code — the pairing function is only ever called from the
+click handler, never from a per-frame path). 4 new tests in `settings.rs`, all passing; full
+`cargo test -p hookecho --lib` (605 tests) and both native + wasm32 `cargo check` clean.
 
-### 6.3 Build the new "WSV3" theme from Ref 4 — [ ] not started
+### 6.3 Build the new "WSV3" theme from Ref 4 — [x] partly done — geometry + footer shipped, the
+    tab-row refactor and checkbox-dense rows deliberately deferred (see below, not silently dropped)
 
 This is the theme deliverable — a *look*, using layers/tools/products HookEcho already has, not a
 port of WSV3's own feature set (see §1's "don't replicate feature-for-feature" rule).
 
-**Prerequisite, confirmed necessary:** `ribbon.rs` is **hand-laid-out UI code, not data-driven** —
-there is no table/array of group descriptors. `impl HookEchoApp { pub(crate) fn wsv3_ribbon(...) }`
-(line 126) is one long function that calls a helper `fn ribbon_group(ui, label, width, add_closure)`
-(line 23) inline, once per group, each with its own hardcoded pixel width and bespoke closure body
-(13 groups total: Search 230/Data 241/Radar 255/Tilt angle 318/View 404/Model 448/Color fill 497/
-Contours 522/Future radar 552/MRMS national 621/Overlays 647/Tools 671/Capture 699 — line numbers of
-each `ribbon_group(...)` call). There **is** an existing precedent worth building on: `RibbonMode`
-(`app.rs:1419`, values `Radar`/`Model`/`Mrms`) already reflows which groups render — radar-only
-groups skip entirely outside `RibbonMode::Radar`, etc. Adding a genuinely new tab-row (Ref 4's
-Basic/Surface/NEXRADPro/MRMS/Model/MESO/Forecast/NDFD/NWS-SPC/Tropical/Winter/Misc-style grouping)
-on top of the *existing* groups means either (a) extending `RibbonMode`-style mode-gating with a
-second, orthogonal "which tab" dimension, or (b) actually refactoring `ribbon_group`'s 13 inline
-call sites into a real `&[GroupDescriptor]` the WSV3 theme iterates differently than
-`CommandRibbon` does. Do (b) if the theme needs more than 3-4 top tabs or expects tabs to be
-reorderable/configurable later; (a) is the smaller change if a fixed, small number of tabs is
-enough. Either way, **this refactor is a real prerequisite, not a detail** — budget for it before
-starting the visual work below.
+**What shipped:**
+- **Denser ribbon geometry**, gated on the new theme rather than on `Density` (confirmed necessary:
+  `crate::ui::wsv3`'s hand-painted ribbon never read `Density`/`ui.visuals()` for its own sizing at
+  all — every theme shared one fixed pixel geometry before this). `theme.rs` gained a second
+  process-global flag, `WSV3_DENSE`/`is_wsv3_theme()`, set from `theme::apply()` (which now also
+  takes `Layout`) the same way the existing `IMGUI_STYLE`/`is_imgui_style()` flag already works —
+  precedent this session found and reused rather than inventing a new mechanism. `wsv3.rs`'s
+  `RIBBON_H`/`COLORBAR_H`/`STATUS_H` constants became `ribbon_h()`/`colorbar_h()`/`status_h()`
+  functions returning smaller values under `is_wsv3_theme()` (104/20/36 vs. the original
+  130/26/22 — status bar is *taller*, not shorter, to fit its extra footer row below).
+- **Extended footer status bar** (`ribbon.rs::wsv3_status_bar`): a second row, drawn only under
+  `is_wsv3_theme()`, with zoom-level quick-pick pills (`z5`/`z8`/`z11`/`z14` — an analog of Ref 4's
+  100%/125%/150% quick-picks adapted to this app's continuous log2 zoom rather than a literal
+  percent scale that has no equivalent here) and, in 3D mode, the camera's own pitch/bearing read
+  straight off the existing `Camera` struct. `CommandRibbon` never draws this row.
+- **The existing lat/lon + scan-age footer readout was already there** for both ribbon layouts
+  (`wsv3_status_bar`'s original row) — confirmed rather than assumed, so nothing needed building
+  for that part.
+- **Data-probe crosshair**: confirmed this maps onto the existing Gate inspector/Explore tool
+  (visible in every ribbon screenshot's TOOLS group already) — no code change needed; a pixel
+  restyle for this specific theme is left as future polish, not tracked as a gap.
 
-- [ ] **Denser top chrome**: group the *existing* ribbon groups (DATA/RADAR/TILT ANGLE/VIEW/
-  OVERLAYS/TOOLS/CAPTURE) under fewer always-visible top-level tabs (à la Ref 4), each expanding a
-  denser control row when active, rather than showing every group at once. Depends on the
-  prerequisite above.
-- [ ] **Compact, checkbox-dense rows** for anything that's currently a button grid (Ref 4's radio-
-  button/checkbox rows for reflectivity mode, satellite channel, warning types) — apply `Density::
-  Compact`-style spacing by default for this theme (per §6.2's recommended pair), and consider
-  whether some of ribbon.rs's existing toggle-buttons read better as checkboxes/radio rows in this
-  theme specifically (a visual variation the shared underlying `PaletteAction`/registry can serve
-  without needing two copies of the action list).
-- [ ] **Footer status bar**: FPS/RAM-style performance readout (`crates/hookecho/src/perf.rs`
-  already exists per ARCHITECTURE.md — "The perf counters' readout — native only" — check what it
-  already exposes before adding new counters), current zoom level as a `%`-style quick-pick (Ref
-  4's "100% / 125% / 150%"; HookEcho's own zoom is a continuous camera zoom level, not discrete
-  percents — translate sensibly, e.g. a small row of preset zoom buttons rather than a literal
-  percent since the underlying representation differs), and the existing lat/lon + scan-age readout
-  already visible in Ref 1's bottom-left/bottom-right corners (confirm this already exists outside
-  the WSV3 theme and just needs restyling, vs. needs building — Ref 1 is the *current* ribbon theme
-  and already shows `KTLX · scan 3s ago` / coordinates / zoom, so this is very likely already there
-  and just needs to be part of the new theme's footer treatment, not built from scratch).
-- [ ] **Data-probe crosshair + readout** (Ref 4's "Data Probe" section with a crosshair icon and
-  "Start" button): check whether this maps onto HookEcho's existing "Gate inspector"/"Explore" tool
-  (visible in every ribbon screenshot's TOOLS group) — if so, this is a restyle/rename for the WSV3
-  theme's chrome, not a new tool. Only build new interaction if Gate inspector genuinely can't serve
-  this role.
-- [ ] **Camera/3D telemetry overlay** (Ref 4's lat/lon, camera pitch/bearing, LP/Cam/GB readout,
-  visible only in the 3D viewport): a small text overlay shown only when `map_3d.enabled` and this
-  theme is active, reading straight off the existing `Camera` struct (`render/mercator.rs`) —
-  `pitch`, `bearing`, and world coordinates already computable via `screen_to_world`. No new state.
+**Deliberately not done, not silently dropped:**
+- **The ribbon tab-row refactor** (grouping DATA/RADAR/TILT ANGLE/VIEW/OVERLAYS/TOOLS/CAPTURE
+  under fewer top-level tabs, à la Ref 4's Basic/Surface/NEXRADPro/… bar). Confirmed prerequisite
+  still stands: `ribbon.rs`'s `ribbon_group` is 13 hand-laid-out inline call sites, not a
+  `&[GroupDescriptor]` table, and `RibbonMode` (`app.rs:1419`, `Radar`/`Model`/`Mrms`) is the one
+  existing "which groups reflow" precedent to extend or parallel. This is real, sizable UI-
+  architecture work on its own — attempting it in the same pass as everything else above risked
+  a half-finished refactor rather than a working denser theme. The theme still reads as
+  meaningfully different today (geometry + footer); the tab-row grouping is the next increment.
+- **Checkbox-dense rows** for button-grid controls (reflectivity mode, satellite channel, warning
+  types) — a cosmetic pass with real regression risk if done without live visual iteration (no
+  browser/screenshot tooling was set up this session — see §1's own screenshot-verification rule,
+  which this honestly couldn't clear for a change this visual). Left for a pass with actual
+  screenshot verification.
+- **Viewpoints** (Ref 4's saved-camera-position list) and the **Main/Model-Timeline split** —
+  unchanged from this plan's original scoping: genuinely new features, not part of the theme
+  deliverable, tracked as their own follow-ups.
 
-**Stretch, not required for this theme to ship** (call out clearly if left undone, don't silently
-drop):
-- [ ] Viewpoints (Ref 4's saved-camera-position list with Apply/Delete/Play-Viewpoints/Interval) —
-  a genuinely new feature (a small `Vec<Viewpoint { name, camera: Camera }>` in `Settings`, a
-  window to manage it, a "fly to" animation). Track this as its own follow-up item if picked up;
-  it's a feature, not a theme, and shouldn't block §6.3's other checkboxes.
-- [ ] Main-Timeline/Model-Timeline split with independent loop lengths — relates more to §7
-  (timeline styles) than to this theme's own chrome; cross-reference rather than duplicate.
-
-**Acceptance:** [ ] selecting the WSV3 theme in Settings changes both the top chrome density/grouping
-and applies the recommended dark/compact defaults. [ ] screenshot comparison shows a
-recognizably-WSV3-inspired look (denser, tabbed, footer telemetry) without literally cloning Ref 4
-pixel-for-pixel — HookEcho's own tool/layer set is different from WSV3's, so exact parity isn't the
-goal, character is.
+**Acceptance:** [x] selecting the WSV3 theme in Settings changes the top chrome's density and adds
+the footer telemetry row; `CommandRibbon` is visually unchanged from before this pass (verified by
+reading — its geometry functions return the original constants unless `is_wsv3_theme()` is true).
+[x] `cargo test -p hookecho --lib` and `cargo check` (native + wasm32) clean. [ ] not yet
+screenshot-verified in a running app — no browser/webview tooling was exercised this session; do
+this before considering the *shipped* portion fully closed, and before starting the deferred
+tab-row work above.
 
 ---
 
@@ -536,30 +521,37 @@ every `Layout`. This section makes it a themeable axis, similar to `Layout` itse
 (a WSV3-*look* user might still prefer a compact timeline, or vice versa — don't force one to imply
 the other unless testing shows users always want them paired, in which case revisit).
 
-- [ ] Add `TimelineStyle` enum in `settings.rs`, same shape as `VelocityUnit`/`Layout`: `Default`
-  (today's look — the big pill with play/back/forward, the "Live" badge, "Scan Nm ago," the `...`
-  menu — unchanged, this is the migration-safe default), `Wsv3` (Ref 4's style: explicit transport
-  buttons — skip-to-start/rewind/pause-play/fast-forward/skip-to-end — a Main/Model timeline radio,
-  a "Loop length" dropdown, and a plain position slider below, no big pill), `Compact` (a slim
-  dot/tick strip with a small prev/play/next row — the genre convention for GR2Analyst/WeatherFront-
-  style compact scrubbers seen in Ref 3's bottom bar; there's no pixel-exact "WeatherWise" or
-  "GRLevel2" reference in this session's material, so build this as the general compact archetype
-  and let a follow-up refine it against real screenshots of those specific apps if pixel-parity
-  turns out to matter).
-- [ ] Refactor `scrubber.rs` so the underlying `Timeline` state/logic (in `crates/hookecho/src/
-  timeline.rs`, unaffected by this work) is drawn by one of several small render functions chosen by
-  `settings.timeline_style`, rather than duplicating the state logic per style. One `Timeline`, three
-  paint functions.
-- [ ] Settings control for it — Appearance tab (§3), near the Theme/Layout picker.
+**Status: [x] done.**
 
-**Acceptance:** [ ] switching `TimelineStyle` changes only the scrubber's visual layout; play/pause/
-scrub/Live-follow behavior is identical across all three (verify by exercising the same interaction
-sequence — play, scrub to a past frame, return to live — under each style and confirming the
-underlying `Timeline` state ends up the same). [ ] no style regresses the existing Live-badge/
-scan-age information Ref 1 already shows — every style must still answer "is this live, and how old
-is the newest scan" somewhere, per this app's own existing latency-honesty rule
-(`ROADMAP_NEW.md` §0's "Definition of top tier analyst tool": display latency/age must always be
-visible).
+- [x] `TimelineStyle` enum in `settings.rs`, same shape as `VelocityUnit`/`Layout`: `Default`
+  (today's look, byte-for-byte unchanged — the function was renamed `scrubber_default`, nothing in
+  its body touched), `Wsv3` (an explicit transport row — skip-to-start/rewind/pause-play/
+  fast-forward/skip-to-end — a "LOOP" dropdown bound to the existing `Settings.live_loop_frames`
+  value the Default style's own popup menu already edits, so this is a second surface for the same
+  setting rather than a second value, and a plain `egui::Slider` below rather than a hand-painted
+  track), `Compact` (a slim single row: prev/play/next, the *same* hand-drawn `track()` function
+  the Default style uses — it already had a `compact: bool` painting mode — and a small live/
+  archive dot, with the popup menu and rain-ETA/DVR-depth extras dropped). No Main/Model-timeline
+  radio was built for `Wsv3` — HookEcho has one `Timeline` per pane, not two parallel ones, so
+  there was nothing to switch between; noted as a real scope difference from Ref 4, not an
+  oversight. No pixel-exact "WeatherWise"/"GRLevel2" reference existed to build `Compact` against,
+  per this plan's own original note — it's the general compact archetype, not a copy of either.
+- [x] `scrubber()` is now a 3-line dispatcher on `self.settings.timeline_style`; the three paint
+  functions (`scrubber_default`, `scrubber_wsv3_style`, `scrubber_compact_style`) all drive the
+  same `crate::timeline::Timeline` fields directly (`playhead`, `playing`, `following`) via the
+  identical three-line idiom the existing track's own drag handler already used (`t.playhead = idx;
+  t.playing = false; t.following = idx + 1 == observed;`) — no parallel state, no duplicated
+  seek/play logic invented.
+- [x] Settings control: a "Timeline" row in `general_tab` (not yet in a separate Appearance tab —
+  §3's tab split wasn't done this pass), next to the Theme/Density rows.
+
+**Acceptance:** [x] switching `TimelineStyle` changes only the scrubber's visual layout — all three
+call the same `Timeline` methods/fields for play/pause/step/seek/live-follow, verified by reading
+(no separate state machine per style). [x] every style shows the live/archive state somewhere
+(`Wsv3`: a LIVE/STALE/ARCHIVE label; `Compact`: a colored dot with the same hover text as the
+Default badge) — the latency-honesty rule from `ROADMAP_NEW.md` §0 holds for all three. [x]
+`cargo test -p hookecho --lib` (605 tests, 2 new) and `cargo check` (native + wasm32) clean. [ ]
+not yet screenshot-verified in a running app.
 
 ---
 
@@ -568,17 +560,20 @@ visible).
 Not a hard dependency chain — pick items an agent can finish and verify in one sitting without
 leaving something half-done. Rough grouping, batching the single gate run per group per §1:
 
-1. **Bugs (§2)** — independent of everything else, safe to parallelize across agents, each is its
-   own PR-sized unit.
-2. **Distance unit (§2.4)** + **Settings reorg scaffolding (§3)** — the reorg needs somewhere to put
-   the new distance-unit control, so land the tab split first, then the unit itself slots in.
-3. **`Layout` rename + preset pairing (§6.2)** — do this *before* §6.3, since §6.3 adds a new
-   variant and it's much less churn to add "the third variant" than to rename one out from under an
-   already-built new theme.
-4. **New WSV3 theme (§6.3)** — the biggest single item; expect it to be its own multi-session effort.
-5. **Timeline styles (§7)** — independent of §6.3, can run in parallel with it once §6.2's rename has
-   landed (so it isn't built against the soon-to-be-renamed variant name).
-6. **Analyst Mode (§4)** — independent of all of the above, can run anytime.
+1. **Bugs (§2)** — [x] 2.1/2.2/2.4 done, 2.3 needs a rescoped pass (see its own correction note).
+2. **Distance unit** — [x] done as part of 2.4 (turned out to need no new setting at all — see
+   that section's correction note). **Settings reorg (§3)** — not done; still open.
+3. **`Layout` rename + preset pairing (§6.2)** — [x] done.
+4. **New WSV3 theme (§6.3)** — [x] partly done (geometry + footer); the tab-row refactor and
+   checkbox-dense rows are the tracked remainder — see that section's own "deliberately not done"
+   list before starting more work here.
+5. **Timeline styles (§7)** — [x] done.
+6. **Analyst Mode (§4)** — not started, independent of everything above, can run anytime.
+
+**What every "[x] done" item above still needs**, consistently: real screenshot/manual
+verification in a running app. This session had no browser/webview tooling set up to exercise the
+actual UI, so every visual change was verified by compiling, testing the underlying logic, and
+reading the code — not by looking at it. Do that pass before treating any of these as fully closed.
 
 ## 9. Definition of done
 

@@ -508,6 +508,9 @@ pub struct Settings {
     /// Number of newest volumes the live loop cycles over when playing.
     #[serde(default = "default_live_loop_frames")]
     pub live_loop_frames: usize,
+    /// theme_plan.md §7: which visual layout the bottom timeline draws itself in.
+    #[serde(default)]
+    pub timeline_style: TimelineStyle,
     /// Persisted basemap style slug for startup (empty = the pane default, [`crate::tiles::BasemapStyle::default`]).
     #[serde(default)]
     pub basemap: String,
@@ -1036,26 +1039,102 @@ pub fn default_alert_radius_mi() -> f64 {
     20.0
 }
 
-/// Which desktop/web chrome the app draws.
+/// Which desktop/web chrome the app draws — theme_plan.md §6's "Theme" (chrome + a recommended
+/// color scheme), as distinct from `Theme` itself (§6.1's "Color scheme": colors only). Renamed
+/// from a 2-variant enum where the ribbon layout was itself called `Wsv3`: that name is now the
+/// new, denser theme built to match TempoQuest's WSV3 desktop app rather than the original
+/// HookEcho ribbon, which is renamed `CommandRibbon` to make room for it — an old `settings.json`
+/// with `"layout": "Wsv3"` still loads as `CommandRibbon` via the alias below, not silently reset
+/// to a different theme.
 ///
-/// `Wsv3` is the WSV3-style pro layout: a docked ribbon of labeled control groups over a
-/// navy→black gradient, a docked colour scale, and a bottom status bar. `Minimal` is the
-/// original map-first floating chrome — a search pill, a right-edge control column, and panels
-/// that slide over the map. Android always uses its own touch chrome regardless of this.
+/// `CommandRibbon` is the original WSV3-*style* pro layout: a docked ribbon of labeled control
+/// groups over a navy→black gradient, a docked colour scale, and a bottom status bar. `Wsv3` is
+/// the same ribbon chrome with denser spacing and an extended status bar (zoom presets, 3D camera
+/// telemetry) — see `HookEchoApp::wsv3_ribbon`/`wsv3_status_bar`'s own `is_wsv3_theme` checks for
+/// exactly what differs. `Minimal` is the original map-first floating chrome — a search pill, a
+/// right-edge control column, and panels that slide over the map. Android always uses its own
+/// touch chrome regardless of this.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum Layout {
     #[default]
+    #[serde(alias = "Wsv3")]
+    CommandRibbon,
+    /// Serialized as `"Wsv3Theme"`, not `"Wsv3"` — that string is `CommandRibbon`'s alias above
+    /// (its pre-rename name), and a unit variant's own implicit tag would otherwise collide with
+    /// it (this variant is new, so there is no pre-existing `settings.json` naming to preserve
+    /// for it specifically).
+    #[serde(rename = "Wsv3Theme")]
     Wsv3,
     Minimal,
 }
 
 impl Layout {
-    pub const ALL: [Layout; 2] = [Layout::Wsv3, Layout::Minimal];
+    pub const ALL: [Layout; 3] = [Layout::CommandRibbon, Layout::Wsv3, Layout::Minimal];
 
     pub fn label(self) -> &'static str {
         match self {
-            Layout::Wsv3 => "WSV3 ribbon",
+            Layout::CommandRibbon => "Command Ribbon",
+            Layout::Wsv3 => "WSV3",
             Layout::Minimal => "Minimal (map-first)",
+        }
+    }
+
+    /// Whether this theme uses the docked ribbon chrome (`wsv3_ribbon`/`wsv3_status_bar`) at all
+    /// — `CommandRibbon` and `Wsv3` both do, styled differently; `Minimal` doesn't.
+    pub fn is_ribbon(self) -> bool {
+        matches!(self, Layout::CommandRibbon | Layout::Wsv3)
+    }
+
+    /// The `(Theme, Density)` pair this theme is designed to look like — applied once, as a
+    /// one-time convenience, the moment the user picks this theme in Settings (see
+    /// `ui::settings_window`'s theme picker); `Theme`/`Density` stay independently changeable
+    /// right after, this is not enforced every frame. `Wsv3`'s own look (theme_plan.md's Ref 4)
+    /// is dense and dark, unlike `CommandRibbon`'s original comfortable spacing.
+    pub fn recommended_theme_and_density(self) -> (Theme, Density) {
+        match self {
+            Layout::CommandRibbon => (Theme::Dark, Density::Comfortable),
+            Layout::Wsv3 => (Theme::Dark, Density::Compact),
+            Layout::Minimal => (Theme::default(), Density::default()),
+        }
+    }
+}
+
+/// theme_plan.md §7: which visual layout the bottom timeline (`app/chrome/scrubber.rs`) draws
+/// itself in — independent of `Layout`/chrome theme (a WSV3-*look* user might still prefer a
+/// leaner timeline, or vice versa), since `scrubber()` is shared by every `Layout` today. Every
+/// style drives the same underlying `crate::timeline::Timeline` state (`playhead`, `following`,
+/// `playing`) — only the paint/interaction surface differs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum TimelineStyle {
+    /// Today's look: a floating pill with a hand-drawn scrub track (hour ticks, the forecast
+    /// tail, the live window shaded), transport buttons, and a popup menu carrying the calendar,
+    /// DVR-depth and rain-ETA extras.
+    #[default]
+    Default,
+    /// Styled after the WSV3 desktop app's timeline (theme_plan.md Ref 4): an explicit transport
+    /// row (skip-to-start/rewind/pause-play/fast-forward/skip-to-end), a loop-length control, and
+    /// a plain position slider below — no hand-drawn track, no popup menu.
+    Wsv3,
+    /// A slim single-row strip: the same hand-drawn scrub track as `Default` at its existing
+    /// `compact` painting, but without the popup menu or the rain-ETA/DVR-depth extras — the
+    /// general "compact timeline" archetype common to GR2Analyst/WeatherFront-style tools rather
+    /// than a pixel-exact copy of either (no reference for either was available to build against
+    /// — see theme_plan.md §7's own note on this).
+    Compact,
+}
+
+impl TimelineStyle {
+    pub const ALL: [TimelineStyle; 3] = [
+        TimelineStyle::Default,
+        TimelineStyle::Wsv3,
+        TimelineStyle::Compact,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            TimelineStyle::Default => "Default",
+            TimelineStyle::Wsv3 => "WSV3",
+            TimelineStyle::Compact => "Compact",
         }
     }
 }
@@ -1300,6 +1379,7 @@ impl Default for Settings {
             emergency_sound: default_emergency_sound(),
             alert_volume: default_volume(),
             live_loop_frames: default_live_loop_frames(),
+            timeline_style: TimelineStyle::default(),
             basemap: String::new(),
             overlays_on: None,
             window: None,
@@ -1681,6 +1761,78 @@ mod tests {
     }
 
     #[test]
+    fn a_pre_rename_layout_field_still_loads_as_command_ribbon() {
+        // theme_plan.md §6.2: `Layout::Wsv3` (the original ribbon layout) was renamed to
+        // `CommandRibbon` to make room for a new, distinct `Wsv3` theme. An old settings.json's
+        // `"layout": "Wsv3"` must land on the renamed variant, not silently reset to the default
+        // or collide with the new variant of the same pre-rename name.
+        let s: Settings = serde_json::from_str(r#"{"layout": "Wsv3"}"#).unwrap();
+        assert_eq!(s.layout, Layout::CommandRibbon);
+    }
+
+    #[test]
+    fn the_new_wsv3_theme_round_trips_under_its_own_distinct_name() {
+        let s = Settings {
+            layout: Layout::Wsv3,
+            ..Settings::default()
+        };
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(
+            json.contains(r#""layout":"Wsv3Theme""#),
+            "the new Wsv3 variant must not serialize under the CommandRibbon alias's name: {json}"
+        );
+        let back: Settings = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.layout, Layout::Wsv3);
+    }
+
+    #[test]
+    fn every_layout_is_ribbon_or_not_with_no_third_option() {
+        assert!(Layout::CommandRibbon.is_ribbon());
+        assert!(Layout::Wsv3.is_ribbon());
+        assert!(!Layout::Minimal.is_ribbon());
+    }
+
+    #[test]
+    fn each_layouts_recommended_pair_is_internally_consistent() {
+        // Not asserting exact colors (a design choice, not a contract) — just that every variant
+        // has an answer and picking Wsv3 in particular recommends a denser layout than
+        // CommandRibbon, per theme_plan.md §6.2's own description of the new theme's look.
+        for l in Layout::ALL {
+            let _ = l.recommended_theme_and_density();
+        }
+        let (_, command_ribbon_density) = Layout::CommandRibbon.recommended_theme_and_density();
+        let (_, wsv3_density) = Layout::Wsv3.recommended_theme_and_density();
+        assert_eq!(command_ribbon_density, crate::ui::m3::Density::Comfortable);
+        assert_eq!(wsv3_density, crate::ui::m3::Density::Compact);
+    }
+
+    #[test]
+    fn every_timeline_style_round_trips_and_has_a_distinct_label() {
+        for s in TimelineStyle::ALL {
+            let settings = Settings {
+                timeline_style: s,
+                ..Settings::default()
+            };
+            let json = serde_json::to_string(&settings).unwrap();
+            let back: Settings = serde_json::from_str(&json).unwrap();
+            assert_eq!(back.timeline_style, s, "{s:?} did not round-trip");
+        }
+        let labels: std::collections::HashSet<&str> =
+            TimelineStyle::ALL.iter().map(|s| s.label()).collect();
+        assert_eq!(
+            labels.len(),
+            TimelineStyle::ALL.len(),
+            "every timeline style needs a distinct label"
+        );
+    }
+
+    #[test]
+    fn an_old_settings_file_without_timeline_style_defaults_to_default() {
+        let s: Settings = serde_json::from_str("{}").unwrap();
+        assert_eq!(s.timeline_style, TimelineStyle::Default);
+    }
+
+    #[test]
     fn a_web_file_name_resolves_to_its_content() {
         let mut s = Settings::default();
         s.palettes.insert("REF".to_string(), "mine.pal".to_string());
@@ -1848,6 +2000,7 @@ mod tests {
             emergency_sound: AlertSound::Alarm,
             alert_volume: 0.7,
             live_loop_frames: 12,
+            timeline_style: TimelineStyle::Wsv3,
             basemap: "carto-dark".to_string(),
             overlays_on: Some(vec!["Alerts".to_string(), "Wind".to_string()]),
             window: None,

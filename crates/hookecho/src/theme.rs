@@ -5,7 +5,7 @@
 //! switches. `// ponytail: no bundled font — egui's default proportional face is fine; drop an
 //! Inter/IBM-Plex TTF into data/fonts/ and install it here if a distinct face is wanted.`
 
-use crate::settings::Theme;
+use crate::settings::{Layout, Theme};
 use crate::ui::m3::{self, Density};
 use egui::{vec2, Color32, CornerRadius, Margin, Stroke, Style, Visuals};
 
@@ -192,6 +192,17 @@ pub fn is_imgui_style() -> bool {
     IMGUI_STYLE.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// theme_plan.md §6.3: whether `Layout::Wsv3` (the new, denser ribbon theme) is active — the same
+/// pattern as [`IMGUI_STYLE`] above, for the same reason: `crate::ui::wsv3`'s hand-painted ribbon
+/// geometry (group heights, padding) doesn't read `Settings`/`ui.visuals()` for its sizing, so
+/// this is the one signal it needs threaded around outside the normal style. `Layout::CommandRibbon`
+/// keeps the original sizing; only `Wsv3` is denser.
+static WSV3_DENSE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn is_wsv3_theme() -> bool {
+    WSV3_DENSE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// The background fill for a theme, for the settings swatch preview.
 pub fn preview_bg(theme: Theme) -> Color32 {
     palette(theme, true).bg
@@ -245,10 +256,12 @@ pub fn apply(
     system_dark: bool,
     density: Density,
     accent_rgb: Option<[u8; 3]>,
+    layout: Layout,
 ) {
     set_accent_override(accent_rgb);
     let imgui_style = theme == Theme::DearImGui;
     IMGUI_STYLE.store(imgui_style, std::sync::atomic::Ordering::Relaxed);
+    WSV3_DENSE.store(layout == Layout::Wsv3, std::sync::atomic::Ordering::Relaxed);
     let mut pal = palette(theme, system_dark);
     if let Some(c) = accent_override() {
         pal.accent = c;

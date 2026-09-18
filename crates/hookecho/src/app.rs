@@ -2658,12 +2658,13 @@ pub struct HookEchoApp {
     pane_shown: std::collections::HashMap<usize, ShownKey>,
     /// Palette generation currently baked into each pane's LUT (see [`ShownKey`]).
     pane_lut: std::collections::HashMap<usize, u64>,
-    /// Last `(theme, system_dark, density, accent)` handed to `theme::apply`.
+    /// Last `(theme, system_dark, density, accent, layout)` handed to `theme::apply`.
     theme_applied: Option<(
         crate::settings::Theme,
         bool,
         crate::ui::m3::Density,
         Option<[u8; 3]>,
+        crate::settings::Layout,
     )>,
     /// When the settings tree was last diffed against the saved copy.
     settings_checked: Option<Instant>,
@@ -16266,8 +16267,7 @@ impl HookEchoApp {
             // The moment's scale floats over this pane's right edge (no panel, no card) so the map
             // keeps the pixels; the field/wind ramps still need their cards. The WSV3 layout docks
             // this same scale under the ribbon, so drawing it here too would be the third copy.
-            let wsv3_colorbar = self.settings.layout == crate::settings::Layout::Wsv3
-                && !cfg!(target_os = "android");
+            let wsv3_colorbar = self.settings.layout.is_ribbon() && !cfg!(target_os = "android");
             if view.volume.is_some() && !wsv3_colorbar {
                 let (df, dl) = display_units(view.moment, &self.settings);
                 ui::legend::draw_vertical(
@@ -18581,6 +18581,7 @@ impl eframe::App for HookEchoApp {
             system_dark,
             self.settings.density,
             self.settings.accent,
+            self.settings.layout,
         );
         if self.theme_applied != Some(theme_key) {
             crate::theme::apply(
@@ -18589,6 +18590,7 @@ impl eframe::App for HookEchoApp {
                 system_dark,
                 self.settings.density,
                 self.settings.accent,
+                self.settings.layout,
             );
             self.theme_applied = Some(theme_key);
         }
@@ -19328,9 +19330,7 @@ impl eframe::App for HookEchoApp {
         // The WSV3 ribbon layout: desktop/web only, off under OBS. Docked before `chrome_rect` is
         // read so the floating windows and the scrubber constrain to the map area between the
         // ribbon and the status bar.
-        let wsv3_layout = !bare
-            && !cfg!(target_os = "android")
-            && self.settings.layout == crate::settings::Layout::Wsv3;
+        let wsv3_layout = !bare && !cfg!(target_os = "android") && self.settings.layout.is_ribbon();
         if wsv3_layout {
             self.wsv3_ribbon(root, ctx);
             self.wsv3_status_bar(root);

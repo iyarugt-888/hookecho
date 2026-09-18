@@ -7,9 +7,22 @@
 
 use super::*;
 use crate::ui::a11y::Named as _;
+use crate::ui::wsv3;
+use egui::{Align, Layout};
 
 impl HookEchoApp {
+    /// theme_plan.md §7: dispatches to whichever `TimelineStyle` the user picked. Every style
+    /// drives the same `crate::timeline::Timeline` state (`playhead`/`following`/`playing`) —
+    /// only the paint/interaction surface differs.
     pub(crate) fn scrubber(&mut self, ctx: &egui::Context) {
+        match self.settings.timeline_style {
+            crate::settings::TimelineStyle::Default => self.scrubber_default(ctx),
+            crate::settings::TimelineStyle::Wsv3 => self.scrubber_wsv3_style(ctx),
+            crate::settings::TimelineStyle::Compact => self.scrubber_compact_style(ctx),
+        }
+    }
+
+    fn scrubber_default(&mut self, ctx: &egui::Context) {
         crate::prof_scope!("scrubber");
         use egui_phosphor::regular as ph;
         let accent = crate::theme::accent(self.settings.theme);
@@ -521,6 +534,261 @@ impl HookEchoApp {
         }
         if let Some(r) = scrub_rect {
             // The scrubber swallows two-finger gestures on the phone like any other surface.
+            self.mobile_occlusion.push(r);
+        }
+        self.tour_anchors.timeline = scrub_rect;
+        if go_head {
+            self.views[self.active].timeline.go_head();
+        }
+    }
+
+    /// theme_plan.md §7's WSV3-styled timeline: an explicit transport row (skip-to-start/rewind/
+    /// pause-play/fast-forward/skip-to-end), a loop-length control (`Settings.live_loop_frames`,
+    /// the same setting the default style's popup menu already edits — this is a second surface
+    /// for the same value, not a second value), and a plain `egui::Slider` below rather than the
+    /// default style's hand-painted track. Every control drives the same `Timeline` fields the
+    /// default style does (`playhead`/`playing`/`following`), via the exact same three-line idiom
+    /// `track()`'s own drag handler uses (see that function, below).
+    fn scrubber_wsv3_style(&mut self, ctx: &egui::Context) {
+        use egui_phosphor::regular as ph;
+        let accent = wsv3::WSV3_BLUE;
+        let tz = self.active_tz();
+        let newest_time = self.views[self.active]
+            .timeline
+            .newest()
+            .and_then(|id| id.date_time());
+        let fresh =
+            newest_time.is_some_and(|t| (chrono::Utc::now() - t).num_seconds() < RADAR_FRESH_SECS);
+        let site = self.views[self.active]
+            .site
+            .clone()
+            .unwrap_or_else(|| "no site".to_string());
+        let mut loop_frames = self.settings.live_loop_frames;
+        let narrow = self.chrome_rect.width() < 600.0;
+        let width = (self.chrome_rect.width() - 160.0)
+            .clamp(420.0, 820.0)
+            .min(self.chrome_rect.width() - 16.0);
+        let mut go_head = false;
+        let mut scrub_rect = None;
+
+        egui::Area::new(egui::Id::new("scrubber_wsv3"))
+            .constrain_to(self.chrome_rect)
+            .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -8.0))
+            .show(ctx, |ui| {
+                egui::Frame::NONE
+                    .fill(wsv3::STATUS_BG)
+                    .corner_radius(6.0)
+                    .stroke(egui::Stroke::new(1.0, egui::Color32::from_black_alpha(170)))
+                    .inner_margin(egui::Margin::symmetric(10, 8))
+                    .show(ui, |ui| {
+                        ui.set_width(width);
+                        let (rect, _) =
+                            ui.allocate_exact_size(egui::vec2(width, 1.0), egui::Sense::hover());
+                        scrub_rect = Some(rect);
+                        let t = &mut self.views[self.active].timeline;
+                        let slots = t.slot_count();
+                        ui.horizontal(|ui| {
+                            let icon = |ui: &mut egui::Ui, glyph: &str, name: &str| {
+                                ui.add(
+                                    egui::Button::new(
+                                        egui::RichText::new(glyph).size(15.0).color(accent),
+                                    )
+                                    .min_size(egui::vec2(26.0, 26.0))
+                                    .fill(egui::Color32::TRANSPARENT)
+                                    .stroke(egui::Stroke::NONE),
+                                )
+                                .named(name)
+                                .clicked()
+                            };
+                            if icon(ui, ph::SKIP_BACK, "Jump to start") {
+                                t.go_begin();
+                            }
+                            if icon(ui, ph::REWIND, "Previous frame") {
+                                t.step(-1);
+                            }
+                            let playing = t.playing;
+                            if icon(
+                                ui,
+                                if playing { ph::PAUSE } else { ph::PLAY },
+                                if playing { "Pause" } else { "Play" },
+                            ) {
+                                t.toggle_play();
+                            }
+                            if icon(ui, ph::FAST_FORWARD, "Next frame") {
+                                t.step(1);
+                            }
+                            if icon(ui, ph::SKIP_FORWARD, "Jump to live") {
+                                go_head = true;
+                            }
+                            ui.separator();
+                            let valid = t
+                                .current()
+                                .and_then(|id| id.date_time())
+                                .map(|d| crate::timefmt::fmt_clock(d, tz, false))
+                                .unwrap_or_default();
+                            ui.label(
+                                egui::RichText::new(if valid.is_empty() {
+                                    site.clone()
+                                } else {
+                                    valid
+                                })
+                                .size(13.0)
+                                .strong()
+                                .color(wsv3::INK),
+                            );
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                let (col, text) = if t.following && fresh {
+                                    (mobile::OMEGA_GREEN, "LIVE")
+                                } else if t.following {
+                                    (egui::Color32::from_rgb(220, 180, 0), "STALE")
+                                } else {
+                                    (egui::Color32::from_gray(150), "ARCHIVE")
+                                };
+                                ui.label(
+                                    egui::RichText::new(format!("\u{25cf} {text}"))
+                                        .size(11.0)
+                                        .strong()
+                                        .color(col),
+                                );
+                                if !narrow {
+                                    ui.separator();
+                                    ui.label(
+                                        egui::RichText::new("LOOP")
+                                            .size(9.0)
+                                            .color(wsv3::STATUS_FG.gamma_multiply(0.7)),
+                                    );
+                                    egui::ComboBox::from_id_salt("wsv3_timeline_loop_frames")
+                                        .selected_text(format!("{loop_frames}"))
+                                        .width(48.0)
+                                        .show_ui(ui, |ui| {
+                                            for n in [6usize, 12, 24, 48] {
+                                                ui.selectable_value(
+                                                    &mut loop_frames,
+                                                    n,
+                                                    format!("{n}"),
+                                                );
+                                            }
+                                        });
+                                }
+                            });
+                        });
+                        if slots > 0 {
+                            let mut idx = t.playhead.min(slots.saturating_sub(1));
+                            let observed = t.frames.len();
+                            if ui
+                                .add(
+                                    egui::Slider::new(&mut idx, 0..=slots.saturating_sub(1))
+                                        .show_value(false),
+                                )
+                                .changed()
+                            {
+                                t.playhead = idx;
+                                t.playing = false;
+                                t.following = idx + 1 == observed;
+                            }
+                        }
+                    });
+            });
+        self.settings.live_loop_frames = loop_frames;
+        if let Some(r) = scrub_rect {
+            self.mobile_occlusion.push(r);
+        }
+        self.tour_anchors.timeline = scrub_rect;
+        if go_head {
+            self.views[self.active].timeline.go_head();
+        }
+    }
+
+    /// theme_plan.md §7's compact timeline: the same hand-drawn scrub track the default style
+    /// uses (`track()`, below — already has a `compact` painting mode), in a slim single row with
+    /// only prev/play/next and the live badge — no popup menu, no rain-ETA/DVR-depth extras. The
+    /// general "compact timeline" archetype (GR2Analyst/WeatherFront-style tools), not a
+    /// pixel-exact copy of either — see `TimelineStyle::Compact`'s own doc comment for why.
+    fn scrubber_compact_style(&mut self, ctx: &egui::Context) {
+        use egui_phosphor::regular as ph;
+        let accent = crate::theme::accent(self.settings.theme);
+        let tz = self.active_tz();
+        let newest_time = self.views[self.active]
+            .timeline
+            .newest()
+            .and_then(|id| id.date_time());
+        let fresh =
+            newest_time.is_some_and(|t| (chrono::Utc::now() - t).num_seconds() < RADAR_FRESH_SECS);
+        let live_window = self.views[self.active].timeline.live_window;
+        let width = (self.chrome_rect.width() - 160.0)
+            .clamp(320.0, 640.0)
+            .min(self.chrome_rect.width() - 16.0);
+        let mut go_head = false;
+        let mut scrub_rect = None;
+
+        egui::Area::new(egui::Id::new("scrubber_compact"))
+            .constrain_to(self.chrome_rect)
+            .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -8.0))
+            .show(ctx, |ui| {
+                crate::ui::style::glass(ui, 220)
+                    .inner_margin(egui::Margin::symmetric(8, 4))
+                    .show(ui, |ui| {
+                        ui.set_width(width);
+                        ui.horizontal(|ui| {
+                            let icon = |ui: &mut egui::Ui, glyph: &str, name: &str| {
+                                ui.add(
+                                    egui::Button::new(
+                                        egui::RichText::new(glyph).size(13.0).color(accent),
+                                    )
+                                    .min_size(egui::vec2(22.0, 22.0))
+                                    .fill(egui::Color32::TRANSPARENT)
+                                    .stroke(egui::Stroke::NONE),
+                                )
+                                .named(name)
+                                .clicked()
+                            };
+                            let t = &mut self.views[self.active].timeline;
+                            if icon(ui, ph::SKIP_BACK, "Previous frame") {
+                                t.step(-1);
+                            }
+                            let playing = t.playing;
+                            if icon(
+                                ui,
+                                if playing { ph::PAUSE } else { ph::PLAY },
+                                if playing { "Pause" } else { "Play" },
+                            ) {
+                                t.toggle_play();
+                            }
+                            if icon(ui, ph::SKIP_FORWARD, "Next frame") {
+                                t.step(1);
+                            }
+                            if t.slot_count() > 0 {
+                                scrub_rect = Some(track(ui, t, tz, accent, live_window, true));
+                            }
+                            let col = if t.following && fresh {
+                                mobile::OMEGA_GREEN
+                            } else if t.following {
+                                egui::Color32::from_rgb(220, 180, 0)
+                            } else {
+                                egui::Color32::from_gray(150)
+                            };
+                            let badge = ui
+                                .add(
+                                    egui::Button::new(
+                                        egui::RichText::new("\u{25cf}").size(11.0).color(col),
+                                    )
+                                    .fill(egui::Color32::TRANSPARENT)
+                                    .stroke(egui::Stroke::NONE),
+                                )
+                                .named(if t.following && fresh {
+                                    "Live"
+                                } else if t.following {
+                                    "Stale"
+                                } else {
+                                    "Archive — click to jump back to live"
+                                });
+                            if badge.clicked() {
+                                go_head = true;
+                            }
+                        });
+                    });
+            });
+        if let Some(r) = scrub_rect {
             self.mobile_occlusion.push(r);
         }
         self.tour_anchors.timeline = scrub_rect;

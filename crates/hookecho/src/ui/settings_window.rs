@@ -871,7 +871,36 @@ fn general_tab(
             ui.add(egui::DragValue::new(&mut settings.poll_interval_secs).range(10..=600));
             ui.end_row();
 
-            ui.label("Theme");
+            // theme_plan.md §6.1: "Theme" (this app's own chrome+color preset, `Layout`) reads as
+            // the primary choice; "Color scheme" (just colors, `Theme`) is the secondary,
+            // customize-further control underneath it — so a casual user picks one Theme and is
+            // done, while a power user can still override just the colors. Picking a Theme here
+            // applies its `recommended_theme_and_density()` pair once, immediately; Color scheme
+            // and Density stay independently changeable right after (nothing re-forces them back).
+            if !cfg!(target_os = "android") {
+                ui.label("Theme");
+                ui.horizontal(|ui| {
+                    for l in crate::settings::Layout::ALL {
+                        if ui
+                            .selectable_value(&mut settings.layout, l, l.label())
+                            .clicked()
+                        {
+                            let (theme, density) = l.recommended_theme_and_density();
+                            settings.theme = theme;
+                            settings.density = density;
+                        }
+                    }
+                })
+                .response
+                .on_hover_text(
+                    "Command Ribbon: HookEcho's original docked toolbar. WSV3: the same ribbon \
+                     chrome, denser, styled after TempoQuest's WSV3 desktop app. Minimal: the \
+                     original map-first search pill and control column.",
+                );
+                ui.end_row();
+            }
+
+            ui.label("Color scheme");
             ui.horizontal(|ui| {
                 egui::ComboBox::from_id_salt("theme")
                     .selected_text(settings.theme.label())
@@ -886,7 +915,9 @@ fn general_tab(
                 let p = ui.painter_at(rect);
                 p.rect_filled(rect, 3.0, crate::theme::preview_bg(settings.theme));
                 p.circle_filled(rect.center(), 6.0, crate::theme::accent(settings.theme));
-            });
+            })
+            .response
+            .on_hover_text("Just the colors — picking a Theme above already chose one of these.");
             ui.end_row();
 
             ui.label("Accent color");
@@ -913,21 +944,18 @@ fn general_tab(
             .on_hover_text("Compact restores the denser spacing of earlier releases.");
             ui.end_row();
 
-            if !cfg!(target_os = "android") {
-                ui.label("Layout");
-                ui.horizontal(|ui| {
-                    for l in crate::settings::Layout::ALL {
-                        ui.selectable_value(&mut settings.layout, l, l.label());
-                    }
-                })
-                .response
-                .on_hover_text(
-                    "WSV3 ribbon: a docked toolbar of control groups, a docked colour scale and \
-                     a status bar. Minimal: the original map-first search pill and control \
-                     column.",
-                );
-                ui.end_row();
-            }
+            ui.label("Timeline");
+            ui.horizontal(|ui| {
+                for s in crate::settings::TimelineStyle::ALL {
+                    ui.selectable_value(&mut settings.timeline_style, s, s.label());
+                }
+            })
+            .response
+            .on_hover_text(
+                "Default: the floating scrub-track pill. WSV3: an explicit transport row, a \
+                 loop-length control, and a plain slider. Compact: a slim single-row strip.",
+            );
+            ui.end_row();
 
             ui.label("Motion");
             ui.checkbox(&mut settings.reduce_motion, "Reduce motion")

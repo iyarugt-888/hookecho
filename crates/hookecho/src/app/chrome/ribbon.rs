@@ -1,7 +1,10 @@
-//! The WSV3 layout's docked chrome: a top ribbon of labelled control groups, the colour scale
-//! docked under it, and a bottom status bar. Drawn only on desktop/web and only when
-//! `Settings::layout` is `Wsv3`; Android keeps its own touch chrome and the minimal layout keeps
-//! the floating pill + control column in `overlay.rs`.
+//! The ribbon chrome: a top ribbon of labelled control groups, the colour scale docked under it,
+//! and a bottom status bar. Drawn only on desktop/web and only when `Settings::layout.is_ribbon()`
+//! — `Layout::CommandRibbon` and the newer, denser `Layout::Wsv3` both use this same chrome,
+//! differing only in geometry (`crate::ui::wsv3::ribbon_h`/`colorbar_h`/`status_h`, gated by
+//! `crate::theme::is_wsv3_theme`) and the extra footer content `wsv3_status_bar` adds for `Wsv3`.
+//! Android keeps its own touch chrome and the minimal layout keeps the floating pill + control
+//! column in `overlay.rs`.
 //!
 //! Every control here funnels into the same `PaletteAction` / `UiActions` path the minimal chrome
 //! and the command palette use, so the two layouts can never drift apart.
@@ -15,14 +18,14 @@ use egui::{vec2, Align, Color32, Layout, RichText};
 /// whole remaining ribbon width as its own and strands every group after it far to the right.
 ///
 /// Scrollable rather than however many wrapped rows `add` happens to produce: the group's own
-/// height is fixed (`RIBBON_H`), and a plain `horizontal_wrapped`/manually-chunked row layout has
-/// no way to reach content that wraps past that — it either overlapped the next group or the map
-/// below the ribbon, and either way some pills were simply unreachable. A `ScrollArea` costs
-/// nothing when everything already fits (no scrollbar appears), so every group gets it rather
-/// than only the ones a bug report happened to name.
+/// height is fixed (`wsv3::ribbon_h()`), and a plain `horizontal_wrapped`/manually-chunked row
+/// layout has no way to reach content that wraps past that — it either overlapped the next group
+/// or the map below the ribbon, and either way some pills were simply unreachable. A `ScrollArea`
+/// costs nothing when everything already fits (no scrollbar appears), so every group gets it
+/// rather than only the ones a bug report happened to name.
 fn ribbon_group(ui: &mut egui::Ui, label: &str, w: f32, add: impl FnOnce(&mut egui::Ui)) {
     ui.allocate_ui_with_layout(
-        vec2(w, wsv3::RIBBON_H - 6.0),
+        vec2(w, wsv3::ribbon_h() - 6.0),
         Layout::top_down(Align::Min),
         |ui| {
             wsv3::group_label(ui, label);
@@ -210,19 +213,21 @@ impl HookEchoApp {
         let mut env_model = self.env_model;
 
         egui::Panel::top("wsv3_ribbon")
-            .exact_size(wsv3::RIBBON_H + wsv3::COLORBAR_H)
+            .exact_size(wsv3::ribbon_h() + wsv3::colorbar_h())
             .frame(egui::Frame::NONE)
             .show(root, |ui| {
                 let full = ui.max_rect();
-                let ribbon_rect =
-                    egui::Rect::from_min_max(full.min, egui::pos2(full.right(), full.top() + wsv3::RIBBON_H));
+                let ribbon_rect = egui::Rect::from_min_max(
+                    full.min,
+                    egui::pos2(full.right(), full.top() + wsv3::ribbon_h()),
+                );
                 wsv3::ribbon_gradient(ui.painter(), ribbon_rect);
 
                 ui.spacing_mut().item_spacing = vec2(6.0, 3.0);
                 egui::ScrollArea::horizontal()
                     .id_salt("wsv3_ribbon_groups")
                     .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded)
-                    .max_height(wsv3::RIBBON_H)
+                    .max_height(wsv3::ribbon_h())
                     .show(ui, |ui| {
                     ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                     ui.add_space(6.0);
@@ -715,7 +720,7 @@ impl HookEchoApp {
 
                 // ---- docked colour scale ----
                 let cb = egui::Rect::from_min_max(
-                    egui::pos2(full.left(), full.top() + wsv3::RIBBON_H),
+                    egui::pos2(full.left(), full.top() + wsv3::ribbon_h()),
                     full.max,
                 );
                 wsv3::colorbar(ui.painter(), cb, &table, disp_f, disp_l);
@@ -833,40 +838,79 @@ impl HookEchoApp {
         let cam = self.views[self.active].camera;
         let (lon, lat) = crate::render::mercator::world_to_lonlat(cam.center.0, cam.center.1);
         let zoom = cam.zoom;
+        let map_3d = self.views[self.active].map_3d.enabled;
+        let is_wsv3_theme = crate::theme::is_wsv3_theme();
+        let accent = wsv3::WSV3_BLUE;
 
         egui::Panel::bottom("wsv3_status")
-            .exact_size(wsv3::STATUS_H)
+            .exact_size(wsv3::status_h())
             .frame(egui::Frame::NONE.fill(wsv3::STATUS_BG))
             .show(root, |ui| {
                 let lab = |ui: &mut egui::Ui, s: String| {
                     ui.label(RichText::new(s).size(11.0).color(wsv3::STATUS_FG));
                 };
-                ui.horizontal_centered(|ui| {
-                    ui.add_space(8.0);
-                    lab(
-                        ui,
-                        match &age {
-                            Some(a) => format!("{site}  \u{b7}  scan {a} ago"),
-                            None => format!("{site}  \u{b7}  live only"),
-                        },
-                    );
-                    if let Some((caption, details)) = &time_warning {
-                        ui.separator();
-                        ui.label(
-                            RichText::new(caption)
-                                .size(11.0)
-                                .color(Color32::from_rgb(255, 197, 92)),
-                        )
-                        .on_hover_text(details);
-                    }
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.vertical(|ui| {
+                    ui.horizontal_centered(|ui| {
                         ui.add_space(8.0);
-                        lab(ui, format!("{lat:.3}, {lon:.3}   \u{7c}   z{zoom:.1}"));
-                        if !valid.is_empty() {
+                        lab(
+                            ui,
+                            match &age {
+                                Some(a) => format!("{site}  \u{b7}  scan {a} ago"),
+                                None => format!("{site}  \u{b7}  live only"),
+                            },
+                        );
+                        if let Some((caption, details)) = &time_warning {
                             ui.separator();
-                            lab(ui, valid);
+                            ui.label(
+                                RichText::new(caption)
+                                    .size(11.0)
+                                    .color(Color32::from_rgb(255, 197, 92)),
+                            )
+                            .on_hover_text(details);
                         }
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            ui.add_space(8.0);
+                            lab(ui, format!("{lat:.3}, {lon:.3}   \u{7c}   z{zoom:.1}"));
+                            if !valid.is_empty() {
+                                ui.separator();
+                                lab(ui, valid);
+                            }
+                        });
                     });
+                    // theme_plan.md §6.3: the WSV3 theme's extra footer telemetry — zoom presets
+                    // (an analog of the WSV3 video's 100%/125%/150% quick-picks, adapted to this
+                    // app's own continuous log2 zoom level rather than a literal percent scale
+                    // that has no equivalent here) and, in 3D mode, the camera's own pitch/bearing
+                    // — reading straight off the existing `Camera` struct, no new state.
+                    // `CommandRibbon` never draws this row at all.
+                    if is_wsv3_theme {
+                        ui.horizontal_centered(|ui| {
+                            ui.add_space(8.0);
+                            ui.label(
+                                RichText::new("ZOOM")
+                                    .size(9.0)
+                                    .color(wsv3::STATUS_FG.gamma_multiply(0.7)),
+                            );
+                            for z in [5.0_f32, 8.0, 11.0, 14.0] {
+                                let active = (zoom as f32 - z).abs() < 0.05;
+                                if wsv3::pill_sized(ui, &format!("z{z:.0}"), active, accent, 28.0)
+                                    .clicked()
+                                {
+                                    self.views[self.active].camera.zoom = z as f64;
+                                }
+                            }
+                            if map_3d {
+                                ui.separator();
+                                lab(
+                                    ui,
+                                    format!(
+                                        "pitch {:.0}\u{b0}  \u{b7}  bearing {:.0}\u{b0}",
+                                        cam.pitch, cam.bearing
+                                    ),
+                                );
+                            }
+                        });
+                    }
                 });
             });
     }
