@@ -255,9 +255,25 @@ group (line 230-238) before changing it — confirm whether it's genuinely a sta
 there (it looked like one from the code excerpt read this session) or whether it too carries more
 than search before deciding its fix shape.
 
-**Not yet implemented this session** — the correction above changes the fix's scope enough that it
-deserves its own pass rather than a rushed implementation riding on a since-corrected
-understanding. Left for the next increment.
+**Root cause found, still not implemented — this is the actual, precise fix, not a hypothesis:**
+`overlay.rs`'s `fn phone() -> bool { cfg!(target_os = "android") }` (line 26) is a **platform**
+check, not a screen-size check — the icon-only search hint at line 525
+(`let hint = ... if phone() { icon-only } else { "Search layers, tools, places" }`) only ever
+triggers on an actual Android build, never on a narrow desktop/web browser window, no matter how
+narrow. This is exactly why Ref 2 (mobile *web*) shows the full text: `phone()` is `false` there
+regardless of viewport width. The real narrow-viewport check already exists as a *separate*
+function, `compact(ctx: &egui::Context) -> bool` (line 36, M3 width-class based, works on any
+platform), and this file already combines the two for a related purpose: `fn sheets(ctx) -> bool {
+phone() && compact(ctx) }` (line 42). **Do not blindly replace every `phone()` in this file with
+`compact(ctx)`** — `search_pill` alone calls `phone()` at 12 different sites (lines 167, 334, 469,
+476, 491, 510, 525, 538, 561, 584, plus `sheets`'s own two), and several look like genuine
+platform-specific UX choices (e.g. line 510's inline site-picker-in-the-pill, which may be
+deliberately Android-only) rather than screen-size ones. The fix is narrow and specific: change
+just the hint-text branch (line 525) and whatever sizing it depends on (`width` at 469, the hint's
+own font size at 491) to trigger on `phone() || compact(ctx)`, leaving every other `phone()` call
+in the function exactly as it is. Read each remaining call site before touching it, the same way
+this session's own investigation did before writing this note — don't assume they all mean the
+same thing just because they call the same function.
 
 **Acceptance:** [ ] one setting controls both surfaces consistently (a user shouldn't get a FAB in
 Minimal but a full pill in the ribbon, or vice versa, unless that turns out to be the deliberate
