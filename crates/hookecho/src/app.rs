@@ -440,8 +440,10 @@ enum OverlaySource {
     SnowBands,
     /// A GOES ABI band, CONUS sector, read directly from S3 rather than GIBS' pre-rendered
     /// tiles — which band is `GoesIr`/`GoesVisible`/`GoesWaterVapor`/`GoesShortwaveIr`/
-    /// `GoesMidWaterVapor`/`GoesLowWaterVapor`/`GoesDirtyIr`, which satellite is the second
-    /// field (`settings.goes_satellite_west`, resolved at spawn time).
+    /// `GoesMidWaterVapor`/`GoesLowWaterVapor`/`GoesDirtyIr`/`GoesColdTop`, which satellite is
+    /// the second field (`settings.goes_satellite_west`, resolved at spawn time). `GoesColdTop`
+    /// reuses Band 13 but transforms the fetched value before it reaches the field cache — see
+    /// the handler's own comment.
     Goes(crate::render::FieldLayer, wxdata::goes_abi::Satellite),
     /// A two-band GOES ABI channel-difference product, CONUS sector — today only
     /// `FieldLayer::GoesDustDiff` (ROADMAP_NEW E6's split-window dust/ash technique, Band 13
@@ -1103,7 +1105,7 @@ impl OverlaySource {
                 // Band number for each channel's own S3 objects — see `wxdata::goes_abi`'s doc
                 // comment for why CMIP CONUS is the product either way.
                 let band = match layer {
-                    FL::GoesIr => 13,
+                    FL::GoesIr | FL::GoesColdTop => 13,
                     FL::GoesVisible => 2,
                     FL::GoesWaterVapor => 8,
                     FL::GoesShortwaveIr => 7,
@@ -1112,10 +1114,21 @@ impl OverlaySource {
                     FL::GoesDirtyIr => 15,
                     _ => anyhow::bail!("{layer:?} is not a GOES band"),
                 };
-                OverlayMsg::Field(
-                    layer,
-                    wxdata::goes_abi::fetch_latest_conus(http, satellite, band, 1200, 700).await?,
-                )
+                let mut field =
+                    wxdata::goes_abi::fetch_latest_conus(http, satellite, band, 1200, 700).await?;
+                // Cold-cloud-top threshold overlay (ROADMAP_NEW E6): the exact same Band 13 data
+                // as GoesIr, re-expressed as "how many kelvin colder than the overshooting-top
+                // threshold" so this layer's own ramp (`GOES_COLD_TOP`) can hide ordinary cloud
+                // with a plain `lo` cutoff — the same value-inversion trick `GoesDustDiff` uses,
+                // and for the same reason: this ramp system's cutoff only hides *low* values, so
+                // the quantity has to be defined such that "not cold enough to matter" is the low
+                // end.
+                if layer == FL::GoesColdTop {
+                    for v in &mut field.values {
+                        *v = crate::render::field_ramps::COLD_TOP_THRESHOLD_K - *v;
+                    }
+                }
+                OverlayMsg::Field(layer, field)
             }
             OverlaySource::GoesDiff(layer, satellite) => {
                 use crate::render::FieldLayer as FL;
@@ -2115,7 +2128,8 @@ fn field_refresh_secs(layer: crate::render::FieldLayer) -> u64 {
         | FL::GoesMidWaterVapor
         | FL::GoesLowWaterVapor
         | FL::GoesDirtyIr
-        | FL::GoesDustDiff => 300,
+        | FL::GoesDustDiff
+        | FL::GoesColdTop => 300,
         // NDFD elements update on a forecaster's schedule, not a fixed clock, and each fetch is
         // a whole multi-day CONUS grid (tens of MB) with no way to ask for just the new part —
         // half an hour balances staying current against re-downloading that for no reason.
@@ -18792,6 +18806,7 @@ impl eframe::App for HookEchoApp {
             FL::GoesMidWaterVapor,
             FL::GoesLowWaterVapor,
             FL::GoesDirtyIr,
+            FL::GoesColdTop,
         ] {
             let on = self.field_wanted(layer);
             let stale = on

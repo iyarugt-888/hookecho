@@ -200,6 +200,7 @@ pub(crate) fn show(
                 FL::GoesLowWaterVapor,
                 FL::GoesDirtyIr,
                 FL::GoesDustDiff,
+                FL::GoesColdTop,
             ]
             .iter()
             .any(|l| on.contains(l)),

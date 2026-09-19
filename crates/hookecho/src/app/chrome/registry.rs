@@ -484,6 +484,14 @@ impl HookEchoApp {
                 false,
             ),
             (
+                FL::GoesColdTop,
+                "National",
+                "GOES cold cloud tops",
+                "Highlights cloud tops colder than -63\u{b0}C (210 K) — a spotting aid for \
+                 overshooting tops and rapidly intensifying convection",
+                false,
+            ),
+            (
                 FL::ThunderProb,
                 "Models",
                 "Chance of thunder (NBM)",

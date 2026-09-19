@@ -569,6 +569,39 @@ static GOES_DUST_DIFF: FieldRamp = FieldRamp {
     )
 };
 
+/// The overshooting-top / deep-convection threshold `FieldLayer::GoesColdTop` is defined against
+/// — 210 K (\u{2248} \u{2212}63\u{b0}C), a commonly used cutoff for flagging the coldest, most
+/// vigorous convective cloud tops. `pub(crate)` because `app.rs`'s fetch handler needs it to
+/// build this layer's actual value (`COLD_TOP_THRESHOLD_K - raw Band 13 brightness temp`) — the
+/// ramp only ever sees the already-transformed value, never the raw temperature.
+pub(crate) const COLD_TOP_THRESHOLD_K: f32 = 210.0;
+
+/// `GoesColdTop`'s value is `COLD_TOP_THRESHOLD_K - raw Band 13 K` — the same value-inversion
+/// trick `GOES_DUST_DIFF` uses, for the same reason: ordinary cloud (colder-than-threshold value
+/// negative or near zero) needs to fall below this ramp's `lo` cutoff so it's simply not drawn,
+/// rather than needing a second "deadband" mechanism. `hi` corresponds to a Band 13 reading of
+/// about 165 K (\u{2248} \u{2212}108\u{b0}C) — colder than any real tropospheric cloud top gets,
+/// so the ramp's top end is reserved for the most extreme readings this technique can plausibly
+/// see rather than clipping realistic values early.
+static GOES_COLD_TOP: FieldRamp = FieldRamp {
+    input_scale: 1.0,
+    is_temp_kelvin: false, // an offset-from-threshold value, not an absolute reading
+    ..ramp!(
+        "Cold cloud top (below 210 K)",
+        "K colder than 210 K",
+        0.5,
+        45.0,
+        RampScale::Linear,
+        230,
+        &[
+            (0.0, [255, 240, 150]), // just past threshold: pale yellow
+            (0.3, [255, 170, 40]),  // orange
+            (0.6, [230, 40, 40]),   // red — a genuine overshooting top
+            (1.0, [255, 255, 255]), // extreme: white, the conventional "coldest of the cold" color
+        ]
+    )
+};
+
 static GLOBAL_TEMP_2M: FieldRamp = FieldRamp {
     // Kelvin → °C/°F is an offset, not a scale, so `input_scale` (a pure multiplier) can't do it;
     // the ramp stays in Kelvin and `is_temp_kelvin` has the legend convert to the Units setting.
@@ -883,6 +916,7 @@ pub fn ramp_for(layer: FieldLayer) -> Option<&'static FieldRamp> {
         FL::GoesWaterVapor | FL::GoesMidWaterVapor | FL::GoesLowWaterVapor => &GOES_WATER_VAPOR,
         FL::GoesShortwaveIr => &GOES_SHORTWAVE_IR,
         FL::GoesDustDiff => &GOES_DUST_DIFF,
+        FL::GoesColdTop => &GOES_COLD_TOP,
         // Same physical quantity and units as the global-model equivalents (NDFD publishes
         // Kelvin/m/s/metres same as every other model this app reads), so they share the ramp
         // rather than tabulating a second, identical one.
@@ -1110,6 +1144,32 @@ mod tests {
              pixel, not fall back into the same grayscale band"
         );
         assert_eq!(r.index(400.0), 255, "clamps at the saturated-hotspot end");
+    }
+
+    #[test]
+    fn cold_top_hides_ordinary_cloud_but_shows_an_overshooting_top() {
+        let r = ramp_for(FieldLayer::GoesColdTop).unwrap();
+        // A pixel right at (or slightly warmer than) the 210 K threshold: the transformed value
+        // (COLD_TOP_THRESHOLD_K - raw) is at or below zero, well under `lo`.
+        assert_eq!(
+            r.index(0.0),
+            0,
+            "exactly at the threshold must not paint as a signal"
+        );
+        assert_eq!(
+            r.index(-5.0),
+            0,
+            "warmer than the threshold is definitely not a signal"
+        );
+        // 20 K colder than the threshold — a genuine, well-developed overshooting top.
+        assert!(
+            r.index(20.0) > 0,
+            "a real overshooting-top signal must be visible"
+        );
+        assert!(
+            r.index(40.0) >= r.index(20.0),
+            "a more extreme reading must read at least as intense, not dimmer"
+        );
     }
 
     #[test]

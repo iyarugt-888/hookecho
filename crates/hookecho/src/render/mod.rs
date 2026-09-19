@@ -212,6 +212,13 @@ pub enum FieldLayer {
     /// `GOES_DUST_DIFF` doc comment for why the subtraction is this way around rather than the
     /// more commonly quoted Band 15 minus Band 13.
     GoesDustDiff,
+    /// Cold-cloud-top threshold overlay (ROADMAP_NEW E6): the same Band 13 data as
+    /// [`FieldLayer::GoesIr`], re-expressed as degrees colder than
+    /// `field_ramps::COLD_TOP_THRESHOLD_K` so ordinary cloud (not cold enough to matter) sits
+    /// below the ramp's visible range and only genuine overshooting-top/deep-convection signal
+    /// shows — a spotting aid for rapidly intensifying convection, not a second way to read an
+    /// ordinary IR loop.
+    GoesColdTop,
     /// NDFD 2 m temperature — the NWS's own forecaster-blended grid, not a raw model run.
     NdfdTemp2m,
     /// NDFD 10 m sustained wind speed.
@@ -261,7 +268,7 @@ impl FieldLayer {
     }
 
     /// Fixed bottom-to-top paint order within each band.
-    pub const DRAW_ORDER: [FieldLayer; 55] = [
+    pub const DRAW_ORDER: [FieldLayer; 56] = [
         // Below-radar context band (bottom to top). The global models sit at the very bottom:
         // they are the synoptic backdrop everything else is drawn against — satellite included,
         // since it is the same kind of backdrop and the radar itself paints over it just the same.
@@ -326,10 +333,12 @@ impl FieldLayer {
         FieldLayer::AzShear,
         FieldLayer::Lightning,
         FieldLayer::GlmFed,
-        // The one GOES-derived layer that belongs up here rather than with the other GOES bands
-        // below-radar: it's a detection product (dust/ash signal), not a backdrop image, so it
-        // should sit on top like the radar-derived severe-signal layers around it.
+        // The two GOES-derived layers that belong up here rather than with the other GOES bands
+        // below-radar: both are detection products (dust/ash signal, overshooting-top signal),
+        // not backdrop images, so they sit on top like the radar-derived severe-signal layers
+        // around them.
         FieldLayer::GoesDustDiff,
+        FieldLayer::GoesColdTop,
     ];
 
     /// Stable name for saved files — a workspace records which layers were on by slug, so a file
@@ -420,6 +429,7 @@ impl FieldLayer {
             FieldLayer::GoesLowWaterVapor => "goes-low-water-vapor",
             FieldLayer::GoesDirtyIr => "goes-dirty-ir",
             FieldLayer::GoesDustDiff => "goes-dust-diff",
+            FieldLayer::GoesColdTop => "goes-cold-top",
             FieldLayer::NdfdTemp2m => "ndfd-temp2m",
             FieldLayer::NdfdWind10m => "ndfd-wind10m",
             FieldLayer::NdfdGust10m => "ndfd-gust10m",

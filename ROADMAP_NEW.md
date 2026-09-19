@@ -1899,7 +1899,12 @@ Recipe metadata should specify channel inputs, transforms, gamma/ranges and outp
   deadband-hides-agreement effect for free, the same practical result as `ModelDiff`'s hand-rolled
   deadband LUT, without needing that second rendering path. 483 wxdata tests passing (3 new), 613
   hookecho tests (1 new).
-- [ ] cold-cloud-top threshold overlay — not done.
+- [x] cold-cloud-top threshold overlay — `FieldLayer::GoesColdTop` (new this pass): the same Band
+  13 data as `GoesIr`, re-fetched and transformed to `COLD_TOP_THRESHOLD_K (210 K) - raw` before
+  it reaches the field cache, so ordinary cloud (not cold enough to matter) falls below the
+  ramp's `lo` and simply isn't drawn — the same value-inversion trick `GoesDustDiff` uses, applied
+  a second time. 210 K (\u{2248} -63\u{b0}C) is a commonly used overshooting-top/deep-convection
+  cutoff. 614 hookecho tests passing (1 new).
 - [ ] cooling-rate/time-change product — not done.
 - [ ] GLM overlay synchronized to frame — not audited (GLM lightning data is already ingested
   elsewhere in this app for the existing `Lightning`/`GlmFed` layers; whether it's specifically
