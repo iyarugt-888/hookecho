@@ -70,6 +70,10 @@ impl BlockRingBuffer {
     pub fn oldest_sequence(&self) -> Option<u64> {
         self.blocks.keys().next().copied()
     }
+
+    pub fn total_bytes(&self) -> usize {
+        self.total_bytes
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -130,6 +134,15 @@ impl BlockStore {
 
     pub fn known_site(&self, site: &str) -> bool {
         self.sites.contains_key(&site.to_ascii_uppercase())
+    }
+
+    /// Every site with at least one retained block, plus its current item count and byte
+    /// footprint — `/metrics`'s (ROADMAP_NEW B6.10) per-site retention gauges. Order is
+    /// unspecified (backed by a `HashMap`); a metrics scraper doesn't care.
+    pub fn retention_stats(&self) -> impl Iterator<Item = (&str, usize, usize)> {
+        self.sites
+            .iter()
+            .map(|(site, buf)| (site.as_str(), buf.len(), buf.total_bytes()))
     }
 
     /// Every retained block belonging to `volume`, in sequence (arrival) order — what a
@@ -236,5 +249,25 @@ mod tests {
     fn store_after_on_an_unknown_site_is_an_empty_backlog_not_an_error() {
         let store = BlockStore::new(BlockStoreLimits::default());
         assert!(store.after("KABC", 0).is_empty());
+    }
+
+    #[test]
+    fn retention_stats_reports_item_count_and_bytes_per_site() {
+        let mut store = BlockStore::new(BlockStoreLimits::default());
+        store.insert(block("KTLX", 0, 10));
+        store.insert(block("KTLX", 1, 20));
+        store.insert(block("KOUN", 0, 5));
+        let stats: HashMap<&str, (usize, usize)> = store
+            .retention_stats()
+            .map(|(site, items, bytes)| (site, (items, bytes)))
+            .collect();
+        assert_eq!(stats.get("KTLX"), Some(&(2, 30)));
+        assert_eq!(stats.get("KOUN"), Some(&(1, 5)));
+    }
+
+    #[test]
+    fn retention_stats_is_empty_when_nothing_has_been_stored() {
+        let store = BlockStore::new(BlockStoreLimits::default());
+        assert_eq!(store.retention_stats().count(), 0);
     }
 }

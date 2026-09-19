@@ -17,6 +17,18 @@ use wxdata::live_block::LiveLevel2Block;
 /// that a normal brief stall doesn't lose data," not unbounded.
 const SUBSCRIBER_CHANNEL_CAPACITY: usize = 256;
 
+/// Wall-clock nanoseconds since the Unix epoch, truncated to `u64` — used only as a per-process-
+/// start value that's overwhelmingly unlikely to repeat across restarts (no crypto/uniqueness
+/// requirement here: the failure mode of an actual collision is identical to today's status quo
+/// with no epoch check at all, so this needs "different from last time" in practice, not a formal
+/// guarantee). Deliberately not a new dependency (`uuid`/`rand`) for one call site.
+fn fresh_epoch() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or_default()
+}
+
 /// Ties the rechunker to durable-enough-for-resume retention and to live subscribers, so
 /// ingesting one raw product does exactly three things to every block it produces: store it,
 /// broadcast it, and make it available for the next `blocks_after` backfill.
@@ -24,6 +36,7 @@ pub struct Pipeline {
     rechunker: Rechunker,
     blocks: BlockStore,
     subscribers: HashMap<String, broadcast::Sender<LiveLevel2Block>>,
+    epoch: u64,
 }
 
 impl Pipeline {
@@ -36,7 +49,20 @@ impl Pipeline {
             rechunker: Rechunker::new(rechunk_config, source_id),
             blocks: BlockStore::new(block_limits),
             subscribers: HashMap::new(),
+            epoch: fresh_epoch(),
         }
+    }
+
+    /// A value that changes every time a new `Pipeline` is constructed — in practice, once per
+    /// process start (ROADMAP_NEW B6.10's "deliberately announce a new stream epoch so old
+    /// sequence IDs cannot collide"). Every sequence number this pipeline hands out starts back at
+    /// 0 on restart (nothing is persisted to disk — see that same roadmap item's "or" clause), so a
+    /// client that reconnects after a restart and blindly resumes from its last-seen sequence could
+    /// otherwise be served a same-numbered but semantically different block. Comparing epochs
+    /// (`crate::server`'s `/live?epoch=`) is how a resuming client tells "the server I'm resuming
+    /// against is the same one that handed me this sequence" from "it restarted meanwhile."
+    pub fn epoch(&self) -> u64 {
+        self.epoch
     }
 
     /// Parse one raw product, storing and broadcasting every block it produces.
@@ -69,6 +95,12 @@ impl Pipeline {
 
     pub fn manifest(&self, site: &str) -> Option<SiteManifest> {
         self.rechunker.manifest(site)
+    }
+
+    /// Every site with at least one retained block, plus its current item count and byte
+    /// footprint (ROADMAP_NEW B6.10's `/metrics` observability).
+    pub fn retention_stats(&self) -> impl Iterator<Item = (&str, usize, usize)> {
+        self.blocks.retention_stats()
     }
 
     pub fn block(&self, site: &str, sequence: u64) -> Option<LiveLevel2Block> {

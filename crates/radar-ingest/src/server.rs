@@ -1,6 +1,7 @@
 //! B6.4's HTTP/WebSocket distribution API: a per-site head/manifest endpoint, fetch-a-specific-
 //! block-by-sequence, and a live WebSocket stream with `resume_after=<sequence>` reconnect
-//! semantics.
+//! semantics. Also B6.10's operational routes: `/health`/`/ready` (liveness/readiness) and
+//! `/metrics` (plain Prometheus text — per-site retention gauges plus the process's stream epoch).
 //!
 //! TLS and public-facing rate limiting/connection caps are explicitly the deployment's reverse
 //! proxy's job (ROADMAP_NEW B6.4) — this module only speaks plain HTTP/WS, meant to sit behind
@@ -30,6 +31,7 @@ pub fn router(pipeline: Arc<Mutex<Pipeline>>) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/ready", get(ready))
+        .route("/metrics", get(metrics))
         .route("/sites/{site}/head", get(head))
         .route("/sites/{site}/blocks/{sequence}", get(block_by_sequence))
         .route("/sites/{site}/volume/latest", get(latest_complete_volume))
@@ -51,13 +53,44 @@ async fn ready() -> &'static str {
     "ok"
 }
 
+/// Plain Prometheus text exposition format (ROADMAP_NEW B6.10) — no metrics library dependency
+/// for the handful of gauges this service has today; the format itself is just newline-separated
+/// text, not worth a crate. `mem_limit`/`cpus`/`pids_limit` in `docker-compose.radar-ingest.yml`
+/// already bound the process from outside; these gauges are for watching it, not enforcing bounds.
+async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
+    let pipeline = state.pipeline.lock().unwrap();
+    let mut out = String::new();
+    out.push_str("# HELP radar_ingest_epoch Opaque value that changes every process start.\n");
+    out.push_str("# TYPE radar_ingest_epoch gauge\n");
+    out.push_str(&format!("radar_ingest_epoch {}\n", pipeline.epoch()));
+
+    out.push_str(
+        "# HELP radar_ingest_site_blocks Blocks currently retained for a site, by sequence.\n",
+    );
+    out.push_str("# TYPE radar_ingest_site_blocks gauge\n");
+    for (site, items, _) in pipeline.retention_stats() {
+        out.push_str(&format!(
+            "radar_ingest_site_blocks{{site=\"{site}\"}} {items}\n"
+        ));
+    }
+
+    out.push_str("# HELP radar_ingest_site_bytes Retained block payload bytes for a site.\n");
+    out.push_str("# TYPE radar_ingest_site_bytes gauge\n");
+    for (site, _, bytes) in pipeline.retention_stats() {
+        out.push_str(&format!(
+            "radar_ingest_site_bytes{{site=\"{site}\"}} {bytes}\n"
+        ));
+    }
+    out
+}
+
 async fn head(State(state): State<AppState>, Path(site): Path<String>) -> impl IntoResponse {
-    let manifest = {
+    let (manifest, epoch) = {
         let pipeline = state.pipeline.lock().unwrap();
-        pipeline.manifest(&site)
+        (pipeline.manifest(&site), pipeline.epoch())
     };
     match manifest {
-        Some(manifest) => Json(ManifestDto::from(&manifest)).into_response(),
+        Some(manifest) => Json(ManifestDto::with_epoch(&manifest, epoch)).into_response(),
         None => StatusCode::NOT_FOUND.into_response(),
     }
 }
@@ -104,6 +137,12 @@ struct LiveQuery {
     /// including this sequence asks to resume from here, filling any gap from retained blocks
     /// before switching to genuinely live delivery, instead of starting over.
     resume_after: Option<u64>,
+    /// The epoch (`ManifestDto::epoch`, from a prior `/head` or `/live` response) the client's
+    /// `resume_after` sequence was learned under (ROADMAP_NEW B6.10). Omitted or mismatched
+    /// against this process's current epoch means "not resumable" — `resume_after` is then
+    /// ignored so a post-restart sequence collision can never serve the wrong block under a
+    /// reused number, and the client is treated exactly like a fresh connection instead.
+    epoch: Option<u64>,
 }
 
 async fn live(
@@ -112,7 +151,9 @@ async fn live(
     Query(query): Query<LiveQuery>,
     ws: WebSocketUpgrade,
 ) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| serve_live_socket(socket, state, site, query.resume_after))
+    ws.on_upgrade(move |socket| {
+        serve_live_socket(socket, state, site, query.resume_after, query.epoch)
+    })
 }
 
 async fn serve_live_socket(
@@ -120,6 +161,7 @@ async fn serve_live_socket(
     state: AppState,
     site: String,
     resume_after: Option<u64>,
+    client_epoch: Option<u64>,
 ) {
     // Compute the backlog and subscribe to future blocks under the *same* lock acquisition, so no
     // block can be published in the gap between "read the backlog" and "start subscribing" — that
@@ -127,7 +169,17 @@ async fn serve_live_socket(
     // the backlog read) or lose one (published exactly in the gap).
     let (backlog, mut live_rx) = {
         let mut pipeline = state.pipeline.lock().unwrap();
+        // A client that names an epoch which doesn't match this process's current one learned
+        // `resume_after` from a server instance that no longer exists — its sequence number means
+        // nothing here and must not be trusted to select a backlog (see `Pipeline::epoch`'s doc
+        // comment). A client that never sends an epoch at all (older client, or a first-ever
+        // connection with nothing to resume) keeps today's behavior unchanged.
+        let resumable = match client_epoch {
+            Some(claimed) => claimed == pipeline.epoch(),
+            None => true,
+        };
         let backlog = resume_after
+            .filter(|_| resumable)
             .map(|seq| pipeline.blocks_after(&site, seq))
             .unwrap_or_default();
         (backlog, pipeline.subscribe(&site))
@@ -215,6 +267,50 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn metrics_reports_epoch_and_per_site_retention() {
+        let app = router(pipeline_with_one_block());
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/metrics")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let text = String::from_utf8(body.to_vec()).unwrap();
+        assert!(text.contains("radar_ingest_epoch "));
+        assert!(text.contains("radar_ingest_site_blocks{site=\"KTLX\"} 1"));
+        assert!(text.contains("radar_ingest_site_bytes{site=\"KTLX\"} "));
+    }
+
+    #[tokio::test]
+    async fn metrics_reports_nothing_for_sites_with_no_activity() {
+        let app = router(Arc::new(Mutex::new(Pipeline::new(
+            RechunkConfig::default(),
+            BlockStoreLimits::default(),
+            "relay",
+        ))));
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/metrics")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let text = String::from_utf8(body.to_vec()).unwrap();
+        assert!(
+            !text.contains("site="),
+            "no site has ever ingested anything yet"
+        );
+    }
+
+    #[tokio::test]
     async fn health_and_ready_are_always_ok() {
         let app = router(Arc::new(Mutex::new(Pipeline::new(
             RechunkConfig::default(),
@@ -267,6 +363,10 @@ mod tests {
         let manifest: ManifestDto = serde_json::from_slice(&body).unwrap();
         assert_eq!(manifest.newest_sequence, Some(0));
         assert!(manifest.current_volume.is_some());
+        assert_ne!(
+            manifest.epoch, 0,
+            "a real process must report a nonzero epoch"
+        );
     }
 
     #[tokio::test]
@@ -422,6 +522,69 @@ mod tests {
             .unwrap();
         let live_block: BlockDto = serde_json::from_str(&live_msg.into_text().unwrap()).unwrap();
         assert_eq!(live_block.sequence, 2);
+
+        drop(ws_stream);
+    }
+
+    /// ROADMAP_NEW B6.10's stream-epoch check: a client that names an epoch other than the
+    /// running process's must not be served a `resume_after` backlog at all — its sequence number
+    /// was learned from a server instance that (from this test's point of view) no longer exists,
+    /// so honoring it could silently serve the wrong block under a reused sequence number. It
+    /// should instead be treated exactly like a fresh connection: no backlog, live blocks only.
+    #[tokio::test]
+    async fn resume_after_is_ignored_when_the_claimed_epoch_does_not_match() {
+        let pipeline = pipeline_with_one_block();
+        let real_epoch = pipeline.lock().unwrap().epoch();
+        let wrong_epoch = real_epoch.wrapping_add(1);
+
+        let app = router(pipeline.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        // resume_after=0 would normally mean "nothing to backfill" here (sequence 0 is the only
+        // block, so there's nothing *after* it) — ingest a second block first so a real backlog
+        // exists for the epoch check to actually suppress.
+        let bytes = [
+            synthetic_radial("KTLX", 2, 1.5, 0, VOLUME_START, Utc::now()),
+            synthetic_radial("KTLX", 2, 1.5, 1, ELEVATION_END, Utc::now()),
+        ]
+        .concat();
+        pipeline.lock().unwrap().ingest(&RawProduct {
+            site: "KTLX".into(),
+            bytes,
+            received_at: Utc::now(),
+        });
+
+        let url = format!("ws://{addr}/sites/KTLX/live?resume_after=0&epoch={wrong_epoch}");
+        let (mut ws_stream, _) = tokio_tungstenite::connect_async(url).await.unwrap();
+
+        // Ingest a third, genuinely live block — if the wrong-epoch backlog were (incorrectly)
+        // sent, sequence 1 would arrive first; it must not.
+        let bytes = [
+            synthetic_radial("KTLX", 3, 2.5, 0, VOLUME_START, Utc::now()),
+            synthetic_radial("KTLX", 3, 2.5, 1, ELEVATION_END, Utc::now()),
+        ]
+        .concat();
+        pipeline.lock().unwrap().ingest(&RawProduct {
+            site: "KTLX".into(),
+            bytes,
+            received_at: Utc::now(),
+        });
+
+        let msg = tokio::time::timeout(std::time::Duration::from_secs(5), ws_stream.next())
+            .await
+            .expect("a message should still arrive — just not a backlog one")
+            .expect("stream ended unexpectedly")
+            .unwrap();
+        let block: BlockDto = serde_json::from_str(&msg.into_text().unwrap()).unwrap();
+        assert_eq!(
+            block.sequence, 2,
+            "a mismatched epoch must suppress the resume_after=0 backlog (sequence 1) entirely, \
+             leaving only the genuinely live block"
+        );
 
         drop(ws_stream);
     }

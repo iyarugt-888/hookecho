@@ -1048,22 +1048,72 @@ Do not hide a source change. The operator should always be able to answer “whi
 am I looking at, and how old is its newest radar data?” — answered today via the radar health
 popup's new lines, described above.
 
-### B6.10 Deployment and operations
+### B6.10 Deployment and operations — mostly done
 
-- [ ] add a Docker image/service for the backend ingester/rechunker
-- [ ] make upstream LDM host/feed pattern, site allowlist, retention, listen address and public URL
-  environment-configurable
-- [ ] provide a Coolify/docker-compose example without making hosted HookEcho infrastructure
-  mandatory
-- [ ] document how an operator supplies their own permitted LDM peer; do not ship credentials or
-  assume access to an upstream that has not agreed to feed the deployment
-- [ ] implement graceful restart: persist enough sequence/manifest state to reconnect clients or
-  deliberately announce a new stream epoch so old sequence IDs cannot collide
-- [ ] bounded memory/disk usage with per-site eviction
-- [ ] structured logs and `/health`, `/ready`, `/metrics`-style observability (exact routes may
-  follow project conventions)
-- [ ] network contract test for the current Unidata chunks and NOAA TGFTP; LDM integration tests
-  use replay fixtures unless CI has an explicitly configured LDM feed
+- [x] add a Docker image/service for the backend ingester/rechunker — `Dockerfile.radar-ingest`
+  (multi-stage `rust:bookworm` build → `debian:bookworm-slim` runtime, no GUI/GPU deps since this
+  is a plain tokio+axum service, distinct from the main app's own `Dockerfile`/`Dockerfile.coolify`).
+- [x] make upstream LDM host/feed pattern, site allowlist, retention, listen address and public URL
+  environment-configurable — all read in `crates/radar-ingest/src/main.rs` (doc comment there lists
+  every `RADAR_INGEST_*` variable): `RADAR_INGEST_LISTEN_ADDR`, `RADAR_INGEST_ALLOWED_SITES`,
+  `RADAR_INGEST_BLOCK_RETENTION_{ITEMS,BYTES}`, `RADAR_INGEST_SITE_RAW_MAX_{ITEMS,BYTES}`, and
+  `RADAR_INGEST_LDM_*` (read by `radar_ingest::ldm::LdmSourceConfig`, logged as a warning if set
+  since B6.11 step 5's blocker means nothing acts on it yet). "Public URL" isn't a runtime setting
+  — it's the relay's own base URL, which an operator hands to clients via Settings → General →
+  "Radar relay (advanced)"; documented as such in `docker-compose.radar-ingest.yml`'s header
+  comment rather than read from an env var with nothing to do with it.
+- [x] provide a Coolify/docker-compose example without making hosted HookEcho infrastructure
+  mandatory — `docker-compose.radar-ingest.yml`, a separate compose file from the main app's own
+  (this service is entirely optional; HookEcho works with zero relay configured, using only the
+  existing Unidata path).
+- [x] document how an operator supplies their own permitted LDM peer; do not ship credentials or
+  assume access to an upstream that has not agreed to feed the deployment — `radar_ingest::ldm`'s
+  module doc comment spells out exactly why no default host/credentials are assumed and what a
+  real deployment must supply itself.
+- [x] implement graceful restart: persist enough sequence/manifest state to reconnect clients or
+  deliberately announce a new stream epoch so old sequence IDs cannot collide — took the "or":
+  `Pipeline::epoch()` is a wall-clock-derived `u64` fixed once per process construction (so, in
+  practice, once per process start — no new `uuid`/`rand` dependency for one call site) and now
+  rides along on every `ManifestDto` (`/sites/{site}/head`, `#[serde(default)]` so an older client
+  still deserializes it) and as an optional `?epoch=` query param on `/sites/{site}/live`. A
+  `resume_after` whose claimed epoch doesn't match the running process's current one is ignored
+  entirely — the connection is served exactly like a fresh one (no backlog) rather than risking a
+  same-numbered-but-different block from before a restart. Verified with a real
+  `TcpListener`/WebSocket integration test (`server::tests::
+  resume_after_is_ignored_when_the_claimed_epoch_does_not_match`) that a wrong-epoch resume gets
+  none of the backlog it would otherwise be entitled to. **Not done**: the actual production client
+  (`HookEchoRelayLevel2Provider::subscribe`) doesn't send `resume_after`/`epoch` at all yet — every
+  (re)connect already starts fresh with no backlog request, so the collision this item guards
+  against isn't reachable by today's client; the protection exists for the resume mechanism itself
+  (already real, tested, wire-documented API surface) so it's safe for whichever client uses it
+  next, current or future. Wiring the client to actually resume across a brief disconnect (rather
+  than relying on `base`'s carried-forward merged `Scan` to paper over the gap, which it already
+  does adequately for now) is a natural follow-up, not required by this checkbox's own wording.
+- [x] bounded memory/disk usage with per-site eviction — `IngestStore`/`IngestLimits` (raw product
+  admission) and `BlockStore`/`BlockStoreLimits` (rechunked block retention) both evict oldest-first
+  on an item-count *and* a byte-budget cap, per site, independently (`store::tests::
+  ring_buffer_evicts_on_byte_budget_even_under_the_item_cap`,
+  `block_store::tests::byte_budget_evicts_independent_of_item_count`). "Disk usage" is trivially
+  bounded at zero: this crate has no persistence layer at all today — everything lives in memory
+  and is lost on restart (see the epoch item above for why that's an accepted, documented tradeoff
+  rather than an oversight), so there is no disk quota to enforce yet.
+- [x] structured logs and `/health`, `/ready`, `/metrics`-style observability — `/health`/`/ready`
+  already existed; new this pass: `/metrics` in plain Prometheus text exposition format (no metrics
+  library added for three gauges — the format is just newline-separated text), reporting
+  `radar_ingest_epoch` and, per site with retained activity, `radar_ingest_site_blocks{site=...}`
+  and `radar_ingest_site_bytes{site=...}` (`BlockStore::retention_stats`, `Pipeline::
+  retention_stats`). Logging remains plain `log`-crate output (`env_logger`, same as the main app)
+  rather than a structured (JSON) format — reasonable for a service this size today; revisit if a
+  real deployment's log aggregation needs it.
+- [x] network contract test for the current Unidata chunks and NOAA TGFTP; LDM integration tests
+  use replay fixtures unless CI has an explicitly configured LDM feed —
+  `hookecho::volume::tests::latest_complete_volume_finds_a_new_one_then_reports_up_to_date`
+  (Unidata) and `hookecho::tgftp_provider`'s own live-fetch test (NOAA TGFTP), both real
+  network calls against the live services, both `#[ignore = "network"]` per this repo's existing
+  convention for real-network tests — not run by default, run explicitly
+  (`cargo test -- --ignored`). `radar-ingest`'s own tests already use replay fixtures/synthetic
+  data exclusively, matching this item's LDM clause (there being no live LDM adapter to contract-
+  test against yet, per B6.11 step 5).
 
 ### B6.11 Implementation order
 
