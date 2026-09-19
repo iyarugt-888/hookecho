@@ -1364,12 +1364,14 @@ completed-volume continuity mode when both live paths are unavailable.
 
 Implement a safe expression/DSL system inspired by the flexibility of GR2Analyst user-defined products, but designed around HookEcho’s Rust/WGPU architecture.
 
-The evaluator half is done, including the vertical/layer aggregate functions: `wxdata::udp`
-parses and evaluates a formula against one gate or, for those functions, one point's whole tilt
-column, and `ui::udp_window`/the gate inspector's "USER-DEFINED" section let a user define one and
-see it live against real data. What remains is rendering a product as its own map layer — a
-separate, larger piece of work (see below) — plus environmental inputs (freezing level, -10C/-20C
-heights) that need external model data, not just a decoded volume.
+The evaluator half is done, including the vertical/layer aggregate functions and (new this pass)
+freezing-level/-20C environmental height inputs: `wxdata::udp` parses and evaluates a formula
+against one gate or, for the column functions, one point's whole tilt column, and
+`ui::udp_window`/the gate inspector's "USER-DEFINED" section let a user define one and see it live
+against real data. What remains is rendering a product as its own map layer — a separate, larger
+piece of work (see below) — plus a -10C environmental height input (HRRR's own isotherm-height
+field doesn't publish that level via the mechanism 0C/-20C already reuse) and making the
+freezing-level inputs fetch proactively rather than only when a hail grid has recently been on.
 
 ### First version capabilities
 
@@ -1386,7 +1388,22 @@ Inputs:
 - [x] range — ground range, matching the gate inspector's own "Ground range" label
 - [x] azimuth
 - [x] elevation
-- [ ] freezing level / -10C / -20C environmental heights when available
+- [x]/[ ] freezing level / -20C environmental heights — new this pass: `FREEZING_LEVEL_M` /
+  `MINUS20C_HEIGHT_M`, both metres above sea level (compare against `BEAM_ALTITUDE_M`, not
+  `BEAM_HEIGHT_M`). Reuses `OverlaySource::FreezingLevels` — the exact HRRR fetch
+  (`HGT` at "0C isotherm" / "253 K level") already built for the MEHS/POSH hail grids — rather
+  than adding a second fetch path; `inspect_gate` looks up the app's existing single most-recent-
+  site cache (`self.freezing`), filtered to the gate's own site so a stale reading from a
+  previously followed site can't leak in. **Real, honest limitation, not silently glossed over:**
+  that cache is only populated when a hail grid has recently been on (`fetch_freezing_levels`'s
+  own "only worth a request when a hail grid is actually on" gate) — a UDP formula using these
+  inputs elsewhere sees them as missing until the user has turned MESH/POSH on at least once
+  recently; making them fetch proactively on their own is a small follow-up, not done here.
+  **-10C height is not added** — HRRR's isotherm-height field only publishes 0C and 253 K (-20C)
+  via this same mechanism; a -10C level would need a separate, unverified fetch this pass didn't
+  confirm exists. `wxdata::udp` gained 2 new unit tests; `ui::udp_window`'s own reference text was
+  also corrected here — it had gone stale claiming vertical/layer aggregates "aren't available
+  yet" after an earlier pass had already shipped them.
 
 Functions:
 
@@ -1417,15 +1434,17 @@ Example conceptual expressions, and what actually runs today in this grammar:
 ```text
 max_vertical(REF where REF >= 40)        ->  max_vertical(REF, REF >= 40)
 min_vertical(CC where REF >= 35)         ->  min_vertical(CC, REF >= 35)
-max_layer(ZDR, freezing_level + 2km, freezing_level + 6km)   -- freezing_level isn't an input yet;
-                                              max_layer(ZDR, 2000, 6000) runs with literal heights
-max_layer(KDP, minus10c_height, minus20c_height)             -- same environmental-input gap
+max_layer(ZDR, freezing_level + 2km, freezing_level + 6km)
+    ->  max_layer(ZDR, FREEZING_LEVEL_M + 2000, FREEZING_LEVEL_M + 6000)   -- FREEZING_LEVEL_M is
+                                                                               a real input now
+max_layer(KDP, minus10c_height, minus20c_height)   -- MINUS20C_HEIGHT_M exists; MINUS10C_HEIGHT_M
+                                                        does not (HRRR's own isotherm-height field
+                                                        publishes 0C/-20C, not -10C, via this path)
 ```
 
-The first two run exactly as shown (translated to this grammar's own `where`-free spelling); the
-last two need the still-unbuilt environmental-height inputs to spell their bounds by name rather
-than as literal metres. What ran before this pass, in the same spirit: `REF > 55 && ZDR < 1 ? REF
-: 0` — still works unchanged.
+The first three run exactly as shown (translated to this grammar's own `where`-free spelling and
+named-input capitalization); the last needs a -10C height input this app doesn't have yet. What
+ran before this pass, in the same spirit: `REF > 55 && ZDR < 1 ? REF : 0` — still works unchanged.
 
 ### Safety/implementation constraints
 

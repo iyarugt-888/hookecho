@@ -75,6 +75,17 @@ pub enum Input {
     BeamHeightM,
     /// Approximate beam center altitude above sea level, metres; unavailable without site elevation.
     BeamAltitudeM,
+    /// 0°C isotherm height, metres above sea level (HRRR analysis) — compare against
+    /// [`Self::BeamAltitudeM`], not [`Self::BeamHeightM`], the same above-sea-level convention
+    /// the existing hail algorithm already uses this same model field for. Only populated when
+    /// the caller has a recent fetch for the gate's site (ROADMAP_NEW C1's "freezing level...
+    /// environmental input" — reuses `OverlaySource::FreezingLevels`, the fetch already built for
+    /// the MEHS/POSH hail grids, rather than adding a second one).
+    FreezingLevelM,
+    /// −20°C (253 K) isotherm height, metres above sea level (HRRR analysis) — the level Witt's
+    /// hail weighting tops out at, same source and same population rule as
+    /// [`Self::FreezingLevelM`].
+    Minus20cHeightM,
 }
 
 impl Input {
@@ -91,12 +102,14 @@ impl Input {
             "ELEVATION_DEG" => Self::ElevationDeg,
             "BEAM_HEIGHT_M" => Self::BeamHeightM,
             "BEAM_ALTITUDE_M" => Self::BeamAltitudeM,
+            "FREEZING_LEVEL_M" => Self::FreezingLevelM,
+            "MINUS20C_HEIGHT_M" => Self::Minus20cHeightM,
             _ => return None,
         })
     }
 
     /// Every input name a formula can reference — for building an editor's autocomplete/help list.
-    pub const ALL: [Input; 11] = [
+    pub const ALL: [Input; 13] = [
         Input::Reflectivity,
         Input::Velocity,
         Input::SpectrumWidth,
@@ -108,6 +121,8 @@ impl Input {
         Input::ElevationDeg,
         Input::BeamHeightM,
         Input::BeamAltitudeM,
+        Input::FreezingLevelM,
+        Input::Minus20cHeightM,
     ];
 
     /// The exact spelling a formula uses for this input.
@@ -124,6 +139,8 @@ impl Input {
             Self::ElevationDeg => "ELEVATION_DEG",
             Self::BeamHeightM => "BEAM_HEIGHT_M",
             Self::BeamAltitudeM => "BEAM_ALTITUDE_M",
+            Self::FreezingLevelM => "FREEZING_LEVEL_M",
+            Self::Minus20cHeightM => "MINUS20C_HEIGHT_M",
         }
     }
 }
@@ -143,6 +160,10 @@ pub struct GateInputs {
     pub elevation_deg: Option<f32>,
     pub beam_height_m: Option<f32>,
     pub beam_altitude_m: Option<f32>,
+    /// See [`Input::FreezingLevelM`]'s doc comment.
+    pub freezing_level_m: Option<f32>,
+    /// See [`Input::Minus20cHeightM`]'s doc comment.
+    pub minus20c_height_m: Option<f32>,
 }
 
 impl GateInputs {
@@ -159,6 +180,8 @@ impl GateInputs {
             Input::ElevationDeg => self.elevation_deg,
             Input::BeamHeightM => self.beam_height_m,
             Input::BeamAltitudeM => self.beam_altitude_m,
+            Input::FreezingLevelM => self.freezing_level_m,
+            Input::Minus20cHeightM => self.minus20c_height_m,
         }
     }
 }
@@ -891,6 +914,8 @@ mod tests {
             elevation_deg: Some(0.5),
             beam_height_m: Some(1200.0),
             beam_altitude_m: Some(1500.0),
+            freezing_level_m: Some(3000.0),
+            minus20c_height_m: Some(6500.0),
         }
     }
 
@@ -967,6 +992,22 @@ mod tests {
         assert_eq!(eval("ELEVATION_DEG"), Some(0.5));
         assert_eq!(eval("BEAM_HEIGHT_M"), Some(1200.0));
         assert_eq!(eval("BEAM_ALTITUDE_M"), Some(1500.0));
+        assert_eq!(eval("FREEZING_LEVEL_M"), Some(3000.0));
+        assert_eq!(eval("MINUS20C_HEIGHT_M"), Some(6500.0));
+        // The intended comparison: is this gate above or below the freezing level, in the same
+        // above-sea-level frame both sides are in.
+        assert_eq!(eval("BEAM_ALTITUDE_M > FREEZING_LEVEL_M"), Some(0.0));
+    }
+
+    #[test]
+    fn environmental_heights_are_missing_without_a_recent_fetch() {
+        let mut i = inputs();
+        i.freezing_level_m = None;
+        i.minus20c_height_m = None;
+        let expr = parse("FREEZING_LEVEL_M + 1").unwrap();
+        assert_eq!(evaluate(&expr, &i), None);
+        let expr = parse("MINUS20C_HEIGHT_M + 1").unwrap();
+        assert_eq!(evaluate(&expr, &i), None);
     }
 
     #[test]

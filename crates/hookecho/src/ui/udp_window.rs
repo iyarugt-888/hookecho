@@ -145,15 +145,23 @@ fn reference(ui: &mut egui::Ui) {
             "Functions: min(a,b)  max(a,b)  mean(a,b,...) [2–8 values]  clamp(x,lo,hi)  abs(x)",
         );
         ui.weak(
-            "BEAM_HEIGHT_M is above the radar; BEAM_ALTITUDE_M is above sea level when site elevation is known.",
+            "BEAM_HEIGHT_M is above the radar; BEAM_ALTITUDE_M, FREEZING_LEVEL_M and \
+             MINUS20C_HEIGHT_M are above sea level when known — compare the latter two against \
+             BEAM_ALTITUDE_M, not BEAM_HEIGHT_M.",
+        );
+        ui.label(
+            "Functions: min max mean(2-8) clamp abs   max_vertical(e[,cond]) min_vertical(e[,cond]) \
+             max_layer(e,lo,hi) min_layer mean_layer   first_height_above(e,t) last_height_above(e,t) \
+             count_above(e,t)",
         );
         ui.label("Operators: + - * /   < <= > >= == !=   && || !   cond ? a : b");
         ui.add_space(4.0);
         ui.weak(
             "A formula referencing a moment that has no value at a gate (below threshold, \
              range-folded, or not carried there) evaluates to nothing there, same as the moment \
-             itself. Vertical/layer aggregates (max over a column, freezing-level heights) \
-             aren't available yet — this evaluates one gate at a time.",
+             itself. FREEZING_LEVEL_M/MINUS20C_HEIGHT_M only have a value when a recent fetch \
+             exists for this site (today, that means a MESH/POSH hail layer has been on \
+             recently) — turn one on once to warm the reading up for a formula that needs it.",
         );
     });
 }

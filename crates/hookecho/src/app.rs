@@ -7105,8 +7105,16 @@ impl HookEchoApp {
         lon: f64,
         lat: f64,
         antenna_altitude_m: Option<f64>,
+        // (0°C height, −20°C height), metres above sea level — `self.freezing`, already filtered
+        // to the gate's own site by the caller. `None` when there is no recent fetch for this
+        // site (see `fetch_freezing_levels`'s own "only worth a request when a hail grid is
+        // actually on" gate) — a UDP formula referencing these inputs just sees them as missing
+        // rather than the app fetching a second time on their behalf.
+        freezing: Option<(f64, f64)>,
     ) -> wxdata::udp::GateInputs {
         let mut out = wxdata::udp::GateInputs::default();
+        out.freezing_level_m = freezing.map(|(h0, _)| h0 as f32);
+        out.minus20c_height_m = freezing.map(|(_, hm20)| hm20 as f32);
         for m in [
             Moment::Reflectivity,
             Moment::Velocity,
@@ -7160,9 +7168,10 @@ impl HookEchoApp {
         lon: f64,
         lat: f64,
         antenna_altitude_m: Option<f64>,
+        freezing: Option<(f64, f64)>,
     ) -> Vec<wxdata::udp::GateInputs> {
         (0..vol.elevations.len())
-            .map(|tilt| Self::udp_gate_inputs(vol, tilt, lon, lat, antenna_altitude_m))
+            .map(|tilt| Self::udp_gate_inputs(vol, tilt, lon, lat, antenna_altitude_m, freezing))
             .filter(|g| g.beam_height_m.is_some())
             .collect()
     }
@@ -7186,6 +7195,15 @@ impl HookEchoApp {
     ) -> Option<ui::gate_inspector::GateInspectorPopup> {
         let v = &mut self.views[idx];
         let site = v.site.clone();
+        // Only meaningful for the gate's own site — `self.freezing` is a single most-recent-site
+        // cache (see `fetch_freezing_levels`), not one entry per site, so a stale reading from a
+        // previously followed site must not leak into this one's UDP inputs. `self.freezing` is a
+        // field disjoint from `self.views`, so reading it here doesn't conflict with `v`'s borrow.
+        let freezing = self
+            .freezing
+            .as_ref()
+            .filter(|(s, _, _)| Some(s.as_str()) == site.as_deref())
+            .map(|(_, h0, hm20)| (*h0, *hm20));
         let antenna_altitude_m = site
             .as_deref()
             .and_then(wxdata::sites::site_by_id)
@@ -7212,8 +7230,8 @@ impl HookEchoApp {
         let raw = vol.binned(moment, tilt, false).ok()?.clone();
         let inspection = raw.inspect(lon, lat, dealiased.as_ref())?;
         let time_range = level2::sweep_time_range(&scan, elevation_deg, moment);
-        let gate_inputs = Self::udp_gate_inputs(vol, tilt, lon, lat, antenna_altitude_m);
-        let column_inputs = Self::udp_column_inputs(vol, lon, lat, antenna_altitude_m);
+        let gate_inputs = Self::udp_gate_inputs(vol, tilt, lon, lat, antenna_altitude_m, freezing);
+        let column_inputs = Self::udp_column_inputs(vol, lon, lat, antenna_altitude_m, freezing);
         Some(ui::gate_inspector::GateInspectorPopup {
             site,
             vcp,
