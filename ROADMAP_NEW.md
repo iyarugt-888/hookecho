@@ -1649,27 +1649,32 @@ The current `mrms.rs` contains a valuable but hand-selected subset. Replace the 
 
 ## D1. MRMS product catalog — partly done, found already built
 
-`wxdata::mrms::catalog` exists (see A1's corrected notes above), now with 17 products as
+`wxdata::mrms::catalog` exists (see A1's corrected notes above), now with 19 products as
 `FieldDescriptor`s: national composite reflectivity, rotation tracks (30/60/120 min), MESH,
 MESH swaths (30/60/120/240/360/1440 min), azimuthal shear, lightning density (1/5/15/30 min),
-precip rate, QPE 1h/3h/6h/12h/24h, precip type, FLASH ARI-30, and — new this pass — POSH
-(`FieldLayer::Posh`), Severe Hail Index (`FieldLayer::Shi`), and national VIL (`FieldLayer::
-MrmsVil`, distinct from the locally-derived `VilLocal`). Verified live against the real
-bucket (see D1's own "Rules" item below) rather than just declared: 27/27 paths confirmed
-(up from 21 before this pass' three additions).
+precip rate, QPE 1h/3h/6h/12h/24h, precip type, FLASH ARI-30, POSH (`FieldLayer::Posh`),
+Severe Hail Index (`FieldLayer::Shi`), national VIL (`FieldLayer::MrmsVil`, distinct from the
+locally-derived `VilLocal`), and — new this pass — reflectivity at lowest altitude
+(`FieldLayer::ReflLowestAlt`) and low-level composite reflectivity
+(`FieldLayer::LowLevelReflectivity`), closing the "low-level (single-tilt) reflectivity" gap
+named below. Verified live against the real bucket (see D1's own "Rules" item below) rather
+than just declared: 29/29 paths confirmed (up from 27 before this pass' two additions).
 
-The three new products needed more than catalog metadata alone to actually reach a user: each
-also needed a matching `FieldLayer` variant (`render/mod.rs`: enum entry, `DRAW_ORDER` slot, a
-slug that exactly matches its catalog `FieldId`) and a color ramp
-(`render/field_ramps.rs`) — but nothing beyond that. `app.rs`'s fetch loop
+Each new product needed more than catalog metadata alone to actually reach a user: a matching
+`FieldLayer` variant (`render/mod.rs`: enum entry, `DRAW_ORDER` slot, a slug that exactly
+matches its catalog `FieldId`), a `field_refresh_secs` cadence arm (`app.rs`), and — for POSH/
+SHI/VIL — a color ramp (`render/field_ramps.rs`); the two newest reflectivity products reuse
+the existing `PaletteId::Reflectivity` path instead (same as `Mrms`: resolves to the user's own
+`.pal`, not a fixed ramp, so no new ramp was needed). Beyond that, `app.rs`'s fetch loop
 (`mrms_product`/`mrms_request`, iterating `FieldLayer::DRAW_ORDER` and looking up
 `wxdata::mrms::catalog::find(layer.slug())`) and the Layers-panel picker
 (`registry.rs`, iterating `catalog::PRODUCTS` and resolving each by `FieldLayer::from_slug`)
 are both already fully generic over the catalog, exactly as D2's own status claims — confirmed
-by writing three new products through them rather than just reading that claim. POSH reuses the
-existing locally-derived `HailPosh` layer's own probability scale (one scale app-wide, whichever
-source computed it); national VIL likewise reuses the existing local `VilLocal`'s scale. SHI got
-a new ramp (0-400, the range MRMS's own MESH-equivalent 2-inch-hail threshold falls in).
+again by writing five new products through them across two passes rather than just reading that
+claim. POSH reuses the existing locally-derived `HailPosh` layer's own probability scale (one
+scale app-wide, whichever source computed it); national VIL likewise reuses the existing local
+`VilLocal`'s scale. SHI got a new ramp (0-400, the range MRMS's own MESH-equivalent 2-inch-hail
+threshold falls in).
 
 Target operational groups:
 
@@ -1712,31 +1717,31 @@ Target operational groups:
 
 - MRMS snow/precipitation-type products when published in the operational bucket
 
-The 17 products above cover composite reflectivity, rotation/azshear, MESH + swaths, POSH, SHI,
+The 19 products above cover composite reflectivity, low-level reflectivity (both the
+single-tilt and low-level-composite forms), rotation/azshear, MESH + swaths, POSH, SHI,
 precip rate/QPE (1/3/6/12/24h)/type, national VIL, lightning and flash-flood rarity. **Not yet
 cataloged**, all genuine gaps rather than oversights — confirmed live on the bucket while adding
-the three products above, so these are real, verified prefixes to pick up next, not guesses:
-low-level (single-tilt) reflectivity (`LowLevelCompositeReflectivity_00.50`,
-`MergedReflectivityAtLowestAltitude_00.50`), national echo tops
-(`EchoTop_18/30/50/60_00.50`, distinct from the locally-derived `EtopLocal`), hail-growth-zone
-height products (`H50_Above_-20C_00.50` and siblings — related to but distinct from a literal
-"-20°C height," which MRMS does not publish directly; `Model_0degC_Height_00.50` is the closest
-real 0°C-level product), reflectivity-at-isotherm products (`Reflectivity_0C/-5C/-10C/-15C/-20C_
-00.50`), mid-level rotation tracks (`RotationTrackML*`, alongside the existing low-level ones),
-QPE-to-ARI exceedance fields beyond the one 30-minute window (`FLASH_QPE_ARI01H/03H/06H/12H/24H/
-MAX_00.00` all exist live), streamflow products (`FLASH_CREST_MAXSTREAMFLOW_00.00` and several
-sibling FLASH/CREST/HP/SAC variants), and MRMS's winter/precip-type-family products beyond the
-one flag already cataloged (none found with an obviously distinct winter-specific prefix in this
-pass's bucket listing — may not exist as a separate published product, not confirmed either way).
+products across this and the prior pass, so these are real, verified prefixes to pick up next,
+not guesses: national echo tops (`EchoTop_18/30/50/60_00.50`, distinct from the locally-derived
+`EtopLocal`), hail-growth-zone height products (`H50_Above_-20C_00.50` and siblings — related to
+but distinct from a literal "-20°C height," which MRMS does not publish directly;
+`Model_0degC_Height_00.50` is the closest real 0°C-level product), reflectivity-at-isotherm
+products (`Reflectivity_0C/-5C/-10C/-15C/-20C_00.50`), mid-level rotation tracks
+(`RotationTrackML*`, alongside the existing low-level ones), QPE-to-ARI exceedance fields
+beyond the one 30-minute window (`FLASH_QPE_ARI01H/03H/06H/12H/24H/MAX_00.00` all exist live),
+streamflow products (`FLASH_CREST_MAXSTREAMFLOW_00.00` and several sibling FLASH/CREST/HP/SAC
+variants), and MRMS's winter/precip-type-family products beyond the one flag already cataloged
+(none found with an obviously distinct winter-specific prefix in this pass's bucket listing —
+may not exist as a separate published product, not confirmed either way).
 
 ### Rules
 
 - [x] Do not blindly list a product unless a feed contract test confirms it exists —
   `mrms::catalog::the_mrms_catalog_paths_are_real` (network-gated) asks the live bucket for every
   path every product's `FetchMapping` can produce (default plus every published window), the same
-  listing a real fetch depends on. Passing today: 27/27 paths (14 single-path products plus
-  rotation/lightning/hail-swath's multiple published windows — 14 + 3 + 4 + 6 = 27) confirmed
-  live, up from 21/21 before this pass' three additions.
+  listing a real fetch depends on. Passing today: 29/29 paths (16 single-path products plus
+  rotation/lightning/hail-swath's multiple published windows — 16 + 3 + 4 + 6 = 29) confirmed
+  live, up from 27/27 before this pass' two additions.
 
 ## D2. Generic MRMS fetch/decode path — done
 
@@ -1810,14 +1815,15 @@ Do not fabricate 3D from a 2D surface product.
 ### Acceptance criteria
 
 - [x] new scalar MRMS product can be added through catalog metadata with minimal/no new UI code —
-  confirmed by actually doing it three times this pass (POSH/SHI/national VIL), not just claimed:
-  each needed a catalog entry, a matching `FieldLayer` slug, and a ramp — the fetch, Layers-panel
-  picker, search, provenance, and health-tracking all picked them up automatically. D3's
-  per-product UI niceties (an accumulation-window picker) are still not automatic, only the core
-  plumbing.
-- [ ] at least the major WeatherFront-class MRMS groups are covered — 17 products across
-  reflectivity/severe (now including POSH/SHI)/precipitation/lightning/hydrology (QPE now spans
-  1h/3h/6h/12h/24h)/VIL; several groups from D1's own target list (low-level reflectivity, echo
+  confirmed by actually doing it five times across two passes (POSH/SHI/national VIL, then
+  reflectivity-at-lowest-altitude/low-level-composite-reflectivity), not just claimed: each
+  needed a catalog entry and a matching `FieldLayer` slug (plus a ramp, for the three that don't
+  reuse an existing `PaletteId`) — the fetch, Layers-panel picker, search, provenance, and
+  health-tracking all picked them up automatically. D3's per-product UI niceties (an
+  accumulation-window picker) are still not automatic, only the core plumbing.
+- [ ] at least the major WeatherFront-class MRMS groups are covered — 19 products across
+  reflectivity (now including both low-level forms)/severe (POSH/SHI)/precipitation/lightning/
+  hydrology (QPE now spans 1h/3h/6h/12h/24h)/VIL; several groups from D1's own target list (echo
   tops, layer heights, streamflow, the ARI windows beyond 30 min) are confirmed real on the live
   bucket but not yet cataloged — see D1's own updated gap list for the exact prefixes
 - [x] categorical fields use nearest-neighbor
@@ -3218,10 +3224,18 @@ Preserve current accesskit/high-contrast work and ensure new controls have:
   genuinely color-only on the map itself (a text legend states what the colors mean, but the
   per-pixel data has no second channel) — accepted as a property of this class of diverging-color
   data visualization, not audited for whether a discrete status *control* elsewhere shares the gap
-- [ ] scalable text — not investigated this pass; most sizes in this codebase are literal point
-  values (`FONT_BASE`, `.size(14.0)`, etc.) rather than derived from a user/OS text-scale
-  preference, but whether that actually fails to scale (egui may apply a global pixels-per-point
-  factor above these) wasn't checked
+- [x]/[ ] scalable text — investigated this pass: `egui::Context::set_zoom_factor` (which
+  `Settings.ui_scale` already drives, `app.rs:18673`, via a Settings slider and Ctrl+=/Ctrl+-/
+  Ctrl+0) computes `pixels_per_point = zoom_factor * native_pixels_per_point` — confirmed from
+  egui's own source, not assumed: this multiplies *every* rendered size, including font metrics,
+  not just spacing, so a literal `.size(14.0)` call scales along with everything else despite not
+  "knowing" about any scale preference itself. `native_pixels_per_point` is also already set
+  automatically from the OS's own display-scale factor by the windowing backend (eframe/winit),
+  with no HookEcho code needed for that half. **Real, narrower gap not covered**: this is the
+  OS's general *display* scale, not a finer-grained "make text bigger, leave everything else
+  alone" preference some platforms expose separately (Windows' own "Make text bigger" slider is
+  distinct from its display-scale setting) — nothing in this app reads that narrower preference
+  specifically, though the general zoom mechanism already serves the same practical need.
 
 ## Q4. macOS
 

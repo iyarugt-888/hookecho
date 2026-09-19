@@ -178,6 +178,16 @@ pub enum FieldLayer {
     /// locally-derived `VilLocal`/`VilDensity`, computed from this pane's own Level II volume
     /// rather than fetched from MRMS.
     MrmsVil,
+    /// MRMS reflectivity at whatever this point's lowest valid tilt/altitude actually is (catalog
+    /// id `refl-lowest-alt`) — ROADMAP_NEW D1's named "low-level (single-tilt) reflectivity" gap.
+    /// Unlike the national mosaic's column-max composite, this won't show echo that never
+    /// reaches the surface.
+    ReflLowestAlt,
+    /// MRMS column-max reflectivity restricted to a low-level layer (catalog id
+    /// `low-level-reflectivity`) — the other half of D1's low-level reflectivity gap: filters out
+    /// high-altitude anvil/elevated convection the whole-column mosaic would still show, unlike
+    /// `ReflLowestAlt`'s one-specific-altitude reading.
+    LowLevelReflectivity,
     /// One model minus another — which field, and therefore which pair, is `app.diff_field`.
     ModelDiff,
     /// Model-comparison side A (`app.diff_field.pair().0`'s own field, unsubtracted) — meant for
@@ -245,6 +255,8 @@ impl FieldLayer {
         matches!(
             self,
             FieldLayer::Mrms
+                | FieldLayer::ReflLowestAlt
+                | FieldLayer::LowLevelReflectivity
                 | FieldLayer::Mosaic
                 | FieldLayer::Hrrr
                 | FieldLayer::Cape
@@ -278,7 +290,7 @@ impl FieldLayer {
     }
 
     /// Fixed bottom-to-top paint order within each band.
-    pub const DRAW_ORDER: [FieldLayer; 59] = [
+    pub const DRAW_ORDER: [FieldLayer; 61] = [
         // Below-radar context band (bottom to top). The global models sit at the very bottom:
         // they are the synoptic backdrop everything else is drawn against — satellite included,
         // since it is the same kind of backdrop and the radar itself paints over it just the same.
@@ -309,6 +321,8 @@ impl FieldLayer {
         FieldLayer::CompareA,
         FieldLayer::CompareB,
         FieldLayer::Mrms,
+        FieldLayer::ReflLowestAlt,
+        FieldLayer::LowLevelReflectivity,
         FieldLayer::Mosaic,
         FieldLayer::Hrrr,
         FieldLayer::Cape,
@@ -428,6 +442,8 @@ impl FieldLayer {
             FieldLayer::Posh => "posh",
             FieldLayer::Shi => "shi",
             FieldLayer::MrmsVil => "mrms-vil",
+            FieldLayer::ReflLowestAlt => "refl-lowest-alt",
+            FieldLayer::LowLevelReflectivity => "low-level-reflectivity",
             FieldLayer::Snowfall => "snowfall",
             FieldLayer::SnowAnalysis => "snow-analysis",
             FieldLayer::GlobalMslp => "global-mslp",

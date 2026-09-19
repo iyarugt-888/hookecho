@@ -13,6 +13,17 @@ const BUCKET: &str = "https://noaa-mrms-pds.s3.amazonaws.com";
 
 /// National composite reflectivity mosaic (dBZ).
 pub const REFLECTIVITY: &str = "CONUS/MergedReflectivityQCComposite_00.50";
+/// Reflectivity at whatever this point's lowest valid tilt/altitude actually is — distinct from
+/// [`REFLECTIVITY`]'s column-max composite, which can show aloft-only echo (virga, elevated
+/// convection) with nothing reaching the surface. Confirmed live at
+/// `CONUS/ReflectivityAtLowestAltitude_00.50`.
+pub const REFLECTIVITY_LOWEST_ALTITUDE: &str = "CONUS/ReflectivityAtLowestAltitude_00.50";
+/// Column-max reflectivity restricted to a low-level layer, rather than the whole column —
+/// distinct from both [`REFLECTIVITY`] (whole column) and [`REFLECTIVITY_LOWEST_ALTITUDE`] (one
+/// specific altitude): this filters out high-altitude anvil/aloft echo while still taking the max
+/// over some depth near the surface, not just one level. Confirmed live at
+/// `CONUS/LowLevelCompositeReflectivity_00.50`.
+pub const LOW_LEVEL_COMPOSITE_REFLECTIVITY: &str = "CONUS/LowLevelCompositeReflectivity_00.50";
 /// Cloud-to-ground lightning strike density, 5-minute average (strikes/km²/min).
 pub const LIGHTNING: &str = "CONUS/NLDN_CG_005min_AvgDensity_00.00";
 

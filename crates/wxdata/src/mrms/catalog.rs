@@ -363,6 +363,46 @@ pub static PRODUCTS: &[Product] = &[
         common: false,
         fetch: FetchMapping::Fixed(super::VIL),
     },
+    Product {
+        field: FieldDescriptor {
+            id: FieldId("refl-lowest-alt"),
+            source: DataSource::NoaaMrms,
+            family: FieldFamily::Mrms,
+            name: "Reflectivity at lowest altitude",
+            description: "What's actually reaching this point's lowest valid tilt — unlike the \
+                          national mosaic's column-max, this won't show echo that never reaches \
+                          the surface",
+            units: Unit::Dbz,
+            value_kind: ValueKind::Scalar,
+            aliases: "reflectivity radar low level altitude",
+            default_palette: PaletteId::Reflectivity,
+            default_contour_interval: None,
+            valid_domain: Some(crate::field::GeographicBounds::CONUS),
+            missing_values: &[-99.0, -999.0],
+        },
+        common: false,
+        fetch: FetchMapping::Fixed(super::REFLECTIVITY_LOWEST_ALTITUDE),
+    },
+    Product {
+        field: FieldDescriptor {
+            id: FieldId("low-level-reflectivity"),
+            source: DataSource::NoaaMrms,
+            family: FieldFamily::Mrms,
+            name: "Low-level composite reflectivity",
+            description: "Column-max reflectivity restricted to a low-level layer — filters out \
+                          high-altitude anvil and elevated convection the national mosaic's \
+                          whole-column composite would still show",
+            units: Unit::Dbz,
+            value_kind: ValueKind::Scalar,
+            aliases: "reflectivity radar low level composite",
+            default_palette: PaletteId::Reflectivity,
+            default_contour_interval: None,
+            valid_domain: Some(crate::field::GeographicBounds::CONUS),
+            missing_values: &[-99.0, -999.0],
+        },
+        common: false,
+        fetch: FetchMapping::Fixed(super::LOW_LEVEL_COMPOSITE_REFLECTIVITY),
+    },
 ];
 
 #[cfg(test)]
@@ -432,7 +472,7 @@ mod tests {
             assert!(path.starts_with("CONUS/"));
             assert!(paths.insert(path));
         }
-        assert_eq!(PRODUCTS.len(), 17);
+        assert_eq!(PRODUCTS.len(), 19);
         assert!(find("hrrr").is_none());
         for product in PRODUCTS {
             assert!(std::ptr::eq(
