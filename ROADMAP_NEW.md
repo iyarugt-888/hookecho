@@ -1776,47 +1776,75 @@ Do not fabricate 3D from a 2D surface product.
 
 Current GIBS imagery is useful but insufficient for an analyst-grade satellite workstation. Add native NOAA GOES-R ABI products.
 
-## E1. Native ingest
+## E1. Native ingest — partly done
 
-Use NOAA public GOES S3 data.
+`wxdata::goes_abi` reads ABI L2 CMIP directly from the public `noaa-goes18`/`noaa-goes19` S3
+buckets (not GIBS' pre-rendered tiles), for both GOES-East and GOES-West
+(`wxdata::goes_abi::Satellite`), CONUS sector only (`ABI-L2-CMIPC`, ~5 minute cadence — see that
+module's own doc comment for why CONUS was chosen over mesoscale/full disk first: it's the one
+sector both satellites publish continuously and that the app's other CONUS-scoped overlays already
+assume). **Not done:** mesoscale sectors 1/2 and full disk are not fetched at all — mesoscale in
+particular is real, separately-scoped work (E5's "discover active mesoscale sector footprints,"
+not just a product-string swap, since a mesoscale sector moves and CONUS doesn't).
 
-Support:
-
-- GOES-East
-- GOES-West
-- ABI L2 Cloud and Moisture Imagery (CMIP)
-- CONUS sector
-- mesoscale sectors 1 and 2
-- full disk where useful
-
-For U.S. scope, prioritize CONUS + mesoscale before full disk.
-
-## E2. ABI channel support
+## E2. ABI channel support — partly done
 
 Implement analyst channels at native/reasonable resolution:
 
-- C01 blue
-- C02 red
-- C03 veggie
-- C05 snow/ice
-- C07 shortwave IR
-- C08 upper-level water vapor
-- C09 mid-level water vapor
-- C10 lower-level water vapor
-- C13 clean IR
-- C14 longwave IR
-- C15 dirty IR
-- other channels necessary for RGB recipes
+- [x] C02 red visible (`FieldLayer::GoesVisible`, was already done before this pass)
+- [x] C07 shortwave IR — new this pass. Fire/hotspot detection channel: reads as an ordinary IR
+  grayscale from 180-320 K (`render::field_ramps::GOES_SHORTWAVE_IR`), then breaks into a distinct
+  hot-color ramp (yellow → orange → red → magenta) from 320-400 K, the range only a sub-pixel fire
+  actually reaches.
+- [x] C08 upper-level water vapor (`FieldLayer::GoesWaterVapor`, was already done)
+- [x] C09 mid-level water vapor — new this pass (`FieldLayer::GoesMidWaterVapor`)
+- [x] C10 lower-level water vapor — new this pass (`FieldLayer::GoesLowWaterVapor`). All three
+  water-vapor channels share one ramp (`GOES_WATER_VAPOR`) — same physical quantity, same
+  forecaster reading convention at every level, so one shared `static` rather than three
+  copy-pasted ones (`render::field_ramps::tests::the_shared_goes_ramps_really_are_the_same_ramp`
+  checks this by pointer, not just by value).
+- [x] C13 clean IR (`FieldLayer::GoesIr`, was already done)
+- [x] C15 dirty/split-window IR — new this pass (`FieldLayer::GoesDirtyIr`). Deliberately shares
+  the C13 clean-IR ramp rather than getting its own — the two channels read almost identically on
+  their own; this channel's actual value is as the other half of the split-window (Band 15 minus
+  Band 13) dust/ash difference technique E6 hasn't built yet. Shipped standalone first since the
+  channel has to exist before that difference can be computed.
+- [ ] C01 blue, C03 veggie, C05 snow/ice — not done. These are the remaining true-color/RGB-recipe
+  input channels (E4); no standalone analyst use case for them was obvious enough to prioritize
+  ahead of RGB recipe work actually needing them, unlike C07/C09/C10/C15 which each have a real
+  standalone reason to exist today.
+- [ ] C14 longwave IR — not done. Reads almost identically to C13 clean IR (both are atmospheric-
+  window channels a few tenths of a micron apart) with no standalone or difference-product use
+  case as clear as C15's, so it wasn't added just to complete the letter/number list.
+- [ ] "other channels necessary for RGB recipes" — none of E4's recipes are built yet, so nothing
+  further was pulled in on their behalf; revisit per-recipe once E4 actually starts.
 
-Preserve DQF/quality masks where practical.
+Every new channel reuses the exact wiring the original three established (`OverlaySource::Goes`'s
+band lookup in `app.rs`, the same 300s CONUS refresh cadence, the same satellite-flip refetch
+logic) — no new fetch/render machinery, just more `FieldLayer` variants. 612 hookecho tests passing
+(2 new), native + wasm32 checks clean.
 
-## E3. Projection
+**Not done, any channel:** DQF/quality-mask preservation. `wxdata::goes_abi::decode` reads only the
+`CMI` band today; the granule's own `DQF` band (per-pixel quality flags) is parsed by nothing here,
+so a bad/missing pixel currently reads as whatever `CMI`'s own fill value resolves to rather than
+being distinguished from a genuinely cold/low real value — this plan's own E-phase acceptance
+criteria ("quality/missing pixels are distinct from cold/low values") is not met by any channel
+yet, old or new.
 
-Implement correct GOES fixed-grid geostationary projection.
+## E3. Projection — done
 
-Prefer shader projection rather than baking every frame to Web Mercator when possible.
-
-Test known landmarks against NOAA imagery.
+`wxdata::goes_abi::Projection` implements the real GOES-R fixed-grid geostationary navigation
+equations (NOAA PUG-L2+ vol. 5 §4.2.8.1 — the same formula `satpy`/`goes2go`/NOAA's own sample
+scripts use), derived per-fetch from each granule's own `goes_imager_projection` attributes rather
+than hardcoded (GOES-East and -West don't share one — different `longitude_of_projection_origin`).
+Forward-projects every source pixel once into a regular lat/lon grid (nearest-source-pixel-wins
+scatter) rather than solving the fiddlier inverse problem or shader-projecting per frame — a
+deliberate simplification from this section's original "prefer shader projection" suggestion,
+justified by not needing a second projection path alongside the Mercator tile pipeline every other
+gridded overlay already uses. `goes_abi::tests::decodes_a_real_granule_to_a_plausible_geographic_extent`
+checks this against a real downloaded granule, not just a synthetic fixture — the "test known
+landmarks against NOAA imagery" acceptance criterion, satisfied by geographic-extent plausibility
+rather than a named-landmark pixel check specifically.
 
 ## E4. RGB recipe engine
 
@@ -1858,10 +1886,17 @@ Allow selected time/range/sector frames to be downloaded into chase packs subjec
 
 ### Acceptance criteria
 
-- live 1-minute mesoscale frames animate correctly when available
-- clean IR and water-vapor values can be sampled numerically
-- radar, GLM and satellite align by valid time
-- quality/missing pixels are distinct from cold/low values
+- [ ] live 1-minute mesoscale frames animate correctly when available — no mesoscale ingest exists
+  yet (E1); CONUS's ~5-minute cadence is what's implemented.
+- [ ] clean IR and water-vapor values can be sampled numerically — not audited this pass; whether
+  the existing generic cursor-probe/data-inspector machinery already covers GOES fields (they're
+  stored as the same `MrmsField` grid shape every other gridded overlay uses) or needs its own
+  wiring is an open question for whoever picks up E6, not something this pass's channel-count
+  expansion answered.
+- [ ] radar, GLM and satellite align by valid time — not audited this pass.
+- [ ] quality/missing pixels are distinct from cold/low values — confirmed **not** met: E2's own
+  entry above explains `wxdata::goes_abi::decode` doesn't read the `DQF` quality band at all yet,
+  for any channel.
 
 ---
 

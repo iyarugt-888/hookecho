@@ -439,8 +439,9 @@ enum OverlaySource {
     /// Banded snow: the MRMS mosaic cut to elongated echo and masked to snow.
     SnowBands,
     /// A GOES ABI band, CONUS sector, read directly from S3 rather than GIBS' pre-rendered
-    /// tiles — which band is `GoesIr`/`GoesVisible`/`GoesWaterVapor`, which satellite is the
-    /// second field (`settings.goes_satellite_west`, resolved at spawn time).
+    /// tiles — which band is `GoesIr`/`GoesVisible`/`GoesWaterVapor`/`GoesShortwaveIr`/
+    /// `GoesMidWaterVapor`/`GoesLowWaterVapor`/`GoesDirtyIr`, which satellite is the second
+    /// field (`settings.goes_satellite_west`, resolved at spawn time).
     Goes(crate::render::FieldLayer, wxdata::goes_abi::Satellite),
     /// An NDFD element (the NWS's own forecaster-blended grid), CONUS short range — which
     /// element is `NdfdTemp2m`/`NdfdWind10m`/`NdfdGust10m`/`NdfdSnow`.
@@ -1099,6 +1100,10 @@ impl OverlaySource {
                     FL::GoesIr => 13,
                     FL::GoesVisible => 2,
                     FL::GoesWaterVapor => 8,
+                    FL::GoesShortwaveIr => 7,
+                    FL::GoesMidWaterVapor => 9,
+                    FL::GoesLowWaterVapor => 10,
+                    FL::GoesDirtyIr => 15,
                     _ => anyhow::bail!("{layer:?} is not a GOES band"),
                 };
                 OverlayMsg::Field(
@@ -2081,7 +2086,13 @@ fn field_refresh_secs(layer: crate::render::FieldLayer) -> u64 {
         // NBM posts hourly; the blend moves no faster than that.
         FL::ThunderProb => 900,
         // CONUS ABI CMIP lands on S3 about every 5 minutes, whichever band.
-        FL::GoesIr | FL::GoesVisible | FL::GoesWaterVapor => 300,
+        FL::GoesIr
+        | FL::GoesVisible
+        | FL::GoesWaterVapor
+        | FL::GoesShortwaveIr
+        | FL::GoesMidWaterVapor
+        | FL::GoesLowWaterVapor
+        | FL::GoesDirtyIr => 300,
         // NDFD elements update on a forecaster's schedule, not a fixed clock, and each fetch is
         // a whole multi-day CONUS grid (tens of MB) with no way to ask for just the new part —
         // half an hour balances staying current against re-downloading that for no reason.
@@ -18750,7 +18761,15 @@ impl eframe::App for HookEchoApp {
         } else {
             wxdata::goes_abi::Satellite::East
         };
-        for layer in [FL::GoesIr, FL::GoesVisible, FL::GoesWaterVapor] {
+        for layer in [
+            FL::GoesIr,
+            FL::GoesVisible,
+            FL::GoesWaterVapor,
+            FL::GoesShortwaveIr,
+            FL::GoesMidWaterVapor,
+            FL::GoesLowWaterVapor,
+            FL::GoesDirtyIr,
+        ] {
             let on = self.field_wanted(layer);
             let stale = on
                 && self.fields.get(&layer).is_none_or(|s| {

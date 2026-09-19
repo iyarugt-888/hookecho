@@ -191,9 +191,17 @@ pub(crate) fn show(
         ("Lightning", show_glm || on.contains(&FL::Lightning)),
         (
             "Satellite",
-            [FL::GoesIr, FL::GoesVisible, FL::GoesWaterVapor]
-                .iter()
-                .any(|l| on.contains(l)),
+            [
+                FL::GoesIr,
+                FL::GoesVisible,
+                FL::GoesWaterVapor,
+                FL::GoesShortwaveIr,
+                FL::GoesMidWaterVapor,
+                FL::GoesLowWaterVapor,
+                FL::GoesDirtyIr,
+            ]
+            .iter()
+            .any(|l| on.contains(l)),
         ),
         ("Spotters", show_spotters),
         ("Rotation tracks", on.contains(&FL::Rotation)),

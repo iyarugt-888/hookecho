@@ -444,6 +444,38 @@ impl HookEchoApp {
                 true,
             ),
             (
+                FL::GoesMidWaterVapor,
+                "National",
+                "GOES mid-level water vapor",
+                "Mid-tropospheric moisture (Band 9) — pairs with the upper- and lower-level \
+                 water vapor channels for the full three-level loop",
+                false,
+            ),
+            (
+                FL::GoesLowWaterVapor,
+                "National",
+                "GOES low-level water vapor",
+                "Lower-tropospheric moisture (Band 10) — the water vapor channel most sensitive \
+                 to boundary-layer moisture the upper two can't see",
+                false,
+            ),
+            (
+                FL::GoesShortwaveIr,
+                "National",
+                "GOES shortwave IR (fire detection)",
+                "Band 7 — a sub-pixel fire raises this channel's brightness temperature far \
+                 above anything a cloud or clear sky reaches, day or night",
+                false,
+            ),
+            (
+                FL::GoesDirtyIr,
+                "National",
+                "GOES split-window IR",
+                "Band 15 — reads like clean IR on its own; the other half of the split-window \
+                 dust/ash detection technique once that difference product exists",
+                false,
+            ),
+            (
                 FL::ThunderProb,
                 "Models",
                 "Chance of thunder (NBM)",

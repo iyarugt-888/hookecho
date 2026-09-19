@@ -187,6 +187,27 @@ pub enum FieldLayer {
     /// sector — mid/upper-tropospheric moisture, day or night, the channel forecasters actually
     /// mean by "the water vapor loop".
     GoesWaterVapor,
+    /// GOES ABI Band 7 (shortwave IR, 3.9 µm) brightness temperature, CONUS sector. Day or
+    /// night — a small sub-pixel fire raises this channel's brightness temperature far more than
+    /// any of the longer-wave IR bands, which is what makes it the standard fire/hotspot
+    /// detection channel rather than a second clean-IR view.
+    GoesShortwaveIr,
+    /// GOES ABI Band 9 (mid-level water vapor, 6.9 µm) brightness temperature, CONUS sector —
+    /// sits between Band 8 (upper-level) and Band 10 (lower-level); forecasters read all three
+    /// together as one loop rather than picking one, so this exists alongside
+    /// [`FieldLayer::GoesWaterVapor`] rather than replacing it.
+    GoesMidWaterVapor,
+    /// GOES ABI Band 10 (lower-level water vapor, 7.3 µm) brightness temperature, CONUS
+    /// sector — the lowest of the three water-vapor channels, most sensitive to boundary-layer
+    /// and lower-tropospheric moisture the upper two channels can't see.
+    GoesLowWaterVapor,
+    /// GOES ABI Band 15 ("dirty"/split-window IR, 12.3 µm) brightness temperature, CONUS
+    /// sector. Reads very similarly to Band 13 (clean IR) on its own — its real analyst value is
+    /// as the other half of the classic split-window technique (Band 15 minus Band 13
+    /// brightness temperature) for dust and volcanic-ash detection, a difference product not yet
+    /// built (ROADMAP_NEW E6); shipped standalone first since the channel itself has to exist
+    /// before that difference can be computed.
+    GoesDirtyIr,
     /// NDFD 2 m temperature — the NWS's own forecaster-blended grid, not a raw model run.
     NdfdTemp2m,
     /// NDFD 10 m sustained wind speed.
@@ -224,6 +245,10 @@ impl FieldLayer {
                 | FieldLayer::GoesIr
                 | FieldLayer::GoesVisible
                 | FieldLayer::GoesWaterVapor
+                | FieldLayer::GoesShortwaveIr
+                | FieldLayer::GoesMidWaterVapor
+                | FieldLayer::GoesLowWaterVapor
+                | FieldLayer::GoesDirtyIr
                 | FieldLayer::NdfdTemp2m
                 | FieldLayer::NdfdWind10m
                 | FieldLayer::NdfdGust10m
@@ -232,15 +257,20 @@ impl FieldLayer {
     }
 
     /// Fixed bottom-to-top paint order within each band.
-    pub const DRAW_ORDER: [FieldLayer; 50] = [
+    pub const DRAW_ORDER: [FieldLayer; 54] = [
         // Below-radar context band (bottom to top). The global models sit at the very bottom:
         // they are the synoptic backdrop everything else is drawn against — satellite included,
         // since it is the same kind of backdrop and the radar itself paints over it just the same.
-        // The three GOES bands are mutually exclusive in practice (nobody overlays IR on top of
-        // visible on top of water vapor), so their relative order doesn't matter much; water
-        // vapor first reads as the widest-context one, IR (the traditional default) last.
+        // The GOES bands are mutually exclusive in practice (nobody overlays two IR channels or
+        // three water-vapor levels on top of each other at once), so their relative order doesn't
+        // matter much; water vapor first reads as the widest-context group, IR (the traditional
+        // default) last.
+        FieldLayer::GoesLowWaterVapor,
+        FieldLayer::GoesMidWaterVapor,
         FieldLayer::GoesWaterVapor,
         FieldLayer::GoesVisible,
+        FieldLayer::GoesShortwaveIr,
+        FieldLayer::GoesDirtyIr,
         FieldLayer::GoesIr,
         // NDFD sits with the models it's an alternative to, not with GOES — a forecaster-blended
         // grid rather than a raw model run, but same shape of thing as the global fields.
@@ -377,6 +407,10 @@ impl FieldLayer {
             FieldLayer::GoesIr => "goes-ir",
             FieldLayer::GoesVisible => "goes-visible",
             FieldLayer::GoesWaterVapor => "goes-water-vapor",
+            FieldLayer::GoesShortwaveIr => "goes-shortwave-ir",
+            FieldLayer::GoesMidWaterVapor => "goes-mid-water-vapor",
+            FieldLayer::GoesLowWaterVapor => "goes-low-water-vapor",
+            FieldLayer::GoesDirtyIr => "goes-dirty-ir",
             FieldLayer::NdfdTemp2m => "ndfd-temp2m",
             FieldLayer::NdfdWind10m => "ndfd-wind10m",
             FieldLayer::NdfdGust10m => "ndfd-gust10m",

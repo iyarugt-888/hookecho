@@ -481,6 +481,16 @@ static GOES_VISIBLE: FieldRamp = FieldRamp {
 /// Water vapor's own enhancement: dark/warm where the mid-upper troposphere is dry (subsidence,
 /// often the interesting signal for severe setups), through white, into blue-white for the
 /// coldest, moistest air a jet streak or a deep trough drags across the loop.
+///
+/// Shared by all three water-vapor channels ([`FieldLayer::GoesWaterVapor`] Band 8 upper-level,
+/// [`FieldLayer::GoesMidWaterVapor`] Band 9 mid-level, [`FieldLayer::GoesLowWaterVapor`] Band 10
+/// lower-level) — the same physical quantity (brightness temperature) and the same forecaster
+/// convention for reading it applies at all three levels, so this isn't three ramps that happen
+/// to look alike, it's one ramp genuinely shared three ways.
+///
+/// [`FieldLayer::GoesWaterVapor`]: crate::render::FieldLayer::GoesWaterVapor
+/// [`FieldLayer::GoesMidWaterVapor`]: crate::render::FieldLayer::GoesMidWaterVapor
+/// [`FieldLayer::GoesLowWaterVapor`]: crate::render::FieldLayer::GoesLowWaterVapor
 static GOES_WATER_VAPOR: FieldRamp = FieldRamp {
     input_scale: 1.0,
     is_temp_kelvin: true,
@@ -497,6 +507,35 @@ static GOES_WATER_VAPOR: FieldRamp = FieldRamp {
             (0.55, [200, 220, 230]), // 233 K
             (0.75, [110, 90, 70]),   // 245 K
             (1.00, [30, 20, 10]),    // 260 K: driest, warmest — subsidence
+        ]
+    )
+};
+
+/// Band 7's own enhancement: an ordinary IR-style grayscale from 180-320 K (cloud tops through
+/// clear ground — this channel is still perfectly readable as a plain IR loop day or night), then
+/// a distinct hot-color ramp from 320-400 K, because this channel's actual reason for existing
+/// is fire/hotspot detection — a sub-pixel fire raises Band 7's brightness temperature far more
+/// than any longer-wave IR channel, into a range no ordinary cloud or clear-sky pixel reaches.
+static GOES_SHORTWAVE_IR: FieldRamp = FieldRamp {
+    input_scale: 1.0,
+    is_temp_kelvin: true,
+    ..ramp!(
+        "Shortwave IR brightness temp",
+        "K",
+        180.0,
+        400.0,
+        RampScale::Linear,
+        255,
+        &[
+            (0.000, [255, 255, 255]), // 180 K: coldest cloud tops
+            (0.180, [180, 180, 180]), // 220 K: cold cirrus/anvil
+            (0.364, [90, 90, 90]),    // 260 K: mid-level cloud
+            (0.545, [30, 30, 30]),    // 300 K: warm cloud / clear ground
+            (0.636, [0, 0, 0]),       // 320 K: warm surface — the ordinary IR scale tops out here
+            (0.682, [255, 255, 0]),   // 330 K: fire watch — brightness temp above anything normal
+            (0.773, [255, 150, 0]),   // 350 K: fire
+            (0.909, [255, 0, 0]),     // 380 K: intense fire
+            (1.000, [255, 0, 255]),   // 400 K: saturated hotspot
         ]
     )
 };
@@ -803,8 +842,17 @@ pub fn ramp_for(layer: FieldLayer) -> Option<&'static FieldRamp> {
         FL::SnowBands => &SNOW_BANDS,
         FL::ThunderProb => &THUNDER_PROB,
         FL::GoesIr => &GOES_IR,
+        // Reads near-identically to clean IR on its own — its real value is as the other half of
+        // a split-window (Band 15 minus Band 13) dust/ash difference product, not yet built
+        // (ROADMAP_NEW E6) — so sharing the ramp here rather than tabulating a visually
+        // indistinguishable second one is honest, not a shortcut.
+        FL::GoesDirtyIr => &GOES_IR,
         FL::GoesVisible => &GOES_VISIBLE,
-        FL::GoesWaterVapor => &GOES_WATER_VAPOR,
+        // Same physical quantity and the same forecaster reading convention at all three
+        // altitudes — see GOES_WATER_VAPOR's own doc comment for why this is a genuine three-way
+        // share, not three ramps that happen to coincide.
+        FL::GoesWaterVapor | FL::GoesMidWaterVapor | FL::GoesLowWaterVapor => &GOES_WATER_VAPOR,
+        FL::GoesShortwaveIr => &GOES_SHORTWAVE_IR,
         // Same physical quantity and units as the global-model equivalents (NDFD publishes
         // Kelvin/m/s/metres same as every other model this app reads), so they share the ramp
         // rather than tabulating a second, identical one.
@@ -999,6 +1047,39 @@ mod tests {
     fn categorical_index_is_the_raw_class_code() {
         let h = ramp_for(FieldLayer::Hca).unwrap();
         assert_eq!(h.index(110.0), 110);
+    }
+
+    #[test]
+    fn the_shared_goes_ramps_really_are_the_same_ramp() {
+        // Pointer equality, not just value equality — these are documented as one `static` shared
+        // three/two ways, not three/two ramps that happen to have identical fields.
+        let wv = ramp_for(FieldLayer::GoesWaterVapor).unwrap();
+        let mid_wv = ramp_for(FieldLayer::GoesMidWaterVapor).unwrap();
+        let low_wv = ramp_for(FieldLayer::GoesLowWaterVapor).unwrap();
+        assert!(std::ptr::eq(wv, mid_wv));
+        assert!(std::ptr::eq(wv, low_wv));
+
+        let ir = ramp_for(FieldLayer::GoesIr).unwrap();
+        let dirty_ir = ramp_for(FieldLayer::GoesDirtyIr).unwrap();
+        assert!(std::ptr::eq(ir, dirty_ir));
+    }
+
+    #[test]
+    fn shortwave_ir_distinguishes_a_fire_hotspot_from_ordinary_cloud() {
+        let r = ramp_for(FieldLayer::GoesShortwaveIr).unwrap();
+        let cold_cloud = r.index(220.0);
+        let clear_ground = r.index(300.0);
+        let fire = r.index(360.0);
+        assert!(
+            cold_cloud < clear_ground,
+            "cold cloud must read cooler than clear ground on the ordinary IR portion"
+        );
+        assert!(
+            fire > clear_ground,
+            "a fire-range brightness temperature must read hotter than any ordinary ground \
+             pixel, not fall back into the same grayscale band"
+        );
+        assert_eq!(r.index(400.0), 255, "clamps at the saturated-hotspot end");
     }
 
     #[test]
