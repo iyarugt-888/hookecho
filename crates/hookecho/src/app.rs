@@ -11472,6 +11472,16 @@ impl HookEchoApp {
                 };
                 self.toast(ToastKind::Info, msg);
             }
+            A::FocusPrevPane | A::FocusNextPane => {
+                let n = self.views.len();
+                if n > 1 {
+                    self.active = if action == A::FocusNextPane {
+                        (self.active + 1) % n
+                    } else {
+                        (self.active + n - 1) % n
+                    };
+                }
+            }
         }
     }
 

@@ -42,6 +42,10 @@ pub(crate) enum BindableAction {
     CommandSearch,
     CheatSheet,
     ToggleMute,
+    /// ROADMAP_NEW J6's "pane focus": move which pane is active without a click, wrapping at
+    /// either end. A no-op with one pane, the same way `TiltUp`/`TiltDown` no-op with no volume.
+    FocusPrevPane,
+    FocusNextPane,
 }
 
 /// A key (with modifiers) bound to an action.
@@ -134,6 +138,11 @@ pub(crate) fn defaults() -> Vec<Binding> {
         // `X` for cross-section (crossed lines), `V` for the vertical profile a sounding shows.
         plain(K::X, A::Palette(P::Tool(MapTool::CrossSection))),
         plain(K::V, A::Palette(P::Tool(MapTool::Sounding))),
+        // `[`/`]` cycle which pane is active (ROADMAP_NEW J6's "pane focus") — off `Tab` on
+        // purpose: egui already owns `Tab` for widget-to-widget focus, and a global shortcut
+        // consuming it first would break that keyboard navigation Q3 already confirmed working.
+        plain(K::OpenBracket, A::FocusPrevPane),
+        plain(K::CloseBracket, A::FocusNextPane),
         plain(K::Questionmark, A::CheatSheet),
         // `?` stays the shortcut overlay; F1 is the searchable hub the overlay points at.
         plain(K::F1, A::Palette(P::OpenWindow(AppWindow::Help))),
@@ -228,6 +237,8 @@ pub(crate) fn label(action: BindableAction) -> Option<&'static str> {
         BindableAction::CommandSearch => "Search commands",
         BindableAction::CheatSheet => "Keyboard shortcuts",
         BindableAction::ToggleMute => "Mute audio alerts",
+        BindableAction::FocusPrevPane => "Focus previous pane",
+        BindableAction::FocusNextPane => "Focus next pane",
     })
 }
 
@@ -272,6 +283,8 @@ mod tests {
             has(BindableAction::Palette(P::Tool(MapTool::Sounding))),
             "sounding"
         );
+        assert!(has(BindableAction::FocusPrevPane), "pane focus (previous)");
+        assert!(has(BindableAction::FocusNextPane), "pane focus (next)");
     }
 
     #[test]

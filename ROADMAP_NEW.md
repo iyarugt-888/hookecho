@@ -2783,10 +2783,13 @@ Add shortcuts for:
   moment (predates this pass), which is arguably more useful than stepping through them in order,
   but it is a different shortcut than what this line literally asks for, so left unchecked rather
   than counted as satisfying it
-- [ ] pane focus — no action exists to move which pane is active by keyboard at all (only a click
-  does, `self.active = idx` at several call sites); adding one is a real, if small, new
-  `BindableAction` plus a design decision this pass didn't make (cycle with `Tab`? jump to pane N
-  with a modified number key, which would collide with the moment-select digits on their own?)
+- [x] pane focus — new this pass: `[`/`]` cycle which pane is active
+  (`BindableAction::FocusPrevPane`/`FocusNextPane`, wrapping, a no-op with one pane), the same
+  `self.active = idx` assignment every existing click-to-focus site already uses. Deliberately not
+  `Tab`: egui already owns it for widget-to-widget focus, and a global shortcut consuming it first
+  would break the keyboard navigation Q3 already confirmed working — `[`/`]` cycle documents/
+  editors already use for a similar "step through the open things" idea, and neither collides
+  with the moment-select digits or anything else in the table.
 - [ ] link/unlink — genuinely ambiguous, not skipped by oversight: J2 lists *four* independent
   link groups (`LinkCameras`/`LinkTimes`/`LinkSite`/`LinkCursor`), each its own
   `PaletteAction::ToggleOverlay`, and this line doesn't say which one (or whether "all of them at
@@ -2804,8 +2807,10 @@ Add shortcuts for:
   use), so a new binding needs no second edit to show up in either place — confirmed by reading
   both call sites, not assumed from the module doc comment's own claim.
 
-620 hookecho tests passing (1 new, confirming the four new bindings reach the actions this section
-names rather than a parallel implementation of any of them), native + wasm32 checks clean.
+620 hookecho tests passing — the existing coverage test above was extended in place (not a new
+test) to also check the two pane-focus bindings, so the six new bindings across this section's
+work all confirm they reach the action they name rather than a parallel implementation of it.
+Native + wasm32 checks clean.
 
 ---
 
