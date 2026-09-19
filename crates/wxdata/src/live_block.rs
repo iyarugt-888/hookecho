@@ -561,4 +561,87 @@ mod tests {
             "the one radial's elevation must become one sweep"
         );
     }
+
+    /// ROADMAP_NEW B6.12: "synthetic chunks/blocks arriving out of order produce the correct
+    /// final sweep." `assemble_scan` delegates straight to `nexrad_data::aws::realtime::
+    /// assemble_volume` (an external, vendored crate this workspace doesn't own), so this isn't
+    /// re-testing HookEcho's own logic — it's establishing, for this codebase's own record,
+    /// whether that dependency is order-sensitive. Every actual caller today
+    /// (`hookecho::relay_provider`) only ever appends blocks in the sequence order the server
+    /// sends them (backlog fully drained before live delivery begins, per `radar_ingest::server`'s
+    /// own locking), so out-of-order input is not reachable in the wired system today — but a
+    /// resume/backfill path added later easily could interleave, and this pins down today's actual
+    /// behavior before that happens rather than assuming it.
+    #[test]
+    fn assemble_scan_produces_the_same_sweep_regardless_of_block_order() {
+        let t = Utc::now();
+        let vcp_block = LiveLevel2Block {
+            site: "KTLX".into(),
+            volume: VolumeKey::new("KTLX", t),
+            cut: None,
+            elevation_angle_deg: None,
+            first_azimuth_number: None,
+            last_azimuth_number: None,
+            radar_start: t,
+            radar_end: t,
+            received_at: t,
+            emitted_at: t,
+            sequence: 0,
+            source_id: "relay".into(),
+            checksum: checksum(&synthetic_vcp(t)),
+            payload: synthetic_vcp(t),
+        };
+        let radial_a_payload = synthetic_radial("KTLX", 1, 0, 3, t);
+        let radial_a = LiveLevel2Block {
+            site: "KTLX".into(),
+            volume: VolumeKey::new("KTLX", t),
+            cut: Some(CutKey {
+                elevation_number: 1,
+                repeat_index: 0,
+            }),
+            elevation_angle_deg: Some(0.5),
+            first_azimuth_number: Some(0),
+            last_azimuth_number: Some(0),
+            radar_start: t,
+            radar_end: t,
+            received_at: t,
+            emitted_at: t,
+            sequence: 1,
+            source_id: "relay".into(),
+            checksum: checksum(&radial_a_payload),
+            payload: radial_a_payload,
+        };
+        let radial_b_payload = synthetic_radial("KTLX", 1, 1, 2, t);
+        let radial_b = LiveLevel2Block {
+            site: "KTLX".into(),
+            volume: VolumeKey::new("KTLX", t),
+            cut: Some(CutKey {
+                elevation_number: 1,
+                repeat_index: 0,
+            }),
+            elevation_angle_deg: Some(0.5),
+            first_azimuth_number: Some(1),
+            last_azimuth_number: Some(1),
+            radar_start: t,
+            radar_end: t,
+            received_at: t,
+            emitted_at: t,
+            sequence: 2,
+            source_id: "relay".into(),
+            checksum: checksum(&radial_b_payload),
+            payload: radial_b_payload,
+        };
+
+        let in_order = assemble_scan(&[vcp_block.clone(), radial_a.clone(), radial_b.clone()])
+            .expect("in-order blocks must assemble");
+        let reversed = assemble_scan(&[radial_b, radial_a, vcp_block])
+            .expect("the same blocks, reversed, must still assemble");
+
+        assert_eq!(in_order.sweeps().len(), reversed.sweeps().len());
+        assert_eq!(
+            in_order.sweeps()[0].radials().len(),
+            reversed.sweeps()[0].radials().len(),
+            "both orderings must recover the same two radials, not silently drop one"
+        );
+    }
 }

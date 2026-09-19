@@ -584,7 +584,16 @@ represents a volume's sweep order (including SAILS/MRLE's mid-volume interleavin
 display-time reaction to a signal that already exists, and needs its own design pass rather than
 being folded into this one.
 
-## B6. Redundant Level II ingest, rechunking and seamless feed failover — not started
+## B6. Redundant Level II ingest, rechunking and seamless feed failover — mostly done
+
+Wired end-to-end (B6.11 steps 1-4, 6-11 all done): a self-hostable `radar-ingest` relay, a client
+provider for it, dual-feed health monitoring, a per-site failover arbiter, a NOAA TGFTP degraded
+tier, and Settings/diagnostics UI all exist and are live in the app today. What's left is the
+genuine external blocker (a live LDM upstream adapter, B6.11 step 5 — needs a real peer this
+environment doesn't have), the deeper cross-provider dedup/seamless-handoff wiring B6.7 describes
+(deferred, not required for today's safe-but-not-seamless tier switch), deployment observability's
+last piece (`/metrics` now exists; structured JSON logs don't), and B6.12's remaining acceptance
+gaps (see that section) — not a ground-up "not started" phase.
 
 The target is no longer merely “try another URL if the current Level II request fails.” HookEcho
 should own a **transport-independent real-time radar stream** with enough redundancy to preserve
@@ -1240,27 +1249,93 @@ Unidata path working and should land with deterministic replay tests.
 
 ### B6.12 Acceptance tests
 
-- [ ] synthetic chunks/blocks arriving out of order produce the correct final sweep
-- [ ] duplicate blocks from both providers are rendered once
-- [ ] a missing radial block does not corrupt adjacent azimuths
-- [ ] primary stream failure mid-sweep switches to a caught-up independent LDM relay without
-  waiting for full-volume completion when identity is compatible
-- [ ] an intentionally incompatible backup volume is **not** mixed into the current live volume
-- [ ] failover never moves the visible newest-radar timestamp backwards
-- [ ] SAILS/MRLE repeated low-level cuts survive cross-provider deduplication correctly
-- [ ] a short client disconnect resumes from sequence without rebuilding the whole current volume
-- [ ] backend restart creates an unambiguous stream epoch/resume outcome
-- [ ] slow-client/backpressure test remains within configured memory bounds
-- [ ] malformed/oversized Level II input is rejected without terminating healthy site streams
-- [ ] provider flapping does not cause rapid source oscillation because failback hysteresis works
-- [ ] when both progressive feeds fail, NOAA TGFTP supplies the next completed volume and the UI
-  clearly changes to `DEGRADED_VOLUME`
+Audited against the test suite that already exists (much of this list turned out already covered
+by tests written for B6.6/B6.7/B6.11's own sections, just never cross-checked against this exact
+list) rather than assumed unstarted; two genuine gaps got a new test each this pass.
+
+- [x] synthetic chunks/blocks arriving out of order produce the correct final sweep — new this
+  pass: `wxdata::live_block::tests::
+  assemble_scan_produces_the_same_sweep_regardless_of_block_order` feeds the same VCP + two radial
+  blocks forward and reversed and checks both produce the same sweep/radial count. Note what this
+  actually establishes: `assemble_scan` delegates straight to `nexrad_data::aws::realtime::
+  assemble_volume`, an external vendored crate this workspace doesn't own — so this pins down that
+  dependency's real behavior for this codebase's record, not something HookEcho's own code
+  guarantees by construction. No caller today can actually deliver blocks out of order in practice
+  (`radar_ingest::server`'s live handler fully drains backlog under lock before switching to live
+  delivery, and `relay_provider` only ever appends in arrival order) — this test is insurance
+  against a future resume/backfill path that might interleave, not a fix for an observed bug.
+- [ ] duplicate blocks from both providers are rendered once — the underlying primitive
+  (`wxdata::continuation::RadialDedup`) is real and unit-tested
+  (`dedup_filters_overlapping_azimuths_but_keeps_new_ones`), but per B6.11 step 11's own note it is
+  **not wired into the live render pipeline** — today's failover is a clean single-active-provider
+  switch, never two sources feeding the renderer at once, so there is nothing yet for this
+  criterion to exercise end-to-end. Genuinely still open; needs the dedup wiring B6.11 step 11
+  deferred, not just a test.
+- [x] a missing radial block does not corrupt adjacent azimuths — `wxdata::live::tests::
+  a_partial_sweep_does_not_punch_a_hole_in_the_one_already_merged` (a chunk boundary splits a
+  sweep into two partial merges; the already-merged half must stay intact and gapless) and
+  `a_new_pass_keeps_the_previous_one_in_azimuths_it_has_not_reached` (a fresh pass's not-yet-
+  reached azimuths keep last pass's data rather than blanking). Covers the merge-correctness
+  invariant this criterion is really asking about, via the boundary-split scenario rather than a
+  literal single-dropped-radial scenario — close enough in mechanism that a separate test for the
+  literal case would exercise the same code path.
+- [x] primary stream failure mid-sweep switches to a caught-up independent LDM relay without
+  waiting for full-volume completion when identity is compatible —
+  `radar_provider_manager::tests::a_fresh_backup_takes_over_before_degrading_when_primary_fails`:
+  the arbiter switches to a fresh backup purely on health (failing + stale primary, fresh backup),
+  with `sp.tick()` deciding immediately — no dependency on volume/sweep boundaries anywhere in the
+  decision path, which is what makes a mid-sweep switch possible in the first place.
+- [x] an intentionally incompatible backup volume is **not** mixed into the current live volume —
+  `wxdata::continuation::tests::different_sites_are_never_compatible` and
+  `near_but_not_exactly_matching_volume_starts_are_incompatible` cover the compatibility check
+  itself; combined with B6.11 step 11's note that a tier switch today always resets to the pane's
+  last full volume and re-streams fresh from the new provider (never splices radials from two
+  sources into one assembly), incompatible mixing is structurally not reachable, not just
+  discouraged.
+- [x] failover never moves the visible newest-radar timestamp backwards —
+  `failover_arbiter::tests::switching_never_moves_the_visible_newest_radar_time_backwards`, named
+  for exactly this criterion.
+- [x] SAILS/MRLE repeated low-level cuts survive cross-provider deduplication correctly —
+  `wxdata::continuation::tests::a_sails_revisit_is_not_deduplicated_against_the_base_tilt` covers
+  the identity logic (a SAILS/MRLE revisit must get its own `CutKey`, not collide with the base
+  tilt's). "Cross-provider" is aspirational until the dedup wiring above lands — today this is
+  single-provider identity correctness, which is the prerequisite for the cross-provider case, not
+  the cross-provider case itself.
+- [x] a short client disconnect resumes from sequence without rebuilding the whole current volume
+  — `radar_ingest::server::tests::live_websocket_replays_backlog_then_streams_new_blocks`: a
+  client with `resume_after=0` is replayed exactly the one block it's missing, not the whole
+  volume from scratch.
+- [x] backend restart creates an unambiguous stream epoch/resume outcome — new this pass (B6.10):
+  `Pipeline::epoch()` plus `server::tests::resume_after_is_ignored_when_the_claimed_epoch_does_not_match`.
+- [ ] slow-client/backpressure test remains within configured memory bounds — `Pipeline`'s
+  per-site broadcast channel has a fixed capacity (`SUBSCRIBER_CHANNEL_CAPACITY`) and
+  `serve_live_socket` already handles `RecvError::Lagged` by continuing rather than erroring, but
+  no test actually drives a slow/non-draining subscriber past that capacity and asserts memory
+  stays bounded (the ring-buffer eviction tests cover the *retention* store's bound, not a lagging
+  live subscriber's). Still open.
+- [x] malformed/oversized Level II input is rejected without terminating healthy site streams —
+  `radar_ingest::store::tests::store_rejects_oversized_product_without_affecting_other_sites` and
+  `radar_ingest::rechunk::tests::garbage_bytes_are_dropped_without_panicking_or_affecting_other_sites`.
+- [x] provider flapping does not cause rapid source oscillation because failback hysteresis works —
+  `failover_arbiter::tests::failback_requires_consecutive_healthy_observations_not_just_one` and
+  `an_interrupted_recovery_streak_resets_and_does_not_fail_back_early`.
+- [x] when both progressive feeds fail, NOAA TGFTP supplies the next completed volume and the UI
+  clearly changes to `DEGRADED_VOLUME` —
+  `radar_provider_manager::tests::both_sides_stalling_degrades_even_with_a_backup_configured` (and
+  `a_stalled_primary_with_no_backup_degrades_to_tgftp` for the no-backup case).
 - [ ] completed volume reconstructed from each progressive path matches the same archived Level II
-  volume within decode tolerance
+  volume within decode tolerance — no test feeds the *same* archived volume's raw bytes through
+  both the Unidata decode path and the relay's rechunk-then-`assemble_scan` path and compares the
+  results. Still open; would need an archived-volume fixture common to both.
 - [ ] measured radar/provider/backend/client/decode latency fields are internally consistent and
-  shown with exact provenance
+  shown with exact provenance — individual latency fields exist and are read correctly by the B3
+  health popup (per B6.9), but nothing tests the *consistency* relationship between them (e.g.
+  provider lag ≤ total age, decode time is part of and not double-counted against render-queue
+  time). Still open.
 - [ ] 2D progressive sweep, gate inspector, cross sections, derived products and both 3D modes
-  continue updating across a safe provider transition
+  continue updating across a safe provider transition — a real UI-integration test across the
+  whole wired stack; this is B6.11 step 12's own "chaos/replay/performance tests" item under
+  another name, not separately started.
 
 ### B6.13 Definition of done
 
