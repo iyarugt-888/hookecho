@@ -203,11 +203,15 @@ pub enum FieldLayer {
     GoesLowWaterVapor,
     /// GOES ABI Band 15 ("dirty"/split-window IR, 12.3 µm) brightness temperature, CONUS
     /// sector. Reads very similarly to Band 13 (clean IR) on its own — its real analyst value is
-    /// as the other half of the classic split-window technique (Band 15 minus Band 13
-    /// brightness temperature) for dust and volcanic-ash detection, a difference product not yet
-    /// built (ROADMAP_NEW E6); shipped standalone first since the channel itself has to exist
-    /// before that difference can be computed.
+    /// as the other half of the classic split-window technique, [`FieldLayer::GoesDustDiff`],
+    /// for dust and volcanic-ash detection.
     GoesDirtyIr,
+    /// The split-window dust/ash product itself (ROADMAP_NEW E6): Band 13 minus Band 15
+    /// brightness temperature, CONUS sector — positive and above a small deadband over a
+    /// dust/ash cloud, near-zero (transparent) everywhere else. See `field_ramps`'s
+    /// `GOES_DUST_DIFF` doc comment for why the subtraction is this way around rather than the
+    /// more commonly quoted Band 15 minus Band 13.
+    GoesDustDiff,
     /// NDFD 2 m temperature — the NWS's own forecaster-blended grid, not a raw model run.
     NdfdTemp2m,
     /// NDFD 10 m sustained wind speed.
@@ -257,7 +261,7 @@ impl FieldLayer {
     }
 
     /// Fixed bottom-to-top paint order within each band.
-    pub const DRAW_ORDER: [FieldLayer; 54] = [
+    pub const DRAW_ORDER: [FieldLayer; 55] = [
         // Below-radar context band (bottom to top). The global models sit at the very bottom:
         // they are the synoptic backdrop everything else is drawn against — satellite included,
         // since it is the same kind of backdrop and the radar itself paints over it just the same.
@@ -322,6 +326,10 @@ impl FieldLayer {
         FieldLayer::AzShear,
         FieldLayer::Lightning,
         FieldLayer::GlmFed,
+        // The one GOES-derived layer that belongs up here rather than with the other GOES bands
+        // below-radar: it's a detection product (dust/ash signal), not a backdrop image, so it
+        // should sit on top like the radar-derived severe-signal layers around it.
+        FieldLayer::GoesDustDiff,
     ];
 
     /// Stable name for saved files — a workspace records which layers were on by slug, so a file
@@ -411,6 +419,7 @@ impl FieldLayer {
             FieldLayer::GoesMidWaterVapor => "goes-mid-water-vapor",
             FieldLayer::GoesLowWaterVapor => "goes-low-water-vapor",
             FieldLayer::GoesDirtyIr => "goes-dirty-ir",
+            FieldLayer::GoesDustDiff => "goes-dust-diff",
             FieldLayer::NdfdTemp2m => "ndfd-temp2m",
             FieldLayer::NdfdWind10m => "ndfd-wind10m",
             FieldLayer::NdfdGust10m => "ndfd-gust10m",

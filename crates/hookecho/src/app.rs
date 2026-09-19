@@ -443,6 +443,11 @@ enum OverlaySource {
     /// `GoesMidWaterVapor`/`GoesLowWaterVapor`/`GoesDirtyIr`, which satellite is the second
     /// field (`settings.goes_satellite_west`, resolved at spawn time).
     Goes(crate::render::FieldLayer, wxdata::goes_abi::Satellite),
+    /// A two-band GOES ABI channel-difference product, CONUS sector — today only
+    /// `FieldLayer::GoesDustDiff` (ROADMAP_NEW E6's split-window dust/ash technique, Band 13
+    /// minus Band 15), but the variant carries the layer rather than being hardcoded so a second
+    /// difference product only needs a new match arm, not a new `OverlaySource` case.
+    GoesDiff(crate::render::FieldLayer, wxdata::goes_abi::Satellite),
     /// An NDFD element (the NWS's own forecaster-blended grid), CONUS short range — which
     /// element is `NdfdTemp2m`/`NdfdWind10m`/`NdfdGust10m`/`NdfdSnow`.
     Ndfd(crate::render::FieldLayer),
@@ -794,6 +799,7 @@ impl OverlaySource {
             | Self::Global(layer, ..)
             | Self::L3Grid(layer, ..)
             | Self::Goes(layer, ..)
+            | Self::GoesDiff(layer, ..)
             | Self::Ndfd(layer) => RequestLane::Field(*layer),
             Self::ModelDiff(..) => RequestLane::Field(FL::ModelDiff),
             // Both compare panes ride one fetch (see `fetch_diff_pair`); either layer name works
@@ -1109,6 +1115,22 @@ impl OverlaySource {
                 OverlayMsg::Field(
                     layer,
                     wxdata::goes_abi::fetch_latest_conus(http, satellite, band, 1200, 700).await?,
+                )
+            }
+            OverlaySource::GoesDiff(layer, satellite) => {
+                use crate::render::FieldLayer as FL;
+                let (band_a, band_b) = match layer {
+                    // Band 13 minus Band 15 — see `render::field_ramps`'s `GOES_DUST_DIFF` doc
+                    // comment for why the subtraction is this way around.
+                    FL::GoesDustDiff => (13, 15),
+                    _ => anyhow::bail!("{layer:?} is not a GOES difference product"),
+                };
+                OverlayMsg::Field(
+                    layer,
+                    wxdata::goes_abi::fetch_latest_conus_diff(
+                        http, satellite, band_a, band_b, 1200, 700,
+                    )
+                    .await?,
                 )
             }
             OverlaySource::Ndfd(layer) => {
@@ -2092,7 +2114,8 @@ fn field_refresh_secs(layer: crate::render::FieldLayer) -> u64 {
         | FL::GoesShortwaveIr
         | FL::GoesMidWaterVapor
         | FL::GoesLowWaterVapor
-        | FL::GoesDirtyIr => 300,
+        | FL::GoesDirtyIr
+        | FL::GoesDustDiff => 300,
         // NDFD elements update on a forecaster's schedule, not a fixed clock, and each fetch is
         // a whole multi-day CONUS grid (tens of MB) with no way to ask for just the new part —
         // half an hour balances staying current against re-downloading that for no reason.
@@ -18781,6 +18804,22 @@ impl eframe::App for HookEchoApp {
                 self.fields.entry(layer).or_default().last_fetch = Some(Instant::now());
                 self.goes_west_key.insert(layer, west);
                 self.spawn_overlay(ctx, OverlaySource::Goes(layer, satellite));
+            }
+        }
+        // GOES channel-difference products: same staleness/satellite-flip rules as the single-band
+        // layers above, but a distinct `OverlaySource` variant since each one fetches two bands.
+        for layer in [FL::GoesDustDiff] {
+            let on = self.field_wanted(layer);
+            let stale = on
+                && self.fields.get(&layer).is_none_or(|s| {
+                    s.last_fetch
+                        .is_none_or(|t| t.elapsed().as_secs() >= field_refresh_secs(layer))
+                });
+            let changed = on && self.goes_west_key.get(&layer) != Some(&west);
+            if stale || changed {
+                self.fields.entry(layer).or_default().last_fetch = Some(Instant::now());
+                self.goes_west_key.insert(layer, west);
+                self.spawn_overlay(ctx, OverlaySource::GoesDiff(layer, satellite));
             }
         }
         // NDFD elements: also no forecast hour to scrub — each fetch is the whole short-range

@@ -540,6 +540,35 @@ static GOES_SHORTWAVE_IR: FieldRamp = FieldRamp {
     )
 };
 
+/// The classic split-window dust/ash detection technique — Band 13 (clean IR) minus Band 15
+/// (dirty/split-window IR) brightness temperature, ROADMAP_NEW E6's "channel difference
+/// products." Deliberately stored and displayed as Band 13 − Band 15 (not the more commonly
+/// quoted Band 15 − Band 13) so the sign works *with* this ramp system's existing "value below
+/// `lo` is transparent" cutoff instead of needing a second mechanism: dust/ash makes the dirty
+/// channel read *colder* than the clean one, so Band 13 − Band 15 comes out positive over a
+/// dust/ash cloud and near-zero (or slightly negative, from ordinary channel noise) everywhere
+/// else — `lo` at 1.0 K is the deadband that hides that everywhere-else noise, exactly the way
+/// `ModelDiff`'s own hand-rolled deadband LUT hides model agreement, but for free from a plain
+/// `Linear` ramp because the physical quantity was chosen so "no signal" and "below the visible
+/// range" are the same condition.
+static GOES_DUST_DIFF: FieldRamp = FieldRamp {
+    input_scale: 1.0,
+    is_temp_kelvin: false, // a temperature *difference*, not an absolute reading — no C/F conversion
+    ..ramp!(
+        "Dust/ash signal (Band 13 \u{2212} Band 15)",
+        "K",
+        1.0,
+        6.0,
+        RampScale::Linear,
+        220,
+        &[
+            (0.0, [255, 230, 180]), // 1 K: weakest visible signal — pale tan
+            (0.4, [230, 140, 120]), // 3 K: moderate
+            (1.0, [200, 40, 140]),  // 6 K: strong dust/ash signal — magenta, the conventional color
+        ]
+    )
+};
+
 static GLOBAL_TEMP_2M: FieldRamp = FieldRamp {
     // Kelvin → °C/°F is an offset, not a scale, so `input_scale` (a pure multiplier) can't do it;
     // the ramp stays in Kelvin and `is_temp_kelvin` has the legend convert to the Units setting.
@@ -853,6 +882,7 @@ pub fn ramp_for(layer: FieldLayer) -> Option<&'static FieldRamp> {
         // share, not three ramps that happen to coincide.
         FL::GoesWaterVapor | FL::GoesMidWaterVapor | FL::GoesLowWaterVapor => &GOES_WATER_VAPOR,
         FL::GoesShortwaveIr => &GOES_SHORTWAVE_IR,
+        FL::GoesDustDiff => &GOES_DUST_DIFF,
         // Same physical quantity and units as the global-model equivalents (NDFD publishes
         // Kelvin/m/s/metres same as every other model this app reads), so they share the ramp
         // rather than tabulating a second, identical one.
@@ -1080,6 +1110,32 @@ mod tests {
              pixel, not fall back into the same grayscale band"
         );
         assert_eq!(r.index(400.0), 255, "clamps at the saturated-hotspot end");
+    }
+
+    #[test]
+    fn dust_diff_hides_ordinary_noise_but_shows_a_real_signal() {
+        let r = ramp_for(FieldLayer::GoesDustDiff).unwrap();
+        // No dust: the two channels read within a fraction of a degree of each other, or Band 15
+        // even reads slightly warmer (a small negative Band13-Band15 value) — both must vanish.
+        assert_eq!(
+            r.index(0.3),
+            0,
+            "ordinary channel noise must not paint as a signal"
+        );
+        assert_eq!(
+            r.index(-0.5),
+            0,
+            "a slightly negative value is not a signal either"
+        );
+        // A real dust/ash signal clears the deadband and actually renders.
+        assert!(
+            r.index(3.0) > 0,
+            "a real signal must be visible, not swallowed by the deadband"
+        );
+        assert!(
+            r.index(6.0) >= r.index(3.0),
+            "a stronger signal must read at least as intense, not dimmer"
+        );
     }
 
     #[test]

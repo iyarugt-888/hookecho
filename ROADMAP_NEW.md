@@ -1880,14 +1880,32 @@ Recipe metadata should specify channel inputs, transforms, gamma/ranges and outp
 - show sector boundary
 - graceful switch when the event exits the meso sector
 
-## E6. Satellite analysis tools
+## E6. Satellite analysis tools — partly done
 
-- brightness-temperature sample
-- channel difference products
-- cold-cloud-top threshold overlay
-- cooling-rate/time-change product
-- GLM overlay synchronized to frame
-- radar + satellite dual/quad pane presets
+- [ ] brightness-temperature sample — not audited (see E2's own acceptance-criteria note: whether
+  the generic cursor-probe/data-inspector already covers GOES fields, stored as the same
+  `MrmsField` shape every other gridded overlay uses, is still an open question).
+- [x] channel difference products — `FieldLayer::GoesDustDiff` (new this pass): the classic
+  split-window dust/ash technique, Band 13 minus Band 15 brightness temperature
+  (`wxdata::goes_abi::fetch_latest_conus_diff`, a new two-band concurrent fetch + cell-by-cell
+  subtract — `nx`/`ny` always match between any two `decode()` calls requesting the same output
+  resolution, so no resampling is needed, unlike `hookecho::fielddiff::diff`'s model-comparison
+  case which this deliberately does *not* reuse: that function's strict exact-valid-time check
+  would reject two same-scan-but-different-second GOES bands every time). Rendered through the
+  ordinary single-value + LUT pipeline every other field layer uses — no new GPU/shader work —
+  by choosing the *sign* of the subtraction so "no dust" and "below the ramp's visible range"
+  are the same condition (`render::field_ramps`'s `GOES_DUST_DIFF` doc comment has the full
+  reasoning): a plain `Linear` ramp with `lo` above the ordinary channel-noise floor gets a
+  deadband-hides-agreement effect for free, the same practical result as `ModelDiff`'s hand-rolled
+  deadband LUT, without needing that second rendering path. 483 wxdata tests passing (3 new), 613
+  hookecho tests (1 new).
+- [ ] cold-cloud-top threshold overlay — not done.
+- [ ] cooling-rate/time-change product — not done.
+- [ ] GLM overlay synchronized to frame — not audited (GLM lightning data is already ingested
+  elsewhere in this app for the existing `Lightning`/`GlmFed` layers; whether it's specifically
+  synchronized to the GOES imagery *frame* rather than just plotted on its own clock wasn't
+  checked this pass).
+- [ ] radar + satellite dual/quad pane presets — not done.
 
 ## E7. Offline satellite chase packs
 

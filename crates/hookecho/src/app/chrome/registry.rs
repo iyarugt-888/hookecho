@@ -472,7 +472,15 @@ impl HookEchoApp {
                 "National",
                 "GOES split-window IR",
                 "Band 15 — reads like clean IR on its own; the other half of the split-window \
-                 dust/ash detection technique once that difference product exists",
+                 dust/ash detection technique",
+                false,
+            ),
+            (
+                FL::GoesDustDiff,
+                "National",
+                "GOES dust/ash detection",
+                "Split-window technique (Band 13 minus Band 15) — highlights airborne dust and \
+                 volcanic ash the way an ordinary IR or visible loop can't",
                 false,
             ),
             (

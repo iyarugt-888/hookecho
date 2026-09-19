@@ -199,6 +199,7 @@ pub(crate) fn show(
                 FL::GoesMidWaterVapor,
                 FL::GoesLowWaterVapor,
                 FL::GoesDirtyIr,
+                FL::GoesDustDiff,
             ]
             .iter()
             .any(|l| on.contains(l)),

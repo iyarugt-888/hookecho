@@ -281,6 +281,66 @@ pub async fn fetch_latest_conus(
     decode(bytes, out_nx, out_ny)
 }
 
+/// Fetch two bands from the same satellite and subtract their brightness temperatures cell by
+/// cell (`band_a` minus `band_b`), for the classic channel-difference analysis techniques
+/// (ROADMAP_NEW E6, e.g. the split-window dust/ash product: Band 15 minus Band 13). The two
+/// fetches run concurrently — they're independent S3 objects — then [`decode`] is asked for the
+/// same `out_nx`/`out_ny` for both, which means their output grids are always the same shape
+/// (that parameter is passed straight through, never derived from a granule's own content), so
+/// the subtraction is a plain cell-by-cell op with no resampling step: the two bands see the same
+/// fixed sector from the same instrument, so their real geographic extents already agree to well
+/// under a pixel at CONUS resolution. This deliberately does *not* reuse
+/// `hookecho::fielddiff::diff` (built for model comparison, where an exact valid-time match is
+/// meaningful and enforced) — two ABI bands from the same scan have close-but-not-bit-identical
+/// timestamps by design, so that function's strict `a.time != b.time → None` would always reject
+/// a genuine same-scan pair.
+pub async fn fetch_latest_conus_diff(
+    client: &reqwest::Client,
+    satellite: Satellite,
+    band_a: u8,
+    band_b: u8,
+    out_nx: usize,
+    out_ny: usize,
+) -> anyhow::Result<MrmsField> {
+    let (a, b) = futures_util::future::try_join(
+        fetch_latest_conus(client, satellite, band_a, out_nx, out_ny),
+        fetch_latest_conus(client, satellite, band_b, out_nx, out_ny),
+    )
+    .await?;
+    diff_fields(&a, &b)
+}
+
+/// `a - b`, cell by cell, keeping `a`'s own bounds/time. Both grids must be the same shape — true
+/// for any two [`decode`] outputs requested at the same `out_nx`/`out_ny`, which is the only way
+/// this is called; a shape mismatch is a caller bug, not a runtime condition to recover from
+/// gracefully, so it's a named error rather than a silent truncation or panic.
+fn diff_fields(a: &MrmsField, b: &MrmsField) -> anyhow::Result<MrmsField> {
+    anyhow::ensure!(
+        a.nx == b.nx && a.ny == b.ny,
+        "channel-difference grids have different shapes: {}x{} vs {}x{}",
+        a.nx,
+        a.ny,
+        b.nx,
+        b.ny
+    );
+    let values = a
+        .values
+        .iter()
+        .zip(&b.values)
+        .map(|(&x, &y)| x - y) // NaN propagates through arithmetic — either side missing, so is this
+        .collect();
+    Ok(MrmsField {
+        values,
+        nx: a.nx,
+        ny: a.ny,
+        lon_west: a.lon_west,
+        lon_east: a.lon_east,
+        lat_north: a.lat_north,
+        lat_south: a.lat_south,
+        time: a.time,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -363,6 +423,48 @@ mod tests {
             hdf5lite::Value::Num(6_378_137.0),
         )]);
         assert!(Projection::from_attrs(&attrs).is_none());
+    }
+
+    fn synthetic_field(values: Vec<f32>, nx: usize, ny: usize) -> MrmsField {
+        MrmsField {
+            values,
+            nx,
+            ny,
+            lon_west: -100.0,
+            lon_east: -90.0,
+            lat_north: 40.0,
+            lat_south: 30.0,
+            time: chrono::Utc::now(),
+        }
+    }
+
+    #[test]
+    fn diff_fields_subtracts_cell_by_cell_and_keeps_as_bounds() {
+        let a = synthetic_field(vec![250.0, 260.0, 270.0, 280.0], 2, 2);
+        let b = synthetic_field(vec![248.0, 262.0, 268.0, 280.0], 2, 2);
+        let d = diff_fields(&a, &b).unwrap();
+        assert_eq!(d.values, vec![2.0, -2.0, 2.0, 0.0]);
+        assert_eq!(d.lon_west, a.lon_west);
+        assert_eq!(d.time, a.time);
+    }
+
+    #[test]
+    fn diff_fields_propagates_missing_data_as_nan() {
+        let a = synthetic_field(vec![250.0, f32::NAN], 2, 1);
+        let b = synthetic_field(vec![f32::NAN, 260.0], 2, 1);
+        let d = diff_fields(&a, &b).unwrap();
+        assert!(
+            d.values[0].is_nan(),
+            "a missing input must not fabricate a difference"
+        );
+        assert!(d.values[1].is_nan());
+    }
+
+    #[test]
+    fn diff_fields_rejects_mismatched_shapes() {
+        let a = synthetic_field(vec![0.0; 4], 2, 2);
+        let b = synthetic_field(vec![0.0; 6], 3, 2);
+        assert!(diff_fields(&a, &b).is_err());
     }
 
     #[test]
