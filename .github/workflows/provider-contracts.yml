@@ -1,0 +1,101 @@
+name: Provider contract tests
+
+# ROADMAP_NEW N3: "Create network tests that run on schedule, not every PR, for public feeds...
+# Alert CI maintainers when schemas/paths change." The tests themselves already existed, scattered
+# across the tree as `#[ignore = "network"]` (see e.g. wxdata::mrms::catalog, wxdata::goes_abi,
+# hookecho::volume, hookecho::tgftp_provider) -- `cargo test --workspace` never runs them, so
+# nothing was actually watching whether NOAA/AWS/Unidata changed a path or schema out from under
+# this app between the times someone happened to run `-- --ignored` by hand. This workflow is
+# only the missing schedule + alerting; it adds no new tests.
+on:
+  schedule:
+    # 11:00 UTC daily -- comfortably after every feed this app reads has posted its day's first
+    # cycle, and far from any of this repo's other scheduled workflows.
+    - cron: "0 11 * * *"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  provider-contracts:
+    name: Provider contracts
+    runs-on: ubuntu-latest
+    # A feed being briefly unreachable or having moved a path is exactly what this job exists to
+    # surface -- GitHub already turns a failed scheduled run into the maintainer-visible signal
+    # N3 asks for (Actions tab + the repo's own failure-notification settings), so no extra
+    # alerting integration is needed here.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      # wxdata has no GPU-gated ignored tests (those live only in hookecho's headless.rs/
+      # wind_gpu.rs). Two are excluded anyway: `live_tempest_stations_report` and
+      # `live_synoptic_mesonets_report` `.expect()`-panic without a personal API token
+      # (`HOOKECHO_TEMPEST_TOKEN`/`HOOKECHO_SYNOPTIC_TOKEN`) this job has no secret for -- unlike
+      # `meteoalarm::live_edr`, which checks for its own key with an `if let` and skips cleanly
+      # when it's absent, so it needs no exclusion. Add either token as a repo secret and an `env:`
+      # entry here later if testing those two feeds becomes worth a personal quota being spent by
+      # a scheduled job rather than a human.
+      #
+      # `--test-threads=1`: found by actually running this locally before trusting it, not assumed
+      # safe. Several of these tests hit the *same* provider (three separate tests all fetch GDPS,
+      # for instance) -- run with cargo's default parallelism, two independent tests can race or
+      # trip a provider's own rate limit and fail for a reason that has nothing to do with a real
+      # schema/path break (`dwd::tests::a_second_poll_of_an_unchanged_volume_costs_one_request` and
+      # `global::tests::gdps_live` both failed under full parallelism and passed clean in
+      # isolation). A scheduled contract job has no reason to race for speed, and a job that cries
+      # wolf from its own concurrency is worse than a slower one nobody has to double-check by hand.
+      #
+      # Two known, accepted sources of occasional real (not this job's fault) red runs even with
+      # that fixed, found the same way -- by actually running the exact commands below several
+      # times while writing this workflow, not assumed clean:
+      # - `dwd::tests::a_second_poll_of_an_unchanged_volume_costs_one_request` polls a real live
+      #   radar volume twice expecting no change between the polls, which can genuinely race a
+      #   real volume rollover (this radar updates every few minutes) -- passed alone every time
+      #   it was tried alone, failed each time it ran as part of the full suite here.
+      # - `hrrr_wind_decodes_as_a_matched_pair` hit "connection closed before message completed"
+      #   fetching an HRRR .idx file on two of several attempts -- a transient connection reset,
+      #   not a 404/changed-path error. Repeated live runs against the same bucket in a short
+      #   window (writing and re-testing this workflow) plausibly tripped rate-limiting on the
+      #   testing machine's own IP; a single daily scheduled run making its one round of requests
+      #   is a materially different load pattern and may not reproduce this at all.
+      # A red run naming only one of these two is worth a rerun before treating it as a real
+      # break; several unrelated failures at once, or the same test failing repeatedly across
+      # separate days, is the actual signal this job exists to surface.
+      - name: wxdata provider contracts
+        run: |
+          cargo test -p wxdata --lib -- --ignored --nocapture --test-threads=1 \
+            --skip live_tempest_stations_report \
+            --skip live_synoptic_mesonets_report
+
+      # hookecho's own network-gated tests (Level II chunk/volume listing, NOAA TGFTP, chase
+      # cache warming, elevation/status feeds) alongside three categories this job cannot run:
+      # GPU golden-image tests (need this job's own GPU deps installed to even build), two
+      # `nwr` tests explicitly tagged "network + audio device" (a headless runner has no audio
+      # output), and `cam`'s test, which `.expect()`-panics without a manually-set
+      # `HOOKECHO_CAM_URL` naming a specific camera to test against -- there is no one fixed
+      # camera to schedule this against long-term. Excluded by name rather than by ignore-reason
+      # (cargo test has no CLI filter on the `#[ignore = "..."]` string itself); ran
+      # `cargo test -p hookecho --lib -- --ignored --list` to enumerate every ignored test before
+      # writing this list, rather than guessing. Keep it in sync if a new ignored test that needs
+      # more than plain network access is added.
+      - name: hookecho provider contracts
+        run: |
+          cargo test -p hookecho --lib -- --ignored --nocapture --test-threads=1 \
+            --skip a_loop_and_a_palette_drag_rebuild_nothing \
+            --skip gpu_stroke_width_survives_zoom_without_reupload \
+            --skip cc_anomaly_fades_high_correlation_and_keeps_low \
+            --skip retained_observed_buffer_grows_and_shrinks_correctly_across_uploads \
+            --skip a_stale_wedge_renders_dimmer_and_only_where_it_should \
+            --skip gpu_golden_radar_snapshot \
+            --skip gpu_wind_advects_downwind \
+            --skip plays_a_live_mp3_stream \
+            --skip dead_relay_reports_offline \
+            --skip live_stream_delivers_frames

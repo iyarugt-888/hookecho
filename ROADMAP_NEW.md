@@ -2941,18 +2941,46 @@ struct here — the three concrete gaps above were fixable as targeted, independ
 inventing a generic "staleness policy" abstraction with only three call sites to serve would be
 speculative generality this codebase's own engineering rules argue against.
 
-## N3. Provider contract tests
+## N3. Provider contract tests — mostly done
 
 Create network tests that run on schedule, not every PR, for public feeds:
 
-- latest Level II chunk listing
-- latest MRMS file
-- GOES ABI object listing
-- HRRR/RAP/GFS byte-range/index access
-- RRFS/REFS feed
-- RTMA/URMA feed
+- [x] latest Level II chunk listing — `hookecho::volume::tests::
+  latest_complete_volume_finds_a_new_one_then_reports_up_to_date`
+- [x] latest MRMS file — `wxdata::mrms::catalog::tests::the_mrms_catalog_paths_are_real`
+- [x] GOES ABI object listing — `wxdata::goes_abi::tests::fetches_the_live_conus_*` (IR/visible/
+  water vapor)
+- [x] HRRR/RAP/GFS byte-range/index access — `wxdata::hrrr::tests::*` and
+  `wxdata::model::tests::the_catalogue_matches_what_the_feeds_publish`
+- [ ] RRFS/REFS feed — not a data source this app has yet (F2's own not-started item); nothing to
+  contract-test
+- [ ] RTMA/URMA feed — likewise not built yet (G1)
 
-Alert CI maintainers when schemas/paths change.
+**What was actually missing, and what shipped this pass:** every test above already existed as
+an `#[ignore = "network"]` unit test — the literal gap was that `cargo test --workspace` (CI's own
+default command) never runs `#[ignore]`d tests at all, so nothing was watching any of these
+between the times someone happened to run `-- --ignored` by hand. New this pass:
+`.github/workflows/provider-contracts.yml`, a scheduled workflow (`workflow_dispatch` too) that
+runs every ignored test in both `wxdata` and `hookecho` except ones that genuinely cannot run
+unattended on a bare CI runner (GPU golden-image tests, two audio-device-dependent tests, one
+that needs a manually-supplied camera URL, and two that need personal API tokens this job has no
+secret for) — adds no new tests, only the schedule + alerting `cargo test`'s own default behavior
+already gives a failing scheduled run (the Actions tab, the repo's notification settings).
+
+Verified by actually running the exact commands the workflow uses, repeatedly, before trusting
+it — not written and assumed clean:
+- Found and fixed a real problem this way: with cargo's default parallelism, several tests hit
+  the *same* provider at once (three separate tests all fetch GDPS, for instance) and can race or
+  trip a rate limit, failing for a reason that has nothing to do with a genuine schema/path break.
+  `--test-threads=1` fixes it — a scheduled contract job has no reason to race for speed, and a
+  job that cries wolf from its own concurrency defeats its own purpose.
+- Two remaining, accepted sources of occasional real red runs even sequential, documented in the
+  workflow's own comments rather than hidden: `dwd`'s conditional-poll test can race a genuine
+  live volume rollover, and any single test can hit a transient connection reset unrelated to an
+  actual break. Both reproduced during this verification; neither is a bug in this app or this
+  workflow. A red run naming only one of these two is worth a rerun before treating it as a real
+  break — the actual signal this job exists to surface is several unrelated failures at once, or
+  the same test failing across separate days.
 
 ## N4. Local diagnostics bundle — done
 
