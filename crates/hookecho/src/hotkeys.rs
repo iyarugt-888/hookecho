@@ -6,7 +6,7 @@
 //! are app-level variants. [`defaults`] is the shipped table; [`active`] swaps in the user's
 //! overrides from settings without touching call sites.
 
-use crate::app::{AppWindow, PaletteAction};
+use crate::app::{AppWindow, MapTool, PaletteAction};
 use crate::settings::Settings;
 use std::borrow::Cow;
 use wxdata::level2::Moment;
@@ -122,6 +122,18 @@ pub(crate) fn defaults() -> Vec<Binding> {
         plain(K::M, A::ToggleMute),
         plain(K::F11, A::Fullscreen),
         plain(K::T, A::Palette(P::ToggleRibbon)),
+        // ROADMAP_NEW J6: previously reachable only through the command palette or a click.
+        // `End` matches the usual media-timeline convention (`Home` = oldest, `End` = most
+        // recent) rather than reusing an arrow key, all four of which are already the timeline's.
+        plain(K::End, A::Palette(P::GoLive)),
+        // `G`ate inspector — reads an exact value/geometry at a click, the closest existing tool
+        // to J6's "sample tool" ask. `Interrogate` (the other click tool) is already one tap away
+        // from anything else, since tapping the active tool again returns to it (see `poll`'s own
+        // dispatch), so it doesn't need a dedicated key of its own.
+        plain(K::G, A::Palette(P::Tool(MapTool::GateInspector))),
+        // `X` for cross-section (crossed lines), `V` for the vertical profile a sounding shows.
+        plain(K::X, A::Palette(P::Tool(MapTool::CrossSection))),
+        plain(K::V, A::Palette(P::Tool(MapTool::Sounding))),
         plain(K::Questionmark, A::CheatSheet),
         // `?` stays the shortcut overlay; F1 is the searchable hub the overlay points at.
         plain(K::F1, A::Palette(P::OpenWindow(AppWindow::Help))),
@@ -237,6 +249,29 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// ROADMAP_NEW J6: "live", "sample tool", "cross section", and "sounding" each reach an
+    /// existing `PaletteAction` that a command-palette hit or a click already ran — this is only
+    /// checking the new keyboard door in, not a second implementation of any of them.
+    #[test]
+    fn j6_shortcuts_reach_the_actions_the_roadmap_named() {
+        use PaletteAction as P;
+        let d = defaults();
+        let has = |action: BindableAction| d.iter().any(|b| b.action == action);
+        assert!(has(BindableAction::Palette(P::GoLive)), "jump to live");
+        assert!(
+            has(BindableAction::Palette(P::Tool(MapTool::GateInspector))),
+            "sample tool"
+        );
+        assert!(
+            has(BindableAction::Palette(P::Tool(MapTool::CrossSection))),
+            "cross section"
+        );
+        assert!(
+            has(BindableAction::Palette(P::Tool(MapTool::Sounding))),
+            "sounding"
+        );
     }
 
     #[test]

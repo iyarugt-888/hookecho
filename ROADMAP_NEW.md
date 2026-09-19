@@ -2754,22 +2754,58 @@ Shipping this preset from only the pieces that already exist (HRRR vs. observed/
 silently drop RRFS and ensemble probability rather than honestly leave the whole preset undone —
 better to wait until F7 and an RRFS source exist and build the real thing.
 
-## J6. Keyboard-first workflows
+## J6. Keyboard-first workflows — partly done
+
+Audited against `hotkeys.rs`'s "one flat table" binding system, which already existed and was
+more complete than this section's own bare checklist suggested — most of what was actually
+missing was a keyboard *door* into an action the command palette (and, for tools, a click) could
+already reach, not a new feature. `poll`'s dispatch (a `PaletteAction` binding runs the exact same
+code a drawer row or command-palette hit does) means giving one of these a key needed no new
+behavior of its own — see the exhaustive-`BindableAction`-match pattern already used for the tilt/
+frame-step actions below.
 
 Add shortcuts for:
 
-- product next/previous
-- tilt next/previous
-- previous/next frame
-- live
-- pane focus
-- link/unlink
-- sample tool
-- cross section
-- sounding
-- 3D
+- [x] tilt next/previous — predates this pass: `PageUp`/`PageDown`
+- [x] previous/next frame — predates this pass: `ArrowLeft`/`ArrowRight` (`ArrowUp`/`ArrowDown`
+  jump about an hour, a step beyond the letter of "previous/next frame" but the same timeline
+  concept)
+- [x] live — new this pass: `End` (matches the usual media-timeline convention, `Home` = oldest,
+  `End` = most recent, rather than reusing an arrow key, all four of which are already the
+  timeline's) → the existing `PaletteAction::GoLive`
+- [x] sample tool — new this pass: `G` → `MapTool::GateInspector` ("read the exact gate value and
+  geometry" is the closest existing tool to "sample"; `MapTool::Interrogate`, the other click
+  tool, is already one tap away from anything else — tapping the active tool again returns to it
+  — so it doesn't need a dedicated key of its own)
+- [x] cross section — new this pass: `X` → `MapTool::CrossSection`
+- [x] sounding — new this pass: `V` → `MapTool::Sounding`
+- [ ] product next/previous — not added as a *cycle*; `1`-`7` already jump straight to a specific
+  moment (predates this pass), which is arguably more useful than stepping through them in order,
+  but it is a different shortcut than what this line literally asks for, so left unchecked rather
+  than counted as satisfying it
+- [ ] pane focus — no action exists to move which pane is active by keyboard at all (only a click
+  does, `self.active = idx` at several call sites); adding one is a real, if small, new
+  `BindableAction` plus a design decision this pass didn't make (cycle with `Tab`? jump to pane N
+  with a modified number key, which would collide with the moment-select digits on their own?)
+- [ ] link/unlink — genuinely ambiguous, not skipped by oversight: J2 lists *four* independent
+  link groups (`LinkCameras`/`LinkTimes`/`LinkSite`/`LinkCursor`), each its own
+  `PaletteAction::ToggleOverlay`, and this line doesn't say which one (or whether "all of them at
+  once") it means. Guessing wrong here binds a key to the wrong toggle, which is worse than no
+  binding at all — better to leave it open for a real product decision than pick one.
+- [ ] 3D — no `PaletteAction` exists for this yet, so there's nothing to bind a key to before that
+  itself is built: switching a pane's `map_3d.enabled` today only happens inline inside its own
+  options-panel UI code (`app.rs`, the "2D"/"3D map" `selectable_value` pair), with camera pitch/
+  bearing reset logic tied directly to that transition — factoring that into a standalone toggle
+  a hotkey (and the command palette, per this section's own acceptance criterion below) could call
+  is itself the missing work, not just wiring a key once it exists
+- [x] every shortcut must appear in command palette/help — automatically true for everything
+  above: `ui::cheatsheet` and the settings window's rebind editor both read the live binding table
+  generically (resolving a `Palette(_)` action's label from the same registry the drawer/palette
+  use), so a new binding needs no second edit to show up in either place — confirmed by reading
+  both call sites, not assumed from the module doc comment's own claim.
 
-Every shortcut must appear in command palette/help.
+620 hookecho tests passing (1 new, confirming the four new bindings reach the actions this section
+names rather than a parallel implementation of any of them), native + wasm32 checks clean.
 
 ---
 
