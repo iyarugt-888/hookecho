@@ -168,6 +168,16 @@ pub enum FieldLayer {
     ThunderProb,
     /// GLM flash-extent density — the recent satellite flashes gridded into a density field.
     GlmFed,
+    /// MRMS Probability of Severe Hail (catalog id `posh`) — ROADMAP_NEW D1's named gap, national
+    /// coverage, pairs with the existing `Mesh`/`HailSwath` layers.
+    Posh,
+    /// MRMS Severe Hail Index (catalog id `shi`) — the raw index `Posh`/`Mesh` are themselves
+    /// derived from.
+    Shi,
+    /// National MRMS Vertically Integrated Liquid (catalog id `mrms-vil`) — distinct from the
+    /// locally-derived `VilLocal`/`VilDensity`, computed from this pane's own Level II volume
+    /// rather than fetched from MRMS.
+    MrmsVil,
     /// One model minus another — which field, and therefore which pair, is `app.diff_field`.
     ModelDiff,
     /// Model-comparison side A (`app.diff_field.pair().0`'s own field, unsubtracted) — meant for
@@ -268,7 +278,7 @@ impl FieldLayer {
     }
 
     /// Fixed bottom-to-top paint order within each band.
-    pub const DRAW_ORDER: [FieldLayer; 56] = [
+    pub const DRAW_ORDER: [FieldLayer; 59] = [
         // Below-radar context band (bottom to top). The global models sit at the very bottom:
         // they are the synoptic backdrop everything else is drawn against — satellite included,
         // since it is the same kind of backdrop and the radar itself paints over it just the same.
@@ -321,11 +331,14 @@ impl FieldLayer {
         FieldLayer::CompositeLocal,
         FieldLayer::Vil,
         FieldLayer::VilLocal,
+        FieldLayer::MrmsVil,
         FieldLayer::EchoTops,
         FieldLayer::EtopLocal,
         FieldLayer::VilDensity,
         FieldLayer::HailMehs,
         FieldLayer::HailPosh,
+        FieldLayer::Posh,
+        FieldLayer::Shi,
         FieldLayer::Hca,
         FieldLayer::UpdraftHelicity,
         FieldLayer::Rotation,
@@ -409,6 +422,12 @@ impl FieldLayer {
             FieldLayer::EtopLocal => "etop-local",
             FieldLayer::HailMehs => "hail-mehs",
             FieldLayer::HailPosh => "hail-posh",
+            // These three slugs are also `wxdata::mrms::catalog` field IDs — `descriptor()`
+            // resolves them by exact string match, so a slug here that doesn't match its
+            // catalog `FieldId` would silently break provenance/search for the layer.
+            FieldLayer::Posh => "posh",
+            FieldLayer::Shi => "shi",
+            FieldLayer::MrmsVil => "mrms-vil",
             FieldLayer::Snowfall => "snowfall",
             FieldLayer::SnowAnalysis => "snow-analysis",
             FieldLayer::GlobalMslp => "global-mslp",

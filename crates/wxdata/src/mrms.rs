@@ -64,6 +64,15 @@ pub const PRECIP_RATE: &str = "CONUS/PrecipRate_00.00";
 pub const PRECIP_TYPE: &str = "CONUS/PrecipFlag_00.00";
 /// FLASH flash-flood average recurrence interval over the 30-min QPE window (years).
 pub const FLASH_ARI30: &str = "CONUS/FLASH_QPE_ARI30M_00.00";
+/// Probability of Severe Hail (%) — confirmed live on the bucket at `CONUS/POSH_00.50`.
+pub const POSH: &str = "CONUS/POSH_00.50";
+/// Severe Hail Index (dimensionless) — the raw index MESH/POSH are derived from, confirmed live
+/// at `CONUS/SHI_00.50`.
+pub const SHI: &str = "CONUS/SHI_00.50";
+/// National Vertically Integrated Liquid (kg/m²) — confirmed live at `CONUS/VIL_00.50`; distinct
+/// from the locally-derived `FieldLayer::VilLocal`, computed from this pane's own Level II
+/// volume rather than fetched from MRMS.
+pub const VIL: &str = "CONUS/VIL_00.50";
 
 /// Low-level rotation-track (accumulated azimuthal-shear max) product path for `minutes`
 /// (30/60/120 supported; other values fall back to 30).

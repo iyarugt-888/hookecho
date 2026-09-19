@@ -403,7 +403,7 @@ Reloading the web app does not redownload unchanged radar/model/satellite data a
 
 Current HookEcho live chunks are already fast, but a top-tier radar workstation should show what has arrived **inside an in-progress sweep**, expose latency, and tolerate provider failures.
 
-## B1. Radar provider abstraction — partly done
+## B1. Radar provider abstraction — mostly done
 
 Create a provider trait around Level II live acquisition.
 
@@ -434,13 +434,14 @@ in, then confirmed live (`cargo run` logged "live stream started for ..." same a
 - [x] current Unidata/AWS chunk source — wrapped, not rewritten
 - [x] completed-volume fallback from NOAA/AWS archive/current objects where applicable — same
   two-candidate-with-fallback logic `spawn_fetch` always had, now owned by the provider
-- [ ] independent HookEcho backend Level II ingest/relay — implement in B6 as a self-hostable
-  `radar-ingest` service fed from a permitted NEXRAD2 LDM/IDD upstream. It must ingest raw
-  Archive II/Level II data continuously, maintain a hot per-site rolling state, rechunk the
-  stream for HookEcho clients, and expose the same progressive-radial semantics as the current
-  Unidata/AWS path. Do **not** assume NSF Unidata will provide a direct IDD peer to every
-  deployment; upstream LDM peering must be configured with a provider/institution willing to
-  feed the deployment. The desktop/web/Android clients must not need to run LDM themselves.
+- [x] independent HookEcho backend Level II ingest/relay — done via B6 (that section's own status
+  has the full detail): `radar-ingest` is a self-hostable service (`crates/radar-ingest`,
+  Dockerfile + docker-compose example), `HookEchoRelayLevel2Provider` is the matching client-side
+  `Level2LiveProvider`, and clients never run LDM themselves — a deployment's own permitted
+  upstream feeds `radar-ingest`, not the desktop/web/Android app. The one line item B6 itself still
+  can't close: a live LDM/IDD wire-protocol adapter, blocked on a genuine external dependency (a
+  real upstream peer to develop and validate the handshake against, not available in this
+  environment) — `RADAR_INGEST_REPLAY_FILE` fixture replay stands in for it today.
 
 **Do not claim sub-10-second performance unless the active provider actually supplies data that quickly.** The UI must report measured latency rather than marketing a fixed number.
 
@@ -495,7 +496,7 @@ resources; each observed-3D emit still writes the whole gate buffer rather than 
 range that actually changed. That and the CPU-side clone/re-bin above are the remaining cost items
 in this section.
 
-## B3. Latency dashboard — mostly done
+## B3. Latency dashboard — done
 
 Add a compact source/latency diagnostic:
 
@@ -524,8 +525,12 @@ Add a compact source/latency diagnostic:
   lag, only once it is above zero. Unit-tested; not independently pixel-confirmed live this round
   since triggering a real retry needs an actual network hiccup — see CHANGELOG for the honest
   caveat.
-- provider failover state — deferred to B6, which doesn't exist to report on yet (see B6's own
-  note: this app has exactly one provider today)
+- provider failover state — **done** via B6.9: the same health popup's "Active provider",
+  "Standby provider", "Failover state" (`PRIMARY`/`BACKUP`/`DEGRADED_VOLUME`/`MANUAL`), and "Last
+  transition" lines (`registry.rs::failover_details`), automatically following whichever tier
+  `radar_provider_manager::SiteProviders` currently has selected. This app now has up to three
+  providers per site (primary Unidata, backup relay, degraded TGFTP) where B6 was not started
+  when this line was originally written.
 
 ## B4. Radar metadata inspector — done
 
@@ -1625,11 +1630,27 @@ The current `mrms.rs` contains a valuable but hand-selected subset. Replace the 
 
 ## D1. MRMS product catalog — partly done, found already built
 
-`wxdata::mrms::catalog` exists (see A1's corrected notes above) with 14 products as
+`wxdata::mrms::catalog` exists (see A1's corrected notes above), now with 17 products as
 `FieldDescriptor`s: national composite reflectivity, rotation tracks (30/60/120 min), MESH,
 MESH swaths (30/60/120/240/360/1440 min), azimuthal shear, lightning density (1/5/15/30 min),
-precip rate, QPE 1h/3h/6h/12h/24h, precip type, and FLASH ARI-30. Verified live against the real
-bucket (see D1's own "Rules" item below) rather than just declared.
+precip rate, QPE 1h/3h/6h/12h/24h, precip type, FLASH ARI-30, and — new this pass — POSH
+(`FieldLayer::Posh`), Severe Hail Index (`FieldLayer::Shi`), and national VIL (`FieldLayer::
+MrmsVil`, distinct from the locally-derived `VilLocal`). Verified live against the real
+bucket (see D1's own "Rules" item below) rather than just declared: 27/27 paths confirmed
+(up from 21 before this pass' three additions).
+
+The three new products needed more than catalog metadata alone to actually reach a user: each
+also needed a matching `FieldLayer` variant (`render/mod.rs`: enum entry, `DRAW_ORDER` slot, a
+slug that exactly matches its catalog `FieldId`) and a color ramp
+(`render/field_ramps.rs`) — but nothing beyond that. `app.rs`'s fetch loop
+(`mrms_product`/`mrms_request`, iterating `FieldLayer::DRAW_ORDER` and looking up
+`wxdata::mrms::catalog::find(layer.slug())`) and the Layers-panel picker
+(`registry.rs`, iterating `catalog::PRODUCTS` and resolving each by `FieldLayer::from_slug`)
+are both already fully generic over the catalog, exactly as D2's own status claims — confirmed
+by writing three new products through them rather than just reading that claim. POSH reuses the
+existing locally-derived `HailPosh` layer's own probability scale (one scale app-wide, whichever
+source computed it); national VIL likewise reuses the existing local `VilLocal`'s scale. SHI got
+a new ramp (0-400, the range MRMS's own MESH-equivalent 2-inch-hail threshold falls in).
 
 Target operational groups:
 
@@ -1672,21 +1693,31 @@ Target operational groups:
 
 - MRMS snow/precipitation-type products when published in the operational bucket
 
-The 14 products above cover composite reflectivity, rotation/azshear, MESH + swaths, precip
-rate/QPE (1/3/6/12/24h)/type, lightning and flash-flood rarity. **Not yet cataloged**, all genuine
-gaps rather than oversights: low-level (single-tilt) reflectivity, MRMS's own national echo-tops
-and VIL grids (distinct from the locally-derived `EtopLocal`/`VilLocal` computed from the pane's
-own Level II volume), 0°C/-20°C layer-height products, POSH, QPE-to-ARI exceedance fields beyond
-the one 30-minute window, streamflow products, and MRMS's winter/precip-type-family products
-beyond the one flag already cataloged.
+The 17 products above cover composite reflectivity, rotation/azshear, MESH + swaths, POSH, SHI,
+precip rate/QPE (1/3/6/12/24h)/type, national VIL, lightning and flash-flood rarity. **Not yet
+cataloged**, all genuine gaps rather than oversights — confirmed live on the bucket while adding
+the three products above, so these are real, verified prefixes to pick up next, not guesses:
+low-level (single-tilt) reflectivity (`LowLevelCompositeReflectivity_00.50`,
+`MergedReflectivityAtLowestAltitude_00.50`), national echo tops
+(`EchoTop_18/30/50/60_00.50`, distinct from the locally-derived `EtopLocal`), hail-growth-zone
+height products (`H50_Above_-20C_00.50` and siblings — related to but distinct from a literal
+"-20°C height," which MRMS does not publish directly; `Model_0degC_Height_00.50` is the closest
+real 0°C-level product), reflectivity-at-isotherm products (`Reflectivity_0C/-5C/-10C/-15C/-20C_
+00.50`), mid-level rotation tracks (`RotationTrackML*`, alongside the existing low-level ones),
+QPE-to-ARI exceedance fields beyond the one 30-minute window (`FLASH_QPE_ARI01H/03H/06H/12H/24H/
+MAX_00.00` all exist live), streamflow products (`FLASH_CREST_MAXSTREAMFLOW_00.00` and several
+sibling FLASH/CREST/HP/SAC variants), and MRMS's winter/precip-type-family products beyond the
+one flag already cataloged (none found with an obviously distinct winter-specific prefix in this
+pass's bucket listing — may not exist as a separate published product, not confirmed either way).
 
 ### Rules
 
 - [x] Do not blindly list a product unless a feed contract test confirms it exists —
   `mrms::catalog::the_mrms_catalog_paths_are_real` (network-gated) asks the live bucket for every
   path every product's `FetchMapping` can produce (default plus every published window), the same
-  listing a real fetch depends on. Passing today: 21/21 paths (11 products, several with more than
-  one published window) confirmed live.
+  listing a real fetch depends on. Passing today: 27/27 paths (14 single-path products plus
+  rotation/lightning/hail-swath's multiple published windows — 14 + 3 + 4 + 6 = 27) confirmed
+  live, up from 21/21 before this pass' three additions.
 
 ## D2. Generic MRMS fetch/decode path — done
 
@@ -1760,11 +1791,16 @@ Do not fabricate 3D from a 2D surface product.
 ### Acceptance criteria
 
 - [x] new scalar MRMS product can be added through catalog metadata with minimal/no new UI code —
-  true for the fetch/decode/search/legend-palette/provenance path; D3's per-product UI niceties
-  (an accumulation-window picker) are not automatic yet, only the core plumbing
-- [ ] at least the major WeatherFront-class MRMS groups are covered — 14 products across
-  reflectivity/severe/precipitation/lightning/hydrology (QPE now spans 1h/3h/6h/12h/24h); several
-  groups from D1's own target list (echo tops, VIL, layer heights, POSH, streamflow) are not
+  confirmed by actually doing it three times this pass (POSH/SHI/national VIL), not just claimed:
+  each needed a catalog entry, a matching `FieldLayer` slug, and a ramp — the fetch, Layers-panel
+  picker, search, provenance, and health-tracking all picked them up automatically. D3's
+  per-product UI niceties (an accumulation-window picker) are still not automatic, only the core
+  plumbing.
+- [ ] at least the major WeatherFront-class MRMS groups are covered — 17 products across
+  reflectivity/severe (now including POSH/SHI)/precipitation/lightning/hydrology (QPE now spans
+  1h/3h/6h/12h/24h)/VIL; several groups from D1's own target list (low-level reflectivity, echo
+  tops, layer heights, streamflow, the ARI windows beyond 30 min) are confirmed real on the live
+  bucket but not yet cataloged — see D1's own updated gap list for the exact prefixes
 - [x] categorical fields use nearest-neighbor
 - [x] all products show exact valid time and units — `DataStamp` + `Unit::symbol`
 

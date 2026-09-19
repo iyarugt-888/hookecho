@@ -2093,6 +2093,8 @@ fn field_refresh_secs(layer: crate::render::FieldLayer) -> u64 {
     match layer {
         FL::Lightning | FL::AzShear => 60,
         FL::Mrms | FL::Mesh | FL::Rotation | FL::Hrrr | FL::Mosaic => 120,
+        // Same MRMS product cadence as MESH/rotation above.
+        FL::Posh | FL::Shi | FL::MrmsVil => 120,
         // QPE accumulations update on a ~2-minute MRMS cadence.
         // The rate product lands every 2 minutes; the accumulations move far more slowly.
         FL::PrecipRate => 120,

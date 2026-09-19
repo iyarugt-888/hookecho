@@ -192,6 +192,26 @@ static HAIL_SWATH: FieldRamp = ramp!(
     ]
 );
 
+/// Severe Hail Index — MRMS's own documented range is roughly 0 (nothing) to a few hundred
+/// (a well-known SHI of \u{2248}400 corresponds to MESH's own 2-inch hail threshold via that
+/// product's published conversion), so 400 anchors the hot end of this ramp rather than an
+/// arbitrarily larger number that would leave everything short of a truly extreme event looking
+/// pale.
+static SHI: FieldRamp = ramp!(
+    "Severe Hail Index",
+    "",
+    10.0,
+    400.0,
+    RampScale::Linear,
+    220,
+    &[
+        (0.0, [60, 200, 90]),
+        (0.4, [240, 230, 60]),
+        (0.7, [240, 150, 30]),
+        (1.0, [230, 60, 200]),
+    ]
+);
+
 static QPE_STOPS: &[(f32, [u8; 3])] = &[
     (0.0, [40, 180, 90]),
     (0.3, [230, 220, 60]),
@@ -876,6 +896,15 @@ pub fn ramp_for(layer: FieldLayer) -> Option<&'static FieldRamp> {
             PaletteId::Height500 => Some(&GLOBAL_HEIGHT_500),
             PaletteId::Wind10m => Some(&GLOBAL_WIND_10M),
             PaletteId::PrecipitableWater => Some(&GLOBAL_PRECIP),
+            // Shares the locally-derived `FL::HailPosh`'s existing scale (`POSH`, defined
+            // earlier in this file next to that layer) — one probability-of-severe-hail scale
+            // app-wide, whichever source computed it, same reasoning as the VIL share below.
+            PaletteId::HailProbability => Some(&POSH),
+            PaletteId::SevereHailIndex => Some(&SHI),
+            // One VIL scale app-wide — see the locally-derived `FL::Vil | FL::VilLocal` arm
+            // below for the same reasoning applied the other direction (a national fetch sharing
+            // a local one's scale, rather than the reverse).
+            PaletteId::Vil => Some(&VIL),
         };
     }
     Some(match layer {
@@ -947,7 +976,12 @@ pub fn ramp_for(layer: FieldLayer) -> Option<&'static FieldRamp> {
         | FL::Lightning
         | FL::ModelDiff
         | FL::CompareA
-        | FL::CompareB => return None,
+        | FL::CompareB
+        // Also descriptor-backed (new MRMS catalog products) — routed through the branch above,
+        // same as every other catalog layer in this list.
+        | FL::Posh
+        | FL::Shi
+        | FL::MrmsVil => return None,
     })
 }
 
@@ -970,6 +1004,9 @@ mod tests {
             ("qpe24h", &QPE_24H),
             ("preciptype", &PRECIP_TYPE),
             ("flashflood", &FLASH_FLOOD),
+            ("posh", &POSH),
+            ("shi", &SHI),
+            ("mrms-vil", &VIL),
         ] {
             let layer = FieldLayer::from_slug(id).unwrap();
             assert!(std::ptr::eq(ramp_for(layer).unwrap(), expected), "{id}");

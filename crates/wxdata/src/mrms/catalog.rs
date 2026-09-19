@@ -308,6 +308,61 @@ pub static PRODUCTS: &[Product] = &[
         common: false,
         fetch: FetchMapping::Hail,
     },
+    Product {
+        field: FieldDescriptor {
+            id: FieldId("posh"),
+            source: DataSource::NoaaMrms,
+            family: FieldFamily::Mrms,
+            name: "Probability of severe hail (POSH)",
+            description: "Chance a storm is producing hail 1 inch or larger, right now",
+            units: Unit::Percent,
+            value_kind: ValueKind::Scalar,
+            aliases: "hail probability severe",
+            default_palette: PaletteId::HailProbability,
+            default_contour_interval: None,
+            valid_domain: Some(crate::field::GeographicBounds::CONUS),
+            missing_values: &[-1.0, -3.0],
+        },
+        common: false,
+        fetch: FetchMapping::Fixed(super::POSH),
+    },
+    Product {
+        field: FieldDescriptor {
+            id: FieldId("shi"),
+            source: DataSource::NoaaMrms,
+            family: FieldFamily::Mrms,
+            name: "Severe Hail Index (SHI)",
+            description: "The raw hail-severity index MESH and POSH are themselves derived from",
+            units: Unit::Dimensionless,
+            value_kind: ValueKind::Scalar,
+            aliases: "hail severe index MESH POSH",
+            default_palette: PaletteId::SevereHailIndex,
+            default_contour_interval: None,
+            valid_domain: Some(crate::field::GeographicBounds::CONUS),
+            missing_values: &[-1.0, -3.0],
+        },
+        common: false,
+        fetch: FetchMapping::Fixed(super::SHI),
+    },
+    Product {
+        field: FieldDescriptor {
+            id: FieldId("mrms-vil"),
+            source: DataSource::NoaaMrms,
+            family: FieldFamily::Mrms,
+            name: "Water aloft, national (VIL)",
+            description: "How much liquid water is stacked up in the atmosphere, nationwide — \
+                          the national MRMS mosaic, not just this radar's own volume",
+            units: Unit::KilogramsPerSquareMeter,
+            value_kind: ValueKind::Scalar,
+            aliases: "vertically integrated liquid water national mosaic",
+            default_palette: PaletteId::Vil,
+            default_contour_interval: None,
+            valid_domain: Some(crate::field::GeographicBounds::CONUS),
+            missing_values: &[-1.0, -3.0],
+        },
+        common: false,
+        fetch: FetchMapping::Fixed(super::VIL),
+    },
 ];
 
 #[cfg(test)]
@@ -377,7 +432,7 @@ mod tests {
             assert!(path.starts_with("CONUS/"));
             assert!(paths.insert(path));
         }
-        assert_eq!(PRODUCTS.len(), 14);
+        assert_eq!(PRODUCTS.len(), 17);
         assert!(find("hrrr").is_none());
         for product in PRODUCTS {
             assert!(std::ptr::eq(

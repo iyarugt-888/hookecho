@@ -114,6 +114,14 @@ pub enum Unit {
     Kelvin,
     Percent,
     MetersPerSecond,
+    /// Areal density (VIL, MRMS's `VIL_00.50`) — distinct from [`Self::KilogramsPerCubicMeter`]'s
+    /// volumetric density; the two are not interchangeable and [`Self::convert`] never treats
+    /// them as such.
+    KilogramsPerSquareMeter,
+    /// A unitless severity index (MRMS's Severe Hail Index, `SHI_00.50` — the raw index the MESH
+    /// and POSH products are themselves derived from) — genuinely dimensionless, not "no unit
+    /// recorded yet" the way an oversight would read.
+    Dimensionless,
 }
 
 impl Unit {
@@ -137,6 +145,8 @@ impl Unit {
             Self::Kelvin => "K",
             Self::Percent => "%",
             Self::MetersPerSecond => "m/s",
+            Self::KilogramsPerSquareMeter => "kg/m²",
+            Self::Dimensionless => "",
         }
     }
 
@@ -188,6 +198,18 @@ pub enum PaletteId {
     Height500,
     Wind10m,
     PrecipitableWater,
+    /// Probability of Severe Hail (MRMS `POSH_00.50`) — a probability like
+    /// [`Self::ThunderProbability`], but a distinct field, so its own variant rather than reusing
+    /// that one and having a future consumer that cares about "is this thunder probability
+    /// specifically" get the wrong answer.
+    HailProbability,
+    /// Severe Hail Index (MRMS `SHI_00.50`) — the raw index [`Self::HailSize`] (MESH) and
+    /// [`Self::HailProbability`] (POSH) are themselves derived from.
+    SevereHailIndex,
+    /// Vertically Integrated Liquid (MRMS `VIL_00.50`) — national MRMS VIL, distinct from the
+    /// locally-derived `FieldLayer::VilLocal`/`VilDensity`, which predate the generic field
+    /// registry and render through their own hand-picked ramp rather than a `FieldDescriptor`.
+    Vil,
 }
 
 #[derive(Debug)]
