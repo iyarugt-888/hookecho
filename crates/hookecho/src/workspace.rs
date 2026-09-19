@@ -355,6 +355,41 @@ pub fn starters() -> Vec<Workspace> {
             ],
             chrome: None,
         },
+        Workspace {
+            name: "Radar + satellite".into(),
+            // ROADMAP_NEW E6's "radar + satellite dual/quad pane presets." Every pane keeps a
+            // real radar site (`adopt_site`, like Chase/Analysis/Tornado/Hail above) rather than
+            // going site-less the way "Mesoscale analysis" does — a site-less pane's `site: None`
+            // would itself get adopted here (see `apply_workspace`'s "if the snap has no site,
+            // fill it from the active one" rule), which is right for an all-radar preset but would
+            // wrongly turn a *deliberately* national satellite pane into a personalized radar one.
+            // So satellite context rides along on top of a radar pane instead, via that pane's own
+            // `fields_on` — reflectivity alone as the familiar baseline, then the same radar
+            // moment again with IR and water-vapor satellite context layered underneath it, plus
+            // storm-relative velocity for motion.
+            panes: vec![
+                pane(Moment::Reflectivity, 0, false),
+                PaneSnap {
+                    fields_on: Some(vec!["goes-ir".into()]),
+                    ..pane(Moment::Reflectivity, 0, false)
+                },
+                PaneSnap {
+                    fields_on: Some(vec!["goes-water-vapor".into()]),
+                    ..pane(Moment::Reflectivity, 0, false)
+                },
+                pane(Moment::Velocity, 0, true),
+            ],
+            active: 0,
+            link_cameras: true,
+            link_times: true,
+            lock_source_time: false,
+            link_site: true,
+            link_cursor: true,
+            overlays_on: vec!["Alerts".into(), "Cells".into(), "StormReports".into()],
+            adopt_site: true,
+            fields_on: vec!["goes-ir".into(), "goes-water-vapor".into()],
+            chrome: None,
+        },
     ]
 }
 

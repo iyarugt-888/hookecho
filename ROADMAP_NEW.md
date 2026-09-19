@@ -1910,7 +1910,17 @@ Recipe metadata should specify channel inputs, transforms, gamma/ranges and outp
   elsewhere in this app for the existing `Lightning`/`GlmFed` layers; whether it's specifically
   synchronized to the GOES imagery *frame* rather than just plotted on its own clock wasn't
   checked this pass).
-- [ ] radar + satellite dual/quad pane presets — not done.
+- [x] radar + satellite dual/quad pane presets — a new "Radar + satellite" starter workspace
+  (`crates/hookecho/src/workspace.rs::starters`), reusing J5's existing preset mechanism (data
+  only, no new code): reflectivity alone as a baseline, the same moment again with GOES IR then
+  water-vapor layered underneath it, and storm-relative velocity for motion, all four panes on
+  the user's own site (`adopt_site: true`) and linked (camera/time/site/cursor). Deliberately
+  does *not* use a site-less national satellite pane the way "Mesoscale analysis" does — found
+  and worked around a real interaction while designing this: `apply_workspace` adopts the active
+  site into *any* pane whose snap has no site, which is correct for an all-radar preset but would
+  wrongly overwrite a pane meant to stay a national satellite view. Satellite context rides on a
+  radar pane's own `fields_on` instead, sidestepping the conflict entirely rather than needing a
+  fix to `apply_workspace` itself.
 
 ## E7. Offline satellite chase packs
 
