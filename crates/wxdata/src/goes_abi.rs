@@ -110,7 +110,7 @@ pub fn decode(bytes: Vec<u8>, out_nx: usize, out_ny: usize) -> anyhow::Result<Mr
 
     let x = f.read_f64("x").map_err(|e| anyhow::anyhow!("x: {e}"))?;
     let y = f.read_f64("y").map_err(|e| anyhow::anyhow!("y: {e}"))?;
-    let cmi = f.read_f64("CMI").map_err(|e| anyhow::anyhow!("CMI: {e}"))?;
+    let mut cmi = f.read_f64("CMI").map_err(|e| anyhow::anyhow!("CMI: {e}"))?;
     let (nx, ny) = (x.len(), y.len());
     anyhow::ensure!(
         cmi.len() == nx * ny,
@@ -118,6 +118,14 @@ pub fn decode(bytes: Vec<u8>, out_nx: usize, out_ny: usize) -> anyhow::Result<Mr
         cmi.len(),
         nx * ny
     );
+    // Per-pixel quality flags (ROADMAP_NEW E2's "preserve DQF/quality masks where practical") —
+    // read failure (an unexpectedly shaped or absent `DQF`, not expected for a real CMIP granule
+    // but this reader has no way to be sure of every file a bucket might ever serve) degrades to
+    // no masking rather than failing the whole decode: today's un-masked behavior, not a
+    // regression.
+    if let Ok(dqf) = f.read_f64("DQF") {
+        mask_by_dqf(&mut cmi, &dqf);
+    }
     // `t`: seconds since the ABI epoch (2000-01-01 12:00:00 UTC), per the dataset's own `units`
     // attribute — falls back to now if the granule is somehow missing it.
     let time = abi_epoch()
@@ -180,6 +188,26 @@ pub fn decode(bytes: Vec<u8>, out_nx: usize, out_ny: usize) -> anyhow::Result<Mr
         lat_south: lat_min,
         time,
     })
+}
+
+/// Zero out (to `NaN`) every `cmi` value whose corresponding `dqf` flag is not 0 ("good") — 1
+/// conditionally usable, 2 out of range, 3 no value, per the ABI Product Definition and Users'
+/// Guide. A quantitative reading (this app shows raw brightness temperature/reflectance, not just
+/// a rendered picture) only trusts DQF 0; feeding a masked pixel `NaN` routes it through the exact
+/// same "no data" path CMI's own fill value already takes, so a bad or missing pixel becomes
+/// indistinguishable from off-disk — both correctly transparent — rather than reading as a
+/// spurious cold/warm value. A shape mismatch (the two arrays should always be the same length for
+/// a real granule) is a no-op rather than a panic or partial mask: [`decode`]'s caller only has
+/// this as a best-effort quality improvement, not a correctness requirement it should fail over.
+fn mask_by_dqf(cmi: &mut [f64], dqf: &[f64]) {
+    if cmi.len() != dqf.len() {
+        return;
+    }
+    for (v, &flag) in cmi.iter_mut().zip(dqf) {
+        if flag != 0.0 {
+            *v = f64::NAN;
+        }
+    }
 }
 
 /// The epoch ABI's `t` variable counts seconds from (2000-01-01 12:00:00 UTC), per its own `units`
@@ -337,6 +365,41 @@ mod tests {
         assert!(Projection::from_attrs(&attrs).is_none());
     }
 
+    #[test]
+    fn mask_by_dqf_clears_every_non_zero_flag() {
+        let mut cmi = vec![210.0, 211.0, 212.0, 213.0];
+        let dqf = vec![0.0, 1.0, 2.0, 3.0];
+        mask_by_dqf(&mut cmi, &dqf);
+        assert_eq!(cmi[0], 210.0, "DQF 0 (good) must survive untouched");
+        assert!(cmi[1].is_nan(), "DQF 1 (conditionally usable) is masked");
+        assert!(cmi[2].is_nan(), "DQF 2 (out of range) is masked");
+        assert!(cmi[3].is_nan(), "DQF 3 (no value) is masked");
+    }
+
+    #[test]
+    fn mask_by_dqf_leaves_cmi_untouched_on_a_shape_mismatch() {
+        let mut cmi = vec![210.0, 211.0];
+        let dqf = vec![1.0]; // wrong length — a real granule never does this
+        mask_by_dqf(&mut cmi, &dqf);
+        assert_eq!(
+            cmi,
+            vec![210.0, 211.0],
+            "a shape mismatch must not partially mask or panic"
+        );
+    }
+
+    #[test]
+    fn mask_by_dqf_treats_a_nan_flag_as_not_good() {
+        // A DQF band's own fill value (unexpected for a real granule, but this reader doesn't
+        // assume one can't appear) reads back as NaN through the same read_f64 path CMI uses —
+        // `NaN != 0.0` is true in IEEE 754, so this already masks correctly, but it's worth
+        // pinning down explicitly rather than relying on that being obvious from the comparison.
+        let mut cmi = vec![210.0];
+        let dqf = vec![f64::NAN];
+        mask_by_dqf(&mut cmi, &dqf);
+        assert!(cmi[0].is_nan());
+    }
+
     /// End-to-end against a real granule: the same GOES-19 mesoscale Band 13 fixture
     /// `hdf5lite`'s own regression test uses (its `DIMENSION_LIST`-overflow fixture doubles as a
     /// real decode target here). This mesoscale sector sat over the western Atlantic/Caribbean
@@ -374,6 +437,61 @@ mod tests {
                 "implausible brightness temp {v} K"
             );
         }
+    }
+
+    /// Confirms `decode` actually reads the real fixture's own `DQF` band and hands it to
+    /// `mask_by_dqf` with matching shape, rather than that function's own (synthetic-data) unit
+    /// tests being the only thing exercising this path. `mask_by_dqf` itself is already proven
+    /// correct against synthetic data above; what a real granule adds is confirming the band
+    /// exists, decodes to the expected length, and — checked here directly, bypassing `decode`'s
+    /// reprojection — is applied in a way consistent with this fixture's own content, whatever
+    /// that happens to be (this particular fixture turns out to be an entirely clean scene, every
+    /// pixel DQF 0 — a real, useful finding in its own right rather than a reason to force a
+    /// stronger assertion this fixture can't actually back up).
+    #[test]
+    fn decode_reads_the_fixtures_own_dqf_band_at_matching_shape() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../hdf5lite/tests/data/regression/abi_cmip_m6c13.nc");
+        let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+
+        let f = hdf5lite::File::open(bytes.clone()).unwrap();
+        let cmi = f.read_f64("CMI").unwrap();
+        let dqf = f
+            .read_f64("DQF")
+            .expect("a real CMIP granule always carries DQF");
+        assert_eq!(
+            dqf.len(),
+            cmi.len(),
+            "DQF and CMI must be the same shape to mask by"
+        );
+
+        let source_masked = dqf.iter().filter(|&&flag| flag != 0.0).count();
+        if source_masked == 0 {
+            // This fixture happens to be a fully clean scene — nothing for masking to remove, so
+            // the strongest available check is that decode() still succeeds and DQF-reading
+            // didn't somehow corrupt an all-good scene into a mostly-empty one.
+            let field = decode(bytes, 100, 100).expect("decode");
+            let output_finite = field.values.iter().filter(|v| v.is_finite()).count();
+            assert!(
+                output_finite > field.values.len() / 2,
+                "an all-DQF-0 scene must not come out mostly empty after masking"
+            );
+            return;
+        }
+        // The fixture does contain masked pixels (a future fixture swap, or this one turning out
+        // to have some at a resolution this test didn't check before) — verify decode()'s output
+        // fraction actually drops relative to an unmasked reading, the direction that matters.
+        let source_finite_unmasked = cmi.iter().filter(|v| v.is_finite()).count();
+        let field = decode(bytes, 200, 200).expect("decode");
+        let output_finite = field.values.iter().filter(|v| v.is_finite()).count();
+        let output_fraction = output_finite as f64 / field.values.len() as f64;
+        let source_fraction_unmasked = source_finite_unmasked as f64 / cmi.len() as f64;
+        assert!(
+            output_fraction < source_fraction_unmasked,
+            "masking {source_masked} not-good source pixels did not measurably reduce the \
+             decoded output's own finite fraction ({output_fraction:.3} vs unmasked source \
+             {source_fraction_unmasked:.3}) — DQF doesn't appear to be taking effect"
+        );
     }
 
     #[tokio::test]

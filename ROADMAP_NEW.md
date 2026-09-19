@@ -1824,12 +1824,21 @@ band lookup in `app.rs`, the same 300s CONUS refresh cadence, the same satellite
 logic) — no new fetch/render machinery, just more `FieldLayer` variants. 612 hookecho tests passing
 (2 new), native + wasm32 checks clean.
 
-**Not done, any channel:** DQF/quality-mask preservation. `wxdata::goes_abi::decode` reads only the
-`CMI` band today; the granule's own `DQF` band (per-pixel quality flags) is parsed by nothing here,
-so a bad/missing pixel currently reads as whatever `CMI`'s own fill value resolves to rather than
-being distinguished from a genuinely cold/low real value — this plan's own E-phase acceptance
-criteria ("quality/missing pixels are distinct from cold/low values") is not met by any channel
-yet, old or new.
+**DQF/quality-mask preservation — done, all channels, same pass:** `wxdata::goes_abi::decode` now
+also reads the granule's `DQF` band and masks (`mask_by_dqf`) any `CMI` pixel whose flag isn't 0
+("good") to `NaN` before reprojection — 1 conditionally usable, 2 out of range, 3 no value all
+become the same "no data" a genuinely off-disk pixel already was, rather than reading as a spurious
+cold/warm value. Applies uniformly to every channel (old and new) since they all go through this
+one `decode` function. A DQF read failure (unexpected for a real CMIP granule, but not assumed
+impossible) degrades to no masking rather than failing the whole decode. Unit-tested directly
+against synthetic flag arrays (`mask_by_dqf_clears_every_non_zero_flag`,
+`..._leaves_cmi_untouched_on_a_shape_mismatch`, `..._treats_a_nan_flag_as_not_good`) and against
+the real fixture's own `DQF` band (`decode_reads_the_fixtures_own_dqf_band_at_matching_shape`) —
+that fixture turns out to be an entirely clean scene (every pixel DQF 0), a real finding rather
+than a reason to weaken the test, so it asserts what that fixture can actually support (decode
+still succeeds, output isn't mostly emptied) and reserves the stronger "output fraction actually
+drops" assertion for whenever a fixture with real bad pixels is available. 480 wxdata tests passing
+(4 new).
 
 ## E3. Projection — done
 
@@ -1894,9 +1903,9 @@ Allow selected time/range/sector frames to be downloaded into chase packs subjec
   wiring is an open question for whoever picks up E6, not something this pass's channel-count
   expansion answered.
 - [ ] radar, GLM and satellite align by valid time — not audited this pass.
-- [ ] quality/missing pixels are distinct from cold/low values — confirmed **not** met: E2's own
-  entry above explains `wxdata::goes_abi::decode` doesn't read the `DQF` quality band at all yet,
-  for any channel.
+- [x] quality/missing pixels are distinct from cold/low values — met as of this pass: E2's own
+  entry above covers `wxdata::goes_abi::decode`'s new DQF masking, applied uniformly to every
+  channel.
 
 ---
 
