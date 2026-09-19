@@ -548,7 +548,9 @@ mod tests {
             Ok(_) => panic!("out-of-domain sounding should fail before fetching"),
             Err(err) => err,
         };
-        assert!(err.to_string().contains("outside the published model domain"));
+        assert!(err
+            .to_string()
+            .contains("outside the published model domain"));
     }
 
     #[test]

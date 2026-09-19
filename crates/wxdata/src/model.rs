@@ -17,8 +17,7 @@
 //! metadata layer F1 asks for, which F2–F8 would build on.
 
 use crate::field::{
-    DataSource, FieldDescriptor, FieldFamily, FieldId, GeographicBounds, PaletteId, Unit,
-    ValueKind,
+    DataSource, FieldDescriptor, FieldFamily, FieldId, GeographicBounds, PaletteId, Unit, ValueKind,
 };
 use crate::hrrr::Model;
 

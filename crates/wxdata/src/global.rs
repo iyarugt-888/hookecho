@@ -650,7 +650,9 @@ mod tests {
         )
         .await
         .unwrap_err();
-        assert!(err.to_string().contains("outside the published field domain"));
+        assert!(err
+            .to_string()
+            .contains("outside the published field domain"));
     }
 
     /// Both sources, live, at the newest usable cycle.
