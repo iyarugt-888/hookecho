@@ -791,14 +791,14 @@ impl egui_wgpu::CallbackTrait for Volume3dCallback {
 /// type-map, keyed by type, so sharing one would mean the window and an on-map pane fight over a
 /// single GPU texture the moment they show different volumes at once.
 ///
-/// Bounded to 4 panes (the app's own pane-count ceiling; see `PaletteAction::SetPanes`) rather
+/// Bounded to 6 panes (the app's own pane-count ceiling; see `PaletteAction::SetPanes`) rather
 /// than a `HashMap`, since the index is always small and known ahead of time.
 pub struct MapVolume3dResources {
     format: wgpu::TextureFormat,
     pipeline: Option<wgpu::RenderPipeline>,
     bgl: wgpu::BindGroupLayout,
-    panes: [Option<Gpu>; 4],
-    uniform_bufs: [Option<wgpu::Buffer>; 4],
+    panes: [Option<Gpu>; 6],
+    uniform_bufs: [Option<wgpu::Buffer>; 6],
 }
 
 impl MapVolume3dResources {
@@ -845,7 +845,7 @@ impl MapVolume3dResources {
             format,
             pipeline: None,
             bgl,
-            // `[None; 4]` needs `Option<Gpu>: Copy`, which a `wgpu::Texture`/`BindGroup` inside
+            // `[None; 6]` needs `Option<Gpu>: Copy`, which a `wgpu::Texture`/`BindGroup` inside
             // it is not; `from_fn` builds the array without that requirement.
             panes: std::array::from_fn(|_| None),
             uniform_bufs: std::array::from_fn(|_| None),

@@ -1430,7 +1430,7 @@ impl HookEchoApp {
             Some(self.views[self.active].blink_compare),
         );
         let panes = self.views.len();
-        for n in [1usize, 2, 3, 4] {
+        for n in [1usize, 2, 3, 4, 6] {
             push(
                 &format!("{n} pane{}", if n == 1 { "" } else { "s" }),
                 "Tools",

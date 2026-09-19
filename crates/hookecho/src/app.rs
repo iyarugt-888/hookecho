@@ -3525,11 +3525,11 @@ pub struct HookEchoApp {
     /// the small geometry facts (`n, nz, half_km, top_km`) of whatever is currently GPU-resident,
     /// kept separately from the (heavy) upload so the frames between rebuilds don't need the
     /// tens-of-MB volume held twice just to recompute the camera uniform.
-    smooth_vol_key: [Option<(String, u64, Moment)>; 4],
+    smooth_vol_key: [Option<(String, u64, Moment)>; 6],
     #[allow(clippy::type_complexity)]
-    smooth_vol_rx: [Option<std::sync::mpsc::Receiver<crate::render3d::Volume3dUpload>>; 4],
-    smooth_vol_pending: [Option<crate::render3d::Volume3dUpload>; 4],
-    smooth_vol_dims: [Option<(u32, u32, f32, f32)>; 4],
+    smooth_vol_rx: [Option<std::sync::mpsc::Receiver<crate::render3d::Volume3dUpload>>; 6],
+    smooth_vol_pending: [Option<crate::render3d::Volume3dUpload>; 6],
+    smooth_vol_dims: [Option<(u32, u32, f32, f32)>; 6],
     /// GPU 2D texture-size cap (device limit), used to clamp field-grid decimation on mobile GPUs.
     max_texture_dim: u32,
     /// Whether this device can hold the 3D texture the raymarch window needs. See its assignment
@@ -3537,7 +3537,8 @@ pub struct HookEchoApp {
     volume3d_supported: bool,
 }
 
-/// Split `r` into `n` pane rects: 1 full, 2 side-by-side, 3–4 in a 2×2 grid.
+/// Split `r` into `n` pane rects: 1 full; 2 and 3 as an adaptive row/column strip (columns in
+/// landscape, rows in portrait); 4 as a 2x2 grid; 6 as an adaptive 3x2/2x3 grid.
 fn pane_rects(r: egui::Rect, n: usize) -> Vec<egui::Rect> {
     let gap = 2.0;
     match n {
@@ -3591,6 +3592,38 @@ fn pane_rects(r: egui::Rect, n: usize) -> Vec<egui::Rect> {
                     })
                     .collect()
             }
+        }
+        // No UI offers exactly 5 panes (the palette jumps 4 -> 6, matching AWIPS convention), but
+        // `apply_workspace` calls `set_pane_count(ws.panes.len())` with no bound of its own, so a
+        // workspace file from another source naming exactly 5 panes can still reach here. Reusing
+        // 5 of the 6-pane grid's own cells keeps every pane tiled and gap-free instead of falling
+        // through to the 2x2 fallback below, which would silently drop a view with no rect at all
+        // now that `set_pane_count`'s ceiling is past 4.
+        5 => pane_rects(r, 6).into_iter().take(5).collect(),
+        6 => {
+            // ROADMAP_NEW J1's "6 pane": same adaptive-orientation convention as 2/3-pane above —
+            // a 3x2 grid (3 columns, 2 rows) in landscape, transposed to 2x3 (2 columns, 3 rows)
+            // in portrait, rather than reusing the 2x2 fallback below (which only ever has 4
+            // cells to truncate, so it could never reach 6 in the first place).
+            let (cols, rows) = if r.height() >= r.width() {
+                (2, 3)
+            } else {
+                (3, 2)
+            };
+            let w = (r.width() - gap * (cols - 1) as f32) / cols as f32;
+            let h = (r.height() - gap * (rows - 1) as f32) / rows as f32;
+            let mut v = Vec::with_capacity(6);
+            for row in 0..rows {
+                for col in 0..cols {
+                    let x = r.min.x + (w + gap) * col as f32;
+                    let y = r.min.y + (h + gap) * row as f32;
+                    v.push(egui::Rect::from_min_size(
+                        egui::pos2(x, y),
+                        egui::vec2(w, h),
+                    ));
+                }
+            }
+            v
         }
         _ => {
             let w = (r.width() - gap) / 2.0;
@@ -3680,6 +3713,62 @@ mod pane_rects_tests {
             rects.iter().map(|r| (r.min.y * 100.0) as i64).collect();
         assert_eq!(xs.len(), 2, "{xs:?}");
         assert_eq!(ys.len(), 2, "{ys:?}");
+    }
+
+    #[test]
+    fn five_panes_is_not_silently_truncated_to_four() {
+        // No UI control offers 5 (the palette jumps 4 -> 6), but a foreign workspace file could
+        // still ask for it via `set_pane_count`, which no longer clamps everything above 4 down
+        // to 4 now that 6-pane exists — this must not regress into a dropped, unrendered view.
+        assert_eq!(pane_rects(landscape(), 5).len(), 5);
+        assert_eq!(pane_rects(portrait(), 5).len(), 5);
+    }
+
+    #[test]
+    fn six_panes_returns_exactly_six_rects() {
+        // ROADMAP_NEW J1's "6 pane": used to be unreachable at all (pane_rects only special-cased
+        // up to 4, and the 2x2 fallback below can never produce more than 4 cells).
+        assert_eq!(pane_rects(landscape(), 6).len(), 6);
+        assert_eq!(pane_rects(portrait(), 6).len(), 6);
+    }
+
+    #[test]
+    fn six_panes_is_a_three_by_two_grid_in_landscape_and_two_by_three_in_portrait() {
+        let distinct_axes = |rects: &[Rect]| {
+            let xs: std::collections::BTreeSet<i64> =
+                rects.iter().map(|r| (r.min.x * 100.0) as i64).collect();
+            let ys: std::collections::BTreeSet<i64> =
+                rects.iter().map(|r| (r.min.y * 100.0) as i64).collect();
+            (xs.len(), ys.len())
+        };
+        assert_eq!(distinct_axes(&pane_rects(landscape(), 6)), (3, 2));
+        assert_eq!(distinct_axes(&pane_rects(portrait(), 6)), (2, 3));
+    }
+
+    #[test]
+    fn six_panes_tile_the_source_rect_without_gaps_or_overlap() {
+        let r = landscape();
+        let rects = pane_rects(r, 6);
+        // Every rect's bounds stay within the source rect (plus float slop)...
+        for c in &rects {
+            assert!(
+                c.min.x >= r.min.x - 0.01 && c.max.x <= r.max.x + 0.01,
+                "{c:?}"
+            );
+            assert!(
+                c.min.y >= r.min.y - 0.01 && c.max.y <= r.max.y + 0.01,
+                "{c:?}"
+            );
+        }
+        // ...and the grid actually reaches every edge of the source rect, not a shrunken subset.
+        let min_x = rects.iter().map(|c| c.min.x).fold(f32::MAX, f32::min);
+        let max_x = rects.iter().map(|c| c.max.x).fold(f32::MIN, f32::max);
+        let min_y = rects.iter().map(|c| c.min.y).fold(f32::MAX, f32::min);
+        let max_y = rects.iter().map(|c| c.max.y).fold(f32::MIN, f32::max);
+        assert!((min_x - r.min.x).abs() < 0.01);
+        assert!((max_x - r.max.x).abs() < 0.01);
+        assert!((min_y - r.min.y).abs() < 0.01);
+        assert!((max_y - r.max.y).abs() < 0.01);
     }
 }
 
@@ -4370,7 +4459,7 @@ impl HookEchoApp {
             vol3d_rx: None,
             vol3d_range: (-30.0, 80.0),
             vol3d_pending: None,
-            // `[None; 4]` needs `Option<T>: Copy`, which a `Receiver`/`Volume3dUpload` inside it
+            // `[None; 6]` needs `Option<T>: Copy`, which a `Receiver`/`Volume3dUpload` inside it
             // is not; `from_fn` builds the array without that requirement.
             smooth_vol_key: std::array::from_fn(|_| None),
             smooth_vol_rx: std::array::from_fn(|_| None),
@@ -16626,7 +16715,7 @@ impl HookEchoApp {
     }
 
     fn set_pane_count(&mut self, n: usize) {
-        let n = n.clamp(1, 4);
+        let n = n.clamp(1, 6);
         while self.views.len() < n {
             let src = &self.views[self.active];
             let (site, camera, basemap, tilt, date) = (

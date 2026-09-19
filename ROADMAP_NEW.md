@@ -2567,7 +2567,7 @@ this criterion, which was never about GeoJSON to begin with.
 
 HookEcho already has saved workspaces and up to four panes. Extend this into a serious analysis layout system.
 
-## J1. Layouts — partly done
+## J1. Layouts — mostly done
 
 Support:
 
@@ -2582,12 +2582,29 @@ Support:
   through, so nothing downstream needed to change to reach it, only the layout math and the UI
   that was missing an entry point for it.
 - [x] 4 pane
-- [ ] 6 pane — genuinely blocked on more than layout math: several per-pane caches are fixed-size
-  4-element arrays (`smooth_vol_dims`, `smooth_vol_pending`, the blockage/lowest-tilt textures'
-  keying, …), and `set_pane_count`'s own `clamp(1, 4)` stops it before those would ever be
-  exercised. Generalizing those arrays (to a `Vec` sized to the actual pane count, or a fixed
-  larger cap) is real, separate work, not attempted here.
-- [ ] 9 pane on desktop/web where practical — same blocker as 6 pane
+- [x] 6 pane — new this pass. The real blocker was exactly what it looked like: raising
+  `set_pane_count`'s `clamp(1, 4)` alone would have let a 5th/6th pane index into
+  `MapVolume3dResources::panes`/`uniform_bufs` (`render3d.rs`) and `HookEchoApp::smooth_vol_key`/
+  `_rx`/`_pending`/`_dims` (`app.rs`) — fixed `[T; 4]` arrays every one of those. Went with the
+  "fixed larger cap" option this section's own note offered rather than converting to `Vec`: every
+  one of these six arrays is already built with `std::array::from_fn`, which doesn't care about
+  size, so bumping the literal `4` to `6` was the entire change at each site — no resize-on-pane-
+  count-change logic needed anywhere. (The "blockage/lowest-tilt textures' keying" this note used
+  to also blame turned out not to be part of this blocker on closer look: `blockage_tex`/
+  `lowest_tilt_tex` are single shared cache slots, not per-pane arrays — they already behave the
+  same way at 1, 4, or 6 panes, just re-render more often if different panes want different
+  overlays at once, which predates this pass and isn't specific to the pane-count ceiling.) Added
+  `pane_rects`'s own `6` case (adaptive 3x2 landscape / 2x3 portrait grid, same convention as
+  2/3-pane), a `5` case for robustness (`apply_workspace` calls `set_pane_count(ws.panes.len())`
+  with no bound of its own, so a workspace file naming exactly 5 panes — unreachable from any UI
+  control in this app, which now jumps 4 -> 6 — could otherwise have landed on the old 2x2
+  fallback's `truncate(n.clamp(1, 4))` and silently dropped a view with no rect at all), and a
+  sixth ribbon pill / command-palette entry next to 1/2/3/4. 618 hookecho tests passing (5 new:
+  five/six-pane rect count, the 3x2/2x3 grid shape, tiling with no gaps or overlap, and the 5-pane
+  robustness case), native + wasm32 checks clean.
+- [ ] 9 pane on desktop/web where practical — the fixed-array blocker above is now a "bump one
+  more literal" problem rather than an unknown one, but 9 also needs its own `pane_rects` layout
+  (a 3x3 grid) and its own ribbon/palette entries, not attempted this pass
 - [ ] AWIPS-style asymmetric layouts — a different, larger feature (one large pane plus several
   small ones, or a user-arranged split) than the even N-way splits `pane_rects` does today; not
   attempted here
