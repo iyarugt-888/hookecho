@@ -622,6 +622,34 @@ static GOES_COLD_TOP: FieldRamp = FieldRamp {
     )
 };
 
+/// `FieldLayer::GoesCoolingRate`'s value is `earlier Band 13 K \u{2212} now Band 13 K` (see that
+/// variant's own doc comment for why the subtraction runs this direction) — positive means the
+/// scene cooled over the lookback window, so a genuine cooling signal is above `lo` the same
+/// "value below `lo` is transparent" way `GOES_DUST_DIFF`/`GOES_COLD_TOP` both already rely on,
+/// rather than a second deadband mechanism. `lo` at 4 K clears the ordinary stable-scene noise a
+/// live check against the real bucket found (median \u{2248}1.3 K, 95th percentile \u{2248}16 K
+/// on an unremarkable September afternoon); `hi` at 50 K leaves room above that same live check's
+/// most extreme pixel (82 K, a genuine rapidly-forming storm cell during that run) without
+/// clipping a real, if rare, reading.
+static GOES_COOLING_RATE: FieldRamp = FieldRamp {
+    input_scale: 1.0,
+    is_temp_kelvin: false, // a temperature *change* over the lookback window, not an absolute reading
+    ..ramp!(
+        "Cooling rate (15 min)",
+        "K",
+        4.0,
+        50.0,
+        RampScale::Linear,
+        225,
+        &[
+            (0.0, [255, 240, 170]), // just past threshold: pale yellow
+            (0.35, [255, 160, 60]), // orange — a real, moderate cooling trend
+            (0.7, [220, 40, 60]),   // red — rapid cooling, an intensifying updraft
+            (1.0, [180, 0, 180]),   // extreme: magenta, distinct from GoesColdTop's white ceiling
+        ]
+    )
+};
+
 static GLOBAL_TEMP_2M: FieldRamp = FieldRamp {
     // Kelvin → °C/°F is an offset, not a scale, so `input_scale` (a pure multiplier) can't do it;
     // the ramp stays in Kelvin and `is_temp_kelvin` has the legend convert to the Units setting.
@@ -946,6 +974,7 @@ pub fn ramp_for(layer: FieldLayer) -> Option<&'static FieldRamp> {
         FL::GoesShortwaveIr => &GOES_SHORTWAVE_IR,
         FL::GoesDustDiff => &GOES_DUST_DIFF,
         FL::GoesColdTop => &GOES_COLD_TOP,
+        FL::GoesCoolingRate => &GOES_COOLING_RATE,
         // Same physical quantity and units as the global-model equivalents (NDFD publishes
         // Kelvin/m/s/metres same as every other model this app reads), so they share the ramp
         // rather than tabulating a second, identical one.
@@ -1241,6 +1270,33 @@ mod tests {
         assert!(
             r.index(6.0) >= r.index(3.0),
             "a stronger signal must read at least as intense, not dimmer"
+        );
+    }
+
+    #[test]
+    fn cooling_rate_hides_ordinary_warming_but_shows_real_cooling() {
+        let r = ramp_for(FieldLayer::GoesCoolingRate).unwrap();
+        // Warming (temperature rose over the lookback window) is a negative value; ordinary
+        // stable-scene noise below the 4 K deadband is a small positive value. Neither is a
+        // cooling signal worth drawing.
+        assert_eq!(
+            r.index(-10.0),
+            0,
+            "warming must not paint as a cooling signal"
+        );
+        assert_eq!(
+            r.index(2.0),
+            0,
+            "ordinary scene noise must not paint either"
+        );
+        // A real, sustained cooling trend clears the deadband and actually renders.
+        assert!(
+            r.index(15.0) > 0,
+            "a real cooling signal must be visible, not swallowed by the deadband"
+        );
+        assert!(
+            r.index(40.0) >= r.index(15.0),
+            "a stronger cooling signal must read at least as intense, not dimmer"
         );
     }
 

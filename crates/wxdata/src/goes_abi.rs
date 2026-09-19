@@ -218,11 +218,62 @@ fn abi_epoch() -> Option<chrono::DateTime<chrono::Utc>> {
         .map(|dt| dt.and_utc())
 }
 
-fn last_key(xml: &str) -> Option<String> {
-    xml.rmatch_indices("<Key>").next().and_then(|(i, _)| {
-        let rest = &xml[i + 5..];
-        rest.find("</Key>").map(|e| rest[..e].to_string())
-    })
+/// Every `<Key>` in an S3 ListObjectsV2 XML response, in the order S3 returned them.
+fn all_keys(xml: &str) -> Vec<String> {
+    xml.match_indices("<Key>")
+        .filter_map(|(i, _)| {
+            let rest = &xml[i + 5..];
+            rest.find("</Key>").map(|e| rest[..e].to_string())
+        })
+        .collect()
+}
+
+/// A CMIP filename's own scan start time, parsed from its `_s<year(4)><day-of-year(3)><hour(2)>
+/// <min(2)><sec(2)><tenth(1)>_` field — e.g. `..._s20262621801173_e...` is 2026-262 (day of year)
+/// 18:01:17.3 UTC. Confirmed against a real listing from the live bucket, not assumed from
+/// documentation alone (see this module's own `#[ignore = "network"]` tests).
+fn key_time(key: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+    let i = key.find("_s")?;
+    let digits = key.get(i + 2..i + 2 + 14)?;
+    if !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let year: i32 = digits[0..4].parse().ok()?;
+    let day_of_year: u32 = digits[4..7].parse().ok()?;
+    let hour: u32 = digits[7..9].parse().ok()?;
+    let minute: u32 = digits[9..11].parse().ok()?;
+    let second: u32 = digits[11..13].parse().ok()?;
+    chrono::NaiveDate::from_yo_opt(year, day_of_year)?
+        .and_hms_opt(hour, minute, second)
+        .map(|dt| dt.and_utc())
+}
+
+/// Every CMIP key for `band` on `satellite` in the UTC hour `t` falls in — one listing request,
+/// silently empty (not an error) for an hour nothing has landed in yet, or ever will have.
+async fn keys_in_hour(
+    client: &reqwest::Client,
+    satellite: Satellite,
+    band: u8,
+    t: chrono::DateTime<chrono::Utc>,
+) -> Vec<String> {
+    use chrono::{Datelike, Timelike};
+    let prefix = format!(
+        "{PRODUCT}/{:04}/{:03}/{:02}/OR_{PRODUCT}-M6C{band:02}_",
+        t.year(),
+        t.ordinal(),
+        t.hour()
+    );
+    let url = format!(
+        "{}/?list-type=2&prefix={prefix}&max-keys=50",
+        satellite.bucket()
+    );
+    let Ok(resp) = client.get(crate::net::fetch_url(&url)).send().await else {
+        return Vec::new();
+    };
+    let Ok(xml) = resp.text().await else {
+        return Vec::new();
+    };
+    all_keys(&xml)
 }
 
 /// The newest CONUS CMIP key for `band` on `satellite`, checking this UTC hour and falling back to
@@ -232,41 +283,50 @@ async fn latest_key(
     satellite: Satellite,
     band: u8,
 ) -> anyhow::Result<String> {
-    use chrono::{Datelike, Timelike};
-    let bucket = satellite.bucket();
     let now = chrono::Utc::now();
     for hours_ago in [0i64, 1] {
         let Some(t) = now.checked_sub_signed(chrono::Duration::hours(hours_ago)) else {
             continue;
         };
-        let prefix = format!(
-            "{PRODUCT}/{:04}/{:03}/{:02}/OR_{PRODUCT}-M6C{band:02}_",
-            t.year(),
-            t.ordinal(),
-            t.hour()
-        );
-        let url = format!("{bucket}/?list-type=2&prefix={prefix}&max-keys=50");
-        let Ok(resp) = client.get(crate::net::fetch_url(&url)).send().await else {
-            continue;
-        };
-        let Ok(xml) = resp.text().await else { continue };
-        if let Some(key) = last_key(&xml) {
+        // Keys within one hour are already in lexicographic == chronological order (zero-padded
+        // fields), so the last one in the listing is the newest — no need for `key_time` here.
+        if let Some(key) = keys_in_hour(client, satellite, band, t).await.pop() {
             return Ok(key);
         }
     }
     anyhow::bail!("no ABI CMIP band {band} objects found for the last two hours")
 }
 
-/// Fetch and decode the latest CONUS CMIP granule for `band` on `satellite`, resampled onto an
-/// `out_nx × out_ny` lat/lon grid.
-pub async fn fetch_latest_conus(
+/// The key whose own scan time is closest to `target`, searched across the hour containing
+/// `target` plus the hour immediately before and after it — a target a few minutes from an hour
+/// boundary can have its nearest neighbor filed under either side.
+async fn key_near(
     client: &reqwest::Client,
     satellite: Satellite,
     band: u8,
+    target: chrono::DateTime<chrono::Utc>,
+) -> anyhow::Result<String> {
+    let mut keys = Vec::new();
+    for hours in [-1i64, 0, 1] {
+        let Some(t) = target.checked_add_signed(chrono::Duration::hours(hours)) else {
+            continue;
+        };
+        keys.extend(keys_in_hour(client, satellite, band, t).await);
+    }
+    keys.into_iter()
+        .filter_map(|k| key_time(&k).map(|t| ((t - target).num_seconds().abs(), k)))
+        .min_by_key(|(dist, _)| *dist)
+        .map(|(_, k)| k)
+        .ok_or_else(|| anyhow::anyhow!("no ABI CMIP band {band} objects found near {target}"))
+}
+
+async fn fetch_key(
+    client: &reqwest::Client,
+    satellite: Satellite,
+    key: &str,
     out_nx: usize,
     out_ny: usize,
 ) -> anyhow::Result<MrmsField> {
-    let key = latest_key(client, satellite, band).await?;
     let url = format!("{}/{key}", satellite.bucket());
     let bytes = client
         .get(crate::net::fetch_url(&url))
@@ -279,6 +339,19 @@ pub async fn fetch_latest_conus(
         .to_vec();
     crate::stats::net(bytes.len());
     decode(bytes, out_nx, out_ny)
+}
+
+/// Fetch and decode the latest CONUS CMIP granule for `band` on `satellite`, resampled onto an
+/// `out_nx × out_ny` lat/lon grid.
+pub async fn fetch_latest_conus(
+    client: &reqwest::Client,
+    satellite: Satellite,
+    band: u8,
+    out_nx: usize,
+    out_ny: usize,
+) -> anyhow::Result<MrmsField> {
+    let key = latest_key(client, satellite, band).await?;
+    fetch_key(client, satellite, &key, out_nx, out_ny).await
 }
 
 /// Fetch two bands from the same satellite and subtract their brightness temperatures cell by
@@ -308,6 +381,39 @@ pub async fn fetch_latest_conus_diff(
     )
     .await?;
     diff_fields(&a, &b)
+}
+
+/// Fetch the same band `lookback_minutes` apart and subtract (the earlier granule minus the
+/// latest), for a brightness-temperature *trend* rather than a snapshot — ROADMAP_NEW E6's
+/// "cooling-rate/time-change product". Ordered so a positive value is cooling (cloud-top
+/// temperature dropping — the direction a rapidly intensifying updraft's overshooting top would
+/// show, which a single frame can't) and negative is warming, the same "positive means something
+/// worth looking at" convention `GoesDustDiff`/`GoesColdTop` already use for their own ramps.
+/// `lookback_minutes` need not land on an exact scan — [`key_near`] finds whichever real granule
+/// is closest, so a missed scan degrades to a slightly different actual interval rather than an
+/// error. Reuses [`diff_fields`] (the same shape-checked cell-by-cell subtraction
+/// `fetch_latest_conus_diff` uses above), just on two *times* of one band instead of two bands of
+/// one time — and does not reuse `hookecho::fielddiff::diff` for the identical reason that
+/// function's doc comment above already gives for the band-difference case.
+pub async fn fetch_cooling_rate(
+    client: &reqwest::Client,
+    satellite: Satellite,
+    band: u8,
+    lookback_minutes: i64,
+    out_nx: usize,
+    out_ny: usize,
+) -> anyhow::Result<MrmsField> {
+    let latest = latest_key(client, satellite, band).await?;
+    let latest_time = key_time(&latest)
+        .ok_or_else(|| anyhow::anyhow!("could not parse a scan time from {latest}"))?;
+    let target = latest_time - chrono::Duration::minutes(lookback_minutes);
+    let earlier = key_near(client, satellite, band, target).await?;
+    let (now_field, past_field) = futures_util::future::try_join(
+        fetch_key(client, satellite, &latest, out_nx, out_ny),
+        fetch_key(client, satellite, &earlier, out_nx, out_ny),
+    )
+    .await?;
+    diff_fields(&past_field, &now_field)
 }
 
 /// `a - b`, cell by cell, keeping `a`'s own bounds/time. Both grids must be the same shape — true
@@ -363,6 +469,49 @@ mod tests {
         let (lon, lat) = proj.scan_to_lonlat(0.0, 0.0).expect("on the disk");
         assert!((lon - (-75.0)).abs() < 1e-9, "lon {lon}");
         assert!(lat.abs() < 1e-9, "lat {lat}");
+    }
+
+    /// Real key names from a live `noaa-goes19` listing (see this module's own `key_time` doc
+    /// comment) — not fabricated, so the parser is checked against the actual NOAA naming
+    /// convention rather than a guess at it.
+    const REAL_KEY: &str =
+        "ABI-L2-CMIPC/2026/262/18/OR_ABI-L2-CMIPC-M6C13_G19_s20262621801173_e20262621803558_c20262621804022.nc";
+
+    #[test]
+    fn key_time_parses_a_real_scan_start_timestamp() {
+        let t = key_time(REAL_KEY).expect("real key parses");
+        assert_eq!(t.to_string(), "2026-09-19 18:01:17 UTC");
+    }
+
+    #[test]
+    fn key_time_rejects_garbage_without_panicking() {
+        assert_eq!(key_time("not a key at all"), None);
+        assert_eq!(
+            key_time("OR_ABI-L2-CMIPC-M6C13_G19_sNOTDIGITS_e...nc"),
+            None
+        );
+        // A truncated `_s` field (fewer than the 14 digits a real one always has) must not panic
+        // on the fixed-width slice indexing `key_time` does internally.
+        assert_eq!(key_time("OR_..._s202626_e...nc"), None);
+    }
+
+    #[test]
+    fn all_keys_extracts_every_key_from_a_listing_in_order() {
+        let xml = format!(
+            "<ListBucketResult><Contents><Key>{a}</Key></Contents>\
+             <Contents><Key>{b}</Key></Contents></ListBucketResult>",
+            a = REAL_KEY,
+            b = "ABI-L2-CMIPC/2026/262/18/OR_ABI-L2-CMIPC-M6C13_G19_s20262621806173_e20262621808558_c20262621809040.nc",
+        );
+        let keys = all_keys(&xml);
+        assert_eq!(keys.len(), 2);
+        assert!(keys[0].ends_with("s20262621801173_e20262621803558_c20262621804022.nc"));
+        assert!(keys[1].ends_with("s20262621806173_e20262621808558_c20262621809040.nc"));
+    }
+
+    #[test]
+    fn all_keys_on_a_listing_with_no_contents_is_empty_not_an_error() {
+        assert!(all_keys("<ListBucketResult></ListBucketResult>").is_empty());
     }
 
     /// A scan angle far enough off-axis to miss the Earth's disk (well past the limb) must not
@@ -674,5 +823,52 @@ mod tests {
                 "implausible brightness temp {v} K"
             );
         }
+    }
+
+    /// ROADMAP_NEW E6's cooling-rate/time-change product, against the real bucket: confirms
+    /// `key_near` actually finds a real granule ~15 minutes before the latest one (not just that
+    /// `key_time`'s parser works against one hand-picked key above), and that the field this
+    /// produces is dominated by small, stable-scene swings the way a real 15-minute BT trend
+    /// should be. Deliberately does *not* bound the single largest swing: a genuine, rapidly
+    /// forming storm cell somewhere in the whole CONUS domain can legitimately swing 60-100+ K at
+    /// one pixel in 15 minutes (clear ground to a cold overshooting top) — exactly the signal this
+    /// product exists to surface, not a bug, and a first real run of this test hit exactly that
+    /// (an 82 K max during active September convection) before this was corrected to check the
+    /// bulk of the scene instead of its most extreme pixel.
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn fetches_the_live_cooling_rate() {
+        let client = reqwest::Client::new();
+        let field = fetch_cooling_rate(&client, Satellite::East, 13, 15, 200, 150)
+            .await
+            .expect("fetch_cooling_rate");
+        eprintln!(
+            "cooling rate band 13, 15 min: {}x{} at {}",
+            field.nx, field.ny, field.time
+        );
+        let mut finite: Vec<f32> = field
+            .values
+            .iter()
+            .copied()
+            .filter(|v| v.is_finite())
+            .collect();
+        assert!(
+            finite.len() > field.values.len() / 2,
+            "too many unfilled cells: {}/{}",
+            finite.len(),
+            field.values.len()
+        );
+        finite.sort_by(|a, b| a.abs().total_cmp(&b.abs()));
+        let median_abs = finite[finite.len() / 2].abs();
+        let p95_abs = finite[finite.len() * 95 / 100].abs();
+        eprintln!("|delta| median {median_abs:.2} K, p95 {p95_abs:.2} K");
+        assert!(
+            median_abs < 5.0,
+            "most of a real CONUS scene should barely change in 15 minutes, got median {median_abs} K"
+        );
+        assert!(
+            p95_abs < 30.0,
+            "even the more active 5% of the scene swinging {p95_abs} K in 15 minutes is implausible"
+        );
     }
 }

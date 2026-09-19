@@ -239,6 +239,13 @@ pub enum FieldLayer {
     /// shows — a spotting aid for rapidly intensifying convection, not a second way to read an
     /// ordinary IR loop.
     GoesColdTop,
+    /// Cooling-rate/time-change product (ROADMAP_NEW E6): Band 13 brightness temperature 15
+    /// minutes ago minus right now, CONUS sector — positive where a cloud top has cooled over
+    /// that span (an intensifying updraft's overshooting top can drop tens of K in 15 minutes, a
+    /// single snapshot can't show at all), near-zero/negative (warming, or nothing there) faded
+    /// out below the ramp's `lo`. See `field_ramps`'s `GOES_COOLING_RATE` doc comment for why the
+    /// subtraction runs earlier-minus-now rather than the more commonly quoted now-minus-earlier.
+    GoesCoolingRate,
     /// NDFD 2 m temperature — the NWS's own forecaster-blended grid, not a raw model run.
     NdfdTemp2m,
     /// NDFD 10 m sustained wind speed.
@@ -290,7 +297,7 @@ impl FieldLayer {
     }
 
     /// Fixed bottom-to-top paint order within each band.
-    pub const DRAW_ORDER: [FieldLayer; 61] = [
+    pub const DRAW_ORDER: [FieldLayer; 62] = [
         // Below-radar context band (bottom to top). The global models sit at the very bottom:
         // they are the synoptic backdrop everything else is drawn against — satellite included,
         // since it is the same kind of backdrop and the radar itself paints over it just the same.
@@ -360,12 +367,13 @@ impl FieldLayer {
         FieldLayer::AzShear,
         FieldLayer::Lightning,
         FieldLayer::GlmFed,
-        // The two GOES-derived layers that belong up here rather than with the other GOES bands
-        // below-radar: both are detection products (dust/ash signal, overshooting-top signal),
-        // not backdrop images, so they sit on top like the radar-derived severe-signal layers
-        // around them.
+        // The GOES-derived layers that belong up here rather than with the other GOES bands
+        // below-radar: all three are detection products (dust/ash signal, overshooting-top
+        // signal, cooling-rate signal), not backdrop images, so they sit on top like the
+        // radar-derived severe-signal layers around them.
         FieldLayer::GoesDustDiff,
         FieldLayer::GoesColdTop,
+        FieldLayer::GoesCoolingRate,
     ];
 
     /// Stable name for saved files — a workspace records which layers were on by slug, so a file
@@ -465,6 +473,7 @@ impl FieldLayer {
             FieldLayer::GoesDirtyIr => "goes-dirty-ir",
             FieldLayer::GoesDustDiff => "goes-dust-diff",
             FieldLayer::GoesColdTop => "goes-cold-top",
+            FieldLayer::GoesCoolingRate => "goes-cooling-rate",
             FieldLayer::NdfdTemp2m => "ndfd-temp2m",
             FieldLayer::NdfdWind10m => "ndfd-wind10m",
             FieldLayer::NdfdGust10m => "ndfd-gust10m",

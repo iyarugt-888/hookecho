@@ -492,6 +492,14 @@ impl HookEchoApp {
                 false,
             ),
             (
+                FL::GoesCoolingRate,
+                "National",
+                "GOES cooling rate",
+                "Band 13 brightness temperature 15 minutes ago minus now — a rapidly cooling \
+                 cloud top can flag an intensifying updraft a single IR frame can't show",
+                false,
+            ),
+            (
                 FL::ThunderProb,
                 "Models",
                 "Chance of thunder (NBM)",

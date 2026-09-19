@@ -1992,7 +1992,26 @@ Recipe metadata should specify channel inputs, transforms, gamma/ranges and outp
   ramp's `lo` and simply isn't drawn — the same value-inversion trick `GoesDustDiff` uses, applied
   a second time. 210 K (\u{2248} -63\u{b0}C) is a commonly used overshooting-top/deep-convection
   cutoff. 614 hookecho tests passing (1 new).
-- [ ] cooling-rate/time-change product — not done.
+- [x] cooling-rate/time-change product — `FieldLayer::GoesCoolingRate` (new this pass): Band 13
+  brightness temperature 15 minutes ago minus right now, so a positive value is cooling (an
+  intensifying updraft's overshooting top dropping tens of K in 15 minutes, which a single
+  snapshot can't show at all). Needed genuinely new fetch machinery, unlike the two items above:
+  `wxdata::goes_abi` gained `key_time` (parses a CMIP filename's own `_s<year><day><hour><min>
+  <sec>` scan-start field — confirmed against a real listing from the live bucket, not assumed
+  from documentation) and `key_near` (searches the target's hour plus the hour on each side and
+  picks whichever real granule is closest, so a missed scan degrades to a slightly different
+  actual interval rather than an error) alongside the existing `latest_key`. `fetch_cooling_rate`
+  fetches the latest key and the nearest one ~15 minutes earlier concurrently, then reuses
+  `diff_fields` — the same shape-checked subtraction `fetch_latest_conus_diff` already uses, just
+  on two *times* of one band instead of two bands of one time. Rendered through the same ordinary
+  LUT pipeline as every other GOES layer, with its own `GOES_COOLING_RATE` ramp (`lo` at 4 K,
+  `hi` at 50 K — calibrated against a live run's own numbers: median |Δ| 1.3 K and 95th-percentile
+  16 K across a quiet CONUS scene, with one real 82 K pixel from an actively forming storm cell
+  that pass, which is exactly the kind of reading this product exists to surface, not a bug to
+  suppress). Verified against the real bucket (`#[ignore = "network"] fetches_the_live_cooling_rate`,
+  checking the bulk of the scene rather than its single most extreme pixel, for the reason just
+  given). 495 wxdata tests passing (4 new), 619 hookecho tests (1 new), native + wasm32 checks
+  clean on both crates.
 - [ ] GLM overlay synchronized to frame — now audited: it isn't, and can't usefully be yet. The
   flash-dot overlay (`show_glm` in `app.rs`, near `glm_style`) fades each dot's age against
   `chrono::Utc::now()` — real wall-clock time, not the pane's own analysis time
