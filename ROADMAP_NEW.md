@@ -1796,7 +1796,11 @@ not a convention callers have to remember.
 - [x] native resolution — `GridProvenance.native`, shown as part of the same inspector's grid
   detail
 - [x] source age — `DataStamp::age_at`/`receipt_age_at`, the inspector's "Age"/"Received" rows
-- [x] point sample — `FieldDescriptor::sample`, the one common sampling API A1 asked for
+- [x]/[ ] point sample — split after auditing this pass (see E6's own updated "brightness-
+  temperature sample" note for the full finding): `FieldDescriptor::sample` is a real, correct,
+  unit-tested common sampling API (A1's ask, done), but it is not actually wired to any click or
+  hover in the app — a user cannot get a point sample for an MRMS/model/GOES layer today, only for
+  radar gates (`inspect_gate`). The API exists; reaching it from the UI does not, yet.
 - [ ] animation — not verified either way; MRMS layers appear to always fetch "latest" rather
   than loop an archived sequence the way the radar timeline does (consistent with A3's own note
   that MRMS/model/satellite caching, which archived playback would need, isn't built). Marked
@@ -1943,9 +1947,22 @@ Recipe metadata should specify channel inputs, transforms, gamma/ranges and outp
 
 ## E6. Satellite analysis tools — partly done
 
-- [ ] brightness-temperature sample — not audited (see E2's own acceptance-criteria note: whether
-  the generic cursor-probe/data-inspector already covers GOES fields, stored as the same
-  `MrmsField` shape every other gridded overlay uses, is still an open question).
+- [ ] brightness-temperature sample — now audited, and the real gap is bigger than E2's own
+  acceptance-criteria note suspected: `wxdata::field::FieldDescriptor::sample` (a correct, unit-
+  tested point-sampler A1/D1 already built) and `MrmsField::sample_bilinear` are not called from
+  *any* app UI code today — confirmed by grepping every call site in `hookecho`, not just reading
+  the type's own doc comment. Only radar gates have a working point-sample path
+  (`inspect_gate`/the Interrogate tool and J3's cursor-probe table), and D3's own "point sample"
+  checkbox above overclaims this — it reflects the API existing, not it being reachable by a user
+  for any MRMS/model/GOES layer. A second, structural blocker specific to this item: once fetched,
+  a field layer's decoded grid is discarded after building its GPU upload (`FieldState.pending`
+  is display-ready 8-bit LUT indices, not the original floats), so even wiring a click handler
+  needs the raw grid kept resident first — not attempted here, since deciding what a probe reading
+  looks like in a table currently shaped around one radar `Moment` (`ui::cursor_probe::ProbeRow`)
+  is a real design choice, not a small addition, and doing it for GOES specifically needs its own
+  care: `GoesDustDiff`/`GoesColdTop` deliberately store a transformed value instead of a literal
+  brightness temperature, so a naive generic sampler would report the wrong number for those two.
+  Left open rather than shipped as a mislabeled or GOES-only-partial reading.
 - [x] channel difference products — `FieldLayer::GoesDustDiff` (new this pass): the classic
   split-window dust/ash technique, Band 13 minus Band 15 brightness temperature
   (`wxdata::goes_abi::fetch_latest_conus_diff`, a new two-band concurrent fetch + cell-by-cell
@@ -1967,10 +1984,18 @@ Recipe metadata should specify channel inputs, transforms, gamma/ranges and outp
   a second time. 210 K (\u{2248} -63\u{b0}C) is a commonly used overshooting-top/deep-convection
   cutoff. 614 hookecho tests passing (1 new).
 - [ ] cooling-rate/time-change product — not done.
-- [ ] GLM overlay synchronized to frame — not audited (GLM lightning data is already ingested
-  elsewhere in this app for the existing `Lightning`/`GlmFed` layers; whether it's specifically
-  synchronized to the GOES imagery *frame* rather than just plotted on its own clock wasn't
-  checked this pass).
+- [ ] GLM overlay synchronized to frame — now audited: it isn't, and can't usefully be yet. The
+  flash-dot overlay (`show_glm` in `app.rs`, near `glm_style`) fades each dot's age against
+  `chrono::Utc::now()` — real wall-clock time, not the pane's own analysis time
+  (`linked_analysis_time`) or the GOES frame's valid time. That only matches a *live* pane by
+  coincidence (now and the live frame's time are close together); scrubbing a pane to an archived
+  time would show today's live flashes, faded by their real age, next to yesterday's radar/
+  satellite frame — not a stale-sync bug so much as GLM having no archive path at all yet
+  (`wxdata::glm::GlmFeed` is a rolling live buffer with no historical query, consistent with A3's
+  own "MRMS/model/satellite caching is not built" note). Fixing the age-fade clock alone wouldn't
+  fix this — the flashes themselves would still be live-only data misleadingly overlaid on a
+  non-live frame. Left open as a real gap rather than a one-line clock fix that wouldn't actually
+  solve it.
 - [x] radar + satellite dual/quad pane presets — a new "Radar + satellite" starter workspace
   (`crates/hookecho/src/workspace.rs::starters`), reusing J5's existing preset mechanism (data
   only, no new code): reflectivity alone as a baseline, the same moment again with GOES IR then
