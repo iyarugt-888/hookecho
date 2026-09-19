@@ -1251,7 +1251,9 @@ Unidata path working and should land with deterministic replay tests.
 
 Audited against the test suite that already exists (much of this list turned out already covered
 by tests written for B6.6/B6.7/B6.11's own sections, just never cross-checked against this exact
-list) rather than assumed unstarted; two genuine gaps got a new test each this pass.
+list) rather than assumed unstarted: 12 of 16 are covered (3 with a new test written this pass —
+out-of-order block assembly, the B6.10 stream-epoch resume outcome, and the slow-client backpressure
+bound); 4 remain genuinely open (below).
 
 - [x] synthetic chunks/blocks arriving out of order produce the correct final sweep — new this
   pass: `wxdata::live_block::tests::
@@ -1307,12 +1309,13 @@ list) rather than assumed unstarted; two genuine gaps got a new test each this p
   volume from scratch.
 - [x] backend restart creates an unambiguous stream epoch/resume outcome — new this pass (B6.10):
   `Pipeline::epoch()` plus `server::tests::resume_after_is_ignored_when_the_claimed_epoch_does_not_match`.
-- [ ] slow-client/backpressure test remains within configured memory bounds — `Pipeline`'s
-  per-site broadcast channel has a fixed capacity (`SUBSCRIBER_CHANNEL_CAPACITY`) and
-  `serve_live_socket` already handles `RecvError::Lagged` by continuing rather than erroring, but
-  no test actually drives a slow/non-draining subscriber past that capacity and asserts memory
-  stays bounded (the ring-buffer eviction tests cover the *retention* store's bound, not a lagging
-  live subscriber's). Still open.
+- [x] slow-client/backpressure test remains within configured memory bounds — new this pass:
+  `pipeline::tests::a_subscriber_that_never_drains_lags_instead_of_growing_unboundedly` publishes
+  3x `SUBSCRIBER_CHANNEL_CAPACITY` blocks to a subscriber that never reads, then confirms the
+  receiver reports a bounded `Lagged(n)` gap (not silently handing back all of them, which would
+  mean the channel grew instead of staying fixed-capacity) and that the separately-bounded
+  retention store (what an actually resuming client reads via `resume_after`, as opposed to an
+  abandoned live subscription) is unaffected.
 - [x] malformed/oversized Level II input is rejected without terminating healthy site streams —
   `radar_ingest::store::tests::store_rejects_oversized_product_without_affecting_other_sites` and
   `radar_ingest::rechunk::tests::garbage_bytes_are_dropped_without_panicking_or_affecting_other_sites`.

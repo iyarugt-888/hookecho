@@ -150,6 +150,67 @@ mod tests {
     const VOLUME_START: u8 = 3;
     const ELEVATION_END: u8 = 2;
 
+    /// ROADMAP_NEW B6.12: "slow-client/backpressure test remains within configured memory
+    /// bounds." A subscriber that never drains its receiver must not make the pipeline buffer
+    /// unboundedly on its behalf — `tokio::sync::broadcast`'s own fixed-capacity channel enforces
+    /// this by dropping the oldest undelivered message for a lagging receiver rather than growing,
+    /// which is exactly why `SUBSCRIBER_CHANNEL_CAPACITY` exists (see its own doc comment). This
+    /// pins that behavior down for this pipeline's actual configuration rather than trusting it by
+    /// reading the constant: publish comfortably past capacity while a subscriber never reads, then
+    /// confirm the subscriber observes a bounded `Lagged` gap (not an unbounded backlog) and the
+    /// pipeline's own retained-block store — the thing an actually resuming client reads from — is
+    /// unaffected by any of this (`Pipeline::blocks_after` keeps working, per its own separate,
+    /// independently bounded retention).
+    #[test]
+    fn a_subscriber_that_never_drains_lags_instead_of_growing_unboundedly() {
+        let mut pipeline = Pipeline::new(
+            RechunkConfig::default(),
+            BlockStoreLimits::default(),
+            "relay",
+        );
+        let mut rx = pipeline.subscribe("KTLX");
+
+        let published = SUBSCRIBER_CHANNEL_CAPACITY * 3;
+        for elevation in 0..published {
+            let product = RawProduct {
+                site: "KTLX".into(),
+                bytes: [
+                    radial("KTLX", (elevation % 255 + 1) as u8, 0, VOLUME_START),
+                    radial("KTLX", (elevation % 255 + 1) as u8, 1, ELEVATION_END),
+                ]
+                .concat(),
+                received_at: Utc::now(),
+            };
+            pipeline.ingest(&product);
+        }
+
+        // The receiver was never read during all of that — it must report exactly that it fell
+        // behind (a bounded signal), not silently hand back every one of `published` blocks (that
+        // would mean the channel grew to hold all of them, defeating the whole point of a fixed
+        // capacity).
+        match rx.try_recv() {
+            Err(tokio::sync::broadcast::error::TryRecvError::Lagged(skipped)) => {
+                assert!(
+                    skipped > 0,
+                    "a lagging receiver must report skipping something"
+                );
+            }
+            other => panic!(
+                "expected the lagging receiver to report Lagged, got {other:?} after publishing \
+                 {published} blocks with no reads at all"
+            ),
+        }
+
+        // The pipeline's own retained-block store (what an actually resuming client reads from,
+        // as opposed to this abandoned live subscription) is a separate, independently bounded
+        // structure and must still work normally — a slow live subscriber does not corrupt or
+        // starve it.
+        assert!(
+            !pipeline.blocks_after("KTLX", 0).is_empty(),
+            "the retention store must still serve backfill after a lagging live subscriber"
+        );
+    }
+
     #[test]
     fn ingest_stores_and_broadcasts_every_flushed_block() {
         let mut pipeline = Pipeline::new(
