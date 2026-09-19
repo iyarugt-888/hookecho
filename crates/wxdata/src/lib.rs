@@ -26,6 +26,7 @@ pub mod firewx;
 pub mod forecast;
 pub mod fronts;
 pub mod geocode;
+pub mod gis;
 pub mod glm;
 pub mod global;
 pub mod goes_abi;

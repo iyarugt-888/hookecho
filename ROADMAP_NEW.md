@@ -2442,11 +2442,22 @@ Keep observed radar, analyzed MRMS and forecast model geometry visually distinct
 
 Placefiles are not enough for emergency-management, research and broadcast users.
 
-## I1. Import formats
+## I1. Import formats — GeoJSON parsing started
 
 Implement in this order:
 
-1. [ ] GeoJSON
+1. [x]/[ ] GeoJSON — new this pass: `wxdata::gis::parse_geojson`, the **parsing layer only** (the
+   same "ship the evaluator, defer the renderer" split C1's user-defined products already used).
+   Reuses `overlay::for_each_feature` (the FeatureCollection/Feature dispatch and the "ArcGIS
+   reports failure as HTTP 200" detection that module's own 5 existing feeds already needed)
+   rather than re-implementing either — the only new work is recognizing every I3 geometry type,
+   not just the Polygon/MultiPolygon that module's alert layers needed. **Not done**: any way to
+   actually reach this from the app — no file-picker UI, no "import a file" menu entry, and no
+   rendering of the result (I4). This is deliberately just the data layer; found while surveying
+   this phase that the `geojson` crate (1.0.0) was already a dependency, used for 5 *known* NWS/
+   NOAA feed schemas (`dat`/`overlay`/`spc`/`tropical`/`wfigs`) — none of those needed anything
+   past Polygon/MultiPolygon, so a user's *own* arbitrary file needed this new module rather than
+   an extension of one of them.
 2. [ ] ESRI Shapefile (`.shp/.shx/.dbf`, optional `.prj`)
 3. [ ] KML
 4. [ ] KMZ
@@ -2459,14 +2470,27 @@ Implement in this order:
 - support common U.S. EPSG projections
 - reject unknown projections with a useful error instead of silently misplacing geometry
 
-## I3. Geometry types
+Not started. Moot for GeoJSON specifically (the format is specified as always WGS84), but real
+for Shapefile's own `.prj` once that importer exists.
 
-- point
-- multipoint
-- line
-- multiline
-- polygon
-- multipolygon
+## I3. Geometry types — done, for GeoJSON
+
+- [x] point — `wxdata::gis::Geometry::Point`
+- [x] multipoint — `Geometry::MultiPoint`
+- [x] line — `Geometry::LineString`
+- [x] multiline — `Geometry::MultiLineString`
+- [x] polygon — `Geometry::Polygon`, rings (outer + holes), matching `overlay::GeoFeature`'s own
+  convention
+- [x] multipolygon — `Geometry::MultiPolygon`
+
+A `GeometryCollection` (an eighth GeoJSON shape, not in this list) flattens into one entry per
+shape it holds rather than becoming a ninth variant of its own — a caller asking "every shape in
+this feature" doesn't need to know the source nested some of them one level deeper. Unit-tested
+against a real multi-geometry `FeatureCollection`, a bare `Feature`, a bare `Geometry` (all three
+are valid top-level GeoJSON), a `GeometryCollection`, and polygon holes surviving as a second ring
+— 7 tests, all passing, plus confirming the `geojson` crate itself refuses to deserialize a
+degenerate one-coordinate `Position` before this module's own code ever sees one (a defensive
+check for the same case exists here anyway, since that's not a guarantee this module controls).
 
 ## I4. Styling
 
@@ -2499,7 +2523,10 @@ Export:
 
 ### Acceptance criteria
 
-A county-level shapefile in a non-WGS84 but declared projection renders in the correct U.S. location and can be styled by attribute.
+[ ] Not met — a county-level shapefile in a non-WGS84 but declared projection renders in the
+correct U.S. location and can be styled by attribute. This names Shapefile specifically (I1 item
+2, not started) and I4's styling (not started); I1's GeoJSON parsing landing first doesn't move
+this criterion, which was never about GeoJSON to begin with.
 
 ---
 
