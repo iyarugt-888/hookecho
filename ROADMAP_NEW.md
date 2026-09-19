@@ -1364,14 +1364,15 @@ completed-volume continuity mode when both live paths are unavailable.
 
 Implement a safe expression/DSL system inspired by the flexibility of GR2Analyst user-defined products, but designed around HookEcho’s Rust/WGPU architecture.
 
-The evaluator half is done, including the vertical/layer aggregate functions and (new this pass)
+The evaluator half is done, including the vertical/layer aggregate functions and (an earlier pass)
 freezing-level/-20C environmental height inputs: `wxdata::udp` parses and evaluates a formula
 against one gate or, for the column functions, one point's whole tilt column, and
 `ui::udp_window`/the gate inspector's "USER-DEFINED" section let a user define one and see it live
-against real data. What remains is rendering a product as its own map layer — a separate, larger
-piece of work (see below) — plus a -10C environmental height input (HRRR's own isotherm-height
-field doesn't publish that level via the mechanism 0C/-20C already reuse) and making the
-freezing-level inputs fetch proactively rather than only when a hail grid has recently been on.
+against real data. New this pass: the freezing-level fetch is now proactive on any gate inspection
+(see the inputs checklist item below), closing this section's own previously-named follow-up. What
+remains is rendering a product as its own map layer — a separate, larger piece of work (see below)
+— plus a -10C environmental height input (HRRR's own isotherm-height
+field doesn't publish that level via the mechanism 0C/-20C already reuse).
 
 ### First version capabilities
 
@@ -1388,18 +1389,26 @@ Inputs:
 - [x] range — ground range, matching the gate inspector's own "Ground range" label
 - [x] azimuth
 - [x] elevation
-- [x]/[ ] freezing level / -20C environmental heights — new this pass: `FREEZING_LEVEL_M` /
+- [x]/[ ] freezing level / -20C environmental heights — `FREEZING_LEVEL_M` /
   `MINUS20C_HEIGHT_M`, both metres above sea level (compare against `BEAM_ALTITUDE_M`, not
   `BEAM_HEIGHT_M`). Reuses `OverlaySource::FreezingLevels` — the exact HRRR fetch
   (`HGT` at "0C isotherm" / "253 K level") already built for the MEHS/POSH hail grids — rather
   than adding a second fetch path; `inspect_gate` looks up the app's existing single most-recent-
   site cache (`self.freezing`), filtered to the gate's own site so a stale reading from a
-  previously followed site can't leak in. **Real, honest limitation, not silently glossed over:**
-  that cache is only populated when a hail grid has recently been on (`fetch_freezing_levels`'s
-  own "only worth a request when a hail grid is actually on" gate) — a UDP formula using these
-  inputs elsewhere sees them as missing until the user has turned MESH/POSH on at least once
-  recently; making them fetch proactively on their own is a small follow-up, not done here.
-  **-10C height is not added** — HRRR's isotherm-height field only publishes 0C and 253 K (-20C)
+  previously followed site can't leak in. **Follow-up closed this pass:** `inspect_gate` (both its
+  callers — a Gate Inspector click and the J3 linked cursor-probe table) now proactively calls
+  `fetch_freezing_levels` itself whenever the cache is empty or stale for the gate's own site,
+  rather than relying only on a hail grid's own request for it — a UDP formula using these inputs
+  no longer needs the user to have turned MESH/POSH on first, just to have inspected a gate at
+  least once. `fetch_freezing_levels` self-throttles to 900s and no-ops without a site, so calling
+  it opportunistically on every inspection costs nothing extra. `inspect_gate` gained a `ctx`
+  parameter to reach it (threaded through both call sites); no new unit test, since nothing in this
+  codebase constructs a full `HookEchoApp` with a real volume/spawner to exercise `inspect_gate`
+  directly — verified by full compile + the existing 618-test suite passing, plus manual borrow-
+  checker reasoning (the fetch call is placed before `self.views[idx]` is mutably borrowed, since
+  a method call needs the whole `&mut self`, not just the disjoint `self.freezing` field the read
+  right after it uses). **-10C height is not added** — HRRR's isotherm-height field only publishes
+  0C and 253 K (-20C)
   via this same mechanism; a -10C level would need a separate, unverified fetch this pass didn't
   confirm exists. `wxdata::udp` gained 2 new unit tests; `ui::udp_window`'s own reference text was
   also corrected here — it had gone stale claiming vertical/layer aggregates "aren't available

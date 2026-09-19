@@ -7195,10 +7195,10 @@ impl HookEchoApp {
         lat: f64,
         antenna_altitude_m: Option<f64>,
         // (0°C height, −20°C height), metres above sea level — `self.freezing`, already filtered
-        // to the gate's own site by the caller. `None` when there is no recent fetch for this
-        // site (see `fetch_freezing_levels`'s own "only worth a request when a hail grid is
-        // actually on" gate) — a UDP formula referencing these inputs just sees them as missing
-        // rather than the app fetching a second time on their behalf.
+        // to the gate's own site by the caller. `None` on the very first inspection of a site (or
+        // a hail grid's own request) before the proactive fetch `inspect_gate` kicks off there —
+        // see that fetch's own doc comment — has actually landed; a UDP formula referencing these
+        // inputs just sees them as missing in the meantime, not the app fetching a second time.
         freezing: Option<(f64, f64)>,
     ) -> wxdata::udp::GateInputs {
         let mut out = wxdata::udp::GateInputs::default();
@@ -7277,13 +7277,28 @@ impl HookEchoApp {
     /// meaning whichever one the 2D tilt picker happens to have selected.
     fn inspect_gate(
         &mut self,
+        ctx: &egui::Context,
         idx: usize,
         lon: f64,
         lat: f64,
         tilt_override: Option<usize>,
     ) -> Option<ui::gate_inspector::GateInspectorPopup> {
+        let site = self.views[idx].site.clone();
+        // ROADMAP_NEW C1's own named follow-up: fetch freezing levels proactively whenever a gate
+        // is actually being inspected (this function's only two callers — a click with the Gate
+        // Inspector tool, and the linked cursor-probe table), not only when a hail grid happens to
+        // be on. Read before taking `v` below: `fetch_freezing_levels` takes `&mut self` in full,
+        // which would conflict with `v`'s already-borrowed `&mut self.views[idx]` if called after.
+        // `fetch_freezing_levels` self-throttles to 900s and no-ops without a site, so calling it
+        // on every inspection is cheap, not a fetch storm.
+        if self
+            .freezing
+            .as_ref()
+            .is_none_or(|(s, ..)| Some(s.as_str()) != site.as_deref())
+        {
+            self.fetch_freezing_levels(ctx);
+        }
         let v = &mut self.views[idx];
-        let site = v.site.clone();
         // Only meaningful for the gate's own site — `self.freezing` is a single most-recent-site
         // cache (see `fetch_freezing_levels`), not one entry per site, so a stale reading from a
         // previously followed site must not leak into this one's UDP inputs. `self.freezing` is a
@@ -7336,9 +7351,15 @@ impl HookEchoApp {
     /// linked hover point, reusing `inspect_gate` exactly as the Interrogate tool's click does.
     /// `None` fields describe *why* a pane has nothing to show (no volume, no data at this point)
     /// rather than the row vanishing — the table always lists every visible pane.
-    fn probe_row(&mut self, idx: usize, lon: f64, lat: f64) -> ui::cursor_probe::ProbeRow {
+    fn probe_row(
+        &mut self,
+        ctx: &egui::Context,
+        idx: usize,
+        lon: f64,
+        lat: f64,
+    ) -> ui::cursor_probe::ProbeRow {
         let moment = self.views[idx].moment;
-        match self.inspect_gate(idx, lon, lat, None) {
+        match self.inspect_gate(ctx, idx, lon, lat, None) {
             Some(popup) => ui::cursor_probe::ProbeRow {
                 pane: idx,
                 site: popup.site,
@@ -7389,7 +7410,7 @@ impl HookEchoApp {
                 );
                 painter.circle_stroke(pos, 4.0, egui::Stroke::new(1.5, color));
             }
-            rows.push(self.probe_row(idx, lon, lat));
+            rows.push(self.probe_row(ui.ctx(), idx, lon, lat));
         }
         ui::cursor_probe::show(ui.ctx(), &rows, self.active_tz());
     }
@@ -13453,7 +13474,7 @@ impl HookEchoApp {
                             Some((tilt, plon, plat)) => (plon, plat, Some(tilt)),
                             None => (lon, lat, None),
                         };
-                        self.gate_popup = self.inspect_gate(idx, gate_lon, gate_lat, tilt);
+                        self.gate_popup = self.inspect_gate(ctx, idx, gate_lon, gate_lat, tilt);
                     }
                     MapTool::RadarSuitability => {
                         self.cell_popup = None;
