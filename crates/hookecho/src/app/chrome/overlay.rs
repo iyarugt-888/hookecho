@@ -258,6 +258,7 @@ impl HookEchoApp {
                                     self.compare_error.as_deref(),
                                     self.views[self.active].blink_compare,
                                     self.views[self.active].overlay_compare,
+                                    self.views[self.active].swipe_compare,
                                     &mut self.settings.lightning_minutes,
                                     glm_options,
                                     &mut self.settings.glm_goes_west,
@@ -281,6 +282,7 @@ impl HookEchoApp {
                                         }
                                         view.blink_compare = false;
                                         view.overlay_compare = false;
+                                        view.swipe_compare = false;
                                     }
                                 }
                             });

@@ -543,6 +543,81 @@ pub struct PendingVectorTile {
     pub indices: Vec<u32>,
 }
 
+/// Split two field layers across one pane. A single callback owns both halves so egui's
+/// prepare-all-then-paint ordering cannot let one pane overwrite another pane's comparison.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FieldSwipe {
+    pub left: FieldLayer,
+    pub right: FieldLayer,
+    /// Fraction of the pane occupied by `left`, clamped again by the renderer for safety.
+    pub fraction: f32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ScissorRect {
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct SwipeScissors {
+    left: ScissorRect,
+    right: ScissorRect,
+    restore: ScissorRect,
+}
+
+fn intersect_scissor(a: ScissorRect, b: ScissorRect) -> ScissorRect {
+    let x0 = a.x.max(b.x);
+    let y0 = a.y.max(b.y);
+    let x1 = a.x.saturating_add(a.width).min(b.x.saturating_add(b.width));
+    let y1 =
+        a.y.saturating_add(a.height)
+            .min(b.y.saturating_add(b.height));
+    ScissorRect {
+        x: x0,
+        y: y0,
+        width: x1.saturating_sub(x0),
+        height: y1.saturating_sub(y0),
+    }
+}
+
+fn viewport_scissor(viewport: egui::epaint::ViewportInPixels) -> ScissorRect {
+    ScissorRect {
+        x: viewport.left_px.max(0) as u32,
+        y: viewport.top_px.max(0) as u32,
+        width: viewport.width_px.max(0) as u32,
+        height: viewport.height_px.max(0) as u32,
+    }
+}
+
+fn split_scissors(viewport: ScissorRect, clip: ScissorRect, fraction: f32) -> SwipeScissors {
+    let left_width = ((viewport.width as f32) * fraction.clamp(0.0, 1.0)).round() as u32;
+    let left = ScissorRect {
+        width: left_width,
+        ..viewport
+    };
+    let right = ScissorRect {
+        x: viewport.x.saturating_add(left_width),
+        width: viewport.width.saturating_sub(left_width),
+        ..viewport
+    };
+    SwipeScissors {
+        left: intersect_scissor(left, clip),
+        right: intersect_scissor(right, clip),
+        restore: clip,
+    }
+}
+
+fn swipe_scissors(info: &egui::PaintCallbackInfo, fraction: f32) -> SwipeScissors {
+    split_scissors(
+        viewport_scissor(info.viewport_in_pixels()),
+        viewport_scissor(info.clip_rect_in_pixels()),
+        fraction,
+    )
+}
+
 /// Per-frame draw instructions handed to the render callback.
 pub struct MapCallback {
     /// Which pane this callback draws (indexes into `RenderResources.panes`).
@@ -577,6 +652,8 @@ pub struct MapCallback {
     pub field_uploads: Vec<(FieldLayer, MrmsUpload)>,
     /// Which field layers to paint this frame, with their opacity (0..1).
     pub field_draws: Vec<(FieldLayer, f32)>,
+    /// Optional left/right split for two of `field_draws`.
+    pub field_swipe: Option<FieldSwipe>,
     /// Field layers the app has stopped drawing for long enough to free; same contract as
     /// `drop_tiles` — the app decides, we free, and it re-uploads on the next enable.
     pub drop_fields: Vec<FieldLayer>,
@@ -700,6 +777,7 @@ struct PaneGpu {
     /// Field layers this pane draws this frame. Per-pane, not shared: two panes are how you look
     /// at two fields at once.
     field_draws: Vec<FieldLayer>,
+    field_swipe: Option<FieldSwipe>,
 }
 
 /// Long-lived GPU resources, stored in egui's `CallbackResources` type-map.
@@ -1158,6 +1236,7 @@ impl RenderResources {
                 frame_draw_observed: false,
                 frame_draw_overlay: false,
                 field_draws: Vec::new(),
+                field_swipe: None,
             }
         })
     }
@@ -1773,6 +1852,7 @@ impl RenderResources {
         pane.frame_draw_observed = cb.draw_observed && pane.observed.is_some();
         pane.frame_draw_overlay = cb.draw_overlay && overlay_present;
         pane.field_draws = field_draws;
+        pane.field_swipe = cb.field_swipe;
     }
 
     fn upload_overlay(&mut self, device: &wgpu::Device, o: &OverlayUpload) {
@@ -1918,30 +1998,81 @@ impl RenderResources {
         );
     }
 
-    /// Paint the active field layers in the requested band (below/above the radar), in the fixed
-    /// bottom-to-top order, using this pane's camera.
-    fn draw_fields(&self, id: u32, pane: &PaneGpu, pass: &mut wgpu::RenderPass<'_>, below: bool) {
+    fn draw_field(
+        &self,
+        id: u32,
+        pane: &PaneGpu,
+        pass: &mut wgpu::RenderPass<'_>,
+        layer: FieldLayer,
+    ) {
         let cam = &pane.camera_bg;
+        if let Some(f) = self.fields.get(&layer) {
+            let Some(draw) = f.pane_draws.get(&id) else {
+                return;
+            };
+            pass.set_pipeline(&self.mrms_pipeline);
+            pass.set_bind_group(0, cam, &[]);
+            pass.set_bind_group(1, &draw.bind_group, &[]);
+            pass.set_vertex_buffer(0, f.vbuf.slice(..));
+            pass.draw(0..6, 0..1);
+        }
+    }
+
+    /// Paint the active field layers in the requested band (below/above the radar), in the fixed
+    /// bottom-to-top order, using this pane's camera. A swipe remains one callback and changes
+    /// only the scissor for its two comparison draws; this is important because every callback's
+    /// `prepare` runs before any callback's `paint`.
+    fn draw_fields(
+        &self,
+        id: u32,
+        pane: &PaneGpu,
+        pass: &mut wgpu::RenderPass<'_>,
+        below: bool,
+        swipe_scissors: Option<SwipeScissors>,
+    ) {
         for layer in FieldLayer::DRAW_ORDER {
             if layer.below_radar() != below || !pane.field_draws.contains(&layer) {
                 continue;
             }
-            if let Some(f) = self.fields.get(&layer) {
-                let Some(draw) = f.pane_draws.get(&id) else {
+            let scissor = pane.field_swipe.and_then(|swipe| {
+                swipe_scissors.and_then(|scissors| {
+                    if layer == swipe.left {
+                        Some(scissors.left)
+                    } else if layer == swipe.right {
+                        Some(scissors.right)
+                    } else {
+                        None
+                    }
+                })
+            });
+            if let Some(scissor) = scissor {
+                if scissor.width == 0 || scissor.height == 0 {
                     continue;
-                };
-                pass.set_pipeline(&self.mrms_pipeline);
-                pass.set_bind_group(0, cam, &[]);
-                pass.set_bind_group(1, &draw.bind_group, &[]);
-                pass.set_vertex_buffer(0, f.vbuf.slice(..));
-                pass.draw(0..6, 0..1);
+                }
+                pass.set_scissor_rect(scissor.x, scissor.y, scissor.width, scissor.height);
+                self.draw_field(id, pane, pass, layer);
+                // A comparison layer may not be last in the band. Restore immediately so the
+                // next ordinary field cannot accidentally inherit this half-pane clip.
+                if let Some(scissors) = swipe_scissors {
+                    let s = scissors.restore;
+                    if s.width > 0 && s.height > 0 {
+                        pass.set_scissor_rect(s.x, s.y, s.width, s.height);
+                    }
+                }
+            } else {
+                self.draw_field(id, pane, pass, layer);
             }
         }
     }
 
     /// Record one pane's draws (vector basemap → raster tiles → radar → overlay), all using
     /// that pane's camera bind group.
-    fn record_pane(&self, id: u32, pass: &mut wgpu::RenderPass<'_>) {
+    fn record_pane(
+        &self,
+        id: u32,
+        pass: &mut wgpu::RenderPass<'_>,
+        paint_info: Option<&egui::PaintCallbackInfo>,
+    ) {
         let Some(pane) = self.panes.get(&id) else {
             return;
         };
@@ -1965,7 +2096,11 @@ impl RenderResources {
             self.draw_vector_basemap(pane, cam, pass);
         }
         // Field layers under the radar (national mosaic context).
-        self.draw_fields(id, pane, pass, true);
+        let swipe_scissors = pane
+            .field_swipe
+            .zip(paint_info)
+            .map(|(swipe, info)| swipe_scissors(info, swipe.fraction));
+        self.draw_fields(id, pane, pass, true, swipe_scissors);
         if pane.frame_draw_radar {
             if let Some(radar) = &pane.radar {
                 pass.set_pipeline(&self.radar_pipeline);
@@ -1988,7 +2123,7 @@ impl RenderResources {
             }
         }
         // Field layers over the radar (rotation/hail/shear/lightning signals).
-        self.draw_fields(id, pane, pass, false);
+        self.draw_fields(id, pane, pass, false, swipe_scissors);
         // Wind particles under the overlay, not over it: the CPU path paints in egui's own layer,
         // which is above everything, and a warning polygon disappearing under a particle trail
         // was the one complaint that layer ever attracted.
@@ -2062,7 +2197,7 @@ impl RenderResources {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            self.record_pane(pane, &mut pass);
+            self.record_pane(pane, &mut pass, None);
         }
         queue.submit(Some(encoder.finish()));
     }
@@ -2099,13 +2234,69 @@ impl egui_wgpu::CallbackTrait for MapCallback {
 
     fn paint(
         &self,
-        _info: egui::PaintCallbackInfo,
+        info: egui::PaintCallbackInfo,
         pass: &mut wgpu::RenderPass<'static>,
         resources: &egui_wgpu::CallbackResources,
     ) {
         crate::prof_scope!("render paint");
         let res: &RenderResources = resources.get().unwrap();
-        res.record_pane(self.pane, pass);
+        res.record_pane(self.pane, pass, Some(&info));
+    }
+}
+
+#[cfg(test)]
+mod swipe_tests {
+    use super::{split_scissors, ScissorRect};
+
+    #[test]
+    fn swipe_partitions_viewport_without_gap_or_overlap() {
+        let viewport = ScissorRect {
+            x: 100,
+            y: 20,
+            width: 301,
+            height: 180,
+        };
+        let split = split_scissors(viewport, viewport, 0.5);
+        assert_eq!(split.left.width, 151);
+        assert_eq!(split.right.x, split.left.x + split.left.width);
+        assert_eq!(split.left.width + split.right.width, viewport.width);
+        assert_eq!(split.restore, viewport);
+    }
+
+    #[test]
+    fn swipe_intersects_both_halves_with_callback_clip() {
+        let viewport = ScissorRect {
+            x: 100,
+            y: 20,
+            width: 300,
+            height: 180,
+        };
+        let clip = ScissorRect {
+            x: 140,
+            y: 40,
+            width: 180,
+            height: 100,
+        };
+        let split = split_scissors(viewport, clip, 0.4);
+        assert_eq!(
+            split.left,
+            ScissorRect {
+                x: 140,
+                y: 40,
+                width: 80,
+                height: 100
+            }
+        );
+        assert_eq!(
+            split.right,
+            ScissorRect {
+                x: 220,
+                y: 40,
+                width: 100,
+                height: 100
+            }
+        );
+        assert_eq!(split.restore, clip);
     }
 }
 

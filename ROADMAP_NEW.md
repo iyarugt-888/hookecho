@@ -2259,16 +2259,12 @@ Modes:
 
 - [x] A - B difference — predates this pass: the `ModelDiff` subtraction overlay
 - [x] side by side — predates this pass: `PaletteAction::CompareInPanes`, two linked panes
-- [ ] swipe divider — not attempted. `CompareA`/`CompareB` are GPU paint callbacks
-  (`egui_wgpu::CallbackTrait`), and the pane's field selection (`PaneGpu.field_draws`) is shared
-  mutable state written in `prepare()` and read in `paint()` by pane id — egui_wgpu runs every
-  pane's `prepare()` before any `paint()`, so queuing two clipped callbacks for the *same* pane
-  (one showing A on the left half, one showing B on the right) would race on which `prepare()`
-  call's field selection survives to both `paint()`s. A real swipe needs either a second,
-  smaller paint-callback type that draws one named field directly (bypassing `field_draws`
-  entirely) or threading the field selection through the callback struct itself instead of
-  shared per-pane state — real plumbing, not a small addition, so left for its own pass rather
-  than shipped as a divider that silently shows the wrong field on one side under load.
+- [x] swipe divider — new this pass, see the Unreleased CHANGELOG entry: one pane callback draws
+  A and B through complementary GPU scissor rectangles, so it remains correct under egui_wgpu's
+  prepare-all-then-paint ordering instead of racing two callbacks for the same pane. The divider
+  has its own drag target and visible handle/model labels; dragging it cannot pan or draw on the
+  map. Hover values and the linked multi-pane probe select the grid physically under the cursor,
+  and the legend names both halves.
 - [x] blink A/B — new this pass, see the Unreleased CHANGELOG entry: a "Blink A/B" button
   alternates the *active pane's own* `fields_on` between `CompareA` and `CompareB` on a 1.5 s
   timer, reusing the exact same render path "View side by side" already uses (`field_draws` is
@@ -2756,10 +2752,10 @@ Moving cursor in one pane should optionally show corresponding point in linked p
 
 ## J4. Compare modes — partly done
 
-Same modes F6 asks for, applied to model comparison specifically — see F6's own checklist for
-what's done and why swipe isn't:
+Same modes F6 asks for, applied to model comparison specifically:
 
-- [ ] swipe — not attempted; see F6's own entry for the exact architectural blocker
+- [x] swipe — new this pass, see F6 and the Unreleased CHANGELOG entry: a draggable, pane-local
+  A/B split implemented inside one GPU callback, with cursor/probe semantics following the split
 - [x] blink — new this pass, see F6 and the Unreleased CHANGELOG entry
 - [x] difference — predates this pass (`ModelDiff`)
 - [x] transparent overlay — new this pass, see F6 and the Unreleased CHANGELOG entry: model A at

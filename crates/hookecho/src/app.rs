@@ -2083,6 +2083,8 @@ pub(crate) enum PaletteAction {
     ToggleBlinkCompare,
     /// ROADMAP_NEW F6/J4 transparent overlay: draw A normally and B at half opacity in one pane.
     ToggleCompareOverlay,
+    /// ROADMAP_NEW F6/J4 swipe: A left, B right, with a draggable divider.
+    ToggleCompareSwipe,
     ToggleField(crate::render::FieldLayer),
     ToggleOverlay(OverlayToggle),
     SetContours(ContourKind),
@@ -7648,14 +7650,36 @@ impl HookEchoApp {
     }
 
     /// The visible gridded layer on top of this pane, matching the draw/legend order exactly.
-    fn probe_field(&self, idx: usize) -> Option<crate::render::FieldLayer> {
+    fn probe_field(
+        &self,
+        idx: usize,
+        lon: f64,
+        lat: f64,
+        vp: (f32, f32),
+    ) -> Option<crate::render::FieldLayer> {
         use crate::render::FieldLayer as FL;
+        let view = &self.views[idx];
+        let swipe_layer = (view.swipe_compare
+            && view.fields_on.contains(&FL::CompareA)
+            && view.fields_on.contains(&FL::CompareB))
+        .then(|| {
+            let world = crate::render::mercator::lonlat_to_world(lon, lat);
+            let screen = view.camera.world_to_screen(world, vp);
+            if Self::swipe_showing_b(view.swipe_fraction, screen.0, vp.0) {
+                FL::CompareB
+            } else {
+                FL::CompareA
+            }
+        });
         crate::render::FieldLayer::DRAW_ORDER
             .iter()
             .rev()
             .copied()
             .find(|layer| {
-                self.views[idx].fields_on.contains(layer)
+                view.fields_on.contains(layer)
+                    && swipe_layer.is_none_or(|selected| {
+                        !matches!(layer, FL::CompareA | FL::CompareB) || *layer == selected
+                    })
                     && crate::fielddiff::layer_ready(*layer, self.diff_valid, self.compare_valid)
                     && match layer {
                         FL::ModelDiff => self.diff_grid.is_some(),
@@ -7803,8 +7827,9 @@ impl HookEchoApp {
         idx: usize,
         lon: f64,
         lat: f64,
+        vp: (f32, f32),
     ) -> ui::cursor_probe::ProbeRow {
-        if let Some(layer) = self.probe_field(idx) {
+        if let Some(layer) = self.probe_field(idx, lon, lat, vp) {
             return self.grid_probe_row(idx, layer, lon, lat);
         }
         let moment = self.views[idx].moment;
@@ -7862,7 +7887,7 @@ impl HookEchoApp {
                 );
                 painter.circle_stroke(pos, 4.0, egui::Stroke::new(1.5, color));
             }
-            rows.push(self.probe_row(ui.ctx(), idx, lon, lat));
+            rows.push(self.probe_row(ui.ctx(), idx, lon, lat, vp));
         }
         ui::cursor_probe::show(ui.ctx(), &rows, self.active_tz());
     }
@@ -9537,11 +9562,13 @@ impl HookEchoApp {
                         view.fields_on.remove(&FL::CompareB);
                         view.blink_compare = false;
                         view.overlay_compare = false;
+                        view.swipe_compare = false;
                     } else if matches!(layer, FL::CompareA | FL::CompareB) {
                         // A direct layer toggle means exactly what its row says, not a stale
                         // blink/overlay mode left armed behind it.
                         view.blink_compare = false;
                         view.overlay_compare = false;
+                        view.swipe_compare = false;
                         if !on {
                             view.fields_on.remove(&FL::ModelDiff);
                         }
@@ -9623,6 +9650,7 @@ impl HookEchoApp {
                     view.fields_on.remove(&FL::CompareB);
                     view.fields_on.remove(&FL::ModelDiff);
                     view.overlay_compare = false;
+                    view.swipe_compare = false;
                 }
                 // Turning it off leaves whichever field was showing at the moment as a static
                 // single-field view, rather than snapping back to some other mode on its own.
@@ -9639,9 +9667,28 @@ impl HookEchoApp {
                     view.fields_on.insert(FL::CompareB);
                     view.fields_on.remove(&FL::ModelDiff);
                     view.blink_compare = false;
+                    view.swipe_compare = false;
                 } else {
                     // Stop on A as a stable single-field view, mirroring blink's "leave a useful
                     // comparison side visible" behavior rather than exposing a blank pane.
+                    view.fields_on.insert(FL::CompareA);
+                    view.fields_on.remove(&FL::CompareB);
+                }
+            }
+            PaletteAction::ToggleCompareSwipe => {
+                if !self.diff_field.supports_side_by_side() {
+                    return;
+                }
+                use crate::render::FieldLayer as FL;
+                let view = &mut self.views[self.active];
+                view.swipe_compare = !view.swipe_compare;
+                if view.swipe_compare {
+                    view.fields_on.insert(FL::CompareA);
+                    view.fields_on.insert(FL::CompareB);
+                    view.fields_on.remove(&FL::ModelDiff);
+                    view.blink_compare = false;
+                    view.overlay_compare = false;
+                } else {
                     view.fields_on.insert(FL::CompareA);
                     view.fields_on.remove(&FL::CompareB);
                 }
@@ -13534,6 +13581,11 @@ impl HookEchoApp {
         (half_cycle_secs - t.rem_euclid(half_cycle_secs)).max(0.01)
     }
 
+    /// Whether a pane-local x coordinate falls on the B side of a model swipe.
+    fn swipe_showing_b(fraction: f32, x: f32, width: f32) -> bool {
+        x >= width.max(0.0) * fraction.clamp(0.0, 1.0)
+    }
+
     /// Render one pane into `prect`: input, tiles, radar, paint callback, and painter overlays.
     #[allow(clippy::too_many_arguments)]
     fn render_pane(
@@ -13585,6 +13637,33 @@ impl HookEchoApp {
             egui::Id::new(("pane", idx)),
             egui::Sense::click_and_drag(),
         );
+        // Give the divider its own narrow hit target over the map. It changes only the split;
+        // suppressing the pane's drag below prevents the same gesture from panning the camera.
+        let swipe_response = if self.views[idx].swipe_compare {
+            let x = prect.left() + prect.width() * self.views[idx].swipe_fraction;
+            let hit = egui::Rect::from_min_max(
+                egui::pos2(x - 9.0, prect.top()),
+                egui::pos2(x + 9.0, prect.bottom()),
+            );
+            let divider = ui
+                .interact(
+                    hit,
+                    egui::Id::new(("compare-swipe", idx)),
+                    egui::Sense::click_and_drag(),
+                )
+                .on_hover_cursor(egui::CursorIcon::ResizeHorizontal);
+            if divider.dragged() {
+                if let Some(pos) = divider.interact_pointer_pos() {
+                    self.views[idx].swipe_fraction =
+                        ((pos.x - prect.left()) / prect.width()).clamp(0.05, 0.95);
+                    self.active = idx;
+                }
+            }
+            Some(divider)
+        } else {
+            None
+        };
+        let swipe_dragging = swipe_response.as_ref().is_some_and(|r| r.dragged());
 
         // --- Input (mutates this pane's camera / selects it active) ---
         // During a multi-touch gesture the first finger still drives the egui pointer, so a pinch
@@ -13615,7 +13694,7 @@ impl HookEchoApp {
         }
         // The draw tool takes the drag away from the pan, the same deal the measure tool makes
         // with the click: while it's armed, a drag draws. Disarm it (Esc / another tool) to pan.
-        if self.tool == MapTool::Draw && quiet {
+        if self.tool == MapTool::Draw && quiet && !swipe_dragging {
             if response.dragged() {
                 self.active = idx;
                 if let Some(pos) = response.interact_pointer_pos() {
@@ -13631,7 +13710,7 @@ impl HookEchoApp {
                     );
                 }
             }
-        } else if response.dragged() && quiet {
+        } else if response.dragged() && quiet && !swipe_dragging {
             self.active = idx;
             let d = response.drag_delta();
             if self.views[idx].map_3d.enabled && response.dragged_by(egui::PointerButton::Secondary)
@@ -14499,6 +14578,13 @@ impl HookEchoApp {
             draw_overlay: self.overlay_ready,
             field_uploads,
             field_draws,
+            field_swipe: self.views[idx]
+                .swipe_compare
+                .then_some(crate::render::FieldSwipe {
+                    left: crate::render::FieldLayer::CompareA,
+                    right: crate::render::FieldLayer::CompareB,
+                    fraction: self.views[idx].swipe_fraction,
+                }),
             drop_fields,
             clear_tiles,
             drop_tiles,
@@ -14628,6 +14714,52 @@ impl HookEchoApp {
         let painter = ui.painter_at(prect);
         let view = &self.views[idx];
         let basemap = pane_style;
+
+        if view.swipe_compare {
+            let split_x = prect.left() + prect.width() * view.swipe_fraction;
+            let top = prect.top() + 30.0;
+            let bottom = prect.bottom() - 8.0;
+            let stroke = egui::Stroke::new(2.0, egui::Color32::WHITE);
+            painter.line_segment(
+                [egui::pos2(split_x, top), egui::pos2(split_x, bottom)],
+                egui::Stroke::new(4.0, egui::Color32::from_black_alpha(150)),
+            );
+            painter.line_segment(
+                [egui::pos2(split_x, top), egui::pos2(split_x, bottom)],
+                stroke,
+            );
+            let handle = egui::pos2(split_x, prect.center().y);
+            painter.circle_filled(handle, 10.0, egui::Color32::from_black_alpha(190));
+            painter.circle_stroke(handle, 10.0, stroke);
+            painter.text(
+                handle,
+                egui::Align2::CENTER_CENTER,
+                "↔",
+                egui::FontId::proportional(14.0),
+                egui::Color32::WHITE,
+            );
+            let (a, b) = self.diff_field.pair();
+            for (pos, label, align) in [
+                (
+                    egui::pos2((prect.left() + split_x) * 0.5, prect.top() + 12.0),
+                    format!("A · {a}"),
+                    egui::Align2::CENTER_CENTER,
+                ),
+                (
+                    egui::pos2((split_x + prect.right()) * 0.5, prect.top() + 12.0),
+                    format!("B · {b}"),
+                    egui::Align2::CENTER_CENTER,
+                ),
+            ] {
+                painter.text(
+                    pos,
+                    align,
+                    label,
+                    egui::FontId::proportional(12.0),
+                    egui::Color32::WHITE,
+                );
+            }
+        }
 
         // Storm-cell ids reserve their space first — they are the top tier, and the cell markers
         // themselves are drawn much further down with the rest of the cell layer. Reserving here
@@ -16505,13 +16637,14 @@ impl HookEchoApp {
             use crate::render::FieldLayer as FL;
             let showing_a = view.fields_on.contains(&FL::CompareA);
             let showing_b = view.fields_on.contains(&FL::CompareB);
-            // CompareB paints after CompareA (see FieldLayer::DRAW_ORDER), so on the rare pane
-            // that somehow has both on at once, B is what's actually visible on top — the same
-            // "last enabled layer in paint order" the legend a few hundred lines below already
-            // uses to decide what to label. Checking B first here keeps the hover number and the
-            // legend's model name from disagreeing.
-            let on_top_is_b = showing_b;
             if let Some(hp) = response.hover_pos() {
+                // A swipe selects the grid physically under the cursor; otherwise CompareB is
+                // the top draw when both layers happen to be enabled.
+                let on_top_is_b = if view.swipe_compare && showing_a && showing_b {
+                    Self::swipe_showing_b(view.swipe_fraction, hp.x - prect.left(), prect.width())
+                } else {
+                    showing_b
+                };
                 let grid = self.compare_grid.as_ref().and_then(|(a, b)| {
                     if on_top_is_b {
                         Some(b)
@@ -17122,7 +17255,9 @@ impl HookEchoApp {
                     y += ui::legend::draw_diff(&painter, prect, self.diff_field, self.diff_mode, y);
                 } else if matches!(*top, FL::CompareA | FL::CompareB) {
                     let (label_a, label_b) = self.diff_field.pair();
-                    let model = if view.overlay_compare {
+                    let model = if view.swipe_compare {
+                        format!("{label_a} A | B {label_b}")
+                    } else if view.overlay_compare {
                         format!("{label_a} + 50% {label_b}")
                     } else if *top == FL::CompareA {
                         label_a.into()
@@ -17210,6 +17345,7 @@ impl HookEchoApp {
             // top of that would fight the very point of splitting into two panes.
             view.blink_compare = false;
             view.overlay_compare = false;
+            view.swipe_compare = false;
         }
         // Two panes of the same field only reads if both look at the same place.
         self.link_cameras = true;
@@ -22057,6 +22193,16 @@ mod tests {
         // A second full cycle later, the phase repeats rather than drifting.
         assert!(!HookEchoApp::blink_showing_b(3.0, 1.5));
         assert!(HookEchoApp::blink_showing_b(4.5, 1.5));
+    }
+
+    #[test]
+    fn swipe_side_tracks_the_clamped_divider() {
+        assert!(!HookEchoApp::swipe_showing_b(0.5, 499.9, 1000.0));
+        assert!(HookEchoApp::swipe_showing_b(0.5, 500.0, 1000.0));
+        assert!(!HookEchoApp::swipe_showing_b(-1.0, -0.1, 1000.0));
+        assert!(HookEchoApp::swipe_showing_b(-1.0, 0.0, 1000.0));
+        assert!(!HookEchoApp::swipe_showing_b(2.0, 999.9, 1000.0));
+        assert!(HookEchoApp::swipe_showing_b(2.0, 1000.0, 1000.0));
     }
 
     #[test]

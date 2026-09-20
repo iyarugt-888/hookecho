@@ -1474,6 +1474,14 @@ impl HookEchoApp {
                 PaletteAction::ToggleCompareOverlay,
                 Some(self.views[self.active].overlay_compare),
             );
+            push(
+                "Swipe between compared models",
+                "Models",
+                "Split this pane between model A and B with a draggable divider",
+                false,
+                PaletteAction::ToggleCompareSwipe,
+                Some(self.views[self.active].swipe_compare),
+            );
         }
         let panes = self.views.len();
         for n in [1usize, 2, 3, 4, 6, 9]

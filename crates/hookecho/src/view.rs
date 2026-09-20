@@ -501,6 +501,11 @@ pub struct MapView {
     /// ROADMAP_NEW F6/J4 transparent overlay: draw both comparison grids in this pane with B at
     /// half opacity. Session state, mutually exclusive with `blink_compare` and side-by-side.
     pub overlay_compare: bool,
+    /// ROADMAP_NEW F6/J4 swipe: A occupies the left side and B the right side of one pane.
+    /// Session-only and mutually exclusive with blink, overlay, and side-by-side comparison.
+    pub swipe_compare: bool,
+    /// Horizontal split position as a fraction of pane width.
+    pub swipe_fraction: f32,
     /// Every moment seen in any volume from `loaded_site`, cleared when the site changes.
     ///
     /// A single live volume is only as complete as the tilts that have arrived: early in a scan
@@ -574,6 +579,8 @@ impl MapView {
             fields_on: Default::default(),
             blink_compare: false,
             overlay_compare: false,
+            swipe_compare: false,
+            swipe_fraction: 0.5,
             moments_seen: [false; Moment::ALL.len()],
             #[cfg(not(target_arch = "wasm32"))]
             radar_providers: None,

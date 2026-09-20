@@ -109,6 +109,7 @@ pub(crate) fn show(
     // PaletteAction because each also has to maintain mutually-exclusive `fields_on` state.
     blink_compare: bool,
     overlay_compare: bool,
+    swipe_compare: bool,
     // Lightning: NLDN averaging window, and whether GLM also polls GOES-West.
     lightning_minutes: &mut u16,
     show_glm: bool,
@@ -276,7 +277,7 @@ pub(crate) fn show(
     // Blinking also keeps exactly one of CompareA/CompareB in `fields_on` (see
     // `render_pane`'s own comment), so `showing_compare` alone can't tell true two-pane side by
     // side apart from one pane alternating between the two on a timer.
-    let in_side_by_side = showing_compare && !blink_compare && !overlay_compare;
+    let in_side_by_side = showing_compare && !blink_compare && !overlay_compare && !swipe_compare;
     if section == "Model comparison" && (on.contains(&FL::ModelDiff) || showing_compare) {
         let (a, b) = diff_field.pair();
         ui.horizontal_wrapped(|ui| {
@@ -322,6 +323,11 @@ pub(crate) fn show(
                 ui.weak(format!(
                     "{a}'s own {label} at full opacity with {b} overlaid at 50% — one pane shows \
                      displacement and shape differences directly on the same scale."
+                ));
+            } else if swipe_compare {
+                ui.weak(format!(
+                    "{a}'s own {label} on the left and {b}'s on the right — drag the divider to \
+                     compare displacement and shape at the same scale."
                 ));
             } else {
                 ui.weak(format!(
@@ -375,6 +381,17 @@ pub(crate) fn show(
                     .clicked()
                 {
                     actions.palette = Some(crate::app::PaletteAction::ToggleCompareOverlay);
+                }
+                if ui
+                    .button(if swipe_compare {
+                        "Stop swipe"
+                    } else {
+                        "Swipe A/B"
+                    })
+                    .on_hover_text("Split this pane between model A and B with a draggable divider")
+                    .clicked()
+                {
+                    actions.palette = Some(crate::app::PaletteAction::ToggleCompareSwipe);
                 }
             });
         }

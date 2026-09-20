@@ -8,6 +8,19 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: draggable model-comparison swipe (F6/J4)
+
+Model comparison now offers “Swipe A/B”: model A fills the left of one pane, model B fills the
+right, and a labeled divider can be dragged from 5–95% without panning or drawing on the map.
+Hover readouts and the synchronized multi-pane probe sample whichever model is physically under
+the cursor, while the legend identifies both halves. Swipe is mutually exclusive with blink,
+overlay, difference, and two-pane modes, and unsupported run-to-run comparisons do not expose it.
+
+The split is rendered inside one map callback with complementary scissor rectangles and restores
+egui’s original clip after each half. That avoids the prepare-order race that made two callbacks
+for one pane unsafe and prevents later field layers from inheriting the split. Focused tests cover
+pixel-exact partitioning, clipping, rounding, and the cursor-side boundary.
+
 ### Added: categorical model-disagreement mask (F6)
 
 Model difference now has a third display mode: a directionless categorical mask that draws one
@@ -433,11 +446,9 @@ GPU/shader change was needed: blinking is just which one of the two layers is a 
 frame, flipped on a clock read from egui's own frame time rather than a continuous per-frame
 animation (it schedules the next repaint exactly at the next flip). Turning on "View side by
 side" while blinking stops the blink, since two persistent panes already show both fields at
-once. "Swipe divider" (a draggable split within one pane) was investigated but not attempted:
-`CompareA`/`CompareB` are GPU paint callbacks sharing one pane's field-selection state between
-`prepare()` and `paint()`, and two clipped callbacks for the same pane in one frame would race on
-whose field selection survives — real plumbing (a dedicated single-field paint path) that's out
-of scope for this pass; noted honestly in ROADMAP_NEW rather than shipped half-working.
+once. The separate “Swipe A/B” entry above completes the other one-pane comparison mode; its
+single callback draws both clipped halves without the two-callback prepare-order race identified
+when blink first shipped.
 
 ### Fixed: station cards judged every network's staleness by the same 5-minute clock
 
