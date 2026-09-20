@@ -1501,6 +1501,15 @@ impl HookEchoApp {
             None,
         );
         push(
+            "Export map as GeoJSON\u{2026}",
+            "Tools",
+            "Save what's drawn right now \u{2014} annotations, markers, watch zones, storm cells \
+             and every displayed polygon \u{2014} for QGIS, ArcGIS or a briefing",
+            false,
+            PaletteAction::ExportGis,
+            None,
+        );
+        push(
             "Import GIS file\u{2026}",
             "Tools",
             "Load a GeoJSON file as a reference overlay \u{2014} polygons draw and are \

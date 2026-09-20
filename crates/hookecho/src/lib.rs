@@ -47,6 +47,8 @@ pub mod fielddiff;
 pub mod fonts;
 pub mod fronts_draw;
 pub mod geo;
+/// Writing what is on the map out as GeoJSON.
+pub mod gis_export;
 /// Converting a generic GIS import (`wxdata::gis`) into a renderable overlay feature.
 pub mod gis_import;
 pub mod gps;

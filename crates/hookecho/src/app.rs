@@ -2101,6 +2101,8 @@ pub(crate) enum PaletteAction {
     OpenInWindy,
     /// Open the file picker to import a GeoJSON file (ROADMAP_NEW I1).
     ImportGis,
+    /// Write everything currently drawn on the map out as GeoJSON (ROADMAP_NEW I6).
+    ExportGis,
     /// Copy a `hookecho://goto/…` link to this view (site, center, zoom, archive time).
     CopyViewLink,
     /// Open Help at the glossary entry that explains a label's abbreviation. An index into
@@ -9393,6 +9395,7 @@ impl HookEchoApp {
             PaletteAction::ImportGis => {
                 crate::dialog::request_open(crate::dialog::ImportKind::GisFile, "");
             }
+            PaletteAction::ExportGis => self.export_map_geojson(),
             PaletteAction::OpenWindow(w) => match w {
                 W::Site => {
                     if self.site_dialog.is_none() {
@@ -17523,6 +17526,42 @@ impl HookEchoApp {
             crate::dialog::Saved::Failed(e) => {
                 log::warn!("diagnostics export failed: {e}");
                 self.toast(ToastKind::Error, format!("Diagnostics export failed: {e}"));
+            }
+            crate::dialog::Saved::Cancelled => {}
+        }
+    }
+
+    /// ROADMAP_NEW I6: write everything currently drawn on the map out as one GeoJSON file.
+    ///
+    /// Deliberately "what is on the map" rather than "everything fetched": `self.overlays` is
+    /// already the filtered, toggled set `rebuild_overlays` assembled for display, so an export
+    /// matches what the user is looking at instead of quietly carrying layers they had turned off.
+    fn export_map_geojson(&mut self) {
+        let features = crate::gis_export::to_features(&crate::gis_export::MapContents {
+            strokes: &self.strokes,
+            markers: &self.settings.markers,
+            zones: &self.settings.alert_polygons,
+            cells: self.active_storm_cells(),
+            overlays: &self.overlays,
+        });
+        let count = features.len();
+        if count == 0 {
+            self.toast(
+                ToastKind::Error,
+                "Nothing on the map to export \u{2014} draw, mark or turn on a layer first"
+                    .to_string(),
+            );
+            return;
+        }
+        let json = wxdata::gis::to_geojson(&features);
+        match crate::dialog::save_bytes("hookecho-map.geojson", "geojson", json.as_bytes()) {
+            crate::dialog::Saved::Where(w) => self.toast(
+                ToastKind::Success,
+                format!("Exported {count} shapes to {w}"),
+            ),
+            crate::dialog::Saved::Failed(e) => {
+                log::warn!("GeoJSON export failed: {e}");
+                self.toast(ToastKind::Error, format!("GeoJSON export failed: {e}"));
             }
             crate::dialog::Saved::Cancelled => {}
         }

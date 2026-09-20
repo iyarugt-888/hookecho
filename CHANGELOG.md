@@ -8,6 +8,22 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: export what's on the map as GeoJSON (I6)
+
+ROADMAP_NEW I6's first half: "Export map as GeoJSON…" in Tools writes freehand annotations
+(as lines, carrying their own color), saved markers, watch zones, storm cells (with movement,
+max dBZ, echo top and VIL where the scan has them) and every displayed overlay polygon into one
+file for QGIS, ArcGIS or a briefing. Phase I exists for emergency-management, research and
+broadcast users, and until now nothing geographic could leave the app at all.
+
+It exports what is drawn, not everything fetched — the source is the same assembled overlay set
+the map renders, so filters and toggles are already applied. Each feature carries a `hookecho`
+property naming what it came from, so a re-import can tell an annotation from a warning polygon.
+Locally drawn rings are closed on the way out, since GeoJSON requires it and a watch zone the user
+clicked out is not; missing cell values are omitted rather than written as null. `wxdata::gis`
+gained the writing half of its own parser, so an export reads straight back through the importer —
+which is what the round-trip tests check, rather than asserting against a hand-written string.
+
 ### Added: beam-rise control for the 3D Observed view
 
 A radar beam genuinely climbs with range, so in the map-pitch 3D Observed view every tilt flared

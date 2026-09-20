@@ -7,16 +7,17 @@
 //! rather than re-implementing either — the only genuinely new work here is recognizing every
 //! geometry type, not just Polygon/MultiPolygon.
 //!
+//! [`to_geojson`] is the writing half (I6): the app exports what is on the map through the same
+//! types, so anything this app draws can leave it for QGIS/ArcGIS and anything written here reads
+//! straight back through [`parse_geojson`].
+//!
 //! What this module deliberately does *not* do yet, per I1's own suggested order: Shapefile, KML,
 //! KMZ and GeoPackage import (GeoJSON first; the others are separate, larger parsers with their
-//! own formats to get right); reprojection from a non-WGS84 CRS (I2 — a GeoJSON document is
+//! own formats to get right), and reprojection from a non-WGS84 CRS (I2 — a GeoJSON document is
 //! supposed to always be WGS84 per the spec, so this isn't blocking GeoJSON specifically, but a
-//! Shapefile's `.prj` will need it); and rendering the result as a map layer or any file-picker
-//! UI to reach this function from (I4's styling, and the actual "import a file" user flow) — this
-//! is the parsing layer only, the same "ship the evaluator, defer the renderer" split this
-//! codebase already used for C1's user-defined products.
+//! Shapefile's `.prj` will need it).
 
-use geojson::{GeometryValue, Position};
+use geojson::{Feature, FeatureCollection, GeoJson, GeometryValue, Position};
 
 /// One shape from a GeoJSON document, in this module's own coordinate convention: `[lon, lat]`
 /// pairs, matching [`crate::overlay::GeoFeature`]'s rings so a future renderer can treat both the
@@ -36,6 +37,36 @@ pub enum Geometry {
 }
 
 impl Geometry {
+    /// This shape as the `geojson` crate's own geometry value, for [`to_geojson`] — the exact
+    /// inverse of what [`geometries_of`] reads, so a parse/write round trip is lossless for every
+    /// variant here (`GeometryCollection` excepted, since parsing already flattens one away and
+    /// there is no variant left to write back).
+    fn to_geojson_value(&self) -> GeometryValue {
+        let pos = |p: &[f64; 2]| Position::from(*p);
+        let line = |l: &Vec<[f64; 2]>| l.iter().map(pos).collect::<Vec<_>>();
+        let poly = |rings: &Vec<Vec<[f64; 2]>>| rings.iter().map(line).collect::<Vec<_>>();
+        match self {
+            Self::Point(p) => GeometryValue::Point {
+                coordinates: pos(p),
+            },
+            Self::MultiPoint(ps) => GeometryValue::MultiPoint {
+                coordinates: ps.iter().map(pos).collect(),
+            },
+            Self::LineString(l) => GeometryValue::LineString {
+                coordinates: line(l),
+            },
+            Self::MultiLineString(ls) => GeometryValue::MultiLineString {
+                coordinates: ls.iter().map(line).collect(),
+            },
+            Self::Polygon(rings) => GeometryValue::Polygon {
+                coordinates: poly(rings),
+            },
+            Self::MultiPolygon(parts) => GeometryValue::MultiPolygon {
+                coordinates: parts.iter().map(poly).collect(),
+            },
+        }
+    }
+
     /// A short, stable name for a legend/inspector — mirrors the GeoJSON spec's own type strings.
     pub fn kind_name(&self) -> &'static str {
         match self {
@@ -122,6 +153,32 @@ pub fn parse_geojson(json: &str) -> anyhow::Result<Vec<GisFeature>> {
         }
     })?;
     Ok(out)
+}
+
+/// Serialize features as one GeoJSON `FeatureCollection` (ROADMAP_NEW I6) — the writing half of
+/// [`parse_geojson`], so anything this app can draw geographically can leave it for QGIS/ArcGIS or
+/// any other tool that reads the format, and anything written here can be read straight back.
+///
+/// A `FeatureCollection` even for a single feature, deliberately: it is the shape every GIS tool
+/// opens without asking questions, and it leaves room for the mixed geometry types a real export
+/// carries (annotation lines beside marker points beside warning polygons) in one file rather than
+/// one file per kind.
+pub fn to_geojson(features: &[GisFeature]) -> String {
+    GeoJson::FeatureCollection(FeatureCollection {
+        bbox: None,
+        features: features
+            .iter()
+            .map(|f| Feature {
+                bbox: None,
+                geometry: Some(geojson::Geometry::new(f.geometry.to_geojson_value())),
+                id: None,
+                properties: Some(f.properties.clone()),
+                foreign_members: None,
+            })
+            .collect(),
+        foreign_members: None,
+    })
+    .to_string()
 }
 
 #[cfg(test)]
@@ -220,6 +277,74 @@ mod tests {
         let err =
             parse_geojson(r#"{"error":{"code":404,"message":"Layer not found"}}"#).unwrap_err();
         assert!(err.to_string().contains("Layer not found"), "{err}");
+    }
+
+    /// ROADMAP_NEW I6: the writer's real contract is that the file it produces is one this app —
+    /// and by extension any other GeoJSON reader — reads back unchanged. Checked by round trip
+    /// rather than by asserting against a hand-written JSON string, which would only prove the
+    /// writer still emits whatever it emitted when the test was written.
+    #[test]
+    fn every_geometry_type_survives_a_write_then_read_round_trip() {
+        let props = |k: &str| {
+            let mut m = serde_json::Map::new();
+            m.insert("name".into(), serde_json::Value::String(k.into()));
+            m
+        };
+        let original = vec![
+            GisFeature {
+                geometry: Geometry::Point([-97.5, 35.2]),
+                properties: props("a point"),
+            },
+            GisFeature {
+                geometry: Geometry::MultiPoint(vec![[-97.5, 35.2], [-96.0, 34.0]]),
+                properties: props("some points"),
+            },
+            GisFeature {
+                geometry: Geometry::LineString(vec![[-97.5, 35.2], [-96.0, 34.0]]),
+                properties: props("a line"),
+            },
+            GisFeature {
+                geometry: Geometry::MultiLineString(vec![vec![[-97.5, 35.2], [-96.0, 34.0]]]),
+                properties: props("some lines"),
+            },
+            GisFeature {
+                geometry: Geometry::Polygon(vec![
+                    vec![[0.0, 0.0], [4.0, 0.0], [4.0, 4.0], [0.0, 0.0]],
+                    vec![[1.0, 1.0], [2.0, 1.0], [2.0, 2.0], [1.0, 1.0]],
+                ]),
+                properties: props("a polygon with a hole"),
+            },
+            GisFeature {
+                geometry: Geometry::MultiPolygon(vec![vec![vec![
+                    [0.0, 0.0],
+                    [1.0, 0.0],
+                    [1.0, 1.0],
+                    [0.0, 0.0],
+                ]]]),
+                properties: props("a multipolygon"),
+            },
+        ];
+
+        let back = parse_geojson(&to_geojson(&original)).expect("our own output must parse");
+        assert_eq!(back.len(), original.len());
+        for (wrote, read) in original.iter().zip(&back) {
+            assert_eq!(
+                read.geometry,
+                wrote.geometry,
+                "{}",
+                wrote.geometry.kind_name()
+            );
+            assert_eq!(read.properties, wrote.properties);
+        }
+    }
+
+    #[test]
+    fn an_empty_export_is_still_a_valid_empty_feature_collection() {
+        // Exporting with nothing on the map must produce a file a GIS tool opens and reports as
+        // empty, not malformed JSON or a bare `null`.
+        let json = to_geojson(&[]);
+        assert!(json.contains("FeatureCollection"), "{json}");
+        assert!(parse_geojson(&json).expect("parses").is_empty());
     }
 
     #[test]
