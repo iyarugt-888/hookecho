@@ -2273,9 +2273,11 @@ Modes:
   alternates the *active pane's own* `fields_on` between `CompareA` and `CompareB` on a 1.5 s
   timer, reusing the exact same render path "View side by side" already uses (`field_draws` is
   built fresh from `fields_on` every frame) — no GPU/shader change needed at all, unlike swipe.
-- [ ] disagreement mask — not attempted; a third rendering mode (categorical "do these two models
-  even roughly agree here" rather than a signed difference or either model's own value) with no
-  existing partial implementation to build on
+- [x] disagreement mask — new this pass, see the Unreleased CHANGELOG entry: a third `DiffMode`
+  renders one categorical magenta class wherever `|A − B|` exceeds that field's existing
+  scientifically chosen deadband, with agreement and missing data transparent. It recolors the
+  retained signed grid in place, so switching among signed/absolute/mask never refetches models;
+  legends and both probe surfaces name the class while retaining the measured delta.
 
 New this pass, transparent overlay is also available anywhere side-by-side/blink is scientifically
 valid: model A draws normally and model B draws over it at 50% of the user's configured opacity,

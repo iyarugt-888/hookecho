@@ -301,6 +301,13 @@ pub(crate) fn show(
                     "Magnitude of the {a}/{b} difference, in {}. Color shows how far apart they are without direction; agreement is not drawn.",
                     diff_field.units()
                 ),
+                crate::fielddiff::DiffMode::Disagreement => {
+                    let (_, deadband) = diff_field.range();
+                    format!(
+                        "Categorical mask: magenta where |{a} − {b}| exceeds {deadband:.1} {}; agreement and missing data are not drawn.",
+                        diff_field.units()
+                    )
+                }
             });
             ui.weak(valid_time_note(diff_valid, diff_error, a, b));
         }

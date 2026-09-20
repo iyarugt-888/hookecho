@@ -2360,6 +2360,31 @@ fn field_draw_opacity(
     }
 }
 
+/// Human-readable form of one signed comparison sample for the selected display mode. Keeping
+/// this shared between the linked probe and hover tooltip prevents a categorical mask from
+/// claiming "disagree" in one surface and showing an unexplained number in the other.
+fn format_diff_readout(
+    mode: crate::fielddiff::DiffMode,
+    signed: f32,
+    deadband: f32,
+    units: &str,
+) -> String {
+    use crate::fielddiff::DiffMode;
+    match mode {
+        DiffMode::Signed => format!("{signed:+.1} {units}"),
+        DiffMode::Absolute => format!("{:.1} {units}", signed.abs()),
+        DiffMode::Disagreement => {
+            let magnitude = signed.abs();
+            let class = if magnitude <= deadband {
+                "Agree"
+            } else {
+                "Disagree"
+            };
+            format!("{class} · Δ {magnitude:.1} {units}")
+        }
+    }
+}
+
 /// The ZDR-column cache: the volume it was computed for, its columns, and the bright band the
 /// same pass found.
 /// A place the proximity alerts watch: a saved marker, or wherever the GPS says you are.
@@ -7710,17 +7735,24 @@ impl HookEchoApp {
         use crate::render::FieldLayer as FL;
         if layer == FL::ModelDiff {
             let (a, b) = self.diff_field.pair();
+            let (_, deadband) = self.diff_field.range();
             let value = self
                 .diff_grid
                 .as_ref()
                 .and_then(|grid| grid.sample_bilinear(lon, lat))
                 .filter(|value| value.is_finite())
-                .map(|value| self.diff_mode.apply(value * self.diff_field.input_scale()))
-                .map(|value| format!("{value:.1} {}", self.diff_field.units()));
+                .map(|value| value * self.diff_field.input_scale())
+                .map(|value| {
+                    format_diff_readout(self.diff_mode, value, deadband, self.diff_field.units())
+                });
             return ui::cursor_probe::ProbeRow {
                 pane: idx,
                 source: self.diff_mode.expression(a, b),
-                product: format!("{} difference", self.diff_field.label()),
+                product: if self.diff_mode == crate::fielddiff::DiffMode::Disagreement {
+                    format!("{} disagreement mask", self.diff_field.label())
+                } else {
+                    format!("{} difference", self.diff_field.label())
+                },
                 time: self.diff_valid.map(|times| times.valid),
                 value,
                 folded: false,
@@ -16453,18 +16485,14 @@ impl HookEchoApp {
                     let (a, b) = f.pair();
                     // The retained grid is always signed (see `diff_mode`'s own doc comment), so
                     // the readout has to be put through the same transform the upload was, or a
-                    // magnitude-colored map would hand back a negative number under the cursor.
-                    // A forced sign belongs only on the signed view: "+6.0" for a magnitude reads
-                    // as a direction that mode has deliberately thrown away.
-                    let shown = self.diff_mode.apply(v);
-                    let value = match self.diff_mode {
-                        crate::fielddiff::DiffMode::Signed => format!("{shown:+.1}"),
-                        crate::fielddiff::DiffMode::Absolute => format!("{shown:.1}"),
-                    };
+                    // magnitude/mask display would otherwise hand back an unexplained signed
+                    // number. A forced sign belongs only on the signed view: "+6.0" for a
+                    // directionless mode reads as a direction it deliberately threw away.
+                    let (_, deadband) = f.range();
+                    let value = format_diff_readout(self.diff_mode, v, deadband, f.units());
                     response.clone().show_tooltip_text(format!(
-                        "{}: {value} {} ({})",
+                        "{}: {value} ({})",
                         f.label(),
-                        f.units(),
                         self.diff_mode.expression(a, b)
                     ));
                 }
@@ -18801,7 +18829,7 @@ pub(crate) fn field_index_upload(
     }
 }
 
-/// Recolor the retained signed comparison grid for the selected display mode. Both modes share
+/// Recolor the retained signed comparison grid for the selected display mode. All modes share
 /// one fetched/scientifically-derived field; only the value-to-index mapping and LUT differ.
 fn model_diff_upload(
     field: &wxdata::mrms::MrmsField,
@@ -18812,7 +18840,7 @@ fn model_diff_upload(
     let scale = kind.input_scale();
     field_index_upload(
         field,
-        |value| crate::fielddiff::display_index(mode, value * scale, range),
+        |value| crate::fielddiff::display_index(mode, value * scale, range, deadband),
         crate::fielddiff::display_lut(mode, range, deadband),
     )
 }
@@ -22721,8 +22749,9 @@ mod probe_grid_tests {
 }
 
 #[cfg(test)]
-mod compare_overlay_tests {
-    use super::field_draw_opacity;
+mod comparison_display_tests {
+    use super::{field_draw_opacity, format_diff_readout};
+    use crate::fielddiff::DiffMode;
     use crate::render::FieldLayer as FL;
 
     #[test]
@@ -22731,5 +22760,17 @@ mod compare_overlay_tests {
         assert_eq!(field_draw_opacity(FL::CompareB, 0.8, true), 0.4);
         assert_eq!(field_draw_opacity(FL::CompareB, 0.8, false), 0.8);
         assert_eq!(field_draw_opacity(FL::Mrms, 0.6, true), 0.6);
+    }
+
+    #[test]
+    fn mask_readout_names_the_class_and_keeps_the_underlying_magnitude() {
+        assert_eq!(
+            format_diff_readout(DiffMode::Disagreement, 0.5, 1.0, "°C"),
+            "Agree · Δ 0.5 °C"
+        );
+        assert_eq!(
+            format_diff_readout(DiffMode::Disagreement, -2.5, 1.0, "°C"),
+            "Disagree · Δ 2.5 °C"
+        );
     }
 }

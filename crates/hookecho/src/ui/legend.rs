@@ -230,10 +230,12 @@ pub fn draw_diff(
     for i in 0..cols {
         let fraction = i as f32 / (cols - 1).max(1) as f32;
         let v = match mode {
-            crate::fielddiff::DiffMode::Signed => (fraction * 2.0 - 1.0) * range,
+            crate::fielddiff::DiffMode::Signed | crate::fielddiff::DiffMode::Disagreement => {
+                (fraction * 2.0 - 1.0) * range
+            }
             crate::fielddiff::DiffMode::Absolute => fraction * range,
         };
-        let k = crate::fielddiff::display_index(mode, v, range) as usize * 4;
+        let k = crate::fielddiff::display_index(mode, v, range, deadband) as usize * 4;
         let c = Color32::from_rgba_unmultiplied(lut[k], lut[k + 1], lut[k + 2], lut[k + 3]);
         let x = bar.left() + i as f32;
         painter.rect_filled(
@@ -269,6 +271,11 @@ pub fn draw_diff(
             ),
             (format!("{range:.0}"), Align2::RIGHT_TOP, bar.right()),
         ],
+        crate::fielddiff::DiffMode::Disagreement => [
+            ("Disagree".to_string(), Align2::LEFT_TOP, bar.left()),
+            ("Agree".to_string(), Align2::CENTER_TOP, bar.center().x),
+            ("Disagree".to_string(), Align2::RIGHT_TOP, bar.right()),
+        ],
     };
     for (text, align, x) in ticks {
         painter.text(
@@ -279,15 +286,20 @@ pub fn draw_diff(
             Color32::from_gray(225),
         );
     }
-    painter.text(
-        panel.left_top() + Vec2::new(PAD_X, 3.0),
-        Align2::LEFT_TOP,
+    let title = if mode == crate::fielddiff::DiffMode::Disagreement {
+        format!("{} mask (>{deadband:.1} {})", field.label(), field.units())
+    } else {
         format!(
             "{} {} ({})",
             field.label(),
             mode.expression(a, b),
             field.units()
-        ),
+        )
+    };
+    painter.text(
+        panel.left_top() + Vec2::new(PAD_X, 3.0),
+        Align2::LEFT_TOP,
+        title,
         font,
         Color32::WHITE,
     );

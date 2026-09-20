@@ -72,22 +72,25 @@ pub enum DiffMode {
     #[default]
     Signed,
     Absolute,
+    /// Binary analyst scan: transparent within the field's deadband, one color outside it.
+    Disagreement,
 }
 
 impl DiffMode {
-    pub const ALL: [Self; 2] = [Self::Signed, Self::Absolute];
+    pub const ALL: [Self; 3] = [Self::Signed, Self::Absolute, Self::Disagreement];
 
     pub fn label(self) -> &'static str {
         match self {
             Self::Signed => "Signed (A − B)",
             Self::Absolute => "Absolute |A − B|",
+            Self::Disagreement => "Disagreement mask",
         }
     }
 
     pub fn apply(self, value: f32) -> f32 {
         match self {
             Self::Signed => value,
-            Self::Absolute => value.abs(),
+            Self::Absolute | Self::Disagreement => value.abs(),
         }
     }
 
@@ -95,6 +98,7 @@ impl DiffMode {
         match self {
             Self::Signed => format!("{a} − {b}"),
             Self::Absolute => format!("|{a} − {b}|"),
+            Self::Disagreement => format!("{a} ≉ {b}"),
         }
     }
 }
@@ -637,17 +641,30 @@ pub fn magnitude_index(v: f32, range: f32) -> u8 {
     (v.abs() / range).clamp(0.0, 1.0).mul_add(255.0, 0.0) as u8
 }
 
+/// Two-slot categorical palette: index zero is agreement/missing, index 255 is disagreement.
+/// Keeping classification in [`display_index`] avoids shifting a scientific threshold by half a
+/// quantized LUT bin near the deadband edge.
+pub fn disagreement_lut() -> Vec<u8> {
+    let mut lut = vec![0u8; 256 * 4];
+    for i in 1..256 {
+        lut[i * 4..i * 4 + 4].copy_from_slice(&[236, 78, 188, 220]);
+    }
+    lut
+}
+
 pub fn display_lut(mode: DiffMode, range: f32, deadband: f32) -> Vec<u8> {
     match mode {
         DiffMode::Signed => diverging_lut(range, deadband),
         DiffMode::Absolute => magnitude_lut(range, deadband),
+        DiffMode::Disagreement => disagreement_lut(),
     }
 }
 
-pub fn display_index(mode: DiffMode, value: f32, range: f32) -> u8 {
+pub fn display_index(mode: DiffMode, value: f32, range: f32, deadband: f32) -> u8 {
     match mode {
         DiffMode::Signed => diff_index(value, range),
         DiffMode::Absolute => magnitude_index(value, range),
+        DiffMode::Disagreement => u8::MAX * u8::from(value.is_finite() && value.abs() > deadband),
     }
 }
 
@@ -779,7 +796,7 @@ mod tests {
         let mode = DiffMode::Absolute;
         let lut = display_lut(mode, 10.0, 1.0);
         let rgba = |v: f32| {
-            let i = display_index(mode, v, 10.0) as usize * 4;
+            let i = display_index(mode, v, 10.0, 1.0) as usize * 4;
             [lut[i], lut[i + 1], lut[i + 2], lut[i + 3]]
         };
         assert_eq!(mode.apply(-6.0), 6.0);
@@ -788,6 +805,30 @@ mod tests {
         assert_eq!(rgba(0.5)[3], 0, "agreement stays transparent");
         assert_eq!(rgba(f32::NAN)[3], 0, "missing data stays transparent");
         assert!(rgba(10.0)[3] > rgba(5.0)[3], "larger split is more opaque");
+    }
+
+    #[test]
+    fn disagreement_mask_is_binary_directionless_and_uses_the_field_deadband() {
+        let mode = DiffMode::Disagreement;
+        let lut = display_lut(mode, 10.0, 1.0);
+        let rgba = |v: f32| {
+            let i = display_index(mode, v, 10.0, 1.0) as usize * 4;
+            [lut[i], lut[i + 1], lut[i + 2], lut[i + 3]]
+        };
+        assert_eq!(mode.expression("A", "B"), "A ≉ B");
+        assert_eq!(rgba(0.5)[3], 0, "agreement stays transparent");
+        assert_eq!(rgba(1.0)[3], 0, "the deadband boundary is agreement");
+        assert_eq!(rgba(f32::NAN)[3], 0, "missing data stays transparent");
+        assert_eq!(rgba(-5.0), rgba(5.0), "direction must not change the class");
+        assert_eq!(
+            rgba(2.0),
+            rgba(10.0),
+            "all material disagreement is one class"
+        );
+        assert!(
+            rgba(1.0001)[3] > 0,
+            "just outside the deadband is disagreement"
+        );
     }
 
     #[test]

@@ -8,6 +8,15 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: categorical model-disagreement mask (F6)
+
+Model difference now has a third display mode: a directionless categorical mask that draws one
+magenta class wherever the models differ by more than the selected field's established deadband,
+while agreement and missing data remain transparent. It recolors the retained signed grid without
+refetching either model. The legend states the threshold, and hover plus linked-probe readouts say
+Agree/Disagree while preserving the actual difference magnitude. Tests cover direction symmetry,
+deadband boundaries, missing data, the single-class LUT, and analyst-facing readout text.
+
 ### Added: pane-local transparent model comparison (F6/J4)
 
 Model comparison now offers "Overlay A/B" beside difference, side-by-side, and blink: A draws at
