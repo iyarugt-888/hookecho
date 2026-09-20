@@ -1039,6 +1039,10 @@ mod tests {
             elevation_number: 1,
             total_elevations: 14,
             elevation_angle_deg: 0.5,
+            azimuth_rate_dps: 90.0,
+            azimuth_start_deg: (chunk_index.saturating_sub(1) as f64 * 360.0)
+                / chunks_in_sweep.max(1) as f64,
+            azimuth_end_deg: (chunk_index as f64 * 360.0) / chunks_in_sweep.max(1) as f64,
             chunk_index,
             chunks_in_sweep,
         }

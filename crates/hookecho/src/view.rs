@@ -471,6 +471,9 @@ pub struct MapView {
     /// whenever the stream isn't actively feeding this pane (stream end, site change) so a stale
     /// in-progress reading never lingers on screen.
     pub live_progress: Option<wxdata::live::ScanProgress>,
+    /// Local receipt time of `live_progress`. The 2D map uses this to animate exactly one bounded
+    /// sweep through the chunk that just arrived rather than running a decorative beam forever.
+    pub live_progress_at: Option<Instant>,
     /// Monotonic identity for the merged live scan. The volume object name stays constant while
     /// chunks fill a tilt, so 3D caches include this revision to expose each accepted update.
     pub live_scan_revision: u64,
@@ -571,6 +574,7 @@ impl MapView {
             error: None,
             last_live_arrival: None,
             live_progress: None,
+            live_progress_at: None,
             live_scan_revision: 0,
             live_retries: 0,
             last_decode_time: None,

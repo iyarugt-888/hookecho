@@ -11518,6 +11518,7 @@ impl HookEchoApp {
                     // than none — the chunk it described may be minutes old by the next glance.
                     if view < self.views.len() {
                         self.views[view].live_progress = None;
+                        self.views[view].live_progress_at = None;
                         self.views[view].live_retries = 0;
                     }
                 }
@@ -11649,9 +11650,9 @@ impl HookEchoApp {
                         v.tilt = 0;
                     }
                     v.last_live_arrival = Some((Utc::now(), time));
-                    // The sweep this was tracking just landed as a full merge; the next progress
-                    // reading (for whichever sweep comes next) replaces it.
-                    v.live_progress = None;
+                    // `LiveProgress` immediately precedes this partial merge. Keep it: the
+                    // scrubber and 2D sweep bar need to describe/animate the chunk now on screen.
+                    // Stream end and site changes clear it, so it cannot linger indefinitely.
                     v.live_retries = retries;
                     v.last_decode_time = Some(decode_time);
                     v.loading = false;
@@ -11683,6 +11684,7 @@ impl HookEchoApp {
                 }
                 DataMsg::LiveProgress { view, progress, .. } => {
                     self.views[view].live_progress = Some(progress);
+                    self.views[view].live_progress_at = Some(Instant::now());
                 }
                 DataMsg::LiveEnded { .. } => unreachable!("handled above"),
             }
@@ -12149,6 +12151,8 @@ impl HookEchoApp {
             v.volume = None;
             v.forget_recent();
             v.moments_seen = [false; Moment::ALL.len()];
+            v.live_progress = None;
+            v.live_progress_at = None;
             v.error = None;
             // Clear a stuck in-flight flag: if the previous site's fetch is still running when the
             // site changes, its result is dropped on arrival (site mismatch) without clearing
@@ -14714,6 +14718,51 @@ impl HookEchoApp {
         let painter = ui.painter_at(prect);
         let view = &self.views[idx];
         let basemap = pane_style;
+
+        // A real partial Level II chunk just refreshed the displayed tilt: sweep a keyed lime
+        // line through exactly that chunk's azimuth sector. It is deliberately absent for 3D,
+        // archive playback, other tilts, completed-volume polling, and a stalled/ended stream.
+        if !view.map_3d.enabled && view.show_radar && view.timeline.following {
+            let live = view
+                .live_progress
+                .zip(view.live_progress_at)
+                .zip(
+                    view.volume
+                        .as_ref()
+                        .and_then(|volume| volume.elevations.get(view.tilt))
+                        .copied(),
+                )
+                .filter(|((progress, _), elevation)| {
+                    live_progress_matches_tilt(*progress, *elevation)
+                })
+                .and_then(|((progress, received), _)| {
+                    live_sweep_frame(
+                        progress,
+                        received.elapsed().as_secs_f32(),
+                        crate::ui::motion::reduced(),
+                    )
+                });
+            if let (Some(frame), Some(site)) = (
+                live,
+                view.site.as_deref().and_then(wxdata::sites::site_by_id),
+            ) {
+                paint_live_sweep(
+                    &painter,
+                    prect,
+                    cam,
+                    vp,
+                    [site.longitude as f64, site.latitude as f64],
+                    frame,
+                );
+                if crate::ui::motion::reduced() {
+                    ctx.request_repaint_after(std::time::Duration::from_secs_f32(
+                        frame.remaining_secs.max(0.01),
+                    ));
+                } else {
+                    ctx.request_repaint();
+                }
+            }
+        }
 
         if view.swipe_compare {
             let split_x = prect.left() + prect.width() * view.swipe_fraction;
@@ -18787,6 +18836,122 @@ pub(crate) fn to_upload(
     }
 }
 
+/// One frame of the data-driven 2D live-sweep indicator. The beam exists only briefly after a
+/// real chunk arrives; it is not a decorative clock that can imply fresh data while a feed is
+/// stalled.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct LiveSweepFrame {
+    angle_deg: f32,
+    alpha: f32,
+    remaining_secs: f32,
+}
+
+/// Animate through the azimuth sector represented by one Level II chunk. Standard-resolution
+/// sweeps arrive in three chunks and super-resolution sweeps in six, so the chunk metadata gives
+/// an honest sector even though the progress callback deliberately carries no radar payload.
+fn live_sweep_frame(
+    progress: wxdata::live::ScanProgress,
+    elapsed_secs: f32,
+    reduced_motion: bool,
+) -> Option<LiveSweepFrame> {
+    if progress.chunks_in_sweep == 0
+        || progress.chunk_index == 0
+        || progress.chunk_index > progress.chunks_in_sweep
+        || progress.azimuth_span_deg() <= 0.0
+        || !elapsed_secs.is_finite()
+        || elapsed_secs < 0.0
+    {
+        return None;
+    }
+    const FADE_SECS: f32 = 0.35;
+    let sector = progress.azimuth_span_deg();
+    let start = progress.azimuth_start_deg as f32;
+    let end = progress.azimuth_end_deg as f32;
+    let sweep_secs = progress.chunk_duration_secs().clamp(0.35, 15.0);
+    let total_secs = sweep_secs + FADE_SECS;
+    if elapsed_secs > total_secs {
+        return None;
+    }
+    let angle_deg = if reduced_motion {
+        end.rem_euclid(360.0)
+    } else {
+        (start + sector * (elapsed_secs / sweep_secs).clamp(0.0, 1.0)).rem_euclid(360.0)
+    };
+    let alpha = if elapsed_secs <= sweep_secs {
+        1.0
+    } else {
+        (1.0 - (elapsed_secs - sweep_secs) / FADE_SECS).clamp(0.0, 1.0)
+    };
+    Some(LiveSweepFrame {
+        angle_deg,
+        alpha,
+        remaining_secs: (total_secs - elapsed_secs).max(0.0),
+    })
+}
+
+fn live_progress_matches_tilt(progress: wxdata::live::ScanProgress, elevation_deg: f32) -> bool {
+    (progress.elevation_angle_deg as f32 - elevation_deg).abs() < 0.15
+}
+
+/// Paint a WSV3-style live refresh line: bright lime with a dark keyline and a short angular
+/// tail, projected from the real radar site through the map camera. `painter` clips it to this
+/// pane.
+fn paint_live_sweep(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    camera: crate::render::mercator::Camera,
+    vp: (f32, f32),
+    radar: [f64; 2],
+    frame: LiveSweepFrame,
+) {
+    let to_screen = |lon: f64, lat: f64| {
+        let world = crate::render::mercator::lonlat_to_world(lon, lat);
+        let (x, y) = camera.world_to_screen(world, vp);
+        egui::pos2(rect.left() + x, rect.top() + y)
+    };
+    let center = to_screen(radar[0], radar[1]);
+    let ray = |angle_deg: f32| {
+        let sample = crate::geo::destination_point(radar, angle_deg as f64, 100.0);
+        let toward = to_screen(sample[0], sample[1]) - center;
+        let len = toward.length();
+        (len > 0.01).then(|| {
+            let direction = toward / len;
+            let reach = [
+                rect.left_top(),
+                rect.right_top(),
+                rect.left_bottom(),
+                rect.right_bottom(),
+            ]
+            .into_iter()
+            .map(|corner| corner.distance(center))
+            .fold(0.0_f32, f32::max)
+                + 8.0;
+            [center, center + direction * reach]
+        })
+    };
+
+    let green = egui::Color32::from_rgb(82, 255, 116);
+    // A sparse tail makes direction legible without covering the newly-arrived radar pixels.
+    for (back, opacity) in [(4.0_f32, 0.16_f32), (2.0, 0.32)] {
+        if let Some(segment) = ray(frame.angle_deg - back) {
+            painter.line_segment(
+                segment,
+                egui::Stroke::new(1.5, green.gamma_multiply(frame.alpha * opacity)),
+            );
+        }
+    }
+    if let Some(segment) = ray(frame.angle_deg) {
+        painter.line_segment(
+            segment,
+            egui::Stroke::new(5.0, egui::Color32::BLACK.gamma_multiply(frame.alpha * 0.72)),
+        );
+        painter.line_segment(
+            segment,
+            egui::Stroke::new(2.25, green.gamma_multiply(frame.alpha)),
+        );
+    }
+}
+
 /// Include inertial scrolling and trackpad pinches, which do not hold a pointer down.
 fn map_gesture_live(i: &egui::InputState) -> bool {
     i.pointer.any_down()
@@ -22203,6 +22368,93 @@ mod tests {
         assert!(HookEchoApp::swipe_showing_b(-1.0, 0.0, 1000.0));
         assert!(!HookEchoApp::swipe_showing_b(2.0, 999.9, 1000.0));
         assert!(HookEchoApp::swipe_showing_b(2.0, 1000.0, 1000.0));
+    }
+
+    fn scan_progress(chunk_index: usize, chunks_in_sweep: usize) -> wxdata::live::ScanProgress {
+        wxdata::live::ScanProgress {
+            elevation_number: 2,
+            total_elevations: 12,
+            elevation_angle_deg: 0.9,
+            azimuth_rate_dps: 90.0,
+            azimuth_start_deg: (chunk_index.saturating_sub(1) as f64 * 360.0)
+                / chunks_in_sweep.max(1) as f64,
+            azimuth_end_deg: (chunk_index as f64 * 360.0) / chunks_in_sweep.max(1) as f64,
+            chunk_index,
+            chunks_in_sweep,
+        }
+    }
+
+    #[test]
+    fn live_sweep_animates_only_the_arriving_chunk_sector() {
+        let progress = scan_progress(2, 3);
+        let duration = progress.chunk_duration_secs();
+        let start = super::live_sweep_frame(progress, 0.0, false).unwrap();
+        assert!((start.angle_deg - 120.0).abs() < 1e-4);
+        assert_eq!(start.alpha, 1.0);
+
+        let middle = super::live_sweep_frame(progress, duration * 0.5, false).unwrap();
+        assert!((middle.angle_deg - 180.0).abs() < 1e-3);
+        let end = super::live_sweep_frame(progress, duration, false).unwrap();
+        assert!((end.angle_deg - 240.0).abs() < 1e-3);
+        assert!(super::live_sweep_frame(progress, duration + 0.36, false).is_none());
+
+        let mut slower_cut = scan_progress(2, 3);
+        slower_cut.azimuth_rate_dps = 60.0;
+        let slower_middle =
+            super::live_sweep_frame(slower_cut, slower_cut.chunk_duration_secs() * 0.5, false)
+                .unwrap();
+        assert!((slower_middle.angle_deg - 180.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn live_sweep_wraps_north_and_reduced_motion_holds_the_arrived_edge() {
+        let moving = super::live_sweep_frame(scan_progress(6, 6), 0.0, false).unwrap();
+        assert!((moving.angle_deg - 300.0).abs() < 1e-4);
+        let reduced = super::live_sweep_frame(scan_progress(6, 6), 0.0, true).unwrap();
+        assert!(reduced.angle_deg.abs() < 1e-4);
+        assert!(reduced.remaining_secs > 0.0);
+    }
+
+    #[test]
+    fn live_sweep_rejects_bad_metadata_and_other_tilts() {
+        assert!(super::live_sweep_frame(scan_progress(0, 6), 0.0, false).is_none());
+        assert!(super::live_sweep_frame(scan_progress(7, 6), 0.0, false).is_none());
+        assert!(super::live_sweep_frame(scan_progress(1, 0), 0.0, false).is_none());
+        assert!(super::live_progress_matches_tilt(scan_progress(1, 6), 0.91));
+        assert!(!super::live_progress_matches_tilt(scan_progress(1, 6), 1.3));
+    }
+
+    #[test]
+    fn live_sweep_paints_keyed_beam_and_tail() {
+        let ctx = egui::Context::default();
+        let size = egui::vec2(400.0, 300.0);
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
+            ..Default::default()
+        };
+        let output = ctx.run_ui(input, |ui| {
+            let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, size);
+            let painter = ui.painter_at(rect);
+            let camera = crate::render::mercator::Camera::at_lonlat(-97.0, 35.0, 6.0);
+            super::paint_live_sweep(
+                &painter,
+                rect,
+                camera,
+                (size.x, size.y),
+                [-97.0, 35.0],
+                super::LiveSweepFrame {
+                    angle_deg: 90.0,
+                    alpha: 1.0,
+                    remaining_secs: 1.0,
+                },
+            );
+        });
+        let segments = output
+            .shapes
+            .iter()
+            .filter(|shape| matches!(shape.shape, egui::Shape::LineSegment { .. }))
+            .count();
+        assert_eq!(segments, 4, "two trail lines plus the keyed live beam");
     }
 
     #[test]

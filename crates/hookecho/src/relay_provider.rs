@@ -54,6 +54,47 @@ impl HookEchoRelayLevel2Provider {
     }
 }
 
+/// Translate one canonical relay radial block into the same provider-neutral sweep progress the
+/// direct Unidata path emits. Real Archive-II azimuth numbers are one-based; synthetic fixtures
+/// sometimes use zero for the north radial, which `saturating_sub` intentionally maps to the same
+/// first bin.
+fn relay_scan_progress(block: &LiveLevel2Block, scan: &Scan) -> Option<ScanProgress> {
+    let cut = block.cut?;
+    let cuts = scan.coverage_pattern().elevation_cuts();
+    let vcp_cut = cuts.get(cut.elevation_number.saturating_sub(1) as usize)?;
+    let chunks_in_sweep = if vcp_cut.super_resolution_half_degree_azimuth() {
+        6
+    } else {
+        3
+    };
+    let bins = chunks_in_sweep * 120;
+    let first = block.first_azimuth_number?.saturating_sub(1) as usize % bins;
+    let last = block.last_azimuth_number?.saturating_sub(1) as usize % bins;
+    let azimuth_start_deg = first as f64 * 360.0 / bins as f64;
+    let azimuth_end_deg = (last + 1) as f64 * 360.0 / bins as f64;
+    let nominal_sector = 360.0 / chunks_in_sweep as f64;
+    let chunk_index = if azimuth_end_deg < azimuth_start_deg {
+        chunks_in_sweep
+    } else {
+        (azimuth_end_deg / nominal_sector)
+            .ceil()
+            .clamp(1.0, chunks_in_sweep as f64) as usize
+    };
+    Some(ScanProgress {
+        elevation_number: cut.elevation_number as usize,
+        total_elevations: cuts.len(),
+        elevation_angle_deg: block
+            .elevation_angle_deg
+            .map(f64::from)
+            .unwrap_or_else(|| vcp_cut.elevation_angle_degrees()),
+        azimuth_rate_dps: vcp_cut.azimuth_rate_degrees_per_second(),
+        azimuth_start_deg,
+        azimuth_end_deg,
+        chunk_index,
+        chunks_in_sweep,
+    })
+}
+
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Level2LiveProvider for HookEchoRelayLevel2Provider {
     fn label(&self) -> &'static str {
@@ -70,10 +111,7 @@ impl Level2LiveProvider for HookEchoRelayLevel2Provider {
         base: Arc<Scan>,
         active: Box<dyn Fn() -> bool + Send + Sync>,
         mut on_update: Box<dyn FnMut(Update) + Send>,
-        // The relay does not yet send a chunk-level progress signal analogous to the Unidata
-        // path's per-chunk metadata (ROADMAP_NEW B6.9's latency/progress instrumentation is a
-        // later step) — accepted for trait-signature compatibility, unused for now.
-        _on_progress: Box<dyn FnMut(ScanProgress) + Send>,
+        mut on_progress: Box<dyn FnMut(ScanProgress) + Send>,
     ) -> anyhow::Result<()> {
         let url = self.ws_url(&site);
         let (ws_stream, _) = tokio_tungstenite::connect_async(&url)
@@ -131,9 +169,15 @@ impl Level2LiveProvider for HookEchoRelayLevel2Provider {
                 // surfacing — the next block may complete it.
                 Err(_) => continue,
             };
+            let progress = pending_blocks
+                .last()
+                .and_then(|block| relay_scan_progress(block, &partial));
             let (new_scan, changed) = wxdata::live::merge_scan(&merged, partial);
             if changed.is_empty() {
                 continue;
+            }
+            if let Some(progress) = progress {
+                on_progress(progress);
             }
             merged = Arc::new(new_scan);
             update_count += 1;
@@ -395,7 +439,7 @@ mod integration_tests {
     }
 
     #[tokio::test]
-    async fn subscribe_receives_a_real_live_update_over_a_real_websocket() {
+    async fn subscribe_receives_live_update_and_progress_over_a_real_websocket() {
         let pipeline = Arc::new(Mutex::new(Pipeline::new(
             RechunkConfig::default(),
             BlockStoreLimits::default(),
@@ -429,6 +473,7 @@ mod integration_tests {
         );
         let base = Arc::new(wxdata::level2::Scan::new(empty_vcp, Vec::new()));
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let (progress_tx, mut progress_rx) = tokio::sync::mpsc::unbounded_channel();
         let active = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
         let active_clone = active.clone();
         let handle = tokio::spawn(async move {
@@ -440,7 +485,9 @@ mod integration_tests {
                     Box::new(move |update| {
                         let _ = tx.send(update);
                     }),
-                    Box::new(|_progress| {}),
+                    Box::new(move |progress| {
+                        let _ = progress_tx.send(progress);
+                    }),
                 )
                 .await
         });
@@ -461,6 +508,13 @@ mod integration_tests {
             .expect("update channel closed unexpectedly");
         assert!(!update.changed.is_empty());
         assert!(!update.scan.sweeps().is_empty());
+        let progress = tokio::time::timeout(std::time::Duration::from_secs(5), progress_rx.recv())
+            .await
+            .expect("no live progress arrived over the websocket in time")
+            .expect("progress channel closed unexpectedly");
+        assert!(progress.elevation_number > 0);
+        assert!(progress.azimuth_span_deg() > 0.0);
+        assert!(progress.chunk_duration_secs() > 0.0);
 
         active.store(false, std::sync::atomic::Ordering::Relaxed);
         handle.abort();

@@ -16,7 +16,8 @@
 
 use crate::level2::{elevation_angles, Scan};
 use nexrad_data::aws::realtime::{
-    assemble_volume, download_chunk, Chunk, ChunkIdentifier, ChunkIterator, ChunkType,
+    assemble_volume, download_chunk, Chunk, ChunkIdentifier, ChunkIterator, ChunkTimingModel,
+    ChunkType,
 };
 use nexrad_model::data::{Radial, Sweep};
 use std::sync::Arc;
@@ -32,10 +33,51 @@ pub struct ScanProgress {
     /// How many sweeps this VCP has in total.
     pub total_elevations: usize,
     pub elevation_angle_deg: f64,
+    /// Antenna rotation rate declared by this VCP cut, in degrees per second.
+    pub azimuth_rate_dps: f64,
+    /// Clockwise azimuth sector refreshed by this update. `end < start` crosses north.
+    pub azimuth_start_deg: f64,
+    pub azimuth_end_deg: f64,
     /// 1-based position of the chunk just received within its sweep.
     pub chunk_index: usize,
     /// How many chunks this sweep has in total (3 standard, 6 super-resolution).
     pub chunks_in_sweep: usize,
+}
+
+impl ScanProgress {
+    pub fn azimuth_span_deg(self) -> f32 {
+        let start = self.azimuth_start_deg as f32;
+        let end = self.azimuth_end_deg as f32;
+        if !start.is_finite() || !end.is_finite() {
+            return 0.0;
+        }
+        let raw = end - start;
+        if raw.abs() >= 359.999 {
+            360.0
+        } else {
+            raw.rem_euclid(360.0)
+        }
+    }
+
+    /// Physics-based duration of this chunk's azimuth sector. Uses the same empirically corrected
+    /// VCP timing model that schedules the live downloader; four seconds is its documented
+    /// fallback when a provider cannot supply a valid rotation rate.
+    pub fn chunk_duration_secs(self) -> f32 {
+        let span = self.azimuth_span_deg();
+        let nominal_span = if self.chunks_in_sweep > 0 {
+            360.0 / self.chunks_in_sweep as f32
+        } else {
+            0.0
+        };
+        let nominal =
+            ChunkTimingModel::chunk_duration_secs(self.azimuth_rate_dps, self.chunks_in_sweep)
+                .unwrap_or(4.0) as f32;
+        if span > 0.0 && nominal_span > 0.0 {
+            nominal * span / nominal_span
+        } else {
+            nominal
+        }
+    }
 }
 
 /// A merged live volume ready to display.
@@ -188,8 +230,13 @@ where
                                 .elevation_mapper()
                                 .map_or(elevation_number, |m| m.total_elevations()),
                             elevation_angle_deg: meta.elevation_angle_deg(),
+                            azimuth_rate_dps: meta.azimuth_rate_dps(),
                             chunk_index: meta.chunk_index_in_sweep() + 1,
                             chunks_in_sweep: meta.chunks_in_sweep(),
+                            azimuth_start_deg: meta.chunk_index_in_sweep() as f64 * 360.0
+                                / meta.chunks_in_sweep() as f64,
+                            azimuth_end_deg: (meta.chunk_index_in_sweep() + 1) as f64 * 360.0
+                                / meta.chunks_in_sweep() as f64,
                         });
                     }
                 }
@@ -483,6 +530,30 @@ mod tests {
             false,
             Vec::new(),
         )
+    }
+
+    #[test]
+    fn scan_progress_uses_the_vcp_timing_model_with_documented_fallback() {
+        let progress = ScanProgress {
+            elevation_number: 1,
+            total_elevations: 14,
+            elevation_angle_deg: 0.5,
+            azimuth_rate_dps: 90.0,
+            azimuth_start_deg: 0.0,
+            azimuth_end_deg: 60.0,
+            chunk_index: 1,
+            chunks_in_sweep: 6,
+        };
+        let expected = ((360.0 / 90.0) - 0.67) / 6.0;
+        assert!((progress.chunk_duration_secs() - expected).abs() < 1e-5);
+        assert_eq!(
+            ScanProgress {
+                azimuth_rate_dps: 0.0,
+                ..progress
+            }
+            .chunk_duration_secs(),
+            4.0
+        );
     }
 
     // A sweep covering `azimuths` (as azimuth numbers), collected at `t_ms`.

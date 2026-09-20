@@ -8,6 +8,24 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: data-driven 2D live radar sweep
+
+Partial Level II updates now draw a WSV3-style lime sweep line across the currently viewed 2D
+tilt. Each real update triggers one bounded animation through only its refreshed azimuth sector,
+timed from that VCP cut's declared antenna rotation rate. Direct Unidata chunks carry their
+60°/120° sectors; the self-hosted relay now emits the same progress event from each block's radial
+bounds and decoded VCP. A dark keyline and short tail keep the beam visible over every radar
+palette; the radar data itself still appears immediately rather than being withheld behind the
+animation.
+
+The indicator does not run for a different tilt, 3D, archive playback, completed-volume polling,
+or a stalled/ended stream, so it cannot imply data are arriving when they are not. Reduced-motion
+mode shows the arrived sector edge without continuous animation. This also fixes live chunk
+progress being cleared by the partial merge immediately following it, allowing the existing live
+progress UI to retain the current sweep state until the next chunk or stream end. Focused tests
+cover sector timing, north wrap, invalid metadata, tilt gating, reduced motion, relay WebSocket
+progress, and painted beam geometry.
+
 ### Added: draggable model-comparison swipe (F6/J4)
 
 Model comparison now offers “Swipe A/B”: model A fills the left of one pane, model B fills the

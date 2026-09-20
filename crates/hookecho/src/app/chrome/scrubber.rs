@@ -1053,6 +1053,9 @@ mod ring_tests {
             elevation_number: 3,
             total_elevations: 14,
             elevation_angle_deg: 0.9,
+            azimuth_rate_dps: 90.0,
+            azimuth_start_deg: 120.0,
+            azimuth_end_deg: 240.0,
             chunk_index: 2,
             chunks_in_sweep: 3,
         };
@@ -1094,6 +1097,9 @@ mod ring_tests {
             elevation_number: 0,
             total_elevations: 0,
             elevation_angle_deg: 0.0,
+            azimuth_rate_dps: 90.0,
+            azimuth_start_deg: 0.0,
+            azimuth_end_deg: 120.0,
             chunk_index: 1,
             chunks_in_sweep: 3,
         };

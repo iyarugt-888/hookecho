@@ -472,14 +472,28 @@ Instead of waiting for a sweep/volume boundary:
   bin either holds the new pass or the retained one. Verified on a real GPU (`headless.rs`'s
   `a_stale_wedge_renders_dimmer_and_only_where_it_should`), not only in unit tests.
 - [x] expose current elevation, VCP, sweep number and scan progress — `wxdata::live::ScanProgress`
-  (elevation number/angle, total elevations, chunk index/count within the sweep), read straight off
-  metadata the vendored `ElevationChunkMapper` already derives from the VCP per chunk. `stream()`
-  takes a second `on_progress` callback alongside the existing `on_update`, firing on every chunk
-  rather than only at sweep boundaries; threaded through `Level2LiveProvider::subscribe` and a new
-  `DataMsg::LiveProgress`, landing in `MapView::live_progress`. Surfaced today as extra detail in
+  (elevation number/angle, total elevations, chunk index/count, refreshed azimuth sector and VCP
+  azimuth rate within the sweep), read straight off metadata the vendored `ElevationChunkMapper`
+  already derives from the VCP per chunk. `stream()` takes a second `on_progress` callback
+  alongside the existing `on_update`, firing on every chunk rather than only at sweep boundaries;
+  threaded through
+  `Level2LiveProvider::subscribe` and a new `DataMsg::LiveProgress`, landing in
+  `MapView::live_progress`. Surfaced today as extra detail in
   the scrubber's "Live" badge tooltip ("Sweep 3/12 at 0.9°, chunk 2/6") whenever a chunk stream —
   not interval polling — is feeding the pane. Verified live: the reading advanced chunk-by-chunk
-  against a real site.
+  against a real site. The progress state now survives the partial merge it describes (it was
+  previously cleared by the immediately-following `DataMsg::Live`) and is cleared only when the
+  stream ends or the site changes.
+- [x] animate partial 2D refreshes with a live sweep bar — new this pass: when a real block for the
+  currently displayed tilt lands, a dark-keyed lime beam sweeps clockwise through its actual
+  refreshed sector at the cut's VCP-declared azimuth rate, with a short direction tail and fade.
+  Direct Unidata chunks supply their 60°/120° bounds; the self-hosted relay now emits the same
+  provider-neutral progress event from each block's first/last radial and decoded VCP rather than
+  silently dropping the callback. It is absent for other tilts, 3D, archive playback,
+  interval-polled completed volumes and stalled streams, so motion never fabricates freshness.
+  Reduced-motion mode holds the arrived edge and
+  schedules only its removal. Tests cover sector boundaries, north wrap, VCP speed, invalid
+  metadata, tilt matching, relay WebSocket progress and actual painted beam/tail geometry.
 - [x] show age since radar timestamp and age since local receipt separately — **done** via B3's
   provider-lag reading (`View::last_live_arrival`, see below); not duplicated here.
 - [x] keep both 3D representations synchronized with progressive live updates — every accepted
@@ -3584,7 +3598,8 @@ This is the explicit “what are we still missing?” list for agents.
 
 ## WeatherWise-class gaps
 
-- [ ] progressive in-progress sweep display
+- [x] progressive in-progress sweep display — per-chunk radial merge/GPU updates, retained previous
+  pass shading, scan progress and the data-triggered 2D live sweep bar are all implemented in B2
 - [ ] measured ultra-low-latency pipeline where provider permits
 - [ ] explicit beam-rise visualization
 - [ ] more polished 3D cross-section workflow
@@ -3592,7 +3607,8 @@ This is the explicit “what are we still missing?” list for agents.
 
 ## WSV3-class gaps
 
-- [ ] in-progress LiveScan-style rendering
+- [x] in-progress LiveScan-style rendering — B2 now paints every arriving partial chunk and runs a
+  bounded lime sweep through the refreshed sector of the currently viewed 2D tilt
 - [ ] precise delay indicator
 - [ ] scan-age visualization
 - [ ] Shapefile GIS import
@@ -3942,7 +3958,8 @@ Each major implementation should be its own PR/commit series with tests and shou
 
 HookEcho should be considered “top-tier U.S. analyst workstation” only when the following are true:
 
-- [ ] progressive in-progress Level II display with measured latency
+- [x] progressive in-progress Level II display with measured latency — B2 renders every incoming
+  chunk with generation shading/progress/live sweep; B3 reports provider, receipt and decode/GPU lag
 - [ ] automatic feed fallback and source-health display
 - [ ] exact radar gate/beam/VCP inspection
 - [ ] broad metadata-driven MRMS catalog
