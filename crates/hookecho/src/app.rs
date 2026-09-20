@@ -18581,12 +18581,18 @@ impl HookEchoApp {
     /// way — a path on a drive that is merely not mounted right now should come back next time,
     /// not be quietly forgotten because of one failed launch.
     fn reload_imported_gis(&mut self) {
-        let Some(source) = self.settings.imported_gis_text() else {
+        let Some(key) = self.settings.imported_gis.clone() else {
             return;
         };
-        match source.and_then(|text| wxdata::gis::parse_geojson(&text).map_err(|e| e.to_string())) {
-            Ok(features) => {
-                let (shapes, marks) = crate::gis_import::to_renderable(features);
+        // A browser's remembered content is text (a shapefile there was stored as GeoJSON); a
+        // path is read whichever format it is, a shapefile picking up its .dbf and .prj again.
+        let loaded = match self.settings.web_files.get(&key) {
+            Some(text) => crate::gis_import::load_geojson(text),
+            None => crate::gis_import::load_path(&key),
+        };
+        match loaded {
+            Ok(loaded) => {
+                let (shapes, marks) = crate::gis_import::to_renderable(loaded.features);
                 self.imported_gis = shapes;
                 self.imported_marks = marks;
                 self.rebuild_overlays();
@@ -18745,42 +18751,57 @@ impl HookEchoApp {
                     other => log::warn!("no alert sound row named '{other}'"),
                 }
             }
-            K::GisFile => match import.text() {
-                Ok(text) => match wxdata::gis::parse_geojson(&text) {
-                    Ok(features) => {
-                        let (shapes, marks) = crate::gis_import::to_renderable(features);
-                        let n = shapes.len() + marks.len();
-                        self.imported_gis = shapes;
-                        self.imported_marks = marks;
-                        self.show_imported_gis = true;
-                        self.rebuild_overlays();
-                        // Remember it the same two ways an imported `.pal` is remembered: a path
-                        // where there is a filesystem, the content itself in a browser, which has
-                        // no path that would survive a reload. A boundary file someone works with
-                        // daily should not need re-picking on every launch.
-                        self.settings.imported_gis = Some(match &import.bytes {
-                            None => import.path.to_string_lossy().into_owned(),
-                            Some(_) => {
-                                let name = import.name();
-                                self.settings.web_files.insert(name.clone(), text.clone());
-                                name
-                            }
-                        });
-                        // Framing the import is the difference between "nothing happened" and
-                        // "there it is" for a file covering somewhere the map isn't looking.
-                        self.zoom_to_imported_gis();
-                        self.toast(
-                            if n == 0 {
-                                ToastKind::Error
-                            } else {
-                                ToastKind::Info
-                            },
-                            format!("Imported {n} shapes from {}", import.name()),
-                        );
+            K::GisFile => match crate::gis_import::load_import(&import) {
+                Ok(loaded) => {
+                    // Remember it the same two ways an imported `.pal` is remembered: a path
+                    // where there is a filesystem, the content itself in a browser, which has
+                    // no path that would survive a reload. A boundary file someone works with
+                    // daily should not need re-picking on every launch. A browser's shapefile is
+                    // binary and `web_files` holds text, so it is kept as the GeoJSON it reads
+                    // back as — lossless, since export and import share one type.
+                    let remembered = match &import.bytes {
+                        None => Ok(import.path.to_string_lossy().into_owned()),
+                        Some(_) if crate::gis_import::is_shapefile(&import.name()) => {
+                            let stem = import.path.file_stem().map_or_else(
+                                || "shapefile".to_string(),
+                                |s| s.to_string_lossy().into_owned(),
+                            );
+                            let name = format!("{stem}.geojson");
+                            self.settings
+                                .web_files
+                                .insert(name.clone(), wxdata::gis::to_geojson(&loaded.features));
+                            Ok(name)
+                        }
+                        Some(_) => import.text().map(|text| {
+                            let name = import.name();
+                            self.settings.web_files.insert(name.clone(), text);
+                            name
+                        }),
+                    };
+                    let (shapes, marks) = crate::gis_import::to_renderable(loaded.features);
+                    let n = shapes.len() + marks.len();
+                    self.imported_gis = shapes;
+                    self.imported_marks = marks;
+                    self.show_imported_gis = true;
+                    self.rebuild_overlays();
+                    self.settings.imported_gis = remembered.ok();
+                    // Framing the import is the difference between "nothing happened" and
+                    // "there it is" for a file covering somewhere the map isn't looking.
+                    self.zoom_to_imported_gis();
+                    let mut message = format!("Imported {n} shapes from {}", import.name());
+                    if let Some(note) = &loaded.note {
+                        message.push_str(&format!(" — {note}"));
                     }
-                    Err(e) => self.toast(ToastKind::Error, format!("GeoJSON import failed: {e}")),
-                },
-                Err(e) => self.toast(ToastKind::Error, format!("GeoJSON import failed: {e}")),
+                    self.toast(
+                        if n == 0 {
+                            ToastKind::Error
+                        } else {
+                            ToastKind::Info
+                        },
+                        message,
+                    );
+                }
+                Err(e) => self.toast(ToastKind::Error, format!("GIS import failed: {e}")),
             },
         }
     }

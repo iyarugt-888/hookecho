@@ -149,6 +149,107 @@ fn feature_detail(f: &GisFeature) -> String {
     lines.join("\n")
 }
 
+// ---- reading a picked file ---------------------------------------------------------------------
+
+/// What reading an imported GIS file produced, plus anything the person should be told about how
+/// complete it is (a shapefile picked without its `.dbf`, say).
+pub(crate) struct Loaded {
+    pub features: Vec<GisFeature>,
+    pub note: Option<String>,
+}
+
+/// Is this file name a Shapefile's main `.shp`?
+pub(crate) fn is_shapefile(name: &str) -> bool {
+    name.to_ascii_lowercase().ends_with(".shp")
+}
+
+pub(crate) fn load_geojson(text: &str) -> Result<Loaded, String> {
+    wxdata::gis::parse_geojson(text)
+        .map(|features| Loaded {
+            features,
+            note: None,
+        })
+        .map_err(|e| e.to_string())
+}
+
+/// A shapefile handed over as one file's bytes — what a browser or a phone's picker gives. Its
+/// `.dbf` and `.prj` are separate files that were not picked, so the shapes come without
+/// attributes; the note says so instead of leaving the click popup mysteriously empty.
+pub(crate) fn load_shapefile_bytes(shp: &[u8]) -> Result<Loaded, String> {
+    let features = wxdata::shapefile::parse(shp, None, None).map_err(|e| format!("{e:#}"))?;
+    Ok(Loaded {
+        features,
+        note: Some(
+            "picked one file, so its .dbf attributes and .prj were not read".to_string(),
+        ),
+    })
+}
+
+/// A shapefile on disk: the `.dbf` and `.prj` beside it are read too, whatever case their
+/// extensions were written in (Windows-made sets are often `.DBF`).
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn load_shapefile_path(path: &std::path::Path) -> Result<Loaded, String> {
+    let sibling = |ext: &str| {
+        [ext.to_string(), ext.to_ascii_uppercase()]
+            .into_iter()
+            .map(|e| path.with_extension(e))
+            .find(|p| p.is_file())
+    };
+    let shp = std::fs::read(path).map_err(|e| e.to_string())?;
+    let dbf = sibling("dbf")
+        .map(|p| std::fs::read(p).map_err(|e| e.to_string()))
+        .transpose()?;
+    let prj = sibling("prj")
+        .map(|p| std::fs::read_to_string(p).map_err(|e| e.to_string()))
+        .transpose()?;
+    let features = wxdata::shapefile::parse(&shp, dbf.as_deref(), prj.as_deref())
+        .map_err(|e| format!("{e:#}"))?;
+    let mut missing = Vec::new();
+    if dbf.is_none() {
+        missing.push("a .dbf (so no attributes)");
+    }
+    if prj.is_none() {
+        missing.push("a .prj (so coordinates were assumed longitude/latitude)");
+    }
+    let note = (!missing.is_empty()).then(|| format!("no {} beside it", missing.join(" or ")));
+    Ok(Loaded { features, note })
+}
+
+/// Read a remembered import back from its saved path, whichever format it is.
+pub(crate) fn load_path(path: &str) -> Result<Loaded, String> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        if is_shapefile(path) {
+            return load_shapefile_path(std::path::Path::new(path));
+        }
+        load_geojson(&std::fs::read_to_string(path).map_err(|e| e.to_string())?)
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        Err(format!("{path} cannot be reopened in a browser"))
+    }
+}
+
+/// Read what the picker just returned, whichever format it is.
+pub(crate) fn load_import(import: &crate::dialog::Import) -> Result<Loaded, String> {
+    if !is_shapefile(&import.name()) {
+        return load_geojson(&import.text()?);
+    }
+    match &import.bytes {
+        Some(bytes) => load_shapefile_bytes(bytes),
+        None => {
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                load_shapefile_path(&import.path)
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                Err("no shapefile content was provided".to_string())
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -301,5 +402,112 @@ mod tests {
         );
         let (out, _) = to_renderable(vec![f]);
         assert_eq!(out[0].detail, "Imported shape (no attributes)");
+    }
+    // ---- reading shapefiles from disk --------------------------------------------------------------
+
+    /// One point at (x, y) as a complete `.shp`.
+    fn point_shp(x: f64, y: f64) -> Vec<u8> {
+        let mut rec = 1i32.to_le_bytes().to_vec();
+        rec.extend_from_slice(&x.to_le_bytes());
+        rec.extend_from_slice(&y.to_le_bytes());
+        let mut out = vec![0u8; 100];
+        out[0..4].copy_from_slice(&9994i32.to_be_bytes());
+        out[24..28].copy_from_slice(&(((100 + 8 + rec.len()) / 2) as i32).to_be_bytes());
+        out.extend_from_slice(&1i32.to_be_bytes());
+        out.extend_from_slice(&((rec.len() / 2) as i32).to_be_bytes());
+        out.extend_from_slice(&rec);
+        out
+    }
+
+    /// A one-column, one-row `.dbf`: NAME = `value`.
+    fn name_dbf(value: &str) -> Vec<u8> {
+        let mut out = vec![0u8; 32];
+        out[0] = 3;
+        out[4..8].copy_from_slice(&1u32.to_le_bytes());
+        out[8..10].copy_from_slice(&(32u16 + 32 + 1).to_le_bytes());
+        out[10..12].copy_from_slice(&9u16.to_le_bytes());
+        let mut d = [0u8; 32];
+        d[..4].copy_from_slice(b"NAME");
+        d[11] = b'C';
+        d[16] = 8;
+        out.extend_from_slice(&d);
+        out.push(0x0D);
+        out.push(0x20);
+        let mut cell = value.as_bytes().to_vec();
+        cell.resize(8, b' ');
+        out.extend_from_slice(&cell);
+        out
+    }
+
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("hookecho_shp_{name}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        dir
+    }
+
+    #[test]
+    fn a_shapefile_on_disk_picks_up_its_dbf_and_prj_even_in_upper_case() {
+        let dir = scratch("siblings");
+        std::fs::write(dir.join("sites.shp"), point_shp(-97.5, 35.2)).unwrap();
+        // Windows-made sets are often shouted.
+        std::fs::write(dir.join("sites.DBF"), name_dbf("Norman")).unwrap();
+        std::fs::write(dir.join("sites.prj"), r#"GEOGCS["GCS_WGS_1984"]"#).unwrap();
+
+        let loaded = load_shapefile_path(&dir.join("sites.shp")).expect("loads");
+        assert_eq!(loaded.features.len(), 1);
+        assert_eq!(loaded.features[0].properties["NAME"], "Norman");
+        assert_eq!(loaded.note, None, "nothing is missing, so nothing to warn about");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_lone_shp_still_imports_and_says_what_it_did_not_have() {
+        let dir = scratch("lone");
+        std::fs::write(dir.join("lone.shp"), point_shp(-97.5, 35.2)).unwrap();
+        let loaded = load_shapefile_path(&dir.join("lone.shp")).expect("loads");
+        assert_eq!(loaded.features.len(), 1);
+        let note = loaded.note.expect("a note");
+        assert!(note.contains(".dbf") && note.contains(".prj"), "{note}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_projected_prj_beside_the_shp_stops_the_import_with_a_reason() {
+        let dir = scratch("projected");
+        std::fs::write(dir.join("p.shp"), point_shp(500_000.0, 4_000_000.0)).unwrap();
+        std::fs::write(dir.join("p.prj"), r#"PROJCS["NAD_1983_UTM_Zone_14N",GEOGCS["GCS_North_American_1983"]]"#).unwrap();
+        let err = load_shapefile_path(&dir.join("p.shp")).err().expect("refused");
+        assert!(err.contains("UTM_Zone_14N"), "{err}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_remembered_path_reloads_by_extension_and_geojson_still_does() {
+        let dir = scratch("reload");
+        std::fs::write(dir.join("a.shp"), point_shp(-97.0, 35.0)).unwrap();
+        std::fs::write(
+            dir.join("b.geojson"),
+            r#"{"type":"Point","coordinates":[-97.0,35.0]}"#,
+        )
+        .unwrap();
+        assert_eq!(load_path(dir.join("a.shp").to_str().unwrap()).unwrap().features.len(), 1);
+        assert_eq!(load_path(dir.join("b.geojson").to_str().unwrap()).unwrap().features.len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn bytes_alone_import_geometry_and_say_the_sidecars_were_not_read() {
+        let loaded = load_shapefile_bytes(&point_shp(-97.0, 35.0)).expect("loads");
+        assert_eq!(loaded.features.len(), 1);
+        assert!(loaded.note.expect("a note").contains("one file"));
+    }
+
+    #[test]
+    fn shapefile_names_are_recognised_in_any_case() {
+        assert!(is_shapefile("Parcels.SHP"));
+        assert!(is_shapefile("/a/b/c.shp"));
+        assert!(!is_shapefile("c.geojson"));
+        assert!(!is_shapefile("c.shp.json"));
     }
 }

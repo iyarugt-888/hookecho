@@ -2608,7 +2608,31 @@ Implement in this order:
    only the person can fix a missing file. The reference survives that failure rather than being
    dropped, since a drive that isn't mounted this launch will likely be mounted the next.
    679 hookecho tests passing, native + wasm32 checks clean, clippy's `-D warnings` gate green.
-2. [ ] ESRI Shapefile (`.shp/.shx/.dbf`, optional `.prj`)
+2. [x] ESRI Shapefile (`.shp/.shx/.dbf`, optional `.prj`) — `wxdata::shapefile`, from the spec with
+   no dependency, returning the same `GisFeature` GeoJSON does, so drawing, click popups,
+   zoom-to-fit, remember-across-restarts and GeoJSON export all work on it unchanged. Reached
+   through the same "Import GIS file…" picker, which now also takes `.shp`.
+   - Geometry: points, multipoints, polylines and polygons including their Z and M forms (the
+     extra values are skipped); holes are attached to the outer ring that contains them, several
+     outer rings in one record become a multipolygon, a null shape is skipped but still counts so
+     attributes stay aligned, `MultiPatch` is a named error. `.shx` is not needed.
+   - Attributes: `.dbf` text, numbers (an integer column stays an integer), dates, logicals; a
+     row deleted in the `.dbf` is dropped. A `.dbf` whose row count differs from the `.shp` is
+     refused rather than matched up anyway — that would attach the wrong attributes to shapes.
+   - Coordinate system (I2's rule): WGS 84 and NAD 83 read as lon/lat, Web Mercator is
+     inverse-projected, and anything else — every State Plane and UTM zone, and the older NAD 27
+     datum, which can sit tens of metres off — is a named error rather than misplaced geometry.
+     With no `.prj`, coordinates must be a plausible lon/lat or the import is refused.
+   - Hostile input: every read is bounds-checked and a length field cannot drive an allocation;
+     a test cuts a valid pair at every byte and requires an error or a result, never a panic.
+   - Where the sidecars come from: on desktop the `.dbf` and `.prj` are read from beside the
+     picked `.shp` (any extension case). A browser or phone picker hands over one file, so there
+     the shapes import without attributes and the toast says so. A shapefile remembered in a
+     browser is stored as the GeoJSON it reads back as.
+   - Not built: reprojection from other coordinate systems (I2), selecting several files at once
+     in a browser, `.cpg` codepages (text is UTF-8, falling back to Latin-1). Tested against
+     synthetic files written by the test suite; **not yet against real-world shapefiles from GIS
+     software, nor exercised through the picker in a running app.**
 3. [ ] KML
 4. [ ] KMZ
 5. [ ] GeoPackage if a cross-platform Rust path is practical
@@ -3663,7 +3687,7 @@ This is the explicit “what are we still missing?” list for agents.
   binned sweep already carries, and the "Scan-age ring" layer draws them as a green-to-red ring at
   the sweep edge, labelled with the sweep's time span. Ages are relative to the sweep's own newest
   data, not the wall clock. Tested; not yet exercised on screen.
-- [ ] Shapefile GIS import
+- [x] Shapefile GIS import — see I1 item 2
 - [ ] stronger broadcast output/capture workflows
 - [ ] multi-provider operational redundancy
 

@@ -94,7 +94,7 @@ impl ImportKind {
             ImportKind::MarkerIcon => "Marker icon",
             ImportKind::AlertSound => "Alert sound",
             ImportKind::ChaseGpx => "GPX track",
-            ImportKind::GisFile => "GeoJSON file",
+            ImportKind::GisFile => "GIS file (GeoJSON or Shapefile)",
         }
     }
 
@@ -105,7 +105,7 @@ impl ImportKind {
             ImportKind::MarkerIcon => &["png"],
             ImportKind::AlertSound => &["wav", "mp3", "ogg", "flac"],
             ImportKind::ChaseGpx => &["gpx"],
-            ImportKind::GisFile => &["json", "geojson"],
+            ImportKind::GisFile => &["json", "geojson", "shp"],
         }
     }
 

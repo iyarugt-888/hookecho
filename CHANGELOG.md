@@ -8,6 +8,32 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: the Windows app closed itself about two seconds after opening
+
+Starting the live-radar failover monitor called `tokio::spawn` on the UI thread, which has no
+runtime, so the app panicked with "there is no reactor running" and exited (the crash report it
+leaves behind named the line). The monitor now starts on the app's own runtime. CI's Windows job
+did not catch it because its smoke test never opens the window; a regression test now starts the
+monitor from a thread with no runtime and fails with that exact message against the old code.
+
+### Fixed: the Android CI job failed before building anything
+
+`android-actions/setup-android` asked `sdkmanager` for the `tools` package, which Google no longer
+serves, so `sdkmanager` exited 1 at "Set up Android SDK". Both workflows now name `platform-tools`.
+
+### Added: Shapefile import (I1)
+
+"Import GIS file…" now takes an ESRI Shapefile (`.shp`) as well as GeoJSON. On desktop the
+attributes (`.dbf`) and coordinate system (`.prj`) are read from beside the file you pick; a
+browser or phone picker hands over one file, so there the shapes import without attributes and
+the message says so. Holes, multi-part shapes, dates, numbers and deleted rows are handled.
+
+A file in a coordinate system HookEcho cannot place is refused with the name of what it is in —
+State Plane, UTM and the older NAD 27 datum — rather than drawn in the wrong place; WGS 84, NAD 83
+and Web Mercator work. Tested on synthetic files, including cutting a valid pair at every byte to
+check a damaged file is refused and never crashes; not yet tried on shapefiles from real GIS
+software.
+
 ### Added: a max/min trail layer (C2) and a scan-age ring (WSV3 gap)
 
 **Max/min trail.** A single frame says where a storm's strongest core is; it cannot say where it

@@ -62,6 +62,7 @@ pub mod relay_wire;
 pub mod river;
 pub mod rotation;
 pub mod scan_age;
+pub mod shapefile;
 pub mod severe;
 pub mod sounding;
 pub mod spc;
