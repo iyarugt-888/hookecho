@@ -8,6 +8,18 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: endpoint families in source health (N1)
+
+ROADMAP_NEW N1 source-health rows now identify the shared upstream endpoint family separately
+from the layer-specific source name. A new typed `EndpointFamily` classifies descriptor-backed
+MRMS and model fields automatically from the field registry and explicitly groups current feed
+lanes such as NWS API, NOAA map services, IEM, AviationWeather.gov, radar products, community and
+multi-provider sources. The family appears in both the Layers-row health popup and the
+consolidated Data source health window; diagnostics JSON carries its stable machine ID, making it
+possible to recognize and group one upstream outage affecting several differently named layers.
+Four focused metadata tests cover registry inheritance, shared feed grouping, source-specific
+cadence and stable IDs.
+
 ### Added: wire the failover arbiter, relay and TGFTP into live radar (B6.11 step 11)
 
 ROADMAP_NEW B6.11 step 11: everything steps 1-10 built (the failover arbiter, the dual-feed health

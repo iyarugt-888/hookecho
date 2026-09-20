@@ -24,6 +24,7 @@ use crate::render::{
     RadarUpload, RenderResources,
 };
 use crate::settings::Settings;
+use crate::source_health::FeedSource;
 use crate::tiles::TileManager;
 use crate::ui;
 use crate::ui::detail_window::Detail;
@@ -530,7 +531,7 @@ enum OverlaySource {
 enum RequestLane {
     Field(crate::render::FieldLayer),
     Placefile(String),
-    Feed(&'static str),
+    Feed(FeedSource),
 }
 
 impl RequestLane {
@@ -538,7 +539,7 @@ impl RequestLane {
         match self {
             Self::Field(layer) => format!("field {}", layer.slug()),
             Self::Placefile(source) => format!("Placefile {source}"),
-            Self::Feed(label) => (*label).into(),
+            Self::Feed(source) => source.label().into(),
         }
     }
 
@@ -546,26 +547,17 @@ impl RequestLane {
         let secs = match self {
             Self::Field(layer) => field_refresh_secs(*layer),
             Self::Placefile(_) => 120,
-            Self::Feed(label) => match *label {
-                "Spotter Network" | "Live stations" | "Field mill" | "Derived radar fields" => 60,
-                "Surface observations" => 75,
-                "mPING reports" | "Power outages" | "River gauges" | "Electric field"
-                | "VAD profile" | "Archived warnings" => 300,
-                "Webcams" => 480,
-                "Hurricane reconnaissance" | "Aviation advisories" | "Radar observations" => 600,
-                "Tropical cyclones"
-                | "Wildfires"
-                | "Air quality"
-                | "Temporary flight restrictions"
-                | "Wind particles"
-                | "Freezing levels"
-                | "Model contours" => 900,
-                "Surface analysis" | "Archived storm reports" => 1800,
-                "Highway cameras" | "Damage surveys" => 3600,
-                _ => 120,
-            },
+            Self::Feed(source) => source.cadence_secs(),
         };
         std::time::Duration::from_secs(secs)
+    }
+
+    fn endpoint_family(&self) -> crate::source_health::EndpointFamily {
+        match self {
+            Self::Field(layer) => crate::source_health::field_endpoint_family(*layer),
+            Self::Placefile(_) => crate::source_health::EndpointFamily::UserConfigured,
+            Self::Feed(source) => source.endpoint_family(),
+        }
     }
 }
 
@@ -586,6 +578,8 @@ pub(crate) enum HealthState {
 #[derive(Clone)]
 pub(crate) struct SourceHealth {
     pub source: String,
+    /// The shared upstream failure domain, separate from `source`'s layer-specific display name.
+    pub endpoint_family: crate::source_health::EndpointFamily,
     pub fetching: bool,
     pub last_attempt: Option<std::time::Duration>,
     pub last_success: Option<std::time::Duration>,
@@ -646,6 +640,7 @@ impl SourceHealth {
 #[derive(serde::Serialize)]
 struct DiagnosticsSourceHealth {
     source: String,
+    endpoint_family: &'static str,
     status: &'static str,
     last_success_secs: Option<u64>,
     cadence_secs: u64,
@@ -755,6 +750,7 @@ impl RequestBook {
         let Some(s) = self.status.get(lane) else {
             return SourceHealth {
                 source: lane.label(),
+                endpoint_family: lane.endpoint_family(),
                 fetching: false,
                 last_attempt: None,
                 last_success: None,
@@ -771,6 +767,7 @@ impl RequestBook {
         });
         SourceHealth {
             source: lane.label(),
+            endpoint_family: lane.endpoint_family(),
             fetching: s.fetching,
             last_attempt: Some(now.saturating_duration_since(s.last_attempt)),
             last_success: s.last_success.map(|t| now.saturating_duration_since(t)),
@@ -801,17 +798,17 @@ impl OverlaySource {
     fn lane(&self) -> RequestLane {
         use crate::render::FieldLayer as FL;
         match self {
-            Self::Alerts(..) => RequestLane::Feed("Weather alerts"),
-            Self::Mds => RequestLane::Feed("Mesoscale discussions"),
-            Self::Watches => RequestLane::Feed("Watch boxes"),
-            Self::Wssi(..) => RequestLane::Feed("Winter storm severity"),
-            Self::Ero(..) => RequestLane::Feed("Excessive rainfall outlook"),
-            Self::FireWx(..) => RequestLane::Feed("Fire weather outlook"),
-            Self::Mping(..) => RequestLane::Feed("mPING reports"),
-            Self::Pireps(..) => RequestLane::Feed("Pilot reports"),
-            Self::Recon => RequestLane::Feed("Hurricane reconnaissance"),
-            Self::Outlook(..) => RequestLane::Feed("SPC outlook"),
-            Self::Cells(..) => RequestLane::Feed("Storm cells"),
+            Self::Alerts(..) => RequestLane::Feed(FeedSource::WeatherAlerts),
+            Self::Mds => RequestLane::Feed(FeedSource::MesoscaleDiscussions),
+            Self::Watches => RequestLane::Feed(FeedSource::WatchBoxes),
+            Self::Wssi(..) => RequestLane::Feed(FeedSource::WinterStormSeverity),
+            Self::Ero(..) => RequestLane::Feed(FeedSource::ExcessiveRainfallOutlook),
+            Self::FireWx(..) => RequestLane::Feed(FeedSource::FireWeatherOutlook),
+            Self::Mping(..) => RequestLane::Feed(FeedSource::MpingReports),
+            Self::Pireps(..) => RequestLane::Feed(FeedSource::PilotReports),
+            Self::Recon => RequestLane::Feed(FeedSource::HurricaneReconnaissance),
+            Self::Outlook(..) => RequestLane::Feed(FeedSource::SpcOutlook),
+            Self::Cells(..) => RequestLane::Feed(FeedSource::StormCells),
             Self::Placefile(url) => RequestLane::Placefile(url.clone()),
             #[cfg(not(target_arch = "wasm32"))]
             Self::Plugin(key, ..) => RequestLane::Placefile(key.clone()),
@@ -832,31 +829,31 @@ impl OverlaySource {
             Self::Hrrr(..) | Self::HrrrSub(..) => RequestLane::Field(FL::Hrrr),
             Self::Snow(..) => RequestLane::Field(FL::SnowAnalysis),
             Self::SnowBands => RequestLane::Field(FL::SnowBands),
-            Self::StormReports(Some(_)) => RequestLane::Feed("Archived storm reports"),
-            Self::StormReports(None) => RequestLane::Feed("Storm reports"),
-            Self::Spotters => RequestLane::Feed("Spotter Network"),
-            Self::ProbSevere => RequestLane::Feed("ProbSevere"),
-            Self::Fronts => RequestLane::Feed("Surface analysis"),
-            Self::FreezingLevels(..) => RequestLane::Feed("Freezing levels"),
-            Self::Obs { .. } => RequestLane::Feed("Radar observations"),
-            Self::Vwp(..) => RequestLane::Feed("VAD profile"),
-            Self::ArchiveWarnings(..) => RequestLane::Feed("Archived warnings"),
-            Self::Aviation => RequestLane::Feed("Aviation advisories"),
-            Self::Tfr(..) => RequestLane::Feed("Temporary flight restrictions"),
-            Self::Metar(..) => RequestLane::Feed("Surface observations"),
-            Self::Webcams(..) => RequestLane::Feed("Webcams"),
-            Self::Fires(..) => RequestLane::Feed("Wildfires"),
-            Self::Aqi(..) => RequestLane::Feed("Air quality"),
-            Self::Stations { .. } => RequestLane::Feed("Live stations"),
-            Self::Ppef => RequestLane::Feed("Electric field"),
-            Self::DotCams(..) => RequestLane::Feed("Highway cameras"),
-            Self::Mill(..) => RequestLane::Feed("Field mill"),
-            Self::Dat(..) => RequestLane::Feed("Damage surveys"),
-            Self::Gauges(..) => RequestLane::Feed("River gauges"),
-            Self::Contours(..) => RequestLane::Feed("Model contours"),
-            Self::Outages => RequestLane::Feed("Power outages"),
-            Self::Tropical(..) => RequestLane::Feed("Tropical cyclones"),
-            Self::Wind(..) => RequestLane::Feed("Wind particles"),
+            Self::StormReports(Some(_)) => RequestLane::Feed(FeedSource::ArchivedStormReports),
+            Self::StormReports(None) => RequestLane::Feed(FeedSource::StormReports),
+            Self::Spotters => RequestLane::Feed(FeedSource::SpotterNetwork),
+            Self::ProbSevere => RequestLane::Feed(FeedSource::ProbSevere),
+            Self::Fronts => RequestLane::Feed(FeedSource::SurfaceAnalysis),
+            Self::FreezingLevels(..) => RequestLane::Feed(FeedSource::FreezingLevels),
+            Self::Obs { .. } => RequestLane::Feed(FeedSource::RadarObservations),
+            Self::Vwp(..) => RequestLane::Feed(FeedSource::VadProfile),
+            Self::ArchiveWarnings(..) => RequestLane::Feed(FeedSource::ArchivedWarnings),
+            Self::Aviation => RequestLane::Feed(FeedSource::AviationAdvisories),
+            Self::Tfr(..) => RequestLane::Feed(FeedSource::TemporaryFlightRestrictions),
+            Self::Metar(..) => RequestLane::Feed(FeedSource::SurfaceObservations),
+            Self::Webcams(..) => RequestLane::Feed(FeedSource::Webcams),
+            Self::Fires(..) => RequestLane::Feed(FeedSource::Wildfires),
+            Self::Aqi(..) => RequestLane::Feed(FeedSource::AirQuality),
+            Self::Stations { .. } => RequestLane::Feed(FeedSource::LiveStations),
+            Self::Ppef => RequestLane::Feed(FeedSource::ElectricField),
+            Self::DotCams(..) => RequestLane::Feed(FeedSource::HighwayCameras),
+            Self::Mill(..) => RequestLane::Feed(FeedSource::FieldMill),
+            Self::Dat(..) => RequestLane::Feed(FeedSource::DamageSurveys),
+            Self::Gauges(..) => RequestLane::Feed(FeedSource::RiverGauges),
+            Self::Contours(..) => RequestLane::Feed(FeedSource::ModelContours),
+            Self::Outages => RequestLane::Feed(FeedSource::PowerOutages),
+            Self::Tropical(..) => RequestLane::Feed(FeedSource::TropicalCyclones),
+            Self::Wind(..) => RequestLane::Feed(FeedSource::WindParticles),
         }
     }
 
@@ -5040,7 +5037,7 @@ impl HookEchoApp {
         };
         self.derived_key = Some(key);
         let tx = self.overlay_tx.clone();
-        let lane = RequestLane::Feed("Derived radar fields");
+        let lane = RequestLane::Feed(FeedSource::DerivedRadarFields);
         let generation = self
             .overlay_requests
             .lock()
@@ -17336,6 +17333,7 @@ impl HookEchoApp {
                 .into_iter()
                 .map(|h| DiagnosticsSourceHealth {
                     source: h.source.clone(),
+                    endpoint_family: h.endpoint_family.id(),
                     status: ui::layers_panel::health_look(h.state()).0,
                     last_success_secs: h.last_success.map(|d| d.as_secs()),
                     cadence_secs: h.cadence.as_secs(),
@@ -21934,6 +21932,7 @@ mod request_book_tests {
                       failure: Option<u64>,
                       error: Option<String>| SourceHealth {
             source: "test".into(),
+            endpoint_family: crate::source_health::EndpointFamily::LocalProcessing,
             fetching,
             last_attempt: Some(std::time::Duration::from_secs(1)),
             last_success: success.map(std::time::Duration::from_secs),

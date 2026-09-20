@@ -217,6 +217,7 @@ impl HookEchoApp {
                 .site
                 .as_deref()
                 .map_or_else(|| "Radar".to_string(), |site| format!("{site} radar")),
+            endpoint_family: crate::source_health::EndpointFamily::RadarLevel2,
             fetching: v.loading,
             last_attempt: v.last_poll.map(|t| t.elapsed()),
             last_success: age,
@@ -239,7 +240,7 @@ impl HookEchoApp {
         let lane = match action {
             PaletteAction::SetMoment(..) => return Some(self.radar_health()),
             PaletteAction::SetContours(k) if k != ContourKind::Off => {
-                RequestLane::Feed("Model contours")
+                RequestLane::Feed(FeedSource::ModelContours)
             }
             PaletteAction::ToggleField(layer) if field_layer_is_health_tracked(layer) => {
                 // Compare's one fetch feeds both layers at once and is filed under CompareA
@@ -254,31 +255,31 @@ impl HookEchoApp {
                 RequestLane::Field(layer)
             }
             PaletteAction::ToggleOverlay(toggle) => match toggle {
-                T::AlertPanel | T::Alerts => RequestLane::Feed("Weather alerts"),
-                T::StormReports => RequestLane::Feed("Storm reports"),
-                T::Spotters => RequestLane::Feed("Spotter Network"),
-                T::Metar => RequestLane::Feed("Surface observations"),
-                T::Webcams => RequestLane::Feed("Webcams"),
-                T::Fires => RequestLane::Feed("Wildfires"),
-                T::Aqi => RequestLane::Feed("Air quality"),
-                T::Stations => RequestLane::Feed("Live stations"),
-                T::Dat => RequestLane::Feed("Damage surveys"),
-                T::Gauges => RequestLane::Feed("River gauges"),
-                T::Tropical => RequestLane::Feed("Tropical cyclones"),
-                T::Outages => RequestLane::Feed("Power outages"),
-                T::ProbSevere => RequestLane::Feed("ProbSevere"),
-                T::Aviation => RequestLane::Feed("Aviation advisories"),
-                T::Tfr => RequestLane::Feed("Temporary flight restrictions"),
-                T::Sensors => RequestLane::Feed("Radar observations"),
-                T::Hodo => RequestLane::Feed("VAD profile"),
-                T::Cells | T::Tracks | T::ArrivalCones => RequestLane::Feed("Storm cells"),
-                T::Mds => RequestLane::Feed("Mesoscale discussions"),
-                T::Mping => RequestLane::Feed("mPING reports"),
-                T::Pireps => RequestLane::Feed("Pilot reports"),
-                T::Recon => RequestLane::Feed("Hurricane reconnaissance"),
-                T::Fronts => RequestLane::Feed("Surface analysis"),
-                T::Watches => RequestLane::Feed("Watch boxes"),
-                T::Wind => RequestLane::Feed("Wind particles"),
+                T::AlertPanel | T::Alerts => RequestLane::Feed(FeedSource::WeatherAlerts),
+                T::StormReports => RequestLane::Feed(FeedSource::StormReports),
+                T::Spotters => RequestLane::Feed(FeedSource::SpotterNetwork),
+                T::Metar => RequestLane::Feed(FeedSource::SurfaceObservations),
+                T::Webcams => RequestLane::Feed(FeedSource::Webcams),
+                T::Fires => RequestLane::Feed(FeedSource::Wildfires),
+                T::Aqi => RequestLane::Feed(FeedSource::AirQuality),
+                T::Stations => RequestLane::Feed(FeedSource::LiveStations),
+                T::Dat => RequestLane::Feed(FeedSource::DamageSurveys),
+                T::Gauges => RequestLane::Feed(FeedSource::RiverGauges),
+                T::Tropical => RequestLane::Feed(FeedSource::TropicalCyclones),
+                T::Outages => RequestLane::Feed(FeedSource::PowerOutages),
+                T::ProbSevere => RequestLane::Feed(FeedSource::ProbSevere),
+                T::Aviation => RequestLane::Feed(FeedSource::AviationAdvisories),
+                T::Tfr => RequestLane::Feed(FeedSource::TemporaryFlightRestrictions),
+                T::Sensors => RequestLane::Feed(FeedSource::RadarObservations),
+                T::Hodo => RequestLane::Feed(FeedSource::VadProfile),
+                T::Cells | T::Tracks | T::ArrivalCones => RequestLane::Feed(FeedSource::StormCells),
+                T::Mds => RequestLane::Feed(FeedSource::MesoscaleDiscussions),
+                T::Mping => RequestLane::Feed(FeedSource::MpingReports),
+                T::Pireps => RequestLane::Feed(FeedSource::PilotReports),
+                T::Recon => RequestLane::Feed(FeedSource::HurricaneReconnaissance),
+                T::Fronts => RequestLane::Feed(FeedSource::SurfaceAnalysis),
+                T::Watches => RequestLane::Feed(FeedSource::WatchBoxes),
+                T::Wind => RequestLane::Feed(FeedSource::WindParticles),
                 _ => return None,
             },
             _ => return None,

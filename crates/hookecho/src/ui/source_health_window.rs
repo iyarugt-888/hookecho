@@ -10,8 +10,10 @@
 //! ROADMAP_NEW N1's "rolling success/failure count" is the one item that DOES have tracking now:
 //! `SourceHealth.recent_outcomes` — successes out of the last `RequestBook::OUTCOME_WINDOW`
 //! finished requests, `None` for a source (radar) that doesn't track a request-outcome history at
-//! all. Still not covered here, genuinely open rather than silently assumed: cache state and
-//! fallback provider — `SourceHealth` has no fields for either yet.
+//! all. Endpoint family is explicit typed metadata on each `SourceHealth`, so rows sharing one
+//! upstream failure domain remain recognizable even when their layer-specific names differ.
+//! Still not covered here, genuinely open rather than silently assumed: cache state and fallback
+//! provider — `SourceHealth` has no fields for either yet.
 
 use crate::app::{HealthState, PaletteEntry, SourceHealth};
 use crate::ui::layers_panel::{active_layer, age_line, compact_age, health_look};
@@ -59,7 +61,7 @@ pub(crate) fn show(
         "Data source health",
         &mut keep,
         false,
-        420.0,
+        640.0,
         egui::Window::new("Data source health"),
     ) else {
         *open = keep;
@@ -76,12 +78,13 @@ pub(crate) fn show(
         ui.separator();
         egui::ScrollArea::vertical().show(ui, |ui| {
             egui::Grid::new("source_health_grid")
-                .num_columns(6)
+                .num_columns(7)
                 .spacing([12.0, 6.0])
                 .striped(true)
                 .show(ui, |ui| {
                     ui.weak("Status");
                     ui.weak("Source");
+                    ui.weak("Endpoint family");
                     ui.weak("Last success");
                     ui.weak("Cadence");
                     ui.weak("Recent")
@@ -93,6 +96,7 @@ pub(crate) fn show(
                         let (label, color) = health_look(state);
                         ui.colored_label(color, label);
                         ui.label(&h.source);
+                        ui.label(h.endpoint_family.label());
                         ui.label(age_line(h.last_success));
                         ui.label(compact_age(h.cadence));
                         match h.recent_outcomes {
@@ -147,6 +151,7 @@ mod tests {
             key: None,
             health: Some(SourceHealth {
                 source: source.to_string(),
+                endpoint_family: crate::source_health::EndpointFamily::NoaaMrms,
                 fetching,
                 last_attempt: None,
                 last_success,

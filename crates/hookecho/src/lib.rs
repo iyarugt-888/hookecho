@@ -101,6 +101,8 @@ pub mod rules;
 pub mod serve;
 pub mod settings;
 pub mod share;
+/// Stable upstream-service families shown by ROADMAP_NEW N1 source health.
+pub(crate) mod source_health;
 pub mod speech;
 /// Live station markers and their telemetry cards.
 pub mod stationlayer;

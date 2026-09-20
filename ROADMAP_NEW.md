@@ -3051,8 +3051,14 @@ what a source's status is, because there is only one health computation feeding 
 For every active source:
 
 - [x] provider — `SourceHealth.source`
-- [ ] endpoint family — not a tracked field; `source` is a human label ("KTLX radar", "Model
-  contours"), not a bucket/API family identifier
+- [x] endpoint family — new this pass, see the Unreleased CHANGELOG entry: every `SourceHealth`
+  now carries a typed `EndpointFamily` separately from its layer-specific `source` label. Field
+  layers inherit NOAA MRMS / NOAA-NCEP / global-model identity from the generic field registry;
+  non-grid request lanes explicitly identify NWS API, NOAA map services, IEM,
+  AviationWeather.gov, radar-product, community, partner, multi-provider, local and
+  user-configured failure domains. The per-layer popup and consolidated health window show the
+  family, while diagnostics exports its stable machine ID (for example `noaa-mrms`) so shared
+  upstream outages can be grouped without parsing presentation text.
 - [x] last successful request — `SourceHealth.last_success` (an age, not a timestamp — see
   "latest valid data time" below for why the two are kept separate)
 - [ ] latest valid data time — only radar's own health row derives one (via the timeline's
