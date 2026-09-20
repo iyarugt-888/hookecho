@@ -337,6 +337,8 @@ pub(crate) fn health_look(state: HealthState) -> (&'static str, Color32) {
     match state {
         HealthState::Fresh => ("Fresh", Color32::from_rgb(70, 200, 120)),
         HealthState::Fetching => ("Fetching", Color32::from_rgb(80, 160, 240)),
+        // A paler, less saturated amber than Stale's — behind schedule, not yet alarming.
+        HealthState::Delayed => ("Delayed", Color32::from_rgb(220, 200, 100)),
         HealthState::Stale => ("Stale", Color32::from_rgb(235, 180, 70)),
         HealthState::Failed => ("Failed", Color32::from_rgb(230, 90, 90)),
         HealthState::Waiting => ("Waiting", Color32::from_gray(110)),

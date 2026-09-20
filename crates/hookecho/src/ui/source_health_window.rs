@@ -24,9 +24,10 @@ fn severity_rank(state: HealthState) -> u8 {
     match state {
         HealthState::Failed => 0,
         HealthState::Stale => 1,
-        HealthState::Waiting => 2,
-        HealthState::Fetching => 3,
-        HealthState::Fresh => 4,
+        HealthState::Delayed => 2,
+        HealthState::Waiting => 3,
+        HealthState::Fetching => 4,
+        HealthState::Fresh => 5,
     }
 }
 
@@ -129,6 +130,9 @@ mod tests {
         let (last_success, last_failure, fetching) = match state {
             HealthState::Fresh => (Some(std::time::Duration::from_secs(1)), None, false),
             HealthState::Fetching => (None, None, true),
+            // Between the 120 s cadence this fixture's `SourceHealth` uses below and its
+            // `DELAYED_CADENCE_MULTIPLIER` (2x) — past due, not yet stale.
+            HealthState::Delayed => (Some(std::time::Duration::from_secs(180)), None, false),
             HealthState::Stale => (Some(std::time::Duration::from_secs(9_999)), None, false),
             HealthState::Failed => (None, Some(std::time::Duration::ZERO), false),
             HealthState::Waiting => (None, None, false),
@@ -160,6 +164,7 @@ mod tests {
         let all = [
             HealthState::Fetching,
             HealthState::Fresh,
+            HealthState::Delayed,
             HealthState::Stale,
             HealthState::Failed,
             HealthState::Waiting,
@@ -175,6 +180,9 @@ mod tests {
         );
         assert!(severity_rank(HealthState::Fresh) > severity_rank(HealthState::Stale));
         assert!(severity_rank(HealthState::Fresh) > severity_rank(HealthState::Waiting));
+        // Delayed sits strictly between "on schedule" and "genuinely stopped updating".
+        assert!(severity_rank(HealthState::Fresh) > severity_rank(HealthState::Delayed));
+        assert!(severity_rank(HealthState::Delayed) > severity_rank(HealthState::Stale));
     }
 
     #[test]

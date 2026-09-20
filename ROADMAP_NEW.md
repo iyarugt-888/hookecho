@@ -3076,8 +3076,16 @@ For every active source:
 Status states:
 
 - [x] Live — `HealthState::Fresh`
-- [ ] Delayed — no separate state between "on cadence" and "off cadence"; `HealthState` jumps
-  straight from `Fresh` to `Stale`
+- [x] Delayed — new this pass: `HealthState::Delayed`, for a source between 1x and 2x its own
+  expected cadence past its last success — past due, but not yet the "genuinely stopped updating"
+  `Stale` state a single slow poll or a naturally jittery feed (one that lands "every ~5 minutes,"
+  give or take) used to jump straight to. Sits between `Fresh` and `Stale` in the Data source
+  health window's worst-first ordering and gets its own paler amber (distinct from `Stale`'s more
+  saturated one) in the Layers panel's per-row popup — both already-generic (`health_look`/
+  `severity_rank`), so this needed no new UI code, only the new state and where it sorts/colors.
+  The 2x multiplier is a judgment call, not a per-source-family tuned value — see N2's own note
+  about *data* staleness (how old is too old for this kind of thing) being a different, still-open
+  question from this section's *fetch* staleness (are we still successfully polling).
 - [x] Stale — `HealthState::Stale`
 - [x] Failed — `HealthState::Failed`
 - [ ] Cached — no state names "the fetch failed but a previous value is still shown"; the closest

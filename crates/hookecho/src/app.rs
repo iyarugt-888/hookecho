@@ -573,6 +573,10 @@ impl RequestLane {
 pub(crate) enum HealthState {
     Fetching,
     Fresh,
+    /// ROADMAP_NEW N1's "Delayed": past the expected cadence but not by much — the gap between
+    /// "still on schedule" and "genuinely stopped updating" `Fresh`/`Stale` used to jump straight
+    /// across. See [`SourceHealth::state`] for the exact threshold and why.
+    Delayed,
     Stale,
     Failed,
     Waiting,
@@ -602,6 +606,12 @@ pub(crate) struct SourceHealth {
 }
 
 impl SourceHealth {
+    /// A source that has missed its expected cadence by more than this multiplier is genuinely
+    /// stale, not just running a little behind — a single slow poll or a source with naturally
+    /// jittery timing (a feed that lands "every ~5 minutes" plus or minus) shouldn't flip straight
+    /// to the same alarming state as one that has stopped updating outright.
+    const DELAYED_CADENCE_MULTIPLIER: u32 = 2;
+
     pub(crate) fn state(&self) -> HealthState {
         if self.fetching {
             HealthState::Fetching
@@ -612,6 +622,11 @@ impl SourceHealth {
             HealthState::Failed
         } else if self.last_success.is_some_and(|age| age <= self.cadence) {
             HealthState::Fresh
+        } else if self
+            .last_success
+            .is_some_and(|age| age <= self.cadence * Self::DELAYED_CADENCE_MULTIPLIER)
+        {
+            HealthState::Delayed
         } else if self.last_success.is_some() {
             HealthState::Stale
         } else {
@@ -21936,9 +21951,20 @@ mod request_book_tests {
             health(false, Some(5), None, None).state(),
             HealthState::Fresh
         );
+        // Past the 60 s cadence but within the 2x-cadence grace window: Delayed, not yet Stale.
         assert_eq!(
             health(false, Some(61), None, None).state(),
-            HealthState::Stale
+            HealthState::Delayed
+        );
+        assert_eq!(
+            health(false, Some(120), None, None).state(),
+            HealthState::Delayed,
+            "exactly at the 2x boundary is still Delayed, not Stale"
+        );
+        assert_eq!(
+            health(false, Some(121), None, None).state(),
+            HealthState::Stale,
+            "past 2x cadence is genuinely stale"
         );
         assert_eq!(
             health(false, Some(20), Some(5), Some("offline".into())).state(),
