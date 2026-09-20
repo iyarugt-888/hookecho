@@ -104,11 +104,19 @@ done
 # Size gate. The wire cost is the compressed size, so that is what is budgeted. Runs here rather
 # than in a workflow so a local build fails the same way CI does.
 gz_bytes="$(gzip -9 -c "web/dist/hookecho_bg-$wasm_hash.wasm" | wc -c)"
-# ponytail: a regression gate, not an aspiration. It is set just above what the current build
-# produces, so a careless new dependency trips it; getting the number meaningfully lower means
-# cutting a wgpu backend, which is not free. The fonts already went (they are fetched at runtime
-# now — see crates/hookecho/src/fonts.rs), which is what this number dropped by. Raise it
-# deliberately.
+# ponytail: a regression gate, not an aspiration. What it is meant to catch is a *careless* jump
+# — a font baked back in, an image codec pulled in for one call, a second wgpu backend — not
+# ordinary feature work. Getting the number meaningfully lower means cutting a wgpu backend, which
+# is not free. The fonts already went (they are fetched at runtime now — see
+# crates/hookecho/src/fonts.rs), which is what this number dropped by. Raise it deliberately.
+#
+# It used to be set *just* above the current build, with only a few KB of slack. That sounds
+# stricter and was in practice weaker: a normal release's worth of features clears a few KB
+# easily, so the gate failed on work that was not careless at all, and the pressure to get a
+# deploy out went into a second, higher copy of the number in `Dockerfile.coolify` rather than
+# into the gate. A gate that has to be raised or routed around every release is not enforcing
+# anything. The slack below is sized so a release of ordinary feature work fits and a careless
+# dependency (hundreds of KB, minimum) still does not.
 # The number tracks CI's build, and a local build without binaryen does not reproduce it: wasm-opt
 # leaves a SMALLER raw module that GZIPS LARGER (11.8 MB raw / 4.15 MB gz in CI against 12.9 MB
 # raw / 4.01 MB gz here), so skipping it makes a local build look ~130 KB under the gate while CI
@@ -118,16 +126,17 @@ gz_bytes="$(gzip -9 -c "web/dist/hookecho_bg-$wasm_hash.wasm" | wc -c)"
 # street-map labels shipped in the default view.
 # Vector-tile worker serialization adds ~2.4 KB gzip while moving tessellation off the UI thread.
 #
-# Raised deliberately to 4300000 for one release's worth of analyst features: the GIS import and
-# export path (points/lines rendering, zoom-to-extent, GeoJSON writing), the gridded-layer cursor
-# probe, the model swipe divider, the disagreement mask, per-pane compare overlays, the nine-pane
-# grid and AWIPS focus layouts. ~185 KB gzip for all of that together.
+# Raised deliberately to 4500000. The build measured 4270497 gzipped at the time (from a real
+# container build — see the local-build caveat above), after a release's worth of analyst
+# features: the GIS import/export path, the gridded-layer cursor probe, the model swipe divider,
+# the disagreement mask, per-pane compare overlays, the nine-pane grid and the AWIPS focus
+# layouts, about 185 KB gzip together.
 #
-# This number had silently stopped tracking the real build: `Dockerfile.coolify` carried its own
-# higher `HOOKECHO_WASM_BUDGET`, so deploys passed a gate CI was already failing, and the drift
-# only surfaced when the deploy budget was outgrown too. That override is gone — one number,
-# here, is the whole point of a regression gate.
-budget="${HOOKECHO_WASM_BUDGET:-4300000}"
+# The ~230 KB of slack is deliberate and is roughly one more release at that observed rate. It
+# also replaces the second copy of this number that `Dockerfile.coolify` used to carry so deploys
+# would pass a gate CI was already failing — that override is gone, and one number living here is
+# the whole point.
+budget="${HOOKECHO_WASM_BUDGET:-4500000}"
 printf 'wasm: %s raw, %s gzipped (budget %s)\n' \
   "$(stat -c%s "web/dist/hookecho_bg-$wasm_hash.wasm")" "$gz_bytes" "$budget"
 if [ "$gz_bytes" -gt "$budget" ]; then
