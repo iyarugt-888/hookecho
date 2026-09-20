@@ -3659,7 +3659,10 @@ This is the explicit “what are we still missing?” list for agents.
 - [x] in-progress LiveScan-style rendering — B2 now paints every arriving partial chunk and runs a
   bounded lime sweep through the refreshed sector of the currently viewed 2D tilt
 - [ ] precise delay indicator
-- [ ] scan-age visualization
+- [x] scan-age visualization — `wxdata::scan_age` reads the per-azimuth collection times every
+  binned sweep already carries, and the "Scan-age ring" layer draws them as a green-to-red ring at
+  the sweep edge, labelled with the sweep's time span. Ages are relative to the sweep's own newest
+  data, not the wall clock. Tested; not yet exercised on screen.
 - [ ] Shapefile GIS import
 - [ ] stronger broadcast output/capture workflows
 - [ ] multi-provider operational redundancy

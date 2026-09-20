@@ -1078,6 +1078,15 @@ impl HookEchoApp {
                 true,
             ),
             (
+                T::ScanAge,
+                "Reference",
+                "Scan-age ring",
+                "A ring at the edge of the sweep, green where the data is newest and red where \
+                 it was collected longest before, so you can see which side of the picture is \
+                 a rotation old",
+                false,
+            ),
+            (
                 T::LinkCameras,
                 "Reference",
                 "Link pane cameras",

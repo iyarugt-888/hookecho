@@ -1870,6 +1870,8 @@ pub(crate) enum OverlayToggle {
     Nowcast,
     /// Per-gate max/min over a trailing window of cached volumes (ROADMAP_NEW C2).
     Trail,
+    /// A ring at the sweep edge coloured by how long before the newest data each azimuth was collected.
+    ScanAge,
     Tds,
     Couplets,
     Tbss,
@@ -1950,7 +1952,7 @@ pub(crate) struct CoverageCompareKey {
 impl OverlayToggle {
     /// Every toggle, for the persistence sweep. A new variant belongs here too, or it silently
     /// stops being remembered across restarts.
-    pub(crate) const ALL: [OverlayToggle; 49] = [
+    pub(crate) const ALL: [OverlayToggle; 50] = [
         Self::AlertPanel,
         Self::StormReports,
         Self::Spotters,
@@ -1975,6 +1977,7 @@ impl OverlayToggle {
         Self::ArrivalCones,
         Self::Nowcast,
         Self::Trail,
+        Self::ScanAge,
         Self::Tds,
         Self::Couplets,
         Self::Tbss,
@@ -2640,6 +2643,52 @@ impl DataMsg {
 ///
 /// The palette generation is deliberately *not* in here — it rides alongside in `pane_lut`, so
 /// a color-table change re-bakes the 3 KB LUT without re-binning or re-uploading the sweep.
+/// Wedges around the scan-age ring: 3° each, fine enough to read a rotation edge, coarse enough
+/// to draw as a few hundred segments.
+const SCAN_AGE_WEDGES: usize = 120;
+
+/// The scan-age ring for one pane, read off the sweep as it was binned.
+struct ScanAgeRing {
+    origin: [f64; 2],
+    radius_km: f64,
+    wedges: Vec<Option<f32>>,
+    summary: wxdata::scan_age::AgeSummary,
+}
+
+impl ScanAgeRing {
+    /// `None` when the sweep carries no collection times: there is nothing honest to draw.
+    fn from_sweep(s: &BinnedSweep) -> Option<Self> {
+        let summary = wxdata::scan_age::summarize(s)?;
+        let wedges = wxdata::scan_age::ring(s, SCAN_AGE_WEDGES)?;
+        let edge_km = f64::from(s.first_gate_km) + s.gate_count as f64 * f64::from(s.gate_interval_km);
+        Some(Self {
+            origin: [f64::from(s.radar_lon), f64::from(s.radar_lat)],
+            // Just inside the edge of the data, so the ring sits on the picture it describes.
+            radius_km: edge_km * 0.98,
+            wedges,
+            summary,
+        })
+    }
+}
+
+/// Green for the newest data in the sweep through amber to red for the oldest.
+fn scan_age_color(t: f32) -> egui::Color32 {
+    let t = t.clamp(0.0, 1.0);
+    let lerp = |a: [f32; 3], b: [f32; 3], u: f32| {
+        egui::Color32::from_rgb(
+            (a[0] + (b[0] - a[0]) * u) as u8,
+            (a[1] + (b[1] - a[1]) * u) as u8,
+            (a[2] + (b[2] - a[2]) * u) as u8,
+        )
+    };
+    let (green, amber, red) = ([74.0, 201.0, 110.0], [240.0, 190.0, 60.0], [230.0, 80.0, 70.0]);
+    if t < 0.5 {
+        lerp(green, amber, t * 2.0)
+    } else {
+        lerp(amber, red, (t - 0.5) * 2.0)
+    }
+}
+
 /// What a trail was built for, so any change starts it over.
 type TrailKey = (usize, Moment, usize, wxdata::extrema::Extremum, u16, String);
 
@@ -3025,6 +3074,10 @@ pub struct HookEchoApp {
     trail: Option<TrailState>,
     /// More cached frames are waiting to be folded in, so keep repainting until they are.
     trail_more: bool,
+    /// Show the scan-age ring.
+    show_scan_age: bool,
+    /// The ring read off each pane's sweep as it was binned; `None` means looked, nothing to draw.
+    scan_age_rings: std::collections::HashMap<usize, Option<ScanAgeRing>>,
     site_dialog: Option<ui::site_dialog::SiteDialog>,
     firstrun: ui::firstrun::FirstRun,
     /// The optional spotlight tour, and where the chrome drew the things it points at this frame.
@@ -4513,6 +4566,8 @@ impl HookEchoApp {
             show_local_tracks: false,
             trail: None,
             trail_more: false,
+            show_scan_age: false,
+            scan_age_rings: std::collections::HashMap::new(),
             site_dialog: None,
             firstrun: {
                 let mut w = ui::firstrun::FirstRun::default();
@@ -9647,6 +9702,7 @@ impl HookEchoApp {
             T::ArrivalCones => &mut self.filters.show_arrival_cones,
             T::Nowcast => &mut self.filters.show_nowcast,
             T::Trail => &mut self.filters.show_trail,
+            T::ScanAge => &mut self.show_scan_age,
             T::Tds => &mut self.filters.show_tds,
             T::Tbss => &mut self.filters.show_tbss,
             T::ZdrColumns => &mut self.filters.show_zdr_columns,
@@ -12821,7 +12877,11 @@ impl HookEchoApp {
         if !self.views[idx].show_radar || !has_volume {
             self.pane_shown.remove(&idx);
             self.pane_lut.remove(&idx);
+            self.scan_age_rings.remove(&idx);
             return (None, false);
+        }
+        if !self.show_scan_age {
+            self.scan_age_rings.clear();
         }
         let count = self.views[data].elevation_count();
         self.views[idx].clamp_tilt_to(&count);
@@ -12903,7 +12963,10 @@ impl HookEchoApp {
         // Same sweep already up: the only thing left that can differ is the color table, and
         // that is a 3 KB write into the texture already bound.
         let lut_only = self.pane_shown.get(&idx) == Some(&key);
-        if lut_only && self.pane_lut.get(&idx) == Some(&lut_gen) {
+        // Unless the scan-age ring was just switched on: it is read off the sweep as it is binned,
+        // and this sweep was binned before anyone asked.
+        let ring_owed = self.show_scan_age && !self.scan_age_rings.contains_key(&idx);
+        if lut_only && self.pane_lut.get(&idx) == Some(&lut_gen) && !ring_owed {
             return (None, true);
         }
         let table_owned =
@@ -12918,6 +12981,10 @@ impl HookEchoApp {
             .as_ref()
             .and(self.trail.as_ref())
             .and_then(|t| t.acc.as_ref());
+        // Read off the sweep in hand rather than fetched later: the paint pass only has a shared
+        // borrow of the volume, and binning needs a mutable one.
+        let want_age = self.show_scan_age;
+        let mut ring: Option<ScanAgeRing> = None;
         let upload = if let Some(acc) = trail_acc {
             Ok::<_, anyhow::Error>(to_upload(
                 acc,
@@ -12942,6 +13009,9 @@ impl HookEchoApp {
                 return (None, true);
             }
             vol.binned(moment, tilt, dealias).map(|s| {
+                if want_age {
+                    ring = ScanAgeRing::from_sweep(s);
+                }
                 to_upload(
                     s,
                     table,
@@ -12959,6 +13029,11 @@ impl HookEchoApp {
                 self.views[data].live_render_started = None;
                 self.pane_shown.insert(idx, key);
                 self.pane_lut.insert(idx, lut_gen);
+                // Recorded even when `None` (a trail has no single rotation to age, and some
+                // sweeps carry no timing), so "looked, nothing to draw" is not re-asked every frame.
+                if want_age {
+                    self.scan_age_rings.insert(idx, ring);
+                }
                 (Some(up), true)
             }
             Err(e) => {
@@ -17141,6 +17216,59 @@ impl HookEchoApp {
                     painter.line_segment(
                         [to_screen(origin[0], origin[1]), to_screen(far[0], far[1])],
                         egui::Stroke::new(0.6, col.gamma_multiply(0.7)),
+                    );
+                }
+            }
+        }
+
+        // Scan age: a ring at the edge of the sweep, coloured by how long before the newest data
+        // each azimuth was collected. The antenna takes minutes to turn, so the two edges of a
+        // picture can be a rotation apart; this is where.
+        if self.show_scan_age {
+            if let Some(Some(ring)) = self.scan_age_rings.get(&idx) {
+                let to_screen = |p: [f64; 2]| {
+                    let w = crate::render::mercator::lonlat_to_world(p[0], p[1]);
+                    let (sx, sy) = cam.world_to_screen(w, vp);
+                    egui::pos2(prect.left() + sx, prect.top() + sy)
+                };
+                let n = ring.wedges.len();
+                for (i, age) in ring.wedges.iter().enumerate() {
+                    let Some(age) = age else { continue };
+                    let a0 = i as f64 / n as f64 * 360.0;
+                    let a1 = (i + 1) as f64 / n as f64 * 360.0;
+                    let pts: Vec<egui::Pos2> = [a0, (a0 + a1) / 2.0, a1]
+                        .into_iter()
+                        .map(|az| to_screen(crate::geo::destination_point(ring.origin, az, ring.radius_km)))
+                        .collect();
+                    painter.add(egui::Shape::line(
+                        pts,
+                        egui::Stroke::new(5.0, scan_age_color(*age)),
+                    ));
+                }
+                if cam.zoom >= 4.0 {
+                    let top = to_screen(crate::geo::destination_point(ring.origin, 0.0, ring.radius_km));
+                    let mut text = format!(
+                        "Sweep spans {}",
+                        wxdata::scan_age::format_span(ring.summary.span_ms())
+                    );
+                    // Only meaningful on a live volume; on an archive replay the wall-clock age
+                    // is years and says nothing about the picture.
+                    let since = Utc::now().timestamp_millis() - ring.summary.newest_ms;
+                    if (0..6 * 3_600_000).contains(&since) {
+                        text.push_str(&format!(
+                            " · newest {} ago",
+                            wxdata::scan_age::format_span(since)
+                        ));
+                    }
+                    if ring.summary.is_partial() {
+                        text.push_str(" · partial");
+                    }
+                    painter.text(
+                        top + egui::vec2(0.0, -8.0),
+                        egui::Align2::CENTER_BOTTOM,
+                        text,
+                        egui::FontId::proportional(11.0),
+                        egui::Color32::from_gray(225),
                     );
                 }
             }

@@ -8,6 +8,26 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: a max/min trail layer (C2) and a scan-age ring (WSV3 gap)
+
+**Max/min trail.** A single frame says where a storm's strongest core is; it cannot say where it
+has been. The new layer replaces the active pane's radar with the strongest (or weakest) value each
+gate held over the last 15, 30, 60 or 120 minutes, ending at the playhead — a reflectivity-core or
+CC-minimum path. It is built only from volumes already in the decode cache, three per frame, so a
+two-hour window fills in over a few frames instead of freezing one. It refuses to blend sweeps that
+are not the same beam (different product, tilt, site, or raw against dealiased velocity) and says so
+in Layer options. Decay, export and a custom window length are not built, rotation and hail paths
+from the MRMS grids are a separate route, and it has been tested but not yet looked at on screen.
+
+**Scan-age ring.** The antenna takes minutes to turn, so the two edges of a radar picture can be a
+whole rotation apart, and nothing showed which. A ring at the edge of the sweep is now coloured green
+where the data is newest through red where it was collected longest before, labelled with how much
+time the sweep spans (and, on a live volume, how long ago the newest of it arrived). Ages are
+relative to the sweep's own newest data rather than the wall clock, which on an archive replay would
+call the whole picture years old. Also untested on screen.
+
+Both add under 5 KB gzipped to the browser bundle together.
+
 ### Added: an imported GIS file is remembered across restarts (I1)
 
 A GeoJSON import used to last only for the session, so a district boundary, coverage area or asset
