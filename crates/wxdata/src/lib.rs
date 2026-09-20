@@ -21,6 +21,7 @@ pub mod dwd;
 pub mod eccc;
 pub mod efield;
 pub mod ero;
+pub mod extrema;
 pub mod field;
 pub mod firewx;
 pub mod forecast;

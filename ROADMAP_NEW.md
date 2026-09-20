@@ -1525,9 +1525,24 @@ rather than being rushed into this one.
 
 ---
 
-## C2. Maximum-value trails / temporal extrema
+## C2. Maximum-value trails / temporal extrema — accumulator built, not yet reachable
 
 Add analyst trails for values over a moving time window.
+
+The computational core is in `wxdata::extrema`: a running per-gate extremum held in a
+`BinnedSweep`, so the accumulation shares the polar grid of the sweeps feeding it and the
+existing radar layer can draw the result with no new render pipeline. Merging is element-wise
+`max`/`min` over the `2..=255` code band, which is sound precisely because that band is a
+monotonic linear map onto the moment's physical range — comparing codes is comparing dBZ.
+`accumulate` refuses rather than blends when two sweeps do not describe the same beam
+(moment, value range, geometry, elevation cut or site), and reports which, so the UI can say
+"trail restarted: site changed" instead of quietly showing a shorter history than was asked
+for. Sentinels never win at either end: a range-folded gate is an unknown velocity, not a low
+one, and a below-threshold gate is not a low CC.
+
+Not yet built: every control below, the layer that draws it, and the replay wiring. The window
+this folds over is the same bounded trailing set of timeline frames `compute_local_tracks`
+already walks (`app.rs`) — that is the intended caller, not a new fetch path.
 
 Use cases:
 
@@ -1540,16 +1555,20 @@ Use cases:
 
 ### Controls
 
-- window: 15/30/60/120 minutes/custom
-- decay visualization
-- threshold
-- min or max mode
-- reset at selected archive time
-- export raster/vector trail
+- [ ] window: 15/30/60/120 minutes/custom
+- [ ] decay visualization
+- [ ] threshold
+- [x] min or max mode — `extrema::Extremum`
+- [ ] reset at selected archive time
+- [ ] export raster/vector trail
 
 ### Acceptance criteria
 
 Historic supercell replay produces a stable rotation/hail trail that can be independently recomputed from cached frames.
+
+Order-independence — the half of "independently recomputed" that the accumulator itself owns —
+is covered by `the_trail_is_independent_of_frame_order_within_one_beam`. The replay half stays
+open until the layer is reachable.
 
 ---
 
