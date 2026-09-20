@@ -190,14 +190,29 @@ pub fn run_desktop() -> eframe::Result<()> {
     // than eframe's `persistence` feature, which would pull a whole key-value store in to remember
     // two floats and a bool.
     let saved = crate::settings::Settings::load().window;
-    let size = saved.map_or([1280.0, 800.0], |w| [w.width, w.height]);
+    // `HOOKECHO_PHONE=1` (debug builds): a Galaxy S25+-shaped window drawing the phone chrome. It
+    // keeps its own storage under the temp dir, so poking at it never rewrites the settings and
+    // window size of the real install.
+    let phone = platform::form_factor::emulating_phone();
+    if phone {
+        paths::set_base(std::env::temp_dir().join("hookecho-phone-emulation"));
+    }
+    let size = if phone {
+        [411.0, 915.0]
+    } else {
+        saved.map_or([1280.0, 800.0], |w| [w.width, w.height])
+    };
     let mut native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size(size)
-            .with_maximized(saved.is_some_and(|w| w.maximized))
+            .with_maximized(!phone && saved.is_some_and(|w| w.maximized))
             // The floating chrome has fixed-width cards; below this they stack on top of the map
             // and each other.
-            .with_min_inner_size([800.0, 500.0])
+            .with_min_inner_size(if phone {
+                [300.0, 400.0]
+            } else {
+                [800.0, 500.0]
+            })
             .with_title("HookEcho")
             .with_decorations(os_decorated())
             // Matches the .desktop file, so Wayland taskbars find the icon.

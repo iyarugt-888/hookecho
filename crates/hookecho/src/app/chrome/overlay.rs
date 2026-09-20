@@ -43,7 +43,7 @@ fn sheets(ctx: &egui::Context) -> bool {
 }
 
 /// Where the phone's chrome starts: under the status bar and the color-scale strips.
-fn phone_top(ctx: &egui::Context) -> f32 {
+pub(crate) fn phone_top(ctx: &egui::Context) -> f32 {
     let content = ctx.content_rect();
     (content.top() - ctx.viewport_rect().top()).max(0.0) + 26.0
 }
@@ -499,8 +499,10 @@ impl HookEchoApp {
             .unwrap_or_default();
         let width = if narrow_search {
             // Clear of the chrome-hide eye in the opposite corner, which is a 48 pt target with
-            // a margin of its own.
-            (self.chrome_rect.width() - crate::ui::m3::SP_3 * 3.0 - 48.0).max(180.0)
+            // a margin of its own. That is the pill's *outer* width; the glass frame adds 12 pt of
+            // padding a side inside it, and setting the inner width to the outer figure ran the
+            // pill 24 pt under the eye.
+            (self.chrome_rect.width() - crate::ui::m3::SP_3 * 3.0 - 48.0 - 24.0).max(156.0)
         } else {
             PANEL_W
         };

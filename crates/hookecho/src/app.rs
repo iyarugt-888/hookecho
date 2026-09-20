@@ -13441,7 +13441,23 @@ impl HookEchoApp {
     fn map_3d_controls(&mut self, idx: usize, prect: egui::Rect, ctx: &egui::Context) {
         let volume_supported = self.volume3d_supported;
         let moment = self.views[idx].moment;
-        let pos = prect.right_top() + egui::vec2(-276.0, 8.0);
+        // On a phone the desktop's spot (276 pt in from the right edge) is where the search pill and
+        // the hide-chrome eye live, so the window opened on top of both. Start it in the lane
+        // under the pill, left of the control column — and under the forecast banner when one is
+        // showing.
+        let pos = if crate::platform::phone_layout() {
+            let banner = if self.views[idx].timeline.forecast_hour().is_some() {
+                52.0
+            } else {
+                0.0
+            };
+            egui::pos2(
+                prect.left() + crate::ui::m3::SP_3,
+                chrome::phone_top(ctx) + 56.0 + banner,
+            )
+        } else {
+            prect.right_top() + egui::vec2(-276.0, 8.0)
+        };
         // A real Window rather than a fixed-position Area: dragging its title bar and resizing
         // from a corner both come free this way, and (unlike the Area this used to be) egui
         // remembers where a user left it — `default_pos`/`default_width` only seed the very
@@ -16970,18 +16986,37 @@ impl HookEchoApp {
             };
             let text = format!("⚠ FORECAST {lead} — HRRR MODEL, NOT OBSERVED — valid {valid}");
             let font = egui::FontId::proportional(13.0);
-            let galley = painter.layout_no_wrap(text.clone(), font.clone(), egui::Color32::BLACK);
             let pad = egui::vec2(10.0, 4.0);
-            let center = egui::pos2(prect.center().x, prect.top() + 16.0);
-            let rect = egui::Rect::from_center_size(center, galley.size() + pad * 2.0);
-            painter.rect_filled(rect, 4.0, egui::Color32::from_rgb(255, 170, 60));
-            painter.text(
-                center,
-                egui::Align2::CENTER_CENTER,
-                &text,
-                font,
-                egui::Color32::BLACK,
+            // On a phone the sentence is wider than the screen ("...valid Sep 20, 6:" ran off the
+            // right edge), so it wraps, and it sits in the lane under the search pill and clear of
+            // the control column instead of over the status bar. Desktop keeps the one-line strip
+            // along the top.
+            let phone = crate::platform::phone_layout();
+            let (wrap, center_x, phone_y) = if phone {
+                let column = 72.0;
+                let left = prect.left() + crate::ui::m3::SP_3;
+                let right = prect.right() - crate::ui::m3::SP_3 - column;
+                (
+                    (right - left - pad.x * 2.0).max(120.0),
+                    (left + right) / 2.0,
+                    prect.top() + chrome::phone_top(ui.ctx()) + 56.0,
+                )
+            } else {
+                (f32::INFINITY, prect.center().x, 0.0)
+            };
+            let galley = painter.layout(text, font, egui::Color32::BLACK, wrap);
+            // Desktop: centred 16 pt down, exactly where the one-line strip always sat.
+            let top = if phone {
+                phone_y
+            } else {
+                prect.top() + 16.0 - (galley.size().y / 2.0 + pad.y)
+            };
+            let rect = egui::Rect::from_min_size(
+                egui::pos2(center_x - (galley.size().x + pad.x * 2.0) / 2.0, top),
+                galley.size() + pad * 2.0,
             );
+            painter.rect_filled(rect, 4.0, egui::Color32::from_rgb(255, 170, 60));
+            painter.galley(rect.min + pad, galley, egui::Color32::BLACK);
         }
 
         ui::comparison_status::paint_for_view(

@@ -1497,12 +1497,24 @@ pub mod form_factor {
         TABLET.load(Ordering::Relaxed)
     }
 
-    /// Should the touch-first phone chrome be drawn? Only on Android, and only when it is not a
-    /// tablet. Every layout decision that used to ask `cfg!(target_os = "android")` asks this;
-    /// the ones that are about the platform itself (the soft keyboard, the file picker, no ffmpeg)
-    /// still ask the platform.
+    /// Debug builds only: `HOOKECHO_PHONE=1` draws the phone chrome on a desktop, in a phone-sized
+    /// window, so the layout can be looked at (and screenshotted) without a phone. Never true in a
+    /// release build, on Android, or in a browser.
+    pub fn emulating_phone() -> bool {
+        static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *ON.get_or_init(|| {
+            cfg!(debug_assertions)
+                && !cfg!(any(target_os = "android", target_arch = "wasm32"))
+                && std::env::var_os("HOOKECHO_PHONE").is_some()
+        })
+    }
+
+    /// Should the touch-first phone chrome be drawn? Only on Android (or the debug emulation
+    /// above), and only when it is not a tablet. Every layout decision that used to ask
+    /// `cfg!(target_os = "android")` asks this; the ones that are about the platform itself (the
+    /// soft keyboard, the file picker, no ffmpeg) still ask the platform.
     pub fn phone_layout() -> bool {
-        cfg!(target_os = "android") && !is_tablet()
+        (cfg!(target_os = "android") || emulating_phone()) && !is_tablet()
     }
 
     #[cfg(test)]

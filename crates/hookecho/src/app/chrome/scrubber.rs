@@ -85,6 +85,10 @@ impl HookEchoApp {
         let mut loop_frames = self.settings.live_loop_frames;
         let narrow = self.chrome_rect.width() < 600.0;
         let compact_live = narrow;
+        // A finger, not a pointer: the narrow strip was drawn for a narrow desktop window, with 28 pt
+        // buttons and a 3 pt track, far under the 48 dp a thumb needs. `phone` is the touch layout
+        // specifically, so a narrow desktop window keeps the small strip.
+        let phone = crate::platform::phone_layout();
         // Where the scrubber lands, for the tour's spotlight (same reason: no `self` in there).
         let mut scrub_rect = None;
         // Wide enough for the track to be worth scrubbing, never so wide it spans a 4K map — and
@@ -105,13 +109,14 @@ impl HookEchoApp {
             .show(ctx, |ui| {
                 crate::ui::style::glass(ui, 252)
                     .inner_margin(egui::Margin::symmetric(
-                        if compact_live { 10 } else { 12 },
-                        if compact_live { 4 } else { 9 },
+                        if phone { 12 } else if compact_live { 10 } else { 12 },
+                        if phone { 6 } else if compact_live { 4 } else { 9 },
                     ))
                     .show(ui, |ui| {
-                ui.set_width(width);
+                // The frame's own margins come off the width, or the strip runs past the edge.
+                ui.set_width(if phone { width - 24.0 } else { width });
                 if compact_live {
-                    ui.spacing_mut().item_spacing = egui::vec2(4.0, 0.0);
+                    ui.spacing_mut().item_spacing = egui::vec2(if phone { 2.0 } else { 4.0 }, 0.0);
                 }
                 let t = &mut self.views[self.active].timeline;
                 if t.slot_count() > 0 {
@@ -137,10 +142,10 @@ impl HookEchoApp {
                             egui::Color32::from_gray(225)
                         };
                         ui.add(
-                            egui::Button::new(egui::RichText::new(glyph).size(if primary && !narrow { 26.0 } else { 16.0 }).color(fg))
+                            egui::Button::new(egui::RichText::new(glyph).size(if primary && !narrow { 26.0 } else if phone { 22.0 } else { 16.0 }).color(fg))
                                 .min_size(egui::vec2(
-                                    if narrow { 28.0 } else if primary { 48.0 } else { 32.0 },
-                                    if narrow { 28.0 } else if primary { 48.0 } else { 32.0 },
+                                    if phone { 44.0 } else if narrow { 28.0 } else if primary { 48.0 } else { 32.0 },
+                                    if phone { 44.0 } else if narrow { 28.0 } else if primary { 48.0 } else { 32.0 },
                                 ))
                                 .fill(if primary && !narrow { accent.gamma_multiply(0.28) } else { egui::Color32::TRANSPARENT })
                                 .corner_radius(24.0)
@@ -164,7 +169,7 @@ impl HookEchoApp {
                     if btn(ui, ph::SKIP_FORWARD, false, "Next frame") {
                         t.step(1);
                     }
-                    let clock_size = egui::vec2(if narrow { 100.0 } else { (ui.available_width() - 210.0).max(170.0) }, if narrow { 28.0 } else { 54.0 });
+                    let clock_size = egui::vec2(if phone { 92.0 } else if narrow { 100.0 } else { (ui.available_width() - 210.0).max(170.0) }, if phone { 44.0 } else if narrow { 28.0 } else { 54.0 });
                     ui.allocate_ui_with_layout(
                         clock_size,
                         egui::Layout::left_to_right(egui::Align::Center).with_main_align(egui::Align::Center),
@@ -201,7 +206,7 @@ impl HookEchoApp {
                         };
                         ui.add_sized(clock_size, egui::Label::new(
                             egui::RichText::new(readout)
-                                .size(if narrow { 15.0 } else { 22.0 })
+                                .size(if phone { 17.0 } else if narrow { 15.0 } else { 22.0 })
                                 .strong()
                                 .color(egui::Color32::from_gray(238)),
                         ));
@@ -270,10 +275,11 @@ impl HookEchoApp {
                     let badge = ui.add(
                         egui::Button::new(
                             egui::RichText::new(format!("● {text}"))
-                                .size(12.0)
+                                .size(if phone { 14.0 } else { 12.0 })
                                 .strong()
                                 .color(col),
                         )
+                        .min_size(if phone { egui::vec2(0.0, 40.0) } else { egui::Vec2::ZERO })
                         .fill(egui::Color32::TRANSPARENT)
                         .corner_radius(9.0),
                     )
@@ -1127,13 +1133,27 @@ fn track(
     compact: bool,
 ) -> egui::Rect {
     let slots = t.slot_count();
+    // On a phone the track is the one control the whole timeline turns on, so it gets a thumb-tall
+    // hit area, a bar you can see and a knob you can grab; the 10 pt / 3 pt / 4 pt version is for a
+    // pointer.
+    let phone = compact && crate::platform::phone_layout();
     let (rect, resp) = ui.allocate_exact_size(
-        egui::vec2(ui.available_width(), if compact { 10.0 } else { 34.0 }),
+        egui::vec2(
+            ui.available_width(),
+            if phone {
+                44.0
+            } else if compact {
+                10.0
+            } else {
+                34.0
+            },
+        ),
         egui::Sense::click_and_drag(),
     );
     let p = ui.painter_at(rect);
     let bar = if compact {
-        egui::Rect::from_center_size(rect.center(), egui::vec2(rect.width(), 3.0))
+        let thickness = if phone { 8.0 } else { 3.0 };
+        egui::Rect::from_center_size(rect.center(), egui::vec2(rect.width(), thickness))
     } else {
         egui::Rect::from_min_max(
             egui::pos2(rect.left(), rect.bottom() - 12.0),
@@ -1227,7 +1247,13 @@ fn track(
         }
     }
     let knob = egui::pos2(x_of(t.playhead), bar.center().y);
-    let knob_radius = if compact { 4.0 } else { 7.0 };
+    let knob_radius = if phone {
+        11.0
+    } else if compact {
+        4.0
+    } else {
+        7.0
+    };
     p.circle_filled(knob, knob_radius, accent);
     p.circle_stroke(
         knob,
