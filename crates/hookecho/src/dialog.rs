@@ -82,6 +82,8 @@ pub enum ImportKind {
     AlertSound,
     /// A GPX track to replay (one this app wrote, or one another chase logger did).
     ChaseGpx,
+    /// A GeoJSON file to import as a reference overlay (ROADMAP_NEW I1).
+    GisFile,
 }
 
 impl ImportKind {
@@ -92,6 +94,7 @@ impl ImportKind {
             ImportKind::MarkerIcon => "Marker icon",
             ImportKind::AlertSound => "Alert sound",
             ImportKind::ChaseGpx => "GPX track",
+            ImportKind::GisFile => "GeoJSON file",
         }
     }
 
@@ -102,6 +105,7 @@ impl ImportKind {
             ImportKind::MarkerIcon => &["png"],
             ImportKind::AlertSound => &["wav", "mp3", "ogg", "flac"],
             ImportKind::ChaseGpx => &["gpx"],
+            ImportKind::GisFile => &["json", "geojson"],
         }
     }
 
@@ -117,6 +121,9 @@ impl ImportKind {
             // No registered MIME for GPX that pickers agree on; the extension is checked on the
             // way back, same as a palette.
             ImportKind::ChaseGpx => "*/*",
+            // `.geojson` has no MIME either most pickers register (`application/geo+json` is
+            // rarely wired up), and plain GeoJSON is often served/saved as `.json` anyway.
+            ImportKind::GisFile => "*/*",
         }
     }
 }
@@ -223,6 +230,7 @@ mod android_open {
             ImportKind::MarkerIcon => "marker",
             ImportKind::AlertSound => "sound",
             ImportKind::ChaseGpx => "gpx",
+            ImportKind::GisFile => "gis",
         }
     }
 
@@ -233,6 +241,7 @@ mod android_open {
             "marker" => ImportKind::MarkerIcon,
             "sound" => ImportKind::AlertSound,
             "gpx" => ImportKind::ChaseGpx,
+            "gis" => ImportKind::GisFile,
             _ => return None,
         })
     }

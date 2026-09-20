@@ -1095,6 +1095,14 @@ impl HookEchoApp {
                 },
                 false,
             ),
+            (
+                T::ImportedGis,
+                "Reference",
+                "Imported GIS shapes",
+                "Shapes from a GeoJSON file you imported \u{2014} \"Import GIS file\u{2026}\" in \
+                 Tools brings up the picker",
+                false,
+            ),
         ] {
             let on = *self.overlay_flag(t);
             push(
@@ -1470,6 +1478,15 @@ impl HookEchoApp {
             "Replay the scans already in memory",
             false,
             PaletteAction::InstantReplay,
+            None,
+        );
+        push(
+            "Import GIS file\u{2026}",
+            "Tools",
+            "Load a GeoJSON file as a reference overlay \u{2014} polygons draw and are \
+             clickable; points/lines aren't drawn yet",
+            false,
+            PaletteAction::ImportGis,
             None,
         );
         for entry in &mut out {

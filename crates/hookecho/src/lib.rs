@@ -47,6 +47,8 @@ pub mod fielddiff;
 pub mod fonts;
 pub mod fronts_draw;
 pub mod geo;
+/// Converting a generic GIS import (`wxdata::gis`) into a renderable overlay feature.
+pub mod gis_import;
 pub mod gps;
 /// Off-screen rendering for the CLI verifiers and the server snapshot.
 #[cfg(not(target_arch = "wasm32"))]

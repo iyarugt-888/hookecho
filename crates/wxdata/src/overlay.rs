@@ -22,6 +22,9 @@ pub enum FeatureKind {
     Sigmet,
     /// FAA Temporary Flight Restriction — airspace that is closed, not weather.
     Tfr,
+    /// A shape from a user's own imported GIS file (ROADMAP_NEW I1), not an official product from
+    /// any feed this app fetches.
+    Imported,
 }
 
 impl FeatureKind {
@@ -42,6 +45,10 @@ impl FeatureKind {
             // the cursor it is the thing the click was about.
             FeatureKind::Tfr => 3,
             FeatureKind::Outlook => 1,
+            // Lowest tier on purpose: a user's own reference shape (a county boundary, a district
+            // outline) should never steal a click away from an operationally meaningful feature
+            // it happens to overlap — it only wins the hit-test when nothing else is there.
+            FeatureKind::Imported => 0,
         }
     }
 }

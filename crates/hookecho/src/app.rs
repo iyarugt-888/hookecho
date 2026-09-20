@@ -1799,6 +1799,8 @@ pub(crate) enum OverlayToggle {
     LowestTilt,
     /// Day/night shading, the terminator line, and the lat/lon graticule.
     DayNight,
+    /// ROADMAP_NEW I1: shapes from a user-imported GeoJSON file.
+    ImportedGis,
 }
 
 /// What a computed blockage raster was built for. Any change here (site, tilt, or a pan/zoom past
@@ -1835,7 +1837,7 @@ pub(crate) struct CoverageCompareKey {
 impl OverlayToggle {
     /// Every toggle, for the persistence sweep. A new variant belongs here too, or it silently
     /// stops being remembered across restarts.
-    pub(crate) const ALL: [OverlayToggle; 47] = [
+    pub(crate) const ALL: [OverlayToggle; 48] = [
         Self::AlertPanel,
         Self::StormReports,
         Self::Spotters,
@@ -1883,11 +1885,14 @@ impl OverlayToggle {
         Self::Blockage,
         Self::LowestTilt,
         Self::DayNight,
+        Self::ImportedGis,
     ];
 
     /// Toggles that describe this session's window arrangement rather than a layer. Pane links
     /// are captured by a saved workspace but are not global layer preferences; the mini loop is
-    /// a window and is not persisted.
+    /// a window and is not persisted. `ImportedGis` has no data to restore either way — the
+    /// shapes themselves are never saved, only held for the running session — so persisting an
+    /// "on" state past a restart would just show an empty toggle with nothing under it.
     pub(crate) fn session_only(self) -> bool {
         matches!(
             self,
@@ -1897,6 +1902,7 @@ impl OverlayToggle {
                 | Self::LinkSite
                 | Self::LinkCursor
                 | Self::MiniLoop
+                | Self::ImportedGis
         )
     }
 
@@ -1994,6 +2000,8 @@ pub(crate) enum PaletteAction {
     GoLive,
     /// Hand the current view off to windy.com in the browser.
     OpenInWindy,
+    /// Open the file picker to import a GeoJSON file (ROADMAP_NEW I1).
+    ImportGis,
     /// Copy a `hookecho://goto/…` link to this view (site, center, zoom, archive time).
     CopyViewLink,
     /// Open Help at the glossary entry that explains a label's abbreviation. An index into
@@ -3333,6 +3341,11 @@ pub struct HookEchoApp {
     fire_incidents: Vec<wxdata::wfigs::FireIncident>,
     fire_bounds: Option<(f64, f64, f64, f64)>,
     fire_last_fetch: Option<Instant>,
+    /// ROADMAP_NEW I1: shapes from a user-imported GeoJSON file (converted by `gis_import`,
+    /// see that module's own doc comment) — no fetch/clock fields the way the feed-backed layers
+    /// above have, since there is no feed to refresh, only the one file the user picked.
+    show_imported_gis: bool,
+    imported_gis: Vec<GeoFeature>,
     /// AirNow AQI dots: toggle, the obs in view, and the bbox/clock they were fetched for. Needs
     /// a user key; without one the layer never fetches.
     show_aqi: bool,
@@ -4381,6 +4394,8 @@ impl HookEchoApp {
             fire_incidents: Vec::new(),
             fire_bounds: None,
             fire_last_fetch: None,
+            show_imported_gis: false,
+            imported_gis: Vec::new(),
             show_aqi: false,
             aqi: Vec::new(),
             aqi_bounds: None,
@@ -9039,6 +9054,7 @@ impl HookEchoApp {
             T::Blockage => &mut self.show_blockage,
             T::LowestTilt => &mut self.show_lowest_tilt,
             T::DayNight => &mut self.show_daynight,
+            T::ImportedGis => &mut self.show_imported_gis,
         }
     }
 
@@ -9126,6 +9142,7 @@ impl HookEchoApp {
                         | T::Alerts
                         | T::Mds
                         | T::Fires
+                        | T::ImportedGis
                 ) {
                     self.rebuild_overlays();
                 }
@@ -9265,6 +9282,9 @@ impl HookEchoApp {
                 if let Err(e) = crate::platform::open_url(&url) {
                     log::warn!("could not open {url}: {e}");
                 }
+            }
+            PaletteAction::ImportGis => {
+                crate::dialog::request_open(crate::dialog::ImportKind::GisFile, "");
             }
             PaletteAction::OpenWindow(w) => match w {
                 W::Site => {
@@ -10614,6 +10634,9 @@ impl HookEchoApp {
         }
         if self.show_fires {
             v.extend(self.fire_perims.iter().cloned());
+        }
+        if self.show_imported_gis {
+            v.extend(self.imported_gis.iter().cloned());
         }
         self.overlays = v;
         self.overlay_gen = self.overlay_gen.wrapping_add(1);
@@ -17411,6 +17434,37 @@ impl HookEchoApp {
                     other => log::warn!("no alert sound row named '{other}'"),
                 }
             }
+            K::GisFile => match import.text() {
+                Ok(text) => match wxdata::gis::parse_geojson(&text) {
+                    Ok(features) => {
+                        let (shapes, skipped) = crate::gis_import::to_overlay_features(features);
+                        let n = shapes.len();
+                        self.imported_gis = shapes;
+                        self.show_imported_gis = true;
+                        self.rebuild_overlays();
+                        let msg = if skipped > 0 {
+                            format!(
+                                "Imported {n} shapes from {} ({skipped} point/line feature{} not \
+                                 drawn yet)",
+                                import.name(),
+                                if skipped == 1 { "" } else { "s" }
+                            )
+                        } else {
+                            format!("Imported {n} shapes from {}", import.name())
+                        };
+                        self.toast(
+                            if n == 0 {
+                                ToastKind::Error
+                            } else {
+                                ToastKind::Info
+                            },
+                            msg,
+                        );
+                    }
+                    Err(e) => self.toast(ToastKind::Error, format!("GeoJSON import failed: {e}")),
+                },
+                Err(e) => self.toast(ToastKind::Error, format!("GeoJSON import failed: {e}")),
+            },
         }
     }
 

@@ -2501,22 +2501,35 @@ Keep observed radar, analyzed MRMS and forecast model geometry visually distinct
 
 Placefiles are not enough for emergency-management, research and broadcast users.
 
-## I1. Import formats — GeoJSON parsing started
+## I1. Import formats — GeoJSON reachable end to end for polygons
 
 Implement in this order:
 
-1. [x]/[ ] GeoJSON — new this pass: `wxdata::gis::parse_geojson`, the **parsing layer only** (the
-   same "ship the evaluator, defer the renderer" split C1's user-defined products already used).
-   Reuses `overlay::for_each_feature` (the FeatureCollection/Feature dispatch and the "ArcGIS
-   reports failure as HTTP 200" detection that module's own 5 existing feeds already needed)
-   rather than re-implementing either — the only new work is recognizing every I3 geometry type,
-   not just the Polygon/MultiPolygon that module's alert layers needed. **Not done**: any way to
-   actually reach this from the app — no file-picker UI, no "import a file" menu entry, and no
-   rendering of the result (I4). This is deliberately just the data layer; found while surveying
-   this phase that the `geojson` crate (1.0.0) was already a dependency, used for 5 *known* NWS/
-   NOAA feed schemas (`dat`/`overlay`/`spc`/`tropical`/`wfigs`) — none of those needed anything
-   past Polygon/MultiPolygon, so a user's *own* arbitrary file needed this new module rather than
-   an extension of one of them.
+1. [x]/[ ] GeoJSON — parsing landed in an earlier pass (`wxdata::gis::parse_geojson`, reusing
+   `overlay::for_each_feature`'s FeatureCollection/Feature dispatch and "ArcGIS reports failure as
+   HTTP 200" detection). New this pass: the two things that pass explicitly left open — a way to
+   reach it from the app, and rendering the result — for polygons specifically. `dialog::ImportKind
+   ::GisFile` opens the existing cross-platform file picker (desktop/Android/web, the same
+   mechanism `ChaseGpx`/`Palette`/etc. already use); "Import GIS file…" in the Tools palette
+   triggers it. The new `gis_import` module converts what it gets back into
+   `wxdata::overlay::GeoFeature` — the *same* rings-plus-fill/stroke shape every NWS/SPC feed's
+   polygons already render and hit-test through (`app.rs`'s `rebuild_overlays` assembles one
+   combined `Vec<GeoFeature>` from all of them) — so an imported polygon draws, is clickable
+   (showing every one of the file's own attributes in the click popup, sorted, since a first
+   import has no way to know which fields the person who clicked actually cares about), and needed
+   no new rendering code at all: a new `FeatureKind::Imported` (lowest hit-test priority, so a
+   reference shape never steals a click from something operationally meaningful it overlaps) was
+   the entire rendering-side change. A `MultiPolygon` splits into one `GeoFeature` per part, since
+   `GeoFeature::rings`' "ring 0 outer, rest holes" convention is already one polygon's worth.
+   **Real, explicit boundary, not silently glossed over**: `GeoFeature` is rings-only, so
+   `Point`/`MultiPoint`/`LineString`/`MultiLineString` still have nowhere to go — no marker or
+   stroked-line rendering exists anywhere in this app (every existing feed is polygon-shaped too),
+   so those geometries are counted and reported in the import toast rather than drawn or silently
+   dropped; building that rendering is I4's own separate, larger styling work. Shapes are held for
+   the running session only, not saved — closing the app forgets them, the same as every other
+   "load a file into a working session" surface in this app that isn't itself a save format.
+   626 hookecho tests passing (6 new, all in the new `gis_import` module), native + wasm32 checks
+   clean.
 2. [ ] ESRI Shapefile (`.shp/.shx/.dbf`, optional `.prj`)
 3. [ ] KML
 4. [ ] KMZ
