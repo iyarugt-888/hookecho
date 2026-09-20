@@ -185,6 +185,14 @@ pub struct OverlayFilters {
     pub show_nowcast: bool,
     /// Nowcast lead time in minutes (how far ahead to extrapolate).
     pub nowcast_lead_min: u8,
+    /// C2: replace the pane's radar sweep with the per-gate extremum over a trailing window.
+    pub show_trail: bool,
+    /// Trail window in minutes, ending at the playhead.
+    pub trail_window_min: u16,
+    /// Keep the weakest value instead of the strongest (CC-minimum paths).
+    pub trail_keep_min: bool,
+    /// One line of trail progress or restart reason, written by the app and read by Layer options.
+    pub trail_status: String,
     /// Auto tornado-debris-signature detection (low CC collocated with high reflectivity).
     pub show_tds: bool,
     /// Flag velocity rotation couplets (client-side gate-to-gate azimuthal shear).
@@ -213,6 +221,10 @@ impl Default for OverlayFilters {
             show_arrival_cones: false,
             show_nowcast: false,
             nowcast_lead_min: 15,
+            show_trail: false,
+            trail_window_min: 30,
+            trail_keep_min: false,
+            trail_status: String::new(),
             show_tds: false,
             show_couplets: false,
             show_tbss: false,
@@ -1856,6 +1868,8 @@ pub(crate) enum OverlayToggle {
     Tracks,
     ArrivalCones,
     Nowcast,
+    /// Per-gate max/min over a trailing window of cached volumes (ROADMAP_NEW C2).
+    Trail,
     Tds,
     Couplets,
     Tbss,
@@ -1936,7 +1950,7 @@ pub(crate) struct CoverageCompareKey {
 impl OverlayToggle {
     /// Every toggle, for the persistence sweep. A new variant belongs here too, or it silently
     /// stops being remembered across restarts.
-    pub(crate) const ALL: [OverlayToggle; 48] = [
+    pub(crate) const ALL: [OverlayToggle; 49] = [
         Self::AlertPanel,
         Self::StormReports,
         Self::Spotters,
@@ -1960,6 +1974,7 @@ impl OverlayToggle {
         Self::Tracks,
         Self::ArrivalCones,
         Self::Nowcast,
+        Self::Trail,
         Self::Tds,
         Self::Couplets,
         Self::Tbss,
@@ -2625,6 +2640,19 @@ impl DataMsg {
 ///
 /// The palette generation is deliberately *not* in here — it rides alongside in `pane_lut`, so
 /// a color-table change re-bakes the 3 KB LUT without re-binning or re-uploading the sweep.
+/// What a trail was built for, so any change starts it over.
+type TrailKey = (usize, Moment, usize, wxdata::extrema::Extremum, u16, String);
+
+/// The C2 accumulator and the frames already folded into it, oldest first.
+struct TrailState {
+    key: TrailKey,
+    folded: Vec<String>,
+    acc: Option<BinnedSweep>,
+    /// Bumped on every fold or restart so the shown-image key changes as the trail grows.
+    generation: u32,
+    restarted: Option<wxdata::extrema::Mismatch>,
+}
+
 type ShownKey = (
     String,
     Moment,
@@ -2993,6 +3021,10 @@ pub struct HookEchoApp {
     /// The tracks themselves, with the frame list they were built from.
     tracks_cache: Option<((usize, String, usize), Vec<wxdata::celltrack::Track>)>,
     show_local_tracks: bool,
+    /// The running extremum trail for the active pane (C2), built a few frames per UI frame.
+    trail: Option<TrailState>,
+    /// More cached frames are waiting to be folded in, so keep repainting until they are.
+    trail_more: bool,
     site_dialog: Option<ui::site_dialog::SiteDialog>,
     firstrun: ui::firstrun::FirstRun,
     /// The optional spotlight tour, and where the chrome drew the things it points at this frame.
@@ -4479,6 +4511,8 @@ impl HookEchoApp {
             celltrack_cache: LruCache::new(NonZeroUsize::new(48).unwrap()),
             tracks_cache: None,
             show_local_tracks: false,
+            trail: None,
+            trail_more: false,
             site_dialog: None,
             firstrun: {
                 let mut w = ui::firstrun::FirstRun::default();
@@ -9612,6 +9646,7 @@ impl HookEchoApp {
             T::Tracks => &mut self.filters.show_tracks,
             T::ArrivalCones => &mut self.filters.show_arrival_cones,
             T::Nowcast => &mut self.filters.show_nowcast,
+            T::Trail => &mut self.filters.show_trail,
             T::Tds => &mut self.filters.show_tds,
             T::Tbss => &mut self.filters.show_tbss,
             T::ZdrColumns => &mut self.filters.show_zdr_columns,
@@ -12680,6 +12715,103 @@ impl HookEchoApp {
         });
     }
 
+    /// C2: bring the active pane's extremum trail up to date and return the tag that makes the
+    /// shown-image key change as it grows, or `None` when there is nothing to draw.
+    ///
+    /// The trail is built from volumes already in the decode cache, oldest first, and at most
+    /// [`Self::TRAIL_FOLDS_PER_FRAME`] are folded per UI frame: binning a sweep is real work, and a
+    /// two-hour window is two dozen of them. The image grows over a few frames instead of
+    /// stalling one. A window that slides (a live arrival, a scrub) cannot un-fold its oldest
+    /// frame, so a change to the oldest wanted volume starts the trail over.
+    fn advance_trail(&mut self, data: usize, moment: Moment, tilt: usize) -> Option<String> {
+        use wxdata::extrema::{self, Extremum, Merge};
+        let window = self.filters.trail_window_min;
+        let keep = if self.filters.trail_keep_min {
+            Extremum::Min
+        } else {
+            Extremum::Max
+        };
+        // This runs every UI frame while the layer is on, so names are cloned only for the frames
+        // inside the window rather than for the whole day's timeline.
+        let (newest, in_window): (Option<DateTime<Utc>>, Vec<String>) = {
+            let tl = &self.views[data].timeline;
+            let upto = &tl.frames[..(tl.playhead + 1).min(tl.frames.len())];
+            let newest = upto.iter().rev().find_map(|id| id.date_time());
+            let cutoff = newest.map(|n| n - chrono::Duration::minutes(i64::from(window)));
+            let names = upto
+                .iter()
+                .filter(|id| id.date_time().zip(cutoff).is_some_and(|(t, c)| t >= c))
+                .map(|id| id.name().to_string())
+                .collect();
+            (newest, names)
+        };
+        if newest.is_none() {
+            self.trail = None;
+            self.trail_more = false;
+            return None;
+        }
+        let wanted: Vec<String> = in_window
+            .into_iter()
+            .filter(|name| self.scan_cache.contains(name))
+            .collect();
+        let Some(oldest) = wanted.first().cloned() else {
+            self.trail = None;
+            self.trail_more = false;
+            return None;
+        };
+        let key: TrailKey = (data, moment, tilt, keep, window, oldest);
+        let stale = self
+            .trail
+            .as_ref()
+            .is_none_or(|t| t.key != key || !wanted.starts_with(&t.folded));
+        if stale {
+            self.trail = Some(TrailState {
+                key,
+                folded: Vec::new(),
+                acc: None,
+                generation: self.trail.as_ref().map_or(0, |t| t.generation.wrapping_add(1)),
+                restarted: None,
+            });
+        }
+        let state = self.trail.as_mut()?;
+        let start = state.folded.len();
+        for name in wanted.iter().skip(start).take(Self::TRAIL_FOLDS_PER_FRAME) {
+            // Recorded as folded even when it cannot be binned, so one bad volume is skipped
+            // once rather than retried every frame.
+            state.folded.push(name.clone());
+            state.generation = state.generation.wrapping_add(1);
+            let Some(scan) = self.scan_cache.peek(name).map(Arc::clone) else {
+                continue;
+            };
+            let sweep = match level2::bin_scan(&scan, moment, tilt) {
+                Ok(s) => s,
+                Err(e) => {
+                    log::debug!("trail: skipping {name}: {e}");
+                    continue;
+                }
+            };
+            match state.acc.as_mut() {
+                None => state.acc = Some(extrema::start(&sweep)),
+                Some(acc) => {
+                    if let Merge::Reset(why) = extrema::accumulate(acc, &sweep, keep) {
+                        state.restarted = Some(why);
+                        *acc = extrema::start(&sweep);
+                    }
+                }
+            }
+        }
+        self.trail_more = state.folded.len() < wanted.len();
+        let folded = state.folded.len();
+        let restarted = state.restarted;
+        let generation = state.generation;
+        let has_image = state.acc.is_some();
+        self.filters.trail_status = trail_status_line(folded, wanted.len(), window, keep, restarted);
+        has_image.then(|| format!("trail{generation}"))
+    }
+
+    /// Volumes folded into the trail per UI frame; see [`Self::advance_trail`].
+    const TRAIL_FOLDS_PER_FRAME: usize = 3;
+
     /// Radar upload for pane `idx`, binning the shared volume in `data` (usually the active pane)
     /// with pane `idx`'s product/tilt. Returns `(upload_when_changed, draw_radar)`; the pane's GPU
     /// buffer persists, so `None` means "reuse what's uploaded". Caches per pane via `pane_shown`.
@@ -12727,6 +12859,21 @@ impl HookEchoApp {
         let Some(name) = self.views[data].volume.as_ref().map(|v| v.name.clone()) else {
             return (None, true);
         };
+        // C2: on the pane being worked in, the extremum trail stands in for the sweep. The tag
+        // rides in the shown-image key so the upload repeats as the trail grows.
+        let trail_tag = if self.filters.show_trail && idx == self.active {
+            self.advance_trail(data, moment, tilt)
+        } else {
+            if !self.filters.show_trail {
+                self.trail = None;
+                self.trail_more = false;
+            }
+            None
+        };
+        let name = match &trail_tag {
+            Some(tag) => format!("{name}\u{1}{tag}"),
+            None => name,
+        };
         let uv_key = storm_uv.map(|(e, n)| (e.to_bits(), n.to_bits()));
         // Dealiasing only applies to Doppler velocity, and only where it is actually folded:
         // a TDWR's Level 3 velocity is already unfolded before it leaves the radar.
@@ -12767,7 +12914,22 @@ impl HookEchoApp {
             && self.mrms_ready(crate::render::FieldLayer::PrecipType))
         .then(|| self.precip_flag_grid.clone())
         .flatten();
-        let upload = {
+        let trail_acc = trail_tag
+            .as_ref()
+            .and(self.trail.as_ref())
+            .and_then(|t| t.acc.as_ref());
+        let upload = if let Some(acc) = trail_acc {
+            Ok::<_, anyhow::Error>(to_upload(
+                acc,
+                table,
+                threshold,
+                smooth,
+                storm_uv,
+                precip.as_deref(),
+                lut_only,
+                None,
+            ))
+        } else {
             let telemetry = self.views[data]
                 .live_render_started
                 .map(|started| (started, Arc::clone(&self.views[data].live_gpu_queue_micros)));
@@ -14579,6 +14741,9 @@ impl HookEchoApp {
         // --- Radar (this pane's product, its own volume) ---
         self.map_3d_controls(idx, prect, ctx);
         let (radar_upload, mut draw_radar) = self.pane_radar(idx, idx);
+        if self.trail_more {
+            ctx.request_repaint();
+        }
         let (observed_upload, mut draw_observed) = self.pane_observed_radar(idx, idx);
         if draw_observed {
             draw_radar = false;
@@ -23404,5 +23569,69 @@ mod comparison_display_tests {
             format_diff_readout(DiffMode::Disagreement, -2.5, 1.0, "°C"),
             "Disagree · Δ 2.5 °C"
         );
+    }
+}
+
+/// The one-line trail readout for Layer options: progress while folding, the restart reason when
+/// the sequence changed beam, and what is being kept once it is complete.
+fn trail_status_line(
+    folded: usize,
+    wanted: usize,
+    window_min: u16,
+    keep: wxdata::extrema::Extremum,
+    restarted: Option<wxdata::extrema::Mismatch>,
+) -> String {
+    use wxdata::extrema::{Extremum, Mismatch};
+    let what = match keep {
+        Extremum::Max => "maximum",
+        Extremum::Min => "minimum",
+    };
+    let mut line = if folded < wanted {
+        format!("Building {what} trail: {folded} of {wanted} cached volumes")
+    } else {
+        format!("{what} of {wanted} cached volumes over {window_min} min")
+    };
+    if let Some(why) = restarted {
+        let why = match why {
+            Mismatch::Moment => "the product changed",
+            Mismatch::ValueRange => "raw and dealiased velocity differ",
+            Mismatch::Geometry => "the scan geometry changed",
+            Mismatch::Elevation => "the tilt changed",
+            Mismatch::Site => "the site changed",
+        };
+        line.push_str(&format!(" — restarted: {why}"));
+    }
+    line
+}
+
+#[cfg(test)]
+mod trail_status_tests {
+    use super::trail_status_line;
+    use wxdata::extrema::{Extremum, Mismatch};
+
+    #[test]
+    fn says_how_far_along_a_trail_is_while_it_builds() {
+        let line = trail_status_line(4, 12, 60, Extremum::Max, None);
+        assert_eq!(line, "Building maximum trail: 4 of 12 cached volumes");
+    }
+
+    #[test]
+    fn names_the_kept_end_and_the_window_once_complete() {
+        let line = trail_status_line(12, 12, 60, Extremum::Min, None);
+        assert_eq!(line, "minimum of 12 cached volumes over 60 min");
+    }
+
+    #[test]
+    fn a_restart_always_says_why() {
+        for (why, text) in [
+            (Mismatch::Site, "the site changed"),
+            (Mismatch::Elevation, "the tilt changed"),
+            (Mismatch::Moment, "the product changed"),
+            (Mismatch::Geometry, "the scan geometry changed"),
+            (Mismatch::ValueRange, "raw and dealiased velocity differ"),
+        ] {
+            let line = trail_status_line(3, 3, 30, Extremum::Max, Some(why));
+            assert!(line.ends_with(&format!("restarted: {text}")), "{line}");
+        }
     }
 }

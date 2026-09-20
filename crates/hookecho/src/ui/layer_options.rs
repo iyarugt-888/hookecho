@@ -213,6 +213,7 @@ pub(crate) fn show(
         ("Radar mosaic", on.contains(&FL::Mosaic)),
         ("Future radar", on.contains(&FL::Hrrr)),
         ("Nowcast", filters.show_nowcast),
+        ("Max/min trail", filters.show_trail),
         ("Snowfall", on.contains(&FL::SnowAnalysis)),
         (
             "Derived radar",
@@ -749,6 +750,29 @@ pub(crate) fn show(
             .on_hover_text("15/30/45/60-min projected storm positions");
         crate::ui::style::toggle(ui, &mut filters.show_arrival_cones, "Arrival-time cones")
             .on_hover_text("Project cell motion forward + ETA to your saved markers");
+    }
+
+    if section == "Max/min trail" && filters.show_trail {
+        header(ui, "Max/min trail");
+        ui.horizontal(|ui| {
+            ui.label("Window:");
+            for m in [15u16, 30, 60, 120] {
+                ui.selectable_value(&mut filters.trail_window_min, m, format!("{m}m"));
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.label("Keep:");
+            ui.selectable_value(&mut filters.trail_keep_min, false, "Maximum");
+            ui.selectable_value(&mut filters.trail_keep_min, true, "Minimum");
+        });
+        if !filters.trail_status.is_empty() {
+            ui.small(filters.trail_status.as_str());
+        }
+        ui.small(
+            "Drawn in place of the radar for this product and tilt. The value threshold and \
+             smoothing apply to the trail. Built from volumes already in the loop, ending at \
+             the playhead.",
+        );
     }
 
     if section == "Nowcast" && filters.show_nowcast {

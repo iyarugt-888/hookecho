@@ -857,6 +857,16 @@ impl HookEchoApp {
                 false,
             ),
             (
+                T::Trail,
+                "Severe",
+                "Max/min trail (temporal extrema)",
+                "Replace the radar with the strongest (or weakest) value each gate held over the \
+                 last 15\u{2013}120 minutes of cached volumes \u{2014} a rotation, hail or \
+                 reflectivity-core path. Pick the product and tilt as usual; the trail is built \
+                 from volumes already in the loop.",
+                false,
+            ),
+            (
                 T::LocalTracks,
                 "Severe",
                 "Local cell tracks (radar-derived)",

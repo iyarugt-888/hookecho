@@ -1525,7 +1525,7 @@ rather than being rushed into this one.
 
 ---
 
-## C2. Maximum-value trails / temporal extrema — accumulator built, not yet reachable
+## C2. Maximum-value trails / temporal extrema — partly done
 
 Add analyst trails for values over a moving time window.
 
@@ -1540,9 +1540,20 @@ monotonic linear map onto the moment's physical range — comparing codes is com
 for. Sentinels never win at either end: a range-folded gate is an unknown velocity, not a low
 one, and a below-threshold gate is not a low CC.
 
-Not yet built: every control below, the layer that draws it, and the replay wiring. The window
-this folds over is the same bounded trailing set of timeline frames `compute_local_tracks`
-already walks (`app.rs`) — that is the intended caller, not a new fetch path.
+Reachable as the "Max/min trail" layer (`OverlayToggle::Trail`, Severe group; options under
+Layer options). It replaces the active pane's sweep for the chosen product and tilt, so the
+existing radar draw, value threshold and smoothing all apply. `HookEchoApp::advance_trail`
+folds the pane's timeline frames that are still in the decode cache and end at the playhead,
+oldest first, at most three per UI frame so a two-hour window grows over a few frames instead
+of stalling one; a window that slides cannot un-fold its oldest frame and restarts. Progress and
+any restart reason are shown in Layer options.
+
+Known limits, not hidden: it is built only from volumes already cached (no extra fetch), so a
+fresh boot shows a short trail; velocity uses the raw (folded) sweep, never the dealiased one,
+because the two are not mergeable; and the moments here are the Level 2 ones. Rotation and
+hail paths from the MRMS AzShear/MESH grids are a separate route (Phase D) and the ZDR-column
+maximum is not a sweep moment, so those use cases are not covered by this layer. Verified by
+unit tests and the lint gate; **not yet exercised on screen in a running app.**
 
 Use cases:
 
@@ -1555,9 +1566,9 @@ Use cases:
 
 ### Controls
 
-- [ ] window: 15/30/60/120 minutes/custom
+- [x] window: 15/30/60/120 minutes — no custom entry yet
 - [ ] decay visualization
-- [ ] threshold
+- [x] threshold — the pane's existing value threshold applies to the trail
 - [x] min or max mode — `extrema::Extremum`
 - [ ] reset at selected archive time
 - [ ] export raster/vector trail
@@ -1568,7 +1579,7 @@ Historic supercell replay produces a stable rotation/hail trail that can be inde
 
 Order-independence — the half of "independently recomputed" that the accumulator itself owns —
 is covered by `the_trail_is_independent_of_frame_order_within_one_beam`. The replay half stays
-open until the layer is reachable.
+open until a historic supercell has actually been replayed and the trail inspected.
 
 ---
 
