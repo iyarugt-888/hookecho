@@ -8,6 +8,22 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: imported GIS points and lines now draw, and imports frame themselves (I1)
+
+A GeoJSON import used to render only its polygons and report the rest as "not drawn yet", which
+left a file of city sites or a river/road network importing as nothing visible. Points and lines
+now paint directly through the same lon/lat projection the freehand annotation strokes already
+use — points as outlined dots that stay readable over both a bright radar core and a dark
+basemap, lines as polylines — while the polygon half keeps riding the overlay pipeline, where it
+gets hit-testing and click-through attributes for free. Still deferred to I4: *styling* them, i.e.
+per-layer color and width, and labels from a chosen attribute.
+
+Importing now also frames the map on what it just loaded, and "Zoom to imported shapes" in Tools
+does it again after panning away. A file covering somewhere the map isn't looking previously
+imported to no visible effect at all. The fit is computed in world units rather than degrees,
+since a latitude degree is not a constant height under Mercator and fitting on degrees overshoots
+badly away from the equator.
+
 ### Added: export what's on the map as GeoJSON (I6)
 
 ROADMAP_NEW I6's first half: "Export map as GeoJSON…" in Tools writes freehand annotations

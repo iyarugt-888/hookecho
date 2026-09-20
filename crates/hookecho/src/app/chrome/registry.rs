@@ -1501,6 +1501,14 @@ impl HookEchoApp {
             None,
         );
         push(
+            "Zoom to imported shapes",
+            "Tools",
+            "Frame the map on the GeoJSON file you imported, wherever it covers",
+            false,
+            PaletteAction::ZoomToGis,
+            None,
+        );
+        push(
             "Export map as GeoJSON\u{2026}",
             "Tools",
             "Save what's drawn right now \u{2014} annotations, markers, watch zones, storm cells \

@@ -7,12 +7,11 @@
 //! both work off that alone. Landing an import in that same list means it draws and is clickable
 //! with no new rendering code, not a second overlay pipeline.
 //!
-//! What this deliberately does not attempt: `GeoFeature` is rings-only, so `Point`/`MultiPoint`/
-//! `LineString`/`MultiLineString` geometries have nowhere to go yet — no marker or stroked-line
-//! rendering exists anywhere in this app today (every existing feed is polygon-shaped too).
-//! Inventing that just for this one caller is I4's own separate, larger styling work, not this
-//! module's job; those features are counted and reported back to the caller instead of silently
-//! dropped.
+//! `GeoFeature` is rings-only, so it can only carry the polygon half. Points and lines — a file of
+//! city sites, a river or road network, the ordinary contents of a GIS export — come back as
+//! [`Marks`] instead and are painted directly by the map, using the same lon/lat → world → screen
+//! projection the freehand annotation strokes already use. What is still deferred to I4 is
+//! *styling* them: per-layer color, width, labels from a chosen attribute.
 
 use wxdata::gis::{Geometry, GisFeature};
 use wxdata::overlay::{FeatureKind, GeoFeature};
@@ -20,15 +19,34 @@ use wxdata::overlay::{FeatureKind, GeoFeature};
 /// A neutral blue, distinct from every existing feed's own convention (warnings red, watches
 /// yellow, SPC risk colors, …) so an imported shape never reads as an official product.
 const FILL: [u8; 4] = [80, 140, 220, 60];
-const STROKE: [u8; 4] = [80, 140, 220, 220];
+pub(crate) const STROKE: [u8; 4] = [80, 140, 220, 220];
 
-/// Convert `features` into renderable overlay polygons, dropping (and counting) any geometry this
-/// app has no rendering path for yet. A `MultiPolygon` becomes one `GeoFeature` per part —
+/// The imported geometry the overlay pipeline can't hold, kept in the app and painted directly.
+/// A `MultiPoint`/`MultiLineString` flattens into its parts here — nothing downstream needs to
+/// know the file grouped them.
+#[derive(Default, Debug, Clone, PartialEq)]
+pub(crate) struct Marks {
+    pub points: Vec<[f64; 2]>,
+    pub lines: Vec<Vec<[f64; 2]>>,
+}
+
+impl Marks {
+    pub fn is_empty(&self) -> bool {
+        self.points.is_empty() && self.lines.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.points.len() + self.lines.len()
+    }
+}
+
+/// Split `features` into the polygons the overlay pipeline can render and hit-test, and the
+/// points/lines the map paints directly. A `MultiPolygon` becomes one `GeoFeature` per part —
 /// `GeoFeature::rings`' own "ring 0 is the outer boundary, the rest are holes" convention is
 /// already one polygon's worth, not a whole multi-part feature's.
-pub fn to_overlay_features(features: Vec<GisFeature>) -> (Vec<GeoFeature>, usize) {
+pub(crate) fn to_renderable(features: Vec<GisFeature>) -> (Vec<GeoFeature>, Marks) {
     let mut out = Vec::new();
-    let mut skipped = 0;
+    let mut marks = Marks::default();
     for f in features {
         let title = feature_title(&f);
         let detail = feature_detail(&f);
@@ -39,13 +57,49 @@ pub fn to_overlay_features(features: Vec<GisFeature>) -> (Vec<GeoFeature>, usize
                     out.push(polygon_feature(rings, title.clone(), detail.clone()));
                 }
             }
-            Geometry::Point(_)
-            | Geometry::MultiPoint(_)
-            | Geometry::LineString(_)
-            | Geometry::MultiLineString(_) => skipped += 1,
+            Geometry::Point(p) => marks.points.push(p),
+            Geometry::MultiPoint(ps) => marks.points.extend(ps),
+            // A one-position line has nothing to draw between; dropping it here keeps the painter
+            // from having to care, the same way the annotation painter skips its own stub strokes.
+            Geometry::LineString(l) => {
+                if l.len() >= 2 {
+                    marks.lines.push(l);
+                }
+            }
+            Geometry::MultiLineString(ls) => {
+                marks.lines.extend(ls.into_iter().filter(|l| l.len() >= 2));
+            }
         }
     }
-    (out, skipped)
+    (out, marks)
+}
+
+/// The lon/lat box every imported shape fits in, as `(west, south, east, north)` — what "zoom to
+/// the import" needs. `None` when nothing was imported. Polygons contribute through
+/// [`GeoFeature::bbox`], which already knows their ring convention.
+pub(crate) fn bounds(polygons: &[GeoFeature], marks: &Marks) -> Option<(f64, f64, f64, f64)> {
+    let mut acc: Option<(f64, f64, f64, f64)> = None;
+    let mut add = |lon: f64, lat: f64| {
+        acc = Some(match acc {
+            None => (lon, lat, lon, lat),
+            Some((w, s, e, n)) => (w.min(lon), s.min(lat), e.max(lon), n.max(lat)),
+        });
+    };
+    for p in polygons {
+        if let Some((w, s, e, n)) = p.bbox() {
+            add(w, s);
+            add(e, n);
+        }
+    }
+    for p in &marks.points {
+        add(p[0], p[1]);
+    }
+    for line in &marks.lines {
+        for p in line {
+            add(p[0], p[1]);
+        }
+    }
+    acc
 }
 
 fn polygon_feature(rings: Vec<Vec<[f64; 2]>>, title: String, detail: String) -> GeoFeature {
@@ -114,8 +168,8 @@ mod tests {
             Geometry::Polygon(rings.clone()),
             json!({"name": "District 5"}),
         );
-        let (out, skipped) = to_overlay_features(vec![f]);
-        assert_eq!(skipped, 0);
+        let (out, marks) = to_renderable(vec![f]);
+        assert!(marks.is_empty());
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].rings, rings);
         assert_eq!(out[0].title, "District 5");
@@ -131,8 +185,8 @@ mod tests {
             Geometry::MultiPolygon(vec![part_a.clone(), part_b.clone()]),
             json!({"NAME": "Two islands"}),
         );
-        let (out, skipped) = to_overlay_features(vec![f]);
-        assert_eq!(skipped, 0);
+        let (out, marks) = to_renderable(vec![f]);
+        assert!(marks.is_empty());
         assert_eq!(out.len(), 2);
         assert_eq!(out[0].rings, part_a);
         assert_eq!(out[1].rings, part_b);
@@ -140,7 +194,68 @@ mod tests {
     }
 
     #[test]
-    fn a_point_or_line_is_skipped_and_counted_not_silently_dropped() {
+    fn points_and_lines_come_back_as_marks_to_paint_rather_than_being_dropped() {
+        let features = vec![
+            feature(Geometry::Point([1.0, 2.0]), json!({})),
+            feature(
+                Geometry::MultiPoint(vec![[3.0, 4.0], [5.0, 6.0]]),
+                json!({}),
+            ),
+            feature(
+                Geometry::LineString(vec![[0.0, 0.0], [1.0, 1.0]]),
+                json!({}),
+            ),
+            feature(
+                Geometry::MultiLineString(vec![
+                    vec![[0.0, 0.0], [1.0, 1.0]],
+                    vec![[2.0, 2.0], [3.0, 3.0]],
+                ]),
+                json!({}),
+            ),
+        ];
+        let (polygons, marks) = to_renderable(features);
+        assert!(polygons.is_empty(), "none of these are polygons");
+        assert_eq!(marks.points, vec![[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]);
+        assert_eq!(marks.lines.len(), 3, "one line plus a two-part multiline");
+        assert_eq!(marks.len(), 6);
+    }
+
+    #[test]
+    fn a_one_position_line_has_nothing_to_draw_and_is_left_out() {
+        let (_, marks) = to_renderable(vec![feature(
+            Geometry::LineString(vec![[0.0, 0.0]]),
+            json!({}),
+        )]);
+        assert!(marks.lines.is_empty());
+    }
+
+    #[test]
+    fn bounds_cover_polygons_points_and_lines_together() {
+        let (polygons, marks) = to_renderable(vec![
+            feature(
+                Geometry::Polygon(vec![vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 0.0]]]),
+                json!({}),
+            ),
+            feature(Geometry::Point([-5.0, 9.0]), json!({})),
+            feature(
+                Geometry::LineString(vec![[2.0, -3.0], [4.0, 0.5]]),
+                json!({}),
+            ),
+        ]);
+        assert_eq!(
+            bounds(&polygons, &marks),
+            Some((-5.0, -3.0, 4.0, 9.0)),
+            "the box has to reach the outermost of all three kinds"
+        );
+    }
+
+    #[test]
+    fn nothing_imported_has_no_bounds_to_zoom_to() {
+        assert_eq!(bounds(&[], &Marks::default()), None);
+    }
+
+    #[test]
+    fn a_mixed_file_splits_into_both_halves() {
         let features = vec![
             feature(Geometry::Point([1.0, 2.0]), json!({})),
             feature(
@@ -152,9 +267,10 @@ mod tests {
                 json!({}),
             ),
         ];
-        let (out, skipped) = to_overlay_features(features);
-        assert_eq!(out.len(), 1, "only the polygon renders");
-        assert_eq!(skipped, 2, "the point and the line are both counted");
+        let (out, marks) = to_renderable(features);
+        assert_eq!(out.len(), 1, "the polygon goes to the overlay pipeline");
+        assert_eq!(marks.points.len(), 1, "the point goes to the painter");
+        assert_eq!(marks.lines.len(), 1, "and so does the line");
     }
 
     #[test]
@@ -163,7 +279,7 @@ mod tests {
             Geometry::Polygon(vec![vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 0.0]]]),
             json!({"unrelated_field": 42}),
         );
-        let (out, _) = to_overlay_features(vec![f]);
+        let (out, _) = to_renderable(vec![f]);
         assert_eq!(out[0].title, "Polygon");
     }
 
@@ -173,7 +289,7 @@ mod tests {
             Geometry::Polygon(vec![vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 0.0]]]),
             json!({"pop": 12345, "name": "Ward 3"}),
         );
-        let (out, _) = to_overlay_features(vec![f]);
+        let (out, _) = to_renderable(vec![f]);
         assert_eq!(out[0].detail, "name: Ward 3\npop: 12345");
     }
 
@@ -183,7 +299,7 @@ mod tests {
             Geometry::Polygon(vec![vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 0.0]]]),
             json!({}),
         );
-        let (out, _) = to_overlay_features(vec![f]);
+        let (out, _) = to_renderable(vec![f]);
         assert_eq!(out[0].detail, "Imported shape (no attributes)");
     }
 }

@@ -2103,6 +2103,8 @@ pub(crate) enum PaletteAction {
     ImportGis,
     /// Write everything currently drawn on the map out as GeoJSON (ROADMAP_NEW I6).
     ExportGis,
+    /// Frame the active pane on the last GeoJSON import's own extent.
+    ZoomToGis,
     /// Copy a `hookecho://goto/…` link to this view (site, center, zoom, archive time).
     CopyViewLink,
     /// Open Help at the glossary entry that explains a label's abbreviation. An index into
@@ -3453,6 +3455,9 @@ pub struct HookEchoApp {
     /// above have, since there is no feed to refresh, only the one file the user picked.
     show_imported_gis: bool,
     imported_gis: Vec<GeoFeature>,
+    /// The imported points and lines, which `GeoFeature`'s rings-only shape cannot hold — painted
+    /// directly by `render_pane` beside the freehand annotation strokes.
+    imported_marks: crate::gis_import::Marks,
     /// AirNow AQI dots: toggle, the obs in view, and the bbox/clock they were fetched for. Needs
     /// a user key; without one the layer never fetches.
     show_aqi: bool,
@@ -4505,6 +4510,7 @@ impl HookEchoApp {
             fire_last_fetch: None,
             show_imported_gis: false,
             imported_gis: Vec::new(),
+            imported_marks: crate::gis_import::Marks::default(),
             show_aqi: false,
             aqi: Vec::new(),
             aqi_bounds: None,
@@ -9396,6 +9402,7 @@ impl HookEchoApp {
                 crate::dialog::request_open(crate::dialog::ImportKind::GisFile, "");
             }
             PaletteAction::ExportGis => self.export_map_geojson(),
+            PaletteAction::ZoomToGis => self.zoom_to_imported_gis(),
             PaletteAction::OpenWindow(w) => match w {
                 W::Site => {
                     if self.site_dialog.is_none() {
@@ -16477,6 +16484,37 @@ impl HookEchoApp {
             painter.add(egui::Shape::line(pts, egui::Stroke::new(2.5, st.color)));
         }
 
+        // Imported GIS points and lines (ROADMAP_NEW I1). The polygon half of an import rides the
+        // overlay pipeline like every NWS feed's does; these two geometries have no rings to put
+        // there, so they paint here through the same lon/lat projection as the strokes above.
+        if self.show_imported_gis && !self.imported_marks.is_empty() {
+            let c = crate::gis_import::STROKE;
+            let color = egui::Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+            let screen = |ll: &[f64; 2]| {
+                let w = crate::render::mercator::lonlat_to_world(ll[0], ll[1]);
+                let (sx, sy) = cam.world_to_screen(w, vp);
+                egui::pos2(prect.left() + sx, prect.top() + sy)
+            };
+            for line in &self.imported_marks.lines {
+                let pts: Vec<egui::Pos2> = line.iter().map(screen).collect();
+                painter.add(egui::Shape::line(pts, egui::Stroke::new(1.6, color)));
+            }
+            for point in &self.imported_marks.points {
+                let p = screen(point);
+                if !prect.contains(p) {
+                    continue;
+                }
+                // Outlined rather than a plain dot: an imported site has to stay visible over both
+                // a bright radar core and a dark basemap, which one flat color cannot manage.
+                painter.circle_filled(p, 3.5, color);
+                painter.circle_stroke(
+                    p,
+                    3.5,
+                    egui::Stroke::new(1.0, egui::Color32::from_black_alpha(180)),
+                );
+            }
+        }
+
         // Saved watch zones, plus the one being clicked out right now.
         {
             let screen = |ll: [f64; 2]| {
@@ -17531,6 +17569,39 @@ impl HookEchoApp {
         }
     }
 
+    /// Frame the active pane on everything the last GeoJSON import brought in. A file covering
+    /// somewhere the map isn't currently looking otherwise imports to no visible effect at all —
+    /// the shapes are real, just off-screen.
+    fn zoom_to_imported_gis(&mut self) {
+        let Some((west, south, east, north)) =
+            crate::gis_import::bounds(&self.imported_gis, &self.imported_marks)
+        else {
+            self.toast(
+                ToastKind::Error,
+                "No imported shapes to zoom to".to_string(),
+            );
+            return;
+        };
+        let view = &mut self.views[self.active];
+        let (center_lon, center_lat) = ((west + east) / 2.0, (south + north) / 2.0);
+        // Span in world units rather than degrees: latitude degrees do not have a constant world
+        // height under Mercator, so fitting on degrees would overshoot badly away from the equator.
+        let (x0, y0) = crate::render::mercator::lonlat_to_world(west, north);
+        let (x1, y1) = crate::render::mercator::lonlat_to_world(east, south);
+        let span = (x1 - x0).abs().max((y1 - y0).abs());
+        // A single point (or a shape smaller than a pixel) has no span to fit; a fixed
+        // neighbourhood-scale zoom is the only sensible answer there.
+        let zoom = if span > 1e-9 {
+            // `2^zoom` tiles span the world per axis, so fitting `span` of the world into the
+            // viewport means `2^zoom * span` tiles across it. Back off one notch so the outermost
+            // shapes sit inside the edge rather than exactly on it.
+            (1.0 / span).log2().clamp(1.0, 14.0) - 0.5
+        } else {
+            10.0
+        };
+        view.camera = crate::render::mercator::Camera::at_lonlat(center_lon, center_lat, zoom);
+    }
+
     /// ROADMAP_NEW I6: write everything currently drawn on the map out as one GeoJSON file.
     ///
     /// Deliberately "what is on the map" rather than "everything fetched": `self.overlays` is
@@ -17644,28 +17715,22 @@ impl HookEchoApp {
             K::GisFile => match import.text() {
                 Ok(text) => match wxdata::gis::parse_geojson(&text) {
                     Ok(features) => {
-                        let (shapes, skipped) = crate::gis_import::to_overlay_features(features);
-                        let n = shapes.len();
+                        let (shapes, marks) = crate::gis_import::to_renderable(features);
+                        let n = shapes.len() + marks.len();
                         self.imported_gis = shapes;
+                        self.imported_marks = marks;
                         self.show_imported_gis = true;
                         self.rebuild_overlays();
-                        let msg = if skipped > 0 {
-                            format!(
-                                "Imported {n} shapes from {} ({skipped} point/line feature{} not \
-                                 drawn yet)",
-                                import.name(),
-                                if skipped == 1 { "" } else { "s" }
-                            )
-                        } else {
-                            format!("Imported {n} shapes from {}", import.name())
-                        };
+                        // Framing the import is the difference between "nothing happened" and
+                        // "there it is" for a file covering somewhere the map isn't looking.
+                        self.zoom_to_imported_gis();
                         self.toast(
                             if n == 0 {
                                 ToastKind::Error
                             } else {
                                 ToastKind::Info
                             },
-                            msg,
+                            format!("Imported {n} shapes from {}", import.name()),
                         );
                     }
                     Err(e) => self.toast(ToastKind::Error, format!("GeoJSON import failed: {e}")),
