@@ -2231,8 +2231,14 @@ Example:
 Support:
 
 - [x] scalar difference — the subtraction itself, reusing `fielddiff::diff`
-- [ ] absolute difference — only the signed difference is drawn; an `|a − b|` variant (no
-  direction, just magnitude) is not offered for any comparison field yet, run-to-run included
+- [x] absolute difference — new this pass: `DiffMode::Absolute` draws `|a − b|` on a sequential
+  amber-to-red scale, sharing the signed view's transparent agreement deadband, for the "where do
+  these disagree at all" scan where direction is noise. Available to every comparison field, not
+  just run-to-run. The fetched CPU grid stays signed and authoritative, so switching modes
+  recolors the resident field rather than refetching either model — a separate display key tracks
+  what the GPU upload currently represents. The legend's bar, ticks and title follow the mode, and
+  the cursor readout is put through the same transform the upload was, so a magnitude-colored map
+  cannot hand back a negative number.
 - [ ] percentage difference where meaningful — not implemented for any comparison field
 - [x] threshold highlighting — the existing deadband mechanism (`DiffField::range`'s second
   number): differences inside it draw as fully transparent, same as every other comparison field
@@ -2521,15 +2527,25 @@ Implement in this order:
    reference shape never steals a click from something operationally meaningful it overlaps) was
    the entire rendering-side change. A `MultiPolygon` splits into one `GeoFeature` per part, since
    `GeoFeature::rings`' "ring 0 outer, rest holes" convention is already one polygon's worth.
-   **Real, explicit boundary, not silently glossed over**: `GeoFeature` is rings-only, so
-   `Point`/`MultiPoint`/`LineString`/`MultiLineString` still have nowhere to go — no marker or
-   stroked-line rendering exists anywhere in this app (every existing feed is polygon-shaped too),
-   so those geometries are counted and reported in the import toast rather than drawn or silently
-   dropped; building that rendering is I4's own separate, larger styling work. Shapes are held for
-   the running session only, not saved — closing the app forgets them, the same as every other
-   "load a file into a working session" surface in this app that isn't itself a save format.
-   626 hookecho tests passing (6 new, all in the new `gis_import` module), native + wasm32 checks
-   clean.
+   **Points and lines now draw too** (a later pass, closing the boundary this entry used to
+   describe): they can't ride `GeoFeature`'s rings-only shape, so they come back as
+   `gis_import::Marks` and are painted directly by `render_pane` through the same lon/lat → world
+   → screen projection the freehand annotation strokes already use — points as outlined dots (one
+   flat color cannot stay legible over both a bright radar core and a dark basemap), lines as
+   polylines. A file of city sites or a river/road network used to import as nothing visible,
+   which is a weak answer for the format's most ordinary contents. What is *actually* left to I4
+   is narrower than "half your file is dropped": per-layer color and width, labels from a chosen
+   attribute, symbol/graduated color by category.
+
+   An import also frames the map on what it just loaded, with "Zoom to imported shapes" in Tools
+   to do it again after panning away — a file covering somewhere the map isn't looking otherwise
+   imports to no visible effect at all. The fit is computed in world units rather than degrees,
+   since a latitude degree is not a constant height under Mercator and fitting on degrees
+   overshoots badly away from the equator.
+
+   Shapes are held for the running session only, not saved — closing the app forgets them, the
+   same as every other "load a file into a working session" surface in this app that isn't itself
+   a save format. 657 hookecho tests passing, native + wasm32 checks clean.
 2. [ ] ESRI Shapefile (`.shp/.shx/.dbf`, optional `.prj`)
 3. [ ] KML
 4. [ ] KMZ
@@ -2583,15 +2599,36 @@ Allow a user to map attributes to:
 
 Then hide/show features with the HookEcho timeline.
 
-## I6. GIS export
+## I6. GIS export — mostly done
+
+"Export map as GeoJSON…" in Tools writes one file through `gis_export`, which translates what is
+already held in `[lon, lat]` into `wxdata::gis`'s own types and out through the writing half of
+the same parser the importer uses — so an export reads straight back in, which is what the
+round-trip tests assert rather than pinning a hand-written JSON string.
+
+Deliberately "what is on the map", not "everything fetched": the overlay source is `rebuild_
+overlays`' own assembled set, so filters and toggles are already applied and an export matches
+what the user is looking at. Every feature carries a `hookecho` property naming its origin, so a
+re-import (or a third-party tool) can tell an annotation from a warning polygon without inferring
+it from geometry. Two correctness details worth naming: locally drawn rings are closed on the way
+out, because GeoJSON requires a closed linear ring and an `AlertPolygon` the user clicked out is
+not one; and a storm cell's missing values are omitted rather than written as `null`.
 
 Export:
 
-- drawn annotations to GeoJSON
-- storm tracks to GeoJSON
-- selected warning geometry
-- sampled/threshold contours
-- route geometry
+- [x] drawn annotations to GeoJSON — freehand strokes as `LineString`, each carrying its own
+  colour. A scribble is a line even when drawn as a closed-looking circle: that is the usual
+  "circle this storm" gesture, not a polygon the user declared.
+- [x] storm tracks to GeoJSON — cells as points carrying movement bearing/speed, max dBZ, echo
+  top and VIL where the scan has them. A cell position with none of that beside it is the one
+  part of this that would be useless in another tool.
+- [x] selected warning geometry — every displayed overlay polygon (warnings, watches, outlooks,
+  ProbSevere, fire perimeters, imported shapes), each with its kind and title
+- [x] markers and watch zones — not in this list originally, but they are the other two things a
+  user draws and would expect to get back out
+- [ ] sampled/threshold contours — no contour geometry is generated in a form that could be
+  exported; the contour overlays draw directly rather than producing vector features
+- [ ] route geometry — L1's route engine is not started, so there is nothing to export
 
 ### Acceptance criteria
 
@@ -2792,10 +2829,15 @@ Add shortcuts for:
   — so it doesn't need a dedicated key of its own)
 - [x] cross section — new this pass: `X` → `MapTool::CrossSection`
 - [x] sounding — new this pass: `V` → `MapTool::Sounding`
-- [ ] product next/previous — not added as a *cycle*; `1`-`7` already jump straight to a specific
-  moment (predates this pass), which is arguably more useful than stepping through them in order,
-  but it is a different shortcut than what this line literally asks for, so left unchecked rather
-  than counted as satisfying it
+- [x] product next/previous — new this pass: `N`/`P` step through `Moment::ALL` in its own declared
+  order, wrapping. `1`-`7` (which predate this) jump straight to a specific moment and stay; this
+  is the different thing the line actually asks for, and it is what you want with a hand on the
+  mouse rather than on the number row. Cycles in the same order the number keys select in, so
+  stepping and jumping can't disagree about what "next" means, and leaves the pane's SRV choice
+  alone — that is a way of reading velocity, not a product of its own, so stepping past velocity
+  and back must not clear it. Both are plain letter keys on purpose: `steals_typing` only yields
+  to a focused text field for a single-character key name, so a punctuation pair would have
+  changed the product out from under someone typing a site id (pinned by its own test).
 - [x] pane focus — new this pass: `[`/`]` cycle which pane is active
   (`BindableAction::FocusPrevPane`/`FocusNextPane`, wrapping, a no-op with one pane), the same
   `self.active = idx` assignment every existing click-to-focus site already uses. Deliberately not
@@ -2808,12 +2850,15 @@ Add shortcuts for:
   `PaletteAction::ToggleOverlay`, and this line doesn't say which one (or whether "all of them at
   once") it means. Guessing wrong here binds a key to the wrong toggle, which is worse than no
   binding at all — better to leave it open for a real product decision than pick one.
-- [ ] 3D — no `PaletteAction` exists for this yet, so there's nothing to bind a key to before that
-  itself is built: switching a pane's `map_3d.enabled` today only happens inline inside its own
-  options-panel UI code (`app.rs`, the "2D"/"3D map" `selectable_value` pair), with camera pitch/
-  bearing reset logic tied directly to that transition — factoring that into a standalone toggle
-  a hotkey (and the command palette, per this section's own acceptance criterion below) could call
-  is itself the missing work, not just wiring a key once it exists
+- [x] 3D — new this pass: `PaletteAction::ToggleMap3d` plus a `D` shortcut, which also puts the
+  3D view in the command palette and the Layers drawer for the first time (it was reachable only
+  from the "2D"/"3D map" `selectable_value` pair inside the 3D options panel). The missing work
+  really was the factoring this entry predicted, not the key: the camera pitch/bearing reset tied
+  to that transition moved into `MapView::set_map_3d`, which both the panel and the action now
+  call, so they cannot disagree about the pose each mode rests at. Entering 3D without pitching
+  the camera renders as a flat map with the 3D path's cost and reads as a broken toggle, so that
+  contract has its own test — as does "re-selecting the current mode leaves a hand-set angle
+  alone".
 - [x] every shortcut must appear in command palette/help — automatically true for everything
   above: `ui::cheatsheet` and the settings window's rebind editor both read the live binding table
   generically (resolving a `Palette(_)` action's label from the same registry the drawer/palette

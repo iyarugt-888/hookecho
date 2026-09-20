@@ -158,9 +158,31 @@ and operationally it's the second one that matters.
 
 ---
 
-## Implementation order taken
+## What was implemented
 
-S1 → S2 → S3 → S4 → S5. That sequence finishes Phase I's import/export story end to end (a file
-comes in, draws completely, can be found on the map, and map data can go back out) and then closes
-the two J6 items that were open for buildable rather than ambiguous reasons. S6–S10 are left for
-a following pass, with S6 the one worth its own scoped attempt.
+S1 → S2 → S3 → S4 → S5, in that order: it finishes Phase I's import/export story end to end (a
+file comes in, draws completely, can be found on the map, and map data can go back out) and then
+closes the two J6 items that were open for buildable rather than ambiguous reasons.
+
+| | Shipped as |
+|---|---|
+| S1 — GeoJSON export | `feat(i6): export what's on the map as GeoJSON` |
+| S2 — imported points/lines draw | `feat(i1): draw imported GIS points and lines, and frame the import` |
+| S3 — zoom to imported shapes | same commit as S2 |
+| S4 — next/previous product | `feat(j6): add product cycling and make the 3D view reachable` |
+| S5 — 3D toggle | same commit as S4 |
+
+**S9 was already in flight** and is not listed above: an in-progress `DiffMode` implementation was
+found uncommitted in the working tree and did not compile (one legend call site had not been
+updated for its new argument). It was finished rather than rewritten — including wiring
+`DiffMode::apply`, which was reachable only from its own test despite clearly having been written
+for the cursor readout, so a magnitude-colored map was still handing back signed values.
+Shipped as `feat(f5): finish the absolute-difference comparison mode`.
+
+Also shipped alongside, from a direct report rather than the roadmap: a **beam-rise control** for
+the 3D Observed view, where each tilt's genuine climb with range made distant scans flare steeply
+upward and turned a multi-tilt volume into a stack of cones. Scales how much of that climb is
+drawn, 100% (true geometry) down to 0% (flat). `feat(3d): add a beam-rise control to the Observed
+view`.
+
+S6–S10 remain for a following pass, with S6 the one worth its own scoped attempt.
