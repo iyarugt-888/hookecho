@@ -533,7 +533,7 @@ mod tests {
         // "nothing clears" where the 0.5\u{b0} tests above found real shadow.
         let img = lowest_usable_tilt_image(&http, site, &[0.5], world).await;
         assert!(
-            img.pixels.iter().any(|&p| p == none_clear),
+            img.pixels.contains(&none_clear),
             "a lone 0.5\u{b0} tilt should not clear this terrain everywhere"
         );
     }

@@ -43,36 +43,6 @@ fn offset_label(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn mismatch_readout_names_the_exact_source_offset() {
-        let radar = chrono::DateTime::from_timestamp(1_000_000, 0).unwrap();
-        let tolerance = chrono::Duration::minutes(10);
-        assert_eq!(
-            offset_label(radar, radar + tolerance, tolerance),
-            "Δ+10m 00s"
-        );
-        assert_eq!(
-            offset_label(
-                radar,
-                radar + tolerance + chrono::Duration::seconds(1),
-                tolerance
-            ),
-            "⚠ +10m 01s"
-        );
-        assert_eq!(
-            offset_label(
-                radar,
-                radar - tolerance - chrono::Duration::seconds(1),
-                tolerance
-            ),
-            "⚠ -10m 01s"
-        );
-    }
-}
-
 impl HookEchoApp {
     /// Sub-hourly frame scrub bar: shown when the active basemap has a time dimension (GOES
     /// imagery, a WMS radar composite) and its frame times are loaded. Steps through the recent
@@ -182,5 +152,35 @@ impl HookEchoApp {
                     });
                 });
             });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn mismatch_readout_names_the_exact_source_offset() {
+        let radar = chrono::DateTime::from_timestamp(1_000_000, 0).unwrap();
+        let tolerance = chrono::Duration::minutes(10);
+        assert_eq!(
+            offset_label(radar, radar + tolerance, tolerance),
+            "Δ+10m 00s"
+        );
+        assert_eq!(
+            offset_label(
+                radar,
+                radar + tolerance + chrono::Duration::seconds(1),
+                tolerance
+            ),
+            "⚠ +10m 01s"
+        );
+        assert_eq!(
+            offset_label(
+                radar,
+                radar - tolerance - chrono::Duration::seconds(1),
+                tolerance
+            ),
+            "⚠ -10m 01s"
+        );
     }
 }

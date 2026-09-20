@@ -81,8 +81,10 @@ pub fn detect(
     // Accumulate candidates into ~0.04° (~4 km) geographic cells.
     const CELL: f64 = 0.04;
     use std::collections::HashMap;
-    // gates, sum_lon, sum_lat, sum_range, min_cc, az_min, az_max
-    let mut cells: HashMap<(i64, i64), (usize, f64, f64, f64, f32, i64, i64)> = HashMap::new();
+    /// One grid cell's running totals: gates, sum_lon, sum_lat, sum_range, min_cc, az_min,
+    /// az_max. Named so the map's own type stays readable.
+    type CellAccum = (usize, f64, f64, f64, f32, i64, i64);
+    let mut cells: HashMap<(i64, i64), CellAccum> = HashMap::new();
     let (rlon, rlat) = (cc.radar_lon as f64, cc.radar_lat as f64);
 
     for az in 0..cc.az_bins {
@@ -173,8 +175,10 @@ pub fn detect_volume(
 ) -> Vec<TdsHit> {
     const CELL: f64 = 0.04; // same grid `detect` clusters on
     use std::collections::HashMap;
-    // gates, sum_lon*w, sum_lat*w, sum_range*w, min_cc, tilts, top_km
-    let mut cells: HashMap<(i64, i64), (usize, f64, f64, f64, f32, usize, f32)> = HashMap::new();
+    /// One grid cell's running totals across tilts: gates, sum_lon*w, sum_lat*w, sum_range*w,
+    /// min_cc, tilts, top_km. Named so the map's own type stays readable.
+    type CellAccum = (usize, f64, f64, f64, f32, usize, f32);
+    let mut cells: HashMap<(i64, i64), CellAccum> = HashMap::new();
 
     for (z, cc) in sweeps {
         for h in detect(z, cc, cc_max, z_min, max_range_km, min_gates) {

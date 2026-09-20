@@ -79,7 +79,6 @@ impl Camera {
         let (width, height) = (viewport_px.0.max(1.0), viewport_px.1.max(1.0));
         let fov = 45f32.to_radians();
         let distance = height * 0.5 / (fov * 0.5).tan();
-        let pitch = self.pitch.clamp(0.0, MAX_PITCH_DEG).to_radians();
         let bearing = self.bearing.to_radians();
         let forward_ground = Vec3::new(bearing.sin(), bearing.cos(), 0.0);
         let eye = self.eye_position(viewport_px);

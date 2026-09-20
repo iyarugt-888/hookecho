@@ -73,7 +73,7 @@ pub(crate) fn plane_controls(
         .on_hover_text("Cut the volume with a plane at any angle, not just the box's own faces")
         .changed()
     {
-        *plane = on.then(|| crate::render3d::VerticalPlane {
+        *plane = on.then_some(crate::render3d::VerticalPlane {
             bearing_deg: 0.0,
             offset: 0.0,
             thickness: None,

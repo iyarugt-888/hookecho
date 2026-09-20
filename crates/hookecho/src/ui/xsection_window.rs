@@ -87,7 +87,7 @@ fn draw_beam_rise(ui: &egui::Ui, rect: egui::Rect, xs: &CrossSection) {
         // rather than joining across one — a straight line spanning a None run would draw a false
         // segment that never corresponds to this tilt's actual geometry in that gap.
         let mut segment: Vec<egui::Pos2> = Vec::new();
-        let mut flush = |segment: &mut Vec<egui::Pos2>| {
+        let flush = |segment: &mut Vec<egui::Pos2>| {
             if segment.len() >= 2 {
                 painter.line(segment.clone(), stroke);
             }

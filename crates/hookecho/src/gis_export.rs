@@ -148,15 +148,16 @@ pub(crate) fn to_features(map: &MapContents<'_>) -> Vec<GisFeature> {
     out
 }
 
-/// The whole export as one GeoJSON document, ready for `dialog::save_bytes`.
-pub(crate) fn to_geojson(map: &MapContents<'_>) -> String {
-    wxdata::gis::to_geojson(&to_features(map))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use wxdata::overlay::FeatureKind;
+
+    /// The whole export as one document — what `export_map_geojson` does in two steps, since it
+    /// needs the feature count for its own toast before serializing.
+    fn to_geojson(map: &MapContents<'_>) -> String {
+        wxdata::gis::to_geojson(&to_features(map))
+    }
 
     fn empty() -> MapContents<'static> {
         MapContents {

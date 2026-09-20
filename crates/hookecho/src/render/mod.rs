@@ -2393,7 +2393,7 @@ fn changed_row_ranges(old: &[u8], new: &[u8], row_width: usize) -> Vec<std::ops:
         return Vec::new();
     }
     let rows = new.len() / row_width;
-    if old.len() != new.len() || new.len() % row_width != 0 {
+    if old.len() != new.len() || !new.len().is_multiple_of(row_width) {
         return std::iter::once(0..rows).collect();
     }
     let mut ranges = Vec::new();

@@ -181,7 +181,7 @@ fn subhourly_url(date: &str, cycle_hour: u32, ff: u8) -> String {
 /// ending at hour FF — `wrfsubhf01` → 15/30/45/60 min — so FF = ceil(minutes / 60), clamped to
 /// the model's 18-hour range.
 fn subhourly_file_index(minutes: u16) -> u8 {
-    ((u32::from(minutes.max(1)) + 59) / 60).clamp(1, 18) as u8
+    u32::from(minutes.max(1)).div_ceil(60).clamp(1, 18) as u8
 }
 
 async fn fetch_subhourly_run(

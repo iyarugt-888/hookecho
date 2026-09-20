@@ -208,9 +208,10 @@ pub fn detect_volume(
 ) -> Vec<CoupletHit> {
     const CELL: f64 = 0.04; // same grid `detect` clusters on
     use std::collections::HashMap;
-    // gates, sum_lon*w, sum_lat*w, sum_range*w, max_vrot, max_g2g, tilts, top_km
-    let mut cells: HashMap<(i64, i64), (usize, f64, f64, f64, f32, f32, usize, f32)> =
-        HashMap::new();
+    /// One grid cell's running totals: gates, sum_lon*w, sum_lat*w, sum_range*w, max_vrot,
+    /// max_g2g, tilts, top_km. Named so the map's own type stays readable.
+    type CellAccum = (usize, f64, f64, f64, f32, f32, usize, f32);
+    let mut cells: HashMap<(i64, i64), CellAccum> = HashMap::new();
 
     for (vel, z) in sweeps {
         for h in detect(

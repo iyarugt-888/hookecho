@@ -455,7 +455,7 @@ mod tests {
         // GOES-19's real goes_imager_projection values (WGS84-flavoured GRS80 ellipsoid).
         Projection {
             req: 6_378_137.0,
-            rpol: 6_356_752.31414,
+            rpol: 6_356_752.314_14,
             h: 35_786_023.0 + 6_378_137.0,
             lon_origin: (-75.0f64).to_radians(),
         }
@@ -549,7 +549,7 @@ mod tests {
         );
         attrs.insert(
             "semi_minor_axis".to_string(),
-            hdf5lite::Value::Num(6_356_752.31414),
+            hdf5lite::Value::Num(6_356_752.314_14),
         );
         attrs.insert(
             "perspective_point_height".to_string(),

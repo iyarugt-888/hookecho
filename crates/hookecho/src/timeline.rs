@@ -453,8 +453,10 @@ mod tests {
     #[test]
     fn linked_archive_seek_uses_nearest_time_and_relists_on_day_change() {
         let date = chrono::NaiveDate::from_ymd_opt(2026, 8, 19).unwrap();
-        let mut timeline = Timeline::default();
-        timeline.date = date;
+        let mut timeline = Timeline {
+            date,
+            ..Default::default()
+        };
         timeline.set_frames(day("KDMX", 5), ("KDMX".into(), date));
         let at_12 = date.and_hms_opt(0, 12, 0).unwrap().and_utc();
         assert!(!timeline.seek_to_valid_time("KDMX", at_12));
@@ -492,8 +494,10 @@ mod tests {
     #[test]
     fn linked_sites_choose_by_valid_time_and_reject_late_downloads() {
         let date = chrono::NaiveDate::from_ymd_opt(2026, 8, 19).unwrap();
-        let mut timeline = Timeline::default();
-        timeline.date = date;
+        let mut timeline = Timeline {
+            date,
+            ..Default::default()
+        };
         timeline.set_frames(
             [3, 13, 23]
                 .into_iter()

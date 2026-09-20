@@ -1147,7 +1147,7 @@ impl OverlaySource {
                     layer,
                     field_state::model_field(
                         source,
-                        &layer.slug(),
+                        layer.slug(),
                         fc.field,
                         Some(fc.run),
                         valid,
@@ -2908,6 +2908,22 @@ fn distinct_tilts(elevations: &[f32], want: usize) -> Vec<usize> {
 /// How many buttons the right-edge control column shows — the badge lane stacks below them.
 const CONTROL_BUTTONS: usize = 6;
 
+/// Everything `theme::apply` is keyed on, remembered so it only re-applies when one of them moves:
+/// `(theme, system_dark, density, accent, layout)`.
+type ThemeApplied = (
+    crate::settings::Theme,
+    bool,
+    crate::ui::m3::Density,
+    Option<[u8; 3]>,
+    crate::settings::Layout,
+);
+
+/// Which point-forecast series a request or cache entry is for: `(lat_e5, lon_e5, which series)`.
+type ModelSeriesKey = (i32, i32, ui::forecast_window::ModelSeriesUi);
+
+/// One point-forecast series: a value (or a gap) per valid time.
+type ModelSeries = Vec<(chrono::DateTime<Utc>, Option<f32>)>;
+
 pub struct HookEchoApp {
     /// The native runtime, kept alive for as long as the app is. Work is spawned through
     /// `spawner`, which is the same thing natively and the browser's event loop on the web.
@@ -2946,13 +2962,7 @@ pub struct HookEchoApp {
     /// Palette generation currently baked into each pane's LUT (see [`ShownKey`]).
     pane_lut: std::collections::HashMap<usize, u64>,
     /// Last `(theme, system_dark, density, accent, layout)` handed to `theme::apply`.
-    theme_applied: Option<(
-        crate::settings::Theme,
-        bool,
-        crate::ui::m3::Density,
-        Option<[u8; 3]>,
-        crate::settings::Layout,
-    )>,
+    theme_applied: Option<ThemeApplied>,
     /// When the settings tree was last diffed against the saved copy.
     settings_checked: Option<Instant>,
     /// Frame counter, only used to invalidate within-frame memos.
@@ -3629,15 +3639,11 @@ pub struct HookEchoApp {
     /// The forecast window's model-meteogram picker (model/field/period) and what it's holding.
     model_series_ui: ui::forecast_window::ModelSeriesUi,
     model_series_state: ui::forecast_window::SeriesState,
-    #[allow(clippy::type_complexity)]
     model_series_rx: Option<(
-        (i32, i32, ui::forecast_window::ModelSeriesUi),
-        std::sync::mpsc::Receiver<Result<Vec<(chrono::DateTime<Utc>, Option<f32>)>, String>>,
+        ModelSeriesKey,
+        std::sync::mpsc::Receiver<Result<ModelSeries, String>>,
     )>,
-    model_series_cache: std::collections::HashMap<
-        (i32, i32, ui::forecast_window::ModelSeriesUi),
-        (Instant, Vec<(chrono::DateTime<Utc>, Option<f32>)>),
-    >,
+    model_series_cache: std::collections::HashMap<ModelSeriesKey, (Instant, ModelSeries)>,
     /// Rain-arrival alerting: per-point persistence/cooldown state, plus the current ETAs for the
     /// on-map chip.
     rain_detector: crate::rain_arrival::Detector,
@@ -7636,9 +7642,11 @@ impl HookEchoApp {
         // inputs just sees them as missing in the meantime, not the app fetching a second time.
         freezing: Option<(f64, f64)>,
     ) -> wxdata::udp::GateInputs {
-        let mut out = wxdata::udp::GateInputs::default();
-        out.freezing_level_m = freezing.map(|(h0, _)| h0 as f32);
-        out.minus20c_height_m = freezing.map(|(_, hm20)| hm20 as f32);
+        let mut out = wxdata::udp::GateInputs {
+            freezing_level_m: freezing.map(|(h0, _)| h0 as f32),
+            minus20c_height_m: freezing.map(|(_, hm20)| hm20 as f32),
+            ..Default::default()
+        };
         for m in [
             Moment::Reflectivity,
             Moment::Velocity,
@@ -9670,7 +9678,7 @@ impl HookEchoApp {
                     let stale_axis = view.timeline.seek_to_valid_time(site, target);
                     let selected = view.timeline.current().map(|frame| frame.name());
                     let shown = view.volume.as_ref().map(|volume| volume.name.as_str());
-                    if stale_axis || selected.as_deref() != shown {
+                    if stale_axis || selected != shown {
                         view.volume = None;
                         view.loading = false;
                     }
@@ -13032,13 +13040,10 @@ impl HookEchoApp {
             // true; this is a second, cheap guard against ever resampling the wrong moment.
             return None;
         }
-        let Some(site) = self.views[idx]
+        let site = self.views[idx]
             .site
             .as_deref()
-            .and_then(wxdata::sites::site_by_id)
-        else {
-            return None;
-        };
+            .and_then(wxdata::sites::site_by_id)?;
 
         // Drain a finished build before deciding whether to start another.
         if let Some(rx) = &self.smooth_vol_rx[idx] {
@@ -16703,7 +16708,7 @@ impl HookEchoApp {
                 let t = self.hrrr_fcst_min;
                 if t < 60 {
                     format!("+{t}min")
-                } else if t % 60 == 0 {
+                } else if t.is_multiple_of(60) {
                     format!("+{}h", t / 60)
                 } else {
                     format!("+{}h{:02}min", t / 60, t % 60)
@@ -18867,6 +18872,7 @@ impl HookEchoApp {
 /// `storm_uv` is the storm motion (east, north) in m/s for storm-relative velocity, or
 /// `None` for ground-relative. `precip` is the MRMS surface precipitation-type field, when the
 /// user has asked for reflectivity to be tinted by it.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn to_upload(
     s: &BinnedSweep,
     table: &ColorTable,
@@ -20150,6 +20156,9 @@ impl eframe::App for HookEchoApp {
         }
         // GOES channel-difference products: same staleness/satellite-flip rules as the single-band
         // layers above, but a distinct `OverlaySource` variant since each one fetches two bands.
+        // Kept as a list with one entry rather than unrolled: a second difference product only
+        // needs a new `FieldLayer` here, and the shape matches the multi-layer block above it.
+        #[allow(clippy::single_element_loop)]
         for layer in [FL::GoesDustDiff] {
             let on = self.field_wanted(layer);
             let stale = on
@@ -20166,7 +20175,9 @@ impl eframe::App for HookEchoApp {
         }
         // GOES time-difference products: same staleness/satellite-flip rules as the two blocks
         // above, but a distinct `OverlaySource` variant since each one fetches the same band at
-        // two different times instead of two bands at the same time.
+        // two different times instead of two bands at the same time. Same reason as above for
+        // keeping the one-entry list rather than unrolling it.
+        #[allow(clippy::single_element_loop)]
         for layer in [FL::GoesCoolingRate] {
             let on = self.field_wanted(layer);
             let stale = on
