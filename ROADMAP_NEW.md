@@ -2663,9 +2663,10 @@ this criterion, which was never about GeoJSON to begin with.
 
 **Priority: P1.**
 
-HookEcho already has saved workspaces and up to four panes. Extend this into a serious analysis layout system.
+HookEcho has saved workspaces and up to nine panes. Extend this into a serious analysis layout
+system.
 
-## J1. Layouts — mostly done
+## J1. Layouts — done
 
 Support:
 
@@ -2705,9 +2706,14 @@ Support:
   still 6 on Android), `pane_rects` provides the real 3x3 layout, and the ribbon plus command
   palette expose it. Imported seven/eight-pane workspaces use the same grid without silently
   dropping views, and layout tests pin counts, axes and full-extent tiling.
-- [ ] AWIPS-style asymmetric layouts — a different, larger feature (one large pane plus several
-  small ones, or a user-arranged split) than the even N-way splits `pane_rects` does today; not
-  attempted here
+- [x] AWIPS-style asymmetric layouts — new this pass: every 3–9-pane workspace can switch from
+  the equal strip/grid to a persisted `Focus` arrangement. Pane 1 receives roughly five-eighths
+  of the useful axis and every supporting pane tiles into an adaptive detail rail (right side in
+  landscape, bottom in portrait; one or two rail columns/rows according to count). Geometry tests
+  cover every supported count and orientation, assert that the primary remains larger, and reject
+  overflow/overlap. `Even`/`Focus` share one action across the WSV3 ribbon and command palette;
+  saved workspaces round-trip the choice, old JSON defaults to `Even`, and the Hail analysis preset
+  demonstrates the focus layout with reflectivity large beside ZDR/CC/KDP.
 
 Android may use fewer panes based on screen size.
 
@@ -3585,7 +3591,8 @@ This is the explicit “what are we still missing?” list for agents.
 - [ ] RTMA/URMA
 - [ ] richer model/run comparison
 - [ ] route planning
-- [ ] AWIPS-style pane layouts
+- [x] AWIPS-style pane layouts — J1 now supports persisted equal grids and adaptive large-primary
+  focus layouts for every supported multi-pane count
 - [ ] WFO boundary/contact tooling
 
 ## RadarOmega-class gaps
@@ -3961,7 +3968,8 @@ HookEcho should be considered “top-tier U.S. analyst workstation” only when 
 - [x] progressive in-progress Level II display with measured latency — B2 renders every incoming
   chunk with generation shading/progress/live sweep; B3 reports provider, receipt and decode/GPU lag
 - [ ] automatic feed fallback and source-health display
-- [ ] exact radar gate/beam/VCP inspection
+- [x] exact radar gate/beam/VCP inspection — B4's gate inspector reports the sampled gate,
+  geometry, value and sweep time; B5 exposes decoded VCP strategy and repeated low-level cuts
 - [ ] broad metadata-driven MRMS catalog
 - [ ] native GOES ABI + 1-minute mesoscale imagery
 - [ ] radar/satellite/MRMS valid-time synchronization
@@ -3975,8 +3983,10 @@ HookEcho should be considered “top-tier U.S. analyst workstation” only when 
 - [ ] advanced 3D transfer functions + isosurfaces + slicing planes
 - [ ] beam-rise/blockage/coverage analysis
 - [ ] GeoJSON/Shapefile/KML GIS import
-- [ ] AWIPS-style linked multi-pane layouts
-- [ ] synchronized multi-pane crosshair/probe
+- [x] AWIPS-style linked multi-pane layouts — J1's equal/focus arrangements persist with J2's
+  camera, time, site and cursor links; the focus geometry supports all 3–9 pane workspaces
+- [x] synchronized multi-pane crosshair/probe — J3 links one geographic cursor across panes and
+  samples radar plus resident MRMS/model/GOES/NDFD grids into one time/value table
 - [ ] historical algorithm and model verification
 - [ ] chase route weather-exposure analysis
 - [ ] broadcast/headless deterministic rendering

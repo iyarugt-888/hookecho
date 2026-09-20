@@ -2091,6 +2091,8 @@ pub(crate) enum PaletteAction {
     Tool(MapTool),
     OpenWindow(AppWindow),
     SetPanes(usize),
+    /// Switch between equal panes and an AWIPS-style large pane 1 with a supporting detail rail.
+    SetPaneLayout(crate::workspace::PaneLayout),
     CycleBasemap,
     ToggleMute,
     /// Show/hide the docked timeline bar under the map (desktop).
@@ -3300,6 +3302,9 @@ pub struct HookEchoApp {
     /// more frames to draw the footer before asking for the image (see `share_card_footer`).
     share_card: Option<(ShotDest, u8)>,
     loop_export: Option<LoopExport>,
+    /// Equal pane grid or AWIPS-style large-primary/detail-rail workspace geometry. Pane identity
+    /// stays in `views` order; only its rectangle changes.
+    pane_layout: crate::workspace::PaneLayout,
     /// When true, all panes share the active pane's camera.
     link_cameras: bool,
     link_times: bool,
@@ -3917,9 +3922,82 @@ fn pane_rects(r: egui::Rect, n: usize) -> Vec<egui::Rect> {
     }
 }
 
+/// Apply the saved workspace arrangement on top of the pane count. The focus layout deliberately
+/// keeps pane 0 first: active-pane selection, keyboard pane switching and workspace snapshots all
+/// already use stable vector order, so making the primary pane a geometric concern avoids a
+/// second, drifting notion of pane identity.
+fn arranged_pane_rects(
+    r: egui::Rect,
+    n: usize,
+    layout: crate::workspace::PaneLayout,
+) -> Vec<egui::Rect> {
+    if layout == crate::workspace::PaneLayout::Balanced || n <= 2 {
+        return pane_rects(r, n);
+    }
+
+    let n = n.clamp(1, crate::view::MAX_PANES);
+    let detail_count = n - 1;
+    let gap = 2.0;
+    // About five-eighths is enough for the primary pane to read as the workspace without turning
+    // the detail rail into thumbnails. It also leaves pane 0 larger than every detail at all
+    // supported counts (3..=9) and in either orientation.
+    const PRIMARY_FRACTION: f32 = 0.62;
+    let mut out = Vec::with_capacity(n);
+
+    if r.width() >= r.height() {
+        let usable = r.width() - gap;
+        let primary_w = usable * PRIMARY_FRACTION;
+        out.push(egui::Rect::from_min_size(
+            r.min,
+            egui::vec2(primary_w, r.height()),
+        ));
+        let rail = egui::Rect::from_min_max(egui::pos2(r.left() + primary_w + gap, r.top()), r.max);
+        let cols = if detail_count <= 3 { 1 } else { 2 };
+        let rows = detail_count.div_ceil(cols);
+        let w = (rail.width() - gap * (cols - 1) as f32) / cols as f32;
+        let h = (rail.height() - gap * (rows - 1) as f32) / rows as f32;
+        for i in 0..detail_count {
+            let row = i / cols;
+            let col = i % cols;
+            out.push(egui::Rect::from_min_size(
+                egui::pos2(
+                    rail.left() + (w + gap) * col as f32,
+                    rail.top() + (h + gap) * row as f32,
+                ),
+                egui::vec2(w, h),
+            ));
+        }
+    } else {
+        let usable = r.height() - gap;
+        let primary_h = usable * PRIMARY_FRACTION;
+        out.push(egui::Rect::from_min_size(
+            r.min,
+            egui::vec2(r.width(), primary_h),
+        ));
+        let rail = egui::Rect::from_min_max(egui::pos2(r.left(), r.top() + primary_h + gap), r.max);
+        let rows = if detail_count <= 3 { 1 } else { 2 };
+        let cols = detail_count.div_ceil(rows);
+        let w = (rail.width() - gap * (cols - 1) as f32) / cols as f32;
+        let h = (rail.height() - gap * (rows - 1) as f32) / rows as f32;
+        for i in 0..detail_count {
+            let row = i / cols;
+            let col = i % cols;
+            out.push(egui::Rect::from_min_size(
+                egui::pos2(
+                    rail.left() + (w + gap) * col as f32,
+                    rail.top() + (h + gap) * row as f32,
+                ),
+                egui::vec2(w, h),
+            ));
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod pane_rects_tests {
-    use super::pane_rects;
+    use super::{arranged_pane_rects, pane_rects};
+    use crate::workspace::PaneLayout;
     use egui::Rect;
 
     fn landscape() -> Rect {
@@ -4065,6 +4143,60 @@ mod pane_rects_tests {
             assert!((rects.first().unwrap().min.y - source.min.y).abs() < 0.01);
             assert!((rects.last().unwrap().max.x - source.max.x).abs() < 0.01);
             assert!((rects.last().unwrap().max.y - source.max.y).abs() < 0.01);
+        }
+    }
+
+    #[test]
+    fn focus_layout_makes_pane_one_the_large_primary() {
+        for source in [landscape(), portrait()] {
+            for n in [3, 4, 6, 9] {
+                let rects = arranged_pane_rects(source, n, PaneLayout::Focus);
+                assert_eq!(rects.len(), n);
+                let primary_area = rects[0].area();
+                assert!(
+                    rects[1..].iter().all(|detail| primary_area > detail.area()),
+                    "pane 1 was not primary for {n} panes: {rects:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn focus_layout_is_a_left_rail_in_landscape_and_top_rail_in_portrait() {
+        let wide = arranged_pane_rects(landscape(), 4, PaneLayout::Focus);
+        assert!(wide[0].width() > wide[1].width());
+        assert_eq!(wide[0].height(), landscape().height());
+        assert!(wide[1..]
+            .iter()
+            .all(|detail| detail.left() > wide[0].right()));
+
+        let tall = arranged_pane_rects(portrait(), 4, PaneLayout::Focus);
+        assert!(tall[0].height() > tall[1].height());
+        assert_eq!(tall[0].width(), portrait().width());
+        assert!(tall[1..]
+            .iter()
+            .all(|detail| detail.top() > tall[0].bottom()));
+    }
+
+    #[test]
+    fn focus_layout_keeps_every_supported_pane_inside_the_source_without_overlap() {
+        for source in [landscape(), portrait()] {
+            for n in 1..=crate::view::MAX_PANES {
+                let rects = arranged_pane_rects(source, n, PaneLayout::Focus);
+                assert_eq!(rects.len(), n);
+                for (i, pane) in rects.iter().enumerate() {
+                    assert!(
+                        source.contains_rect(*pane),
+                        "pane {i} escaped {source:?}: {pane:?}"
+                    );
+                    for other in &rects[i + 1..] {
+                        assert!(
+                            !pane.intersects(*other),
+                            "focus panes overlap: {pane:?} vs {other:?}"
+                        );
+                    }
+                }
+            }
         }
     }
 }
@@ -4522,6 +4654,7 @@ impl HookEchoApp {
             screenshot_pending: None,
             share_card: None,
             loop_export: None,
+            pane_layout: crate::workspace::PaneLayout::default(),
             link_cameras: false,
             link_times: false,
             lock_source_time: false,
@@ -9633,6 +9766,9 @@ impl HookEchoApp {
                          on Link pane cameras to pan them together",
                     );
                 }
+            }
+            PaletteAction::SetPaneLayout(layout) => {
+                self.pane_layout = layout;
             }
             PaletteAction::AllTilts => self.apply_all_tilts(),
             PaletteAction::CompareInPanes => self.apply_compare_panes(),
@@ -17481,6 +17617,7 @@ impl HookEchoApp {
             .collect();
         crate::workspace::Workspace {
             name: format!("Workspace {}", self.settings.workspaces.len() + 1),
+            pane_layout: self.pane_layout,
             panes: self
                 .views
                 .iter()
@@ -17518,6 +17655,7 @@ impl HookEchoApp {
             .then(|| self.views[self.active].site.clone())
             .flatten();
         self.set_pane_count(ws.panes.len());
+        self.pane_layout = ws.pane_layout;
         for (v, snap) in self.views.iter_mut().zip(&ws.panes) {
             snap.apply(v);
             if v.site.is_none() {
@@ -21609,7 +21747,7 @@ impl eframe::App for HookEchoApp {
             let rects = if solo {
                 vec![full; n]
             } else {
-                pane_rects(full, n)
+                arranged_pane_rects(full, n, self.pane_layout)
             };
 
             // If cameras are linked, mirror the active pane's camera to the others.

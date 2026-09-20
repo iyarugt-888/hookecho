@@ -14,11 +14,43 @@
 
 use crate::view::MapView;
 
+/// How panes divide the available map area. `Balanced` is the familiar equal strip/grid;
+/// `Focus` gives pane one the working area and tiles every other pane into an adaptive detail
+/// rail, matching the asymmetric "large analysis + supporting products" layouts used in AWIPS.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PaneLayout {
+    #[default]
+    Balanced,
+    Focus,
+}
+
+impl PaneLayout {
+    pub const ALL: [Self; 2] = [Self::Balanced, Self::Focus];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Balanced => "Even",
+            Self::Focus => "Focus",
+        }
+    }
+
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::Balanced => "Give every pane equal space",
+            Self::Focus => "Make pane 1 large and tile the other panes in a detail rail",
+        }
+    }
+}
+
 /// One saved pane arrangement.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Workspace {
     pub name: String,
     pub panes: Vec<PaneSnap>,
+    /// Equal grid or AWIPS-style large-primary arrangement. Older workspaces remain balanced.
+    #[serde(default)]
+    pub pane_layout: PaneLayout,
     /// Which pane was focused.
     #[serde(default)]
     pub active: usize,
@@ -189,6 +221,7 @@ pub fn starters() -> Vec<Workspace> {
     vec![
         Workspace {
             name: "Chase".into(),
+            pane_layout: PaneLayout::Balanced,
             // Reflectivity beside storm-relative velocity, same radar, cameras locked: the
             // couplet and the hook in one glance.
             panes: vec![
@@ -214,6 +247,7 @@ pub fn starters() -> Vec<Workspace> {
         },
         Workspace {
             name: "National overview".into(),
+            pane_layout: PaneLayout::Balanced,
             // One pane, no site, the MRMS mosaic under the warnings — what is happening anywhere.
             panes: vec![PaneSnap {
                 site: None,
@@ -240,6 +274,7 @@ pub fn starters() -> Vec<Workspace> {
         },
         Workspace {
             name: "Analysis".into(),
+            pane_layout: PaneLayout::Balanced,
             // The same storm at four heights: how a couplet leans with height, which is the
             // layout people rebuild by hand every time.
             panes: (0..4)
@@ -266,6 +301,7 @@ pub fn starters() -> Vec<Workspace> {
         // actually asks this preset to show.
         Workspace {
             name: "Tornado analysis".into(),
+            pane_layout: PaneLayout::Balanced,
             // The lowest cut of every dual-pol moment that actually separates a debris signature
             // from rain: reflectivity for the hook, storm-relative velocity for the couplet, CC
             // for non-meteorological scatterers, ZDR for the drop/debris size split.
@@ -296,6 +332,8 @@ pub fn starters() -> Vec<Workspace> {
         },
         Workspace {
             name: "Hail analysis".into(),
+            // Keep reflectivity large while the three dual-pol panes provide supporting detail.
+            pane_layout: PaneLayout::Focus,
             // REF for the core, ZDR/KDP/CC for size and phase, MESH for the swath a single tilt
             // can't show by itself. The roadmap also asks for the sounding panel open on this
             // preset; workspaces deliberately don't capture open windows (see this module's own
@@ -319,6 +357,7 @@ pub fn starters() -> Vec<Workspace> {
         },
         Workspace {
             name: "Mesoscale analysis".into(),
+            pane_layout: PaneLayout::Balanced,
             // One national-scale pane: the environment fields that set the stage rather than one
             // storm's own radar signature. CAPE/SRH read from the Environment section's own model
             // choice, same as everywhere else they appear.
@@ -357,6 +396,7 @@ pub fn starters() -> Vec<Workspace> {
         },
         Workspace {
             name: "Radar + satellite".into(),
+            pane_layout: PaneLayout::Balanced,
             // ROADMAP_NEW E6's "radar + satellite dual/quad pane presets." Every pane keeps a
             // real radar site (`adopt_site`, like Chase/Analysis/Tornado/Hail above) rather than
             // going site-less the way "Mesoscale analysis" does — a site-less pane's `site: None`
@@ -492,6 +532,7 @@ mod tests {
     fn workspace_roundtrips_through_json() {
         let ws = Workspace {
             name: "Two-site chase".into(),
+            pane_layout: PaneLayout::Focus,
             panes: vec![PaneSnap {
                 site: Some("KDMX".into()),
                 moment: wxdata::level2::Moment::CorrelationCoefficient,
@@ -535,6 +576,7 @@ mod tests {
         assert!(!ws.lock_source_time);
         assert!(!ws.link_site);
         assert!(!ws.link_cursor);
+        assert_eq!(ws.pane_layout, PaneLayout::Balanced);
     }
 
     #[test]

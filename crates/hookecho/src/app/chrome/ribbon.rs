@@ -177,6 +177,7 @@ impl HookEchoApp {
         let health = self.radar_health();
         let (health_txt, health_col) = ui::layers_panel::health_look(health.state());
         let panes = self.views.len();
+        let pane_layout = self.pane_layout;
         let cur_tool = self.tool;
         let mut smooth = self.settings.smooth_radar;
         let mut follow_lowest_cut = self.views[self.active].follow_lowest_cut;
@@ -199,6 +200,7 @@ impl HookEchoApp {
 
         let mut pick_tilt: Option<usize> = None;
         let mut pick_panes: Option<usize> = None;
+        let mut pick_pane_layout: Option<crate::workspace::PaneLayout> = None;
         let mut pick_mode: Option<crate::app::RibbonMode> = None;
         // Toggled this frame — several kinds can be active, so this isn't an exclusive pick.
         let mut pick_contour: Vec<crate::app::ContourKind> = Vec::new();
@@ -450,6 +452,22 @@ impl HookEchoApp {
                                 .clicked()
                                 {
                                     pick_panes = Some(n);
+                                }
+                            }
+                        });
+                        ui.horizontal(|ui| {
+                            for layout in crate::workspace::PaneLayout::ALL {
+                                if wsv3::pill_sized(
+                                    ui,
+                                    layout.label(),
+                                    pane_layout == layout,
+                                    accent,
+                                    54.0,
+                                )
+                                .on_hover_text(layout.description())
+                                .clicked()
+                                {
+                                    pick_pane_layout = Some(layout);
                                 }
                             }
                         });
@@ -781,6 +799,9 @@ impl HookEchoApp {
         }
         if let Some(n) = pick_panes {
             self.apply_palette(PaletteAction::SetPanes(n), ctx);
+        }
+        if let Some(layout) = pick_pane_layout {
+            self.apply_palette(PaletteAction::SetPaneLayout(layout), ctx);
         }
         if all_tilts {
             self.apply_palette(PaletteAction::AllTilts, ctx);

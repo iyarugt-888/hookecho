@@ -8,6 +8,20 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: AWIPS-style focus pane layouts
+
+Multi-pane workspaces can now switch between the existing equal grid and a `Focus` arrangement.
+Focus makes pane 1 the large analysis canvas and tiles every supporting pane into a compact detail
+rail on the right in landscape or along the bottom in portrait. The rail adapts from one to two
+columns/rows as pane counts grow, so all supported 3–9 pane workspaces stay inside the viewport
+without overlap while the primary pane remains larger than every detail pane.
+
+The WSV3 ribbon and command palette expose the same `Even`/`Focus` actions. The choice is saved in
+workspace files and restored with the panes; older workspace JSON defaults to `Even`. The shipped
+Hail analysis preset now uses Focus so reflectivity remains the primary view while ZDR, CC and KDP
+form its supporting rail. Phones retain their existing one-pane-at-a-time presentation, while
+tablet, desktop and web layouts use the asymmetric geometry.
+
 ### Added: data-driven 2D live radar sweep
 
 Partial Level II updates now draw a WSV3-style lime sweep line across the currently viewed 2D

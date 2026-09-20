@@ -1497,6 +1497,16 @@ impl HookEchoApp {
                 Some(panes == n),
             );
         }
+        for layout in crate::workspace::PaneLayout::ALL {
+            push(
+                &format!("{} pane layout", layout.label()),
+                "Tools",
+                layout.description(),
+                false,
+                PaletteAction::SetPaneLayout(layout),
+                Some(self.pane_layout == layout),
+            );
+        }
         push(
             "Reload",
             "Tools",
