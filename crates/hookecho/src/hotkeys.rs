@@ -193,7 +193,9 @@ pub(crate) fn conflict(
 /// fire product shortcuts. Anything with a modifier, or a function key, still fires — Ctrl+K from
 /// inside the search box and F5 while typing are what every other desktop app does.
 pub(crate) fn poll(ctx: &egui::Context, bindings: &[Binding]) -> Vec<BindableAction> {
-    let typing = ctx.memory(|m| m.focused().is_some());
+    // A text field, not merely any focused widget: tapping a checkbox or button focuses it too, and
+    // treating that as typing left the single-key shortcuts dead until focus was cleared.
+    let typing = ctx.text_edit_focused();
     ctx.input_mut(|i| {
         bindings
             .iter()

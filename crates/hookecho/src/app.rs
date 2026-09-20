@@ -22504,7 +22504,9 @@ impl eframe::App for HookEchoApp {
         // text fields, and float a Paste button (the system clipboard is unreachable from the
         // soft keyboard otherwise — egui gets the text as a Paste event next frame).
         if cfg!(target_os = "android") {
-            let wants = ctx.egui_wants_keyboard_input();
+            // Only a text field wants the soft keyboard. Any focused widget used to count, so
+            // tapping a checkbox raised the keyboard and reset the IME buffer under the field.
+            let wants = ctx.text_edit_focused();
             if wants != self.ime_shown {
                 crate::platform::show_soft_input(wants);
                 self.ime_shown = wants;

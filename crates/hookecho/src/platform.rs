@@ -395,13 +395,28 @@ mod android_ime {
         }
     }
 
+    /// Filler the IME buffer starts with. egui's field already holds text the IME has never seen,
+    /// and an empty buffer gives Backspace nothing to delete, so the IME reports no change and the
+    /// key does nothing. With filler in front, each Backspace shortens the buffer and `pump_ime`
+    /// turns it into a real Backspace for the field. Reseeded before it runs out.
+    const PAD_LEN: usize = 64;
+    const PAD_LOW: usize = 16;
+
+    fn pad() -> String {
+        " ".repeat(PAD_LEN)
+    }
+
     fn reset_text_input(app: &winit::platform::android::activity::AndroidApp) {
+        let text = pad();
         app.set_text_input_state(TextInputState {
-            text: String::new(),
-            selection: TextSpan { start: 0, end: 0 },
+            selection: TextSpan {
+                start: text.len(),
+                end: text.len(),
+            },
+            text: text.clone(),
             compose_region: None,
         });
-        *MIRROR.lock().unwrap() = String::new();
+        *MIRROR.lock().unwrap() = text;
     }
 
     use std::sync::Mutex;
@@ -459,7 +474,13 @@ mod android_ime {
         if !inserted.is_empty() {
             raw_input.events.push(egui::Event::Text(inserted));
         }
+        let remaining = new.len();
         *mirror = text;
+        drop(mirror);
+        // Backspacing ate into the filler: put it back so the next Backspace still registers.
+        if remaining < PAD_LOW {
+            reset_text_input(app);
+        }
     }
 
     /// Read the system clipboard as text: `ClipboardManager.getPrimaryClip()` →

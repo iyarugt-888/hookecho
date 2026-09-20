@@ -561,6 +561,10 @@ impl HookEchoApp {
             return;
         }
         let tz = self.active_tz();
+        let site = self.views[self.active]
+            .site
+            .clone()
+            .unwrap_or_else(|| "no site".to_string());
         let mut close = false;
         let mut go_head = false;
         egui::Panel::bottom("dock_timeline")
@@ -639,6 +643,57 @@ impl HookEchoApp {
                         .show_ui(ui, |ui| {
                             for s in [2.0f32, 4.0, 6.0, 8.0, 12.0, 16.0] {
                                 ui.selectable_value(&mut t.speed, s, format!("{s:.0} fps"));
+                            }
+                        });
+                    // The archive lives behind the date: without this the dock could only ever
+                    // scrub today's frames. Same day-seek path as the desktop scrubber's menu.
+                    let cal = ui
+                        .add(
+                            egui::Button::new(
+                                RichText::new(format!(
+                                    "{}  {}",
+                                    egui_phosphor::regular::CALENDAR_BLANK,
+                                    t.date.format("%b %-d, %Y")
+                                ))
+                                .size(12.0)
+                                .color(TEXT),
+                            )
+                            .min_size(egui::vec2(0.0, 28.0)),
+                        )
+                        .named("Archive calendar");
+                    egui::Popup::menu(&cal)
+                        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                        .show(|ui| {
+                            ui.set_min_width(240.0);
+                            ui.horizontal(|ui| {
+                                if ui
+                                    .button(egui_phosphor::regular::CARET_LEFT)
+                                    .named("Previous day")
+                                    .clicked()
+                                {
+                                    if let Some(d) = t.date.pred_opt() {
+                                        super::scrubber::seek_to_day(t, &site, d);
+                                    }
+                                }
+                                if let Some(d) = archive_day_input(ui, t.date) {
+                                    super::scrubber::seek_to_day(t, &site, d);
+                                }
+                                let is_today = t.date >= chrono::Utc::now().date_naive();
+                                if ui
+                                    .add_enabled(
+                                        !is_today,
+                                        egui::Button::new(egui_phosphor::regular::CARET_RIGHT),
+                                    )
+                                    .named("Next day")
+                                    .clicked()
+                                {
+                                    if let Some(d) = t.date.succ_opt() {
+                                        super::scrubber::seek_to_day(t, &site, d);
+                                    }
+                                }
+                            });
+                            if let Some(d) = archive_day_calendar(ui, t.date) {
+                                super::scrubber::seek_to_day(t, &site, d);
                             }
                         });
                 });
