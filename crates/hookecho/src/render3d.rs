@@ -333,12 +333,17 @@ pub fn cc_anomaly_uniform(
 /// also the function [`pick_observed_tilt`] inverts. Kept in lock-step with the shader on purpose:
 /// see that function's own comment for why only the earth-curvature half of the rise is
 /// exaggerated and the flat-earth angle half never is.
-fn tilt_altitude_m(ground_km: f64, elevation_deg: f32, vertical_exaggeration: f64) -> f64 {
+fn tilt_altitude_m(
+    ground_km: f64,
+    elevation_deg: f32,
+    vertical_exaggeration: f64,
+    beam_rise: f64,
+) -> f64 {
     let slant_km = wxdata::xsection::slant_from_ground_km(ground_km, elevation_deg as f64);
     let angle_height_m = slant_km * 1_000.0 * (elevation_deg as f64).to_radians().sin();
     let true_height_m = wxdata::xsection::beam_height_km(slant_km, elevation_deg as f64) * 1_000.0;
     let curvature_height_m = true_height_m - angle_height_m;
-    angle_height_m + curvature_height_m * vertical_exaggeration
+    (angle_height_m + curvature_height_m * vertical_exaggeration) * beam_rise
 }
 
 /// How many `t` samples to scan for a sign change before bisecting.
@@ -382,6 +387,7 @@ pub fn pick_observed_tilt(
     radar_lat: f64,
     antenna_altitude_m: f64,
     vertical_exaggeration: f64,
+    beam_rise: f64,
     elevations_deg: &[f32],
 ) -> Option<(usize, f64, f64)> {
     let (near, dir) = camera.screen_ray(px, viewport_px)?;
@@ -394,6 +400,7 @@ pub fn pick_observed_tilt(
         radar_lat,
         antenna_altitude_m,
         vertical_exaggeration,
+        beam_rise,
         elevations_deg,
     )
 }
@@ -415,6 +422,7 @@ fn pick_along_ray(
     radar_lat: f64,
     antenna_altitude_m: f64,
     vertical_exaggeration: f64,
+    beam_rise: f64,
     elevations_deg: &[f32],
 ) -> Option<(usize, f64, f64)> {
     let metres_to_px = crate::render::mercator::Camera::world_units_per_metre(radar_lat) / wpp;
@@ -438,7 +446,7 @@ fn pick_along_ray(
         let (ground_km, altitude_m, ..) = at(t);
         altitude_m
             - antenna_altitude_m
-            - tilt_altitude_m(ground_km, elevation_deg, vertical_exaggeration)
+            - tilt_altitude_m(ground_km, elevation_deg, vertical_exaggeration, beam_rise)
     };
 
     let mut best: Option<(f32, usize)> = None;
@@ -1527,6 +1535,7 @@ mod pick_tests {
         radar_lat: f64,
         antenna_altitude_m: f64,
         vertical_exaggeration: f64,
+        beam_rise: f64,
         bearing_deg: f64,
         ground_km: f64,
         elevation_deg: f32,
@@ -1539,8 +1548,8 @@ mod pick_tests {
         dx -= (dx + 0.5).floor(); // wrap to (-0.5, 0.5], matching `beam_world`'s own wrap
         let dy = world.1 - camera.center.1;
         let metres_to_px = Camera::world_units_per_metre(radar_lat) / wpp;
-        let altitude_m =
-            antenna_altitude_m + tilt_altitude_m(ground_km, elevation_deg, vertical_exaggeration);
+        let altitude_m = antenna_altitude_m
+            + tilt_altitude_m(ground_km, elevation_deg, vertical_exaggeration, beam_rise);
         Vec3::new(
             (dx / wpp) as f32,
             (-dy / wpp) as f32,
@@ -1575,6 +1584,99 @@ mod pick_tests {
         cam
     }
 
+    /// `beam_rise` exists to stop distant gates flaring upward, so what it has to do is take more
+    /// height off at long range than at short — proportionally on every gate, which in absolute
+    /// metres is exactly "more, further out". Checked as a ratio at two ranges rather than as two
+    /// magic numbers, so the assertion stays true if the beam model itself is ever refined.
+    #[test]
+    fn lowering_beam_rise_pulls_distant_gates_down_further_than_near_ones() {
+        let (elev, ve) = (0.5f32, 1.0);
+        let drop_at = |ground_km: f64| {
+            tilt_altitude_m(ground_km, elev, ve, 1.0) - tilt_altitude_m(ground_km, elev, ve, 0.5)
+        };
+        let near = drop_at(20.0);
+        let far = drop_at(200.0);
+        assert!(near > 0.0, "halving the rise must lower a near gate at all");
+        assert!(
+            far > near * 5.0,
+            "a distant gate has to come down far more than a near one: {far} vs {near}"
+        );
+    }
+
+    /// The two ends of the control are the part a user actually reaches for: 100% has to be the
+    /// untouched geometry every other test here already pins, and 0% has to be genuinely flat —
+    /// every tilt at every range sitting on the antenna's own altitude, which is what "lay it out
+    /// like the 2D view" means.
+    #[test]
+    fn full_beam_rise_is_true_geometry_and_zero_is_flat() {
+        for elevation in [0.5f32, 4.0, 19.5] {
+            for ground_km in [5.0, 60.0, 200.0] {
+                let truth = wxdata::xsection::beam_height_km(
+                    wxdata::xsection::slant_from_ground_km(ground_km, elevation as f64),
+                    elevation as f64,
+                ) * 1_000.0;
+                let full = tilt_altitude_m(ground_km, elevation, 1.0, 1.0);
+                assert!(
+                    (full - truth).abs() < 1e-6,
+                    "100% must be the real beam height at {elevation}° / {ground_km} km: \
+                     {full} vs {truth}"
+                );
+                assert_eq!(
+                    tilt_altitude_m(ground_km, elevation, 1.0, 0.0),
+                    0.0,
+                    "0% must be flat at {elevation}° / {ground_km} km"
+                );
+            }
+        }
+    }
+
+    /// Clicking has to keep landing on the tilt the user can see, which only holds if the pick
+    /// geometry is driven by the same `beam_rise` the shader drew with — the CPU/GPU lock-step
+    /// `tilt_altitude_m`'s own doc comment calls for. A pick that still assumed true geometry
+    /// would miss by kilometres at a reduced rise, which is exactly the regression this catches.
+    #[test]
+    fn picking_follows_a_reduced_beam_rise_rather_than_true_geometry() {
+        let camera = test_camera();
+        let viewport = (800.0, 600.0);
+        let (radar_lon, radar_lat) = (-97.5, 35.3);
+        let (antenna_altitude_m, vertical_exaggeration) = (400.0, 3.0);
+        let beam_rise = 0.35;
+        let elevations = [1.8f32];
+        let (bearing_deg, ground_km) = (0.0, 40.0);
+
+        let point = beam_world_local(
+            &camera,
+            radar_lon,
+            radar_lat,
+            antenna_altitude_m,
+            vertical_exaggeration,
+            beam_rise,
+            bearing_deg,
+            ground_km,
+            elevations[0],
+        );
+        let px = project(&camera, viewport, point).expect("point should be in front of the camera");
+
+        let (picked_tilt, lon, lat) = pick_observed_tilt(
+            &camera,
+            px,
+            viewport,
+            radar_lon,
+            radar_lat,
+            antenna_altitude_m,
+            vertical_exaggeration,
+            beam_rise,
+            &elevations,
+        )
+        .expect("the ray should cross the flattened tilt's beam surface");
+
+        assert_eq!(picked_tilt, 0);
+        let [expect_lon, expect_lat] =
+            crate::geo::destination_point([radar_lon, radar_lat], bearing_deg, ground_km);
+        let (drift_km, _) = crate::geo::great_circle([expect_lon, expect_lat], [lon, lat]);
+        assert!(drift_km < 1.0, "picked {drift_km} km from the placed point");
+    }
+
     /// The whole point of `pick_observed_tilt`: given the exact screen pixel a known point on one
     /// specific tilt's beam surface projects to, it has to recover *that* tilt (not whichever one
     /// happened to be selected for the flat 2D view) and a ground position close to the real one.
@@ -1593,6 +1695,7 @@ mod pick_tests {
             radar_lat,
             antenna_altitude_m,
             vertical_exaggeration,
+            1.0,
             bearing_deg,
             ground_km,
             elevations[tilt_idx],
@@ -1607,6 +1710,7 @@ mod pick_tests {
             radar_lat,
             antenna_altitude_m,
             vertical_exaggeration,
+            1.0,
             &elevations,
         )
         .expect("the ray should cross the known tilt's beam surface");
@@ -1639,7 +1743,7 @@ mod pick_tests {
 
         for ground_km in [3.0, 10.0, 60.0] {
             let shallow_altitude_m = antenna_altitude_m
-                + tilt_altitude_m(ground_km, elevations[0], vertical_exaggeration);
+                + tilt_altitude_m(ground_km, elevations[0], vertical_exaggeration, 1.0);
             let [lon, lat] = crate::geo::destination_point([radar_lon, radar_lat], 0.0, ground_km);
             let world = crate::render::mercator::lonlat_to_world(lon, lat);
             let mut dx = world.0 - camera_center.0;
@@ -1668,6 +1772,7 @@ mod pick_tests {
                 radar_lat,
                 antenna_altitude_m,
                 vertical_exaggeration,
+                1.0,
                 &elevations,
             )
             .expect("a straight drop from above should cross the steep tilt's cone");
@@ -1708,6 +1813,7 @@ mod pick_tests {
             radar_lat,
             antenna_altitude_m,
             vertical_exaggeration,
+            1.0,
             &elevations,
         )
         .is_none());

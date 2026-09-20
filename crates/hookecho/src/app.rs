@@ -12304,7 +12304,7 @@ impl HookEchoApp {
         {
             *slot = *elev;
         }
-        let mut controls = [0u32; 12 + MAX_HIGHLIGHTED_LAYERS];
+        let mut controls = [0u32; 13 + MAX_HIGHLIGHTED_LAYERS];
         controls[0] = self.views[idx].map_3d.vertical_exaggeration.to_bits();
         controls[1] = self.views[idx].map_3d.opacity.to_bits();
         controls[2] = threshold_idx.to_bits();
@@ -12317,12 +12317,14 @@ impl HookEchoApp {
         controls[7] = fill_gaps as u32;
         // The uniform only reaches the GPU alongside a fresh instance buffer, so anything that
         // lives in it has to be part of the rebuild identity or moving the control silently does
-        // nothing. That is why `threshold_idx` and friends are already here, and why the CC ramp
-        // has to join them.
-        for (slot, v) in controls[8..12].iter_mut().zip(cc.iter()) {
+        // nothing. That is why `threshold_idx` and friends are already here, why the CC ramp has
+        // to join them, and why `beam_rise` — which rides in the uniform slot the lowest-tilt
+        // elevation vacated — does too.
+        controls[8] = self.views[idx].map_3d.beam_rise.to_bits();
+        for (slot, v) in controls[9..13].iter_mut().zip(cc.iter()) {
             *slot = v.to_bits();
         }
-        for (slot, elev) in controls[12..].iter_mut().zip(highlight_elevs.iter()) {
+        for (slot, elev) in controls[13..].iter_mut().zip(highlight_elevs.iter()) {
             *slot = elev.to_bits();
         }
         let palette_gen = self.palettes.gen.wrapping_add(
@@ -12413,7 +12415,10 @@ impl HookEchoApp {
                 srv,
                 motion_e,
                 motion_n,
-                observed.min_elevation_deg,
+                // Slot 10: the volume's lowest-tilt elevation used to live here and stopped being
+                // read; `beam_rise` takes it over rather than growing the buffer. See the shader's
+                // own `Radar3d` comment.
+                self.views[idx].map_3d.beam_rise,
             ],
             cc,
             highlight_elevs,
@@ -12766,6 +12771,19 @@ impl HookEchoApp {
                     );
                     ui.add(egui::Slider::new(&mut view.map_3d.opacity, 0.1..=1.0).text("Opacity"));
                     if view.map_3d.representation == Map3dRepresentation::ObservedSweeps {
+                        ui.add(
+                            egui::Slider::new(&mut view.map_3d.beam_rise, 0.0..=1.0)
+                                .text("Beam rise")
+                                .custom_formatter(|v, _| format!("{:.0}%", v * 100.0)),
+                        )
+                        .on_hover_text(
+                            "How much of each tilt's real climb with range to draw. A beam \
+                             genuinely rises as it travels, so at long range every tilt flares \
+                             steeply upward and the volume reads as a stack of cones. Lower this \
+                             to pull the far end of each sweep back down — most where the rise is \
+                             largest — or take it to 0% to lay the sweeps flat like the 2D view. \
+                             100% is true beam geometry.",
+                        );
                         ui.horizontal(|ui| {
                             ui.label("Gates");
                             for (label, stride) in [("Full", 1), ("½", 2), ("¼", 4)] {
@@ -13643,6 +13661,7 @@ impl HookEchoApp {
                                     site.latitude as f64,
                                     site.elevation_meters as f64 + wxdata::towers::tower_m(site.id),
                                     v.map_3d.vertical_exaggeration as f64,
+                                    v.map_3d.beam_rise as f64,
                                     elevations,
                                 )
                             })

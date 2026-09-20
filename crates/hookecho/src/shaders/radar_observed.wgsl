@@ -26,12 +26,12 @@ struct Radar3d {
     srv: f32,
     motion_e: f32,
     motion_n: f32,
-    // Elevation angle of the volume's lowest tilt carrying this moment. No longer read by
-    // `beam_world` (see its doc comment for why the floor it used to build from this was
-    // replaced), kept as a struct field only so this buffer's byte layout — and the 16-byte
-    // alignment `_pad` below exists to satisfy — does not have to be renegotiated on the Rust
-    // side for a value nothing here uses anymore.
-    min_elevation_deg: f32,
+    // How much of each tilt's climb above the antenna to actually draw, 0..=1. See `beam_world`.
+    // Occupies the slot the volume's lowest-tilt elevation used to hold: that value stopped being
+    // read once the floor built from it was replaced, and was kept only so this buffer's byte
+    // layout (and the 16-byte alignment `_pad` below exists to satisfy) would not have to be
+    // renegotiated. Reusing it keeps that layout untouched for a field that is read again.
+    beam_rise: f32,
     // CC-anomaly opacity ramp: the palette index that draws faintest, the one that draws solid,
     // that faintest multiplier, and whether this is active at all. Off (all zero) for every
     // moment but correlation coefficient — see `fs_main`.
@@ -156,8 +156,14 @@ fn beam_world(azimuth_deg: f32, slant_km: f32, elevation_deg: f32) -> vec3<f32> 
     // recolored — 600 m is well clear of the fill-gap midpoint copies and of the next real tilt
     // at any range the "Layers" list is likely to be used at.
     let pull_m = select(0.0, 600.0, is_highlighted(elevation_deg));
-    let altitude = radar.antenna_altitude_m + angle_height
-        + curvature_height * radar.vertical_exaggeration + pull_m;
+    // `beam_rise` scales the whole climb above the antenna, not just one half of it: a beam rises
+    // with range by geometry, which at long range flares every tilt steeply upward and turns a
+    // multi-tilt volume into a stack of cones. Pulling the rise down is proportional, so it takes
+    // the most off exactly where the rise is largest — the far end — and 0 lays the sweeps flat.
+    // The highlight pull is deliberately outside it: that offset exists to separate a selected
+    // layer from its neighbours and has to keep working at any `beam_rise`.
+    let rise = (angle_height + curvature_height * radar.vertical_exaggeration) * radar.beam_rise;
+    let altitude = radar.antenna_altitude_m + rise + pull_m;
     return vec3<f32>(
         d.x / camera.world_per_pixel,
         -d.y / camera.world_per_pixel,

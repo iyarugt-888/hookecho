@@ -8,6 +8,23 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: beam-rise control for the 3D Observed view
+
+A radar beam genuinely climbs with range, so in the map-pitch 3D Observed view every tilt flared
+steeply upward at long range and a multi-tilt volume read as a stack of cones rather than as storm
+structure. A new "Beam rise" slider scales how much of that climb is drawn: 100% is the true
+geometry (unchanged behaviour), lower values pull the far end of each sweep proportionally back
+toward the antenna's altitude — taking the most off where the rise is largest — and 0% lays the
+sweeps flat, matching the 2D view. It scales the whole rise rather than one half of it, so
+vertical exaggeration keeps its own separate meaning and the two compose.
+
+The value rides in the uniform slot the volume's lowest-tilt elevation vacated when the floor
+built from it was replaced, so the buffer layout is unchanged, and it joins the rebuild identity
+because the uniform only reaches the GPU alongside a fresh instance buffer. Click-picking inverts
+the same geometry the shader draws, so the CPU mirror takes the control too — a pick that still
+assumed true geometry would miss by kilometres at a reduced rise, which a new test covers
+alongside the two ends of the control and the "more at long range than short" property.
+
 ### Added: absolute-difference display mode for model comparison (F5/F6)
 
 The comparison layer can now be read as `|A − B|` magnitude instead of a signed `A − B`, answering

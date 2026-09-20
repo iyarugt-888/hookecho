@@ -95,6 +95,19 @@ pub struct Map3dState {
     pub enabled: bool,
     pub representation: Map3dRepresentation,
     pub vertical_exaggeration: f32,
+    /// How much of each tilt's real climb above the antenna to draw, 0..=1 — the fix for the
+    /// Observed view's most-complained-about property: a beam genuinely rises with range
+    /// (`r·sin(elevation)`, plus what earth curvature adds), so at long range every tilt flares
+    /// steeply upward and a multi-tilt volume reads as a stack of cones rather than as storm
+    /// structure. 1.0 is true geometry (unchanged behaviour); lower values pull the far end of
+    /// every sweep back down toward the antenna's own altitude proportionally — most at long
+    /// range, where the rise is largest and the flaring actually hurts — and 0.0 lays the sweeps
+    /// flat, matching what the 2D view shows.
+    ///
+    /// Scales the *whole* rise rather than only the angle half, so this reads as one honest
+    /// "how vertical is this" knob at both ends; [`Self::vertical_exaggeration`] keeps its own
+    /// separate meaning (how much to exaggerate the curvature part) and the two compose.
+    pub beam_rise: f32,
     pub opacity: f32,
     pub gate_stride: usize,
     pub instance_budget: usize,
@@ -151,16 +164,16 @@ pub struct Map3dState {
     pub observed_layers: Vec<level2::ObservedLayer>,
     /// Upload identity. Camera state is intentionally absent: moving the camera updates uniforms,
     /// never the millions-of-gates buffer. The live revision changes for every merged chunk, so a
-    /// still-streaming volume re-uploads within a tilt and for repeated SAILS/MRLE cuts; `fill_gaps`, the four
-    /// CC-anomaly ramp slots and the `MAX_HIGHLIGHTED_LAYERS` selected-elevation slots (all as
-    /// bits) follow, so any of those changing rebuilds too.
+    /// still-streaming volume re-uploads within a tilt and for repeated SAILS/MRLE cuts; `fill_gaps`, `beam_rise`,
+    /// the four CC-anomaly ramp slots and the `MAX_HIGHLIGHTED_LAYERS` selected-elevation slots
+    /// (all as bits) follow, so any of those changing rebuilds too.
     pub observed_key: Option<(
         String,
         u64,
         Moment,
         usize,
         u64,
-        [u32; 12 + MAX_HIGHLIGHTED_LAYERS],
+        [u32; 13 + MAX_HIGHLIGHTED_LAYERS],
     )>,
 }
 
@@ -170,6 +183,7 @@ impl Default for Map3dState {
             enabled: false,
             representation: Map3dRepresentation::ObservedSweeps,
             vertical_exaggeration: 1.0,
+            beam_rise: 1.0,
             opacity: 0.72,
             gate_stride: if cfg!(target_os = "android") { 2 } else { 1 },
             // How many gate instances the buffer may hold. Higher = a denser, less "gappy"
