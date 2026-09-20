@@ -483,6 +483,13 @@ jobs:
           cp "$apk" HookEcho-arm64-v8a.apk
           cp android/app/build/outputs/bundle/release/app-release.aab HookEcho-arm64-v8a.aab
 
+      # An unsigned APK is not an installable file: Android answers "There's a problem with the app
+      # file" and nothing else. Fail here rather than publish one.
+      - name: Verify the APK is signed
+        run: |
+          apksigner="$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)"
+          "$apksigner" verify --print-certs HookEcho-arm64-v8a.apk
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:

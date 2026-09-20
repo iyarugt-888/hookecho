@@ -97,5 +97,13 @@ android {
         }
         buildTypes.getByName("debug").signingConfig = signingConfigs.getByName("stable")
         buildTypes.getByName("release").signingConfig = signingConfigs.getByName("stable")
+    } else {
+        // No stable keystore (a fork, or a machine without the repo secrets). Left alone, a
+        // release build comes out as `app-release-unsigned.apk`, and Android refuses to install
+        // an unsigned APK with only "There's a problem with the app file" — which is exactly what
+        // a Galaxy S25+ said. Sign with the debug key instead: installable, but the key is not
+        // stable across machines, so an update over an earlier install from a different build
+        // will be refused until the old one is uninstalled.
+        buildTypes.getByName("release").signingConfig = signingConfigs.getByName("debug")
     }
 }
