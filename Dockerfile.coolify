@@ -46,11 +46,14 @@ ENV PATH="/opt/binaryen-version_130/bin:${PATH}"
 COPY . .
 
 # The browser bundle: app + lite viewer into web/dist, plus generated web/index.html and
-# web/sw.js. getrandom 0.3 needs the cfg to pick its browser backend. The WSV3 ribbon adds a few
-# KB of egui to the app wasm; nudge the deploy-time regression gate so the build does not fail on
-# it (the committed gate in scripts/web/build.sh is left untouched).
+# web/sw.js. getrandom 0.3 needs the cfg to pick its browser backend.
+#
+# Deliberately no `HOOKECHO_WASM_BUDGET` override here. There used to be one, raised above the
+# committed gate so a deploy would not fail on a bundle CI was already failing on — which meant
+# the two numbers drifted until the deploy outgrew its own copy too, and the staleness surfaced
+# as a failed deploy rather than a failed test. The size gate lives in scripts/web/build.sh and
+# this build is held to exactly the number CI is.
 ENV RUSTFLAGS='--cfg getrandom_backend="wasm_js"'
-ENV HOOKECHO_WASM_BUDGET=4250000
 RUN bash scripts/web/build.sh
 
 # The native server binary. Its RUSTFLAGS are not the wasm ones — build it in a clean env.

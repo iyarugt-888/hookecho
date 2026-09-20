@@ -117,7 +117,17 @@ gz_bytes="$(gzip -9 -c "web/dist/hookecho_bg-$wasm_hash.wasm" | wc -c)"
 # Raised deliberately for the offline chase packs (IndexedDB via web-sys) and the detailed dark
 # street-map labels shipped in the default view.
 # Vector-tile worker serialization adds ~2.4 KB gzip while moving tessellation off the UI thread.
-budget="${HOOKECHO_WASM_BUDGET:-4085000}"
+#
+# Raised deliberately to 4300000 for one release's worth of analyst features: the GIS import and
+# export path (points/lines rendering, zoom-to-extent, GeoJSON writing), the gridded-layer cursor
+# probe, the model swipe divider, the disagreement mask, per-pane compare overlays, the nine-pane
+# grid and AWIPS focus layouts. ~185 KB gzip for all of that together.
+#
+# This number had silently stopped tracking the real build: `Dockerfile.coolify` carried its own
+# higher `HOOKECHO_WASM_BUDGET`, so deploys passed a gate CI was already failing, and the drift
+# only surfaced when the deploy budget was outgrown too. That override is gone — one number,
+# here, is the whole point of a regression gate.
+budget="${HOOKECHO_WASM_BUDGET:-4300000}"
 printf 'wasm: %s raw, %s gzipped (budget %s)\n' \
   "$(stat -c%s "web/dist/hookecho_bg-$wasm_hash.wasm")" "$gz_bytes" "$budget"
 if [ "$gz_bytes" -gt "$budget" ]; then
