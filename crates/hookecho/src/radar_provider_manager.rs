@@ -128,7 +128,12 @@ impl SiteProviders {
     /// Start monitoring `site`. `relay_url` is `None` when no self-hosted relay is configured —
     /// the manager still works, degrading a lone stalled Unidata feed to TGFTP rather than doing
     /// nothing. `base` seeds both monitored providers' merge state, same as the real live stream.
-    pub fn start(site: String, relay_url: Option<String>, base: Arc<Scan>) -> Self {
+    pub fn start(
+        spawner: &crate::rt::Spawner,
+        site: String,
+        relay_url: Option<String>,
+        base: Arc<Scan>,
+    ) -> Self {
         let mut providers: Vec<Arc<dyn Level2LiveProvider + Send + Sync>> =
             vec![Arc::new(UnidataLevel2Provider)];
         if let Some(url) = &relay_url {
@@ -139,7 +144,7 @@ impl SiteProviders {
             let flag = active_flag.clone();
             Arc::new(move || flag.load(Ordering::Relaxed))
         };
-        let board = spawn_dual_feed_monitor(site.clone(), providers, base, active);
+        let board = spawn_dual_feed_monitor(spawner, site.clone(), providers, base, active);
         Self {
             site,
             relay_url,

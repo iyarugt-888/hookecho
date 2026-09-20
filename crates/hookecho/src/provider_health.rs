@@ -142,7 +142,12 @@ pub async fn monitor_provider(
 /// `base` scan (they are independent acquisition paths; there is no shared merge state between
 /// them at this stage) and shares one `active` gate, so stopping the comparison stops every
 /// monitored provider together.
+///
+/// Takes the app's [`crate::rt::Spawner`] rather than calling `tokio::spawn`: this is called from
+/// the UI thread, which has no runtime context, and a bare `tokio::spawn` there panics with "there
+/// is no reactor running" (the Windows build died at startup on exactly that).
 pub fn spawn_dual_feed_monitor(
+    spawner: &crate::rt::Spawner,
     site: String,
     providers: Vec<Arc<dyn Level2LiveProvider + Send + Sync>>,
     base: Arc<Scan>,
@@ -154,7 +159,7 @@ pub fn spawn_dual_feed_monitor(
         let base = base.clone();
         let active = active.clone();
         let board = board.clone();
-        tokio::spawn(async move {
+        spawner.spawn(async move {
             monitor_provider(provider, site, base, active, board).await;
         });
     }
@@ -447,6 +452,7 @@ mod tests {
         };
 
         let board = spawn_dual_feed_monitor(
+            &crate::rt::Spawner::new(tokio::runtime::Handle::current()),
             "KTLX".to_string(),
             vec![unidata_like, relay_like],
             Arc::new(empty_scan()),
@@ -463,5 +469,33 @@ mod tests {
         assert!(board.contains_key("Provider Two"));
         assert!(board["Provider One"].successes > 0);
         assert!(board["Provider Two"].successes > 0);
+    }
+
+    /// The UI thread has no tokio runtime context, and `SiteProviders::start` is called from it. A
+    /// bare `tokio::spawn` there panics with "there is no reactor running" — which took the Windows
+    /// build down at startup. The monitor must start from a plain thread when handed a Spawner.
+    #[test]
+    fn the_monitor_starts_from_a_thread_with_no_runtime() {
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        let spawner = crate::rt::Spawner::new(rt.handle().clone());
+        let provider = Arc::new(ScriptedProvider {
+            label: "Provider One",
+            capabilities: ProviderCapabilities::unidata(),
+            updates_to_send: 1,
+            sent: AtomicU32::new(0),
+            fail: false,
+        });
+        assert!(
+            tokio::runtime::Handle::try_current().is_err(),
+            "this test must call from outside any runtime, or it proves nothing"
+        );
+        let board = spawn_dual_feed_monitor(
+            &spawner,
+            "KTLX".to_string(),
+            vec![provider],
+            Arc::new(empty_scan()),
+            Arc::new(|| false),
+        );
+        drop(board);
     }
 }

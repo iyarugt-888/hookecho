@@ -12028,6 +12028,7 @@ impl HookEchoApp {
             }
         };
 
+        let spawner = self.spawner.clone();
         let v = &mut self.views[idx];
         if !want {
             v.radar_providers = None; // drops it, which stops its monitor tasks (see its `Drop`)
@@ -12043,6 +12044,7 @@ impl HookEchoApp {
         };
         if stale {
             v.radar_providers = Some(SiteProviders::start(
+                &spawner,
                 site.to_string(),
                 relay_url,
                 Arc::clone(base),
