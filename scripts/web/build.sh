@@ -117,10 +117,22 @@ gz_bytes="$(gzip -9 -c "web/dist/hookecho_bg-$wasm_hash.wasm" | wc -c)"
 # into the gate. A gate that has to be raised or routed around every release is not enforcing
 # anything. The slack below is sized so a release of ordinary feature work fits and a careless
 # dependency (hundreds of KB, minimum) still does not.
-# The number tracks CI's build, and a local build without binaryen does not reproduce it: wasm-opt
-# leaves a SMALLER raw module that GZIPS LARGER (11.8 MB raw / 4.15 MB gz in CI against 12.9 MB
-# raw / 4.01 MB gz here), so skipping it makes a local build look ~130 KB under the gate while CI
-# is over it. Install binaryen and the two agree; the warning above is not cosmetic.
+# The number tracks CI's build, and a local build without binaryen does not reproduce it. The
+# direction of that error REVERSED as the bundle grew, so the old note here is kept only to say
+# it is wrong: it read "wasm-opt leaves a SMALLER raw module that GZIPS LARGER (11.8 MB raw /
+# 4.15 MB gz in CI against 12.9 MB raw / 4.01 MB gz here), so skipping it makes a local build
+# look ~130 KB under the gate while CI is over it". That was measured when the module was ~12 MB
+# raw. Measured again at 18.6 MB raw, wasm-opt now wins on BOTH axes, by a lot:
+#
+#     no wasm-opt   18621027 raw / 5019747 gz
+#     wasm-opt -Os  11513495 raw / 4271208 gz     (-38% raw, -15% gz)
+#
+# Dead-function elimination scales with how much dead code there is, and there is now enough of
+# it that the gzip saving dwarfs the entropy cost that used to dominate. So skipping binaryen
+# makes a local build look ~750 KB OVER a gate CI passes at 94.9% — the opposite of what this
+# comment used to promise, and the expensive way to be wrong: it invites someone to go cut
+# features to fix a number that was never real. Install binaryen before you believe a local
+# measurement. The warning above is not cosmetic.
 #
 # Raised deliberately for the offline chase packs (IndexedDB via web-sys) and the detailed dark
 # street-map labels shipped in the default view.
@@ -142,6 +154,27 @@ printf 'wasm: %s raw, %s gzipped (budget %s)\n' \
 if [ "$gz_bytes" -gt "$budget" ]; then
   echo "build.sh: wasm is over the size budget — every byte here is on the critical path for a" >&2
   echo "  first-time visitor. Trim it, or raise HOOKECHO_WASM_BUDGET deliberately." >&2
+  exit 1
+fi
+
+# The second budget, on the UNCOMPRESSED module, guarding a different failure. The gate above is
+# a policy about the visitor's wire cost and can be raised by whoever is willing to pay it.
+# This one is not a policy: Cloudflare Pages refuses to serve a single asset over 25 MiB
+# (26214400), so past that line `wrangler pages deploy` fails in demo.yml and app.hookecho.io
+# simply stops updating — no slow load to notice, no visitor-facing symptom to trade off, just a
+# deploy that does not happen.
+#
+# Measured 11513495 at the time of writing, 43.9% of the wall. The gate is set far below it on
+# purpose: the point is to be told while there is room to think, not to discover the wall from a
+# red deploy. Nothing enforced this before, which was survivable only because gzip happens to
+# correlate with raw — and `[profile.web]` tunes the two in opposite directions per package, so
+# it will not always.
+raw_bytes="$(stat -c%s "web/dist/hookecho_bg-$wasm_hash.wasm")"
+raw_budget="${HOOKECHO_WASM_RAW_BUDGET:-18000000}"
+if [ "$raw_bytes" -gt "$raw_budget" ]; then
+  echo "build.sh: raw wasm is $raw_bytes, over the $raw_budget budget. Cloudflare Pages refuses" >&2
+  echo "  an asset over 26214400 and the DEPLOY is what breaks there, not the load time. Trim" >&2
+  echo "  it, or raise HOOKECHO_WASM_RAW_BUDGET deliberately — but not past the wall." >&2
   exit 1
 fi
 
