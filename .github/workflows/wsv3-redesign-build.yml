@@ -85,6 +85,12 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # Named explicitly. The action's default package list has included `tools`, which Google
+          # no longer serves; sdkmanager answers "Failed to find package 'tools'" and exits 1,
+          # which failed this whole job before a line of the app was built. platform-tools is all
+          # the build needs from it; platforms and build-tools come from the runner image / Gradle.
+          packages: platform-tools
 
       - name: Set up Android NDK
         uses: nttld/setup-ndk@v1
