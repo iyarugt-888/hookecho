@@ -46,6 +46,11 @@ pub(crate) enum BindableAction {
     /// either end. A no-op with one pane, the same way `TiltUp`/`TiltDown` no-op with no volume.
     FocusPrevPane,
     FocusNextPane,
+    /// ROADMAP_NEW J6's "product next/previous": step through `Moment::ALL` in order, wrapping.
+    /// Distinct from the `1`-`7` keys, which jump straight to one specific moment — cycling is
+    /// what you want with a hand on the mouse, stepping REF → VEL → CC across one storm.
+    ProductPrev,
+    ProductNext,
 }
 
 /// A key (with modifiers) bound to an action.
@@ -143,6 +148,15 @@ pub(crate) fn defaults() -> Vec<Binding> {
         // consuming it first would break that keyboard navigation Q3 already confirmed working.
         plain(K::OpenBracket, A::FocusPrevPane),
         plain(K::CloseBracket, A::FocusNextPane),
+        // `N`ext/`P`revious product. Letters rather than a punctuation pair like the brackets
+        // above: a single-character key name is what `steals_typing` uses to decide a shortcut
+        // must yield to a focused text field, so these stay out of the way while someone is
+        // typing a site id or a marker name.
+        plain(K::P, A::ProductPrev),
+        plain(K::N, A::ProductNext),
+        // `D` for the 3D map view, which until now had no shortcut and no palette entry at all —
+        // it was reachable only from a dropdown inside the 3D options panel.
+        plain(K::D, A::Palette(P::ToggleMap3d)),
         plain(K::Questionmark, A::CheatSheet),
         // `?` stays the shortcut overlay; F1 is the searchable hub the overlay points at.
         plain(K::F1, A::Palette(P::OpenWindow(AppWindow::Help))),
@@ -239,6 +253,8 @@ pub(crate) fn label(action: BindableAction) -> Option<&'static str> {
         BindableAction::ToggleMute => "Mute audio alerts",
         BindableAction::FocusPrevPane => "Focus previous pane",
         BindableAction::FocusNextPane => "Focus next pane",
+        BindableAction::ProductPrev => "Previous product",
+        BindableAction::ProductNext => "Next product",
     })
 }
 
@@ -285,6 +301,28 @@ mod tests {
         );
         assert!(has(BindableAction::FocusPrevPane), "pane focus (previous)");
         assert!(has(BindableAction::FocusNextPane), "pane focus (next)");
+        assert!(has(BindableAction::ProductPrev), "product previous");
+        assert!(has(BindableAction::ProductNext), "product next");
+        assert!(has(BindableAction::Palette(P::ToggleMap3d)), "3D");
+    }
+
+    /// The product-cycling keys have to yield to a focused text field the way every other
+    /// single-letter shortcut does — otherwise typing a site id containing "n" would silently
+    /// change the product out from under the person typing it.
+    #[test]
+    fn the_product_cycling_keys_yield_to_text_fields() {
+        for binding in defaults() {
+            if matches!(
+                binding.action,
+                BindableAction::ProductPrev | BindableAction::ProductNext
+            ) {
+                assert!(
+                    steals_typing(binding.shortcut),
+                    "{:?} must be a plain printable key so typing wins",
+                    binding.shortcut
+                );
+            }
+        }
     }
 
     #[test]

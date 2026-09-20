@@ -508,6 +508,27 @@ pub struct MapView {
 }
 
 impl MapView {
+    /// Turn the map-pitch 3D view on or off, moving the camera to the pose that mode rests at:
+    /// pitched over for 3D, flat and north-up for 2D. One place on purpose — the 3D options panel
+    /// and `PaletteAction::ToggleMap3d` both come through here, so a pane cannot end up in 3D
+    /// with a flat camera (which renders as 2D with extra cost and reads as the toggle not
+    /// working) depending on which control was used.
+    ///
+    /// A no-op when already in the requested mode, so re-selecting the current mode does not
+    /// reset a camera angle the user set by hand.
+    pub fn set_map_3d(&mut self, on: bool) {
+        if self.map_3d.enabled == on {
+            return;
+        }
+        self.map_3d.enabled = on;
+        if on {
+            self.camera.pitch = 50.0;
+        } else {
+            self.camera.pitch = 0.0;
+            self.camera.bearing = 0.0;
+        }
+    }
+
     pub fn new(site: Option<String>, camera: crate::render::mercator::Camera) -> Self {
         Self {
             camera,
@@ -644,6 +665,45 @@ impl MapView {
 
 #[cfg(test)]
 mod tests {
+    /// Entering 3D has to pitch the camera, or the pane renders as an ordinary flat map with the
+    /// extra cost of the 3D path and simply reads as the toggle not working; leaving it has to
+    /// put the camera back flat and north-up. Both controls that reach this (the 3D options panel
+    /// and `PaletteAction::ToggleMap3d`) go through it, which is the whole point of it existing.
+    #[test]
+    fn entering_3d_pitches_the_camera_and_leaving_it_flattens_and_faces_north() {
+        let mut v = super::MapView::new(
+            None,
+            crate::render::mercator::Camera::at_lonlat(0.0, 0.0, 6.0),
+        );
+        assert!(!v.map_3d.enabled);
+
+        v.set_map_3d(true);
+        assert!(v.map_3d.enabled);
+        assert!(v.camera.pitch > 0.0, "3D must pitch the camera over");
+
+        v.camera.bearing = 42.0;
+        v.set_map_3d(false);
+        assert!(!v.map_3d.enabled);
+        assert_eq!(v.camera.pitch, 0.0);
+        assert_eq!(v.camera.bearing, 0.0, "2D is north-up");
+    }
+
+    /// Re-selecting the mode a pane is already in must not touch the camera — someone who pitched
+    /// or rotated by hand and then clicked "3D map" again should keep the angle they set.
+    #[test]
+    fn re_selecting_the_current_3d_mode_leaves_a_hand_set_camera_alone() {
+        let mut v = super::MapView::new(
+            None,
+            crate::render::mercator::Camera::at_lonlat(0.0, 0.0, 6.0),
+        );
+        v.set_map_3d(true);
+        v.camera.pitch = 12.5;
+        v.camera.bearing = 33.0;
+        v.set_map_3d(true);
+        assert_eq!(v.camera.pitch, 12.5);
+        assert_eq!(v.camera.bearing, 33.0);
+    }
+
     #[test]
     fn a_growing_live_volume_keeps_its_binned_tilts() {
         use super::tilts_only_grew;

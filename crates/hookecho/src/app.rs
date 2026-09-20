@@ -2105,6 +2105,8 @@ pub(crate) enum PaletteAction {
     ExportGis,
     /// Frame the active pane on the last GeoJSON import's own extent.
     ZoomToGis,
+    /// Switch the active pane between the flat map and the map-pitch 3D view (ROADMAP_NEW J6).
+    ToggleMap3d,
     /// Copy a `hookecho://goto/…` link to this view (site, center, zoom, archive time).
     CopyViewLink,
     /// Open Help at the glossary entry that explains a label's abbreviation. An index into
@@ -9403,6 +9405,11 @@ impl HookEchoApp {
             }
             PaletteAction::ExportGis => self.export_map_geojson(),
             PaletteAction::ZoomToGis => self.zoom_to_imported_gis(),
+            PaletteAction::ToggleMap3d => {
+                let view = &mut self.views[self.active];
+                let on = !view.map_3d.enabled;
+                view.set_map_3d(on);
+            }
             PaletteAction::OpenWindow(w) => match w {
                 W::Site => {
                     if self.site_dialog.is_none() {
@@ -11623,6 +11630,17 @@ impl HookEchoApp {
                 };
                 self.toast(ToastKind::Info, msg);
             }
+            A::ProductPrev | A::ProductNext => {
+                // Cycles `Moment::ALL` in its own declared order, which is the order the `1`-`7`
+                // keys already select in, so stepping and jumping agree about what "next" means.
+                // The pane's SRV choice is left alone: it is a way of reading velocity, not a
+                // product of its own, and stepping past velocity and back should not clear it.
+                let v = &mut self.views[self.active];
+                let n = Moment::ALL.len();
+                let at = Moment::ALL.iter().position(|m| *m == v.moment).unwrap_or(0);
+                let step = if action == A::ProductNext { 1 } else { n - 1 };
+                v.moment = Moment::ALL[(at + step) % n];
+            }
             A::FocusPrevPane | A::FocusNextPane => {
                 let n = self.views.len();
                 if n > 1 {
@@ -12676,23 +12694,19 @@ impl HookEchoApp {
                     // relying on the borrow checker's disjoint-field-capture analysis.
                     let cappi_alt_km = self.cappi_alt_km;
                     let view = &mut self.views[idx];
-                    let was_enabled = view.map_3d.enabled;
+                    // Routed through `set_map_3d` rather than toggling the flag here, so this
+                    // panel and `PaletteAction::ToggleMap3d` cannot disagree about the camera
+                    // pose each mode rests at.
+                    let mut want_3d = view.map_3d.enabled;
                     ui.horizontal(|ui| {
-                        ui.selectable_value(&mut view.map_3d.enabled, false, "2D");
-                        ui.selectable_value(&mut view.map_3d.enabled, true, "3D map");
+                        ui.selectable_value(&mut want_3d, false, "2D");
+                        ui.selectable_value(&mut want_3d, true, "3D map");
                         if view.camera.bearing.abs() > 0.1 && ui.small_button("North ↑").clicked()
                         {
                             view.camera.bearing = 0.0;
                         }
                     });
-                    if was_enabled != view.map_3d.enabled {
-                        if view.map_3d.enabled {
-                            view.camera.pitch = 50.0;
-                        } else {
-                            view.camera.pitch = 0.0;
-                            view.camera.bearing = 0.0;
-                        }
-                    }
+                    view.set_map_3d(want_3d);
                     if !view.map_3d.enabled {
                         return;
                     }

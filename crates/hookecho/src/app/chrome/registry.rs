@@ -1501,6 +1501,14 @@ impl HookEchoApp {
             None,
         );
         push(
+            "3D map view",
+            "Tools",
+            "Pitch this pane over into the map-pitch 3D view and back",
+            true,
+            PaletteAction::ToggleMap3d,
+            Some(self.views[self.active].map_3d.enabled),
+        );
+        push(
             "Zoom to imported shapes",
             "Tools",
             "Frame the map on the GeoJSON file you imported, wherever it covers",

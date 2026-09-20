@@ -8,6 +8,21 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: product cycling and a reachable 3D toggle (J6)
+
+`N` and `P` step to the next/previous radar product, wrapping — distinct from the `1`-`7` keys,
+which jump straight to one specific moment. Cycling is what's wanted with a hand on the mouse,
+stepping REF → VEL → CC across one storm. They cycle `Moment::ALL` in its own declared order, the
+same order the number keys select in, and leave the pane's SRV choice alone: that's a way of
+reading velocity, not a product of its own. Both are plain letter keys, so they yield to a focused
+text field like every other single-character shortcut.
+
+The map-pitch 3D view now has a `PaletteAction` of its own, reaching the command palette, the
+Layers drawer and a `D` shortcut — it was previously available only from a dropdown buried in the
+3D options panel. The toggle and that dropdown now share one `MapView::set_map_3d`, so they can't
+disagree about the camera pose each mode rests at (pitched for 3D, flat and north-up for 2D);
+re-selecting the mode a pane is already in leaves a hand-set camera angle alone.
+
 ### Added: imported GIS points and lines now draw, and imports frame themselves (I1)
 
 A GeoJSON import used to render only its polygons and report the rest as "not drawn yet", which
