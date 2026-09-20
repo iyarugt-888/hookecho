@@ -780,3 +780,141 @@ mod tests {
         assert_eq!((tools.on, tools.rows.len()), (0, 1));
     }
 }
+
+/// The cursor readout's rows for a point on the map, given the active radar's position: latitude
+/// and longitude, and (when there is a radar) how far and in which direction it is. Pure, so the
+/// numbers can be tested without a window.
+pub(crate) fn cursor_readout(
+    at: (f64, f64),
+    radar: Option<(f64, f64)>,
+    metric: bool,
+) -> Vec<(&'static str, String)> {
+    let (lon, lat) = at;
+    let mut rows = vec![
+        ("Lat", format!("{lat:.2}")),
+        ("Lon", format!("{lon:.2}")),
+    ];
+    if let Some((rlon, rlat)) = radar {
+        let (km, bearing) = crate::geo::great_circle([rlon, rlat], [lon, lat]);
+        rows.push(("Range", crate::geo::fmt_distance(km, metric, 1)));
+        rows.push(("Az", format!("{:.1}\u{b0}", bearing.rem_euclid(360.0))));
+    }
+    rows
+}
+
+impl HookEchoApp {
+    /// The map's own tool strip and a cursor readout, over its top-left corner: the mockup's
+    /// vertical strip of tools beside the map. Every button arms a tool through the palette action,
+    /// so it is the same tool the ribbon and the phone rail arm.
+    pub(crate) fn dock_map_overlay(&mut self, ctx: &egui::Context) {
+        use crate::app::PaletteAction as A;
+        use egui_phosphor::regular as ph;
+        if !self.dock.left_open && !self.dock.right_open && !self.dock.timeline_open {
+            // A fully undocked map is the "hide everything" view; leave it clean.
+            return;
+        }
+        let cam = self.views[self.active].camera;
+        let map_rect = self.chrome_rect;
+        let single = self.views.len() == 1;
+        let radar = self.views[self.active]
+            .site
+            .as_deref()
+            .and_then(wxdata::sites::site_by_id)
+            .map(|s| (f64::from(s.longitude), f64::from(s.latitude)));
+        let metric = self.metric_in(self.active);
+        let mouse = ctx
+            .input(|i| i.pointer.hover_pos())
+            .filter(|p| map_rect.contains(*p) && single)
+            .map(|p| {
+                let w = cam.screen_to_world(
+                    (p.x - map_rect.left(), p.y - map_rect.top()),
+                    self.last_viewport,
+                );
+                crate::render::mercator::world_to_lonlat(w.0, w.1)
+            });
+        let armed = self.tool;
+        let mut pick = None;
+        egui::Area::new(egui::Id::new("dock_map_overlay"))
+            .constrain_to(map_rect)
+            .anchor(egui::Align2::LEFT_TOP, egui::vec2(map_rect.left() + 8.0, map_rect.top() + 8.0))
+            .show(ctx, |ui| {
+                ui.spacing_mut().item_spacing.y = 4.0;
+                if let Some(at) = mouse {
+                    egui::Frame::NONE
+                        .fill(Color32::from_rgba_unmultiplied(11, 16, 24, 225))
+                        .stroke(Stroke::new(1.0, BORDER))
+                        .inner_margin(egui::Margin::same(6))
+                        .show(ui, |ui| {
+                            for (k, v) in cursor_readout(at, radar, metric) {
+                                ui.label(mono(format!("{k:<6}{v}"), 11.0, TEXT));
+                            }
+                        });
+                }
+                egui::Frame::NONE
+                    .fill(Color32::from_rgba_unmultiplied(11, 16, 24, 225))
+                    .stroke(Stroke::new(1.0, BORDER))
+                    .inner_margin(egui::Margin::same(3))
+                    .show(ui, |ui| {
+                        let tools = [
+                            (MapTool::Interrogate, ph::CURSOR, "Explore the map"),
+                            (MapTool::GateInspector, ph::CROSSHAIR, "Inspect a radar gate"),
+                            (MapTool::Measure, ph::RULER, "Measure distance"),
+                            (MapTool::CrossSection, ph::CHART_LINE_UP, "Cross-section"),
+                            (MapTool::Sounding, ph::THERMOMETER, "Sounding"),
+                            (MapTool::Marker, ph::MAP_PIN, "Drop a marker"),
+                            (MapTool::AlertZone, ph::WARNING, "Draw a watch zone"),
+                            (MapTool::Draw, ph::PENCIL_SIMPLE, "Draw on the map"),
+                        ];
+                        for (tool, glyph, name) in tools {
+                            let on = armed == tool;
+                            let b = ui
+                                .add(
+                                    egui::Button::new(RichText::new(glyph).size(17.0).color(TEXT))
+                                        .min_size(egui::vec2(32.0, 32.0))
+                                        .fill(if on { SELECT } else { Color32::TRANSPARENT })
+                                        .stroke(Stroke::new(1.0, if on { TAB_ON } else { Color32::TRANSPARENT }))
+                                        .corner_radius(2.0),
+                                )
+                                .on_hover_text(name)
+                                .named_toggle(name, on);
+                            if b.clicked() {
+                                pick = Some(tool);
+                            }
+                        }
+                    });
+            });
+        if let Some(t) = pick {
+            self.apply_palette(A::Tool(t), ctx);
+        }
+    }
+}
+
+#[cfg(test)]
+mod overlay_tests {
+    use super::cursor_readout;
+
+    #[test]
+    fn the_readout_gives_position_and_the_radars_range_and_bearing() {
+        // Due east of the radar, one degree of longitude at 35 N: about 91 km.
+        let rows = cursor_readout((-96.0, 35.0), Some((-97.0, 35.0)), true);
+        let get = |k: &str| rows.iter().find(|r| r.0 == k).map(|r| r.1.clone()).unwrap();
+        assert_eq!(get("Lat"), "35.00");
+        assert_eq!(get("Lon"), "-96.00");
+        let km: f64 = get("Range").trim_end_matches(" km").parse().unwrap();
+        assert!((km - 91.0).abs() < 2.0, "{km}");
+        let az: f64 = get("Az").trim_end_matches('\u{b0}').parse().unwrap();
+        assert!((az - 90.0).abs() < 1.0, "{az}");
+    }
+
+    #[test]
+    fn without_a_radar_there_is_no_range_or_bearing_to_invent() {
+        let rows = cursor_readout((-96.0, 35.0), None, true);
+        assert_eq!(rows.len(), 2);
+    }
+
+    #[test]
+    fn the_range_follows_the_units_setting() {
+        let miles = cursor_readout((-96.0, 35.0), Some((-97.0, 35.0)), false);
+        assert!(miles.iter().any(|r| r.0 == "Range" && r.1.ends_with(" mi")), "{miles:?}");
+    }
+}

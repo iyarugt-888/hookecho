@@ -21,7 +21,7 @@ use crate::overlay_build;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::perf::PerfReadout;
 use crate::render::{
-    mercator::Camera, MapCallback, ObservedGateInstance, ObservedSweepUpload, OverlayUpload,
+    mercator::Camera, MapCallback, ObservedRadialInstance, ObservedSweepLayer, ObservedSweepUpload, OverlayUpload,
     RadarUpload, RenderResources,
 };
 use crate::settings::Settings;
@@ -120,6 +120,19 @@ fn first_url(text: &str) -> Option<String> {
 /// resolve a hail core, small enough to resample in about a second.
 const VOL3D_N: usize = 192;
 const VOL3D_NZ: usize = 48;
+/// Smallest 3D texture edge a device must support for 3D at all (the standalone window's grid).
+const VOL3D_MIN_DIM: usize = VOL3D_N;
+/// The on-map Smooth volume aims for the radar's native 0.25 km gate spacing, then shrinks to fit
+/// this many voxels (two bytes each) and the device's 3D texture limit; see
+/// `wxdata::volume3d::plan_grid`.
+const SMOOTH_TARGET_CELL_KM: f32 = 0.25;
+const SMOOTH_MAX_VOXELS: usize = if cfg!(target_os = "android") {
+    10_000_000
+} else if cfg!(target_arch = "wasm32") {
+    12_000_000
+} else {
+    40_000_000
+};
 /// Top of the 3D volume's vertical span (km), same "beam height above the radar" unit as the
 /// CAPPI window's altitude slider — shared so the 3D view's CAPPI reference plane (Phase H4) can
 /// place itself without guessing what the volume it's drawn against actually covers.
@@ -3872,7 +3885,12 @@ pub struct HookEchoApp {
     /// the small geometry facts (`n, nz, half_km, top_km`) of whatever is currently GPU-resident,
     /// kept separately from the (heavy) upload so the frames between rebuilds don't need the
     /// tens-of-MB volume held twice just to recompute the camera uniform.
-    smooth_vol_key: [Option<(String, u64, Moment)>; crate::view::MAX_PANES],
+    smooth_vol_key: [Option<(String, u64, Moment, bool)>; crate::view::MAX_PANES],
+    /// `(horizontal cell km, share of echo outside the box)` of each pane's resident Smooth volume,
+    /// for the readout under the representation buttons.
+    smooth_vol_info: [Option<(f32, f32)>; crate::view::MAX_PANES],
+    /// The device's 3D texture edge limit, which caps the Smooth grid.
+    vol3d_max_dim: usize,
     #[allow(clippy::type_complexity)]
     smooth_vol_rx: [Option<std::sync::mpsc::Receiver<crate::render3d::Volume3dUpload>>;
         crate::view::MAX_PANES],
@@ -4368,7 +4386,8 @@ impl HookEchoApp {
         // runtime fact, not a compile-time one. A desktop GL driver old enough to say no gets the
         // same honest answer instead of an empty window.
         let volume3d_supported =
-            render_state.device.limits().max_texture_dimension_3d as usize >= VOL3D_N;
+            render_state.device.limits().max_texture_dimension_3d as usize >= VOL3D_MIN_DIM;
+        let vol3d_max_dim = render_state.device.limits().max_texture_dimension_3d as usize;
         {
             // Shaders and pipelines are compiled here, synchronously, before the first paint —
             // the suspected dominant term in a cold launch. Timed so the guess is a number.
@@ -4995,6 +5014,8 @@ impl HookEchoApp {
             // `[None; MAX_PANES]` needs `Option<T>: Copy`, which a
             // `Receiver`/`Volume3dUpload` inside it is not; `from_fn` avoids that requirement.
             smooth_vol_key: std::array::from_fn(|_| None),
+            smooth_vol_info: std::array::from_fn(|_| None),
+            vol3d_max_dim,
             smooth_vol_rx: std::array::from_fn(|_| None),
             smooth_vol_pending: std::array::from_fn(|_| None),
             smooth_vol_dims: std::array::from_fn(|_| None),
@@ -6754,12 +6775,13 @@ impl HookEchoApp {
                     crate::colormap::bake_lut(&table, (v3.value_min, v3.value_max), None).to_vec();
                 Some((
                     crate::render3d::Volume3dUpload {
-                        data: v3.data,
+                        data: crate::render3d::pack_rg8(&v3.data),
                         n: v3.n as u32,
                         nz: v3.nz as u32,
                         lut,
                         half_km: v3.half_km,
                         top_km: v3.top_km,
+                        outside: 0.0,
                     },
                     (v3.value_min, v3.value_max),
                 ))
@@ -13097,7 +13119,6 @@ impl HookEchoApp {
                 (e * per_ms, n * per_ms, 1.0f32)
             })
             .unwrap_or((0.0, 0.0, 0.0));
-        let fill_gaps = self.views[idx].map_3d.fill_gaps;
         // -inf in an unused slot reads as "nothing here" on the shader side (`> -900.0` is false
         // for it) and is exact under `.to_bits()` round-tripping, unlike NaN's multiple bit
         // patterns. Only the first `selected_layer_elevs.len()` slots are ever real; the UI caps
@@ -13109,7 +13130,7 @@ impl HookEchoApp {
         {
             *slot = *elev;
         }
-        let mut controls = [0u32; 13 + MAX_HIGHLIGHTED_LAYERS];
+        let mut controls = [0u32; 12 + MAX_HIGHLIGHTED_LAYERS];
         controls[0] = self.views[idx].map_3d.vertical_exaggeration.to_bits();
         controls[1] = self.views[idx].map_3d.opacity.to_bits();
         controls[2] = threshold_idx.to_bits();
@@ -13119,17 +13140,16 @@ impl HookEchoApp {
         // Rebuild when the volume gains a sweep (live chunk stream) so every available tilt
         // is in the buffer, not just the ones present when 3D was first enabled.
         controls[6] = scan.sweeps().len() as u32;
-        controls[7] = fill_gaps as u32;
         // The uniform only reaches the GPU alongside a fresh instance buffer, so anything that
         // lives in it has to be part of the rebuild identity or moving the control silently does
         // nothing. That is why `threshold_idx` and friends are already here, why the CC ramp has
         // to join them, and why `beam_rise` — which rides in the uniform slot the lowest-tilt
         // elevation vacated — does too.
-        controls[8] = self.views[idx].map_3d.beam_rise.to_bits();
-        for (slot, v) in controls[9..13].iter_mut().zip(cc.iter()) {
+        controls[7] = self.views[idx].map_3d.beam_rise.to_bits();
+        for (slot, v) in controls[8..12].iter_mut().zip(cc.iter()) {
             *slot = v.to_bits();
         }
-        for (slot, elev) in controls[13..].iter_mut().zip(highlight_elevs.iter()) {
+        for (slot, elev) in controls[12..].iter_mut().zip(highlight_elevs.iter()) {
             *slot = elev.to_bits();
         }
         let palette_gen = self.palettes.gen.wrapping_add(
@@ -13143,21 +13163,18 @@ impl HookEchoApp {
             name,
             self.views[data].live_scan_revision,
             moment,
-            self.views[idx].map_3d.gate_stride,
             palette_gen,
             controls,
         );
         if self.views[idx].map_3d.observed_key.as_ref() == Some(&key) {
             return (None, true);
         }
-        let observed = match level2::observed_gates(
-            &scan,
-            moment,
-            self.views[idx].map_3d.gate_stride,
-            self.views[idx].map_3d.instance_budget,
-            fill_gaps,
-        ) {
-            Ok(gates) => gates,
+        // Full native resolution: every gate of every radial goes to the GPU as a texel, and the
+        // shader draws each radial as a strip on its own beam surface. `max_texture_dim` is only
+        // a ceiling; a sweep wider than it is max-pooled and reported, never silently thinned.
+        let observed = match level2::observed_volume(&scan, moment, self.max_texture_dim as usize)
+        {
+            Ok(volume) => volume,
             Err(err) => {
                 self.views[idx].error = Some(err.to_string());
                 return (None, false);
@@ -13181,42 +13198,50 @@ impl HookEchoApp {
             .unwrap_or(0.0) as f32;
         let table = crate::colormap::effective_table(&self.palettes, moment, self.settings.theme);
         let lut = crate::colormap::bake_lut(&table, (value_min, value_max), None).to_vec();
-        let instances = observed
-            .gates
-            .iter()
-            .map(|gate| ObservedGateInstance {
-                polar: [
-                    gate.azimuth_deg,
-                    gate.beam_width_deg,
-                    gate.slant_start_km,
-                    gate.slant_span_km,
-                ],
-                data: [
-                    gate.elevation_deg,
-                    gate.value_index as f32,
-                    gate.gate as f32,
-                    0.0,
-                ],
-            })
-            .collect();
         #[cfg(debug_assertions)]
         log::debug!(
-            "3D observed {}: {} sweeps, {} radials, {} instances, stride {}",
+            "3D observed {}: {} sweeps, {} radials, {} layers, pooled {:?}",
             moment.short_name(),
             observed.sweep_count,
             observed.radial_count,
-            observed.gates.len(),
-            observed.gate_stride
+            observed.sweeps.len(),
+            observed.sweeps.iter().map(|s| s.pool).max()
         );
+        let (radar_lat, radar_lon) = (observed.radar_lat, observed.radar_lon);
+        let mut instances = Vec::with_capacity(observed.radial_count);
+        let mut layers = Vec::with_capacity(observed.sweeps.len());
+        for (layer, sweep) in observed.sweeps.into_iter().enumerate() {
+            for (row, r) in sweep.radials.iter().enumerate() {
+                instances.push(ObservedRadialInstance {
+                    polar: [
+                        r.azimuth_deg,
+                        r.spacing_deg,
+                        r.first_gate_km,
+                        r.gate_interval_km,
+                    ],
+                    data: [
+                        r.elevation_deg,
+                        layer as f32,
+                        row as f32,
+                        r.gate_count as f32,
+                    ],
+                });
+            }
+            layers.push(ObservedSweepLayer {
+                width: sweep.width as u32,
+                rows: sweep.radials.len() as u32,
+                values: sweep.values,
+            });
+        }
         let uniform = observed_uniform(
             [
-                observed.radar_lat,
-                observed.radar_lon,
+                radar_lat,
+                radar_lon,
                 antenna_altitude_m,
                 self.views[idx].map_3d.vertical_exaggeration,
                 self.views[idx].map_3d.opacity,
                 threshold_idx,
-                Camera::world_units_per_metre(observed.radar_lat as f64) as f32,
+                Camera::world_units_per_metre(radar_lat as f64) as f32,
                 srv,
                 motion_e,
                 motion_n,
@@ -13232,6 +13257,7 @@ impl HookEchoApp {
         (
             Some(ObservedSweepUpload {
                 instances,
+                layers,
                 uniform,
                 lut,
             }),
@@ -13293,6 +13319,7 @@ impl HookEchoApp {
             match rx.try_recv() {
                 Ok(up) => {
                     self.smooth_vol_dims[idx] = Some((up.n, up.nz, up.half_km, up.top_km));
+                    self.smooth_vol_info[idx] = Some((up.cell_km(), up.outside));
                     self.smooth_vol_pending[idx] = Some(up);
                     self.smooth_vol_rx[idx] = None;
                     ctx.request_repaint();
@@ -13312,7 +13339,8 @@ impl HookEchoApp {
         if self.smooth_vol_rx[idx].is_none() {
             let live_scan_revision = self.views[data].live_scan_revision;
             if let Some(vol) = self.views[data].volume.as_mut() {
-                let key = (vol.name.clone(), live_scan_revision, resample_moment);
+                let full_range = state.smooth_full_range;
+                let key = (vol.name.clone(), live_scan_revision, resample_moment, full_range);
                 if self.smooth_vol_key[idx].as_ref() != Some(&key) {
                     let sweeps = vol.moment_tilts(resample_moment);
                     if !sweeps.is_empty() {
@@ -13322,6 +13350,7 @@ impl HookEchoApp {
                             resample_moment,
                             self.settings.theme,
                         );
+                        let max_dim = self.vol3d_max_dim;
                         let (tx, rx) = std::sync::mpsc::channel();
                         self.smooth_vol_rx[idx] = Some(rx);
                         self.spawner.spawn(async move {
@@ -13329,12 +13358,27 @@ impl HookEchoApp {
                                 // See `build_volume3d`'s matching comment: derive the volume's
                                 // horizontal extent from what this scan actually sampled instead
                                 // of a fixed radius that clipped far storms out of the volume.
-                                let half_km =
+                                let full_km =
                                     wxdata::volume3d::max_sample_range_km(&sweeps).max(50.0);
+                                // Crop the box to where the echo is (and say how much that
+                                // leaves out) unless the user asked for every gate.
+                                let (half_km, outside) = if full_range {
+                                    (full_km, 0.0)
+                                } else {
+                                    let e = wxdata::volume3d::echo_extent_km(&sweeps, full_km);
+                                    (e.half_km, e.outside as f32)
+                                };
+                                let (n, nz) = wxdata::volume3d::plan_grid(
+                                    half_km,
+                                    VOL3D_TOP_KM,
+                                    SMOOTH_TARGET_CELL_KM,
+                                    SMOOTH_MAX_VOXELS,
+                                    max_dim,
+                                );
                                 let mut v3 = wxdata::volume3d::build(
                                     &sweeps,
-                                    VOL3D_N,
-                                    VOL3D_NZ,
+                                    n,
+                                    nz,
                                     half_km,
                                     VOL3D_TOP_KM,
                                 )?;
@@ -13350,12 +13394,13 @@ impl HookEchoApp {
                                     lut = crate::colormap::invert_lut(lut);
                                 }
                                 Some(crate::render3d::Volume3dUpload {
-                                    data: v3.data,
+                                    data: crate::render3d::pack_rg8(&v3.data),
                                     n: v3.n as u32,
                                     nz: v3.nz as u32,
                                     lut: lut.to_vec(),
                                     half_km: v3.half_km,
                                     top_km: v3.top_km,
+                                    outside,
                                 })
                             })
                             .await
@@ -13386,6 +13431,7 @@ impl HookEchoApp {
             lut: Vec::new(),
             half_km,
             top_km,
+            outside: 0.0,
         };
         // Denoising a plain "high is interesting" field makes sense for reflectivity and spectrum
         // width; `SmoothDebris`'s inverted-CC volume is the opposite sense (low is interesting)
@@ -13425,7 +13471,10 @@ impl HookEchoApp {
             state.quality_steps.min(64)
         } else {
             state.quality_steps
-        };
+        }
+        // The march takes about one sample per cell (`map_uniform`), so this is a ceiling, not
+        // the count: the grid is now far finer than the old fixed 64-128 steps could cover.
+        * 4;
         let uniform = crate::render3d::map_uniform(
             cam,
             vp,
@@ -13449,6 +13498,7 @@ impl HookEchoApp {
             return;
         }
         let volume_supported = self.volume3d_supported;
+        let smooth_info = self.smooth_vol_info[idx];
         let moment = self.views[idx].moment;
         // On a phone the desktop's spot (276 pt in from the right edge) is where the search pill and
         // the hide-chrome eye live, so the window opened on top of both. Start it in the lane
@@ -13604,12 +13654,6 @@ impl HookEchoApp {
                              largest — or take it to 0% to lay the sweeps flat like the 2D view. \
                              100% is true beam geometry.",
                         );
-                        ui.horizontal(|ui| {
-                            ui.label("Gates");
-                            for (label, stride) in [("Full", 1), ("½", 2), ("¼", 4)] {
-                                ui.selectable_value(&mut view.map_3d.gate_stride, stride, label);
-                            }
-                        });
                         if moment == Moment::CorrelationCoefficient {
                             // CC gets the anomaly ramp instead of a floor — see `CcAnomaly`.
                             // The pane's 2D threshold is untouched and still editable under
@@ -13646,12 +13690,6 @@ impl HookEchoApp {
                                 }
                             });
                         }
-                        ui.checkbox(&mut view.map_3d.fill_gaps, "Fill gaps")
-                            .on_hover_text(
-                                "Add a copy of each gate at the midpoint toward the next tilt \
-                                 up, so the stack reads as one continuous volume instead of \
-                                 separated rings",
-                            );
                         if moment == Moment::SpecificDifferentialPhase {
                             ui.weak("KDP is derived; shown on the map plane.");
                         }
@@ -13765,6 +13803,27 @@ impl HookEchoApp {
                         }
                     } else {
                         ui.weak("Vertical and Opacity above shape the resampled volume.");
+                        if matches!(
+                            view.map_3d.representation,
+                            Map3dRepresentation::SmoothVolume
+                                | Map3dRepresentation::SmoothDebris
+                                | Map3dRepresentation::SmoothSpectrumWidth
+                        ) {
+                            ui.checkbox(&mut view.map_3d.smooth_full_range, "Full range")
+                                .on_hover_text(
+                                    "Off: the volume is cropped to the range holding 99% of \n                                     the echo, which keeps its cells small. On: everything the \n                                     radar reported, with coarser cells.",
+                                );
+                            if let Some((cell_km, outside)) = smooth_info {
+                                let mut line = format!("{cell_km:.2} km cells");
+                                if outside > 0.0005 {
+                                    line.push_str(&format!(
+                                        " · {:.1}% of echo outside the box",
+                                        outside * 100.0
+                                    ));
+                                }
+                                ui.weak(line);
+                            }
+                        }
                         if view.map_3d.representation == Map3dRepresentation::SmoothDebris {
                             map_3d_cc_anomaly_controls(ui, &mut view.map_3d.cc_anomaly);
                         }
@@ -21282,6 +21341,9 @@ impl eframe::App for HookEchoApp {
                 }
                 if wsv3_layout {
                     self.wsv3_timestamp(ctx);
+                }
+                if dock_layout {
+                    self.dock_map_overlay(ctx);
                 }
                 if !dock_layout {
                     self.scrubber(ctx);

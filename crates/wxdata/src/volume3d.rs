@@ -82,6 +82,97 @@ fn farthest_gate_ending_a_run(row: &[u8], min_run: usize) -> Option<usize> {
     None
 }
 
+/// Share of the echo the auto-cropped box must contain. The rest is reported, not silently lost.
+pub const ECHO_COVERAGE: f64 = 0.99;
+
+/// How far the box extends and how much echo that leaves outside it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Extent {
+    pub half_km: f32,
+    /// Fraction of all echo gates (0..=1) beyond `half_km`, i.e. not in the volume.
+    pub outside: f64,
+}
+
+/// Ground range holding [`ECHO_COVERAGE`] of the echo gates in `sweeps`, rounded up to 25 km and
+/// floored at 50 km, never beyond `full_km` (normally [`max_sample_range_km`]).
+///
+/// [`max_sample_range_km`] only asks for a 1.5 km contiguous run, which AP and clutter satisfy,
+/// so a few percent of far speckle stretched the box (and every cell in it) 2-3x. This weighs by
+/// how much echo is actually there instead, and reports what it leaves out.
+pub fn echo_extent_km(sweeps: &[BinnedSweep], full_km: f32) -> Extent {
+    const BIN_KM: f32 = 5.0;
+    let full_km = full_km.max(50.0);
+    let bins = (full_km / BIN_KM).ceil() as usize + 2;
+    let mut hist = vec![0u64; bins];
+    let mut total = 0u64;
+    for s in sweeps {
+        if s.gate_count == 0 {
+            continue;
+        }
+        let cos_e = s.elevation_deg.to_radians().cos().max(0.05);
+        for row in s.data.chunks_exact(s.gate_count) {
+            for (g, &v) in row.iter().enumerate() {
+                if v >= 2 {
+                    let ground = (s.first_gate_km + (g as f32 + 0.5) * s.gate_interval_km) * cos_e;
+                    let b = ((ground / BIN_KM) as usize).min(bins - 1);
+                    hist[b] += 1;
+                    total += 1;
+                }
+            }
+        }
+    }
+    if total == 0 {
+        return Extent {
+            half_km: 50.0f32.min(full_km),
+            outside: 0.0,
+        };
+    }
+    let want = (total as f64 * ECHO_COVERAGE).ceil() as u64;
+    let (mut acc, mut edge_km) = (0u64, BIN_KM);
+    for (b, &c) in hist.iter().enumerate() {
+        acc += c;
+        edge_km = (b + 1) as f32 * BIN_KM;
+        if acc >= want {
+            break;
+        }
+    }
+    let half_km = ((edge_km / 25.0).ceil() * 25.0).clamp(50.0, full_km);
+    let inside: u64 = hist
+        .iter()
+        .enumerate()
+        .filter(|(b, _)| ((*b + 1) as f32 * BIN_KM) <= half_km)
+        .map(|(_, &c)| c)
+        .sum();
+    Extent {
+        half_km,
+        outside: 1.0 - inside as f64 / total as f64,
+    }
+}
+
+/// Grid size for a box: `(n, nz)`. Aims for `target_cell_km` horizontally (the native gate
+/// spacing), 250 m vertically, then shrinks to fit `max_voxels` and the device's 3D texture
+/// limit `max_dim`. Never below 64 x 64 x 16.
+pub fn plan_grid(
+    half_km: f32,
+    top_km: f32,
+    target_cell_km: f32,
+    max_voxels: usize,
+    max_dim: usize,
+) -> (usize, usize) {
+    let max_dim = max_dim.max(64);
+    let nz_want = ((top_km / 0.25).ceil() as usize + 1).clamp(16, 96);
+    let n_want = ((2.0 * half_km / target_cell_km.max(0.01)).ceil() as usize + 1).max(64);
+    let mut nz = nz_want.min(max_dim);
+    let mut n = n_want.min(max_dim);
+    if n * n * nz > max_voxels {
+        // Horizontal detail is what the data has, so trade vertical levels away first.
+        nz = nz.min(48).max(16);
+        n = ((max_voxels / nz) as f64).sqrt() as usize;
+        n = n.clamp(64, max_dim);
+    }
+    (n, nz)
+}
+
 /// Build an `n × n × nz` reflectivity volume out to `half_km` horizontally and `top_km` up.
 /// Returns `None` if there are no sweeps.
 pub fn build(
@@ -96,9 +187,12 @@ pub fn build(
     let span = (value_max - value_min).max(f32::EPSILON);
     let n = n.max(2);
     let nz = nz.max(2);
-    let mut data = vec![0u8; n * n * nz];
 
-    for j in 0..n {
+    // One row of the grid (fixed `j`), laid out `k * n + i` so a row is a run of `nz` contiguous
+    // x-spans that copy straight into the volume. Rows are independent, which is what lets the
+    // native build spread them across threads.
+    let row = |j: usize| -> Vec<u8> {
+        let mut out = vec![0u8; n * nz];
         let y = -half_km as f64 + 2.0 * half_km as f64 * j as f64 / (n - 1) as f64;
         for i in 0..n {
             let x = -half_km as f64 + 2.0 * half_km as f64 * i as f64 / (n - 1) as f64;
@@ -137,9 +231,27 @@ pub fn build(
                 let z = top_km as f64 * k as f64 / (nz - 1) as f64;
                 if let (Some(v), _) = sample_profile(&samples, z) {
                     let t = ((v - value_min) / span).clamp(0.0, 1.0);
-                    data[i + n * j + n * n * k] = 2 + (t * 253.0) as u8;
+                    out[k * n + i] = 2 + (t * 253.0) as u8;
                 }
             }
+        }
+        out
+    };
+
+    // A column solve per cell: worth every thread on native. wasm has none.
+    #[cfg(not(target_arch = "wasm32"))]
+    let rows: Vec<Vec<u8>> = {
+        use rayon::prelude::*;
+        (0..n).into_par_iter().map(row).collect()
+    };
+    #[cfg(target_arch = "wasm32")]
+    let rows: Vec<Vec<u8>> = (0..n).map(row).collect();
+
+    let mut data = vec![0u8; n * n * nz];
+    for (j, r) in rows.iter().enumerate() {
+        for k in 0..nz {
+            let dst = n * j + n * n * k;
+            data[dst..dst + n].copy_from_slice(&r[k * n..(k + 1) * n]);
         }
     }
 
@@ -269,6 +381,56 @@ pub fn clip_around(half_km: f32, dx_km: f32, dy_km: f32, pad_km: f32) -> [f32; 6
 mod tests {
     use super::*;
     use crate::level2::{BinnedSweep, Moment};
+
+    #[test]
+    fn extent_ignores_a_thin_far_speckle_and_reports_it() {
+        // 0.25 km gates: dense echo out to 100 km, plus a few far gates at ~300 km.
+        let (az_bins, gate_count) = (360usize, 1300usize);
+        let mut data = vec![0u8; az_bins * gate_count];
+        for bin in 0..az_bins {
+            for g in 0..400 {
+                data[bin * gate_count + g] = 100;
+            }
+        }
+        for g in 1180..1190 {
+            data[10 * gate_count + g] = 100;
+        }
+        let s = BinnedSweep {
+            az_bins,
+            gate_count,
+            data,
+            first_gate_km: 0.0,
+            gate_interval_km: 0.25,
+            elevation_deg: 0.0,
+            ..Default::default()
+        };
+        let e = echo_extent_km(&[s], 350.0);
+        assert_eq!(e.half_km, 100.0);
+        assert!(e.outside > 0.0 && e.outside < 0.005, "{e:?}");
+    }
+
+    #[test]
+    fn plan_grid_respects_budget_and_device_limit() {
+        let (n, nz) = plan_grid(150.0, 18.0, 0.25, 40_000_000, 2048);
+        assert!(n * n * nz <= 40_000_000);
+        assert!(n > 500);
+        let (n, _) = plan_grid(150.0, 18.0, 0.25, 400_000_000, 256);
+        assert_eq!(n, 256);
+        // A small box reaches native spacing.
+        let (n, _) = plan_grid(50.0, 18.0, 0.25, 40_000_000, 2048);
+        assert_eq!(n, 401);
+    }
+
+    #[test]
+    fn build_places_echo_where_the_sweep_has_it() {
+        let v = build(&[sweep(0.5)], 96, 12, 100.0, 10.0).unwrap();
+        // East of the radar (x > 0, y ~ 0) at ~50 km carries echo; due west does not.
+        let (j, k) = (48usize, 0usize);
+        let east = v.data[(48 + 24) + 96 * j + 96 * 96 * k];
+        let west = v.data[(48 - 24) + 96 * j + 96 * 96 * k];
+        assert!(east >= 2, "east {east}");
+        assert_eq!(west, 0);
+    }
 
     /// A synthetic single-tilt sweep with one hot gate at a known azimuth/range.
     fn sweep(elev: f32) -> BinnedSweep {

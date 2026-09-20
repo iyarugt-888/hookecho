@@ -43,7 +43,11 @@ struct Uniforms {
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
-@group(0) @binding(1) var vol: texture_3d<u32>;
+// Rg8Unorm: R = value index (0 where empty), G = 1.0 where a real value exists. Filtering both at
+// once lets the value be divided by its own coverage, so interpolation only ever blends real
+// voxels and empty space never drags an echo edge toward a fake weak value.
+@group(0) @binding(1) var vol: texture_3d<f32>;
+@group(0) @binding(3) var vol_samp: sampler;
 @group(0) @binding(2) var lut: texture_2d<f32>;
 
 struct VsOut {
@@ -102,7 +106,13 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         }
     }
 
-    let steps = i32(u.dims.w);
+    let steps_cap = i32(u.dims.w);
+    // ctl.z is the world-space cell size when the caller wants one sample per cell (the map's
+    // high-res volume); 0.0 keeps the fixed count. Either way `steps_cap` bounds the cost.
+    var steps = steps_cap;
+    if (u.ctl.z > 0.0) {
+        steps = clamp(i32(ceil((tmax - tmin) / u.ctl.z)), 1, steps_cap);
+    }
     // Voxel lookup always uses the full box: slicing must not restretch the texture.
     let span = full_span;
     let dims = vec3<f32>(u.dims.x, u.dims.y, u.dims.z);
@@ -126,9 +136,14 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
             u.plane_slab.x > 0.0,
         );
         if (!clipped_by_plane) {
-            let uvw = (pos - u.box_min.xyz) / span;
-            let voxel = vec3<i32>(clamp(uvw * dims, vec3<f32>(0.0), dims - 1.0));
-            let idx = textureLoad(vol, voxel, 0).r;
+            // Texel centres sit at (i + 0.5) / n, while the CPU grid puts sample i at i / (n - 1)
+            // across the box, so remap before filtering.
+            let uvw = ((pos - u.box_min.xyz) / span * (dims - 1.0) + 0.5) / dims;
+            let samp = textureSampleLevel(vol, vol_samp, uvw, 0.0);
+            var idx = 0u;
+            if (samp.g > 0.5) {
+                idx = u32(round(samp.r * 255.0 / samp.g));
+            }
             if (idx >= floor_idx && idx > max_idx) {
                 max_idx = idx;
             }

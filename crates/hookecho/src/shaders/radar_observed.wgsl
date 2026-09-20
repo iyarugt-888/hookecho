@@ -1,5 +1,9 @@
-// Instanced observed Level II gates in geographic 3D. Each instance is one real gate; the six
-// generated vertices make its azimuth/range footprint. Camera motion changes only group 0.
+// Observed Level II data in geographic 3D. One instance is one measured *radial*: a strip of
+// `SEGMENTS` segments laid along that radial's own beam-centre surface (`beam_world`). Every gate
+// value comes from the sweep texture, sampled nearest-gate in the fragment shader, so each pixel
+// of the strip shows exactly one recorded gate at the radar's native range and azimuth
+// resolution. Nothing is interpolated between gates, radials or tilts. Camera motion changes only
+// group 0.
 
 const PI: f32 = 3.14159265358979;
 const EARTH_RADIUS_M: f32 = 6371000.0;
@@ -92,17 +96,27 @@ fn is_highlighted(elevation_deg: f32) -> bool {
 @group(0) @binding(0) var<uniform> camera: Camera;
 @group(1) @binding(0) var<uniform> radar: Radar3d;
 @group(1) @binding(1) var lut_tex: texture_2d<f32>;
+// Raw gate values, one array layer per sweep: x = gate, y = radial row. 0 no data, 1 range-folded,
+// 2..=255 a value (same encoding as the 2D sweep texture).
+@group(1) @binding(2) var gate_tex: texture_2d_array<u32>;
 
-struct Gate {
-    @location(0) polar: vec4<f32>, // azimuth, beam width, slant start, slant span (km)
-    @location(1) data: vec4<f32>,  // elevation, palette index, original gate number, spare
+// Must match `OBSERVED_SEGMENTS` in render/mod.rs.
+const SEGMENTS: u32 = 64u;
+
+struct Radial {
+    @location(0) polar: vec4<f32>, // azimuth, beam width (deg), first gate (km), gate interval (km)
+    @location(1) data: vec4<f32>,  // elevation (deg), layer, row, gate count
 };
 
 struct VsOut {
     @builtin(position) clip: vec4<f32>,
-    @location(0) @interpolate(flat) value_idx: f32,
-    @location(1) @interpolate(flat) azimuth: f32,
-    @location(2) @interpolate(flat) elevation: f32,
+    @location(0) @interpolate(flat) azimuth: f32,
+    @location(1) @interpolate(flat) elevation: f32,
+    @location(2) @interpolate(flat) layer: f32,
+    @location(3) @interpolate(flat) row: f32,
+    @location(4) @interpolate(flat) gate_count: f32,
+    // Position along the radial in gates: 0 at the near edge of gate 0, gate_count at the far edge.
+    @location(5) gate_f: f32,
 };
 
 // 4/3-earth beam height above the radar (m) at slant range `r` (m) and elevation `e` (rad).
@@ -172,24 +186,33 @@ fn beam_world(azimuth_deg: f32, slant_km: f32, elevation_deg: f32) -> vec3<f32> 
 }
 
 @vertex
-fn vs_main(@builtin(vertex_index) vertex: u32, gate: Gate) -> VsOut {
-    let corner = array<vec2<f32>, 6>(
-        vec2<f32>(-0.5, 0.0), vec2<f32>(0.5, 0.0), vec2<f32>(0.5, 1.0),
-        vec2<f32>(-0.5, 0.0), vec2<f32>(0.5, 1.0), vec2<f32>(-0.5, 1.0),
-    )[vertex];
-    let az = gate.polar.x + corner.x * gate.polar.y;
-    let range = gate.polar.z + corner.y * gate.polar.w;
+fn vs_main(@builtin(vertex_index) vertex: u32, radial: Radial) -> VsOut {
+    // Triangle strip: vertex pairs (az - w/2, az + w/2) at each of SEGMENTS + 1 slant ranges.
+    let seg = vertex / 2u;
+    let side = f32(vertex % 2u);
+    let t = f32(seg) / f32(SEGMENTS);
+    let gate_count = radial.data.w;
+    let first = radial.polar.z;
+    let slant = first + t * gate_count * radial.polar.w;
+    let az = radial.polar.x + (side - 0.5) * radial.polar.y;
     var out: VsOut;
-    out.clip = camera.view_proj * vec4<f32>(beam_world(az, range, gate.data.x), 1.0);
-    out.value_idx = gate.data.y;
-    out.azimuth = gate.polar.x;
-    out.elevation = gate.data.x;
+    out.clip = camera.view_proj * vec4<f32>(beam_world(az, slant, radial.data.x), 1.0);
+    out.azimuth = radial.polar.x;
+    out.elevation = radial.data.x;
+    out.layer = radial.data.y;
+    out.row = radial.data.z;
+    out.gate_count = gate_count;
+    out.gate_f = t * gate_count;
     return out;
 }
 
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
-    var idx = in.value_idx;
+    // Nearest gate: the one recorded value this pixel falls inside.
+    let gate = clamp(i32(in.gate_f), 0, i32(in.gate_count) - 1);
+    let raw = textureLoad(gate_tex, vec2<i32>(gate, i32(in.row)), i32(in.layer), 0).r;
+    if (raw < 2u) { discard; }
+    var idx = f32(raw);
     if (radar.srv > 0.5) {
         let az = in.azimuth * PI / 180.0;
         idx = clamp(idx - radar.motion_e * sin(az) - radar.motion_n * cos(az), 2.0, 255.0);

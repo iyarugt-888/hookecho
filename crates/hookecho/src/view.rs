@@ -116,8 +116,6 @@ pub struct Map3dState {
     /// separate meaning (how much to exaggerate the curvature part) and the two compose.
     pub beam_rise: f32,
     pub opacity: f32,
-    pub gate_stride: usize,
-    pub instance_budget: usize,
     /// Whether the resampled "Smooth" volume gates out weak values before raymarching. Meaningful
     /// for [`Map3dRepresentation::SmoothVolume`] (reflectivity) and `SmoothSpectrumWidth` — the
     /// whole point is denoising a plain "high is interesting" field, and `SmoothDebris`'s
@@ -156,11 +154,10 @@ pub struct Map3dState {
     /// fewer banding artifacts at the cost of GPU time; unused by `ObservedSweeps`, which draws
     /// real gate instances rather than raymarching.
     pub quality_steps: u32,
-    /// Whether `ObservedSweeps` fills the vertical gap between adjacent tilts with a synthetic
-    /// midpoint copy of each gate (see `level2::observed_gates`'s doc comment). On by default so
-    /// the stack reads as one continuous volume; a selected layer (below) is worth turning it off
-    /// for, to see the real tilts' true spacing instead of the filled approximation.
-    pub fill_gaps: bool,
+    /// Smooth volumes are cropped to the range holding 99% of the echo so their cells stay small
+    /// (see `wxdata::volume3d::echo_extent_km`). True keeps the whole reported range instead, at
+    /// coarser cells.
+    pub smooth_full_range: bool,
     /// The tilts (by elevation angle) the user clicked in the Layers list, if any — each pulled
     /// toward the camera and desaturated everywhere else so the set stands out, and detailed
     /// below the list. Capped at `MAX_HIGHLIGHTED_LAYERS`.
@@ -171,16 +168,15 @@ pub struct Map3dState {
     pub observed_layers: Vec<level2::ObservedLayer>,
     /// Upload identity. Camera state is intentionally absent: moving the camera updates uniforms,
     /// never the millions-of-gates buffer. The live revision changes for every merged chunk, so a
-    /// still-streaming volume re-uploads within a tilt and for repeated SAILS/MRLE cuts; `fill_gaps`, `beam_rise`,
+    /// still-streaming volume re-uploads within a tilt and for repeated SAILS/MRLE cuts; `beam_rise`,
     /// the four CC-anomaly ramp slots and the `MAX_HIGHLIGHTED_LAYERS` selected-elevation slots
     /// (all as bits) follow, so any of those changing rebuilds too.
     pub observed_key: Option<(
         String,
         u64,
         Moment,
-        usize,
         u64,
-        [u32; 13 + MAX_HIGHLIGHTED_LAYERS],
+        [u32; 12 + MAX_HIGHLIGHTED_LAYERS],
     )>,
 }
 
@@ -192,17 +188,6 @@ impl Default for Map3dState {
             vertical_exaggeration: 1.0,
             beam_rise: 1.0,
             opacity: 0.72,
-            gate_stride: if cfg!(target_os = "android") { 2 } else { 1 },
-            // How many gate instances the buffer may hold. Higher = a denser, less "gappy"
-            // volume; the cost is GPU buffer memory (~32 B/instance). Desktop can spare it; the
-            // browser heap is 32-bit and already holds the volumes, and a phone less again.
-            instance_budget: if cfg!(target_os = "android") {
-                400_000
-            } else if cfg!(target_arch = "wasm32") {
-                800_000
-            } else {
-                2_000_000
-            },
             denoise_enabled: true,
             reflectivity_floor_dbz: 18.0,
             sw_floor_ms: 8.0,
@@ -211,7 +196,7 @@ impl Default for Map3dState {
             plane: None,
             cappi_marker: false,
             quality_steps: if cfg!(target_os = "android") { 64 } else { 128 },
-            fill_gaps: true,
+            smooth_full_range: false,
             selected_layer_elevs: Vec::new(),
             observed_layers: Vec::new(),
             observed_key: None,

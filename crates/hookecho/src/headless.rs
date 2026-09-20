@@ -2799,12 +2799,13 @@ pub fn run_3d(
     let (v3_min, v3_max) = (v3.value_min, v3.value_max);
     let lut = crate::colormap::bake_lut(table, (v3_min, v3_max), None).to_vec();
     let upload = crate::render3d::Volume3dUpload {
-        data: v3.data,
+        data: crate::render3d::pack_rg8(&v3.data),
         n: v3.n as u32,
         nz: v3.nz as u32,
         lut,
         half_km: v3.half_km,
         top_km: v3.top_km,
+        outside: 0.0,
     };
     let view = crate::render3d::View3d {
         threshold_idx: match threshold_dbz {
@@ -3527,6 +3528,243 @@ mod golden_tests {
         }
     }
 
+    /// A one-sweep observed upload made of wedges `(first_azimuth, radials, value_index)`. Each
+    /// radial has 40 gates of 1 km starting at 8 km, filled with the wedge's value, and is 1.2
+    /// degrees wide (so neighbours overlap slightly, like the fixtures this replaces).
+    fn observed_wedges(
+        wedges: &[(f32, usize, u8)],
+    ) -> (
+        Vec<crate::render::ObservedRadialInstance>,
+        Vec<crate::render::ObservedSweepLayer>,
+    ) {
+        let mut instances = Vec::new();
+        let mut values = Vec::new();
+        for &(az0, radials, value) in wedges {
+            for k in 0..radials {
+                instances.push(crate::render::ObservedRadialInstance {
+                    polar: [az0 + k as f32, 1.2, 8.0, 1.0],
+                    data: [0.5, 0.0, instances.len() as f32, 40.0],
+                });
+                values.extend(std::iter::repeat(value).take(40));
+            }
+        }
+        let rows = instances.len() as u32;
+        (
+            instances,
+            vec![crate::render::ObservedSweepLayer {
+                width: 40,
+                rows,
+                values,
+            }],
+        )
+    }
+
+    /// Real-data check of the polar radial-strip Observed path: decode the volume named by
+    /// `HOOKECHO_OBS_VOL`, upload every gate of every radial, render a pitched view and write it to
+    /// `HOOKECHO_OBS_OUT` (default `observed_3d.png`). Prints instance and texture sizes.
+    ///
+    /// Run with `HOOKECHO_OBS_VOL=<file> HOOKECHO_GPU_FALLBACK=1 cargo test --release -p hookecho
+    /// --lib -- --ignored --nocapture real_volume_observed`.
+    #[test]
+    #[ignore = "gpu"]
+    fn real_volume_observed_renders_every_gate() {
+        use crate::view::MAX_HIGHLIGHTED_LAYERS;
+        let Ok(path) = std::env::var("HOOKECHO_OBS_VOL") else {
+            println!("SKIP: set HOOKECHO_OBS_VOL");
+            return;
+        };
+        let scan = wxdata::level2::decode_volume(std::fs::read(path).unwrap()).unwrap();
+        let t0 = std::time::Instant::now();
+        let vol = wxdata::level2::observed_volume(&scan, Moment::Reflectivity, 8192).unwrap();
+        println!(
+            "observed_volume: {} sweeps, {} radials in {:?}",
+            vol.sweeps.len(),
+            vol.radial_count,
+            t0.elapsed()
+        );
+        let (radar_lat, radar_lon) = (vol.radar_lat, vol.radar_lon);
+        let mut instances = Vec::new();
+        let mut layers = Vec::new();
+        for (layer, s) in vol.sweeps.into_iter().enumerate() {
+            for (row, r) in s.radials.iter().enumerate() {
+                instances.push(crate::render::ObservedRadialInstance {
+                    polar: [r.azimuth_deg, r.spacing_deg, r.first_gate_km, r.gate_interval_km],
+                    data: [r.elevation_deg, layer as f32, row as f32, r.gate_count as f32],
+                });
+            }
+            layers.push(crate::render::ObservedSweepLayer {
+                width: s.width as u32,
+                rows: s.radials.len() as u32,
+                values: s.values,
+            });
+        }
+        let tex_bytes: usize = layers.iter().map(|l| l.values.len()).sum();
+        println!(
+            "{} instances ({} B), gate texture {:.1} MB",
+            instances.len(),
+            instances.len() * 32,
+            tex_bytes as f64 / 1e6
+        );
+
+        let size = 1000u32;
+        let mut camera = Camera::at_lonlat(radar_lon as f64, radar_lat as f64, 7.3);
+        camera.pitch = 55.0;
+        let (center, scale) = camera.world_to_clip_uniform((size as f32, size as f32));
+        let (value_min, value_max) = Moment::Reflectivity.value_range();
+        let lut =
+            crate::colormap::bake_lut(crate::colormap::default_table(Moment::Reflectivity), (value_min, value_max), None)
+                .to_vec();
+        let uniform = crate::app::observed_uniform(
+            [
+                radar_lat,
+                radar_lon,
+                0.0,
+                1.0,
+                0.9,
+                crate::render3d::threshold_index(10.0, (value_min, value_max)),
+                Camera::world_units_per_metre(radar_lat as f64) as f32,
+                0.0,
+                0.0,
+                0.0,
+                1.0, // beam rise: true geometry
+            ],
+            [0.0; 4],
+            [f32::NEG_INFINITY; MAX_HIGHLIGHTED_LAYERS],
+        );
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let Ok((device, queue, _adapter)) = init_gpu(&rt) else {
+            println!("SKIP: no wgpu adapter");
+            return;
+        };
+        let format = wgpu::TextureFormat::Rgba8UnormSrgb;
+        let mut res = RenderResources::new(&device, format);
+        let target = new_target(&device, format, size);
+        let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+        let cb = MapCallback {
+            pane: 0,
+            camera_center: center,
+            camera_scale: scale,
+            world_per_pixel: camera.world_per_pixel() as f32,
+            camera_view_proj: camera.view_projection_uniform((size as f32, size as f32)),
+            camera_3d: 1.0,
+            basemap_key: 0,
+            vector_over_raster: false,
+            new_tiles: Vec::new(),
+            visible: Vec::new(),
+            radar_upload: None,
+            draw_radar: false,
+            observed_upload: Some(crate::render::ObservedSweepUpload {
+                instances,
+                layers,
+                uniform,
+                lut,
+            }),
+            draw_observed: true,
+            overlay_upload: None,
+            draw_overlay: false,
+            field_uploads: Vec::new(),
+            field_draws: Vec::new(),
+            field_swipe: None,
+            clear_tiles: false,
+            drop_tiles: Vec::new(),
+            drop_fields: Vec::new(),
+            new_vector_tiles: Vec::new(),
+            visible_vector: Vec::new(),
+            clear_vector: false,
+            drop_vector_tiles: Vec::new(),
+            wind_upload: None,
+            wind: None,
+        };
+        res.render_once(&device, &queue, &view, &cb, wgpu::Color::BLACK);
+        let px = read_target(&device, &queue, &target, size);
+        let lit = px.chunks_exact(4).filter(|p| p[0] as u32 + p[1] as u32 + p[2] as u32 > 30).count();
+        println!("lit pixels: {lit}");
+        assert!(lit > 5_000, "the volume did not draw ({lit} px)");
+        let out = std::env::var("HOOKECHO_OBS_OUT").unwrap_or_else(|_| "observed_3d.png".into());
+        image::save_buffer(&out, &px, size, size, image::ColorType::Rgba8).unwrap();
+        println!("wrote {out}");
+    }
+
+    /// Old versus new Smooth grid on a real volume, through the shared raymarch pipeline (which
+    /// also proves the `Rg8Unorm` + sampler bindings on a real adapter). Writes
+    /// `smooth_old.png` (192 x 192 x 48 over the full range, fixed 128 steps) and `smooth_new.png`
+    /// (echo-cropped, `plan_grid`, 512 steps) next to `HOOKECHO_OBS_OUT`'s directory or the cwd.
+    #[test]
+    #[ignore = "gpu"]
+    fn real_volume_smooth_old_vs_new_grid() {
+        let Ok(path) = std::env::var("HOOKECHO_OBS_VOL") else {
+            println!("SKIP: set HOOKECHO_OBS_VOL");
+            return;
+        };
+        let scan = wxdata::level2::decode_volume(std::fs::read(path).unwrap()).unwrap();
+        let sweeps: Vec<_> = (0..level2::elevation_angles(&scan).len())
+            .filter_map(|t| level2::bin_scan_opts(&scan, Moment::Reflectivity, t, false).ok())
+            .collect();
+        let full = wxdata::volume3d::max_sample_range_km(&sweeps).max(50.0);
+        let e = wxdata::volume3d::echo_extent_km(&sweeps, full);
+        let (n2, nz2) = wxdata::volume3d::plan_grid(e.half_km, 18.0, 0.25, 40_000_000, 2048);
+        println!(
+            "full {full:.0} km -> crop {} km ({:.2}% outside); grid {n2}x{n2}x{nz2} = {:.2} km cells",
+            e.half_km,
+            e.outside * 100.0,
+            2.0 * e.half_km / (n2 - 1) as f32
+        );
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let Ok((device, queue, _adapter)) = init_gpu(&rt) else {
+            println!("SKIP: no wgpu adapter");
+            return;
+        };
+        let format = wgpu::TextureFormat::Rgba8UnormSrgb;
+        let size = 1000u32;
+        let table = crate::colormap::default_table(Moment::Reflectivity);
+        for (label, half, n, nz, steps) in [
+            ("old", full, 192usize, 48usize, 128u32),
+            ("new", e.half_km, n2, nz2, 512u32),
+        ] {
+            let t0 = std::time::Instant::now();
+            let v3 = wxdata::volume3d::build(&sweeps, n, nz, half, 18.0).unwrap();
+            println!("{label}: build {:?}", t0.elapsed());
+            let lut = crate::colormap::bake_lut(table, (v3.value_min, v3.value_max), None).to_vec();
+            let upload = crate::render3d::Volume3dUpload {
+                data: crate::render3d::pack_rg8(&v3.data),
+                n: n as u32,
+                nz: nz as u32,
+                lut,
+                half_km: half,
+                top_km: 18.0,
+                outside: 0.0,
+            };
+            let view3 = crate::render3d::View3d {
+                threshold_idx: crate::render3d::threshold_index(18.0, (v3.value_min, v3.value_max)),
+                ..Default::default()
+            };
+            let uniform = crate::render3d::orbit_uniform(
+                30.0, 35.0, 2.6, 1.0, n as u32, nz as u32, 18.0, steps, view3,
+            );
+            let mut res = crate::render3d::Volume3dResources::new(&device, format);
+            let target = new_target(&device, format, size);
+            let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+            res.render_once(
+                &device,
+                &queue,
+                &view,
+                &upload,
+                uniform,
+                wgpu::Color { r: 0.03, g: 0.03, b: 0.05, a: 1.0 },
+            );
+            let px = read_target(&device, &queue, &target, size);
+            let out = format!("smooth_{label}.png");
+            image::save_buffer(&out, &px, size, size, image::ColorType::Rgba8).unwrap();
+            println!("{label}: wrote {out}");
+        }
+    }
+
     /// CC anomaly has to reach the framebuffer, and it has to reach it the right way round.
     ///
     /// The ramp maths is unit-tested in `render3d`, but that test mirrors the shader's formula in
@@ -3539,7 +3777,6 @@ mod golden_tests {
     #[test]
     #[ignore = "gpu"]
     fn cc_anomaly_fades_high_correlation_and_keeps_low() {
-        use crate::render::ObservedGateInstance;
         use crate::view::{CcAnomaly, MAX_HIGHLIGHTED_LAYERS};
 
         let (radar_lon, radar_lat) = (-97.0f32, 35.0f32);
@@ -3547,17 +3784,10 @@ mod golden_tests {
         let index_of = |cc: f32| crate::render3d::threshold_index(cc, range);
         // Two wedges of gates at the same elevation and range, differing only in CC: ordinary
         // meteorological scatter to the east, a debris-like low-CC pocket to the west.
-        let mut instances = Vec::new();
-        for (az0, cc) in [(60.0f32, 0.995f32), (240.0, 0.75)] {
-            for k in 0..60 {
-                for g in 0..40 {
-                    instances.push(ObservedGateInstance {
-                        polar: [az0 + k as f32, 1.2, 8.0 + g as f32 * 1.0, 1.0],
-                        data: [0.5, index_of(cc), g as f32, 0.0],
-                    });
-                }
-            }
-        }
+        let (instances, layers) = observed_wedges(&[
+            (60.0, 60, index_of(0.995).round() as u8),
+            (240.0, 60, index_of(0.75).round() as u8),
+        ]);
         // A flat opaque LUT, so every difference between the two renders is the anomaly ramp and
         // not the CC palette's own alpha or color ramp.
         let lut: Vec<u8> = (0..256).flat_map(|_| [255u8, 255, 255, 255]).collect();
@@ -3613,6 +3843,7 @@ mod golden_tests {
                 draw_radar: false,
                 observed_upload: Some(crate::render::ObservedSweepUpload {
                     instances: instances.clone(),
+                    layers: layers.clone(),
                     uniform,
                     lut: lut.clone(),
                 }),
@@ -3697,23 +3928,13 @@ mod golden_tests {
     #[test]
     #[ignore = "gpu"]
     fn retained_observed_buffer_grows_and_shrinks_correctly_across_uploads() {
-        use crate::render::ObservedGateInstance;
         use crate::view::MAX_HIGHLIGHTED_LAYERS;
 
         let (radar_lon, radar_lat) = (-97.0f32, 35.0f32);
         let lut: Vec<u8> = (0..256).flat_map(|_| [255u8, 255, 255, 255]).collect();
         // Each radial gets 40 range gates, matching the CC-anomaly test's own geometry — proven
         // there to paint a reliably countable patch at this camera/zoom.
-        let wedge = |az0: f32, radials: usize| -> Vec<ObservedGateInstance> {
-            (0..radials)
-                .flat_map(|k| {
-                    (0..40).map(move |g| ObservedGateInstance {
-                        polar: [az0 + k as f32, 1.2, 8.0 + g as f32, 1.0],
-                        data: [0.5, 255.0, g as f32, 0.0],
-                    })
-                })
-                .collect()
-        };
+        let wedge = |az0: f32, radials: usize| observed_wedges(&[(az0, radials, 255)]);
 
         let camera = Camera::at_lonlat(radar_lon as f64, radar_lat as f64, 8.0);
         let (center, scale) =
@@ -3747,7 +3968,10 @@ mod golden_tests {
             [0.0; 4],
             [f32::NEG_INFINITY; MAX_HIGHLIGHTED_LAYERS],
         );
-        let mut render = |instances: Vec<ObservedGateInstance>| {
+        let mut render = |(instances, layers): (
+            Vec<crate::render::ObservedRadialInstance>,
+            Vec<crate::render::ObservedSweepLayer>,
+        )| {
             let cb = MapCallback {
                 pane: 0,
                 camera_center: center,
@@ -3764,6 +3988,7 @@ mod golden_tests {
                 draw_radar: false,
                 observed_upload: Some(crate::render::ObservedSweepUpload {
                     instances,
+                    layers,
                     uniform,
                     lut: lut.clone(),
                 }),
@@ -3807,9 +4032,7 @@ mod golden_tests {
         // Pass 2: the sweep has grown — east plus a newly-scanned west wedge. 25 radials x 40 x 32
         // = 32,000 bytes, still within pass 1's 32,768-byte capacity: this must reuse the retained
         // buffer, not rebuild it.
-        let mut grown = wedge(60.0, 15);
-        grown.extend(wedge(240.0, 10));
-        let b = render(grown);
+        let b = render(observed_wedges(&[(60.0, 15, 255), (240.0, 10, 255)]));
         let (east_b, west_b) = (bright_px(&b, true), bright_px(&b, false));
         assert!(
             east_b > 500 && west_b > 300,

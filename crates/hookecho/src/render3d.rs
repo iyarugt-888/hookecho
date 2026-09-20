@@ -32,7 +32,8 @@ pub struct Uniforms {
     cappi_marker: [f32; 4],
 }
 
-/// A new volume grid to upload: `data` is `n×n×nz` R8 indices, `lut` a 256-entry RGBA table.
+/// A new volume grid to upload: `data` is `n×n×nz` interleaved (value index, valid) byte pairs —
+/// see [`pack_rg8`] — and `lut` a 256-entry RGBA table.
 #[derive(Clone)]
 pub struct Volume3dUpload {
     pub data: Vec<u8>,
@@ -41,6 +42,40 @@ pub struct Volume3dUpload {
     pub lut: Vec<u8>,
     pub half_km: f32,
     pub top_km: f32,
+    /// Share (0..=1) of the scan's echo that lies beyond `half_km` and is therefore not in the
+    /// volume. Shown in the UI so a cropped box is never mistaken for the whole scan.
+    pub outside: f32,
+}
+
+impl Volume3dUpload {
+    /// Horizontal cell size, km.
+    pub fn cell_km(&self) -> f32 {
+        2.0 * self.half_km / (self.n.max(2) - 1) as f32
+    }
+}
+
+/// Expand a plain index grid (`0` empty, `2..=255` value) into the `Rg8Unorm` layout the raymarch
+/// samples: R keeps the index, G is 255 where a real value exists. Filtering both together is what
+/// lets the shader interpolate only across real voxels; see `shaders/raymarch.wgsl`.
+pub fn pack_rg8(data: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(data.len() * 2);
+    for &v in data {
+        out.push(v);
+        out.push(if v >= 2 { 255 } else { 0 });
+    }
+    out
+}
+
+fn volume_sampler(device: &wgpu::Device) -> wgpu::Sampler {
+    device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("volume3d_sampler"),
+        address_mode_u: wgpu::AddressMode::ClampToEdge,
+        address_mode_v: wgpu::AddressMode::ClampToEdge,
+        address_mode_w: wgpu::AddressMode::ClampToEdge,
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        ..Default::default()
+    })
 }
 
 /// Box extents of the rendered volume (z exaggerated for legibility).
@@ -279,7 +314,18 @@ pub fn map_uniform(
             upload.nz as f32,
             steps as f32,
         ],
-        ctl: [view.threshold_idx, opacity.clamp(0.0, 1.0), 0.0, 0.0],
+        ctl: [
+            view.threshold_idx,
+            opacity.clamp(0.0, 1.0),
+            // One sample per cell: the smaller of the horizontal and (exaggerated) vertical cell.
+            (2.0 * half_px / upload.n.max(1) as f64)
+                .min(
+                    upload.top_km as f64 * 1_000.0 * metres_to_px * vertical_exaggeration as f64
+                        / upload.nz.max(1) as f64,
+                )
+                .max(1e-6) as f32,
+            0.0,
+        ],
         clip_min: [view.clip[0], view.clip[2], view.clip[4], 0.0],
         clip_max: [view.clip[1], view.clip[3], view.clip[5], 0.0],
         plane: plane_uniform(view.plane, box_min, box_max),
@@ -526,7 +572,7 @@ impl Volume3dResources {
                     binding: 1,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Uint,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
                         view_dimension: wgpu::TextureViewDimension::D3,
                         multisampled: false,
                     },
@@ -540,6 +586,12 @@ impl Volume3dResources {
                         view_dimension: wgpu::TextureViewDimension::D2,
                         multisampled: false,
                     },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
             ],
@@ -627,7 +679,7 @@ impl Volume3dResources {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D3,
-            format: wgpu::TextureFormat::R8Uint,
+            format: wgpu::TextureFormat::Rg8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
@@ -641,7 +693,7 @@ impl Volume3dResources {
             &up.data,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(up.n),
+                bytes_per_row: Some(up.n * 2),
                 rows_per_image: Some(up.n),
             },
             size,
@@ -678,6 +730,7 @@ impl Volume3dResources {
         );
         let tex_view = tex.create_view(&wgpu::TextureViewDescriptor::default());
         let lut_view = lut.create_view(&wgpu::TextureViewDescriptor::default());
+        let sampler = volume_sampler(device);
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("raymarch_bg"),
             layout: &self.bgl,
@@ -693,6 +746,10 @@ impl Volume3dResources {
                 wgpu::BindGroupEntry {
                     binding: 2,
                     resource: wgpu::BindingResource::TextureView(&lut_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
                 },
             ],
         });
@@ -831,7 +888,7 @@ impl MapVolume3dResources {
                     binding: 1,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Uint,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
                         view_dimension: wgpu::TextureViewDimension::D3,
                         multisampled: false,
                     },
@@ -845,6 +902,12 @@ impl MapVolume3dResources {
                         view_dimension: wgpu::TextureViewDimension::D2,
                         multisampled: false,
                     },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
             ],
@@ -940,7 +1003,7 @@ impl MapVolume3dResources {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D3,
-            format: wgpu::TextureFormat::R8Uint,
+            format: wgpu::TextureFormat::Rg8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
@@ -954,7 +1017,7 @@ impl MapVolume3dResources {
             &up.data,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(up.n),
+                bytes_per_row: Some(up.n * 2),
                 rows_per_image: Some(up.n),
             },
             size,
@@ -994,6 +1057,7 @@ impl MapVolume3dResources {
         let uniform_buf = self.uniform_bufs[pane]
             .as_ref()
             .expect("just created above");
+        let sampler = volume_sampler(device);
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("map_raymarch_bg"),
             layout: &self.bgl,
@@ -1009,6 +1073,10 @@ impl MapVolume3dResources {
                 wgpu::BindGroupEntry {
                     binding: 2,
                     resource: wgpu::BindingResource::TextureView(&lut_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
                 },
             ],
         });

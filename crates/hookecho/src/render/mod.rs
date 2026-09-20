@@ -72,10 +72,18 @@ pub struct RadarUpload {
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct ObservedGateInstance {
+/// One measured radial: `polar` is `[azimuth_deg, width_deg, first_gate_km, gate_interval_km]`,
+/// `data` is `[elevation_deg, layer, row, gate_count]` (layer and row address the radial's values in
+/// the sweep texture). The vertex shader lays a strip of `OBSERVED_SEGMENTS` segments along it.
+pub struct ObservedRadialInstance {
     pub polar: [f32; 4],
     pub data: [f32; 4],
 }
+
+/// Segments per radial strip. Must match `SEGMENTS` in `radar_observed.wgsl`.
+pub const OBSERVED_SEGMENTS: u32 = 64;
+/// Vertices per radial: two per segment edge.
+pub const OBSERVED_STRIP_VERTS: u32 = (OBSERVED_SEGMENTS + 1) * 2;
 
 /// `radar_observed.wgsl`'s `Radar3d` block: eleven radar/site and transfer-function scalars, four
 /// CC-anomaly slots, `crate::view::MAX_HIGHLIGHTED_LAYERS` highlighted-elevation slots, and one
@@ -84,9 +92,19 @@ pub struct ObservedGateInstance {
 /// 15 + 8 scalar f32 fields is 92, four short of 96.
 pub type ObservedUniform = [f32; 16 + crate::view::MAX_HIGHLIGHTED_LAYERS];
 
-/// Static observed-gate geometry uploaded only when volume/product/density changes.
+/// One sweep's gate values: `rows` radials of `width` gates each, row-major.
+#[derive(Clone)]
+pub struct ObservedSweepLayer {
+    pub width: u32,
+    pub rows: u32,
+    pub values: Vec<u8>,
+}
+
+/// Observed-sweep data uploaded only when the volume or product changes: one instance per
+/// radial, plus every sweep's raw gate values as a layer of one texture array.
 pub struct ObservedSweepUpload {
-    pub instances: Vec<ObservedGateInstance>,
+    pub instances: Vec<ObservedRadialInstance>,
+    pub layers: Vec<ObservedSweepLayer>,
     /// See [`ObservedUniform`]. Built by `crate::app::observed_uniform`.
     pub uniform: ObservedUniform,
     pub lut: Vec<u8>,
@@ -717,6 +735,9 @@ struct RadarGpu {
 }
 
 struct ObservedGpu {
+    /// Gate values, one array layer per sweep. `tex_dims` is `(width, height, layers)`.
+    tex: wgpu::Texture,
+    tex_dims: (u32, u32, u32),
     lut: wgpu::Texture,
     uniform: wgpu::Buffer,
     instances: wgpu::Buffer,
@@ -940,6 +961,16 @@ impl RenderResources {
                     },
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Uint,
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
             ],
         });
 
@@ -1024,7 +1055,7 @@ impl RenderResources {
                 entry_point: Some("vs_main"),
                 compilation_options: Default::default(),
                 buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<ObservedGateInstance>() as u64,
+                    array_stride: std::mem::size_of::<ObservedRadialInstance>() as u64,
                     step_mode: wgpu::VertexStepMode::Instance,
                     attributes: &wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4],
                 }],
@@ -1039,7 +1070,10 @@ impl RenderResources {
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
             }),
-            primitive: wgpu::PrimitiveState::default(),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                ..Default::default()
+            },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             multiview_mask: None,
@@ -1529,12 +1563,54 @@ impl RenderResources {
         existing: Option<ObservedGpu>,
     ) -> ObservedGpu {
         let bytes = bytemuck::cast_slice(&up.instances);
+        // Every sweep is one layer of a `width x height x layers` array. Layers are written at
+        // their own size; whatever a layer does not cover stays zero, which is "no data".
+        let tex_dims = (
+            up.layers.iter().map(|l| l.width).max().unwrap_or(1).max(1),
+            up.layers.iter().map(|l| l.rows).max().unwrap_or(1).max(1),
+            (up.layers.len() as u32).max(1),
+        );
+        let write_layers = |tex: &wgpu::Texture| {
+            for (i, layer) in up.layers.iter().enumerate() {
+                if layer.width == 0 || layer.rows == 0 {
+                    continue;
+                }
+                queue.write_texture(
+                    wgpu::TexelCopyTextureInfo {
+                        texture: tex,
+                        mip_level: 0,
+                        origin: wgpu::Origin3d {
+                            x: 0,
+                            y: 0,
+                            z: i as u32,
+                        },
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    &layer.values,
+                    wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(layer.width),
+                        rows_per_image: Some(layer.rows),
+                    },
+                    wgpu::Extent3d {
+                        width: layer.width,
+                        height: layer.rows,
+                        depth_or_array_layers: 1,
+                    },
+                );
+            }
+        };
         if let Some(mut gpu) = existing {
-            if bytes.len() as u64 <= gpu.capacity {
+            // Same texture shape and a buffer that still fits: rewrite in place, keep the bind
+            // group. A live volume grows a wedge at a time, so this is the common case.
+            if bytes.len() as u64 <= gpu.capacity && gpu.tex_dims == tex_dims {
                 queue.write_buffer(&gpu.uniform, 0, bytemuck::cast_slice(&up.uniform));
                 if !bytes.is_empty() {
                     queue.write_buffer(&gpu.instances, 0, bytes);
                 }
+                // Layers that shrank leave stale rows behind; the instances no longer point at
+                // them, so they are never sampled.
+                write_layers(&gpu.tex);
                 write_observed_lut(queue, &gpu.lut, &up.lut);
                 gpu.count = up.instances.len() as u32;
                 return gpu;
@@ -1557,6 +1633,25 @@ impl RenderResources {
         if !bytes.is_empty() {
             queue.write_buffer(&instances, 0, bytes);
         }
+        let tex = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("observed_radar_gates"),
+            size: wgpu::Extent3d {
+                width: tex_dims.0,
+                height: tex_dims.1,
+                depth_or_array_layers: tex_dims.2,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R8Uint,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        write_layers(&tex);
+        let tex_view = tex.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            ..Default::default()
+        });
         let lut_size = wgpu::Extent3d {
             width: 256,
             height: 1,
@@ -1572,21 +1667,7 @@ impl RenderResources {
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &lut,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            &up.lut,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(256 * 4),
-                rows_per_image: Some(1),
-            },
-            lut_size,
-        );
+        write_observed_lut(queue, &lut, &up.lut);
         let lut_view = lut.create_view(&wgpu::TextureViewDescriptor::default());
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("observed_radar_bg"),
@@ -1600,9 +1681,15 @@ impl RenderResources {
                     binding: 1,
                     resource: wgpu::BindingResource::TextureView(&lut_view),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&tex_view),
+                },
             ],
         });
         ObservedGpu {
+            tex,
+            tex_dims,
             lut,
             uniform,
             instances,
@@ -1835,7 +1922,7 @@ impl RenderResources {
             log::debug!(
                 "3D observed radar: {} gate instances, {} bytes",
                 observed.count,
-                observed.count as usize * std::mem::size_of::<ObservedGateInstance>()
+                observed.count as usize * std::mem::size_of::<ObservedRadialInstance>()
             );
             pane.observed = Some(observed);
         }
@@ -2119,7 +2206,7 @@ impl RenderResources {
                 pass.set_bind_group(0, cam, &[]);
                 pass.set_bind_group(1, &observed.bind_group, &[]);
                 pass.set_vertex_buffer(0, observed.instances.slice(..));
-                pass.draw(0..6, 0..observed.count);
+                pass.draw(0..OBSERVED_STRIP_VERTS, 0..observed.count);
             }
         }
         // Field layers over the radar (rotation/hail/shear/lightning signals).

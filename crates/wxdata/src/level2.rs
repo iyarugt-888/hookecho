@@ -242,45 +242,60 @@ pub fn previous_pass_arc(bin_time_ms: &[i64], az_bins: usize) -> Option<(f32, f3
     Some((start, end))
 }
 
-/// One real Level II gate prepared for geographic GPU instancing. Geometry comes from the
-/// transmitting radial rather than from the regular 720-row display grid.
+/// One measured radial of an [`ObservedSweep`], with the geometry the radar itself reported.
+/// Nothing here comes from a regular display grid: two radials of one sweep can differ in
+/// elevation, and a radial can be shorter than its neighbours.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct ObservedGate {
+pub struct ObservedRadial {
     pub azimuth_deg: f32,
-    pub beam_width_deg: f32,
-    pub slant_start_km: f32,
-    pub slant_span_km: f32,
+    /// Azimuth width this radial is drawn over (the sweep's reported radial spacing).
+    pub spacing_deg: f32,
     pub elevation_deg: f32,
-    /// Same normalized palette index as [`BinnedSweep::data`] (`2..=255` is valid).
-    pub value_index: u8,
-    /// Original gate index in its radial, retained for picking/inspection.
-    pub gate: u32,
+    /// Slant range at the near edge of gate 0.
+    pub first_gate_km: f32,
+    /// Slant range covered by one *row cell* of [`ObservedSweep::values`] (the native gate
+    /// interval unless the sweep was max-pooled, see [`ObservedSweep::pool`]).
+    pub gate_interval_km: f32,
+    /// Row cells this radial actually has; the rest of its row is empty padding.
+    pub gate_count: u32,
 }
 
-/// Cached input for the observed-sweep map renderer.
+/// One sweep's measured values, one row per radial, at native gate resolution.
 #[derive(Debug, Clone)]
-pub struct ObservedGates {
-    pub gates: Vec<ObservedGate>,
+pub struct ObservedSweep {
+    pub radials: Vec<ObservedRadial>,
+    /// Row length of `values` (the widest radial).
+    pub width: usize,
+    /// Native gates folded into each row cell. `1` (the normal case) means every gate is its own
+    /// cell; larger only when the sweep is wider than the GPU's texture limit, in which case the
+    /// cell holds the *strongest* of the gates it stands for.
+    pub pool: usize,
+    /// `radials.len() * width` palette indices, same encoding as [`BinnedSweep::data`]
+    /// (`0` no data or below threshold, `1` range-folded, `2..=255` a real value).
+    pub values: Vec<u8>,
+}
+
+/// Every radial of `moment` in a volume, as measured. The 3D renderer draws each radial's gates
+/// on that tilt's own beam surface and samples `values` nearest-gate, so a screen pixel shows
+/// exactly one recorded gate.
+#[derive(Debug, Clone)]
+pub struct ObservedVolume {
+    pub sweeps: Vec<ObservedSweep>,
     pub radar_lat: f32,
     pub radar_lon: f32,
     pub sweep_count: usize,
     pub radial_count: usize,
-    pub gate_stride: usize,
-    /// Elevation angle of the lowest tilt carrying this moment. The 3D renderer uses it as the
-    /// reference floor a beam's height-with-range rise is measured from, so vertical exaggeration
-    /// scales genuine storm structure and not the earth-curvature climb every tilt shares.
-    pub min_elevation_deg: f32,
     /// One summary per real tilt, ascending by elevation — enough to list each layer in a UI and
     /// answer "what is this" without re-walking the raw gate buffer.
     pub layers: Vec<ObservedLayer>,
 }
 
-/// Summary of one real elevation tilt within an [`ObservedGates`] upload.
+/// Summary of one real elevation tilt within an [`ObservedVolume`].
 #[derive(Debug, Clone, Copy)]
 pub struct ObservedLayer {
     pub elevation_deg: f32,
     pub radial_count: usize,
-    /// Gates per radial (native resolution, before any stride).
+    /// Gates per radial (native resolution).
     pub gate_count: usize,
     /// How many of this tilt's `radial_count * gate_count` gates actually carried a value (not
     /// below threshold or range-folded) — a coverage figure for the stats readout.
@@ -295,185 +310,108 @@ pub struct ObservedLayer {
     pub scan_end: Option<chrono::DateTime<chrono::Utc>>,
 }
 
-/// Extract every valid observed gate of `moment`, preserving each radial's real azimuth, beam
-/// width, elevation, first-gate range and gate spacing. The stride is raised as needed to keep
-/// the GPU instance buffer inside `instance_budget`; camera changes never call this function.
-///
-/// `fill_gaps` adds one synthetic copy of each gate — same azimuth, range and value, elevation
-/// moved to the midpoint toward the next tilt up — halving the vertical gap between adjacent real
-/// tilts without resampling anything: it is still that gate's own real reading, just given some
-/// thickness rather than none. The top tilt has no "up" to fill toward and gets no copy.
-pub fn observed_gates(
+
+/// Extract `moment` from every sweep that carries it, keeping each radial's real azimuth, spacing,
+/// elevation, first-gate range and gate spacing. No gate is dropped, decimated, interpolated or
+/// copied to a synthetic elevation. The one exception is a sweep wider than `max_gates` (the
+/// GPU's texture width), which is max-pooled by the smallest whole factor that fits and reports
+/// it in [`ObservedSweep::pool`].
+pub fn observed_volume(
     scan: &Scan,
     moment: Moment,
-    requested_stride: usize,
-    instance_budget: usize,
-    fill_gaps: bool,
-) -> anyhow::Result<ObservedGates> {
+    max_gates: usize,
+) -> anyhow::Result<ObservedVolume> {
     if moment == Moment::SpecificDifferentialPhase {
         anyhow::bail!("KDP is derived during binning and has no exact observed gates");
     }
     let site = scan
         .site()
         .ok_or_else(|| anyhow::anyhow!("scan has no site metadata"))?;
-    let carrying: Vec<_> = scan
-        .sweeps()
-        .iter()
-        .filter(|s| s.radials().iter().any(|r| moment.select(r).is_some()))
-        .collect();
-    let radial_count = carrying.iter().map(|s| s.radials().len()).sum();
-    // The lowest tilt actually carrying this moment (not necessarily the volume's lowest tilt
-    // overall — e.g. some legacy products only ride on a subset of elevations). Falls back to a
-    // typical VCP's base scan if no sweep has a first radial, which only happens when `carrying`
-    // is already empty and `gates` below ends up empty too.
-    let min_elevation_deg = carrying
-        .iter()
-        .filter_map(|s| s.radials().first())
-        .map(|r| r.elevation_angle_degrees())
-        .fold(f32::INFINITY, f32::min);
-    let min_elevation_deg = if min_elevation_deg.is_finite() {
-        min_elevation_deg
-    } else {
-        0.5
-    };
     let (value_min, value_max) = moment.value_range();
     let span = (value_max - value_min).max(f32::EPSILON);
     let normalize = |v: f32| 2 + (((v - value_min) / span).clamp(0.0, 1.0) * 253.0) as u8;
 
-    // One summary and one "fill toward the next tilt up" midpoint per sweep, keyed by position in
-    // `carrying` — computed once here rather than re-derived per gate in the main loop below.
-    let elevs: Vec<f32> = carrying
-        .iter()
-        .map(|s| {
-            s.radials()
-                .first()
-                .map_or(0.0, |r| r.elevation_angle_degrees())
-        })
-        .collect();
-    let mut ascending: Vec<usize> = (0..carrying.len()).collect();
-    ascending.sort_by(|&a, &b| elevs[a].total_cmp(&elevs[b]));
-    let mut fill_toward: Vec<Option<f32>> = vec![None; carrying.len()];
-    for w in ascending.windows(2) {
-        let (lower, upper) = (w[0], w[1]);
-        fill_toward[lower] = Some((elevs[lower] + elevs[upper]) / 2.0);
-    }
-
-    let mut layers: Vec<ObservedLayer> = Vec::with_capacity(carrying.len());
-    for sweep in &carrying {
-        let mut gate_count = 0usize;
+    let mut sweeps = Vec::new();
+    let mut layers: Vec<ObservedLayer> = Vec::new();
+    let mut radial_count = 0usize;
+    for sweep in scan.sweeps() {
+        let carrying: Vec<_> = sweep
+            .radials()
+            .iter()
+            .filter_map(|r| moment.select(r).map(|d| (r, d)))
+            .collect();
+        if carrying.is_empty() {
+            continue;
+        }
+        let width = carrying
+            .iter()
+            .map(|(_, d)| d.gate_count() as usize)
+            .max()
+            .unwrap_or(0);
+        if width == 0 {
+            continue;
+        }
+        let pool = width.div_ceil(max_gates.max(1)).max(1);
+        let cells = width.div_ceil(pool);
+        let mut values = vec![0u8; carrying.len() * cells];
+        let mut radials = Vec::with_capacity(carrying.len());
         let mut coverage_gates = 0usize;
         let mut max_value: Option<f32> = None;
-        for radial in sweep.radials() {
-            let Some(data) = moment.select(radial) else {
-                continue;
-            };
-            gate_count = gate_count.max(data.gate_count() as usize);
-            for value in data.iter() {
-                if let MomentValue::Value(v) = value {
-                    coverage_gates += 1;
-                    max_value = Some(max_value.map_or(v, |m: f32| m.max(v)));
+        for (row, (radial, data)) in carrying.iter().enumerate() {
+            let out = &mut values[row * cells..(row + 1) * cells];
+            for (gate, value) in data.iter().enumerate() {
+                let idx = match value {
+                    MomentValue::BelowThreshold => 0,
+                    MomentValue::RangeFolded => 1,
+                    MomentValue::Value(v) => {
+                        coverage_gates += 1;
+                        max_value = Some(max_value.map_or(v, |m: f32| m.max(v)));
+                        normalize(v)
+                    }
+                };
+                let cell = &mut out[gate / pool];
+                // `pool == 1` is a plain store. Pooled cells keep the strongest real value, and a
+                // fold only fills a cell that has nothing else.
+                if pool == 1 || (idx >= 2 && (*cell < 2 || idx > *cell)) || (*cell == 0 && idx == 1) {
+                    *cell = idx;
                 }
             }
+            radials.push(ObservedRadial {
+                azimuth_deg: radial.azimuth_angle_degrees().rem_euclid(360.0),
+                spacing_deg: radial.azimuth_spacing_degrees().max(0.01),
+                elevation_deg: radial.elevation_angle_degrees(),
+                first_gate_km: data.first_gate_range_km() as f32,
+                gate_interval_km: data.gate_interval_km() as f32 * pool as f32,
+                gate_count: (data.gate_count() as usize).div_ceil(pool) as u32,
+            });
         }
         let (scan_start, scan_end) = sweep
             .time_range()
             .map_or((None, None), |(a, b)| (Some(a), Some(b)));
         layers.push(ObservedLayer {
-            elevation_deg: sweep
-                .radials()
-                .first()
-                .map_or(0.0, |r| r.elevation_angle_degrees()),
-            radial_count: sweep.radials().len(),
-            gate_count,
+            elevation_deg: radials[0].elevation_deg,
+            radial_count: radials.len(),
+            gate_count: width,
             coverage_gates,
             max_value,
             scan_start,
             scan_end,
         });
+        radial_count += radials.len();
+        sweeps.push(ObservedSweep {
+            radials,
+            width: cells,
+            pool,
+            values,
+        });
     }
     layers.sort_by(|a, b| a.elevation_deg.total_cmp(&b.elevation_deg));
-
-    let total_gates: usize = carrying
-        .iter()
-        .flat_map(|s| s.radials())
-        .filter_map(|r| moment.select(r))
-        .map(|m| m.gate_count() as usize)
-        .sum();
-    let budget = instance_budget.max(1);
-    // A filled gate costs two instances instead of one (its real copy plus the midpoint one), so
-    // the stride has to double to keep the same total inside `instance_budget`.
-    let effective_budget = if fill_gaps { budget / 2 } else { budget };
-    // `gate_stride` below is `ceil(total_gates / effective_budget)`, which always divides
-    // `total_gates` down to at most `effective_budget` — so this cap is a pure safety valve and
-    // normally never fires. The old `break` sat at exactly `budget` and clipped the top sweeps
-    // off a full volume when the running count brushed it; a small margin keeps every sweep while
-    // still bounding the buffer.
-    let hard_cap = budget.saturating_add(budget / 4);
-    let budget_stride = total_gates.div_ceil(effective_budget.max(1));
-    let gate_stride = requested_stride.max(1).max(budget_stride);
-    let mut gates = Vec::with_capacity((total_gates / gate_stride).min(budget));
-    'sweeps: for (sweep_idx, sweep) in carrying.iter().enumerate() {
-        let fill_elevation_deg = if fill_gaps {
-            fill_toward[sweep_idx]
-        } else {
-            None
-        };
-        for radial in sweep.radials() {
-            let Some(data) = moment.select(radial) else {
-                continue;
-            };
-            let first = data.first_gate_range_km() as f32;
-            let interval = data.gate_interval_km() as f32;
-            // A kept sample stands in for the `gate_stride` gates the stride skips, so its
-            // footprint has to cover the window up to the next kept sample — not just its own
-            // native gate width. At the budget's usual stride (5-10x on a full-res volume) a
-            // footprint of one native gate left 80-90% of every beam unpainted, which is the
-            // banding: any oblique or pitched view reads the paint as gaps between beams rather
-            // than what it actually was, a hole every few gates along an otherwise solid one.
-            let footprint_km = interval * gate_stride as f32;
-            let azimuth_deg = radial.azimuth_angle_degrees().rem_euclid(360.0);
-            let beam_width_deg = radial.azimuth_spacing_degrees().max(0.01);
-            let elevation_deg = radial.elevation_angle_degrees();
-            for (gate, value) in data.iter().enumerate().step_by(gate_stride) {
-                let MomentValue::Value(value) = value else {
-                    continue;
-                };
-                let value_index = normalize(value);
-                let slant_start_km = first + gate as f32 * interval;
-                gates.push(ObservedGate {
-                    azimuth_deg,
-                    beam_width_deg,
-                    slant_start_km,
-                    slant_span_km: footprint_km,
-                    elevation_deg,
-                    value_index,
-                    gate: gate as u32,
-                });
-                if let Some(mid_elevation_deg) = fill_elevation_deg {
-                    gates.push(ObservedGate {
-                        azimuth_deg,
-                        beam_width_deg,
-                        slant_start_km,
-                        slant_span_km: footprint_km,
-                        elevation_deg: mid_elevation_deg,
-                        value_index,
-                        gate: gate as u32,
-                    });
-                }
-                if gates.len() >= hard_cap {
-                    break 'sweeps;
-                }
-            }
-        }
-    }
-    Ok(ObservedGates {
-        gates,
+    Ok(ObservedVolume {
+        sweep_count: sweeps.len(),
+        sweeps,
         radar_lat: site.latitude(),
         radar_lon: site.longitude(),
-        sweep_count: carrying.len(),
         radial_count,
-        gate_stride,
-        min_elevation_deg,
         layers,
     })
 }
@@ -2194,9 +2132,8 @@ mod tests {
     }
 
     #[test]
-    fn observed_gates_reports_one_layer_per_tilt_with_real_stats() {
-        let observed =
-            observed_gates(&two_tilt_scan(), Moment::Reflectivity, 1, 1_000_000, false).unwrap();
+    fn observed_volume_reports_one_layer_per_tilt_with_real_stats() {
+        let observed = observed_volume(&two_tilt_scan(), Moment::Reflectivity, 4096).unwrap();
         assert_eq!(observed.layers.len(), 2, "one summary per tilt");
         assert_eq!(
             observed.layers[0].elevation_deg, 0.5,
@@ -2211,27 +2148,44 @@ mod tests {
     }
 
     #[test]
-    fn fill_gaps_adds_one_midpoint_copy_per_gate_except_the_top_tilt() {
-        let plain =
-            observed_gates(&two_tilt_scan(), Moment::Reflectivity, 1, 1_000_000, false).unwrap();
-        let filled =
-            observed_gates(&two_tilt_scan(), Moment::Reflectivity, 1, 1_000_000, true).unwrap();
-        // The 0.5° tilt's one real gate gets a midpoint copy toward 1.5°; the top tilt (1.5°) has
-        // no tilt above it to fill toward, so it gets none.
-        assert_eq!(filled.gates.len(), plain.gates.len() + 1);
-        assert!(
-            filled
-                .gates
-                .iter()
-                .any(|g| (g.elevation_deg - 1.0).abs() < 1e-4),
-            "expected a synthetic gate at the 0.5°/1.5° midpoint, got {:?}",
-            filled
-                .gates
-                .iter()
-                .map(|g| g.elevation_deg)
-                .collect::<Vec<_>>()
-        );
+    fn observed_volume_keeps_every_gate_and_adds_no_synthetic_tilt() {
+        let observed = observed_volume(&two_tilt_scan(), Moment::Reflectivity, 4096).unwrap();
+        assert_eq!(observed.sweeps.len(), 2);
+        // Only the two measured elevations exist: nothing at a midpoint.
+        let elevs: Vec<f32> = observed
+            .sweeps
+            .iter()
+            .flat_map(|s| s.radials.iter().map(|r| r.elevation_deg))
+            .collect();
+        assert_eq!(elevs, vec![0.5, 1.5]);
+        for s in &observed.sweeps {
+            assert_eq!(s.pool, 1, "no pooling below the texture limit");
+            assert_eq!(s.values.len(), s.radials.len() * s.width);
+            assert_eq!(s.radials[0].gate_count as usize, s.width);
+        }
     }
+
+    #[test]
+    fn a_sweep_wider_than_the_texture_is_max_pooled_and_says_so() {
+        let full = observed_volume(&two_tilt_scan(), Moment::Reflectivity, 4096).unwrap();
+        let native = full.sweeps[0].width;
+        if native < 2 {
+            return; // fixture too narrow to pool
+        }
+        let pooled = observed_volume(&two_tilt_scan(), Moment::Reflectivity, native / 2).unwrap();
+        let s = &pooled.sweeps[0];
+        assert!(s.pool >= 2);
+        assert!(s.width <= native.div_ceil(s.pool));
+        assert_eq!(
+            s.radials[0].gate_interval_km,
+            full.sweeps[0].radials[0].gate_interval_km * s.pool as f32
+        );
+        // The strongest value survives pooling.
+        let max = |v: &[u8]| v.iter().copied().max().unwrap_or(0);
+        assert_eq!(max(&s.values), max(&full.sweeps[0].values));
+    }
+
+
 
     /// The AWS archive reaches back to June 1991 — a decade earlier than the app used to claim.
     /// Those volumes are gzip files of legacy (pre-2008, pre-dual-pol) Type-1 messages, so this
