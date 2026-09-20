@@ -2680,9 +2680,11 @@ Support:
   sixth ribbon pill / command-palette entry next to 1/2/3/4. 618 hookecho tests passing (5 new:
   five/six-pane rect count, the 3x2/2x3 grid shape, tiling with no gaps or overlap, and the 5-pane
   robustness case), native + wasm32 checks clean.
-- [ ] 9 pane on desktop/web where practical — the fixed-array blocker above is now a "bump one
-  more literal" problem rather than an unknown one, but 9 also needs its own `pane_rects` layout
-  (a 3x3 grid) and its own ribbon/palette entries, not attempted this pass
+- [x] 9 pane on desktop/web where practical — new this pass, see the Unreleased CHANGELOG entry:
+  a shared platform ceiling now keeps every per-pane CPU/GPU cache in lockstep (9 desktop/web,
+  still 6 on Android), `pane_rects` provides the real 3x3 layout, and the ribbon plus command
+  palette expose it. Imported seven/eight-pane workspaces use the same grid without silently
+  dropping views, and layout tests pin counts, axes and full-extent tiling.
 - [ ] AWIPS-style asymmetric layouts — a different, larger feature (one large pane plus several
   small ones, or a user-arranged split) than the even N-way splits `pane_rects` does today; not
   attempted here

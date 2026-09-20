@@ -10,6 +10,13 @@ use std::sync::Arc;
 use wxdata::clock::Instant;
 use wxdata::level2::{self, BinnedSweep, Moment, Scan};
 
+/// Maximum simultaneous map panes. Desktop and web get ROADMAP_NEW J1's full 3x3 analyst grid;
+/// Android keeps the six-pane ceiling because nine touch targets are not practical on a tablet.
+#[cfg(not(target_os = "android"))]
+pub const MAX_PANES: usize = 9;
+#[cfg(target_os = "android")]
+pub const MAX_PANES: usize = 6;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Map3dRepresentation {
     ObservedSweeps,

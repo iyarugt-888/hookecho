@@ -411,7 +411,7 @@ impl HookEchoApp {
                     });
 
                     // ---- VIEW ----
-                    ribbon_group(ui, "View", 148.0, |ui| {
+                    ribbon_group(ui, "View", 176.0, |ui| {
                         ui.horizontal(|ui| {
                             ui.label(
                                 RichText::new(format!("\u{25cf} {health_txt}"))
@@ -435,13 +435,16 @@ impl HookEchoApp {
                         wsv3::check(ui, "Map legend", &mut legend_on);
                         ui.add_space(1.0);
                         ui.horizontal(|ui| {
-                            for n in [1usize, 2, 3, 4, 6] {
+                            for n in [1usize, 2, 3, 4, 6, 9]
+                                .into_iter()
+                                .filter(|n| *n <= crate::view::MAX_PANES)
+                            {
                                 if wsv3::pill_sized(
                                     ui,
                                     &format!("{n}\u{d7}"),
                                     panes == n,
                                     accent,
-                                    30.0,
+                                    27.0,
                                 )
                                 .on_hover_text(format!("{n}-pane layout"))
                                 .clicked()

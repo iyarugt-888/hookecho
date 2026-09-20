@@ -8,6 +8,14 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: nine-pane desktop/web analyst grid (J1)
+
+ROADMAP_NEW J1's largest even layout is now a 3x3 grid on desktop and web, reachable from both the
+WSV3 ribbon and command palette. One shared platform ceiling sizes the app and GPU 3D caches so
+those limits cannot drift apart; Android deliberately remains at six panes. Seven- and eight-pane
+workspace imports also retain every view in the nine-cell layout instead of falling through to a
+four-cell fallback. Focused layout tests cover pane count, grid shape, and exact source-rect extent.
+
 ### Added: gridded layers in the synchronized pane probe (J3)
 
 ROADMAP_NEW J3's linked crosshair table now samples the top visible MRMS, model, satellite,
