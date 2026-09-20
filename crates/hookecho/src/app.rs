@@ -23282,6 +23282,49 @@ mod probe_grid_tests {
         assert!(format_probe_field_value(FL::Mrms, f32::NAN, TempUnit::Celsius).is_none());
     }
 
+    /// ROADMAP_NEW E6's "brightness-temperature sample": a satellite pixel has to read as a
+    /// temperature in the user's own unit, not as the raw Kelvin the grid holds.
+    #[test]
+    fn a_goes_channel_samples_as_a_brightness_temperature() {
+        assert_eq!(
+            format_probe_field_value(FL::GoesIr, 273.15, TempUnit::Celsius).as_deref(),
+            Some("0.0 °C")
+        );
+        assert_eq!(
+            format_probe_field_value(FL::GoesIr, 273.15, TempUnit::Fahrenheit).as_deref(),
+            Some("32.0 °F")
+        );
+        // Every water-vapor channel shares one ramp, so all three have to read this way too.
+        assert_eq!(
+            format_probe_field_value(FL::GoesMidWaterVapor, 273.15, TempUnit::Celsius).as_deref(),
+            Some("0.0 °C")
+        );
+    }
+
+    /// The two derived GOES layers deliberately store a *transformed* quantity rather than an
+    /// absolute brightness temperature (`GoesColdTop` holds degrees colder than its 210 K
+    /// threshold; `GoesDustDiff` holds a band difference). Presenting either as a temperature
+    /// would be a wrong number with a plausible-looking unit beside it, so this pins that they
+    /// carry their own units instead of going through the Kelvin conversion.
+    #[test]
+    fn derived_goes_layers_are_not_reported_as_absolute_temperatures() {
+        let cold_top = format_probe_field_value(FL::GoesColdTop, 20.0, TempUnit::Celsius)
+            .expect("a finite sample formats");
+        assert!(
+            !cold_top.contains("°C"),
+            "an offset from a threshold is not a temperature: {cold_top}"
+        );
+        assert!(cold_top.starts_with("20.0"), "{cold_top}");
+
+        let dust = format_probe_field_value(FL::GoesDustDiff, 3.0, TempUnit::Fahrenheit)
+            .expect("a finite sample formats");
+        assert!(
+            !dust.contains("°F"),
+            "a band difference is not a temperature: {dust}"
+        );
+        assert!(dust.starts_with("3.0"), "{dust}");
+    }
+
     #[test]
     fn legacy_grid_products_get_analyst_facing_names() {
         assert_eq!(

@@ -8,6 +8,24 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: the clippy gate passes again, and satellite samples are pinned as temperatures
+
+`cargo clippy --workspace --all-targets -- -D warnings` is a CI gate and was failing with 21
+findings, so it had stopped enforcing anything. All are fixed mechanically — named type aliases
+for four unreadable inline types, `div_ceil`/`is_multiple_of`/`contains`/`then_some`, `?` in place
+of a let-else, struct-literal init instead of Default-then-assign, and a test module moved to the
+end of its file. Two `#[allow]`s were kept deliberately rather than rewritten (an 8-argument
+render function, matching an existing allow elsewhere for the same reason, and two single-element
+layer lists that exist to be grown). One real find along the way: `view_projection` computed a
+`pitch` local it never used, since `eye_position` derives its own — deleted rather than silenced.
+
+ROADMAP_NEW E6's "brightness-temperature sample" and D3's "point sample" are both closed by the
+new gridded-layer probe, and the GOES side now has tests: a satellite pixel reads as a brightness
+temperature in the user's own unit, while `GoesDustDiff`/`GoesColdTop` — which deliberately store
+a band difference and an offset from a 210 K threshold rather than an absolute temperature — keep
+their own units instead of being labelled `°C`. A wrong number with a convincing unit beside it is
+the failure mode worth pinning.
+
 ### Added: AWIPS-style focus pane layouts
 
 Multi-pane workspaces can now switch between the existing equal grid and a `Focus` arrangement.

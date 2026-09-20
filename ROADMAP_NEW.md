@@ -1819,11 +1819,12 @@ not a convention callers have to remember.
 - [x] native resolution — `GridProvenance.native`, shown as part of the same inspector's grid
   detail
 - [x] source age — `DataStamp::age_at`/`receipt_age_at`, the inspector's "Age"/"Received" rows
-- [x]/[ ] point sample — split after auditing this pass (see E6's own updated "brightness-
-  temperature sample" note for the full finding): `FieldDescriptor::sample` is a real, correct,
-  unit-tested common sampling API (A1's ask, done), but it is not actually wired to any click or
-  hover in the app — a user cannot get a point sample for an MRMS/model/GOES layer today, only for
-  radar gates (`inspect_gate`). The API exists; reaching it from the UI does not, yet.
+- [x] point sample — genuinely true now, having been corrected to a `[x]/[ ]` split for a while
+  when an audit found `FieldDescriptor::sample` existed, was correct and unit-tested, and was
+  called from nowhere in the app. J3's gridded-layer probe closed that: the linked probe samples
+  whichever layer is on top at the shared point and reports it with its own product name, valid
+  time and legend units. The API existing and a user being able to reach it were separate claims,
+  and both hold today.
 - [ ] animation — not verified either way; MRMS layers appear to always fetch "latest" rather
   than loop an archived sequence the way the radar timeline does (consistent with A3's own note
   that MRMS/model/satellite caching, which archived playback would need, isn't built). Marked
@@ -1970,22 +1971,20 @@ Recipe metadata should specify channel inputs, transforms, gamma/ranges and outp
 
 ## E6. Satellite analysis tools — partly done
 
-- [ ] brightness-temperature sample — now audited, and the real gap is bigger than E2's own
-  acceptance-criteria note suspected: `wxdata::field::FieldDescriptor::sample` (a correct, unit-
-  tested point-sampler A1/D1 already built) and `MrmsField::sample_bilinear` are not called from
-  *any* app UI code today — confirmed by grepping every call site in `hookecho`, not just reading
-  the type's own doc comment. Only radar gates have a working point-sample path
-  (`inspect_gate`/the Interrogate tool and J3's cursor-probe table), and D3's own "point sample"
-  checkbox above overclaims this — it reflects the API existing, not it being reachable by a user
-  for any MRMS/model/GOES layer. A second, structural blocker specific to this item: once fetched,
-  a field layer's decoded grid is discarded after building its GPU upload (`FieldState.pending`
-  is display-ready 8-bit LUT indices, not the original floats), so even wiring a click handler
-  needs the raw grid kept resident first — not attempted here, since deciding what a probe reading
-  looks like in a table currently shaped around one radar `Moment` (`ui::cursor_probe::ProbeRow`)
-  is a real design choice, not a small addition, and doing it for GOES specifically needs its own
-  care: `GoesDustDiff`/`GoesColdTop` deliberately store a transformed value instead of a literal
-  brightness temperature, so a naive generic sampler would report the wrong number for those two.
-  Left open rather than shipped as a mislabeled or GOES-only-partial reading.
+- [x] brightness-temperature sample — closed by J3's gridded-layer probe (see that section), which
+  solved both blockers this entry used to describe: a field's decoded CPU grid is now retained for
+  exactly as long as its GPU texture is resident, and the probe table reports a source, product
+  name, valid time and value for whichever layer is on top rather than being shaped around one
+  radar `Moment`. A GOES pixel therefore reads as a brightness temperature in the user's own
+  temperature unit, because `GOES_IR`/`GOES_WATER_VAPOR` carry `is_temp_kelvin` and the formatter
+  honours it.
+
+  The specific hazard this entry called out is handled rather than merely avoided:
+  `GoesDustDiff`/`GoesColdTop` deliberately store a *transformed* quantity (a band difference, and
+  degrees colder than the 210 K threshold), and both ramps carry their own non-Kelvin units, so
+  the probe labels them as what they are instead of putting a plausible-looking `°C` beside a
+  number that is not a temperature. Pinned by its own tests — a wrong number with a convincing
+  unit next to it is the failure mode worth a regression test, not the happy path alone.
 - [x] channel difference products — `FieldLayer::GoesDustDiff` (new this pass): the classic
   split-window dust/ash technique, Band 13 minus Band 15 brightness temperature
   (`wxdata::goes_abi::fetch_latest_conus_diff`, a new two-band concurrent fetch + cell-by-cell
