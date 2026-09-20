@@ -8,6 +8,18 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: an imported GIS file is remembered across restarts (I1)
+
+A GeoJSON import used to last only for the session, so a district boundary, coverage area or asset
+file someone works with every day cost a re-pick on every launch. It now comes back automatically,
+remembered the same two ways an imported `.pal` already is: a path where there is a filesystem, and
+the content itself in a browser, which has no path that would survive a reload.
+
+A file that has since moved or been deleted is reported rather than swallowed — the layer simply
+not being there would otherwise be indistinguishable from the app having forgotten it, and only the
+person can fix a missing file. The reference is kept through that failure rather than dropped,
+since a drive that isn't mounted this launch will likely be mounted the next.
+
 ### Fixed: the clippy gate passes again, and satellite samples are pinned as temperatures
 
 `cargo clippy --workspace --all-targets -- -D warnings` is a CI gate and was failing with 21

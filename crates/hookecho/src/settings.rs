@@ -158,6 +158,13 @@ pub struct Settings {
     /// the settings bundle. Empty everywhere else.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub web_files: BTreeMap<String, String>,
+    /// The last GeoJSON file imported as a reference overlay (ROADMAP_NEW I1), so a boundary or
+    /// asset file someone works with every day comes back on launch instead of being re-picked
+    /// each time. Resolved exactly the way [`Self::palettes`] resolves a `.pal`: a path on
+    /// native/Android, or the name of a [`Self::web_files`] entry holding the content in a
+    /// browser, which has no path that would survive a reload.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub imported_gis: Option<String>,
     /// Velocity/spectrum-width display unit (internal data stays m/s).
     pub velocity_unit: VelocityUnit,
     /// Temperature display unit for the surface station plots (internal data stays Celsius).
@@ -1277,6 +1284,7 @@ impl Default for Settings {
         Self {
             default_site: "KTLX".to_string(),
             web_files: BTreeMap::new(),
+            imported_gis: None,
             detectors: DetectorTuning::default(),
             alert_rules: Vec::new(),
             serve_token: String::new(),
@@ -1445,6 +1453,17 @@ impl Settings {
                 Some(text) => PathBuf::from(format!("{}{text}", crate::colormap::INLINE_PREFIX)),
                 None => PathBuf::from(v),
             })
+        })
+    }
+
+    /// The remembered GeoJSON import's content, or why it couldn't be read. `None` when nothing
+    /// has been imported. Resolved the same two ways [`Self::palette_paths`] resolves a `.pal`:
+    /// a `web_files` name holds its own content, anything else is a path to read.
+    pub fn imported_gis_text(&self) -> Option<Result<String, String>> {
+        let key = self.imported_gis.as_ref()?;
+        Some(match self.web_files.get(key) {
+            Some(text) => Ok(text.clone()),
+            None => std::fs::read_to_string(key).map_err(|e| e.to_string()),
         })
     }
 
@@ -1673,6 +1692,43 @@ fn replace_file(from: &std::path::Path, to: &std::path::Path) -> std::io::Result
 mod tests {
     use super::*;
 
+    /// Nothing imported must stay silent — this runs on every launch, and an empty setting is the
+    /// ordinary case, not an error worth reporting.
+    #[test]
+    fn no_remembered_gis_import_resolves_to_nothing_at_all() {
+        assert!(Settings::default().imported_gis_text().is_none());
+    }
+
+    /// The browser has no path that survives a reload, so a name that matches a `web_files` entry
+    /// resolves to that content — the same two-way resolution `palette_paths` does for a `.pal`.
+    #[test]
+    fn a_web_files_name_resolves_to_its_stored_content() {
+        let mut s = Settings::default();
+        s.web_files
+            .insert("districts.geojson".into(), "{\"type\":\"x\"}".into());
+        s.imported_gis = Some("districts.geojson".into());
+        assert_eq!(
+            s.imported_gis_text().expect("a remembered import"),
+            Ok("{\"type\":\"x\"}".to_string())
+        );
+    }
+
+    /// A path that no longer resolves has to come back as an error, not as silence: the layer
+    /// being missing is otherwise indistinguishable from the app having forgotten the import.
+    #[test]
+    fn a_missing_path_is_an_error_rather_than_silence() {
+        let s = Settings {
+            imported_gis: Some(
+                std::env::temp_dir()
+                    .join("hookecho-no-such-import.geojson")
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
+            ..Default::default()
+        };
+        assert!(s.imported_gis_text().expect("a remembered import").is_err());
+    }
+
     #[test]
     fn atomic_write_replaces_an_existing_file() {
         let dir = std::env::temp_dir().join(format!(
@@ -1897,6 +1953,7 @@ mod tests {
         let s = Settings {
             hints_seen: Vec::new(),
             web_files: BTreeMap::new(),
+            imported_gis: None,
             reduce_motion: true,
             precip_tint: false,
             custom_tile_url: String::new(),

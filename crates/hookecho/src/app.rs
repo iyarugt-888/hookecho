@@ -4932,6 +4932,7 @@ impl HookEchoApp {
             app.rebuild_overlays();
         }
         app.palettes.reload(&app.settings.palette_paths());
+        app.reload_imported_gis();
         app.apply_goto_env();
         app.drain_goto_file();
         #[cfg(target_arch = "wasm32")]
@@ -18277,6 +18278,35 @@ impl HookEchoApp {
         }
     }
 
+    /// Bring back the GeoJSON import this user last chose, at startup. Silent when there is none.
+    ///
+    /// A file that has since moved or been deleted is reported rather than swallowed: the layer
+    /// simply not being there is otherwise indistinguishable from the app having forgotten it,
+    /// and the person is the only one who can fix a missing file. The reference is kept either
+    /// way — a path on a drive that is merely not mounted right now should come back next time,
+    /// not be quietly forgotten because of one failed launch.
+    fn reload_imported_gis(&mut self) {
+        let Some(source) = self.settings.imported_gis_text() else {
+            return;
+        };
+        match source.and_then(|text| wxdata::gis::parse_geojson(&text).map_err(|e| e.to_string())) {
+            Ok(features) => {
+                let (shapes, marks) = crate::gis_import::to_renderable(features);
+                self.imported_gis = shapes;
+                self.imported_marks = marks;
+                self.rebuild_overlays();
+            }
+            Err(e) => {
+                let name = self.settings.imported_gis.clone().unwrap_or_default();
+                log::warn!("could not reload the imported GIS file {name}: {e}");
+                self.toast(
+                    ToastKind::Error,
+                    format!("Couldn't reload your imported shapes from {name}: {e}"),
+                );
+            }
+        }
+    }
+
     /// Frame the active pane on everything the last GeoJSON import brought in. A file covering
     /// somewhere the map isn't currently looking otherwise imports to no visible effect at all —
     /// the shapes are real, just off-screen.
@@ -18429,6 +18459,18 @@ impl HookEchoApp {
                         self.imported_marks = marks;
                         self.show_imported_gis = true;
                         self.rebuild_overlays();
+                        // Remember it the same two ways an imported `.pal` is remembered: a path
+                        // where there is a filesystem, the content itself in a browser, which has
+                        // no path that would survive a reload. A boundary file someone works with
+                        // daily should not need re-picking on every launch.
+                        self.settings.imported_gis = Some(match &import.bytes {
+                            None => import.path.to_string_lossy().into_owned(),
+                            Some(_) => {
+                                let name = import.name();
+                                self.settings.web_files.insert(name.clone(), text.clone());
+                                name
+                            }
+                        });
                         // Framing the import is the difference between "nothing happened" and
                         // "there it is" for a file covering somewhere the map isn't looking.
                         self.zoom_to_imported_gis();

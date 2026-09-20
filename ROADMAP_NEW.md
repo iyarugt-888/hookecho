@@ -2562,9 +2562,15 @@ Implement in this order:
    since a latitude degree is not a constant height under Mercator and fitting on degrees
    overshoots badly away from the equator.
 
-   Shapes are held for the running session only, not saved — closing the app forgets them, the
-   same as every other "load a file into a working session" surface in this app that isn't itself
-   a save format. 657 hookecho tests passing, native + wasm32 checks clean.
+   **The import is remembered across restarts** (a later pass; it used to be session-only, which
+   made a boundary or asset file someone works with daily cost a re-pick on every launch).
+   Remembered exactly the two ways an imported `.pal` already is: a path where there is a
+   filesystem, and the content itself in a browser, which has no path that would survive a reload.
+   A file that has since moved or been deleted is reported rather than swallowed — the layer
+   simply not being there is otherwise indistinguishable from the app having forgotten it, and
+   only the person can fix a missing file. The reference survives that failure rather than being
+   dropped, since a drive that isn't mounted this launch will likely be mounted the next.
+   679 hookecho tests passing, native + wasm32 checks clean, clippy's `-D warnings` gate green.
 2. [ ] ESRI Shapefile (`.shp/.shx/.dbf`, optional `.prj`)
 3. [ ] KML
 4. [ ] KMZ
