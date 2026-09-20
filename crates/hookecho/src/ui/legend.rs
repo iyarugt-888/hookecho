@@ -460,3 +460,95 @@ pub fn draw_ramp(
         }
     }
 }
+
+/// A small boxed horizontal scale for the map's bottom-right corner — the phone's Atlas design,
+/// where the right edge belongs to the tool rail so the tall bar has nowhere to go.
+///
+/// Samples the same table as [`draw_vertical`] and the radar LUT, so the three cannot disagree.
+/// `bottom` is the y the box's lower edge sits at, chosen by the caller to clear the timeline.
+pub fn draw_box(
+    painter: &egui::Painter,
+    rect: Rect,
+    bottom: f32,
+    title: &str,
+    table: &ColorTable,
+    moment: Moment,
+    disp_factor: f32,
+) {
+    const W: f32 = 196.0;
+    const H: f32 = 52.0;
+    let (vmin, vmax) = match (table.stops.first(), table.stops.last()) {
+        (Some(a), Some(b)) if b.value > a.value => (a.value, b.value),
+        _ => moment.value_range(),
+    };
+    let span = (vmax - vmin).max(f32::EPSILON);
+    let panel = Rect::from_min_size(
+        egui::pos2(rect.right() - INSET - W, bottom - H),
+        Vec2::new(W, H),
+    );
+    card(painter, panel);
+    painter.text(
+        panel.left_top() + Vec2::new(PAD_X + 2.0, 4.0),
+        Align2::LEFT_TOP,
+        title,
+        FontId::proportional(11.0),
+        Color32::from_gray(225),
+    );
+    let bar = Rect::from_min_size(
+        panel.left_top() + Vec2::new(PAD_X + 2.0, 20.0),
+        Vec2::new(W - (PAD_X + 2.0) * 2.0, 10.0),
+    );
+    let x_of = |value: f32| bar.left() + ((value - vmin) / span).clamp(0.0, 1.0) * bar.width();
+    let col = |c: [u8; 4]| Color32::from_rgb(c[0], c[1], c[2]);
+    let mut mesh = Mesh::default();
+    let mut quad = |x0: f32, x1: f32, c0: Color32, c1: Color32| {
+        if x1 <= x0 {
+            return;
+        }
+        let i = mesh.vertices.len() as u32;
+        mesh.colored_vertex(egui::pos2(x0, bar.top()), c0);
+        mesh.colored_vertex(egui::pos2(x1, bar.top()), c1);
+        mesh.colored_vertex(egui::pos2(x1, bar.bottom()), c1);
+        mesh.colored_vertex(egui::pos2(x0, bar.bottom()), c0);
+        mesh.add_triangle(i, i + 1, i + 2);
+        mesh.add_triangle(i, i + 2, i + 3);
+    };
+    for (i, s) in table.stops.iter().enumerate() {
+        let x0 = x_of(s.value);
+        match table.stops.get(i + 1) {
+            Some(n) => {
+                let x1 = x_of(n.value);
+                if s.solid {
+                    quad(x0, x1, col(s.rgba), col(s.rgba));
+                } else {
+                    quad(x0, x1, col(s.rgba), col(s.end.unwrap_or(n.rgba)));
+                }
+            }
+            None => quad(
+                x0,
+                bar.right(),
+                col(s.end.unwrap_or(s.rgba)),
+                col(s.end.unwrap_or(s.rgba)),
+            ),
+        }
+    }
+    painter.add(Shape::mesh(mesh));
+    // Correlation coefficient spans 0..1.05, which rounds to "1 1 1 0 0" as whole numbers.
+    let decimals = if span * disp_factor >= 10.0 { 0 } else { 2 };
+    for k in 0..=4 {
+        let v = vmin + span * k as f32 / 4.0;
+        let x = bar.left() + bar.width() * k as f32 / 4.0;
+        let align = match k {
+            0 => Align2::LEFT_TOP,
+            4 => Align2::RIGHT_TOP,
+            _ => Align2::CENTER_TOP,
+        };
+        painter.text(
+            egui::pos2(x, bar.bottom() + 3.0),
+            align,
+            format!("{:.*}", decimals, v * disp_factor),
+            FontId::proportional(10.0),
+            Color32::from_gray(200),
+        );
+    }
+}

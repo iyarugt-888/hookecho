@@ -138,6 +138,9 @@ pub struct Settings {
     /// Desktop/web chrome: the WSV3 ribbon (default) or the original map-first minimal chrome.
     #[serde(default)]
     pub layout: Layout,
+    /// The touch chrome's look on a phone; see [`PhoneDesign`].
+    #[serde(default)]
+    pub phone_design: PhoneDesign,
     /// UI density (spacing/type token table). Comfortable by default; Compact restores the
     /// pre-0.12 pro-dense desktop metrics.
     pub density: Density,
@@ -1120,6 +1123,25 @@ impl Layout {
     }
 }
 
+/// Which of the five phone designs draws the touch chrome (`ui::phone_design` says how each
+/// differs). Only used where the phone chrome is: on a tablet the desktop layout is drawn and this
+/// is ignored, and it changes how the chrome looks and where its buttons sit, never what the app
+/// can do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum PhoneDesign {
+    /// Clean, minimal, touch-friendly: a right-hand tool rail and a 2D / Tilt toggle.
+    #[default]
+    Aurora,
+    /// Analyst-focused: a left tool rail, a tall dBZ scale and a squarer look.
+    Storm,
+    /// Dark and high-contrast, with labelled tools and a red accent.
+    Carbon,
+    /// Translucent panels over the map, with a bottom tab bar.
+    Glass,
+    /// Built around the 3D modes: all four mode buttons and a corner colour scale.
+    Atlas,
+}
+
 /// theme_plan.md §7: which visual layout the bottom timeline (`app/chrome/scrubber.rs`) draws
 /// itself in — independent of `Layout`/chrome theme (a WSV3-*look* user might still prefer a
 /// leaner timeline, or vice versa), since `scrubber()` is shared by every `Layout` today. Every
@@ -1303,6 +1325,7 @@ impl Default for Settings {
             poll_interval_secs: 30,
             theme: Theme::Dark,
             layout: Layout::default(),
+            phone_design: PhoneDesign::default(),
             density: Density::default(),
             accent: None,
             reduce_motion: false,
@@ -1981,6 +2004,7 @@ mod tests {
             poll_interval_secs: 45,
             theme: Theme::Synthwave,
             layout: Layout::Minimal,
+            phone_design: PhoneDesign::Carbon,
             presets: vec!["KTLX".to_string(), "KOUN".to_string()],
             palettes: BTreeMap::from([("REF".to_string(), "/tmp/foo.pal".to_string())]),
             velocity_unit: VelocityUnit::Mph,

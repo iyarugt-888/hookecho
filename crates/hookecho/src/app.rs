@@ -13439,6 +13439,12 @@ impl HookEchoApp {
     }
 
     fn map_3d_controls(&mut self, idx: usize, prect: egui::Rect, ctx: &egui::Context) {
+        // On a phone the mode bar under the site pill is how you turn 3D on and off, so this
+        // window's own 2D / 3D toggle would be a second copy. It stays for what only it has — the
+        // Observed / Smooth / Debris choice — but only while the tilted 3D map is on.
+        if crate::platform::phone_layout() && !self.views[idx].map_3d.enabled {
+            return;
+        }
         let volume_supported = self.volume3d_supported;
         let moment = self.views[idx].moment;
         // On a phone the desktop's spot (276 pt in from the right edge) is where the search pill and
@@ -13452,8 +13458,8 @@ impl HookEchoApp {
                 0.0
             };
             egui::pos2(
-                prect.left() + crate::ui::m3::SP_3,
-                chrome::phone_top(ctx) + 56.0 + banner,
+                prect.left() + crate::ui::m3::SP_3 + self.phone_gutters().0,
+                chrome::phone_top(ctx) + 56.0 + chrome::MODE_BAR_H + 8.0 + banner,
             )
         } else {
             prect.right_top() + egui::vec2(-276.0, 8.0)
@@ -16993,13 +16999,13 @@ impl HookEchoApp {
             // along the top.
             let phone = crate::platform::phone_layout();
             let (wrap, center_x, phone_y) = if phone {
-                let column = 72.0;
-                let left = prect.left() + crate::ui::m3::SP_3;
-                let right = prect.right() - crate::ui::m3::SP_3 - column;
+                let (gutter_l, gutter_r) = self.phone_gutters();
+                let left = prect.left() + crate::ui::m3::SP_3 + gutter_l;
+                let right = prect.right() - crate::ui::m3::SP_3 - gutter_r;
                 (
                     (right - left - pad.x * 2.0).max(120.0),
                     (left + right) / 2.0,
-                    prect.top() + chrome::phone_top(ui.ctx()) + 56.0,
+                    prect.top() + chrome::phone_top(ui.ctx()) + 56.0 + chrome::MODE_BAR_H + 8.0,
                 )
             } else {
                 (f32::INFINITY, prect.center().x, 0.0)
@@ -17746,6 +17752,40 @@ impl HookEchoApp {
 
         // The boxed legend is desktop-only; Android draws a full-width color scale in the mobile
         // chrome (see `app::mobile`), so drawing both would be redundant.
+        // The phone keeps the thin strip along the top edge in every design; Storm and Carbon add a
+        // tall scale down the edge opposite their rail, and Atlas a small boxed one in the corner.
+        if crate::platform::phone_layout() && view.show_legend && view.volume.is_some() {
+            use crate::ui::phone_design::Legend;
+            let (df, dl) = display_units(view.moment, &self.settings);
+            let table = self.palettes.table(view.moment);
+            // Clear of the pill, mode bar and rail above, and the timeline below.
+            let top = chrome::phone_top(ui.ctx()) + 56.0 + chrome::MODE_BAR_H + 8.0;
+            let clear_bottom = 132.0;
+            match self.settings.phone_design.spec().legend {
+                Legend::StripOnly => {}
+                Legend::Vertical => ui::legend::draw_vertical(
+                    &painter,
+                    egui::Rect::from_min_max(
+                        egui::pos2(prect.left(), prect.top() + top),
+                        egui::pos2(prect.right(), prect.bottom() - clear_bottom),
+                    ),
+                    view.moment,
+                    table,
+                    view.active_threshold(),
+                    df,
+                    dl,
+                ),
+                Legend::Box => ui::legend::draw_box(
+                    &painter,
+                    prect,
+                    prect.bottom() - clear_bottom + 12.0,
+                    &format!("{} ({dl})", crate::products::name(view.moment, false)),
+                    table,
+                    view.moment,
+                    df,
+                ),
+            }
+        }
         if view.show_legend && !crate::platform::phone_layout() {
             // The moment's scale floats over this pane's right edge (no panel, no card) so the map
             // keeps the pixels; the field/wind ramps still need their cards. The WSV3 layout docks

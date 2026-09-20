@@ -5,7 +5,9 @@
 mod chips;
 mod overlay;
 mod permalink;
+mod phone_rail;
 pub(crate) use overlay::{compact, phone_top};
+pub(crate) use phone_rail::MODE_BAR_H;
 mod registry;
 mod ribbon;
 mod scrubber;

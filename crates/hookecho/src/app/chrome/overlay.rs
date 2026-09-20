@@ -469,7 +469,7 @@ impl HookEchoApp {
         if self.panel_open {
             return;
         }
-        let accent = crate::theme::accent(self.settings.theme);
+        let accent = self.chrome_accent();
         let mut anchor = None;
         // theme_plan.md §2.3: `phone()` is an Android-and-not-a-tablet check (see
         // `platform::form_factor`), never a plain screen-width one — the icon-only search hint
@@ -515,7 +515,9 @@ impl HookEchoApp {
             .constrain_to(self.chrome_rect)
             .anchor(egui::Align2::LEFT_TOP, egui::vec2(x, y))
             .show(ctx, |ui| {
-                crate::ui::style::glass(ui, 238).show(ui, |ui| {
+                crate::ui::style::glass(ui, self.chrome_alpha(238))
+                    .corner_radius(self.chrome_corner(crate::ui::style::RADIUS_LG))
+                    .show(ui, |ui| {
                     ui.set_width(width);
                     ui.horizontal(|ui| {
                         let menu = ui.add(
@@ -590,6 +592,13 @@ impl HookEchoApp {
 
     /// The right-edge control column: the buttons that open what floats over the map.
     pub(crate) fn control_column(&mut self, ctx: &egui::Context) {
+        // The phone draws the design's own rail and mode bar (see `phone_rail`); the buttons below
+        // are the desktop and minimal layouts'.
+        if phone() {
+            self.phone_mode_bar(ctx);
+            self.phone_rail(ctx);
+            return;
+        }
         let square_btn = |ui: &mut egui::Ui, icon: &str, on: bool, accent: egui::Color32| {
             if phone() {
                 return crate::ui::style::square_btn(ui, icon, on, accent);

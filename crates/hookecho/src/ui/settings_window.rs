@@ -868,7 +868,19 @@ fn appearance_tab(ui: &mut egui::Ui, settings: &mut Settings) {
         .num_columns(2)
         .spacing([12.0, 8.0])
         .show(ui, |ui| {
-            if !cfg!(target_os = "android") {
+            // A phone picks its own design below; a tablet, being the desktop layout, picks a theme
+            // here like a desktop does.
+            if crate::platform::phone_layout() {
+                ui.label("Phone design");
+                ui.vertical(|ui| {
+                    for d in crate::settings::PhoneDesign::ALL {
+                        ui.selectable_value(&mut settings.phone_design, d, d.label())
+                            .on_hover_text(d.tagline());
+                    }
+                    ui.small(settings.phone_design.tagline());
+                });
+                ui.end_row();
+            } else {
                 ui.label("Theme");
                 ui.horizontal(|ui| {
                     for l in crate::settings::Layout::ALL {

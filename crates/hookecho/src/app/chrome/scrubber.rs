@@ -25,7 +25,7 @@ impl HookEchoApp {
     fn scrubber_default(&mut self, ctx: &egui::Context) {
         crate::prof_scope!("scrubber");
         use egui_phosphor::regular as ph;
-        let accent = crate::theme::accent(self.settings.theme);
+        let accent = self.chrome_accent();
         let tz = self.active_tz();
         // The site's own newest known frame, not whatever the displayed volume happens to be: a
         // rolling live loop deliberately keeps showing its playhead frame while a genuinely new
@@ -107,7 +107,8 @@ impl HookEchoApp {
                 egui::vec2(0.0, if narrow { crate::ui::style::LANE_BOTTOM_CHIP } else { -24.0 }),
             )
             .show(ctx, |ui| {
-                crate::ui::style::glass(ui, 252)
+                crate::ui::style::glass(ui, self.chrome_alpha(252))
+                    .corner_radius(self.chrome_corner(crate::ui::style::RADIUS_LG))
                     .inner_margin(egui::Margin::symmetric(
                         if phone { 12 } else if compact_live { 10 } else { 12 },
                         if phone { 6 } else if compact_live { 4 } else { 9 },

@@ -120,6 +120,7 @@ pub mod marker_window;
 /// Easing and the reduced-motion brake.
 pub mod motion;
 pub mod palette_editor;
+pub mod phone_design;
 pub mod placefile_window;
 pub mod popover;
 pub mod rules_window;
