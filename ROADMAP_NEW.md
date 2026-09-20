@@ -2252,7 +2252,14 @@ Support:
   what the GPU upload currently represents. The legend's bar, ticks and title follow the mode, and
   the cursor readout is put through the same transform the upload was, so a magnitude-colored map
   cannot hand back a negative number.
-- [ ] percentage difference where meaningful — not implemented for any comparison field
+- [ ] percentage difference where meaningful — still open, and specifically *not* the fourth
+  `DiffMode` variant it looks like from the outside. `Signed`/`Absolute`/`Disagreement` are all
+  pure display transforms of one retained grid, which is why switching between them recolors
+  without refetching. A percentage needs the denominator, and the difference path only ever keeps
+  `a − b` (`diff_grid` is one `MrmsField`); both sides survive only in `compare_grid`, which the
+  separate compare-panes fetch populates. So this costs a fetch/retention change, not a match arm
+  — and it needs a decision about what a percentage means where the denominator is near zero,
+  which for CAPE or a difference field is most of the domain.
 - [x] threshold highlighting — the existing deadband mechanism (`DiffField::range`'s second
   number): differences inside it draw as fully transparent, same as every other comparison field
 - [ ] synchronized side-by-side panes — deliberately not offered for this field: the compare-panes
