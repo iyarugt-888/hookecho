@@ -498,6 +498,9 @@ pub struct MapView {
     /// one pane instead of needing "View side by side"'s two linked panes. Session state, not
     /// persisted — same as `srv`, nothing here belongs in a saved workspace.
     pub blink_compare: bool,
+    /// ROADMAP_NEW F6/J4 transparent overlay: draw both comparison grids in this pane with B at
+    /// half opacity. Session state, mutually exclusive with `blink_compare` and side-by-side.
+    pub overlay_compare: bool,
     /// Every moment seen in any volume from `loaded_site`, cleared when the site changes.
     ///
     /// A single live volume is only as complete as the tilts that have arrived: early in a scan
@@ -570,6 +573,7 @@ impl MapView {
             live_gpu_queue_micros: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             fields_on: Default::default(),
             blink_compare: false,
+            overlay_compare: false,
             moments_seen: [false; Moment::ALL.len()],
             #[cfg(not(target_arch = "wasm32"))]
             radar_providers: None,

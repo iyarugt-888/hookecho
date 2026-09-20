@@ -8,6 +8,16 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: pane-local transparent model comparison (F6/J4)
+
+Model comparison now offers "Overlay A/B" beside difference, side-by-side, and blink: A draws at
+normal opacity and B at 50% of the user's configured layer opacity in the same pane, with a legend
+that names both models. Comparison modes remain mutually exclusive, unsupported run-to-run fields
+do not expose the command, and stopping leaves a useful static A view. The renderer now keeps one
+small field uniform/bind group per pane while continuing to share grid textures and LUTs, fixing
+the previous prepare-order bug where one pane's opacity could overwrite another's. A focused test
+pins the blend math and preservation of user opacity.
+
 ### Added: nine-pane desktop/web analyst grid (J1)
 
 ROADMAP_NEW J1's largest even layout is now a 3x3 grid on desktop and web, reachable from both the

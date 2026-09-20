@@ -1449,22 +1449,32 @@ impl HookEchoApp {
             PaletteAction::AllTilts,
             None,
         );
-        push(
-            "Compare models in 2 panes",
-            "Models",
-            "One model's own field in each pane, cameras linked, instead of subtracting them",
-            false,
-            PaletteAction::CompareInPanes,
-            None,
-        );
-        push(
-            "Blink between compared models",
-            "Models",
-            "Alternate this pane between each model's own field on a timer, instead of two panes",
-            false,
-            PaletteAction::ToggleBlinkCompare,
-            Some(self.views[self.active].blink_compare),
-        );
+        if self.diff_field.supports_side_by_side() {
+            push(
+                "Compare models in 2 panes",
+                "Models",
+                "One model's own field in each pane, cameras linked, instead of subtracting them",
+                false,
+                PaletteAction::CompareInPanes,
+                None,
+            );
+            push(
+                "Blink between compared models",
+                "Models",
+                "Alternate this pane between each model's own field on a timer, instead of two panes",
+                false,
+                PaletteAction::ToggleBlinkCompare,
+                Some(self.views[self.active].blink_compare),
+            );
+            push(
+                "Overlay compared models",
+                "Models",
+                "Draw model A normally with model B at 50% opacity in this pane",
+                false,
+                PaletteAction::ToggleCompareOverlay,
+                Some(self.views[self.active].overlay_compare),
+            );
+        }
         let panes = self.views.len();
         for n in [1usize, 2, 3, 4, 6, 9]
             .into_iter()

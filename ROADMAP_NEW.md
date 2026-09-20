@@ -2277,6 +2277,14 @@ Modes:
   even roughly agree here" rather than a signed difference or either model's own value) with no
   existing partial implementation to build on
 
+New this pass, transparent overlay is also available anywhere side-by-side/blink is scientifically
+valid: model A draws normally and model B draws over it at 50% of the user's configured opacity,
+with one shared scale and an explicit two-model legend. This required fixing the renderer's old
+single opacity uniform per field — egui_wgpu prepares all panes before painting any, so the last
+prepared pane could overwrite every earlier pane's field opacity. Textures/LUTs remain shared, but
+each field now owns one tiny uniform/bind group per pane, making the overlay genuinely pane-local
+and eliminating that latent cross-pane clobbering for ordinary field opacity too.
+
 ## F7. Ensemble workstation
 
 This is required for top-tier analysis.
@@ -2752,10 +2760,9 @@ what's done and why swipe isn't:
 - [ ] swipe — not attempted; see F6's own entry for the exact architectural blocker
 - [x] blink — new this pass, see F6 and the Unreleased CHANGELOG entry
 - [x] difference — predates this pass (`ModelDiff`)
-- [ ] transparent overlay — not attempted; distinct from `ModelDiff`'s subtraction and from
-  `CompareA`/`CompareB`'s full-opacity single-field panes, this would draw one model's field at
-  reduced opacity directly over the other's at full opacity in one pane — no existing partial
-  implementation
+- [x] transparent overlay — new this pass, see F6 and the Unreleased CHANGELOG entry: model A at
+  normal opacity plus model B at 50% in one pane, with per-pane GPU uniforms so the blend cannot
+  leak into a side-by-side pane showing B alone
 - [x] side-by-side — predates this pass (`PaletteAction::CompareInPanes`)
 
 ## J5. Analyst presets — partly done

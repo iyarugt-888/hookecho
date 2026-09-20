@@ -2081,6 +2081,8 @@ pub(crate) enum PaletteAction {
     /// ROADMAP_NEW F6/J4 "blink A/B": alternate the active pane's own field between the two
     /// compared models on a timer, instead of splitting into two linked panes.
     ToggleBlinkCompare,
+    /// ROADMAP_NEW F6/J4 transparent overlay: draw A normally and B at half opacity in one pane.
+    ToggleCompareOverlay,
     ToggleField(crate::render::FieldLayer),
     ToggleOverlay(OverlayToggle),
     SetContours(ContourKind),
@@ -2339,6 +2341,23 @@ fn format_probe_field_value(
     } else {
         format!("{raw:.1} {units}")
     })
+}
+
+const COMPARE_OVERLAY_ALPHA: f32 = 0.5;
+
+/// Apply the pane-local comparison blend without changing the user's ordinary layer-opacity
+/// preference. The renderer owns a field-per-pane uniform, so this stays local even when another
+/// pane shows B alone at full opacity.
+fn field_draw_opacity(
+    layer: crate::render::FieldLayer,
+    configured: f32,
+    compare_overlay: bool,
+) -> f32 {
+    if compare_overlay && layer == crate::render::FieldLayer::CompareB {
+        configured * COMPARE_OVERLAY_ALPHA
+    } else {
+        configured
+    }
 }
 
 /// The ZDR-column cache: the volume it was computed for, its columns, and the bright band the
@@ -9478,6 +9497,24 @@ impl HookEchoApp {
                 // The active pane's choice, not the app's: that is what makes two panes able to
                 // show two fields.
                 let on = self.views[self.active].fields_on.contains(&layer);
+                {
+                    use crate::render::FieldLayer as FL;
+                    let view = &mut self.views[self.active];
+                    if layer == FL::ModelDiff && !on {
+                        view.fields_on.remove(&FL::CompareA);
+                        view.fields_on.remove(&FL::CompareB);
+                        view.blink_compare = false;
+                        view.overlay_compare = false;
+                    } else if matches!(layer, FL::CompareA | FL::CompareB) {
+                        // A direct layer toggle means exactly what its row says, not a stale
+                        // blink/overlay mode left armed behind it.
+                        view.blink_compare = false;
+                        view.overlay_compare = false;
+                        if !on {
+                            view.fields_on.remove(&FL::ModelDiff);
+                        }
+                    }
+                }
                 self.set_field(layer, !on);
                 // ROADMAP_NEW D1/D3 "recent products": only a genuine click here, not a
                 // workspace restore or the HRRR sub-mode/model-compare bookkeeping that write
@@ -9541,6 +9578,9 @@ impl HookEchoApp {
             PaletteAction::AllTilts => self.apply_all_tilts(),
             PaletteAction::CompareInPanes => self.apply_compare_panes(),
             PaletteAction::ToggleBlinkCompare => {
+                if !self.diff_field.supports_side_by_side() {
+                    return;
+                }
                 use crate::render::FieldLayer as FL;
                 let view = &mut self.views[self.active];
                 view.blink_compare = !view.blink_compare;
@@ -9550,9 +9590,29 @@ impl HookEchoApp {
                     view.fields_on.insert(FL::CompareA);
                     view.fields_on.remove(&FL::CompareB);
                     view.fields_on.remove(&FL::ModelDiff);
+                    view.overlay_compare = false;
                 }
                 // Turning it off leaves whichever field was showing at the moment as a static
                 // single-field view, rather than snapping back to some other mode on its own.
+            }
+            PaletteAction::ToggleCompareOverlay => {
+                if !self.diff_field.supports_side_by_side() {
+                    return;
+                }
+                use crate::render::FieldLayer as FL;
+                let view = &mut self.views[self.active];
+                view.overlay_compare = !view.overlay_compare;
+                if view.overlay_compare {
+                    view.fields_on.insert(FL::CompareA);
+                    view.fields_on.insert(FL::CompareB);
+                    view.fields_on.remove(&FL::ModelDiff);
+                    view.blink_compare = false;
+                } else {
+                    // Stop on A as a stable single-field view, mirroring blink's "leave a useful
+                    // comparison side visible" behavior rather than exposing a blank pane.
+                    view.fields_on.insert(FL::CompareA);
+                    view.fields_on.remove(&FL::CompareB);
+                }
             }
             PaletteAction::CycleBasemap => {
                 let (mb, mt) = (
@@ -14359,9 +14419,10 @@ impl HookEchoApp {
                     && self.mrms_ready(**layer)
             })
             .map(|k| {
+                let configured = self.settings.field_opacity.get(k).copied().unwrap_or(1.0);
                 (
                     *k,
-                    self.settings.field_opacity.get(k).copied().unwrap_or(1.0),
+                    field_draw_opacity(*k, configured, self.views[idx].overlay_compare),
                 )
             })
             .collect();
@@ -17033,12 +17094,14 @@ impl HookEchoApp {
                     y += ui::legend::draw_diff(&painter, prect, self.diff_field, self.diff_mode, y);
                 } else if matches!(*top, FL::CompareA | FL::CompareB) {
                     let (label_a, label_b) = self.diff_field.pair();
-                    let model = if *top == FL::CompareA {
-                        label_a
+                    let model = if view.overlay_compare {
+                        format!("{label_a} + 50% {label_b}")
+                    } else if *top == FL::CompareA {
+                        label_a.into()
                     } else {
-                        label_b
+                        label_b.into()
                     };
-                    y += ui::legend::draw_compare_label(&painter, prect, y, model);
+                    y += ui::legend::draw_compare_label(&painter, prect, y, &model);
                     y += ui::legend::draw_field(
                         &painter,
                         prect,
@@ -17101,6 +17164,9 @@ impl HookEchoApp {
     /// `CompareB`; the subtraction layer is turned off in both, since all three drawn over each
     /// other answers a question nobody asked.
     fn apply_compare_panes(&mut self) {
+        if !self.diff_field.supports_side_by_side() {
+            return;
+        }
         use crate::render::FieldLayer as FL;
         self.set_pane_count(2);
         for (i, view) in self.views.iter_mut().enumerate() {
@@ -17115,6 +17181,7 @@ impl HookEchoApp {
             // Side by side already shows both fields, persistently, one per pane — blinking on
             // top of that would fight the very point of splitting into two panes.
             view.blink_compare = false;
+            view.overlay_compare = false;
         }
         // Two panes of the same field only reads if both look at the same place.
         self.link_cameras = true;
@@ -22650,5 +22717,19 @@ mod probe_grid_tests {
             HookEchoApp::probe_field_product(FL::CompositeLocal),
             "Local composite reflectivity"
         );
+    }
+}
+
+#[cfg(test)]
+mod compare_overlay_tests {
+    use super::field_draw_opacity;
+    use crate::render::FieldLayer as FL;
+
+    #[test]
+    fn only_the_upper_comparison_side_is_dimmed_and_user_opacity_is_preserved() {
+        assert_eq!(field_draw_opacity(FL::CompareA, 0.8, true), 0.8);
+        assert_eq!(field_draw_opacity(FL::CompareB, 0.8, true), 0.4);
+        assert_eq!(field_draw_opacity(FL::CompareB, 0.8, false), 0.8);
+        assert_eq!(field_draw_opacity(FL::Mrms, 0.6, true), 0.6);
     }
 }

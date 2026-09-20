@@ -105,10 +105,10 @@ pub(crate) fn show(
     compare_valid: Option<&crate::fielddiff::ComparisonTimes>,
     diff_error: Option<&str>,
     compare_error: Option<&str>,
-    // Whether the active pane is currently blinking between the two compared models' own
-    // fields (ROADMAP_NEW F6/J4) — read-only here; the toggle itself goes through
-    // `PaletteAction::ToggleBlinkCompare` since it also has to touch `fields_on`.
+    // Active one-pane comparison modes (ROADMAP_NEW F6/J4) — read-only here; toggles go through
+    // PaletteAction because each also has to maintain mutually-exclusive `fields_on` state.
     blink_compare: bool,
+    overlay_compare: bool,
     // Lightning: NLDN averaging window, and whether GLM also polls GOES-West.
     lightning_minutes: &mut u16,
     show_glm: bool,
@@ -276,7 +276,7 @@ pub(crate) fn show(
     // Blinking also keeps exactly one of CompareA/CompareB in `fields_on` (see
     // `render_pane`'s own comment), so `showing_compare` alone can't tell true two-pane side by
     // side apart from one pane alternating between the two on a timer.
-    let in_side_by_side = showing_compare && !blink_compare;
+    let in_side_by_side = showing_compare && !blink_compare && !overlay_compare;
     if section == "Model comparison" && (on.contains(&FL::ModelDiff) || showing_compare) {
         let (a, b) = diff_field.pair();
         ui.horizontal_wrapped(|ui| {
@@ -310,6 +310,11 @@ pub(crate) fn show(
                 ui.weak(format!(
                     "Blinking between {a}'s own {label} and {b}'s own {label} every 1.5 s — same \
                      scale, so a difference in the field itself is easy to spot by eye."
+                ));
+            } else if overlay_compare {
+                ui.weak(format!(
+                    "{a}'s own {label} at full opacity with {b} overlaid at 50% — one pane shows \
+                     displacement and shape differences directly on the same scale."
                 ));
             } else {
                 ui.weak(format!(
@@ -352,6 +357,17 @@ pub(crate) fn show(
                     .clicked()
                 {
                     actions.palette = Some(crate::app::PaletteAction::ToggleBlinkCompare);
+                }
+                if ui
+                    .button(if overlay_compare {
+                        "Stop overlay"
+                    } else {
+                        "Overlay A/B"
+                    })
+                    .on_hover_text("Draw model A normally and model B at 50% opacity in this pane")
+                    .clicked()
+                {
+                    actions.palette = Some(crate::app::PaletteAction::ToggleCompareOverlay);
                 }
             });
         }

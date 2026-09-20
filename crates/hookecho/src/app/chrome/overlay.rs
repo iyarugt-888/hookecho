@@ -257,6 +257,7 @@ impl HookEchoApp {
                                     self.diff_error.as_deref(),
                                     self.compare_error.as_deref(),
                                     self.views[self.active].blink_compare,
+                                    self.views[self.active].overlay_compare,
                                     &mut self.settings.lightning_minutes,
                                     glm_options,
                                     &mut self.settings.glm_goes_west,
@@ -267,6 +268,21 @@ impl HookEchoApp {
                                     Some(mosaic.as_str()),
                                     &mut opts,
                                 );
+                                if !self.diff_field.supports_side_by_side() {
+                                    use crate::render::FieldLayer as FL;
+                                    for view in &mut self.views {
+                                        let was_comparing = view.fields_on.remove(&FL::CompareA)
+                                            | view.fields_on.remove(&FL::CompareB);
+                                        if was_comparing {
+                                            // Run-to-run currently has no distinct previous-run
+                                            // source layer. Difference is the only truthful view;
+                                            // never leave a now-hidden blink/overlay mode armed.
+                                            view.fields_on.insert(FL::ModelDiff);
+                                        }
+                                        view.blink_compare = false;
+                                        view.overlay_compare = false;
+                                    }
+                                }
                             });
                     },
                 );

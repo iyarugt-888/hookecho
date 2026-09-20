@@ -654,12 +654,22 @@ struct OverlayGpu {
     index_count: u32,
 }
 
+/// The small part of a field draw that genuinely differs by pane. Textures, LUT and vertices stay
+/// shared in [`MrmsGpu`]; the uniform cannot, because egui_wgpu prepares every pane before it
+/// paints any of them and a later pane would overwrite an earlier pane's opacity.
+struct MrmsPaneGpu {
+    uni: wgpu::Buffer,
+    bind_group: wgpu::BindGroup,
+}
+
 struct MrmsGpu {
     _tex: wgpu::Texture,
     _lut: wgpu::Texture,
-    /// Kept (not `_`-prefixed) so `prepare` can rewrite the opacity word each frame.
-    uni: wgpu::Buffer,
-    bind_group: wgpu::BindGroup,
+    view: wgpu::TextureView,
+    lut_view: wgpu::TextureView,
+    /// CPU template for a newly-seen pane's uniform; word 6 is replaced with that pane's opacity.
+    uniform: [f32; 12],
+    pane_draws: HashMap<u32, MrmsPaneGpu>,
     vbuf: wgpu::Buffer,
 }
 
@@ -1635,12 +1645,42 @@ impl RenderResources {
             let gpu = self.build_field_layer(device, queue, up);
             self.fields.insert(*layer, gpu);
         }
-        // Draw only the requested layers that actually have GPU data. Opacity rides in the grid
-        // uniform's first pad word, so it costs one 4-byte write per drawn layer — no LUT re-bake.
+        // Draw only requested layers that actually have GPU data. The 4-byte opacity write targets
+        // a field-per-pane uniform: all prepares run before any paint, so one shared field uniform
+        // would let the last prepared pane silently set every pane's opacity.
         let mut field_draws = Vec::new();
+        let mrms_bgl = &self.mrms_bgl;
         for (layer, opacity) in &cb.field_draws {
-            if let Some(f) = self.fields.get(layer) {
-                queue.write_buffer(&f.uni, 24, &opacity.to_le_bytes());
+            if let Some(f) = self.fields.get_mut(layer) {
+                let mut uniform = f.uniform;
+                uniform[6] = *opacity;
+                let draw = f.pane_draws.entry(cb.pane).or_insert_with(|| {
+                    let uni = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("mrms_pane_uniform"),
+                        contents: bytemuck::cast_slice(&uniform),
+                        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                    });
+                    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("mrms_pane_bg"),
+                        layout: mrms_bgl,
+                        entries: &[
+                            wgpu::BindGroupEntry {
+                                binding: 0,
+                                resource: uni.as_entire_binding(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 1,
+                                resource: wgpu::BindingResource::TextureView(&f.view),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 2,
+                                resource: wgpu::BindingResource::TextureView(&f.lut_view),
+                            },
+                        ],
+                    });
+                    MrmsPaneGpu { uni, bind_group }
+                });
+                queue.write_buffer(&draw.uni, 24, &opacity.to_le_bytes());
                 field_draws.push(*layer);
             }
         }
@@ -1795,11 +1835,6 @@ impl RenderResources {
             },
             size,
         );
-        let uni = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("mrms_uniform"),
-            contents: bytemuck::cast_slice(&m.uniform),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
         let lut_size = wgpu::Extent3d {
             width: 256,
             height: 1,
@@ -1832,24 +1867,6 @@ impl RenderResources {
         );
         let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
         let lut_view = lut_tex.create_view(&wgpu::TextureViewDescriptor::default());
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("mrms_bg"),
-            layout: &self.mrms_bgl,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: uni.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&lut_view),
-                },
-            ],
-        });
         let [x0, y0] = m.world_min;
         let [x1, y1] = m.world_max;
         let verts = [
@@ -1868,8 +1885,10 @@ impl RenderResources {
         MrmsGpu {
             _tex: tex,
             _lut: lut_tex,
-            uni,
-            bind_group,
+            view,
+            lut_view,
+            uniform: m.uniform,
+            pane_draws: HashMap::new(),
             vbuf,
         }
     }
@@ -1901,16 +1920,19 @@ impl RenderResources {
 
     /// Paint the active field layers in the requested band (below/above the radar), in the fixed
     /// bottom-to-top order, using this pane's camera.
-    fn draw_fields(&self, pane: &PaneGpu, pass: &mut wgpu::RenderPass<'_>, below: bool) {
+    fn draw_fields(&self, id: u32, pane: &PaneGpu, pass: &mut wgpu::RenderPass<'_>, below: bool) {
         let cam = &pane.camera_bg;
         for layer in FieldLayer::DRAW_ORDER {
             if layer.below_radar() != below || !pane.field_draws.contains(&layer) {
                 continue;
             }
             if let Some(f) = self.fields.get(&layer) {
+                let Some(draw) = f.pane_draws.get(&id) else {
+                    continue;
+                };
                 pass.set_pipeline(&self.mrms_pipeline);
                 pass.set_bind_group(0, cam, &[]);
-                pass.set_bind_group(1, &f.bind_group, &[]);
+                pass.set_bind_group(1, &draw.bind_group, &[]);
                 pass.set_vertex_buffer(0, f.vbuf.slice(..));
                 pass.draw(0..6, 0..1);
             }
@@ -1943,7 +1965,7 @@ impl RenderResources {
             self.draw_vector_basemap(pane, cam, pass);
         }
         // Field layers under the radar (national mosaic context).
-        self.draw_fields(pane, pass, true);
+        self.draw_fields(id, pane, pass, true);
         if pane.frame_draw_radar {
             if let Some(radar) = &pane.radar {
                 pass.set_pipeline(&self.radar_pipeline);
@@ -1966,7 +1988,7 @@ impl RenderResources {
             }
         }
         // Field layers over the radar (rotation/hail/shear/lightning signals).
-        self.draw_fields(pane, pass, false);
+        self.draw_fields(id, pane, pass, false);
         // Wind particles under the overlay, not over it: the CPU path paints in egui's own layer,
         // which is above everything, and a warning polygon disappearing under a particle trail
         // was the one complaint that layer ever attracted.
