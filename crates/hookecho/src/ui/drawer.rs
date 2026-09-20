@@ -194,7 +194,7 @@ impl Drawer {
         }
 
         let frame = egui::Frame::window(&ctx.style_of(ctx.theme()))
-            .corner_radius(if cfg!(target_os = "android") {
+            .corner_radius(if crate::platform::phone_layout() {
                 0
             } else {
                 crate::ui::style::RADIUS_LG as u8
@@ -237,7 +237,7 @@ impl Drawer {
 /// Header and body rectangles for the current screen.
 fn rects(ctx: &egui::Context, width: f32) -> (Rect, Rect) {
     let full = ctx.content_rect();
-    let (x, w, top, bottom) = if cfg!(target_os = "android") {
+    let (x, w, top, bottom) = if crate::platform::phone_layout() {
         (full.left(), full.width(), full.top(), full.bottom())
     } else {
         (

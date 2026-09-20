@@ -184,7 +184,7 @@ pub fn show(
             .default_pos([80.0 + offset, 90.0 + offset]),
     );
     // phone_surface pins the width on Android; on desktop the card sizes itself.
-    let w = if cfg!(target_os = "android") {
+    let w = if crate::platform::phone_layout() {
         w
     } else {
         w.default_width(330.0).resizable(true)

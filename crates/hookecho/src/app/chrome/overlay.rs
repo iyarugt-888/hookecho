@@ -24,7 +24,7 @@ const PANE_STRIP_UP: f32 = 150.0;
 /// the top, a control column with room around it, and panels that come up from the bottom edge as
 /// modal sheets instead of floating beside the map.
 fn phone() -> bool {
-    cfg!(target_os = "android")
+    crate::platform::phone_layout()
 }
 
 /// Is this a compact screen — a phone held in portrait?
@@ -471,8 +471,9 @@ impl HookEchoApp {
         }
         let accent = crate::theme::accent(self.settings.theme);
         let mut anchor = None;
-        // theme_plan.md §2.3: `phone()` is a *platform* check (`cfg!(target_os = "android")`),
-        // not a screen-size one — the icon-only search hint below used to only ever trigger on an
+        // theme_plan.md §2.3: `phone()` is an Android-and-not-a-tablet check (see
+        // `platform::form_factor`), never a plain screen-width one — the icon-only search hint
+        // below used to only ever trigger on an
         // actual Android build, never a narrow desktop/web browser window no matter how narrow,
         // which is exactly why a narrow mobile-web capture still showed the full "Search layers,
         // tools, places" text. `compact(ctx)` is the real narrow-viewport check (M3 width-class

@@ -9562,7 +9562,7 @@ impl HookEchoApp {
         let red = egui::Color32::from_rgb(230, 70, 70);
         let inset_bottom = (ctx.viewport_rect().bottom() - ctx.content_rect().bottom()).max(0.0);
         // Android floats the bottom card at the same edge; sit above it.
-        let dy = if cfg!(target_os = "android") {
+        let dy = if crate::platform::phone_layout() {
             -(inset_bottom + 190.0)
         } else {
             // Above the product pill, which owns the bottom-left corner.
@@ -11280,7 +11280,7 @@ impl HookEchoApp {
         };
         // Desktop: just under the menu bar. Android: below the top glass bar + chrome-hide EYE
         // button (which sits at inset_top + 66; see app/mobile.rs), so nothing stacks.
-        let y = if cfg!(target_os = "android") {
+        let y = if crate::platform::phone_layout() {
             let inset_top = (ctx.content_rect().top() - ctx.viewport_rect().top()).max(0.0);
             inset_top + 116.0
         } else {
@@ -14241,8 +14241,17 @@ impl HookEchoApp {
                     egui::vec2(-max_translation, -max_translation),
                     egui::vec2(max_translation, max_translation),
                 );
-                if t != egui::Vec2::ZERO {
-                    self.views[idx].camera.pan_pixels(t.x, t.y, vp);
+                // On a 3D map the two fingers' vertical slide tilts the view instead of panning it
+                // (one finger still pans): slide up to lean the map back toward the horizon, down
+                // to stand it up flat.
+                let (pan, pitch_delta) = split_two_finger_slide(t, self.views[idx].map_3d.enabled);
+                if pitch_delta != 0.0 {
+                    let cam = &mut self.views[idx].camera;
+                    cam.pitch = (cam.pitch + pitch_delta)
+                        .clamp(0.0, crate::render::mercator::MAX_PITCH_DEG);
+                }
+                if pan != egui::Vec2::ZERO {
+                    self.views[idx].camera.pan_pixels(pan.x, pan.y, vp);
                     self.follow_cell = None; // a manual pan takes over the camera (pinch-zoom does not)
                 }
             }
@@ -17702,11 +17711,11 @@ impl HookEchoApp {
 
         // The boxed legend is desktop-only; Android draws a full-width color scale in the mobile
         // chrome (see `app::mobile`), so drawing both would be redundant.
-        if view.show_legend && !cfg!(target_os = "android") {
+        if view.show_legend && !crate::platform::phone_layout() {
             // The moment's scale floats over this pane's right edge (no panel, no card) so the map
             // keeps the pixels; the field/wind ramps still need their cards. The WSV3 layout docks
             // this same scale under the ribbon, so drawing it here too would be the third copy.
-            let wsv3_colorbar = self.settings.layout.is_ribbon() && !cfg!(target_os = "android");
+            let wsv3_colorbar = self.settings.layout.is_ribbon() && !crate::platform::phone_layout();
             if view.volume.is_some() && !wsv3_colorbar {
                 let (df, dl) = display_units(view.moment, &self.settings);
                 ui::legend::draw_vertical(
@@ -20161,6 +20170,10 @@ impl eframe::App for HookEchoApp {
         let ctx = root.ctx().clone();
         let ctx = &ctx;
 
+        // Phone or tablet, before anything asks: a tablet draws the desktop layout, and every
+        // layout decision this frame reads the answer.
+        crate::platform::form_factor::update(ctx.viewport_rect().size().min_elem());
+
         // Stamp this frame for the background workers' foreground gate (see
         // `platform::activity`). A frame that follows a gap means the app just came back, so
         // force one refresh rather than making the user wait out the poll interval.
@@ -21139,7 +21152,7 @@ impl eframe::App for HookEchoApp {
         // The WSV3 ribbon layout: desktop/web only, off under OBS. Docked before `chrome_rect` is
         // read so the floating windows and the scrubber constrain to the map area between the
         // ribbon and the status bar.
-        let wsv3_layout = !bare && !cfg!(target_os = "android") && self.settings.layout.is_ribbon();
+        let wsv3_layout = !bare && !crate::platform::phone_layout() && self.settings.layout.is_ribbon();
         if wsv3_layout {
             self.wsv3_ribbon(root, ctx);
             self.wsv3_status_bar(root);
@@ -21160,9 +21173,14 @@ impl eframe::App for HookEchoApp {
             // to be skipped entirely (the hide-all-chrome eye). Desktop draws the window frame
             // first instead: its drag strip covers the top edge, and everything after it takes
             // back the clicks that land on an actual control.
-            let chrome = if cfg!(target_os = "android") {
+            let chrome = if crate::platform::phone_layout() {
                 self.mobile_chrome(ctx)
             } else {
+                // A tablet draws this same desktop chrome but is still an Android app: Back has
+                // to keep closing the window on top before it leaves.
+                if cfg!(target_os = "android") {
+                    self.android_back(ctx);
+                }
                 self.window_frame(ctx);
                 true
             };
@@ -23784,5 +23802,60 @@ mod trail_status_tests {
             let line = trail_status_line(3, 3, 30, Extremum::Max, Some(why));
             assert!(line.ends_with(&format!("restarted: {text}")), "{line}");
         }
+    }
+}
+
+/// Degrees of pitch per pixel of two-finger vertical slide — the same rate the mouse's
+/// right-drag tilt uses, so both feel alike.
+const TWO_FINGER_PITCH_DEG_PER_PX: f32 = 0.25;
+
+/// Split a two-finger slide into what pans the map and how far it tilts it.
+///
+/// On a flat map the whole slide pans. On a 3D map the vertical part tilts instead, because one
+/// finger already pans and two fingers are how a touchscreen asks for the camera: sliding up
+/// raises the pitch (the map leans back toward the horizon), sliding down lowers it. The
+/// horizontal part still pans, so a diagonal slide does both rather than fighting the user.
+fn split_two_finger_slide(slide: egui::Vec2, map_3d: bool) -> (egui::Vec2, f32) {
+    if !map_3d {
+        return (slide, 0.0);
+    }
+    // Screen y grows downward, so an upward slide is negative.
+    (
+        egui::vec2(slide.x, 0.0),
+        -slide.y * TWO_FINGER_PITCH_DEG_PER_PX,
+    )
+}
+
+#[cfg(test)]
+mod two_finger_slide_tests {
+    use super::split_two_finger_slide;
+
+    #[test]
+    fn a_flat_map_pans_with_the_whole_slide_and_never_tilts() {
+        let (pan, pitch) = split_two_finger_slide(egui::vec2(3.0, -8.0), false);
+        assert_eq!(pan, egui::vec2(3.0, -8.0));
+        assert_eq!(pitch, 0.0);
+    }
+
+    #[test]
+    fn sliding_up_on_a_3d_map_raises_the_pitch_and_down_lowers_it() {
+        let (_, up) = split_two_finger_slide(egui::vec2(0.0, -40.0), true);
+        let (_, down) = split_two_finger_slide(egui::vec2(0.0, 40.0), true);
+        assert_eq!(up, 10.0, "40 px up is 10 degrees more pitch");
+        assert_eq!(down, -10.0);
+    }
+
+    #[test]
+    fn on_a_3d_map_the_vertical_part_no_longer_pans() {
+        let (pan, _) = split_two_finger_slide(egui::vec2(6.0, -40.0), true);
+        assert_eq!(pan, egui::vec2(6.0, 0.0), "horizontal still pans, vertical goes to the tilt");
+    }
+
+    #[test]
+    fn no_movement_is_no_change() {
+        assert_eq!(
+            split_two_finger_slide(egui::Vec2::ZERO, true),
+            (egui::Vec2::ZERO, 0.0)
+        );
     }
 }

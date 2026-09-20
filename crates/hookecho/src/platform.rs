@@ -1461,3 +1461,72 @@ mod health_tests {
         assert_eq!(AlertHealth::parse("true\tfalse"), None);
     }
 }
+
+/// Phone or tablet, on Android.
+///
+/// A tablet gets the desktop layout, not the phone's: the same floating chrome, ribbon, docked
+/// panels and windows a desktop window has, because that is what fits on a screen that size and it
+/// is the layout the app is designed around. The phone chrome (top chips, bottom sheet, docked
+/// toolbar, full-screen surfaces) is for a screen with no room for that.
+///
+/// The line is the shortest side of the window, in points, at Material 3's 600 dp compact
+/// breakpoint. The shortest side rather than the width, so turning a phone sideways does not turn
+/// it into a tablet, and a tablet held upright is still one. It is read every frame rather than
+/// once, so a tablet put into a narrow split-screen window drops to the phone layout while it is
+/// that narrow and comes back when it widens.
+pub mod form_factor {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    /// M3's compact/medium boundary: below this is a phone, at or above is a tablet.
+    const TABLET_MIN_SHORTEST_DP: f32 = 600.0;
+
+    static TABLET: AtomicBool = AtomicBool::new(false);
+
+    /// Whether a window whose shortest side is `shortest_side_pts` is a tablet.
+    pub fn is_tablet_size(shortest_side_pts: f32) -> bool {
+        shortest_side_pts >= TABLET_MIN_SHORTEST_DP
+    }
+
+    /// Called once per frame with the window's shortest side.
+    pub fn update(shortest_side_pts: f32) {
+        TABLET.store(is_tablet_size(shortest_side_pts), Ordering::Relaxed);
+    }
+
+    /// Is the window currently tablet-sized?
+    pub fn is_tablet() -> bool {
+        TABLET.load(Ordering::Relaxed)
+    }
+
+    /// Should the touch-first phone chrome be drawn? Only on Android, and only when it is not a
+    /// tablet. Every layout decision that used to ask `cfg!(target_os = "android")` asks this;
+    /// the ones that are about the platform itself (the soft keyboard, the file picker, no ffmpeg)
+    /// still ask the platform.
+    pub fn phone_layout() -> bool {
+        cfg!(target_os = "android") && !is_tablet()
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn six_hundred_points_is_the_tablet_line() {
+            assert!(!is_tablet_size(411.0), "a Galaxy S25+ is a phone");
+            assert!(!is_tablet_size(599.9));
+            assert!(is_tablet_size(600.0));
+            assert!(is_tablet_size(800.0), "a tablet");
+        }
+
+        #[test]
+        fn a_phone_turned_sideways_is_still_a_phone() {
+            // 915 x 411 in landscape: the width alone would say tablet, the shortest side does not.
+            let (w, h) = (915.0f32, 411.0f32);
+            assert!(!is_tablet_size(w.min(h)));
+        }
+    }
+}
+
+/// Should the touch-first phone chrome be drawn? See [`form_factor`].
+pub fn phone_layout() -> bool {
+    form_factor::phone_layout()
+}

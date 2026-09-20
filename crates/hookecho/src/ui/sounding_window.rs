@@ -209,7 +209,7 @@ impl SoundingWindow {
                 // Phone: the fixed-width plots (300 + 240 px) side by side overflow the screen —
                 // stack them vertically inside a scroll instead (fixed-width content overrides
                 // phone_surface's max_width; same pattern as cell_window's grid).
-                if cfg!(target_os = "android") {
+                if crate::platform::phone_layout() {
                     egui::ScrollArea::vertical().show(ui, |ui| {
                         skewt(ui, s, observed);
                         ui.add_space(6.0);

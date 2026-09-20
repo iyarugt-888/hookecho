@@ -24,7 +24,7 @@ pub(crate) fn loading(ui: &mut egui::Ui, what: &str) {
 /// card, the anchored map-click popovers, and the station cards. Every browsable tool now goes
 /// through [`drawer::Drawer::page`], which owns its own chrome.
 pub(crate) fn phone_surface<'a>(ctx: &egui::Context, w: egui::Window<'a>) -> egui::Window<'a> {
-    if cfg!(target_os = "android") {
+    if crate::platform::phone_layout() {
         let r = ctx.content_rect();
         let frame = egui::Frame::window(&ctx.style_of(ctx.theme()))
             .corner_radius(0)

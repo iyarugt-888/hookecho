@@ -3483,15 +3483,29 @@ This lets researchers use Python/MetPy/Py-ART externally while HookEcho remains 
 
 U.S.-scope does not mean desktop-only.
 
-## Q1. Android tablet layout
+## Q1. Android tablet layout — decided: the desktop layout, 1:1
 
 Current phone chrome should not simply stretch.
 
-- two-column controls on large screens
-- persistent layer/product panel option
-- multi-pane optimized touch targets
-- keyboard/mouse support on tablets
-- drag/drop pane layout where practical
+**Decision (owner, after trying the phone build):** a tablet gets the desktop layout as-is rather
+than a third, tablet-specific one. `platform::form_factor` reads the window's shortest side every
+frame and calls it a tablet at Material 3's 600 dp line — the shortest side, so a phone turned
+sideways stays a phone and a tablet held upright stays a tablet, and a tablet in a narrow
+split-screen window drops to the phone chrome while it is that narrow. `phone_layout()` replaces
+the bare `cfg!(target_os = "android")` at every site that chose a *layout* (the chrome, the WSV3
+ribbon, the legend and colour bar, the drawer, full-screen surfaces, popovers, station cards);
+sites about the platform itself — the soft keyboard, the file picker, no ffmpeg, background
+alerts — still ask the platform. System Back still closes the window on top on a tablet.
+
+This supersedes the sub-items below, which assumed a separate tablet design. Not verified on a
+real tablet yet, and desktop chrome has hover-only affordances and small targets that a finger
+will find harder than a mouse; those are what to look for.
+
+- ~~two-column controls on large screens~~ — the desktop layout already has them
+- ~~persistent layer/product panel option~~ — the desktop docked panel
+- multi-pane optimized touch targets — open: desktop targets are mouse-sized
+- keyboard/mouse support on tablets — the desktop chrome's own
+- drag/drop pane layout where practical — the desktop's
 
 ## Q2. Desktop analyst density
 

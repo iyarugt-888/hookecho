@@ -223,7 +223,10 @@ impl super::HookEchoApp {
     ///
     /// Returns `false` when the user has hidden the chrome, which is the caller's cue to skip the
     /// shared surfaces entirely — the point of the eye is a map with nothing on it.
-    pub(crate) fn mobile_chrome(&mut self, ctx: &egui::Context) -> bool {
+    /// The system Back gesture, on any Android layout. A tablet draws the desktop chrome but is
+    /// still an Android app, and Back has to close the window or panel on top before it is allowed
+    /// to leave the app.
+    pub(crate) fn android_back(&mut self, ctx: &egui::Context) {
         // Back arrives two ways: as a `BrowserBack` key event (the legacy path, which Android 16
         // stops delivering) and from the predictive-back callback in MainActivity. Either one
         // runs the same dismissal chain.
@@ -235,6 +238,10 @@ impl super::HookEchoApp {
         // Tell Android whether we would consume the next gesture. With nothing open the callback
         // is disabled and the OS gets to draw its live home-screen preview as the user drags.
         crate::platform::set_back_consumed(self.mobile_has_dismissable());
+    }
+
+    pub(crate) fn mobile_chrome(&mut self, ctx: &egui::Context) -> bool {
+        self.android_back(ctx);
 
         let content = ctx.content_rect();
         let inset_top = (content.top() - ctx.viewport_rect().top()).max(0.0);

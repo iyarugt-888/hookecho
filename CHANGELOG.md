@@ -8,6 +8,21 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: tablets get the desktop layout, and two fingers tilt a 3D map
+
+**Tablets.** On Android, a screen whose shortest side is 600 dp or more now draws the desktop
+layout — the same floating chrome, ribbon, docked panels and windows — instead of the phone's
+sheets and chips. It goes by the shortest side, so a phone held sideways stays a phone, and a
+tablet in a narrow split-screen window falls back to the phone layout while it is that narrow. The
+Back gesture still closes the window on top first. Not yet tried on a real tablet; desktop controls
+are sized for a mouse and some are hover-only, so expect to find a few that want a bigger target.
+
+**3D pitch.** With the 3D map on, sliding two fingers up raises the pitch (the map leans back toward
+the horizon) and sliding down lowers it, at the same rate as the mouse's right-drag tilt. One finger
+still pans, pinch still zooms and twist still rotates; on a flat map the two-finger slide still pans.
+The vertical part of the slide now tilts instead of panning while 3D is on, and the horizontal part
+still pans.
+
 ### Fixed: the Windows app closed itself about two seconds after opening
 
 Starting the live-radar failover monitor called `tokio::spawn` on the UI thread, which has no

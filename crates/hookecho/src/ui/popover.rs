@@ -45,7 +45,7 @@ impl Popovers {
     ) -> egui::Window<'a> {
         // A phone has no room to put a card beside anything: Material 3's compact width class
         // wants the whole screen, which is what `phone_surface` already gives it.
-        if cfg!(target_os = "android") {
+        if crate::platform::phone_layout() {
             return crate::ui::phone_surface(ctx, w);
         }
         let frame = ctx.cumulative_pass_nr();
