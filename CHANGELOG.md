@@ -8,6 +8,18 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: absolute-difference display mode for model comparison (F5/F6)
+
+The comparison layer can now be read as `|A − B|` magnitude instead of a signed `A − B`, answering
+"where do these disagree at all" without direction getting in the way. The fetched CPU grid stays
+signed and authoritative, so switching modes recolors the resident field rather than refetching
+either model: a separate display key tracks what the GPU upload represents, and only the
+value-to-index mapping and LUT change. Absolute mode draws a sequential amber-to-red scale sharing
+the signed view's transparent agreement deadband, and the legend's bar, tick labels and title all
+follow the selected mode. The cursor readout is put through the same transform the upload was, so
+a magnitude-colored map can't hand back a negative number, and drops the forced `+` sign that
+would imply a direction the mode deliberately discards.
+
 ### Added: truthful cache residency and Cached source-health state (N1)
 
 ROADMAP_NEW N1 source health now reports whether each active source's last delivered value is

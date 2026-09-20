@@ -2996,6 +2996,9 @@ pub struct HookEchoApp {
         std::collections::HashMap<crate::render::FieldLayer, (wxdata::global::GlobalModel, u16)>,
     /// What the difference layer differences and the exact shared valid time/source runs.
     diff_field: crate::fielddiff::DiffField,
+    /// Signed `A - B` or magnitude-only `|A - B|`. The fetched CPU grid always stays signed;
+    /// this controls only its upload, legend and readout.
+    diff_mode: crate::fielddiff::DiffMode,
     diff_valid: Option<crate::fielddiff::ComparisonTimes>,
     diff_error: Option<String>,
     /// Which `settings.goes_satellite_west` each GOES band was last fetched for, so flipping the
@@ -3013,6 +3016,9 @@ pub struct HookEchoApp {
     diff_grid: Option<wxdata::mrms::MrmsField>,
     /// The field the difference layer was last fetched for, so a change refetches at once.
     diff_key: Option<(crate::fielddiff::DiffField, u16)>,
+    /// Which field/mode the resident GPU upload represents. Kept separate from `diff_key` so a
+    /// mode switch rebuilds from `diff_grid` without downloading either model again.
+    diff_display_key: Option<(crate::fielddiff::DiffField, crate::fielddiff::DiffMode)>,
     /// The compare panes' shared valid time and distinct source runs.
     compare_valid: Option<crate::fielddiff::ComparisonTimes>,
     compare_error: Option<String>,
@@ -4262,6 +4268,7 @@ impl HookEchoApp {
             global_fcst_hour: 0,
             global_layer_key: std::collections::HashMap::new(),
             diff_field: crate::fielddiff::DiffField::default(),
+            diff_mode: crate::fielddiff::DiffMode::default(),
             diff_valid: None,
             diff_error: None,
             diff_grid: None,
@@ -4270,6 +4277,7 @@ impl HookEchoApp {
             #[cfg(target_arch = "wasm32")]
             last_goto_hash: None,
             diff_key: None,
+            diff_display_key: None,
             compare_valid: None,
             compare_error: None,
             compare_grid: None,
@@ -9487,6 +9495,7 @@ impl HookEchoApp {
                                 RequestLane::Field(FL::ModelDiff) => {
                                     self.diff_valid = None;
                                     self.diff_grid = None;
+                                    self.diff_display_key = None;
                                     self.diff_error = Some(err.clone());
                                     if let Some(state) = self.fields.get_mut(&FL::ModelDiff) {
                                         state.pending = None;
@@ -9637,18 +9646,12 @@ impl HookEchoApp {
                     if kind == self.diff_field && fh == self.global_fcst_hour =>
                 {
                     let layer = crate::render::FieldLayer::ModelDiff;
-                    let (range, deadband) = self.diff_field.range();
-                    let scale = self.diff_field.input_scale();
-                    let upload = field_index_upload(
-                        &field,
-                        |v| crate::fielddiff::diff_index(v * scale, range),
-                        crate::fielddiff::diverging_lut(range, deadband),
-                    );
+                    let upload = model_diff_upload(&field, self.diff_field, self.diff_mode);
                     if let Some(s) = self.fields.get_mut(&layer) {
                         s.pending = Some(upload);
                         let (a, b) = self.diff_field.pair();
                         s.stamp = Some(field_state::model_stamp(
-                            &format!("{a} − {b}"),
+                            &self.diff_mode.expression(a, b),
                             self.diff_field.slug(),
                             &field,
                             None,
@@ -9658,6 +9661,7 @@ impl HookEchoApp {
                     self.diff_valid = Some(valid);
                     self.diff_error = None;
                     self.diff_grid = Some(field);
+                    self.diff_display_key = Some((self.diff_field, self.diff_mode));
                 }
                 OverlayMsg::ModelDiff(..) => {}
                 OverlayMsg::Compare(field, fh, a, b, valid) => {
@@ -16072,10 +16076,21 @@ impl HookEchoApp {
                 {
                     let f = self.diff_field;
                     let (a, b) = f.pair();
+                    // The retained grid is always signed (see `diff_mode`'s own doc comment), so
+                    // the readout has to be put through the same transform the upload was, or a
+                    // magnitude-colored map would hand back a negative number under the cursor.
+                    // A forced sign belongs only on the signed view: "+6.0" for a magnitude reads
+                    // as a direction that mode has deliberately thrown away.
+                    let shown = self.diff_mode.apply(v);
+                    let value = match self.diff_mode {
+                        crate::fielddiff::DiffMode::Signed => format!("{shown:+.1}"),
+                        crate::fielddiff::DiffMode::Absolute => format!("{shown:.1}"),
+                    };
                     response.clone().show_tooltip_text(format!(
-                        "{}: {v:+.1} {} ({a} \u{2212} {b})",
+                        "{}: {value} {} ({})",
                         f.label(),
-                        f.units()
+                        f.units(),
+                        self.diff_mode.expression(a, b)
                     ));
                 }
             }
@@ -16670,7 +16685,7 @@ impl HookEchoApp {
             {
                 use crate::render::FieldLayer as FL;
                 if *top == FL::ModelDiff {
-                    y += ui::legend::draw_diff(&painter, prect, self.diff_field, y);
+                    y += ui::legend::draw_diff(&painter, prect, self.diff_field, self.diff_mode, y);
                 } else if matches!(*top, FL::CompareA | FL::CompareB) {
                     let (label_a, label_b) = self.diff_field.pair();
                     let model = if *top == FL::CompareA {
@@ -18311,6 +18326,22 @@ pub(crate) fn field_index_upload(
     }
 }
 
+/// Recolor the retained signed comparison grid for the selected display mode. Both modes share
+/// one fetched/scientifically-derived field; only the value-to-index mapping and LUT differ.
+fn model_diff_upload(
+    field: &wxdata::mrms::MrmsField,
+    kind: crate::fielddiff::DiffField,
+    mode: crate::fielddiff::DiffMode,
+) -> crate::render::MrmsUpload {
+    let (range, deadband) = kind.range();
+    let scale = kind.input_scale();
+    field_index_upload(
+        field,
+        |value| crate::fielddiff::display_index(mode, value * scale, range),
+        crate::fielddiff::display_lut(mode, range, deadband),
+    )
+}
+
 /// Interpolate a 256-entry RGBA LUT from `(t, [r,g,b])` stops; index 0 is always transparent.
 /// One `min..max` pair of sliders for an axis of the map-embedded 3D volume's slab, mirroring the
 /// standalone "3D Reflectivity" window's `axis_slice`, which lives in a different module (a
@@ -19284,10 +19315,29 @@ impl eframe::App for HookEchoApp {
                         .is_none_or(|t| t.elapsed().as_secs() >= field_refresh_secs(layer))
                 });
             let changed = on && self.diff_key != Some((self.diff_field, fh));
+            let display_key = (self.diff_field, self.diff_mode);
+            let display_changed = on
+                && !changed
+                && self.diff_display_key != Some(display_key)
+                && self.diff_valid.is_some();
+            if display_changed {
+                if let Some(grid) = self.diff_grid.as_ref() {
+                    let upload = model_diff_upload(grid, self.diff_field, self.diff_mode);
+                    if let Some(state) = self.fields.get_mut(&layer) {
+                        state.pending = Some(upload);
+                        if let Some(stamp) = state.stamp.as_mut() {
+                            let (a, b) = self.diff_field.pair();
+                            stamp.source_id = self.diff_mode.expression(a, b);
+                        }
+                    }
+                    self.diff_display_key = Some(display_key);
+                }
+            }
             if stale || changed {
                 if changed {
                     self.diff_valid = None;
                     self.diff_grid = None;
+                    self.diff_display_key = None;
                     if let Some(s) = self.fields.get_mut(&layer) {
                         s.stamp = None;
                     }

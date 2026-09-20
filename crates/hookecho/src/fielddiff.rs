@@ -64,6 +64,41 @@ pub struct ComparisonPair {
     pub times: ComparisonTimes,
 }
 
+/// How the already-computed `A - B` field is presented. Switching modes is a display operation:
+/// the signed CPU grid remains authoritative, so the app can rebuild the upload without fetching
+/// either model again and cursor readouts can still explain exactly what was transformed.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum DiffMode {
+    #[default]
+    Signed,
+    Absolute,
+}
+
+impl DiffMode {
+    pub const ALL: [Self; 2] = [Self::Signed, Self::Absolute];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Signed => "Signed (A − B)",
+            Self::Absolute => "Absolute |A − B|",
+        }
+    }
+
+    pub fn apply(self, value: f32) -> f32 {
+        match self {
+            Self::Signed => value,
+            Self::Absolute => value.abs(),
+        }
+    }
+
+    pub fn expression(self, a: &str, b: &str) -> String {
+        match self {
+            Self::Signed => format!("{a} − {b}"),
+            Self::Absolute => format!("|{a} − {b}|"),
+        }
+    }
+}
+
 /// A resident GPU grid is drawable only while its metadata belongs to the current selection.
 pub fn layer_ready(
     layer: crate::render::FieldLayer,
@@ -573,6 +608,49 @@ pub fn diff_index(v: f32, range: f32) -> u8 {
     (((v / range).clamp(-1.0, 1.0) + 1.0) * 127.5) as u8
 }
 
+/// Amber-to-red sequential scale for `|A - B|`, with the same transparent agreement deadband as
+/// the signed view. Direction has intentionally disappeared, so opposite signed differences of
+/// equal magnitude map to the exact same index and color.
+pub fn magnitude_lut(range: f32, deadband: f32) -> Vec<u8> {
+    let mut lut = Vec::with_capacity(256 * 4);
+    for i in 0..256 {
+        let value = i as f32 / 255.0 * range;
+        if value <= deadband {
+            lut.extend_from_slice(&[0, 0, 0, 0]);
+            continue;
+        }
+        let mag = ((value - deadband) / (range - deadband).max(1e-6)).clamp(0.0, 1.0);
+        let alpha = (60.0 + 195.0 * mag) as u8;
+        let r = (255.0 - 55.0 * mag) as u8;
+        let g = (220.0 - 195.0 * mag) as u8;
+        let b = (90.0 - 15.0 * mag) as u8;
+        lut.extend_from_slice(&[r, g, b, alpha]);
+    }
+    lut
+}
+
+/// Absolute magnitude → sequential LUT index. Missing data maps to transparent index zero.
+pub fn magnitude_index(v: f32, range: f32) -> u8 {
+    if !v.is_finite() {
+        return 0;
+    }
+    (v.abs() / range).clamp(0.0, 1.0).mul_add(255.0, 0.0) as u8
+}
+
+pub fn display_lut(mode: DiffMode, range: f32, deadband: f32) -> Vec<u8> {
+    match mode {
+        DiffMode::Signed => diverging_lut(range, deadband),
+        DiffMode::Absolute => magnitude_lut(range, deadband),
+    }
+}
+
+pub fn display_index(mode: DiffMode, value: f32, range: f32) -> u8 {
+    match mode {
+        DiffMode::Signed => diff_index(value, range),
+        DiffMode::Absolute => magnitude_index(value, range),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -694,6 +772,22 @@ mod tests {
         };
         assert!(rgb(-9.0).1 > rgb(-9.0).0, "negative is blue");
         assert!(rgb(9.0).0 > rgb(9.0).1, "positive is red");
+    }
+
+    #[test]
+    fn absolute_mode_erases_direction_but_preserves_missing_and_deadband() {
+        let mode = DiffMode::Absolute;
+        let lut = display_lut(mode, 10.0, 1.0);
+        let rgba = |v: f32| {
+            let i = display_index(mode, v, 10.0) as usize * 4;
+            [lut[i], lut[i + 1], lut[i + 2], lut[i + 3]]
+        };
+        assert_eq!(mode.apply(-6.0), 6.0);
+        assert_eq!(mode.expression("A", "B"), "|A − B|");
+        assert_eq!(rgba(-6.0), rgba(6.0), "equal magnitudes need one color");
+        assert_eq!(rgba(0.5)[3], 0, "agreement stays transparent");
+        assert_eq!(rgba(f32::NAN)[3], 0, "missing data stays transparent");
+        assert!(rgba(10.0)[3] > rgba(5.0)[3], "larger split is more opaque");
     }
 
     #[test]

@@ -100,6 +100,7 @@ pub(crate) fn show(
     global_fcst_hour: &mut u16,
     // Model difference: selected field, shared valid time, and both source runs.
     diff_field: &mut crate::fielddiff::DiffField,
+    diff_mode: &mut crate::fielddiff::DiffMode,
     diff_valid: Option<&crate::fielddiff::ComparisonTimes>,
     compare_valid: Option<&crate::fielddiff::ComparisonTimes>,
     diff_error: Option<&str>,
@@ -285,10 +286,22 @@ pub(crate) fn show(
             }
         });
         if on.contains(&FL::ModelDiff) {
-            ui.weak(format!(
-                "{a} minus {b}, in {}. Red = {a} higher, blue = {b} higher; where they agree, nothing is drawn.",
-                diff_field.units()
-            ));
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Difference:");
+                for mode in crate::fielddiff::DiffMode::ALL {
+                    changed |= ui.selectable_value(diff_mode, mode, mode.label()).changed();
+                }
+            });
+            ui.weak(match diff_mode {
+                crate::fielddiff::DiffMode::Signed => format!(
+                    "{a} minus {b}, in {}. Red = {a} higher, blue = {b} higher; where they agree, nothing is drawn.",
+                    diff_field.units()
+                ),
+                crate::fielddiff::DiffMode::Absolute => format!(
+                    "Magnitude of the {a}/{b} difference, in {}. Color shows how far apart they are without direction; agreement is not drawn.",
+                    diff_field.units()
+                ),
+            });
             ui.weak(valid_time_note(diff_valid, diff_error, a, b));
         }
         if showing_compare {

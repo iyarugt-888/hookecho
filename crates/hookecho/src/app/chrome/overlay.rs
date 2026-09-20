@@ -251,6 +251,7 @@ impl HookEchoApp {
                                     &mut self.global_model,
                                     &mut self.global_fcst_hour,
                                     &mut self.diff_field,
+                                    &mut self.diff_mode,
                                     self.diff_valid.as_ref(),
                                     self.compare_valid.as_ref(),
                                     self.diff_error.as_deref(),

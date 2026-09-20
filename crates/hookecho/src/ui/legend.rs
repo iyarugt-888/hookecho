@@ -214,6 +214,7 @@ pub fn draw_diff(
     painter: &egui::Painter,
     map_rect: Rect,
     field: crate::fielddiff::DiffField,
+    mode: crate::fielddiff::DiffMode,
     y_offset: f32,
 ) -> f32 {
     let font = FontId::proportional(10.0);
@@ -223,12 +224,16 @@ pub fn draw_diff(
     card(painter, panel);
 
     let (range, deadband) = field.range();
-    let lut = crate::fielddiff::diverging_lut(range, deadband);
+    let lut = crate::fielddiff::display_lut(mode, range, deadband);
     // One column per pixel of bar, sampled through the same value→index→color path as the grid.
     let cols = bar.width().round().max(1.0) as usize;
     for i in 0..cols {
-        let v = ((i as f32 / (cols - 1).max(1) as f32) * 2.0 - 1.0) * range;
-        let k = crate::fielddiff::diff_index(v, range) as usize * 4;
+        let fraction = i as f32 / (cols - 1).max(1) as f32;
+        let v = match mode {
+            crate::fielddiff::DiffMode::Signed => (fraction * 2.0 - 1.0) * range,
+            crate::fielddiff::DiffMode::Absolute => fraction * range,
+        };
+        let k = crate::fielddiff::display_index(mode, v, range) as usize * 4;
         let c = Color32::from_rgba_unmultiplied(lut[k], lut[k + 1], lut[k + 2], lut[k + 3]);
         let x = bar.left() + i as f32;
         painter.rect_filled(
@@ -245,15 +250,27 @@ pub fn draw_diff(
     );
 
     let (a, b) = field.pair();
-    for (text, align, x) in [
-        (format!("-{range:.0}"), Align2::LEFT_TOP, bar.left()),
-        (
-            "0 (\u{2248})".to_string(),
-            Align2::CENTER_TOP,
-            bar.center().x,
-        ),
-        (format!("+{range:.0}"), Align2::RIGHT_TOP, bar.right()),
-    ] {
+    let ticks = match mode {
+        crate::fielddiff::DiffMode::Signed => [
+            (format!("-{range:.0}"), Align2::LEFT_TOP, bar.left()),
+            (
+                "0 (\u{2248})".to_string(),
+                Align2::CENTER_TOP,
+                bar.center().x,
+            ),
+            (format!("+{range:.0}"), Align2::RIGHT_TOP, bar.right()),
+        ],
+        crate::fielddiff::DiffMode::Absolute => [
+            ("0 (\u{2248})".to_string(), Align2::LEFT_TOP, bar.left()),
+            (
+                format!("{:.0}", range / 2.0),
+                Align2::CENTER_TOP,
+                bar.center().x,
+            ),
+            (format!("{range:.0}"), Align2::RIGHT_TOP, bar.right()),
+        ],
+    };
+    for (text, align, x) in ticks {
         painter.text(
             egui::pos2(x, bar.bottom() + 2.0),
             align,
@@ -265,7 +282,12 @@ pub fn draw_diff(
     painter.text(
         panel.left_top() + Vec2::new(PAD_X, 3.0),
         Align2::LEFT_TOP,
-        format!("{} {a}\u{2212}{b} ({})", field.label(), field.units()),
+        format!(
+            "{} {} ({})",
+            field.label(),
+            mode.expression(a, b),
+            field.units()
+        ),
         font,
         Color32::WHITE,
     );
