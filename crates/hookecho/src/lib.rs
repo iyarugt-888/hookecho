@@ -194,11 +194,18 @@ pub fn run_desktop() -> eframe::Result<()> {
     // keeps its own storage under the temp dir, so poking at it never rewrites the settings and
     // window size of the real install.
     let phone = platform::form_factor::emulating_phone();
+    // `HOOKECHO_SANDBOX=1` (debug builds): the same isolation for a desktop-shaped window, for
+    // looking at a layout without touching the real settings.
+    let sandbox = cfg!(debug_assertions) && std::env::var_os("HOOKECHO_SANDBOX").is_some();
     if phone {
         paths::set_base(std::env::temp_dir().join("hookecho-phone-emulation"));
+    } else if sandbox {
+        paths::set_base(std::env::temp_dir().join("hookecho-sandbox"));
     }
     let size = if phone {
         [411.0, 780.0]
+    } else if sandbox {
+        [1180.0, 760.0]
     } else {
         saved.map_or([1280.0, 800.0], |w| [w.width, w.height])
     };

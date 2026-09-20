@@ -147,7 +147,7 @@ fn parse_utc_time(
 /// Row height: one line, tall enough to scan without turning the panel into a wall.
 const ROW_H: f32 = 32.0;
 
-fn category_name(category: &str) -> &'static str {
+pub(crate) fn category_name(category: &str) -> &'static str {
     match category {
         "Radar" => "Radar products",
         "Sites" => "Radar sites",

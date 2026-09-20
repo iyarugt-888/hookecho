@@ -3,6 +3,8 @@
 //! control column and the panels that slide over the map.
 
 mod chips;
+mod dock;
+pub(crate) use dock::DockState;
 mod overlay;
 mod permalink;
 mod phone_rail;

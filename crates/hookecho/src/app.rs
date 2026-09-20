@@ -3074,6 +3074,8 @@ pub struct HookEchoApp {
     trail: Option<TrailState>,
     /// More cached frames are waiting to be folded in, so keep repainting until they are.
     trail_more: bool,
+    /// The docked-panel layout's state: which panels are open, the layers tab and search.
+    dock: chrome::DockState,
     /// Show the scan-age ring.
     show_scan_age: bool,
     /// The ring read off each pane's sweep as it was binned; `None` means looked, nothing to draw.
@@ -4566,6 +4568,7 @@ impl HookEchoApp {
             show_local_tracks: false,
             trail: None,
             trail_more: false,
+            dock: chrome::DockState::default(),
             show_scan_age: false,
             scan_age_rings: std::collections::HashMap::new(),
             site_dialog: None,
@@ -21232,6 +21235,14 @@ impl eframe::App for HookEchoApp {
             self.wsv3_ribbon(root, ctx);
             self.wsv3_status_bar(root);
         }
+        // The dock layout: its own tab row, layers tree, info panels and timeline, docked before
+        // `chrome_rect` is read so the map gets what they leave. It draws none of the floating
+        // chrome below (pill, column, scrubber, slide-in panel), which it replaces.
+        let dock_layout =
+            !bare && !crate::platform::phone_layout() && self.settings.layout.is_dock();
+        if dock_layout {
+            self.dock_layout(root, ctx);
+        }
 
         self.chrome_rect = root.available_rect_before_wrap();
         // Before any chrome: everything below asks `motion::reduced()`, and the answer has to be
@@ -21265,18 +21276,22 @@ impl eframe::App for HookEchoApp {
                 // right-edge control column and the pane strip. Everything else — the timeline
                 // scrubber, the layers/basemap panels the ribbon opens, the corner chips — is
                 // shared with the minimal layout.
-                if !wsv3_layout {
+                if !wsv3_layout && !dock_layout {
                     self.search_pill(ctx);
                     self.control_column(ctx);
                 }
                 if wsv3_layout {
                     self.wsv3_timestamp(ctx);
                 }
-                self.scrubber(ctx);
-                if !wsv3_layout {
+                if !dock_layout {
+                    self.scrubber(ctx);
+                }
+                if !wsv3_layout && !dock_layout {
                     self.pane_strip(ctx);
                 }
-                self.panel(ctx);
+                if !dock_layout {
+                    self.panel(ctx);
+                }
                 self.basemap_panel(ctx);
                 self.info_chip(ctx);
                 self.error_chip(ctx);

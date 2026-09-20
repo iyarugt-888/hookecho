@@ -1090,16 +1090,26 @@ pub enum Layout {
     #[serde(rename = "Wsv3Theme")]
     Wsv3,
     Minimal,
+    /// Dear ImGui-style docked panels: a tab row, a layers tree on the left, info panels on the
+    /// right and a timeline under the map. The layout for a tablet or a desktop that wants every
+    /// control visible at once.
+    Dock,
 }
 
 impl Layout {
-    pub const ALL: [Layout; 3] = [Layout::CommandRibbon, Layout::Wsv3, Layout::Minimal];
+    pub const ALL: [Layout; 4] = [
+        Layout::CommandRibbon,
+        Layout::Wsv3,
+        Layout::Minimal,
+        Layout::Dock,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
             Layout::CommandRibbon => "Command Ribbon",
             Layout::Wsv3 => "WSV3",
             Layout::Minimal => "Minimal (map-first)",
+            Layout::Dock => "Dock (ImGui)",
         }
     }
 
@@ -1107,6 +1117,12 @@ impl Layout {
     /// — `CommandRibbon` and `Wsv3` both do, styled differently; `Minimal` doesn't.
     pub fn is_ribbon(self) -> bool {
         matches!(self, Layout::CommandRibbon | Layout::Wsv3)
+    }
+
+    /// Whether this is the docked-panel layout, which draws its own panels and none of the floating
+    /// chrome.
+    pub fn is_dock(self) -> bool {
+        self == Layout::Dock
     }
 
     /// The `(Theme, Density)` pair this theme is designed to look like — applied once, as a
@@ -1119,6 +1135,7 @@ impl Layout {
             Layout::CommandRibbon => (Theme::Dark, Density::Comfortable),
             Layout::Wsv3 => (Theme::Dark, Density::Compact),
             Layout::Minimal => (Theme::default(), Density::default()),
+            Layout::Dock => (Theme::DearImGui, Density::Compact),
         }
     }
 }
@@ -2338,5 +2355,28 @@ mod tests {
     fn unknown_keys_are_still_ignored() {
         let s = Settings::from_json_lossy(r#"{"mapbox_key":"x","a_field_from_the_future":42}"#);
         assert_eq!(s.mapbox_key, "x");
+    }
+
+    #[test]
+    fn the_dock_layout_and_a_phone_design_survive_a_round_trip() {
+        let s = Settings::from_json_lossy(r#"{"layout":"Dock","phone_design":"Atlas"}"#);
+        assert_eq!(s.layout, Layout::Dock);
+        assert!(s.layout.is_dock() && !s.layout.is_ribbon());
+        assert_eq!(s.phone_design, PhoneDesign::Atlas);
+        let back = Settings::from_json_lossy(&serde_json::to_string(&s).unwrap());
+        assert_eq!((back.layout, back.phone_design), (Layout::Dock, PhoneDesign::Atlas));
+    }
+
+    #[test]
+    fn picking_the_dock_layout_recommends_the_imgui_theme_and_a_dense_layout() {
+        assert_eq!(
+            Layout::Dock.recommended_theme_and_density(),
+            (Theme::DearImGui, Density::Compact)
+        );
+    }
+
+    #[test]
+    fn a_settings_file_with_no_phone_design_gets_aurora() {
+        assert_eq!(Settings::from_json_lossy("{}").phone_design, PhoneDesign::Aurora);
     }
 }
