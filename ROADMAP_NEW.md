@@ -3061,9 +3061,17 @@ For every active source:
   upstream outages can be grouped without parsing presentation text.
 - [x] last successful request — `SourceHealth.last_success` (an age, not a timestamp — see
   "latest valid data time" below for why the two are kept separate)
-- [ ] latest valid data time — only radar's own health row derives one (via the timeline's
-  newest-frame lookup); the generalized `palette_health` path only ever computed an age, not the
-  absolute valid time behind it
+- [x] latest valid data time — new this pass, see the Unreleased CHANGELOG entry:
+  `RequestStatus` retains the newest authoritative valid/observation time carried by a successful
+  payload, independently of its local fetch-completion clock. A dedicated `app::overlay_health`
+  extractor covers gridded MRMS/model/GOES products, comparisons, surface analysis, radar cells,
+  mPING/PIREP/recon/spotter/station observations, PPEF, damage surveys, archived-warning buckets
+  and model contours; older archive/forecast selections cannot move the newest-known time
+  backward, and a failed refresh preserves it. Radar uses the timeline's newest frame through the
+  same `SourceHealth.latest_valid_time` field. Both health views show an absolute UTC time plus
+  relative age (or forecast lead), diagnostics export RFC 3339, and feeds whose decoded payload
+  genuinely carries no representative timestamp say `not reported` rather than substituting the
+  HTTP completion time or an alert expiry.
 - [x] age — `last_success`/`last_attempt`/`last_failure`, all ages from "now"
 - [x] expected cadence — `SourceHealth.cadence`
 - [x] rolling success/failure count — new this pass, see the Unreleased CHANGELOG entry:

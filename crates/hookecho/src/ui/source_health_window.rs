@@ -12,11 +12,13 @@
 //! finished requests, `None` for a source (radar) that doesn't track a request-outcome history at
 //! all. Endpoint family is explicit typed metadata on each `SourceHealth`, so rows sharing one
 //! upstream failure domain remain recognizable even when their layer-specific names differ.
+//! `latest_valid_time` is equally explicit: the newest authoritative data time retained by the
+//! request book, never the local request-completion clock; untimed feeds remain visibly unknown.
 //! Still not covered here, genuinely open rather than silently assumed: cache state and fallback
 //! provider — `SourceHealth` has no fields for either yet.
 
 use crate::app::{HealthState, PaletteEntry, SourceHealth};
-use crate::ui::layers_panel::{active_layer, age_line, compact_age, health_look};
+use crate::ui::layers_panel::{active_layer, age_line, compact_age, health_look, valid_time_line};
 use egui::{Color32, RichText};
 
 /// Worse first. `HealthState`'s own declaration order isn't a severity ranking (`Fetching`
@@ -61,7 +63,7 @@ pub(crate) fn show(
         "Data source health",
         &mut keep,
         false,
-        640.0,
+        700.0,
         egui::Window::new("Data source health"),
     ) else {
         *open = keep;
@@ -78,15 +80,14 @@ pub(crate) fn show(
         ui.separator();
         egui::ScrollArea::vertical().show(ui, |ui| {
             egui::Grid::new("source_health_grid")
-                .num_columns(7)
+                .num_columns(6)
                 .spacing([12.0, 6.0])
                 .striped(true)
                 .show(ui, |ui| {
                     ui.weak("Status");
-                    ui.weak("Source");
-                    ui.weak("Endpoint family");
-                    ui.weak("Last success");
-                    ui.weak("Cadence");
+                    ui.weak("Source / family");
+                    ui.weak("Latest valid data");
+                    ui.weak("Fetch health");
                     ui.weak("Recent")
                         .on_hover_text("Successes out of the last 20 finished requests");
                     ui.weak("Last error");
@@ -95,10 +96,18 @@ pub(crate) fn show(
                         let state = h.state();
                         let (label, color) = health_look(state);
                         ui.colored_label(color, label);
-                        ui.label(&h.source);
-                        ui.label(h.endpoint_family.label());
-                        ui.label(age_line(h.last_success));
-                        ui.label(compact_age(h.cadence));
+                        ui.vertical(|ui| {
+                            ui.label(&h.source);
+                            ui.weak(h.endpoint_family.label());
+                        });
+                        ui.label(valid_time_line(h.latest_valid_time)).on_hover_text(
+                            "Newest authoritative valid/observation time seen for this source; \
+                             not the local fetch-completion time",
+                        );
+                        ui.vertical(|ui| {
+                            ui.label(age_line(h.last_success));
+                            ui.weak(format!("{} cadence", compact_age(h.cadence)));
+                        });
                         match h.recent_outcomes {
                             Some((successes, failures)) => {
                                 ui.label(format!("{successes}/{}", successes + failures));
@@ -152,6 +161,7 @@ mod tests {
             health: Some(SourceHealth {
                 source: source.to_string(),
                 endpoint_family: crate::source_health::EndpointFamily::NoaaMrms,
+                latest_valid_time: None,
                 fetching,
                 last_attempt: None,
                 last_success,

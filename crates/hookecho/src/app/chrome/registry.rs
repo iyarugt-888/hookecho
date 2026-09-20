@@ -218,6 +218,7 @@ impl HookEchoApp {
                 .as_deref()
                 .map_or_else(|| "Radar".to_string(), |site| format!("{site} radar")),
             endpoint_family: crate::source_health::EndpointFamily::RadarLevel2,
+            latest_valid_time: v.timeline.newest().and_then(|id| id.date_time()),
             fetching: v.loading,
             last_attempt: v.last_poll.map(|t| t.elapsed()),
             last_success: age,

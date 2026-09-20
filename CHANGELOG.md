@@ -8,6 +8,19 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: authoritative valid time in source health (N1)
+
+ROADMAP_NEW N1 source health now separates "when did this request finish here?" from "when is the
+data actually valid?" `RequestStatus` retains the newest authoritative valid/observation time
+carried by successful gridded products, comparisons and timestamped observation feeds; older
+archive or forecast selections cannot regress it, and a failed refresh leaves the last trustworthy
+time intact. Radar contributes the newest frame in its timeline through the same field. The
+per-layer health popup and consolidated Data source health window show absolute UTC plus relative
+age/forecast lead, while diagnostics JSON exports RFC 3339. Untimed payloads explicitly read
+`not reported` instead of presenting fetch completion or alert expiration as meteorological
+provenance. Five focused tests cover extraction, newest-time retention, failure behavior and UI
+formatting.
+
 ### Added: endpoint families in source health (N1)
 
 ROADMAP_NEW N1 source-health rows now identify the shared upstream endpoint family separately

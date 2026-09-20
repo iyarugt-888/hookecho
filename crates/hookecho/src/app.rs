@@ -9,6 +9,7 @@
 mod chrome;
 mod field_state;
 mod goes_timeline;
+mod overlay_health;
 mod pane_time;
 pub(crate) use field_state::FieldState;
 use goes_timeline::nearest_goes;
@@ -580,6 +581,9 @@ pub(crate) struct SourceHealth {
     pub source: String,
     /// The shared upstream failure domain, separate from `source`'s layer-specific display name.
     pub endpoint_family: crate::source_health::EndpointFamily,
+    /// Newest authoritative product/observation valid time seen for this source lane. This is
+    /// deliberately separate from `last_success`, which is the local HTTP completion clock.
+    pub latest_valid_time: Option<DateTime<Utc>>,
     pub fetching: bool,
     pub last_attempt: Option<std::time::Duration>,
     pub last_success: Option<std::time::Duration>,
@@ -641,6 +645,7 @@ impl SourceHealth {
 struct DiagnosticsSourceHealth {
     source: String,
     endpoint_family: &'static str,
+    latest_valid_time: Option<String>,
     status: &'static str,
     last_success_secs: Option<u64>,
     cadence_secs: u64,
@@ -676,6 +681,8 @@ struct RequestStatus {
     last_attempt: Instant,
     last_success: Option<Instant>,
     last_failure: Option<(Instant, String)>,
+    /// Newest data timestamp reported by a successful payload, never a local fetch timestamp.
+    latest_valid_time: Option<DateTime<Utc>>,
     cadence: std::time::Duration,
     /// ROADMAP_NEW N1's rolling success/failure count: the outcome of each finished request,
     /// oldest first, capped at `RequestBook::OUTCOME_WINDOW` — `true` a success, `false` a
@@ -716,6 +723,7 @@ impl RequestBook {
                 last_attempt: now,
                 last_success: None,
                 last_failure: None,
+                latest_valid_time: None,
                 cadence,
                 outcomes: std::collections::VecDeque::new(),
             });
@@ -727,7 +735,13 @@ impl RequestBook {
     }
 
     /// Finish only the newest generation. An old failure cannot poison a newer success.
-    fn finish(&mut self, lane: &RequestLane, generation: u64, error: Option<&str>) -> bool {
+    fn finish(
+        &mut self,
+        lane: &RequestLane,
+        generation: u64,
+        error: Option<&str>,
+        valid_time: Option<DateTime<Utc>>,
+    ) -> bool {
         if !self.is_current(lane, generation) {
             return false;
         }
@@ -735,7 +749,13 @@ impl RequestBook {
             s.fetching = false;
             match error {
                 Some(e) => s.last_failure = Some((Instant::now(), e.to_string())),
-                None => s.last_success = Some(Instant::now()),
+                None => {
+                    s.last_success = Some(Instant::now());
+                    if let Some(valid) = valid_time {
+                        s.latest_valid_time =
+                            Some(s.latest_valid_time.map_or(valid, |old| old.max(valid)));
+                    }
+                }
             }
             s.outcomes.push_back(error.is_none());
             if s.outcomes.len() > Self::OUTCOME_WINDOW {
@@ -751,6 +771,7 @@ impl RequestBook {
             return SourceHealth {
                 source: lane.label(),
                 endpoint_family: lane.endpoint_family(),
+                latest_valid_time: None,
                 fetching: false,
                 last_attempt: None,
                 last_success: None,
@@ -768,6 +789,7 @@ impl RequestBook {
         SourceHealth {
             source: lane.label(),
             endpoint_family: lane.endpoint_family(),
+            latest_valid_time: s.latest_valid_time,
             fetching: s.fetching,
             last_attempt: Some(now.saturating_duration_since(s.last_attempt)),
             last_success: s.last_success.map(|t| now.saturating_duration_since(t)),
@@ -9376,11 +9398,17 @@ impl HookEchoApp {
                     generation,
                     result,
                 } => {
+                    let valid_time = result.as_ref().ok().and_then(OverlayMsg::health_valid_time);
                     let current = self
                         .overlay_requests
                         .lock()
                         .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .finish(&lane, generation, result.as_ref().err().map(|e| e.as_str()));
+                        .finish(
+                            &lane,
+                            generation,
+                            result.as_ref().err().map(|e| e.as_str()),
+                            valid_time,
+                        );
                     if !current {
                         log::debug!("discarding stale {} reply", lane.label());
                         continue;
@@ -17334,6 +17362,7 @@ impl HookEchoApp {
                 .map(|h| DiagnosticsSourceHealth {
                     source: h.source.clone(),
                     endpoint_family: h.endpoint_family.id(),
+                    latest_valid_time: h.latest_valid_time.map(|t| t.to_rfc3339()),
                     status: ui::layers_panel::health_look(h.state()).0,
                     last_success_secs: h.last_success.map(|d| d.as_secs()),
                     cadence_secs: h.cadence.as_secs(),
@@ -21869,8 +21898,8 @@ mod request_book_tests {
         assert!(!book.is_current(&cape, old_cape));
         assert!(book.is_current(&cape, current_cape));
         assert!(book.is_current(&srh, current_srh));
-        assert!(book.finish(&cape, current_cape, None));
-        assert!(!book.finish(&cape, old_cape, Some("old failure")));
+        assert!(book.finish(&cape, current_cape, None, None));
+        assert!(!book.finish(&cape, old_cape, Some("old failure"), None));
         let health = book.health(&cape);
         assert_eq!(health.state(), HealthState::Fresh);
         assert!(health.error.is_none());
@@ -21895,7 +21924,7 @@ mod request_book_tests {
             None,
             "started but not finished"
         );
-        book.finish(&lane, gen, None);
+        book.finish(&lane, gen, None, None);
         assert_eq!(book.health(&lane).recent_outcomes, Some((1, 0)));
     }
 
@@ -21906,7 +21935,7 @@ mod request_book_tests {
         // Fill the window with failures, then succeed enough times to push every failure out.
         for _ in 0..RequestBook::OUTCOME_WINDOW {
             let gen = book.start(lane.clone());
-            book.finish(&lane, gen, Some("down"));
+            book.finish(&lane, gen, Some("down"), None);
         }
         assert_eq!(
             book.health(&lane).recent_outcomes,
@@ -21915,13 +21944,30 @@ mod request_book_tests {
         );
         for _ in 0..RequestBook::OUTCOME_WINDOW {
             let gen = book.start(lane.clone());
-            book.finish(&lane, gen, None);
+            book.finish(&lane, gen, None, None);
         }
         assert_eq!(
             book.health(&lane).recent_outcomes,
             Some((RequestBook::OUTCOME_WINDOW as u32, 0)),
             "every failure has aged out of the window, not just been outnumbered"
         );
+    }
+
+    #[test]
+    fn latest_valid_time_never_regresses_and_survives_a_failure() {
+        use chrono::{TimeZone, Utc};
+
+        let mut book = RequestBook::default();
+        let lane = RequestLane::Field(FieldLayer::Cape);
+        let older = Utc.with_ymd_and_hms(2026, 9, 19, 11, 0, 0).unwrap();
+        let newer = Utc.with_ymd_and_hms(2026, 9, 19, 12, 0, 0).unwrap();
+        for valid in [newer, older] {
+            let generation = book.start(lane.clone());
+            assert!(book.finish(&lane, generation, None, Some(valid)));
+        }
+        let generation = book.start(lane.clone());
+        assert!(book.finish(&lane, generation, Some("temporary outage"), None));
+        assert_eq!(book.health(&lane).latest_valid_time, Some(newer));
     }
 
     #[test]
@@ -21933,6 +21979,7 @@ mod request_book_tests {
                       error: Option<String>| SourceHealth {
             source: "test".into(),
             endpoint_family: crate::source_health::EndpointFamily::LocalProcessing,
+            latest_valid_time: None,
             fetching,
             last_attempt: Some(std::time::Duration::from_secs(1)),
             last_success: success.map(std::time::Duration::from_secs),

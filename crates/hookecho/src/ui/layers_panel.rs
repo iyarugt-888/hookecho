@@ -349,6 +349,35 @@ pub(crate) fn age_line(age: Option<std::time::Duration>) -> String {
     age.map_or_else(|| "never".into(), |d| format!("{} ago", compact_age(d)))
 }
 
+pub(crate) fn valid_time_line(time: Option<chrono::DateTime<chrono::Utc>>) -> String {
+    valid_time_line_at(time, chrono::Utc::now())
+}
+
+fn valid_time_line_at(
+    time: Option<chrono::DateTime<chrono::Utc>>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> String {
+    let Some(time) = time else {
+        return "not reported".into();
+    };
+    let delta = now - time;
+    let seconds = delta.num_seconds();
+    let relative = if seconds.abs() < 5 {
+        "now".into()
+    } else if seconds >= 0 {
+        format!(
+            "{} ago",
+            compact_age(std::time::Duration::from_secs(seconds as u64))
+        )
+    } else {
+        format!(
+            "in {}",
+            compact_age(std::time::Duration::from_secs(seconds.unsigned_abs()))
+        )
+    };
+    format!("{} · {relative}", time.format("%Y-%m-%d %H:%MZ"))
+}
+
 fn health_popup(ui: &mut egui::Ui, health: &SourceHealth) {
     let state = health.state();
     let (label, color) = health_look(state);
@@ -367,6 +396,9 @@ fn health_popup(ui: &mut egui::Ui, health: &SourceHealth) {
         .show(ui, |ui| {
             ui.weak("Endpoint family");
             ui.label(health.endpoint_family.label());
+            ui.end_row();
+            ui.weak("Latest valid data");
+            ui.label(valid_time_line(health.latest_valid_time));
             ui.end_row();
             ui.weak("Last success");
             ui.label(age_line(health.last_success));
@@ -1200,6 +1232,23 @@ fn fade_out_bottom(ui: &mut egui::Ui, out: &egui::scroll_area::ScrollAreaOutput<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn valid_time_is_absolute_and_relative_without_faking_missing_data() {
+        use chrono::{TimeZone, Utc};
+        let now = Utc.with_ymd_and_hms(2026, 9, 19, 12, 0, 0).unwrap();
+        let old = Utc.with_ymd_and_hms(2026, 9, 19, 11, 30, 0).unwrap();
+        let future = Utc.with_ymd_and_hms(2026, 9, 19, 15, 0, 0).unwrap();
+        assert_eq!(
+            valid_time_line_at(Some(old), now),
+            "2026-09-19 11:30Z · 30m ago"
+        );
+        assert_eq!(
+            valid_time_line_at(Some(future), now),
+            "2026-09-19 15:00Z · in 3h"
+        );
+        assert_eq!(valid_time_line_at(None, now), "not reported");
+    }
 
     #[test]
     fn typed_time_commands_use_the_selected_utc_day() {
