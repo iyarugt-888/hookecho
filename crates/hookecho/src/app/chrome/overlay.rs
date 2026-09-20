@@ -597,6 +597,7 @@ impl HookEchoApp {
         if phone() {
             self.phone_mode_bar(ctx);
             self.phone_rail(ctx);
+            self.phone_bottom_nav(ctx);
             return;
         }
         let square_btn = |ui: &mut egui::Ui, icon: &str, on: bool, accent: egui::Color32| {

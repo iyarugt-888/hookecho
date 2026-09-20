@@ -17760,7 +17760,7 @@ impl HookEchoApp {
             let table = self.palettes.table(view.moment);
             // Clear of the pill, mode bar and rail above, and the timeline below.
             let top = chrome::phone_top(ui.ctx()) + 56.0 + chrome::MODE_BAR_H + 8.0;
-            let clear_bottom = 132.0;
+            let clear_bottom = 132.0 + self.phone_nav_h();
             match self.settings.phone_design.spec().legend {
                 Legend::StripOnly => {}
                 Legend::Vertical => ui::legend::draw_vertical(

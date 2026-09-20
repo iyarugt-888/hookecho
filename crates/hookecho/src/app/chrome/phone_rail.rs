@@ -318,3 +318,94 @@ impl HookEchoApp {
         }
     }
 }
+
+/// Height of the bottom tab bar, with its gap to the screen edge.
+const NAV_H: f32 = 64.0;
+
+impl HookEchoApp {
+    /// How much of the bottom edge the tab bar takes: nothing unless the design has one, so the
+    /// timeline and the legends sit above it exactly when it is there.
+    pub(crate) fn phone_nav_h(&self) -> f32 {
+        if crate::platform::phone_layout() && self.settings.phone_design.spec().bottom_nav {
+            NAV_H
+        } else {
+            0.0
+        }
+    }
+
+    /// Radar / Layers / Alerts / Maps / More along the bottom edge (Glass). Every tab is a thing
+    /// the rail can already do, so a design with the bar and one with the rail cannot disagree.
+    pub(crate) fn phone_bottom_nav(&mut self, ctx: &egui::Context) {
+        use crate::app::PaletteAction as A;
+        if self.phone_nav_h() == 0.0 {
+            return;
+        }
+        let spec = self.settings.phone_design.spec();
+        let accent = self.chrome_accent();
+        let layers_on = self.panel_open && !self.show_alert_panel;
+        let alerts_on = self.panel_open && self.show_alert_panel;
+        let radar_on = !self.panel_open && !self.basemap_open;
+        let maps_on = self.basemap_open;
+        let mut pick = None;
+        egui::Area::new(egui::Id::new("phone_bottom_nav"))
+            .constrain_to(self.chrome_rect)
+            .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -6.0))
+            .show(ctx, |ui| {
+                crate::ui::style::glass(ui, spec.panel_alpha)
+                    .corner_radius(spec.corner)
+                    .inner_margin(egui::Margin::symmetric(6, 4))
+                    .show(ui, |ui| {
+                        ui.set_width(self.chrome_rect.width() - crate::ui::m3::SP_3 * 2.0 - 12.0);
+                        ui.horizontal(|ui| {
+                            let tabs = [
+                                (ph::HOUSE, "Radar", radar_on),
+                                (ph::STACK, "Layers", layers_on),
+                                (ph::BELL, "Alerts", alerts_on),
+                                (ph::MAP_TRIFOLD, "Maps", maps_on),
+                                (ph::DOTS_THREE, "More", false),
+                            ];
+                            let w = ui.available_width() / tabs.len() as f32;
+                            for (i, (glyph, label, on)) in tabs.into_iter().enumerate() {
+                                let fg = if on {
+                                    accent
+                                } else {
+                                    egui::Color32::from_gray(225)
+                                };
+                                let b = ui
+                                    .add(
+                                        egui::Button::new(
+                                            egui::RichText::new(format!("{glyph}\n{label}"))
+                                                .size(crate::ui::m3::T_LABEL_LG - 2.0)
+                                                .color(fg),
+                                        )
+                                        .min_size(egui::vec2(w - 4.0, NAV_H - 16.0))
+                                        .fill(egui::Color32::TRANSPARENT)
+                                        .stroke(egui::Stroke::NONE),
+                                    )
+                                    .named_toggle(label, on);
+                                if b.clicked() {
+                                    pick = Some(i);
+                                }
+                            }
+                        });
+                    });
+            });
+        match pick {
+            Some(0) => {
+                self.panel_open = false;
+                self.basemap_open = false;
+            }
+            Some(1) => {
+                self.panel_open = !layers_on;
+                self.show_alert_panel = false;
+            }
+            Some(2) => {
+                self.panel_open = !alerts_on;
+                self.show_alert_panel = true;
+            }
+            Some(3) => self.basemap_open = !self.basemap_open,
+            Some(4) => self.apply_palette(A::OpenWindow(AppWindow::Settings), ctx),
+            _ => {}
+        }
+    }
+}

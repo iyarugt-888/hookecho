@@ -104,7 +104,7 @@ impl HookEchoApp {
             .constrain_to(self.chrome_rect)
             .anchor(
                 egui::Align2::CENTER_BOTTOM,
-                egui::vec2(0.0, if narrow { crate::ui::style::LANE_BOTTOM_CHIP } else { -24.0 }),
+                egui::vec2(0.0, if narrow { crate::ui::style::LANE_BOTTOM_CHIP - self.phone_nav_h() } else { -24.0 }),
             )
             .show(ctx, |ui| {
                 crate::ui::style::glass(ui, self.chrome_alpha(252))

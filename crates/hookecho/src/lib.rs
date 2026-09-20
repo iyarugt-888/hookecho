@@ -198,7 +198,7 @@ pub fn run_desktop() -> eframe::Result<()> {
         paths::set_base(std::env::temp_dir().join("hookecho-phone-emulation"));
     }
     let size = if phone {
-        [411.0, 915.0]
+        [411.0, 780.0]
     } else {
         saved.map_or([1280.0, 800.0], |w| [w.width, w.height])
     };
