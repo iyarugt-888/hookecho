@@ -397,6 +397,11 @@ fn health_popup(ui: &mut egui::Ui, health: &SourceHealth) {
             ui.weak("Endpoint family");
             ui.label(health.endpoint_family.label());
             ui.end_row();
+            if !health.fallback_providers.is_empty() {
+                ui.weak("Alternate providers");
+                ui.label(health.fallback_providers.join(" → "));
+                ui.end_row();
+            }
             ui.weak("Latest valid data");
             ui.label(valid_time_line(health.latest_valid_time));
             ui.end_row();

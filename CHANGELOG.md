@@ -8,6 +8,17 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: structured radar fallback providers in source health (N1)
+
+ROADMAP_NEW N1 source health now carries `fallback_providers` as structured metadata rather than
+leaving radar's real B6 failover chain buried in ad-hoc detail strings. Native radar derives the
+list from the same `FailoverSnapshot` used to select its active provider: primary names the
+optional HookEcho Relay and TGFTP tiers, relay-active names Unidata and TGFTP, and degraded TGFTP
+names the configured progressive recovery candidates. The per-layer popup, consolidated health
+window and diagnostics JSON expose those alternatives; sources without a runtime fallback keep an
+explicitly empty list, including web radar whose provider manager remains native-only. A
+deterministic test covers all selected-tier/relay-configured combinations.
+
 ### Added: authoritative valid time in source health (N1)
 
 ROADMAP_NEW N1 source health now separates "when did this request finish here?" from "when is the

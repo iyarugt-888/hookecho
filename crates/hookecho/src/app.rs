@@ -584,6 +584,8 @@ pub(crate) struct SourceHealth {
     /// Newest authoritative product/observation valid time seen for this source lane. This is
     /// deliberately separate from `last_success`, which is the local HTTP completion clock.
     pub latest_valid_time: Option<DateTime<Utc>>,
+    /// Configured alternate providers for this source, empty when no runtime fallback exists.
+    pub fallback_providers: Vec<String>,
     pub fetching: bool,
     pub last_attempt: Option<std::time::Duration>,
     pub last_success: Option<std::time::Duration>,
@@ -646,6 +648,8 @@ struct DiagnosticsSourceHealth {
     source: String,
     endpoint_family: &'static str,
     latest_valid_time: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    fallback_providers: Vec<String>,
     status: &'static str,
     last_success_secs: Option<u64>,
     cadence_secs: u64,
@@ -772,6 +776,7 @@ impl RequestBook {
                 source: lane.label(),
                 endpoint_family: lane.endpoint_family(),
                 latest_valid_time: None,
+                fallback_providers: Vec::new(),
                 fetching: false,
                 last_attempt: None,
                 last_success: None,
@@ -790,6 +795,7 @@ impl RequestBook {
             source: lane.label(),
             endpoint_family: lane.endpoint_family(),
             latest_valid_time: s.latest_valid_time,
+            fallback_providers: Vec::new(),
             fetching: s.fetching,
             last_attempt: Some(now.saturating_duration_since(s.last_attempt)),
             last_success: s.last_success.map(|t| now.saturating_duration_since(t)),
@@ -17363,6 +17369,7 @@ impl HookEchoApp {
                     source: h.source.clone(),
                     endpoint_family: h.endpoint_family.id(),
                     latest_valid_time: h.latest_valid_time.map(|t| t.to_rfc3339()),
+                    fallback_providers: h.fallback_providers.clone(),
                     status: ui::layers_panel::health_look(h.state()).0,
                     last_success_secs: h.last_success.map(|d| d.as_secs()),
                     cadence_secs: h.cadence.as_secs(),
@@ -21980,6 +21987,7 @@ mod request_book_tests {
             source: "test".into(),
             endpoint_family: crate::source_health::EndpointFamily::LocalProcessing,
             latest_valid_time: None,
+            fallback_providers: Vec::new(),
             fetching,
             last_attempt: Some(std::time::Duration::from_secs(1)),
             last_success: success.map(std::time::Duration::from_secs),

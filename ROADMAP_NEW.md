@@ -3083,9 +3083,16 @@ For every active source:
   diagnostics bundle.
 - [x] current backoff — `SourceHealth::next_retry()`
 - [ ] cache state — no field for it; the request book tracks fetch health, not cache residency
-- [ ] fallback provider — no source in this app has one yet (see B1/B6: there is exactly one
-  `Level2LiveProvider` implementation, and every other source has exactly one endpoint), so there
-  is nothing to name here honestly rather than a field that would always read "none"
+- [x] fallback provider — new this pass, see the Unreleased CHANGELOG entry: the earlier audit
+  became stale when B6.11 wired three real Level II tiers into each native radar pane. Every
+  `SourceHealth` now carries a structured `fallback_providers` list (empty means this source has
+  no runtime alternative); radar populates it from the same atomic `FailoverSnapshot` used for
+  active-provider/failover-state detail, listing every configured non-active tier in preference
+  order. That means primary shows the optional HookEcho Relay plus always-available TGFTP,
+  relay-active shows Unidata plus TGFTP, and degraded TGFTP shows the progressive recovery
+  candidates. Both health views and diagnostics JSON expose the list. Web radar honestly remains
+  empty because its native-only provider manager is not wired there; single-provider non-radar
+  feeds do too.
 
 Status states:
 

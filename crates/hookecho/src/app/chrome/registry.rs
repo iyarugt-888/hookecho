@@ -93,10 +93,9 @@ fn render_queue_detail(micros: u64) -> Option<(&'static str, String)> {
 /// provider's own performance regardless of which one that is.
 #[cfg(not(target_arch = "wasm32"))]
 fn failover_details(
-    providers: &crate::radar_provider_manager::SiteProviders,
+    snap: &crate::radar_provider_manager::FailoverSnapshot,
 ) -> Vec<(&'static str, String)> {
     use crate::radar_provider_manager::SelectedTier;
-    let snap = providers.snapshot();
     let mut out = vec![(
         "Active provider",
         crate::radar_provider_manager::label_for_tier(snap.selected).to_string(),
@@ -196,7 +195,7 @@ impl HookEchoApp {
             .map(|t| (chrono::Utc::now() - t).to_std().unwrap_or_default());
         // Phase B3's provider-ingest-lag reading; never set from an archive scrub or a loop's
         // replayed frame, only a genuine live arrival — see `last_live_arrival`'s own doc comment.
-        let mut details: Vec<(&'static str, String)> = [
+        let base_details: Vec<(&'static str, String)> = [
             ingest_lag_detail(v.last_live_arrival),
             decode_time_detail(v.last_decode_time),
             render_queue_detail(
@@ -209,9 +208,22 @@ impl HookEchoApp {
         .flatten()
         .collect();
         #[cfg(not(target_arch = "wasm32"))]
-        if let Some(providers) = v.radar_providers.as_ref() {
-            details.extend(failover_details(providers));
-        }
+        let (details, fallback_providers) = match v.radar_providers.as_ref() {
+            Some(providers) => {
+                let snapshot = providers.snapshot();
+                let fallback_providers = snapshot
+                    .alternate_provider_labels()
+                    .into_iter()
+                    .map(str::to_string)
+                    .collect();
+                let mut details = base_details;
+                details.extend(failover_details(&snapshot));
+                (details, fallback_providers)
+            }
+            None => (base_details, Vec::new()),
+        };
+        #[cfg(target_arch = "wasm32")]
+        let (details, fallback_providers) = (base_details, Vec::<String>::new());
         SourceHealth {
             source: v
                 .site
@@ -219,6 +231,7 @@ impl HookEchoApp {
                 .map_or_else(|| "Radar".to_string(), |site| format!("{site} radar")),
             endpoint_family: crate::source_health::EndpointFamily::RadarLevel2,
             latest_valid_time: v.timeline.newest().and_then(|id| id.date_time()),
+            fallback_providers,
             fetching: v.loading,
             last_attempt: v.last_poll.map(|t| t.elapsed()),
             last_success: age,

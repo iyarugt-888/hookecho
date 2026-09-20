@@ -14,8 +14,8 @@
 //! upstream failure domain remain recognizable even when their layer-specific names differ.
 //! `latest_valid_time` is equally explicit: the newest authoritative data time retained by the
 //! request book, never the local request-completion clock; untimed feeds remain visibly unknown.
-//! Still not covered here, genuinely open rather than silently assumed: cache state and fallback
-//! provider — `SourceHealth` has no fields for either yet.
+//! Radar's configured provider alternatives are structured metadata too; sources with no runtime
+//! fallback leave the list empty. Cache residency remains genuinely open rather than inferred.
 
 use crate::app::{HealthState, PaletteEntry, SourceHealth};
 use crate::ui::layers_panel::{active_layer, age_line, compact_age, health_look, valid_time_line};
@@ -99,6 +99,12 @@ pub(crate) fn show(
                         ui.vertical(|ui| {
                             ui.label(&h.source);
                             ui.weak(h.endpoint_family.label());
+                            if !h.fallback_providers.is_empty() {
+                                ui.weak(format!(
+                                    "Alternates: {}",
+                                    h.fallback_providers.join(" → ")
+                                ));
+                            }
                         });
                         ui.label(valid_time_line(h.latest_valid_time)).on_hover_text(
                             "Newest authoritative valid/observation time seen for this source; \
@@ -162,6 +168,7 @@ mod tests {
                 source: source.to_string(),
                 endpoint_family: crate::source_health::EndpointFamily::NoaaMrms,
                 latest_valid_time: None,
+                fallback_providers: Vec::new(),
                 fetching,
                 last_attempt: None,
                 last_success,

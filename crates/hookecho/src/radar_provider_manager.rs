@@ -84,6 +84,33 @@ pub struct FailoverSnapshot {
     pub last_transition: Option<(DateTime<Utc>, ProviderSwitchReason, SelectedTier)>,
 }
 
+impl FailoverSnapshot {
+    /// Every configured tier other than the one currently selected, in failover preference order.
+    /// TGFTP is always available natively; the relay appears only when configured. When TGFTP is
+    /// active, the progressive providers are recovery candidates rather than "fallbacks" in the
+    /// chronological sense, but they are still the alternate providers source health must name.
+    pub fn alternate_provider_labels(&self) -> Vec<&'static str> {
+        match self.selected {
+            SelectedTier::Primary => {
+                let mut labels = Vec::with_capacity(2);
+                if self.has_backup {
+                    labels.push(BACKUP_LABEL);
+                }
+                labels.push(DEGRADED_LABEL);
+                labels
+            }
+            SelectedTier::Backup => vec![PRIMARY_LABEL, DEGRADED_LABEL],
+            SelectedTier::Degraded => {
+                let mut labels = vec![PRIMARY_LABEL];
+                if self.has_backup {
+                    labels.push(BACKUP_LABEL);
+                }
+                labels
+            }
+        }
+    }
+}
+
 /// One radar site's dual-feed health plus the failover decision built on top of it. See the module
 /// doc comment for the three-tier model.
 pub struct SiteProviders {
@@ -311,6 +338,34 @@ mod tests {
             reconnects: 0,
             last_error: None,
         }
+    }
+
+    #[test]
+    fn alternate_provider_labels_follow_the_selected_tier_and_relay_configuration() {
+        let snapshot = |selected, has_backup| FailoverSnapshot {
+            selected,
+            has_backup,
+            primary: None,
+            backup: None,
+            manual_override: false,
+            last_transition: None,
+        };
+        assert_eq!(
+            snapshot(SelectedTier::Primary, false).alternate_provider_labels(),
+            [DEGRADED_LABEL]
+        );
+        assert_eq!(
+            snapshot(SelectedTier::Primary, true).alternate_provider_labels(),
+            [BACKUP_LABEL, DEGRADED_LABEL]
+        );
+        assert_eq!(
+            snapshot(SelectedTier::Backup, true).alternate_provider_labels(),
+            [PRIMARY_LABEL, DEGRADED_LABEL]
+        );
+        assert_eq!(
+            snapshot(SelectedTier::Degraded, true).alternate_provider_labels(),
+            [PRIMARY_LABEL, BACKUP_LABEL]
+        );
     }
 
     #[test]
