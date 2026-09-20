@@ -2732,13 +2732,15 @@ Moving cursor in one pane should optionally show corresponding point in linked p
 - [x] compact cross-pane value table — `ui::cursor_probe`, a small always-visible window listing
   Pane/Source/Product/Time/Value for every pane, reusing `inspect_gate` (the same sampler the
   Interrogate tool's click already used) once per pane at the shared point.
-- [ ] MRMS/model grid layers in the table — only radar-moment panes are sampled. Unlike radar,
-  there is no single shared "sample this pane's active grid at a point" helper yet (`fielddiff.rs`
-  and the diff-hover readouts each know how to read their own specific grid, not a pane's whatever-
-  is-on-top layer in general) — building that generic dispatch is separate, larger work not
-  attempted here. A pane with no radar data at the probed point (no volume loaded, or only MRMS/
-  model layers on) still gets a row — its site and selected moment — but a "—" for value and time
-  rather than a wrong or guessed number.
+- [x] MRMS/model grid layers in the table — new this pass, see the Unreleased CHANGELOG entry:
+  every decoded field now retains its displayed/decimated CPU grid for exactly as long as the
+  corresponding texture remains resident (the existing five-minute field eviction clears both).
+  The linked probe selects the same top visible layer as the renderer/legend, samples that grid at
+  the shared geographic point, and reports its source, analyst-facing product name, authoritative
+  valid time and value. This covers descriptor-backed MRMS/model/GOES/NDFD fields, legacy/local
+  grids, signed or absolute model differences, and each compare-pane side; categorical codes use
+  their legend labels and Kelvin-backed fields honor the user's temperature unit. With no grid on
+  top it still reuses `inspect_gate` for radar, so one table now truthfully spans both paths.
 
 ## J4. Compare modes — partly done
 

@@ -52,6 +52,10 @@ pub(super) fn model_stamp(
 #[derive(Default)]
 pub(crate) struct FieldState {
     pub pending: Option<MrmsUpload>,
+    /// The same decoded/decimated grid represented by the resident texture. Retained so linked
+    /// probes and future scientific exports sample the displayed data rather than reverse-
+    /// engineering an 8-bit GPU index. Cleared with the texture by the existing field eviction.
+    pub grid: Option<MrmsField>,
     pub last_fetch: Option<Instant>,
     /// Since when no pane has drawn this layer; drives GPU texture eviction.
     pub off_since: Option<Instant>,
@@ -106,6 +110,7 @@ impl HookEchoApp {
         if let Some(state) = self.fields.get_mut(&layer) {
             state.pending = Some(upload);
             state.stamp = stamp;
+            state.grid = Some(field);
         }
     }
 }

@@ -8,6 +8,19 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: gridded layers in the synchronized pane probe (J3)
+
+ROADMAP_NEW J3's linked crosshair table now samples the top visible MRMS, model, satellite,
+derived or comparison grid in each pane instead of reporting only radar gates. `FieldState`
+retains the decoded display grid beside its GPU texture and releases both through the existing
+five-minute inactive-field eviction, providing a truthful sample without trying to invert an
+8-bit color index or creating an unbounded second cache. The probe uses the renderer's own draw
+order, reports source/product/valid time, formats categorical values with their legend labels,
+converts Kelvin-backed fields to the selected temperature unit, applies every ramp's display
+scale, and understands signed/absolute differences plus both comparison sides. Panes without a
+gridded layer continue through the exact radar gate-inspector sampler. Focused tests cover table
+fallbacks, units, categorical labels, missing data and legacy product names.
+
 ### Added: product cycling and a reachable 3D toggle (J6)
 
 `N` and `P` step to the next/previous radar product, wrapping — distinct from the `1`-`7` keys,

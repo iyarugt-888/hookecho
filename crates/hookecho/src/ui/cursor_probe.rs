@@ -4,20 +4,20 @@
 //! as answering the same question.
 //!
 //! Presentation only, following `gate_inspector.rs`'s split: the math (per-pane sampling) stays in
-//! `app.rs`'s `probe_row`, reusing the same `inspect_gate` a click already uses.
-
-use wxdata::level2::Moment;
+//! `app.rs`'s `probe_row`. Radar reuses the same `inspect_gate` a click already uses; gridded
+//! layers sample the retained decoded field represented by the top visible texture.
 
 /// One pane's reading at the shared probe point, or the reasons it has none — a pane with no
-/// volume, an off moment, or a point outside the sweep's coverage all read as `value: None` here
-/// rather than being dropped from the table, so a probed pane is never silently missing.
+/// resident field/radar volume or a point outside coverage reads as `value: None` here rather
+/// than being dropped from the table, so a probed pane is never silently missing.
 #[derive(Debug, Clone)]
 pub struct ProbeRow {
     pub pane: usize,
-    pub site: Option<String>,
-    pub moment: Moment,
+    pub source: String,
+    pub product: String,
     pub time: Option<chrono::DateTime<chrono::Utc>>,
-    pub value: Option<f32>,
+    /// Already formatted in the displayed layer's own units/category vocabulary.
+    pub value: Option<String>,
     pub folded: bool,
 }
 
@@ -25,9 +25,7 @@ fn value_text(row: &ProbeRow) -> String {
     if row.folded {
         return "Range folded".into();
     }
-    row.value
-        .map(|v| format!("{v:.1} {}", row.moment.units()))
-        .unwrap_or_else(|| "—".into())
+    row.value.clone().unwrap_or_else(|| "—".into())
 }
 
 pub fn show(ctx: &egui::Context, rows: &[ProbeRow], tz: Option<wxdata::tz::Tz>) {
@@ -60,8 +58,8 @@ fn table(ui: &mut egui::Ui, rows: &[ProbeRow], tz: Option<wxdata::tz::Tz>) {
             ui.end_row();
             for row in rows {
                 ui.label(format!("{}", row.pane + 1));
-                ui.label(row.site.as_deref().unwrap_or("—"));
-                ui.label(row.moment.short_name());
+                ui.label(&row.source);
+                ui.label(&row.product);
                 ui.label(
                     row.time
                         .map(|t| crate::timefmt::fmt_clock(t, tz, false))
@@ -77,20 +75,20 @@ fn table(ui: &mut egui::Ui, rows: &[ProbeRow], tz: Option<wxdata::tz::Tz>) {
 mod tests {
     use super::*;
 
-    fn row(pane: usize, value: Option<f32>, folded: bool) -> ProbeRow {
+    fn row(pane: usize, value: Option<&str>, folded: bool) -> ProbeRow {
         ProbeRow {
             pane,
-            site: Some("KTLX".into()),
-            moment: Moment::Reflectivity,
+            source: "KTLX".into(),
+            product: "REF".into(),
             time: chrono::DateTime::from_timestamp(1_000, 0),
-            value,
+            value: value.map(str::to_string),
             folded,
         }
     }
 
     #[test]
     fn a_sampled_value_carries_its_units() {
-        assert_eq!(value_text(&row(0, Some(42.5), false)), "42.5 dBZ");
+        assert_eq!(value_text(&row(0, Some("42.5 dBZ"), false)), "42.5 dBZ");
     }
 
     #[test]

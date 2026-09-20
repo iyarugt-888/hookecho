@@ -2291,6 +2291,56 @@ fn field_refresh_secs(layer: crate::render::FieldLayer) -> u64 {
     }
 }
 
+/// Format a raw decoded grid sample exactly as the field legend does: categorical labels rather
+/// than integer codes, user-selected temperature units rather than Kelvin, and each ramp's input
+/// scaling for quantities such as smoke and snowfall.
+fn format_probe_field_value(
+    layer: crate::render::FieldLayer,
+    raw: f32,
+    temp_unit: crate::settings::TempUnit,
+) -> Option<String> {
+    if !raw.is_finite() {
+        return None;
+    }
+    if let Some(ramp) = crate::render::field_ramps::ramp_for(layer) {
+        if let crate::render::field_ramps::FieldScale::Categorical(categories) = &ramp.scale {
+            let code = raw.round().clamp(0.0, 255.0) as u8;
+            return Some(
+                categories
+                    .iter()
+                    .find(|(value, ..)| *value == code)
+                    .map_or_else(|| format!("{code}"), |(_, _, label)| (*label).into()),
+            );
+        }
+        if ramp.is_temp_kelvin {
+            return Some(format!(
+                "{:.1} {}",
+                temp_unit.from_c(raw - 273.15),
+                temp_unit.label()
+            ));
+        }
+        let value = ramp.display(raw);
+        return Some(if ramp.units.is_empty() {
+            format!("{value:.1}")
+        } else {
+            format!("{value:.1} {}", ramp.units)
+        });
+    }
+    use crate::render::FieldLayer as FL;
+    if matches!(layer, FL::Mrms | FL::Hrrr | FL::Mosaic | FL::CompositeLocal) {
+        return Some(format!("{raw:.1} dBZ"));
+    }
+    let units = layer
+        .descriptor()
+        .map(|descriptor| descriptor.units.symbol())
+        .unwrap_or("");
+    Some(if units.is_empty() {
+        format!("{raw:.1}")
+    } else {
+        format!("{raw:.1} {units}")
+    })
+}
+
 /// The ZDR-column cache: the volume it was computed for, its columns, and the bright band the
 /// same pass found.
 /// A place the proximity alerts watch: a saved marker, or wherever the GPS says you are.
@@ -7505,10 +7555,149 @@ impl HookEchoApp {
         })
     }
 
-    /// One row of the ROADMAP_NEW J3 cursor-probe table: this pane's own moment sampled at the
-    /// linked hover point, reusing `inspect_gate` exactly as the Interrogate tool's click does.
-    /// `None` fields describe *why* a pane has nothing to show (no volume, no data at this point)
-    /// rather than the row vanishing — the table always lists every visible pane.
+    /// The visible gridded layer on top of this pane, matching the draw/legend order exactly.
+    fn probe_field(&self, idx: usize) -> Option<crate::render::FieldLayer> {
+        use crate::render::FieldLayer as FL;
+        crate::render::FieldLayer::DRAW_ORDER
+            .iter()
+            .rev()
+            .copied()
+            .find(|layer| {
+                self.views[idx].fields_on.contains(layer)
+                    && crate::fielddiff::layer_ready(*layer, self.diff_valid, self.compare_valid)
+                    && match layer {
+                        FL::ModelDiff => self.diff_grid.is_some(),
+                        FL::CompareA | FL::CompareB => self.compare_grid.is_some(),
+                        _ => self
+                            .fields
+                            .get(layer)
+                            .is_some_and(|state| state.grid.is_some()),
+                    }
+            })
+    }
+
+    fn probe_field_source(
+        &self,
+        layer: crate::render::FieldLayer,
+        state: Option<&FieldState>,
+    ) -> String {
+        if let Some(source) = state
+            .and_then(|field| field.stamp.as_ref())
+            .map(|stamp| stamp.source_id.clone())
+        {
+            return source;
+        }
+        use crate::render::FieldLayer as FL;
+        match layer {
+            FL::Hrrr => "HRRR".into(),
+            FL::Mosaic => "Multi-radar mosaic".into(),
+            FL::CompositeLocal
+            | FL::VilLocal
+            | FL::VilDensity
+            | FL::EtopLocal
+            | FL::HailMehs
+            | FL::HailPosh => "Local radar".into(),
+            FL::SnowBands => "Derived MRMS".into(),
+            FL::SnowAnalysis => "NOAA NOHRSC".into(),
+            FL::Vil | FL::EchoTops | FL::Hca => "NEXRAD Level III".into(),
+            FL::NdfdTemp2m | FL::NdfdWind10m | FL::NdfdGust10m | FL::NdfdSnow => "NWS NDFD".into(),
+            _ => layer.descriptor().map_or_else(
+                || "Gridded field".into(),
+                |descriptor| descriptor.source.display_name().into(),
+            ),
+        }
+    }
+
+    fn probe_field_product(layer: crate::render::FieldLayer) -> String {
+        use crate::render::FieldLayer as FL;
+        let special = match layer {
+            FL::Mosaic => Some("Multi-radar reflectivity"),
+            FL::CompositeLocal => Some("Local composite reflectivity"),
+            _ => None,
+        };
+        if let Some(label) = special {
+            return label.into();
+        }
+        crate::render::field_ramps::ramp_for(layer).map_or_else(
+            || {
+                layer
+                    .descriptor()
+                    .map_or_else(|| layer.slug().into(), |descriptor| descriptor.name.into())
+            },
+            |ramp| ramp.label.into(),
+        )
+    }
+
+    /// Format one raw grid sample in the same display units/category vocabulary as its legend.
+    fn probe_field_value(&self, layer: crate::render::FieldLayer, raw: f32) -> Option<String> {
+        format_probe_field_value(layer, raw, self.settings.temp_unit)
+    }
+
+    fn grid_probe_row(
+        &self,
+        idx: usize,
+        layer: crate::render::FieldLayer,
+        lon: f64,
+        lat: f64,
+    ) -> ui::cursor_probe::ProbeRow {
+        use crate::render::FieldLayer as FL;
+        if layer == FL::ModelDiff {
+            let (a, b) = self.diff_field.pair();
+            let value = self
+                .diff_grid
+                .as_ref()
+                .and_then(|grid| grid.sample_bilinear(lon, lat))
+                .filter(|value| value.is_finite())
+                .map(|value| self.diff_mode.apply(value * self.diff_field.input_scale()))
+                .map(|value| format!("{value:.1} {}", self.diff_field.units()));
+            return ui::cursor_probe::ProbeRow {
+                pane: idx,
+                source: self.diff_mode.expression(a, b),
+                product: format!("{} difference", self.diff_field.label()),
+                time: self.diff_valid.map(|times| times.valid),
+                value,
+                folded: false,
+            };
+        }
+        if matches!(layer, FL::CompareA | FL::CompareB) {
+            let side_b = layer == FL::CompareB;
+            let (a_name, b_name) = self.diff_field.pair();
+            let grid = self
+                .compare_grid
+                .as_ref()
+                .map(|(a, b)| if side_b { b } else { a });
+            let source_layer = self.diff_field.source_layer();
+            return ui::cursor_probe::ProbeRow {
+                pane: idx,
+                source: if side_b { b_name } else { a_name }.into(),
+                product: self.diff_field.label().into(),
+                time: self.compare_valid.map(|times| times.valid),
+                value: grid
+                    .and_then(|grid| grid.sample_bilinear(lon, lat))
+                    .and_then(|raw| self.probe_field_value(source_layer, raw)),
+                folded: false,
+            };
+        }
+
+        let state = self.fields.get(&layer);
+        let grid = state.and_then(|field| field.grid.as_ref());
+        ui::cursor_probe::ProbeRow {
+            pane: idx,
+            source: self.probe_field_source(layer, state),
+            product: Self::probe_field_product(layer),
+            time: state
+                .and_then(|field| field.stamp.as_ref().map(|stamp| stamp.valid_time))
+                .or_else(|| grid.map(|grid| grid.time)),
+            value: grid
+                .and_then(|grid| grid.sample_bilinear(lon, lat))
+                .and_then(|raw| self.probe_field_value(layer, raw)),
+            folded: false,
+        }
+    }
+
+    /// One row of the ROADMAP_NEW J3 cursor-probe table. The top visible grid wins; otherwise
+    /// sample this pane's radar moment through the exact Interrogate-tool path. A missing sample
+    /// leaves a visible row with `—` rather than silently dropping the pane.
     fn probe_row(
         &mut self,
         ctx: &egui::Context,
@@ -7516,20 +7705,27 @@ impl HookEchoApp {
         lon: f64,
         lat: f64,
     ) -> ui::cursor_probe::ProbeRow {
+        if let Some(layer) = self.probe_field(idx) {
+            return self.grid_probe_row(idx, layer, lon, lat);
+        }
         let moment = self.views[idx].moment;
         match self.inspect_gate(ctx, idx, lon, lat, None) {
             Some(popup) => ui::cursor_probe::ProbeRow {
                 pane: idx,
-                site: popup.site,
-                moment: popup.moment,
+                source: popup.site.unwrap_or_else(|| "—".into()),
+                product: popup.moment.short_name().into(),
                 time: popup.time_range.map(|(_, end)| end),
-                value: popup.inspection.sample.value,
+                value: popup
+                    .inspection
+                    .sample
+                    .value
+                    .map(|value| format!("{value:.1} {}", popup.moment.units())),
                 folded: popup.inspection.sample.folded,
             },
             None => ui::cursor_probe::ProbeRow {
                 pane: idx,
-                site: self.views[idx].site.clone(),
-                moment,
+                source: self.views[idx].site.clone().unwrap_or_else(|| "—".into()),
+                product: moment.short_name().into(),
                 time: None,
                 value: None,
                 folded: false,
@@ -7539,9 +7735,8 @@ impl HookEchoApp {
 
     /// ROADMAP_NEW J3: while `link_cursor` is on and some pane is hovered, draw a matching
     /// crosshair on every pane at the same geographic point and show the compact probe table.
-    /// Only radar-moment panes are sampled — MRMS/model grid layers have no shared "point value"
-    /// helper the way `inspect_gate` is for radar, so those panes read as an empty pane rather
-    /// than a wrong or misleading number.
+    /// The table samples each pane's top visible gridded layer or, when there is none, its radar
+    /// moment; every row therefore describes what that pane is actually showing at the crosshair.
     fn paint_linked_cursor(&mut self, ui: &egui::Ui, rects: &[egui::Rect], solo: bool) {
         if !self.link_cursor || solo || rects.len() < 2 {
             return;
@@ -9741,12 +9936,15 @@ impl HookEchoApp {
                 }
                 OverlayMsg::Hrrr(fc) => {
                     use crate::render::FieldLayer;
+                    let run = fc.run;
+                    let valid = fc.valid();
                     let upload = self.field_upload(FieldLayer::Hrrr, &fc.field);
                     if let Some(s) = self.fields.get_mut(&FieldLayer::Hrrr) {
                         s.pending = Some(upload);
+                        s.grid = Some(fc.field);
                     }
-                    self.hrrr_run = Some(fc.run);
-                    self.hrrr_valid = Some(fc.valid());
+                    self.hrrr_run = Some(run);
+                    self.hrrr_valid = Some(valid);
                 }
                 OverlayMsg::Obs(site, res) => {
                     // Keep only if still the active site.
@@ -9823,6 +10021,7 @@ impl HookEchoApp {
                     let upload = self.field_upload(layer, &field);
                     if let Some(s) = self.fields.get_mut(&layer) {
                         s.pending = Some(upload);
+                        s.grid = Some(field);
                     }
                 }
                 OverlayMsg::Gauges(g) => self.gauges = g,
@@ -14046,6 +14245,7 @@ impl HookEchoApp {
                         // The grid is gone from the GPU, so the next enable must re-fetch it
                         // rather than trust its refresh cadence.
                         st.last_fetch = None;
+                        st.grid = None;
                         drop.push(*layer);
                     }
                 } else {
@@ -14056,6 +14256,29 @@ impl HookEchoApp {
         } else {
             Vec::new()
         };
+        if drop_fields.contains(&crate::render::FieldLayer::ModelDiff) {
+            self.diff_grid = None;
+            self.diff_valid = None;
+            self.diff_display_key = None;
+        }
+        let compare_visible = self.views.iter().any(|view| {
+            view.fields_on
+                .contains(&crate::render::FieldLayer::CompareA)
+                || view
+                    .fields_on
+                    .contains(&crate::render::FieldLayer::CompareB)
+        });
+        if !compare_visible
+            && drop_fields.iter().any(|layer| {
+                matches!(
+                    layer,
+                    crate::render::FieldLayer::CompareA | crate::render::FieldLayer::CompareB
+                )
+            })
+        {
+            self.compare_grid = None;
+            self.compare_valid = None;
+        }
         if !drop_fields.is_empty() {
             use crate::render::FieldLayer as FL;
             let mut requests = self
@@ -22342,6 +22565,42 @@ mod request_book_tests {
         assert_eq!(
             health(false, None, None, None, CacheState::Empty).state(),
             HealthState::Waiting
+        );
+    }
+}
+
+#[cfg(test)]
+mod probe_grid_tests {
+    use super::{format_probe_field_value, HookEchoApp};
+    use crate::render::FieldLayer as FL;
+    use crate::settings::TempUnit;
+
+    #[test]
+    fn probe_values_follow_legend_units_and_categories() {
+        assert_eq!(
+            format_probe_field_value(FL::GlobalTemp2m, 273.15, TempUnit::Fahrenheit).as_deref(),
+            Some("32.0 °F")
+        );
+        assert_eq!(
+            format_probe_field_value(FL::Hca, 90.0, TempUnit::Celsius).as_deref(),
+            Some("Graupel")
+        );
+        assert_eq!(
+            format_probe_field_value(FL::Mrms, 42.25, TempUnit::Celsius).as_deref(),
+            Some("42.2 dBZ")
+        );
+        assert!(format_probe_field_value(FL::Mrms, f32::NAN, TempUnit::Celsius).is_none());
+    }
+
+    #[test]
+    fn legacy_grid_products_get_analyst_facing_names() {
+        assert_eq!(
+            HookEchoApp::probe_field_product(FL::Mosaic),
+            "Multi-radar reflectivity"
+        );
+        assert_eq!(
+            HookEchoApp::probe_field_product(FL::CompositeLocal),
+            "Local composite reflectivity"
         );
     }
 }
