@@ -31,6 +31,10 @@ pub mod daynight_draw;
 /// Capture of every `log::` record into a small buffer, and its opt-in shipping to
 /// [`devlog_admin`] — see that module's doc comment for the whole picture.
 pub mod devlog;
+/// Constant-time secret comparison shared by `serve` (desktop only) and `devlog_admin` (also built
+/// for Android), so it cannot live inside either.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) mod secret;
 /// `--devlog-serve`: the standalone admin panel [`devlog`] ships to.
 #[cfg(not(target_arch = "wasm32"))]
 pub mod devlog_admin;

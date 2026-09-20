@@ -21,6 +21,13 @@ monitor from a thread with no runtime and fails with that exact message against 
 `android-actions/setup-android` asked `sdkmanager` for the `tools` package, which Google no longer
 serves, so `sdkmanager` exited 1 at "Set up Android SDK". Both workflows now name `platform-tools`.
 
+### Fixed: the Android library did not compile
+
+`devlog_admin`, which is built for Android, called `crate::serve::constant_time_eq`, but `serve` is
+desktop-only, so the Android build failed with "cannot find `serve` in the crate root". Nothing
+caught it because the Android job in CI died earlier and this branch's ordinary CI never compiles
+the Android target. The shared comparison now lives in its own small module that both use.
+
 ### Added: Shapefile import (I1)
 
 "Import GIS file…" now takes an ESRI Shapefile (`.shp`) as well as GeoJSON. On desktop the

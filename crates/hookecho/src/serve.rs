@@ -12,6 +12,7 @@
 // ponytail: thread-per-connection blocking server; ceiling is a handful of pollers (Home
 // Assistant plus curl). Bring in hyper's server features if concurrency ever matters.
 
+use crate::secret::constant_time_eq;
 use crate::status::{self, Spot};
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
@@ -386,21 +387,6 @@ fn query_token(query: &str) -> Option<String> {
     crate::cloud::param(query, "token")
 }
 
-/// Compare without leaking where the two differ through timing. Length is not a secret here (the
-/// user chose it), but the content is.
-///
-/// `pub(crate)` rather than private: [`crate::devlog_admin`] wants the same comparison for its
-/// own bearer token, and a second hand-rolled copy of anything timing-sensitive is a second place
-/// for it to quietly stop being constant-time.
-pub(crate) fn constant_time_eq(a: &str, b: &str) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    a.bytes()
-        .zip(b.bytes())
-        .fold(0u8, |acc, (x, y)| acc | (x ^ y))
-        == 0
-}
 
 fn not_found() -> (&'static str, &'static str, Vec<u8>) {
     (

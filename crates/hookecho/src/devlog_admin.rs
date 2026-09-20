@@ -201,13 +201,13 @@ fn authorize(token: &str, bearer: Option<&str>, query: &str) -> bool {
     if token.is_empty() {
         return true;
     }
-    if bearer.is_some_and(|b| crate::serve::constant_time_eq(b, token)) {
+    if bearer.is_some_and(|b| crate::secret::constant_time_eq(b, token)) {
         return true;
     }
     // The admin page itself has no header to set on a bookmark, and neither does a native/web
     // instance's shipper if an operator would rather bake the token into the one URL it already
     // POSTs to — `?token=` on that same endpoint just works, no extra plumbing.
-    crate::cloud::param(query, "token").is_some_and(|t| crate::serve::constant_time_eq(&t, token))
+    crate::cloud::param(query, "token").is_some_and(|t| crate::secret::constant_time_eq(&t, token))
 }
 
 fn route(
