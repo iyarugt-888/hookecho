@@ -232,6 +232,11 @@ impl HookEchoApp {
             endpoint_family: crate::source_health::EndpointFamily::RadarLevel2,
             latest_valid_time: v.timeline.newest().and_then(|id| id.date_time()),
             fallback_providers,
+            cache_state: if v.volume.is_some() {
+                CacheState::Memory
+            } else {
+                CacheState::Empty
+            },
             fetching: v.loading,
             last_attempt: v.last_poll.map(|t| t.elapsed()),
             last_success: age,

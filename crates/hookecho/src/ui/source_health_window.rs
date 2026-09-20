@@ -15,7 +15,9 @@
 //! `latest_valid_time` is equally explicit: the newest authoritative data time retained by the
 //! request book, never the local request-completion clock; untimed feeds remain visibly unknown.
 //! Radar's configured provider alternatives are structured metadata too; sources with no runtime
-//! fallback leave the list empty. Cache residency remains genuinely open rather than inferred.
+//! fallback leave the list empty. Cache residency is explicit too: successful delivery marks a
+//! value resident, renderer eviction clears it, and a failed refresh with a resident prior value
+//! becomes `Cached` rather than the terminal `Failed` state.
 
 use crate::app::{HealthState, PaletteEntry, SourceHealth};
 use crate::ui::layers_panel::{active_layer, age_line, compact_age, health_look, valid_time_line};
@@ -27,11 +29,12 @@ use egui::{Color32, RichText};
 fn severity_rank(state: HealthState) -> u8 {
     match state {
         HealthState::Failed => 0,
-        HealthState::Stale => 1,
-        HealthState::Delayed => 2,
-        HealthState::Waiting => 3,
-        HealthState::Fetching => 4,
-        HealthState::Fresh => 5,
+        HealthState::Cached => 1,
+        HealthState::Stale => 2,
+        HealthState::Delayed => 3,
+        HealthState::Waiting => 4,
+        HealthState::Fetching => 5,
+        HealthState::Fresh => 6,
     }
 }
 
@@ -63,7 +66,7 @@ pub(crate) fn show(
         "Data source health",
         &mut keep,
         false,
-        700.0,
+        780.0,
         egui::Window::new("Data source health"),
     ) else {
         *open = keep;
@@ -80,7 +83,7 @@ pub(crate) fn show(
         ui.separator();
         egui::ScrollArea::vertical().show(ui, |ui| {
             egui::Grid::new("source_health_grid")
-                .num_columns(6)
+                .num_columns(7)
                 .spacing([12.0, 6.0])
                 .striped(true)
                 .show(ui, |ui| {
@@ -88,6 +91,7 @@ pub(crate) fn show(
                     ui.weak("Source / family");
                     ui.weak("Latest valid data");
                     ui.weak("Fetch health");
+                    ui.weak("Cache");
                     ui.weak("Recent")
                         .on_hover_text("Successes out of the last 20 finished requests");
                     ui.weak("Last error");
@@ -114,6 +118,7 @@ pub(crate) fn show(
                             ui.label(age_line(h.last_success));
                             ui.weak(format!("{} cadence", compact_age(h.cadence)));
                         });
+                        ui.label(h.cache_state.label());
                         match h.recent_outcomes {
                             Some((successes, failures)) => {
                                 ui.label(format!("{successes}/{}", successes + failures));
@@ -146,15 +151,41 @@ mod tests {
     use crate::render::FieldLayer;
 
     fn entry(source: &str, state: HealthState, active: bool) -> PaletteEntry {
-        let (last_success, last_failure, fetching) = match state {
-            HealthState::Fresh => (Some(std::time::Duration::from_secs(1)), None, false),
-            HealthState::Fetching => (None, None, true),
+        let (last_success, last_failure, fetching, cache_state) = match state {
+            HealthState::Fresh => (
+                Some(std::time::Duration::from_secs(1)),
+                None,
+                false,
+                crate::app::CacheState::Memory,
+            ),
+            HealthState::Fetching => (None, None, true, crate::app::CacheState::Empty),
             // Between the 120 s cadence this fixture's `SourceHealth` uses below and its
             // `DELAYED_CADENCE_MULTIPLIER` (2x) — past due, not yet stale.
-            HealthState::Delayed => (Some(std::time::Duration::from_secs(180)), None, false),
-            HealthState::Stale => (Some(std::time::Duration::from_secs(9_999)), None, false),
-            HealthState::Failed => (None, Some(std::time::Duration::ZERO), false),
-            HealthState::Waiting => (None, None, false),
+            HealthState::Delayed => (
+                Some(std::time::Duration::from_secs(180)),
+                None,
+                false,
+                crate::app::CacheState::Memory,
+            ),
+            HealthState::Stale => (
+                Some(std::time::Duration::from_secs(9_999)),
+                None,
+                false,
+                crate::app::CacheState::Memory,
+            ),
+            HealthState::Cached => (
+                Some(std::time::Duration::from_secs(10)),
+                Some(std::time::Duration::ZERO),
+                false,
+                crate::app::CacheState::Memory,
+            ),
+            HealthState::Failed => (
+                None,
+                Some(std::time::Duration::ZERO),
+                false,
+                crate::app::CacheState::Empty,
+            ),
+            HealthState::Waiting => (None, None, false, crate::app::CacheState::Empty),
         };
         PaletteEntry {
             label: source.to_string(),
@@ -169,11 +200,13 @@ mod tests {
                 endpoint_family: crate::source_health::EndpointFamily::NoaaMrms,
                 latest_valid_time: None,
                 fallback_providers: Vec::new(),
+                cache_state,
                 fetching,
                 last_attempt: None,
                 last_success,
                 last_failure,
-                error: (state == HealthState::Failed).then(|| "boom".to_string()),
+                error: matches!(state, HealthState::Failed | HealthState::Cached)
+                    .then(|| "boom".to_string()),
                 cadence: std::time::Duration::from_secs(120),
                 recent_outcomes: None,
                 details: Vec::new(),
@@ -188,6 +221,7 @@ mod tests {
             HealthState::Fresh,
             HealthState::Delayed,
             HealthState::Stale,
+            HealthState::Cached,
             HealthState::Failed,
             HealthState::Waiting,
         ];
@@ -200,6 +234,8 @@ mod tests {
             0,
             "Failed must sort first"
         );
+        assert!(severity_rank(HealthState::Cached) > severity_rank(HealthState::Failed));
+        assert!(severity_rank(HealthState::Cached) < severity_rank(HealthState::Stale));
         assert!(severity_rank(HealthState::Fresh) > severity_rank(HealthState::Stale));
         assert!(severity_rank(HealthState::Fresh) > severity_rank(HealthState::Waiting));
         // Delayed sits strictly between "on schedule" and "genuinely stopped updating".

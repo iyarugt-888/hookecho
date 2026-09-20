@@ -3082,7 +3082,13 @@ For every active source:
   and the consolidated Data source health window (a new "Recent" column), and carried into the N4
   diagnostics bundle.
 - [x] current backoff — `SourceHealth::next_retry()`
-- [ ] cache state — no field for it; the request book tracks fetch health, not cache residency
+- [x] cache state — new this pass, see the Unreleased CHANGELOG entry: `SourceHealth.cache_state`
+  explicitly distinguishes `In memory` from `Not cached`; successful delivery establishes
+  residency, the renderer's existing five-minute field-texture eviction clears it, failed
+  refreshes preserve the prior value, and radar derives residency directly from whether its pane
+  holds a decoded volume. Both health views expose it and diagnostics exports the stable
+  `memory`/`empty` ID. This deliberately does not infer browser, operating-system or intermediary
+  HTTP-cache contents that HookEcho cannot prove.
 - [x] fallback provider — new this pass, see the Unreleased CHANGELOG entry: the earlier audit
   became stale when B6.11 wired three real Level II tiers into each native radar pane. Every
   `SourceHealth` now carries a structured `fallback_providers` list (empty means this source has
@@ -3109,9 +3115,10 @@ Status states:
   question from this section's *fetch* staleness (are we still successfully polling).
 - [x] Stale — `HealthState::Stale`
 - [x] Failed — `HealthState::Failed`
-- [ ] Cached — no state names "the fetch failed but a previous value is still shown"; the closest
-  today is `Failed` plus a separate `last_success.is_some()` check the Layers panel's own popup
-  already renders as "Failed — showing previous data (degraded)", not a state of its own
+- [x] Cached — new this pass: `HealthState::Cached` means the newest refresh failed while an
+  explicitly resident prior value remains available. It sorts immediately below terminal
+  `Failed`, has its own degraded-orange treatment, and automatically becomes `Failed` if that
+  value is evicted. A prior success timestamp alone is no longer enough to claim fallback data.
 - [ ] Experimental — no source in this app is marked experimental yet (see F2's Tier 2 targets,
   which do ask for an explicit EXPERIMENTAL label on future AI-guidance products)
 

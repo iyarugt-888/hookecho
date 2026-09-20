@@ -8,6 +8,21 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: truthful cache residency and Cached source-health state (N1)
+
+ROADMAP_NEW N1 source health now reports whether each active source's last delivered value is
+actually resident in memory. A successful delivery establishes residency, the renderer's existing
+five-minute field-texture eviction clears it, comparison failures clear the grids they explicitly
+invalidate, and radar reads residency from the pane's decoded volume. Failed refreshes preserve a
+resident last-good value and now become the distinct `Cached` state; failures with no fallback
+remain `Failed`, and evicting the fallback immediately changes `Cached` to `Failed`. Both the
+per-layer popup and consolidated health window show cache state, and diagnostics JSON exports the
+stable `memory`/`empty` value. The implementation deliberately makes no claim about opaque browser,
+OS or intermediary HTTP caches. Plugin command errors are also now recorded as health failures
+instead of being mistaken for successful cache writes merely because they arrive as UI messages.
+Focused tests cover cold failure, success, failed refresh, eviction and the message-wrapped plugin
+error path.
+
 ### Added: structured radar fallback providers in source health (N1)
 
 ROADMAP_NEW N1 source health now carries `fallback_providers` as structured metadata rather than

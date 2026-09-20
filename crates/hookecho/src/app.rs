@@ -571,8 +571,39 @@ pub(crate) enum HealthState {
     /// across. See [`SourceHealth::state`] for the exact threshold and why.
     Delayed,
     Stale,
+    /// The newest refresh failed, but a previously successful value is still resident and is
+    /// what the map is showing. This is deliberately distinct from `Failed`, which means there
+    /// is no usable value to fall back to.
+    Cached,
     Failed,
     Waiting,
+}
+
+/// Whether the value represented by a source-health row is actually resident in the app.
+///
+/// This is intentionally small and truthful: HookEcho can currently prove that a decoded value
+/// is in memory (including an uploaded field texture), or that no value is resident. It does not
+/// pretend to know which upstream HTTP objects a browser/service-worker or OS cache may retain.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CacheState {
+    Empty,
+    Memory,
+}
+
+impl CacheState {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::Empty => "Not cached",
+            Self::Memory => "In memory",
+        }
+    }
+
+    fn id(self) -> &'static str {
+        match self {
+            Self::Empty => "empty",
+            Self::Memory => "memory",
+        }
+    }
 }
 
 /// Read-only request state copied into an enabled Layers row.
@@ -586,6 +617,9 @@ pub(crate) struct SourceHealth {
     pub latest_valid_time: Option<DateTime<Utc>>,
     /// Configured alternate providers for this source, empty when no runtime fallback exists.
     pub fallback_providers: Vec<String>,
+    /// Proven residency of the value this source last delivered. A failed refresh only becomes
+    /// [`HealthState::Cached`] when this says the prior value still exists.
+    pub cache_state: CacheState,
     pub fetching: bool,
     pub last_attempt: Option<std::time::Duration>,
     pub last_success: Option<std::time::Duration>,
@@ -619,7 +653,11 @@ impl SourceHealth {
             .last_failure
             .is_some_and(|failed| self.last_success.is_none_or(|success| failed <= success))
         {
-            HealthState::Failed
+            if self.cache_state == CacheState::Memory {
+                HealthState::Cached
+            } else {
+                HealthState::Failed
+            }
         } else if self.last_success.is_some_and(|age| age <= self.cadence) {
             HealthState::Fresh
         } else if self
@@ -650,6 +688,7 @@ struct DiagnosticsSourceHealth {
     latest_valid_time: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     fallback_providers: Vec<String>,
+    cache_state: &'static str,
     status: &'static str,
     last_success_secs: Option<u64>,
     cadence_secs: u64,
@@ -687,6 +726,9 @@ struct RequestStatus {
     last_failure: Option<(Instant, String)>,
     /// Newest data timestamp reported by a successful payload, never a local fetch timestamp.
     latest_valid_time: Option<DateTime<Utc>>,
+    /// True only while a value from this lane is known to remain resident. Successful delivery
+    /// sets it; explicit field-texture eviction clears it; a failed refresh preserves it.
+    cache_resident: bool,
     cadence: std::time::Duration,
     /// ROADMAP_NEW N1's rolling success/failure count: the outcome of each finished request,
     /// oldest first, capped at `RequestBook::OUTCOME_WINDOW` — `true` a success, `false` a
@@ -728,6 +770,7 @@ impl RequestBook {
                 last_success: None,
                 last_failure: None,
                 latest_valid_time: None,
+                cache_resident: false,
                 cadence,
                 outcomes: std::collections::VecDeque::new(),
             });
@@ -755,6 +798,7 @@ impl RequestBook {
                 Some(e) => s.last_failure = Some((Instant::now(), e.to_string())),
                 None => {
                     s.last_success = Some(Instant::now());
+                    s.cache_resident = true;
                     if let Some(valid) = valid_time {
                         s.latest_valid_time =
                             Some(s.latest_valid_time.map_or(valid, |old| old.max(valid)));
@@ -769,6 +813,15 @@ impl RequestBook {
         true
     }
 
+    /// Keep health cache state synchronized with the renderer's explicit residency changes.
+    /// Missing lanes stay missing: an eviction before a source has ever requested data should not
+    /// fabricate a health-history row.
+    fn set_cache_resident(&mut self, lane: &RequestLane, resident: bool) {
+        if let Some(status) = self.status.get_mut(lane) {
+            status.cache_resident = resident;
+        }
+    }
+
     fn health(&self, lane: &RequestLane) -> SourceHealth {
         let now = Instant::now();
         let Some(s) = self.status.get(lane) else {
@@ -777,6 +830,7 @@ impl RequestBook {
                 endpoint_family: lane.endpoint_family(),
                 latest_valid_time: None,
                 fallback_providers: Vec::new(),
+                cache_state: CacheState::Empty,
                 fetching: false,
                 last_attempt: None,
                 last_success: None,
@@ -796,6 +850,11 @@ impl RequestBook {
             endpoint_family: lane.endpoint_family(),
             latest_valid_time: s.latest_valid_time,
             fallback_providers: Vec::new(),
+            cache_state: if s.cache_resident {
+                CacheState::Memory
+            } else {
+                CacheState::Empty
+            },
             fetching: s.fetching,
             last_attempt: Some(now.saturating_duration_since(s.last_attempt)),
             last_success: s.last_success.map(|t| now.saturating_duration_since(t)),
@@ -9405,16 +9464,17 @@ impl HookEchoApp {
                     result,
                 } => {
                     let valid_time = result.as_ref().ok().and_then(OverlayMsg::health_valid_time);
+                    // Plugin failures deliberately arrive as a message so the placefile manager
+                    // can show them, but they are still failures for source health. Treating the
+                    // message as a successful cached value would make both the status and cache
+                    // residency lie.
+                    let embedded_error = result.as_ref().ok().and_then(OverlayMsg::health_error);
+                    let health_error = result.as_ref().err().map(String::as_str).or(embedded_error);
                     let current = self
                         .overlay_requests
                         .lock()
                         .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .finish(
-                            &lane,
-                            generation,
-                            result.as_ref().err().map(|e| e.as_str()),
-                            valid_time,
-                        );
+                        .finish(&lane, generation, health_error, valid_time);
                     if !current {
                         log::debug!("discarding stale {} reply", lane.label());
                         continue;
@@ -9432,6 +9492,10 @@ impl HookEchoApp {
                                         state.pending = None;
                                         state.stamp = None;
                                     }
+                                    self.overlay_requests
+                                        .lock()
+                                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                                        .set_cache_resident(&lane, false);
                                 }
                                 RequestLane::Field(FL::CompareA) => {
                                     self.compare_valid = None;
@@ -9443,6 +9507,10 @@ impl HookEchoApp {
                                             state.stamp = None;
                                         }
                                     }
+                                    self.overlay_requests
+                                        .lock()
+                                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                                        .set_cache_resident(&lane, false);
                                 }
                                 _ => {}
                             }
@@ -13941,6 +14009,22 @@ impl HookEchoApp {
         } else {
             Vec::new()
         };
+        if !drop_fields.is_empty() {
+            use crate::render::FieldLayer as FL;
+            let mut requests = self
+                .overlay_requests
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            for &layer in &drop_fields {
+                // CompareA/CompareB share one fetch and therefore one request-health lane.
+                let health_layer = if layer == FL::CompareB {
+                    FL::CompareA
+                } else {
+                    layer
+                };
+                requests.set_cache_resident(&RequestLane::Field(health_layer), false);
+            }
+        }
         let field_uploads: Vec<(crate::render::FieldLayer, crate::render::MrmsUpload)> = if first {
             self.fields
                 .iter_mut()
@@ -17370,6 +17454,7 @@ impl HookEchoApp {
                     endpoint_family: h.endpoint_family.id(),
                     latest_valid_time: h.latest_valid_time.map(|t| t.to_rfc3339()),
                     fallback_providers: h.fallback_providers.clone(),
+                    cache_state: h.cache_state.id(),
                     status: ui::layers_panel::health_look(h.state()).0,
                     last_success_secs: h.last_success.map(|d| d.as_secs()),
                     cadence_secs: h.cadence.as_secs(),
@@ -21889,7 +21974,7 @@ mod nowcast_tests {
 
 #[cfg(test)]
 mod request_book_tests {
-    use super::{HealthState, RequestBook, RequestLane, SourceHealth};
+    use super::{CacheState, HealthState, RequestBook, RequestLane, SourceHealth};
     use crate::render::FieldLayer;
 
     #[test]
@@ -21978,16 +22063,41 @@ mod request_book_tests {
     }
 
     #[test]
+    fn failed_refresh_is_cached_only_while_the_prior_value_is_resident() {
+        let mut book = RequestBook::default();
+        let lane = RequestLane::Field(FieldLayer::Cape);
+
+        let first = book.start(lane.clone());
+        assert!(book.finish(&lane, first, Some("offline"), None));
+        assert_eq!(book.health(&lane).state(), HealthState::Failed);
+        assert_eq!(book.health(&lane).cache_state, CacheState::Empty);
+
+        let success = book.start(lane.clone());
+        assert!(book.finish(&lane, success, None, None));
+        assert_eq!(book.health(&lane).cache_state, CacheState::Memory);
+
+        let refresh = book.start(lane.clone());
+        assert!(book.finish(&lane, refresh, Some("temporary outage"), None));
+        assert_eq!(book.health(&lane).state(), HealthState::Cached);
+
+        book.set_cache_resident(&lane, false);
+        assert_eq!(book.health(&lane).cache_state, CacheState::Empty);
+        assert_eq!(book.health(&lane).state(), HealthState::Failed);
+    }
+
+    #[test]
     fn health_classifies_every_visible_state() {
         let cadence = std::time::Duration::from_secs(60);
         let health = |fetching: bool,
                       success: Option<u64>,
                       failure: Option<u64>,
-                      error: Option<String>| SourceHealth {
+                      error: Option<String>,
+                      cache_state: CacheState| SourceHealth {
             source: "test".into(),
             endpoint_family: crate::source_health::EndpointFamily::LocalProcessing,
             latest_valid_time: None,
             fallback_providers: Vec::new(),
+            cache_state,
             fetching,
             last_attempt: Some(std::time::Duration::from_secs(1)),
             last_success: success.map(std::time::Duration::from_secs),
@@ -21998,34 +22108,52 @@ mod request_book_tests {
             details: Vec::new(),
         };
         assert_eq!(
-            health(true, None, None, None).state(),
+            health(true, None, None, None, CacheState::Empty).state(),
             HealthState::Fetching
         );
         assert_eq!(
-            health(false, Some(5), None, None).state(),
+            health(false, Some(5), None, None, CacheState::Memory).state(),
             HealthState::Fresh
         );
         // Past the 60 s cadence but within the 2x-cadence grace window: Delayed, not yet Stale.
         assert_eq!(
-            health(false, Some(61), None, None).state(),
+            health(false, Some(61), None, None, CacheState::Memory).state(),
             HealthState::Delayed
         );
         assert_eq!(
-            health(false, Some(120), None, None).state(),
+            health(false, Some(120), None, None, CacheState::Memory).state(),
             HealthState::Delayed,
             "exactly at the 2x boundary is still Delayed, not Stale"
         );
         assert_eq!(
-            health(false, Some(121), None, None).state(),
+            health(false, Some(121), None, None, CacheState::Memory).state(),
             HealthState::Stale,
             "past 2x cadence is genuinely stale"
         );
         assert_eq!(
-            health(false, Some(20), Some(5), Some("offline".into())).state(),
+            health(
+                false,
+                Some(20),
+                Some(5),
+                Some("offline".into()),
+                CacheState::Empty,
+            )
+            .state(),
             HealthState::Failed
         );
         assert_eq!(
-            health(false, None, None, None).state(),
+            health(
+                false,
+                Some(20),
+                Some(5),
+                Some("offline".into()),
+                CacheState::Memory,
+            )
+            .state(),
+            HealthState::Cached
+        );
+        assert_eq!(
+            health(false, None, None, None, CacheState::Empty).state(),
             HealthState::Waiting
         );
     }

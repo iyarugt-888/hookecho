@@ -340,6 +340,8 @@ pub(crate) fn health_look(state: HealthState) -> (&'static str, Color32) {
         // A paler, less saturated amber than Stale's — behind schedule, not yet alarming.
         HealthState::Delayed => ("Delayed", Color32::from_rgb(220, 200, 100)),
         HealthState::Stale => ("Stale", Color32::from_rgb(235, 180, 70)),
+        // A refresh failed, but a real resident value still protects the display from going blank.
+        HealthState::Cached => ("Cached", Color32::from_rgb(230, 135, 80)),
         HealthState::Failed => ("Failed", Color32::from_rgb(230, 90, 90)),
         HealthState::Waiting => ("Waiting", Color32::from_gray(110)),
     }
@@ -383,14 +385,7 @@ fn health_popup(ui: &mut egui::Ui, health: &SourceHealth) {
     let (label, color) = health_look(state);
     ui.set_min_width(250.0);
     ui.strong(&health.source);
-    ui.colored_label(
-        color,
-        if state == HealthState::Failed && health.last_success.is_some() {
-            "Failed — showing previous data (degraded)"
-        } else {
-            label
-        },
-    );
+    ui.colored_label(color, label);
     egui::Grid::new(("source_health", &health.source))
         .num_columns(2)
         .show(ui, |ui| {
@@ -402,6 +397,9 @@ fn health_popup(ui: &mut egui::Ui, health: &SourceHealth) {
                 ui.label(health.fallback_providers.join(" → "));
                 ui.end_row();
             }
+            ui.weak("Cache");
+            ui.label(health.cache_state.label());
+            ui.end_row();
             ui.weak("Latest valid data");
             ui.label(valid_time_line(health.latest_valid_time));
             ui.end_row();

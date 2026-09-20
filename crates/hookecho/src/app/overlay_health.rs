@@ -13,6 +13,16 @@ fn latest(times: impl Iterator<Item = DateTime<Utc>>) -> Option<DateTime<Utc>> {
 }
 
 impl OverlayMsg {
+    /// Errors represented as messages because another UI surface needs to consume them. These
+    /// still count as request failures and must not establish cache residency merely because the
+    /// transport-level `Result` is `Ok`.
+    pub(super) fn health_error(&self) -> Option<&str> {
+        match self {
+            Self::PlacefileError(_, error) => Some(error),
+            _ => None,
+        }
+    }
+
     /// Newest authoritative valid/observation time carried by this successful result.
     pub(super) fn health_valid_time(&self) -> Option<DateTime<Utc>> {
         match self {
@@ -129,5 +139,12 @@ mod tests {
     #[test]
     fn untimed_feed_does_not_fabricate_a_valid_time() {
         assert_eq!(OverlayMsg::Webcams(Vec::new()).health_valid_time(), None);
+    }
+
+    #[test]
+    fn plugin_error_message_is_still_a_health_failure() {
+        let msg = OverlayMsg::PlacefileError("plugin:test".into(), "command failed".into());
+        assert_eq!(msg.health_error(), Some("command failed"));
+        assert_eq!(OverlayMsg::Webcams(Vec::new()).health_error(), None);
     }
 }
