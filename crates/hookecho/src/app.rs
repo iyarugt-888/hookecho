@@ -8937,7 +8937,7 @@ impl HookEchoApp {
         let rotation: Vec<(f64, f64, f32)> = self
             .couplets_quiet(idx)
             .iter()
-            .filter(|c| c.range_km <= wxdata::tds::ROTATION_MAX_RANGE_KM)
+            .filter(|c| wxdata::tds::couplet_corroborates(c.range_km, c.confidence))
             .map(|c| (c.lon, c.lat, c.vrot_ms))
             .collect();
         wxdata::tds::corroborate_with_rotation(&mut hits, &rotation);
@@ -9005,14 +9005,18 @@ impl HookEchoApp {
     /// like the TDS detector (they're complementary: rotation aloft precedes debris at the ground).
     fn compute_couplets(&mut self, idx: usize) -> Vec<wxdata::rotation::CoupletHit> {
         let key = self.volume_key(idx);
+        // The cache holds every couplet found; the user's confidence threshold is applied on the
+        // way out, so lowering it shows the hidden ones at once instead of at the next scan.
+        let min = self.settings.detectors.rotation_min_confidence;
         if let Some((k, v)) = &self.couplet_cache {
             if *k == key {
-                return v.clone();
+                return v.iter().copied().filter(|h| h.confidence >= min).collect();
             }
         }
         let out = self.compute_couplets_uncached(idx);
         self.couplet_cache = Some((key, out.clone()));
-        out
+        let min = self.settings.detectors.rotation_min_confidence;
+        out.into_iter().filter(|h| h.confidence >= min).collect()
     }
 
     /// Packs saved in this browser, refreshed in the background whenever one is written.
@@ -9200,9 +9204,16 @@ impl HookEchoApp {
             scanned,
             hits.len(),
         );
-        let now_active = !hits.is_empty();
+        let min = self.settings.detectors.rotation_min_confidence;
+        // Alerts see only what the user would see; the cache keeps everything.
+        let shown: Vec<_> = hits
+            .iter()
+            .copied()
+            .filter(|h| h.confidence >= min)
+            .collect();
+        let now_active = !shown.is_empty();
         if now_active && !self.rot_active {
-            let h = hits[0]; // sorted strongest-first (by confidence, now that height/depth count)
+            let h = shown[0]; // sorted strongest-first (by confidence, now that height/depth count)
             let kt = h.vrot_ms * 1.943_844;
             let (km, bearing) =
                 crate::geo::great_circle([radar_lon as f64, radar_lat as f64], [h.lon, h.lat]);
@@ -9235,7 +9246,7 @@ impl HookEchoApp {
             log::debug!(target: "wxdata::rotation", "{site}: rotation cleared");
         }
         self.rot_active = now_active;
-        self.rotation_near_you(&hits);
+        self.rotation_near_you(&shown);
         hits
     }
 
@@ -16760,17 +16771,32 @@ impl HookEchoApp {
                     // there's more than one tilt behind it.
                     if h.tilts > 1 {
                         format!(
-                            "ROT {:.0} kt · {}t {:.1}km",
+                            "ROT {:.0} kt · {}t {:.1}km · {:.0}%",
                             h.vrot_ms * 1.943_844,
                             h.tilts,
-                            h.top_km
+                            h.top_km,
+                            h.confidence * 100.0
                         )
                     } else {
-                        format!("ROT {:.0} kt", h.vrot_ms * 1.943_844)
+                        format!(
+                            "ROT {:.0} kt · {:.0}%",
+                            h.vrot_ms * 1.943_844,
+                            h.confidence * 100.0
+                        )
                     },
                     egui::FontId::proportional(11.0),
                     col,
                 );
+                // Hover for the working, as on the debris signatures.
+                let hit = egui::Rect::from_center_size(p, egui::vec2(26.0, 26.0));
+                if response.hover_pos().is_some_and(|hp| hit.contains(hp)) {
+                    response
+                        .clone()
+                        .show_tooltip_text(h.explain().lines(h).join(
+                            "
+",
+                        ));
+                }
             }
 
             // Locally-computed cell tracks, in cyan so they never read as the Level 3 storm-cell

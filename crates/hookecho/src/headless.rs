@@ -798,7 +798,7 @@ pub fn run_tds_archive(site: &str, date: &str, hhmm: &str) -> anyhow::Result<()>
     let couplets = wxdata::rotation::detect_volume(&vel_pairs, 25.0, 20.0, 15.0, 150.0, 3);
     let rotation: Vec<_> = couplets
         .iter()
-        .filter(|c| c.range_km <= wxdata::tds::ROTATION_MAX_RANGE_KM)
+        .filter(|c| wxdata::tds::couplet_corroborates(c.range_km, c.confidence))
         .map(|c| (c.lon, c.lat, c.vrot_ms))
         .collect();
     wxdata::tds::corroborate_with_rotation(&mut hits, &rotation);

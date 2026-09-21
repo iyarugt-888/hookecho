@@ -96,6 +96,17 @@ pub const ROTATION_ASSOCIATE_KM: f64 = 5.0;
 /// 130-150 km, each about twice the Nyquist velocity, is an artifact, not a set of tornadoes.
 pub const ROTATION_MAX_RANGE_KM: f32 = 100.0;
 
+/// A couplet must itself score at least this (see [`crate::rotation`]) to corroborate a debris
+/// signature. The rotation detector's own noise, mostly weak far-out shear, scores below it.
+pub const CORROBORATING_COUPLET_CONFIDENCE: f32 = 0.35;
+
+/// Whether a rotation couplet at `range_km` with `confidence` is credible enough to corroborate a
+/// debris signature: close enough to the radar to be resolved ([`ROTATION_MAX_RANGE_KM`]) and
+/// confident enough in its own right.
+pub fn couplet_corroborates(range_km: f32, confidence: f32) -> bool {
+    range_km <= ROTATION_MAX_RANGE_KM && confidence >= CORROBORATING_COUPLET_CONFIDENCE
+}
+
 /// Rotation may only corroborate a hit that already stands on its own at this confidence. It is a
 /// second line of evidence for a credible detection, not a way to promote a marginal one.
 pub const ROTATION_MIN_CONFIDENCE: f32 = 0.5;

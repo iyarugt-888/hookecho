@@ -213,7 +213,10 @@ pub(crate) fn show(
         ),
         (
             "Detectors",
-            filters.show_tds || filters.show_tbss || filters.show_zdr_columns,
+            filters.show_tds
+                || filters.show_couplets
+                || filters.show_tbss
+                || filters.show_zdr_columns,
         ),
         (
             "Level 3 grids",
@@ -853,6 +856,24 @@ pub(crate) fn show(
         }
         ui.weak("Each marker shows its confidence. Raise this to cut down on doubtful ones.");
     }
+    if section == "Detectors" && filters.show_couplets {
+        header(ui, "Rotation couplets");
+        let mut pct = (detectors.rotation_min_confidence * 100.0).round();
+        if ui
+            .add(
+                egui::Slider::new(&mut pct, 0.0..=90.0)
+                    .text("Minimum confidence")
+                    .suffix("%"),
+            )
+            .on_hover_text(
+                "Hide rotation couplets below this confidence, and keep them from raising an \n                 alert. Confidence rises with strong gate-to-gate shear, a sizeable cluster of \n                 gates, and a couplet that repeats up through the tilts; it fades with range. \n                 One tilt alone never exceeds 50%.",
+            )
+            .changed()
+        {
+            detectors.rotation_min_confidence = pct / 100.0;
+        }
+        ui.weak("Each marker shows its confidence; hover it for the working.");
+    }
     if section == "Detectors" && filters.show_tbss {
         header(ui, "Hail spike (TBSS)");
         ui.add(
@@ -891,7 +912,11 @@ pub(crate) fn show(
         ui.weak("Takes effect on the next flash-density refresh.");
     }
     if (section == "Detectors" || section == "Lightning")
-        && (filters.show_tds || filters.show_tbss || filters.show_zdr_columns || show_glm)
+        && (filters.show_tds
+            || filters.show_couplets
+            || filters.show_tbss
+            || filters.show_zdr_columns
+            || show_glm)
         && ui.button("Reset detector thresholds").clicked()
     {
         *detectors = crate::settings::DetectorTuning::default();

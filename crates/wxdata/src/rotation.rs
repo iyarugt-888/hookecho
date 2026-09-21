@@ -50,6 +50,143 @@ pub struct CoupletHit {
     pub confidence: f32,
 }
 
+/// Which revision of the scoring produced a hit; bump it when any weight or rule below changes.
+pub const ALGORITHM_VERSION: &str = "rot-2";
+
+/// The most confidence a couplet can have from one tilt alone.
+pub const SINGLE_TILT_CAP: f32 = 0.5;
+
+/// How well the gate-to-gate shear supports a real circulation, 0..1: 25 m/s is the documented
+/// weak-signature threshold and scores 0, 36 m/s the strong one and scores 1.
+pub fn strength_term(g2g_ms: f32) -> f32 {
+    ((g2g_ms - 25.0) / (36.0 - 25.0)).clamp(0.0, 1.0)
+}
+
+/// How well the size of the cluster supports it, 0..1, from the candidate gate pairs per tilt: a
+/// couplet is a coherent patch, and a few stray pairs are as often a glitch. Three pairs (the
+/// smallest cluster reported) scores 0, twelve or more scores 1.
+pub fn size_term(pairs_per_tilt: f32) -> f32 {
+    ((pairs_per_tilt - 3.0) / 9.0).clamp(0.0, 1.0)
+}
+
+/// Range factor, 1 out to 60 km and fading to 0.6 by 150 km. Far out the beam is wide enough that
+/// a couplet is a handful of gates, and the velocity data is where dealiasing failures cluster.
+pub fn range_factor(range_km: f32) -> f32 {
+    1.0 - 0.4 * ((range_km - 60.0) / 90.0).clamp(0.0, 1.0)
+}
+
+/// Vertical continuity, 0..1: height reached and number of tilts, each worth half. About 3 km AGL
+/// saturates the height and three tilts the depth. One tilt is worth nothing: its height is just its
+/// range (a far low beam is high, and that is not a tall circulation), so height only counts once a
+/// second tilt shows the couplet is a column.
+pub fn vertical_term(top_km: f32, tilts: usize) -> f32 {
+    if tilts < 2 {
+        return 0.0;
+    }
+    let height = (top_km / 3.0).clamp(0.0, 1.0);
+    let depth = ((tilts as f32 - 1.0) / 2.0).clamp(0.0, 1.0);
+    0.5 * height + 0.5 * depth
+}
+
+/// Evidence from one cluster's own measurements: strength (65%) and size (35%), faded by range.
+pub fn evidence(g2g_ms: f32, pairs_per_tilt: f32, range_km: f32) -> f32 {
+    ((0.65 * strength_term(g2g_ms) + 0.35 * size_term(pairs_per_tilt)) * range_factor(range_km))
+        .clamp(0.0, 1.0)
+}
+
+/// Confidence from the evidence and the vertical continuity. With none of the latter the most it
+/// can be is [`SINGLE_TILT_CAP`]; a couplet that repeats up through the tilts earns the rest.
+pub fn confidence(evidence: f32, vertical: f32) -> f32 {
+    (evidence * (SINGLE_TILT_CAP + (1.0 - SINGLE_TILT_CAP) * vertical)).clamp(0.0, 1.0)
+}
+
+/// Why a [`CoupletHit`] scored what it did; see [`CoupletHit::explain`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct Explanation {
+    pub version: &'static str,
+    /// The weighted terms.
+    pub reasons: Vec<crate::tds::Reason>,
+    pub range_factor: f32,
+    /// The weighted terms times the range factor.
+    pub evidence: f32,
+    /// Vertical continuity, 0..1; 0 for a single shallow tilt.
+    pub vertical: f32,
+    pub confidence: f32,
+}
+
+impl CoupletHit {
+    /// Break this hit's confidence down into the evidence behind it, built with the same functions
+    /// that scored it so it cannot drift from the number on the map.
+    pub fn explain(&self) -> Explanation {
+        let per_tilt = self.gates as f32 / self.tilts.max(1) as f32;
+        let reasons = vec![
+            crate::tds::Reason {
+                label: "Strength",
+                detail: format!(
+                    "{:.0} kt gate-to-gate, {:.0} kt rotational",
+                    self.g2g_ms * 1.943_844,
+                    self.vrot_ms * 1.943_844
+                ),
+                score: strength_term(self.g2g_ms),
+                weight: 0.65,
+            },
+            crate::tds::Reason {
+                label: "Size",
+                detail: format!("{per_tilt:.0} gate pairs per tilt"),
+                score: size_term(per_tilt),
+                weight: 0.35,
+            },
+        ];
+        Explanation {
+            version: ALGORITHM_VERSION,
+            reasons,
+            range_factor: range_factor(self.range_km),
+            evidence: evidence(self.g2g_ms, per_tilt, self.range_km),
+            vertical: vertical_term(self.top_km, self.tilts),
+            confidence: self.confidence,
+        }
+    }
+}
+
+impl Explanation {
+    /// The breakdown as plain lines for a tooltip or export.
+    pub fn lines(&self, hit: &CoupletHit) -> Vec<String> {
+        let mut out = vec![format!(
+            "Rotation couplet {:.0}%  ({})",
+            self.confidence * 100.0,
+            self.version
+        )];
+        for r in &self.reasons {
+            out.push(format!(
+                "{:<9} {:>3.0}% x {:.0}%   {}",
+                r.label,
+                r.score * 100.0,
+                r.weight * 100.0,
+                r.detail
+            ));
+        }
+        out.push(format!(
+            "Range     x{:.2}   {:.0} km from the radar",
+            self.range_factor, hit.range_km
+        ));
+        out.push(if hit.tilts > 1 {
+            format!(
+                "Vertical  {:.0}%   {} tilts, up to {:.1} km",
+                self.vertical * 100.0,
+                hit.tilts,
+                hit.top_km
+            )
+        } else {
+            format!(
+                "Vertical  {:.0}%   one tilt only: capped at {:.0}%",
+                self.vertical * 100.0,
+                SINGLE_TILT_CAP * 100.0
+            )
+        });
+        out
+    }
+}
+
 /// Decode a binned `u8` gate index back to its physical value, or `None` for below-threshold /
 /// range-folded gates (indices 0/1). Same encoding as [`crate::tds`].
 fn decode(sweep: &BinnedSweep, idx: u8) -> Option<f32> {
@@ -161,11 +298,9 @@ pub fn detect(
         .filter(|(n, ..)| *n >= min_gates)
         .map(|(n, slon, slat, srange, vmin, vmax, g2g)| {
             let range_km = (srange / n as f64) as f32;
-            // 25 m/s is the documented weak-signature threshold and 36 the strong one (see the
-            // module doc comment); a single-tilt read is capped at 0.5 regardless — the same
-            // "this alone isn't real confirmation" cap `tds` applies to gate count, here applied
-            // to rotational strength instead.
-            let confidence = ((g2g - 25.0) / (36.0 - 25.0)).clamp(0.05, 0.5);
+            // One tilt has no vertical evidence, so it never gets past the single-tilt cap;
+            // `detect_volume` rescores the hit once it can see the column.
+            let confidence = confidence(evidence(g2g, n as f32, range_km), 0.0).max(0.05);
             CoupletHit {
                 lon: slon / n as f64,
                 lat: slat / n as f64,
@@ -244,22 +379,22 @@ pub fn detect_volume(
         .map(
             |(gates, slon, slat, srange, vrot_ms, g2g_ms, tilts, top_km)| {
                 let w = gates.max(1) as f64;
-                // Vertical extent matters more than raw gate count: a couplet that repeats through
-                // several tilts is a real, established circulation, while a wide but single-tilt
-                // patch is exactly the shape a gust front or a data glitch makes. ~3 km AGL saturates
-                // the height term, matching `tds`'s own reference height.
-                let height_term = (top_km / 3.0).clamp(0.0, 1.0);
-                // Absolute, not "what fraction of the tilts a caller happened to check" — a caller
-                // that only ever looks at the lowest tilt must not make a lone hit read as the whole
-                // column just because it's 1 out of the 1 it checked. Saturates at 3 tilts.
-                let depth_term = ((tilts as f32 - 1.0) / 2.0).clamp(0.0, 1.0);
-                let confidence = (0.5 * height_term + 0.5 * depth_term).clamp(0.0, 1.0);
+                // What the cluster itself shows (strength and size, faded by range), scaled by the
+                // vertical evidence: a couplet that repeats through several tilts is an established
+                // circulation, where a wide single-tilt patch is as often a gust front or a glitch.
+                // Size is per tilt, so a tall column is not scored as a big patch.
+                let per_tilt = gates as f32 / tilts.max(1) as f32;
+                let range_km = (srange / w) as f32;
+                let confidence = confidence(
+                    evidence(g2g_ms, per_tilt, range_km),
+                    vertical_term(top_km, tilts),
+                );
                 CoupletHit {
                     lon: slon / w,
                     lat: slat / w,
                     vrot_ms,
                     g2g_ms,
-                    range_km: (srange / w) as f32,
+                    range_km,
                     gates,
                     tilts,
                     top_km,
@@ -523,5 +658,87 @@ mod tests {
     #[test]
     fn detect_volume_of_nothing_is_nothing() {
         assert!(detect_volume(&[], 25.0, 20.0, 5.0, 150.0, 3).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod scoring_tests {
+    use super::*;
+
+    fn hit(g2g_ms: f32, gates: usize, range_km: f32, tilts: usize, top_km: f32) -> CoupletHit {
+        let per_tilt = gates as f32 / tilts as f32;
+        CoupletHit {
+            lon: -97.5,
+            lat: 35.3,
+            vrot_ms: g2g_ms / 2.0,
+            g2g_ms,
+            range_km,
+            gates,
+            tilts,
+            top_km,
+            confidence: confidence(
+                evidence(g2g_ms, per_tilt, range_km),
+                vertical_term(top_km, tilts),
+            ),
+        }
+    }
+
+    #[test]
+    fn strength_size_and_range_each_move_the_score_the_right_way() {
+        let base = evidence(30.0, 6.0, 30.0);
+        assert!(evidence(36.0, 6.0, 30.0) > base, "stronger shear");
+        assert!(evidence(30.0, 12.0, 30.0) > base, "a bigger patch");
+        assert!(evidence(30.0, 6.0, 140.0) < base, "far away");
+        assert_eq!(strength_term(25.0), 0.0);
+        assert_eq!(strength_term(36.0), 1.0);
+        assert_eq!(range_factor(60.0), 1.0);
+        assert!((range_factor(150.0) - 0.6).abs() < 1e-6);
+        assert!(evidence(80.0, 90.0, 10.0) <= 1.0);
+    }
+
+    #[test]
+    fn one_tilt_never_passes_the_cap_however_strong_or_high() {
+        // The same beam-height trap as debris: a far low tilt is high in the sky.
+        let lone = hit(60.0, 40, 30.0, 1, 4.0);
+        assert!(
+            lone.confidence <= SINGLE_TILT_CAP + 1e-6,
+            "{}",
+            lone.confidence
+        );
+        assert_eq!(vertical_term(4.0, 1), 0.0);
+        let column = hit(60.0, 120, 30.0, 3, 4.0);
+        assert!(column.confidence > SINGLE_TILT_CAP);
+    }
+
+    #[test]
+    fn a_far_uniform_weak_couplet_no_longer_reads_as_certain() {
+        // The quiet-detector noise seen on real volumes: ~50 kt gate-to-gate, near the minimum
+        // size, at 130 km. It used to score 100% from height and depth alone.
+        let far = hit(25.7, 9, 130.0, 3, 3.5);
+        assert!(far.confidence < 0.5, "{}", far.confidence);
+        let near = hit(36.0, 45, 30.0, 3, 2.0);
+        assert!(near.confidence > far.confidence + 0.3);
+    }
+
+    #[test]
+    fn the_explanation_reproduces_the_confidence_and_reads_in_plain_lines() {
+        let h = hit(32.0, 30, 45.0, 3, 2.2);
+        let e = h.explain();
+        assert!((e.confidence - h.confidence).abs() < 1e-6);
+        let sum: f32 = e.reasons.iter().map(|r| r.score * r.weight).sum();
+        assert!((sum * e.range_factor - e.evidence).abs() < 1e-5);
+        assert!((e.reasons.iter().map(|r| r.weight).sum::<f32>() - 1.0).abs() < 1e-6);
+        let rebuilt = confidence(e.evidence, e.vertical);
+        assert!((rebuilt - h.confidence).abs() < 1e-5);
+        let text = e.lines(&h).join("\n");
+        for want in ["Strength", "Size", "Range", "Vertical", ALGORITHM_VERSION] {
+            assert!(text.contains(want), "missing {want}: {text}");
+        }
+        let lone = hit(32.0, 10, 45.0, 1, 0.5);
+        assert!(lone
+            .explain()
+            .lines(&lone)
+            .join("\n")
+            .contains("one tilt only"));
     }
 }

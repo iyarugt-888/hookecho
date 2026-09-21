@@ -8,6 +8,19 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Improved: rotation couplets are scored on evidence, explain themselves, and can be filtered
+
+The rotation detector gets the same treatment as the debris signature. A couplet's confidence used to
+be height and tilt count alone, so on a real volume the noise was ranked with the storm: about 90
+couplets at a uniform ~50 kt, most 90-150 km out, many at 100%. It now weighs what the cluster itself
+shows (gate-to-gate shear from 25 to 36 m/s, and how many gate pairs per tilt) faded by range to 60%
+at 150 km, then scales that by vertical continuity, and one tilt never reaches more than 50%. Height
+counts only once a second tilt shows a column. Every marker shows its confidence and explains it on
+hover (strength, size, range, vertical, and the scoring version `rot-2`). **Minimum confidence**
+(Layer settings, Detectors, with the Rotation layer on) hides couplets below a level and keeps them
+out of the rotation alert and alert rules. Debris signatures are now corroborated only by couplets
+that score at least 35% themselves, within 100 km, so noise no longer lends them credibility.
+
 ### Improved: tablet dock - a tilt bar, live-sweep marking, and docked tools
 
 The dock layout had no way to pick a tilt short of the layer options and no way to see which tilt the
