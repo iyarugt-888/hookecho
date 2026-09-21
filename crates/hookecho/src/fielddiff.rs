@@ -519,11 +519,15 @@ pub fn diff(a: &MrmsField, b: &MrmsField) -> Option<MrmsField> {
         return None; // disjoint domains: HRRR over CONUS against a regional model elsewhere
     }
 
-    // Cell size of each input, then the coarser one, then how many of those fit in the overlap.
+    // Grids are cell-centred: `lon_west..lon_east` is the edge of the outer cells, so a grid of `nx`
+    // columns has cells `(lon_east - lon_west) / nx` wide and column `c` is sampled at the middle of
+    // its cell. (Reading them as corner-registered shifted every field half a cell, up to 12 km on a
+    // 0.25 degree model, and by a different amount for each model, so two models on different lattices
+    // were compared at points that did not line up.) Same convention as `MrmsField::sample_bilinear`.
     let step = |f: &MrmsField| {
         (
-            (f.lon_east - f.lon_west) / f.nx.max(2).saturating_sub(1) as f64,
-            (f.lat_north - f.lat_south) / f.ny.max(2).saturating_sub(1) as f64,
+            (f.lon_east - f.lon_west) / f.nx.max(1) as f64,
+            (f.lat_north - f.lat_south) / f.ny.max(1) as f64,
         )
     };
     let (adx, ady) = step(a);
@@ -532,17 +536,17 @@ pub fn diff(a: &MrmsField, b: &MrmsField) -> Option<MrmsField> {
     if dx <= 0.0 || dy <= 0.0 {
         return None;
     }
-    let nx = ((lon_east - lon_west) / dx).round() as usize + 1;
-    let ny = ((lat_north - lat_south) / dy).round() as usize + 1;
-    if nx < 2 || ny < 2 {
+    let nx = ((lon_east - lon_west) / dx).round() as usize;
+    let ny = ((lat_north - lat_south) / dy).round() as usize;
+    if nx < 1 || ny < 1 {
         return None;
     }
 
     let mut values = Vec::with_capacity(nx * ny);
     for row in 0..ny {
-        let lat = lat_north - row as f64 * dy;
+        let lat = lat_north - (row as f64 + 0.5) * dy;
         for col in 0..nx {
-            let lon = lon_west + col as f64 * dx;
+            let lon = lon_west + (col as f64 + 0.5) * dx;
             values.push(match (sample(a, lon, lat), sample(b, lon, lat)) {
                 (Some(x), Some(y)) => x - y,
                 // Either model missing here means there is no difference to state. NaN is what
@@ -556,29 +560,31 @@ pub fn diff(a: &MrmsField, b: &MrmsField) -> Option<MrmsField> {
         nx,
         ny,
         lon_west,
-        lon_east: lon_west + (nx - 1) as f64 * dx,
+        lon_east: lon_west + nx as f64 * dx,
         lat_north,
-        lat_south: lat_north - (ny - 1) as f64 * dy,
+        lat_south: lat_north - ny as f64 * dy,
         time: a.time,
     })
 }
 
-/// Bilinear sample at a lat/lon, or `None` outside the grid or against missing data.
+/// Bilinear sample at a lat/lon between cell centres, or `None` outside the grid or against
+/// missing data. The half-cell rim outside the outermost centres takes the edge value.
 fn sample(f: &MrmsField, lon: f64, lat: f64) -> Option<f32> {
-    if f.nx < 2 || f.ny < 2 {
+    if f.nx < 1 || f.ny < 1 {
         return None;
     }
-    let dx = (f.lon_east - f.lon_west) / (f.nx - 1) as f64;
-    let dy = (f.lat_north - f.lat_south) / (f.ny - 1) as f64;
+    let dx = (f.lon_east - f.lon_west) / f.nx as f64;
+    let dy = (f.lat_north - f.lat_south) / f.ny as f64;
     if dx <= 0.0 || dy <= 0.0 {
         return None;
     }
-    // Row 0 is the northernmost latitude, so y counts downward from lat_north.
-    let x = (lon - f.lon_west) / dx;
-    let y = (f.lat_north - lat) / dy;
-    if x < 0.0 || y < 0.0 || x > (f.nx - 1) as f64 || y > (f.ny - 1) as f64 {
+    if lon < f.lon_west || lon > f.lon_east || lat < f.lat_south || lat > f.lat_north {
         return None;
     }
+    // Row 0 is the northernmost latitude, so y counts downward from lat_north. Centres sit half a
+    // cell in from the edges.
+    let x = ((lon - f.lon_west) / dx - 0.5).clamp(0.0, (f.nx - 1) as f64);
+    let y = ((f.lat_north - lat) / dy - 0.5).clamp(0.0, (f.ny - 1) as f64);
     let (x0, y0) = (x.floor() as usize, y.floor() as usize);
     let (x1, y1) = ((x0 + 1).min(f.nx - 1), (y0 + 1).min(f.ny - 1));
     let (tx, ty) = ((x - x0 as f64) as f32, (y - y0 as f64) as f32);
@@ -762,6 +768,7 @@ mod tests {
         let b = grid(11, 11, -100.0, -90.0, 30.0, 40.0, 5.0);
         let d = diff(&a, &b).expect("overlapping");
         assert_eq!((d.nx, d.ny), (11, 11));
+        assert_eq!((d.lon_west, d.lon_east), (-100.0, -90.0));
         assert!(d.values.iter().all(|v| (v - 3.0).abs() < 1e-4));
     }
 
@@ -777,13 +784,37 @@ mod tests {
     fn the_coarser_lattice_wins_and_the_overlap_clips() {
         // Fine grid over half the domain of a coarse one.
         let fine = grid(101, 101, -100.0, -95.0, 30.0, 35.0, 10.0);
-        let coarse = grid(11, 11, -100.0, -90.0, 30.0, 40.0, 4.0);
+        let coarse = grid(10, 10, -100.0, -90.0, 30.0, 40.0, 4.0);
         let d = diff(&fine, &coarse).expect("overlapping");
         assert_eq!((d.lon_west, d.lon_east), (-100.0, -95.0));
         assert_eq!((d.lat_south, d.lat_north), (30.0, 35.0));
         // 1° cells from the coarse grid across a 5° overlap.
-        assert_eq!((d.nx, d.ny), (6, 6));
+        assert_eq!((d.nx, d.ny), (5, 5));
         assert!(d.values.iter().all(|v| (v - 6.0).abs() < 1e-4));
+    }
+
+    /// Two models on different lattices, both holding the same smooth field at their own cell
+    /// centres, must agree everywhere. Under the old corner-registered reading each was shifted by
+    /// half of its own cell, so the difference was a ramp equal to the mismatch.
+    #[test]
+    fn the_same_field_on_two_lattices_differs_by_nothing() {
+        let ramp = |nx: usize, ny: usize| {
+            let mut g = grid(nx, ny, -100.0, -96.0, 30.0, 34.0, 0.0);
+            let dx = 4.0 / nx as f64;
+            let dy = 4.0 / ny as f64;
+            for r in 0..ny {
+                for c in 0..nx {
+                    let lon = -100.0 + (c as f64 + 0.5) * dx;
+                    let lat = 34.0 - (r as f64 + 0.5) * dy;
+                    g.values[r * nx + c] = (3.0 * lon + 2.0 * lat) as f32;
+                }
+            }
+            g
+        };
+        let d = diff(&ramp(4, 4), &ramp(40, 40)).expect("same domain");
+        assert_eq!((d.nx, d.ny), (4, 4));
+        let worst = d.values.iter().fold(0.0f32, |m, v| m.max(v.abs()));
+        assert!(worst < 1e-3, "worst difference {worst}");
     }
 
     #[test]

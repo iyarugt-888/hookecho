@@ -8,6 +8,14 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: model difference maps were shifted half a cell
+
+Model-to-model and run-to-run difference layers read each grid as corner-registered, but the grids are
+cell-centred, so every field was shifted half of its own cell (up to 12 km on a 0.25 degree model) and by
+a different amount for each model. The difference is now taken between points that line up, on the
+coarser lattice, and two lattices holding the same field difference to zero. Also, the ribbon's tilt
+group is sized to the volume so the upper tilts of a 14-tilt scan are no longer hidden behind a scroll.
+
 ### Fixed: shortcuts a tablet keyboard can press, a tidier tablet default, and a 3D far-item filter
 
 **Keys.** Several shortcuts lived only on keys a tablet cover keyboard does not have: tilt on Page
