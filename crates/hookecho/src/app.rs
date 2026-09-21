@@ -11670,8 +11670,12 @@ impl HookEchoApp {
             self.overlay_gen != self.built_gen || theme_changed,
             bucket != self.built_zoom_bucket || theme_changed,
         ) {
-            let mut geom =
-                overlay_build::build_with_theme(&self.overlays, zoom, self.settings.theme);
+            let mut geom = overlay_build::build_with_theme_and_imported_width(
+                &self.overlays,
+                zoom,
+                self.settings.theme,
+                self.settings.imported_gis_style.rendered_stroke_width(),
+            );
             let pf: Vec<(&wxdata::placefile::PlaceItem, f32)> = self
                 .visible_placefile_iter()
                 .map(|(it, op, _)| (it, op))
@@ -14065,6 +14069,15 @@ impl HookEchoApp {
         x >= width.max(0.0) * fraction.clamp(0.0, 1.0)
     }
 
+    /// Convert the divider pointer position to a stable, usable pane fraction. Keeping a little
+    /// of each model visible makes the handle recoverable after an enthusiastic drag to an edge.
+    fn swipe_fraction_from_pointer(pointer_x: f32, pane_left: f32, pane_width: f32) -> f32 {
+        if pane_width <= f32::EPSILON {
+            return 0.5;
+        }
+        ((pointer_x - pane_left) / pane_width).clamp(0.05, 0.95)
+    }
+
     /// Render one pane into `prect`: input, tiles, radar, paint callback, and painter overlays.
     #[allow(clippy::too_many_arguments)]
     fn render_pane(
@@ -14111,38 +14124,57 @@ impl HookEchoApp {
                 Self::blink_seconds_until_flip(t, HALF_CYCLE_SECS),
             ));
         }
-        let response = ui.interact(
-            prect,
-            egui::Id::new(("pane", idx)),
-            egui::Sense::click_and_drag(),
-        );
-        // Give the divider its own narrow hit target over the map. It changes only the split;
-        // suppressing the pane's drag below prevents the same gesture from panning the camera.
-        let swipe_response = if self.views[idx].swipe_compare {
+        // The divider and map are one interaction target. Two overlapping `ui.interact` calls
+        // made swipe unreliable because egui could give the press to the full-pane map before the
+        // narrower divider saw it. Decide ownership from the press origin once, then preserve it
+        // for the whole drag so the moving handle never drops the gesture.
+        let response = ui
+            .interact(
+                prect,
+                egui::Id::new(("pane", idx)),
+                egui::Sense::click_and_drag(),
+            )
+            .on_hover_cursor(if self.views[idx].swipe_compare {
+                let x = prect.left() + prect.width() * self.views[idx].swipe_fraction;
+                if ui
+                    .input(|i| i.pointer.hover_pos())
+                    .is_some_and(|pos| (pos.x - x).abs() <= 12.0)
+                {
+                    egui::CursorIcon::ResizeHorizontal
+                } else {
+                    egui::CursorIcon::Default
+                }
+            } else {
+                egui::CursorIcon::Default
+            });
+        if self.views[idx].swipe_compare {
             let x = prect.left() + prect.width() * self.views[idx].swipe_fraction;
             let hit = egui::Rect::from_min_max(
-                egui::pos2(x - 9.0, prect.top()),
-                egui::pos2(x + 9.0, prect.bottom()),
+                egui::pos2(x - 12.0, prect.top()),
+                egui::pos2(x + 12.0, prect.bottom()),
             );
-            let divider = ui
-                .interact(
-                    hit,
-                    egui::Id::new(("compare-swipe", idx)),
-                    egui::Sense::click_and_drag(),
-                )
-                .on_hover_cursor(egui::CursorIcon::ResizeHorizontal);
-            if divider.dragged() {
-                if let Some(pos) = divider.interact_pointer_pos() {
-                    self.views[idx].swipe_fraction =
-                        ((pos.x - prect.left()) / prect.width()).clamp(0.05, 0.95);
+            if response.drag_started() {
+                self.views[idx].swipe_dragging =
+                    ui.input(|i| i.pointer.press_origin().is_some_and(|pos| hit.contains(pos)));
+            }
+            if self.views[idx].swipe_dragging && response.dragged() {
+                if let Some(pos) = response.interact_pointer_pos() {
+                    self.views[idx].swipe_fraction = Self::swipe_fraction_from_pointer(
+                        pos.x,
+                        prect.left(),
+                        prect.width(),
+                    );
                     self.active = idx;
+                    ctx.set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
                 }
             }
-            Some(divider)
+            if response.drag_stopped() {
+                self.views[idx].swipe_dragging = false;
+            }
         } else {
-            None
-        };
-        let swipe_dragging = swipe_response.as_ref().is_some_and(|r| r.dragged());
+            self.views[idx].swipe_dragging = false;
+        }
+        let swipe_dragging = self.views[idx].swipe_dragging;
 
         // --- Input (mutates this pane's camera / selects it active) ---
         // During a multi-touch gesture the first finger still drives the egui pointer, so a pinch
@@ -17613,8 +17645,10 @@ impl HookEchoApp {
         // overlay pipeline like every NWS feed's does; these two geometries have no rings to put
         // there, so they paint here through the same lon/lat projection as the strokes above.
         if self.show_imported_gis && !self.imported_marks.is_empty() {
-            let c = self.settings.imported_gis_style.stroke_rgba();
+            let style = self.settings.imported_gis_style;
+            let c = style.stroke_rgba();
             let color = egui::Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+            let width = style.rendered_stroke_width();
             let screen = |ll: &[f64; 2]| {
                 let w = crate::render::mercator::lonlat_to_world(ll[0], ll[1]);
                 let (sx, sy) = cam.world_to_screen(w, vp);
@@ -17622,7 +17656,7 @@ impl HookEchoApp {
             };
             for line in &self.imported_marks.lines {
                 let pts: Vec<egui::Pos2> = line.iter().map(screen).collect();
-                painter.add(egui::Shape::line(pts, egui::Stroke::new(1.6, color)));
+                painter.add(egui::Shape::line(pts, egui::Stroke::new(width, color)));
             }
             for point in &self.imported_marks.points {
                 let p = screen(point);
@@ -17631,10 +17665,13 @@ impl HookEchoApp {
                 }
                 // Outlined rather than a plain dot: an imported site has to stay visible over both
                 // a bright radar core and a dark basemap, which one flat color cannot manage.
-                painter.circle_filled(p, 3.5, color);
+                // The outline-width control also scales point symbols so a mixed-geometry file
+                // keeps one coherent visual weight. The default 1.6 px remains the old 3.5 px dot.
+                let radius = 2.5 + width * 0.625;
+                painter.circle_filled(p, radius, color);
                 painter.circle_stroke(
                     p,
-                    3.5,
+                    radius,
                     egui::Stroke::new(1.0, egui::Color32::from_black_alpha(180)),
                 );
             }

@@ -67,25 +67,40 @@ pub(crate) fn show(
                     .color_edit_button_srgb(&mut settings.imported_gis_style.color)
                     .on_hover_text("Color for imported polygons, lines, and points")
                     .changed();
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui
+                        .small_button("Reset style")
+                        .on_hover_text("Restore the neutral-blue imported-layer style")
+                        .clicked()
+                    {
+                        settings.imported_gis_style = Default::default();
+                        changed = true;
+                    }
+                });
+            });
+            ui.horizontal(|ui| {
+                ui.label("Outline");
+                changed |= ui
+                    .add(
+                        egui::Slider::new(&mut settings.imported_gis_style.stroke_width, 0.5..=8.0)
+                            .suffix(" px")
+                            .max_decimals(1),
+                    )
+                    .on_hover_text("Width for imported polygon edges, lines, and point symbols")
+                    .changed();
+            });
+            ui.horizontal(|ui| {
                 ui.label("Opacity");
                 changed |= ui
                     .add(
                         egui::Slider::new(&mut settings.imported_gis_style.opacity, 0.05..=1.0)
-                            .show_value(false),
+                            .custom_formatter(|v, _| format!("{:.0}%", v * 100.0)),
                     )
                     .on_hover_text(format!(
                         "Opacity {:.0}%",
                         settings.imported_gis_style.opacity * 100.0
                     ))
                     .changed();
-                if ui
-                    .small_button("Reset")
-                    .on_hover_text("Restore the neutral-blue imported-layer style")
-                    .clicked()
-                {
-                    settings.imported_gis_style = Default::default();
-                    changed = true;
-                }
             });
             ui.weak("One style applies to every geometry in the imported file.");
             ui.separator();

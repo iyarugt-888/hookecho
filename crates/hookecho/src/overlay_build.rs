@@ -11,7 +11,7 @@ use lyon::tessellation::{
     BuffersBuilder, FillOptions, FillTessellator, FillVertex, StrokeOptions, StrokeTessellator,
     StrokeVertex, VertexBuffers,
 };
-use wxdata::overlay::GeoFeature;
+use wxdata::overlay::{FeatureKind, GeoFeature};
 use wxdata::placefile::{PlaceItem, PlaceKind};
 
 /// Tessellated overlay geometry ready for a single vertex+index draw.
@@ -39,6 +39,14 @@ fn color(rgba: [u8; 4]) -> [f32; 4] {
     ]
 }
 
+fn feature_stroke_px(kind: FeatureKind, imported_stroke_px: f32) -> f32 {
+    if kind == FeatureKind::Imported {
+        imported_stroke_px.clamp(0.5, 8.0)
+    } else {
+        1.6
+    }
+}
+
 /// Build tessellated fills + outlines for `features` at `zoom` (normal theme).
 pub fn build(features: &[GeoFeature], zoom: f64) -> OverlayGeom {
     build_with_theme(features, zoom, crate::settings::Theme::Dark)
@@ -54,18 +62,31 @@ pub fn build_with_theme(
     zoom: f64,
     theme: crate::settings::Theme,
 ) -> OverlayGeom {
+    build_with_theme_and_imported_width(features, zoom, theme, 1.6)
+}
+
+/// Theme-aware overlay build with a user-selected imported-GIS outline width. Official products
+/// retain the established 1.6 px edge; only `FeatureKind::Imported` reads this extra style.
+pub fn build_with_theme_and_imported_width(
+    features: &[GeoFeature],
+    zoom: f64,
+    theme: crate::settings::Theme,
+    imported_stroke_px: f32,
+) -> OverlayGeom {
     let mut geom = OverlayGeom::default();
     let mut fill_tess = FillTessellator::new();
     let mut stroke_tess = StrokeTessellator::new();
     let scale = crate::theme::overlay_stroke_scale(theme);
-    // ~1.6 px outline in world units at this zoom, scaled for high contrast.
-    let stroke_w = (1.6 * scale as f64 / (256.0 * 2f64.powf(zoom))) as f32;
-    let fill_opts = FillOptions::default().with_tolerance(stroke_w * 0.5);
-    let stroke_opts = StrokeOptions::default()
-        .with_line_width(stroke_w)
-        .with_tolerance(stroke_w * 0.5);
+    let px = |width: f32| (width as f64 * scale as f64 / (256.0 * 2f64.powf(zoom))) as f32;
+    // Fill tolerance is independent of the user-selected imported outline: a wide county border
+    // should not make the polygon interior itself less accurate.
+    let fill_opts = FillOptions::default().with_tolerance(px(1.6) * 0.5);
 
     for f in features {
+        let stroke_w = px(feature_stroke_px(f.kind, imported_stroke_px));
+        let stroke_opts = StrokeOptions::default()
+            .with_line_width(stroke_w)
+            .with_tolerance(stroke_w * 0.5);
         let path = feature_path(f);
         let (fill_rgba, stroke_rgba) = high_contrast_feature_colors(f.fill, f.stroke, theme);
         let fill = color(fill_rgba);
@@ -340,5 +361,26 @@ mod high_contrast_tests {
         let f = [230, 40, 40, 45];
         let s = [230, 40, 40, 235];
         assert_eq!(high_contrast_feature_colors(f, s, Theme::Dark), (f, s));
+    }
+
+    #[test]
+    fn custom_width_applies_only_to_imported_features_and_is_bounded() {
+        assert_eq!(
+            feature_stroke_px(wxdata::overlay::FeatureKind::Imported, 3.5),
+            3.5
+        );
+        assert_eq!(
+            feature_stroke_px(wxdata::overlay::FeatureKind::Imported, 99.0),
+            8.0
+        );
+        assert_eq!(
+            feature_stroke_px(wxdata::overlay::FeatureKind::Imported, 0.0),
+            0.5
+        );
+        assert_eq!(
+            feature_stroke_px(wxdata::overlay::FeatureKind::Warning, 7.0),
+            1.6,
+            "official warning geometry keeps its established outline"
+        );
     }
 }

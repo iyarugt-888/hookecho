@@ -2671,8 +2671,9 @@ check for the same case exists here anyway, since that's not a guarantee this mo
 
 ## I4. Styling
 
-- [x]/[ ] stroke color/width — the imported layer now has one persistent color shared by its
-  polygons, lines and points; configurable stroke width remains open
+- [x] stroke color/width — the imported layer has one persistent color and screen-space outline
+  width shared by polygons, lines and point symbols. Width is clamped at the render boundary,
+  remains visually stable across zoom levels, and never changes official warning/outlook edges
 - [x] fill/opacity — Layer Manager exposes the same color plus an opacity slider, applied to both
   polygon fill and outlines without mutating the imported geometry. Existing settings default to
   the original neutral blue byte-for-byte, and a remembered file now returns visible rather than

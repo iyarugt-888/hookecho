@@ -1832,9 +1832,10 @@ pub fn run_diff(slug: &str, out_path: &str) -> anyhow::Result<()> {
                 let (va, vb) = (gfs.valid().to_string(), ecmwf.valid().to_string());
                 anyhow::Ok((gfs.field, ecmwf.field, va, vb))
             }
-            DiffField::Cape | DiffField::Srh => {
+            DiffField::Cape | DiffField::Srh | DiffField::Reflectivity => {
                 let (var, level, min_valid) = match field {
                     DiffField::Srh => ("HLCY", "3000-0 m above ground", f64::NEG_INFINITY),
+                    DiffField::Reflectivity => ("REFC", "entire atmosphere", -30.0),
                     _ => ("CAPE", "surface", 0.0),
                 };
                 let hrrr = wxdata::hrrr::fetch_field(

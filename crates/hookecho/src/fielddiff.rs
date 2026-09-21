@@ -180,7 +180,7 @@ pub async fn fetch_pair(
                 times,
             })
         }
-        DiffField::Cape | DiffField::Srh => {
+        DiffField::Cape | DiffField::Srh | DiffField::Reflectivity => {
             use wxdata::hrrr::Model;
             use wxdata::model::ModelField;
             // Phase F1: HRRR and RAP spell these identically, so one key serves both — but that
@@ -188,6 +188,7 @@ pub async fn fetch_pair(
             // A third model in this comparison would need no change here.
             let mf = match field {
                 DiffField::Srh => ModelField::Srh3km,
+                DiffField::Reflectivity => ModelField::CompositeReflectivity,
                 _ => ModelField::SurfaceCape,
             };
             let key_for = |m: Model| {
@@ -308,6 +309,8 @@ pub enum DiffField {
     Cape,
     /// HRRR − RAP storm-relative helicity.
     Srh,
+    /// HRRR − RAP composite reflectivity ("future radar"), in dBZ.
+    Reflectivity,
     /// ROADMAP_NEW F5: HRRR's current run minus its own previous run, both at the analysis hour
     /// (lead 0) for the same valid time — how much the model's own initial state has changed
     /// cycle to cycle, not a disagreement between two different models.
@@ -350,7 +353,7 @@ impl DiffField {
     /// units, so the subtraction means something. Column moisture still is not — GFS publishes
     /// precipitable water and ECMWF total precipitation, and subtracting them subtracts two
     /// different things. A plausible looking map of nonsense is worse than no map.
-    pub const ALL: [DiffField; 8] = [
+    pub const ALL: [DiffField; 9] = [
         DiffField::Global(GlobalFieldKind::Mslp),
         DiffField::Global(GlobalFieldKind::Height500),
         DiffField::Global(GlobalFieldKind::Temp2m),
@@ -358,6 +361,7 @@ impl DiffField {
         DiffField::Global(GlobalFieldKind::Wind10m),
         DiffField::Cape,
         DiffField::Srh,
+        DiffField::Reflectivity,
         DiffField::RunToRunCape,
     ];
 
@@ -377,7 +381,7 @@ impl DiffField {
     pub fn pair(self) -> (&'static str, &'static str) {
         match self {
             DiffField::Global(_) => ("GFS", "ECMWF"),
-            DiffField::Cape | DiffField::Srh => ("HRRR", "RAP"),
+            DiffField::Cape | DiffField::Srh | DiffField::Reflectivity => ("HRRR", "RAP"),
             // Distinct labels even though it's one model: "HRRR minus HRRR" would read as a
             // typo, not "the same model's own initial state one cycle apart".
             DiffField::RunToRunCape => ("HRRR (latest)", "HRRR (previous)"),
@@ -411,6 +415,9 @@ impl DiffField {
             DiffField::Global(GlobalFieldKind::Precip) => FL::GlobalPrecip,
             DiffField::Cape => FL::Cape,
             DiffField::Srh => FL::Srh,
+            // dBZ follows the user's reflectivity `.pal` (see `field_upload`), so both halves are
+            // colored exactly like the single-model HRRR "future radar" layer.
+            DiffField::Reflectivity => FL::Hrrr,
             // Reused rather than a distinct layer: see `supports_side_by_side`'s doc comment on
             // why the side-by-side mode this feeds is hidden for this field anyway.
             DiffField::RunToRunCape => FL::Cape,
@@ -422,6 +429,7 @@ impl DiffField {
             DiffField::Global(k) => GlobalField::from(k).label(),
             DiffField::Cape => "Surface CAPE",
             DiffField::Srh => "Storm-relative helicity",
+            DiffField::Reflectivity => "Composite reflectivity",
             DiffField::RunToRunCape => "Surface CAPE (run to run)",
         }
     }
@@ -431,6 +439,7 @@ impl DiffField {
             DiffField::Global(k) => GlobalField::from(k).slug(),
             DiffField::Cape => "cape",
             DiffField::Srh => "srh",
+            DiffField::Reflectivity => "reflectivity",
             DiffField::RunToRunCape => "cape-run-to-run",
         }
     }
@@ -448,6 +457,8 @@ impl DiffField {
             DiffField::Global(GlobalFieldKind::Precip) => (20.0, 1.0),
             DiffField::Cape => (1500.0, 200.0),
             DiffField::Srh => (150.0, 25.0),
+            // 5 dBZ is edge noise on a storm; 30 dBZ is a storm one model has and the other lacks.
+            DiffField::Reflectivity => (30.0, 5.0),
             // Tighter than the cross-model CAPE range above: this is the same model's own
             // analysis one cycle apart, not two independent physics packages, so agreement is
             // the common case and a smaller swing is already worth flagging.
@@ -467,6 +478,7 @@ impl DiffField {
 
             DiffField::Cape => "J/kg",
             DiffField::Srh => "m²/s²",
+            DiffField::Reflectivity => "dBZ",
             DiffField::RunToRunCape => "J/kg",
         }
     }
@@ -852,6 +864,7 @@ mod tests {
             ),
             (DiffField::Cape, FL::Cape),
             (DiffField::Srh, FL::Srh),
+            (DiffField::Reflectivity, FL::Hrrr),
             (DiffField::RunToRunCape, FL::Cape),
         ];
         // Every field the UI actually offers (`DiffField::ALL`) is covered above — this catches a
@@ -859,8 +872,9 @@ mod tests {
         assert_eq!(expected.len(), DiffField::ALL.len());
         for (f, layer) in expected {
             assert_eq!(f.source_layer(), layer, "{f:?} mapped to the wrong layer");
+            // Reflectivity layers have no fixed ramp: they borrow the user's `.pal` instead.
             assert!(
-                ramp_for(layer).is_some(),
+                ramp_for(layer).is_some() || layer == FL::Hrrr,
                 "{layer:?} must have a ramp to borrow"
             );
         }
@@ -878,6 +892,7 @@ mod tests {
         // Every other field keeps the mode it already had.
         assert!(DiffField::Cape.supports_side_by_side());
         assert!(DiffField::Srh.supports_side_by_side());
+        assert!(DiffField::Reflectivity.supports_side_by_side());
         assert!(DiffField::Global(GlobalFieldKind::Mslp).supports_side_by_side());
     }
 
@@ -889,7 +904,11 @@ mod tests {
     fn the_compared_models_spell_their_shared_fields_the_same_way() {
         use wxdata::hrrr::Model;
         use wxdata::model::ModelField;
-        for f in [ModelField::SurfaceCape, ModelField::Srh3km] {
+        for f in [
+            ModelField::SurfaceCape,
+            ModelField::Srh3km,
+            ModelField::CompositeReflectivity,
+        ] {
             let hrrr = f.grib(Model::Hrrr).expect("HRRR publishes it");
             let rap = f.grib(Model::Rap).expect("RAP publishes it");
             assert_eq!(hrrr, rap, "{} diverged between HRRR and RAP", f.label());

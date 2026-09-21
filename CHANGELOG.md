@@ -8,6 +8,28 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: composite reflectivity in model comparison (F6)
+
+Model comparison gains a “Composite reflectivity” field: HRRR against RAP “future radar” at one
+shared valid time, available in every comparison mode (swipe, blink, overlay, difference, and
+side-by-side panes). Both models are colored with your own reflectivity palette, so they read like
+the radar; the difference layer uses a 30 dBZ full scale with a 5 dBZ agreement deadband, and hover
+readouts report each model’s dBZ. Its GRIB key is checked against the model catalogue for both
+models, like CAPE and SRH.
+
+### Fixed: model-comparison swipe divider
+
+The swipe divider and the map now share one interaction target, and drag ownership is decided from
+where the press began, so grabbing the handle no longer loses the gesture to map panning.
+
+### Improved: complete imported-GIS styling (I4)
+
+The Layer Manager now controls imported outline width as well as color and opacity. The width is
+applied consistently to polygon boundaries, line features, and point symbols while remaining in
+screen pixels across map zoom levels. Existing settings retain the previous 1.6 px appearance,
+invalid persisted values are bounded at render time, and official warning/outlook geometry keeps
+its established width.
+
 ### Improved: responsive ImGui dock and movable search
 
 The ImGui dock now keeps only one sidebar open on narrower windows, adds an explicit Inspector

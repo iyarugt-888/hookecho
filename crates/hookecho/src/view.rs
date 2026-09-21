@@ -488,6 +488,10 @@ pub struct MapView {
     pub swipe_compare: bool,
     /// Horizontal split position as a fraction of pane width.
     pub swipe_fraction: f32,
+    /// Whether the current pane drag started on the model-comparison divider. The divider and
+    /// map deliberately share one egui interaction target; keeping ownership here prevents the
+    /// same pointer gesture from being claimed by both the swipe and camera pan paths.
+    pub swipe_dragging: bool,
     /// Every moment seen in any volume from `loaded_site`, cleared when the site changes.
     ///
     /// A single live volume is only as complete as the tilts that have arrived: early in a scan
@@ -564,6 +568,7 @@ impl MapView {
             overlay_compare: false,
             swipe_compare: false,
             swipe_fraction: 0.5,
+            swipe_dragging: false,
             moments_seen: [false; Moment::ALL.len()],
             #[cfg(not(target_arch = "wasm32"))]
             radar_providers: None,

@@ -137,6 +137,8 @@ pub struct WindowGeom {
 pub struct ImportedGisStyle {
     /// One RGB color drives polygons, lines, and points so the imported file reads as one layer.
     pub color: [u8; 3],
+    /// Screen-space outline width shared by polygon boundaries, lines, and point symbols.
+    pub stroke_width: f32,
     /// Multiplies the established polygon-fill/stroke alpha instead of replacing it; 100% is
     /// therefore byte-for-byte compatible with the appearance shipped before this control.
     pub opacity: f32,
@@ -144,6 +146,7 @@ pub struct ImportedGisStyle {
 
 impl ImportedGisStyle {
     pub const DEFAULT_COLOR: [u8; 3] = [80, 140, 220];
+    pub const DEFAULT_STROKE_WIDTH: f32 = 1.6;
     const FILL_ALPHA: u8 = 60;
     const STROKE_ALPHA: u8 = 220;
 
@@ -168,12 +171,18 @@ impl ImportedGisStyle {
             self.alpha(Self::STROKE_ALPHA),
         ]
     }
+
+    /// Clamp persisted or manually-edited settings at the render boundary.
+    pub fn rendered_stroke_width(self) -> f32 {
+        self.stroke_width.clamp(0.5, 8.0)
+    }
 }
 
 impl Default for ImportedGisStyle {
     fn default() -> Self {
         Self {
             color: Self::DEFAULT_COLOR,
+            stroke_width: Self::DEFAULT_STROKE_WIDTH,
             opacity: 1.0,
         }
     }
@@ -1802,6 +1811,7 @@ mod tests {
             .expect("old settings still deserialize");
         assert_eq!(settings.imported_gis_style, ImportedGisStyle::default());
         assert_eq!(settings.imported_gis_style.fill_rgba(), [80, 140, 220, 60]);
+        assert_eq!(settings.imported_gis_style.rendered_stroke_width(), 1.6);
         assert_eq!(
             settings.imported_gis_style.stroke_rgba(),
             [80, 140, 220, 220]
@@ -1820,6 +1830,20 @@ mod tests {
         };
         assert_eq!(too_high.stroke_rgba()[3], 220);
         assert_eq!(too_low.fill_rgba()[3], 0);
+    }
+
+    #[test]
+    fn imported_gis_stroke_width_is_bounded_at_the_render_boundary() {
+        let too_wide = ImportedGisStyle {
+            stroke_width: 99.0,
+            ..Default::default()
+        };
+        let too_thin = ImportedGisStyle {
+            stroke_width: 0.0,
+            ..Default::default()
+        };
+        assert_eq!(too_wide.rendered_stroke_width(), 8.0);
+        assert_eq!(too_thin.rendered_stroke_width(), 0.5);
     }
 
     /// The browser has no path that survives a reload, so a name that matches a `web_files` entry
@@ -2079,6 +2103,7 @@ mod tests {
             imported_gis: None,
             imported_gis_style: ImportedGisStyle {
                 color: [240, 80, 40],
+                stroke_width: 3.25,
                 opacity: 0.5,
             },
             reduce_motion: true,

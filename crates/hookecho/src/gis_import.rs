@@ -336,6 +336,7 @@ mod tests {
             &mut f,
             ImportedGisStyle {
                 color: [240, 80, 40],
+                stroke_width: 3.0,
                 opacity: 0.5,
             },
         );
