@@ -8,6 +8,17 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: GEFS ensemble plume at a point (F7)
+
+Tapping the map now shows an **Ensemble plume (GEFS)** under the point forecast: the ensemble mean as
+a line, with a band of one standard deviation either side, for 2 m temperature, MSLP, 500 hPa height,
+CAPE or precipitable water, out one, three or five days in six-hour steps. Where the meteogram above
+it shows one model's single answer, the plume shows how far the 31 members disagree about it, so a
+tight band is a forecast to lean on and a wide one is not. NCEP publishes the mean and spread
+ready-made, so each lead costs two small reads rather than thirty-one. The whole plume comes from
+one GEFS cycle, and a lead that fails to arrive leaves a gap instead of failing the plume. Temperature
+reads in °F like the meteogram, with the spread converted as a difference.
+
 ### Added: RTMA surface analysis (G1)
 
 A new **Analysis** group in the model picker offers the RTMA, NCEP's real-time analysis of the

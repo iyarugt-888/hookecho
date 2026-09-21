@@ -2363,7 +2363,7 @@ For GEFS/REFS and any supported ensemble:
 - [ ] neighborhood probability when scientifically appropriate
 - member postage-stamp grid
 - spaghetti contours
-- point plume/time series
+- [x] point plume/time series — the forecast window's "Ensemble plume (GEFS)": the mean with a one-standard-deviation band at the tapped point, from the ready-made mean and spread files (so it shows the spread, not individual members or percentiles)
 - ensemble sounding overlay
 
 Probability examples:

@@ -238,6 +238,90 @@ pub async fn fetch_gefs(
     })
 }
 
+/// One lead of an ensemble plume at a point.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PlumePoint {
+    pub valid: DateTime<Utc>,
+    /// Ensemble mean, in the field's native units. `None` where that lead could not be fetched.
+    pub mean: Option<f32>,
+    /// Ensemble standard deviation, in native units. `None` alongside a missing mean.
+    pub spread: Option<f32>,
+}
+
+impl PlumePoint {
+    /// `mean ± k` standard deviations, or `None` if either half is missing. About two thirds of
+    /// members lie within one deviation of the mean when the spread is roughly bell-shaped, which
+    /// is how a plume is meant to be read: a range of plausible outcomes, not a hard bound.
+    pub fn band(&self, k: f32) -> Option<(f32, f32)> {
+        let (m, s) = (self.mean?, self.spread?);
+        (m.is_finite() && s.is_finite() && s >= 0.0).then_some((m - k * s, m + k * s))
+    }
+}
+
+/// The GEFS mean and spread of `field` at `(lon, lat)` for each forecast hour in `hours`, all from
+/// one cycle: the newest that has posted the first hour, then pinned so the plume describes one
+/// run rather than a patchwork. A lead that fails to arrive is a gap (`None`) in its slot, not an
+/// error for the whole plume. The location must be inside the grid, which for GEFS is the globe.
+pub async fn fetch_gefs_plume(
+    http: &reqwest::Client,
+    field: EnsembleField,
+    lon: f64,
+    lat: f64,
+    hours: &[u16],
+) -> anyhow::Result<Vec<PlumePoint>> {
+    let key = field.gefs_key();
+    let Some((&first, _)) = hours.split_first() else {
+        return Ok(Vec::new());
+    };
+    // Find the cycle by asking for the first hour's mean, walking back like every other GEFS fetch.
+    let mut run = None;
+    let mut last_err = None;
+    for candidate in crate::global::gefs_cycles(Utc::now(), 5) {
+        match crate::global::fetch_gefs_summary(http, key, candidate, first, false).await {
+            Ok(_) => {
+                run = Some(candidate);
+                break;
+            }
+            Err(e) => last_err = Some(e),
+        }
+    }
+    let run = run.ok_or_else(|| {
+        last_err.unwrap_or_else(|| anyhow::anyhow!("no GEFS cycle found for the plume"))
+    })?;
+    let mut out = Vec::with_capacity(hours.len());
+    // Small batches, as for the members: this is 2 requests per lead.
+    for batch in hours.chunks(6) {
+        let got = futures_util::future::join_all(batch.iter().map(|&fh| async move {
+            let (mean, spread) = futures_util::future::join(
+                crate::global::fetch_gefs_summary(http, key, run, fh, false),
+                crate::global::fetch_gefs_summary(http, key, run, fh, true),
+            )
+            .await;
+            let valid = run + chrono::Duration::hours(i64::from(fh));
+            match (mean, spread) {
+                (Ok(m), Ok(s)) => PlumePoint {
+                    valid,
+                    mean: m.sample_bilinear(lon, lat),
+                    spread: s.sample_bilinear(lon, lat),
+                },
+                _ => PlumePoint {
+                    valid,
+                    mean: None,
+                    spread: None,
+                },
+            }
+        }))
+        .await;
+        out.extend(got);
+    }
+    anyhow::ensure!(
+        out.iter().any(|p| p.mean.is_some()),
+        "no GEFS mean/spread arrived for {}",
+        field.label()
+    );
+    Ok(out)
+}
+
 /// The fewest members that still count as an ensemble.
 pub const MIN_MEMBERS: usize = 10;
 
@@ -411,6 +495,24 @@ mod tests {
     }
 
     #[test]
+    fn a_plume_band_needs_both_halves_and_a_sane_spread() {
+        use chrono::TimeZone;
+        let valid = Utc.with_ymd_and_hms(2026, 9, 21, 0, 0, 0).unwrap();
+        let p = |mean, spread| PlumePoint {
+            valid,
+            mean,
+            spread,
+        };
+        assert_eq!(p(Some(10.0), Some(2.0)).band(1.0), Some((8.0, 12.0)));
+        assert_eq!(p(Some(10.0), Some(2.0)).band(2.0), Some((6.0, 14.0)));
+        // A missing half, a NaN or a negative spread is no band rather than a wrong one.
+        assert_eq!(p(None, Some(2.0)).band(1.0), None);
+        assert_eq!(p(Some(10.0), None).band(1.0), None);
+        assert_eq!(p(Some(f32::NAN), Some(2.0)).band(1.0), None);
+        assert_eq!(p(Some(10.0), Some(-1.0)).band(1.0), None);
+    }
+
+    #[test]
     fn statistic_specs_parse() {
         let f = EnsembleField::Cape;
         assert_eq!(Statistic::parse("mean", f), Some(Statistic::Mean));
@@ -452,6 +554,41 @@ mod tests {
             assert_eq!(EnsembleField::from_slug(f.slug()), Some(f));
             assert!(f.default_threshold().is_finite());
         }
+    }
+
+    /// Live GEFS plume: mean and spread at Oklahoma City for three days, all from one run, with
+    /// spread that is non-negative and generally larger late than early. Network test.
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn live_gefs_plume_is_coherent() {
+        let http = reqwest::Client::new();
+        let hours: Vec<u16> = (0..=72).step_by(6).collect();
+        let plume = fetch_gefs_plume(&http, EnsembleField::Temp2m, -97.5, 35.5, &hours)
+            .await
+            .expect("GEFS plume");
+        assert_eq!(plume.len(), hours.len());
+        let have: Vec<_> = plume.iter().filter(|p| p.band(1.0).is_some()).collect();
+        assert!(
+            have.len() >= hours.len() - 2,
+            "only {} leads arrived",
+            have.len()
+        );
+        for p in &have {
+            let (m, s) = (p.mean.unwrap(), p.spread.unwrap());
+            assert!((230.0..330.0).contains(&m), "{m} K");
+            assert!((0.0..25.0).contains(&s), "{s} K spread");
+        }
+        // One run: valid times step evenly.
+        assert!(plume
+            .windows(2)
+            .all(|w| w[1].valid - w[0].valid == chrono::Duration::hours(6)));
+        let early: f32 = have[..3].iter().map(|p| p.spread.unwrap()).sum();
+        let late: f32 = have[have.len() - 3..]
+            .iter()
+            .map(|p| p.spread.unwrap())
+            .sum();
+        println!("spread early {early:.2} late {late:.2}");
+        assert!(late > early, "uncertainty should grow with lead");
     }
 
     /// Live GEFS: every member arrives on one lattice and the statistics are ordered. Network

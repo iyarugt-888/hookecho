@@ -545,12 +545,36 @@ pub async fn fetch_gefs_member(
     fh: u16,
     member: u8,
 ) -> anyhow::Result<MrmsField> {
-    let date = format!("{:04}{:02}{:02}", run.year(), run.month(), run.day());
     let name = if member == 0 {
         "gec00".to_string()
     } else {
         format!("gep{member:02}")
     };
+    fetch_gefs_named(http, key, run, fh, &name).await
+}
+
+/// The ensemble mean (`spread == false`) or the ensemble standard deviation (`spread == true`) for
+/// the GRIB `(var, level)` at `fh`, from a known cycle. NCEP publishes both ready-made beside the
+/// members, on the same lattice, so a mean-and-spread view costs two small reads instead of thirty
+/// one. The spread is in the field's own units.
+pub async fn fetch_gefs_summary(
+    http: &reqwest::Client,
+    key: (&str, &str),
+    run: DateTime<Utc>,
+    fh: u16,
+    spread: bool,
+) -> anyhow::Result<MrmsField> {
+    fetch_gefs_named(http, key, run, fh, if spread { "gespr" } else { "geavg" }).await
+}
+
+async fn fetch_gefs_named(
+    http: &reqwest::Client,
+    key: (&str, &str),
+    run: DateTime<Utc>,
+    fh: u16,
+    name: &str,
+) -> anyhow::Result<MrmsField> {
+    let date = format!("{:04}{:02}{:02}", run.year(), run.month(), run.day());
     let base = format!(
         "{GEFS_BUCKET}/gefs.{date}/{:02}/atmos/pgrb2ap5/{name}.t{:02}z.pgrb2a.0p50.f{fh:03}",
         run.hour(),
@@ -561,6 +585,12 @@ pub async fn fetch_gefs_member(
     let range = crate::hrrr::field_byte_range(&idx, var, level)
         .ok_or_else(|| anyhow::anyhow!("no {var}:{level} in GEFS {name} idx"))?;
     download_and_decode(http, &base, range, GEFS_RES_DEG).await
+}
+
+/// The GEFS cycles worth trying, newest plausible first: `count` six-hourly cycles ending at the
+/// one that has typically finished posting.
+pub fn gefs_cycles(now: DateTime<Utc>, count: usize) -> Vec<DateTime<Utc>> {
+    GlobalModel::Gefs.run_choices(now, count)
 }
 
 /// The newest GEFS cycle that has posted the control member for `key` at `fh`, plus that

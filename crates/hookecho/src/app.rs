@@ -3941,6 +3941,19 @@ pub struct HookEchoApp {
         std::sync::mpsc::Receiver<Result<ModelSeries, String>>,
     )>,
     model_series_cache: std::collections::HashMap<ModelSeriesKey, (Instant, ModelSeries)>,
+    /// The forecast window's ensemble-plume picker and what it is holding (ROADMAP_NEW F7).
+    plume_ui: ui::forecast_window::PlumeUi,
+    plume_state: ui::forecast_window::PlumeState,
+    #[allow(clippy::type_complexity)]
+    plume_rx: Option<(
+        (i32, i32, ui::forecast_window::PlumeUi),
+        std::sync::mpsc::Receiver<Result<Vec<wxdata::ensemble::PlumePoint>, String>>,
+    )>,
+    #[allow(clippy::type_complexity)]
+    plume_cache: std::collections::HashMap<
+        (i32, i32, ui::forecast_window::PlumeUi),
+        (Instant, Vec<wxdata::ensemble::PlumePoint>),
+    >,
     /// Rain-arrival alerting: per-point persistence/cooldown state, plus the current ETAs for the
     /// on-map chip.
     rain_detector: crate::rain_arrival::Detector,
@@ -5158,6 +5171,10 @@ impl HookEchoApp {
             model_series_state: ui::forecast_window::SeriesState::Idle,
             model_series_rx: None,
             model_series_cache: std::collections::HashMap::new(),
+            plume_ui: ui::forecast_window::PlumeUi::default(),
+            plume_state: ui::forecast_window::PlumeState::Idle,
+            plume_rx: None,
+            plume_cache: std::collections::HashMap::new(),
             minute_profile: None,
             minute_key: None,
             rain_detector: Default::default(),
@@ -7962,6 +7979,7 @@ impl HookEchoApp {
         self.forecast_open = true;
         self.fetch_point_obs(key, lon, lat);
         self.fetch_model_series(lon, lat);
+        self.fetch_plume(lon, lat);
         if let Some((when, f)) = self.forecast_cache.get(&key) {
             if when.elapsed().as_secs() < 900 {
                 self.forecast_state = ui::forecast_window::State::Ready(Box::new(f.clone()));
@@ -8007,6 +8025,35 @@ impl HookEchoApp {
                 wxdata::global::fetch_point_series(&http, ui.model, ui.field, lon, lat, &hours)
                     .await
                     .map_err(|e| e.to_string());
+            let _ = tx.send(res);
+        });
+    }
+
+    /// The GEFS mean and spread at the tapped point, keyed and cached like the meteogram beside it
+    /// (same 0.05 degree cell, 15-minute TTL) plus the picker, so switching field or period is a
+    /// fresh fetch rather than a stale hit.
+    fn fetch_plume(&mut self, lon: f64, lat: f64) {
+        let key = (
+            (lat * 20.0).round() as i32,
+            (lon * 20.0).round() as i32,
+            self.plume_ui,
+        );
+        if let Some((when, points)) = self.plume_cache.get(&key) {
+            if when.elapsed().as_secs() < 900 {
+                self.plume_state = ui::forecast_window::PlumeState::Ready(points.clone());
+                return;
+            }
+        }
+        self.plume_state = ui::forecast_window::PlumeState::Loading;
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.plume_rx = Some((key, rx));
+        let http = self.http.clone();
+        let picker = self.plume_ui;
+        let hours = picker.period.plume_hours();
+        self.spawner.spawn(async move {
+            let res = wxdata::ensemble::fetch_gefs_plume(&http, picker.field, lon, lat, &hours)
+                .await
+                .map_err(|e| e.to_string());
             let _ = tx.send(res);
         });
     }
@@ -22498,6 +22545,21 @@ impl eframe::App for HookEchoApp {
                 };
             }
         }
+        // Ensemble plume: drain the fetch, cache it under (point, field, period).
+        if let Some((key, rx)) = &self.plume_rx {
+            if let Ok(res) = rx.try_recv() {
+                let key = *key;
+                self.plume_rx = None;
+                self.plume_state = match res {
+                    Ok(points) => {
+                        self.plume_cache
+                            .insert(key, (Instant::now(), points.clone()));
+                        ui::forecast_window::PlumeState::Ready(points)
+                    }
+                    Err(e) => ui::forecast_window::PlumeState::Failed(e),
+                };
+            }
+        }
         if self.forecast_open {
             let at = self.forecast_at.unwrap_or((0.0, 0.0));
             let tz = self.active_tz();
@@ -22517,9 +22579,14 @@ impl eframe::App for HookEchoApp {
                 &mut self.popovers,
                 &mut self.model_series_ui,
                 &self.model_series_state,
+                &mut self.plume_ui,
+                &self.plume_state,
             );
             if result.series_changed {
                 self.fetch_model_series(at.0, at.1);
+            }
+            if result.plume_changed {
+                self.fetch_plume(at.0, at.1);
             }
             if !result.open {
                 self.forecast_open = false;

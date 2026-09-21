@@ -75,12 +75,52 @@ pub enum SeriesState {
     Failed(String),
 }
 
+/// The ensemble-plume picker: which field, how far out. The plume is GEFS's mean and spread at the
+/// tapped point (ROADMAP_NEW F7's "point plume"): where the deterministic meteogram above shows one
+/// model's one answer, this shows how much the 31 members disagree about it.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PlumeUi {
+    pub field: wxdata::ensemble::EnsembleField,
+    pub period: Period,
+}
+
+impl Default for PlumeUi {
+    fn default() -> Self {
+        Self {
+            field: wxdata::ensemble::EnsembleField::Temp2m,
+            period: Period::Day3,
+        }
+    }
+}
+
+impl Period {
+    /// Plume leads: six-hourly, since each lead is two reads and a plume is about the envelope,
+    /// not the diurnal wiggle.
+    pub fn plume_hours(self) -> Vec<u16> {
+        let max = match self {
+            Period::Day1 => 24,
+            Period::Day3 => 72,
+            Period::Day5 => 120,
+        };
+        (0..=max).step_by(6).collect()
+    }
+}
+
+/// The plume for the tapped point. Gaps (`None`) break the band rather than the whole plume.
+pub enum PlumeState {
+    Idle,
+    Loading,
+    Ready(Vec<wxdata::ensemble::PlumePoint>),
+    Failed(String),
+}
+
 /// What [`show`] found this frame: whether the window is still open, and whether a picker
 /// changed — the caller owns fetching (this module has no network access of its own), so it
 /// needs to know when to kick one off.
 pub struct ForecastResult {
     pub open: bool,
     pub series_changed: bool,
+    pub plume_changed: bool,
 }
 
 /// Show the window. `minute` is the per-minute radar-advection profile over the point (dBZ per
@@ -97,9 +137,12 @@ pub fn show(
     popovers: &mut crate::ui::popover::Popovers,
     series_ui: &mut ModelSeriesUi,
     series_state: &SeriesState,
+    plume_ui: &mut PlumeUi,
+    plume_state: &PlumeState,
 ) -> ForecastResult {
     let mut open = true;
     let mut series_changed = false;
+    let mut plume_changed = false;
     popovers
         .card(ctx, "forecast", egui::Window::new("Forecast"))
         .open(&mut open)
@@ -142,11 +185,14 @@ pub fn show(
                 }
                 ui.separator();
                 series_changed = model_series_section(ui, series_ui, series_state, tz);
+                ui.separator();
+                plume_changed = plume_section(ui, plume_ui, plume_state, tz);
             });
         });
     ForecastResult {
         open,
         series_changed,
+        plume_changed,
     }
 }
 
@@ -253,6 +299,195 @@ fn model_series_section(
         }
     }
     changed
+}
+
+/// Field/period pickers, the plume, and one honest sentence about what the shading means. Returns
+/// whether a picker changed, like [`model_series_section`].
+fn plume_section(
+    ui: &mut egui::Ui,
+    plume_ui: &mut PlumeUi,
+    state: &PlumeState,
+    tz: Option<wxdata::tz::Tz>,
+) -> bool {
+    let mut changed = false;
+    ui.label(RichText::new("Ensemble plume (GEFS)").strong());
+    ui.horizontal_wrapped(|ui| {
+        for f in wxdata::ensemble::EnsembleField::ALL {
+            changed |= ui
+                .selectable_value(&mut plume_ui.field, f, f.label())
+                .changed();
+        }
+    });
+    ui.horizontal(|ui| {
+        for p in [Period::Day1, Period::Day3, Period::Day5] {
+            changed |= ui
+                .selectable_value(&mut plume_ui.period, p, p.label())
+                .changed();
+        }
+    });
+    ui.add_space(4.0);
+    match state {
+        PlumeState::Idle => {}
+        PlumeState::Loading => {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.weak("Fetching the GEFS mean and spread…");
+            });
+        }
+        PlumeState::Failed(e) => {
+            ui.colored_label(Color32::from_rgb(230, 120, 120), e);
+        }
+        PlumeState::Ready(points) => {
+            plume_chart(ui, points, plume_ui.field, tz);
+            ui.weak(
+                "Line: ensemble mean. Shading: one standard deviation either side — a range of \
+                 plausible outcomes across the 31 members, not a limit on what can happen.",
+            );
+        }
+    }
+    changed
+}
+
+/// A native value in the units this window shows (°F for temperature, like the deterministic
+/// meteogram; the field's usual unit otherwise).
+fn plume_value(field: wxdata::ensemble::EnsembleField, native: f32) -> f32 {
+    use wxdata::ensemble::EnsembleField as EF;
+    match field {
+        EF::Temp2m => crate::ui::station_card::c_to_f(native - 273.15),
+        _ => field.to_display(native),
+    }
+}
+
+/// A spread is a difference: convert its size, not its zero point.
+fn plume_spread(field: wxdata::ensemble::EnsembleField, native: f32) -> f32 {
+    use wxdata::ensemble::EnsembleField as EF;
+    match field {
+        EF::Temp2m => native * 1.8,
+        _ => field.spread_to_display(native),
+    }
+}
+
+fn plume_unit(field: wxdata::ensemble::EnsembleField) -> &'static str {
+    match field {
+        wxdata::ensemble::EnsembleField::Temp2m => "°F",
+        _ => field.display().0,
+    }
+}
+
+/// The mean as a line with a translucent band of one standard deviation around it, hand-painted
+/// like [`series_chart`]. A lead with no data breaks both, rather than drawing across it.
+fn plume_chart(
+    ui: &mut egui::Ui,
+    points: &[wxdata::ensemble::PlumePoint],
+    field: wxdata::ensemble::EnsembleField,
+    tz: Option<wxdata::tz::Tz>,
+) {
+    if points.len() < 2 {
+        ui.weak("Not enough leads to draw a plume.");
+        return;
+    }
+    // (mean, spread) per lead in display units.
+    let vals: Vec<Option<(f32, f32)>> = points
+        .iter()
+        .map(|p| Some((plume_value(field, p.mean?), plume_spread(field, p.spread?))))
+        .collect();
+    let extent: Vec<f32> = vals
+        .iter()
+        .flatten()
+        .flat_map(|(m, s)| [m - s, m + s])
+        .collect();
+    if extent.is_empty() {
+        ui.weak("No data for this period.");
+        return;
+    }
+    let w = ui.available_width().max(220.0);
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(w, 120.0), Sense::hover());
+    let p = ui.painter_at(rect);
+    p.rect_filled(rect, 4.0, Color32::from_black_alpha(90));
+    let plot = rect.shrink2(Vec2::new(6.0, 4.0));
+    let axis_h = 12.0;
+    let body = egui::Rect::from_min_max(
+        plot.left_top(),
+        egui::pos2(plot.right(), plot.bottom() - axis_h),
+    );
+    let (lo, hi) = extent
+        .iter()
+        .fold((f32::MAX, f32::MIN), |(a, b), &v| (a.min(v), b.max(v)));
+    let (lo, hi) = if (hi - lo).abs() < 1.0 {
+        (lo - 1.0, hi + 1.0)
+    } else {
+        (lo, hi)
+    };
+    let x_of = |i: usize| body.left() + (i as f32 + 0.5) / points.len() as f32 * body.width();
+    let y_of = |v: f32| body.bottom() - ((v - lo) / (hi - lo).max(f32::EPSILON)) * body.height();
+
+    // The band: one convex quad between each pair of neighbouring leads that both have data.
+    let band = Color32::from_rgba_unmultiplied(120, 190, 230, 60);
+    for i in 0..vals.len() - 1 {
+        if let (Some((m0, s0)), Some((m1, s1))) = (vals[i], vals[i + 1]) {
+            p.add(egui::Shape::convex_polygon(
+                vec![
+                    egui::pos2(x_of(i), y_of(m0 + s0)),
+                    egui::pos2(x_of(i + 1), y_of(m1 + s1)),
+                    egui::pos2(x_of(i + 1), y_of(m1 - s1)),
+                    egui::pos2(x_of(i), y_of(m0 - s0)),
+                ],
+                band,
+                Stroke::NONE,
+            ));
+        }
+    }
+    // The mean, broken at gaps.
+    let color = Color32::from_rgb(120, 190, 230);
+    let mut run: Vec<egui::Pos2> = Vec::new();
+    for (i, v) in vals.iter().enumerate() {
+        match v {
+            Some((m, _)) => run.push(egui::pos2(x_of(i), y_of(*m))),
+            None => {
+                if run.len() > 1 {
+                    p.add(egui::Shape::line(run.clone(), Stroke::new(1.8, color)));
+                }
+                run.clear();
+            }
+        }
+    }
+    if run.len() > 1 {
+        p.add(egui::Shape::line(run, Stroke::new(1.8, color)));
+    }
+    // Label the range at both ends of the vertical axis, and the time along the bottom.
+    let font = FontId::proportional(9.0);
+    let unit = plume_unit(field);
+    p.text(
+        body.left_top() + Vec2::new(2.0, 0.0),
+        Align2::LEFT_TOP,
+        format!("{hi:.0}{unit}"),
+        font.clone(),
+        Color32::from_gray(190),
+    );
+    p.text(
+        body.left_bottom() - Vec2::new(-2.0, 1.0),
+        Align2::LEFT_BOTTOM,
+        format!("{lo:.0}{unit}"),
+        font.clone(),
+        Color32::from_gray(190),
+    );
+    let step = (points.len() / 4).max(1);
+    for (i, pt) in points.iter().enumerate() {
+        if i % step != 0 {
+            continue;
+        }
+        p.text(
+            egui::pos2(x_of(i), plot.bottom() - axis_h + 1.0),
+            Align2::CENTER_TOP,
+            short_hour(pt.valid, tz),
+            font.clone(),
+            Color32::from_gray(170),
+        );
+    }
+    // The last lead's spread, in words: how uncertain the far end is is the point of a plume.
+    if let Some((m, s)) = vals.iter().rev().flatten().next() {
+        ui.weak(format!("Latest lead: {m:.0}{unit} ± {s:.1}{unit}"));
+    }
 }
 
 /// The fields worth graphing at a point. Precip is left out on purpose: GFS publishes
@@ -790,5 +1025,38 @@ mod tests {
         // Polar latitudes lose the sun but keep the moon.
         let polar = almanac_line((15.0, 89.0), None);
         assert!(!polar.contains("Sunrise"), "got {polar}");
+    }
+}
+
+#[cfg(test)]
+mod plume_tests {
+    use super::*;
+    use wxdata::ensemble::EnsembleField as EF;
+
+    #[test]
+    fn a_plume_reads_in_the_windows_own_units_and_a_spread_ignores_the_zero_point() {
+        // 273.15 K is freezing: 32 °F, not the -459 a spread-style conversion would give.
+        assert!((plume_value(EF::Temp2m, 273.15) - 32.0).abs() < 1e-3);
+        // A 5 K spread is 9 °F wide.
+        assert!((plume_spread(EF::Temp2m, 5.0) - 9.0).abs() < 1e-4);
+        assert_eq!(plume_unit(EF::Temp2m), "°F");
+        // Pressure: Pa to hPa for both a value and a spread.
+        assert!((plume_value(EF::Mslp, 101_325.0) - 1013.25).abs() < 1e-2);
+        assert!((plume_spread(EF::Mslp, 500.0) - 5.0).abs() < 1e-4);
+        assert_eq!(plume_unit(EF::Mslp), "hPa");
+        // CAPE is already in its display unit.
+        assert_eq!(plume_value(EF::Cape, 1500.0), 1500.0);
+        assert_eq!(plume_unit(EF::Cape), "J/kg");
+    }
+
+    #[test]
+    fn plume_leads_are_six_hourly_from_the_start_and_fit_the_period() {
+        assert_eq!(Period::Day1.plume_hours(), [0, 6, 12, 18, 24]);
+        assert_eq!(Period::Day3.plume_hours().last(), Some(&72));
+        let five = Period::Day5.plume_hours();
+        assert_eq!(five.len(), 21);
+        assert!(five.iter().all(|h| h % 6 == 0));
+        // Two reads per lead: even the longest plume stays a small, bounded number of requests.
+        assert!(five.len() * 2 <= 42);
     }
 }
