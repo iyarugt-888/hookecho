@@ -118,6 +118,7 @@ pub mod m3;
 pub mod marker_popup;
 pub mod marker_window;
 pub mod model_panel;
+pub mod model_verify_window;
 /// Easing and the reduced-motion brake.
 pub mod motion;
 pub mod palette_editor;

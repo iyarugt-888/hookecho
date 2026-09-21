@@ -1347,6 +1347,12 @@ impl HookEchoApp {
                 false,
             ),
             (
+                W::ModelVerify,
+                "Model verification…",
+                "Score a forecast run against the RTMA analysis: bias, error and hits by lead",
+                false,
+            ),
+            (
                 W::Cappi,
                 "Constant-height slice (CAPPI)…",
                 "See the storm at one constant altitude",

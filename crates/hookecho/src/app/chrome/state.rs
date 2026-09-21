@@ -32,6 +32,7 @@ pub(crate) fn window_for_page(title: &str) -> Option<AppWindow> {
         "Placefile Manager" => AppWindow::Placefiles,
         "Select Radar Site" => AppWindow::Site,
         "Warning Verification" => AppWindow::Verify,
+        "Model Verification" => AppWindow::ModelVerify,
         "3D Reflectivity" => AppWindow::Volume3d,
         "Tornado climatology" => AppWindow::Climatology,
         "Data source health" => AppWindow::DataHealth,

@@ -3000,22 +3000,28 @@ Native + wasm32 checks clean.
 
 HookEcho already has warning verification. Extend the philosophy to model and algorithm verification.
 
-## K1. Model-vs-observation verification
+## K1. Model-vs-observation verification — partly done
 
 At a point or region compare forecasts against:
 
-- METAR
-- RAOB
-- RTMA/URMA
-- MRMS precip/reflectivity where scientifically appropriate
+New this pass, see the Unreleased CHANGELOG entry: `wxdata::gridverify` scores a forecast run against
+the RTMA for the same valid hours, and the "Model verification…" window shows it by lead.
+
+- [ ] METAR — not wired; would need matching the forecast at each station point
+- [ ] RAOB — not wired
+- [x] RTMA/URMA — RTMA only (real-time analysis); URMA is not read
+- [ ] MRMS precip/reflectivity where scientifically appropriate — not wired
 
 Metrics:
 
-- bias
-- MAE
-- RMSE
-- timing error
-- categorical hit/miss/false alarm for thresholds
+- [x] bias
+- [x] MAE
+- [x] RMSE
+- [ ] timing error
+- [x] categorical hit/miss/false alarm for thresholds — area-weighted, with POD, FAR, CSI and frequency bias
+
+Scope today: HRRR, RAP and the NAMs, for 2 m temperature and dewpoint, over the whole domain or the
+map view. It is a region score, not a point series.
 
 ## K2. Radar algorithm verification
 

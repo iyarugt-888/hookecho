@@ -32,6 +32,7 @@ pub mod gis;
 pub mod glm;
 pub mod global;
 pub mod goes_abi;
+pub mod gridverify;
 pub mod hrrr;
 pub mod kdp;
 pub mod level2;

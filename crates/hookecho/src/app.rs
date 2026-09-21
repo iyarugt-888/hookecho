@@ -2210,6 +2210,8 @@ pub(crate) enum AppWindow {
     AlertRules,
     /// Warning verification lab (IEM Cow): how the office's warnings scored on an event day.
     Verify,
+    /// ROADMAP_NEW K1: score a forecast run against the RTMA analysis for the same hours.
+    ModelVerify,
     Climatology,
     LayerManager,
     /// First-run setup: which radar to open to.
@@ -3438,6 +3440,20 @@ pub struct HookEchoApp {
     popovers: ui::popover::Popovers,
     /// Warning verification lab and its in-flight query.
     verify_window: ui::verify_window::VerifyWindow,
+    /// Model verification against the RTMA (ROADMAP_NEW K1): the picker, and what it last scored.
+    model_verify: ui::model_verify_window::ModelVerifyWindow,
+    #[allow(clippy::type_complexity)]
+    model_verify_rx: Option<
+        std::sync::mpsc::Receiver<
+            Result<
+                (
+                    ui::model_verify_window::Meta,
+                    Vec<wxdata::gridverify::LeadResult>,
+                ),
+                String,
+            >,
+        >,
+    >,
     verify_rx: Option<std::sync::mpsc::Receiver<Result<wxdata::verify::Verification, String>>>,
     /// Which moment the cross-section slices (session state, not persisted).
     xsection_moment: Moment,
@@ -4912,6 +4928,8 @@ impl HookEchoApp {
             drawer: Default::default(),
             popovers: Default::default(),
             verify_window: Default::default(),
+            model_verify: Default::default(),
+            model_verify_rx: None,
             verify_rx: None,
             xsection_moment: Moment::Reflectivity,
             follow_cell: None,
@@ -8120,6 +8138,54 @@ impl HookEchoApp {
         }
     }
 
+    /// Score the chosen run against the RTMA at each chosen lead, off the UI thread.
+    fn fetch_model_verify(&mut self) {
+        let w = &self.model_verify;
+        let Some(regional) = w.model.regional_model() else {
+            return;
+        };
+        let now = chrono::Utc::now();
+        let Some(run) = w
+            .run
+            .or_else(|| ui::model_verify_window::auto_run(w.model, now))
+        else {
+            self.model_verify.error = Some("no run is old enough to verify yet".into());
+            return;
+        };
+        let leads: Vec<u8> = ui::model_verify_window::LEADS
+            .iter()
+            .zip(w.leads_on)
+            .filter_map(|(lead, on)| on.then_some(*lead))
+            .collect();
+        let threshold = w.threshold_on.then_some(w.threshold_k);
+        let region = w.region_is_view.then(|| {
+            let (west, south, east, north) = self.view_bounds();
+            (west, south, east, north)
+        });
+        let meta = ui::model_verify_window::Meta {
+            model: w.model,
+            field: w.field,
+            run,
+            threshold_k: threshold,
+            region_is_view: w.region_is_view,
+        };
+        let field = w.field;
+        self.model_verify.busy = true;
+        self.model_verify.error = None;
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.model_verify_rx = Some(rx);
+        let http = self.http.clone();
+        self.spawner.spawn(async move {
+            let res = wxdata::gridverify::verify_run(
+                &http, regional, field, run, &leads, region, threshold,
+            )
+            .await
+            .map(|rows| (meta, rows))
+            .map_err(|e| e.to_string());
+            let _ = tx.send(res);
+        });
+    }
+
     fn fetch_verify(&mut self) {
         let wfo = self.verify_window.wfo.trim().to_ascii_uppercase();
         let Ok(day) = chrono::NaiveDate::parse_from_str(self.verify_window.day.trim(), "%Y-%m-%d")
@@ -10577,6 +10643,7 @@ impl HookEchoApp {
                 W::Help => self.help_hub.toggle(),
                 W::AlertRules => self.rules_window.toggle(),
                 W::Verify => self.open_verify(),
+                W::ModelVerify => self.model_verify.open = true,
                 W::Volume3d => self.build_volume3d(),
                 W::Climatology => {
                     self.climo_open = true;
@@ -22509,6 +22576,26 @@ impl eframe::App for HookEchoApp {
         if vact.refresh {
             self.verify_window.data = None;
             self.fetch_verify();
+        }
+        // Model verification: drain the scoring, then draw and act on the window.
+        if let Some(rx) = &self.model_verify_rx {
+            if let Ok(res) = rx.try_recv() {
+                self.model_verify.busy = false;
+                self.model_verify_rx = None;
+                match res {
+                    Ok(scored) => self.model_verify.results = Some(scored),
+                    Err(e) => {
+                        self.model_verify.error = Some(format!("verification unavailable: {e}"));
+                    }
+                }
+            }
+        }
+        let unit = self.settings.temp_unit;
+        let mact = self
+            .model_verify
+            .show(ctx, self.active_tz(), unit, &mut self.drawer);
+        if mact.run {
+            self.fetch_model_verify();
         }
         if let Some((lon, lat, time)) = vact.goto {
             let site = self.views[self.active].site.clone().unwrap_or_default();

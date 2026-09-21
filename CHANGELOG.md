@@ -8,6 +8,26 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: model verification against the RTMA (K1)
+
+A new **Model verification…** window scores a forecast run against the RTMA analysis for the same
+valid hours: pick the model (HRRR, RAP, NAM 3 km, NAM 12 km), the field (2 m temperature or
+dewpoint), a run (or leave it on one about twelve hours back so the short leads all have an
+analysis), and which leads to score. It reports, per lead, the bias (forecast minus analysis), MAE,
+RMSE and correlation, and for an event threshold you set, the probability of detection, false alarm
+ratio, critical success index and frequency bias, followed by a plain sentence such as "typically
+off by 0.7°F (runs 0.2°F too high)". It can score the whole domain or only what is on screen.
+
+Two details keep the numbers honest. Every cell is weighted by the ground it covers (a degree of
+longitude is narrower at high latitude), and a forecast is only ever compared with an analysis of
+exactly the same valid time, with the two grids registered on the same cell centres. The RTMA is
+itself an estimate, so this measures agreement with it rather than with every station. As a check,
+HRRR's temperature over about a million cells scored MAE 0.59 K at F+1 rising to 0.82 K at F+6, with
+correlation 0.99.
+
+Not yet covered: METAR and RAOB truth, MRMS for precipitation and reflectivity, timing error, and
+fields beyond temperature and dewpoint.
+
 ### Added: 6-hour rain (QPF) probabilities from the GEFS (F7)
 
 The ensemble layer and the point plume gain a **6-hour rain (QPF)** field, so you can map the chance
