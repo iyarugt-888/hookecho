@@ -227,7 +227,9 @@ mod tests {
         // No registry passed, so every palette-bound row drops out and only `hotkeys::label` rows
         // remain — which is exactly what a caller with no entries should see.
         assert!(all.iter().any(|(_, l)| l == "Fullscreen"));
-        assert!(shortcut_rows(&bindings, &[], "fullscreen").len() == 1);
+        // One row per key: fullscreen has F11 and a plain key for keyboards with no F row.
+        let fs = shortcut_rows(&bindings, &[], "fullscreen");
+        assert!(!fs.is_empty() && fs.iter().all(|(_, l)| l == "Fullscreen"));
         assert!(shortcut_rows(&bindings, &[], "zzzz").is_empty());
     }
 }

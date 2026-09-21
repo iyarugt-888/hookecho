@@ -371,6 +371,20 @@ impl SettingsWindow {
             .weak()
             .small(),
         );
+        // Does the keyboard reach the app at all? The last thing seen, whether or not it is bound.
+        // On a tablet this is the quickest way to tell a key the OS swallows from one the app
+        // does not bind.
+        {
+            let last = hotkeys::last_input();
+            ui.label(
+                egui::RichText::new(if last.is_empty() {
+                    "Keyboard test: press any key.".to_string()
+                } else {
+                    format!("Keyboard test: last input was {last}")
+                })
+                .small(),
+            );
+        }
         ui.separator();
 
         // First edit copies the whole shipped table into settings, so a later change to the
@@ -1016,6 +1030,24 @@ fn general_tab(
                     "Panels and cards appear where they belong instead of sliding in. The app \
                      also turns this on for itself if frames get slow.",
                 );
+            ui.end_row();
+
+            ui.label("3D map");
+            ui.vertical(|ui| {
+                ui.checkbox(&mut settings.hide_far_3d, "Hide far-away items")
+                    .on_hover_text(
+                        "When the map is tilted, stop drawing storm reports, lightning, sites and \n                         other markers far out toward the horizon, where they pile up and float \n                         above the map. The radar and map themselves are always drawn.",
+                    );
+                ui.add_enabled(
+                    settings.hide_far_3d,
+                    egui::Slider::new(&mut settings.far_3d_factor, 1.2..=6.0)
+                        .text("Distance")
+                        .custom_formatter(|v, _| format!("{v:.1}x")),
+                )
+                .on_hover_text(
+                    "How far past the centre of the map, as a multiple of the camera's distance \n                     to it. Lower hides more.",
+                );
+            });
             ui.end_row();
 
             ui.label("UI scale");

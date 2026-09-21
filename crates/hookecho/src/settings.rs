@@ -199,6 +199,10 @@ pub struct Settings {
     /// Desktop/web chrome: the WSV3 ribbon (default) or the original map-first minimal chrome.
     #[serde(default)]
     pub layout: Layout,
+    /// Whether the one-time move of a tablet from the ribbon to the docked layout has happened;
+    /// see [`Settings::adopt_tablet_default`].
+    #[serde(default)]
+    pub tablet_layout_adopted: bool,
     /// The touch chrome's look on a phone; see [`PhoneDesign`].
     #[serde(default)]
     pub phone_design: PhoneDesign,
@@ -211,6 +215,13 @@ pub struct Settings {
     /// slow; this flag is only the user's half of that.
     #[serde(default)]
     pub reduce_motion: bool,
+    /// In a pitched 3D map, stop drawing markers, reports and labels that are far beyond the
+    /// centre: near the horizon they all pile onto a sliver and float in the sky.
+    #[serde(default = "default_true")]
+    pub hide_far_3d: bool,
+    /// How far out that is, as a multiple of the camera's distance to the map centre.
+    #[serde(default = "default_far_3d")]
+    pub far_3d_factor: f32,
     /// Starred radar sites shown in the toolbox presets dropdown.
     pub presets: Vec<String>,
     /// Per-moment color-table override: moment short name (`REF`, `VEL`, …) -> `.pal` path.
@@ -744,6 +755,29 @@ impl Default for DetectorTuning {
 }
 
 impl Settings {
+    /// Move a tablet off the floating ribbon and onto the docked layout, once.
+    ///
+    /// The ribbon is a desktop layout: on a tablet its groups overflow the width and get clipped,
+    /// the colour scale runs across the tilt row and the timeline floats over the map, which reads
+    /// as clutter. The dock lays the same controls out in panels with nothing over the map. Only a
+    /// tablet still on the shipped default (the ribbon) is moved, and only once, so a layout picked
+    /// on purpose is kept and one changed back later stays changed. Returns whether it changed
+    /// anything.
+    pub fn adopt_tablet_default(&mut self, is_tablet: bool) -> bool {
+        if !is_tablet || self.tablet_layout_adopted {
+            return false;
+        }
+        self.tablet_layout_adopted = true;
+        if self.layout != Layout::CommandRibbon {
+            return false;
+        }
+        self.layout = Layout::Dock;
+        let (theme, density) = Layout::Dock.recommended_theme_and_density();
+        self.theme = theme;
+        self.density = density;
+        true
+    }
+
     /// Timezone to render `site`'s timestamps in — `None` means "show Zulu", either because the
     /// user picked UTC or because the site has no known zone.
     pub fn tz_for(&self, site: Option<&str>) -> Option<wxdata::tz::Tz> {
@@ -788,6 +822,10 @@ fn default_quiet_end() -> u32 {
 
 fn default_scan_sound() -> AlertSound {
     AlertSound::Ding
+}
+
+fn default_far_3d() -> f32 {
+    2.5
 }
 
 fn default_true() -> bool {
@@ -1422,10 +1460,13 @@ impl Default for Settings {
             poll_interval_secs: 30,
             theme: Theme::Dark,
             layout: Layout::default(),
+            tablet_layout_adopted: false,
             phone_design: PhoneDesign::default(),
             density: Density::default(),
             accent: None,
             reduce_motion: false,
+            hide_far_3d: true,
+            far_3d_factor: default_far_3d(),
             presets: Vec::new(),
             palettes: BTreeMap::new(),
             velocity_unit: VelocityUnit::default(),
@@ -1669,6 +1710,10 @@ impl Settings {
         if cfg!(target_os = "android") && (loaded.ui_scale - 1.3).abs() < 0.001 {
             loaded.ui_scale = 1.0;
         }
+        loaded.adopt_tablet_default(cfg!(target_os = "android"));
+        // Saved key tables gain the plain-key alternatives, so a tablet keyboard without an F row
+        // or Page keys can reach every action (see `hotkeys::fill_plain_keys`).
+        crate::hotkeys::fill_plain_keys(&mut loaded.keybinds);
         // Markers saved before ids existed get one now, and keep it: written straight back so the
         // Android alert service reads the same identities this process does.
         let filled = loaded.markers.iter().any(|m| m.id.is_empty());
@@ -2029,6 +2074,7 @@ mod tests {
     fn the_new_wsv3_theme_round_trips_under_its_own_distinct_name() {
         let s = Settings {
             layout: Layout::Wsv3,
+            tablet_layout_adopted: false,
             ..Settings::default()
         };
         let json = serde_json::to_string(&s).unwrap();
@@ -2143,6 +2189,8 @@ mod tests {
                 opacity: 0.5,
             },
             reduce_motion: true,
+            hide_far_3d: true,
+            far_3d_factor: default_far_3d(),
             precip_tint: false,
             custom_tile_url: String::new(),
             custom_tile_max_z: default_custom_tile_max_z(),
@@ -2170,6 +2218,7 @@ mod tests {
             poll_interval_secs: 45,
             theme: Theme::Synthwave,
             layout: Layout::Minimal,
+            tablet_layout_adopted: false,
             phone_design: PhoneDesign::Carbon,
             presets: vec!["KTLX".to_string(), "KOUN".to_string()],
             palettes: BTreeMap::from([("REF".to_string(), "/tmp/foo.pal".to_string())]),
@@ -2533,5 +2582,42 @@ mod tests {
             Settings::from_json_lossy("{}").phone_design,
             PhoneDesign::Aurora
         );
+    }
+
+    #[test]
+    fn a_tablet_on_the_shipped_ribbon_moves_to_the_dock_once() {
+        let mut s = Settings::default();
+        assert_eq!(s.layout, Layout::CommandRibbon);
+        // Not a tablet: untouched, and not marked, so it can still happen if it ever is one.
+        assert!(!s.adopt_tablet_default(false));
+        assert_eq!(s.layout, Layout::CommandRibbon);
+        assert!(s.adopt_tablet_default(true));
+        assert_eq!(s.layout, Layout::Dock);
+        assert_eq!(s.theme, Theme::DearImGui);
+        // Changed back on purpose: stays changed.
+        s.layout = Layout::CommandRibbon;
+        assert!(!s.adopt_tablet_default(true));
+        assert_eq!(s.layout, Layout::CommandRibbon);
+    }
+
+    #[test]
+    fn a_layout_chosen_on_purpose_is_never_replaced() {
+        for chosen in [Layout::Minimal, Layout::Wsv3, Layout::Dock] {
+            let mut s = Settings {
+                layout: chosen,
+                ..Settings::default()
+            };
+            assert!(!s.adopt_tablet_default(true));
+            assert_eq!(s.layout, chosen);
+            assert!(s.tablet_layout_adopted, "and it is not asked again");
+        }
+        // Settings saved before the field existed load as not yet adopted.
+        let old: Settings = serde_json::from_str(
+            &serde_json::to_string(&Settings::default())
+                .unwrap()
+                .replace("\"tablet_layout_adopted\":false,", ""),
+        )
+        .unwrap();
+        assert!(!old.tablet_layout_adopted);
     }
 }

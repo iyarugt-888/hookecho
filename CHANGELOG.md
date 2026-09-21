@@ -8,6 +8,28 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: shortcuts a tablet keyboard can press, a tidier tablet default, and a 3D far-item filter
+
+**Keys.** Several shortcuts lived only on keys a tablet cover keyboard does not have: tilt on Page
+Up/Down, site on F3, reload on F5, the OBS toggles on F8/F9, fullscreen on F11, help on F1. Each now
+also has an ordinary key: `,` and `.` step the tilt down and up, `F` finds a site, `U` reloads, `K` opens
+command search (Ctrl+K cannot be typed on Android, which reports no modifier state), `/` shows the
+shortcut list, `H` opens help, `O` and `B` are the streamer toggles and `` is fullscreen. A key table
+you had already saved (opening the Hotkeys tab saves one) gains these too, without changing keys you chose
+or taking one you gave to something else. Punctuation shortcuts now yield to a focused text field the way
+letters do, so a comma in a marker name no longer tilts the radar. Where Android delivers a keystroke as
+typed text with no key event, the character now fires its shortcut, once. The Hotkeys tab shows the last
+key or character the app received, so a key the system swallows can be told from one that is unbound.
+
+**Tablet layout.** A tablet still on the shipped ribbon layout is moved, once, to the docked layout: the
+ribbon's groups overflowed the width and got clipped, the colour scale ran over the tilt row and the
+timeline floated over the map. A layout you picked on purpose is left alone, and switching back sticks.
+
+**3D map.** Settings, General, **Hide far-away items** stops drawing storm reports, lightning, sites and
+other markers far out toward the horizon of a tilted map, where they piled up and floated in the sky.
+On by default; the distance is a slider (multiples of the camera's distance to the map centre). The radar
+and map are always drawn.
+
 ### Improved: rotation couplets are scored on evidence, explain themselves, and can be filtered
 
 The rotation detector gets the same treatment as the debris signature. A couplet's confidence used to

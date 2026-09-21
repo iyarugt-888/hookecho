@@ -22224,6 +22224,11 @@ impl eframe::App for HookEchoApp {
         // Before any chrome: everything below asks `motion::reduced()`, and the answer has to be
         // the same for every surface in a frame.
         ui::motion::frame(ctx, self.settings.reduce_motion);
+        crate::render::mercator::set_far_cull(
+            self.settings
+                .hide_far_3d
+                .then_some(self.settings.far_3d_factor),
+        );
 
         // Chrome: touch-first on Android (top chips + bottom sheet + docked toolbar), desktop
         // otherwise (the floating map-first chrome below). Both funnel into the same `UiActions`

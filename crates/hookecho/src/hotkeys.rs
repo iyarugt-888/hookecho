@@ -158,6 +158,21 @@ pub(crate) fn defaults() -> Vec<Binding> {
         // it was reachable only from a dropdown inside the 3D options panel.
         plain(K::D, A::Palette(P::ToggleMap3d)),
         plain(K::Questionmark, A::CheatSheet),
+        // Every action above that lives only on a function key or Page Up/Down gets a second,
+        // ordinary key too. A tablet's cover keyboard has no F row and no Page keys, and a
+        // shortcut nobody can press is not a shortcut: `,` and `.` are the tilt pair (they read as
+        // `<` and `>`), `F` finds a site, `U` updates (reloads), `K` opens command search where
+        // Ctrl+K cannot be typed (Android reports no modifier state), `/` and `H` are help.
+        plain(K::Comma, A::TiltDown),
+        plain(K::Period, A::TiltUp),
+        plain(K::F, A::OpenSiteDialog),
+        plain(K::U, A::Palette(P::Reload)),
+        plain(K::K, A::CommandSearch),
+        plain(K::Slash, A::CheatSheet),
+        plain(K::H, A::Palette(P::OpenWindow(AppWindow::Help))),
+        plain(K::O, A::ToggleObs),
+        plain(K::B, A::ToggleObsTour),
+        plain(K::Backslash, A::Fullscreen),
         // `?` stays the shortcut overlay; F1 is the searchable hub the overlay points at.
         plain(K::F1, A::Palette(P::OpenWindow(AppWindow::Help))),
         Binding {
@@ -197,18 +212,140 @@ pub(crate) fn poll(ctx: &egui::Context, bindings: &[Binding]) -> Vec<BindableAct
     // treating that as typing left the single-key shortcuts dead until focus was cleared.
     let typing = ctx.text_edit_focused();
     ctx.input_mut(|i| {
-        bindings
+        let pressed: Vec<egui::Key> = i
+            .events
+            .iter()
+            .filter_map(|e| match e {
+                egui::Event::Key {
+                    key, pressed: true, ..
+                } => Some(*key),
+                _ => None,
+            })
+            .collect();
+        let typed: Vec<String> = i
+            .events
+            .iter()
+            .filter_map(|e| match e {
+                egui::Event::Text(t) => Some(t.clone()),
+                _ => None,
+            })
+            .collect();
+        if let Some(what) = i.events.iter().rev().find_map(|e| match e {
+            egui::Event::Key {
+                key,
+                pressed: true,
+                modifiers,
+                ..
+            } => Some(format!(
+                "key {}",
+                pretty(&egui::KeyboardShortcut::new(*modifiers, *key))
+            )),
+            egui::Event::Text(t) => Some(format!("text {t:?}")),
+            _ => None,
+        }) {
+            if let Ok(mut last) = LAST_INPUT.lock() {
+                *last = what;
+            }
+        }
+        let mut out: Vec<BindableAction> = bindings
             .iter()
             .filter(|b| !(typing && steals_typing(b.shortcut)))
             .filter(|b| i.consume_shortcut(&b.shortcut))
             .map(|b| b.action)
-            .collect()
+            .collect();
+        if !typing {
+            out.extend(text_fallback(&pressed, &typed, bindings));
+        }
+        out
     })
+}
+
+/// Whether `key` is one an ordinary keyboard has without a function row or a Fn layer: a letter,
+/// digit or punctuation key, the arrows, Home and End. Page Up/Down, Insert, Delete and the F keys
+/// are what a tablet's cover keyboard leaves out.
+pub(crate) fn on_a_plain_keyboard(key: egui::Key) -> bool {
+    key.symbol_or_name().chars().count() == 1
+        || matches!(
+            key,
+            egui::Key::ArrowUp
+                | egui::Key::ArrowDown
+                | egui::Key::ArrowLeft
+                | egui::Key::ArrowRight
+                | egui::Key::Home
+                | egui::Key::End
+        )
+}
+
+/// Bring a saved key table up to date without touching what the user chose: any action that has no
+/// binding on a plain key gets its shipped plain-key binding, if that key is free. A table saved
+/// before the plain-key alternatives existed would otherwise keep tilt, site and reload on keys a
+/// tablet keyboard lacks, and opening the Hotkeys tab copies the whole shipped table into settings,
+/// so that is most saved tables. Idempotent.
+pub(crate) fn fill_plain_keys(table: &mut Vec<Binding>) {
+    if table.is_empty() {
+        return; // the shipped table is used as is
+    }
+    for d in defaults() {
+        if !on_a_plain_keyboard(d.shortcut.logical_key) || !d.shortcut.modifiers.is_none() {
+            continue;
+        }
+        let has_plain = table.iter().any(|b| {
+            b.action == d.action
+                && on_a_plain_keyboard(b.shortcut.logical_key)
+                && b.shortcut.modifiers.is_none()
+        });
+        let key_free = !table.iter().any(|b| b.shortcut == d.shortcut);
+        if !has_plain && key_free {
+            table.push(d);
+        }
+    }
+}
+
+/// Keystrokes that arrived as typed text with no key event beside them, as bindings.
+///
+/// A desktop delivers a key event for every press, and a typed character rides along with it; the
+/// key event is what shortcuts read. Some Android paths deliver the character only, so a shortcut
+/// keyed off key events never fires there. This turns a lone typed character back into the key it
+/// names, but only when no key event for that key came in the same frame, so a press that produced
+/// both is never counted twice.
+pub(crate) fn text_fallback(
+    pressed: &[egui::Key],
+    typed: &[String],
+    bindings: &[Binding],
+) -> Vec<BindableAction> {
+    let mut out = Vec::new();
+    for t in typed {
+        let mut chars = t.chars();
+        let (Some(c), None) = (chars.next(), chars.next()) else {
+            continue;
+        };
+        let Some(key) = egui::Key::from_name(&c.to_string()) else {
+            continue;
+        };
+        if pressed.contains(&key) {
+            continue;
+        }
+        for b in bindings {
+            if b.shortcut.logical_key == key && b.shortcut.modifiers.is_none() {
+                out.push(b.action);
+            }
+        }
+    }
+    out
+}
+
+/// What the last key event or typed character was, for the Hotkeys tab's "does my keyboard reach
+/// the app" line. Empty until something arrives.
+static LAST_INPUT: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+
+/// The last input recorded by [`poll`], as text.
+pub(crate) fn last_input() -> String {
+    LAST_INPUT.lock().map(|s| s.clone()).unwrap_or_default()
 }
 
 /// Would this shortcut swallow a keystroke meant for a focused text field?
 fn steals_typing(s: egui::KeyboardShortcut) -> bool {
-    s.modifiers.is_none() && s.logical_key.name().len() == 1
+    s.modifiers.is_none() && s.logical_key.symbol_or_name().chars().count() == 1
 }
 
 /// Compact shortcut text for painting on a drawer row ("Ctrl+K", "F5", "1"). egui's own
@@ -329,6 +466,18 @@ mod tests {
 
     #[test]
     fn printable_keys_yield_to_text_fields_and_modifiers_dont() {
+        // Punctuation is typed into fields too: a comma in a marker name must not tilt the radar.
+        for k in [
+            egui::Key::Comma,
+            egui::Key::Period,
+            egui::Key::Slash,
+            egui::Key::Backslash,
+        ] {
+            assert!(
+                steals_typing(egui::KeyboardShortcut::new(egui::Modifiers::NONE, k)),
+                "{k:?}"
+            );
+        }
         assert!(steals_typing(egui::KeyboardShortcut::new(
             egui::Modifiers::NONE,
             egui::Key::A
@@ -341,5 +490,138 @@ mod tests {
             egui::Modifiers::NONE,
             egui::Key::F5
         )));
+    }
+
+    #[test]
+    fn every_action_has_a_key_on_a_keyboard_with_no_function_row() {
+        let d = defaults();
+        for b in &d {
+            let reachable = d.iter().any(|o| {
+                o.action == b.action
+                    && o.shortcut.modifiers.is_none()
+                    && on_a_plain_keyboard(o.shortcut.logical_key)
+            });
+            assert!(
+                reachable,
+                "{:?} can only be reached from a key a tablet keyboard lacks ({})",
+                b.action,
+                pretty(&b.shortcut)
+            );
+        }
+    }
+
+    #[test]
+    fn the_plain_key_test_knows_what_a_cover_keyboard_lacks() {
+        use egui::Key as K;
+        for k in [
+            K::A,
+            K::Num5,
+            K::Comma,
+            K::Slash,
+            K::ArrowUp,
+            K::Home,
+            K::End,
+        ] {
+            assert!(on_a_plain_keyboard(k), "{k:?}");
+        }
+        for k in [K::PageUp, K::PageDown, K::F1, K::F11, K::Insert, K::Delete] {
+            assert!(!on_a_plain_keyboard(k), "{k:?}");
+        }
+    }
+
+    #[test]
+    fn a_table_saved_before_the_plain_keys_existed_gains_them_and_keeps_its_own_choices() {
+        use egui::Key as K;
+        let old_only: Vec<Binding> = defaults()
+            .into_iter()
+            .filter(|b| {
+                !matches!(
+                    b.shortcut.logical_key,
+                    K::Comma
+                        | K::Period
+                        | K::F
+                        | K::U
+                        | K::K
+                        | K::Slash
+                        | K::H
+                        | K::O
+                        | K::B
+                        | K::Backslash
+                )
+            })
+            .collect();
+        let mut table = old_only.clone();
+        // The user gave tilt-up their own key, and it is a plain one: it must be left alone.
+        for b in table
+            .iter_mut()
+            .filter(|b| b.action == BindableAction::TiltUp)
+        {
+            b.shortcut = egui::KeyboardShortcut::new(egui::Modifiers::NONE, K::Y);
+        }
+        fill_plain_keys(&mut table);
+        let keys_for = |a: BindableAction| -> Vec<K> {
+            table
+                .iter()
+                .filter(|b| b.action == a)
+                .map(|b| b.shortcut.logical_key)
+                .collect()
+        };
+        assert!(
+            keys_for(BindableAction::TiltDown).contains(&K::Comma),
+            "filled in"
+        );
+        assert!(keys_for(BindableAction::OpenSiteDialog).contains(&K::F));
+        assert_eq!(
+            keys_for(BindableAction::TiltUp)
+                .iter()
+                .filter(|k| **k == K::Period)
+                .count(),
+            0,
+            "tilt up already had a plain key of the user's choosing"
+        );
+        // Idempotent, and an empty table (the shipped one) is left empty.
+        let once = table.clone();
+        fill_plain_keys(&mut table);
+        assert_eq!(table, once);
+        let mut empty = Vec::new();
+        fill_plain_keys(&mut empty);
+        assert!(empty.is_empty());
+    }
+
+    #[test]
+    fn a_key_the_user_took_for_something_else_is_not_stolen_back() {
+        use egui::Key as K;
+        let mut table = vec![
+            Binding {
+                shortcut: egui::KeyboardShortcut::new(egui::Modifiers::NONE, K::Comma),
+                action: BindableAction::ToggleMute,
+            },
+            plain(K::PageDown, BindableAction::TiltDown),
+        ];
+        fill_plain_keys(&mut table);
+        assert_eq!(
+            table
+                .iter()
+                .filter(|b| b.shortcut.logical_key == K::Comma)
+                .count(),
+            1,
+            "the comma stays the user's mute key"
+        );
+    }
+
+    #[test]
+    fn a_typed_character_with_no_key_event_fires_its_binding_once() {
+        use egui::Key as K;
+        let b = defaults();
+        let tilt_up = |v: Vec<BindableAction>| v.contains(&BindableAction::TiltUp);
+        // Character only: fires.
+        assert!(tilt_up(text_fallback(&[], &[".".into()], &b)));
+        // The key event came too: the normal path owns it, so no second fire.
+        assert!(!tilt_up(text_fallback(&[K::Period], &[".".into()], &b)));
+        // Pasted or IME text is not a keystroke, and unknown characters do nothing.
+        assert!(text_fallback(&[], &["hello".into()], &b).is_empty());
+        assert!(text_fallback(&[], &["\u{e9}".into()], &b).is_empty());
+        // Upper case (Caps Lock) names the same key.
+        assert!(text_fallback(&[], &["N".into()], &b).contains(&BindableAction::ProductNext));
     }
 }

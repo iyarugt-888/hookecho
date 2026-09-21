@@ -7,6 +7,35 @@
 use glam::{Mat4, Vec3, Vec4};
 use std::f64::consts::PI;
 
+/// How far past the map's centre, in multiples of the camera's distance to it, a point may be in a
+/// pitched view before overlays stop drawing it (`f32` bits; 0 means never). Process-wide because the
+/// camera is a plain value passed everywhere and the setting is the user's, not the pane's; the app
+/// sets it once a frame from settings.
+static FAR_CULL: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// Hide overlay items (markers, labels, reports) beyond `factor` times the camera's distance to the
+/// map centre in a pitched view, or `None` to draw them all. Near the horizon the ground is
+/// compressed into a sliver, so every far marker piles onto it and reads as clutter floating in the
+/// sky. The map itself, radar and tiles are untouched: they are drawn by the GPU, not through
+/// [`Camera::world_to_screen`].
+pub fn set_far_cull(factor: Option<f32>) {
+    let bits = factor
+        .filter(|f| f.is_finite() && *f > 0.0)
+        .unwrap_or(0.0)
+        .to_bits();
+    FAR_CULL.store(bits, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn far_cull() -> f32 {
+    f32::from_bits(FAR_CULL.load(std::sync::atomic::Ordering::Relaxed))
+}
+
+/// Whether a point at view depth `depth` is too far to draw, for a camera `distance` from the map
+/// centre and a cull `factor` (0 = off).
+fn is_too_far(depth: f32, distance: f32, factor: f32) -> bool {
+    factor > 0.0 && depth > distance * factor
+}
+
 /// Max latitude representable in web mercator (where y would go to infinity).
 pub const MAX_LAT: f64 = 85.05112878;
 
@@ -192,6 +221,13 @@ impl Camera {
             if p.w <= f32::EPSILON {
                 return (-1.0e6, -1.0e6);
             }
+            let factor = far_cull();
+            if factor > 0.0 {
+                let distance = viewport_px.1.max(1.0) * 0.5 / (45f32.to_radians() * 0.5).tan();
+                if is_too_far(p.w, distance, factor) {
+                    return (-1.0e6, -1.0e6);
+                }
+            }
             let ndc = p.truncate() / p.w;
             return (
                 (ndc.x + 1.0) * viewport_px.0 * 0.5,
@@ -271,6 +307,28 @@ fn wrapped_delta(x: f64, center: f64) -> f64 {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    #[test]
+    fn far_items_are_hidden_only_past_the_factor_and_never_when_off() {
+        let distance = 1000.0;
+        assert!(
+            !is_too_far(1000.0, distance, 2.5),
+            "the map centre is never far"
+        );
+        assert!(
+            !is_too_far(2500.0, distance, 2.5),
+            "exactly at the limit still draws"
+        );
+        assert!(is_too_far(2501.0, distance, 2.5));
+        assert!(
+            !is_too_far(1.0e9, distance, 0.0),
+            "a factor of zero turns it off"
+        );
+        // A tighter setting hides what a looser one keeps.
+        assert!(is_too_far(2000.0, distance, 1.5));
+        assert!(!is_too_far(2000.0, distance, 2.5));
+    }
 
     #[test]
     fn the_map_cannot_be_pushed_off_the_top_of_the_screen() {
@@ -326,7 +384,6 @@ mod tests {
             c.center.0
         );
     }
-    use super::*;
 
     #[test]
     fn lonlat_world_roundtrip() {
