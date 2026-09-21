@@ -60,6 +60,7 @@ pub mod hotkeys;
 pub mod icon;
 pub mod labelplace;
 pub mod loopexport;
+pub mod model_browser;
 /// MQTT publishing for home automation; native only (no TCP socket in a browser).
 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 pub mod mqtt;

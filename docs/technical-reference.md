@@ -118,8 +118,8 @@ back to UTC if you'd rather work in Zulu.
 
 Every expert control is still there, in the panel's **Layer options** section,
 which shows a layer's settings only once that layer is on — so the forecast-hour
-slider appears when you turn on future radar, and stays out of the way when you
-haven't.
+lead slider appears when you turn on a model forecast, and stays out of the way
+when you haven't.
 
 Search a place in the panel and it flies there, with a **Save marker** button
 if you want to keep it. Markers are what the warning, lightning and rain-arrival
@@ -191,13 +191,20 @@ force at that moment.
 
 ### Looking ahead
 
-HRRR future radar rides the timeline's forecast tail, so scrubbing past the
-present keeps going into the model. It is labeled the whole time it is on —
-model output should never be mistaken for something a radar actually saw.
+A model's forecast reflectivity rides the timeline's forecast tail, so scrubbing
+past the present keeps going into the model (the HRRR by default). It is labeled
+the whole time it is on — model output should never be mistaken for something a
+radar actually saw.
+
+Models are one control: pick a **model** (HRRR, HRRR 15-min, RAP, NAM 3 km, NAM
+12 km, NBM, GFS, ECMWF, GEFS mean, GDPS), then a **product** it publishes
+(reflectivity, CAPE, helicity, rotation tracks, and so on), then a **lead**. Only
+products a model really publishes are offered, and each shows the run it came
+from and how fresh it is.
 
 ![HRRR future radar one hour out, with a banner marking it as model output](shots/hrrr.jpg)
 
-<sub>**HRRR future radar, +1 h.** The banner stays up for as long as the layer is
+<sub>**HRRR forecast reflectivity, +1 h.** The banner stays up for as long as the layer is
 on: forecast, not observed.</sub>
 
 Any point on the map gives you the plain NWS forecast for that spot, and the WPC
@@ -294,7 +301,8 @@ layer draws its own scale and units.
   gets that morning's real balloon, back to 1973).
 - The VAD wind-profile hodograph, plus a time-height panel of wind barbs
   accumulated while the app runs, since the radar only publishes the latest.
-- HRRR future radar (0–18 h), forecast rotation tracks, near-surface wildfire
+- Forecast reflectivity from the HRRR, HRRR 15-minute, RAP and NAM (HRRR out to
+  18 h), forecast rotation tracks, near-surface wildfire
   smoke, and 0–45 minute optical-flow extrapolation of the radar you're watching.
 - A **model difference layer**: GFS minus ECMWF (MSLP, 500 hPa height, 2 m
   temperature, 10 m wind) and HRRR minus RAP (surface CAPE, storm-relative

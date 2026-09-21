@@ -441,13 +441,12 @@ enum OverlaySource {
     ProbSevere,
     /// WPC coded surface analysis (fronts + pressure centers).
     Fronts,
-    /// HRRR composite-reflectivity forecast for a forecast hour (0..=18).
-    Hrrr(u8),
+    /// Forecast reflectivity from a regional model at a whole forecast hour.
+    Hrrr(wxdata::hrrr::Model, u8),
     /// HRRR sub-hourly (`wrfsubhf`) composite reflectivity, forecast lead in minutes (15..=1080).
     HrrrSub(u16),
-    /// Environment field (CAPE/SRH) at f00 from `model`; `ml` = mixed-layer CAPE, `srh_km` = SRH
-    /// depth. RAP makes it an observed analysis rather than an HRRR forecast at hour zero.
-    Env(crate::render::FieldLayer, wxdata::hrrr::Model, bool, u8),
+    /// CAPE or SRH from a regional model: `(layer, model, mixed-layer parcel, SRH depth km, hour)`.
+    Env(crate::render::FieldLayer, wxdata::hrrr::Model, bool, u8, u8),
     /// HRRR-backed field layer (rotation tracks, smoke) at a forecast hour.
     HrrrLayer(crate::render::FieldLayer, u8),
     /// A global-model field (GFS or ECMWF) at a forecast hour.
@@ -1122,8 +1121,19 @@ impl OverlaySource {
             OverlaySource::ProbSevere => {
                 OverlayMsg::ProbSevere(wxdata::probsevere::fetch_probsevere(http).await?)
             }
-            OverlaySource::Hrrr(fh) => {
-                OverlayMsg::Hrrr(wxdata::hrrr::fetch_forecast(http, fh).await?)
+            OverlaySource::Hrrr(model, fh) => {
+                use wxdata::model::ModelField;
+                // The GRIB spelling comes from the model catalogue, so RAP and the NAMs (whose
+                // reflectivity level is spelled differently) use the same path as the HRRR.
+                let key = ModelField::CompositeReflectivity
+                    .grib(model)
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("{} does not publish reflectivity", model.label())
+                    })?;
+                OverlayMsg::Hrrr(
+                    wxdata::hrrr::fetch_field(http, model, key.var, key.level, fh, key.min_valid)
+                        .await?,
+                )
             }
             OverlaySource::HrrrSub(mins) => {
                 OverlayMsg::Hrrr(wxdata::hrrr::fetch_forecast_subhourly(http, mins).await?)
@@ -1194,7 +1204,7 @@ impl OverlaySource {
                     )?,
                 )
             }
-            OverlaySource::Env(layer, model, ml, srh_km) => {
+            OverlaySource::Env(layer, model, ml, srh_km, fh) => {
                 use crate::render::FieldLayer as FL;
                 use wxdata::model::ModelField;
                 // Phase F1: the GRIB spelling is the model catalogue's business, not this
@@ -1213,7 +1223,7 @@ impl OverlaySource {
                 })?;
                 let (var, level) = (key.var, key.level);
                 let fc =
-                    wxdata::hrrr::fetch_field(http, model, var, level, 0, key.min_valid).await?;
+                    wxdata::hrrr::fetch_field(http, model, var, level, fh, key.min_valid).await?;
                 let valid = fc.valid();
                 OverlayMsg::StampedField(
                     layer,
@@ -2131,6 +2141,16 @@ pub(crate) enum PaletteAction {
     /// ROADMAP_NEW F6/J4 swipe: A left, B right, with a draggable divider.
     ToggleCompareSwipe,
     ToggleField(crate::render::FieldLayer),
+    /// Model browser: pick a model, keeping the current product when that model has it.
+    SetModel(crate::model_browser::BModel),
+    /// Model browser: pick a product and show it, moving to a model that has it if needed.
+    SetModelProduct(crate::model_browser::Product),
+    /// Model browser, a layers-list row: show this product, or clear it if it is showing.
+    ToggleModelProduct(crate::model_browser::Product),
+    /// Model browser: scrub the forecast to this lead, in minutes.
+    SetModelLead(u16),
+    /// Model browser: step the lead by this many of the model's own steps.
+    StepModelLead(i8),
     ToggleOverlay(OverlayToggle),
     SetContours(ContourKind),
     Tool(MapTool),
@@ -3543,7 +3563,8 @@ pub struct HookEchoApp {
     cappi_alt_km: f32,
     cappi_tex: Option<egui::TextureHandle>,
     cappi_key: Option<(String, u32)>,
-    /// HRRR "future radar": selected forecast hour, last-fetched hour, run/valid times, clock.
+    /// Forecast reflectivity (any regional model): selected forecast hour, last-fetched hour,
+    /// run/valid times, clock.
     hrrr_fcst_hour: u8,
     hrrr_fetched_hour: Option<u8>,
     hrrr_run: Option<DateTime<Utc>>,
@@ -3556,6 +3577,16 @@ pub struct HookEchoApp {
     hrrr_fetched_min: Option<u16>,
     /// True while the HRRR layer is being driven by a forecast-tail scrub (vs. the manual toggle).
     hrrr_by_timeline: bool,
+    /// The model browser's choice: which model, and which of its products (ROADMAP_NEW F-series).
+    /// The layers it puts on the map are the renderer's existing field layers; the fields below
+    /// are the per-engine state those layers already read.
+    model_sel: crate::model_browser::Selection,
+    /// Which regional model the forecast-reflectivity layer reads.
+    refl_model: wxdata::hrrr::Model,
+    /// The model the reflectivity texture was last fetched from, so switching model refetches.
+    hrrr_fetched_model: Option<wxdata::hrrr::Model>,
+    /// The `(model, hour)` each environment layer (CAPE, SRH) was last fetched for.
+    env_fetch_key: std::collections::HashMap<crate::render::FieldLayer, (wxdata::hrrr::Model, u8)>,
     /// Tray-menu command channel (Linux StatusNotifier); `None` if no tray host is available.
     tray_rx: std::sync::mpsc::Receiver<crate::tray::TrayCmd>,
     /// Last state pushed to the tray, so an unchanged frame sends nothing.
@@ -4875,6 +4906,10 @@ impl HookEchoApp {
             hrrr_fcst_min: 15,
             hrrr_fetched_min: None,
             hrrr_by_timeline: false,
+            model_sel: crate::model_browser::Selection::default(),
+            refl_model: wxdata::hrrr::Model::Hrrr,
+            hrrr_fetched_model: None,
+            env_fetch_key: std::collections::HashMap::new(),
             tray_rx: tray_rx_init,
             tray_state: crate::tray::TrayState::default(),
             tray_present: tray_present_init,
@@ -5085,6 +5120,10 @@ impl HookEchoApp {
             // Whatever the outcome, the overlay set now differs from the one the constructor built,
             // so the derived features have to be rebuilt from it once.
             app.rebuild_overlays();
+        }
+        if let Some(sel) = crate::model_browser::Selection::from_slug(&app.settings.model_pick) {
+            app.model_sel = sel;
+            app.apply_model_engine(sel);
         }
         app.palettes.reload(&app.settings.palette_paths());
         app.reload_imported_gis();
@@ -6748,7 +6787,95 @@ impl HookEchoApp {
         }
     }
 
-    /// Drive the HRRR "future radar" layer from the active pane's timeline: scrubbing into the
+    /// Name of the source the forecast-reflectivity layer is drawing, for stamps and the banner.
+    fn refl_source_label(&self) -> String {
+        if self.hrrr_subhourly {
+            crate::model_browser::BModel::Hrrr15.label().into()
+        } else {
+            self.refl_model.label().into()
+        }
+    }
+
+    /// The forecast lead the model browser is scrubbed to, in minutes. Which clock that reads
+    /// depends on the model: regional models share the HRRR-hour clock, the 15-minute product has
+    /// its own, and global models read the global forecast hour.
+    pub(crate) fn model_lead_min(&self) -> u16 {
+        use crate::model_browser::Engine;
+        match self.model_sel.model.engine() {
+            Engine::Sub15 => self.hrrr_fcst_min,
+            Engine::Regional(_) => u16::from(self.hrrr_fcst_hour) * 60,
+            Engine::Global(_) => self.global_fcst_hour * 60,
+        }
+    }
+
+    /// Scrub the selected model to `minutes`, snapped to that model's own range and steps.
+    fn set_model_lead_min(&mut self, minutes: u16) {
+        use crate::model_browser::Engine;
+        let m = self.model_sel.model.leads().clamp(minutes);
+        match self.model_sel.model.engine() {
+            Engine::Sub15 => {
+                self.hrrr_fcst_min = m;
+                self.hrrr_fcst_hour = (m / 60).min(u16::from(u8::MAX)) as u8;
+            }
+            Engine::Regional(_) => {
+                self.hrrr_fcst_hour = (m / 60).min(u16::from(u8::MAX)) as u8;
+                // Keep the 15-minute lead in step so switching to it lands on the same time.
+                self.hrrr_fcst_min = m.max(15);
+            }
+            Engine::Global(_) => self.global_fcst_hour = m / 60,
+        }
+    }
+
+    /// Point each engine's state at `sel` without touching what is on the map.
+    fn apply_model_engine(&mut self, sel: crate::model_browser::Selection) {
+        use crate::model_browser::{Engine, Product};
+        match (sel.model.engine(), sel.product) {
+            (Engine::Sub15, _) => {
+                self.refl_model = wxdata::hrrr::Model::Hrrr;
+                self.hrrr_subhourly = true;
+            }
+            (Engine::Regional(model), Product::Reflectivity) => {
+                self.refl_model = model;
+                self.hrrr_subhourly = false;
+            }
+            (Engine::Regional(model), Product::Cape | Product::Srh) => {
+                self.env_model = model;
+                // STP needs an LCL height that only the HRRR surface file carries; a source
+                // without it cannot keep those contours.
+                if !crate::ui::layer_options::stp_source(model) {
+                    self.active_contours.remove(&ContourKind::Stp);
+                    self.active_contours.remove(&ContourKind::StpEff);
+                }
+            }
+            // Rotation tracks, snowfall, smoke and thunder chance are each tied to one model.
+            (Engine::Regional(_), _) => {}
+            (Engine::Global(model), _) => self.global_model = model,
+        }
+    }
+
+    /// Make `next` the model browser's choice: engine state, lead, and what shows on the map.
+    /// `swap` replaces the previous choice's layer (a chip click); otherwise it only adds.
+    fn commit_model_selection(&mut self, next: crate::model_browser::Selection, swap: bool) {
+        let prev = self.model_sel;
+        // The lead is a time, not a model's own number: carry it across and let the new model
+        // snap it to its own range.
+        let lead = self.model_lead_min();
+        self.model_sel = next;
+        self.apply_model_engine(next);
+        self.set_model_lead_min(lead);
+        let fields = &mut self.views[self.active].fields_on;
+        if swap && prev.layer() != next.layer() {
+            fields.remove(&prev.layer());
+        }
+        fields.insert(next.layer());
+        let slug = next.slug();
+        if self.settings.model_pick != slug {
+            self.settings.model_pick = slug;
+            self.settings.save();
+        }
+    }
+
+    /// Drive the forecast-reflectivity layer from the active pane's timeline: scrubbing into the
     /// forecast tail enables HRRR at that forecast hour (and suppresses the observed radar for the
     /// scrubbed pane, done at draw time); scrubbing back to observed frames turns it off again.
     fn sync_forecast_scrub(&mut self) {
@@ -6761,6 +6888,18 @@ impl HookEchoApp {
                 self.hrrr_fcst_min = u16::from(h) * 60;
                 self.views[self.active].fields_on.insert(FL::Hrrr);
                 self.hrrr_by_timeline = true;
+                // The browser follows what the scrub put on the map.
+                let scrubbed = crate::model_browser::Selection {
+                    model: if self.hrrr_subhourly {
+                        crate::model_browser::BModel::Hrrr15
+                    } else {
+                        crate::model_browser::BModel::from_regional(self.refl_model)
+                    },
+                    product: crate::model_browser::Product::Reflectivity,
+                };
+                if self.model_sel != scrubbed {
+                    self.model_sel = scrubbed;
+                }
             }
             None => {
                 if self.hrrr_by_timeline {
@@ -8004,7 +8143,7 @@ impl HookEchoApp {
         }
         use crate::render::FieldLayer as FL;
         match layer {
-            FL::Hrrr => "HRRR".into(),
+            FL::Hrrr => self.refl_source_label(),
             FL::Mosaic => "Multi-radar mosaic".into(),
             FL::CompositeLocal
             | FL::VilLocal
@@ -9885,6 +10024,31 @@ impl HookEchoApp {
                     }
                 }
             }
+            PaletteAction::SetModel(model) => {
+                let next = self.model_sel.with_model(model);
+                self.commit_model_selection(next, true);
+            }
+            PaletteAction::SetModelProduct(product) => {
+                let next = self.model_sel.with_product(product);
+                self.commit_model_selection(next, true);
+            }
+            PaletteAction::ToggleModelProduct(product) => {
+                let layer = product.layer();
+                if self.views[self.active].fields_on.contains(&layer) {
+                    self.set_field(layer, false);
+                } else {
+                    let next = self.model_sel.with_product(product);
+                    // A row adds its layer without displacing others: HRRR reflectivity under
+                    // GFS pressure contours is a normal thing to want.
+                    self.commit_model_selection(next, false);
+                }
+            }
+            PaletteAction::SetModelLead(minutes) => self.set_model_lead_min(minutes),
+            PaletteAction::StepModelLead(steps) => {
+                let step = i32::from(self.model_sel.model.leads().step);
+                let target = i32::from(self.model_lead_min()) + i32::from(steps) * step;
+                self.set_model_lead_min(target.clamp(0, i32::from(u16::MAX)) as u16);
+            }
             PaletteAction::ToggleField(layer) => {
                 // The active pane's choice, not the app's: that is what makes two panes able to
                 // show two fields.
@@ -10487,9 +10651,18 @@ impl HookEchoApp {
                     let run = fc.run;
                     let valid = fc.valid();
                     let upload = self.field_upload(FieldLayer::Hrrr, &fc.field);
+                    let source = self.refl_source_label();
+                    let stamp = field_state::model_stamp(
+                        &source,
+                        "Composite reflectivity",
+                        &fc.field,
+                        Some(run),
+                        false,
+                    );
                     if let Some(s) = self.fields.get_mut(&FieldLayer::Hrrr) {
                         s.pending = Some(upload);
                         s.grid = Some(fc.field);
+                        s.stamp = Some(stamp);
                     }
                     self.hrrr_run = Some(run);
                     self.hrrr_valid = Some(valid);
@@ -16013,8 +16186,8 @@ impl HookEchoApp {
                 if idx == self.active {
                     let text = if lead > 45 {
                         format!(
-                            "\u{25c8} NOWCAST +{lead} min \u{2014} extrapolation only; try HRRR \
-                             future radar for an hour or more"
+                            "\u{25c8} NOWCAST +{lead} min \u{2014} extrapolation only; try a \
+                             model's reflectivity forecast for an hour or more"
                         )
                     } else {
                         format!(
@@ -17168,25 +17341,21 @@ impl HookEchoApp {
             }
         }
 
-        // HRRR "future radar" banner — unmistakable that this is model forecast, not observation.
+        // Forecast-reflectivity banner — unmistakable that this is model forecast, not observation.
         if idx == self.active && view.fields_on.contains(&crate::render::FieldLayer::Hrrr) {
             let valid = self
                 .hrrr_valid
                 .map(|v| crate::timefmt::fmt_date_clock(v, self.active_tz()))
                 .unwrap_or_else(|| "loading…".to_string());
-            let lead = if self.hrrr_subhourly {
-                let t = self.hrrr_fcst_min;
-                if t < 60 {
-                    format!("+{t}min")
-                } else if t.is_multiple_of(60) {
-                    format!("+{}h", t / 60)
-                } else {
-                    format!("+{}h{:02}min", t / 60, t % 60)
-                }
+            let lead_min = if self.hrrr_subhourly {
+                self.hrrr_fcst_min
             } else {
-                format!("+{}h", self.hrrr_fcst_hour)
+                u16::from(self.hrrr_fcst_hour) * 60
             };
-            let text = format!("⚠ FORECAST {lead} — HRRR MODEL, NOT OBSERVED — valid {valid}");
+            let lead = crate::model_browser::format_lead(lead_min);
+            let lead = lead.trim_start_matches('F');
+            let model = self.refl_source_label().to_uppercase();
+            let text = format!("⚠ FORECAST {lead} — {model} MODEL, NOT OBSERVED — valid {valid}");
             let font = egui::FontId::proportional(13.0);
             let pad = egui::vec2(10.0, 4.0);
             // On a phone the sentence is wider than the screen ("...valid Sep 20, 6:" ran off the
@@ -20932,20 +21101,30 @@ impl eframe::App for HookEchoApp {
                 self.spawn_overlay(ctx, OverlaySource::Ndfd(layer));
             }
         }
-        // Environment suite (HRRR CAPE/SRH): fetch each enabled layer at f00, refresh ~15 min.
+        // Environment suite (CAPE/SRH): the model browser's model at the scrubbed forecast hour.
+        // Changing the model or the hour refetches now rather than on the slow cadence.
         for layer in [FL::Cape, FL::Srh] {
+            let key = (self.env_model, self.hrrr_fcst_hour);
+            let changed = self.field_wanted(layer) && self.env_fetch_key.get(&layer) != Some(&key);
             let stale = self.field_wanted(layer)
                 && self.fields.get(&layer).is_none_or(|s| {
                     s.last_fetch
                         .is_none_or(|t| t.elapsed().as_secs() >= field_refresh_secs(layer))
                 });
-            if stale {
+            if stale || changed {
                 if let Some(s) = self.fields.get_mut(&layer) {
                     s.last_fetch = Some(Instant::now());
                 }
+                self.env_fetch_key.insert(layer, key);
                 self.spawn_overlay(
                     ctx,
-                    OverlaySource::Env(layer, self.env_model, self.env_cape_ml, self.env_srh_km),
+                    OverlaySource::Env(
+                        layer,
+                        self.env_model,
+                        self.env_cape_ml,
+                        self.env_srh_km,
+                        self.hrrr_fcst_hour,
+                    ),
                 );
             }
         }
@@ -21363,7 +21542,7 @@ impl eframe::App for HookEchoApp {
         {
             self.l3grid_site = l3_site;
         }
-        // HRRR future radar: fetch when enabled and the forecast hour changed or the run refreshed
+        // Forecast reflectivity: fetch when enabled and the model, forecast hour or run changed
         // (~10-min throttle; a new run posts hourly).
         let hrrr_on = self.field_wanted(FL::Hrrr);
         if hrrr_on {
@@ -21373,18 +21552,20 @@ impl eframe::App for HookEchoApp {
             // Sub-hourly and hourly are the same layer on one lane; the selected lead is the
             // 15-minute value in sub-hourly mode and the whole-hour value otherwise. Switching
             // modes counts as a change so the tail refetches at the new resolution.
+            let model_changed = self.hrrr_fetched_model != Some(self.refl_model);
             let (changed, source) = if self.hrrr_subhourly {
                 (
-                    self.hrrr_fetched_min != Some(self.hrrr_fcst_min),
+                    model_changed || self.hrrr_fetched_min != Some(self.hrrr_fcst_min),
                     OverlaySource::HrrrSub(self.hrrr_fcst_min),
                 )
             } else {
                 (
-                    self.hrrr_fetched_hour != Some(self.hrrr_fcst_hour),
-                    OverlaySource::Hrrr(self.hrrr_fcst_hour),
+                    model_changed || self.hrrr_fetched_hour != Some(self.hrrr_fcst_hour),
+                    OverlaySource::Hrrr(self.refl_model, self.hrrr_fcst_hour),
                 )
             };
             if changed || stale {
+                self.hrrr_fetched_model = Some(self.refl_model);
                 self.hrrr_fetched_hour = Some(self.hrrr_fcst_hour);
                 self.hrrr_fetched_min = Some(self.hrrr_fcst_min);
                 self.hrrr_last_fetch = Some(Instant::now());

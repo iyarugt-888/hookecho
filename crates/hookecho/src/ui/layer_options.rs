@@ -52,7 +52,7 @@ pub struct ChasePackUi {
 
 /// Can STP be computed from this source? It needs an LCL height, which only the HRRR surface
 /// file publishes — the RAP analysis and the NAM nest both leave it out.
-fn stp_source(model: wxdata::hrrr::Model) -> bool {
+pub(crate) fn stp_source(model: wxdata::hrrr::Model) -> bool {
     matches!(model, wxdata::hrrr::Model::Hrrr)
 }
 
@@ -84,8 +84,6 @@ pub(crate) fn show(
     time_tolerance: chrono::Duration,
     rotation_minutes: &mut u16,
     hail_minutes: &mut u16,
-    hrrr_fcst_hour: &mut u8,
-    hrrr_valid: Option<chrono::DateTime<chrono::Utc>>,
     tz: Option<wxdata::tz::Tz>,
     env_cape_ml: &mut bool,
     env_srh_km: &mut u8,
@@ -98,7 +96,8 @@ pub(crate) fn show(
     tropical_surge: &mut bool,
     l3grid_site: Option<&str>,
     // Global models: which one, and how far into its run.
-    global_model: &mut wxdata::global::GlobalModel,
+    // Model browser: the current pick, lead and provenance (see `ui::model_panel`).
+    model: &crate::ui::model_panel::Input,
     global_fcst_hour: &mut u16,
     // Model difference: selected field, shared valid time, and both source runs.
     diff_field: &mut crate::fielddiff::DiffField,
@@ -176,23 +175,14 @@ pub(crate) fn show(
         });
     }
 
-    let global_on = [
-        FL::GlobalMslp,
-        FL::GlobalHeight500,
-        FL::GlobalTemp2m,
-        FL::GlobalDewpoint2m,
-        FL::GlobalWind10m,
-        FL::GlobalPrecip,
-    ]
-    .iter()
-    .any(|l| on.contains(l));
+    let model_on = crate::model_browser::model_layers().any(|l| on.contains(&l));
     let sections = [
         ("Storm cells", filters.show_cells),
         ("Alerts", filters.show_alerts),
         ("Tropical", *show_tropical),
         ("Outlooks", true),
         ("Environment", true),
-        ("Global forecast", global_on),
+        ("Model forecast", model_on),
         (
             "Model comparison",
             on.contains(&FL::ModelDiff) || on.contains(&FL::CompareA) || on.contains(&FL::CompareB),
@@ -219,7 +209,6 @@ pub(crate) fn show(
         ("Rotation tracks", on.contains(&FL::Rotation)),
         ("Hail swaths", on.contains(&FL::HailSwath)),
         ("Radar mosaic", on.contains(&FL::Mosaic)),
-        ("Future radar", on.contains(&FL::Hrrr)),
         ("Nowcast", filters.show_nowcast),
         ("Max/min trail", filters.show_trail),
         ("Snowfall", on.contains(&FL::SnowAnalysis)),
@@ -257,29 +246,17 @@ pub(crate) fn show(
         .on_hover_text("Choose a layer to adjust");
     ui.ctx().data_mut(|d| d.insert_temp(id, section));
     ui.add_space(4.0);
-    if section == "Global forecast" && global_on {
-        ui.horizontal(|ui| {
-            ui.label("Global model:");
-            for m in [
-                wxdata::global::GlobalModel::Gfs,
-                wxdata::global::GlobalModel::Ecmwf,
-                wxdata::global::GlobalModel::Gefs,
-                wxdata::global::GlobalModel::Gdps,
-            ] {
-                changed |= ui.selectable_value(global_model, m, m.label()).changed();
-            }
-        });
-        ui.horizontal(|ui| {
-            ui.label("Forecast hour:");
-            changed |= ui
-                .add(
-                    egui::Slider::new(global_fcst_hour, 0..=120)
-                        .step_by(3.0)
-                        .suffix(" h"),
-                )
-                .on_hover_text("Three-hourly out to five days, from the newest complete cycle")
-                .changed();
-        });
+    if section == "Model forecast" && model_on {
+        changed |= crate::ui::model_panel::show(
+            ui,
+            model,
+            on,
+            tz,
+            env_cape_ml,
+            env_srh_km,
+            fields,
+            actions,
+        );
     }
 
     let showing_compare = on.contains(&FL::CompareA) || on.contains(&FL::CompareB);
@@ -640,43 +617,10 @@ pub(crate) fn show(
         // Where the environment fields and contours come from. RAP f00 is an analysis of what the
         // atmosphere is doing now (assimilated obs, 13 km) rather than an HRRR forecast at hour zero —
         // the thing people mean by "mesoanalysis". Labelled honestly, coarser grid and all.
-        let env_before = *env_model;
-        ui.label("Model");
-        egui::ComboBox::from_id_salt("environment_model")
-            .width(ui.available_width() - 8.0)
-            .selected_text(env_model.label())
-            .show_ui(ui, |ui| {
-                ui.selectable_value(env_model, wxdata::hrrr::Model::Hrrr, "HRRR 3 km")
-                    .on_hover_text("HRRR forecast model, 3 km grid (analysis at F+0)");
-                ui.selectable_value(env_model, wxdata::hrrr::Model::Rap, "RAP analysis")
-            .on_hover_text(
-                "RAP f00 observed analysis, 13 km grid — coarser, but what is, not what's forecast",
-            );
-                ui.selectable_value(env_model, wxdata::hrrr::Model::NamNest, "NAM 3 km nest")
-            .on_hover_text(
-                "The NAM's 3 km CONUS nest — a second convection-allowing opinion on its own \
-                 dynamical core, run every six hours",
-            );
-                ui.selectable_value(env_model, wxdata::hrrr::Model::Nam, "NAM 12 km")
-            .on_hover_text(
-                "The NAM's own parent 12 km CONUS grid — coarser than the nest it's downscaled \
-                 from, but a third independent dynamical core and cycle",
-            );
-            });
-        if *env_model != env_before {
-            // Both sources feed CAPE/SRH and the contours; drop their clocks so the next frame refetches.
-            for l in [FL::Cape, FL::Srh] {
-                if let Some(s) = fields.get_mut(&l) {
-                    s.last_fetch = None;
-                }
-            }
-            // STP needs an LCL height the RAP file doesn't carry (see wxdata::severe::fetch_grid).
-            if !stp_source(*env_model) {
-                active_contours.remove(&crate::app::ContourKind::Stp);
-                active_contours.remove(&crate::app::ContourKind::StpEff);
-            }
-            changed = true;
-        }
+        ui.weak(format!(
+            "Model: {} \u{2014} pick it under Model forecast",
+            env_model.label()
+        ));
 
         // Model contours (isolines) — MSLP / 2 m temp / dewpoint / SB-CAPE / 0-3 km SRH / … .
         // Several can be on at once (e.g. MSLP and CAPE together), so this is a checklist rather
@@ -765,54 +709,6 @@ pub(crate) fn show(
         }
     }
 
-    if section == "Future radar" && on.contains(&FL::Hrrr) {
-        header(ui, "Future radar");
-        ui.add(egui::Slider::new(hrrr_fcst_hour, 0..=18).text("F+ hr"));
-        match hrrr_valid {
-            Some(v) => {
-                ui.colored_label(
-                    egui::Color32::from_rgb(255, 170, 60),
-                    format!(
-                        "FORECAST +{}h — valid {}",
-                        hrrr_fcst_hour,
-                        crate::timefmt::fmt_date_clock(v, tz)
-                    ),
-                );
-            }
-            None => {
-                ui.weak("loading forecast…");
-            }
-        }
-    }
-
-    if section == "Environment" && on.contains(&FL::Cape) {
-        header(ui, "CAPE");
-        ui.horizontal(|ui| {
-            ui.label("Parcel:");
-            let mut c = ui.selectable_value(env_cape_ml, false, "SB").changed();
-            c |= ui.selectable_value(env_cape_ml, true, "ML").changed();
-            if c {
-                if let Some(s) = fields.get_mut(&FL::Cape) {
-                    s.last_fetch = None;
-                }
-            }
-        });
-    }
-
-    if section == "Environment" && on.contains(&FL::Srh) {
-        header(ui, "Storm-relative helicity");
-        ui.horizontal(|ui| {
-            ui.label("Depth:");
-            let mut c = ui.selectable_value(env_srh_km, 1u8, "0–1 km").changed();
-            c |= ui.selectable_value(env_srh_km, 3u8, "0–3 km").changed();
-            if c {
-                if let Some(s) = fields.get_mut(&FL::Srh) {
-                    s.last_fetch = None;
-                }
-            }
-        });
-    }
-
     if section == "Storm cells" && filters.show_cells {
         header(ui, "Storm cells");
         crate::ui::style::toggle(ui, &mut filters.show_tracks, "Forecast tracks")
@@ -864,8 +760,8 @@ pub(crate) fn show(
         if filters.nowcast_lead_min > 45 {
             ui.small(
                 "Past 45 minutes this is extrapolation, not forecasting — it moves the echo \
-                 that exists and cannot grow or decay it. HRRR future radar is the model \
-                 answer for an hour or more.",
+                 that exists and cannot grow or decay it. A model's reflectivity forecast is \
+                 the answer for an hour or more.",
             );
         }
     }

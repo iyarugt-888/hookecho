@@ -262,6 +262,11 @@ impl HookEchoApp {
             PaletteAction::SetContours(k) if k != ContourKind::Off => {
                 RequestLane::Feed(FeedSource::ModelContours)
             }
+            PaletteAction::ToggleModelProduct(product)
+                if field_layer_is_health_tracked(product.layer()) =>
+            {
+                RequestLane::Field(product.layer())
+            }
             PaletteAction::ToggleField(layer) if field_layer_is_health_tracked(layer) => {
                 // Compare's one fetch feeds both layers at once and is filed under CompareA
                 // (see `OverlaySource::Compare`'s own `lane()`); ask for that lane regardless of
@@ -521,14 +526,6 @@ impl HookEchoApp {
                 false,
             ),
             (
-                FL::ThunderProb,
-                "Models",
-                "Chance of thunder (NBM)",
-                "The National Blend's calibrated probability of a thunderstorm in the hour you \
-                 have scrubbed to — a forecast, not a detection",
-                false,
-            ),
-            (
                 FL::SnowBands,
                 "National",
                 "Snow bands",
@@ -607,48 +604,6 @@ impl HookEchoApp {
                 false,
             ),
             (
-                FL::GlobalMslp,
-                "Models",
-                "Surface pressure (MSLP)",
-                "Surface pressure worldwide — GFS or ECMWF, your pick in Layer options",
-                false,
-            ),
-            (
-                FL::GlobalHeight500,
-                "Models",
-                "Upper-level pattern (500 hPa height)",
-                "The steering flow: where the troughs and ridges are, worldwide",
-                false,
-            ),
-            (
-                FL::GlobalTemp2m,
-                "Models",
-                "Surface temperature (2 m)",
-                "Surface temperature worldwide",
-                false,
-            ),
-            (
-                FL::GlobalDewpoint2m,
-                "Models",
-                "Surface dewpoint (2 m)",
-                "How much moisture the air is carrying, worldwide",
-                false,
-            ),
-            (
-                FL::GlobalWind10m,
-                "Models",
-                "Surface wind (10 m)",
-                "Surface wind worldwide",
-                false,
-            ),
-            (
-                FL::GlobalPrecip,
-                "Models",
-                "Moisture in the air column",
-                "Precipitable water (GFS) or total precipitation (ECMWF)",
-                false,
-            ),
-            (
                 FL::NdfdTemp2m,
                 "Models",
                 "NDFD temperature (2 m)",
@@ -705,52 +660,10 @@ impl HookEchoApp {
                 false,
             ),
             (
-                FL::Hrrr,
-                "Models",
-                "HRRR future radar",
-                "Forecast radar picture for the next 18 hours (not observed)",
-                true,
-            ),
-            (
-                FL::UpdraftHelicity,
-                "Models",
-                "Future rotation tracks",
-                "Where storms are forecast to rotate \u{2014} scrub the timeline to extend the swath",
-                true,
-            ),
-            (
                 FL::SnowAnalysis,
                 "National",
                 "Snowfall analysis",
                 "How much snow actually fell \u{2014} pick the window in layer options",
-                false,
-            ),
-            (
-                FL::Snowfall,
-                "Models",
-                "Forecast snowfall",
-                "How much snow is forecast to pile up \u{2014} scrub the timeline to add hours",
-                false,
-            ),
-            (
-                FL::Smoke,
-                "Models",
-                "Wildfire smoke",
-                "Forecast smoke near the ground, from active fires",
-                false,
-            ),
-            (
-                FL::Cape,
-                "Models",
-                "Storm fuel (CAPE)",
-                "How much fuel the atmosphere has for storms",
-                false,
-            ),
-            (
-                FL::Srh,
-                "Models",
-                "Storm spin (SRH)",
-                "How much spin the wind profile can feed a storm",
                 false,
             ),
         ] {
@@ -761,6 +674,20 @@ impl HookEchoApp {
                 desc,
                 common,
                 PaletteAction::ToggleField(layer),
+                Some(on),
+            );
+        }
+        // The model browser's products: one row each, whichever model is picked. Reflectivity is
+        // one of them, offered by every model that publishes it, not a layer of its own.
+        for product in crate::model_browser::Product::ALL {
+            use crate::model_browser::Product as P;
+            let on = self.views[self.active].fields_on.contains(&product.layer());
+            push(
+                product.row_label(),
+                "Models",
+                product.blurb(),
+                matches!(product, P::Reflectivity | P::UpdraftHelicity),
+                PaletteAction::ToggleModelProduct(product),
                 Some(on),
             );
         }

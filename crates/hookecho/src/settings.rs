@@ -629,6 +629,10 @@ pub struct Settings {
     /// what deleting the last one means.
     #[serde(default)]
     pub seeded_workspaces: bool,
+    /// The model browser's last choice, as `model/product` (see `model_browser::Selection`).
+    /// Empty means the default. An unknown value from a newer build falls back to the default.
+    #[serde(default)]
+    pub model_pick: String,
     /// NOAA Weather Radio relays to listen to. Empty by default on purpose: NOAA runs no streams of
     /// its own, so every URL here is a third-party relay someone runs for their own county, and
     /// shipping a guessed list would mostly ship dead links. Add the one for your area.
@@ -1515,6 +1519,7 @@ impl Default for Settings {
             window: None,
             workspaces: Vec::new(),
             seeded_workspaces: false,
+            model_pick: String::new(),
             last_view: None,
             nwr_streams: Vec::new(),
             mute_alerts: false,
@@ -2119,6 +2124,7 @@ mod tests {
             tile_disk_cache_mb: 0,
             workspaces: Vec::new(),
             seeded_workspaces: false,
+            model_pick: String::new(),
             smooth_radar: false,
             live_scan_indicator: false,
             share_card: true,

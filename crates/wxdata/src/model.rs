@@ -733,4 +733,50 @@ mod tests {
         }
         assert!(checked > 0, "no model feed was reachable");
     }
+
+    /// Forecast reflectivity is offered for every regional model that publishes it, at a lead
+    /// beyond the analysis. This downloads and decodes one real forecast hour from each, so a
+    /// model whose composite-reflectivity level is spelled differently (the NAMs) fails here
+    /// rather than as an empty layer.
+    ///
+    /// Network-gated: `cargo test -p wxdata -- --ignored reflectivity_decodes`.
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn reflectivity_decodes_for_every_model_that_publishes_it() {
+        let http = reqwest::Client::new();
+        for (model, fh) in [
+            (Model::Hrrr, 3u8),
+            (Model::Rap, 3),
+            (Model::NamNest, 6),
+            (Model::Nam, 6),
+        ] {
+            let key = ModelField::CompositeReflectivity
+                .grib(model)
+                .expect("the catalogue says it publishes reflectivity");
+            let fc = crate::hrrr::fetch_field(&http, model, key.var, key.level, fh, key.min_valid)
+                .await
+                .unwrap_or_else(|e| panic!("{} f{fh:02}: {e}", model.label()));
+            let finite = fc.field.values.iter().filter(|v| v.is_finite()).count();
+            // A CONUS field at these resolutions is thousands of cells, most of them no echo.
+            assert!(
+                finite > 1_000,
+                "{}: only {finite} finite cells",
+                model.label()
+            );
+            assert_eq!(
+                fc.valid(),
+                fc.field.time,
+                "{}: valid time drifted",
+                model.label()
+            );
+            println!(
+                "{} f{fh:02}: run {} valid {} · {}x{} · {finite} cells",
+                model.label(),
+                fc.run,
+                fc.valid(),
+                fc.field.nx,
+                fc.field.ny
+            );
+        }
+    }
 }

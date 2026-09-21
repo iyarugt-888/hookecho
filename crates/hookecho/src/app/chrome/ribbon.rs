@@ -189,9 +189,13 @@ impl HookEchoApp {
         let map_3d = self.views[self.active].map_3d.enabled;
         let fields_on = self.views[self.active].fields_on.clone();
         let is_on = |l: crate::render::FieldLayer| fields_on.contains(&l);
-        let hrrr_on = is_on(crate::render::FieldLayer::Hrrr);
-        let hrrr_valid = self.hrrr_valid;
-        let hrrr_sub = self.hrrr_subhourly;
+        let model_sel = self.model_sel;
+        let model_lead = self.model_lead_min();
+        let model_valid = self
+            .fields
+            .get(&model_sel.layer())
+            .and_then(|state| state.stamp.as_ref())
+            .map(|stamp| stamp.valid_time);
         let tz_l = self.active_tz();
         let mode = self.ribbon_mode;
         let active_contours = self.active_contours.clone();
@@ -205,15 +209,9 @@ impl HookEchoApp {
         let mut pick_mode: Option<crate::app::RibbonMode> = None;
         // Toggled this frame — several kinds can be active, so this isn't an exclusive pick.
         let mut pick_contour: Vec<crate::app::ContourKind> = Vec::new();
-        let mut hrrr_hour = self.hrrr_fcst_hour;
-        let mut hrrr_min = self.hrrr_fcst_min;
-        let mut hrrr_sub_toggled = false;
         let mut all_tilts = false;
         let mut open_command_search = false;
-        // Global/env model source + lead, edited through locals so the sync loop refetches.
-        let mut global_model = self.global_model;
-        let mut global_hour = self.global_fcst_hour;
-        let mut env_model = self.env_model;
+        let env_model = self.env_model;
 
         egui::Panel::top("wsv3_ribbon")
             .exact_size(wsv3::ribbon_h() + wsv3::colorbar_h())
@@ -476,76 +474,69 @@ impl HookEchoApp {
                     } // radar_mode
 
                     if model_mode {
-                    // ---- MODEL SOURCE ----
-                    ribbon_group(ui, "Model", 168.0, |ui| {
-                        ui.horizontal_wrapped(|ui| {
-                            for gm in [
-                                wxdata::global::GlobalModel::Gfs,
-                                wxdata::global::GlobalModel::Ecmwf,
-                                wxdata::global::GlobalModel::Gefs,
-                                wxdata::global::GlobalModel::Gdps,
-                            ] {
-                                if wsv3::pill_sized(ui, gm.label(), global_model == gm, accent, 46.0)
-                                    .clicked()
-                                {
-                                    global_model = gm;
-                                }
-                            }
-                            for (em, label) in [
-                                (wxdata::hrrr::Model::Hrrr, "HRRR"),
-                                (wxdata::hrrr::Model::Rap, "RAP"),
-                                (wxdata::hrrr::Model::NamNest, "NAM"),
-                                (wxdata::hrrr::Model::Nam, "NAM12"),
-                            ] {
-                                if wsv3::pill_sized(ui, label, env_model == em, accent, 44.0)
-                                    .on_hover_text(
-                                        "Source for the CAPE / SRH / contour environment suite",
-                                    )
-                                    .clicked()
-                                {
-                                    env_model = em;
-                                }
-                            }
-                        });
-                        ui.add_space(1.0);
+                    // ---- MODEL ----
+                    // One model, its products, and its lead. A product pill is a toggle, so several
+                    // can be on at once (HRRR reflectivity under GFS pressure); the model menu and
+                    // stepper move the whole selection.
+                    ribbon_group(ui, "Model", 300.0, |ui| {
                         ui.horizontal(|ui| {
-                            wsv3::group_label(ui, "Hour");
+                            egui::ComboBox::from_id_salt("wsv3_model")
+                                .selected_text(model_sel.model.label())
+                                .width(112.0)
+                                .show_ui(ui, |ui| {
+                                    for regional in [true, false] {
+                                        for m in crate::model_browser::BModel::ALL
+                                            .into_iter()
+                                            .filter(|m| m.regional() == regional)
+                                        {
+                                            if ui
+                                                .selectable_label(model_sel.model == m, m.label())
+                                                .on_hover_text(m.blurb())
+                                                .clicked()
+                                            {
+                                                actions.palette = Some(PaletteAction::SetModel(m));
+                                            }
+                                        }
+                                        if regional {
+                                            ui.separator();
+                                        }
+                                    }
+                                })
+                                .response
+                                .on_hover_text(model_sel.model.blurb());
                             if wsv3::pill(ui, "\u{2039}", false, accent).clicked() {
-                                global_hour = global_hour.saturating_sub(3);
+                                actions.palette = Some(PaletteAction::StepModelLead(-1));
                             }
                             ui.label(
-                                RichText::new(format!("F+{global_hour}h"))
+                                RichText::new(crate::model_browser::format_lead(model_lead))
                                     .size(12.0)
                                     .strong()
                                     .color(wsv3::INK),
                             );
                             if wsv3::pill(ui, "\u{203a}", false, accent).clicked() {
-                                global_hour = (global_hour + 3).min(120);
+                                actions.palette = Some(PaletteAction::StepModelLead(1));
                             }
                         });
-                    });
-
-                    // ---- COLOR FILL ----
-                    ribbon_group(ui, "Color fill", 210.0, |ui| {
                         ui.horizontal_wrapped(|ui| {
-                            use crate::render::FieldLayer as FL;
-                            for (fl, label) in [
-                                (FL::GlobalTemp2m, "2 m temp"),
-                                (FL::GlobalDewpoint2m, "2 m dew"),
-                                (FL::GlobalWind10m, "10 m wind"),
-                                (FL::GlobalPrecip, "Precip"),
-                                (FL::GlobalMslp, "MSLP"),
-                                (FL::GlobalHeight500, "500 mb hgt"),
-                                (FL::Cape, "CAPE"),
-                                (FL::Srh, "SRH"),
-                                (FL::UpdraftHelicity, "UH tracks"),
-                                (FL::Smoke, "Smoke"),
-                            ] {
-                                if wsv3::pill(ui, label, is_on(fl), accent).clicked() {
-                                    actions.palette = Some(PaletteAction::ToggleField(fl));
+                            for p in model_sel.model.products() {
+                                if wsv3::pill(ui, p.label(), is_on(p.layer()), accent)
+                                    .on_hover_text(p.blurb())
+                                    .clicked()
+                                {
+                                    actions.palette = Some(PaletteAction::ToggleModelProduct(*p));
                                 }
                             }
                         });
+                        if let Some(v) = model_valid {
+                            ui.label(
+                                RichText::new(format!(
+                                    "valid {}",
+                                    crate::timefmt::fmt_clock(v, tz_l, false)
+                                ))
+                                .size(10.0)
+                                .color(wsv3::STATUS_FG),
+                            );
+                        }
                     });
 
                     // ---- CONTOURS ----
@@ -580,72 +571,6 @@ impl HookEchoApp {
                             });
                     });
 
-                    // ---- FUTURE RADAR (HRRR) ----
-                    ribbon_group(ui, "Future radar", 150.0, |ui| {
-                        if wsv3::pill(ui, "HRRR future", hrrr_on, accent)
-                            .on_hover_text(
-                                "HRRR composite-reflectivity forecast — future radar out to 18 h",
-                            )
-                            .clicked()
-                        {
-                            actions.palette = Some(PaletteAction::ToggleField(
-                                crate::render::FieldLayer::Hrrr,
-                            ));
-                        }
-                        if hrrr_on {
-                            if wsv3::pill(ui, "15-min steps", hrrr_sub, accent)
-                                .on_hover_text(
-                                    "HRRR sub-hourly (wrfsubhf): scrub the tail in 15-minute \
-                                     steps instead of whole hours",
-                                )
-                                .clicked()
-                            {
-                                hrrr_sub_toggled = true;
-                            }
-                            ui.horizontal(|ui| {
-                                let dec = wsv3::pill(ui, "\u{2039}", false, accent).clicked();
-                                let lead = if hrrr_sub {
-                                    let h = hrrr_min / 60;
-                                    let m = hrrr_min % 60;
-                                    if h == 0 {
-                                        format!("F+{m}m")
-                                    } else if m == 0 {
-                                        format!("F+{h}h")
-                                    } else {
-                                        format!("F+{h}h{m:02}m")
-                                    }
-                                } else {
-                                    format!("F+{hrrr_hour}h")
-                                };
-                                ui.label(
-                                    RichText::new(lead).size(12.0).strong().color(wsv3::INK),
-                                );
-                                let inc = wsv3::pill(ui, "\u{203a}", false, accent).clicked();
-                                if hrrr_sub {
-                                    if dec {
-                                        hrrr_min = hrrr_min.saturating_sub(15).max(15);
-                                    }
-                                    if inc {
-                                        hrrr_min = (hrrr_min + 15).min(18 * 60);
-                                    }
-                                } else {
-                                    if dec {
-                                        hrrr_hour = hrrr_hour.saturating_sub(1).max(1);
-                                    }
-                                    if inc {
-                                        hrrr_hour = (hrrr_hour + 1).min(18);
-                                    }
-                                }
-                            });
-                            if let Some(v) = hrrr_valid {
-                                ui.label(
-                                    RichText::new(crate::timefmt::fmt_clock(v, tz_l, false))
-                                        .size(10.0)
-                                        .color(wsv3::STATUS_FG),
-                                );
-                            }
-                        }
-                    });
                     } // model_mode
 
                     if mrms_mode {
@@ -835,37 +760,6 @@ impl HookEchoApp {
         }
         for k in pick_contour {
             self.apply_palette(PaletteAction::SetContours(k), ctx);
-        }
-        // Model source / lead: the global sync loop refetches on any change to these, so a plain
-        // write is enough there.
-        self.global_model = global_model;
-        self.global_fcst_hour = global_hour;
-        if env_model != self.env_model {
-            self.env_model = env_model;
-            // Both CAPE/SRH and the contours are cut from this source — drop their fetch clocks so
-            // the next frame reloads, and clear STP-family contours the coarser sources can't do
-            // (no LCL height in the RAP / NAM-nest files; see wxdata::severe::fetch_grid).
-            use crate::render::FieldLayer as FL;
-            for l in [FL::Cape, FL::Srh] {
-                if let Some(s) = self.fields.get_mut(&l) {
-                    s.last_fetch = None;
-                }
-            }
-            if !matches!(env_model, wxdata::hrrr::Model::Hrrr) {
-                self.active_contours.remove(&crate::app::ContourKind::Stp);
-                self.active_contours
-                    .remove(&crate::app::ContourKind::StpEff);
-            }
-        }
-        // The per-frame sync in `update` refetches when the selected lead changes; a no-op write
-        // when the steppers weren't touched costs nothing.
-        self.hrrr_fcst_hour = hrrr_hour;
-        self.hrrr_fcst_min = hrrr_min;
-        if hrrr_sub_toggled {
-            self.hrrr_subhourly = !self.hrrr_subhourly;
-            // The tail is now a different resolution — force a refetch at the new one.
-            self.hrrr_fetched_hour = None;
-            self.hrrr_fetched_min = None;
         }
         self.apply_ui_actions(actions, ctx);
     }

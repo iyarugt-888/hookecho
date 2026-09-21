@@ -192,6 +192,14 @@ impl HookEchoApp {
                 // A drag rewrites the order in place, so persist it when it moves.
                 let order_was = self.settings.layer_order.clone();
                 let ensemble_note = self.ensemble_status_line();
+                let model_input = crate::ui::model_panel::Input {
+                    sel: self.model_sel,
+                    lead_min: self.model_lead_min(),
+                    stamp: self
+                        .fields
+                        .get(&self.model_sel.layer())
+                        .and_then(|state| state.stamp.clone()),
+                };
                 let layer_settings_label = if self.field_time_mismatches().is_empty() {
                     "Layer settings"
                 } else {
@@ -236,8 +244,6 @@ impl HookEchoApp {
                                     ),
                                     &mut self.rotation_minutes,
                                     &mut self.hail_minutes,
-                                    &mut self.hrrr_fcst_hour,
-                                    self.hrrr_valid,
                                     tz,
                                     &mut self.env_cape_ml,
                                     &mut self.env_srh_km,
@@ -249,7 +255,7 @@ impl HookEchoApp {
                                     &mut self.tropical_wind_kt,
                                     &mut self.tropical_surge,
                                     l3_site.as_deref(),
-                                    &mut self.global_model,
+                                    &model_input,
                                     &mut self.global_fcst_hour,
                                     &mut self.diff_field,
                                     &mut self.diff_mode,

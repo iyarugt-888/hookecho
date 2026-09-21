@@ -8,6 +8,30 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Improved: one Models control
+
+The scattered model controls are now one **Model → Product → Lead** choice.
+
+- **Reflectivity is a product, not a layer.** The separate "HRRR future radar" layer is gone. Any
+  model that publishes composite reflectivity offers it: HRRR, RAP, NAM 3 km and NAM 12 km now all
+  draw forecast radar, where before only the HRRR did. The forecast banner names the model.
+- **HRRR 15-minute is a model of its own,** instead of a "15-min steps" switch on another layer.
+- **Only real products are offered.** Each model lists just what it publishes, checked against the
+  model catalogue (for example, no reflectivity for the NBM, no dewpoint for the GEFS mean).
+- **CAPE and helicity follow the lead.** They used to be fixed at the analysis hour; they now scrub
+  through the forecast like everything else, for every regional model.
+- **One lead control** in each model's own range and step (hourly for the regional models,
+  15-minute for HRRR 15-min, 3-hourly for the global ones), with the run, valid time and fetch age
+  shown underneath, and "analysis" called out at F+0.
+- **A cleaner layer list.** The 13 separate model rows are one row per product, so "Reflectivity
+  forecast" and "Storm fuel (CAPE)" work on whichever model is picked. Layer options replaces its
+  Global forecast, Future radar and Environment model pickers with one Model forecast section that
+  also holds the CAPE parcel and helicity depth choices. The ribbon's Model, Color fill and Future
+  radar groups are one Model group.
+- **Remembered.** The last model and product are restored on the next launch.
+
+Saved workspaces keep working: the forecast-reflectivity layer is still stored under its old name.
+
 ### Added: GEFS ensemble statistics engine (F7, first step)
 
 `wxdata::ensemble` fetches all 31 GEFS members of a field from one pinned cycle (so members can

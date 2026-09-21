@@ -94,7 +94,7 @@ HookEcho is currently in beta. Please [report anything that does not work](https
 - View lightning, rainfall, wind, clouds, smoke, and other useful layers.
 - Tap anywhere for the local forecast.
 - Save important places and receive nearby warning alerts.
-- Look ahead with future radar.
+- Look ahead with model forecasts, including forecast radar.
 - Replay major storms and past radar scans.
 - Change the map style, colors, units, and alert sounds.
 - Compare several radar views when you want more detail.
@@ -106,7 +106,7 @@ main map.
 
 - **Search box:** find a place, radar, setting, or weather layer.
 - **Play button:** animate recent radar pictures.
-- **Timeline:** move backward through recent scans or forward into future radar.
+- **Timeline:** move backward through recent scans or forward into forecast radar.
 - **LIVE button:** jump back to current conditions.
 - **Layers button:** turn warnings, lightning, forecasts, and other information on or off.
 - **Map button:** choose a different background map.
