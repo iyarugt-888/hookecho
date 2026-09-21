@@ -514,22 +514,7 @@ async fn download_and_decode(
     res_deg: f64,
 ) -> anyhow::Result<MrmsField> {
     let (start, end) = range;
-    let http_range = match end {
-        Some(e) => format!("bytes={start}-{}", e - 1),
-        None => format!("bytes={start}-"),
-    };
-    let bytes = http
-        .get(crate::net::fetch_url(base))
-        .timeout(crate::net::FEED_TIMEOUT)
-        .header("User-Agent", USER_AGENT)
-        .header("Range", http_range)
-        .send()
-        .await?
-        .error_for_status()?
-        .bytes()
-        .await?;
-
-    let raw = bytes.to_vec();
+    let raw = crate::gribcache::fetch_range(http, base, (start, end), USER_AGENT).await?;
     crate::task::blocking(move || decode(&raw, res_deg)).await?
 }
 

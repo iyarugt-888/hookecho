@@ -206,20 +206,7 @@ async fn fetch_subhourly_run(
     let (start, end) = field_byte_range_fcst(&idx, "REFC", "entire atmosphere", fcst)
         .ok_or_else(|| anyhow::anyhow!("no REFC:{fcst} in sub-hourly idx"))?;
 
-    let range = match end {
-        Some(e) => format!("bytes={start}-{}", e - 1),
-        None => format!("bytes={start}-"),
-    };
-    let bytes = http
-        .get(crate::net::fetch_url(&base))
-        .timeout(crate::net::FEED_TIMEOUT)
-        .header("User-Agent", USER_AGENT)
-        .header("Range", range)
-        .send()
-        .await?
-        .error_for_status()?
-        .bytes()
-        .await?;
+    let bytes = crate::gribcache::fetch_range(http, &base, (start, end), USER_AGENT).await?;
 
     let field = crate::task::guarded(|| decode_regrid(&bytes, Model::Hrrr, -30.0))
         .unwrap_or_else(|_| anyhow::bail!("HRRR sub-hourly grib decode panicked"))?;
@@ -733,20 +720,7 @@ async fn fetch_run_field(
     let (start, end) = field_byte_range(&idx, var, level)
         .ok_or_else(|| anyhow::anyhow!("no {var}:{level} in idx"))?;
 
-    let range = match end {
-        Some(e) => format!("bytes={start}-{}", e - 1),
-        None => format!("bytes={start}-"),
-    };
-    let bytes = http
-        .get(crate::net::fetch_url(&base))
-        .timeout(crate::net::FEED_TIMEOUT)
-        .header("User-Agent", USER_AGENT)
-        .header("Range", range)
-        .send()
-        .await?
-        .error_for_status()?
-        .bytes()
-        .await?;
+    let bytes = crate::gribcache::fetch_range(http, &base, (start, end), USER_AGENT).await?;
 
     // gribberish can panic on some packings; contain it (see mrms::fetch_latest).
     crate::task::guarded(|| decode_regrid(&bytes, model, min_valid))

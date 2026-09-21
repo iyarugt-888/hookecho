@@ -150,20 +150,7 @@ async fn fetch_hour(
     let (var, level) = field.key();
     let (start, end) = crate::hrrr::field_byte_range(&idx, var, level)
         .ok_or_else(|| anyhow::anyhow!("no {var}:{level} in the RTMA index"))?;
-    let range = match end {
-        Some(e) => format!("bytes={start}-{}", e - 1),
-        None => format!("bytes={start}-"),
-    };
-    let bytes = http
-        .get(crate::net::fetch_url(&base))
-        .timeout(crate::net::FEED_TIMEOUT)
-        .header("User-Agent", USER_AGENT)
-        .header("Range", range)
-        .send()
-        .await?
-        .error_for_status()?
-        .bytes()
-        .await?;
+    let bytes = crate::gribcache::fetch_range(http, &base, (start, end), USER_AGENT).await?;
     // gribberish can panic on some packings; contain it (see mrms::fetch_latest).
     let mut grid =
         crate::task::guarded(|| crate::hrrr::decode_regrid_at(&bytes, RES_DEG, f64::NEG_INFINITY))

@@ -4696,6 +4696,10 @@ impl HookEchoApp {
                 crate::tiles::sweep_later(dir.join(sub), label, crate::tiles::SMALL_CACHE_BYTES);
             }
         }
+        // GRIB messages are immutable once a run is published, so scrubbing back over a lead time
+        // or re-opening a run reads from disk instead of the bucket.
+        #[cfg(not(target_arch = "wasm32"))]
+        crate::grib_store::install();
         let mut tiles = TileManager::new(spawner.clone());
         let mut vtiles = crate::vector_tiles::VectorTileManager::new(spawner.clone());
         // Tile workers wake the UI the moment a tile is ready; without this a finished tile waits

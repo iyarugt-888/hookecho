@@ -8,6 +8,16 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### New: model data is cached on disk
+
+Every model, RTMA and GEFS message is a range-read out of a file that never changes once its run is
+posted, so it is now kept. Scrubbing back over a lead time, flipping between products and re-opening
+a run read from disk instead of the bucket. Entries are namespaced by source, each family (HRRR,
+GEFS, RTMA, other models) has its own 256 MB quota (64 MB on Android) swept oldest-read-first, and
+Storage shows and clears each. A message is only kept at exactly the length asked for with GRIB and
+7777 framing, and re-checked when read back, so a run still being written or a cut connection never
+poisons it. The web build has no disk store and fetches as before.
+
 ### Improved: debris signature (TDS) detection, and a confidence filter
 
 The detector no longer treats "low CC in strong echo" as the whole answer, because large wet hail,

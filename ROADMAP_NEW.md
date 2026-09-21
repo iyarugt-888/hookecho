@@ -378,12 +378,12 @@ parallel implementations of the same idea.
 
 - [ ] common cache interface for native and WASM
 - [x] browser IndexedDB or OPFS persistence — radar archive volumes only, see above
-- [ ] cache namespaces by source/product/run
-- [ ] size quota per source family
+- [x] cache namespaces by source/product/run - GRIB messages: `wxdata::gribcache` keys on the full file URL (source, run, cycle, product, lead) plus byte range
+- [x] size quota per source family - GRIB: 256 MB each for HRRR, GEFS, RTMA and other models (64 MB on Android), swept oldest-read-first
 - [x] LRU eviction — radar archive volumes only
 - [x] immutable object cache for archived frames — radar archive volumes only
-- [ ] partial/range-response caching where useful for GRIB
-- [ ] checksum/content-length verification when available
+- [x] partial/range-response caching where useful for GRIB - every model, RTMA and GEFS read; the disk store is native only, the web build still fetches each time
+- [x] checksum/content-length verification when available - kept only at exactly the requested length with GRIB and 7777 framing, and re-verified on read
 - [x] storage statistics in existing Storage UI — new this pass, see the Unreleased CHANGELOG
   entry: the Storage tab (cache sizes plus Clear buttons) was native-only outright; it's now
   unconditional, with a web-build view of `webcache.rs`'s IndexedDB stores (auto-cache bytes/count

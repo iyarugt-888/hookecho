@@ -53,6 +53,8 @@ pub mod gis_export;
 /// Converting a generic GIS import (`wxdata::gis`) into a renderable overlay feature.
 pub mod gis_import;
 pub mod gps;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod grib_store;
 /// Off-screen rendering for the CLI verifiers and the server snapshot.
 #[cfg(not(target_arch = "wasm32"))]
 pub mod headless;
