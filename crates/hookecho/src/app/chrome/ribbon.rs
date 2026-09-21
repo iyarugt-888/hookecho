@@ -38,6 +38,16 @@ fn ribbon_group(ui: &mut egui::Ui, label: &str, w: f32, add: impl FnOnce(&mut eg
     wsv3::vsep(ui);
 }
 
+/// Width of the tilt group: wide enough that every tilt pill plus the All and Follow-low pills fit in
+/// two rows. At a fixed 250 px a 14-tilt volume wrapped to four rows in a group two rows tall, and the
+/// upper tilts were reachable only by scrolling inside the ribbon. The ribbon itself scrolls
+/// sideways when the groups outgrow the window.
+fn tilt_group_width(tilts: usize) -> f32 {
+    const PILL: f32 = 49.0; // a 42 px pill plus the item spacing
+    let columns = (tilts + 2).div_ceil(2).max(5);
+    (columns as f32 * PILL + 12.0).clamp(250.0, 620.0)
+}
+
 /// Phase B5: the VCP chip's popup — the full pattern description plus, per tilt, how many times
 /// this volume revisits it and under what scheme (SAILS/MRLE). Everything here comes straight off
 /// the decoded VCP message; nothing is inferred from how much of the volume has arrived.
@@ -326,7 +336,7 @@ impl HookEchoApp {
                     });
 
                     // ---- TILT ----
-                    ribbon_group(ui, "Tilt angle", 250.0, |ui| {
+                    ribbon_group(ui, "Tilt angle", tilt_group_width(elevations.len()), |ui| {
                         if elevations.is_empty() {
                             ui.label(
                                 RichText::new("loading\u{2026}")
@@ -1051,6 +1061,27 @@ mod tests {
         assert!(
             widths.iter().any(|&w| w > 0.5),
             "expected a visible fill sliver even at zero progress: {widths:?}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod tilt_width_tests {
+    use super::tilt_group_width;
+
+    #[test]
+    fn the_tilt_group_grows_with_the_volume_and_stays_within_bounds() {
+        assert_eq!(tilt_group_width(0), 257.0_f32.clamp(250.0, 620.0));
+        assert!(tilt_group_width(14) > tilt_group_width(8));
+        assert!(tilt_group_width(8) >= tilt_group_width(4));
+        // Two rows: every pill plus All and Follow-low fits in the columns it is given.
+        for n in [4usize, 8, 9, 14, 19] {
+            let cols = ((tilt_group_width(n) - 12.0) / 49.0).floor() as usize;
+            assert!(cols * 2 >= n + 2, "{n} tilts in {cols} columns");
+        }
+        assert!(
+            tilt_group_width(200) <= 620.0,
+            "and it cannot swallow the ribbon"
         );
     }
 }
