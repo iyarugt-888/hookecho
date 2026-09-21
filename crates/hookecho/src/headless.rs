@@ -772,7 +772,6 @@ pub fn run_tds_archive(site: &str, date: &str, hhmm: &str) -> anyhow::Result<()>
             .into_iter()
             .filter_map(|id| id.date_time().map(|t| (t, id)))
             .min_by_key(|(t, _)| (*t - want).num_seconds().abs())
-            .map(|(t, id)| (t, id))
             .ok_or_else(|| anyhow::anyhow!("no volumes for {site} on {date}"))?;
         println!("{site}: volume {} (asked for {want})", id.0);
         let scan = level2::download_scan(id.1, None).await?;
@@ -4601,4 +4600,159 @@ mod golden_tests {
             );
         }
     }
+}
+
+/// Score the debris and rotation detectors against tornado reports over a run of archived volumes:
+/// `hookecho --headless-backtest <SITE> <YYYY-MM-DD> <HH:MM> [volumes]` (default 8, at most 16).
+///
+/// Starts at the volume nearest the given time and takes the next ones in order. Every detection
+/// from every volume is checked against the tornado local storm reports for the window: it counts
+/// as verified when a report lies within 10 km of it and within 15 minutes of the volume. The table
+/// is by minimum confidence, so it shows what the filter slider would cost and buy. Reports come
+/// from the Iowa Mesonet; a tornado nobody reported counts against the detector, and reports carry
+/// only a time of day, so a run is scored within one UTC day.
+pub fn run_detector_backtest(
+    site: &str,
+    date: &str,
+    hhmm: &str,
+    volumes: Option<&str>,
+) -> anyhow::Result<()> {
+    use wxdata::detverify::{score, Detection, Truth};
+    const RADIUS_KM: f64 = 10.0;
+    const WINDOW_MIN: i64 = 15;
+    let day = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d")?;
+    let (h, m) = hhmm
+        .split_once(':')
+        .ok_or_else(|| anyhow::anyhow!("time must look like 20:05"))?;
+    let start = day
+        .and_hms_opt(h.parse()?, m.parse()?, 0)
+        .ok_or_else(|| anyhow::anyhow!("bad time {hhmm}"))?
+        .and_utc();
+    let count = volumes
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(8)
+        .clamp(1, 16);
+    let minute_of = |t: chrono::DateTime<chrono::Utc>| t.timestamp() / 60;
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+
+    let (tds, rot, first, last) = rt.block_on(async {
+        let mut ids: Vec<_> = level2::list_volumes(site, day)
+            .await?
+            .into_iter()
+            .filter_map(|id| id.date_time().map(|t| (t, id)))
+            .filter(|(t, _)| *t >= start - chrono::Duration::minutes(3))
+            .collect();
+        ids.sort_by_key(|(t, _)| *t);
+        ids.truncate(count);
+        anyhow::ensure!(!ids.is_empty(), "no volumes for {site} from {start}");
+        let (first, last) = (ids[0].0, ids[ids.len() - 1].0);
+        println!(
+            "{site}: {} volume(s), {} to {}",
+            ids.len(),
+            first.format("%H:%M"),
+            last.format("%H:%M")
+        );
+        let mut tds = Vec::new();
+        let mut rot = Vec::new();
+        for (t, id) in ids {
+            let scan = level2::download_scan(id, None).await?;
+            let mut pairs = Vec::new();
+            let mut vel_pairs = Vec::new();
+            for tilt in 0..4 {
+                let z = level2::bin_scan(&scan, Moment::Reflectivity, tilt);
+                let cc = level2::bin_scan(&scan, Moment::CorrelationCoefficient, tilt);
+                let vel = level2::bin_scan_opts(&scan, Moment::Velocity, tilt, true);
+                if let (Ok(z), Ok(cc)) = (&z, cc) {
+                    pairs.push((z.clone(), cc));
+                }
+                if let (Ok(z), Ok(vel)) = (z, vel) {
+                    vel_pairs.push((vel, z));
+                }
+            }
+            let mut hits = wxdata::tds::detect_volume(&pairs, 0.80, 40.0, 150.0, 4);
+            let couplets = wxdata::rotation::detect_volume(&vel_pairs, 25.0, 20.0, 15.0, 150.0, 3);
+            let corroborating: Vec<_> = couplets
+                .iter()
+                .filter(|c| wxdata::tds::couplet_corroborates(c.range_km, c.confidence))
+                .map(|c| (c.lon, c.lat, c.vrot_ms))
+                .collect();
+            wxdata::tds::corroborate_with_rotation(&mut hits, &corroborating);
+            let minute = minute_of(t);
+            tds.extend(hits.iter().map(|h| Detection {
+                lon: h.lon,
+                lat: h.lat,
+                confidence: h.confidence,
+                minute,
+            }));
+            rot.extend(couplets.iter().map(|c| Detection {
+                lon: c.lon,
+                lat: c.lat,
+                confidence: c.confidence,
+                minute,
+            }));
+            println!(
+                "  {}  {} debris signature(s), {} couplet(s)",
+                t.format("%H:%M"),
+                hits.len(),
+                couplets.len()
+            );
+        }
+        anyhow::Ok((tds, rot, first, last))
+    })?;
+
+    // Reports for the window, widened by the matching window on both sides.
+    let pad = chrono::Duration::minutes(WINDOW_MIN);
+    let fmt = |t: chrono::DateTime<chrono::Utc>| t.format("%Y-%m-%dT%H:%MZ").to_string();
+    let (sts, ets) = (fmt(first - pad), fmt(last + pad));
+    let reports = rt.block_on(async {
+        let http = reqwest::Client::new();
+        wxdata::lsr::fetch(&http, Some((&sts, &ets))).await
+    })?;
+    let truths: Vec<Truth> = reports
+        .iter()
+        .filter(|r| r.kind == wxdata::spc::ReportKind::Tornado)
+        .filter_map(|r| {
+            let (hh, mm) = (
+                r.time.get(0..2)?.parse::<u32>().ok()?,
+                r.time.get(2..4)?.parse::<u32>().ok()?,
+            );
+            let t = day.and_hms_opt(hh, mm, 0)?.and_utc();
+            Some(Truth {
+                lon: r.lon,
+                lat: r.lat,
+                minute: minute_of(t),
+            })
+        })
+        .collect();
+    println!(
+        "{} tornado report(s) between {sts} and {ets}; matching within {RADIUS_KM:.0} km and \
+         {WINDOW_MIN} min",
+        truths.len()
+    );
+    if truths.len() < 5 {
+        println!(
+            "note: only {} report(s), so POD is a count of one or two events and means little; the \n             false-alarm column is the informative one, and it still counts unreported tornadoes \n             as false alarms.",
+            truths.len()
+        );
+    }
+    let thresholds = [0.0, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8];
+    let pct = |v: Option<f32>| v.map_or("  - ".to_string(), |v| format!("{:>3.0}%", v * 100.0));
+    for (name, dets) in [("Debris signatures", &tds), ("Rotation couplets", &rot)] {
+        println!("\n{name}: {} detection(s) in all", dets.len());
+        println!("  min conf   shown  verified    POD    FAR    CSI");
+        for s in score(dets, &truths, RADIUS_KM, WINDOW_MIN, &thresholds) {
+            println!(
+                "  {:>7.0}%  {:>6}  {:>8}   {}   {}   {}",
+                s.threshold * 100.0,
+                s.detections,
+                s.verified,
+                pct(s.pod()),
+                pct(s.far()),
+                pct(s.csi())
+            );
+        }
+    }
+    Ok(())
 }

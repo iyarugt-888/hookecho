@@ -1681,7 +1681,9 @@ Turn current TDS/couplet/cell scoring into an inspectable analyst environment.
 Started: the TDS detector is the reference implementation. `TdsHit::explain` returns the algorithm
 version, each weighted term with its measurement, the range and vertical stages, and the rotation
 gain, and every marker shows it on hover. Couplets, cells and the other detectors, a stored score
-timeline, and the SPC/DAT/warning backtest are still open.
+timeline, and DAT/warning truth sets are still open. The SPC-report backtest exists
+(`--headless-backtest`, `wxdata::detverify`).
+
 
 For every automatic detection:
 

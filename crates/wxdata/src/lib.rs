@@ -15,6 +15,7 @@ pub mod contour;
 pub mod dat;
 pub mod dealias;
 pub mod derived;
+pub mod detverify;
 pub mod dotcams;
 pub mod dualpol;
 pub mod dwd;

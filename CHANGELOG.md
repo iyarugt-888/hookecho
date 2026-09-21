@@ -8,6 +8,17 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### New: score the detectors against tornado reports
+
+`hookecho --headless-backtest <SITE> <YYYY-MM-DD> <HH:MM> [volumes]` runs the debris and rotation
+detectors over a run of archived volumes and checks every detection against the Iowa Mesonet tornado
+reports for the window (within 10 km and 15 minutes). The table is by minimum confidence, so it shows what
+the filter slider costs and buys: detections shown, how many were verified, and POD, FAR and CSI. The
+scoring is a pure `wxdata::detverify` module, usable for any detector and any truth set. On the 2013-05-20
+Moore volumes (one report) the top debris band, 80% and up, was 33% verified and the couplets were mostly
+unverified, which is the measurement the confidence numbers had been missing; one storm is far too little
+to tune against, and a tornado nobody reported counts as a false alarm.
+
 ### Fixed: model difference maps were shifted half a cell
 
 Model-to-model and run-to-run difference layers read each grid as corner-registered, but the grids are

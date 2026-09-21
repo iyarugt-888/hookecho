@@ -735,6 +735,22 @@ fn main() -> eframe::Result<()> {
         return Ok(());
     }
 
+    // Detector scoring against tornado reports: `hookecho --headless-backtest <SITE> <YYYY-MM-DD>
+    // <HH:MM> [volumes]`.
+    if let Some(pos) = args.iter().position(|a| a == "--headless-backtest") {
+        let arg = |n: usize| args.get(pos + n).map(String::as_str);
+        if let Err(e) = headless::run_detector_backtest(
+            arg(1).unwrap_or(""),
+            arg(2).unwrap_or(""),
+            arg(3).unwrap_or(""),
+            arg(4),
+        ) {
+            eprintln!("headless backtest failed: {e}");
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
+
     // TDS on an archived volume: `hookecho --headless-tds-archive <SITE> <YYYY-MM-DD> <HH:MM>`.
     if let Some(pos) = args.iter().position(|a| a == "--headless-tds-archive") {
         let arg = |n: usize| args.get(pos + n).map(String::as_str).unwrap_or("");
