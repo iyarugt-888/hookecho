@@ -75,16 +75,38 @@ pub enum EnsembleField {
     /// 180–0 mb mixed-layer CAPE.
     Cape,
     PrecipitableWater,
+    /// Precipitation accumulated over the six hours ending at the lead (QPF).
+    Precip6h,
 }
 
 impl EnsembleField {
-    pub const ALL: [EnsembleField; 5] = [
+    pub const ALL: [EnsembleField; 6] = [
         EnsembleField::Temp2m,
         EnsembleField::Mslp,
         EnsembleField::Height500,
         EnsembleField::Cape,
         EnsembleField::PrecipitableWater,
+        EnsembleField::Precip6h,
     ];
+
+    /// Whether the members publish this field at forecast hour `fh`. The 6-hour accumulation exists
+    /// only at multiples of six and not at hour zero (nothing has accumulated yet); everything else
+    /// is a snapshot available at every published lead.
+    pub fn valid_lead(self, fh: u16) -> bool {
+        match self {
+            EnsembleField::Precip6h => fh >= 6 && fh.is_multiple_of(6),
+            _ => true,
+        }
+    }
+
+    /// The nearest published lead at or after `fh`, for a lead chosen on a finer or different grid
+    /// than this field allows.
+    pub fn snap_lead(self, fh: u16) -> u16 {
+        match self {
+            EnsembleField::Precip6h => fh.div_ceil(6).max(1) * 6,
+            _ => fh,
+        }
+    }
 
     pub fn label(self) -> &'static str {
         match self {
@@ -93,6 +115,7 @@ impl EnsembleField {
             EnsembleField::Height500 => "500 hPa height",
             EnsembleField::Cape => "Mixed-layer CAPE",
             EnsembleField::PrecipitableWater => "Precipitable water",
+            EnsembleField::Precip6h => "6-hour rain (QPF)",
         }
     }
 
@@ -103,6 +126,7 @@ impl EnsembleField {
             EnsembleField::Height500 => "gh500",
             EnsembleField::Cape => "cape",
             EnsembleField::PrecipitableWater => "pwat",
+            EnsembleField::Precip6h => "qpf6",
         }
     }
 
@@ -120,6 +144,8 @@ impl EnsembleField {
             EnsembleField::PrecipitableWater => {
                 ("PWAT", "entire atmosphere (considered as a single layer)")
             }
+            // One message per file: the accumulation over the six hours ending at that lead.
+            EnsembleField::Precip6h => ("APCP", "surface"),
         }
     }
 
@@ -131,6 +157,7 @@ impl EnsembleField {
             EnsembleField::Height500 => "gpm",
             EnsembleField::Cape => "J/kg",
             EnsembleField::PrecipitableWater => "kg/m²",
+            EnsembleField::Precip6h => "kg/m²",
         }
     }
 
@@ -142,7 +169,8 @@ impl EnsembleField {
             EnsembleField::Mslp => ("hPa", 0.01, 0.0),
             EnsembleField::Height500 => ("gpm", 1.0, 0.0),
             EnsembleField::Cape => ("J/kg", 1.0, 0.0),
-            EnsembleField::PrecipitableWater => ("mm", 1.0, 0.0),
+            // A kilogram of water per square metre is a millimetre of depth.
+            EnsembleField::PrecipitableWater | EnsembleField::Precip6h => ("mm", 1.0, 0.0),
         }
     }
 
@@ -172,6 +200,7 @@ impl EnsembleField {
             EnsembleField::Height500 => 60.0,
             EnsembleField::Cape => 1_000.0,
             EnsembleField::PrecipitableWater => 10.0,
+            EnsembleField::Precip6h => 10.0,
         }
     }
 
@@ -183,6 +212,8 @@ impl EnsembleField {
             EnsembleField::Height500 => 5_700.0,
             EnsembleField::Cape => 1_000.0,
             EnsembleField::PrecipitableWater => 40.0,
+            // Half an inch in six hours: enough to matter for ponding and rises on small streams.
+            EnsembleField::Precip6h => 12.7,
         }
     }
 }
@@ -211,6 +242,11 @@ pub async fn fetch_gefs(
     field: EnsembleField,
     fh: u16,
 ) -> anyhow::Result<EnsembleRun> {
+    anyhow::ensure!(
+        field.valid_lead(fh),
+        "{} is only published at multiples of six hours after the start, not F+{fh}h",
+        field.label()
+    );
     let key = field.gefs_key();
     let (run, control) = crate::global::find_gefs_cycle(http, key, fh).await?;
     let mut members = vec![control];
@@ -270,6 +306,13 @@ pub async fn fetch_gefs_plume(
     hours: &[u16],
 ) -> anyhow::Result<Vec<PlumePoint>> {
     let key = field.gefs_key();
+    // Leads the field does not exist at (F+0 for an accumulation) are dropped, not fetched to fail.
+    let hours: Vec<u16> = hours
+        .iter()
+        .copied()
+        .filter(|h| field.valid_lead(*h))
+        .collect();
+    let hours = hours.as_slice();
     let Some((&first, _)) = hours.split_first() else {
         return Ok(Vec::new());
     };
@@ -495,6 +538,28 @@ mod tests {
     }
 
     #[test]
+    fn an_accumulation_exists_only_at_leads_that_close_a_window() {
+        let qpf = EnsembleField::Precip6h;
+        assert!(!qpf.valid_lead(0), "nothing has accumulated at F+0");
+        assert!(!qpf.valid_lead(3) && !qpf.valid_lead(9) && !qpf.valid_lead(7));
+        assert!(qpf.valid_lead(6) && qpf.valid_lead(24) && qpf.valid_lead(240));
+        // A lead chosen on the three-hourly grid rounds up to the next window.
+        assert_eq!(qpf.snap_lead(0), 6);
+        assert_eq!(qpf.snap_lead(3), 6);
+        assert_eq!(qpf.snap_lead(6), 6);
+        assert_eq!(qpf.snap_lead(9), 12);
+        for f in EnsembleField::ALL {
+            let snapped = f.snap_lead(9);
+            assert!(f.valid_lead(snapped), "{f:?}: snapped to {snapped}");
+            // Snapping never goes backwards and never skips a lead that was already valid.
+            assert!(snapped >= 9 || !f.valid_lead(9));
+            if f.valid_lead(9) {
+                assert_eq!(snapped, 9, "{f:?} snapshots keep the lead as chosen");
+            }
+        }
+    }
+
+    #[test]
     fn a_plume_band_needs_both_halves_and_a_sane_spread() {
         use chrono::TimeZone;
         let valid = Utc.with_ymd_and_hms(2026, 9, 21, 0, 0, 0).unwrap();
@@ -554,6 +619,36 @@ mod tests {
             assert_eq!(EnsembleField::from_slug(f.slug()), Some(f));
             assert!(f.default_threshold().is_finite());
         }
+    }
+
+    /// Live GEFS QPF: the accumulation is a real, non-negative field, the exceedance probability is
+    /// a percentage, and a wetter threshold is never likelier than a drier one. Network test.
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn live_gefs_qpf_probability_is_coherent() {
+        let http = reqwest::Client::new();
+        let run = fetch_gefs(&http, EnsembleField::Precip6h, 24)
+            .await
+            .expect("GEFS QPF ensemble");
+        assert!(run.members.len() >= MIN_MEMBERS);
+        let mean = combine(&run.members, Statistic::Mean).unwrap();
+        let light = combine(&run.members, Statistic::ProbabilityAbove(2.5)).unwrap();
+        let heavy = combine(&run.members, Statistic::ProbabilityAbove(25.0)).unwrap();
+        let (mut wet, mut checked) = (0usize, 0usize);
+        for i in 0..mean.values.len() {
+            let (m, l, h) = (mean.values[i], light.values[i], heavy.values[i]);
+            if m.is_finite() && l.is_finite() && h.is_finite() {
+                assert!(m >= -1e-3, "negative accumulation {m}");
+                assert!((0.0..=100.0).contains(&l) && (0.0..=100.0).contains(&h));
+                assert!(h <= l + 1e-3, "heavier rain cannot be likelier: {h} vs {l}");
+                wet += usize::from(l > 0.0);
+                checked += 1;
+            }
+        }
+        assert!(checked > 1000, "only {checked} cells compared");
+        println!("QPF f024: {wet} of {checked} cells have some member above 2.5 mm");
+        // An accumulation does not exist at hour zero, and asking for it is an error up front.
+        assert!(fetch_gefs(&http, EnsembleField::Precip6h, 0).await.is_err());
     }
 
     /// Live GEFS plume: mean and spread at Oklahoma City for three days, all from one run, with

@@ -2349,8 +2349,8 @@ forecast-hour slider, a legend, and a hover readout. The 31 members are fetched 
 changing the statistic or threshold recomputes locally instead of refetching. That layer's UI was
 built and unit-tested but not yet exercised by hand in the running app. GEFS is the only ensemble wired up;
 REFS is not a data source this app has. Fields today: 2 m temperature, MSLP, 500 hPa height,
-mixed-layer CAPE and precipitable water. Wind gust, QPF, snow and UH need fields the
-`pgrb2a` member files either do not carry or carry as accumulations, so they are still open.
+mixed-layer CAPE, precipitable water and 6-hour rain (QPF). Wind gust, snow and UH need fields the
+`pgrb2a` member files do not carry, so they are still open.
 
 For GEFS/REFS and any supported ensemble:
 
@@ -2370,7 +2370,7 @@ Probability examples:
 
 - CAPE > threshold
 - wind gust > threshold
-- QPF > threshold
+- [x] QPF > threshold — 6-hour rain from the GEFS's own accumulation, at leads that close a six-hour window
 - snow > threshold
 - UH > threshold for convection-allowing ensembles
 

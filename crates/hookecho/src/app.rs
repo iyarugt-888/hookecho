@@ -10868,7 +10868,7 @@ impl HookEchoApp {
                 }
                 OverlayMsg::Ensemble(field, fh, run) => {
                     // A selection change in flight must not overwrite the field now selected.
-                    if field == self.ensemble.field && fh == self.global_fcst_hour {
+                    if field == self.ensemble.field && fh == self.ensemble_lead_hour() {
                         self.ensemble_run = Some(*run);
                         self.ensemble_error = None;
                         self.ensemble_display_key = None;
@@ -20618,6 +20618,12 @@ pub(crate) fn field_upload_indexed(
 }
 
 impl HookEchoApp {
+    /// The lead the ensemble layer actually reads: the shared forecast hour, moved to the nearest
+    /// one this field is published at (a 6-hour rain total only exists at multiples of six).
+    pub(crate) fn ensemble_lead_hour(&self) -> u16 {
+        self.ensemble.field.snap_lead(self.global_fcst_hour)
+    }
+
     /// One line for layer options: which run this is, or why there is nothing yet.
     pub(crate) fn ensemble_status_line(&self) -> String {
         match (&self.ensemble_run, &self.ensemble_error) {
@@ -21506,7 +21512,7 @@ impl eframe::App for HookEchoApp {
         // only rebuild the display from the members already held.
         {
             let layer = FL::Ensemble;
-            let fh = self.global_fcst_hour;
+            let fh = self.ensemble_lead_hour();
             let on = self.field_wanted(layer);
             let stale = on
                 && self.fields.get(&layer).is_some_and(|s| {

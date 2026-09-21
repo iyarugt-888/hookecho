@@ -8,6 +8,16 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: 6-hour rain (QPF) probabilities from the GEFS (F7)
+
+The ensemble layer and the point plume gain a **6-hour rain (QPF)** field, so you can map the chance
+that a place gets more than a chosen amount of rain in six hours (it starts at half an inch), or the
+ensemble mean, spread, extremes and percentiles of the rain total. It uses the same 31 members as
+every other ensemble field. The GEFS only publishes a six-hour accumulation at leads that close a
+window, so the forecast hour snaps to the next multiple of six for this field (and hour zero, where
+nothing has accumulated yet, is refused rather than fetched to fail). Amounts are in millimetres, on
+the same color scale as the rain layers.
+
 ### Added: GEFS ensemble plume at a point (F7)
 
 Tapping the map now shows an **Ensemble plume (GEFS)** under the point forecast: the ensemble mean as

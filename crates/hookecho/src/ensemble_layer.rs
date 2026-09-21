@@ -148,6 +148,8 @@ pub fn source_layer(field: EnsembleField) -> FieldLayer {
         EnsembleField::Height500 => FieldLayer::GlobalHeight500,
         EnsembleField::Cape => FieldLayer::Cape,
         EnsembleField::PrecipitableWater => FieldLayer::GlobalPrecip,
+        // The rain layers' own scale, which is millimetres of accumulation too.
+        EnsembleField::Precip6h => FieldLayer::Qpe6h,
     }
 }
 
