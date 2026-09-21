@@ -1956,6 +1956,137 @@ pub fn run_diff(slug: &str, out_path: &str) -> anyhow::Result<()> {
     render_to_png(&rt, cb, out_path)
 }
 
+/// Render an ensemble statistic from live GEFS members (ROADMAP_NEW F7):
+/// `--headless-ensemble <field> <stat> <fcst-hour> <out.png>`, e.g. `t2m spread 24 out.png` or
+/// `cape prob:1500 12 out.png`. The same fetch and `combine` the ensemble engine offers, so the
+/// statistic is checkable without a window.
+pub fn run_ensemble(
+    field_slug: &str,
+    stat_spec: &str,
+    fh: u16,
+    out_path: &str,
+) -> anyhow::Result<()> {
+    use crate::render::FieldLayer as FL;
+    use wxdata::ensemble::{EnsembleField, Statistic};
+    let field = EnsembleField::from_slug(field_slug).ok_or_else(|| {
+        anyhow::anyhow!(
+            "unknown ensemble field '{field_slug}' (one of: {})",
+            EnsembleField::ALL.map(|f| f.slug()).join(", ")
+        )
+    })?;
+    let stat = Statistic::parse(stat_spec, field).ok_or_else(|| {
+        anyhow::anyhow!("unknown statistic '{stat_spec}' (mean, spread, min, max, pNN, prob[:T])")
+    })?;
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    let run = rt.block_on(async {
+        let client = reqwest::Client::new();
+        wxdata::ensemble::fetch_gefs(&client, field, fh).await
+    })?;
+    let grid = wxdata::ensemble::combine(&run.members, stat)?;
+    let finite: Vec<f32> = grid.values.iter().copied().filter(|v| v.is_finite()).collect();
+    anyhow::ensure!(!finite.is_empty(), "the statistic decoded to nothing");
+    let (lo, hi) = finite
+        .iter()
+        .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), &v| {
+            (lo.min(v), hi.max(v))
+        });
+    println!(
+        "GEFS {} {} f{fh:03} (run {}, valid {}): {} members, {}x{} of {} finite, {lo:.2}..{hi:.2} {}",
+        field.label(),
+        stat.label(),
+        run.run,
+        run.valid(),
+        run.members.len(),
+        grid.nx,
+        grid.ny,
+        finite.len(),
+        match stat {
+            Statistic::ProbabilityAbove(_) => "%",
+            _ => field.native_units(),
+        }
+    );
+
+    let upload = match stat {
+        // The ordinary statistics live in the field's own units, so they wear its own ramp.
+        Statistic::Mean | Statistic::Min | Statistic::Max | Statistic::Percentile(_) => {
+            let layer = match field {
+                EnsembleField::Temp2m => FL::GlobalTemp2m,
+                EnsembleField::Mslp => FL::GlobalMslp,
+                EnsembleField::Height500 => FL::GlobalHeight500,
+                EnsembleField::Cape => FL::Cape,
+                EnsembleField::PrecipitableWater => FL::GlobalPrecip,
+            };
+            crate::app::field_upload_indexed(layer, &grid)
+        }
+        // Spread and probability have no native ramp: one sequential scale, clear at zero.
+        Statistic::Spread | Statistic::ProbabilityAbove(_) => {
+            let full = match stat {
+                Statistic::Spread => field.spread_full_scale(),
+                _ => 100.0,
+            };
+            crate::app::field_index_upload(
+                &grid,
+                |v| {
+                    // Below 2% of full scale is noise, and index 0 is the clear slot.
+                    let t = (v / full).clamp(0.0, 1.0);
+                    if t < 0.02 {
+                        0
+                    } else {
+                        (1.0 + t * 254.0) as u8
+                    }
+                },
+                // Translucent, so the coastlines and borders stay readable underneath.
+                crate::app::ramp_lut_a(
+                    &[
+                        (0.0, [255, 255, 200]),
+                        (0.35, [255, 200, 60]),
+                        (0.7, [230, 90, 40]),
+                        (1.0, [150, 20, 170]),
+                    ],
+                    190,
+                ),
+            )
+        }
+    };
+    let camera = cam_or_env(-97.0, 38.0, 3.0);
+    let (new_tiles, visible, new_vector_tiles, visible_vector, _place_labels) =
+        national_basemap(&rt, &camera);
+    let (center, scale) = camera.world_to_clip_uniform((size() as f32, size() as f32));
+    let cb = MapCallback {
+        pane: 0,
+        camera_center: center,
+        camera_scale: scale,
+        world_per_pixel: camera.world_per_pixel() as f32,
+        camera_view_proj: camera.view_projection_uniform((size() as f32, size() as f32)),
+        camera_3d: 0.0,
+        basemap_key: 0,
+        vector_over_raster: false,
+        new_tiles,
+        visible,
+        radar_upload: None,
+        draw_radar: false,
+        observed_upload: None,
+        draw_observed: false,
+        overlay_upload: None,
+        draw_overlay: false,
+        field_uploads: vec![(FL::ModelDiff, upload)],
+        field_draws: vec![(FL::ModelDiff, 1.0)],
+        field_swipe: None,
+        clear_tiles: false,
+        drop_tiles: Vec::new(),
+        drop_fields: Vec::new(),
+        new_vector_tiles,
+        visible_vector,
+        clear_vector: false,
+        drop_vector_tiles: Vec::new(),
+        wind_upload: None,
+        wind: None,
+    };
+    render_to_png(&rt, cb, out_path)
+}
+
 /// Fetch + print the active NHC tropical cyclones (feature V). Exits 0 with a note when none.
 pub fn run_tropical() -> anyhow::Result<()> {
     let rt = tokio::runtime::Builder::new_multi_thread()

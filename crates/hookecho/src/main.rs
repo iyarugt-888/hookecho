@@ -264,6 +264,21 @@ fn main() -> eframe::Result<()> {
         return Ok(());
     }
 
+    // Ensemble statistic from live GEFS members:
+    // `hookecho --headless-ensemble <field> <stat> <fcst-hour> [out.png]`.
+    if let Some(pos) = args.iter().position(|a| a == "--headless-ensemble") {
+        let arg = |n: usize| args.get(pos + n).filter(|a| !a.starts_with("--"));
+        let field = arg(1).map(String::as_str).unwrap_or("t2m");
+        let stat = arg(2).map(String::as_str).unwrap_or("mean");
+        let fh: u16 = arg(3).and_then(|s| s.parse().ok()).unwrap_or(24);
+        let out = arg(4).map(String::as_str).unwrap_or("ensemble.png");
+        if let Err(e) = headless::run_ensemble(field, stat, fh, out) {
+            eprintln!("headless ensemble render failed: {e}");
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
+
     // Tropical verify: `hookecho --headless-tropical`.
     if args.iter().any(|a| a == "--headless-tropical") {
         if let Err(e) = headless::run_tropical() {

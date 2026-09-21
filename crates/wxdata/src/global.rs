@@ -459,13 +459,33 @@ async fn fetch_run(
         }
     };
 
+    let res_deg = if model == GlobalModel::Gefs {
+        GEFS_RES_DEG
+    } else {
+        RES_DEG
+    };
+    let field_out = download_and_decode(http, &base, range, res_deg).await?;
+    Ok(GlobalForecast {
+        field: field_out,
+        run,
+        fcst_hour: fh,
+    })
+}
+
+/// Range-GET one GRIB2 message and decode it onto the `res_deg` lattice.
+async fn download_and_decode(
+    http: &reqwest::Client,
+    base: &str,
+    range: (u64, Option<u64>),
+    res_deg: f64,
+) -> anyhow::Result<MrmsField> {
     let (start, end) = range;
     let http_range = match end {
         Some(e) => format!("bytes={start}-{}", e - 1),
         None => format!("bytes={start}-"),
     };
     let bytes = http
-        .get(crate::net::fetch_url(&base))
+        .get(crate::net::fetch_url(base))
         .timeout(crate::net::FEED_TIMEOUT)
         .header("User-Agent", USER_AGENT)
         .header("Range", http_range)
@@ -476,17 +496,61 @@ async fn fetch_run(
         .await?;
 
     let raw = bytes.to_vec();
-    let res_deg = if model == GlobalModel::Gefs {
-        GEFS_RES_DEG
+    crate::task::blocking(move || decode(&raw, res_deg)).await?
+}
+
+/// One GEFS ensemble member's message for the GRIB `(var, level)` at `fh`, from a known cycle.
+///
+/// Member 0 is the control run (`gec00`); 1..=30 are the perturbed members (`gep01`..`gep30`).
+/// Every member decodes onto the same [`GEFS_RES_DEG`] lattice, which is what lets
+/// [`crate::ensemble::combine`] treat them cell by cell.
+pub async fn fetch_gefs_member(
+    http: &reqwest::Client,
+    key: (&str, &str),
+    run: DateTime<Utc>,
+    fh: u16,
+    member: u8,
+) -> anyhow::Result<MrmsField> {
+    let date = format!("{:04}{:02}{:02}", run.year(), run.month(), run.day());
+    let name = if member == 0 {
+        "gec00".to_string()
     } else {
-        RES_DEG
+        format!("gep{member:02}")
     };
-    let field_out = crate::task::blocking(move || decode(&raw, res_deg)).await??;
-    Ok(GlobalForecast {
-        field: field_out,
-        run,
-        fcst_hour: fh,
-    })
+    let base = format!(
+        "{GEFS_BUCKET}/gefs.{date}/{:02}/atmos/pgrb2ap5/{name}.t{:02}z.pgrb2a.0p50.f{fh:03}",
+        run.hour(),
+        run.hour()
+    );
+    let idx = get_text(http, &format!("{base}.idx")).await?;
+    let (var, level) = key;
+    let range = crate::hrrr::field_byte_range(&idx, var, level)
+        .ok_or_else(|| anyhow::anyhow!("no {var}:{level} in GEFS {name} idx"))?;
+    download_and_decode(http, &base, range, GEFS_RES_DEG).await
+}
+
+/// The newest GEFS cycle that has posted the control member for `key` at `fh`, plus that
+/// member's grid. Walks back through recent cycles for the same "directory exists before the
+/// file does" latency [`fetch`] tolerates; the run is then pinned for every other member so the
+/// ensemble never mixes cycles.
+pub async fn find_gefs_cycle(
+    http: &reqwest::Client,
+    key: (&str, &str),
+    fh: u16,
+) -> anyhow::Result<(DateTime<Utc>, MrmsField)> {
+    let now = Utc::now();
+    let step = GlobalModel::Gefs.cycle_step() as i64;
+    let mut last_err = None;
+    for back in 0..5 {
+        let hours = (now.hour() as i64 / step) * step - back * step;
+        let run = (now.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc())
+            + chrono::Duration::hours(hours);
+        match fetch_gefs_member(http, key, run, fh, 0).await {
+            Ok(f) => return Ok((run, f)),
+            Err(e) => last_err = Some(e),
+        }
+    }
+    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("no GEFS cycle found")))
 }
 
 /// `foo.grib2` → `foo`, for the sidecar whose extension replaces rather than appends.

@@ -8,6 +8,19 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: GEFS ensemble statistics engine (F7, first step)
+
+`wxdata::ensemble` fetches all 31 GEFS members of a field from one pinned cycle (so members can
+never mix runs) and reduces them per grid cell: mean, spread, minimum, maximum, percentiles, and
+the percent of members above a threshold. A cell where fewer than half the members have a value is
+left missing rather than reported from a handful of survivors, and members that are not on one
+lattice and valid time are refused. It covers 2 m temperature, MSLP, 500 hPa height, mixed-layer
+CAPE and precipitable water.
+
+`hookecho --headless-ensemble <field> <stat> <hour> [out.png]` renders any statistic from live
+data, for example `cape prob:1000 24` or `t2m spread 72`. There is no in-app layer yet; that is
+the next step.
+
 ### Added: “Forecast comparison” starter workspace (J5)
 
 A new two-pane starter puts the observed MRMS mosaic beside HRRR “future radar”, with cameras and

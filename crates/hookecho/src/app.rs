@@ -19948,13 +19948,13 @@ fn map_3d_cc_anomaly_controls(ui: &mut egui::Ui, a: &mut crate::view::CcAnomaly)
     }
 }
 
-fn ramp_lut(stops: &[(f32, [u8; 3])]) -> Vec<u8> {
+pub(crate) fn ramp_lut(stops: &[(f32, [u8; 3])]) -> Vec<u8> {
     ramp_lut_a(stops, 255)
 }
 
 /// Like [`ramp_lut`] but with a caller-chosen opacity for non-zero indices (index 0 stays clear).
 /// Environment overlays (CAPE/SRH) use a translucent alpha so the basemap reads through.
-fn ramp_lut_a(stops: &[(f32, [u8; 3])], alpha: u8) -> Vec<u8> {
+pub(crate) fn ramp_lut_a(stops: &[(f32, [u8; 3])], alpha: u8) -> Vec<u8> {
     let mut lut = vec![0u8; 256 * 4];
     for i in 0..256 {
         let t = i as f32 / 255.0;

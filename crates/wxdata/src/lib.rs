@@ -20,6 +20,7 @@ pub mod dualpol;
 pub mod dwd;
 pub mod eccc;
 pub mod efield;
+pub mod ensemble;
 pub mod ero;
 pub mod extrema;
 pub mod field;

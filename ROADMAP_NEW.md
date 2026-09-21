@@ -2336,19 +2336,28 @@ prepared pane could overwrite every earlier pane's field opacity. Textures/LUTs 
 each field now owns one tiny uniform/bind group per pane, making the overlay genuinely pane-local
 and eliminating that latent cross-pane clobbering for ordinary field opacity too.
 
-## F7. Ensemble workstation
+## F7. Ensemble workstation — started (engine and headless render; not yet on the map)
 
 This is required for top-tier analysis.
 
+New this pass, see the Unreleased CHANGELOG entry: `wxdata::ensemble` fetches the 31 GEFS members
+of a field from one pinned cycle and reduces them per grid cell (`combine`). It is checked offline
+and against live GEFS, and `hookecho --headless-ensemble <field> <stat> <hour> [out.png]` renders
+any statistic to an image. Nothing is exposed in the app UI yet: an on-map layer needs the same
+fetch-lane, health, probe and legend plumbing `ModelDiff` has. GEFS is the only ensemble wired up;
+REFS is not a data source this app has. Fields today: 2 m temperature, MSLP, 500 hPa height,
+mixed-layer CAPE and precipitable water. Wind gust, QPF, snow and UH need fields the
+`pgrb2a` member files either do not carry or carry as accumulations, so they are still open.
+
 For GEFS/REFS and any supported ensemble:
 
-- individual member view
-- ensemble mean
-- ensemble spread / standard deviation
-- min/max
-- percentile fields
-- probability of threshold exceedance
-- neighborhood probability when scientifically appropriate
+- [x] individual member view — `fetch_gefs` returns every member grid (engine only, no UI)
+- [x] ensemble mean
+- [x] ensemble spread / standard deviation — sample standard deviation
+- [x] min/max
+- [x] percentile fields — linearly interpolated between ranked members
+- [x] probability of threshold exceedance — percent of members strictly above, engine and headless
+- [ ] neighborhood probability when scientifically appropriate
 - member postage-stamp grid
 - spaghetti contours
 - point plume/time series
