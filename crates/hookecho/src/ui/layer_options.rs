@@ -84,9 +84,6 @@ pub(crate) fn show(
     time_tolerance: chrono::Duration,
     rotation_minutes: &mut u16,
     hail_minutes: &mut u16,
-    tz: Option<wxdata::tz::Tz>,
-    env_cape_ml: &mut bool,
-    env_srh_km: &mut u8,
     env_model: &mut wxdata::hrrr::Model,
     active_contours: &mut std::collections::BTreeSet<crate::app::ContourKind>,
     etop_dbz: &mut f32,
@@ -96,8 +93,6 @@ pub(crate) fn show(
     tropical_surge: &mut bool,
     l3grid_site: Option<&str>,
     // Global models: which one, and how far into its run.
-    // Model browser: the current pick, lead and provenance (see `ui::model_panel`).
-    model: &crate::ui::model_panel::Input,
     global_fcst_hour: &mut u16,
     // Model difference: selected field, shared valid time, and both source runs.
     diff_field: &mut crate::fielddiff::DiffField,
@@ -175,14 +170,12 @@ pub(crate) fn show(
         });
     }
 
-    let model_on = crate::model_browser::model_layers().any(|l| on.contains(&l));
     let sections = [
         ("Storm cells", filters.show_cells),
         ("Alerts", filters.show_alerts),
         ("Tropical", *show_tropical),
         ("Outlooks", true),
         ("Environment", true),
-        ("Model forecast", model_on),
         (
             "Model comparison",
             on.contains(&FL::ModelDiff) || on.contains(&FL::CompareA) || on.contains(&FL::CompareB),
@@ -246,19 +239,6 @@ pub(crate) fn show(
         .on_hover_text("Choose a layer to adjust");
     ui.ctx().data_mut(|d| d.insert_temp(id, section));
     ui.add_space(4.0);
-    if section == "Model forecast" && model_on {
-        changed |= crate::ui::model_panel::show(
-            ui,
-            model,
-            on,
-            tz,
-            env_cape_ml,
-            env_srh_km,
-            fields,
-            actions,
-        );
-    }
-
     let showing_compare = on.contains(&FL::CompareA) || on.contains(&FL::CompareB);
     // Blinking also keeps exactly one of CompareA/CompareB in `fields_on` (see
     // `render_pane`'s own comment), so `showing_compare` alone can't tell true two-pane side by

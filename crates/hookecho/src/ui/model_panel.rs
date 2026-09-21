@@ -19,6 +19,12 @@ pub struct Input {
     pub lead_min: u16,
     /// Stamp of the layer the selection draws, once it has arrived.
     pub stamp: Option<DataStamp>,
+    /// The run chosen, or `None` for the newest that has posted.
+    pub run: Option<DateTime<Utc>>,
+    /// The runs on offer for this model, newest first.
+    pub runs: Vec<DateTime<Utc>>,
+    /// How far this model (this run) can be scrubbed, and in what steps.
+    pub range: crate::model_browser::LeadRange,
 }
 
 /// "3 min ago", "2 h ago" — coarse on purpose; a forecast's age is not a to-the-second matter.
@@ -67,7 +73,11 @@ pub(crate) fn show(
         sel,
         lead_min,
         stamp,
+        run,
+        runs,
+        range,
     } = input;
+    let range = *range;
     let mut changed = false;
     let showing = on.contains(&sel.layer());
 
@@ -108,8 +118,40 @@ pub(crate) fn show(
         }
     });
 
+    // Which cycle of the model to read. "Latest" walks back to the newest one that has posted;
+    // naming a run pins it, so two people looking at "the 12Z HRRR" see the same thing.
+    ui.horizontal(|ui| {
+        ui.label("Run");
+        let current = match run {
+            Some(r) => sel.model.run_label(*r),
+            None => "Latest".to_string(),
+        };
+        egui::ComboBox::from_id_salt("model_run")
+            .selected_text(current)
+            // Fits a phone: the label takes what is left after the word "Run" and its gap.
+            .width((ui.available_width() - 8.0).clamp(120.0, 260.0))
+            .show_ui(ui, |ui| {
+                if ui
+                    .selectable_label(run.is_none(), "Latest available")
+                    .on_hover_text("The newest run that has finished posting")
+                    .clicked()
+                {
+                    actions.palette = Some(PaletteAction::SetModelRun(None));
+                }
+                for r in runs {
+                    if ui
+                        .selectable_label(*run == Some(*r), sel.model.run_label(*r))
+                        .clicked()
+                    {
+                        actions.palette = Some(PaletteAction::SetModelRun(Some(r.timestamp())));
+                    }
+                }
+            })
+            .response
+            .on_hover_text("Older runs stay available for a day or two");
+    });
+
     // Lead: the model's own range and step, shown as a time from the run.
-    let range = sel.model.leads();
     ui.horizontal(|ui| {
         ui.label("Lead");
         if ui
@@ -142,6 +184,34 @@ pub(crate) fn show(
             .clicked()
         {
             actions.palette = Some(PaletteAction::StepModelLead(1));
+        }
+    });
+
+    // Jumps for getting well out without dragging: only the ones this run can reach.
+    ui.horizontal_wrapped(|ui| {
+        ui.label(egui::RichText::new("Jump").small().weak());
+        for (label, add) in [
+            ("+3h", 3u16),
+            ("+6h", 6),
+            ("+12h", 12),
+            ("+24h", 24),
+            ("+48h", 48),
+            ("+5d", 120),
+        ] {
+            let target = lead_min.saturating_add(add * 60);
+            if target > range.max && *lead_min >= range.max {
+                continue;
+            }
+            if ui.small_button(label).clicked() {
+                actions.palette = Some(PaletteAction::SetModelLead(target.min(range.max)));
+            }
+        }
+        if ui
+            .small_button("Start")
+            .on_hover_text("Back to the first lead")
+            .clicked()
+        {
+            actions.palette = Some(PaletteAction::SetModelLead(range.min));
         }
     });
 

@@ -192,14 +192,8 @@ impl HookEchoApp {
                 // A drag rewrites the order in place, so persist it when it moves.
                 let order_was = self.settings.layer_order.clone();
                 let ensemble_note = self.ensemble_status_line();
-                let model_input = crate::ui::model_panel::Input {
-                    sel: self.model_sel,
-                    lead_min: self.model_lead_min(),
-                    stamp: self
-                        .fields
-                        .get(&self.model_sel.layer())
-                        .and_then(|state| state.stamp.clone()),
-                };
+                let model_input = self.model_panel_input();
+                let model_on_map = self.views[self.active].fields_on.clone();
                 let layer_settings_label = if self.field_time_mismatches().is_empty() {
                     "Layer settings"
                 } else {
@@ -224,6 +218,24 @@ impl HookEchoApp {
                     &self.settings.recent_layers,
                     &mut self.settings.favorite_layers,
                     |ui| {
+                        // The models, always here: pick one, a product it publishes, a run and a
+                        // lead without first having to turn something on. Open on a phone, where
+                        // this sheet is the only way in.
+                        egui::CollapsingHeader::new("Models")
+                            .id_salt("panel_models")
+                            .default_open(phone())
+                            .show(ui, |ui| {
+                                crate::ui::model_panel::show(
+                                    ui,
+                                    &model_input,
+                                    &model_on_map,
+                                    tz,
+                                    &mut self.env_cape_ml,
+                                    &mut self.env_srh_km,
+                                    &mut self.fields,
+                                    &mut opts,
+                                );
+                            });
                         // Knobs for the layers that are already on, drawn between the Radar group
                         // and the rest. Collapsed by default: the list is still the panel's job.
                         egui::CollapsingHeader::new(layer_settings_label)
@@ -244,9 +256,6 @@ impl HookEchoApp {
                                     ),
                                     &mut self.rotation_minutes,
                                     &mut self.hail_minutes,
-                                    tz,
-                                    &mut self.env_cape_ml,
-                                    &mut self.env_srh_km,
                                     &mut self.env_model,
                                     &mut self.active_contours,
                                     &mut etop_dbz,
@@ -255,7 +264,6 @@ impl HookEchoApp {
                                     &mut self.tropical_wind_kt,
                                     &mut self.tropical_surge,
                                     l3_site.as_deref(),
-                                    &model_input,
                                     &mut self.global_fcst_hour,
                                     &mut self.diff_field,
                                     &mut self.diff_mode,

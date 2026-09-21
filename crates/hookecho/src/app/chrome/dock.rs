@@ -348,6 +348,12 @@ impl HookEchoApp {
         let mut chosen = None;
         let mut close = false;
         let mut open_manager = false;
+        // The model browser lives at the top of the Models tab, so the dock has the same model,
+        // product, run and lead controls as every other layout.
+        let model_input = self.model_panel_input();
+        let model_on = self.views[self.active].fields_on.clone();
+        let model_tz = self.active_tz();
+        let mut model_actions = crate::ui::layer_options::UiActions::default();
         egui::Panel::left("dock_layers")
             .exact_size(LEFT_WIDTH)
             .resizable(false)
@@ -385,6 +391,19 @@ impl HookEchoApp {
                     .max_height(list_h)
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
+                        if self.dock.tab == DockTab::Models {
+                            crate::ui::model_panel::show(
+                                ui,
+                                &model_input,
+                                &model_on,
+                                model_tz,
+                                &mut self.env_cape_ml,
+                                &mut self.env_srh_km,
+                                &mut self.fields,
+                                &mut model_actions,
+                            );
+                            ui.separator();
+                        }
                         if groups.is_empty() {
                             ui.label(mono("Nothing matches.", 12.0, DIM));
                         }
@@ -446,6 +465,9 @@ impl HookEchoApp {
                     }
                 });
             });
+        if chosen.is_none() {
+            chosen = model_actions.palette;
+        }
         if close {
             self.dock.left_open = false;
         }

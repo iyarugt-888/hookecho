@@ -779,4 +779,79 @@ mod tests {
             );
         }
     }
+
+    /// Naming a run gets that run, and the long leads on extended cycles decode. This walks the
+    /// leads the model browser now offers past six hours: the HRRR's 48 h and the RAP's 51 h on
+    /// their extended cycles, and the long global leads past the point where the step doubles.
+    ///
+    /// Network-gated: `cargo test -p wxdata -- --ignored pinned_runs_and_long_leads`.
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn pinned_runs_and_long_leads_decode() {
+        use crate::global::{fetch_at_run, GlobalField, GlobalModel};
+        use chrono::Timelike;
+        let http = reqwest::Client::new();
+        let now = chrono::Utc::now();
+        let refc = ModelField::CompositeReflectivity;
+
+        // A recent extended cycle (older than the newest, which may still be posting).
+        for (model, hours_ext, fh) in [(Model::Hrrr, 48u8, 36u8), (Model::Rap, 51, 45)] {
+            let run = crate::hrrr::run_choices(model, now, 30)
+                .into_iter()
+                .skip(3)
+                .find(|r| model.max_lead_for_cycle(r.hour()) == u16::from(hours_ext))
+                .expect("an extended cycle within 30 runs");
+            let k = refc.grib(model).unwrap();
+            let fc =
+                crate::hrrr::fetch_field_at_run(&http, model, run, k.var, k.level, fh, k.min_valid)
+                    .await
+                    .unwrap_or_else(|e| panic!("{} {run} f{fh}: {e}", model.label()));
+            assert_eq!(fc.run, run, "the pinned run, not the newest");
+            assert_eq!(fc.valid(), run + chrono::Duration::hours(i64::from(fh)));
+            println!("{} {run} f{fh:02} ok", model.label());
+            // The same lead on a cycle that does not run that long is refused, not quietly clamped.
+            let short = crate::hrrr::run_choices(model, now, 30)
+                .into_iter()
+                .skip(3)
+                .find(|r| model.max_lead_for_cycle(r.hour()) < u16::from(fh))
+                .expect("a short cycle");
+            assert!(
+                crate::hrrr::fetch_field_at_run(
+                    &http,
+                    model,
+                    short,
+                    k.var,
+                    k.level,
+                    fh,
+                    k.min_valid
+                )
+                .await
+                .is_err(),
+                "{} {short} should not offer f{fh}",
+                model.label()
+            );
+        }
+
+        // Global: a pinned older run at a lead past where the schedule thins out.
+        for (model, fh, twelve_hourly) in [
+            (GlobalModel::Gfs, 246u16, false),
+            (GlobalModel::Gefs, 246, false),
+            (GlobalModel::Ecmwf, 150, true),
+        ] {
+            let run = model
+                .run_choices(now, 8)
+                .into_iter()
+                .skip(1)
+                .find(|r| !twelve_hourly || r.hour() % 12 == 0)
+                .unwrap();
+            let f = fetch_at_run(&http, model, GlobalField::Temp2m, run, fh)
+                .await
+                .unwrap_or_else(|e| panic!("{} {run} f{fh}: {e}", model.label()));
+            assert_eq!(f.run, run);
+            assert_eq!(f.valid(), run + chrono::Duration::hours(i64::from(fh)));
+            let finite = f.field.values.iter().filter(|v| v.is_finite()).count();
+            assert!(finite > 10_000, "{}: only {finite} cells", model.label());
+            println!("{} {run} f{fh:03} ok ({finite} cells)", model.label());
+        }
+    }
 }

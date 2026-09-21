@@ -545,51 +545,128 @@ pub async fn fetch_field_swath(
             .unwrap()
             .with_nanosecond(0)
             .unwrap();
-        // Up to 18 forecast hours, each its own ranged GRIB fetch. Sequentially that is 18
-        // round trips stacked end to end; six at a time cuts the wall clock to roughly a third.
-        // The fold is still ordered, and still all-or-nothing.
-        // Each future owns its inputs (a `reqwest::Client` clone is a refcount bump): borrowed
-        // ones make the combined future non-`Send`, which the app's tokio spawn requires.
-        let results: Vec<_> =
-            futures_util::stream::iter((1..=through).map(|fh| {
+        match swath_one_run(http, var, level, run, through, min_valid).await {
+            Ok(fc) => return Ok(fc),
+            Err(e) => last_err = Some(e),
+        }
+    }
+    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("no HRRR run found")))
+}
+
+/// [`fetch_field_swath`] from one chosen HRRR cycle instead of the newest that has posted.
+pub async fn fetch_field_swath_at_run(
+    http: &reqwest::Client,
+    var: &str,
+    level: &str,
+    run: DateTime<Utc>,
+    through_hour: u8,
+    min_valid: f64,
+) -> anyhow::Result<HrrrForecast> {
+    swath_one_run(http, var, level, run, through_hour.clamp(1, 18), min_valid).await
+}
+
+/// The union of hours F+1 through F+`through` from one cycle, all-or-nothing.
+async fn swath_one_run(
+    http: &reqwest::Client,
+    var: &str,
+    level: &str,
+    run: DateTime<Utc>,
+    through: u8,
+    min_valid: f64,
+) -> anyhow::Result<HrrrForecast> {
+    // Up to 18 forecast hours, each its own ranged GRIB fetch. Sequentially that is 18
+    // round trips stacked end to end; six at a time cuts the wall clock to roughly a third.
+    // The fold is still ordered, and still all-or-nothing.
+    // Each future owns its inputs (a `reqwest::Client` clone is a refcount bump): borrowed
+    // ones make the combined future non-`Send`, which the app's tokio spawn requires.
+    let results: Vec<_> =
+        futures_util::stream::iter(
+            (1..=through).map(|fh| {
                 let (http, var, level) = (http.clone(), var.to_string(), level.to_string());
                 async move {
                     fetch_run_field(&http, Model::Hrrr, run, fh, &var, &level, min_valid).await
                 }
-            }))
-            .buffered(HRRR_CONCURRENCY)
-            .collect()
-            .await;
-        let mut acc: Option<MrmsField> = None;
-        let mut failed = None;
-        for r in results {
-            match r {
-                Ok(f) => match acc.as_mut() {
-                    None => acc = Some(f),
-                    Some(a) => merge_max(a, &f),
-                },
-                Err(e) => {
-                    failed = Some(e);
-                    break;
-                }
-            }
-        }
-        match (failed, acc) {
-            (None, Some(mut field)) => {
-                // The max grid covers F+1 through F+through; timestamp it at the ending
-                // valid time, not the first slice's F+1 time retained by the fold.
-                field.time = run + chrono::Duration::hours(i64::from(through));
-                return Ok(HrrrForecast {
-                    field,
-                    run,
-                    fcst_hour: through,
-                    fcst_minutes: None,
-                });
-            }
-            (e, _) => last_err = e.or(last_err),
+            }),
+        )
+        .buffered(HRRR_CONCURRENCY)
+        .collect()
+        .await;
+    let mut acc: Option<MrmsField> = None;
+    for r in results {
+        let f = r?;
+        match acc.as_mut() {
+            None => acc = Some(f),
+            Some(a) => merge_max(a, &f),
         }
     }
-    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("no HRRR run found")))
+    let mut field = acc.ok_or_else(|| anyhow::anyhow!("no HRRR hours to combine"))?;
+    // The max grid covers F+1 through F+through; timestamp it at the ending valid time, not the
+    // first slice's F+1 time retained by the fold.
+    field.time = run + chrono::Duration::hours(i64::from(through));
+    Ok(HrrrForecast {
+        field,
+        run,
+        fcst_hour: through,
+        fcst_minutes: None,
+    })
+}
+
+/// The cycles a model publishes, newest first, starting at the newest one that has plausibly
+/// finished posting (its typical latency behind `now`). For a run picker: the newest entry may
+/// still be mid-upload, which a fetch reports as a missing file rather than wrong data.
+pub fn run_choices(model: Model, now: DateTime<Utc>, count: usize) -> Vec<DateTime<Utc>> {
+    let step = model.cycle_hours();
+    let base = now - chrono::Duration::minutes(i64::from(model.def().typical_latency_min));
+    let floored = base
+        .with_hour(base.hour() / step * step)
+        .unwrap_or(base)
+        .with_minute(0)
+        .unwrap()
+        .with_second(0)
+        .unwrap()
+        .with_nanosecond(0)
+        .unwrap();
+    (0..count)
+        .map(|i| floored - chrono::Duration::hours((i as u32 * step) as i64))
+        .collect()
+}
+
+/// Fetch `var`/`level` at `fcst_hour` from exactly `run`. Unlike [`fetch_field`] this never walks
+/// back to another cycle: the point of naming a run is to get that one, or an honest error.
+pub async fn fetch_field_at_run(
+    http: &reqwest::Client,
+    model: Model,
+    run: DateTime<Utc>,
+    var: &str,
+    level: &str,
+    fcst_hour: u8,
+    min_valid: f64,
+) -> anyhow::Result<HrrrForecast> {
+    let max = model.max_lead_for_cycle(run.hour());
+    anyhow::ensure!(
+        u16::from(fcst_hour) <= max,
+        "the {} {:02}Z run publishes to F+{max}h, not F+{fcst_hour}h",
+        model.label(),
+        run.hour()
+    );
+    let field = fetch_run_field(http, model, run, fcst_hour, var, level, min_valid).await?;
+    Ok(HrrrForecast {
+        field,
+        run,
+        fcst_hour,
+        fcst_minutes: None,
+    })
+}
+
+/// [`fetch_forecast_subhourly`] from exactly `run`.
+pub async fn fetch_forecast_subhourly_at_run(
+    http: &reqwest::Client,
+    run: DateTime<Utc>,
+    minutes: u16,
+) -> anyhow::Result<HrrrForecast> {
+    let minutes = (minutes.clamp(15, 18 * 60) / 15) * 15;
+    let ff = subhourly_file_index(minutes);
+    fetch_subhourly_run(http, run, ff, &format!("{minutes} min fcst"), minutes).await
 }
 
 /// Fold `src` into `dst` by keeping the larger value per cell. Both come from the same run and

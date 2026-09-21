@@ -198,9 +198,13 @@ radar actually saw.
 
 Models are one control: pick a **model** (HRRR, HRRR 15-min, RAP, NAM 3 km, NAM
 12 km, NBM, GFS, ECMWF, GEFS mean, GDPS), then a **product** it publishes
-(reflectivity, CAPE, helicity, rotation tracks, and so on), then a **lead**. Only
-products a model really publishes are offered, and each shows the run it came
-from and how fresh it is.
+(reflectivity, CAPE, helicity, rotation tracks, and so on), then a **run** and a
+**lead**. Only products a model really publishes are offered, and each shows the
+run it came from and how fresh it is. The run menu lists the model's recent
+cycles, or leaves it on the newest; the lead reaches as far as that run does
+(HRRR to 48 h on its 00/06/12/18Z runs, GFS and GEFS to 384 h, ECMWF to 240 h)
+and steps only on hours the model publishes. The same controls are in the ribbon,
+the floating Layers panel (the phone sheet), and the dock's Models tab.
 
 ![HRRR future radar one hour out, with a banner marking it as model output](shots/hrrr.jpg)
 

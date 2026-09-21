@@ -67,6 +67,40 @@ impl GlobalModel {
     fn cycle_step(self) -> u32 {
         6
     }
+
+    /// Hours after a cycle's name before it has typically finished posting. Rough on purpose: it
+    /// only decides where a run list starts, and a run that is not up yet fails as a missing file.
+    pub fn typical_latency_hours(self) -> i64 {
+        match self {
+            GlobalModel::Gfs => 5,
+            GlobalModel::Ecmwf => 8,
+            GlobalModel::Gefs => 6,
+            GlobalModel::Gdps => 6,
+        }
+    }
+
+    /// The cycles this model publishes, newest plausible first.
+    pub fn run_choices(self, now: DateTime<Utc>, count: usize) -> Vec<DateTime<Utc>> {
+        let step = self.cycle_step();
+        let base = now - chrono::Duration::hours(self.typical_latency_hours());
+        let floored = (base.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc())
+            + chrono::Duration::hours(i64::from(base.hour() / step * step));
+        (0..count)
+            .map(|i| floored - chrono::Duration::hours((i as u32 * step) as i64))
+            .collect()
+    }
+}
+
+/// Fetch `field` at `fh` from exactly `run`. Unlike [`fetch`] this never walks back to another
+/// cycle: naming a run means getting that one, or an honest error.
+pub async fn fetch_at_run(
+    http: &reqwest::Client,
+    model: GlobalModel,
+    field: GlobalField,
+    run: DateTime<Utc>,
+    fh: u16,
+) -> anyhow::Result<GlobalForecast> {
+    fetch_run(http, model, field, run, fh).await
 }
 
 /// A field a global model can draw. Kept to what both publish, so switching source keeps the map.

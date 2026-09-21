@@ -7,6 +7,7 @@
 //! existing field layers, so nothing here fetches or draws.
 
 use crate::render::FieldLayer;
+use chrono::{DateTime, Timelike, Utc};
 use wxdata::global::GlobalModel;
 use wxdata::hrrr::Model as Regional;
 
@@ -61,14 +62,55 @@ pub struct LeadRange {
     pub min: u16,
     pub max: u16,
     pub step: u16,
+    /// Past this lead the model publishes less often: `(after, step)`, in minutes. The GFS family
+    /// goes from 3-hourly to 6-hourly, the NAM 12 km from hourly to 3-hourly, and so on.
+    pub coarse: Option<(u16, u16)>,
 }
 
 impl LeadRange {
-    /// Snap a lead into this range, on its step grid.
+    const fn fixed(min: u16, max: u16, step: u16) -> Self {
+        Self {
+            min,
+            max,
+            step,
+            coarse: None,
+        }
+    }
+
+    /// The step in force just after `lead`, when moving later.
+    fn step_up(self, lead: u16) -> u16 {
+        match self.coarse {
+            Some((after, coarse)) if lead >= after => coarse,
+            _ => self.step,
+        }
+    }
+
+    /// The step in force just before `lead`, when moving earlier.
+    fn step_down(self, lead: u16) -> u16 {
+        match self.coarse {
+            Some((after, coarse)) if lead > after => coarse,
+            _ => self.step,
+        }
+    }
+
+    /// Snap a lead into this range, on the grid the model actually publishes.
     pub fn clamp(self, minutes: u16) -> u16 {
         let m = minutes.clamp(self.min, self.max);
-        let snapped = self.min + (m - self.min) / self.step * self.step;
+        let snapped = match self.coarse {
+            Some((after, coarse)) if m > after => after + (m - after) / coarse * coarse,
+            _ => self.min + (m - self.min) / self.step * self.step,
+        };
         snapped.min(self.max)
+    }
+
+    /// The next published lead after (`later`) or before `from`, staying inside the range.
+    pub fn neighbour(self, from: u16, later: bool) -> u16 {
+        let from = self.clamp(from);
+        if later {
+            self.clamp(from.saturating_add(self.step_up(from)))
+        } else {
+            self.clamp(from.saturating_sub(self.step_down(from)))
+        }
     }
 }
 
@@ -160,28 +202,94 @@ impl BModel {
         self.products()[0]
     }
 
-    /// Lead range in minutes. Limits are what the fetch path can reach today, not the models'
-    /// full extended runs.
+    /// The widest lead range any run of this model offers, in minutes.
     pub fn leads(self) -> LeadRange {
-        let hours = |min: u16, max: u16, step: u16| LeadRange {
-            min: min * 60,
-            max: max * 60,
-            step: step * 60,
+        self.leads_at_hour(None)
+    }
+
+    /// The lead range of the run picked (`None` = the newest that has plausibly posted).
+    pub fn leads_for(self, run: Option<DateTime<Utc>>, now: DateTime<Utc>) -> LeadRange {
+        let run = run.or_else(|| self.run_choices(now, 1).first().copied());
+        self.leads_at_hour(run.map(|r| r.hour()))
+    }
+
+    /// Lead range for a run starting at `run_hour` (UTC), or the widest across runs when `None`.
+    ///
+    /// The extended cycles are where the long leads live: HRRR's 00/06/12/18Z runs go to 48 h and
+    /// the rest stop at 18. The steps and limits below were each checked against the servers.
+    fn leads_at_hour(self, run_hour: Option<u32>) -> LeadRange {
+        let h = |hours: u16| hours * 60;
+        // A regional model's limit for this run, from the model catalogue's own schedule.
+        let regional = |model: Regional, cap_h: u16| -> u16 {
+            let hours = match run_hour {
+                Some(hour) => model.max_lead_for_cycle(hour),
+                None => model.def().extended_lead_h,
+            };
+            h(hours.min(cap_h))
         };
         match self {
-            BModel::Hrrr => hours(0, 18, 1),
-            BModel::Hrrr15 => LeadRange {
-                min: 15,
-                max: 18 * 60,
-                step: 15,
+            BModel::Hrrr => LeadRange::fixed(0, regional(Regional::Hrrr, 48), h(1)),
+            // The sub-hourly files stop at 18 h on every cycle.
+            BModel::Hrrr15 => LeadRange::fixed(15, h(18), 15),
+            BModel::Rap => LeadRange::fixed(0, regional(Regional::Rap, 51), h(1)),
+            BModel::NamNest => LeadRange::fixed(0, h(60), h(1)),
+            // The 12 km grid is hourly through hour 36, then every three hours to 84.
+            BModel::Nam => LeadRange {
+                coarse: Some((h(36), h(3))),
+                ..LeadRange::fixed(0, h(84), h(1))
             },
-            BModel::Rap => hours(0, 21, 1),
-            BModel::NamNest => hours(0, 60, 1),
-            // The 12 km grid is hourly only through hour 36.
-            BModel::Nam => hours(0, 36, 1),
-            BModel::Nbm => hours(1, 36, 1),
-            BModel::Gfs | BModel::Ecmwf | BModel::GefsMean | BModel::Gdps => hours(0, 120, 3),
+            BModel::Nbm => LeadRange::fixed(h(1), h(36), h(1)),
+            BModel::Gfs => LeadRange::fixed(0, h(384), h(3)),
+            // Three-hourly to 240 h, then six-hourly to 384 h.
+            BModel::GefsMean => LeadRange {
+                coarse: Some((h(240), h(6))),
+                ..LeadRange::fixed(0, h(384), h(3))
+            },
+            // Three-hourly to 144 h, then six-hourly; the 00/12Z runs reach 240 h, the 06/18Z runs
+            // stop at 144 h.
+            BModel::Ecmwf => {
+                let max = match run_hour {
+                    Some(hour) if hour % 12 != 0 => 144,
+                    _ => 240,
+                };
+                LeadRange {
+                    coarse: Some((h(144), h(6))),
+                    ..LeadRange::fixed(0, h(max), h(3))
+                }
+            }
+            // Unverified past five days: the Canadian server was not answering when this was
+            // checked, so it keeps its original range.
+            BModel::Gdps => LeadRange::fixed(0, h(120), h(3)),
         }
+    }
+
+    /// The cycles a person can pick, newest plausible first. Hourly models list a day of runs; the
+    /// six-hourly ones list two days.
+    pub fn run_choices(self, now: DateTime<Utc>, count: usize) -> Vec<DateTime<Utc>> {
+        match self.engine() {
+            Engine::Regional(model) => wxdata::hrrr::run_choices(model, now, count),
+            Engine::Sub15 => wxdata::hrrr::run_choices(Regional::Hrrr, now, count),
+            Engine::Global(model) => model.run_choices(now, count),
+        }
+    }
+
+    /// How many runs the picker lists for this model.
+    pub fn run_list_len(self) -> usize {
+        match self.engine() {
+            Engine::Regional(model) if model.def().cycle_hours == 1 => 24,
+            Engine::Sub15 => 24,
+            _ => 8,
+        }
+    }
+
+    /// A run in a picker: "18Z Sun 20 Sep · to F+48h".
+    pub fn run_label(self, run: DateTime<Utc>) -> String {
+        let reach = self.leads_at_hour(Some(run.hour())).max / 60;
+        format!(
+            "{:02}Z {} · to F+{reach}h",
+            run.hour(),
+            run.format("%a %d %b")
+        )
     }
 
     /// The browser model for a regional model, for models with a reflectivity forecast; anything
@@ -646,6 +754,107 @@ mod tests {
         }
     }
 
+    fn at(h: u32) -> DateTime<Utc> {
+        use chrono::TimeZone;
+        Utc.with_ymd_and_hms(2026, 9, 20, h, 0, 0).unwrap()
+    }
+
+    #[test]
+    fn thinning_leads_snap_and_step_on_the_grid_the_model_publishes() {
+        let h = |x: u16| x * 60;
+        let nam = BModel::Nam.leads();
+        // Hourly to 36 h, then every three hours: 37 and 38 h do not exist, 39 h does.
+        assert_eq!(nam.clamp(h(37)), h(36));
+        assert_eq!(nam.clamp(h(38)), h(36));
+        assert_eq!(nam.clamp(h(39)), h(39));
+        assert_eq!(nam.neighbour(h(36), true), h(39));
+        assert_eq!(nam.neighbour(h(39), false), h(36));
+        assert_eq!(nam.neighbour(h(35), true), h(36));
+        assert_eq!(nam.neighbour(h(84), true), h(84), "stays inside the range");
+        assert_eq!(nam.neighbour(0, false), 0);
+        // GEFS: three-hourly to 240 h, six-hourly after.
+        let gefs = BModel::GefsMean.leads();
+        assert_eq!(gefs.neighbour(h(240), true), h(246));
+        assert_eq!(gefs.neighbour(h(246), false), h(240));
+        assert_eq!(gefs.clamp(h(243)), h(240));
+        assert_eq!(gefs.clamp(h(999)), h(384));
+    }
+
+    #[test]
+    fn every_step_from_the_start_lands_on_a_published_lead_and_reaches_the_end() {
+        for m in BModel::ALL {
+            let r = m.leads();
+            let mut lead = r.min;
+            let mut steps = 0;
+            while lead < r.max {
+                let next = r.neighbour(lead, true);
+                assert!(next > lead, "{m:?} stuck at {lead}");
+                assert_eq!(r.clamp(next), next, "{m:?}: {next} is off the grid");
+                lead = next;
+                steps += 1;
+                assert!(steps < 1000);
+            }
+            assert_eq!(lead, r.max, "{m:?} did not reach its last lead");
+        }
+    }
+
+    /// The long leads live on particular cycles, so the range has to follow the run.
+    #[test]
+    fn the_lead_range_follows_the_run() {
+        let max = |m: BModel, hour: u32| m.leads_at_hour(Some(hour)).max / 60;
+        assert_eq!(max(BModel::Hrrr, 12), 48, "an extended HRRR run");
+        assert_eq!(max(BModel::Hrrr, 13), 18, "an ordinary HRRR run");
+        assert_eq!(max(BModel::Rap, 15), 51);
+        assert_eq!(max(BModel::Rap, 16), 21);
+        assert_eq!(max(BModel::Ecmwf, 0), 240);
+        assert_eq!(max(BModel::Ecmwf, 12), 240);
+        assert_eq!(max(BModel::Ecmwf, 6), 144, "the 06/18Z runs stop earlier");
+        // The widest answer, for a run not yet known, is the extended one.
+        assert_eq!(BModel::Hrrr.leads().max / 60, 48);
+        // The sub-hourly files never go past 18 h.
+        assert_eq!(max(BModel::Hrrr15, 12), 18);
+    }
+
+    #[test]
+    fn latest_uses_the_newest_runs_own_range() {
+        use chrono::TimeZone;
+        // 21:30Z: the newest plausible HRRR run is 20Z, which is not an extended cycle.
+        let now = Utc.with_ymd_and_hms(2026, 9, 20, 21, 30, 0).unwrap();
+        assert_eq!(BModel::Hrrr.leads_for(None, now).max / 60, 18);
+        // Pinning the 18Z run opens up the long leads.
+        assert_eq!(BModel::Hrrr.leads_for(Some(at(18)), now).max / 60, 48);
+    }
+
+    #[test]
+    fn run_lists_sit_on_each_models_own_cycles_newest_first() {
+        use chrono::TimeZone;
+        let now = Utc.with_ymd_and_hms(2026, 9, 20, 21, 30, 0).unwrap();
+        let hourly = BModel::Hrrr.run_choices(now, 4);
+        assert_eq!(hourly, [at(20), at(19), at(18), at(17)]);
+        for m in [BModel::NamNest, BModel::Nam] {
+            let runs = m.run_choices(now, 4);
+            assert!(runs.iter().all(|r| r.hour() % 6 == 0), "{m:?}: {runs:?}");
+            assert!(runs
+                .windows(2)
+                .all(|w| w[0] - w[1] == chrono::Duration::hours(6)));
+        }
+        for m in [BModel::Gfs, BModel::Ecmwf, BModel::GefsMean, BModel::Gdps] {
+            let runs = m.run_choices(now, 4);
+            assert!(runs.iter().all(|r| r.hour() % 6 == 0), "{m:?}: {runs:?}");
+            // Nothing newer than the model can plausibly have finished.
+            assert!(runs[0] < now - chrono::Duration::hours(4), "{m:?}");
+        }
+        // A day of hourly runs, two days of six-hourly ones.
+        assert_eq!(BModel::Hrrr.run_list_len(), 24);
+        assert_eq!(BModel::Gfs.run_list_len(), 8);
+    }
+
+    #[test]
+    fn a_run_label_says_when_and_how_far() {
+        assert_eq!(BModel::Hrrr.run_label(at(18)), "18Z Sun 20 Sep · to F+48h");
+        assert_eq!(BModel::Hrrr.run_label(at(17)), "17Z Sun 20 Sep · to F+18h");
+    }
+
     #[test]
     fn lead_snaps_to_the_models_own_steps() {
         let r = BModel::Hrrr15.leads();
@@ -653,7 +862,7 @@ mod tests {
         assert_eq!(r.clamp(50), 45);
         let g = BModel::Gfs.leads();
         assert_eq!(g.clamp(4 * 60), 3 * 60);
-        assert_eq!(g.clamp(999 * 60), 120 * 60);
+        assert_eq!(g.clamp(999 * 60), 384 * 60);
     }
 
     #[test]

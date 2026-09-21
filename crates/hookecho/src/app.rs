@@ -441,20 +441,30 @@ enum OverlaySource {
     ProbSevere,
     /// WPC coded surface analysis (fronts + pressure centers).
     Fronts,
-    /// Forecast reflectivity from a regional model at a whole forecast hour.
-    Hrrr(wxdata::hrrr::Model, u8),
+    /// Forecast reflectivity from a regional model at a whole forecast hour, from a pinned run
+    /// (`None` = the newest that has posted).
+    Hrrr(wxdata::hrrr::Model, u8, Option<DateTime<Utc>>),
     /// HRRR sub-hourly (`wrfsubhf`) composite reflectivity, forecast lead in minutes (15..=1080).
-    HrrrSub(u16),
-    /// CAPE or SRH from a regional model: `(layer, model, mixed-layer parcel, SRH depth km, hour)`.
-    Env(crate::render::FieldLayer, wxdata::hrrr::Model, bool, u8, u8),
-    /// HRRR-backed field layer (rotation tracks, smoke) at a forecast hour.
-    HrrrLayer(crate::render::FieldLayer, u8),
-    /// A global-model field (GFS or ECMWF) at a forecast hour.
+    HrrrSub(u16, Option<DateTime<Utc>>),
+    /// CAPE or SRH from a regional model: `(layer, model, mixed-layer parcel, SRH depth km, hour,
+    /// pinned run)`.
+    Env(
+        crate::render::FieldLayer,
+        wxdata::hrrr::Model,
+        bool,
+        u8,
+        u8,
+        Option<DateTime<Utc>>,
+    ),
+    /// HRRR-backed field layer (rotation tracks, smoke) at a forecast hour, from a pinned run.
+    HrrrLayer(crate::render::FieldLayer, u8, Option<DateTime<Utc>>),
+    /// A global-model field (GFS or ECMWF) at a forecast hour, from a pinned run.
     Global(
         crate::render::FieldLayer,
         wxdata::global::GlobalModel,
         wxdata::global::GlobalField,
         u16,
+        Option<DateTime<Utc>>,
     ),
     /// One model's field minus another's, at a forecast hour. Which two models is implied by the
     /// field (see `fielddiff::DiffField::pair`).
@@ -1067,8 +1077,11 @@ impl OverlaySource {
                     .ok_or_else(|| anyhow::anyhow!("the mosaic came back empty"))?;
                 OverlayMsg::Field(crate::render::FieldLayer::SnowBands, bands)
             }
-            OverlaySource::Global(layer, model, field, fh) => {
-                let fc = wxdata::global::fetch(http, model, field, fh).await?;
+            OverlaySource::Global(layer, model, field, fh, run) => {
+                let fc = match run {
+                    Some(run) => wxdata::global::fetch_at_run(http, model, field, run, fh).await?,
+                    None => wxdata::global::fetch(http, model, field, fh).await?,
+                };
                 let valid = fc.valid();
                 OverlayMsg::StampedField(
                     layer,
@@ -1121,7 +1134,7 @@ impl OverlaySource {
             OverlaySource::ProbSevere => {
                 OverlayMsg::ProbSevere(wxdata::probsevere::fetch_probsevere(http).await?)
             }
-            OverlaySource::Hrrr(model, fh) => {
+            OverlaySource::Hrrr(model, fh, run) => {
                 use wxdata::model::ModelField;
                 // The GRIB spelling comes from the model catalogue, so RAP and the NAMs (whose
                 // reflectivity level is spelled differently) use the same path as the HRRR.
@@ -1130,15 +1143,38 @@ impl OverlaySource {
                     .ok_or_else(|| {
                         anyhow::anyhow!("{} does not publish reflectivity", model.label())
                     })?;
-                OverlayMsg::Hrrr(
-                    wxdata::hrrr::fetch_field(http, model, key.var, key.level, fh, key.min_valid)
-                        .await?,
-                )
+                let fc = match run {
+                    Some(run) => {
+                        wxdata::hrrr::fetch_field_at_run(
+                            http,
+                            model,
+                            run,
+                            key.var,
+                            key.level,
+                            fh,
+                            key.min_valid,
+                        )
+                        .await?
+                    }
+                    None => {
+                        wxdata::hrrr::fetch_field(
+                            http,
+                            model,
+                            key.var,
+                            key.level,
+                            fh,
+                            key.min_valid,
+                        )
+                        .await?
+                    }
+                };
+                OverlayMsg::Hrrr(fc)
             }
-            OverlaySource::HrrrSub(mins) => {
-                OverlayMsg::Hrrr(wxdata::hrrr::fetch_forecast_subhourly(http, mins).await?)
-            }
-            OverlaySource::HrrrLayer(layer, fh) => {
+            OverlaySource::HrrrSub(mins, run) => OverlayMsg::Hrrr(match run {
+                Some(run) => wxdata::hrrr::fetch_forecast_subhourly_at_run(http, run, mins).await?,
+                None => wxdata::hrrr::fetch_forecast_subhourly(http, mins).await?,
+            }),
+            OverlaySource::HrrrLayer(layer, fh, run) => {
                 use crate::render::FieldLayer as FL;
                 use wxdata::hrrr::Model::{Hrrr as HRRR, Nbm as NBM};
                 use wxdata::model::ModelField as MF;
@@ -1156,35 +1192,68 @@ impl OverlaySource {
                     field: MF,
                     model: wxdata::hrrr::Model,
                     fh: u8,
+                    run: Option<DateTime<Utc>>,
                 ) -> anyhow::Result<wxdata::hrrr::HrrrForecast> {
                     let k = field.grib(model).ok_or_else(|| {
                         anyhow::anyhow!("{} does not publish {}", model.label(), field.label())
                     })?;
-                    wxdata::hrrr::fetch_field(http, model, k.var, k.level, fh, k.min_valid).await
+                    match run {
+                        Some(run) => {
+                            wxdata::hrrr::fetch_field_at_run(
+                                http,
+                                model,
+                                run,
+                                k.var,
+                                k.level,
+                                fh,
+                                k.min_valid,
+                            )
+                            .await
+                        }
+                        None => {
+                            wxdata::hrrr::fetch_field(http, model, k.var, k.level, fh, k.min_valid)
+                                .await
+                        }
+                    }
                 }
                 let fc = match layer {
                     // Rotation tracks read as a swath: the union of every hourly max window from
                     // now through the scrubbed hour, not just that one hour's slice.
                     FL::UpdraftHelicity => {
                         let k = uh_key();
-                        wxdata::hrrr::fetch_field_swath(
-                            http,
-                            k.var,
-                            k.level,
-                            fh.max(1),
-                            k.min_valid,
-                        )
-                        .await?
+                        match run {
+                            Some(run) => {
+                                wxdata::hrrr::fetch_field_swath_at_run(
+                                    http,
+                                    k.var,
+                                    k.level,
+                                    run,
+                                    fh.max(1),
+                                    k.min_valid,
+                                )
+                                .await?
+                            }
+                            None => {
+                                wxdata::hrrr::fetch_field_swath(
+                                    http,
+                                    k.var,
+                                    k.level,
+                                    fh.max(1),
+                                    k.min_valid,
+                                )
+                                .await?
+                            }
+                        }
                     }
                     // Accumulated snowfall through the scrubbed hour.
-                    FL::Snowfall => model_field(http, MF::Snowfall, HRRR, fh).await?,
+                    FL::Snowfall => model_field(http, MF::Snowfall, HRRR, fh, run).await?,
                     // NBM's calibrated probability of thunder over the hour ending at `fh`. The
                     // idx lists the trailing window first, so the plain var+level match already
                     // picks that one over the run-total windows beside it.
                     FL::ThunderProb => {
-                        model_field(http, MF::ThunderProbability, NBM, fh.max(1)).await?
+                        model_field(http, MF::ThunderProbability, NBM, fh.max(1), run).await?
                     }
-                    _ => model_field(http, MF::Smoke, HRRR, fh).await?,
+                    _ => model_field(http, MF::Smoke, HRRR, fh, run).await?,
                 };
                 let source = if layer == FL::ThunderProb {
                     "NBM"
@@ -1204,7 +1273,7 @@ impl OverlaySource {
                     )?,
                 )
             }
-            OverlaySource::Env(layer, model, ml, srh_km, fh) => {
+            OverlaySource::Env(layer, model, ml, srh_km, fh, run) => {
                 use crate::render::FieldLayer as FL;
                 use wxdata::model::ModelField;
                 // Phase F1: the GRIB spelling is the model catalogue's business, not this
@@ -1222,8 +1291,24 @@ impl OverlaySource {
                     anyhow::anyhow!("{} does not publish {}", model.label(), field.label())
                 })?;
                 let (var, level) = (key.var, key.level);
-                let fc =
-                    wxdata::hrrr::fetch_field(http, model, var, level, fh, key.min_valid).await?;
+                let fc = match run {
+                    Some(run) => {
+                        wxdata::hrrr::fetch_field_at_run(
+                            http,
+                            model,
+                            run,
+                            var,
+                            level,
+                            fh,
+                            key.min_valid,
+                        )
+                        .await?
+                    }
+                    None => {
+                        wxdata::hrrr::fetch_field(http, model, var, level, fh, key.min_valid)
+                            .await?
+                    }
+                };
                 let valid = fc.valid();
                 OverlayMsg::StampedField(
                     layer,
@@ -2149,6 +2234,8 @@ pub(crate) enum PaletteAction {
     ToggleModelProduct(crate::model_browser::Product),
     /// Model browser: scrub the forecast to this lead, in minutes.
     SetModelLead(u16),
+    /// Model browser: use this model run (Unix seconds), or `None` for the newest available.
+    SetModelRun(Option<i64>),
     /// Model browser: swipe the selected model against its natural counterpart at this lead.
     CompareSelected,
     /// Model browser: step the lead by this many of the model's own steps.
@@ -3249,8 +3336,10 @@ pub struct HookEchoApp {
     global_model: wxdata::global::GlobalModel,
     global_fcst_hour: u16,
     /// The (model, hour) each global layer was last fetched for, so a change refetches at once.
-    global_layer_key:
-        std::collections::HashMap<crate::render::FieldLayer, (wxdata::global::GlobalModel, u16)>,
+    global_layer_key: std::collections::HashMap<
+        crate::render::FieldLayer,
+        (wxdata::global::GlobalModel, u16, Option<DateTime<Utc>>),
+    >,
     /// What the difference layer differences and the exact shared valid time/source runs.
     diff_field: crate::fielddiff::DiffField,
     /// Signed `A - B` or magnitude-only `|A - B|`. The fetched CPU grid always stays signed;
@@ -3335,7 +3424,8 @@ pub struct HookEchoApp {
     /// Search text in the mobile navigation drawer's registry list.
     /// Forecast hour each HRRR-backed field layer was last fetched for, so scrubbing the tail
     /// refetches instead of showing a stale hour until the cadence expires.
-    hrrr_layer_hour: std::collections::HashMap<crate::render::FieldLayer, u8>,
+    hrrr_layer_hour:
+        std::collections::HashMap<crate::render::FieldLayer, (u8, Option<DateTime<Utc>>)>,
     /// Level 3 clickable storm cells for `cells_site` (the active site when last fetched).
     storm_cells: Vec<Cell>,
     cells_site: Option<String>,
@@ -3585,10 +3675,17 @@ pub struct HookEchoApp {
     model_sel: crate::model_browser::Selection,
     /// Which regional model the forecast-reflectivity layer reads.
     refl_model: wxdata::hrrr::Model,
-    /// The model the reflectivity texture was last fetched from, so switching model refetches.
-    hrrr_fetched_model: Option<wxdata::hrrr::Model>,
-    /// The `(model, hour)` each environment layer (CAPE, SRH) was last fetched for.
-    env_fetch_key: std::collections::HashMap<crate::render::FieldLayer, (wxdata::hrrr::Model, u8)>,
+    /// The model and run the reflectivity texture was last fetched from, so switching either
+    /// refetches.
+    hrrr_fetched_key: Option<(wxdata::hrrr::Model, Option<DateTime<Utc>>)>,
+    /// The `(model, hour, run)` each environment layer (CAPE, SRH) was last fetched for.
+    env_fetch_key: std::collections::HashMap<
+        crate::render::FieldLayer,
+        (wxdata::hrrr::Model, u8, Option<DateTime<Utc>>),
+    >,
+    /// The model run the browser has pinned (`None` = newest available). Session-only: a specific
+    /// cycle is a thing to look at now, not a preference to restore.
+    model_run: Option<DateTime<Utc>>,
     /// Tray-menu command channel (Linux StatusNotifier); `None` if no tray host is available.
     tray_rx: std::sync::mpsc::Receiver<crate::tray::TrayCmd>,
     /// Last state pushed to the tray, so an unchanged frame sends nothing.
@@ -4910,7 +5007,8 @@ impl HookEchoApp {
             hrrr_by_timeline: false,
             model_sel: crate::model_browser::Selection::default(),
             refl_model: wxdata::hrrr::Model::Hrrr,
-            hrrr_fetched_model: None,
+            hrrr_fetched_key: None,
+            model_run: None,
             env_fetch_key: std::collections::HashMap::new(),
             tray_rx: tray_rx_init,
             tray_state: crate::tray::TrayState::default(),
@@ -6798,6 +6896,38 @@ impl HookEchoApp {
         }
     }
 
+    /// Everything the model controls need to draw themselves, whichever surface hosts them.
+    pub(crate) fn model_panel_input(&self) -> crate::ui::model_panel::Input {
+        let now = Utc::now();
+        let model = self.model_sel.model;
+        crate::ui::model_panel::Input {
+            sel: self.model_sel,
+            lead_min: self.model_lead_min(),
+            stamp: self
+                .fields
+                .get(&self.model_sel.layer())
+                .and_then(|state| state.stamp.clone()),
+            run: self.model_run,
+            runs: model.run_choices(now, model.run_list_len()),
+            range: model.leads_for(self.model_run, now),
+        }
+    }
+
+    /// The run pinned in the browser, if it is one this regional model actually publishes. Runs
+    /// are named by hour, so a 17Z pick means something to the hourly HRRR and nothing to the
+    /// six-hourly NAM, which then simply reads its newest run.
+    fn pinned_regional_run(&self, model: wxdata::hrrr::Model) -> Option<DateTime<Utc>> {
+        use chrono::Timelike;
+        self.model_run
+            .filter(|run| run.hour() % model.def().cycle_hours == 0)
+    }
+
+    /// The pinned run, if it lies on the global models' six-hourly cycles.
+    fn pinned_global_run(&self) -> Option<DateTime<Utc>> {
+        use chrono::Timelike;
+        self.model_run.filter(|run| run.hour() % 6 == 0)
+    }
+
     /// The forecast lead the model browser is scrubbed to, in minutes. Which clock that reads
     /// depends on the model: regional models share the HRRR-hour clock, the 15-minute product has
     /// its own, and global models read the global forecast hour.
@@ -6813,7 +6943,11 @@ impl HookEchoApp {
     /// Scrub the selected model to `minutes`, snapped to that model's own range and steps.
     fn set_model_lead_min(&mut self, minutes: u16) {
         use crate::model_browser::Engine;
-        let m = self.model_sel.model.leads().clamp(minutes);
+        let m = self
+            .model_sel
+            .model
+            .leads_for(self.model_run, Utc::now())
+            .clamp(minutes);
         match self.model_sel.model.engine() {
             Engine::Sub15 => {
                 self.hrrr_fcst_min = m;
@@ -6862,6 +6996,10 @@ impl HookEchoApp {
         // The lead is a time, not a model's own number: carry it across and let the new model
         // snap it to its own range.
         let lead = self.model_lead_min();
+        // A run is one model's cycle; another model has its own, so the pick does not carry over.
+        if prev.model != next.model {
+            self.model_run = None;
+        }
         self.model_sel = next;
         self.apply_model_engine(next);
         self.set_model_lead_min(lead);
@@ -10064,9 +10202,19 @@ impl HookEchoApp {
                 }
             }
             PaletteAction::StepModelLead(steps) => {
-                let step = i32::from(self.model_sel.model.leads().step);
-                let target = i32::from(self.model_lead_min()) + i32::from(steps) * step;
-                self.set_model_lead_min(target.clamp(0, i32::from(u16::MAX)) as u16);
+                // Step along the model's own published leads, which are not evenly spaced for
+                // every model (the NAM 12 km and the global models thin out with lead).
+                let range = self.model_sel.model.leads_for(self.model_run, Utc::now());
+                let mut lead = range.clamp(self.model_lead_min());
+                for _ in 0..steps.unsigned_abs() {
+                    lead = range.neighbour(lead, steps > 0);
+                }
+                self.set_model_lead_min(lead);
+            }
+            PaletteAction::SetModelRun(run) => {
+                self.model_run = run.and_then(|secs| DateTime::from_timestamp(secs, 0));
+                // A shorter run may not reach the lead that was showing; snap it back.
+                self.set_model_lead_min(self.model_lead_min());
             }
             PaletteAction::ToggleField(layer) => {
                 // The active pane's choice, not the app's: that is what makes two panes able to
@@ -21123,7 +21271,8 @@ impl eframe::App for HookEchoApp {
         // Environment suite (CAPE/SRH): the model browser's model at the scrubbed forecast hour.
         // Changing the model or the hour refetches now rather than on the slow cadence.
         for layer in [FL::Cape, FL::Srh] {
-            let key = (self.env_model, self.hrrr_fcst_hour);
+            let run = self.pinned_regional_run(self.env_model);
+            let key = (self.env_model, self.hrrr_fcst_hour, run);
             let changed = self.field_wanted(layer) && self.env_fetch_key.get(&layer) != Some(&key);
             let stale = self.field_wanted(layer)
                 && self.fields.get(&layer).is_none_or(|s| {
@@ -21143,6 +21292,7 @@ impl eframe::App for HookEchoApp {
                         self.env_cape_ml,
                         self.env_srh_km,
                         self.hrrr_fcst_hour,
+                        run,
                     ),
                 );
             }
@@ -21168,13 +21318,14 @@ impl eframe::App for HookEchoApp {
                         .is_none_or(|t| t.elapsed().as_secs() >= field_refresh_secs(layer))
                 });
             // Changing the source or the hour has to refetch now, not on the next slow cadence.
-            let changed = on && self.global_layer_key.get(&layer) != Some(&(model, fh));
+            let run = self.pinned_global_run();
+            let changed = on && self.global_layer_key.get(&layer) != Some(&(model, fh, run));
             if stale || changed {
                 if let Some(s) = self.fields.get_mut(&layer) {
                     s.last_fetch = Some(Instant::now());
                 }
-                self.global_layer_key.insert(layer, (model, fh));
-                self.spawn_overlay(ctx, OverlaySource::Global(layer, model, gfield, fh));
+                self.global_layer_key.insert(layer, (model, fh, run));
+                self.spawn_overlay(ctx, OverlaySource::Global(layer, model, gfield, fh, run));
             }
         }
         // Model difference: same cadence as a global layer, and the same refetch-on-change rule.
@@ -21305,14 +21456,20 @@ impl eframe::App for HookEchoApp {
                         .is_none_or(|t| t.elapsed().as_secs() >= field_refresh_secs(layer))
                 });
             // Scrubbing the forecast tail must refetch immediately, not wait out the cadence.
+            // Naming a different run counts as a change for the same reason.
+            let run = self.pinned_regional_run(if layer == FL::ThunderProb {
+                wxdata::hrrr::Model::Nbm
+            } else {
+                wxdata::hrrr::Model::Hrrr
+            });
             let hour_changed =
-                self.field_wanted(layer) && self.hrrr_layer_hour.get(&layer) != Some(&fh);
+                self.field_wanted(layer) && self.hrrr_layer_hour.get(&layer) != Some(&(fh, run));
             if stale || hour_changed {
                 if let Some(s) = self.fields.get_mut(&layer) {
                     s.last_fetch = Some(Instant::now());
                 }
-                self.hrrr_layer_hour.insert(layer, fh);
-                self.spawn_overlay(ctx, OverlaySource::HrrrLayer(layer, fh));
+                self.hrrr_layer_hour.insert(layer, (fh, run));
+                self.spawn_overlay(ctx, OverlaySource::HrrrLayer(layer, fh, run));
             }
         }
         // Quiet hours just ended: replay what it held back as one push, so waking up to a silent
@@ -21571,20 +21728,21 @@ impl eframe::App for HookEchoApp {
             // Sub-hourly and hourly are the same layer on one lane; the selected lead is the
             // 15-minute value in sub-hourly mode and the whole-hour value otherwise. Switching
             // modes counts as a change so the tail refetches at the new resolution.
-            let model_changed = self.hrrr_fetched_model != Some(self.refl_model);
+            let run = self.pinned_regional_run(self.refl_model);
+            let model_changed = self.hrrr_fetched_key != Some((self.refl_model, run));
             let (changed, source) = if self.hrrr_subhourly {
                 (
                     model_changed || self.hrrr_fetched_min != Some(self.hrrr_fcst_min),
-                    OverlaySource::HrrrSub(self.hrrr_fcst_min),
+                    OverlaySource::HrrrSub(self.hrrr_fcst_min, run),
                 )
             } else {
                 (
                     model_changed || self.hrrr_fetched_hour != Some(self.hrrr_fcst_hour),
-                    OverlaySource::Hrrr(self.refl_model, self.hrrr_fcst_hour),
+                    OverlaySource::Hrrr(self.refl_model, self.hrrr_fcst_hour, run),
                 )
             };
             if changed || stale {
-                self.hrrr_fetched_model = Some(self.refl_model);
+                self.hrrr_fetched_key = Some((self.refl_model, run));
                 self.hrrr_fetched_hour = Some(self.hrrr_fcst_hour);
                 self.hrrr_fetched_min = Some(self.hrrr_fcst_min);
                 self.hrrr_last_fetch = Some(Instant::now());

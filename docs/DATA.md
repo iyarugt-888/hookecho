@@ -82,7 +82,7 @@ their existing mappings; this migration does not add new NOAA products.
 
 | Feed | Source | Cadence | Latency | Key |
 | --- | --- | --- | --- | --- |
-| Forecast reflectivity (REFC): HRRR, HRRR 15-min, RAP, NAM nest, NAM 12 km | NCEP models on AWS, byte-range GRIB2 | hourly (HRRR, RAP) or 6-hourly (NAM) runs; HRRR F00–F18 | **~1–2 h** behind the run hour | no |
+| Forecast reflectivity (REFC): HRRR, HRRR 15-min, RAP, NAM nest, NAM 12 km | NCEP models on AWS, byte-range GRIB2 | hourly (HRRR, RAP) or 6-hourly (NAM) runs; HRRR F00–F18, F48 on 00/06/12/18Z runs | **~1–2 h** behind the run hour | no |
 | HRRR fields (wind, CAPE, SRH, snow, smoke) | same | hourly runs | ~1–2 h | no |
 | RAP mesoanalysis | RAP on AWS | hourly runs | ~1 h | no |
 | NWS point forecast | `api.weather.gov` gridpoints | ~hourly | minutes | no |

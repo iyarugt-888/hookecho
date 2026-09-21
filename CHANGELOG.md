@@ -8,6 +8,25 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Improved: longer leads, a choice of model run, and models in every layout
+
+- **Leads past six hours, up to each model's real limit.** HRRR reaches 48 h on its 00/06/12/18Z
+  runs (18 h on the others), RAP 51 h on its extended runs, the NAM 3 km 60 h, the NAM 12 km 84 h,
+  GFS and GEFS 384 h, and ECMWF 240 h (144 h on its 06/18Z runs). The lead range follows the run
+  you are on, so the slider never offers an hour that run does not have.
+- **Leads step the way the models publish.** The NAM 12 km goes from hourly to 3-hourly after 36 h,
+  the GEFS from 3-hourly to 6-hourly after 240 h, and ECMWF after 144 h. Stepping and the slider land
+  only on hours that exist. New **Jump** buttons (+3 h to +5 d) get well out without dragging.
+- **Pick the run.** A Run menu lists the recent cycles of the chosen model (a day of hourly runs, two
+  days of six-hourly ones), each marked with how far it reaches, or leaves it on Latest. A named run
+  is exactly that run: if it does not exist or does not reach the lead, you get an error rather than a
+  different run quietly substituted. The choice applies to reflectivity, CAPE, helicity, rotation
+  tracks, snowfall, smoke, thunder chance and the global fields, and resets when you change model.
+- **Models in the ImGui dock and on phones.** The same Model, Product, Run and Lead controls are now
+  at the top of the dock's Models tab, and in an always-visible **Models** section of the Layers panel
+  that phones use as their sheet (open by default there). Before, they only appeared under Layer
+  settings once a model layer was already on.
+
 ### Improved: compare from the model control
 
 Picking HRRR or RAP (reflectivity, CAPE or helicity) or GFS or ECMWF (pressure, 500 hPa height,
