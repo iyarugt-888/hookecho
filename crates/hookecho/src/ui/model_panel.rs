@@ -82,10 +82,10 @@ pub(crate) fn show(
     let showing = on.contains(&sel.layer());
 
     // Models, regional first: those are the ones worth reading a storm from.
-    for (title, regional) in [("Storm scale", true), ("Global", false)] {
+    for family in crate::model_browser::Family::ALL {
         ui.horizontal_wrapped(|ui| {
-            ui.label(egui::RichText::new(title).small().weak());
-            for m in BModel::ALL.into_iter().filter(|m| m.regional() == regional) {
+            ui.label(egui::RichText::new(family.label()).small().weak());
+            for m in BModel::ALL.into_iter().filter(|m| m.family() == family) {
                 if ui
                     .selectable_label(sel.model == m, m.label())
                     .on_hover_text(m.blurb())
@@ -121,7 +121,7 @@ pub(crate) fn show(
     // Which cycle of the model to read. "Latest" walks back to the newest one that has posted;
     // naming a run pins it, so two people looking at "the 12Z HRRR" see the same thing.
     ui.horizontal(|ui| {
-        ui.label("Run");
+        ui.label(if sel.model.has_lead() { "Run" } else { "Hour" });
         let current = match run {
             Some(r) => sel.model.run_label(*r),
             None => "Latest".to_string(),
@@ -151,69 +151,75 @@ pub(crate) fn show(
             .on_hover_text("Older runs stay available for a day or two");
     });
 
-    // Lead: the model's own range and step, shown as a time from the run.
-    ui.horizontal(|ui| {
-        ui.label("Lead");
-        if ui
-            .small_button("‹")
-            .on_hover_text("One step earlier")
-            .clicked()
-        {
-            actions.palette = Some(PaletteAction::StepModelLead(-1));
-        }
-        let mut lead = *lead_min;
-        let response = ui.add(
-            egui::Slider::new(&mut lead, range.min..=range.max)
-                .step_by(f64::from(range.step))
-                .show_value(true)
-                .custom_formatter(|v, _| format_lead(v as u16))
-                .custom_parser(|s| {
-                    let s = s.trim().trim_start_matches(['F', 'f', '+']);
-                    s.trim_end_matches(['h', 'H'])
-                        .parse::<f64>()
-                        .ok()
-                        .map(|h| h * 60.0)
-                }),
-        );
-        if response.changed() {
-            actions.palette = Some(PaletteAction::SetModelLead(lead));
-        }
-        if ui
-            .small_button("›")
-            .on_hover_text("One step later")
-            .clicked()
-        {
-            actions.palette = Some(PaletteAction::StepModelLead(1));
-        }
-    });
+    if sel.model.has_lead() {
+        // Lead: the model's own range and step, shown as a time from the run.
+        ui.horizontal(|ui| {
+            ui.label("Lead");
+            if ui
+                .small_button("‹")
+                .on_hover_text("One step earlier")
+                .clicked()
+            {
+                actions.palette = Some(PaletteAction::StepModelLead(-1));
+            }
+            let mut lead = *lead_min;
+            let response = ui.add(
+                egui::Slider::new(&mut lead, range.min..=range.max)
+                    .step_by(f64::from(range.step))
+                    .show_value(true)
+                    .custom_formatter(|v, _| format_lead(v as u16))
+                    .custom_parser(|s| {
+                        let s = s.trim().trim_start_matches(['F', 'f', '+']);
+                        s.trim_end_matches(['h', 'H'])
+                            .parse::<f64>()
+                            .ok()
+                            .map(|h| h * 60.0)
+                    }),
+            );
+            if response.changed() {
+                actions.palette = Some(PaletteAction::SetModelLead(lead));
+            }
+            if ui
+                .small_button("›")
+                .on_hover_text("One step later")
+                .clicked()
+            {
+                actions.palette = Some(PaletteAction::StepModelLead(1));
+            }
+        });
 
-    // Jumps for getting well out without dragging: only the ones this run can reach.
-    ui.horizontal_wrapped(|ui| {
-        ui.label(egui::RichText::new("Jump").small().weak());
-        for (label, add) in [
-            ("+3h", 3u16),
-            ("+6h", 6),
-            ("+12h", 12),
-            ("+24h", 24),
-            ("+48h", 48),
-            ("+5d", 120),
-        ] {
-            let target = lead_min.saturating_add(add * 60);
-            if target > range.max && *lead_min >= range.max {
-                continue;
+        // Jumps for getting well out without dragging: only the ones this run can reach.
+        ui.horizontal_wrapped(|ui| {
+            ui.label(egui::RichText::new("Jump").small().weak());
+            for (label, add) in [
+                ("+3h", 3u16),
+                ("+6h", 6),
+                ("+12h", 12),
+                ("+24h", 24),
+                ("+48h", 48),
+                ("+5d", 120),
+            ] {
+                let target = lead_min.saturating_add(add * 60);
+                if target > range.max && *lead_min >= range.max {
+                    continue;
+                }
+                if ui.small_button(label).clicked() {
+                    actions.palette = Some(PaletteAction::SetModelLead(target.min(range.max)));
+                }
             }
-            if ui.small_button(label).clicked() {
-                actions.palette = Some(PaletteAction::SetModelLead(target.min(range.max)));
+            if ui
+                .small_button("Start")
+                .on_hover_text("Back to the first lead")
+                .clicked()
+            {
+                actions.palette = Some(PaletteAction::SetModelLead(range.min));
             }
-        }
-        if ui
-            .small_button("Start")
-            .on_hover_text("Back to the first lead")
-            .clicked()
-        {
-            actions.palette = Some(PaletteAction::SetModelLead(range.min));
-        }
-    });
+        });
+    } else {
+        // An analysis is valid at its own hour, so it has nothing to scrub: the Run menu above
+        // is the time control.
+        ui.weak("Analysis: valid at its own hour, so there is no lead. Pick the hour above.");
+    }
 
     // One click to see how this model differs from its natural counterpart.
     if let Some((_, other)) = crate::model_browser::compare_field(*sel) {

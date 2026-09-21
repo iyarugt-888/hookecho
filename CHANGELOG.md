@@ -8,6 +8,34 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: RTMA surface analysis (G1)
+
+A new **Analysis** group in the model picker offers the RTMA, NCEP's real-time analysis of the
+surface: 2 m temperature, 2 m dewpoint, 10 m wind speed and 10 m wind gusts, hourly on a 2.5 km CONUS
+grid. It is an estimate of *now* pulled toward the hour's observations, not a forecast, so it has
+no lead: the Run menu becomes an **Hour** menu (a day of hourly analyses, newest first), and the
+layers use the same color scales as the global temperature, dewpoint and wind so numbers read the
+same across sources. Gaps that the resampling leaves at high latitude are closed rather than shown
+as a dotted pattern. `hookecho --headless-rtma <field> [out.png]` renders any field from live data.
+
+Not yet covered: surface pressure and visibility (the roadmap also lists them), and URMA, the
+retrospective analysis, which would be a separate archive.
+
+### Fixed: river gauges
+
+The gauge service allows only ten requests per five minutes, and panning counted as a reason to
+refetch, so a few pans could exhaust it. Panning now waits for a settled view. A view with no valid
+bounds yet is no longer sent (the service answered it with its entire 13 MB dataset), coordinates are
+clamped and ordered, and a failure now shows what the service actually said (for example "answered
+404 Not Found: …") instead of a bare status.
+
+### Added: layer options in the dock
+
+The ImGui dock had nowhere to configure a layer, so the GEFS ensemble (statistic, field, threshold),
+the comparison modes and every other per-layer setting were unreachable there. A new **Options**
+tab, and an **Options** button in the top bar, host the same settings as the floating panel and phone
+sheet, in the dock's own style. The three surfaces now share one implementation.
+
 ### Improved: the ImGui dock's model controls
 
 - **A Models button in the top bar** opens the left panel straight to its Models tab (and closes it

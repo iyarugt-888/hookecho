@@ -2404,19 +2404,23 @@ Adding a new model with an already-supported GRIB/projection format should prima
 
 **Priority: P1.**
 
-## G1. RTMA/URMA
+## G1. RTMA/URMA — partly done
 
 Add U.S. Real-Time Mesoscale Analysis / UnRestricted Mesoscale Analysis fields where publicly available:
 
-- 2 m temperature
-- dewpoint
-- 10 m wind
-- wind gust where available
-- pressure
-- visibility
-- precip analysis fields as appropriate
+New this pass, see the Unreleased CHANGELOG entry: `wxdata::rtma` reads the RTMA 2.5 km hourly
+analysis, and the model picker offers it as an "Analysis" model with no lead.
 
-Expose analysis age and distinguish RTMA real-time analysis from URMA retrospective analysis.
+- [x] 2 m temperature
+- [x] dewpoint
+- [x] 10 m wind — speed, published directly by the analysis
+- [x] wind gust
+- [ ] pressure — the file carries surface pressure only, not sea-level; needs a reduction before it means anything on a map
+- [ ] visibility — in the file, not yet given a layer or a color scale
+- [ ] precip analysis fields as appropriate — a separate `pcp` product in the same bucket
+
+- [x] Expose analysis age — the stamp names the analysis hour and the fetch age; the Hour menu lists a day of hourly analyses
+- [ ] Distinguish RTMA real-time analysis from URMA retrospective analysis — only the real-time analysis is read; URMA is a separate archive not wired up
 
 ## G2. Observation + analysis blend
 

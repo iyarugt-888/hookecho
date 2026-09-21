@@ -2071,6 +2071,90 @@ pub fn run_ensemble(
     render_to_png(&rt, cb, out_path)
 }
 
+/// Render an RTMA analysis field from live data (ROADMAP_NEW G1):
+/// `--headless-rtma <t2m|td2m|wind10m|gust10m> [out.png]`. The same fetch and the same color scale
+/// the app's RTMA layers use, so the layer is checkable without a window.
+pub fn run_rtma(field_slug: &str, out_path: &str) -> anyhow::Result<()> {
+    use crate::render::FieldLayer as FL;
+    use wxdata::rtma::RtmaField;
+    let field = RtmaField::from_slug(field_slug).ok_or_else(|| {
+        anyhow::anyhow!(
+            "unknown RTMA field '{field_slug}' (one of: {})",
+            RtmaField::ALL.map(|f| f.slug()).join(", ")
+        )
+    })?;
+    let layer = match field {
+        RtmaField::Temp2m => FL::RtmaTemp2m,
+        RtmaField::Dewpoint2m => FL::RtmaDewpoint2m,
+        RtmaField::Wind10m => FL::RtmaWind10m,
+        RtmaField::Gust10m => FL::RtmaGust10m,
+    };
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    let analysis = rt.block_on(async {
+        let client = reqwest::Client::new();
+        wxdata::rtma::fetch(&client, field, None).await
+    })?;
+    let finite: Vec<f32> = analysis
+        .field
+        .values
+        .iter()
+        .copied()
+        .filter(|v| v.is_finite())
+        .collect();
+    anyhow::ensure!(!finite.is_empty(), "the analysis decoded to nothing");
+    let (lo, hi) = finite
+        .iter()
+        .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), &v| {
+            (lo.min(v), hi.max(v))
+        });
+    println!(
+        "RTMA {} valid {}: {}x{} of {} finite, {lo:.1}..{hi:.1}",
+        field.label(),
+        analysis.hour,
+        analysis.field.nx,
+        analysis.field.ny,
+        finite.len()
+    );
+    let upload = crate::app::field_upload_indexed(layer, &analysis.field);
+    let camera = cam_or_env(-96.0, 38.5, 4.0);
+    let (new_tiles, visible, new_vector_tiles, visible_vector, _place_labels) =
+        national_basemap(&rt, &camera);
+    let (center, scale) = camera.world_to_clip_uniform((size() as f32, size() as f32));
+    let cb = MapCallback {
+        pane: 0,
+        camera_center: center,
+        camera_scale: scale,
+        world_per_pixel: camera.world_per_pixel() as f32,
+        camera_view_proj: camera.view_projection_uniform((size() as f32, size() as f32)),
+        camera_3d: 0.0,
+        basemap_key: 0,
+        vector_over_raster: false,
+        new_tiles,
+        visible,
+        radar_upload: None,
+        draw_radar: false,
+        observed_upload: None,
+        draw_observed: false,
+        overlay_upload: None,
+        draw_overlay: false,
+        field_uploads: vec![(layer, upload)],
+        field_draws: vec![(layer, 1.0)],
+        field_swipe: None,
+        clear_tiles: false,
+        drop_tiles: Vec::new(),
+        drop_fields: Vec::new(),
+        new_vector_tiles,
+        visible_vector,
+        clear_vector: false,
+        drop_vector_tiles: Vec::new(),
+        wind_upload: None,
+        wind: None,
+    };
+    render_to_png(&rt, cb, out_path)
+}
+
 /// Fetch + print the active NHC tropical cyclones (feature V). Exits 0 with a note when none.
 pub fn run_tropical() -> anyhow::Result<()> {
     let rt = tokio::runtime::Builder::new_multi_thread()

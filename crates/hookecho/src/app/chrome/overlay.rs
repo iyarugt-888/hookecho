@@ -49,6 +49,83 @@ pub(crate) fn phone_top(ctx: &egui::Context) -> f32 {
 }
 
 impl HookEchoApp {
+    /// Every per-layer setting (ensemble, comparison, lightning, satellite, rotation tracks and the
+    /// rest), for whichever surface hosts them: the floating panel, the phone sheet, or the dock's
+    /// Options tab. Only the settings of layers that are on are shown.
+    pub(crate) fn layer_options_body(
+        &mut self,
+        ui: &mut egui::Ui,
+        opts: &mut crate::ui::layer_options::UiActions,
+    ) {
+        let l3_site = self.l3grid_site.clone();
+        let mosaic = self.mosaic_status();
+        let ensemble_note = self.ensemble_status_line();
+        let mut etop_dbz = self.settings.etop_dbz;
+        let glm_options = self.show_glm
+            || self.views[self.active]
+                .fields_on
+                .contains(&crate::render::FieldLayer::GlmFed);
+        crate::ui::layer_options::show(
+            ui,
+            &mut self.filters,
+            &mut self.fields,
+            &self.views[self.active].fields_on.clone(),
+            self.views[self.active].volume.as_ref().map(|v| v.time),
+            chrono::Duration::minutes(self.settings.time_mismatch_minutes as i64),
+            &mut self.rotation_minutes,
+            &mut self.hail_minutes,
+            &mut self.env_model,
+            &mut self.active_contours,
+            &mut etop_dbz,
+            &mut self.snow_hours,
+            &self.show_tropical,
+            &mut self.tropical_wind_kt,
+            &mut self.tropical_surge,
+            l3_site.as_deref(),
+            &mut self.global_fcst_hour,
+            &mut self.diff_field,
+            &mut self.diff_mode,
+            self.diff_valid.as_ref(),
+            self.compare_valid.as_ref(),
+            self.diff_error.as_deref(),
+            self.compare_error.as_deref(),
+            self.views[self.active].blink_compare,
+            self.views[self.active].overlay_compare,
+            self.views[self.active].swipe_compare,
+            &mut self.ensemble,
+            &ensemble_note,
+            self.settings.temp_unit,
+            &mut self.settings.lightning_minutes,
+            glm_options,
+            &mut self.settings.glm_goes_west,
+            &mut self.settings.goes_satellite_west,
+            self.show_spotters,
+            &mut self.settings.spotter_range_km,
+            &mut self.settings.detectors,
+            Some(mosaic.as_str()),
+            opts,
+        );
+        if !self.diff_field.supports_side_by_side() {
+            use crate::render::FieldLayer as FL;
+            for view in &mut self.views {
+                let was_comparing =
+                    view.fields_on.remove(&FL::CompareA) | view.fields_on.remove(&FL::CompareB);
+                if was_comparing {
+                    // Run-to-run currently has no distinct previous-run
+                    // source layer. Difference is the only truthful view;
+                    // never leave a now-hidden blink/overlay mode armed.
+                    view.fields_on.insert(FL::ModelDiff);
+                }
+                view.blink_compare = false;
+                view.overlay_compare = false;
+                view.swipe_compare = false;
+            }
+        }
+        self.settings.etop_dbz = etop_dbz;
+    }
+}
+
+impl HookEchoApp {
     /// The main panel: everything that isn't the map, floating over the map's left edge.
     ///
     /// Holds the whole action registry (products, layers, tools, windows — searchable) with the
@@ -91,10 +168,7 @@ impl HookEchoApp {
         let mut alert_hit = None;
         // Read before the panel closure: the Layer options callback runs inside a `&mut self`
         // borrow and can only touch plain fields, not `&self` methods.
-        let l3_site = self.l3grid_site.clone();
         let tz = self.active_tz();
-        let mosaic = self.mosaic_status();
-        let mut etop_dbz = self.settings.etop_dbz;
         let mut hide = false;
         // Height budget: the search pill above, the scrubber pill below (which is centred and
         // grows with the window, so on a narrow one it would otherwise run under this panel).
@@ -191,7 +265,6 @@ impl HookEchoApp {
                 }
                 // A drag rewrites the order in place, so persist it when it moves.
                 let order_was = self.settings.layer_order.clone();
-                let ensemble_note = self.ensemble_status_line();
                 let model_input = self.model_panel_input();
                 let model_on_map = self.views[self.active].fields_on.clone();
                 let layer_settings_label = if self.field_time_mismatches().is_empty() {
@@ -199,6 +272,9 @@ impl HookEchoApp {
                 } else {
                     "Layer settings ⚠ time mismatch"
                 };
+                let mut layer_order = std::mem::take(&mut self.settings.layer_order);
+                let mut favorite_layers = std::mem::take(&mut self.settings.favorite_layers);
+                let recent_layers = self.settings.recent_layers.clone();
                 chosen = ui::layers_panel::body(
                     ui,
                     &entries,
@@ -214,9 +290,9 @@ impl HookEchoApp {
                     },
                     selected_day,
                     std::mem::take(&mut focus_search),
-                    &mut self.settings.layer_order,
-                    &self.settings.recent_layers,
-                    &mut self.settings.favorite_layers,
+                    &mut layer_order,
+                    &recent_layers,
+                    &mut favorite_layers,
                     |ui| {
                         // The models, always here: pick one, a product it publishes, a run and a
                         // lead without first having to turn something on. Open on a phone, where
@@ -241,72 +317,12 @@ impl HookEchoApp {
                         egui::CollapsingHeader::new(layer_settings_label)
                             .default_open(false)
                             .show(ui, |ui| {
-                                let glm_options = self.show_glm
-                                    || self.views[self.active]
-                                        .fields_on
-                                        .contains(&crate::render::FieldLayer::GlmFed);
-                                crate::ui::layer_options::show(
-                                    ui,
-                                    &mut self.filters,
-                                    &mut self.fields,
-                                    &self.views[self.active].fields_on.clone(),
-                                    self.views[self.active].volume.as_ref().map(|v| v.time),
-                                    chrono::Duration::minutes(
-                                        self.settings.time_mismatch_minutes as i64,
-                                    ),
-                                    &mut self.rotation_minutes,
-                                    &mut self.hail_minutes,
-                                    &mut self.env_model,
-                                    &mut self.active_contours,
-                                    &mut etop_dbz,
-                                    &mut self.snow_hours,
-                                    &self.show_tropical,
-                                    &mut self.tropical_wind_kt,
-                                    &mut self.tropical_surge,
-                                    l3_site.as_deref(),
-                                    &mut self.global_fcst_hour,
-                                    &mut self.diff_field,
-                                    &mut self.diff_mode,
-                                    self.diff_valid.as_ref(),
-                                    self.compare_valid.as_ref(),
-                                    self.diff_error.as_deref(),
-                                    self.compare_error.as_deref(),
-                                    self.views[self.active].blink_compare,
-                                    self.views[self.active].overlay_compare,
-                                    self.views[self.active].swipe_compare,
-                                    &mut self.ensemble,
-                                    &ensemble_note,
-                                    self.settings.temp_unit,
-                                    &mut self.settings.lightning_minutes,
-                                    glm_options,
-                                    &mut self.settings.glm_goes_west,
-                                    &mut self.settings.goes_satellite_west,
-                                    self.show_spotters,
-                                    &mut self.settings.spotter_range_km,
-                                    &mut self.settings.detectors,
-                                    Some(mosaic.as_str()),
-                                    &mut opts,
-                                );
-                                if !self.diff_field.supports_side_by_side() {
-                                    use crate::render::FieldLayer as FL;
-                                    for view in &mut self.views {
-                                        let was_comparing = view.fields_on.remove(&FL::CompareA)
-                                            | view.fields_on.remove(&FL::CompareB);
-                                        if was_comparing {
-                                            // Run-to-run currently has no distinct previous-run
-                                            // source layer. Difference is the only truthful view;
-                                            // never leave a now-hidden blink/overlay mode armed.
-                                            view.fields_on.insert(FL::ModelDiff);
-                                        }
-                                        view.blink_compare = false;
-                                        view.overlay_compare = false;
-                                        view.swipe_compare = false;
-                                    }
-                                }
+                                self.layer_options_body(ui, &mut opts);
                             });
                     },
                 );
-                self.settings.etop_dbz = etop_dbz;
+                self.settings.layer_order = layer_order;
+                self.settings.favorite_layers = favorite_layers;
                 if self.settings.layer_order != order_was {
                     self.settings.save();
                 }

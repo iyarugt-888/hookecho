@@ -21,6 +21,8 @@ pub enum BModel {
     NamNest,
     Nam,
     Nbm,
+    /// The RTMA real-time surface analysis: an estimate of now, hourly, with no lead.
+    Rtma,
     Gfs,
     Ecmwf,
     GefsMean,
@@ -44,6 +46,34 @@ pub enum Product {
     Height500,
     /// Precipitable water (GFS, GEFS) or total precipitation (ECMWF, GDPS).
     Moisture,
+    /// The RTMA analysis's own surface fields: what the temperature, dewpoint and wind are doing
+    /// now, as opposed to a forecast of them.
+    AnalysisTemp2m,
+    AnalysisDewpoint2m,
+    AnalysisWind10m,
+    AnalysisGust10m,
+}
+
+/// How models group in a picker.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Family {
+    /// Convection-allowing and regional forecasts.
+    StormScale,
+    /// Analyses of the present rather than forecasts.
+    Analysis,
+    Global,
+}
+
+impl Family {
+    pub const ALL: [Family; 3] = [Family::StormScale, Family::Analysis, Family::Global];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Family::StormScale => "Storm scale",
+            Family::Analysis => "Analysis",
+            Family::Global => "Global",
+        }
+    }
 }
 
 /// How a model is fetched, which decides which of the app's clocks its lead lives in.
@@ -54,6 +84,8 @@ pub enum Engine {
     /// The HRRR sub-hourly product.
     Sub15,
     Global(GlobalModel),
+    /// An hourly analysis (RTMA): valid at its own hour, so it has no run/lead pair.
+    Analysis,
 }
 
 /// How far out a model can be scrubbed, in minutes.
@@ -115,13 +147,14 @@ impl LeadRange {
 }
 
 impl BModel {
-    pub const ALL: [BModel; 10] = [
+    pub const ALL: [BModel; 11] = [
         BModel::Hrrr,
         BModel::Hrrr15,
         BModel::Rap,
         BModel::NamNest,
         BModel::Nam,
         BModel::Nbm,
+        BModel::Rtma,
         BModel::Gfs,
         BModel::Ecmwf,
         BModel::GefsMean,
@@ -136,6 +169,7 @@ impl BModel {
             BModel::NamNest => Engine::Regional(Regional::NamNest),
             BModel::Nam => Engine::Regional(Regional::Nam),
             BModel::Nbm => Engine::Regional(Regional::Nbm),
+            BModel::Rtma => Engine::Analysis,
             BModel::Gfs => Engine::Global(GlobalModel::Gfs),
             BModel::Ecmwf => Engine::Global(GlobalModel::Ecmwf),
             BModel::GefsMean => Engine::Global(GlobalModel::Gefs),
@@ -151,6 +185,7 @@ impl BModel {
             BModel::NamNest => "NAM 3 km",
             BModel::Nam => "NAM 12 km",
             BModel::Nbm => "NBM",
+            BModel::Rtma => "RTMA",
             BModel::Gfs => "GFS",
             BModel::Ecmwf => "ECMWF",
             BModel::GefsMean => "GEFS mean",
@@ -169,6 +204,9 @@ impl BModel {
             }
             BModel::Nam => "12 km every 6 hours — the parent the nest is downscaled from.",
             BModel::Nbm => "Calibrated blend of many models. Probabilities, not a raw forecast.",
+            BModel::Rtma => {
+                "The real-time surface analysis: what temperature, dewpoint and wind are doing now, 2.5 km, hourly. An analysis, not a forecast."
+            }
             BModel::Gfs => "NOAA's global model, every 6 hours.",
             BModel::Ecmwf => "The European centre's open global model, every 6 hours.",
             BModel::GefsMean => "Average of the 31 GEFS members, 0.5°. Smooth by design.",
@@ -185,6 +223,12 @@ impl BModel {
             BModel::Hrrr15 => &[Reflectivity],
             BModel::Rap | BModel::NamNest | BModel::Nam => &[Reflectivity, Cape, Srh],
             BModel::Nbm => &[ThunderChance],
+            BModel::Rtma => &[
+                AnalysisTemp2m,
+                AnalysisDewpoint2m,
+                AnalysisWind10m,
+                AnalysisGust10m,
+            ],
             BModel::Gfs | BModel::Ecmwf | BModel::Gdps => {
                 &[Temp2m, Dewpoint2m, Wind10m, Mslp, Height500, Moisture]
             }
@@ -239,6 +283,8 @@ impl BModel {
                 ..LeadRange::fixed(0, h(84), h(1))
             },
             BModel::Nbm => LeadRange::fixed(h(1), h(36), h(1)),
+            // An analysis is valid at its own hour: one "lead", zero.
+            BModel::Rtma => LeadRange::fixed(0, 0, h(1)),
             BModel::Gfs => LeadRange::fixed(0, h(384), h(3)),
             // Three-hourly to 240 h, then six-hourly to 384 h.
             BModel::GefsMean => LeadRange {
@@ -270,6 +316,7 @@ impl BModel {
             Engine::Regional(model) => wxdata::hrrr::run_choices(model, now, count),
             Engine::Sub15 => wxdata::hrrr::run_choices(Regional::Hrrr, now, count),
             Engine::Global(model) => model.run_choices(now, count),
+            Engine::Analysis => wxdata::rtma::run_choices(now, count),
         }
     }
 
@@ -277,7 +324,7 @@ impl BModel {
     pub fn run_list_len(self) -> usize {
         match self.engine() {
             Engine::Regional(model) if model.def().cycle_hours == 1 => 24,
-            Engine::Sub15 => 24,
+            Engine::Sub15 | Engine::Analysis => 24,
             _ => 8,
         }
     }
@@ -285,6 +332,10 @@ impl BModel {
     /// A run in a picker: "18Z Sun 20 Sep · to F+48h".
     pub fn run_label(self, run: DateTime<Utc>) -> String {
         let reach = self.leads_at_hour(Some(run.hour())).max / 60;
+        if reach == 0 {
+            // An analysis is the picture at its own hour; there is nothing to reach toward.
+            return format!("{:02}Z {} · analysis", run.hour(), run.format("%a %d %b"));
+        }
         format!(
             "{:02}Z {} · to F+{reach}h",
             run.hour(),
@@ -303,9 +354,19 @@ impl BModel {
         }
     }
 
-    /// Model family for grouping in a picker.
-    pub fn regional(self) -> bool {
-        !matches!(self.engine(), Engine::Global(_))
+    /// Which group this model sits in, in a picker.
+    pub fn family(self) -> Family {
+        match self.engine() {
+            Engine::Global(_) => Family::Global,
+            Engine::Analysis => Family::Analysis,
+            Engine::Regional(_) | Engine::Sub15 => Family::StormScale,
+        }
+    }
+
+    /// Whether this model has a forecast lead to scrub. An analysis does not.
+    pub fn has_lead(self) -> bool {
+        let r = self.leads();
+        r.min != r.max
     }
 
     /// The model whose lead and fetch clocks a regional pick drives, if any.
@@ -313,7 +374,7 @@ impl BModel {
         match self.engine() {
             Engine::Regional(model) => Some(model),
             Engine::Sub15 => Some(Regional::Hrrr),
-            Engine::Global(_) => None,
+            Engine::Global(_) | Engine::Analysis => None,
         }
     }
 
@@ -326,7 +387,7 @@ impl BModel {
 }
 
 impl Product {
-    pub const ALL: [Product; 13] = [
+    pub const ALL: [Product; 17] = [
         Product::Reflectivity,
         Product::Cape,
         Product::Srh,
@@ -340,6 +401,10 @@ impl Product {
         Product::Mslp,
         Product::Height500,
         Product::Moisture,
+        Product::AnalysisTemp2m,
+        Product::AnalysisDewpoint2m,
+        Product::AnalysisWind10m,
+        Product::AnalysisGust10m,
     ];
 
     pub fn label(self) -> &'static str {
@@ -357,6 +422,11 @@ impl Product {
             Product::Mslp => "Pressure",
             Product::Height500 => "500 hPa height",
             Product::Moisture => "Moisture",
+            // The model already says "RTMA", so the chip only needs the quantity.
+            Product::AnalysisTemp2m => "Temperature",
+            Product::AnalysisDewpoint2m => "Dewpoint",
+            Product::AnalysisWind10m => "Wind",
+            Product::AnalysisGust10m => "Gusts",
         }
     }
 
@@ -377,6 +447,10 @@ impl Product {
             Product::Mslp => "Surface pressure (MSLP)",
             Product::Height500 => "Upper-level pattern (500 hPa height)",
             Product::Moisture => "Moisture in the air column",
+            Product::AnalysisTemp2m => "Surface temperature (RTMA analysis)",
+            Product::AnalysisDewpoint2m => "Surface dewpoint (RTMA analysis)",
+            Product::AnalysisWind10m => "Surface wind (RTMA analysis)",
+            Product::AnalysisGust10m => "Wind gusts (RTMA analysis)",
         }
     }
 
@@ -402,6 +476,14 @@ impl Product {
             Product::Moisture => {
                 "Column moisture: precipitable water (GFS, GEFS) or precipitation (ECMWF, GDPS)"
             }
+            Product::AnalysisTemp2m => {
+                "What the surface temperature is right now, between stations"
+            }
+            Product::AnalysisDewpoint2m => {
+                "What the surface dewpoint is right now — where the moisture sits"
+            }
+            Product::AnalysisWind10m => "Surface wind speed right now, analyzed from observations",
+            Product::AnalysisGust10m => "Analyzed wind gusts at 10 m",
         }
     }
 
@@ -421,6 +503,10 @@ impl Product {
             Product::Mslp => FieldLayer::GlobalMslp,
             Product::Height500 => FieldLayer::GlobalHeight500,
             Product::Moisture => FieldLayer::GlobalPrecip,
+            Product::AnalysisTemp2m => FieldLayer::RtmaTemp2m,
+            Product::AnalysisDewpoint2m => FieldLayer::RtmaDewpoint2m,
+            Product::AnalysisWind10m => FieldLayer::RtmaWind10m,
+            Product::AnalysisGust10m => FieldLayer::RtmaGust10m,
         }
     }
 
@@ -555,6 +641,7 @@ fn model_slug(m: BModel) -> &'static str {
         BModel::NamNest => "nam-nest",
         BModel::Nam => "nam",
         BModel::Nbm => "nbm",
+        BModel::Rtma => "rtma",
         BModel::Gfs => "gfs",
         BModel::Ecmwf => "ecmwf",
         BModel::GefsMean => "gefs-mean",
@@ -577,6 +664,10 @@ fn product_slug(p: Product) -> &'static str {
         Product::Mslp => "mslp",
         Product::Height500 => "gh500",
         Product::Moisture => "moisture",
+        Product::AnalysisTemp2m => "rtma-t2m",
+        Product::AnalysisDewpoint2m => "rtma-td2m",
+        Product::AnalysisWind10m => "rtma-wind10m",
+        Product::AnalysisGust10m => "rtma-gust10m",
     }
 }
 
@@ -853,6 +944,53 @@ mod tests {
     fn a_run_label_says_when_and_how_far() {
         assert_eq!(BModel::Hrrr.run_label(at(18)), "18Z Sun 20 Sep · to F+48h");
         assert_eq!(BModel::Hrrr.run_label(at(17)), "17Z Sun 20 Sep · to F+18h");
+    }
+
+    #[test]
+    fn rtma_is_an_analysis_with_no_lead_and_products_of_its_own() {
+        use crate::render::FieldLayer as FL;
+        let rtma = BModel::Rtma;
+        assert_eq!(rtma.family(), Family::Analysis);
+        assert!(!rtma.has_lead(), "an analysis is valid at its own hour");
+        assert_eq!(rtma.leads().clamp(500), 0);
+        assert_eq!(rtma.leads().neighbour(0, true), 0);
+        // Every forecast model has a lead to scrub; only the analysis does not.
+        for m in BModel::ALL {
+            assert_eq!(m.has_lead(), m != BModel::Rtma, "{m:?}");
+        }
+        // Its products are the analysis layers, and nobody else offers them.
+        for p in rtma.products() {
+            assert!(matches!(
+                p.layer(),
+                FL::RtmaTemp2m | FL::RtmaDewpoint2m | FL::RtmaWind10m | FL::RtmaGust10m
+            ));
+            for m in BModel::ALL.into_iter().filter(|m| *m != rtma) {
+                assert!(!m.has(*p), "{m:?} offers the analysis product {p:?}");
+            }
+        }
+        // Its run picker is hourly analyses, labelled as such rather than as a forecast reach.
+        assert!(
+            rtma.run_label(at(20)).ends_with("analysis"),
+            "{}",
+            rtma.run_label(at(20))
+        );
+        assert_eq!(rtma.run_list_len(), 24);
+        // The groups partition the models: each lands in exactly one.
+        for m in BModel::ALL {
+            let n = Family::ALL.iter().filter(|f| m.family() == **f).count();
+            assert_eq!(n, 1, "{m:?}");
+        }
+    }
+
+    #[test]
+    fn analysis_hours_come_from_the_analysis_feed() {
+        use chrono::TimeZone;
+        let now = Utc.with_ymd_and_hms(2026, 9, 20, 21, 30, 0).unwrap();
+        assert_eq!(
+            BModel::Rtma.run_choices(now, 3),
+            [at(20), at(19), at(18)],
+            "hourly, newest first, behind the posting latency"
+        );
     }
 
     #[test]

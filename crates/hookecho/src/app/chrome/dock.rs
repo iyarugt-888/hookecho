@@ -39,15 +39,19 @@ pub(crate) enum DockTab {
     Weather,
     /// Only what is switched on right now.
     Active,
+    /// The settings of the layers that are on: ensemble, comparison, lightning, satellite and the
+    /// rest. Not a slice of the registry, so it has no rows of its own.
+    Options,
 }
 
 impl DockTab {
-    pub(crate) const ALL: [DockTab; 5] = [
+    pub(crate) const ALL: [DockTab; 6] = [
         DockTab::Layers,
         DockTab::Radar,
         DockTab::Models,
         DockTab::Weather,
         DockTab::Active,
+        DockTab::Options,
     ];
 
     pub(crate) fn label(self) -> &'static str {
@@ -57,6 +61,7 @@ impl DockTab {
             DockTab::Models => "Models",
             DockTab::Weather => "Weather",
             DockTab::Active => "Active",
+            DockTab::Options => "Options",
         }
     }
 
@@ -68,6 +73,7 @@ impl DockTab {
             DockTab::Models => category == "Models",
             DockTab::Weather => matches!(category, "National" | "Severe" | "Obs"),
             DockTab::Active => on,
+            DockTab::Options => false,
         }
     }
 }
@@ -205,7 +211,14 @@ pub(crate) fn model_card_rows(
         ("Model:", sel.model.label().to_string()),
         ("Product:", sel.product.label().to_string()),
         ("Run:", run),
-        ("Lead:", crate::model_browser::format_lead(input.lead_min)),
+        (
+            "Lead:",
+            if input.range.min == input.range.max {
+                "analysis".to_string()
+            } else {
+                crate::model_browser::format_lead(input.lead_min)
+            },
+        ),
     ];
     match &input.stamp {
         Some(stamp) => {
@@ -283,6 +296,7 @@ impl HookEchoApp {
         // it sits idle.
         ctx.request_repaint_after(std::time::Duration::from_secs(20));
         let models_open = self.dock.left_open && self.dock.tab == DockTab::Models;
+        let options_open = self.dock.left_open && self.dock.tab == DockTab::Options;
         egui::Panel::top("dock_menu")
             .exact_size(76.0)
             .frame(
@@ -323,10 +337,14 @@ impl HookEchoApp {
                 });
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 2.0;
-                    let tabs: [(&str, bool); 9] = [
+                    let tabs: [(&str, bool); 10] = [
                         ("Map", true),
-                        ("Layers", self.dock.left_open && !models_open),
+                        (
+                            "Layers",
+                            self.dock.left_open && !models_open && !options_open,
+                        ),
                         ("Models", models_open),
+                        ("Options", options_open),
                         ("Inspector", self.dock.right_open),
                         ("Playback", self.dock.timeline_open),
                         ("Discussion", false),
@@ -359,8 +377,28 @@ impl HookEchoApp {
                                         }
                                     }
                                 }
+                                "Options" => {
+                                    // The settings of the layers that are on — where the ensemble
+                                    // and the comparison modes are configured.
+                                    if options_open {
+                                        self.dock.left_open = false;
+                                    } else {
+                                        self.dock.tab = DockTab::Options;
+                                        self.dock.left_open = true;
+                                        if single_sidebar(ui.ctx().content_rect().width()) {
+                                            self.dock.right_open = false;
+                                        }
+                                    }
+                                }
                                 "Layers" => {
-                                    self.dock.left_open = !self.dock.left_open;
+                                    // From the Models or Options view this goes back to the layer
+                                    // list rather than closing the panel.
+                                    if models_open || options_open {
+                                        self.dock.tab = DockTab::Layers;
+                                        self.dock.left_open = true;
+                                    } else {
+                                        self.dock.left_open = !self.dock.left_open;
+                                    }
                                     if self.dock.left_open
                                         && single_sidebar(ui.ctx().content_rect().width())
                                     {
@@ -463,17 +501,27 @@ impl HookEchoApp {
                     }
                 });
                 ui.add_space(4.0);
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.dock.query)
-                        .hint_text("Search layers (e.g. reflectivity, HRRR...)")
-                        .desired_width(f32::INFINITY),
-                );
+                // Options are settings, not rows, so there is nothing for a search to filter.
+                if self.dock.tab != DockTab::Options {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.dock.query)
+                            .hint_text("Search layers (e.g. reflectivity, HRRR...)")
+                            .desired_width(f32::INFINITY),
+                    );
+                }
                 ui.add_space(4.0);
                 let list_h = (ui.available_height() - 36.0).max(80.0);
                 egui::ScrollArea::vertical()
                     .max_height(list_h)
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
+                        if self.dock.tab == DockTab::Options {
+                            ui.scope(|ui| {
+                                dock_style(ui);
+                                self.layer_options_body(ui, &mut model_actions);
+                            });
+                            return;
+                        }
                         if self.dock.tab == DockTab::Models {
                             ui.scope(|ui| {
                                 dock_style(ui);
@@ -551,9 +599,12 @@ impl HookEchoApp {
                     }
                 });
             });
+        // The model controls and the layer options both report through one actions struct.
+        let model_palette = model_actions.palette.take();
         if chosen.is_none() {
-            chosen = model_actions.palette;
+            chosen = model_palette;
         }
+        self.apply_ui_actions(model_actions, ctx);
         if close {
             self.dock.left_open = false;
         }
@@ -1064,6 +1115,15 @@ mod tests {
         let weather = group_entries(&sample(), DockTab::Weather, "");
         assert_eq!(weather.len(), 1);
         assert_eq!(weather[0].category, "Severe");
+    }
+
+    /// Options are the settings of the layers that are on, drawn by their own body; the tab must
+    /// not also list registry rows, or every layer would appear twice.
+    #[test]
+    fn the_options_tab_lists_no_rows_of_its_own() {
+        assert!(group_entries(&sample(), DockTab::Options, "").is_empty());
+        assert!(DockTab::ALL.contains(&DockTab::Options));
+        assert_eq!(DockTab::Options.label(), "Options");
     }
 
     #[test]

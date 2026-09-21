@@ -37,6 +37,10 @@ fn field_layer_is_health_tracked(layer: crate::render::FieldLayer) -> bool {
                 | FL::CompareA
                 | FL::CompareB
                 | FL::Ensemble
+                | FL::RtmaTemp2m
+                | FL::RtmaDewpoint2m
+                | FL::RtmaWind10m
+                | FL::RtmaGust10m
         )
 }
 

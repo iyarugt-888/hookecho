@@ -484,10 +484,10 @@ impl HookEchoApp {
                                 .selected_text(model_sel.model.label())
                                 .width(112.0)
                                 .show_ui(ui, |ui| {
-                                    for regional in [true, false] {
+                                    for family in crate::model_browser::Family::ALL {
                                         for m in crate::model_browser::BModel::ALL
                                             .into_iter()
-                                            .filter(|m| m.regional() == regional)
+                                            .filter(|m| m.family() == family)
                                         {
                                             if ui
                                                 .selectable_label(model_sel.model == m, m.label())
@@ -497,7 +497,7 @@ impl HookEchoApp {
                                                 actions.palette = Some(PaletteAction::SetModel(m));
                                             }
                                         }
-                                        if regional {
+                                        if family != crate::model_browser::Family::Global {
                                             ui.separator();
                                         }
                                     }

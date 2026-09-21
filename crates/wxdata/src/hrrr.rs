@@ -802,6 +802,16 @@ fn field_byte_range_inner(
 /// Decode a single-message HRRR GRIB2 (Lambert grid) and scatter-regrid onto a regular lat/lon
 /// grid, keeping the max dBZ per target cell (reflectivity composites well under max).
 fn decode_regrid(raw: &[u8], model: Model, min_valid: f64) -> anyhow::Result<MrmsField> {
+    decode_regrid_at(raw, model.res_deg(), min_valid)
+}
+
+/// [`decode_regrid`] onto a caller-chosen cell size, for products (RTMA) that are not one of the
+/// [`Model`]s but arrive in the same single-message Lambert GRIB2 form.
+pub(crate) fn decode_regrid_at(
+    raw: &[u8],
+    res_deg: f64,
+    min_valid: f64,
+) -> anyhow::Result<MrmsField> {
     use gribberish::data_message::DataMessage;
     use gribberish::message::read_message;
     let msg = read_message(raw, 0).ok_or_else(|| anyhow::anyhow!("no GRIB2 message"))?;
@@ -814,7 +824,7 @@ fn decode_regrid(raw: &[u8], model: Model, min_valid: f64) -> anyhow::Result<Mrm
         "hrrr latlng/data length mismatch"
     );
 
-    regrid(&lats, &lons, &data, time, model.res_deg(), min_valid)
+    regrid(&lats, &lons, &data, time, res_deg, min_valid)
 }
 
 /// Scatter native (lat, lon, value) triples onto a regular lat/lon grid (max per cell).

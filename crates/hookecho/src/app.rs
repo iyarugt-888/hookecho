@@ -503,6 +503,8 @@ enum OverlaySource {
     /// An NDFD element (the NWS's own forecaster-blended grid), CONUS short range — which
     /// element is `NdfdTemp2m`/`NdfdWind10m`/`NdfdGust10m`/`NdfdSnow`.
     Ndfd(crate::render::FieldLayer),
+    /// An RTMA analysis field for one analysis hour (`None` = the newest that has posted).
+    Rtma(crate::render::FieldLayer, Option<DateTime<Utc>>),
     /// Nearest-station observations for `site` at `(lat, lon)`.
     Obs {
         site: String,
@@ -950,7 +952,8 @@ impl OverlaySource {
             | Self::Goes(layer, ..)
             | Self::GoesDiff(layer, ..)
             | Self::GoesCoolingRate(layer, ..)
-            | Self::Ndfd(layer) => RequestLane::Field(*layer),
+            | Self::Ndfd(layer)
+            | Self::Rtma(layer, _) => RequestLane::Field(*layer),
             Self::ModelDiff(..) => RequestLane::Field(FL::ModelDiff),
             // Both compare panes ride one fetch (see `fetch_diff_pair`); either layer name works
             // as the dedup key, so it just picks the first.
@@ -1414,6 +1417,29 @@ impl OverlaySource {
                     _ => anyhow::bail!("{layer:?} is not an NDFD element"),
                 };
                 OverlayMsg::Field(layer, wxdata::ndfd::fetch(http, field).await?)
+            }
+            OverlaySource::Rtma(layer, hour) => {
+                use crate::render::FieldLayer as FL;
+                let field = match layer {
+                    FL::RtmaTemp2m => wxdata::rtma::RtmaField::Temp2m,
+                    FL::RtmaDewpoint2m => wxdata::rtma::RtmaField::Dewpoint2m,
+                    FL::RtmaWind10m => wxdata::rtma::RtmaField::Wind10m,
+                    FL::RtmaGust10m => wxdata::rtma::RtmaField::Gust10m,
+                    _ => anyhow::bail!("{layer:?} is not an RTMA field"),
+                };
+                let analysis = wxdata::rtma::fetch(http, field, hour).await?;
+                // An analysis has no run and no lead: the hour it describes is both.
+                OverlayMsg::StampedField(
+                    layer,
+                    field_state::model_field(
+                        "RTMA analysis",
+                        field.slug(),
+                        analysis.field,
+                        Some(analysis.hour),
+                        analysis.hour,
+                        false,
+                    )?,
+                )
             }
             OverlaySource::FreezingLevels(lon, lat) => {
                 // HRRR carries both isotherm heights as analysis fields, so the hail algorithm
@@ -2437,6 +2463,9 @@ fn field_refresh_secs(layer: crate::render::FieldLayer) -> u64 {
         // a whole multi-day CONUS grid (tens of MB) with no way to ask for just the new part —
         // half an hour balances staying current against re-downloading that for no reason.
         FL::NdfdTemp2m | FL::NdfdWind10m | FL::NdfdGust10m | FL::NdfdSnow => 1800,
+        // A new analysis posts hourly, about 45 minutes after its hour; ten minutes catches it
+        // soon after it lands without asking constantly.
+        FL::RtmaTemp2m | FL::RtmaDewpoint2m | FL::RtmaWind10m | FL::RtmaGust10m => 600,
         // An accumulation moves slower than the grid it accumulates, whatever the window.
         FL::HailSwath => 300,
         // Environment (HRRR CAPE/SRH) refreshes slowly — 15 min.
@@ -3678,6 +3707,8 @@ pub struct HookEchoApp {
     /// The model and run the reflectivity texture was last fetched from, so switching either
     /// refetches.
     hrrr_fetched_key: Option<(wxdata::hrrr::Model, Option<DateTime<Utc>>)>,
+    /// The analysis hour each RTMA layer was last fetched for (`None` = newest).
+    rtma_key: std::collections::HashMap<crate::render::FieldLayer, Option<DateTime<Utc>>>,
     /// The `(model, hour, run)` each environment layer (CAPE, SRH) was last fetched for.
     env_fetch_key: std::collections::HashMap<
         crate::render::FieldLayer,
@@ -5008,6 +5039,7 @@ impl HookEchoApp {
             model_sel: crate::model_browser::Selection::default(),
             refl_model: wxdata::hrrr::Model::Hrrr,
             hrrr_fetched_key: None,
+            rtma_key: std::collections::HashMap::new(),
             model_run: None,
             env_fetch_key: std::collections::HashMap::new(),
             tray_rx: tray_rx_init,
@@ -6937,6 +6969,8 @@ impl HookEchoApp {
             Engine::Sub15 => self.hrrr_fcst_min,
             Engine::Regional(_) => u16::from(self.hrrr_fcst_hour) * 60,
             Engine::Global(_) => self.global_fcst_hour * 60,
+            // An analysis is valid at its own hour: there is no lead.
+            Engine::Analysis => 0,
         }
     }
 
@@ -6959,6 +6993,7 @@ impl HookEchoApp {
                 self.hrrr_fcst_min = m.max(15);
             }
             Engine::Global(_) => self.global_fcst_hour = m / 60,
+            Engine::Analysis => {}
         }
     }
 
@@ -6986,6 +7021,8 @@ impl HookEchoApp {
             // Rotation tracks, snowfall, smoke and thunder chance are each tied to one model.
             (Engine::Regional(_), _) => {}
             (Engine::Global(model), _) => self.global_model = model,
+            // RTMA layers read the pinned analysis hour directly; nothing to point.
+            (Engine::Analysis, _) => {}
         }
     }
 
@@ -8295,6 +8332,9 @@ impl HookEchoApp {
             FL::SnowAnalysis => "NOAA NOHRSC".into(),
             FL::Vil | FL::EchoTops | FL::Hca => "NEXRAD Level III".into(),
             FL::NdfdTemp2m | FL::NdfdWind10m | FL::NdfdGust10m | FL::NdfdSnow => "NWS NDFD".into(),
+            FL::RtmaTemp2m | FL::RtmaDewpoint2m | FL::RtmaWind10m | FL::RtmaGust10m => {
+                "RTMA analysis".into()
+            }
             _ => layer.descriptor().map_or_else(
                 || "Gridded field".into(),
                 |descriptor| descriptor.source.display_name().into(),
@@ -11622,6 +11662,14 @@ impl HookEchoApp {
             return;
         }
         let (min_lon, min_lat, max_lon, max_lat) = self.view_bounds();
+        // A view that has not been laid out yet has no finite bounds; asking with them returned
+        // the entire national dataset from the service.
+        if ![min_lon, min_lat, max_lon, max_lat]
+            .iter()
+            .all(|v| v.is_finite())
+        {
+            return;
+        }
         if (max_lon - min_lon) > 12.0 {
             return; // too zoomed out — too many gauges to be readable
         }
@@ -11634,7 +11682,13 @@ impl HookEchoApp {
             let (hw, hh) = ((lo1 - lo0) * 0.25, (la1 - la0) * 0.25);
             (clon - mlon).abs() > hw || (clat - mlat).abs() > hh
         });
-        if stale || drifted {
+        // The service allows ten requests per five minutes, and panning past a quarter of the
+        // view counts as drifting, so a busy pan could exhaust that in seconds. Panning waits for
+        // a settled view; only the ordinary refresh cadence ignores this.
+        let settled = self
+            .gauge_last_fetch
+            .is_none_or(|t| t.elapsed().as_secs() >= 30);
+        if stale || (drifted && settled) {
             let pad_lon = ((max_lon - min_lon) * 0.2).min(15.0);
             let pad_lat = ((max_lat - min_lat) * 0.2).min(15.0);
             let (lat0, lon0) = (min_lat - pad_lat, min_lon - pad_lon);
@@ -21266,6 +21320,33 @@ impl eframe::App for HookEchoApp {
             if stale {
                 self.fields.entry(layer).or_default().last_fetch = Some(Instant::now());
                 self.spawn_overlay(ctx, OverlaySource::Ndfd(layer));
+            }
+        }
+        // RTMA analysis: a new hour posts about 45 minutes after it. Naming an analysis hour in the
+        // browser refetches at once; the pin only applies while RTMA is the selected model, so a
+        // run picked for the HRRR is never read as an analysis hour.
+        for layer in [
+            FL::RtmaTemp2m,
+            FL::RtmaDewpoint2m,
+            FL::RtmaWind10m,
+            FL::RtmaGust10m,
+        ] {
+            let hour = if self.model_sel.model == crate::model_browser::BModel::Rtma {
+                self.model_run
+            } else {
+                None
+            };
+            let on = self.field_wanted(layer);
+            let changed = on && self.rtma_key.get(&layer) != Some(&hour);
+            let stale = on
+                && self.fields.get(&layer).is_none_or(|s| {
+                    s.last_fetch
+                        .is_none_or(|t| t.elapsed().as_secs() >= field_refresh_secs(layer))
+                });
+            if stale || changed {
+                self.fields.entry(layer).or_default().last_fetch = Some(Instant::now());
+                self.rtma_key.insert(layer, hour);
+                self.spawn_overlay(ctx, OverlaySource::Rtma(layer, hour));
             }
         }
         // Environment suite (CAPE/SRH): the model browser's model at the scrubbed forecast hour.

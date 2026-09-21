@@ -264,7 +264,9 @@ pub(crate) fn field_endpoint_family(layer: FieldLayer) -> EndpointFamily {
         | FL::GoesColdTop
         | FL::GoesCoolingRate => EndpointFamily::GoesOpenData,
         FL::ModelDiff | FL::CompareA | FL::CompareB => EndpointFamily::MixedModels,
-        FL::Ensemble => EndpointFamily::NoaaNcepModels,
+        FL::Ensemble | FL::RtmaTemp2m | FL::RtmaDewpoint2m | FL::RtmaWind10m | FL::RtmaGust10m => {
+            EndpointFamily::NoaaNcepModels
+        }
         FL::SnowAnalysis => EndpointFamily::NoaaOperationalFiles,
         FL::NdfdTemp2m | FL::NdfdWind10m | FL::NdfdGust10m | FL::NdfdSnow => {
             EndpointFamily::NoaaNcepModels

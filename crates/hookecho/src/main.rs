@@ -279,6 +279,18 @@ fn main() -> eframe::Result<()> {
         return Ok(());
     }
 
+    // RTMA analysis from live data: `hookecho --headless-rtma <field> [out.png]`.
+    if let Some(pos) = args.iter().position(|a| a == "--headless-rtma") {
+        let arg = |n: usize| args.get(pos + n).filter(|a| !a.starts_with("--"));
+        let field = arg(1).map(String::as_str).unwrap_or("t2m");
+        let out = arg(2).map(String::as_str).unwrap_or("rtma.png");
+        if let Err(e) = headless::run_rtma(field, out) {
+            eprintln!("headless RTMA render failed: {e}");
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
+
     // Tropical verify: `hookecho --headless-tropical`.
     if args.iter().any(|a| a == "--headless-tropical") {
         if let Err(e) = headless::run_tropical() {

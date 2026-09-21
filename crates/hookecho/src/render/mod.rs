@@ -213,6 +213,13 @@ pub enum FieldLayer {
     CompareA,
     /// Model-comparison side B (`app.diff_field.pair().1`'s own field).
     CompareB,
+    /// RTMA real-time analysis of the surface (ROADMAP_NEW G1): what the model's best estimate says
+    /// the field is doing right now, not a forecast. One layer per field, sharing the global
+    /// temperature/dewpoint/wind color scales.
+    RtmaTemp2m,
+    RtmaDewpoint2m,
+    RtmaWind10m,
+    RtmaGust10m,
     /// One ensemble statistic (mean, spread, percentile, exceedance probability) computed from the
     /// GEFS members — which one is `app.ensemble` (ROADMAP_NEW F7).
     Ensemble,
@@ -304,6 +311,10 @@ impl FieldLayer {
                 | FieldLayer::CompareA
                 | FieldLayer::CompareB
                 | FieldLayer::Ensemble
+                | FieldLayer::RtmaTemp2m
+                | FieldLayer::RtmaDewpoint2m
+                | FieldLayer::RtmaWind10m
+                | FieldLayer::RtmaGust10m
                 | FieldLayer::GoesIr
                 | FieldLayer::GoesVisible
                 | FieldLayer::GoesWaterVapor
@@ -319,7 +330,7 @@ impl FieldLayer {
     }
 
     /// Fixed bottom-to-top paint order within each band.
-    pub const DRAW_ORDER: [FieldLayer; 63] = [
+    pub const DRAW_ORDER: [FieldLayer; 67] = [
         // Below-radar context band (bottom to top). The global models sit at the very bottom:
         // they are the synoptic backdrop everything else is drawn against — satellite included,
         // since it is the same kind of backdrop and the radar itself paints over it just the same.
@@ -350,6 +361,10 @@ impl FieldLayer {
         FieldLayer::CompareA,
         FieldLayer::CompareB,
         FieldLayer::Ensemble,
+        FieldLayer::RtmaTemp2m,
+        FieldLayer::RtmaDewpoint2m,
+        FieldLayer::RtmaWind10m,
+        FieldLayer::RtmaGust10m,
         FieldLayer::Mrms,
         FieldLayer::ReflLowestAlt,
         FieldLayer::LowLevelReflectivity,
@@ -487,6 +502,10 @@ impl FieldLayer {
             FieldLayer::CompareA => "compare-a",
             FieldLayer::CompareB => "compare-b",
             FieldLayer::Ensemble => "ensemble",
+            FieldLayer::RtmaTemp2m => "rtma-temp2m",
+            FieldLayer::RtmaDewpoint2m => "rtma-dewpoint2m",
+            FieldLayer::RtmaWind10m => "rtma-wind10m",
+            FieldLayer::RtmaGust10m => "rtma-gust10m",
             FieldLayer::GlmFed => "glm-fed",
             FieldLayer::GoesIr => "goes-ir",
             FieldLayer::GoesVisible => "goes-visible",

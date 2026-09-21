@@ -978,7 +978,11 @@ pub fn ramp_for(layer: FieldLayer) -> Option<&'static FieldRamp> {
         // Same physical quantity and units as the global-model equivalents (NDFD publishes
         // Kelvin/m/s/metres same as every other model this app reads), so they share the ramp
         // rather than tabulating a second, identical one.
-        FL::NdfdTemp2m => &GLOBAL_TEMP_2M,
+        FL::NdfdTemp2m | FL::RtmaTemp2m => &GLOBAL_TEMP_2M,
+        // The analysis carries the same physical quantities in the same units as the global
+        // models, so it shares their scales: an RTMA temperature and a GFS one read the same.
+        FL::RtmaDewpoint2m => &GLOBAL_DEWPOINT_2M,
+        FL::RtmaWind10m | FL::RtmaGust10m => &GLOBAL_WIND_10M,
         FL::NdfdWind10m | FL::NdfdGust10m => &GLOBAL_WIND_10M,
         FL::NdfdSnow => &SNOWFALL,
         // Composite is reflectivity in dBZ, so like the mosaic it follows the user's own

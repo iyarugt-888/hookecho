@@ -107,6 +107,69 @@ fn num(m: &serde_json::Value, k: &str) -> Option<f64> {
     m.get(k).and_then(|v| v.as_f64())
 }
 
+/// The widest area worth asking for, in degrees. A gauge map is unreadable past this, and the
+/// service answers an unbounded box with the whole national dataset (about 13 MB, slowly).
+pub const MAX_SPAN_DEG: f64 = 20.0;
+
+/// Validate and normalize a bounding box into the service's query parameters.
+///
+/// The service accepts nonsense without complaint (NaN returns nothing, an unbounded box returns
+/// everything), so a view that has not been laid out yet, or one zoomed far out, must be refused
+/// here rather than sent. Coordinates are clamped to the valid range and put in min/max order.
+pub fn bbox_params(
+    lat0: f64,
+    lon0: f64,
+    lat1: f64,
+    lon1: f64,
+) -> anyhow::Result<[(&'static str, String); 5]> {
+    anyhow::ensure!(
+        [lat0, lon0, lat1, lon1].iter().all(|v| v.is_finite()),
+        "the map view has no valid bounds yet"
+    );
+    let (lat_lo, lat_hi) = (
+        lat0.min(lat1).clamp(-90.0, 90.0),
+        lat0.max(lat1).clamp(-90.0, 90.0),
+    );
+    let (lon_lo, lon_hi) = (
+        lon0.min(lon1).clamp(-180.0, 180.0),
+        lon0.max(lon1).clamp(-180.0, 180.0),
+    );
+    anyhow::ensure!(
+        lat_hi - lat_lo <= MAX_SPAN_DEG && lon_hi - lon_lo <= MAX_SPAN_DEG,
+        "zoom in to see river gauges (the view spans more than {MAX_SPAN_DEG} degrees)"
+    );
+    // Four decimals is about 10 m, far finer than a gauge symbol, and keeps the URL short.
+    let fmt = |v: f64| format!("{v:.4}");
+    Ok([
+        ("bbox.xmin", fmt(lon_lo)),
+        ("bbox.ymin", fmt(lat_lo)),
+        ("bbox.xmax", fmt(lon_hi)),
+        ("bbox.ymax", fmt(lat_hi)),
+        ("srid", "EPSG_4326".to_string()),
+    ])
+}
+
+/// Turn a non-success answer into a message that says what the service said. NWPS answers with a
+/// small JSON error body; showing it beats a bare "404" that hides why.
+fn describe_failure(status: reqwest::StatusCode, body: &str) -> String {
+    if status.as_u16() == 429 {
+        return "river gauge service is rate limiting requests (10 per 5 minutes); it will retry"
+            .into();
+    }
+    let detail = serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| {
+            v.get("message")
+                .or_else(|| v.pointer("/error/message"))
+                .and_then(|m| m.as_str().map(str::to_string))
+        })
+        .unwrap_or_else(|| body.chars().take(120).collect());
+    format!(
+        "river gauge service (NWPS) answered {status}: {}",
+        detail.trim()
+    )
+}
+
 /// Fetch the gauges within a lat/lon bounding box `(lat0, lon0, lat1, lon1)`, sorted worst-first
 /// and capped at 300. `USER_AGENT` identifies the app to NOAA.
 pub async fn fetch_bbox(
@@ -116,22 +179,17 @@ pub async fn fetch_bbox(
     lat1: f64,
     lon1: f64,
 ) -> anyhow::Result<Vec<Gauge>> {
-    let body = client
+    let params = bbox_params(lat0, lon0, lat1, lon1)?;
+    let response = client
         .get(crate::net::fetch_url(GAUGES_URL))
         .timeout(crate::net::FEED_TIMEOUT)
-        .query(&[
-            ("bbox.xmin", lon0.to_string()),
-            ("bbox.ymin", lat0.to_string()),
-            ("bbox.xmax", lon1.to_string()),
-            ("bbox.ymax", lat1.to_string()),
-            ("srid", "EPSG_4326".to_string()),
-        ])
+        .query(&params)
         .header("User-Agent", USER_AGENT)
         .send()
-        .await?
-        .error_for_status()?
-        .text()
         .await?;
+    let status = response.status();
+    let body = response.text().await?;
+    anyhow::ensure!(status.is_success(), "{}", describe_failure(status, &body));
     let mut gauges = parse(&body);
     gauges.sort_by_key(|g| g.cat.severity());
     gauges.truncate(300);
@@ -165,6 +223,45 @@ mod tests {
         assert_eq!(dry.cat, FloodCat::Unknown);
         assert_eq!(dry.stage_ft, None);
         assert_eq!(dry.forecast_ft, None);
+    }
+
+    #[test]
+    fn bounds_are_validated_before_anything_is_sent() {
+        let v = |p: [(&str, String); 5]| -> Vec<String> { p.into_iter().map(|(_, v)| v).collect() };
+        // A normal view, in min/max order whichever way the corners were given.
+        assert_eq!(
+            v(bbox_params(34.0, -98.0, 36.0, -96.0).unwrap()),
+            ["-98.0000", "34.0000", "-96.0000", "36.0000", "EPSG_4326"]
+        );
+        assert_eq!(
+            v(bbox_params(36.0, -96.0, 34.0, -98.0).unwrap()),
+            ["-98.0000", "34.0000", "-96.0000", "36.0000", "EPSG_4326"]
+        );
+        // A view with no layout yet (NaN or infinite corners) is refused, not sent.
+        assert!(bbox_params(f64::NAN, -98.0, 36.0, -96.0).is_err());
+        assert!(bbox_params(34.0, f64::NEG_INFINITY, 36.0, f64::INFINITY).is_err());
+        // The whole country is refused: the service would answer with about 13 MB.
+        assert!(bbox_params(24.0, -125.0, 50.0, -66.0).is_err());
+        // Out-of-range coordinates are clamped rather than sent as-is.
+        let clamped = v(bbox_params(89.0, 170.0, 95.0, 190.0).unwrap());
+        assert_eq!(
+            &clamped[..4],
+            ["170.0000", "89.0000", "180.0000", "90.0000"]
+        );
+    }
+
+    #[test]
+    fn failures_say_what_the_service_said() {
+        use reqwest::StatusCode;
+        assert!(describe_failure(StatusCode::TOO_MANY_REQUESTS, "{}").contains("rate limiting"));
+        let not_found = describe_failure(
+            StatusCode::NOT_FOUND,
+            r#"{"code":5,"message":"[] could not find unknown ID","details":[]}"#,
+        );
+        assert!(not_found.contains("404") && not_found.contains("could not find unknown ID"));
+        // A body that is not JSON is shown truncated, never dumped whole.
+        let html = describe_failure(StatusCode::BAD_GATEWAY, &"x".repeat(5000));
+        assert!(html.len() < 250, "{}", html.len());
     }
 
     // Live network check (NWPS is public; be gentle).
