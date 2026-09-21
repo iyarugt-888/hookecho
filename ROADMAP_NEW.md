@@ -1570,7 +1570,10 @@ Use cases:
 - [ ] decay visualization
 - [x] threshold — the pane's existing value threshold applies to the trail
 - [x] min or max mode — `extrema::Extremum`
-- [ ] reset at selected archive time
+- [x] reset at selected archive time — Layer options now exposes **Reset at playhead**, which
+  discards the running accumulator and deterministically rebuilds its cached window ending at the
+  selected live/archive frame. The uploaded radar image is invalidated too, avoiding a generation-
+  zero cache-key collision with the trail that was just discarded.
 - [ ] export raster/vector trail
 
 ### Acceptance criteria
@@ -2668,8 +2671,12 @@ check for the same case exists here anyway, since that's not a guarantee this mo
 
 ## I4. Styling
 
-- stroke color/width
-- fill/opacity
+- [x]/[ ] stroke color/width — the imported layer now has one persistent color shared by its
+  polygons, lines and points; configurable stroke width remains open
+- [x] fill/opacity — Layer Manager exposes the same color plus an opacity slider, applied to both
+  polygon fill and outlines without mutating the imported geometry. Existing settings default to
+  the original neutral blue byte-for-byte, and a remembered file now returns visible rather than
+  reloading silently behind an off toggle
 - labels from chosen attribute
 - symbol by category
 - graduated color by numeric attribute

@@ -208,8 +208,16 @@ mod tests {
         // a mode you did not mean to enter.
         for d in PhoneDesign::ALL {
             let s = d.spec();
-            assert!(s.rail.contains(&RailItem::Layers), "{} has no way to Layers", d.label());
-            assert!(s.modes.contains(&Mode::Flat), "{} cannot return to 2D", d.label());
+            assert!(
+                s.rail.contains(&RailItem::Layers),
+                "{} has no way to Layers",
+                d.label()
+            );
+            assert!(
+                s.modes.contains(&Mode::Flat),
+                "{} cannot return to 2D",
+                d.label()
+            );
         }
     }
 
@@ -232,7 +240,10 @@ mod tests {
         assert!(!PhoneDesign::Aurora.spec().rail_labels);
         assert!(PhoneDesign::Glass.spec().bottom_nav);
         assert!(!PhoneDesign::Storm.spec().bottom_nav);
-        assert!(PhoneDesign::Glass.spec().panel_alpha < 200, "Glass is the see-through one");
+        assert!(
+            PhoneDesign::Glass.spec().panel_alpha < 200,
+            "Glass is the see-through one"
+        );
         assert!(PhoneDesign::Storm.spec().panel_alpha > 240);
         assert_eq!(PhoneDesign::Atlas.spec().legend, Legend::Box);
         assert_eq!(PhoneDesign::Storm.spec().legend, Legend::Vertical);
@@ -244,5 +255,4 @@ mod tests {
         assert_eq!(PhoneDesign::Glass.spec().modes.len(), 4);
         assert_eq!(PhoneDesign::Aurora.spec().modes.len(), 2);
     }
-
 }

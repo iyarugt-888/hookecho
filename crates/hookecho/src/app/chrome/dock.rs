@@ -20,6 +20,14 @@ const TAB_ON: Color32 = Color32::from_rgb(38, 102, 214);
 const TEXT: Color32 = Color32::from_rgb(214, 222, 235);
 const DIM: Color32 = Color32::from_rgb(140, 152, 172);
 const SELECT: Color32 = Color32::from_rgb(28, 78, 168);
+const LEFT_WIDTH: f32 = 264.0;
+const RIGHT_WIDTH: f32 = 240.0;
+/// Below this width, two sidebars leave too little useful map. Keep one edge panel at a time.
+const SINGLE_SIDEBAR_WIDTH: f32 = 1_100.0;
+
+fn single_sidebar(width: f32) -> bool {
+    width < SINGLE_SIDEBAR_WIDTH
+}
 
 /// Which slice of the registry the left panel's tab row shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -145,14 +153,18 @@ fn frame() -> egui::Frame {
 }
 
 fn mono(text: impl Into<String>, size: f32, color: Color32) -> RichText {
-    RichText::new(text.into()).monospace().size(size).color(color)
+    RichText::new(text.into())
+        .monospace()
+        .size(size)
+        .color(color)
 }
 
 /// A panel's title bar: a small accent tick, the name, and a close button on the right. Returns
 /// whether close was pressed.
 fn title_bar(ui: &mut egui::Ui, name: &str) -> bool {
     let mut close = false;
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 24.0), egui::Sense::hover());
+    let (rect, _) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 24.0), egui::Sense::hover());
     ui.painter().rect_filled(rect, 0.0, TITLE);
     ui.painter().rect_filled(
         egui::Rect::from_min_size(rect.min, egui::vec2(3.0, rect.height())),
@@ -188,6 +200,12 @@ impl HookEchoApp {
     /// Draw the whole dock. Called once per frame before the map's own rect is read, so the map
     /// gets whatever the panels leave.
     pub(crate) fn dock_layout(&mut self, root: &mut egui::Ui, ctx: &egui::Context) {
+        // When a window is narrowed after both panels were opened, favor the Layers panel. Its
+        // contents are the primary navigation and the Inspector has an explicit tab to reopen it.
+        // This keeps the map from becoming a thin strip in the middle of the screen.
+        if single_sidebar(root.available_width()) && self.dock.left_open && self.dock.right_open {
+            self.dock.right_open = false;
+        }
         self.dock_menu(root, ctx);
         self.dock_left(root, ctx);
         self.dock_right(root, ctx);
@@ -199,7 +217,11 @@ impl HookEchoApp {
         let mut action = None;
         egui::Panel::top("dock_menu")
             .exact_size(76.0)
-            .frame(egui::Frame::NONE.fill(BG).inner_margin(egui::Margin::symmetric(8, 4)))
+            .frame(
+                egui::Frame::NONE
+                    .fill(BG)
+                    .inner_margin(egui::Margin::symmetric(8, 4)),
+            )
             .show(root, |ui| {
                 ui.horizontal(|ui| {
                     ui.vertical(|ui| {
@@ -213,11 +235,7 @@ impl HookEchoApp {
                     ui.add_space(24.0);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         let ok = self.views[self.active].error.is_none();
-                        ui.label(mono(
-                            if ok { "Online" } else { "Trouble" },
-                            12.0,
-                            TEXT,
-                        ));
+                        ui.label(mono(if ok { "Online" } else { "Trouble" }, 12.0, TEXT));
                         ui.label(mono(
                             "\u{25cf}",
                             14.0,
@@ -228,14 +246,19 @@ impl HookEchoApp {
                             },
                         ));
                         let now = chrono::Local::now();
-                        ui.label(mono(now.format("%b %d, %Y  %-I:%M %p").to_string(), 12.0, DIM));
+                        ui.label(mono(
+                            now.format("%b %d, %Y  %-I:%M %p").to_string(),
+                            12.0,
+                            DIM,
+                        ));
                     });
                 });
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 2.0;
-                    let tabs: [(&str, bool); 7] = [
+                    let tabs: [(&str, bool); 8] = [
                         ("Map", true),
                         ("Layers", self.dock.left_open),
+                        ("Inspector", self.dock.right_open),
                         ("Playback", self.dock.timeline_open),
                         ("Forecast", false),
                         ("Tools", false),
@@ -249,12 +272,27 @@ impl HookEchoApp {
                                     .fill(if on { SELECT } else { Color32::TRANSPARENT })
                                     .stroke(Stroke::new(1.0, if on { TAB_ON } else { BORDER }))
                                     .corner_radius(2.0)
-                                    .min_size(egui::vec2(76.0, 24.0)),
+                                    .min_size(egui::vec2(68.0, 24.0)),
                             )
                             .named(name);
                         if b.clicked() {
                             match name {
-                                "Layers" => self.dock.left_open = !self.dock.left_open,
+                                "Layers" => {
+                                    self.dock.left_open = !self.dock.left_open;
+                                    if self.dock.left_open
+                                        && single_sidebar(ui.ctx().content_rect().width())
+                                    {
+                                        self.dock.right_open = false;
+                                    }
+                                }
+                                "Inspector" => {
+                                    self.dock.right_open = !self.dock.right_open;
+                                    if self.dock.right_open
+                                        && single_sidebar(ui.ctx().content_rect().width())
+                                    {
+                                        self.dock.left_open = false;
+                                    }
+                                }
                                 "Playback" => self.dock.timeline_open = !self.dock.timeline_open,
                                 "Forecast" => action = Some(A::OpenWindow(AppWindow::Afd)),
                                 "Tools" => action = Some(A::OpenWindow(AppWindow::LayerManager)),
@@ -263,6 +301,36 @@ impl HookEchoApp {
                                 _ => {}
                             }
                         }
+                    }
+                    ui.separator();
+                    let map_3d = self.views[self.active].map_3d.enabled;
+                    for (label, on, want_3d) in [("2D", !map_3d, false), ("3D map", map_3d, true)] {
+                        if ui
+                            .add(
+                                egui::Button::new(mono(label, 12.0, TEXT))
+                                    .fill(if on { SELECT } else { Color32::TRANSPARENT })
+                                    .stroke(Stroke::new(1.0, if on { TAB_ON } else { BORDER }))
+                                    .corner_radius(2.0)
+                                    .min_size(egui::vec2(54.0, 24.0)),
+                            )
+                            .named_toggle(label, on)
+                            .on_hover_text("Switch the live map between plan and tilted 3D view")
+                            .clicked()
+                        {
+                            self.views[self.active].set_map_3d(want_3d);
+                        }
+                    }
+                    if ui
+                        .add(
+                            egui::Button::new(mono("Volume", 12.0, TEXT))
+                                .stroke(Stroke::new(1.0, BORDER))
+                                .corner_radius(2.0)
+                                .min_size(egui::vec2(58.0, 24.0)),
+                        )
+                        .on_hover_text("Open the standalone 3D volume explorer")
+                        .clicked()
+                    {
+                        action = Some(A::OpenWindow(AppWindow::Volume3d));
                     }
                 });
             });
@@ -281,7 +349,7 @@ impl HookEchoApp {
         let mut close = false;
         let mut open_manager = false;
         egui::Panel::left("dock_layers")
-            .exact_size(300.0)
+            .exact_size(LEFT_WIDTH)
             .resizable(false)
             .frame(frame())
             .show(root, |ui| {
@@ -358,14 +426,20 @@ impl HookEchoApp {
                 ui.add_space(4.0);
                 ui.horizontal(|ui| {
                     if ui
-                        .add(egui::Button::new(mono("Import layer", 12.0, TEXT)).min_size(egui::vec2(136.0, 26.0)))
+                        .add(
+                            egui::Button::new(mono("Import layer", 12.0, TEXT))
+                                .min_size(egui::vec2(118.0, 26.0)),
+                        )
                         .on_hover_text("Import a GeoJSON or Shapefile as an overlay")
                         .clicked()
                     {
                         chosen = Some(crate::app::PaletteAction::ImportGis);
                     }
                     if ui
-                        .add(egui::Button::new(mono("Manage layers", 12.0, TEXT)).min_size(egui::vec2(136.0, 26.0)))
+                        .add(
+                            egui::Button::new(mono("Manage layers", 12.0, TEXT))
+                                .min_size(egui::vec2(118.0, 26.0)),
+                        )
                         .clicked()
                     {
                         open_manager = true;
@@ -421,9 +495,11 @@ impl HookEchoApp {
                 .as_ref()
                 .and_then(|x| x.elevations.get(v.tilt).copied());
             let valid = v.timeline.current().and_then(|id| id.date_time());
-            let age = v.timeline.newest().and_then(|id| id.date_time()).map(|t| {
-                humanize((chrono::Utc::now() - t).num_seconds().max(0))
-            });
+            let age = v
+                .timeline
+                .newest()
+                .and_then(|id| id.date_time())
+                .map(|t| humanize((chrono::Utc::now() - t).num_seconds().max(0)));
             (
                 site,
                 vcp,
@@ -457,96 +533,107 @@ impl HookEchoApp {
         let mut cycle_basemap = false;
         let mut show_layers = false;
         egui::Panel::right("dock_right")
-            .exact_size(258.0)
+            .exact_size(RIGHT_WIDTH)
             .resizable(false)
             .frame(frame())
             .show(root, |ui| {
                 ui.spacing_mut().item_spacing.y = 6.0;
-                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                    if self.dock.quick_open {
-                        if title_bar(ui, "Quick Controls") {
-                            self.dock.quick_open = false;
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        if self.dock.quick_open {
+                            if title_bar(ui, "Quick Controls") {
+                                self.dock.quick_open = false;
+                            }
+                            ui.horizontal(|ui| {
+                                ui.label(mono("Map style", 12.0, DIM));
+                                if ui
+                                    .add(
+                                        egui::Button::new(mono(&basemap, 12.0, TEXT))
+                                            .min_size(egui::vec2(120.0, 22.0)),
+                                    )
+                                    .on_hover_text("Next map style")
+                                    .clicked()
+                                {
+                                    cycle_basemap = true;
+                                }
+                            });
+                            for (t, name, on) in &toggles {
+                                let mut v = *on;
+                                if ui.checkbox(&mut v, mono(*name, 12.0, TEXT)).changed() {
+                                    flip = Some(*t);
+                                }
+                            }
+                            ui.checkbox(&mut smoothing, mono("Smoothing", 12.0, TEXT));
+                            ui.add_space(6.0);
                         }
-                        ui.horizontal(|ui| {
-                            ui.label(mono("Map style", 12.0, DIM));
+                        if self.dock.selected_open {
+                            if title_bar(ui, "Selected Layer") {
+                                self.dock.selected_open = false;
+                            }
+                            ui.label(mono(moment_name, 14.0, Color32::WHITE));
+                            let row = |ui: &mut egui::Ui, k: &str, v: String| {
+                                ui.horizontal(|ui| {
+                                    ui.label(mono(format!("{k:<8}"), 11.0, DIM));
+                                    ui.label(mono(v, 11.0, TEXT));
+                                });
+                            };
+                            row(ui, "Radar:", format!("{site}  {vcp}"));
+                            if let Some(d) = tilt_deg {
+                                row(ui, "Tilt:", format!("{d:.1}\u{b0}"));
+                            }
+                            if let Some(d) = valid {
+                                row(ui, "Valid:", crate::timefmt::fmt_clock(d, tz, false));
+                            }
+                            if let Some(a) = &age {
+                                row(ui, "Age:", format!("{a} ago"));
+                            }
                             if ui
-                                .add(egui::Button::new(mono(&basemap, 12.0, TEXT)).min_size(egui::vec2(120.0, 22.0)))
-                                .on_hover_text("Next map style")
+                                .add(
+                                    egui::Button::new(mono("Layers", 12.0, TEXT))
+                                        .min_size(egui::vec2(100.0, 24.0)),
+                                )
                                 .clicked()
                             {
-                                cycle_basemap = true;
+                                show_layers = true;
                             }
-                        });
-                        for (t, name, on) in &toggles {
-                            let mut v = *on;
-                            if ui.checkbox(&mut v, mono(*name, 12.0, TEXT)).changed() {
-                                flip = Some(*t);
+                            ui.add_space(6.0);
+                        }
+                        if self.dock.info_open {
+                            if title_bar(ui, "Map Information") {
+                                self.dock.info_open = false;
                             }
+                            let row = |ui: &mut egui::Ui, k: &str, v: String| {
+                                ui.horizontal(|ui| {
+                                    ui.label(mono(format!("{k:<12}"), 11.0, DIM));
+                                    ui.label(mono(v, 11.0, TEXT));
+                                });
+                            };
+                            row(ui, "Center:", format!("{lat:.2}, {lon:.2}"));
+                            row(ui, "Zoom:", format!("{:.1}", cam.zoom));
+                            row(ui, "Projection:", "Web Mercator".to_string());
+                            row(
+                                ui,
+                                "Mouse:",
+                                mouse.map_or_else(
+                                    || "\u{2014}".to_string(),
+                                    |(lo, la)| format!("{la:.2}, {lo:.2}"),
+                                ),
+                            );
+                            row(ui, "Radar:", format!("{site} ({vcp})"));
+                            if let Some(h) = forecast {
+                                row(ui, "Forecast:", format!("F+{h}h"));
+                            }
+                            row(ui, "Frames:", format!("{} / {}", frames.0, frames.1));
                         }
-                        ui.checkbox(&mut smoothing, mono("Smoothing", 12.0, TEXT));
-                        ui.add_space(6.0);
-                    }
-                    if self.dock.selected_open {
-                        if title_bar(ui, "Selected Layer") {
-                            self.dock.selected_open = false;
-                        }
-                        ui.label(mono(moment_name, 14.0, Color32::WHITE));
-                        let row = |ui: &mut egui::Ui, k: &str, v: String| {
-                            ui.horizontal(|ui| {
-                                ui.label(mono(format!("{k:<8}"), 11.0, DIM));
-                                ui.label(mono(v, 11.0, TEXT));
-                            });
-                        };
-                        row(ui, "Radar:", format!("{site}  {vcp}"));
-                        if let Some(d) = tilt_deg {
-                            row(ui, "Tilt:", format!("{d:.1}\u{b0}"));
-                        }
-                        if let Some(d) = valid {
-                            row(ui, "Valid:", crate::timefmt::fmt_clock(d, tz, false));
-                        }
-                        if let Some(a) = &age {
-                            row(ui, "Age:", format!("{a} ago"));
-                        }
-                        if ui
-                            .add(egui::Button::new(mono("Layers", 12.0, TEXT)).min_size(egui::vec2(100.0, 24.0)))
-                            .clicked()
-                        {
-                            show_layers = true;
-                        }
-                        ui.add_space(6.0);
-                    }
-                    if self.dock.info_open {
-                        if title_bar(ui, "Map Information") {
-                            self.dock.info_open = false;
-                        }
-                        let row = |ui: &mut egui::Ui, k: &str, v: String| {
-                            ui.horizontal(|ui| {
-                                ui.label(mono(format!("{k:<12}"), 11.0, DIM));
-                                ui.label(mono(v, 11.0, TEXT));
-                            });
-                        };
-                        row(ui, "Center:", format!("{lat:.2}, {lon:.2}"));
-                        row(ui, "Zoom:", format!("{:.1}", cam.zoom));
-                        row(ui, "Projection:", "Web Mercator".to_string());
-                        row(
-                            ui,
-                            "Mouse:",
-                            mouse.map_or_else(
-                                || "\u{2014}".to_string(),
-                                |(lo, la)| format!("{la:.2}, {lo:.2}"),
-                            ),
-                        );
-                        row(ui, "Radar:", format!("{site} ({vcp})"));
-                        if let Some(h) = forecast {
-                            row(ui, "Forecast:", format!("F+{h}h"));
-                        }
-                        row(ui, "Frames:", format!("{} / {}", frames.0, frames.1));
-                    }
-                });
+                    });
             });
         self.views[self.active].smooth = smoothing;
         if show_layers {
             self.dock.left_open = true;
+            if single_sidebar(ctx.content_rect().width()) {
+                self.dock.right_open = false;
+            }
         }
         if cycle_basemap {
             self.apply_palette(crate::app::PaletteAction::CycleBasemap, ctx);
@@ -757,6 +844,13 @@ mod tests {
     use super::*;
     use crate::app::PaletteAction;
 
+    #[test]
+    fn narrow_docks_keep_only_one_sidebar_beside_the_map() {
+        assert!(single_sidebar(SINGLE_SIDEBAR_WIDTH - 1.0));
+        assert!(!single_sidebar(SINGLE_SIDEBAR_WIDTH));
+        assert!(!single_sidebar(1_920.0));
+    }
+
     fn entry(label: &str, category: &'static str, on: Option<bool>) -> PaletteEntry {
         PaletteEntry {
             label: label.to_string(),
@@ -845,10 +939,7 @@ pub(crate) fn cursor_readout(
     metric: bool,
 ) -> Vec<(&'static str, String)> {
     let (lon, lat) = at;
-    let mut rows = vec![
-        ("Lat", format!("{lat:.2}")),
-        ("Lon", format!("{lon:.2}")),
-    ];
+    let mut rows = vec![("Lat", format!("{lat:.2}")), ("Lon", format!("{lon:.2}"))];
     if let Some((rlon, rlat)) = radar {
         let (km, bearing) = crate::geo::great_circle([rlon, rlat], [lon, lat]);
         rows.push(("Range", crate::geo::fmt_distance(km, metric, 1)));
@@ -891,7 +982,10 @@ impl HookEchoApp {
         let mut pick = None;
         egui::Area::new(egui::Id::new("dock_map_overlay"))
             .constrain_to(map_rect)
-            .anchor(egui::Align2::LEFT_TOP, egui::vec2(map_rect.left() + 8.0, map_rect.top() + 8.0))
+            .anchor(
+                egui::Align2::LEFT_TOP,
+                egui::vec2(map_rect.left() + 8.0, map_rect.top() + 8.0),
+            )
             .show(ctx, |ui| {
                 ui.spacing_mut().item_spacing.y = 4.0;
                 if let Some(at) = mouse {
@@ -912,7 +1006,11 @@ impl HookEchoApp {
                     .show(ui, |ui| {
                         let tools = [
                             (MapTool::Interrogate, ph::CURSOR, "Explore the map"),
-                            (MapTool::GateInspector, ph::CROSSHAIR, "Inspect a radar gate"),
+                            (
+                                MapTool::GateInspector,
+                                ph::CROSSHAIR,
+                                "Inspect a radar gate",
+                            ),
                             (MapTool::Measure, ph::RULER, "Measure distance"),
                             (MapTool::CrossSection, ph::CHART_LINE_UP, "Cross-section"),
                             (MapTool::Sounding, ph::THERMOMETER, "Sounding"),
@@ -927,7 +1025,10 @@ impl HookEchoApp {
                                     egui::Button::new(RichText::new(glyph).size(17.0).color(TEXT))
                                         .min_size(egui::vec2(32.0, 32.0))
                                         .fill(if on { SELECT } else { Color32::TRANSPARENT })
-                                        .stroke(Stroke::new(1.0, if on { TAB_ON } else { Color32::TRANSPARENT }))
+                                        .stroke(Stroke::new(
+                                            1.0,
+                                            if on { TAB_ON } else { Color32::TRANSPARENT },
+                                        ))
                                         .corner_radius(2.0),
                                 )
                                 .on_hover_text(name)
@@ -970,6 +1071,9 @@ mod overlay_tests {
     #[test]
     fn the_range_follows_the_units_setting() {
         let miles = cursor_readout((-96.0, 35.0), Some((-97.0, 35.0)), false);
-        assert!(miles.iter().any(|r| r.0 == "Range" && r.1.ends_with(" mi")), "{miles:?}");
+        assert!(
+            miles.iter().any(|r| r.0 == "Range" && r.1.ends_with(" mi")),
+            "{miles:?}"
+        );
     }
 }

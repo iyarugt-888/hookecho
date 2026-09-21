@@ -8,6 +8,32 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Improved: responsive ImGui dock and movable search
+
+The ImGui dock now keeps only one sidebar open on narrower windows, adds an explicit Inspector
+tab, and uses slimmer edge panels so opening Layers no longer squeezes the map into a strip in the
+middle. The live 2D/3D selector now lives in each layout's permanent chrome—the Dock top bar,
+ribbon Tools group, Minimal control column, or phone mode bar—while the Dock keeps a separate
+Volume explorer button. The advanced 3D controls appear only after the tilted map is active.
+
+Settings uses the Dear ImGui theme's square, flat drawer and compact tab treatment instead of the
+rounded glass navigation used by the map-first themes. The optional floating ribbon search button
+also has a visible drag grip and can be repositioned within the map area for the session.
+
+The max/min trail's Layer options now has **Reset at playhead**, rebuilding the cached trail window
+at the selected live or archive time and invalidating the previous uploaded trail image.
+
+### Added: imported GIS styling (I4)
+
+The Layer Manager now gives an imported GeoJSON or Shapefile its own color and opacity controls.
+One persistent style applies to polygons, lines and points, so a reference dataset reads as one
+layer and can be separated visually from official warnings and outlooks. Existing settings keep
+the previous neutral-blue appearance exactly, and Reset restores it.
+
+This also fixes the remembered GIS layer reloading invisibly after restart: a file that reloads
+successfully now turns its layer back on. The Layers/Tools descriptions have been corrected to
+name Shapefiles and the point/line support that already exists.
+
 ### Added: tablets get the desktop layout, and two fingers tilt a 3D map
 
 **Tablets.** On Android, a screen whose shortest side is 600 dp or more now draws the desktop

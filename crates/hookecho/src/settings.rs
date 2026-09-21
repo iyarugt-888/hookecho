@@ -127,6 +127,58 @@ pub struct WindowGeom {
     pub maximized: bool,
 }
 
+/// Presentation for the one user-imported GIS layer.
+///
+/// Keep this independent of the imported file: replacing a county boundary with an updated
+/// export should not unexpectedly reset the way the analyst chose to distinguish it from
+/// official warning/outlook geometry.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ImportedGisStyle {
+    /// One RGB color drives polygons, lines, and points so the imported file reads as one layer.
+    pub color: [u8; 3],
+    /// Multiplies the established polygon-fill/stroke alpha instead of replacing it; 100% is
+    /// therefore byte-for-byte compatible with the appearance shipped before this control.
+    pub opacity: f32,
+}
+
+impl ImportedGisStyle {
+    pub const DEFAULT_COLOR: [u8; 3] = [80, 140, 220];
+    const FILL_ALPHA: u8 = 60;
+    const STROKE_ALPHA: u8 = 220;
+
+    fn alpha(self, base: u8) -> u8 {
+        (f32::from(base) * self.opacity.clamp(0.0, 1.0)).round() as u8
+    }
+
+    pub fn fill_rgba(self) -> [u8; 4] {
+        [
+            self.color[0],
+            self.color[1],
+            self.color[2],
+            self.alpha(Self::FILL_ALPHA),
+        ]
+    }
+
+    pub fn stroke_rgba(self) -> [u8; 4] {
+        [
+            self.color[0],
+            self.color[1],
+            self.color[2],
+            self.alpha(Self::STROKE_ALPHA),
+        ]
+    }
+}
+
+impl Default for ImportedGisStyle {
+    fn default() -> Self {
+        Self {
+            color: Self::DEFAULT_COLOR,
+            opacity: 1.0,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -168,6 +220,10 @@ pub struct Settings {
     /// browser, which has no path that would survive a reload.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub imported_gis: Option<String>,
+    /// ROADMAP_NEW I4: persistent styling for the imported reference layer. Old settings files
+    /// default to the exact neutral-blue appearance they had before styling was configurable.
+    #[serde(default)]
+    pub imported_gis_style: ImportedGisStyle,
     /// Velocity/spectrum-width display unit (internal data stays m/s).
     pub velocity_unit: VelocityUnit,
     /// Temperature display unit for the surface station plots (internal data stays Celsius).
@@ -1324,6 +1380,7 @@ impl Default for Settings {
             default_site: "KTLX".to_string(),
             web_files: BTreeMap::new(),
             imported_gis: None,
+            imported_gis_style: ImportedGisStyle::default(),
             detectors: DetectorTuning::default(),
             alert_rules: Vec::new(),
             serve_token: String::new(),
@@ -1739,6 +1796,32 @@ mod tests {
         assert!(Settings::default().imported_gis_text().is_none());
     }
 
+    #[test]
+    fn old_settings_keep_the_original_imported_gis_appearance() {
+        let settings: Settings = serde_json::from_str(r#"{"imported_gis":"districts.geojson"}"#)
+            .expect("old settings still deserialize");
+        assert_eq!(settings.imported_gis_style, ImportedGisStyle::default());
+        assert_eq!(settings.imported_gis_style.fill_rgba(), [80, 140, 220, 60]);
+        assert_eq!(
+            settings.imported_gis_style.stroke_rgba(),
+            [80, 140, 220, 220]
+        );
+    }
+
+    #[test]
+    fn imported_gis_opacity_is_bounded_at_the_render_boundary() {
+        let too_high = ImportedGisStyle {
+            opacity: 2.0,
+            ..Default::default()
+        };
+        let too_low = ImportedGisStyle {
+            opacity: -1.0,
+            ..Default::default()
+        };
+        assert_eq!(too_high.stroke_rgba()[3], 220);
+        assert_eq!(too_low.fill_rgba()[3], 0);
+    }
+
     /// The browser has no path that survives a reload, so a name that matches a `web_files` entry
     /// resolves to that content — the same two-way resolution `palette_paths` does for a `.pal`.
     #[test]
@@ -1994,6 +2077,10 @@ mod tests {
             hints_seen: Vec::new(),
             web_files: BTreeMap::new(),
             imported_gis: None,
+            imported_gis_style: ImportedGisStyle {
+                color: [240, 80, 40],
+                opacity: 0.5,
+            },
             reduce_motion: true,
             precip_tint: false,
             custom_tile_url: String::new(),
@@ -2364,7 +2451,10 @@ mod tests {
         assert!(s.layout.is_dock() && !s.layout.is_ribbon());
         assert_eq!(s.phone_design, PhoneDesign::Atlas);
         let back = Settings::from_json_lossy(&serde_json::to_string(&s).unwrap());
-        assert_eq!((back.layout, back.phone_design), (Layout::Dock, PhoneDesign::Atlas));
+        assert_eq!(
+            (back.layout, back.phone_design),
+            (Layout::Dock, PhoneDesign::Atlas)
+        );
     }
 
     #[test]
@@ -2377,6 +2467,9 @@ mod tests {
 
     #[test]
     fn a_settings_file_with_no_phone_design_gets_aurora() {
-        assert_eq!(Settings::from_json_lossy("{}").phone_design, PhoneDesign::Aurora);
+        assert_eq!(
+            Settings::from_json_lossy("{}").phone_design,
+            PhoneDesign::Aurora
+        );
     }
 }

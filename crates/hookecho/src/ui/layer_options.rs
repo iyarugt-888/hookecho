@@ -20,6 +20,8 @@ pub struct UiActions {
     pub srv_from_cells: bool,
     /// DVR: replay the buffered (in-RAM) frames from the earliest cached one.
     pub instant_replay: bool,
+    /// Rebuild the max/min trail from its cached window ending at the current playhead.
+    pub reset_trail: bool,
     /// The Day-1 outlook hazard changed; the app must clear + refetch that day's outlook.
     pub outlook_kind_changed: bool,
     /// The WSSI day changed; the app must clear + refetch it.
@@ -765,6 +767,15 @@ pub(crate) fn show(
             ui.selectable_value(&mut filters.trail_keep_min, false, "Maximum");
             ui.selectable_value(&mut filters.trail_keep_min, true, "Minimum");
         });
+        if ui
+            .button("Reset at playhead")
+            .on_hover_text(
+                "Discard the running trail and recompute the cached window ending at the selected time",
+            )
+            .clicked()
+        {
+            actions.reset_trail = true;
+        }
         if !filters.trail_status.is_empty() {
             ui.small(filters.trail_status.as_str());
         }

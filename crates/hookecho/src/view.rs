@@ -171,13 +171,7 @@ pub struct Map3dState {
     /// still-streaming volume re-uploads within a tilt and for repeated SAILS/MRLE cuts; `beam_rise`,
     /// the four CC-anomaly ramp slots and the `MAX_HIGHLIGHTED_LAYERS` selected-elevation slots
     /// (all as bits) follow, so any of those changing rebuilds too.
-    pub observed_key: Option<(
-        String,
-        u64,
-        Moment,
-        u64,
-        [u32; 12 + MAX_HIGHLIGHTED_LAYERS],
-    )>,
+    pub observed_key: Option<(String, u64, Moment, u64, [u32; 12 + MAX_HIGHLIGHTED_LAYERS])>,
 }
 
 impl Default for Map3dState {

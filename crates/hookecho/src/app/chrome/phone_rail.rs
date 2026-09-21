@@ -98,7 +98,11 @@ impl HookEchoApp {
                                     .add(
                                         egui::Button::new(text)
                                             .min_size(egui::vec2(58.0, 36.0))
-                                            .fill(if on { accent } else { egui::Color32::TRANSPARENT })
+                                            .fill(if on {
+                                                accent
+                                            } else {
+                                                egui::Color32::TRANSPARENT
+                                            })
                                             .corner_radius((spec.corner - 4.0).max(6.0)),
                                     )
                                     .named_toggle(&format!("{} view", m.label()), on);
@@ -181,9 +185,7 @@ impl HookEchoApp {
                                 RailItem::Alerts => (ph::BELL, "Alerts", alerts_on),
                                 RailItem::Share => (ph::SHARE_NETWORK, "Share", false),
                                 RailItem::Measure => (ph::RULER, "Measure", measuring),
-                                RailItem::Analysis => {
-                                    (ph::CHART_LINE_UP, "Section", sectioning)
-                                }
+                                RailItem::Analysis => (ph::CHART_LINE_UP, "Section", sectioning),
                                 RailItem::Settings => (ph::GEAR, "Settings", false),
                             };
                             let resp = rail_button(ui, glyph, label, on, accent, &spec);

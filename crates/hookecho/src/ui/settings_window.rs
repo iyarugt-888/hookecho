@@ -108,6 +108,7 @@ impl SettingsWindow {
             if cfg!(target_os = "android") {
                 ui.set_max_width(ui.ctx().content_rect().width() - 28.0);
             }
+            let imgui = crate::theme::is_imgui_style();
             ui.horizontal_wrapped(|ui| {
                 for (tab, label) in [
                     (Tab::General, "General"),
@@ -124,6 +125,20 @@ impl SettingsWindow {
                     // seven of them wrapped across a 360pt screen is a game of darts.
                     if cfg!(target_os = "android") {
                         if crate::ui::m3::chip(ui, label, self.tab == tab).clicked() {
+                            self.tab = tab;
+                        }
+                    } else if imgui {
+                        // The dock theme is a compact tool UI, not a row of soft navigation
+                        // chips. Keep its Settings tabs flat, square and visibly selected.
+                        if ui
+                            .add(
+                                egui::Button::new(egui::RichText::new(label).monospace())
+                                    .selected(self.tab == tab)
+                                    .corner_radius(0)
+                                    .min_size(egui::vec2(72.0, 24.0)),
+                            )
+                            .clicked()
+                        {
                             self.tab = tab;
                         }
                     } else {

@@ -815,7 +815,11 @@ impl HookEchoApp {
 /// nothing, and even a jump that stayed in range showed whatever arbitrary moment the old index
 /// happened to land on rather than the day the user actually asked to see. A URL/permalink jump
 /// never had this problem because it already went through `seek_to_valid_time`.
-pub(super) fn seek_to_day(t: &mut crate::timeline::Timeline, site: &str, new_date: chrono::NaiveDate) {
+pub(super) fn seek_to_day(
+    t: &mut crate::timeline::Timeline,
+    site: &str,
+    new_date: chrono::NaiveDate,
+) {
     let today = chrono::Utc::now().date_naive();
     // Clamp rather than trust the input: neither a calendar widget, a typed string, nor a
     // one-day step knows where the archive starts or that the future is empty.

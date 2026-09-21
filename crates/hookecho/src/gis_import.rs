@@ -10,16 +10,25 @@
 //! `GeoFeature` is rings-only, so it can only carry the polygon half. Points and lines — a file of
 //! city sites, a river or road network, the ordinary contents of a GIS export — come back as
 //! [`Marks`] instead and are painted directly by the map, using the same lon/lat → world → screen
-//! projection the freehand annotation strokes already use. What is still deferred to I4 is
-//! *styling* them: per-layer color, width, labels from a chosen attribute.
+//! projection the freehand annotation strokes already use. ROADMAP_NEW I4's first styling slice
+//! applies one persistent color/opacity pair to all three geometry families; labels from a chosen
+//! attribute and data-driven category styling remain deliberately separate work.
 
+use crate::settings::ImportedGisStyle;
 use wxdata::gis::{Geometry, GisFeature};
 use wxdata::overlay::{FeatureKind, GeoFeature};
 
 /// A neutral blue, distinct from every existing feed's own convention (warnings red, watches
 /// yellow, SPC risk colors, …) so an imported shape never reads as an official product.
 const FILL: [u8; 4] = [80, 140, 220, 60];
-pub(crate) const STROKE: [u8; 4] = [80, 140, 220, 220];
+const STROKE: [u8; 4] = [80, 140, 220, 220];
+
+/// Recolor one imported polygon at the overlay assembly boundary. The source feature stays in
+/// its neutral default style, so changing a slider never mutates imported geometry or attributes.
+pub(crate) fn apply_style(feature: &mut GeoFeature, style: ImportedGisStyle) {
+    feature.fill = style.fill_rgba();
+    feature.stroke = style.stroke_rgba();
+}
 
 /// The imported geometry the overlay pipeline can't hold, kept in the app and painted directly.
 /// A `MultiPoint`/`MultiLineString` flattens into its parts here — nothing downstream needs to
@@ -179,9 +188,7 @@ pub(crate) fn load_shapefile_bytes(shp: &[u8]) -> Result<Loaded, String> {
     let features = wxdata::shapefile::parse(shp, None, None).map_err(|e| format!("{e:#}"))?;
     Ok(Loaded {
         features,
-        note: Some(
-            "picked one file, so its .dbf attributes and .prj were not read".to_string(),
-        ),
+        note: Some("picked one file, so its .dbf attributes and .prj were not read".to_string()),
     })
 }
 
@@ -322,6 +329,25 @@ mod tests {
     }
 
     #[test]
+    fn imported_polygon_style_changes_only_paint_not_identity_or_geometry() {
+        let rings = vec![vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 0.0]]];
+        let mut f = polygon_feature(rings.clone(), "District".into(), "id: 7".into());
+        apply_style(
+            &mut f,
+            ImportedGisStyle {
+                color: [240, 80, 40],
+                opacity: 0.5,
+            },
+        );
+        assert_eq!(f.fill, [240, 80, 40, 30]);
+        assert_eq!(f.stroke, [240, 80, 40, 110]);
+        assert_eq!(f.rings, rings);
+        assert_eq!(f.title, "District");
+        assert_eq!(f.detail, "id: 7");
+        assert_eq!(f.kind, FeatureKind::Imported);
+    }
+
+    #[test]
     fn a_one_position_line_has_nothing_to_draw_and_is_left_out() {
         let (_, marks) = to_renderable(vec![feature(
             Geometry::LineString(vec![[0.0, 0.0]]),
@@ -457,7 +483,10 @@ mod tests {
         let loaded = load_shapefile_path(&dir.join("sites.shp")).expect("loads");
         assert_eq!(loaded.features.len(), 1);
         assert_eq!(loaded.features[0].properties["NAME"], "Norman");
-        assert_eq!(loaded.note, None, "nothing is missing, so nothing to warn about");
+        assert_eq!(
+            loaded.note, None,
+            "nothing is missing, so nothing to warn about"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -476,8 +505,14 @@ mod tests {
     fn a_projected_prj_beside_the_shp_stops_the_import_with_a_reason() {
         let dir = scratch("projected");
         std::fs::write(dir.join("p.shp"), point_shp(500_000.0, 4_000_000.0)).unwrap();
-        std::fs::write(dir.join("p.prj"), r#"PROJCS["NAD_1983_UTM_Zone_14N",GEOGCS["GCS_North_American_1983"]]"#).unwrap();
-        let err = load_shapefile_path(&dir.join("p.shp")).err().expect("refused");
+        std::fs::write(
+            dir.join("p.prj"),
+            r#"PROJCS["NAD_1983_UTM_Zone_14N",GEOGCS["GCS_North_American_1983"]]"#,
+        )
+        .unwrap();
+        let err = load_shapefile_path(&dir.join("p.shp"))
+            .err()
+            .expect("refused");
         assert!(err.contains("UTM_Zone_14N"), "{err}");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -491,8 +526,20 @@ mod tests {
             r#"{"type":"Point","coordinates":[-97.0,35.0]}"#,
         )
         .unwrap();
-        assert_eq!(load_path(dir.join("a.shp").to_str().unwrap()).unwrap().features.len(), 1);
-        assert_eq!(load_path(dir.join("b.geojson").to_str().unwrap()).unwrap().features.len(), 1);
+        assert_eq!(
+            load_path(dir.join("a.shp").to_str().unwrap())
+                .unwrap()
+                .features
+                .len(),
+            1
+        );
+        assert_eq!(
+            load_path(dir.join("b.geojson").to_str().unwrap())
+                .unwrap()
+                .features
+                .len(),
+            1
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

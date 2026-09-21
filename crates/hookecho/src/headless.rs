@@ -3588,8 +3588,18 @@ mod golden_tests {
         for (layer, s) in vol.sweeps.into_iter().enumerate() {
             for (row, r) in s.radials.iter().enumerate() {
                 instances.push(crate::render::ObservedRadialInstance {
-                    polar: [r.azimuth_deg, r.spacing_deg, r.first_gate_km, r.gate_interval_km],
-                    data: [r.elevation_deg, layer as f32, row as f32, r.gate_count as f32],
+                    polar: [
+                        r.azimuth_deg,
+                        r.spacing_deg,
+                        r.first_gate_km,
+                        r.gate_interval_km,
+                    ],
+                    data: [
+                        r.elevation_deg,
+                        layer as f32,
+                        row as f32,
+                        r.gate_count as f32,
+                    ],
                 });
             }
             layers.push(crate::render::ObservedSweepLayer {
@@ -3611,9 +3621,12 @@ mod golden_tests {
         camera.pitch = 55.0;
         let (center, scale) = camera.world_to_clip_uniform((size as f32, size as f32));
         let (value_min, value_max) = Moment::Reflectivity.value_range();
-        let lut =
-            crate::colormap::bake_lut(crate::colormap::default_table(Moment::Reflectivity), (value_min, value_max), None)
-                .to_vec();
+        let lut = crate::colormap::bake_lut(
+            crate::colormap::default_table(Moment::Reflectivity),
+            (value_min, value_max),
+            None,
+        )
+        .to_vec();
         let uniform = crate::app::observed_uniform(
             [
                 radar_lat,
@@ -3680,7 +3693,10 @@ mod golden_tests {
         };
         res.render_once(&device, &queue, &view, &cb, wgpu::Color::BLACK);
         let px = read_target(&device, &queue, &target, size);
-        let lit = px.chunks_exact(4).filter(|p| p[0] as u32 + p[1] as u32 + p[2] as u32 > 30).count();
+        let lit = px
+            .chunks_exact(4)
+            .filter(|p| p[0] as u32 + p[1] as u32 + p[2] as u32 > 30)
+            .count();
         println!("lit pixels: {lit}");
         assert!(lit > 5_000, "the volume did not draw ({lit} px)");
         let out = std::env::var("HOOKECHO_OBS_OUT").unwrap_or_else(|_| "observed_3d.png".into());
@@ -3756,7 +3772,12 @@ mod golden_tests {
                 &view,
                 &upload,
                 uniform,
-                wgpu::Color { r: 0.03, g: 0.03, b: 0.05, a: 1.0 },
+                wgpu::Color {
+                    r: 0.03,
+                    g: 0.03,
+                    b: 0.05,
+                    a: 1.0,
+                },
             );
             let px = read_target(&device, &queue, &target, size);
             let out = format!("smooth_{label}.png");

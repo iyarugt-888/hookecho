@@ -132,10 +132,20 @@ impl Drawer {
         let depth = self.stack.len();
         let mut gear_on = self.gear;
         let mut close = false;
+        let imgui = crate::theme::is_imgui_style();
         egui::Area::new(egui::Id::new("drawer_header"))
             .fixed_pos(head.min)
             .show(ctx, |ui| {
-                crate::ui::style::glass(ui, 250).show(ui, |ui| {
+                let header = if imgui {
+                    egui::Frame::NONE
+                        .fill(ui.visuals().window_fill)
+                        .stroke(ui.visuals().window_stroke)
+                        .corner_radius(0)
+                        .inner_margin(egui::Margin::symmetric(6, 5))
+                } else {
+                    crate::ui::style::glass(ui, 250)
+                };
+                header.show(ui, |ui| {
                     ui.set_width(head.width() - 24.0);
                     ui.horizontal(|ui| {
                         // One button, two meanings: with a page underneath it goes back, without
@@ -158,11 +168,10 @@ impl Drawer {
                         {
                             close = true;
                         }
-                        ui.label(
-                            egui::RichText::new(title)
-                                .size(crate::ui::style::FONT_LG)
-                                .strong(),
-                        );
+                        let title = egui::RichText::new(title)
+                            .size(crate::ui::style::FONT_LG)
+                            .strong();
+                        ui.label(if imgui { title.monospace() } else { title });
                         if gear {
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
@@ -194,16 +203,17 @@ impl Drawer {
         }
 
         let frame = egui::Frame::window(&ctx.style_of(ctx.theme()))
-            .corner_radius(if crate::platform::phone_layout() {
+            .corner_radius(if crate::platform::phone_layout() || imgui {
                 0
             } else {
                 crate::ui::style::RADIUS_LG as u8
             })
             .shadow(egui::epaint::Shadow::NONE)
-            .inner_margin(egui::Margin::symmetric(
-                crate::ui::m3::SP_3 as i8,
-                crate::ui::m3::SP_2 as i8,
-            ));
+            .inner_margin(if imgui {
+                egui::Margin::same(7)
+            } else {
+                egui::Margin::symmetric(crate::ui::m3::SP_3 as i8, crate::ui::m3::SP_2 as i8)
+            });
         Some(
             w.title_bar(false)
                 .fixed_rect(body)

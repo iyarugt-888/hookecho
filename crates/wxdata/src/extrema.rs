@@ -224,7 +224,11 @@ mod tests {
         assert_eq!(restarted, None);
         assert_eq!(trail.data[3], 200, "the one strong gate survives");
         assert!(
-            trail.data.iter().enumerate().all(|(i, &v)| i == 3 || v == 100),
+            trail
+                .data
+                .iter()
+                .enumerate()
+                .all(|(i, &v)| i == 3 || v == 100),
             "every other gate keeps the strongest of 100/50/60"
         );
     }
@@ -244,8 +248,14 @@ mod tests {
 
         let (trail, _) = trail([&a, &b], Extremum::Min).expect("two frames");
         assert_eq!(trail.data[0], 40, "the real minimum is kept");
-        assert_eq!(trail.data[1], 210, "a below-threshold gate does not win a minimum");
-        assert_eq!(trail.data[2], 210, "a range-folded gate does not win a minimum");
+        assert_eq!(
+            trail.data[1], 210,
+            "a below-threshold gate does not win a minimum"
+        );
+        assert_eq!(
+            trail.data[2], 210,
+            "a range-folded gate does not win a minimum"
+        );
     }
 
     #[test]
@@ -256,7 +266,10 @@ mod tests {
             let empty = flat(Moment::Reflectivity, 0);
             let echo = flat(Moment::Reflectivity, 90);
             let (trail, _) = trail([&empty, &echo], keep).expect("two frames");
-            assert_eq!(trail.data[0], 90, "{keep:?} should adopt the first measurement");
+            assert_eq!(
+                trail.data[0], 90,
+                "{keep:?} should adopt the first measurement"
+            );
         }
     }
 

@@ -148,7 +148,10 @@ mod tests {
         assert_eq!(r[0], Some(1.0), "oldest");
         assert_eq!(r[3], Some(0.0), "newest");
         let mid = r[1].expect("timed");
-        assert!((mid - 0.75).abs() < 1e-6, "16s is 45s of a 60s span behind: {mid}");
+        assert!(
+            (mid - 0.75).abs() < 1e-6,
+            "16s is 45s of a 60s span behind: {mid}"
+        );
     }
 
     #[test]

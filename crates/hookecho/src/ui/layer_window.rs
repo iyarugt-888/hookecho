@@ -1,4 +1,5 @@
-//! The Layer Manager: per-placefile enable, paint order, and opacity.
+//! The Layer Manager: styling for the imported GIS reference plus per-placefile enable, paint
+//! order, and opacity.
 //!
 //! `settings.placefiles` order *is* the paint order (see `visible_placefile_items`), so the
 //! ↑/↓ buttons here reorder the list directly. Field layers keep their fixed `DRAW_ORDER`;
@@ -52,10 +53,50 @@ pub(crate) fn show(
             }
             ui.separator();
         }
+        if let Some(source) = settings.imported_gis.clone() {
+            ui.label(egui::RichText::new("Imported GIS").strong());
+            let name = source
+                .rsplit(['/', '\\'])
+                .next()
+                .filter(|s| !s.is_empty())
+                .unwrap_or(&source);
+            ui.weak(name).on_hover_text(source);
+            ui.horizontal(|ui| {
+                ui.label("Color");
+                changed |= ui
+                    .color_edit_button_srgb(&mut settings.imported_gis_style.color)
+                    .on_hover_text("Color for imported polygons, lines, and points")
+                    .changed();
+                ui.label("Opacity");
+                changed |= ui
+                    .add(
+                        egui::Slider::new(&mut settings.imported_gis_style.opacity, 0.05..=1.0)
+                            .show_value(false),
+                    )
+                    .on_hover_text(format!(
+                        "Opacity {:.0}%",
+                        settings.imported_gis_style.opacity * 100.0
+                    ))
+                    .changed();
+                if ui
+                    .small_button("Reset")
+                    .on_hover_text("Restore the neutral-blue imported-layer style")
+                    .clicked()
+                {
+                    settings.imported_gis_style = Default::default();
+                    changed = true;
+                }
+            });
+            ui.weak("One style applies to every geometry in the imported file.");
+            ui.separator();
+        }
         if settings.placefiles.is_empty() {
-            ui.weak("No placefiles configured — add one from Layers ▸ Placefile manager.");
+            if settings.imported_gis.is_none() && active.is_empty() {
+                ui.weak("No configurable layers are active.");
+            }
             return;
         }
+        ui.label(egui::RichText::new("Placefiles").strong());
         ui.weak("Top of the list paints first (underneath).");
         ui.separator();
         let n = settings.placefiles.len();

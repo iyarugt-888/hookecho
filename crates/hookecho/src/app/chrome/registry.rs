@@ -1138,8 +1138,8 @@ impl HookEchoApp {
                 T::ImportedGis,
                 "Reference",
                 "Imported GIS shapes",
-                "Shapes from a GeoJSON file you imported \u{2014} \"Import GIS file\u{2026}\" in \
-                 Tools brings up the picker",
+                "Polygons, lines, and points from the GeoJSON or Shapefile you imported \u{2014} \
+                 style the layer in Layer Manager",
                 false,
             ),
         ] {
@@ -1578,8 +1578,8 @@ impl HookEchoApp {
         push(
             "Import GIS file\u{2026}",
             "Tools",
-            "Load a GeoJSON file as a reference overlay \u{2014} polygons draw and are \
-             clickable; points/lines aren't drawn yet",
+            "Load GeoJSON or an ESRI Shapefile as a styled reference overlay; polygon attributes \
+             remain clickable",
             false,
             PaletteAction::ImportGis,
             None,

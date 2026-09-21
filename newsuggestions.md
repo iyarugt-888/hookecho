@@ -185,4 +185,7 @@ upward and turned a multi-tilt volume into a stack of cones. Scales how much of 
 drawn, 100% (true geometry) down to 0% (flat). `feat(3d): add a beam-rise control to the Observed
 view`.
 
-S6–S10 remain for a following pass, with S6 the one worth its own scoped attempt.
+S6, S7, S9 and S10 shipped in later passes. S8 now ships too: Layer Manager has persistent color
+and opacity controls for the one imported GIS layer, applied consistently to polygons, lines and
+points. The remembered file also returns visible after restart, and the stale command description
+that still claimed points/lines were not drawn has been corrected.

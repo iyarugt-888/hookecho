@@ -27,7 +27,7 @@
 //! walked in order. Text attributes are decoded as UTF-8, falling back to Latin-1 for bytes that
 //! are not valid UTF-8 — which is what most DBF files written by desktop GIS actually contain.
 
-use crate::gis::{GisFeature, Geometry};
+use crate::gis::{Geometry, GisFeature};
 use anyhow::{anyhow, bail, Context, Result};
 use serde_json::{Map, Value};
 
@@ -64,9 +64,16 @@ pub fn crs_from_prj(prj: &str) -> Result<Crs> {
         );
     }
     if upper.trim_start().starts_with("GEOGCS") {
-        let ok = ["WGS_1984", "WGS 84", "WGS84", "NORTH_AMERICAN_1983", "NAD83", "NAD_1983"]
-            .iter()
-            .any(|k| upper.contains(k));
+        let ok = [
+            "WGS_1984",
+            "WGS 84",
+            "WGS84",
+            "NORTH_AMERICAN_1983",
+            "NAD83",
+            "NAD_1983",
+        ]
+        .iter()
+        .any(|k| upper.contains(k));
         if ok {
             return Ok(Crs::LonLat);
         }
@@ -76,7 +83,10 @@ pub fn crs_from_prj(prj: &str) -> Result<Crs> {
             wkt_name(prj)
         );
     }
-    bail!("the .prj is not a coordinate system HookEcho recognises: {}", prj.trim().chars().take(60).collect::<String>())
+    bail!(
+        "the .prj is not a coordinate system HookEcho recognises: {}",
+        prj.trim().chars().take(60).collect::<String>()
+    )
 }
 
 /// The first quoted name in a WKT string, for an error message.
@@ -150,7 +160,8 @@ pub fn parse(shp: &[u8], dbf: Option<&[u8]>, prj: Option<&str>) -> Result<Vec<Gi
 
 fn mercator_to_lonlat(p: [f64; 2]) -> [f64; 2] {
     let lon = (p[0] / EARTH_RADIUS_M).to_degrees();
-    let lat = (2.0 * (p[1] / EARTH_RADIUS_M).exp().atan() - std::f64::consts::FRAC_PI_2).to_degrees();
+    let lat =
+        (2.0 * (p[1] / EARTH_RADIUS_M).exp().atan() - std::f64::consts::FRAC_PI_2).to_degrees();
     [lon, lat]
 }
 
@@ -180,16 +191,25 @@ impl<'a> Cur<'a> {
             .pos
             .checked_add(n)
             .filter(|&e| e <= self.b.len())
-            .ok_or_else(|| anyhow!("the file ends in the middle of a record (wanted {n} bytes at offset {})", self.pos))?;
+            .ok_or_else(|| {
+                anyhow!(
+                    "the file ends in the middle of a record (wanted {n} bytes at offset {})",
+                    self.pos
+                )
+            })?;
         let s = &self.b[self.pos..end];
         self.pos = end;
         Ok(s)
     }
     fn i32_le(&mut self) -> Result<i32> {
-        Ok(i32::from_le_bytes(self.take(4)?.try_into().expect("4 bytes")))
+        Ok(i32::from_le_bytes(
+            self.take(4)?.try_into().expect("4 bytes"),
+        ))
     }
     fn f64_le(&mut self) -> Result<f64> {
-        Ok(f64::from_le_bytes(self.take(8)?.try_into().expect("8 bytes")))
+        Ok(f64::from_le_bytes(
+            self.take(8)?.try_into().expect("8 bytes"),
+        ))
     }
     fn xy(&mut self) -> Result<[f64; 2]> {
         Ok([self.f64_le()?, self.f64_le()?])
@@ -231,9 +251,7 @@ fn read_shp(shp: &[u8]) -> Result<Vec<Option<Geometry>>> {
             .filter(|&s| s <= shp.len())
             .ok_or_else(|| anyhow!("record {} runs past the end of the file", out.len() + 1))?;
         let rec = &shp[start..stop];
-        out.push(
-            read_record(rec).with_context(|| format!("shapefile record {}", out.len() + 1))?,
-        );
+        out.push(read_record(rec).with_context(|| format!("shapefile record {}", out.len() + 1))?);
         pos = stop;
     }
     Ok(out)
@@ -282,7 +300,9 @@ fn read_record(rec: &[u8]) -> Result<Option<Geometry>> {
 fn count(c: &mut Cur, each: usize) -> Result<usize> {
     let n = c.i32_le()?;
     let n = usize::try_from(n).map_err(|_| anyhow!("a negative element count"))?;
-    if n.checked_mul(each).is_none_or(|bytes| bytes > c.remaining()) {
+    if n.checked_mul(each)
+        .is_none_or(|bytes| bytes > c.remaining())
+    {
         bail!("a record claims {n} elements but is too short to hold them");
     }
     Ok(n)
@@ -302,7 +322,10 @@ fn split_parts(starts: &[i32], pts: &[[f64; 2]]) -> Result<Vec<Vec<[f64; 2]>>> {
     if bounds.windows(2).any(|w| w[0] > w[1]) {
         bail!("the parts are not in increasing order");
     }
-    Ok(bounds.windows(2).map(|w| pts[w[0]..w[1]].to_vec()).collect())
+    Ok(bounds
+        .windows(2)
+        .map(|w| pts[w[0]..w[1]].to_vec())
+        .collect())
 }
 
 // ---- polygons ----------------------------------------------------------------------------------
@@ -345,9 +368,7 @@ fn assemble_polygons(rings: Vec<Vec<[f64; 2]>>) -> Geometry {
         }
     }
     for hole in holes {
-        let owner = polys
-            .iter()
-            .position(|p| point_in_ring(hole[0], &p[0]));
+        let owner = polys.iter().position(|p| point_in_ring(hole[0], &p[0]));
         match owner {
             Some(i) => polys[i].push(hole),
             None => polys.push(vec![hole]),
@@ -405,7 +426,11 @@ fn read_dbf(dbf: &[u8]) -> Result<Vec<Row>> {
     }
 
     let needed = header_len
-        .checked_add(n_records.checked_mul(record_len).ok_or_else(|| anyhow!("the .dbf record count is absurd"))?)
+        .checked_add(
+            n_records
+                .checked_mul(record_len)
+                .ok_or_else(|| anyhow!("the .dbf record count is absurd"))?,
+        )
         .ok_or_else(|| anyhow!("the .dbf size overflows"))?;
     if needed > dbf.len() {
         bail!(
@@ -523,12 +548,24 @@ mod tests {
 
     /// Clockwise square: what the spec calls an outer ring.
     fn cw(x0: f64, y0: f64, s: f64) -> Vec<[f64; 2]> {
-        vec![[x0, y0], [x0, y0 + s], [x0 + s, y0 + s], [x0 + s, y0], [x0, y0]]
+        vec![
+            [x0, y0],
+            [x0, y0 + s],
+            [x0 + s, y0 + s],
+            [x0 + s, y0],
+            [x0, y0],
+        ]
     }
 
     /// Counter-clockwise square: a hole.
     fn ccw(x0: f64, y0: f64, s: f64) -> Vec<[f64; 2]> {
-        vec![[x0, y0], [x0 + s, y0], [x0 + s, y0 + s], [x0, y0 + s], [x0, y0]]
+        vec![
+            [x0, y0],
+            [x0 + s, y0],
+            [x0 + s, y0 + s],
+            [x0, y0 + s],
+            [x0, y0],
+        ]
     }
 
     /// `fields` are `(name, type, length, decimals)`; `rows` are the raw cell text per field.
@@ -576,7 +613,10 @@ mod tests {
     fn one_part_is_a_line_and_several_are_a_multi_line() {
         let a = vec![[0.0, 0.0], [1.0, 1.0]];
         let b = vec![[2.0, 2.0], [3.0, 3.0]];
-        let shp = shp_file(&[poly(3, std::slice::from_ref(&a)), poly(3, &[a.clone(), b.clone()])]);
+        let shp = shp_file(&[
+            poly(3, std::slice::from_ref(&a)),
+            poly(3, &[a.clone(), b.clone()]),
+        ]);
         let f = parse(&shp, None, Some(WGS84)).expect("parses");
         assert_eq!(f[0].geometry, Geometry::LineString(a.clone()));
         assert_eq!(f[1].geometry, Geometry::MultiLineString(vec![a, b]));
@@ -617,12 +657,19 @@ mod tests {
         let shp = shp_file(&[point(1.0, 2.0), null_shape(), point(3.0, 4.0)]);
         let dbf = dbf_file(
             &[("NAME", b'C', 6, 0)],
-            &[(false, vec!["first"]), (false, vec!["nulled"]), (false, vec!["third"])],
+            &[
+                (false, vec!["first"]),
+                (false, vec!["nulled"]),
+                (false, vec!["third"]),
+            ],
         );
         let f = parse(&shp, Some(&dbf), Some(WGS84)).expect("parses");
         assert_eq!(f.len(), 2);
         assert_eq!(f[0].properties["NAME"], "first");
-        assert_eq!(f[1].properties["NAME"], "third", "the null row must not shift the next one");
+        assert_eq!(
+            f[1].properties["NAME"], "third",
+            "the null row must not shift the next one"
+        );
     }
 
     // ---- attributes ---------------------------------------------------------------------------
@@ -639,11 +686,17 @@ mod tests {
                 ("OK", b'L', 1, 0),
                 ("BLANK", b'N', 4, 0),
             ],
-            &[(false, vec!["Norman", "120000", "0.125", "20130520", "T", ""])],
+            &[(
+                false,
+                vec!["Norman", "120000", "0.125", "20130520", "T", ""],
+            )],
         );
         let p = &parse(&shp, Some(&dbf), Some(WGS84)).expect("parses")[0].properties;
         assert_eq!(p["NAME"], "Norman");
-        assert_eq!(p["POP"], 120000, "an integer column is an integer, not 120000.0");
+        assert_eq!(
+            p["POP"], 120000,
+            "an integer column is an integer, not 120000.0"
+        );
         assert_eq!(p["RATIO"], 0.125);
         assert_eq!(p["WHEN"], "2013-05-20");
         assert_eq!(p["OK"], true);
@@ -678,7 +731,9 @@ mod tests {
     fn a_dbf_that_is_not_this_shapes_pair_is_refused_rather_than_misattributed() {
         let shp = shp_file(&[point(1.0, 1.0), point(2.0, 2.0)]);
         let dbf = dbf_file(&[("N", b'N', 2, 0)], &[(false, vec!["1"])]);
-        let err = parse(&shp, Some(&dbf), Some(WGS84)).unwrap_err().to_string();
+        let err = parse(&shp, Some(&dbf), Some(WGS84))
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("1 rows") && err.contains("2 records"), "{err}");
     }
 
@@ -688,12 +743,20 @@ mod tests {
     fn web_mercator_is_inverse_projected() {
         // 10 degrees east / 45 degrees north in EPSG:3857 metres.
         let x = 10f64.to_radians() * EARTH_RADIUS_M;
-        let y = (std::f64::consts::FRAC_PI_4 + 45f64.to_radians() / 2.0).tan().ln() * EARTH_RADIUS_M;
+        let y = (std::f64::consts::FRAC_PI_4 + 45f64.to_radians() / 2.0)
+            .tan()
+            .ln()
+            * EARTH_RADIUS_M;
         let shp = shp_file(&[point(x, y)]);
         let prj = r#"PROJCS["WGS_1984_Web_Mercator_Auxiliary_Sphere",GEOGCS["GCS_WGS_1984"]]"#;
         let f = parse(&shp, None, Some(prj)).expect("parses");
-        let Geometry::Point(p) = f[0].geometry else { panic!("point") };
-        assert!((p[0] - 10.0).abs() < 1e-9 && (p[1] - 45.0).abs() < 1e-9, "{p:?}");
+        let Geometry::Point(p) = f[0].geometry else {
+            panic!("point")
+        };
+        assert!(
+            (p[0] - 10.0).abs() < 1e-9 && (p[1] - 45.0).abs() < 1e-9,
+            "{p:?}"
+        );
     }
 
     #[test]
@@ -706,7 +769,10 @@ mod tests {
     fn a_state_plane_file_is_refused_and_named() {
         let prj = r#"PROJCS["NAD_1983_StatePlane_Oklahoma_South_FIPS_3502_Feet",GEOGCS["GCS_North_American_1983"]]"#;
         let err = crs_from_prj(prj).unwrap_err().to_string();
-        assert!(err.contains("StatePlane_Oklahoma_South"), "must say what it is in: {err}");
+        assert!(
+            err.contains("StatePlane_Oklahoma_South"),
+            "must say what it is in: {err}"
+        );
     }
 
     #[test]
@@ -728,8 +794,14 @@ mod tests {
 
     #[test]
     fn something_that_is_not_a_shapefile_says_so() {
-        assert!(parse(&[0u8; 200], None, None).unwrap_err().to_string().contains("not a shapefile"));
-        assert!(parse(b"tiny", None, None).unwrap_err().to_string().contains("too short"));
+        assert!(parse(&[0u8; 200], None, None)
+            .unwrap_err()
+            .to_string()
+            .contains("not a shapefile"));
+        assert!(parse(b"tiny", None, None)
+            .unwrap_err()
+            .to_string()
+            .contains("too short"));
     }
 
     #[test]

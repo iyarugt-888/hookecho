@@ -518,74 +518,77 @@ impl HookEchoApp {
                 crate::ui::style::glass(ui, self.chrome_alpha(238))
                     .corner_radius(self.chrome_corner(crate::ui::style::RADIUS_LG))
                     .show(ui, |ui| {
-                    ui.set_width(width);
-                    ui.horizontal(|ui| {
-                        let menu = ui.add(
-                            egui::Button::new(
-                                egui::RichText::new(egui_phosphor::regular::LIST)
-                                    .size(if phone() { 20.0 } else { 16.0 })
-                                    .color(if self.panel_open {
-                                        accent
-                                    } else {
-                                        ui.visuals().text_color()
-                                    }),
-                            )
-                            .fill(egui::Color32::TRANSPARENT)
-                            .stroke(egui::Stroke::NONE),
-                        );
-                        // The tour's "everything else" stop points here: the pill is always on
-                        // screen, where the panel it opens is not.
-                        anchor = Some(menu.rect);
-                        if menu
-                            .named_toggle("Show or hide the panel", self.panel_open)
-                            .clicked()
-                        {
-                            self.panel_open = !self.panel_open;
-                        }
-                        if phone() {
-                            let label = ui
-                                .add(
-                                    egui::Button::new(
-                                        egui::RichText::new(format!("{site}  {vcp}"))
-                                            .size(crate::ui::m3::T_LABEL_LG),
-                                    )
-                                    .fill(egui::Color32::TRANSPARENT)
-                                    .stroke(egui::Stroke::NONE),
+                        ui.set_width(width);
+                        ui.horizontal(|ui| {
+                            let menu = ui.add(
+                                egui::Button::new(
+                                    egui::RichText::new(egui_phosphor::regular::LIST)
+                                        .size(if phone() { 20.0 } else { 16.0 })
+                                        .color(if self.panel_open {
+                                            accent
+                                        } else {
+                                            ui.visuals().text_color()
+                                        }),
                                 )
-                                .named("Change radar site");
-                            if label.clicked() && self.site_dialog.is_none() {
-                                self.site_dialog = Some(Default::default());
-                            }
-                        }
-                        let hint = egui::RichText::new(if narrow_search {
-                            egui_phosphor::regular::MAGNIFYING_GLASS.to_string()
-                        } else {
-                            format!(
-                                "{}  Search layers, tools, places",
-                                egui_phosphor::regular::MAGNIFYING_GLASS
-                            )
-                        })
-                        .size(crate::ui::style::FONT_BASE)
-                        .weak();
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            let search = ui.add(
-                                egui::Button::new(hint)
-                                    .min_size(if narrow_search {
-                                        egui::vec2(40.0, 32.0)
-                                    } else {
-                                        egui::vec2(PANEL_W - 74.0, 26.0)
-                                    })
-                                    .fill(egui::Color32::TRANSPARENT)
-                                    .stroke(egui::Stroke::NONE),
+                                .fill(egui::Color32::TRANSPARENT)
+                                .stroke(egui::Stroke::NONE),
                             );
-                            if search.clicked() {
-                                self.panel_open = true;
-                                self.show_alert_panel = false;
-                                self.sidebar_focus_search = true;
+                            // The tour's "everything else" stop points here: the pill is always on
+                            // screen, where the panel it opens is not.
+                            anchor = Some(menu.rect);
+                            if menu
+                                .named_toggle("Show or hide the panel", self.panel_open)
+                                .clicked()
+                            {
+                                self.panel_open = !self.panel_open;
                             }
+                            if phone() {
+                                let label = ui
+                                    .add(
+                                        egui::Button::new(
+                                            egui::RichText::new(format!("{site}  {vcp}"))
+                                                .size(crate::ui::m3::T_LABEL_LG),
+                                        )
+                                        .fill(egui::Color32::TRANSPARENT)
+                                        .stroke(egui::Stroke::NONE),
+                                    )
+                                    .named("Change radar site");
+                                if label.clicked() && self.site_dialog.is_none() {
+                                    self.site_dialog = Some(Default::default());
+                                }
+                            }
+                            let hint = egui::RichText::new(if narrow_search {
+                                egui_phosphor::regular::MAGNIFYING_GLASS.to_string()
+                            } else {
+                                format!(
+                                    "{}  Search layers, tools, places",
+                                    egui_phosphor::regular::MAGNIFYING_GLASS
+                                )
+                            })
+                            .size(crate::ui::style::FONT_BASE)
+                            .weak();
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    let search = ui.add(
+                                        egui::Button::new(hint)
+                                            .min_size(if narrow_search {
+                                                egui::vec2(40.0, 32.0)
+                                            } else {
+                                                egui::vec2(PANEL_W - 74.0, 26.0)
+                                            })
+                                            .fill(egui::Color32::TRANSPARENT)
+                                            .stroke(egui::Stroke::NONE),
+                                    );
+                                    if search.clicked() {
+                                        self.panel_open = true;
+                                        self.show_alert_panel = false;
+                                        self.sidebar_focus_search = true;
+                                    }
+                                },
+                            );
                         });
                     });
-                });
             });
         self.tour_anchors.menu = anchor;
     }
@@ -608,6 +611,7 @@ impl HookEchoApp {
                 egui_phosphor::regular::STACK => "Layers",
                 egui_phosphor::regular::MAP_TRIFOLD => "Map",
                 egui_phosphor::regular::BELL => "Alerts",
+                egui_phosphor::regular::CUBE => "3D map",
                 _ => "Share",
             };
             ui.add_sized(
@@ -660,6 +664,13 @@ impl HookEchoApp {
                         if bell.clicked() {
                             self.panel_open = !alerts_on;
                             self.show_alert_panel = true;
+                        }
+                        let map_3d = self.views[self.active].map_3d.enabled;
+                        if square_btn(ui, egui_phosphor::regular::CUBE, map_3d, accent)
+                            .named_toggle("Tilt the live radar map into 3D", map_3d)
+                            .clicked()
+                        {
+                            self.apply_palette(crate::app::PaletteAction::ToggleMap3d, ctx);
                         }
                         // Sharing where you are looking is the thing people do with a radar and had
                         // no button for — only Ctrl+K knew about it.

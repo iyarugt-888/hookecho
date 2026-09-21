@@ -21,8 +21,8 @@ use crate::overlay_build;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::perf::PerfReadout;
 use crate::render::{
-    mercator::Camera, MapCallback, ObservedRadialInstance, ObservedSweepLayer, ObservedSweepUpload, OverlayUpload,
-    RadarUpload, RenderResources,
+    mercator::Camera, MapCallback, ObservedRadialInstance, ObservedSweepLayer, ObservedSweepUpload,
+    OverlayUpload, RadarUpload, RenderResources,
 };
 use crate::settings::Settings;
 use crate::source_health::FeedSource;
@@ -1927,7 +1927,7 @@ pub(crate) enum OverlayToggle {
     LowestTilt,
     /// Day/night shading, the terminator line, and the lat/lon graticule.
     DayNight,
-    /// ROADMAP_NEW I1: shapes from a user-imported GeoJSON file.
+    /// ROADMAP_NEW I1: shapes from a user-imported GeoJSON or Shapefile.
     ImportedGis,
 }
 
@@ -2020,9 +2020,9 @@ impl OverlayToggle {
 
     /// Toggles that describe this session's window arrangement rather than a layer. Pane links
     /// are captured by a saved workspace but are not global layer preferences; the mini loop is
-    /// a window and is not persisted. `ImportedGis` has no data to restore either way — the
-    /// shapes themselves are never saved, only held for the running session — so persisting an
-    /// "on" state past a restart would just show an empty toggle with nothing under it.
+    /// a window and is not persisted. `ImportedGis` restores from its own remembered file
+    /// reference and turns itself on only after that reload succeeds, so it does not need a
+    /// second persisted toggle that could disagree with the file.
     pub(crate) fn session_only(self) -> bool {
         matches!(
             self,
@@ -2673,7 +2673,8 @@ impl ScanAgeRing {
     fn from_sweep(s: &BinnedSweep) -> Option<Self> {
         let summary = wxdata::scan_age::summarize(s)?;
         let wedges = wxdata::scan_age::ring(s, SCAN_AGE_WEDGES)?;
-        let edge_km = f64::from(s.first_gate_km) + s.gate_count as f64 * f64::from(s.gate_interval_km);
+        let edge_km =
+            f64::from(s.first_gate_km) + s.gate_count as f64 * f64::from(s.gate_interval_km);
         Some(Self {
             origin: [f64::from(s.radar_lon), f64::from(s.radar_lat)],
             // Just inside the edge of the data, so the ring sits on the picture it describes.
@@ -2694,7 +2695,11 @@ fn scan_age_color(t: f32) -> egui::Color32 {
             (a[2] + (b[2] - a[2]) * u) as u8,
         )
     };
-    let (green, amber, red) = ([74.0, 201.0, 110.0], [240.0, 190.0, 60.0], [230.0, 80.0, 70.0]);
+    let (green, amber, red) = (
+        [74.0, 201.0, 110.0],
+        [240.0, 190.0, 60.0],
+        [230.0, 80.0, 70.0],
+    );
     if t < 0.5 {
         lerp(green, amber, t * 2.0)
     } else {
@@ -3663,7 +3668,7 @@ pub struct HookEchoApp {
     fire_incidents: Vec<wxdata::wfigs::FireIncident>,
     fire_bounds: Option<(f64, f64, f64, f64)>,
     fire_last_fetch: Option<Instant>,
-    /// ROADMAP_NEW I1: shapes from a user-imported GeoJSON file (converted by `gis_import`,
+    /// ROADMAP_NEW I1: shapes from a user-imported GeoJSON or Shapefile (converted by `gis_import`,
     /// see that module's own doc comment) — no fetch/clock fields the way the feed-backed layers
     /// above have, since there is no feed to refresh, only the one file the user picked.
     show_imported_gis: bool,
@@ -9056,6 +9061,16 @@ impl HookEchoApp {
         if actions.instant_replay {
             self.instant_replay();
         }
+        if actions.reset_trail {
+            // `advance_trail` always chooses frames at or before the active playhead, so dropping
+            // this accumulator is a deterministic reset at the selected live/archive time. Also
+            // invalidate the uploaded image: a new accumulator starts its generation at zero and
+            // could otherwise collide with the previous trail's first cache key.
+            self.trail = None;
+            self.trail_more = true;
+            self.filters.trail_status = "Reset; rebuilding at the selected time…".into();
+            self.pane_shown.remove(&self.active);
+        }
         #[cfg(not(target_arch = "wasm32"))]
         if actions.download_chasepack {
             self.start_chasepack();
@@ -11418,7 +11433,11 @@ impl HookEchoApp {
             v.extend(self.fire_perims.iter().cloned());
         }
         if self.show_imported_gis {
-            v.extend(self.imported_gis.iter().cloned());
+            let style = self.settings.imported_gis_style;
+            v.extend(self.imported_gis.iter().cloned().map(|mut feature| {
+                crate::gis_import::apply_style(&mut feature, style);
+                feature
+            }));
         }
         self.overlays = v;
         self.overlay_gen = self.overlay_gen.wrapping_add(1);
@@ -12852,7 +12871,10 @@ impl HookEchoApp {
                 key,
                 folded: Vec::new(),
                 acc: None,
-                generation: self.trail.as_ref().map_or(0, |t| t.generation.wrapping_add(1)),
+                generation: self
+                    .trail
+                    .as_ref()
+                    .map_or(0, |t| t.generation.wrapping_add(1)),
                 restarted: None,
             });
         }
@@ -12888,7 +12910,8 @@ impl HookEchoApp {
         let restarted = state.restarted;
         let generation = state.generation;
         let has_image = state.acc.is_some();
-        self.filters.trail_status = trail_status_line(folded, wanted.len(), window, keep, restarted);
+        self.filters.trail_status =
+            trail_status_line(folded, wanted.len(), window, keep, restarted);
         has_image.then(|| format!("trail{generation}"))
     }
 
@@ -13172,8 +13195,7 @@ impl HookEchoApp {
         // Full native resolution: every gate of every radial goes to the GPU as a texel, and the
         // shader draws each radial as a strip on its own beam surface. `max_texture_dim` is only
         // a ceiling; a sweep wider than it is max-pooled and reported, never silently thinned.
-        let observed = match level2::observed_volume(&scan, moment, self.max_texture_dim as usize)
-        {
+        let observed = match level2::observed_volume(&scan, moment, self.max_texture_dim as usize) {
             Ok(volume) => volume,
             Err(err) => {
                 self.views[idx].error = Some(err.to_string());
@@ -13340,7 +13362,12 @@ impl HookEchoApp {
             let live_scan_revision = self.views[data].live_scan_revision;
             if let Some(vol) = self.views[data].volume.as_mut() {
                 let full_range = state.smooth_full_range;
-                let key = (vol.name.clone(), live_scan_revision, resample_moment, full_range);
+                let key = (
+                    vol.name.clone(),
+                    live_scan_revision,
+                    resample_moment,
+                    full_range,
+                );
                 if self.smooth_vol_key[idx].as_ref() != Some(&key) {
                     let sweeps = vol.moment_tilts(resample_moment);
                     if !sweeps.is_empty() {
@@ -13375,13 +13402,8 @@ impl HookEchoApp {
                                     SMOOTH_MAX_VOXELS,
                                     max_dim,
                                 );
-                                let mut v3 = wxdata::volume3d::build(
-                                    &sweeps,
-                                    n,
-                                    nz,
-                                    half_km,
-                                    VOL3D_TOP_KM,
-                                )?;
+                                let mut v3 =
+                                    wxdata::volume3d::build(&sweeps, n, nz, half_km, VOL3D_TOP_KM)?;
                                 if invert {
                                     wxdata::volume3d::invert_in_place(&mut v3);
                                 }
@@ -13491,10 +13513,11 @@ impl HookEchoApp {
     }
 
     fn map_3d_controls(&mut self, idx: usize, prect: egui::Rect, ctx: &egui::Context) {
-        // On a phone the mode bar under the site pill is how you turn 3D on and off, so this
-        // window's own 2D / 3D toggle would be a second copy. It stays for what only it has — the
-        // Observed / Smooth / Debris choice — but only while the tilted 3D map is on.
-        if crate::platform::phone_layout() && !self.views[idx].map_3d.enabled {
+        // Every layout now owns its live 2D/3D choice in permanent chrome: the phone mode bar,
+        // Dock top bar, ribbon Tools group, or Minimal control column. Keep this detail window out
+        // of the map until 3D is active, then show only the representation/camera controls those
+        // selectors do not duplicate.
+        if !self.views[idx].map_3d.enabled {
             return;
         }
         let volume_supported = self.volume3d_supported;
@@ -13540,21 +13563,8 @@ impl HookEchoApp {
                     // relying on the borrow checker's disjoint-field-capture analysis.
                     let cappi_alt_km = self.cappi_alt_km;
                     let view = &mut self.views[idx];
-                    // Routed through `set_map_3d` rather than toggling the flag here, so this
-                    // panel and `PaletteAction::ToggleMap3d` cannot disagree about the camera
-                    // pose each mode rests at.
-                    let mut want_3d = view.map_3d.enabled;
-                    ui.horizontal(|ui| {
-                        ui.selectable_value(&mut want_3d, false, "2D");
-                        ui.selectable_value(&mut want_3d, true, "3D map");
-                        if view.camera.bearing.abs() > 0.1 && ui.small_button("North ↑").clicked()
-                        {
-                            view.camera.bearing = 0.0;
-                        }
-                    });
-                    view.set_map_3d(want_3d);
-                    if !view.map_3d.enabled {
-                        return;
+                    if view.camera.bearing.abs() > 0.1 && ui.small_button("North ↑").clicked() {
+                        view.camera.bearing = 0.0;
                     }
                     // Each resampled representation only ever shows one moment's volume; if
                     // the pane's 2D product moves off that moment, fall back to Observed
@@ -17352,7 +17362,13 @@ impl HookEchoApp {
                     let a1 = (i + 1) as f64 / n as f64 * 360.0;
                     let pts: Vec<egui::Pos2> = [a0, (a0 + a1) / 2.0, a1]
                         .into_iter()
-                        .map(|az| to_screen(crate::geo::destination_point(ring.origin, az, ring.radius_km)))
+                        .map(|az| {
+                            to_screen(crate::geo::destination_point(
+                                ring.origin,
+                                az,
+                                ring.radius_km,
+                            ))
+                        })
                         .collect();
                     painter.add(egui::Shape::line(
                         pts,
@@ -17360,7 +17376,11 @@ impl HookEchoApp {
                     ));
                 }
                 if cam.zoom >= 4.0 {
-                    let top = to_screen(crate::geo::destination_point(ring.origin, 0.0, ring.radius_km));
+                    let top = to_screen(crate::geo::destination_point(
+                        ring.origin,
+                        0.0,
+                        ring.radius_km,
+                    ));
                     let mut text = format!(
                         "Sweep spans {}",
                         wxdata::scan_age::format_span(ring.summary.span_ms())
@@ -17593,7 +17613,7 @@ impl HookEchoApp {
         // overlay pipeline like every NWS feed's does; these two geometries have no rings to put
         // there, so they paint here through the same lon/lat projection as the strokes above.
         if self.show_imported_gis && !self.imported_marks.is_empty() {
-            let c = crate::gis_import::STROKE;
+            let c = self.settings.imported_gis_style.stroke_rgba();
             let color = egui::Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
             let screen = |ll: &[f64; 2]| {
                 let w = crate::render::mercator::lonlat_to_world(ll[0], ll[1]);
@@ -17852,7 +17872,8 @@ impl HookEchoApp {
             // The moment's scale floats over this pane's right edge (no panel, no card) so the map
             // keeps the pixels; the field/wind ramps still need their cards. The WSV3 layout docks
             // this same scale under the ribbon, so drawing it here too would be the third copy.
-            let wsv3_colorbar = self.settings.layout.is_ribbon() && !crate::platform::phone_layout();
+            let wsv3_colorbar =
+                self.settings.layout.is_ribbon() && !crate::platform::phone_layout();
             if view.volume.is_some() && !wsv3_colorbar {
                 let (df, dl) = display_units(view.moment, &self.settings);
                 ui::legend::draw_vertical(
@@ -18741,6 +18762,9 @@ impl HookEchoApp {
                 let (shapes, marks) = crate::gis_import::to_renderable(loaded.features);
                 self.imported_gis = shapes;
                 self.imported_marks = marks;
+                // The remembered layer should actually come back, not merely sit loaded and
+                // invisible until the user rediscovers its toggle after every restart.
+                self.show_imported_gis = true;
                 self.rebuild_overlays();
             }
             Err(e) => {
@@ -21289,7 +21313,8 @@ impl eframe::App for HookEchoApp {
         // The WSV3 ribbon layout: desktop/web only, off under OBS. Docked before `chrome_rect` is
         // read so the floating windows and the scrubber constrain to the map area between the
         // ribbon and the status bar.
-        let wsv3_layout = !bare && !crate::platform::phone_layout() && self.settings.layout.is_ribbon();
+        let wsv3_layout =
+            !bare && !crate::platform::phone_layout() && self.settings.layout.is_ribbon();
         if wsv3_layout {
             self.wsv3_ribbon(root, ctx);
             self.wsv3_status_bar(root);
@@ -21534,7 +21559,9 @@ impl eframe::App for HookEchoApp {
             &active_fields,
             &mut self.drawer,
         ) {
-            self.overlay_gen += 1; // paint order / opacity changed — re-tessellate
+            // Imported polygon colors are applied while assembling `self.overlays`, so style
+            // edits need a rebuild; placefile/field opacity changes also remain safely covered.
+            self.rebuild_overlays();
         }
         // The edge's geo-IP fix, if it beat the user to it: move the default view to the radar
         // that covers them. Skipped once they have panned or picked a site themselves.
@@ -24002,7 +24029,11 @@ mod two_finger_slide_tests {
     #[test]
     fn on_a_3d_map_the_vertical_part_no_longer_pans() {
         let (pan, _) = split_two_finger_slide(egui::vec2(6.0, -40.0), true);
-        assert_eq!(pan, egui::vec2(6.0, 0.0), "horizontal still pans, vertical goes to the tilt");
+        assert_eq!(
+            pan,
+            egui::vec2(6.0, 0.0),
+            "horizontal still pans, vertical goes to the tilt"
+        );
     }
 
     #[test]

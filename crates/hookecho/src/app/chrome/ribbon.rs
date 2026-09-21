@@ -186,6 +186,7 @@ impl HookEchoApp {
         let alerts_on = self.panel_open && self.show_alert_panel;
         let basemap_on = self.basemap_open;
         let daynight_on = self.show_daynight;
+        let map_3d = self.views[self.active].map_3d.enabled;
         let fields_on = self.views[self.active].fields_on.clone();
         let is_on = |l: crate::render::FieldLayer| fields_on.contains(&l);
         let hrrr_on = is_on(crate::render::FieldLayer::Hrrr);
@@ -719,7 +720,13 @@ impl HookEchoApp {
                                 actions.palette =
                                     Some(PaletteAction::OpenWindow(AppWindow::StormTable));
                             }
-                            if wsv3::pill(ui, "3D", false, accent).clicked() {
+                            if wsv3::pill(ui, "3D map", map_3d, accent)
+                                .on_hover_text("Tilt the live radar map into 3D")
+                                .clicked()
+                            {
+                                actions.palette = Some(PaletteAction::ToggleMap3d);
+                            }
+                            if wsv3::pill(ui, "3D volume", false, accent).clicked() {
                                 actions.palette =
                                     Some(PaletteAction::OpenWindow(AppWindow::Volume3d));
                             }
@@ -756,34 +763,45 @@ impl HookEchoApp {
         self.ribbon_collapse_button(ctx);
 
         // theme_plan.md §2.3's floating search button, for whoever turned the docked ribbon
-        // group off above. A small round icon button over the map's top-left corner, just below
-        // the ribbon + colour scale — the same trigger the docked group used
-        // (`open_command_search`), just a different widget.
+        // group off above. `default_pos` seeds its first location but, unlike an anchor, leaves
+        // the Area movable; egui remembers the user's dragged position for the session.
         if self.settings.floating_search_button {
+            let content = ctx.content_rect();
+            let search_top = content.top() + wsv3::ribbon_h() + wsv3::colorbar_h();
+            let search_bounds =
+                egui::Rect::from_min_max(egui::pos2(content.left(), search_top), content.max);
             egui::Area::new(egui::Id::new("wsv3_floating_search"))
-                .anchor(
-                    egui::Align2::LEFT_TOP,
-                    egui::vec2(8.0, wsv3::ribbon_h() + wsv3::colorbar_h() + 8.0),
-                )
+                .default_pos(egui::pos2(content.left() + 8.0, search_top + 8.0))
+                .movable(true)
+                .constrain_to(search_bounds)
                 .show(ctx, |ui| {
                     crate::ui::style::glass(ui, 238).show(ui, |ui| {
-                        let btn = ui.add(
-                            egui::Button::new(
-                                RichText::new(egui_phosphor::regular::MAGNIFYING_GLASS)
-                                    .size(16.0)
-                                    .color(accent),
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new("⠿")
+                                    .size(15.0)
+                                    .color(ui.visuals().weak_text_color()),
                             )
-                            .min_size(vec2(34.0, 34.0))
-                            .fill(egui::Color32::TRANSPARENT)
-                            .stroke(egui::Stroke::NONE),
-                        );
-                        use crate::ui::a11y::Named as _;
-                        if btn
-                            .named("Search products, stations, tools, and UTC times (Ctrl+K)")
-                            .clicked()
-                        {
-                            open_command_search = true;
-                        }
+                            .on_hover_cursor(egui::CursorIcon::Grab)
+                            .on_hover_text("Drag to move the search button");
+                            let btn = ui.add(
+                                egui::Button::new(
+                                    RichText::new(egui_phosphor::regular::MAGNIFYING_GLASS)
+                                        .size(16.0)
+                                        .color(accent),
+                                )
+                                .min_size(vec2(34.0, 34.0))
+                                .fill(egui::Color32::TRANSPARENT)
+                                .stroke(egui::Stroke::NONE),
+                            );
+                            use crate::ui::a11y::Named as _;
+                            if btn
+                                .named("Search products, stations, tools, and UTC times (Ctrl+K)")
+                                .clicked()
+                            {
+                                open_command_search = true;
+                            }
+                        });
                     });
                 });
         }

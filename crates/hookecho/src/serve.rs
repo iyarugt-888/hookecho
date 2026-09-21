@@ -387,7 +387,6 @@ fn query_token(query: &str) -> Option<String> {
     crate::cloud::param(query, "token")
 }
 
-
 fn not_found() -> (&'static str, &'static str, Vec<u8>) {
     (
         "404 Not Found",

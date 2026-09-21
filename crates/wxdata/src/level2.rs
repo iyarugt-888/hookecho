@@ -310,7 +310,6 @@ pub struct ObservedLayer {
     pub scan_end: Option<chrono::DateTime<chrono::Utc>>,
 }
 
-
 /// Extract `moment` from every sweep that carries it, keeping each radial's real azimuth, spacing,
 /// elevation, first-gate range and gate spacing. No gate is dropped, decimated, interpolated or
 /// copied to a synthetic elevation. The one exception is a sweep wider than `max_gates` (the
@@ -372,7 +371,8 @@ pub fn observed_volume(
                 let cell = &mut out[gate / pool];
                 // `pool == 1` is a plain store. Pooled cells keep the strongest real value, and a
                 // fold only fills a cell that has nothing else.
-                if pool == 1 || (idx >= 2 && (*cell < 2 || idx > *cell)) || (*cell == 0 && idx == 1) {
+                if pool == 1 || (idx >= 2 && (*cell < 2 || idx > *cell)) || (*cell == 0 && idx == 1)
+                {
                     *cell = idx;
                 }
             }
@@ -2184,8 +2184,6 @@ mod tests {
         let max = |v: &[u8]| v.iter().copied().max().unwrap_or(0);
         assert_eq!(max(&s.values), max(&full.sweeps[0].values));
     }
-
-
 
     /// The AWS archive reaches back to June 1991 — a decade earlier than the app used to claim.
     /// Those volumes are gzip files of legacy (pre-2008, pre-dual-pol) Type-1 messages, so this
