@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: “Forecast comparison” starter workspace (J5)
+
+A new two-pane starter puts the observed MRMS mosaic beside HRRR “future radar”, with cameras and
+the probe cursor linked. It is seeded on first run like the other starters, so existing installs
+can save the same arrangement themselves. RRFS and ensemble probability, the other halves of the
+roadmap preset, remain open.
+
 ### Added: composite reflectivity in model comparison (F6)
 
 Model comparison gains a “Composite reflectivity” field: HRRR against RAP “future radar” at one

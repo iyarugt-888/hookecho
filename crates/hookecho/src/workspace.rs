@@ -294,11 +294,7 @@ pub fn starters() -> Vec<Workspace> {
         // ROADMAP_NEW J5's first three analyst presets. Each reuses exactly the same
         // pane/link/overlay mechanism as the three starters above — a preset is a description of
         // "when I sit down for this kind of event, this is the arrangement I rebuild by hand every
-        // time", not a new capability. "Forecast comparison" (HRRR/RRFS/ensemble probability vs.
-        // observed) is not shipped as a fourth preset: RRFS isn't a data source this app has, and
-        // ensemble probability is F7's own not-started feature — a preset built only from what
-        // HRRR-vs-observed comparison already exists would silently drop half of what the roadmap
-        // actually asks this preset to show.
+        // time", not a new capability. "Forecast comparison" comes last, after the others.
         Workspace {
             name: "Tornado analysis".into(),
             pane_layout: PaneLayout::Balanced,
@@ -428,6 +424,51 @@ pub fn starters() -> Vec<Workspace> {
             overlays_on: vec!["Alerts".into(), "Cells".into(), "StormReports".into()],
             adopt_site: true,
             fields_on: vec!["goes-ir".into(), "goes-water-vapor".into()],
+            chrome: None,
+        },
+        Workspace {
+            name: "Forecast comparison".into(),
+            pane_layout: PaneLayout::Balanced,
+            // ROADMAP_NEW J5's "Forecast comparison": what the MRMS mosaic observes beside what
+            // HRRR forecasts, cameras and cursor linked so a storm can be read across both. Both
+            // panes are national and site-less (`adopt_site` off), like "Mesoscale analysis". The
+            // roadmap's RRFS and ensemble-probability halves are not shipped: RRFS is not a data
+            // source this app has, and ensemble probability is F7's own not-started feature.
+            panes: vec![
+                PaneSnap {
+                    site: None,
+                    moment: Moment::Reflectivity,
+                    tilt: 0,
+                    srv: false,
+                    basemap: "dark".into(),
+                    lon: -97.0,
+                    lat: 38.5,
+                    zoom: 4.5,
+                    fields_on: Some(vec!["mrms".into()]),
+                    thresholds: Vec::new(),
+                },
+                PaneSnap {
+                    site: None,
+                    moment: Moment::Reflectivity,
+                    tilt: 0,
+                    srv: false,
+                    basemap: "dark".into(),
+                    lon: -97.0,
+                    lat: 38.5,
+                    zoom: 4.5,
+                    fields_on: Some(vec!["hrrr".into()]),
+                    thresholds: Vec::new(),
+                },
+            ],
+            active: 0,
+            link_cameras: true,
+            link_times: false,
+            lock_source_time: false,
+            link_site: false,
+            link_cursor: true,
+            overlays_on: vec!["Alerts".into(), "StormReports".into()],
+            adopt_site: false,
+            fields_on: vec!["mrms".into(), "hrrr".into()],
             chrome: None,
         },
     ]

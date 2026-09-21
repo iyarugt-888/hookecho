@@ -2894,14 +2894,17 @@ SRH and 2 m dewpoint field layers on together — the environment fields that se
 than one storm's own radar signature. "Surface theta-e" itself isn't a tracked field anywhere in
 this app; dewpoint is the roadmap's own listed alternative for that bullet.
 
-### Forecast comparison — not attempted
+### Forecast comparison — partly done
 
-- [ ] HRRR
+New this pass, see the Unreleased CHANGELOG entry: a two-pane national starter workspace with
+cameras and cursor linked. Like the other starters it is seeded on first run only.
+
+- [x] HRRR — the HRRR future-radar layer in one pane
 - [ ] RRFS — not a data source this app has; `wxdata::hrrr::Model` only wires up HRRR/RAP/NAM/NAM
   nest, and adding an entirely new model provider is well past what a "ship a preset" pass should
   take on
 - [ ] ensemble probability — F7 "Ensemble workstation" is itself not started
-- [ ] observed/MRMS
+- [x] observed/MRMS — the MRMS mosaic in the other pane
 
 Shipping this preset from only the pieces that already exist (HRRR vs. observed/MRMS) would
 silently drop RRFS and ensemble probability rather than honestly leave the whole preset undone —
