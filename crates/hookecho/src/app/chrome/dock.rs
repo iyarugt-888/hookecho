@@ -82,6 +82,8 @@ pub(crate) struct DockState {
     pub quick_open: bool,
     pub selected_open: bool,
     pub info_open: bool,
+    /// The inspector's model-forecast card (shown only while a model layer is on the map).
+    pub model_open: bool,
 }
 
 impl Default for DockState {
@@ -95,6 +97,7 @@ impl Default for DockState {
             quick_open: true,
             selected_open: true,
             info_open: true,
+            model_open: true,
         }
     }
 }
@@ -159,6 +162,67 @@ fn mono(text: impl Into<String>, size: f32, color: Color32) -> RichText {
         .color(color)
 }
 
+/// Give egui's stock widgets the dock's square, monospace look for one block of controls, so the
+/// shared model controls do not look imported into a panel they were not drawn for.
+fn dock_style(ui: &mut egui::Ui) {
+    let style = ui.style_mut();
+    style.override_text_style = Some(egui::TextStyle::Monospace);
+    style.spacing.item_spacing = egui::vec2(4.0, 3.0);
+    style.spacing.slider_width = 112.0;
+    let v = &mut style.visuals;
+    v.selection.bg_fill = SELECT;
+    v.selection.stroke = Stroke::new(1.0, TAB_ON);
+    for w in [
+        &mut v.widgets.inactive,
+        &mut v.widgets.hovered,
+        &mut v.widgets.active,
+        &mut v.widgets.open,
+    ] {
+        w.corner_radius = egui::CornerRadius::same(2);
+    }
+    v.widgets.inactive.weak_bg_fill = Color32::TRANSPARENT;
+    v.widgets.inactive.bg_stroke = Stroke::new(1.0, BORDER);
+    v.widgets.inactive.fg_stroke.color = TEXT;
+}
+
+/// The rows of the inspector's model card: what is on the map from the models, when it is valid,
+/// and how fresh it is. Pure, so what the card says is checked without a window.
+pub(crate) fn model_card_rows(
+    input: &crate::ui::model_panel::Input,
+    tz: Option<wxdata::tz::Tz>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Vec<(&'static str, String)> {
+    let sel = input.sel;
+    let run = match (&input.stamp, input.run) {
+        (Some(stamp), _) => stamp
+            .run_time
+            .map(|r| r.format("%d %HZ").to_string())
+            .unwrap_or_else(|| "unknown".into()),
+        (None, Some(run)) => run.format("%d %HZ").to_string(),
+        (None, None) => "latest".into(),
+    };
+    let mut rows = vec![
+        ("Model:", sel.model.label().to_string()),
+        ("Product:", sel.product.label().to_string()),
+        ("Run:", run),
+        ("Lead:", crate::model_browser::format_lead(input.lead_min)),
+    ];
+    match &input.stamp {
+        Some(stamp) => {
+            rows.push((
+                "Valid:",
+                crate::timefmt::fmt_date_clock(stamp.valid_time, tz),
+            ));
+            rows.push((
+                "Fetched:",
+                crate::ui::model_panel::ago(stamp.received_time, now),
+            ));
+        }
+        None => rows.push(("Valid:", "loading{2026}".into())),
+    }
+    rows
+}
+
 /// A panel's title bar: a small accent tick, the name, and a close button on the right. Returns
 /// whether close was pressed.
 fn title_bar(ui: &mut egui::Ui, name: &str) -> bool {
@@ -215,6 +279,10 @@ impl HookEchoApp {
     fn dock_menu(&mut self, root: &mut egui::Ui, ctx: &egui::Context) {
         use crate::app::PaletteAction as A;
         let mut action = None;
+        // The clock in the corner is only right if something repaints it; the map does not while
+        // it sits idle.
+        ctx.request_repaint_after(std::time::Duration::from_secs(20));
+        let models_open = self.dock.left_open && self.dock.tab == DockTab::Models;
         egui::Panel::top("dock_menu")
             .exact_size(76.0)
             .frame(
@@ -255,12 +323,13 @@ impl HookEchoApp {
                 });
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 2.0;
-                    let tabs: [(&str, bool); 8] = [
+                    let tabs: [(&str, bool); 9] = [
                         ("Map", true),
-                        ("Layers", self.dock.left_open),
+                        ("Layers", self.dock.left_open && !models_open),
+                        ("Models", models_open),
                         ("Inspector", self.dock.right_open),
                         ("Playback", self.dock.timeline_open),
-                        ("Forecast", false),
+                        ("Discussion", false),
                         ("Tools", false),
                         ("Settings", false),
                         ("Help", false),
@@ -277,6 +346,19 @@ impl HookEchoApp {
                             .named(name);
                         if b.clicked() {
                             match name {
+                                "Models" => {
+                                    // Straight to the model controls: open the left panel on its Models
+                                    // tab, or close it if that is what it already shows.
+                                    if models_open {
+                                        self.dock.left_open = false;
+                                    } else {
+                                        self.dock.tab = DockTab::Models;
+                                        self.dock.left_open = true;
+                                        if single_sidebar(ui.ctx().content_rect().width()) {
+                                            self.dock.right_open = false;
+                                        }
+                                    }
+                                }
                                 "Layers" => {
                                     self.dock.left_open = !self.dock.left_open;
                                     if self.dock.left_open
@@ -294,7 +376,8 @@ impl HookEchoApp {
                                     }
                                 }
                                 "Playback" => self.dock.timeline_open = !self.dock.timeline_open,
-                                "Forecast" => action = Some(A::OpenWindow(AppWindow::Afd)),
+                                // The forecast *discussion* (AFD); model forecasts live under Models.
+                                "Discussion" => action = Some(A::OpenWindow(AppWindow::Afd)),
                                 "Tools" => action = Some(A::OpenWindow(AppWindow::LayerManager)),
                                 "Settings" => action = Some(A::OpenWindow(AppWindow::Settings)),
                                 "Help" => action = Some(A::OpenWindow(AppWindow::Help)),
@@ -392,16 +475,19 @@ impl HookEchoApp {
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
                         if self.dock.tab == DockTab::Models {
-                            crate::ui::model_panel::show(
-                                ui,
-                                &model_input,
-                                &model_on,
-                                model_tz,
-                                &mut self.env_cape_ml,
-                                &mut self.env_srh_km,
-                                &mut self.fields,
-                                &mut model_actions,
-                            );
+                            ui.scope(|ui| {
+                                dock_style(ui);
+                                crate::ui::model_panel::show(
+                                    ui,
+                                    &model_input,
+                                    &model_on,
+                                    model_tz,
+                                    &mut self.env_cape_ml,
+                                    &mut self.env_srh_km,
+                                    &mut self.fields,
+                                    &mut model_actions,
+                                );
+                            });
                             ui.separator();
                         }
                         if groups.is_empty() {
@@ -554,6 +640,12 @@ impl HookEchoApp {
         let mut flip = None;
         let mut cycle_basemap = false;
         let mut show_layers = false;
+        // The model forecast card appears only while something from the models is on the map.
+        let model_shown = crate::model_browser::model_layers()
+            .any(|layer| self.views[self.active].fields_on.contains(&layer));
+        let model_rows = model_card_rows(&self.model_panel_input(), tz, chrono::Utc::now());
+        let mut model_action = None;
+        let mut open_models = false;
         egui::Panel::right("dock_right")
             .exact_size(RIGHT_WIDTH)
             .resizable(false)
@@ -621,6 +713,46 @@ impl HookEchoApp {
                             }
                             ui.add_space(6.0);
                         }
+                        if model_shown && self.dock.model_open {
+                            if title_bar(ui, "Model Forecast") {
+                                self.dock.model_open = false;
+                            }
+                            for (k, v) in &model_rows {
+                                ui.horizontal(|ui| {
+                                    ui.label(mono(format!("{k:<9}"), 11.0, DIM));
+                                    ui.label(mono(v, 11.0, TEXT));
+                                });
+                            }
+                            ui.horizontal(|ui| {
+                                for (label, hint, step) in [
+                                    ("{2039}", "One step earlier", -1i8),
+                                    ("{203a}", "One step later", 1),
+                                ] {
+                                    if ui
+                                        .add(
+                                            egui::Button::new(mono(label, 13.0, TEXT))
+                                                .min_size(egui::vec2(28.0, 24.0)),
+                                        )
+                                        .on_hover_text(hint)
+                                        .clicked()
+                                    {
+                                        model_action =
+                                            Some(crate::app::PaletteAction::StepModelLead(step));
+                                    }
+                                }
+                                if ui
+                                    .add(
+                                        egui::Button::new(mono("Models", 12.0, TEXT))
+                                            .min_size(egui::vec2(72.0, 24.0)),
+                                    )
+                                    .on_hover_text("Change model, product, run or lead")
+                                    .clicked()
+                                {
+                                    open_models = true;
+                                }
+                            });
+                            ui.add_space(6.0);
+                        }
                         if self.dock.info_open {
                             if title_bar(ui, "Map Information") {
                                 self.dock.info_open = false;
@@ -651,6 +783,16 @@ impl HookEchoApp {
                     });
             });
         self.views[self.active].smooth = smoothing;
+        if let Some(action) = model_action {
+            self.apply_palette(action, ctx);
+        }
+        if open_models {
+            self.dock.tab = DockTab::Models;
+            self.dock.left_open = true;
+            if single_sidebar(ctx.content_rect().width()) {
+                self.dock.right_open = false;
+            }
+        }
         if show_layers {
             self.dock.left_open = true;
             if single_sidebar(ctx.content_rect().width()) {
@@ -1097,5 +1239,77 @@ mod overlay_tests {
             miles.iter().any(|r| r.0 == "Range" && r.1.ends_with(" mi")),
             "{miles:?}"
         );
+    }
+}
+
+#[cfg(test)]
+mod model_card_tests {
+    use super::model_card_rows;
+    use crate::model_browser::{BModel, Product, Selection};
+    use crate::ui::model_panel::Input;
+    use chrono::{DateTime, TimeZone, Utc};
+    use wxdata::field::{DataStamp, QualitySummary};
+
+    fn input(stamp: Option<DataStamp>, run: Option<DateTime<Utc>>) -> Input {
+        Input {
+            sel: Selection {
+                model: BModel::Hrrr,
+                product: Product::Reflectivity,
+            },
+            lead_min: 180,
+            stamp,
+            run,
+            runs: Vec::new(),
+            range: BModel::Hrrr.leads(),
+        }
+    }
+
+    fn stamp(now: DateTime<Utc>) -> DataStamp {
+        DataStamp {
+            source_id: "HRRR".into(),
+            product_id: "Composite reflectivity".into(),
+            issue_time: None,
+            run_time: Utc.with_ymd_and_hms(2026, 9, 20, 18, 0, 0).single(),
+            valid_time: Utc.with_ymd_and_hms(2026, 9, 20, 21, 0, 0).unwrap(),
+            received_time: now - chrono::Duration::minutes(4),
+            source_latency: None,
+            is_forecast: true,
+            is_derived: false,
+            quality: QualitySummary::Unknown,
+            grid: None,
+        }
+    }
+
+    fn get<'a>(rows: &'a [(&'static str, String)], key: &str) -> &'a str {
+        &rows
+            .iter()
+            .find(|(k, _)| *k == key)
+            .unwrap_or_else(|| panic!("no {key} row in {rows:?}"))
+            .1
+    }
+
+    #[test]
+    fn the_card_names_the_model_run_lead_and_freshness() {
+        let now = Utc.with_ymd_and_hms(2026, 9, 20, 21, 30, 0).unwrap();
+        let rows = model_card_rows(&input(Some(stamp(now)), None), None, now);
+        assert_eq!(get(&rows, "Model:"), "HRRR");
+        assert_eq!(get(&rows, "Product:"), "Reflectivity");
+        assert_eq!(get(&rows, "Run:"), "20 18Z");
+        assert_eq!(get(&rows, "Lead:"), "F+3h");
+        assert_eq!(get(&rows, "Fetched:"), "4 min ago");
+        assert!(!get(&rows, "Valid:").is_empty());
+    }
+
+    #[test]
+    fn before_the_data_arrives_it_says_so_instead_of_inventing_a_time() {
+        let now = Utc.with_ymd_and_hms(2026, 9, 20, 21, 30, 0).unwrap();
+        let rows = model_card_rows(&input(None, None), None, now);
+        assert_eq!(get(&rows, "Run:"), "latest");
+        assert!(get(&rows, "Valid:").contains("loading"));
+        assert!(rows.iter().all(|(k, _)| *k != "Fetched:"));
+        // A run the user pinned shows even before its data lands.
+        let pinned = Utc.with_ymd_and_hms(2026, 9, 20, 12, 0, 0).single();
+        let rows = model_card_rows(&input(None, pinned), None, now);
+        assert_eq!(get(&rows, "Run:"), "20 12Z");
     }
 }

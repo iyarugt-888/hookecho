@@ -8,6 +8,19 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Improved: the ImGui dock's model controls
+
+- **A Models button in the top bar** opens the left panel straight to its Models tab (and closes it
+  again), instead of Layers first and then hunting for the tab.
+- **The model controls match the dock.** Model, Product, Run and Lead are drawn square and monospace
+  in the dock's own colors rather than in stock widget styling.
+- **A Model Forecast card in the Inspector** while anything from the models is on the map: model,
+  product, run, lead, valid time and how long ago it was fetched, with ‹ › to step the lead and a
+  button back to the Models tab. It shows "loading…" rather than guessing a time before data arrives.
+- **"Forecast" is now "Discussion."** It opens the forecast discussion, which was easy to mistake for
+  the model forecasts now under Models.
+- The clock in the corner keeps ticking on an idle map, and run times read `18Z` everywhere.
+
 ### Improved: longer leads, a choice of model run, and models in every layout
 
 - **Leads past six hours, up to each model's real limit.** HRRR reaches 48 h on its 00/06/12/18Z

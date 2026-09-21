@@ -49,7 +49,7 @@ pub fn status_line(
     let valid = crate::timefmt::fmt_date_clock(stamp.valid_time, tz);
     let run = stamp
         .run_time
-        .map(|r| format!("{} run", r.format("%d %Hz")))
+        .map(|r| format!("{} run", r.format("%d %HZ")))
         .unwrap_or_else(|| "run unknown".into());
     let analysis = if lead_min == 0 { " · analysis" } else { "" };
     format!(
@@ -321,7 +321,7 @@ mod tests {
         let now = Utc.with_ymd_and_hms(2026, 9, 20, 15, 30, 0).unwrap();
         let s = stamp(12, 15, now - chrono::Duration::minutes(4));
         let text = status_line(&s, 180, None, now);
-        assert!(text.contains("20 12z run"), "{text}");
+        assert!(text.contains("20 12Z run"), "{text}");
         assert!(text.contains("fetched 4 min ago"), "{text}");
         assert!(!text.contains("analysis"), "{text}");
         // Lead zero is an analysis, and says so.
