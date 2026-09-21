@@ -82,7 +82,7 @@ fn scan_strategy_popup(ui: &mut egui::Ui, vcp: &str, cuts: &[wxdata::level2::Til
 /// the scrubber's own live-activity ring uses, for the same reason: the fill still answers "how
 /// far", the pulse is only what answers "is it moving right now", and reduced motion asked to drop
 /// the second question, not both.
-fn live_sweep_strip(
+pub(super) fn live_sweep_strip(
     ui: &mut egui::Ui,
     pill_rect: egui::Rect,
     p: wxdata::live::ScanProgress,

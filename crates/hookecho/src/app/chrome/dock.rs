@@ -287,6 +287,11 @@ impl HookEchoApp {
         self.dock_left(root, ctx);
         self.dock_right(root, ctx);
         self.dock_timeline(root);
+        // After the timeline so it stacks just above it, directly under the map it controls.
+        self.dock_tilts(root, ctx);
+        // Last of the side panels, so it sits against the map rather than against the layers
+        // panel: docked, not floating over the data.
+        self.dock_tools(root, ctx);
     }
 
     fn dock_menu(&mut self, root: &mut egui::Ui, ctx: &egui::Context) {
@@ -1173,12 +1178,9 @@ pub(crate) fn cursor_readout(
 }
 
 impl HookEchoApp {
-    /// The map's own tool strip and a cursor readout, over its top-left corner: the mockup's
-    /// vertical strip of tools beside the map. Every button arms a tool through the palette action,
-    /// so it is the same tool the ribbon and the phone rail arm.
+    /// The cursor readout over the map's top-left corner, where there is a pointer to read. The
+    /// tool strip is not here: it is docked beside the map (`dock_tools`).
     pub(crate) fn dock_map_overlay(&mut self, ctx: &egui::Context) {
-        use crate::app::PaletteAction as A;
-        use egui_phosphor::regular as ph;
         if !self.dock.left_open && !self.dock.right_open && !self.dock.timeline_open {
             // A fully undocked map is the "hide everything" view; leave it clean.
             return;
@@ -1202,58 +1204,79 @@ impl HookEchoApp {
                 );
                 crate::render::mercator::world_to_lonlat(w.0, w.1)
             });
-        let armed = self.tool;
-        let mut pick = None;
+        // Only the readout floats, and only where there is a pointer to read: a tablet has none,
+        // so it gets nothing over its map at all. The tools are docked (`dock_tools`).
+        let Some(at) = mouse else {
+            return;
+        };
         egui::Area::new(egui::Id::new("dock_map_overlay"))
             .constrain_to(map_rect)
+            .movable(false)
+            .interactable(false)
             .anchor(
                 egui::Align2::LEFT_TOP,
                 egui::vec2(map_rect.left() + 8.0, map_rect.top() + 8.0),
             )
             .show(ctx, |ui| {
-                ui.spacing_mut().item_spacing.y = 4.0;
-                if let Some(at) = mouse {
-                    egui::Frame::NONE
-                        .fill(Color32::from_rgba_unmultiplied(11, 16, 24, 225))
-                        .stroke(Stroke::new(1.0, BORDER))
-                        .inner_margin(egui::Margin::same(6))
-                        .show(ui, |ui| {
-                            for (k, v) in cursor_readout(at, radar, metric) {
-                                ui.label(mono(format!("{k:<6}{v}"), 11.0, TEXT));
-                            }
-                        });
-                }
                 egui::Frame::NONE
                     .fill(Color32::from_rgba_unmultiplied(11, 16, 24, 225))
                     .stroke(Stroke::new(1.0, BORDER))
-                    .inner_margin(egui::Margin::same(3))
+                    .inner_margin(egui::Margin::same(6))
                     .show(ui, |ui| {
-                        let tools = [
-                            (MapTool::Interrogate, ph::CURSOR, "Explore the map"),
-                            (
-                                MapTool::GateInspector,
-                                ph::CROSSHAIR,
-                                "Inspect a radar gate",
-                            ),
-                            (MapTool::Measure, ph::RULER, "Measure distance"),
-                            (MapTool::CrossSection, ph::CHART_LINE_UP, "Cross-section"),
-                            (MapTool::Sounding, ph::THERMOMETER, "Sounding"),
-                            (MapTool::Marker, ph::MAP_PIN, "Drop a marker"),
-                            (MapTool::AlertZone, ph::WARNING, "Draw a watch zone"),
-                            (MapTool::Draw, ph::PENCIL_SIMPLE, "Draw on the map"),
-                        ];
+                        for (k, v) in cursor_readout(at, radar, metric) {
+                            ui.label(mono(format!("{k:<6}{v}"), 11.0, TEXT));
+                        }
+                    });
+            });
+    }
+
+    /// The map's tool strip, docked as a narrow panel against the map's left edge. Every button
+    /// arms a tool through the palette action, so it is the same tool the ribbon and the phone rail
+    /// arm. It used to float over the map, where a touch that meant to pan dragged it around and
+    /// it sat on top of the data.
+    fn dock_tools(&mut self, root: &mut egui::Ui, ctx: &egui::Context) {
+        use crate::app::PaletteAction as A;
+        use egui_phosphor::regular as ph;
+        if !self.dock.left_open && !self.dock.right_open && !self.dock.timeline_open {
+            return;
+        }
+        let armed = self.tool;
+        let mut pick = None;
+        egui::Panel::left("dock_tools")
+            .exact_size(TOUCH + 10.0)
+            .resizable(false)
+            .frame(frame().inner_margin(egui::Margin::same(4)))
+            .show(root, |ui| {
+                ui.spacing_mut().item_spacing.y = 4.0;
+                let tools = [
+                    (MapTool::Interrogate, ph::CURSOR, "Explore the map"),
+                    (
+                        MapTool::GateInspector,
+                        ph::CROSSHAIR,
+                        "Inspect a radar gate",
+                    ),
+                    (MapTool::Measure, ph::RULER, "Measure distance"),
+                    (MapTool::CrossSection, ph::CHART_LINE_UP, "Cross-section"),
+                    (MapTool::Sounding, ph::THERMOMETER, "Sounding"),
+                    (MapTool::Marker, ph::MAP_PIN, "Drop a marker"),
+                    (MapTool::AlertZone, ph::WARNING, "Draw a watch zone"),
+                    (MapTool::Draw, ph::PENCIL_SIMPLE, "Draw on the map"),
+                ];
+                egui::ScrollArea::vertical()
+                    .auto_shrink([true, false])
+                    .show(ui, |ui| {
                         for (tool, glyph, name) in tools {
                             let on = armed == tool;
                             let b = ui
                                 .add(
-                                    egui::Button::new(RichText::new(glyph).size(17.0).color(TEXT))
-                                        .min_size(egui::vec2(32.0, 32.0))
+                                    egui::Button::new(RichText::new(glyph).size(19.0).color(TEXT))
+                                        .min_size(egui::vec2(TOUCH, TOUCH))
                                         .fill(if on { SELECT } else { Color32::TRANSPARENT })
                                         .stroke(Stroke::new(
                                             1.0,
                                             if on { TAB_ON } else { Color32::TRANSPARENT },
                                         ))
-                                        .corner_radius(2.0),
+                                        .corner_radius(3.0),
                                 )
                                 .on_hover_text(name)
                                 .named_toggle(name, on);
@@ -1266,6 +1289,203 @@ impl HookEchoApp {
         if let Some(t) = pick {
             self.apply_palette(A::Tool(t), ctx);
         }
+    }
+
+    /// The tilt bar under the map: every tilt of the current volume as a finger-sized button, the
+    /// one on screen highlighted, and the one the live stream is sweeping right now marked apart
+    /// from it with a progress strip. The ribbon has had this row for a while; the dock had no way
+    /// to choose a tilt at all short of the layer options, and no way to see what was being swept.
+    fn dock_tilts(&mut self, root: &mut egui::Ui, ctx: &egui::Context) {
+        let v = &self.views[self.active];
+        if v.volume.is_none() && v.site.is_none() {
+            return;
+        }
+        let tilt = v.tilt;
+        let elevations = v
+            .volume
+            .as_ref()
+            .map(|x| x.elevations.clone())
+            .unwrap_or_default();
+        let cuts = v
+            .volume
+            .as_ref()
+            .map(|x| wxdata::level2::tilt_cuts(&x.scan))
+            .unwrap_or_default();
+        let streaming = self
+            .live_stream
+            .as_ref()
+            .is_some_and(|(view, _, _, _)| *view == self.active);
+        let progress = v.live_progress;
+        let indicator = self.settings.live_scan_indicator;
+        let sweeping = sweeping_tilt(progress, streaming, indicator);
+        let follow_low = v.follow_lowest_cut;
+        let mut pick = None;
+        let mut all = false;
+        let mut follow = false;
+        egui::Panel::bottom("dock_tilts")
+            .exact_size(TOUCH + 14.0)
+            .resizable(false)
+            .frame(frame().inner_margin(egui::Margin::symmetric(6, 6)))
+            .show(root, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(mono("Tilt", 12.0, DIM));
+                    if elevations.is_empty() {
+                        ui.label(mono("loading\u{2026}", 12.0, DIM));
+                        return;
+                    }
+                    let status = live_status(progress, streaming, indicator);
+                    let status_w = if status.is_empty() { 0.0 } else { 250.0 };
+                    let room = (ui.available_width() - status_w - 170.0).max(120.0);
+                    egui::ScrollArea::horizontal()
+                        .id_salt("dock_tilt_scroll")
+                        .max_width(room)
+                        .auto_shrink([true, false])
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = 4.0;
+                                for (i, a) in elevations.iter().enumerate() {
+                                    let repeated = cuts
+                                        .get(i)
+                                        .is_some_and(|c| c.sails_cuts > 0 || c.mrle_cuts > 0);
+                                    let label = if repeated {
+                                        format!("{a:.1}\u{b0}\u{2022}")
+                                    } else {
+                                        format!("{a:.1}\u{b0}")
+                                    };
+                                    let on = i == tilt;
+                                    let live = sweeping == Some(i);
+                                    let edge = if live {
+                                        LIVE
+                                    } else if on {
+                                        TAB_ON
+                                    } else {
+                                        BORDER
+                                    };
+                                    let r = ui
+                                        .add(
+                                            egui::Button::new(mono(label.clone(), 13.0, TEXT))
+                                                .min_size(egui::vec2(58.0, TOUCH))
+                                                .fill(if on {
+                                                    SELECT
+                                                } else {
+                                                    Color32::TRANSPARENT
+                                                })
+                                                .stroke(Stroke::new(
+                                                    if live { 2.0 } else { 1.0 },
+                                                    edge,
+                                                ))
+                                                .corner_radius(3.0),
+                                        )
+                                        .named_toggle(&format!("Tilt {label}"), on);
+                                    if live {
+                                        if let Some(p) = progress {
+                                            super::ribbon::live_sweep_strip(ui, r.rect, p, LIVE);
+                                        }
+                                    }
+                                    let r = if live {
+                                        r.on_hover_text("The radar is sweeping this tilt now")
+                                    } else if repeated {
+                                        r.on_hover_text("Rescanned mid-volume (SAILS/MRLE)")
+                                    } else {
+                                        r
+                                    };
+                                    if r.clicked() {
+                                        pick = Some(i);
+                                    }
+                                }
+                            });
+                        });
+                    if ui
+                        .add(
+                            egui::Button::new(mono("All", 12.0, TEXT))
+                                .min_size(egui::vec2(44.0, TOUCH))
+                                .stroke(Stroke::new(1.0, BORDER)),
+                        )
+                        .on_hover_text("Four panes, one product, four tilts, cameras linked")
+                        .named("All tilts")
+                        .clicked()
+                    {
+                        all = true;
+                    }
+                    if ui
+                        .add(
+                            egui::Button::new(mono("Follow low", 12.0, TEXT))
+                                .min_size(egui::vec2(44.0, TOUCH))
+                                .fill(if follow_low {
+                                    SELECT
+                                } else {
+                                    Color32::TRANSPARENT
+                                })
+                                .stroke(Stroke::new(1.0, if follow_low { TAB_ON } else { BORDER })),
+                        )
+                        .on_hover_text(
+                            "While following live, jump to the lowest tilt the instant it is \
+                             rescanned (SAILS/MRLE).",
+                        )
+                        .named_toggle("Follow lowest tilt", follow_low)
+                        .clicked()
+                    {
+                        follow = true;
+                    }
+                    if !status.is_empty() {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.label(mono(status, 12.0, LIVE));
+                        });
+                    }
+                });
+            });
+        if let Some(i) = pick {
+            self.views[self.active].tilt = i;
+        }
+        if all {
+            self.apply_palette(crate::app::PaletteAction::AllTilts, ctx);
+        }
+        if follow {
+            let f = &mut self.views[self.active].follow_lowest_cut;
+            *f = !*f;
+        }
+    }
+}
+
+/// Finger-sized: the smallest square a control on this layout is drawn at.
+const TOUCH: f32 = 42.0;
+
+/// Green: "live", apart from the blue that means "selected".
+const LIVE: Color32 = Color32::from_rgb(80, 220, 140);
+
+/// Which tilt (an index into the volume's elevations) the live stream is sweeping right now.
+/// `None` when nothing is streaming, the indicator is turned off, or no chunk has arrived.
+pub(crate) fn sweeping_tilt(
+    progress: Option<wxdata::live::ScanProgress>,
+    streaming: bool,
+    indicator_on: bool,
+) -> Option<usize> {
+    if !streaming || !indicator_on {
+        return None;
+    }
+    // Sweeps count from 1; zero means the stream has not said, and must not wrap to a real index.
+    progress.and_then(|p| p.elevation_number.checked_sub(1))
+}
+
+/// The one line that says what the radar is doing, for the tilt bar. Empty when not live.
+pub(crate) fn live_status(
+    progress: Option<wxdata::live::ScanProgress>,
+    streaming: bool,
+    indicator_on: bool,
+) -> String {
+    if !streaming {
+        return String::new();
+    }
+    match progress {
+        Some(p) if indicator_on => format!(
+            "LIVE \u{b7} sweeping {:.1}\u{b0} ({}/{}) chunk {}/{}",
+            p.elevation_angle_deg,
+            p.elevation_number,
+            p.total_elevations,
+            p.chunk_index,
+            p.chunks_in_sweep
+        ),
+        _ => "LIVE".to_string(),
     }
 }
 
@@ -1371,5 +1591,51 @@ mod model_card_tests {
         let pinned = Utc.with_ymd_and_hms(2026, 9, 20, 12, 0, 0).single();
         let rows = model_card_rows(&input(None, pinned), None, now);
         assert_eq!(get(&rows, "Run:"), "20 12Z");
+    }
+}
+
+#[cfg(test)]
+mod tilt_bar_tests {
+    use super::*;
+
+    fn progress(n: usize) -> wxdata::live::ScanProgress {
+        wxdata::live::ScanProgress {
+            elevation_number: n,
+            total_elevations: 14,
+            elevation_angle_deg: 0.9,
+            azimuth_rate_dps: 18.0,
+            azimuth_start_deg: 0.0,
+            azimuth_end_deg: 120.0,
+            chunk_index: 2,
+            chunks_in_sweep: 3,
+        }
+    }
+
+    #[test]
+    fn the_sweeping_tilt_is_the_streams_sweep_number_as_an_index() {
+        assert_eq!(sweeping_tilt(Some(progress(1)), true, true), Some(0));
+        assert_eq!(sweeping_tilt(Some(progress(5)), true, true), Some(4));
+    }
+
+    #[test]
+    fn nothing_is_marked_when_not_streaming_switched_off_or_silent() {
+        assert_eq!(sweeping_tilt(Some(progress(3)), false, true), None);
+        assert_eq!(sweeping_tilt(Some(progress(3)), true, false), None);
+        assert_eq!(sweeping_tilt(None, true, true), None);
+        // Sweep zero is "not said yet", never the last tilt of the volume.
+        assert_eq!(sweeping_tilt(Some(progress(0)), true, true), None);
+    }
+
+    #[test]
+    fn the_status_line_names_the_sweep_and_is_empty_when_not_live() {
+        assert_eq!(live_status(Some(progress(3)), false, true), "");
+        let s = live_status(Some(progress(3)), true, true);
+        assert!(
+            s.contains("0.9\u{b0}") && s.contains("3/14") && s.contains("chunk 2/3"),
+            "{s}"
+        );
+        // Live but the indicator is off, or no chunk yet: say live, invent no sweep.
+        assert_eq!(live_status(Some(progress(3)), true, false), "LIVE");
+        assert_eq!(live_status(None, true, true), "LIVE");
     }
 }

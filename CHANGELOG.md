@@ -8,6 +8,18 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Improved: tablet dock - a tilt bar, live-sweep marking, and docked tools
+
+The dock layout had no way to pick a tilt short of the layer options and no way to see which tilt the
+radar was sweeping. It now has a **tilt bar** under the map: every tilt as a finger-sized button with
+the one on screen highlighted, SAILS/MRLE repeats marked, and All and Follow-low beside them. While
+live, the tilt being swept right now gets a green outline and a chunk-progress strip, and a line at
+the right says which sweep it is (`LIVE - sweeping 0.9 deg (3/14) chunk 2/3`), so the tilt you are
+looking at and the one the radar is on are told apart. The map tool strip no longer floats over the
+data, where a touch meant to pan dragged it around: it is a docked column against the map's left
+edge, with larger buttons. Only the cursor readout still overlays the map, and only where there is
+a mouse to read.
+
 ### New: hover a debris signature to see why it scored what it did
 
 Each TDS marker now explains itself on hover: the four weighted terms (depth, contrast, core, size)
