@@ -272,6 +272,26 @@ pub(crate) fn show(
                 changed |= ui.selectable_value(diff_field, f, f.label()).changed();
             }
         });
+        match diff_field.lead_hours() {
+            Some((max, step)) => {
+                // The regional pair stops at 18 h; a global-sized hour would ask for a file that
+                // does not exist.
+                *global_fcst_hour = (*global_fcst_hour).min(max);
+                ui.horizontal(|ui| {
+                    ui.label("Forecast hour:");
+                    changed |= ui
+                        .add(
+                            egui::Slider::new(global_fcst_hour, 0..=max)
+                                .step_by(f64::from(step))
+                                .suffix(" h"),
+                        )
+                        .changed();
+                });
+            }
+            None => {
+                ui.weak("Fixed at the analysis hour: the latest run against the one before it.");
+            }
+        }
         if on.contains(&FL::ModelDiff) {
             ui.horizontal_wrapped(|ui| {
                 ui.label("Difference:");

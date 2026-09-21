@@ -8,6 +8,15 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Improved: compare from the model control
+
+Picking HRRR or RAP (reflectivity, CAPE or helicity) or GFS or ECMWF (pressure, 500 hPa height,
+temperature, dewpoint, wind) now shows a **Swipe A ⇄ B** button that splits the map between that
+model and its natural counterpart at the lead you have scrubbed to. Comparisons also gained the
+forecast-hour control they were missing: the HRRR/RAP pair used to be fixed at the analysis hour and
+now follows the lead out to 18 h (the range both models share), and the comparison section has its
+own slider instead of borrowing the global one. Run-to-run stays at the analysis hour.
+
 ### Improved: one Models control
 
 The scattered model controls are now one **Model → Product → Lead** choice.

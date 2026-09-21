@@ -145,6 +145,23 @@ pub(crate) fn show(
         }
     });
 
+    // One click to see how this model differs from its natural counterpart.
+    if let Some((_, other)) = crate::model_browser::compare_field(*sel) {
+        if ui
+            .button(format!(
+                "Swipe {} \u{21c4} {}",
+                sel.model.label(),
+                other.label()
+            ))
+            .on_hover_text(
+                "Split the map between the two models at this lead, with a draggable divider",
+            )
+            .clicked()
+        {
+            actions.palette = Some(PaletteAction::CompareSelected);
+        }
+    }
+
     // Provenance, or why there is none yet.
     if showing {
         match stamp {

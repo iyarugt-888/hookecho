@@ -2149,6 +2149,8 @@ pub(crate) enum PaletteAction {
     ToggleModelProduct(crate::model_browser::Product),
     /// Model browser: scrub the forecast to this lead, in minutes.
     SetModelLead(u16),
+    /// Model browser: swipe the selected model against its natural counterpart at this lead.
+    CompareSelected,
     /// Model browser: step the lead by this many of the model's own steps.
     StepModelLead(i8),
     ToggleOverlay(OverlayToggle),
@@ -10044,6 +10046,23 @@ impl HookEchoApp {
                 }
             }
             PaletteAction::SetModelLead(minutes) => self.set_model_lead_min(minutes),
+            PaletteAction::CompareSelected => {
+                let Some((field, _)) = crate::model_browser::compare_field(self.model_sel) else {
+                    return;
+                };
+                // Carry the lead across: comparisons read the shared forecast hour.
+                if let Some((max, _)) = field.lead_hours() {
+                    self.global_fcst_hour = (self.model_lead_min() / 60).min(max);
+                }
+                let already = self.diff_field == field && self.views[self.active].swipe_compare;
+                self.diff_field = field;
+                // The single-model layer would paint over the halves, so it steps aside.
+                let layer = self.model_sel.layer();
+                self.views[self.active].fields_on.remove(&layer);
+                if already || !self.views[self.active].swipe_compare {
+                    self.apply_palette(PaletteAction::ToggleCompareSwipe, ctx);
+                }
+            }
             PaletteAction::StepModelLead(steps) => {
                 let step = i32::from(self.model_sel.model.leads().step);
                 let target = i32::from(self.model_lead_min()) + i32::from(steps) * step;

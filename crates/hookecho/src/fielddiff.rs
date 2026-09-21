@@ -130,6 +130,9 @@ fn verify_field_valid(
     Ok(())
 }
 
+/// The longest lead the HRRR and RAP both publish in every cycle, in hours.
+pub const REGIONAL_MAX_LEAD_H: u16 = 18;
+
 /// Fetch two models at one exact valid time. If the first model's newest cycle cannot be paired,
 /// try the second model's newest cycle as the anchor. Never subtract grids from different times.
 pub async fn fetch_pair(
@@ -202,9 +205,12 @@ pub async fn fetch_pair(
                 mf.label()
             );
             let (var, level, min_valid) = (hrrr_key.var, hrrr_key.level, hrrr_key.min_valid);
+            // Both models at the requested lead, capped at the range they share. The default lead
+            // of 0 is the analysis hour, as it always was.
+            let lead = u8::try_from(fh.min(REGIONAL_MAX_LEAD_H)).unwrap_or(0);
             let (hrrr, rap) = futures_util::future::try_join(
-                wxdata::hrrr::fetch_field(http, Model::Hrrr, var, level, 0, min_valid),
-                wxdata::hrrr::fetch_field(http, Model::Rap, var, level, 0, min_valid),
+                wxdata::hrrr::fetch_field(http, Model::Hrrr, var, level, lead, min_valid),
+                wxdata::hrrr::fetch_field(http, Model::Rap, var, level, lead, min_valid),
             )
             .await?;
             let (hrrr, rap) = if hrrr.valid() == rap.valid() {
@@ -393,6 +399,19 @@ impl DiffField {
     /// "GFS's own MSLP" and "ECMWF's own MSLP" in the two panes), but a run-to-run field has no
     /// distinct "previous run" layer of its own yet, so both panes would show today's current-run
     /// CAPE with nothing to tell them apart. Hidden rather than shipped half-working.
+    /// How far into the forecast this comparison can be scrubbed, as `(max hour, step)`, or
+    /// `None` when it has no lead to scrub. The regional pair shares the HRRR's 18 hours; the
+    /// global pair is three-hourly. Run-to-run is fixed at the analysis hour on purpose.
+    pub fn lead_hours(self) -> Option<(u16, u16)> {
+        match self {
+            DiffField::Global(_) => Some((120, 3)),
+            DiffField::Cape | DiffField::Srh | DiffField::Reflectivity => {
+                Some((REGIONAL_MAX_LEAD_H, 1))
+            }
+            DiffField::RunToRunCape => None,
+        }
+    }
+
     pub fn supports_side_by_side(self) -> bool {
         !matches!(self, DiffField::RunToRunCape)
     }
@@ -896,6 +915,25 @@ mod tests {
         assert!(DiffField::Global(GlobalFieldKind::Mslp).supports_side_by_side());
     }
 
+    #[test]
+    fn only_comparisons_with_a_lead_offer_one() {
+        assert_eq!(
+            DiffField::Global(GlobalFieldKind::Mslp).lead_hours(),
+            Some((120, 3))
+        );
+        assert_eq!(DiffField::Reflectivity.lead_hours(), Some((18, 1)));
+        assert_eq!(DiffField::Cape.lead_hours(), Some((18, 1)));
+        assert_eq!(DiffField::RunToRunCape.lead_hours(), None);
+        // No regional lead may exceed what the models share, or the fetch would 404.
+        for f in DiffField::ALL {
+            if !matches!(f, DiffField::Global(_)) {
+                assert!(f
+                    .lead_hours()
+                    .is_none_or(|(max, _)| max <= REGIONAL_MAX_LEAD_H));
+            }
+        }
+    }
+
     /// The HRRR-vs-RAP comparison fetches one GRIB key and uses it for both models. That is only
     /// sound while the catalogue says they spell the field identically — the fetch now checks it
     /// at runtime, and this checks it at build time so a future divergence (the NAM's
@@ -913,5 +951,25 @@ mod tests {
             let rap = f.grib(Model::Rap).expect("RAP publishes it");
             assert_eq!(hrrr, rap, "{} diverged between HRRR and RAP", f.label());
         }
+    }
+
+    /// Live: HRRR and RAP reflectivity at a forecast lead come back on one shared valid time, and
+    /// their difference has real cells. Network test: `--ignored regional_pair_at_a_lead`.
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn regional_pair_at_a_lead_shares_one_valid_time() {
+        let http = reqwest::Client::new();
+        let pair = fetch_pair(&http, DiffField::Reflectivity, 3)
+            .await
+            .expect("HRRR/RAP reflectivity pair");
+        assert_eq!(pair.a.time, pair.b.time);
+        assert_eq!(pair.a.time, pair.times.valid);
+        let d = diff(&pair.a, &pair.b).expect("overlapping domains");
+        let finite = d.values.iter().filter(|v| v.is_finite()).count();
+        assert!(finite > 1_000, "only {finite} finite cells");
+        println!(
+            "valid {} · {}x{} · {finite} cells",
+            pair.times.valid, d.nx, d.ny
+        );
     }
 }

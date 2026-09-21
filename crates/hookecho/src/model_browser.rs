@@ -344,6 +344,39 @@ pub fn model_layers() -> impl Iterator<Item = FieldLayer> {
     Product::ALL.into_iter().map(Product::layer)
 }
 
+/// The comparison that puts the selected model against its natural counterpart, if there is one:
+/// HRRR against RAP for the regional products both publish, GFS against ECMWF for the global
+/// fields both publish. Anything else has no comparison to offer.
+pub fn compare_field(sel: Selection) -> Option<(crate::fielddiff::DiffField, BModel)> {
+    use crate::fielddiff::{DiffField, GlobalFieldKind};
+    let regional = match sel.product {
+        Product::Reflectivity => Some(DiffField::Reflectivity),
+        Product::Cape => Some(DiffField::Cape),
+        Product::Srh => Some(DiffField::Srh),
+        _ => None,
+    };
+    if let Some(field) = regional {
+        return match sel.model {
+            BModel::Hrrr => Some((field, BModel::Rap)),
+            BModel::Rap => Some((field, BModel::Hrrr)),
+            _ => None,
+        };
+    }
+    let kind = match sel.product {
+        Product::Mslp => GlobalFieldKind::Mslp,
+        Product::Height500 => GlobalFieldKind::Height500,
+        Product::Temp2m => GlobalFieldKind::Temp2m,
+        Product::Dewpoint2m => GlobalFieldKind::Dewpoint2m,
+        Product::Wind10m => GlobalFieldKind::Wind10m,
+        _ => return None,
+    };
+    match sel.model {
+        BModel::Gfs => Some((DiffField::Global(kind), BModel::Ecmwf)),
+        BModel::Ecmwf => Some((DiffField::Global(kind), BModel::Gfs)),
+        _ => None,
+    }
+}
+
 /// The current choice.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Selection {
@@ -577,6 +610,40 @@ mod tests {
         }
         assert_eq!(Selection::from_slug("nbm/reflectivity"), None);
         assert_eq!(Selection::from_slug("nonsense"), None);
+    }
+
+    #[test]
+    fn only_real_pairs_get_a_comparison() {
+        use crate::fielddiff::DiffField;
+        let sel = |model, product| Selection { model, product };
+        assert_eq!(
+            compare_field(sel(BModel::Hrrr, Product::Reflectivity)),
+            Some((DiffField::Reflectivity, BModel::Rap))
+        );
+        assert_eq!(
+            compare_field(sel(BModel::Rap, Product::Cape)),
+            Some((DiffField::Cape, BModel::Hrrr))
+        );
+        assert_eq!(
+            compare_field(sel(BModel::Ecmwf, Product::Mslp)).map(|c| c.1),
+            Some(BModel::Gfs)
+        );
+        // The NAMs have no comparison, and the ensemble mean is not a peer of the deterministic runs.
+        assert_eq!(
+            compare_field(sel(BModel::NamNest, Product::Reflectivity)),
+            None
+        );
+        assert_eq!(compare_field(sel(BModel::GefsMean, Product::Mslp)), None);
+        // Moisture is PWAT on one model and precipitation on the other: not comparable.
+        assert_eq!(compare_field(sel(BModel::Gfs, Product::Moisture)), None);
+        // And a comparison always names a model that really has that product.
+        for m in BModel::ALL {
+            for p in m.products() {
+                if let Some((_, other)) = compare_field(sel(m, *p)) {
+                    assert!(other.has(*p), "{m:?}/{p:?} compares against {other:?}");
+                }
+            }
+        }
     }
 
     #[test]
