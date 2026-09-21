@@ -8,6 +8,40 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Improved: debris signature (TDS) detection, and a confidence filter
+
+The detector no longer treats "low CC in strong echo" as the whole answer, because large wet hail,
+biological scatter and clutter can produce that too. It now weighs what a debris ball actually looks
+like:
+
+- **Clusters follow the radar's own grid.** Candidate gates are joined by contiguity in azimuth and
+  range (wrapping at north), so a ball is never split by an arbitrary map grid, and hits from
+  different tilts merge by ground distance instead of by which grid cell they fell in.
+- **A compact hole, not a broad low.** Each cluster is scored on how deep its correlation
+  coefficient dips (its lowest gate and its average, so one outlier gate cannot carry it), how
+  strong its core is, how big it is, and how much its surroundings stand out from it. Clusters
+  larger than 120 km² are dropped as hail or scatter, and a dip in surroundings that were already
+  low scores poorly.
+- **Height only counts when tilts agree.** A lone hit far from the radar is kilometres up purely
+  from beam geometry, which used to read as lofted debris. Vertical credit now needs the signature
+  to repeat through more than one tilt, and one tilt alone never exceeds 60%.
+- **Range discount.** Evidence fades to 70% by 150 km, where the beam is wide and a ball is a few
+  gates.
+
+Checked on the 2013-05-20 KTLX volumes: at 20:04, 20:16 and 20:30 UTC the top hit sits on the Moore
+tornado's actual path at 75–85%, each seen through four tilts with CC down to 0.21 and reflectivity
+to 60–69 dBZ, while the best of everything else is 70% or lower.
+
+**Minimum confidence** (Layer settings → Detectors, with the TDS layer on) hides debris signatures
+below the level you set. It also keeps them out of alert rules and stops them raising the chime and
+banner, so setting it to quiet doubtful detections quiets their alerts too. Every marker now shows
+its confidence, and the setting is remembered. It defaults to 0%, which shows everything.
+`hookecho --headless-tds-archive <SITE> <YYYY-MM-DD> <HH:MM>` prints each hit with the evidence
+behind its score, for tuning against a known event.
+
+Not used: ZDR and velocity. Rotation collocated with the signature would raise confidence further
+and is the natural next step.
+
 ### Added: model verification against the RTMA (K1)
 
 A new **Model verification…** window scores a forecast run against the RTMA analysis for the same

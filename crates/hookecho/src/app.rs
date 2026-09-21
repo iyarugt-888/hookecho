@@ -8892,14 +8892,23 @@ impl HookEchoApp {
     /// signatures (low CC in high Z). Fires a chime + banner on the rising edge of a new detection.
     fn compute_tds(&mut self, idx: usize) -> Vec<wxdata::tds::TdsHit> {
         let key = self.volume_key(idx);
-        if let Some((k, v)) = &self.tds_cache {
-            if *k == key {
-                return v.clone();
+        let cached = self
+            .tds_cache
+            .as_ref()
+            .filter(|(k, _)| *k == key)
+            .map(|(_, v)| v.clone());
+        let all = match cached {
+            Some(all) => all,
+            None => {
+                let all = self.compute_tds_uncached(idx);
+                self.tds_cache = Some((key, all.clone()));
+                all
             }
-        }
-        let out = self.compute_tds_uncached(idx);
-        self.tds_cache = Some((key, out.clone()));
-        out
+        };
+        // The cache holds everything the detector found; the user's confidence threshold is applied
+        // on the way out, so lowering it shows the hidden hits at once instead of at the next scan.
+        let min = self.settings.detectors.tds_min_confidence;
+        all.into_iter().filter(|h| h.confidence >= min).collect()
     }
 
     fn compute_tds_uncached(&mut self, idx: usize) -> Vec<wxdata::tds::TdsHit> {
@@ -8926,13 +8935,19 @@ impl HookEchoApp {
             pairs.len(),
             hits.len(),
         );
-        // Rising-edge alert.
-        let now_active = !hits.is_empty();
+        // Rising-edge alert, on the hits that clear the user's confidence threshold. A threshold
+        // set to quiet doubtful detections must quiet their chime and banner too.
+        let min_confidence = self.settings.detectors.tds_min_confidence;
+        let alertable: Vec<_> = hits
+            .iter()
+            .filter(|h| h.confidence >= min_confidence)
+            .collect();
+        let now_active = !alertable.is_empty();
         if now_active && !self.tds_active {
             print!("\x07");
             use std::io::Write;
             let _ = std::io::stdout().flush();
-            let best = hits[0]; // sorted strongest-first (by confidence)
+            let best = *alertable[0]; // sorted strongest-first (by confidence)
             log::info!(
                 target: "wxdata::tds",
                 "{site}: TDS detected — {:.0}% confidence, {} tilt{}, lofted to {:.1} km",
@@ -8946,7 +8961,7 @@ impl HookEchoApp {
                 format!(
                     "{} debris signature(s) — possible tornado ({:.0}% confidence, \
                      {} tilt{}, lofted to {:.1} km)",
-                    hits.len(),
+                    alertable.len(),
                     best.confidence * 100.0,
                     best.tilts,
                     if best.tilts == 1 { "" } else { "s" },
@@ -16574,9 +16589,15 @@ impl HookEchoApp {
                     // it to report — a bare "0.5 km" off a single low tilt is just its range, not
                     // evidence of anything lofted.
                     if h.tilts > 1 {
-                        format!("TDS ρ{:.2} · {}t {:.1}km", h.min_cc, h.tilts, h.top_km)
+                        format!(
+                            "TDS ρ{:.2} · {}t {:.1}km · {:.0}%",
+                            h.min_cc,
+                            h.tilts,
+                            h.top_km,
+                            h.confidence * 100.0
+                        )
                     } else {
-                        format!("TDS ρ{:.2}", h.min_cc)
+                        format!("TDS ρ{:.2} · {:.0}%", h.min_cc, h.confidence * 100.0)
                     },
                     egui::FontId::proportional(11.0),
                     m,

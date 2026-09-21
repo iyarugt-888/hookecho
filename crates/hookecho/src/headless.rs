@@ -750,6 +750,66 @@ pub fn run_tds(site: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// TDS on an archived volume: `--headless-tds-archive <SITE> <YYYY-MM-DD> <HH:MM>` picks the volume
+/// nearest that UTC time, runs the debris-signature detector across its lowest four tilts, and
+/// prints every hit with the evidence its confidence is built from. For tuning the detector against
+/// a known event rather than whatever happens to be live.
+pub fn run_tds_archive(site: &str, date: &str, hhmm: &str) -> anyhow::Result<()> {
+    let day = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d")?;
+    let (h, m) = hhmm
+        .split_once(':')
+        .ok_or_else(|| anyhow::anyhow!("time must look like 20:05"))?;
+    let want = day
+        .and_hms_opt(h.parse()?, m.parse()?, 0)
+        .ok_or_else(|| anyhow::anyhow!("bad time {hhmm}"))?
+        .and_utc();
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    let pairs = rt.block_on(async {
+        let ids = level2::list_volumes(site, day).await?;
+        let id = ids
+            .into_iter()
+            .filter_map(|id| id.date_time().map(|t| (t, id)))
+            .min_by_key(|(t, _)| (*t - want).num_seconds().abs())
+            .map(|(t, id)| (t, id))
+            .ok_or_else(|| anyhow::anyhow!("no volumes for {site} on {date}"))?;
+        println!("{site}: volume {} (asked for {want})", id.0);
+        let scan = level2::download_scan(id.1, None).await?;
+        let mut pairs = Vec::new();
+        for tilt in 0..4 {
+            let z = level2::bin_scan(&scan, Moment::Reflectivity, tilt);
+            let cc = level2::bin_scan(&scan, Moment::CorrelationCoefficient, tilt);
+            if let (Ok(z), Ok(cc)) = (z, cc) {
+                pairs.push((z, cc));
+            }
+        }
+        anyhow::Ok(pairs)
+    })?;
+    println!("{} tilt(s) with reflectivity and CC", pairs.len());
+    let hits = wxdata::tds::detect_volume(&pairs, 0.80, 40.0, 150.0, 4);
+    println!("{} debris signature(s), strongest first:", hits.len());
+    for h in hits.iter().take(12) {
+        println!(
+            "  {:.3},{:.3}  conf {:>3.0}%  {} tilt(s) to {:.1} km · {} gates {:.1} km² · min CC {:.2} \
+             mean CC {:.2} · Z mean {:.0} max {:.0} · contrast {}",
+            h.lat,
+            h.lon,
+            h.confidence * 100.0,
+            h.tilts,
+            h.top_km,
+            h.gates,
+            h.area_km2,
+            h.min_cc,
+            h.mean_cc,
+            h.mean_z,
+            h.max_z,
+            h.contrast.map_or("n/a".to_string(), |c| format!("{c:.2}"))
+        );
+    }
+    Ok(())
+}
+
 /// Dual-pol signature verify: download the latest volume and run all three of the
 /// [`wxdata::dualpol`] detectors on it — three-body scatter spikes at the lowest tilt, ZDR columns
 /// through every tilt, and the CC bright band. `h0_km` is the freezing level above radar level;

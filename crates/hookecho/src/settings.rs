@@ -719,6 +719,10 @@ pub struct DetectorTuning {
     pub glm_fed_cell_deg: f64,
     /// How far back the flash-extent density grid counts, in minutes.
     pub glm_fed_window_min: i64,
+    /// The least confidence (0..1) a debris signature needs to be drawn, to count for alert rules,
+    /// or to raise the TDS alert. Zero shows everything the detector finds.
+    #[serde(default)]
+    pub tds_min_confidence: f32,
 }
 
 impl Default for DetectorTuning {
@@ -729,6 +733,7 @@ impl Default for DetectorTuning {
             zdr_min_depth_km: 1.0,
             glm_fed_cell_deg: 0.05,
             glm_fed_window_min: 15,
+            tds_min_confidence: 0.0,
         }
     }
 }
@@ -1943,6 +1948,24 @@ mod tests {
             .push(("Severe Thunderstorm Warning".into(), "Cleveland Co.".into()));
         let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
         assert_eq!(back.quiet_pending, s.quiet_pending);
+    }
+
+    #[test]
+    fn the_tds_confidence_filter_defaults_to_showing_everything_and_round_trips() {
+        // A detector block written before the filter existed (it has the other knobs but not this
+        // one) must load with the filter off, not fail or start hiding detections.
+        let old: DetectorTuning = serde_json::from_str(
+            r#"{"tbss_core_dbz":60.0,"zdr_min_db":1.0,"zdr_min_depth_km":1.0,
+                "glm_fed_cell_deg":0.05,"glm_fed_window_min":15}"#,
+        )
+        .unwrap();
+        assert_eq!(old.tds_min_confidence, 0.0);
+        assert_eq!(DetectorTuning::default().tds_min_confidence, 0.0);
+        // A chosen threshold survives a save and reload.
+        let mut s = Settings::default();
+        s.detectors.tds_min_confidence = 0.7;
+        let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert!((back.detectors.tds_min_confidence - 0.7).abs() < 1e-6);
     }
 
     #[test]

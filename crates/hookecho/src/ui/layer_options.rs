@@ -211,7 +211,10 @@ pub(crate) fn show(
                 .iter()
                 .any(|l| on.contains(l)),
         ),
-        ("Detectors", filters.show_tbss || filters.show_zdr_columns),
+        (
+            "Detectors",
+            filters.show_tds || filters.show_tbss || filters.show_zdr_columns,
+        ),
         (
             "Level 3 grids",
             [FL::Vil, FL::EchoTops, FL::Hca]
@@ -829,6 +832,27 @@ pub(crate) fn show(
     // Detector thresholds. Each block only appears with its own detector on, and the defaults are
     // what the detectors shipped with — the reset button is there because a slider you can't get
     // back from is worse than no slider.
+    if section == "Detectors" && filters.show_tds {
+        header(ui, "Debris signature (TDS)");
+        let mut pct = (detectors.tds_min_confidence * 100.0).round();
+        if ui
+            .add(
+                egui::Slider::new(&mut pct, 0.0..=90.0)
+                    .text("Minimum confidence")
+                    .suffix("%"),
+            )
+            .on_hover_text(
+                "Hide debris signatures below this confidence, and keep them from raising an \
+                 alert. Confidence rises with a deep dip in correlation coefficient that stands \
+                 out from its surroundings, strong reflectivity, a compact size, and a signature \
+                 that repeats up through the tilts. One tilt alone never exceeds 60%.",
+            )
+            .changed()
+        {
+            detectors.tds_min_confidence = pct / 100.0;
+        }
+        ui.weak("Each marker shows its confidence. Raise this to cut down on doubtful ones.");
+    }
     if section == "Detectors" && filters.show_tbss {
         header(ui, "Hail spike (TBSS)");
         ui.add(
@@ -867,7 +891,7 @@ pub(crate) fn show(
         ui.weak("Takes effect on the next flash-density refresh.");
     }
     if (section == "Detectors" || section == "Lightning")
-        && (filters.show_tbss || filters.show_zdr_columns || show_glm)
+        && (filters.show_tds || filters.show_tbss || filters.show_zdr_columns || show_glm)
         && ui.button("Reset detector thresholds").clicked()
     {
         *detectors = crate::settings::DetectorTuning::default();
