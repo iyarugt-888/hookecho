@@ -8,6 +8,14 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### New: hover a debris signature to see why it scored what it did
+
+Each TDS marker now explains itself on hover: the four weighted terms (depth, contrast, core, size)
+with the measurement behind each, the range factor, the vertical continuity (or that one tilt caps
+it at 60%), and how many points a nearby rotation couplet added. The breakdown is built from the hit
+with the same functions that scored it, and it is stamped with the scoring version (`tds-3`) that
+future exports and backtests can cite. This is the first slice of the algorithm laboratory (C5).
+
 ### New: model data is cached on disk
 
 Every model, RTMA and GEFS message is a range-read out of a file that never changes once its run is

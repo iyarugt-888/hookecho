@@ -152,19 +152,50 @@ pub fn evidence(
     contrast: Option<f32>,
     range_km: f32,
 ) -> f32 {
-    let typical_low = 0.5 * min_cc + 0.5 * mean_cc;
-    let depth = ((0.80 - typical_low) / 0.30).clamp(0.0, 1.0);
-    let core = ((mean_z - 35.0) / 20.0).clamp(0.0, 1.0);
-    let size = if area_km2 < 0.5 {
-        ((area_km2 - 0.1) / 0.4).clamp(0.0, 1.0)
-    } else if area_km2 <= 15.0 {
-        1.0
-    } else {
-        (1.0 - 0.8 * (area_km2 - 15.0) / (MAX_AREA_KM2 - 15.0)).clamp(0.2, 1.0)
-    };
-    let contrast = contrast.map_or(0.5, |c| ((c - 0.02) / 0.13).clamp(0.0, 1.0));
-    let range = 1.0 - 0.3 * ((range_km - 60.0) / 90.0).clamp(0.0, 1.0);
-    ((0.30 * depth + 0.30 * contrast + 0.20 * core + 0.20 * size) * range).clamp(0.0, 1.0)
+    let t = Terms::of(min_cc, mean_cc, mean_z, area_km2, contrast, range_km);
+    ((0.30 * t.depth + 0.30 * t.contrast + 0.20 * t.core + 0.20 * t.size) * t.range).clamp(0.0, 1.0)
+}
+
+/// The scored terms behind [`evidence`], each 0..1, kept apart so a detection can be explained
+/// with exactly the numbers that produced its score.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Terms {
+    depth: f32,
+    contrast: f32,
+    core: f32,
+    size: f32,
+    range: f32,
+}
+
+impl Terms {
+    fn of(
+        min_cc: f32,
+        mean_cc: f32,
+        mean_z: f32,
+        area_km2: f32,
+        contrast: Option<f32>,
+        range_km: f32,
+    ) -> Terms {
+        let typical_low = 0.5 * min_cc + 0.5 * mean_cc;
+        let depth = ((0.80 - typical_low) / 0.30).clamp(0.0, 1.0);
+        let core = ((mean_z - 35.0) / 20.0).clamp(0.0, 1.0);
+        let size = if area_km2 < 0.5 {
+            ((area_km2 - 0.1) / 0.4).clamp(0.0, 1.0)
+        } else if area_km2 <= 15.0 {
+            1.0
+        } else {
+            (1.0 - 0.8 * (area_km2 - 15.0) / (MAX_AREA_KM2 - 15.0)).clamp(0.2, 1.0)
+        };
+        let contrast = contrast.map_or(0.5, |c| ((c - 0.02) / 0.13).clamp(0.0, 1.0));
+        let range = 1.0 - 0.3 * ((range_km - 60.0) / 90.0).clamp(0.0, 1.0);
+        Terms {
+            depth,
+            contrast,
+            core,
+            size,
+            range,
+        }
+    }
 }
 
 /// Vertical evidence, 0..1: how many tilts show the hit, and how high the column reaches. About
@@ -184,6 +215,161 @@ pub fn vertical_term(top_km: f32, tilts: usize) -> f32 {
     let height = (top_km / 3.0).clamp(0.0, 1.0);
     let depth = ((tilts as f32 - 1.0) / 2.0).clamp(0.0, 1.0);
     0.5 * height + 0.5 * depth
+}
+
+/// Which revision of the scoring produced a hit. Bump it whenever a weight, threshold or rule above
+/// changes, so a saved or exported detection says what logic scored it.
+pub const ALGORITHM_VERSION: &str = "tds-3";
+
+/// One scored piece of evidence behind a detection.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Reason {
+    pub label: &'static str,
+    /// The measurement, in words.
+    pub detail: String,
+    /// How well it supports a debris signature, 0..1.
+    pub score: f32,
+    /// Its share of the evidence, 0..1 (the weights sum to 1).
+    pub weight: f32,
+}
+
+/// Why a [`TdsHit`] scored what it did: every term with its measurement, then each stage that
+/// turned the evidence into the final confidence. Built by [`TdsHit::explain`] from the hit's own
+/// fields with the same functions that scored it, so it cannot drift from the number on the map.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Explanation {
+    pub version: &'static str,
+    /// The four weighted terms, in weight order.
+    pub reasons: Vec<Reason>,
+    /// Multiplier for range (1 inside 60 km, down to 0.7 at 150 km).
+    pub range_factor: f32,
+    /// The weighted terms times the range factor.
+    pub evidence: f32,
+    /// Vertical continuity, 0..1; 0 for a single tilt.
+    pub vertical: f32,
+    /// Evidence times the vertical factor (0.6 to 1): the confidence before rotation.
+    pub base_confidence: f32,
+    /// What rotation beside the hit added, if it counted.
+    pub rotation_gain: Option<f32>,
+    pub confidence: f32,
+}
+
+impl TdsHit {
+    /// Break this hit's confidence down into the evidence behind it.
+    pub fn explain(&self) -> Explanation {
+        let t = Terms::of(
+            self.min_cc,
+            self.mean_cc,
+            self.mean_z,
+            self.area_km2,
+            self.contrast,
+            self.range_km,
+        );
+        let low = 0.5 * self.min_cc + 0.5 * self.mean_cc;
+        let contrast_detail = match self.contrast {
+            Some(c) => format!("surroundings {c:.2} higher in CC"),
+            None => "no surroundings read, scored neutral".to_string(),
+        };
+        let reasons = vec![
+            Reason {
+                label: "Depth",
+                detail: format!(
+                    "CC down to {:.2}, typically {low:.2} across {} gates",
+                    self.min_cc, self.gates
+                ),
+                score: t.depth,
+                weight: 0.30,
+            },
+            Reason {
+                label: "Contrast",
+                detail: contrast_detail,
+                score: t.contrast,
+                weight: 0.30,
+            },
+            Reason {
+                label: "Core",
+                detail: format!("mean {:.0} dBZ, peak {:.0} dBZ", self.mean_z, self.max_z),
+                score: t.core,
+                weight: 0.20,
+            },
+            Reason {
+                label: "Size",
+                detail: format!("{:.1} km\u{b2} footprint", self.area_km2),
+                score: t.size,
+                weight: 0.20,
+            },
+        ];
+        let evidence = evidence(
+            self.min_cc,
+            self.mean_cc,
+            self.mean_z,
+            self.area_km2,
+            self.contrast,
+            self.range_km,
+        );
+        let vertical = vertical_term(self.top_km, self.tilts);
+        let base_confidence = confidence(evidence, vertical);
+        let rotation_gain = self
+            .rotation_ms
+            .map(|_| (self.confidence - base_confidence).max(0.0));
+        Explanation {
+            version: ALGORITHM_VERSION,
+            reasons,
+            range_factor: t.range,
+            evidence,
+            vertical,
+            base_confidence,
+            rotation_gain,
+            confidence: self.confidence,
+        }
+    }
+}
+
+impl Explanation {
+    /// The breakdown as plain lines for a tooltip or export.
+    pub fn lines(&self, hit: &TdsHit) -> Vec<String> {
+        let mut out = vec![format!(
+            "Debris signature {:.0}%  ({})",
+            self.confidence * 100.0,
+            self.version
+        )];
+        for r in &self.reasons {
+            out.push(format!(
+                "{:<9} {:>3.0}% x {:.0}%   {}",
+                r.label,
+                r.score * 100.0,
+                r.weight * 100.0,
+                r.detail
+            ));
+        }
+        out.push(format!(
+            "Range     x{:.2}   {:.0} km from the radar",
+            self.range_factor, hit.range_km
+        ));
+        out.push(if hit.tilts > 1 {
+            format!(
+                "Vertical  {:.0}%   {} tilts, up to {:.1} km",
+                self.vertical * 100.0,
+                hit.tilts,
+                hit.top_km
+            )
+        } else {
+            format!(
+                "Vertical  0%   one tilt only: capped at {:.0}%",
+                SINGLE_TILT_CAP * 100.0
+            )
+        });
+        match (hit.rotation_ms, self.rotation_gain) {
+            (Some(v), Some(g)) => out.push(format!(
+                "Rotation  +{:.0} points   {:.0} kt couplet within {:.0} km",
+                g * 100.0,
+                v * 1.943_844,
+                ROTATION_ASSOCIATE_KM
+            )),
+            _ => out.push("Rotation  none counted (not evidence against it)".to_string()),
+        }
+        out
+    }
 }
 
 /// Confidence from the cluster's evidence and its vertical evidence. With none of the latter the
@@ -1035,6 +1221,55 @@ mod tests {
             hits[0].lon, -97.5,
             "the corroborated hit now leads: {hits:?}"
         );
+    }
+
+    #[test]
+    fn the_explanation_reproduces_the_confidence_it_explains() {
+        let mut hit = hit_at(-97.5, 35.3, 0.0);
+        hit.tilts = 3;
+        hit.top_km = 2.0;
+        hit.min_cc = 0.25;
+        hit.mean_cc = 0.45;
+        hit.confidence = confidence(
+            evidence(
+                hit.min_cc,
+                hit.mean_cc,
+                hit.mean_z,
+                hit.area_km2,
+                hit.contrast,
+                hit.range_km,
+            ),
+            vertical_term(hit.top_km, hit.tilts),
+        );
+        let e = hit.explain();
+        assert!((e.base_confidence - hit.confidence).abs() < 1e-6);
+        assert_eq!(e.rotation_gain, None);
+        // The weighted terms, times range, are the evidence; the weights are a whole.
+        let sum: f32 = e.reasons.iter().map(|r| r.score * r.weight).sum();
+        assert!((sum * e.range_factor - e.evidence).abs() < 1e-5);
+        assert!((e.reasons.iter().map(|r| r.weight).sum::<f32>() - 1.0).abs() < 1e-6);
+        // Rotation shows up as exactly what it added.
+        let mut with = [hit];
+        corroborate_with_rotation(&mut with, &[(-97.5, 35.3, 35.0)]);
+        let e2 = with[0].explain();
+        assert!(e2.rotation_gain.unwrap() > 0.0);
+        assert!((e2.base_confidence + e2.rotation_gain.unwrap() - with[0].confidence).abs() < 1e-5);
+        assert_eq!(e2.version, ALGORITHM_VERSION);
+    }
+
+    #[test]
+    fn the_explanation_reads_in_plain_lines_and_says_why_a_single_tilt_is_capped() {
+        let hit = hit_at(-97.5, 35.3, 0.5);
+        let lines = hit.explain().lines(&hit);
+        let text = lines.join("\n");
+        assert!(lines[0].contains(ALGORITHM_VERSION), "{text}");
+        for want in [
+            "Depth", "Contrast", "Core", "Size", "Range", "Vertical", "Rotation",
+        ] {
+            assert!(text.contains(want), "missing {want}: {text}");
+        }
+        assert!(text.contains("one tilt only"), "{text}");
+        assert!(text.contains("not evidence against"), "{text}");
     }
 
     #[test]

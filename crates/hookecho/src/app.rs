@@ -16652,6 +16652,16 @@ impl HookEchoApp {
                     egui::FontId::proportional(11.0),
                     m,
                 );
+                // Hover for the working: every term, its measurement and what each stage added.
+                let hit = egui::Rect::from_center_size(p, egui::vec2(26.0, 26.0));
+                if response.hover_pos().is_some_and(|hp| hit.contains(hp)) {
+                    response
+                        .clone()
+                        .show_tooltip_text(h.explain().lines(h).join(
+                            "
+",
+                        ));
+                }
             }
 
             // Hail spikes: a hollow triangle at the core the spike points away from. Yellow, not
