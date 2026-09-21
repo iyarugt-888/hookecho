@@ -39,6 +39,14 @@ its confidence, and the setting is remembered. It defaults to 0%, which shows ev
 `hookecho --headless-tds-archive <SITE> <YYYY-MM-DD> <HH:MM>` prints each hit with the evidence
 behind its score, for tuning against a known event.
 
+**Rotation corroboration.** A rotation couplet within 5 km of a debris signature raises its
+confidence (up to 40% of the way to 100%, saturating at about 68 kt) and the marker shows `rot NNkt`.
+It only counts within 100 km of the radar and only for a hit already at 50%, so it corroborates a
+credible detection instead of promoting marginal ones or amplifying far-range dealiasing noise. No
+couplet is never held against a hit: rotation detection has a 15 km minimum range. It is read quietly,
+so a TDS layer doesn't chime for rotation you didn't turn on. On the 20:16 Moore volume the tornado
+now reads 91% with 99 kt of rotation beside it.
+
 Not used: ZDR and velocity. Rotation collocated with the signature would raise confidence further
 and is the natural next step.
 

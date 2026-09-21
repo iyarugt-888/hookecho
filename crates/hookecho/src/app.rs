@@ -8927,7 +8927,16 @@ impl HookEchoApp {
         if pairs.is_empty() {
             return Vec::new(); // no dual-pol CC on this volume (legacy pre-dual-pol, or TDWR)
         }
-        let hits = wxdata::tds::detect_volume(&pairs, 0.80, 40.0, 150.0, 4);
+        let mut hits = wxdata::tds::detect_volume(&pairs, 0.80, 40.0, 150.0, 4);
+        // Rotation beside a debris signature is the strongest single corroboration there is, and
+        // it is read quietly: a TDS layer must not chime for rotation the user never asked about.
+        let rotation: Vec<(f64, f64, f32)> = self
+            .couplets_quiet(idx)
+            .iter()
+            .filter(|c| c.range_km <= wxdata::tds::ROTATION_MAX_RANGE_KM)
+            .map(|c| (c.lon, c.lat, c.vrot_ms))
+            .collect();
+        wxdata::tds::corroborate_with_rotation(&mut hits, &rotation);
         let site = self.views[idx].site.as_deref().unwrap_or("?");
         log::debug!(
             target: "wxdata::tds",
@@ -8960,12 +8969,16 @@ impl HookEchoApp {
                 "⚠ TDS detected".to_string(),
                 format!(
                     "{} debris signature(s) — possible tornado ({:.0}% confidence, \
-                     {} tilt{}, lofted to {:.1} km)",
+                     {} tilt{}, lofted to {:.1} km{})",
                     alertable.len(),
                     best.confidence * 100.0,
                     best.tilts,
                     if best.tilts == 1 { "" } else { "s" },
                     best.top_km,
+                    best.rotation_ms.map_or(String::new(), |v| format!(
+                        ", {:.0} kt rotation beside it",
+                        v * 1.943_844
+                    )),
                 ),
             );
             self.notify_alert(
@@ -9123,7 +9136,14 @@ impl HookEchoApp {
         tracks
     }
 
-    fn compute_couplets_uncached(&mut self, idx: usize) -> Vec<wxdata::rotation::CoupletHit> {
+    /// Detect rotation couplets in one volume, with no alerting. Returns the hits, the radar's
+    /// position, and how many tilts were scanned; `None` if there is no velocity data. Kept apart from
+    /// [`Self::compute_couplets_uncached`] so the TDS detector can read rotation without that
+    /// function's chime and banner firing for a layer the user never turned on.
+    fn detect_couplets(
+        &mut self,
+        idx: usize,
+    ) -> Option<(Vec<wxdata::rotation::CoupletHit>, (f32, f32), usize)> {
         // The lowest few tilts, not just the lowest one: the classic operational TVS criterion is
         // vertical continuity, which a single sweep cannot offer at all (see
         // `rotation::detect_volume`). Dealiased, so folded gates don't fake huge shear. Capped at
@@ -9131,7 +9151,7 @@ impl HookEchoApp {
         // level rotation is what a tornadic circulation actually looks like.
         const TILTS: usize = 4;
         let Some(vol) = self.views[idx].volume.as_mut() else {
-            return Vec::new();
+            return None;
         };
         let vel_tilts = vol.velocity_tilts_dealiased();
         let z_tilts = vol.moment_tilts(Moment::Reflectivity);
@@ -9140,7 +9160,7 @@ impl HookEchoApp {
         // uses for its own (z, cc) pairing.
         let pairs: Vec<_> = vel_tilts.into_iter().zip(z_tilts).take(TILTS).collect();
         let Some((first, _)) = pairs.first() else {
-            return Vec::new();
+            return None;
         };
         let (radar_lon, radar_lat) = (first.radar_lon, first.radar_lat);
         // 25 m/s gate-to-gate is the legacy weak-TVS criterion; 20 dBZ is a generous echo floor
@@ -9148,11 +9168,32 @@ impl HookEchoApp {
         // usable range band (nearer, clutter fakes couplets; farther, the beam is too high and
         // too coarsely sampled).
         let hits = wxdata::rotation::detect_volume(&pairs, 25.0, 20.0, 15.0, 150.0, 3);
+        Some((hits, (radar_lon, radar_lat), pairs.len()))
+    }
+
+    /// This volume's couplets without side effects: the cached ones if the rotation layer already
+    /// computed them, otherwise a fresh quiet detection.
+    fn couplets_quiet(&mut self, idx: usize) -> Vec<wxdata::rotation::CoupletHit> {
+        let key = self.volume_key(idx);
+        if let Some((k, v)) = &self.couplet_cache {
+            if *k == key {
+                return v.clone();
+            }
+        }
+        self.detect_couplets(idx)
+            .map(|(hits, ..)| hits)
+            .unwrap_or_default()
+    }
+
+    fn compute_couplets_uncached(&mut self, idx: usize) -> Vec<wxdata::rotation::CoupletHit> {
+        let Some((hits, (radar_lon, radar_lat), scanned)) = self.detect_couplets(idx) else {
+            return Vec::new();
+        };
         let site = self.views[idx].site.clone().unwrap_or_default();
         log::debug!(
             target: "wxdata::rotation",
             "{site}: {} tilt(s) scanned, {} couplet(s)",
-            pairs.len(),
+            scanned,
             hits.len(),
         );
         let now_active = !hits.is_empty();
@@ -16582,6 +16623,11 @@ impl HookEchoApp {
                     egui::Color32::from_rgba_unmultiplied(240, 40, 210, 60),
                     egui::Stroke::new(2.0, m),
                 ));
+                // Rotation beside the signature, when there is some: the corroboration that
+                // separates a debris ball from hail.
+                let rot = h
+                    .rotation_ms
+                    .map_or(String::new(), |v| format!(" · rot {:.0}kt", v * 1.943_844));
                 painter.text(
                     p + egui::vec2(0.0, -s - 2.0),
                     egui::Align2::CENTER_BOTTOM,
@@ -16590,14 +16636,14 @@ impl HookEchoApp {
                     // evidence of anything lofted.
                     if h.tilts > 1 {
                         format!(
-                            "TDS ρ{:.2} · {}t {:.1}km · {:.0}%",
+                            "TDS ρ{:.2} · {}t {:.1}km · {:.0}%{rot}",
                             h.min_cc,
                             h.tilts,
                             h.top_km,
                             h.confidence * 100.0
                         )
                     } else {
-                        format!("TDS ρ{:.2} · {:.0}%", h.min_cc, h.confidence * 100.0)
+                        format!("TDS ρ{:.2} · {:.0}%{rot}", h.min_cc, h.confidence * 100.0)
                     },
                     egui::FontId::proportional(11.0),
                     m,

@@ -75,11 +75,33 @@ pub struct TdsHit {
     /// genuine tornado debris ball often does, which single-tilt CC/Z collocation alone cannot
     /// tell apart.
     pub top_km: f32,
+    /// Rotational velocity (m/s) of the strongest rotation couplet within
+    /// [`ROTATION_ASSOCIATE_KM`], once [`corroborate_with_rotation`] has been run. `None` means no
+    /// rotation was found near this hit (or it was never checked); it is not evidence against it.
+    pub rotation_ms: Option<f32>,
     /// 0..1 confidence, from the evidence above and the vertical continuity. A single tilt has no
     /// vertical evidence, so [`detect`] never reports more than [`SINGLE_TILT_CAP`]; a hit that
-    /// repeats up through the tilts earns the rest.
+    /// repeats up through the tilts earns the rest. Rotation nearby ([`corroborate_with_rotation`])
+    /// can raise it past the cap: a separate line of evidence, not more of the same.
     pub confidence: f32,
 }
+
+/// A couplet this close to a debris signature (km, ground distance) is read as the same storm's
+/// circulation. A debris ball sits in or beside the strongest low-level rotation, within a few km.
+pub const ROTATION_ASSOCIATE_KM: f64 = 5.0;
+
+/// Rotation only corroborates a hit within this range (km), and only couplets within it count. Past
+/// it the beam is wide enough that neither a couplet nor a debris ball is well resolved, and the
+/// velocity data is where dealiasing failures cluster: a swarm of near-identical couplets at
+/// 130-150 km, each about twice the Nyquist velocity, is an artifact, not a set of tornadoes.
+pub const ROTATION_MAX_RANGE_KM: f32 = 100.0;
+
+/// Rotation may only corroborate a hit that already stands on its own at this confidence. It is a
+/// second line of evidence for a credible detection, not a way to promote a marginal one.
+pub const ROTATION_MIN_CONFIDENCE: f32 = 0.5;
+
+/// The share of the remaining gap to 1 that a full-strength couplet closes.
+const ROTATION_GAP_SHARE: f32 = 0.4;
 
 /// The most confidence a hit can have from one tilt alone.
 pub const SINGLE_TILT_CAP: f32 = 0.6;
@@ -301,6 +323,7 @@ pub fn detect(
             range_km,
             tilts: 1,
             top_km,
+            rotation_ms: None,
             confidence: confidence(
                 evidence(min_cc, mean_cc, mean_z, area_km2, contrast, range_km),
                 0.0,
@@ -340,6 +363,57 @@ fn surroundings_contrast(cc: &BinnedSweep, members: &[usize], mean_cc: f32) -> O
         .collect();
     (values.len() >= MIN_RING_GATES)
         .then(|| values.iter().sum::<f32>() / values.len() as f32 - mean_cc)
+}
+
+/// How much a rotation couplet of `vrot_ms` corroborates a debris signature, 0..1. Rotational
+/// velocity under 10 m/s is ordinary storm-scale shear and counts for nothing; 35 m/s (about 68 kt),
+/// a strong low-level circulation, counts for everything.
+pub fn rotation_term(vrot_ms: f32) -> f32 {
+    ((vrot_ms - 10.0) / 25.0).clamp(0.0, 1.0)
+}
+
+/// Raise the confidence of debris signatures that have a rotation couplet beside them, and record
+/// that rotation on the hit. `couplets` are `(lon, lat, vrot_ms)`.
+///
+/// Debris lofted by a tornado sits in or beside the strong low-level rotation that made it, while
+/// hail and biological scatter carry no such circulation, so a couplet nearby is the strongest
+/// single piece of corroboration there is, and independent of the correlation-coefficient evidence.
+/// It moves the confidence up to 40% of the remaining way to 1 (a full-strength couplet on a 60%
+/// hit gives 76%), so it lifts a good hit without letting rotation alone make a weak one certain.
+///
+/// Three limits keep it from amplifying noise. Only hits within [`ROTATION_MAX_RANGE_KM`] are
+/// considered, and the caller should pass only couplets within it too; a hit below
+/// [`ROTATION_MIN_CONFIDENCE`] is left alone, since corroboration cannot rescue a marginal
+/// detection; and `rotation_ms` is recorded only when the rotation actually counted.
+///
+/// The absence of a couplet changes nothing: the rotation may be undetected, out of the velocity
+/// data's range (a tornado close to the radar is inside the rotation detector's own minimum range),
+/// or on a tilt not scanned, and a debris ball is often seen before its couplet is. Hits come back
+/// strongest first.
+pub fn corroborate_with_rotation(hits: &mut [TdsHit], couplets: &[(f64, f64, f32)]) {
+    for h in hits.iter_mut() {
+        h.rotation_ms = None;
+        if h.range_km > ROTATION_MAX_RANGE_KM || h.confidence < ROTATION_MIN_CONFIDENCE {
+            continue;
+        }
+        let strongest = couplets
+            .iter()
+            .filter(|(lon, lat, _)| {
+                ground_km((h.lon, h.lat), (*lon, *lat)) <= ROTATION_ASSOCIATE_KM
+            })
+            .map(|(_, _, v)| *v)
+            .filter(|v| v.is_finite())
+            .fold(None, |best: Option<f32>, v| {
+                Some(best.map_or(v, |b| b.max(v)))
+            });
+        h.rotation_ms = strongest;
+        if let Some(v) = strongest {
+            let gap = 1.0 - h.confidence;
+            h.confidence =
+                (h.confidence + gap * ROTATION_GAP_SHARE * rotation_term(v)).clamp(0.0, 1.0);
+        }
+    }
+    hits.sort_by(|a, b| b.confidence.total_cmp(&a.confidence));
 }
 
 /// Ground distance in km between two lon/lat points, good over the few km hits are compared at.
@@ -445,6 +519,7 @@ pub fn detect_volume(
                 range_km,
                 tilts,
                 top_km,
+                rotation_ms: None,
                 confidence: confidence(ev, vertical_term(top_km, tilts)),
             }
         })
@@ -836,6 +911,130 @@ mod tests {
     #[test]
     fn detect_volume_of_nothing_is_nothing() {
         assert!(detect_volume(&[], 0.80, 40.0, 150.0, 4).is_empty());
+    }
+
+    fn hit_at(lon: f64, lat: f64, confidence: f32) -> TdsHit {
+        TdsHit {
+            lon,
+            lat,
+            gates: 20,
+            min_cc: 0.4,
+            mean_cc: 0.5,
+            mean_z: 50.0,
+            max_z: 55.0,
+            area_km2: 3.0,
+            contrast: Some(0.2),
+            range_km: 30.0,
+            tilts: 1,
+            top_km: 0.5,
+            rotation_ms: None,
+            confidence,
+        }
+    }
+
+    #[test]
+    fn rotation_beside_a_hit_raises_its_confidence_and_is_recorded() {
+        let mut hits = [hit_at(-97.5, 35.3, 0.60)];
+        // A strong couplet about 2 km east.
+        corroborate_with_rotation(&mut hits, &[(-97.478, 35.3, 35.0)]);
+        assert_eq!(hits[0].rotation_ms, Some(35.0));
+        // A full-strength couplet closes 40% of the gap to 1: 0.60 + 0.4 * 0.4 = 0.76.
+        assert!(
+            (hits[0].confidence - 0.76).abs() < 1e-4,
+            "{}",
+            hits[0].confidence
+        );
+        // A one-tilt hit can pass the single-tilt cap this way: rotation is separate evidence.
+        assert!(hits[0].confidence > SINGLE_TILT_CAP);
+    }
+
+    #[test]
+    fn rotation_cannot_promote_a_marginal_hit_or_reach_past_its_range() {
+        // Below the floor, rotation is ignored: it corroborates, it does not rescue.
+        let mut weak = [hit_at(-97.5, 35.3, ROTATION_MIN_CONFIDENCE - 0.05)];
+        corroborate_with_rotation(&mut weak, &[(-97.5, 35.3, 40.0)]);
+        assert_eq!(weak[0].rotation_ms, None);
+        assert_eq!(weak[0].confidence, ROTATION_MIN_CONFIDENCE - 0.05);
+        // At the floor it counts.
+        let mut ok = [hit_at(-97.5, 35.3, ROTATION_MIN_CONFIDENCE)];
+        corroborate_with_rotation(&mut ok, &[(-97.5, 35.3, 40.0)]);
+        assert!(ok[0].confidence > ROTATION_MIN_CONFIDENCE);
+        // Far from the radar, the hit is left alone even with a couplet right on it.
+        let mut far = [TdsHit {
+            range_km: ROTATION_MAX_RANGE_KM + 10.0,
+            ..hit_at(-97.5, 35.3, 0.7)
+        }];
+        corroborate_with_rotation(&mut far, &[(-97.5, 35.3, 40.0)]);
+        assert_eq!(far[0].rotation_ms, None);
+        assert_eq!(far[0].confidence, 0.7);
+        // A stale value from an earlier pass is cleared, not left claiming rotation that no
+        // longer counts.
+        let mut again = [TdsHit {
+            rotation_ms: Some(30.0),
+            ..hit_at(-97.5, 35.3, 0.7)
+        }];
+        corroborate_with_rotation(&mut again, &[]);
+        assert_eq!(again[0].rotation_ms, None);
+    }
+
+    #[test]
+    fn stronger_rotation_helps_more_and_weak_shear_helps_not_at_all() {
+        let conf = |v: f32| {
+            let mut h = [hit_at(-97.5, 35.3, 0.55)];
+            corroborate_with_rotation(&mut h, &[(-97.5, 35.3, v)]);
+            h[0].confidence
+        };
+        assert!(
+            (conf(8.0) - 0.55).abs() < 1e-6,
+            "ordinary shear is not corroboration"
+        );
+        assert!(conf(20.0) > conf(12.0));
+        assert!(conf(35.0) > conf(20.0));
+        // Saturates: nothing past 35 m/s adds more, and confidence never leaves 0..1.
+        assert!((conf(80.0) - conf(35.0)).abs() < 1e-6);
+        assert!(conf(80.0) <= 1.0);
+        assert_eq!(rotation_term(10.0), 0.0);
+        assert_eq!(rotation_term(35.0), 1.0);
+    }
+
+    #[test]
+    fn a_couplet_far_away_or_absent_changes_nothing_and_is_not_held_against_the_hit() {
+        let mut hits = [hit_at(-97.5, 35.3, 0.6)];
+        // 30 km away: a different storm's circulation.
+        corroborate_with_rotation(&mut hits, &[(-97.2, 35.3, 40.0)]);
+        assert_eq!(hits[0].rotation_ms, None);
+        assert_eq!(hits[0].confidence, 0.6);
+        // No couplets at all.
+        corroborate_with_rotation(&mut hits, &[]);
+        assert_eq!(hits[0].rotation_ms, None);
+        assert_eq!(hits[0].confidence, 0.6);
+    }
+
+    #[test]
+    fn the_strongest_nearby_couplet_is_the_one_used_and_bad_values_are_ignored() {
+        let mut hits = [hit_at(-97.5, 35.3, 0.55)];
+        corroborate_with_rotation(
+            &mut hits,
+            &[
+                (-97.5, 35.3, 15.0),
+                (-97.49, 35.3, 30.0),
+                (-97.51, 35.3, f32::NAN),
+                (-97.2, 35.3, 60.0), // too far to count
+            ],
+        );
+        assert_eq!(hits[0].rotation_ms, Some(30.0));
+    }
+
+    #[test]
+    fn corroboration_can_reorder_hits_and_always_returns_them_strongest_first() {
+        // The weaker signature has the tornado's rotation beside it, so it overtakes the stronger one.
+        let mut hits = [hit_at(-97.5, 35.3, 0.55), hit_at(-97.0, 35.0, 0.62)];
+        corroborate_with_rotation(&mut hits, &[(-97.5, 35.3, 40.0)]);
+        assert!(hits[0].confidence >= hits[1].confidence);
+        assert_eq!(
+            hits[0].lon, -97.5,
+            "the corroborated hit now leads: {hits:?}"
+        );
     }
 
     #[test]

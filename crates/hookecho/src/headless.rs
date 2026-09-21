@@ -777,22 +777,55 @@ pub fn run_tds_archive(site: &str, date: &str, hhmm: &str) -> anyhow::Result<()>
         println!("{site}: volume {} (asked for {want})", id.0);
         let scan = level2::download_scan(id.1, None).await?;
         let mut pairs = Vec::new();
+        let mut vel_pairs = Vec::new();
         for tilt in 0..4 {
             let z = level2::bin_scan(&scan, Moment::Reflectivity, tilt);
             let cc = level2::bin_scan(&scan, Moment::CorrelationCoefficient, tilt);
-            if let (Ok(z), Ok(cc)) = (z, cc) {
-                pairs.push((z, cc));
+            // Dealiased, as the app reads it, so folded gates do not fake shear.
+            let vel = level2::bin_scan_opts(&scan, Moment::Velocity, tilt, true);
+            if let (Ok(z), Ok(cc)) = (&z, cc) {
+                pairs.push((z.clone(), cc));
+            }
+            if let (Ok(z), Ok(vel)) = (z, vel) {
+                vel_pairs.push((vel, z));
             }
         }
-        anyhow::Ok(pairs)
+        anyhow::Ok((pairs, vel_pairs))
     })?;
+    let (pairs, vel_pairs) = pairs;
     println!("{} tilt(s) with reflectivity and CC", pairs.len());
-    let hits = wxdata::tds::detect_volume(&pairs, 0.80, 40.0, 150.0, 4);
-    println!("{} debris signature(s), strongest first:", hits.len());
+    let mut hits = wxdata::tds::detect_volume(&pairs, 0.80, 40.0, 150.0, 4);
+    let couplets = wxdata::rotation::detect_volume(&vel_pairs, 25.0, 20.0, 15.0, 150.0, 3);
+    let rotation: Vec<_> = couplets
+        .iter()
+        .filter(|c| c.range_km <= wxdata::tds::ROTATION_MAX_RANGE_KM)
+        .map(|c| (c.lon, c.lat, c.vrot_ms))
+        .collect();
+    wxdata::tds::corroborate_with_rotation(&mut hits, &rotation);
+    let mut by_conf = couplets.clone();
+    by_conf.sort_by(|a, b| b.confidence.total_cmp(&a.confidence));
+    for c in by_conf.iter().take(6) {
+        println!(
+            "  couplet {:.3},{:.3}  conf {:>3.0}%  vrot {:.0} kt  g2g {:.0}  {:.0} km  {} gates  {} tilt(s)",
+            c.lat,
+            c.lon,
+            c.confidence * 100.0,
+            c.vrot_ms * 1.943_844,
+            c.g2g_ms,
+            c.range_km,
+            c.gates,
+            c.tilts
+        );
+    }
+    println!(
+        "{} rotation couplet(s); {} debris signature(s), strongest first:",
+        couplets.len(),
+        hits.len()
+    );
     for h in hits.iter().take(12) {
         println!(
             "  {:.3},{:.3}  conf {:>3.0}%  {} tilt(s) to {:.1} km · {} gates {:.1} km² · min CC {:.2} \
-             mean CC {:.2} · Z mean {:.0} max {:.0} · contrast {}",
+             mean CC {:.2} · Z mean {:.0} max {:.0} · contrast {} · rotation {}",
             h.lat,
             h.lon,
             h.confidence * 100.0,
@@ -804,7 +837,9 @@ pub fn run_tds_archive(site: &str, date: &str, hhmm: &str) -> anyhow::Result<()>
             h.mean_cc,
             h.mean_z,
             h.max_z,
-            h.contrast.map_or("n/a".to_string(), |c| format!("{c:.2}"))
+            h.contrast.map_or("n/a".to_string(), |c| format!("{c:.2}")),
+            h.rotation_ms
+                .map_or("none".to_string(), |v| format!("{:.0} kt", v * 1.943_844))
         );
     }
     Ok(())
