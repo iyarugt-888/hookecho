@@ -1006,6 +1006,7 @@ pub fn ramp_for(layer: FieldLayer) -> Option<&'static FieldRamp> {
         | FL::ModelDiff
         | FL::CompareA
         | FL::CompareB
+        | FL::Ensemble
         // Also descriptor-backed (new MRMS catalog products) — routed through the branch above,
         // same as every other catalog layer in this list.
         | FL::Posh
@@ -1115,7 +1116,7 @@ mod tests {
 
     /// Layers colored outside this table. A new `FieldLayer` must join the table or this list —
     /// forgetting both silently ships a layer with no legend.
-    const NO_RAMP: [FieldLayer; 10] = [
+    const NO_RAMP: [FieldLayer; 11] = [
         FieldLayer::Mrms,
         FieldLayer::Mosaic,
         FieldLayer::CompositeLocal,
@@ -1132,6 +1133,9 @@ mod tests {
         // special-cased in `render_pane` instead of going through `ramp_for` at all.
         FieldLayer::CompareA,
         FieldLayer::CompareB,
+        // Colored per statistic (a spread and a probability need scales of their own), so the
+        // upload is built in `ensemble_layer` rather than tabulated here.
+        FieldLayer::Ensemble,
     ];
 
     #[test]

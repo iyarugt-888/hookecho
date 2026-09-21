@@ -213,6 +213,9 @@ pub enum FieldLayer {
     CompareA,
     /// Model-comparison side B (`app.diff_field.pair().1`'s own field).
     CompareB,
+    /// One ensemble statistic (mean, spread, percentile, exceedance probability) computed from the
+    /// GEFS members — which one is `app.ensemble` (ROADMAP_NEW F7).
+    Ensemble,
     /// GOES ABI Band 13 (clean IR) brightness temperature, CONUS sector — read directly from
     /// the satellite's own S3 bucket rather than GIBS' pre-rendered tiles. East by default; West
     /// is `settings.goes_satellite_west`.
@@ -300,6 +303,7 @@ impl FieldLayer {
                 | FieldLayer::ModelDiff
                 | FieldLayer::CompareA
                 | FieldLayer::CompareB
+                | FieldLayer::Ensemble
                 | FieldLayer::GoesIr
                 | FieldLayer::GoesVisible
                 | FieldLayer::GoesWaterVapor
@@ -315,7 +319,7 @@ impl FieldLayer {
     }
 
     /// Fixed bottom-to-top paint order within each band.
-    pub const DRAW_ORDER: [FieldLayer; 62] = [
+    pub const DRAW_ORDER: [FieldLayer; 63] = [
         // Below-radar context band (bottom to top). The global models sit at the very bottom:
         // they are the synoptic backdrop everything else is drawn against — satellite included,
         // since it is the same kind of backdrop and the radar itself paints over it just the same.
@@ -345,6 +349,7 @@ impl FieldLayer {
         FieldLayer::ModelDiff,
         FieldLayer::CompareA,
         FieldLayer::CompareB,
+        FieldLayer::Ensemble,
         FieldLayer::Mrms,
         FieldLayer::ReflLowestAlt,
         FieldLayer::LowLevelReflectivity,
@@ -481,6 +486,7 @@ impl FieldLayer {
             FieldLayer::ModelDiff => "model-diff",
             FieldLayer::CompareA => "compare-a",
             FieldLayer::CompareB => "compare-b",
+            FieldLayer::Ensemble => "ensemble",
             FieldLayer::GlmFed => "glm-fed",
             FieldLayer::GoesIr => "goes-ir",
             FieldLayer::GoesVisible => "goes-visible",

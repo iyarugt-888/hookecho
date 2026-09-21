@@ -2336,15 +2336,18 @@ prepared pane could overwrite every earlier pane's field opacity. Textures/LUTs 
 each field now owns one tiny uniform/bind group per pane, making the overlay genuinely pane-local
 and eliminating that latent cross-pane clobbering for ordinary field opacity too.
 
-## F7. Ensemble workstation — started (engine and headless render; not yet on the map)
+## F7. Ensemble workstation — started (engine, headless render and an on-map layer)
 
 This is required for top-tier analysis.
 
 New this pass, see the Unreleased CHANGELOG entry: `wxdata::ensemble` fetches the 31 GEFS members
 of a field from one pinned cycle and reduces them per grid cell (`combine`). It is checked offline
 and against live GEFS, and `hookecho --headless-ensemble <field> <stat> <hour> [out.png]` renders
-any statistic to an image. Nothing is exposed in the app UI yet: an on-map layer needs the same
-fetch-lane, health, probe and legend plumbing `ModelDiff` has. GEFS is the only ensemble wired up;
+any statistic to an image. The app has a "GEFS ensemble" layer (Models group) with a field picker,
+mean/spread/min/max/10th/90th percentile/exceedance probability, an editable threshold, the shared
+forecast-hour slider, a legend, and a hover readout. The 31 members are fetched once and kept, so
+changing the statistic or threshold recomputes locally instead of refetching. That layer's UI was
+built and unit-tested but not yet exercised by hand in the running app. GEFS is the only ensemble wired up;
 REFS is not a data source this app has. Fields today: 2 m temperature, MSLP, 500 hPa height,
 mixed-layer CAPE and precipitable water. Wind gust, QPF, snow and UH need fields the
 `pgrb2a` member files either do not carry or carry as accumulations, so they are still open.

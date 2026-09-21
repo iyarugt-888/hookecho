@@ -329,6 +329,13 @@ enum OverlayMsg {
         wxdata::mrms::MrmsField,
         crate::fielddiff::ComparisonTimes,
     ),
+    /// Every GEFS member of one field at a forecast hour (ROADMAP_NEW F7). The statistic is
+    /// computed from these in the handler, so changing it never refetches.
+    Ensemble(
+        wxdata::ensemble::EnsembleField,
+        u16,
+        Box<wxdata::ensemble::EnsembleRun>,
+    ),
     /// `(0 °C, −20 °C)` level heights above sea level, in metres, at the active radar.
     FreezingLevels(f64, f64),
     /// Local storm reports: live trailing window (`None`) or an archive bucket (feature CC).
@@ -457,6 +464,8 @@ enum OverlaySource {
     /// (`CompareA`/`CompareB`). Same two grids `ModelDiff` fetches, shown side by side instead of
     /// subtracted.
     Compare(crate::fielddiff::DiffField, u16),
+    /// All GEFS members of a field at a forecast hour, for the ensemble layer.
+    Ensemble(wxdata::ensemble::EnsembleField, u16),
     /// Gridded L3 product (DVL/EET) for a site, projected to a lat/lon field (feature X).
     L3Grid(crate::render::FieldLayer, String),
     /// Melting-level and −20 °C heights at `(lon, lat)`, for the derived hail grids.
@@ -937,6 +946,7 @@ impl OverlaySource {
             // Both compare panes ride one fetch (see `fetch_diff_pair`); either layer name works
             // as the dedup key, so it just picks the first.
             Self::Compare(..) => RequestLane::Field(FL::CompareA),
+            Self::Ensemble(..) => RequestLane::Field(FL::Ensemble),
             Self::Mosaic(..) => RequestLane::Field(FL::Mosaic),
             Self::Hrrr(..) | Self::HrrrSub(..) => RequestLane::Field(FL::Hrrr),
             Self::Snow(..) => RequestLane::Field(FL::SnowAnalysis),
@@ -1082,6 +1092,10 @@ impl OverlaySource {
             OverlaySource::Compare(field, fh) => {
                 let pair = crate::fielddiff::fetch_pair(http, field, fh).await?;
                 OverlayMsg::Compare(field, fh, pair.a, pair.b, pair.times)
+            }
+            OverlaySource::Ensemble(field, fh) => {
+                let run = wxdata::ensemble::fetch_gefs(http, field, fh).await?;
+                OverlayMsg::Ensemble(field, fh, Box::new(run))
             }
             OverlaySource::StormReports(bucket) => {
                 // Archive bucket: the 6 h of reports ending at the bucket's close; live: last 6 h.
@@ -2293,7 +2307,9 @@ fn field_refresh_secs(layer: crate::render::FieldLayer) -> u64 {
         // Two global cycles behind it, so the same half hour.
         | FL::ModelDiff
         | FL::CompareA
-        | FL::CompareB => 1800,
+        | FL::CompareB
+        // GEFS also cycles every six hours; the 31-file fetch is worth doing no more often.
+        | FL::Ensemble => 1800,
         FL::Smoke => 900,
         // NBM posts hourly; the blend moves no faster than that.
         FL::ThunderProb => 900,
@@ -3238,6 +3254,21 @@ pub struct HookEchoApp {
     /// Which field/mode the resident GPU upload represents. Kept separate from `diff_key` so a
     /// mode switch rebuilds from `diff_grid` without downloading either model again.
     diff_display_key: Option<(crate::fielddiff::DiffField, crate::fielddiff::DiffMode)>,
+    /// The ensemble layer: which statistic of which field is shown (session-only).
+    ensemble: crate::ensemble_layer::EnsembleView,
+    /// The fetched GEFS members, kept so a new statistic recomputes instead of refetching.
+    ensemble_run: Option<wxdata::ensemble::EnsembleRun>,
+    /// The displayed statistic grid, kept on the CPU for the cursor readout.
+    ensemble_grid: Option<wxdata::mrms::MrmsField>,
+    /// The `(field, hour)` the members were last fetched for, so a change refetches at once.
+    ensemble_key: Option<(wxdata::ensemble::EnsembleField, u16)>,
+    /// Which view the resident GPU upload represents (see `EnsembleView::display_key`).
+    ensemble_display_key: Option<(
+        wxdata::ensemble::EnsembleField,
+        crate::ensemble_layer::StatKind,
+        u32,
+    )>,
+    ensemble_error: Option<String>,
     /// The compare panes' shared valid time and distinct source runs.
     compare_valid: Option<crate::fielddiff::ComparisonTimes>,
     compare_error: Option<String>,
@@ -4685,6 +4716,12 @@ impl HookEchoApp {
             last_goto_hash: None,
             diff_key: None,
             diff_display_key: None,
+            ensemble: crate::ensemble_layer::EnsembleView::default(),
+            ensemble_run: None,
+            ensemble_grid: None,
+            ensemble_key: None,
+            ensemble_display_key: None,
+            ensemble_error: None,
             compare_valid: None,
             compare_error: None,
             compare_grid: None,
@@ -7944,6 +7981,7 @@ impl HookEchoApp {
                     && crate::fielddiff::layer_ready(*layer, self.diff_valid, self.compare_valid)
                     && match layer {
                         FL::ModelDiff => self.diff_grid.is_some(),
+                        FL::Ensemble => self.ensemble_grid.is_some(),
                         FL::CompareA | FL::CompareB => self.compare_grid.is_some(),
                         _ => self
                             .fields
@@ -8040,6 +8078,30 @@ impl HookEchoApp {
                 },
                 time: self.diff_valid.map(|times| times.valid),
                 value,
+                folded: false,
+            };
+        }
+        if layer == FL::Ensemble {
+            let stamp = self
+                .fields
+                .get(&layer)
+                .and_then(|state| state.stamp.as_ref());
+            return ui::cursor_probe::ProbeRow {
+                pane: idx,
+                source: stamp.map_or_else(|| "GEFS".into(), |stamp| stamp.source_id.clone()),
+                product: self.ensemble.title(self.settings.temp_unit),
+                time: stamp.map(|stamp| stamp.valid_time),
+                value: self
+                    .ensemble_grid
+                    .as_ref()
+                    .and_then(|grid| grid.sample_bilinear(lon, lat))
+                    .and_then(|raw| {
+                        crate::ensemble_layer::format_value(
+                            &self.ensemble,
+                            raw,
+                            self.settings.temp_unit,
+                        )
+                    }),
                 folded: false,
             };
         }
@@ -10181,6 +10243,20 @@ impl HookEchoApp {
                                         .unwrap_or_else(std::sync::PoisonError::into_inner)
                                         .set_cache_resident(&lane, false);
                                 }
+                                RequestLane::Field(FL::Ensemble) => {
+                                    self.ensemble_run = None;
+                                    self.ensemble_grid = None;
+                                    self.ensemble_display_key = None;
+                                    self.ensemble_error = Some(err.clone());
+                                    if let Some(state) = self.fields.get_mut(&FL::Ensemble) {
+                                        state.pending = None;
+                                        state.stamp = None;
+                                    }
+                                    self.overlay_requests
+                                        .lock()
+                                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                                        .set_cache_resident(&lane, false);
+                                }
                                 RequestLane::Field(FL::CompareA) => {
                                     self.compare_valid = None;
                                     self.compare_grid = None;
@@ -10370,6 +10446,15 @@ impl HookEchoApp {
                         self.compare_valid = Some(valid);
                         self.compare_error = None;
                         self.compare_grid = Some((a, b));
+                    }
+                }
+                OverlayMsg::Ensemble(field, fh, run) => {
+                    // A selection change in flight must not overwrite the field now selected.
+                    if field == self.ensemble.field && fh == self.global_fcst_hour {
+                        self.ensemble_run = Some(*run);
+                        self.ensemble_error = None;
+                        self.ensemble_display_key = None;
+                        self.rebuild_ensemble_display();
                     }
                 }
                 OverlayMsg::StormReports(bucket, reports) => match bucket {
@@ -14154,16 +14239,16 @@ impl HookEchoApp {
                 egui::pos2(x + 12.0, prect.bottom()),
             );
             if response.drag_started() {
-                self.views[idx].swipe_dragging =
-                    ui.input(|i| i.pointer.press_origin().is_some_and(|pos| hit.contains(pos)));
+                self.views[idx].swipe_dragging = ui.input(|i| {
+                    i.pointer
+                        .press_origin()
+                        .is_some_and(|pos| hit.contains(pos))
+                });
             }
             if self.views[idx].swipe_dragging && response.dragged() {
                 if let Some(pos) = response.interact_pointer_pos() {
-                    self.views[idx].swipe_fraction = Self::swipe_fraction_from_pointer(
-                        pos.x,
-                        prect.left(),
-                        prect.width(),
-                    );
+                    self.views[idx].swipe_fraction =
+                        Self::swipe_fraction_from_pointer(pos.x, prect.left(), prect.width());
                     self.active = idx;
                     ctx.set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
                 }
@@ -14998,6 +15083,13 @@ impl HookEchoApp {
         } else {
             Vec::new()
         };
+        if drop_fields.contains(&crate::render::FieldLayer::Ensemble) {
+            // Thirty-one grids are worth freeing along with the texture.
+            self.ensemble_run = None;
+            self.ensemble_grid = None;
+            self.ensemble_key = None;
+            self.ensemble_display_key = None;
+        }
         if drop_fields.contains(&crate::render::FieldLayer::ModelDiff) {
             self.diff_grid = None;
             self.diff_valid = None;
@@ -17943,6 +18035,14 @@ impl HookEchoApp {
                 use crate::render::FieldLayer as FL;
                 if *top == FL::ModelDiff {
                     y += ui::legend::draw_diff(&painter, prect, self.diff_field, self.diff_mode, y);
+                } else if *top == FL::Ensemble {
+                    y += ui::legend::draw_ensemble(
+                        &painter,
+                        prect,
+                        &self.ensemble,
+                        y,
+                        self.settings.temp_unit,
+                    );
                 } else if matches!(*top, FL::CompareA | FL::CompareB) {
                     let (label_a, label_b) = self.diff_field.pair();
                     let model = if view.swipe_compare {
@@ -20081,6 +20181,59 @@ pub(crate) fn field_upload_indexed(
 }
 
 impl HookEchoApp {
+    /// One line for layer options: which run this is, or why there is nothing yet.
+    pub(crate) fn ensemble_status_line(&self) -> String {
+        match (&self.ensemble_run, &self.ensemble_error) {
+            (Some(run), _) => format!(
+                "GEFS run {} · valid {} · {} of {} members",
+                run.run.format("%Y-%m-%d %HZ"),
+                run.valid().format("%a %H:%MZ"),
+                run.members.len(),
+                wxdata::ensemble::GEFS_MEMBERS
+            ),
+            (None, Some(error)) => format!("⚠ Ensemble unavailable: {error}"),
+            (None, None) => "Fetching the 31 GEFS members…".into(),
+        }
+    }
+
+    /// Recompute the ensemble statistic from the members already held and queue its texture.
+    /// Cheap next to the fetch, which is why picking a statistic never goes back to the network.
+    fn rebuild_ensemble_display(&mut self) {
+        let layer = crate::render::FieldLayer::Ensemble;
+        let Some(run) = self.ensemble_run.as_ref() else {
+            return;
+        };
+        let view = self.ensemble;
+        match wxdata::ensemble::combine(&run.members, view.statistic()) {
+            Ok(grid) => {
+                let upload = crate::ensemble_layer::upload(&grid, &view);
+                let stamp = field_state::model_stamp(
+                    &format!("GEFS ({} members)", run.members.len()),
+                    &view.title(self.settings.temp_unit),
+                    &grid,
+                    Some(run.run),
+                    false,
+                );
+                if let Some(state) = self.fields.get_mut(&layer) {
+                    state.pending = Some(upload);
+                    state.stamp = Some(stamp);
+                }
+                self.ensemble_grid = Some(grid);
+                self.ensemble_display_key = Some(view.display_key());
+                self.ensemble_error = None;
+            }
+            Err(err) => {
+                self.ensemble_grid = None;
+                self.ensemble_display_key = None;
+                self.ensemble_error = Some(err.to_string());
+                if let Some(state) = self.fields.get_mut(&layer) {
+                    state.pending = None;
+                    state.stamp = None;
+                }
+            }
+        }
+    }
+
     /// Build the GPU upload for `layer` from its freshly-fetched grid, picking the value→index
     /// mapping and color LUT that suit the product's units.
     fn field_upload(
@@ -20870,6 +21023,42 @@ impl eframe::App for HookEchoApp {
                 }
                 self.diff_key = Some((self.diff_field, fh));
                 self.spawn_overlay(ctx, OverlaySource::ModelDiff(self.diff_field, fh));
+            }
+        }
+        // Ensemble layer: the member fetch is keyed on (field, hour); the statistic and threshold
+        // only rebuild the display from the members already held.
+        {
+            let layer = FL::Ensemble;
+            let fh = self.global_fcst_hour;
+            let on = self.field_wanted(layer);
+            let stale = on
+                && self.fields.get(&layer).is_some_and(|s| {
+                    s.last_fetch
+                        .is_none_or(|t| t.elapsed().as_secs() >= field_refresh_secs(layer))
+                });
+            let changed = on && self.ensemble_key != Some((self.ensemble.field, fh));
+            if on
+                && !changed
+                && self.ensemble_run.is_some()
+                && self.ensemble_display_key != Some(self.ensemble.display_key())
+            {
+                self.rebuild_ensemble_display();
+            }
+            if stale || changed {
+                if changed {
+                    self.ensemble_run = None;
+                    self.ensemble_grid = None;
+                    self.ensemble_display_key = None;
+                    if let Some(s) = self.fields.get_mut(&layer) {
+                        s.stamp = None;
+                    }
+                }
+                self.ensemble_error = None;
+                if let Some(s) = self.fields.get_mut(&layer) {
+                    s.last_fetch = Some(Instant::now());
+                }
+                self.ensemble_key = Some((self.ensemble.field, fh));
+                self.spawn_overlay(ctx, OverlaySource::Ensemble(self.ensemble.field, fh));
             }
         }
         // Model comparison: the same two grids the difference layer fetches, shown side by side

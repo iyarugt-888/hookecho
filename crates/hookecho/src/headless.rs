@@ -1985,7 +1985,12 @@ pub fn run_ensemble(
         wxdata::ensemble::fetch_gefs(&client, field, fh).await
     })?;
     let grid = wxdata::ensemble::combine(&run.members, stat)?;
-    let finite: Vec<f32> = grid.values.iter().copied().filter(|v| v.is_finite()).collect();
+    let finite: Vec<f32> = grid
+        .values
+        .iter()
+        .copied()
+        .filter(|v| v.is_finite())
+        .collect();
     anyhow::ensure!(!finite.is_empty(), "the statistic decoded to nothing");
     let (lo, hi) = finite
         .iter()
@@ -2011,16 +2016,9 @@ pub fn run_ensemble(
     let upload = match stat {
         // The ordinary statistics live in the field's own units, so they wear its own ramp.
         Statistic::Mean | Statistic::Min | Statistic::Max | Statistic::Percentile(_) => {
-            let layer = match field {
-                EnsembleField::Temp2m => FL::GlobalTemp2m,
-                EnsembleField::Mslp => FL::GlobalMslp,
-                EnsembleField::Height500 => FL::GlobalHeight500,
-                EnsembleField::Cape => FL::Cape,
-                EnsembleField::PrecipitableWater => FL::GlobalPrecip,
-            };
-            crate::app::field_upload_indexed(layer, &grid)
+            crate::app::field_upload_indexed(crate::ensemble_layer::source_layer(field), &grid)
         }
-        // Spread and probability have no native ramp: one sequential scale, clear at zero.
+        // Spread and probability have no native ramp: one sequential scale, clear at noise.
         Statistic::Spread | Statistic::ProbabilityAbove(_) => {
             let full = match stat {
                 Statistic::Spread => field.spread_full_scale(),
@@ -2028,24 +2026,10 @@ pub fn run_ensemble(
             };
             crate::app::field_index_upload(
                 &grid,
-                |v| {
-                    // Below 2% of full scale is noise, and index 0 is the clear slot.
-                    let t = (v / full).clamp(0.0, 1.0);
-                    if t < 0.02 {
-                        0
-                    } else {
-                        (1.0 + t * 254.0) as u8
-                    }
-                },
-                // Translucent, so the coastlines and borders stay readable underneath.
+                |v| crate::ensemble_layer::sequential_index(v, full),
                 crate::app::ramp_lut_a(
-                    &[
-                        (0.0, [255, 255, 200]),
-                        (0.35, [255, 200, 60]),
-                        (0.7, [230, 90, 40]),
-                        (1.0, [150, 20, 170]),
-                    ],
-                    190,
+                    &crate::ensemble_layer::SEQUENTIAL_STOPS,
+                    crate::ensemble_layer::SEQUENTIAL_ALPHA,
                 ),
             )
         }

@@ -206,6 +206,79 @@ pub fn draw_field(
     }
 }
 
+/// The ensemble layer's key. A statistic in the field's own units (mean, min, max, percentile)
+/// borrows that field's ordinary ramp under a one-line title; a spread or a probability has a
+/// scale of its own, drawn here from the same stops the texture was colored with.
+pub fn draw_ensemble(
+    painter: &egui::Painter,
+    map_rect: Rect,
+    view: &crate::ensemble_layer::EnsembleView,
+    y_offset: f32,
+    temp_unit: crate::settings::TempUnit,
+) -> f32 {
+    use crate::ensemble_layer as el;
+    let title = view.title(temp_unit);
+    if el::uses_field_ramp(view.kind) {
+        let used = draw_compare_label(painter, map_rect, y_offset, &title);
+        return used
+            + draw_field(
+                painter,
+                map_rect,
+                el::source_layer(view.field),
+                y_offset + used,
+                temp_unit,
+            );
+    }
+    let font = FontId::proportional(10.0);
+    let origin = map_rect.left_top() + Vec2::new(INSET, INSET + y_offset);
+    let panel = Rect::from_min_size(origin, Vec2::new(BAR_W + PAD_X * 2.0, BAR_H + 16.0 + 14.0));
+    let bar = Rect::from_min_size(panel.min + Vec2::new(PAD_X, 16.0), Vec2::new(BAR_W, BAR_H));
+    card(painter, panel);
+
+    let cols = bar.width().round().max(1.0) as usize;
+    let lut = crate::app::ramp_lut(&el::SEQUENTIAL_STOPS);
+    for i in 0..cols {
+        let t = i as f32 / (cols - 1).max(1) as f32;
+        let k = (t * 255.0).round() as usize * 4;
+        let c = Color32::from_rgb(lut[k], lut[k + 1], lut[k + 2]);
+        let x = bar.left() + i as f32;
+        painter.rect_filled(
+            Rect::from_min_max(egui::pos2(x, bar.top()), egui::pos2(x + 1.0, bar.bottom())),
+            0.0,
+            c,
+        );
+    }
+    painter.rect_stroke(
+        bar,
+        0.0,
+        Stroke::new(1.0, Color32::from_gray(90)),
+        egui::StrokeKind::Inside,
+    );
+    let full = el::sequential_full_scale(view);
+    for (fraction, align, x) in [
+        (0.0, Align2::LEFT_TOP, bar.left()),
+        (0.5, Align2::CENTER_TOP, bar.center().x),
+        (1.0, Align2::RIGHT_TOP, bar.right()),
+    ] {
+        let text = el::format_value(view, full * fraction, temp_unit).unwrap_or_default();
+        painter.text(
+            egui::pos2(x, bar.bottom() + 2.0),
+            align,
+            text,
+            font.clone(),
+            Color32::from_gray(225),
+        );
+    }
+    painter.text(
+        panel.left_top() + Vec2::new(PAD_X, 3.0),
+        Align2::LEFT_TOP,
+        title,
+        font,
+        Color32::WHITE,
+    );
+    panel.height() + 6.0
+}
+
 /// The difference layer's key: the same diverging LUT the grid was colored with, drawn across
 /// ±range so the reader can tell a cool cell from a warm one and read the size of the split. The
 /// transparent middle is the deadband — where the two models agree and the layer draws nothing —

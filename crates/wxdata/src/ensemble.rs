@@ -134,6 +134,35 @@ impl EnsembleField {
         }
     }
 
+    /// How to show a native value to a person: `(unit label, scale, offset)` with
+    /// `shown = native * scale + offset`. Kelvin and pascals are not what anyone types.
+    pub fn display(self) -> (&'static str, f32, f32) {
+        match self {
+            EnsembleField::Temp2m => ("°C", 1.0, -273.15),
+            EnsembleField::Mslp => ("hPa", 0.01, 0.0),
+            EnsembleField::Height500 => ("gpm", 1.0, 0.0),
+            EnsembleField::Cape => ("J/kg", 1.0, 0.0),
+            EnsembleField::PrecipitableWater => ("mm", 1.0, 0.0),
+        }
+    }
+
+    /// A native value in display units.
+    pub fn to_display(self, native: f32) -> f32 {
+        let (_, scale, offset) = self.display();
+        native * scale + offset
+    }
+
+    /// Display units back to native, for a threshold the user typed.
+    pub fn from_display(self, shown: f32) -> f32 {
+        let (_, scale, offset) = self.display();
+        (shown - offset) / scale
+    }
+
+    /// A *difference* (spread) in display units: the offset does not apply to a range.
+    pub fn spread_to_display(self, native: f32) -> f32 {
+        native * self.display().1
+    }
+
     /// Member spread (std dev, native units) at which a spread map reaches full color. Eyeballed
     /// from what a genuinely uncertain day-3 forecast looks like for each field.
     pub fn spread_full_scale(self) -> f32 {
@@ -370,10 +399,25 @@ mod tests {
     }
 
     #[test]
+    fn display_conversions_round_trip_and_spread_ignores_the_offset() {
+        for f in EnsembleField::ALL {
+            let t = f.default_threshold();
+            assert!((f.from_display(f.to_display(t)) - t).abs() < t.abs() * 1e-5 + 1e-3);
+        }
+        // 273.15 K is the freezing point; a 2 K spread is 2 °C, not -271.15.
+        assert!((EnsembleField::Temp2m.to_display(273.15)).abs() < 1e-4);
+        assert_eq!(EnsembleField::Temp2m.spread_to_display(2.0), 2.0);
+        assert!((EnsembleField::Mslp.spread_to_display(500.0) - 5.0).abs() < 1e-5);
+    }
+
+    #[test]
     fn statistic_specs_parse() {
         let f = EnsembleField::Cape;
         assert_eq!(Statistic::parse("mean", f), Some(Statistic::Mean));
-        assert_eq!(Statistic::parse(" P90 ", f), Some(Statistic::Percentile(90)));
+        assert_eq!(
+            Statistic::parse(" P90 ", f),
+            Some(Statistic::Percentile(90))
+        );
         assert_eq!(
             Statistic::parse("prob", f),
             Some(Statistic::ProbabilityAbove(1_000.0))

@@ -112,6 +112,11 @@ pub(crate) fn show(
     blink_compare: bool,
     overlay_compare: bool,
     swipe_compare: bool,
+    // Ensemble layer (ROADMAP_NEW F7): what it shows, a one-line status, and the reader's
+    // temperature unit for a threshold typed in degrees.
+    ensemble: &mut crate::ensemble_layer::EnsembleView,
+    ensemble_note: &str,
+    temp_unit: crate::settings::TempUnit,
     // Lightning: NLDN averaging window, and whether GLM also polls GOES-West.
     lightning_minutes: &mut u16,
     show_glm: bool,
@@ -192,6 +197,7 @@ pub(crate) fn show(
             "Model comparison",
             on.contains(&FL::ModelDiff) || on.contains(&FL::CompareA) || on.contains(&FL::CompareB),
         ),
+        ("Ensemble", on.contains(&FL::Ensemble)),
         ("Lightning", show_glm || on.contains(&FL::Lightning)),
         (
             "Satellite",
@@ -398,6 +404,67 @@ pub(crate) fn show(
                 }
             });
         }
+    }
+
+    if section == "Ensemble" && on.contains(&FL::Ensemble) {
+        use crate::ensemble_layer::StatKind;
+        use wxdata::ensemble::EnsembleField;
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Field:");
+            for f in EnsembleField::ALL {
+                if ui
+                    .selectable_label(ensemble.field == f, f.label())
+                    .clicked()
+                {
+                    ensemble.set_field(f);
+                }
+            }
+        });
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Show:");
+            for kind in StatKind::ALL {
+                ui.selectable_value(&mut ensemble.kind, kind, kind.label());
+            }
+        });
+        if ensemble.kind == StatKind::Probability {
+            let (mut shown, unit) = ensemble.threshold_display(temp_unit);
+            ui.horizontal(|ui| {
+                ui.label("Chance above:");
+                let speed = (shown.abs() * 0.01).max(0.5);
+                if ui
+                    .add(
+                        egui::DragValue::new(&mut shown)
+                            .speed(speed)
+                            .suffix(format!(" {unit}")),
+                    )
+                    .changed()
+                {
+                    ensemble.set_threshold_display(shown, temp_unit);
+                }
+                if ui.small_button("Reset").clicked() {
+                    ensemble.threshold = ensemble.field.default_threshold();
+                }
+            });
+        }
+        ui.horizontal(|ui| {
+            ui.label("Forecast hour:");
+            changed |= ui
+                .add(
+                    egui::Slider::new(global_fcst_hour, 0..=120)
+                        .step_by(3.0)
+                        .suffix(" h"),
+                )
+                .on_hover_text("Three-hourly from the newest complete GEFS cycle")
+                .changed();
+        });
+        ui.weak(match ensemble.kind {
+            StatKind::Mean => "Average of the 31 members. Smooths out detail no single run can be trusted on.",
+            StatKind::Spread => "How far the members disagree (standard deviation). High spread means low confidence.",
+            StatKind::Min | StatKind::Max => "The coolest/lowest or warmest/highest any member forecast at each point.",
+            StatKind::P10 | StatKind::P90 => "One member in ten is beyond this value — a plausible low or high end.",
+            StatKind::Probability => "Share of the 31 members above the threshold. It is a fraction of runs, not a calibrated probability.",
+        });
+        ui.weak(ensemble_note);
     }
 
     if section == "Lightning" && on.contains(&FL::Lightning) {

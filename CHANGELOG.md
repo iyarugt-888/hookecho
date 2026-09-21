@@ -18,8 +18,17 @@ lattice and valid time are refused. It covers 2 m temperature, MSLP, 500 hPa hei
 CAPE and precipitable water.
 
 `hookecho --headless-ensemble <field> <stat> <hour> [out.png]` renders any statistic from live
-data, for example `cape prob:1000 24` or `t2m spread 72`. There is no in-app layer yet; that is
-the next step.
+data, for example `cape prob:1000 24` or `t2m spread 72`.
+
+### Added: “GEFS ensemble” map layer (F7)
+
+The Models group has a new “GEFS ensemble” layer. Layer options pick the field (2 m temperature,
+MSLP, 500 hPa height, mixed-layer CAPE, precipitable water) and what to show: mean, spread, min,
+max, 10th or 90th percentile, or the share of members above a threshold you can edit in your own
+units (°F/°C for temperature). Statistics in the field’s own units use that field’s usual colors;
+spread and probability use a separate translucent scale, with a legend for each. Hovering reads
+the value in your units, for example “±9.0 °F” or “62%”. The 31 members are fetched once and held,
+so switching statistic or threshold recomputes instantly rather than downloading again.
 
 ### Added: “Forecast comparison” starter workspace (J5)
 

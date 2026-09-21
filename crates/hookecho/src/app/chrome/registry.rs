@@ -36,6 +36,7 @@ fn field_layer_is_health_tracked(layer: crate::render::FieldLayer) -> bool {
                 | FL::ModelDiff
                 | FL::CompareA
                 | FL::CompareB
+                | FL::Ensemble
         )
 }
 
@@ -694,6 +695,13 @@ impl HookEchoApp {
                 "Models",
                 "Compare (pane B)",
                 "The other model's own field, meant for its own pane",
+                false,
+            ),
+            (
+                FL::Ensemble,
+                "Models",
+                "GEFS ensemble",
+                "What 31 forecast runs say together: mean, spread, percentiles or the chance of crossing a threshold \u{2014} pick in layer options",
                 false,
             ),
             (

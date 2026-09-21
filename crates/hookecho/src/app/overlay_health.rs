@@ -36,6 +36,7 @@ impl OverlayMsg {
                 Some(field.stamp.valid_time)
             }
             Self::ModelDiff(_, _, _, times) | Self::Compare(_, _, _, _, times) => Some(times.valid),
+            Self::Ensemble(_, _, run) => Some(run.valid()),
             Self::Spotters(spotters) => latest(spotters.iter().map(|s| s.time)),
             Self::Hrrr(forecast) => Some(forecast.valid()),
             Self::Wind(field) => Some(field.valid()),

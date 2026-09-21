@@ -191,6 +191,7 @@ impl HookEchoApp {
                 }
                 // A drag rewrites the order in place, so persist it when it moves.
                 let order_was = self.settings.layer_order.clone();
+                let ensemble_note = self.ensemble_status_line();
                 let layer_settings_label = if self.field_time_mismatches().is_empty() {
                     "Layer settings"
                 } else {
@@ -259,6 +260,9 @@ impl HookEchoApp {
                                     self.views[self.active].blink_compare,
                                     self.views[self.active].overlay_compare,
                                     self.views[self.active].swipe_compare,
+                                    &mut self.ensemble,
+                                    &ensemble_note,
+                                    self.settings.temp_unit,
                                     &mut self.settings.lightning_minutes,
                                     glm_options,
                                     &mut self.settings.glm_goes_west,
