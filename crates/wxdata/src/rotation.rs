@@ -48,6 +48,10 @@ pub struct CoupletHit {
     /// at 0.5 on rotational strength alone; [`detect_volume`] can go higher once a couplet repeats
     /// up through the tilts.
     pub confidence: f32,
+    /// What people and forecasters said about it: a tornado report near it, or an observed
+    /// tornado warning over it. Separate from `confidence`, which is radar alone and stops at 100%;
+    /// see [`crate::confirm`]. Set by the caller, never by the detector.
+    pub confirmation: crate::confirm::Confirmation,
 }
 
 /// Which revision of the scoring produced a hit; bump it when any weight or rule below changes.
@@ -156,6 +160,10 @@ impl Explanation {
             self.confidence * 100.0,
             self.version
         )];
+        // Human evidence sits above the radar score, not in it.
+        if let Some(line) = hit.confirmation.describe() {
+            out.push(line);
+        }
         for r in &self.reasons {
             out.push(format!(
                 "{:<9} {:>3.0}% x {:.0}%   {}",
@@ -207,6 +215,50 @@ fn dest(lon: f64, lat: f64, bearing_deg: f64, dist_km: f64) -> (f64, f64) {
     (lo2.to_degrees(), la2.to_degrees())
 }
 
+/// The longest gap (ms) between two neighbouring radials of one pass. Adjacent bins are a fraction
+/// of a second apart; a whole rotation is about ten seconds. Two seconds passes normal jitter and
+/// a slow-scan cut, and rejects any pairing of different passes.
+const MAX_NEIGHBOUR_GAP_MS: i64 = 2_000;
+
+/// Whether bins `a` and `b` of `sweep` were scanned as neighbours. Sweeps built without timing
+/// (every fixture, and any path that predates partial-sweep rendering) have no way to say, and are
+/// taken at their word.
+fn scanned_together(sweep: &BinnedSweep, a: usize, b: usize) -> bool {
+    match (sweep.bin_time_ms.get(a), sweep.bin_time_ms.get(b)) {
+        (Some(&ta), Some(&tb)) => ta != 0 && tb != 0 && (ta - tb).abs() <= MAX_NEIGHBOUR_GAP_MS,
+        _ => true,
+    }
+}
+
+/// Whether a gate pair is a fold that dealiasing left behind rather than shear.
+///
+/// Velocity wraps at the Nyquist velocity, so a field that failed to unfold still jumps from about
+/// +Nyquist to about -Nyquist across the fold line: a difference of almost exactly two Nyquists
+/// between two gates each near the limit. A live volume showed a hundred such "couplets" in one
+/// sweep, every one a spread of 51 m/s on a 26.6 m/s Nyquist.
+///
+/// The tell is that both sides sit *at* the limit (0.75 to 1.1 Nyquists) with a difference of
+/// 1.6 to 2.2 Nyquists. Real rotation strong enough to matter unfolds past the limit, on one side or
+/// both: the 2013 Moore tornado reads about 50 m/s each way on a 26.6 m/s Nyquist, well clear of
+/// this band, and must not be mistaken for a fold. `nyquist_ms` of 0 (unknown) never flags anything.
+fn is_leftover_fold(a: f32, b: f32, nyquist_ms: f32) -> bool {
+    let at_the_limit = |v: f32| (0.75 * nyquist_ms..=1.1 * nyquist_ms).contains(&v.abs());
+    nyquist_ms > 5.0
+        && at_the_limit(a)
+        && at_the_limit(b)
+        && ((1.6 * nyquist_ms)..=(2.2 * nyquist_ms)).contains(&(a - b).abs())
+}
+
+/// Whether a radial pair is a seam or a bad radial rather than rotation. A couplet is a compact
+/// thing: a few gates along a radial, at one range. When a large share of everything comparable
+/// along a radial pair qualifies at once, the two radials disagree along their whole length, which
+/// is what a dealiasing failure, the edge of a partial sweep, interference or a radial with bad data
+/// looks like, and it draws a straight line of false couplets out from the radar. `candidates` is
+/// how many gate pairs qualified and `comparable` how many had data on both sides.
+fn is_seam(candidates: usize, comparable: usize) -> bool {
+    candidates >= 8 && candidates as f32 > 0.2 * comparable as f32
+}
+
 /// Detect rotation couplets in a velocity sweep. A gate pair is a candidate when two azimuthally
 /// adjacent gates at the same range differ by `>= g2g_min_ms` in opposite senses (one inbound,
 /// one outbound — same-sign shear is convergence/divergence, not rotation), between
@@ -244,8 +296,18 @@ pub fn detect(
     let (rlon, rlat) = (vel.radar_lon as f64, vel.radar_lat as f64);
 
     for az in 0..vel.az_bins {
-        let next = (az + 1) % vel.az_bins; // wraps 719 → 0
+        let next = (az + 1) % vel.az_bins; // wraps 719 to 0
         let az_deg = (az as f64 + 0.5) * 360.0 / vel.az_bins as f64;
+        // Two neighbouring bins that were not scanned together are not neighbours: a partial live
+        // sweep leaves the previous rotation beside the current one, and any difference between
+        // two passes reads as shear along that radial.
+        if !scanned_together(vel, az, next) {
+            continue;
+        }
+        // Candidates are held until the whole radial pair has been read, so a seam (see
+        // `is_seam`) can be thrown out as one piece instead of one gate at a time.
+        let mut row: Vec<(f64, f64, f32, f32, f32, f32)> = Vec::new();
+        let mut comparable = 0usize;
         for gate in 0..vel.gate_count {
             let range = vel.first_gate_km + gate as f32 * vel.gate_interval_km;
             if range > max_range_km {
@@ -260,9 +322,13 @@ pub fn detect(
             let Some(b) = decode(vel, vel.data[next * vel.gate_count + gate]) else {
                 continue;
             };
+            comparable += 1;
             let dv = (a - b).abs();
             if dv < g2g_min_ms || a * b >= 0.0 {
                 continue; // too weak, or both gates on the same side of zero (not a couplet)
+            }
+            if is_leftover_fold(a, b, vel.nyquist_ms) {
+                continue;
             }
             // Real echo has to be behind the shear somewhere, or this is clear-air noise or a
             // receiver artifact wearing a couplet's shape, not rotation.
@@ -278,6 +344,12 @@ pub fn detect(
                 continue;
             }
             let (lon, lat) = dest(rlon, rlat, az_deg, range as f64);
+            row.push((lon, lat, range, a, b, dv));
+        }
+        if is_seam(row.len(), comparable) {
+            continue;
+        }
+        for (lon, lat, range, a, b, dv) in row {
             let key = ((lon / CELL).round() as i64, (lat / CELL).round() as i64);
             let e = cells
                 .entry(key)
@@ -311,6 +383,7 @@ pub fn detect(
                 tilts: 1,
                 top_km: crate::xsection::beam_height_km(range_km as f64, elev) as f32,
                 confidence,
+                confirmation: crate::confirm::Confirmation::NONE,
             }
         })
         .collect();
@@ -399,6 +472,7 @@ pub fn detect_volume(
                     tilts,
                     top_km,
                     confidence,
+                    confirmation: crate::confirm::Confirmation::NONE,
                 }
             },
         )
@@ -637,6 +711,109 @@ mod tests {
         assert!(single[0].confidence <= 0.5);
     }
 
+    /// A dealiasing failure, the edge of a partial sweep or a bad radial pair makes two neighbouring
+    /// radials disagree along their whole length. That is a straight line of "couplets" from the
+    /// radar, and it used to draw hundreds of them across a live sweep.
+    #[test]
+    fn two_radials_that_disagree_along_their_whole_length_are_a_seam_not_rotation() {
+        let (lo, hi) = Moment::Velocity.value_range();
+        let idx = |v: f32| (2.0 + (v - lo) / (hi - lo) * 253.0).round() as u8;
+        let mut seam = couplet_sweep_tilt(0.5, 0.0, 0.0, 20.0);
+        for az in 360..720 {
+            for g in 0..seam.gate_count {
+                seam.data[az * seam.gate_count + g] = idx(-20.0);
+            }
+        }
+        let hits = detect(&seam, &z_sweep(0.5, Some(45.0)), 25.0, 20.0, 5.0, 150.0, 3);
+        assert!(hits.is_empty(), "{} false couplets on a seam", hits.len());
+        // The rule, by itself: a lot of a radial qualifying is a seam, a compact patch is not.
+        assert!(is_seam(150, 190));
+        assert!(
+            !is_seam(8, 190),
+            "a real couplet is a few gates on one radial"
+        );
+        assert!(
+            !is_seam(3, 5),
+            "and a handful of candidates is never enough to call it"
+        );
+    }
+
+    #[test]
+    fn a_pair_jumping_between_the_two_nyquist_limits_is_a_leftover_fold() {
+        let ny = 26.6;
+        // The artifact on real data: about +26 beside about -26.
+        assert!(is_leftover_fold(25.9, -25.7, ny));
+        assert!(is_leftover_fold(-26.4, 26.0, ny));
+        // The 2013 Moore tornado: about 50 m/s each way, past the limit on both sides.
+        assert!(!is_leftover_fold(51.0, -51.0, ny));
+        // One side over the limit and the other not is real rotation unfolding unevenly.
+        assert!(!is_leftover_fold(40.0, -20.0, ny));
+        // A modest couplet nowhere near the limit.
+        assert!(!is_leftover_fold(15.0, -15.0, ny));
+        // Unknown Nyquist: nothing is called a fold.
+        assert!(!is_leftover_fold(25.9, -25.7, 0.0));
+    }
+
+    #[test]
+    fn folded_pairs_are_dropped_only_when_the_sweep_knows_its_nyquist() {
+        let mut folded = couplet_sweep_tilt(0.5, -26.0, 26.0, 0.0);
+        let z = z_sweep(0.5, Some(45.0));
+        // A 40 m/s floor keeps the fixture's 26 m/s flanks out, so only the jump between the limits is left.
+        let run = |s: &BinnedSweep| detect(s, &z, 40.0, 20.0, 5.0, 150.0, 3).len();
+        assert_eq!(run(&folded), 1, "no Nyquist known: taken as rotation");
+        folded.nyquist_ms = 26.6;
+        assert_eq!(
+            run(&folded),
+            0,
+            "at the limit both ways: a fold that survived dealiasing"
+        );
+        let mut strong = couplet_sweep_tilt(0.5, -50.0, 50.0, 0.0);
+        strong.nyquist_ms = 26.6;
+        assert_eq!(run(&strong), 1, "a genuine strong couplet is kept");
+    }
+
+    #[test]
+    fn a_real_couplet_survives_the_seam_guard() {
+        let hits = detect(
+            &couplet_sweep_tilt(0.5, -30.0, 30.0, 0.0),
+            &z_sweep(0.5, Some(45.0)),
+            25.0,
+            20.0,
+            5.0,
+            150.0,
+            3,
+        );
+        assert_eq!(hits.len(), 1);
+    }
+
+    /// Bins from different passes are not neighbours: a partial live sweep has the previous
+    /// rotation beside the current one.
+    #[test]
+    fn radials_scanned_a_pass_apart_are_not_compared() {
+        let s = couplet_sweep_tilt(0.5, -30.0, 30.0, 0.0);
+        let z = z_sweep(0.5, Some(45.0));
+        let run = |sweep: &BinnedSweep| detect(sweep, &z, 25.0, 20.0, 5.0, 150.0, 3).len();
+        // Timed as one pass, ten milliseconds a radial: found.
+        let mut together = s.clone();
+        together.bin_time_ms = (0..720).map(|a| 1_000_000 + a as i64 * 10).collect();
+        assert_eq!(run(&together), 1);
+        // Every radial pair around the couplet straddles a pass boundary (its flanks quantise to a
+        // little either side of zero, so the pairs beside the main one qualify too).
+        let mut apart = together.clone();
+        for a in (90..110).filter(|a| a % 2 == 1) {
+            apart.bin_time_ms[a] -= 10_000;
+        }
+        assert_eq!(run(&apart), 0);
+        // A bin no radial landed in (time 0) cannot be one half of a couplet either.
+        let mut hole = together.clone();
+        for a in 96..=104 {
+            hole.bin_time_ms[a] = 0;
+        }
+        assert_eq!(run(&hole), 0);
+        // No timing at all: taken at its word, as every fixture is.
+        assert_eq!(run(&s), 1);
+    }
+
     #[test]
     fn detect_volume_still_reports_a_lone_single_tilt_hit() {
         let hits = detect_volume(
@@ -680,6 +857,7 @@ mod scoring_tests {
                 evidence(g2g_ms, per_tilt, range_km),
                 vertical_term(top_km, tilts),
             ),
+            confirmation: crate::confirm::Confirmation::NONE,
         }
     }
 

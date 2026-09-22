@@ -8,6 +8,26 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: false couplets from scan seams, leftover folds and tower clutter; confirmed detections
+
+A live sweep showed hundreds of rotation couplets in a straight line out from the radar. Three causes,
+three guards. **Seams:** radials scanned a pass apart (the edge of a partial sweep) are no longer compared,
+and a radial pair that disagrees along much of its length is discarded as a seam or bad radial, not
+rotation. **Leftover folds:** dealiasing leaves some velocity jumping between about +Nyquist and -Nyquist;
+those pairs (both sides at the limit, a difference of about two Nyquists) are dropped, using the Nyquist
+velocity the sweep now carries. Real strong rotation past the limit is untouched: on the 2013-05-20 Moore
+volumes the couplets fell from 96 to 33 and from 91 to 13, and the tornado still reads 99 kt beside its
+debris ball. **Tower clutter:** debris signatures ignore gates within 3 km of the radar and are discounted
+out to 15 km, where low CC in strong echo is clutter and sidelobes. At most 40 couplet markers draw at once.
+
+**Confirmed detections.** A debris signature or couplet near a tornado report (within 10 km and 30 minutes)
+or inside a tornado warning marked observed is tagged REPORTED, OBSERVED or, with both, CONFIRMED, with a gold
+ring and a line in its hover explanation. This is a tier above the radar score, not part of it: the detector’s
+0-100% is unchanged, the confidence slider never hides a confirmed detection, and confirmed ones sort
+first. A plain radar-indicated tornado warning does not count, because it is issued from the same signatures
+the detector sees. Reports now load when either detector layer is on. The report backtest still scores the
+radar alone.
+
 ### New: score the detectors against tornado reports
 
 `hookecho --headless-backtest <SITE> <YYYY-MM-DD> <HH:MM> [volumes]` runs the debris and rotation

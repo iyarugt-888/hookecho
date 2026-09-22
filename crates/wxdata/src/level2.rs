@@ -153,6 +153,11 @@ pub struct BinnedSweep {
     /// confused with newly scanned data; this is that mask, compressed to the one contiguous
     /// wedge a mechanically rotating antenna can actually leave behind.
     pub stale_arc_deg: Option<(f32, f32)>,
+    /// The Nyquist velocity (m/s) the raw radials were folded at, estimated as the largest raw |v|.
+    /// Set on a velocity sweep that was dealiased (dealiasing is where the raw field is at hand);
+    /// `0` means unknown. A dealiased field can hold values past it, so the sweep's own value range
+    /// cannot say. Detectors use it to tell a real shear from a fold that dealiasing left behind.
+    pub nyquist_ms: f32,
 }
 
 impl Default for BinnedSweep {
@@ -171,6 +176,7 @@ impl Default for BinnedSweep {
             value_max: 0.0,
             bin_time_ms: Vec::new(),
             stale_arc_deg: None,
+            nyquist_ms: 0.0,
         }
     }
 }
@@ -1234,6 +1240,7 @@ pub fn bin_sweep_opts(
     };
 
     let mut data = vec![0u8; AZ_BINS * gate_count];
+    let mut nyquist_ms = 0.0f32;
     if moment == Moment::SpecificDifferentialPhase {
         // KDP is the range derivative of ΦDP, so it has to be taken on the physical field:
         // the u8 band quantizes 0..360 deg into 253 steps (~1.4 deg), which is the same order
@@ -1273,6 +1280,7 @@ pub fn bin_sweep_opts(
             gather_row(bin, row, &by_bin);
         }
         let nyq = crate::dealias::estimate_nyquist(&vel);
+        nyquist_ms = nyq;
         // Continuity: hand the previous pass over this same tilt to the dealiaser, so a storm
         // whose fastest air genuinely sits past the Nyquist velocity stays unfolded from volume
         // to volume instead of snapping to zero whenever the fast region becomes the biggest one.
@@ -1359,6 +1367,7 @@ pub fn bin_sweep_opts(
         value_max,
         bin_time_ms,
         stale_arc_deg,
+        nyquist_ms,
     })
 }
 

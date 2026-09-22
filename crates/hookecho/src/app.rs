@@ -94,6 +94,13 @@ fn book(b: &Mutex<PrefetchBook>) -> std::sync::MutexGuard<'_, PrefetchBook> {
 }
 
 /// Even-odd point-in-ring test on a `[lon, lat]` ring — the click test for watch zones.
+/// The most rotation couplet markers drawn at once.
+const MAX_COUPLET_MARKERS: usize = 40;
+
+/// The ring and badge colour of a detection confirmed by a report or an observed warning: distinct
+/// from the detector colours, because it is a different kind of evidence.
+const CONFIRMED_GOLD: egui::Color32 = egui::Color32::from_rgb(255, 215, 64);
+
 fn point_in_ring_ll(ring: &[[f64; 2]], lon: f64, lat: f64) -> bool {
     wxdata::overlay::rings_intersect(
         ring,
@@ -8912,7 +8919,68 @@ impl HookEchoApp {
         // The cache holds everything the detector found; the user's confidence threshold is applied
         // on the way out, so lowering it shows the hidden hits at once instead of at the next scan.
         let min = self.settings.detectors.tds_min_confidence;
-        all.into_iter().filter(|h| h.confidence >= min).collect()
+        let evidence = self.confirm_evidence(idx);
+        let minute = self.volume_minute(idx);
+        let mut shown: Vec<_> = all
+            .into_iter()
+            .map(|mut h| {
+                h.confirmation = wxdata::confirm::confirm(h.lon, h.lat, minute, &evidence);
+                h
+            })
+            // Human confirmation outranks the radar score, so the slider never hides it.
+            .filter(|h| h.confidence >= min || h.confirmation.level().is_some())
+            .collect();
+        shown.sort_by_key(|h| std::cmp::Reverse(h.confirmation.level()));
+        // Whatever the detector makes of a bad sweep, the map is never buried under markers: the
+        // strongest and the confirmed are kept.
+        shown.truncate(MAX_COUPLET_MARKERS);
+        shown
+    }
+
+    /// The tornado reports and tornado warnings a detection can be confirmed by right now: the live
+    /// ones, or the archived ones while the playhead is off live. See [`wxdata::confirm`].
+    fn confirm_evidence(&self, idx: usize) -> wxdata::confirm::Evidence {
+        use wxdata::confirm::{is_observed, report_minute, TornadoReport, TornadoWarning};
+        let minute = self.volume_minute(idx);
+        let warnings = self
+            .active_alert_features()
+            .iter()
+            .filter_map(|f| {
+                let a = f.alert.as_ref()?;
+                if !a.event.eq_ignore_ascii_case("Tornado Warning") {
+                    return None;
+                }
+                Some(TornadoWarning {
+                    rings: f.rings.clone(),
+                    observed: is_observed(
+                        a.tornado_detection.as_deref(),
+                        wxdata::alerts::escalation(a) >= 3,
+                    ),
+                })
+            })
+            .collect();
+        let reports = self
+            .active_storm_reports()
+            .iter()
+            .filter(|r| r.kind == wxdata::spc::ReportKind::Tornado)
+            .filter_map(|r| {
+                Some(TornadoReport {
+                    lon: r.lon,
+                    lat: r.lat,
+                    minute: report_minute(&r.time, minute)?,
+                })
+            })
+            .collect();
+        wxdata::confirm::Evidence { reports, warnings }
+    }
+
+    /// Minutes since the Unix epoch of the pane's displayed volume, the moment its detections are
+    /// about. Zero with no volume, when there are no detections to place anyway.
+    fn volume_minute(&self, idx: usize) -> i64 {
+        self.views[idx]
+            .volume
+            .as_ref()
+            .map_or(0, |v| v.time.timestamp().div_euclid(60))
     }
 
     fn compute_tds_uncached(&mut self, idx: usize) -> Vec<wxdata::tds::TdsHit> {
@@ -9008,15 +9076,26 @@ impl HookEchoApp {
         // The cache holds every couplet found; the user's confidence threshold is applied on the
         // way out, so lowering it shows the hidden ones at once instead of at the next scan.
         let min = self.settings.detectors.rotation_min_confidence;
-        if let Some((k, v)) = &self.couplet_cache {
-            if *k == key {
-                return v.iter().copied().filter(|h| h.confidence >= min).collect();
+        let all = match &self.couplet_cache {
+            Some((k, v)) if *k == key => v.clone(),
+            _ => {
+                let out = self.compute_couplets_uncached(idx);
+                self.couplet_cache = Some((key, out.clone()));
+                out
             }
-        }
-        let out = self.compute_couplets_uncached(idx);
-        self.couplet_cache = Some((key, out.clone()));
-        let min = self.settings.detectors.rotation_min_confidence;
-        out.into_iter().filter(|h| h.confidence >= min).collect()
+        };
+        let evidence = self.confirm_evidence(idx);
+        let minute = self.volume_minute(idx);
+        let mut shown: Vec<_> = all
+            .into_iter()
+            .map(|mut h| {
+                h.confirmation = wxdata::confirm::confirm(h.lon, h.lat, minute, &evidence);
+                h
+            })
+            .filter(|h| h.confidence >= min || h.confirmation.level().is_some())
+            .collect();
+        shown.sort_by_key(|h| std::cmp::Reverse(h.confirmation.level()));
+        shown
     }
 
     /// Packs saved in this browser, refreshed in the background whenever one is written.
@@ -11237,7 +11316,7 @@ impl HookEchoApp {
     /// Drive the archived-LSR set from the active pane's playhead (mirrors
     /// [`Self::sync_archive_warnings`], on 30-min buckets).
     fn sync_archive_lsr(&mut self, ctx: &egui::Context) {
-        if !self.show_storm_reports {
+        if !(self.show_storm_reports || self.filters.show_tds || self.filters.show_couplets) {
             return;
         }
         let bucket = (|| {
@@ -16643,6 +16722,14 @@ impl HookEchoApp {
                 let rot = h
                     .rotation_ms
                     .map_or(String::new(), |v| format!(" · rot {:.0}kt", v * 1.943_844));
+                // Confirmed by people, above the radar score: a gold ring and the badge.
+                let badge = h
+                    .confirmation
+                    .level()
+                    .map_or(String::new(), |l| format!(" · {}", l.label()));
+                if h.confirmation.level().is_some() {
+                    painter.circle_stroke(p, 15.0, egui::Stroke::new(2.5, CONFIRMED_GOLD));
+                }
                 painter.text(
                     p + egui::vec2(0.0, -s - 2.0),
                     egui::Align2::CENTER_BOTTOM,
@@ -16651,14 +16738,18 @@ impl HookEchoApp {
                     // evidence of anything lofted.
                     if h.tilts > 1 {
                         format!(
-                            "TDS ρ{:.2} · {}t {:.1}km · {:.0}%{rot}",
+                            "TDS ρ{:.2} · {}t {:.1}km · {:.0}%{rot}{badge}",
                             h.min_cc,
                             h.tilts,
                             h.top_km,
                             h.confidence * 100.0
                         )
                     } else {
-                        format!("TDS ρ{:.2} · {:.0}%{rot}", h.min_cc, h.confidence * 100.0)
+                        format!(
+                            "TDS ρ{:.2} · {:.0}%{rot}{badge}",
+                            h.min_cc,
+                            h.confidence * 100.0
+                        )
                     },
                     egui::FontId::proportional(11.0),
                     m,
@@ -16761,6 +16852,13 @@ impl HookEchoApp {
                     egui::Color32::from_rgb(245, 160, 50)
                 };
                 painter.circle_stroke(p, 11.0, egui::Stroke::new(2.0, col));
+                let badge = h
+                    .confirmation
+                    .level()
+                    .map_or(String::new(), |l| format!(" · {}", l.label()));
+                if h.confirmation.level().is_some() {
+                    painter.circle_stroke(p, 16.0, egui::Stroke::new(2.5, CONFIRMED_GOLD));
+                }
                 if strong {
                     painter.circle_filled(p, 3.5, col);
                 }
@@ -16771,7 +16869,7 @@ impl HookEchoApp {
                     // there's more than one tilt behind it.
                     if h.tilts > 1 {
                         format!(
-                            "ROT {:.0} kt · {}t {:.1}km · {:.0}%",
+                            "ROT {:.0} kt · {}t {:.1}km · {:.0}%{badge}",
                             h.vrot_ms * 1.943_844,
                             h.tilts,
                             h.top_km,
@@ -16779,7 +16877,7 @@ impl HookEchoApp {
                         )
                     } else {
                         format!(
-                            "ROT {:.0} kt · {:.0}%",
+                            "ROT {:.0} kt · {:.0}%{badge}",
                             h.vrot_ms * 1.943_844,
                             h.confidence * 100.0
                         )
@@ -22058,7 +22156,8 @@ impl eframe::App for HookEchoApp {
             }
         }
         // Live LSR refresh (~2-min cadence; the IEM feed is minutes-fresh).
-        if self.show_storm_reports
+        // The reports layer, or a detector that confirms itself against them.
+        if (self.show_storm_reports || self.filters.show_tds || self.filters.show_couplets)
             && self
                 .reports_last_fetch
                 .is_none_or(|t| t.elapsed().as_secs() >= 120)

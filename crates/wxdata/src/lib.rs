@@ -10,6 +10,7 @@ pub mod beam_geometry;
 pub mod cellscore;
 pub mod celltrack;
 pub mod clock;
+pub mod confirm;
 pub mod continuation;
 pub mod contour;
 pub mod dat;

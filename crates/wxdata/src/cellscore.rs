@@ -181,6 +181,7 @@ mod tests {
             tilts: 1,
             top_km: 0.5,
             confidence: 0.5,
+            confirmation: crate::confirm::Confirmation::NONE,
         }];
         let s = score_all(&cells, &feats, &couplets);
         // Inside the polygon and next to the couplet: 90% at weight 0.4 and a maxed Vrot ramp at

@@ -34,6 +34,15 @@ use std::collections::HashSet;
 /// CC, the shape hail cores and biological scatter make.
 pub const MAX_AREA_KM2: f32 = 120.0;
 
+/// Gates nearer the radar than this (km) are not read. Right at the tower the beam is in the
+/// clutter, the sidelobes and the cone of silence, and low CC in strong echo there is static, not
+/// debris.
+pub const MIN_RANGE_KM: f32 = 3.0;
+
+/// From [`MIN_RANGE_KM`] out to here the clutter risk fades: the score is halved at the edge of the
+/// blind zone and full strength by this range.
+pub const CLUTTER_RANGE_KM: f32 = 15.0;
+
 /// Hits from different tilts closer than this (km) are the same column.
 const ASSOCIATE_KM: f64 = 3.0;
 
@@ -79,6 +88,10 @@ pub struct TdsHit {
     /// [`ROTATION_ASSOCIATE_KM`], once [`corroborate_with_rotation`] has been run. `None` means no
     /// rotation was found near this hit (or it was never checked); it is not evidence against it.
     pub rotation_ms: Option<f32>,
+    /// What people and forecasters said about it: a tornado report near it, or an observed
+    /// tornado warning over it. Separate from `confidence`, which is radar alone and stops at 100%;
+    /// see [`crate::confirm`]. Set by the caller, never by the detector.
+    pub confirmation: crate::confirm::Confirmation,
     /// 0..1 confidence, from the evidence above and the vertical continuity. A single tilt has no
     /// vertical evidence, so [`detect`] never reports more than [`SINGLE_TILT_CAP`]; a hit that
     /// repeats up through the tilts earns the rest. Rotation nearby ([`corroborate_with_rotation`])
@@ -198,7 +211,13 @@ impl Terms {
             (1.0 - 0.8 * (area_km2 - 15.0) / (MAX_AREA_KM2 - 15.0)).clamp(0.2, 1.0)
         };
         let contrast = contrast.map_or(0.5, |c| ((c - 0.02) / 0.13).clamp(0.0, 1.0));
-        let range = 1.0 - 0.3 * ((range_km - 60.0) / 90.0).clamp(0.0, 1.0);
+        // Far out the beam is wide and a ball is a few gates; up close, ground clutter, the tower
+        // and wind turbines and their sidelobes give low CC in strong echo of their own. Both
+        // discount the whole score, and the nearest gates are not read at all (`MIN_RANGE_KM`).
+        let far = 1.0 - 0.3 * ((range_km - 60.0) / 90.0).clamp(0.0, 1.0);
+        let near = 0.5
+            + 0.5 * ((range_km - MIN_RANGE_KM) / (CLUTTER_RANGE_KM - MIN_RANGE_KM)).clamp(0.0, 1.0);
+        let range = far * near;
         Terms {
             depth,
             contrast,
@@ -344,6 +363,10 @@ impl Explanation {
             self.confidence * 100.0,
             self.version
         )];
+        // Human evidence sits above the radar score, not in it.
+        if let Some(line) = hit.confirmation.describe() {
+            out.push(line);
+        }
         for r in &self.reasons {
             out.push(format!(
                 "{:<9} {:>3.0}% x {:.0}%   {}",
@@ -416,6 +439,9 @@ pub fn detect(
         let z_az = az * z.az_bins / nb;
         for gate in 0..ng {
             let range = cc.first_gate_km + gate as f32 * cc.gate_interval_km;
+            if range < MIN_RANGE_KM {
+                continue;
+            }
             if range > max_range_km {
                 break;
             }
@@ -521,6 +547,7 @@ pub fn detect(
             tilts: 1,
             top_km,
             rotation_ms: None,
+            confirmation: crate::confirm::Confirmation::NONE,
             confidence: confidence(
                 evidence(min_cc, mean_cc, mean_z, area_km2, contrast, range_km),
                 0.0,
@@ -717,6 +744,7 @@ pub fn detect_volume(
                 tilts,
                 top_km,
                 rotation_ms: None,
+                confirmation: crate::confirm::Confirmation::NONE,
                 confidence: confidence(ev, vertical_term(top_km, tilts)),
             }
         })
@@ -1125,6 +1153,7 @@ mod tests {
             tilts: 1,
             top_km: 0.5,
             rotation_ms: None,
+            confirmation: crate::confirm::Confirmation::NONE,
             confidence,
         }
     }
@@ -1281,6 +1310,20 @@ mod tests {
         }
         assert!(text.contains("one tilt only"), "{text}");
         assert!(text.contains("not evidence against"), "{text}");
+    }
+
+    /// Low CC in strong echo right at the tower is clutter and sidelobes, not debris.
+    #[test]
+    fn evidence_close_to_the_radar_is_discounted_for_clutter() {
+        let at = |km: f32| evidence(0.35, 0.45, 55.0, 5.0, Some(0.2), km);
+        assert!(at(4.0) < 0.6 * at(30.0), "{} vs {}", at(4.0), at(30.0));
+        assert!(at(8.0) < at(15.0));
+        assert_eq!(
+            at(15.0),
+            at(40.0),
+            "full strength once clear of the clutter zone"
+        );
+        assert!(at(0.0) > 0.0, "and never a negative or NaN score");
     }
 
     #[test]
