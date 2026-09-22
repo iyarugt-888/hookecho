@@ -1714,17 +1714,20 @@ raises the 25 m/s gate-to-gate floor up to 2.5x by 150 km (a geometric argument 
 between adjacent gates grows in direct proportion to range with a fixed bin count — not a curve fit
 to these 8 events), leaving the near-range floor exactly as it was rather than rescoring shear in
 s⁻¹ everywhere, which the FAR/candidate-volume gap never actually implicated near the radar. Re-run
-after: far-range raw candidates 1001 → 249 (-75%), far-range FAR 98% → 96%, and the tornado reports
-rotation matched across all 8 events 8/86 → 7/86 — the one loss confirmed *not* to be KSGF/Joplin,
-the flagship violent-tornado case, which matched zero either way (KSGF has no dual-pol CC, so
-rotation was its only signal, and every one of its 95 raw candidates was already a false alarm
-against the LSR reports before this change). Scoring version `rot-5`.
+after (with the local-reports fix above already applied, so the denominator is the true local
+count): far-range raw candidates 1001 → 249 (-75%), far-range FAR 98% → 96%, and the tornado reports
+rotation matched across all 8 events fell by exactly one, 8 → 7 out of 32 local reports. Confirmed
+*not* KSGF/Joplin, the flagship violent-tornado case — once scoped to local reports it has none in
+range for this window at all, so it was never among the 32. The one actually lost, found with
+`wxdata::detverify::unmatched`'s new per-event breakdown: a report at 42.69,-90.83 (near the
+Iowa/Illinois line) at 17:32Z during the KDVN derecho event, no longer matched once its gate-to-gate
+shear fell under the raised far-range floor. Scoring version `rot-5`.
 
-Open questions this left: whether a gentler or steeper ramp trades POD and FAR better than 2.5x —
-untested, since a proper sweep needs several backtest runs per candidate value; and which specific
-report the far-range bucket stopped matching, not isolated (would need per-event, not aggregated,
-scoring output). Neither blocks shipping what's here, both are worth a follow-up pass with the tool
-that now exists to run it.
+Open question this left: whether a gentler or steeper ramp trades POD and FAR better than 2.5x —
+untested, since a proper sweep needs several backtest runs per candidate value, and would want to
+weigh a 75% noise cut against exactly this kind of loss report by report, not just in aggregate.
+Doesn't block shipping what's here; worth a follow-up pass with the tooling that now exists to run
+it (`score_in_range`, `unmatched`, both backtested and tested in `wxdata::detverify`).
 
 
 For every automatic detection:

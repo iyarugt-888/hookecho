@@ -4647,7 +4647,7 @@ fn backtest_event(
 ) -> anyhow::Result<BacktestEvent> {
     use wxdata::detverify::{Detection, Truth};
     let minute_of = |t: chrono::DateTime<chrono::Utc>| t.timestamp() / 60;
-    let (tds, rot, first, last, volumes, dual_pol_volumes) = rt.block_on(async {
+    let (tds, rot, first, last, volumes, dual_pol_volumes, radar_pos) = rt.block_on(async {
         let mut ids: Vec<_> = level2::list_volumes(site, day)
             .await?
             .into_iter()
@@ -4662,6 +4662,9 @@ fn backtest_event(
         let mut tds = Vec::new();
         let mut rot = Vec::new();
         let mut dual_pol_volumes = 0usize;
+        // Captured off the first sweep that decodes, so the reports fetched below can be limited
+        // to this radar's own coverage.
+        let mut radar_pos: Option<(f64, f64)> = None;
         for (t, id) in ids {
             let scan = match level2::download_scan(id, None).await {
                 Ok(s) => s,
@@ -4679,6 +4682,9 @@ fn backtest_event(
                 let vel = level2::bin_scan_opts(&scan, Moment::Velocity, tilt, true);
                 if let Ok(zd) = level2::bin_scan(&scan, Moment::DifferentialReflectivity, tilt) {
                     zdr_sweeps.push(zd);
+                }
+                if let Ok(z) = &z {
+                    radar_pos.get_or_insert((z.radar_lon as f64, z.radar_lat as f64));
                 }
                 if let (Ok(z), Ok(cc)) = (&z, cc) {
                     pairs.push((z.clone(), cc));
@@ -4720,7 +4726,7 @@ fn backtest_event(
                 couplets.len()
             );
         }
-        anyhow::Ok((tds, rot, first, last, volumes, dual_pol_volumes))
+        anyhow::Ok((tds, rot, first, last, volumes, dual_pol_volumes, radar_pos))
     })?;
 
     // Reports for the window, widened by the matching window on both sides.
@@ -4731,9 +4737,21 @@ fn backtest_event(
         let http = reqwest::Client::new();
         wxdata::lsr::fetch(&http, Some((&sts, &ets))).await
     })?;
+    // `lsr::fetch`'s window is national, not local: an outbreak day pulls every US tornado report
+    // in that UTC window, most of them a different storm hundreds of miles away. Left in, they
+    // inflate `events` with reports this radar could never have seen, understating POD for
+    // everything it actually did detect. `TRUTH_MAX_RANGE_KM` is the farthest a detection can be
+    // (150 km, both detectors' own `max_range_km`) plus `BACKTEST_RADIUS_KM`'s own match radius,
+    // so nothing a real match could reach is filtered out.
+    const TRUTH_MAX_RANGE_KM: f64 = 150.0 + BACKTEST_RADIUS_KM;
     let truths: Vec<Truth> = reports
         .iter()
         .filter(|r| r.kind == wxdata::spc::ReportKind::Tornado)
+        .filter(|r| {
+            radar_pos.is_none_or(|(rlon, rlat)| {
+                crate::geo::great_circle([rlon, rlat], [r.lon, r.lat]).0 <= TRUTH_MAX_RANGE_KM
+            })
+        })
         .filter_map(|r| {
             // Reports carry a time of day; the nearest day to the window resolves midnight.
             let minute = wxdata::confirm::report_minute(&r.time, minute_of(first))?;
@@ -4780,7 +4798,7 @@ fn parse_start(
 const RANGE_SPLIT_KM: f32 = 60.0;
 
 fn print_backtest_tables(events: &[BacktestEvent]) {
-    use wxdata::detverify::{score, score_in_range, Score};
+    use wxdata::detverify::{score, score_in_range, unmatched, Score};
     let thresholds = [0.0, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8];
     let pct = |v: Option<f32>| v.map_or("  - ".to_string(), |v| format!("{:>3.0}%", v * 100.0));
     // Debris signatures need a correlation-coefficient tilt to exist at all; an event with none
@@ -4910,6 +4928,37 @@ fn print_backtest_tables(events: &[BacktestEvent]) {
                 s.found,
                 s.events
             );
+        }
+        // Which reports, not just how many: an aggregate table can hide that a change moved the
+        // *total* found count without saying which specific report gained or lost coverage. Only
+        // events with at least one miss print, and only at 0% confidence — a report a lenient
+        // enough filter would show is not usefully called "missed".
+        let mut any_missed = false;
+        for e in &scored {
+            let missed = unmatched(
+                &pick(e),
+                &e.truths,
+                BACKTEST_RADIUS_KM,
+                BACKTEST_WINDOW_MIN,
+                0.0,
+            );
+            if missed.is_empty() {
+                continue;
+            }
+            if !any_missed {
+                println!("  by event, reports missed at 0% confidence:");
+                any_missed = true;
+            }
+            let at: Vec<String> = missed
+                .iter()
+                .map(|t| {
+                    chrono::DateTime::from_timestamp(t.minute * 60, 0).map_or_else(
+                        || format!("{:.2},{:.2}", t.lat, t.lon),
+                        |dt| format!("{:.2},{:.2} @ {}", t.lat, t.lon, dt.format("%H:%MZ")),
+                    )
+                })
+                .collect();
+            println!("    {}: {}", e.label, at.join(", "));
         }
     }
 }

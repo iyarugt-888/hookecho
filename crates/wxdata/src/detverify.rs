@@ -153,6 +153,29 @@ pub fn score_in_range(
     score(&banded, truths, radius_km, window_min, thresholds)
 }
 
+/// The `truths` with no `detections` at or above `threshold` near them — the actual events behind
+/// a [`Score`]'s `events - found`, not just the count. An aggregate table over several events
+/// (`--headless-backtest-file`, say) can hide *which* report a change in the detector cost or
+/// gained; this names it, so a change can be checked against the specific report rather than only
+/// the totals moving.
+pub fn unmatched(
+    detections: &[Detection],
+    truths: &[Truth],
+    radius_km: f64,
+    window_min: i64,
+    threshold: f32,
+) -> Vec<Truth> {
+    let kept: Vec<&Detection> = detections
+        .iter()
+        .filter(|d| d.confidence >= threshold)
+        .collect();
+    truths
+        .iter()
+        .filter(|t| !kept.iter().any(|d| near(d, t, radius_km, window_min)))
+        .copied()
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -291,5 +314,36 @@ mod tests {
         let empty = score_in_range(&dets, &[], 10.0, 15, 200.0, 300.0, &[0.0]);
         assert_eq!(empty[0].detections, 0);
         assert_eq!(empty[0].far(), None);
+    }
+
+    #[test]
+    fn unmatched_names_exactly_the_truths_score_would_have_counted_as_missed() {
+        let dets = [det(-97.5, 35.3, 0.8, 100)];
+        let found = truth(-97.5, 35.3, 100);
+        let missed = truth(-90.0, 30.0, 100);
+        let m = unmatched(&dets, &[found, missed], 10.0, 15, 0.0);
+        assert_eq!(m, vec![missed], "only the one no detection reached");
+        // Agrees with `score`'s own count, not just in spirit.
+        let s = score(&dets, &[found, missed], 10.0, 15, &[0.0]);
+        assert_eq!(m.len(), s[0].events - s[0].found);
+    }
+
+    #[test]
+    fn unmatched_respects_the_threshold_like_score_does() {
+        let weak = det(-97.5, 35.3, 0.2, 100);
+        let t = truth(-97.5, 35.3, 100);
+        assert!(unmatched(&[weak], &[t], 10.0, 15, 0.0).is_empty());
+        assert_eq!(
+            unmatched(&[weak], &[t], 10.0, 15, 0.5),
+            vec![t],
+            "filtered below the threshold, so nothing is left to match it"
+        );
+    }
+
+    #[test]
+    fn nothing_missed_is_an_empty_list_not_a_placeholder() {
+        let dets = [det(-97.5, 35.3, 0.8, 100)];
+        assert!(unmatched(&dets, &[truth(-97.5, 35.3, 100)], 10.0, 15, 0.0).is_empty());
+        assert!(unmatched(&dets, &[], 10.0, 15, 0.0).is_empty());
     }
 }

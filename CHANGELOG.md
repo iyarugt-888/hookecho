@@ -8,6 +8,26 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: the backtest scored every archived event against tornado reports from the whole country
+
+`wxdata::lsr::fetch`'s window is a national feed, not a local one: an outbreak-day backtest pulled
+every US tornado report in that UTC window, most of them a different storm hundreds of miles from
+the radar being tested, and counted every one as a report the detector should have found. This
+understated POD for every event `--headless-backtest`/`--headless-backtest-file` has ever scored —
+"6 of 75 tornado reports found" over the 8 events in `docs/backtest-events.txt` was really 6 of 32
+*local* ones, most of the other 43 belonging to unrelated storms elsewhere in the country at the
+same UTC time. `backtest_event` now captures the radar's own position off the first sweep that
+decodes and drops reports beyond 160 km (both detectors' 150 km max range, plus the match radius) of
+it before scoring. FAR is unaffected (it never depended on the report count), but POD and CSI roughly
+double at every confidence threshold once the report set is scoped to what the radar could plausibly
+have seen. Caught by the new "by event, reports missed" line below, which put KSGF's fetched reports
+(all in Wisconsin and Illinois, nowhere near Joplin) in front of a human for the first time.
+
+Also added, on the same finding: `wxdata::detverify::unmatched` names exactly the reports with no
+matching detection, rather than just counting them, and `--headless-backtest`/
+`--headless-backtest-file` print them (location and time) per event at 0% confidence — an aggregate
+found/reported ratio can hide *which* report a change in the detector cost or gained; this names it.
+
 ### Improved: rotation's gate-to-gate floor scales up with range, cutting far-range noise ~75%
 
 Follow-up to the range-by-range backtest below. The 25 m/s gate-to-gate floor is now
@@ -19,12 +39,15 @@ line, the way this detector always has, just makes it a coarse-sampling noise ge
 Near-range detection (< 60 km) is untouched — the floor stays exactly 25 m/s there, since the
 backtest evidence never questioned it.
 
-Re-run over the same 8 events: far-range raw candidates dropped from 1001 to 249 (a 75% cut, with
-the false-alarm ratio in that band easing from 98% to 96%), and the total tornado reports matched
-by rotation across all 8 events fell by exactly one, from 8/86 to 7/86 — confirmed *not* to be the
-Joplin/KSGF case, which matched zero reports both before and after (KSGF has no dual-pol CC at all,
-so rotation was its only signal, and every one of its 95 raw candidates was already a false alarm
-against the LSR reports before this change). Scoring version `rot-5`.
+Re-run over the same 8 events, with the local-reports fix above already applied: far-range raw
+candidates dropped from 1001 to 249 (a 75% cut, with the false-alarm ratio in that band easing from
+98% to 96%), and the total tornado reports matched by rotation across all 8 events fell by exactly
+one, from 8 to 7 (out of 32 local reports). Confirmed *not* to be the Joplin/KSGF case: once its
+reports are scoped to the radar's own coverage, KSGF has none in range at all for this window — a
+gap in that archived window's report data, not a detector failure — so it was never in the 32 to
+begin with. `unmatched`'s new per-event output named the actual one: a report at 42.69,-90.83 near
+the Iowa/Illinois line at 17:32Z during the KDVN derecho event, whose gate-to-gate shear fell under
+the raised far-range floor. Scoring version `rot-5`.
 
 ### Added: `--headless-backtest` scores raw candidates by range, found the rotation detector is 93% far-range noise
 
