@@ -1,0 +1,13 @@
+# Archived events for `hookecho --headless-backtest-file docs/backtest-events.txt [volumes]`.
+# SITE YYYY-MM-DD HH:MM (UTC). The volumes taken are the ones from that time onward.
+#
+# Tornado cases, each with a well-documented, well-reported tornado on or near the radar:
+KTLX 2013-05-20 19:50   # Moore, OK
+KTLX 2013-05-31 22:55   # El Reno, OK
+KSGF 2011-05-22 21:25   # Joplin, MO
+KBMX 2011-04-27 21:35   # Tuscaloosa to Birmingham, AL
+KHTX 2011-04-27 20:30   # Cullman and Hackleburg, AL
+KLZK 2014-04-27 22:00   # Mayflower and Vilonia, AR
+KOHX 2020-03-03 05:35   # Nashville and Cookeville, TN (night)
+# Not mainly a tornado day, to measure false alarms in a big hail and wind storm:
+KDVN 2020-08-10 17:30   # Iowa derecho

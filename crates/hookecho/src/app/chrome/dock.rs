@@ -546,16 +546,25 @@ impl HookEchoApp {
                         if groups.is_empty() {
                             ui.label(mono("Nothing matches.", 12.0, DIM));
                         }
+                        // While searching, every category left standing already has a match in
+                        // it (`group_entries` drops the rest), so it opens regardless of whatever
+                        // collapsed state the user left it in — a match hidden behind a closed
+                        // header would need a second search just to see the row it found. An
+                        // empty search leaves each category's own open/closed state alone.
+                        let searching = !self.dock.query.is_empty();
                         for g in &groups {
                             let name = crate::ui::layers_panel::category_name(g.category);
-                            egui::CollapsingHeader::new(mono(
+                            let mut header = egui::CollapsingHeader::new(mono(
                                 format!("{name}  ({}/{})", g.on, g.rows.len()),
                                 13.0,
                                 TEXT,
                             ))
                             .id_salt(("dock_group", g.category))
-                            .default_open(matches!(g.category, "Radar" | "Models"))
-                            .show(ui, |ui| {
+                            .default_open(matches!(g.category, "Radar" | "Models"));
+                            if searching {
+                                header = header.open(Some(true));
+                            }
+                            header.show(ui, |ui| {
                                 for &i in &g.rows {
                                     let e = &entries[i];
                                     let mut on = e.on == Some(true);
@@ -1243,9 +1252,9 @@ impl HookEchoApp {
         let armed = self.tool;
         let mut pick = None;
         egui::Panel::left("dock_tools")
-            .exact_size(TOUCH + 10.0)
+            .exact_size(TOUCH + 16.0)
             .resizable(false)
-            .frame(frame().inner_margin(egui::Margin::same(4)))
+            .frame(frame().inner_margin(egui::Margin::same(6)))
             .show(root, |ui| {
                 ui.spacing_mut().item_spacing.y = 4.0;
                 let tools = [

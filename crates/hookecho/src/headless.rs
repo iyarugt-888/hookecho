@@ -4607,42 +4607,32 @@ mod golden_tests {
     }
 }
 
-/// Score the debris and rotation detectors against tornado reports over a run of archived volumes:
-/// `hookecho --headless-backtest <SITE> <YYYY-MM-DD> <HH:MM> [volumes]` (default 8, at most 16).
-///
-/// Starts at the volume nearest the given time and takes the next ones in order. Every detection
-/// from every volume is checked against the tornado local storm reports for the window: it counts
-/// as verified when a report lies within 10 km of it and within 15 minutes of the volume. The table
-/// is by minimum confidence, so it shows what the filter slider would cost and buy. Reports come
-/// from the Iowa Mesonet; a tornado nobody reported counts against the detector, and reports carry
-/// only a time of day, so a run is scored within one UTC day.
-pub fn run_detector_backtest(
-    site: &str,
-    date: &str,
-    hhmm: &str,
-    volumes: Option<&str>,
-) -> anyhow::Result<()> {
-    use wxdata::detverify::{score, Detection, Truth};
-    const RADIUS_KM: f64 = 10.0;
-    const WINDOW_MIN: i64 = 15;
-    let day = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d")?;
-    let (h, m) = hhmm
-        .split_once(':')
-        .ok_or_else(|| anyhow::anyhow!("time must look like 20:05"))?;
-    let start = day
-        .and_hms_opt(h.parse()?, m.parse()?, 0)
-        .ok_or_else(|| anyhow::anyhow!("bad time {hhmm}"))?
-        .and_utc();
-    let count = volumes
-        .and_then(|v| v.parse::<usize>().ok())
-        .unwrap_or(8)
-        .clamp(1, 16);
-    let minute_of = |t: chrono::DateTime<chrono::Utc>| t.timestamp() / 60;
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()?;
+/// One archived event's detections and the tornado reports for it, ready to score.
+struct BacktestEvent {
+    label: String,
+    tds: Vec<wxdata::detverify::Detection>,
+    rot: Vec<wxdata::detverify::Detection>,
+    truths: Vec<wxdata::detverify::Truth>,
+    volumes: usize,
+}
 
-    let (tds, rot, first, last) = rt.block_on(async {
+/// Matching radius and window for the backtest: a report within 10 km of a detection and within 15
+/// minutes of its volume verifies it.
+const BACKTEST_RADIUS_KM: f64 = 10.0;
+const BACKTEST_WINDOW_MIN: i64 = 15;
+
+/// Run both detectors over up to `count` consecutive archived volumes of one site from the volume
+/// nearest `start`, and fetch the tornado reports for the window.
+fn backtest_event(
+    rt: &tokio::runtime::Runtime,
+    site: &str,
+    day: chrono::NaiveDate,
+    start: chrono::DateTime<chrono::Utc>,
+    count: usize,
+) -> anyhow::Result<BacktestEvent> {
+    use wxdata::detverify::{Detection, Truth};
+    let minute_of = |t: chrono::DateTime<chrono::Utc>| t.timestamp() / 60;
+    let (tds, rot, first, last, volumes) = rt.block_on(async {
         let mut ids: Vec<_> = level2::list_volumes(site, day)
             .await?
             .into_iter()
@@ -4653,16 +4643,17 @@ pub fn run_detector_backtest(
         ids.truncate(count);
         anyhow::ensure!(!ids.is_empty(), "no volumes for {site} from {start}");
         let (first, last) = (ids[0].0, ids[ids.len() - 1].0);
-        println!(
-            "{site}: {} volume(s), {} to {}",
-            ids.len(),
-            first.format("%H:%M"),
-            last.format("%H:%M")
-        );
+        let volumes = ids.len();
         let mut tds = Vec::new();
         let mut rot = Vec::new();
         for (t, id) in ids {
-            let scan = level2::download_scan(id, None).await?;
+            let scan = match level2::download_scan(id, None).await {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("  {site} {}: skipped, {e}", t.format("%H:%M"));
+                    continue;
+                }
+            };
             let mut pairs = Vec::new();
             let mut vel_pairs = Vec::new();
             let mut zdr_sweeps = Vec::new();
@@ -4703,17 +4694,17 @@ pub fn run_detector_backtest(
                 minute,
             }));
             println!(
-                "  {}  {} debris signature(s), {} couplet(s)",
+                "  {site} {}  {} debris signature(s), {} couplet(s)",
                 t.format("%H:%M"),
                 hits.len(),
                 couplets.len()
             );
         }
-        anyhow::Ok((tds, rot, first, last))
+        anyhow::Ok((tds, rot, first, last, volumes))
     })?;
 
     // Reports for the window, widened by the matching window on both sides.
-    let pad = chrono::Duration::minutes(WINDOW_MIN);
+    let pad = chrono::Duration::minutes(BACKTEST_WINDOW_MIN);
     let fmt = |t: chrono::DateTime<chrono::Utc>| t.format("%Y-%m-%dT%H:%MZ").to_string();
     let (sts, ets) = (fmt(first - pad), fmt(last + pad));
     let reports = rt.block_on(async {
@@ -4724,45 +4715,180 @@ pub fn run_detector_backtest(
         .iter()
         .filter(|r| r.kind == wxdata::spc::ReportKind::Tornado)
         .filter_map(|r| {
-            let (hh, mm) = (
-                r.time.get(0..2)?.parse::<u32>().ok()?,
-                r.time.get(2..4)?.parse::<u32>().ok()?,
-            );
-            let t = day.and_hms_opt(hh, mm, 0)?.and_utc();
+            // Reports carry a time of day; the nearest day to the window resolves midnight.
+            let minute = wxdata::confirm::report_minute(&r.time, minute_of(first))?;
             Some(Truth {
                 lon: r.lon,
                 lat: r.lat,
-                minute: minute_of(t),
+                minute,
             })
         })
         .collect();
-    println!(
-        "{} tornado report(s) between {sts} and {ets}; matching within {RADIUS_KM:.0} km and \
-         {WINDOW_MIN} min",
-        truths.len()
-    );
-    if truths.len() < 5 {
-        println!(
-            "note: only {} report(s), so POD is a count of one or two events and means little; the \n             false-alarm column is the informative one, and it still counts unreported tornadoes \n             as false alarms.",
-            truths.len()
-        );
-    }
+    Ok(BacktestEvent {
+        label: format!("{site} {} {}", day, first.format("%H:%M")),
+        tds,
+        rot,
+        truths,
+        volumes,
+    })
+}
+
+fn parse_start(
+    date: &str,
+    hhmm: &str,
+) -> anyhow::Result<(chrono::NaiveDate, chrono::DateTime<chrono::Utc>)> {
+    let day = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d")?;
+    let (h, m) = hhmm
+        .split_once(':')
+        .ok_or_else(|| anyhow::anyhow!("time must look like 20:05"))?;
+    let start = day
+        .and_hms_opt(h.parse()?, m.parse()?, 0)
+        .ok_or_else(|| anyhow::anyhow!("bad time {hhmm}"))?
+        .and_utc();
+    Ok((day, start))
+}
+
+/// Print the by-confidence table, summing every event's counts (they are additive, and each event
+/// is matched only against its own reports).
+fn print_backtest_tables(events: &[BacktestEvent]) {
+    use wxdata::detverify::{score, Score};
     let thresholds = [0.0, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8];
     let pct = |v: Option<f32>| v.map_or("  - ".to_string(), |v| format!("{:>3.0}%", v * 100.0));
-    for (name, dets) in [("Debris signatures", &tds), ("Rotation couplets", &rot)] {
-        println!("\n{name}: {} detection(s) in all", dets.len());
-        println!("  min conf   shown  verified    POD    FAR    CSI");
-        for s in score(dets, &truths, RADIUS_KM, WINDOW_MIN, &thresholds) {
+    for name in ["Debris signatures", "Rotation couplets"] {
+        let pick = |e: &BacktestEvent| {
+            if name == "Debris signatures" {
+                e.tds.clone()
+            } else {
+                e.rot.clone()
+            }
+        };
+        let total: usize = events.iter().map(|e| pick(e).len()).sum();
+        println!(
+            "\n{name}: {total} detection(s) over {} event(s)",
+            events.len()
+        );
+        println!("  min conf   shown  verified    POD    FAR    CSI   (events found / reported)");
+        let mut sums: Vec<Score> = thresholds
+            .iter()
+            .map(|&t| Score {
+                threshold: t,
+                detections: 0,
+                verified: 0,
+                events: 0,
+                found: 0,
+            })
+            .collect();
+        for e in events {
+            for (sum, s) in sums.iter_mut().zip(score(
+                &pick(e),
+                &e.truths,
+                BACKTEST_RADIUS_KM,
+                BACKTEST_WINDOW_MIN,
+                &thresholds,
+            )) {
+                sum.detections += s.detections;
+                sum.verified += s.verified;
+                sum.events += s.events;
+                sum.found += s.found;
+            }
+        }
+        for s in sums {
             println!(
-                "  {:>7.0}%  {:>6}  {:>8}   {}   {}   {}",
+                "  {:>7.0}%  {:>6}  {:>8}   {}   {}   {}   ({} / {})",
                 s.threshold * 100.0,
                 s.detections,
                 s.verified,
                 pct(s.pod()),
                 pct(s.far()),
-                pct(s.csi())
+                pct(s.csi()),
+                s.found,
+                s.events
             );
         }
     }
+}
+
+fn print_event_line(e: &BacktestEvent) {
+    println!(
+        "{}: {} volume(s), {} debris signature(s), {} couplet(s), {} tornado report(s)",
+        e.label,
+        e.volumes,
+        e.tds.len(),
+        e.rot.len(),
+        e.truths.len()
+    );
+}
+
+/// Score the debris and rotation detectors against tornado reports over a run of archived volumes:
+/// `hookecho --headless-backtest <SITE> <YYYY-MM-DD> <HH:MM> [volumes]` (default 8, at most 16).
+///
+/// Starts at the volume nearest the given time and takes the next ones in order. Every detection
+/// from every volume is checked against the tornado local storm reports for the window: it counts
+/// as verified when a report lies within 10 km of it and within 15 minutes of the volume. The table
+/// is by minimum confidence, so it shows what the filter slider would cost and buy. Reports come
+/// from the Iowa Mesonet; a tornado nobody reported counts against the detector.
+pub fn run_detector_backtest(
+    site: &str,
+    date: &str,
+    hhmm: &str,
+    volumes: Option<&str>,
+) -> anyhow::Result<()> {
+    let (day, start) = parse_start(date, hhmm)?;
+    let count = volumes
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(8)
+        .clamp(1, 16);
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    let event = backtest_event(&rt, site, day, start, count)?;
+    print_event_line(&event);
+    print_backtest_tables(&[event]);
+    Ok(())
+}
+
+/// Run the backtest over a list of events and total them:
+/// `hookecho --headless-backtest-file <events.txt> [volumes]`. One event per line as
+/// `SITE YYYY-MM-DD HH:MM`; blank lines and `#` comments are skipped. An event that fails (no
+/// volumes for the site that day, a network error) is reported and left out rather than ending the
+/// run. Each event is matched only against its own reports, and the counts are then added, so a
+/// day with a dozen tornadoes counts for more than one with one.
+pub fn run_detector_backtest_file(path: &str, volumes: Option<&str>) -> anyhow::Result<()> {
+    let text = std::fs::read_to_string(path)?;
+    let count = volumes
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(8)
+        .clamp(1, 16);
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    let mut done = Vec::new();
+    for line in text
+        .lines()
+        // Text after a `#` is a comment, whole line or trailing.
+        .map(|l| l.split('#').next().unwrap_or("").trim())
+        .filter(|l| !l.is_empty())
+    {
+        let f: Vec<&str> = line.split_whitespace().collect();
+        let [site, date, hhmm] = f[..] else {
+            eprintln!("skipping {line:?}: want SITE YYYY-MM-DD HH:MM");
+            continue;
+        };
+        let result = parse_start(date, hhmm)
+            .and_then(|(day, start)| backtest_event(&rt, site, day, start, count));
+        match result {
+            Ok(e) => {
+                print_event_line(&e);
+                done.push(e);
+            }
+            Err(e) => eprintln!("{site} {date} {hhmm}: left out, {e}"),
+        }
+    }
+    anyhow::ensure!(!done.is_empty(), "no event could be scored");
+    println!("\n== {} event(s) ==", done.len());
+    for e in &done {
+        print_event_line(e);
+    }
+    print_backtest_tables(&done);
     Ok(())
 }

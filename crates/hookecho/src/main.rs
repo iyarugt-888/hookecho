@@ -735,6 +735,18 @@ fn main() -> eframe::Result<()> {
         return Ok(());
     }
 
+    // The same over a file of events: `hookecho --headless-backtest-file <events.txt> [volumes]`.
+    if let Some(pos) = args.iter().position(|a| a == "--headless-backtest-file") {
+        let path = args.get(pos + 1).map(String::as_str).unwrap_or("");
+        if let Err(e) =
+            headless::run_detector_backtest_file(path, args.get(pos + 2).map(String::as_str))
+        {
+            eprintln!("headless backtest failed: {e}");
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
+
     // Detector scoring against tornado reports: `hookecho --headless-backtest <SITE> <YYYY-MM-DD>
     // <HH:MM> [volumes]`.
     if let Some(pos) = args.iter().position(|a| a == "--headless-backtest") {

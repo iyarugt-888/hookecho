@@ -8,6 +8,21 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: the dock search hid its own matches, and multi-day backtest wiring
+
+The dock layers panel expands matching categories only the first time you search: after that a
+category kept whatever open/closed state you last left it in, so a search that matched something
+inside a category you had collapsed showed a "(0/1)"-style count with no rows under it. Every
+category a search leaves standing now opens, since `group_entries` already dropped every category
+with no match in it - a search never again hides the very thing it found. Clearing the search leaves
+your open/closed choices alone. The docked tool rail also got a little more breathing room by its
+panel edge.
+
+`--headless-backtest-file <events.txt> [volumes]` runs the detector backtest over a list of
+archived events and totals them (one line per event: `SITE YYYY-MM-DD HH:MM`; see
+`docs/backtest-events.txt`) - the multi-day version of last session's single-event
+`--headless-backtest`. It was written but never wired into the CLI; fixed.
+
 ### Improved: debris signatures read differential reflectivity
 
 Debris is a jumble of random shapes, so its ZDR sits near 0 dB; low CC beside a high ZDR is mixed rain,
