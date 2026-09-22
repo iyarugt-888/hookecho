@@ -1,13 +1,24 @@
 # Archived events for `hookecho --headless-backtest-file docs/backtest-events.txt [volumes]`.
-# SITE YYYY-MM-DD HH:MM (UTC). The volumes taken are the ones from that time onward.
+# SITE YYYY-MM-DD HH:MM (UTC). The volumes taken are the ones from that time onward. Times are
+# from memory and approximate (typically within +-15-30 min) - close enough for this tool, which
+# just walks forward from the nearest volume, but not a citable record of when a tornado touched
+# down.
+#
+# Debris signatures need a correlation-coefficient tilt, which the WSR-88D network only grew
+# between 2011 and 2013 (site by site). An event on a radar that predates its own dual-pol
+# upgrade has no CC at all - a real limitation of the data, not the detector - and
+# `--headless-backtest-file` now leaves such events out of the debris-signature table and says so.
+# Keep tornado cases here at or after each site's own dual-pol date unless the point is exactly to
+# see that no-CC-data case (KSGF's Joplin miss below is a deliberate example of it).
 #
 # Tornado cases, each with a well-documented, well-reported tornado on or near the radar:
 KTLX 2013-05-20 19:50   # Moore, OK
 KTLX 2013-05-31 22:55   # El Reno, OK
-KSGF 2011-05-22 21:25   # Joplin, MO
-KBMX 2011-04-27 21:35   # Tuscaloosa to Birmingham, AL
-KHTX 2011-04-27 20:30   # Cullman and Hackleburg, AL
-KLZK 2014-04-27 22:00   # Mayflower and Vilonia, AR
-KOHX 2020-03-03 05:35   # Nashville and Cookeville, TN (night)
+KILX 2013-11-17 22:55   # Washington, IL (dual-pol)
+KPAH 2021-12-11 03:25   # Mayfield, KY (dual-pol, night)
+KLZK 2014-04-27 22:00   # Mayflower and Vilonia, AR (dual-pol)
+KOHX 2020-03-03 05:35   # Nashville and Cookeville, TN (dual-pol, night)
+# Deliberately a no-CC case, to see the tool call it out rather than silently score it as misses:
+KSGF 2011-05-22 21:25   # Joplin, MO - KSGF was not yet dual-pol; debris signatures are impossible
 # Not mainly a tornado day, to measure false alarms in a big hail and wind storm:
 KDVN 2020-08-10 17:30   # Iowa derecho

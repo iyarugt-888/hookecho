@@ -4614,6 +4614,10 @@ struct BacktestEvent {
     rot: Vec<wxdata::detverify::Detection>,
     truths: Vec<wxdata::detverify::Truth>,
     volumes: usize,
+    /// Volumes that actually carried a correlation-coefficient tilt. Some pre-2013 archives
+    /// (the WSR-88D dual-pol rollout ran 2011-2013) have none at all, in which case `tds` is
+    /// correctly empty every time — not a detector failure, just a moment the radar never sent.
+    dual_pol_volumes: usize,
 }
 
 /// Matching radius and window for the backtest: a report within 10 km of a detection and within 15
@@ -4632,7 +4636,7 @@ fn backtest_event(
 ) -> anyhow::Result<BacktestEvent> {
     use wxdata::detverify::{Detection, Truth};
     let minute_of = |t: chrono::DateTime<chrono::Utc>| t.timestamp() / 60;
-    let (tds, rot, first, last, volumes) = rt.block_on(async {
+    let (tds, rot, first, last, volumes, dual_pol_volumes) = rt.block_on(async {
         let mut ids: Vec<_> = level2::list_volumes(site, day)
             .await?
             .into_iter()
@@ -4646,6 +4650,7 @@ fn backtest_event(
         let volumes = ids.len();
         let mut tds = Vec::new();
         let mut rot = Vec::new();
+        let mut dual_pol_volumes = 0usize;
         for (t, id) in ids {
             let scan = match level2::download_scan(id, None).await {
                 Ok(s) => s,
@@ -4670,6 +4675,9 @@ fn backtest_event(
                 if let (Ok(z), Ok(vel)) = (z, vel) {
                     vel_pairs.push((vel, z));
                 }
+            }
+            if !pairs.is_empty() {
+                dual_pol_volumes += 1;
             }
             let mut hits = wxdata::tds::detect_volume(&pairs, 0.80, 40.0, 150.0, 4);
             wxdata::tds::apply_zdr(&mut hits, &zdr_sweeps);
@@ -4700,7 +4708,7 @@ fn backtest_event(
                 couplets.len()
             );
         }
-        anyhow::Ok((tds, rot, first, last, volumes))
+        anyhow::Ok((tds, rot, first, last, volumes, dual_pol_volumes))
     })?;
 
     // Reports for the window, widened by the matching window on both sides.
@@ -4730,6 +4738,7 @@ fn backtest_event(
         rot,
         truths,
         volumes,
+        dual_pol_volumes,
     })
 }
 
@@ -4754,6 +4763,23 @@ fn print_backtest_tables(events: &[BacktestEvent]) {
     use wxdata::detverify::{score, Score};
     let thresholds = [0.0, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8];
     let pct = |v: Option<f32>| v.map_or("  - ".to_string(), |v| format!("{:>3.0}%", v * 100.0));
+    // Debris signatures need a correlation-coefficient tilt to exist at all; an event with none
+    // (a pre-dual-pol radar — the WSR-88D network upgrade ran 2011-2013) is left out of that
+    // table entirely rather than counted as a run of correct misses. Left in, it would report a
+    // structural inability to detect anything as if it were the detector failing to.
+    let no_cc: Vec<&str> = events
+        .iter()
+        .filter(|e| e.dual_pol_volumes == 0)
+        .map(|e| e.label.as_str())
+        .collect();
+    if !no_cc.is_empty() {
+        println!(
+            "\nNo correlation-coefficient data at all (pre-dual-pol radar): {}. Left out of the \
+             debris-signature table below — a radar that never sent CC cannot be faulted for \
+             finding no debris in it.",
+            no_cc.join(", ")
+        );
+    }
     for name in ["Debris signatures", "Rotation couplets"] {
         let pick = |e: &BacktestEvent| {
             if name == "Debris signatures" {
@@ -4762,10 +4788,14 @@ fn print_backtest_tables(events: &[BacktestEvent]) {
                 e.rot.clone()
             }
         };
-        let total: usize = events.iter().map(|e| pick(e).len()).sum();
+        let scored: Vec<&BacktestEvent> = events
+            .iter()
+            .filter(|e| name != "Debris signatures" || e.dual_pol_volumes > 0)
+            .collect();
+        let total: usize = scored.iter().map(|e| pick(e).len()).sum();
         println!(
             "\n{name}: {total} detection(s) over {} event(s)",
-            events.len()
+            scored.len()
         );
         println!("  min conf   shown  verified    POD    FAR    CSI   (events found / reported)");
         let mut sums: Vec<Score> = thresholds
@@ -4778,7 +4808,7 @@ fn print_backtest_tables(events: &[BacktestEvent]) {
                 found: 0,
             })
             .collect();
-        for e in events {
+        for e in &scored {
             for (sum, s) in sums.iter_mut().zip(score(
                 &pick(e),
                 &e.truths,
@@ -4809,8 +4839,13 @@ fn print_backtest_tables(events: &[BacktestEvent]) {
 }
 
 fn print_event_line(e: &BacktestEvent) {
+    let cc_note = if e.dual_pol_volumes == 0 {
+        " [no CC data: pre-dual-pol radar]"
+    } else {
+        ""
+    };
     println!(
-        "{}: {} volume(s), {} debris signature(s), {} couplet(s), {} tornado report(s)",
+        "{}: {} volume(s), {} debris signature(s), {} couplet(s), {} tornado report(s){cc_note}",
         e.label,
         e.volumes,
         e.tds.len(),
