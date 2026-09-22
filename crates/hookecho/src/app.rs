@@ -3242,6 +3242,13 @@ pub struct HookEchoApp {
     /// so the couplet layer reading this to corroborate its own couplets never sees a confidence
     /// that couplets themselves already raised. See `compute_tds`.
     tds_cache: Option<((usize, String, usize), Vec<wxdata::tds::TdsHit>)>,
+    /// The *corroborated* hits `compute_tds` actually shows — deliberately not `tds_cache`'s raw
+    /// ones, which predate `cross_corroborate` and so would give a score-timeline sparkline a
+    /// different number than the marker label right next to it. By volume name across many
+    /// volumes, the history `compute_tds_score_track` replays into a confidence timeline (same
+    /// role `celltrack_cache` plays for `compute_local_tracks`). Filled once per volume, in
+    /// `compute_tds`, so a timeline never re-runs corroboration for a volume already seen.
+    tds_shown_cache: LruCache<String, Vec<wxdata::tds::TdsHit>>,
     /// Same shape as `tds_cache`, for the hail-spike detector.
     tbss_cache: Option<(TunedKey, Vec<wxdata::dualpol::TbssHit>)>,
     /// ZDR columns, plus the bright band read off the same volume's CC — both cost a full pass
@@ -3254,11 +3261,21 @@ pub struct HookEchoApp {
         (usize, String, usize),
         (Vec<wxdata::rotation::CoupletHit>, (f32, f32), usize),
     )>,
+    /// Same role as `tds_shown_cache`, for rotation: the corroborated couplets, not `couplet_cache`'s
+    /// raw ones. Filled once per volume, in `compute_couplets`.
+    rot_shown_cache: LruCache<String, Vec<wxdata::rotation::CoupletHit>>,
     /// Cells found per decoded volume, so a track built over a dozen frames flood-fills each
     /// sweep once rather than once a frame.
     celltrack_cache: LruCache<String, Vec<wxdata::celltrack::Blob>>,
     /// The tracks themselves, with the frame list they were built from.
     tracks_cache: Option<((usize, String, usize), Vec<wxdata::celltrack::Track>)>,
+    /// Confidence-over-time for the active pane's debris/rotation detections (C5's "timeline of
+    /// score changes"), rebuilt from `tds_shown_cache`/`rot_shown_cache` the same bounded-window
+    /// way `tracks_cache` is. See `compute_tds_score_track`/`compute_rot_score_track`.
+    #[allow(clippy::type_complexity)]
+    tds_tracks_cache: Option<((usize, String, usize), Vec<wxdata::scoretrack::ScoreTrack>)>,
+    #[allow(clippy::type_complexity)]
+    rot_tracks_cache: Option<((usize, String, usize), Vec<wxdata::scoretrack::ScoreTrack>)>,
     show_local_tracks: bool,
     /// The running extremum trail for the active pane (C2), built a few frames per UI frame.
     trail: Option<TrailState>,
@@ -4825,11 +4842,15 @@ impl HookEchoApp {
             vlabel_cache: None,
             nowcast_cache: None,
             tds_cache: None,
+            tds_shown_cache: LruCache::new(NonZeroUsize::new(48).unwrap()),
             tbss_cache: None,
             zdr_cache: None,
             couplet_cache: None,
+            rot_shown_cache: LruCache::new(NonZeroUsize::new(48).unwrap()),
             celltrack_cache: LruCache::new(NonZeroUsize::new(48).unwrap()),
             tracks_cache: None,
+            tds_tracks_cache: None,
+            rot_tracks_cache: None,
             show_local_tracks: false,
             trail: None,
             trail_more: false,
@@ -8921,6 +8942,12 @@ impl HookEchoApp {
         // keep, or the couplet layer would see an already-boosted couplet and double-count it.
         let mut rot = self.couplets_quiet(idx);
         wxdata::tds::cross_corroborate(&mut hits, &mut rot);
+        // By volume name, so a score-timeline sparkline can replay several volumes' worth of
+        // history using the exact confidence the marker itself shows, not `tds_raw`'s earlier,
+        // pre-corroboration one — see `tds_shown_cache`'s own doc comment.
+        if let Some(name) = self.views[idx].volume.as_ref().map(|v| v.name.clone()) {
+            self.tds_shown_cache.put(name, hits.clone());
+        }
 
         let site = self.views[idx].site.clone().unwrap_or_default();
         // Rising-edge alert, on the corroborated hits that clear the user's confidence threshold.
@@ -9118,6 +9145,12 @@ impl HookEchoApp {
         // corroborate its own couplets. `debris` itself is discarded once corroborated.
         let mut debris = self.tds_quiet(idx);
         wxdata::tds::cross_corroborate(&mut debris, &mut hits);
+        // By volume name, so a score-timeline sparkline can replay several volumes' worth of
+        // history using the exact confidence the marker itself shows — see `rot_shown_cache`'s
+        // own doc comment.
+        if let Some(name) = self.views[idx].volume.as_ref().map(|v| v.name.clone()) {
+            self.rot_shown_cache.put(name, hits.clone());
+        }
 
         let site = self.views[idx].site.clone().unwrap_or_default();
         log::debug!(
@@ -9326,6 +9359,99 @@ impl HookEchoApp {
                 .retain(|t| t.points.last().is_some_and(|p| p.2 == newest) && t.points.len() >= 2);
         }
         self.tracks_cache = Some((key, tracks.clone()));
+        tracks
+    }
+
+    /// Confidence-over-time for the active pane's debris signatures — C5's "timeline of score
+    /// changes" (`wxdata::scoretrack`), built the same bounded-trailing-window way
+    /// [`Self::compute_local_tracks`] builds cell tracks, and for the same reason: replaying a
+    /// whole session's history on every tick does not scale. Folds `wxdata::scoretrack::associate`
+    /// over `tds_shown_cache` (the *corroborated* hits, the same confidence the marker itself
+    /// shows), so it costs nothing beyond what `compute_tds` already paid to decode and
+    /// corroborate each volume once — a frame not yet in that cache (never viewed, or aged out of
+    /// it) is silently skipped rather than triggering a fresh per-tilt gate scan just to backfill
+    /// a history nobody may ever look at.
+    fn compute_tds_score_track(&mut self, idx: usize) -> Vec<wxdata::scoretrack::ScoreTrack> {
+        const WINDOW_FRAMES: usize = 16;
+        let key = self.volume_key(idx);
+        if let Some((k, v)) = &self.tds_tracks_cache {
+            if *k == key {
+                return v.clone();
+            }
+        }
+        let playhead = self.views[idx].timeline.playhead;
+        let frames: Vec<_> = self.views[idx]
+            .timeline
+            .frames
+            .iter()
+            .take(playhead + 1)
+            .rev()
+            .take(WINDOW_FRAMES)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .filter_map(|id| id.date_time().map(|t| (id.name().to_string(), t)))
+            .collect();
+        let mut tracks: Vec<wxdata::scoretrack::ScoreTrack> = Vec::new();
+        for (name, at) in frames {
+            let Some(hits) = self.tds_shown_cache.get(&name) else {
+                continue;
+            };
+            let points: Vec<_> = hits
+                .iter()
+                .map(|h| wxdata::scoretrack::ScorePoint {
+                    lon: h.lon,
+                    lat: h.lat,
+                    confidence: h.confidence,
+                    time: at,
+                })
+                .collect();
+            tracks = wxdata::scoretrack::associate(&tracks, &points);
+        }
+        self.tds_tracks_cache = Some((key, tracks.clone()));
+        tracks
+    }
+
+    /// Same as [`Self::compute_tds_score_track`], for rotation couplets, folded over the
+    /// corroborated `rot_shown_cache`.
+    fn compute_rot_score_track(&mut self, idx: usize) -> Vec<wxdata::scoretrack::ScoreTrack> {
+        const WINDOW_FRAMES: usize = 16;
+        let key = self.volume_key(idx);
+        if let Some((k, v)) = &self.rot_tracks_cache {
+            if *k == key {
+                return v.clone();
+            }
+        }
+        let playhead = self.views[idx].timeline.playhead;
+        let frames: Vec<_> = self.views[idx]
+            .timeline
+            .frames
+            .iter()
+            .take(playhead + 1)
+            .rev()
+            .take(WINDOW_FRAMES)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .filter_map(|id| id.date_time().map(|t| (id.name().to_string(), t)))
+            .collect();
+        let mut tracks: Vec<wxdata::scoretrack::ScoreTrack> = Vec::new();
+        for (name, at) in frames {
+            let Some(hits) = self.rot_shown_cache.get(&name) else {
+                continue;
+            };
+            let points: Vec<_> = hits
+                .iter()
+                .map(|h| wxdata::scoretrack::ScorePoint {
+                    lon: h.lon,
+                    lat: h.lat,
+                    confidence: h.confidence,
+                    time: at,
+                })
+                .collect();
+            tracks = wxdata::scoretrack::associate(&tracks, &points);
+        }
+        self.rot_tracks_cache = Some((key, tracks.clone()));
         tracks
     }
 
@@ -15999,6 +16125,14 @@ impl HookEchoApp {
         } else {
             Vec::new()
         };
+        // Score history for the hover sparkline below — same "only for the active pane, and only
+        // when the layer is actually wanted" gating as `tds_hits` itself, since it costs a replay
+        // over `tds_shown_cache` even on a cache hit's cheap path.
+        let tds_score_tracks = if want_tds && idx == self.active {
+            self.compute_tds_score_track(idx)
+        } else {
+            Vec::new()
+        };
         let tbss_hits = if want_tbss && idx == self.active {
             self.compute_tbss(idx)
         } else {
@@ -16011,6 +16145,11 @@ impl HookEchoApp {
         };
         let couplets = if want_couplets && idx == self.active {
             self.compute_couplets(idx)
+        } else {
+            Vec::new()
+        };
+        let rot_score_tracks = if want_couplets && idx == self.active {
+            self.compute_rot_score_track(idx)
         } else {
             Vec::new()
         };
@@ -16822,15 +16961,16 @@ impl HookEchoApp {
                     egui::FontId::proportional(11.0),
                     m,
                 );
-                // Hover for the working: every term, its measurement and what each stage added.
+                // Hover for the working: every term, its measurement and what each stage added,
+                // plus a sparkline of how the score got here if this signature has been seen
+                // before.
                 let hit = egui::Rect::from_center_size(p, egui::vec2(26.0, 26.0));
                 if response.hover_pos().is_some_and(|hp| hit.contains(hp)) {
+                    let lines = h.explain().lines(h);
+                    let track = nearest_score_track(&tds_score_tracks, h.lon, h.lat);
                     response
                         .clone()
-                        .show_tooltip_text(h.explain().lines(h).join(
-                            "
-",
-                        ));
+                        .show_tooltip_ui(|ui| score_tooltip(ui, lines, track, m));
                 }
             }
 
@@ -16970,12 +17110,11 @@ impl HookEchoApp {
                 // Hover for the working, as on the debris signatures.
                 let hit = egui::Rect::from_center_size(p, egui::vec2(26.0, 26.0));
                 if response.hover_pos().is_some_and(|hp| hit.contains(hp)) {
+                    let lines = h.explain().lines(h);
+                    let track = nearest_score_track(&rot_score_tracks, h.lon, h.lat);
                     response
                         .clone()
-                        .show_tooltip_text(h.explain().lines(h).join(
-                            "
-",
-                        ));
+                        .show_tooltip_ui(|ui| score_tooltip(ui, lines, track, col));
                 }
             }
 
@@ -21230,6 +21369,48 @@ pub(crate) fn display_units(moment: Moment, settings: &Settings) -> (f32, &'stat
             settings.velocity_unit.label(),
         ),
         _ => (1.0, moment.units()),
+    }
+}
+
+/// The track whose most recent point is nearest `(lon, lat)`, for pairing a marker being drawn
+/// right now with its own score history: `compute_tds_score_track`/`compute_rot_score_track`
+/// fold every hit into a track by proximity alone, so a hit and its own track's latest point are
+/// two readings of the same association, not a coincidence — a tight tolerance is enough, and
+/// keeps a different, merely nearby, hit's track from being shown by mistake.
+fn nearest_score_track(
+    tracks: &[wxdata::scoretrack::ScoreTrack],
+    lon: f64,
+    lat: f64,
+) -> Option<&wxdata::scoretrack::ScoreTrack> {
+    const MAX_KM: f64 = 0.5;
+    tracks
+        .iter()
+        .filter_map(|tr| {
+            let last = tr.points.last()?;
+            let km = crate::geo::great_circle([lon, lat], [last.lon, last.lat]).0;
+            (km <= MAX_KM).then_some((tr, km))
+        })
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(tr, _)| tr)
+}
+
+/// The tooltip body a TDS/rotation marker's hover already shows (`explain().lines()`), plus a
+/// sparkline of its score history when one exists — same "every term, its measurement, what each
+/// stage added" hover, extended with what changed from volume to volume rather than just what the
+/// number is right now. A history under two points is not a timeline yet, so it is left out
+/// rather than drawn as a flat, meaningless line.
+fn score_tooltip(
+    ui: &mut egui::Ui,
+    lines: Vec<String>,
+    track: Option<&wxdata::scoretrack::ScoreTrack>,
+    color: egui::Color32,
+) {
+    ui.label(lines.join("\n"));
+    if let Some(tr) = track.filter(|tr| tr.points.len() >= 2) {
+        ui.separator();
+        ui.small(format!("Confidence, {} volumes", tr.points.len()));
+        let vals: Vec<f32> = tr.points.iter().map(|p| p.confidence * 100.0).collect();
+        crate::theme::sparkline_sized(ui, &vals, color, egui::vec2(180.0, 28.0));
     }
 }
 

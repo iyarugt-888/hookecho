@@ -8,6 +8,25 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: TDS/rotation markers show their score history on hover, not just the current number
+
+The score timeline built last pass (`wxdata::scoretrack`) is now wired into the live map: hovering
+a debris signature or a couplet shows the usual breakdown plus a sparkline of its confidence over
+however many volumes it has persisted — the same "every term, its measurement, what each stage
+added" tooltip, extended with what changed from scan to scan rather than just what the number is
+right now. Built the same bounded-trailing-window way `compute_local_tracks` already builds cell
+tracks (`compute_tds_score_track`/`compute_rot_score_track`, replaying `scoretrack::associate` over
+the last 16 frames), and for the same reason — replaying a whole session's history every UI tick
+does not scale.
+
+Caught before it shipped: the first version cached *raw*, pre-corroboration hits for the replay
+(reusing `tds_raw`'s existing per-volume cache, on the theory that it was already there) — which
+would have shown a sparkline ending in a different number than the marker label right next to it,
+since `cross_corroborate` runs after that cache is filled. Fixed by caching the *corroborated* hits
+instead (`tds_shown_cache`/`rot_shown_cache`, filled once per volume in `compute_tds`/
+`compute_couplets`, right after corroboration), so the sparkline's last point is always the exact
+number on screen.
+
 ### Fixed: cell tracking could crash on a session's first volume with 3+ new storms
 
 `wxdata::celltrack::associate` sized its "already claimed this volume" scratch vector to the

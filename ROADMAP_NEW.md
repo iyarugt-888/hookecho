@@ -1722,12 +1722,24 @@ mid-batch, so a session's very first tracked volume with 3+ new storms indexed p
 panicked — not a rare shape of input. Fixed in both modules: a point is now only ever matched
 against tracks that existed before the current call, which is also the semantically correct rule
 (two detections seen for the first time together in one volume are two distinct features, not one
-recurring track). Live map wiring for the score timeline (a sparkline on hover, say) is a
-follow-up; this pass is the tracker itself, backtest-verified.
+recurring track). Live map wiring followed: hovering a debris signature or couplet now shows a
+sparkline of its confidence over however many volumes it has persisted, alongside the existing
+term-by-term breakdown (`compute_tds_score_track`/`compute_rot_score_track`, `nearest_score_track`
+pairing a marker with its own history by proximity, `score_tooltip` drawing both). Built the
+history caches by name across many volumes (`tds_shown_cache`/`rot_shown_cache`, mirroring
+`celltrack_cache`'s own role for cell tracks) rather than a whole-session accumulator — a bounded
+trailing-window replay, same reasoning `compute_local_tracks` already documents for why that scales
+and an unbounded accumulator does not. Caught in review before it shipped: the first version cached
+*raw*, pre-corroboration hits for the replay, which would have shown a sparkline ending in a
+different number than the marker label beside it; fixed to cache the corroborated hits instead,
+filled right after `cross_corroborate` runs, so the sparkline's last point is always the number on
+screen.
 
-Every item this section originally opened with is now either done or has a concretely scoped
-follow-up named above it — the algorithm-lab work from here is UI wiring (the score timeline on
-the map, a first backtest consumer for cell scoring) rather than new backend capability.
+Every item this section originally opened with is now done. What is left in the algorithm-lab
+neighbourhood is smaller, standalone follow-ups rather than open roadmap items: a first backtest
+consumer for cell scoring (`wxdata::cellscore` has no `--headless-backtest` table of its own yet,
+unlike the two detectors), and picking a specific value for the score-timeline association radius
+and window empirically rather than the geometric argument it currently ships with.
 
 **Range-normalised shear — done, in a narrower form than originally proposed.** Scored the raw (pre-
 confidence-filter) candidates from the 8 events in `docs/backtest-events.txt`, split at 60 km — the
