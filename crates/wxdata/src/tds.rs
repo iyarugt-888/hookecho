@@ -88,6 +88,10 @@ pub struct TdsHit {
     /// [`ROTATION_ASSOCIATE_KM`], once [`corroborate_with_rotation`] has been run. `None` means no
     /// rotation was found near this hit (or it was never checked); it is not evidence against it.
     pub rotation_ms: Option<f32>,
+    /// Mean differential reflectivity (dB) around the hit, once [`apply_zdr`] has been run. Debris
+    /// is randomly oriented, so it reads near 0 dB; a high mean is rain or large drops with low CC
+    /// from mixing, not debris. `None` when there was no ZDR to read.
+    pub zdr_db: Option<f32>,
     /// What people and forecasters said about it: a tornado report near it, or an observed
     /// tornado warning over it. Separate from `confidence`, which is radar alone and stops at 100%;
     /// see [`crate::confirm`]. Set by the caller, never by the detector.
@@ -277,7 +281,10 @@ pub struct Explanation {
     pub evidence: f32,
     /// Vertical continuity, 0..1; 0 for a single tilt.
     pub vertical: f32,
-    /// Evidence times the vertical factor (0.6 to 1): the confidence before rotation.
+    /// Mean ZDR (dB) around the hit and the factor it applied to the score, when it was read.
+    pub zdr: Option<(f32, f32)>,
+    /// Evidence times the vertical factor (0.6 to 1), times any ZDR factor: the confidence before
+    /// rotation.
     pub base_confidence: f32,
     /// What rotation beside the hit added, if it counted.
     pub rotation_gain: Option<f32>,
@@ -338,7 +345,8 @@ impl TdsHit {
             self.range_km,
         );
         let vertical = vertical_term(self.top_km, self.tilts);
-        let base_confidence = confidence(evidence, vertical);
+        let zdr = self.zdr_db.map(|d| (d, zdr_factor(d)));
+        let base_confidence = confidence(evidence, vertical) * zdr.map_or(1.0, |(_, f)| f);
         let rotation_gain = self
             .rotation_ms
             .map(|_| (self.confidence - base_confidence).max(0.0));
@@ -348,6 +356,7 @@ impl TdsHit {
             range_factor: t.range,
             evidence,
             vertical,
+            zdr,
             base_confidence,
             rotation_gain,
             confidence: self.confidence,
@@ -393,6 +402,11 @@ impl Explanation {
                 SINGLE_TILT_CAP * 100.0
             )
         });
+        if let Some((d, f)) = self.zdr {
+            out.push(format!(
+                "ZDR       x{f:.2}   mean {d:.1} dB around it (debris is near 0)"
+            ));
+        }
         match (hit.rotation_ms, self.rotation_gain) {
             (Some(v), Some(g)) => out.push(format!(
                 "Rotation  +{:.0} points   {:.0} kt couplet within {:.0} km",
@@ -547,6 +561,7 @@ pub fn detect(
             tilts: 1,
             top_km,
             rotation_ms: None,
+            zdr_db: None,
             confirmation: crate::confirm::Confirmation::NONE,
             confidence: confidence(
                 evidence(min_cc, mean_cc, mean_z, area_km2, contrast, range_km),
@@ -648,6 +663,75 @@ fn ground_km(a: (f64, f64), b: (f64, f64)) -> f64 {
     dx.hypot(dy)
 }
 
+/// The factor mean ZDR applies to a debris score: 1 up to 1 dB, falling to 0.6 by 3.5 dB.
+///
+/// Tornadic debris is a jumble of random shapes and orientations, so its ZDR sits near 0 dB. Low CC
+/// beside a high ZDR is a mixture of raindrops and large drops or wet hail, or a melting layer, and
+/// is the commonest thing a CC-only detector mistakes for a debris ball. It only ever discounts: a
+/// near-zero ZDR is shared with dry hail, so it is no proof of debris and adds nothing.
+pub fn zdr_factor(mean_db: f32) -> f32 {
+    1.0 - 0.4 * ((mean_db - 1.0) / 2.5).clamp(0.0, 1.0)
+}
+
+/// Mean of a sweep's decoded values within `radius_km` of a point, or `None` with fewer than four
+/// gates of data there.
+fn mean_around(sweep: &BinnedSweep, lon: f64, lat: f64, radius_km: f32) -> Option<f32> {
+    if sweep.az_bins == 0 || sweep.gate_count == 0 || sweep.gate_interval_km <= 0.0 {
+        return None;
+    }
+    let (rlon, rlat) = (f64::from(sweep.radar_lon), f64::from(sweep.radar_lat));
+    let east = (lon - rlon) * ((lat + rlat) * 0.5).to_radians().cos() * 111.32;
+    let north = (lat - rlat) * 110.57;
+    let range = east.hypot(north) as f32;
+    let az = east.atan2(north).to_degrees().rem_euclid(360.0);
+    let bin_deg = 360.0 / sweep.az_bins as f64;
+    let az0 = (az / bin_deg) as i64;
+    // Half-width in bins of the azimuth arc the radius covers at this range, and in gates.
+    let arc_km = (f64::from(range) * bin_deg.to_radians()).max(0.05);
+    let d_az = ((f64::from(radius_km) / arc_km).ceil() as i64).clamp(1, 24);
+    let g0 = ((range - sweep.first_gate_km) / sweep.gate_interval_km).round() as i64;
+    let d_g = ((radius_km / sweep.gate_interval_km).ceil() as i64).clamp(1, 24);
+    let (mut sum, mut n) = (0.0f32, 0usize);
+    for da in -d_az..=d_az {
+        let a = (az0 + da).rem_euclid(sweep.az_bins as i64) as usize;
+        for dg in -d_g..=d_g {
+            let g = g0 + dg;
+            if g < 0 || g as usize >= sweep.gate_count {
+                continue;
+            }
+            if let Some(v) = decode(sweep, sweep.data[a * sweep.gate_count + g as usize]) {
+                sum += v;
+                n += 1;
+            }
+        }
+    }
+    (n >= 4).then(|| sum / n as f32)
+}
+
+/// Read the differential reflectivity around each hit from the lowest ZDR sweep and discount the
+/// hits whose surroundings are not ZDR-neutral (see [`zdr_factor`]). Records the mean on the hit so
+/// [`TdsHit::explain`] can show it, and returns the hits strongest first. Run it before
+/// [`corroborate_with_rotation`], which adds to the confidence this leaves.
+pub fn apply_zdr(hits: &mut [TdsHit], zdr: &[BinnedSweep]) {
+    let Some(low) = zdr
+        .iter()
+        .filter(|s| s.moment == Moment::DifferentialReflectivity)
+        .min_by(|a, b| a.elevation_deg.total_cmp(&b.elevation_deg))
+    else {
+        return;
+    };
+    for h in hits.iter_mut() {
+        h.zdr_db = None;
+        // About the footprint of the hit, at least a kilometre so a small ball still has neighbours.
+        let radius = ((h.area_km2 / std::f32::consts::PI).sqrt() + 0.5).clamp(1.0, 3.0);
+        if let Some(mean) = mean_around(low, h.lon, h.lat, radius) {
+            h.zdr_db = Some(mean);
+            h.confidence *= zdr_factor(mean);
+        }
+    }
+    hits.sort_by(|a, b| b.confidence.total_cmp(&a.confidence));
+}
+
 /// Detect debris signatures across a volume's tilts, not just one — the vertical-continuity check
 /// a single sweep cannot offer. Per-tilt hits (each already computed by [`detect`], so an existing
 /// single-tilt caller sees no change) that lie within a few km of one another are merged into one
@@ -744,6 +828,7 @@ pub fn detect_volume(
                 tilts,
                 top_km,
                 rotation_ms: None,
+                zdr_db: None,
                 confirmation: crate::confirm::Confirmation::NONE,
                 confidence: confidence(ev, vertical_term(top_km, tilts)),
             }
@@ -1153,6 +1238,7 @@ mod tests {
             tilts: 1,
             top_km: 0.5,
             rotation_ms: None,
+            zdr_db: None,
             confirmation: crate::confirm::Confirmation::NONE,
             confidence,
         }
@@ -1324,6 +1410,97 @@ mod tests {
             "full strength once clear of the clutter zone"
         );
         assert!(at(0.0) > 0.0, "and never a negative or NaN score");
+    }
+
+    fn zdr_sweep(db: f32) -> BinnedSweep {
+        let (lo, hi) = Moment::DifferentialReflectivity.value_range();
+        let idx = (2.0 + (db - lo) / (hi - lo) * 253.0).round() as u8;
+        BinnedSweep {
+            moment: Moment::DifferentialReflectivity,
+            az_bins: 720,
+            gate_count: 200,
+            data: vec![idx; 720 * 200],
+            first_gate_km: 2.0,
+            gate_interval_km: 0.25,
+            radar_lat: 35.0,
+            radar_lon: -97.5,
+            elevation_deg: 0.5,
+            value_min: lo,
+            value_max: hi,
+            ..Default::default()
+        }
+    }
+
+    /// A hit 20 km north of the radar.
+    fn hit_20km_north(confidence: f32) -> TdsHit {
+        TdsHit {
+            lat: 35.0 + 20.0 / 110.57,
+            lon: -97.5,
+            range_km: 20.0,
+            ..hit_at(-97.5, 35.0, confidence)
+        }
+    }
+
+    #[test]
+    fn a_high_zdr_around_a_hit_discounts_it_and_a_neutral_one_does_not() {
+        assert_eq!(zdr_factor(0.0), 1.0);
+        assert_eq!(zdr_factor(1.0), 1.0);
+        assert!((zdr_factor(3.5) - 0.6).abs() < 1e-6);
+        assert!(zdr_factor(2.0) < 1.0 && zdr_factor(2.0) > zdr_factor(3.0));
+        assert_eq!(zdr_factor(9.0), zdr_factor(3.5), "it bottoms out");
+        let mut rain = [hit_20km_north(0.8)];
+        apply_zdr(&mut rain, &[zdr_sweep(3.0)]);
+        assert!(
+            (rain[0].zdr_db.unwrap() - 3.0).abs() < 0.3,
+            "{:?}",
+            rain[0].zdr_db
+        );
+        assert!(rain[0].confidence < 0.8 * 0.75, "{}", rain[0].confidence);
+        let mut debris = [hit_20km_north(0.8)];
+        apply_zdr(&mut debris, &[zdr_sweep(0.0)]);
+        assert!(
+            (debris[0].confidence - 0.8).abs() < 1e-6,
+            "ZDR near zero adds and removes nothing"
+        );
+    }
+
+    #[test]
+    fn no_zdr_data_leaves_the_hit_alone_and_says_so() {
+        let mut h = [hit_20km_north(0.8)];
+        apply_zdr(&mut h, &[]);
+        assert_eq!((h[0].zdr_db, h[0].confidence), (None, 0.8));
+        // A hit off the edge of the sweep has nothing to read either.
+        let mut far = [TdsHit {
+            lat: 40.0,
+            ..hit_20km_north(0.8)
+        }];
+        apply_zdr(&mut far, &[zdr_sweep(3.0)]);
+        assert_eq!(far[0].zdr_db, None);
+        assert_eq!(far[0].confidence, 0.8);
+    }
+
+    #[test]
+    fn the_explanation_accounts_for_the_zdr_discount() {
+        let mut hit = hit_20km_north(0.0);
+        hit.tilts = 3;
+        hit.top_km = 2.0;
+        hit.confidence = confidence(
+            evidence(
+                hit.min_cc,
+                hit.mean_cc,
+                hit.mean_z,
+                hit.area_km2,
+                hit.contrast,
+                hit.range_km,
+            ),
+            vertical_term(hit.top_km, hit.tilts),
+        );
+        let mut v = [hit];
+        apply_zdr(&mut v, &[zdr_sweep(3.0)]);
+        let e = v[0].explain();
+        assert!((e.base_confidence - v[0].confidence).abs() < 1e-5);
+        assert!(e.zdr.is_some());
+        assert!(e.lines(&v[0]).join("\n").contains("ZDR"));
     }
 
     #[test]

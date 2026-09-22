@@ -777,11 +777,15 @@ pub fn run_tds_archive(site: &str, date: &str, hhmm: &str) -> anyhow::Result<()>
         let scan = level2::download_scan(id.1, None).await?;
         let mut pairs = Vec::new();
         let mut vel_pairs = Vec::new();
+        let mut zdr_sweeps = Vec::new();
         for tilt in 0..4 {
             let z = level2::bin_scan(&scan, Moment::Reflectivity, tilt);
             let cc = level2::bin_scan(&scan, Moment::CorrelationCoefficient, tilt);
             // Dealiased, as the app reads it, so folded gates do not fake shear.
             let vel = level2::bin_scan_opts(&scan, Moment::Velocity, tilt, true);
+            if let Ok(zd) = level2::bin_scan(&scan, Moment::DifferentialReflectivity, tilt) {
+                zdr_sweeps.push(zd);
+            }
             if let (Ok(z), Ok(cc)) = (&z, cc) {
                 pairs.push((z.clone(), cc));
             }
@@ -789,11 +793,12 @@ pub fn run_tds_archive(site: &str, date: &str, hhmm: &str) -> anyhow::Result<()>
                 vel_pairs.push((vel, z));
             }
         }
-        anyhow::Ok((pairs, vel_pairs))
+        anyhow::Ok((pairs, vel_pairs, zdr_sweeps))
     })?;
-    let (pairs, vel_pairs) = pairs;
+    let (pairs, vel_pairs, zdr_sweeps) = pairs;
     println!("{} tilt(s) with reflectivity and CC", pairs.len());
     let mut hits = wxdata::tds::detect_volume(&pairs, 0.80, 40.0, 150.0, 4);
+    wxdata::tds::apply_zdr(&mut hits, &zdr_sweeps);
     let couplets = wxdata::rotation::detect_volume(&vel_pairs, 25.0, 20.0, 15.0, 150.0, 3);
     let rotation: Vec<_> = couplets
         .iter()
@@ -4660,10 +4665,14 @@ pub fn run_detector_backtest(
             let scan = level2::download_scan(id, None).await?;
             let mut pairs = Vec::new();
             let mut vel_pairs = Vec::new();
+            let mut zdr_sweeps = Vec::new();
             for tilt in 0..4 {
                 let z = level2::bin_scan(&scan, Moment::Reflectivity, tilt);
                 let cc = level2::bin_scan(&scan, Moment::CorrelationCoefficient, tilt);
                 let vel = level2::bin_scan_opts(&scan, Moment::Velocity, tilt, true);
+                if let Ok(zd) = level2::bin_scan(&scan, Moment::DifferentialReflectivity, tilt) {
+                    zdr_sweeps.push(zd);
+                }
                 if let (Ok(z), Ok(cc)) = (&z, cc) {
                     pairs.push((z.clone(), cc));
                 }
@@ -4672,6 +4681,7 @@ pub fn run_detector_backtest(
                 }
             }
             let mut hits = wxdata::tds::detect_volume(&pairs, 0.80, 40.0, 150.0, 4);
+            wxdata::tds::apply_zdr(&mut hits, &zdr_sweeps);
             let couplets = wxdata::rotation::detect_volume(&vel_pairs, 25.0, 20.0, 15.0, 150.0, 3);
             let corroborating: Vec<_> = couplets
                 .iter()

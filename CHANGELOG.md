@@ -8,6 +8,15 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Improved: debris signatures read differential reflectivity
+
+Debris is a jumble of random shapes, so its ZDR sits near 0 dB; low CC beside a high ZDR is mixed rain,
+large drops or a melting layer, the commonest thing a CC-only detector mistakes for a debris ball. The
+mean ZDR around each signature now discounts its score (none up to 1 dB, down to 60% by 3.5 dB), shows in
+the hover explanation, and never raises a score, since dry hail is near 0 too. On the 2013-05-20 volumes the
+Moore debris ball is untouched at 91% while neighbouring signatures over mixed precipitation drop about ten
+points. A volume with no ZDR is simply not discounted.
+
 ### Fixed: false couplets from scan seams, leftover folds and tower clutter; confirmed detections
 
 A live sweep showed hundreds of rotation couplets in a straight line out from the radar. Three causes,

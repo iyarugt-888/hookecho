@@ -8995,11 +8995,15 @@ impl HookEchoApp {
         };
         let z_tilts = vol.moment_tilts(Moment::Reflectivity);
         let cc_tilts = vol.moment_tilts(Moment::CorrelationCoefficient);
+        // Differential reflectivity separates debris (near 0 dB) from the rain and large drops
+        // that also lower CC; absent on a volume without it, which is then simply not discounted.
+        let zdr_tilts = vol.moment_tilts(Moment::DifferentialReflectivity);
         let pairs: Vec<_> = z_tilts.into_iter().zip(cc_tilts).take(TILTS).collect();
         if pairs.is_empty() {
             return Vec::new(); // no dual-pol CC on this volume (legacy pre-dual-pol, or TDWR)
         }
         let mut hits = wxdata::tds::detect_volume(&pairs, 0.80, 40.0, 150.0, 4);
+        wxdata::tds::apply_zdr(&mut hits, &zdr_tilts);
         // Rotation beside a debris signature is the strongest single corroboration there is, and
         // it is read quietly: a TDS layer must not chime for rotation the user never asked about.
         let rotation: Vec<(f64, f64, f32)> = self
