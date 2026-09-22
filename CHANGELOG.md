@@ -8,6 +8,39 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: cell tracking could crash on a session's first volume with 3+ new storms
+
+`wxdata::celltrack::associate` sized its "already claimed this volume" scratch vector to the
+number of *existing* tracks up front, then kept searching the same list as it grew when a cell
+started a new one mid-batch — so the third-plus brand-new cell in one call indexed past the
+scratch vector's own length and panicked. Every session's first tracked volume with more than two
+storms hit this, which is not a rare shape of input. Found while building the score-timeline
+tracker below on the identical pattern, deliberately: `wxdata::scoretrack::associate` copied the
+same greedy nearest-neighbour shape from `celltrack::associate` on the theory that a *proven*
+pattern was safer to reuse than to reinvent, and the reproduction from one confirmed the same bug
+in the other before either shipped. Fixed in both: a point is now only ever matched against tracks
+that existed *before* the current call, not ones the same batch already started — which was also a
+real (if quieter) correctness bug on its own, since two detections seen for the first time
+together in one volume are two distinct features, never one recurring track just because they
+happened to land close together.
+
+### Added: score timelines — confidence tracked volume to volume, not just per-scan
+
+`wxdata::scoretrack` follows each debris/rotation detection across a backtest's volumes the same
+greedy nearest-neighbour way `celltrack` follows storm cells, and `--headless-backtest`/
+`--headless-backtest-file` print the result: how many raw candidates turned out to be the same
+recurring feature seen again (as against a one-volume blip), and the longest track's full
+confidence sequence. This is the "timeline of score changes" C5's algorithm-lab list named — a
+confidence that climbed steadily over four volumes and one that spiked once and vanished are the
+same single-volume number with very different stories, and only a tracked history tells them
+apart. On the Moore, OK event specifically: a debris signature tracked across all 8 volumes,
+confidence 53% → 54% → 63% → 65% → 56% → 56% → 68% → 47%, and a couplet over the same span rising
+sharply mid-event, 34% → 36% → 30% → 70% → 71% → 75% → 72% — consistent with the real tornado's
+rotation intensifying partway through the window. Across the full 8-event backtest, most raw
+candidates (106 of 140 debris, 69 of 109 rotation) turned out to be a recurring feature tracked
+across more than one volume, not a one-off. Live map wiring (a sparkline on hover, say) is a
+follow-up; this pass is the tracker itself, proven against real archived multi-volume data.
+
 ### Fixed: archived Tornado Emergencies read as plain warnings on the scrubbed timeline
 
 `wxdata::archive_warnings::parse` hard-coded `tornado_detection`/`damage_threat` to `None` for

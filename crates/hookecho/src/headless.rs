@@ -4643,6 +4643,10 @@ struct BacktestEvent {
     /// so this only ever counts what already passed that filter.
     tds_observed: usize,
     rot_observed: usize,
+    /// Each debris/couplet detection followed across this event's volumes — the "timeline of
+    /// score changes" C5 asks for. See `wxdata::scoretrack`'s own doc comment.
+    tds_tracks: Vec<wxdata::scoretrack::ScoreTrack>,
+    rot_tracks: Vec<wxdata::scoretrack::ScoreTrack>,
     volumes: usize,
     /// Volumes that actually carried a correlation-coefficient tilt. Some pre-2013 archives
     /// (the WSR-88D dual-pol rollout ran 2011-2013) have none at all, in which case `tds` is
@@ -4677,143 +4681,185 @@ fn backtest_event(
 ) -> anyhow::Result<BacktestEvent> {
     use wxdata::detverify::{Detection, Truth};
     let minute_of = |t: chrono::DateTime<chrono::Utc>| t.timestamp() / 60;
-    let (tds, rot, first, last, volumes, dual_pol_volumes, radar_pos, tds_observed, rot_observed) =
-        rt.block_on(async {
-            let mut ids: Vec<_> = level2::list_volumes(site, day)
-                .await?
-                .into_iter()
-                .filter_map(|id| id.date_time().map(|t| (t, id)))
-                .filter(|(t, _)| *t >= start - chrono::Duration::minutes(3))
-                .collect();
-            ids.sort_by_key(|(t, _)| *t);
-            ids.truncate(count);
-            anyhow::ensure!(!ids.is_empty(), "no volumes for {site} from {start}");
-            let (first, last) = (ids[0].0, ids[ids.len() - 1].0);
-            let volumes = ids.len();
-            let mut tds = Vec::new();
-            let mut rot = Vec::new();
-            let mut dual_pol_volumes = 0usize;
-            // Captured off the first sweep that decodes, so the reports fetched below can be limited
-            // to this radar's own coverage.
-            let mut radar_pos: Option<(f64, f64)> = None;
-            // Raw detections that fell inside an observed tornado warning valid at their own volume.
-            let mut tds_observed = 0usize;
-            let mut rot_observed = 0usize;
-            for (t, id) in ids {
-                let scan = match level2::download_scan(id, None).await {
-                    Ok(s) => s,
-                    Err(e) => {
-                        eprintln!("  {site} {}: skipped, {e}", t.format("%H:%M"));
-                        continue;
-                    }
-                };
-                let mut pairs = Vec::new();
-                let mut vel_pairs = Vec::new();
-                let mut zdr_sweeps = Vec::new();
-                for tilt in 0..4 {
-                    let z = level2::bin_scan(&scan, Moment::Reflectivity, tilt);
-                    let cc = level2::bin_scan(&scan, Moment::CorrelationCoefficient, tilt);
-                    let vel = level2::bin_scan_opts(&scan, Moment::Velocity, tilt, true);
-                    if let Ok(zd) = level2::bin_scan(&scan, Moment::DifferentialReflectivity, tilt)
-                    {
-                        zdr_sweeps.push(zd);
-                    }
-                    if let Ok(z) = &z {
-                        radar_pos.get_or_insert((z.radar_lon as f64, z.radar_lat as f64));
-                    }
-                    if let (Ok(z), Ok(cc)) = (&z, cc) {
-                        pairs.push((z.clone(), cc));
-                    }
-                    if let (Ok(z), Ok(vel)) = (z, vel) {
-                        vel_pairs.push((vel, z));
-                    }
+    let (
+        tds,
+        rot,
+        first,
+        last,
+        volumes,
+        dual_pol_volumes,
+        radar_pos,
+        tds_observed,
+        rot_observed,
+        tds_tracks,
+        rot_tracks,
+    ) = rt.block_on(async {
+        let mut ids: Vec<_> = level2::list_volumes(site, day)
+            .await?
+            .into_iter()
+            .filter_map(|id| id.date_time().map(|t| (t, id)))
+            .filter(|(t, _)| *t >= start - chrono::Duration::minutes(3))
+            .collect();
+        ids.sort_by_key(|(t, _)| *t);
+        ids.truncate(count);
+        anyhow::ensure!(!ids.is_empty(), "no volumes for {site} from {start}");
+        let (first, last) = (ids[0].0, ids[ids.len() - 1].0);
+        let volumes = ids.len();
+        let mut tds = Vec::new();
+        let mut rot = Vec::new();
+        let mut dual_pol_volumes = 0usize;
+        // Captured off the first sweep that decodes, so the reports fetched below can be limited
+        // to this radar's own coverage.
+        let mut radar_pos: Option<(f64, f64)> = None;
+        // Raw detections that fell inside an observed tornado warning valid at their own volume.
+        let mut tds_observed = 0usize;
+        let mut rot_observed = 0usize;
+        // Each detection followed across volumes — the "timeline of score changes" the
+        // algorithm-lab roadmap item asks for. Built alongside, not from, `tds`/`rot`: those
+        // flatten every volume's hits into one list for POD/FAR scoring, which is exactly the
+        // structure that loses which hits belong to the same recurring feature.
+        let mut tds_tracks: Vec<wxdata::scoretrack::ScoreTrack> = Vec::new();
+        let mut rot_tracks: Vec<wxdata::scoretrack::ScoreTrack> = Vec::new();
+        for (t, id) in ids {
+            let scan = match level2::download_scan(id, None).await {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("  {site} {}: skipped, {e}", t.format("%H:%M"));
+                    continue;
                 }
-                if !pairs.is_empty() {
-                    dual_pol_volumes += 1;
+            };
+            let mut pairs = Vec::new();
+            let mut vel_pairs = Vec::new();
+            let mut zdr_sweeps = Vec::new();
+            for tilt in 0..4 {
+                let z = level2::bin_scan(&scan, Moment::Reflectivity, tilt);
+                let cc = level2::bin_scan(&scan, Moment::CorrelationCoefficient, tilt);
+                let vel = level2::bin_scan_opts(&scan, Moment::Velocity, tilt, true);
+                if let Ok(zd) = level2::bin_scan(&scan, Moment::DifferentialReflectivity, tilt) {
+                    zdr_sweeps.push(zd);
                 }
-                let mut hits = wxdata::tds::detect_volume(&pairs, 0.80, 40.0, 150.0, 4);
-                wxdata::tds::apply_zdr(&mut hits, &zdr_sweeps);
-                let mut couplets =
-                    wxdata::rotation::detect_volume(&vel_pairs, 25.0, 20.0, 15.0, 150.0, 3);
-                // Corroborate both ways at once, each from the other's pre-corroboration confidence,
-                // so the backtest scores what a debris ball beside a couplet is actually worth without
-                // either side's boost feeding the other's back in.
-                wxdata::tds::cross_corroborate(&mut hits, &mut couplets);
-                let minute = minute_of(t);
-
-                // Storm-based warnings valid at this exact volume, for the "confirmed by an observed
-                // warning" count below — independent of, and not blended into, the LSR/DAT scoring
-                // above. Only an OBSERVED (or Tornado Emergency) one counts, the same rule live
-                // confirmation uses, so this can never just be a detector agreeing with an ordinary
-                // radar-indicated warning issued off the same signatures it is scoring.
-                let observed_warnings: Vec<wxdata::confirm::TornadoWarning> =
-                    archive_warnings_at(t)
-                        .await
-                        .into_iter()
-                        .filter_map(|f| {
-                            let a = f.alert.as_ref()?;
-                            if !a.event.eq_ignore_ascii_case("Tornado Warning") {
-                                return None;
-                            }
-                            Some(wxdata::confirm::TornadoWarning {
-                                rings: f.rings.clone(),
-                                observed: wxdata::confirm::is_observed(
-                                    a.tornado_detection.as_deref(),
-                                    wxdata::alerts::escalation(a) >= 3,
-                                ),
-                            })
-                        })
-                        .collect();
-                let evidence = wxdata::confirm::Evidence {
-                    reports: Vec::new(),
-                    warnings: observed_warnings,
-                };
-                tds_observed += hits
-                    .iter()
-                    .filter(|h| {
-                        wxdata::confirm::confirm(h.lon, h.lat, minute, &evidence).observed_warning
-                    })
-                    .count();
-                rot_observed += couplets
-                    .iter()
-                    .filter(|c| {
-                        wxdata::confirm::confirm(c.lon, c.lat, minute, &evidence).observed_warning
-                    })
-                    .count();
-
-                tds.extend(hits.iter().map(|h| Detection {
-                    lon: h.lon,
-                    lat: h.lat,
-                    confidence: h.confidence,
-                    minute,
-                    range_km: h.range_km,
-                }));
-                rot.extend(couplets.iter().map(|c| Detection {
-                    lon: c.lon,
-                    lat: c.lat,
-                    confidence: c.confidence,
-                    minute,
-                    range_km: c.range_km,
-                }));
-                println!(
-                    "  {site} {}  {} debris signature(s), {} couplet(s)",
-                    t.format("%H:%M"),
-                    hits.len(),
-                    couplets.len()
-                );
+                if let Ok(z) = &z {
+                    radar_pos.get_or_insert((z.radar_lon as f64, z.radar_lat as f64));
+                }
+                if let (Ok(z), Ok(cc)) = (&z, cc) {
+                    pairs.push((z.clone(), cc));
+                }
+                if let (Ok(z), Ok(vel)) = (z, vel) {
+                    vel_pairs.push((vel, z));
+                }
             }
-            anyhow::Ok((
-                tds,
-                rot,
-                first,
-                last,
-                volumes,
-                dual_pol_volumes,
-                radar_pos,
-                tds_observed,
-                rot_observed,
-            ))
-        })?;
+            if !pairs.is_empty() {
+                dual_pol_volumes += 1;
+            }
+            let mut hits = wxdata::tds::detect_volume(&pairs, 0.80, 40.0, 150.0, 4);
+            wxdata::tds::apply_zdr(&mut hits, &zdr_sweeps);
+            let mut couplets =
+                wxdata::rotation::detect_volume(&vel_pairs, 25.0, 20.0, 15.0, 150.0, 3);
+            // Corroborate both ways at once, each from the other's pre-corroboration confidence,
+            // so the backtest scores what a debris ball beside a couplet is actually worth without
+            // either side's boost feeding the other's back in.
+            wxdata::tds::cross_corroborate(&mut hits, &mut couplets);
+            let minute = minute_of(t);
+
+            tds_tracks = wxdata::scoretrack::associate(
+                &tds_tracks,
+                &hits
+                    .iter()
+                    .map(|h| wxdata::scoretrack::ScorePoint {
+                        lon: h.lon,
+                        lat: h.lat,
+                        confidence: h.confidence,
+                        time: t,
+                    })
+                    .collect::<Vec<_>>(),
+            );
+            rot_tracks = wxdata::scoretrack::associate(
+                &rot_tracks,
+                &couplets
+                    .iter()
+                    .map(|c| wxdata::scoretrack::ScorePoint {
+                        lon: c.lon,
+                        lat: c.lat,
+                        confidence: c.confidence,
+                        time: t,
+                    })
+                    .collect::<Vec<_>>(),
+            );
+
+            // Storm-based warnings valid at this exact volume, for the "confirmed by an observed
+            // warning" count below — independent of, and not blended into, the LSR/DAT scoring
+            // above. Only an OBSERVED (or Tornado Emergency) one counts, the same rule live
+            // confirmation uses, so this can never just be a detector agreeing with an ordinary
+            // radar-indicated warning issued off the same signatures it is scoring.
+            let observed_warnings: Vec<wxdata::confirm::TornadoWarning> = archive_warnings_at(t)
+                .await
+                .into_iter()
+                .filter_map(|f| {
+                    let a = f.alert.as_ref()?;
+                    if !a.event.eq_ignore_ascii_case("Tornado Warning") {
+                        return None;
+                    }
+                    Some(wxdata::confirm::TornadoWarning {
+                        rings: f.rings.clone(),
+                        observed: wxdata::confirm::is_observed(
+                            a.tornado_detection.as_deref(),
+                            wxdata::alerts::escalation(a) >= 3,
+                        ),
+                    })
+                })
+                .collect();
+            let evidence = wxdata::confirm::Evidence {
+                reports: Vec::new(),
+                warnings: observed_warnings,
+            };
+            tds_observed += hits
+                .iter()
+                .filter(|h| {
+                    wxdata::confirm::confirm(h.lon, h.lat, minute, &evidence).observed_warning
+                })
+                .count();
+            rot_observed += couplets
+                .iter()
+                .filter(|c| {
+                    wxdata::confirm::confirm(c.lon, c.lat, minute, &evidence).observed_warning
+                })
+                .count();
+
+            tds.extend(hits.iter().map(|h| Detection {
+                lon: h.lon,
+                lat: h.lat,
+                confidence: h.confidence,
+                minute,
+                range_km: h.range_km,
+            }));
+            rot.extend(couplets.iter().map(|c| Detection {
+                lon: c.lon,
+                lat: c.lat,
+                confidence: c.confidence,
+                minute,
+                range_km: c.range_km,
+            }));
+            println!(
+                "  {site} {}  {} debris signature(s), {} couplet(s)",
+                t.format("%H:%M"),
+                hits.len(),
+                couplets.len()
+            );
+        }
+        anyhow::Ok((
+            tds,
+            rot,
+            first,
+            last,
+            volumes,
+            dual_pol_volumes,
+            radar_pos,
+            tds_observed,
+            rot_observed,
+            tds_tracks,
+            rot_tracks,
+        ))
+    })?;
 
     // Reports for the window, widened by the matching window on both sides.
     let pad = chrono::Duration::minutes(BACKTEST_WINDOW_MIN);
@@ -4913,6 +4959,8 @@ fn backtest_event(
         dat_truths,
         tds_observed,
         rot_observed,
+        tds_tracks,
+        rot_tracks,
         volumes,
         dual_pol_volumes,
     })
@@ -5007,6 +5055,37 @@ fn print_backtest_tables(events: &[BacktestEvent]) {
         println!(
             "  vs observed tornado warnings: {observed} of {total} detection(s) inside one at their own volume"
         );
+        // The score timeline itself: not a fourth verification table, just what tracking the same
+        // recurring feature from volume to volume actually looks like on real archived data.
+        let tracks: Vec<&wxdata::scoretrack::ScoreTrack> = scored
+            .iter()
+            .flat_map(|e| {
+                if name == "Debris signatures" {
+                    &e.tds_tracks
+                } else {
+                    &e.rot_tracks
+                }
+            })
+            .collect();
+        let tracked = tracks.iter().filter(|tr| tr.points.len() > 1).count();
+        println!(
+            "  tracked across volumes: {tracked} of {} candidate track(s) span more than one volume",
+            tracks.len()
+        );
+        if let Some(longest) = tracks.iter().max_by_key(|tr| tr.points.len()) {
+            if longest.points.len() > 1 {
+                let seq: Vec<String> = longest
+                    .points
+                    .iter()
+                    .map(|p| format!("{:.0}%", p.confidence * 100.0))
+                    .collect();
+                println!(
+                    "    longest: {} volume(s), confidence {}",
+                    longest.points.len(),
+                    seq.join(" -> ")
+                );
+            }
+        }
     }
 }
 

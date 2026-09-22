@@ -68,6 +68,7 @@ pub mod river;
 pub mod rotation;
 pub mod rtma;
 pub mod scan_age;
+pub mod scoretrack;
 pub mod severe;
 pub mod shapefile;
 pub mod sounding;

@@ -194,9 +194,17 @@ pub fn associate(
 ) -> Vec<Track> {
     let mut out = prev.to_vec();
     let mut taken = vec![false; out.len()];
+    // Only ever searched against the tracks `prev` already had, not ones this call itself starts:
+    // two cells seen for the first time together in the same volume are two distinct storms, not
+    // one recurring track, however close together they landed. Searching the live, growing `out`
+    // here used to do both wrong (a later cell in the same batch could silently absorb an earlier
+    // one's brand-new track) and unsafe (`taken` is sized to `prev.len()` and never grows, so
+    // indexing past it once `out` had grown panicked — the third new cell in one call on a fresh
+    // `prev` of `[]`, which is every session's first tracked volume with more than two storms).
+    let prev_len = out.len();
     for cell in now {
         let mut best: Option<(usize, f64)> = None;
-        for (i, tr) in out.iter().enumerate() {
+        for (i, tr) in out[..prev_len].iter().enumerate() {
             if taken[i] {
                 continue;
             }
@@ -401,6 +409,26 @@ mod tests {
             20.0,
         );
         assert_eq!(tracks.len(), 2, "180 km away is a different storm");
+    }
+
+    /// The very first volume of a session, with no `prev` tracks at all and several brand-new
+    /// cells at once — a fresh boot or a new storm mode developing, both common. `taken` is sized
+    /// to `prev.len()` (zero) up front and never grown when a cell starts a new track mid-batch,
+    /// so the third-plus cell processed in one call used to index `taken` past its own length.
+    #[test]
+    fn three_brand_new_cells_in_one_call_do_not_panic() {
+        let t0 = chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap();
+        let tracks = associate(
+            &[],
+            &[blob(-97.0, 35.0), blob(-95.0, 35.0), blob(-93.0, 35.0)],
+            t0,
+            20.0,
+        );
+        assert_eq!(
+            tracks.len(),
+            3,
+            "three separate storms, none of them a match for another"
+        );
     }
 
     #[test]

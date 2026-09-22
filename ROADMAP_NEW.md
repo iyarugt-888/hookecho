@@ -1707,7 +1707,27 @@ had hard-coded every archived warning's detection/damage-threat tags to `None`, 
 Tornado Emergency read as tier 0 everywhere — the alert panel, badge colors, and now backtest
 confirmation — since the archive's `tornadotag`/`damagetag` fields are usually empty even for a
 real one; it reads the archive's separate `is_emergency`/`is_pds` structured booleans now, the same
-way `escalation` reads a live product's own headline text. A stored score timeline is still open.
+way `escalation` reads a live product's own headline text. A stored score timeline exists now too:
+`wxdata::scoretrack` follows each debris/rotation detection across a backtest's volumes the same
+greedy nearest-neighbour way `celltrack` follows storm cells (deliberately not built *on*
+`celltrack::Track`, which carries motion a score timeline has no use for), and the backtest prints
+the result — how many raw candidates turned out to be a recurring feature across more than one
+volume, and the longest track's full confidence sequence. Proven against real archived data: on
+Moore, OK a debris signature tracked all 8 volumes at 53% → 54% → 63% → 65% → 56% → 56% → 68% → 47%,
+and a couplet rose sharply mid-event, 34% → ... → 75% → 72%, matching the real tornado's rotation
+intensifying partway through the window. Reusing `celltrack::associate`'s exact shape surfaced a
+real, pre-existing crash in it: `taken` (which gates that a track hasn't already claimed a point
+this round) was sized to the *existing* track count and never grew when a brand-new track started
+mid-batch, so a session's very first tracked volume with 3+ new storms indexed past it and
+panicked — not a rare shape of input. Fixed in both modules: a point is now only ever matched
+against tracks that existed before the current call, which is also the semantically correct rule
+(two detections seen for the first time together in one volume are two distinct features, not one
+recurring track). Live map wiring for the score timeline (a sparkline on hover, say) is a
+follow-up; this pass is the tracker itself, backtest-verified.
+
+Every item this section originally opened with is now either done or has a concretely scoped
+follow-up named above it — the algorithm-lab work from here is UI wiring (the score timeline on
+the map, a first backtest consumer for cell scoring) rather than new backend capability.
 
 **Range-normalised shear — done, in a narrower form than originally proposed.** Scored the raw (pre-
 confidence-filter) candidates from the 8 events in `docs/backtest-events.txt`, split at 60 km — the
