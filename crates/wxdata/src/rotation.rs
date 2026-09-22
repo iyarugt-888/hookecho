@@ -3,7 +3,11 @@
 //! A rotation couplet is adjacent inbound and outbound velocity maxima at the same range: the
 //! radar sees one side of the vortex moving toward it and the other away. The legacy operational
 //! criterion is gate-to-gate azimuthal shear — the velocity difference between neighboring
-//! azimuths at one range — with ~25 m/s marking a weak signature and ~36 m/s a strong one.
+//! azimuths at one range — with ~25 m/s marking a weak signature and ~36 m/s a strong one. That
+//! fixed velocity floor is itself range-scaled past 60 km ([`range_floor_scale`]): a backtest
+//! found 93% of every raw candidate coming from beyond that range, where the same physical
+//! rotation produces a smaller gate-to-gate difference simply because the gates comparing it are
+//! farther apart on the ground.
 //!
 //! This runs on the dealiased velocity [`BinnedSweep`] the app already bins for display, so it
 //! works per volume with no extra download, and it is complementary to the coarse MRMS AzShear
@@ -112,7 +116,7 @@ pub struct CoupletHit {
 }
 
 /// Which revision of the scoring produced a hit; bump it when any weight or rule below changes.
-pub const ALGORITHM_VERSION: &str = "rot-4";
+pub const ALGORITHM_VERSION: &str = "rot-5";
 
 /// The most confidence a couplet can have from one tilt alone.
 pub const SINGLE_TILT_CAP: f32 = 0.5;
@@ -166,6 +170,27 @@ pub fn size_term(pairs_per_tilt: f32) -> f32 {
 /// a couplet is a handful of gates, and the velocity data is where dealiasing failures cluster.
 pub fn range_factor(range_km: f32) -> f32 {
     1.0 - 0.4 * ((range_km - 60.0) / 90.0).clamp(0.0, 1.0)
+}
+
+/// The most [`detect`]'s gate-to-gate floor is scaled up by range, reached at 150 km. Grounded in
+/// geometry, not curve-fit: with a fixed azimuth bin count, the physical arc between two adjacent
+/// gates grows in direct proportion to range, so holding the same *true* rotation rate to the same
+/// standard as range grows means scaling the floor by the same ratio — 150 km is 2.5x the 60 km
+/// point [`range_floor_scale`]'s ramp starts from, matching the arc length's own growth over that
+/// span.
+pub const RANGE_FLOOR_MAX_SCALE: f32 = 2.5;
+
+/// Scales [`detect`]'s `g2g_min_ms` floor up by range: 1x out to 60 km (the same breakpoint
+/// [`range_factor`] and every other range discount in this module uses), ramping to
+/// [`RANGE_FLOOR_MAX_SCALE`] by 150 km.
+///
+/// Backtested over `docs/backtest-events.txt` (see `ROADMAP_NEW.md`'s C5 section): without it,
+/// 93% of every raw couplet candidate came from beyond 60 km, at a false-alarm rate measurably
+/// worse than closer in (98% vs 89%) while finding no more real circulations than the near-range
+/// candidates did — the coarse-sampling artifact this module's own doc comment already described
+/// from one live sweep, now at scale across a real backtest.
+pub fn range_floor_scale(range_km: f32) -> f32 {
+    1.0 + (RANGE_FLOOR_MAX_SCALE - 1.0) * ((range_km - 60.0) / 90.0).clamp(0.0, 1.0)
 }
 
 /// Vertical continuity, 0..1: height reached and number of tilts, each worth half, and then
@@ -569,7 +594,10 @@ pub fn detect(
             };
             comparable += 1;
             let dv = (a - b).abs();
-            if dv < g2g_min_ms || a * b >= 0.0 {
+            // The floor itself rises with range (see `range_floor_scale`): the same raw velocity
+            // difference is a much weaker true rotation rate once the gates comparing it are
+            // physically far apart.
+            if dv < g2g_min_ms * range_floor_scale(range) || a * b >= 0.0 {
                 continue; // too weak, or both gates on the same side of zero (not a couplet)
             }
             if is_leftover_fold(a, b, vel.nyquist_ms) {
@@ -1074,6 +1102,91 @@ mod tests {
         assert_eq!(hits.len(), 1);
     }
 
+    /// Like `couplet_sweep_tilt`, but with enough gates to place the wedge well past 60 km, where
+    /// [`range_floor_scale`] starts raising the gate-to-gate floor.
+    fn couplet_sweep_at_range(inbound: f32, outbound: f32, range_km: f32) -> BinnedSweep {
+        let (az_bins, gate_count) = (720usize, 700usize);
+        let (lo, hi) = Moment::Velocity.value_range();
+        let idx = |v: f32| (2.0 + (v - lo) / (hi - lo) * 253.0).round() as u8;
+        let mut data = vec![idx(0.0); az_bins * gate_count];
+        let g0 = ((range_km - 2.0) / 0.25).round() as usize;
+        for g in g0..g0 + 8 {
+            for az in 98..100 {
+                data[az * gate_count + g] = idx(inbound);
+            }
+            for az in 100..102 {
+                data[az * gate_count + g] = idx(outbound);
+            }
+        }
+        BinnedSweep {
+            moment: Moment::Velocity,
+            az_bins,
+            gate_count,
+            data,
+            first_gate_km: 2.0,
+            gate_interval_km: 0.25,
+            radar_lat: 35.0,
+            radar_lon: -97.5,
+            elevation_deg: 0.5,
+            value_min: lo,
+            value_max: hi,
+            ..Default::default()
+        }
+    }
+
+    /// A same-geometry reflectivity companion for `couplet_sweep_at_range`, uniform echo out past
+    /// 150 km — `z_sweep`'s own 200 gates (~52 km) don't reach the ranges this fixture tests.
+    fn z_sweep_wide(dbz: f32) -> BinnedSweep {
+        let (az_bins, gate_count) = (720usize, 700usize);
+        let (lo, hi) = Moment::Reflectivity.value_range();
+        let idx = (2.0 + (dbz - lo) / (hi - lo) * 253.0).round() as u8;
+        BinnedSweep {
+            moment: Moment::Reflectivity,
+            az_bins,
+            gate_count,
+            data: vec![idx; az_bins * gate_count],
+            first_gate_km: 2.0,
+            gate_interval_km: 0.25,
+            radar_lat: 35.0,
+            radar_lon: -97.5,
+            elevation_deg: 0.5,
+            value_min: lo,
+            value_max: hi,
+            ..Default::default()
+        }
+    }
+
+    /// The whole point of `range_floor_scale`: the same raw gate-to-gate shear that is a couplet
+    /// close to the radar is not one at long range, and a genuinely stronger far-range couplet
+    /// still gets through.
+    #[test]
+    fn far_range_needs_more_raw_shear_to_qualify_as_a_couplet() {
+        let z = z_sweep_wide(45.0);
+        // A wedge this wide can straddle two ~4 km cluster cells depending on exactly where it
+        // falls (see `couplet_sweep_tilt`'s own doc comment on the same tradeoff), so this checks
+        // presence, not cluster count — the range-scaled floor is a gate-level candidate filter,
+        // not a clustering change.
+        let run = |vel: &BinnedSweep| !detect(vel, &z, 25.0, 20.0, 5.0, 150.0, 3).is_empty();
+        // ±30 m/s (60 m/s gate-to-gate) passes fine at 30 km, well inside the unscaled zone.
+        assert!(run(&couplet_sweep_at_range(-30.0, 30.0, 30.0)));
+        // The identical ±30 m/s couplet at 140 km needs `25.0 * range_floor_scale(140.0)` ≈
+        // 58.3 m/s gate-to-gate; 60 m/s clears it, so it is still a genuine, if now-scarcer, hit.
+        assert!(
+            run(&couplet_sweep_at_range(-30.0, 30.0, 140.0)),
+            "a couplet strong enough to clear the raised far-range floor is still found"
+        );
+        // A couplet at the *old* fixed floor (±15 m/s either side, 30 m/s gate-to-gate) is real
+        // rotation by the near-range standard but is exactly the coarse-sampling noise the floor
+        // now screens out at 140 km.
+        assert!(
+            !run(&couplet_sweep_at_range(-15.0, 15.0, 140.0)),
+            "the same shear that qualifies near the radar no longer does this far out"
+        );
+        // And it would have qualified before this change, at the fixed 25 m/s floor.
+        let raw_dv = 30.0_f32;
+        assert!(raw_dv >= 25.0 && raw_dv < 25.0 * range_floor_scale(140.0));
+    }
+
     /// Bins from different passes are not neighbours: a partial live sweep has the previous
     /// rotation beside the current one.
     #[test]
@@ -1286,6 +1399,18 @@ mod scoring_tests {
         assert_eq!(range_factor(60.0), 1.0);
         assert!((range_factor(150.0) - 0.6).abs() < 1e-6);
         assert!(evidence(80.0, 90.0, 10.0) <= 1.0);
+    }
+
+    #[test]
+    fn the_gate_to_gate_floor_only_rises_past_sixty_km() {
+        assert_eq!(range_floor_scale(15.0), 1.0);
+        assert_eq!(range_floor_scale(60.0), 1.0);
+        assert!((range_floor_scale(150.0) - RANGE_FLOOR_MAX_SCALE).abs() < 1e-6);
+        // Nothing past 150 km climbs further: `detect`'s own `max_range_km` gates that off in
+        // practice, but the function itself is still well-behaved out there.
+        assert_eq!(range_floor_scale(300.0), RANGE_FLOOR_MAX_SCALE);
+        // Monotonic in between.
+        assert!(range_floor_scale(100.0) > range_floor_scale(80.0));
     }
 
     #[test]

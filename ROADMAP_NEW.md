@@ -1683,43 +1683,48 @@ version, each weighted term with its measurement, the range, vertical and ZDR st
 rotation gain, and every marker shows it on hover. `CoupletHit::explain` does the same for rotation,
 with its own sense and debris-gain stages. Both detectors score low-level rooting (`base_km`,
 `rooted`) as well as depth, and couplets carry a cyclonic/anticyclonic sense; scoring versions
-`tds-4` and `rot-4`. Corroboration is symmetric and feedback-loop-safe
+`tds-4` and `rot-5`. Corroboration is symmetric and feedback-loop-safe
 (`tds::cross_corroborate`, used by every live and headless call site) — a debris signature and a
 nearby couplet each raise the other's confidence, both always read from the other side's
 pre-corroboration evidence. Cells and the other detectors, a stored score timeline, and
 DAT/warning truth sets are still open. The SPC-report backtest exists (`--headless-backtest`,
-`--headless-backtest-file`, `wxdata::detverify`).
+`--headless-backtest-file`, `wxdata::detverify`), and now backtests by range too
+(`wxdata::detverify::score_in_range`, the "by range" line under each detector's table) — the tool
+that answered the next item.
 
-Still open on these two, in rough value order:
+**Range-normalised shear — done, in a narrower form than originally proposed.** Scored the raw (pre-
+confidence-filter) candidates from the 8 events in `docs/backtest-events.txt`, split at 60 km — the
+range every confidence score already starts discounting distance from:
 
-- **Range-normalised shear — now has the backtest evidence it was waiting on.**
-  `wxdata::detverify::score_in_range` (used by `--headless-backtest`'s new "by range" line) scores
-  a detector's *raw* candidates — before any confidence filter, so the existing `range_factor`
-  discount can't hide the answer — split at 60 km, the range every confidence score already starts
-  fading at. Run over the 8 events in `docs/backtest-events.txt` (8 volumes each):
+| detector  | range | raw candidates | FAR |
+|-----------|-------|-----------------|-----|
+| rotation  | < 60 km | 72   | 89% |
+| rotation  | >= 60 km | 1001 | 98% |
+| debris    | < 60 km | 157  | 92% |
+| debris    | >= 60 km | 296  | 95% |
 
-  | detector  | range | raw candidates | FAR |
-  |-----------|-------|-----------------|-----|
-  | rotation  | < 60 km | 72   | 89% |
-  | rotation  | >= 60 km | 1001 | 98% |
-  | debris    | < 60 km | 157  | 92% |
-  | debris    | >= 60 km | 296  | 95% |
+Debris is close to range-neutral (3 points of FAR) — expected, since CC/Z isn't a spatial-gate-
+difference measurement. Rotation was not: 93% of every raw couplet candidate came from beyond 60 km,
+measurably noisier there (98% vs 89% FAR) while catching no more real circulations — the "swarm of
+near-identical couplets... an artifact, not a set of tornadoes" the module doc already warned about,
+now at scale.
 
-  Debris is close to range-neutral (3 points of FAR, roughly 2x the candidate volume) — expected,
-  since its CC/Z criterion isn't a spatial-gate-difference measurement the way gate-to-gate shear
-  is. Rotation is not: **93% of every raw couplet candidate comes from beyond 60 km**, and those
-  far-range candidates are measurably noisier (98% vs 89% FAR) while catching no more real
-  circulations (4 of 86 tornado reports found in each band). That is the "swarm of near-identical
-  couplets... an artifact, not a set of tornadoes" the module doc already warns about, at a scale
-  bigger than one bad sweep.
+Shipped the narrower half of the original idea rather than the riskier one: `range_floor_scale`
+raises the 25 m/s gate-to-gate floor up to 2.5x by 150 km (a geometric argument — the physical arc
+between adjacent gates grows in direct proportion to range with a fixed bin count — not a curve fit
+to these 8 events), leaving the near-range floor exactly as it was rather than rescoring shear in
+s⁻¹ everywhere, which the FAR/candidate-volume gap never actually implicated near the radar. Re-run
+after: far-range raw candidates 1001 → 249 (-75%), far-range FAR 98% → 96%, and the tornado reports
+rotation matched across all 8 events 8/86 → 7/86 — the one loss confirmed *not* to be KSGF/Joplin,
+the flagship violent-tornado case, which matched zero either way (KSGF has no dual-pol CC, so
+rotation was its only signal, and every one of its 95 raw candidates was already a false alarm
+against the LSR reports before this change). Scoring version `rot-5`.
 
-  The specific fix this roadmap entry names — scoring shear in s⁻¹ instead of a flat velocity
-  difference — is still the higher-risk move it always was: it changes what "weak" and "strong"
-  mean everywhere at once, including near the radar where the current 25 m/s floor is evidently
-  fine. A narrower, evidence-matched first step: raise `g2g_min_ms` (or add a second range-scaled
-  floor) only past 60 km, where the data says the noise actually lives, leaving every near-range
-  number untouched. Worth a second backtest pass to pick the ramp before it ships, and out of scope
-  for this pass.
+Open questions this left: whether a gentler or steeper ramp trades POD and FAR better than 2.5x —
+untested, since a proper sweep needs several backtest runs per candidate value; and which specific
+report the far-range bucket stopped matching, not isolated (would need per-event, not aggregated,
+scoring output). Neither blocks shipping what's here, both are worth a follow-up pass with the tool
+that now exists to run it.
 
 
 For every automatic detection:

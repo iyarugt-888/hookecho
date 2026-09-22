@@ -8,6 +8,24 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Improved: rotation's gate-to-gate floor scales up with range, cutting far-range noise ~75%
+
+Follow-up to the range-by-range backtest below. The 25 m/s gate-to-gate floor is now
+[`wxdata::rotation::range_floor_scale`]d up to 2.5x by 150 km, past the same 60 km point the
+confidence score already discounts from: the physical arc between two adjacent azimuth gates grows
+in direct proportion to range with a fixed bin count, so the same *true* rotation produces a smaller
+measured velocity difference the farther out it's sampled, and treating that as an unmoving 25 m/s
+line, the way this detector always has, just makes it a coarse-sampling noise generator past 60 km.
+Near-range detection (< 60 km) is untouched — the floor stays exactly 25 m/s there, since the
+backtest evidence never questioned it.
+
+Re-run over the same 8 events: far-range raw candidates dropped from 1001 to 249 (a 75% cut, with
+the false-alarm ratio in that band easing from 98% to 96%), and the total tornado reports matched
+by rotation across all 8 events fell by exactly one, from 8/86 to 7/86 — confirmed *not* to be the
+Joplin/KSGF case, which matched zero reports both before and after (KSGF has no dual-pol CC at all,
+so rotation was its only signal, and every one of its 95 raw candidates was already a false alarm
+against the LSR reports before this change). Scoring version `rot-5`.
+
 ### Added: `--headless-backtest` scores raw candidates by range, found the rotation detector is 93% far-range noise
 
 `wxdata::detverify::score_in_range` scores a detector's candidates *before* any confidence filter,
