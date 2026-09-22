@@ -4704,12 +4704,14 @@ fn backtest_event(
                 lat: h.lat,
                 confidence: h.confidence,
                 minute,
+                range_km: h.range_km,
             }));
             rot.extend(couplets.iter().map(|c| Detection {
                 lon: c.lon,
                 lat: c.lat,
                 confidence: c.confidence,
                 minute,
+                range_km: c.range_km,
             }));
             println!(
                 "  {site} {}  {} debris signature(s), {} couplet(s)",
@@ -4769,8 +4771,16 @@ fn parse_start(
 
 /// Print the by-confidence table, summing every event's counts (they are additive, and each event
 /// is matched only against its own reports).
+/// The range (km) where every detector's own confidence score starts discounting for distance
+/// (both `tds::Terms::of`'s `far` factor and `rotation::range_factor` fade from here). Splitting
+/// the raw candidate set at the same point asks whether the *underlying* detection criterion — a
+/// fixed gate-to-gate velocity difference, or a fixed CC/Z threshold — is itself miscalibrated by
+/// range in a way the confidence score's own discount only partly corrects for. See
+/// `ROADMAP_NEW.md`'s "range-normalised shear" item.
+const RANGE_SPLIT_KM: f32 = 60.0;
+
 fn print_backtest_tables(events: &[BacktestEvent]) {
-    use wxdata::detverify::{score, Score};
+    use wxdata::detverify::{score, score_in_range, Score};
     let thresholds = [0.0, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8];
     let pct = |v: Option<f32>| v.map_or("  - ".to_string(), |v| format!("{:>3.0}%", v * 100.0));
     // Debris signatures need a correlation-coefficient tilt to exist at all; an event with none
@@ -4836,6 +4846,62 @@ fn print_backtest_tables(events: &[BacktestEvent]) {
             println!(
                 "  {:>7.0}%  {:>6}  {:>8}   {}   {}   {}   ({} / {})",
                 s.threshold * 100.0,
+                s.detections,
+                s.verified,
+                pct(s.pod()),
+                pct(s.far()),
+                pct(s.csi()),
+                s.found,
+                s.events
+            );
+        }
+        // Raw candidates (no confidence filter) split by range, so the underlying detection
+        // criterion's own accuracy by range is visible even though the confidence score already
+        // discounts far-range hits — a table with the same shape wouldn't distinguish "the
+        // discount is working" from "the criterion is fine at range".
+        let mut near = Score {
+            threshold: 0.0,
+            detections: 0,
+            verified: 0,
+            events: 0,
+            found: 0,
+        };
+        let mut far = near;
+        for e in &scored {
+            let dets = pick(e);
+            let n = &score_in_range(
+                &dets,
+                &e.truths,
+                BACKTEST_RADIUS_KM,
+                BACKTEST_WINDOW_MIN,
+                0.0,
+                RANGE_SPLIT_KM,
+                &[0.0],
+            )[0];
+            let f = &score_in_range(
+                &dets,
+                &e.truths,
+                BACKTEST_RADIUS_KM,
+                BACKTEST_WINDOW_MIN,
+                RANGE_SPLIT_KM,
+                f32::MAX,
+                &[0.0],
+            )[0];
+            near.detections += n.detections;
+            near.verified += n.verified;
+            near.events += n.events;
+            near.found += n.found;
+            far.detections += f.detections;
+            far.verified += f.verified;
+            far.events += f.events;
+            far.found += f.found;
+        }
+        println!(
+            "  by range   shown  verified    POD    FAR    CSI   (< {RANGE_SPLIT_KM:.0} km / >= {RANGE_SPLIT_KM:.0} km, raw candidates, no confidence filter)"
+        );
+        for (label, s) in [("near", &near), ("far ", &far)] {
+            println!(
+                "  {label}       {:>6}  {:>8}   {}   {}   {}   ({} / {})",
                 s.detections,
                 s.verified,
                 pct(s.pod()),

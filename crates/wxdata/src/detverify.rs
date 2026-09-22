@@ -23,6 +23,10 @@ pub struct Detection {
     pub confidence: f32,
     /// When it was detected, in minutes since any fixed origin (only differences are used).
     pub minute: i64,
+    /// Range from the radar that made this detection, km. Only used by [`score_in_range`], to
+    /// ask whether a detection criterion performs consistently by range independent of whatever
+    /// the confidence score itself already discounts for range.
+    pub range_km: f32,
 }
 
 /// One real event.
@@ -120,16 +124,50 @@ pub fn score(
         .collect()
 }
 
+/// [`score`], but only over the detections whose `range_km` falls in `[min_km, max_km)`.
+///
+/// The confidence score already discounts by range (every detector's `range_factor` fades past
+/// 60 km), so scoring by confidence threshold alone cannot say whether the *underlying* detection
+/// criterion -- a fixed gate-to-gate velocity difference, or a fixed CC/Z threshold -- performs
+/// consistently near the radar and far from it, or is quietly miscalibrated by range in a way the
+/// scoring then papers over. This asks that question directly, on the raw candidate set.
+///
+/// `truths` stay global and unbanded: a truth is "found" by any in-band detection near it,
+/// wherever the rest of the detections (in or out of the band) happened to fall. One real tornado
+/// seen by a near-range detection at one volume and a far-range one at the next is "found" in
+/// both bands, which is the right answer to "would this band alone have caught it".
+pub fn score_in_range(
+    detections: &[Detection],
+    truths: &[Truth],
+    radius_km: f64,
+    window_min: i64,
+    min_km: f32,
+    max_km: f32,
+    thresholds: &[f32],
+) -> Vec<Score> {
+    let banded: Vec<Detection> = detections
+        .iter()
+        .copied()
+        .filter(|d| d.range_km >= min_km && d.range_km < max_km)
+        .collect();
+    score(&banded, truths, radius_km, window_min, thresholds)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn det(lon: f64, lat: f64, confidence: f32, minute: i64) -> Detection {
+        det_at_range(lon, lat, confidence, minute, 0.0)
+    }
+
+    fn det_at_range(lon: f64, lat: f64, confidence: f32, minute: i64, range_km: f32) -> Detection {
         Detection {
             lon,
             lat,
             confidence,
             minute,
+            range_km,
         }
     }
 
@@ -215,5 +253,43 @@ mod tests {
         // A degree of latitude is about 111 km.
         assert!((km_between((-97.0, 35.0), (-97.0, 36.0)) - 111.2).abs() < 0.5);
         assert_eq!(km_between((-97.0, 35.0), (-97.0, 35.0)), 0.0);
+    }
+
+    #[test]
+    fn score_in_range_only_counts_detections_whose_own_range_falls_in_the_band() {
+        // A verified near-range hit and a false-alarm far-range one, both at threshold 0.
+        let dets = [
+            det_at_range(-97.5, 35.3, 0.5, 0, 20.0),
+            det_at_range(-90.0, 30.0, 0.5, 0, 120.0),
+        ];
+        let truths = [truth(-97.5, 35.3, 0)];
+        let near = score_in_range(&dets, &truths, 10.0, 15, 0.0, 60.0, &[0.0]);
+        assert_eq!(near[0].detections, 1);
+        assert_eq!(near[0].far(), Some(0.0), "the near-range hit is real");
+        let far = score_in_range(&dets, &truths, 10.0, 15, 60.0, 150.0, &[0.0]);
+        assert_eq!(far[0].detections, 1);
+        assert_eq!(far[0].far(), Some(1.0), "the far-range one matches nothing");
+    }
+
+    #[test]
+    fn score_in_range_still_checks_every_truth_not_just_ones_in_the_band() {
+        // The only detection near this truth happens to sit outside the queried band.
+        let dets = [det_at_range(-97.5, 35.3, 0.5, 0, 120.0)];
+        let truths = [truth(-97.5, 35.3, 0)];
+        let near = score_in_range(&dets, &truths, 10.0, 15, 0.0, 60.0, &[0.0]);
+        assert_eq!(near[0].detections, 0, "no near-range detections at all");
+        assert_eq!(
+            near[0].events, 1,
+            "but the truth itself is not filtered out"
+        );
+        assert_eq!(near[0].found, 0, "and nothing in this band found it");
+    }
+
+    #[test]
+    fn an_empty_band_or_no_detections_scores_as_nothing_rather_than_panicking() {
+        let dets = [det_at_range(-97.5, 35.3, 0.5, 0, 20.0)];
+        let empty = score_in_range(&dets, &[], 10.0, 15, 200.0, 300.0, &[0.0]);
+        assert_eq!(empty[0].detections, 0);
+        assert_eq!(empty[0].far(), None);
     }
 }

@@ -1692,11 +1692,34 @@ DAT/warning truth sets are still open. The SPC-report backtest exists (`--headle
 
 Still open on these two, in rough value order:
 
-- **Range-normalised shear.** The gate-to-gate criterion is a fixed velocity difference, so it is a
-  much stronger shear near the radar than far out, where azimuthal gate spacing is kilometres wide.
-  Scoring shear (s^-1) instead would detect consistently with range - but it would also raise
-  near-range clutter couplets and far-range dealiasing artifacts, the two things the current
-  thresholds were tuned to suppress, so it needs backtest evidence before it is worth trying.
+- **Range-normalised shear — now has the backtest evidence it was waiting on.**
+  `wxdata::detverify::score_in_range` (used by `--headless-backtest`'s new "by range" line) scores
+  a detector's *raw* candidates — before any confidence filter, so the existing `range_factor`
+  discount can't hide the answer — split at 60 km, the range every confidence score already starts
+  fading at. Run over the 8 events in `docs/backtest-events.txt` (8 volumes each):
+
+  | detector  | range | raw candidates | FAR |
+  |-----------|-------|-----------------|-----|
+  | rotation  | < 60 km | 72   | 89% |
+  | rotation  | >= 60 km | 1001 | 98% |
+  | debris    | < 60 km | 157  | 92% |
+  | debris    | >= 60 km | 296  | 95% |
+
+  Debris is close to range-neutral (3 points of FAR, roughly 2x the candidate volume) — expected,
+  since its CC/Z criterion isn't a spatial-gate-difference measurement the way gate-to-gate shear
+  is. Rotation is not: **93% of every raw couplet candidate comes from beyond 60 km**, and those
+  far-range candidates are measurably noisier (98% vs 89% FAR) while catching no more real
+  circulations (4 of 86 tornado reports found in each band). That is the "swarm of near-identical
+  couplets... an artifact, not a set of tornadoes" the module doc already warns about, at a scale
+  bigger than one bad sweep.
+
+  The specific fix this roadmap entry names — scoring shear in s⁻¹ instead of a flat velocity
+  difference — is still the higher-risk move it always was: it changes what "weak" and "strong"
+  mean everywhere at once, including near the radar where the current 25 m/s floor is evidently
+  fine. A narrower, evidence-matched first step: raise `g2g_min_ms` (or add a second range-scaled
+  floor) only past 60 km, where the data says the noise actually lives, leaving every near-range
+  number untouched. Worth a second backtest pass to pick the ramp before it ships, and out of scope
+  for this pass.
 
 
 For every automatic detection:

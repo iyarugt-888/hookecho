@@ -8,6 +8,21 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: `--headless-backtest` scores raw candidates by range, found the rotation detector is 93% far-range noise
+
+`wxdata::detverify::score_in_range` scores a detector's candidates *before* any confidence filter,
+split by range at 60 km (where every confidence score already starts discounting for distance) — so
+the discount can't hide whether the underlying detection criterion, not just the score, holds up at
+range. `--headless-backtest`/`--headless-backtest-file` print it as a "by range" line under each
+detector's table.
+
+Run over `docs/backtest-events.txt`'s 8 events: debris signatures are close to range-neutral (92% FAR
+inside 60 km, 95% beyond). Rotation couplets are not — 93% of every raw candidate (1001 of 1073)
+comes from beyond 60 km, and those far-range candidates are both noisier (98% vs 89% FAR) and no
+better at finding real circulations, which is exactly the far-range shear-artifact problem
+`ROADMAP_NEW.md`'s C5 section has flagged since before this session and could not previously back
+with numbers. See that section for the evidence table and the proposed fix.
+
 ### Improved: both tornado detectors now weigh depth, rooting and which way rotation turns
 
 Three gaps in the TVS/TDS scoring, all of them the operational criterion the detectors were named
