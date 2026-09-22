@@ -4634,6 +4634,15 @@ struct BacktestEvent {
     /// simply were never digitised, so an empty list means "no survey data available", not
     /// "no tornado".
     dat_truths: Vec<wxdata::detverify::Truth>,
+    /// Raw `tds`/`rot` detections that fell inside a tornado warning marked observed (or a
+    /// Tornado Emergency) valid over the exact volume that made them — a third, independent line
+    /// of evidence alongside the LSR/DAT truth sets. Not scored as POD/FAR against a truth set:
+    /// unlike a report or a survey, an *ordinary* warning is not ground truth a detector should
+    /// have "found" (most are issued from the same radar signatures the detector itself reads,
+    /// which is exactly the self-confirmation `wxdata::confirm`'s own doc comment warns against),
+    /// so this only ever counts what already passed that filter.
+    tds_observed: usize,
+    rot_observed: usize,
     volumes: usize,
     /// Volumes that actually carried a correlation-coefficient tilt. Some pre-2013 archives
     /// (the WSR-88D dual-pol rollout ran 2011-2013) have none at all, in which case `tds` is
@@ -4646,6 +4655,17 @@ struct BacktestEvent {
 const BACKTEST_RADIUS_KM: f64 = 10.0;
 const BACKTEST_WINDOW_MIN: i64 = 15;
 
+/// The storm-based warnings valid at `t`, or empty on any fetch/parse error — one bad instant
+/// (the archive is a live third-party service) costs that volume's warning count, not the whole
+/// backtest.
+async fn archive_warnings_at(t: chrono::DateTime<chrono::Utc>) -> Vec<wxdata::overlay::GeoFeature> {
+    let http = reqwest::Client::new();
+    let ts = t.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    wxdata::archive_warnings::fetch(&http, &ts)
+        .await
+        .unwrap_or_default()
+}
+
 /// Run both detectors over up to `count` consecutive archived volumes of one site from the volume
 /// nearest `start`, and fetch the tornado reports for the window.
 fn backtest_event(
@@ -4657,87 +4677,143 @@ fn backtest_event(
 ) -> anyhow::Result<BacktestEvent> {
     use wxdata::detverify::{Detection, Truth};
     let minute_of = |t: chrono::DateTime<chrono::Utc>| t.timestamp() / 60;
-    let (tds, rot, first, last, volumes, dual_pol_volumes, radar_pos) = rt.block_on(async {
-        let mut ids: Vec<_> = level2::list_volumes(site, day)
-            .await?
-            .into_iter()
-            .filter_map(|id| id.date_time().map(|t| (t, id)))
-            .filter(|(t, _)| *t >= start - chrono::Duration::minutes(3))
-            .collect();
-        ids.sort_by_key(|(t, _)| *t);
-        ids.truncate(count);
-        anyhow::ensure!(!ids.is_empty(), "no volumes for {site} from {start}");
-        let (first, last) = (ids[0].0, ids[ids.len() - 1].0);
-        let volumes = ids.len();
-        let mut tds = Vec::new();
-        let mut rot = Vec::new();
-        let mut dual_pol_volumes = 0usize;
-        // Captured off the first sweep that decodes, so the reports fetched below can be limited
-        // to this radar's own coverage.
-        let mut radar_pos: Option<(f64, f64)> = None;
-        for (t, id) in ids {
-            let scan = match level2::download_scan(id, None).await {
-                Ok(s) => s,
-                Err(e) => {
-                    eprintln!("  {site} {}: skipped, {e}", t.format("%H:%M"));
-                    continue;
+    let (tds, rot, first, last, volumes, dual_pol_volumes, radar_pos, tds_observed, rot_observed) =
+        rt.block_on(async {
+            let mut ids: Vec<_> = level2::list_volumes(site, day)
+                .await?
+                .into_iter()
+                .filter_map(|id| id.date_time().map(|t| (t, id)))
+                .filter(|(t, _)| *t >= start - chrono::Duration::minutes(3))
+                .collect();
+            ids.sort_by_key(|(t, _)| *t);
+            ids.truncate(count);
+            anyhow::ensure!(!ids.is_empty(), "no volumes for {site} from {start}");
+            let (first, last) = (ids[0].0, ids[ids.len() - 1].0);
+            let volumes = ids.len();
+            let mut tds = Vec::new();
+            let mut rot = Vec::new();
+            let mut dual_pol_volumes = 0usize;
+            // Captured off the first sweep that decodes, so the reports fetched below can be limited
+            // to this radar's own coverage.
+            let mut radar_pos: Option<(f64, f64)> = None;
+            // Raw detections that fell inside an observed tornado warning valid at their own volume.
+            let mut tds_observed = 0usize;
+            let mut rot_observed = 0usize;
+            for (t, id) in ids {
+                let scan = match level2::download_scan(id, None).await {
+                    Ok(s) => s,
+                    Err(e) => {
+                        eprintln!("  {site} {}: skipped, {e}", t.format("%H:%M"));
+                        continue;
+                    }
+                };
+                let mut pairs = Vec::new();
+                let mut vel_pairs = Vec::new();
+                let mut zdr_sweeps = Vec::new();
+                for tilt in 0..4 {
+                    let z = level2::bin_scan(&scan, Moment::Reflectivity, tilt);
+                    let cc = level2::bin_scan(&scan, Moment::CorrelationCoefficient, tilt);
+                    let vel = level2::bin_scan_opts(&scan, Moment::Velocity, tilt, true);
+                    if let Ok(zd) = level2::bin_scan(&scan, Moment::DifferentialReflectivity, tilt)
+                    {
+                        zdr_sweeps.push(zd);
+                    }
+                    if let Ok(z) = &z {
+                        radar_pos.get_or_insert((z.radar_lon as f64, z.radar_lat as f64));
+                    }
+                    if let (Ok(z), Ok(cc)) = (&z, cc) {
+                        pairs.push((z.clone(), cc));
+                    }
+                    if let (Ok(z), Ok(vel)) = (z, vel) {
+                        vel_pairs.push((vel, z));
+                    }
                 }
-            };
-            let mut pairs = Vec::new();
-            let mut vel_pairs = Vec::new();
-            let mut zdr_sweeps = Vec::new();
-            for tilt in 0..4 {
-                let z = level2::bin_scan(&scan, Moment::Reflectivity, tilt);
-                let cc = level2::bin_scan(&scan, Moment::CorrelationCoefficient, tilt);
-                let vel = level2::bin_scan_opts(&scan, Moment::Velocity, tilt, true);
-                if let Ok(zd) = level2::bin_scan(&scan, Moment::DifferentialReflectivity, tilt) {
-                    zdr_sweeps.push(zd);
+                if !pairs.is_empty() {
+                    dual_pol_volumes += 1;
                 }
-                if let Ok(z) = &z {
-                    radar_pos.get_or_insert((z.radar_lon as f64, z.radar_lat as f64));
-                }
-                if let (Ok(z), Ok(cc)) = (&z, cc) {
-                    pairs.push((z.clone(), cc));
-                }
-                if let (Ok(z), Ok(vel)) = (z, vel) {
-                    vel_pairs.push((vel, z));
-                }
+                let mut hits = wxdata::tds::detect_volume(&pairs, 0.80, 40.0, 150.0, 4);
+                wxdata::tds::apply_zdr(&mut hits, &zdr_sweeps);
+                let mut couplets =
+                    wxdata::rotation::detect_volume(&vel_pairs, 25.0, 20.0, 15.0, 150.0, 3);
+                // Corroborate both ways at once, each from the other's pre-corroboration confidence,
+                // so the backtest scores what a debris ball beside a couplet is actually worth without
+                // either side's boost feeding the other's back in.
+                wxdata::tds::cross_corroborate(&mut hits, &mut couplets);
+                let minute = minute_of(t);
+
+                // Storm-based warnings valid at this exact volume, for the "confirmed by an observed
+                // warning" count below — independent of, and not blended into, the LSR/DAT scoring
+                // above. Only an OBSERVED (or Tornado Emergency) one counts, the same rule live
+                // confirmation uses, so this can never just be a detector agreeing with an ordinary
+                // radar-indicated warning issued off the same signatures it is scoring.
+                let observed_warnings: Vec<wxdata::confirm::TornadoWarning> =
+                    archive_warnings_at(t)
+                        .await
+                        .into_iter()
+                        .filter_map(|f| {
+                            let a = f.alert.as_ref()?;
+                            if !a.event.eq_ignore_ascii_case("Tornado Warning") {
+                                return None;
+                            }
+                            Some(wxdata::confirm::TornadoWarning {
+                                rings: f.rings.clone(),
+                                observed: wxdata::confirm::is_observed(
+                                    a.tornado_detection.as_deref(),
+                                    wxdata::alerts::escalation(a) >= 3,
+                                ),
+                            })
+                        })
+                        .collect();
+                let evidence = wxdata::confirm::Evidence {
+                    reports: Vec::new(),
+                    warnings: observed_warnings,
+                };
+                tds_observed += hits
+                    .iter()
+                    .filter(|h| {
+                        wxdata::confirm::confirm(h.lon, h.lat, minute, &evidence).observed_warning
+                    })
+                    .count();
+                rot_observed += couplets
+                    .iter()
+                    .filter(|c| {
+                        wxdata::confirm::confirm(c.lon, c.lat, minute, &evidence).observed_warning
+                    })
+                    .count();
+
+                tds.extend(hits.iter().map(|h| Detection {
+                    lon: h.lon,
+                    lat: h.lat,
+                    confidence: h.confidence,
+                    minute,
+                    range_km: h.range_km,
+                }));
+                rot.extend(couplets.iter().map(|c| Detection {
+                    lon: c.lon,
+                    lat: c.lat,
+                    confidence: c.confidence,
+                    minute,
+                    range_km: c.range_km,
+                }));
+                println!(
+                    "  {site} {}  {} debris signature(s), {} couplet(s)",
+                    t.format("%H:%M"),
+                    hits.len(),
+                    couplets.len()
+                );
             }
-            if !pairs.is_empty() {
-                dual_pol_volumes += 1;
-            }
-            let mut hits = wxdata::tds::detect_volume(&pairs, 0.80, 40.0, 150.0, 4);
-            wxdata::tds::apply_zdr(&mut hits, &zdr_sweeps);
-            let mut couplets =
-                wxdata::rotation::detect_volume(&vel_pairs, 25.0, 20.0, 15.0, 150.0, 3);
-            // Corroborate both ways at once, each from the other's pre-corroboration confidence,
-            // so the backtest scores what a debris ball beside a couplet is actually worth without
-            // either side's boost feeding the other's back in.
-            wxdata::tds::cross_corroborate(&mut hits, &mut couplets);
-            let minute = minute_of(t);
-            tds.extend(hits.iter().map(|h| Detection {
-                lon: h.lon,
-                lat: h.lat,
-                confidence: h.confidence,
-                minute,
-                range_km: h.range_km,
-            }));
-            rot.extend(couplets.iter().map(|c| Detection {
-                lon: c.lon,
-                lat: c.lat,
-                confidence: c.confidence,
-                minute,
-                range_km: c.range_km,
-            }));
-            println!(
-                "  {site} {}  {} debris signature(s), {} couplet(s)",
-                t.format("%H:%M"),
-                hits.len(),
-                couplets.len()
-            );
-        }
-        anyhow::Ok((tds, rot, first, last, volumes, dual_pol_volumes, radar_pos))
-    })?;
+            anyhow::Ok((
+                tds,
+                rot,
+                first,
+                last,
+                volumes,
+                dual_pol_volumes,
+                radar_pos,
+                tds_observed,
+                rot_observed,
+            ))
+        })?;
 
     // Reports for the window, widened by the matching window on both sides.
     let pad = chrono::Duration::minutes(BACKTEST_WINDOW_MIN);
@@ -4835,6 +4911,8 @@ fn backtest_event(
         rot,
         truths,
         dat_truths,
+        tds_observed,
+        rot_observed,
         volumes,
         dual_pol_volumes,
     })
@@ -4911,6 +4989,24 @@ fn print_backtest_tables(events: &[BacktestEvent]) {
         score_and_print(&scored, pick, |e| &e.truths);
         println!("  vs DAT surveys:");
         score_and_print(&scored, pick, |e| &e.dat_truths);
+        // A third, independent line of evidence, not folded into either table above: whether a
+        // detection sat inside a tornado warning marked observed (or a Tornado Emergency) at its
+        // own volume. Not POD/FAR against a truth set — see `BacktestEvent::tds_observed`'s own
+        // doc comment on why an ordinary warning cannot be ground truth for the detector that
+        // often shares its evidence.
+        let observed: usize = scored
+            .iter()
+            .map(|e| {
+                if name == "Debris signatures" {
+                    e.tds_observed
+                } else {
+                    e.rot_observed
+                }
+            })
+            .sum();
+        println!(
+            "  vs observed tornado warnings: {observed} of {total} detection(s) inside one at their own volume"
+        );
     }
 }
 

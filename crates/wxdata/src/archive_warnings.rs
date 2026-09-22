@@ -47,8 +47,42 @@ pub fn parse(json: &str) -> anyhow::Result<Vec<GeoFeature>> {
             })
             .unwrap_or_default();
         let id = format!("{}-{}-{}-{}", get("wfo"), phenom, eventid, issue);
+        // `tornadotag`/`damagetag` are the archive's names for the live API's tornadoDetection /
+        // damageThreat VTEC tags, when the service populates them (it does not always). Read
+        // regardless, since `alerts::escalation` already knows what to do with them.
+        let tornado_detection = props
+            .get("tornadotag")
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .filter(|s| !s.is_empty());
+        let damage_threat = props
+            .get("damagetag")
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .filter(|s| !s.is_empty());
+        // `is_emergency`/`is_pds` are structured booleans the archive *does* reliably carry, even
+        // when the tags above are empty — without this, an archived Tornado Emergency scrubbed
+        // from the timeline read as a plain warning, both in the map's own coloring and (since
+        // `escalation` is also how a backtest tells "observed" from "radar indicated") in any
+        // truth built from it. `escalation`/`is_observed` read this the same way they read a live
+        // product's own headline text, so it goes into `detail` rather than a field of its own.
+        let is_emergency = props
+            .get("is_emergency")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let is_pds = props
+            .get("is_pds")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let tag_line = if is_emergency {
+            "\n\nTORNADO EMERGENCY"
+        } else if is_pds {
+            "\n\nPARTICULARLY DANGEROUS SITUATION"
+        } else {
+            ""
+        };
         let detail = format!(
-            "{}\n\nWFO: {}\nIssued: {}\nExpires: {}\n\nIEM archive",
+            "{}\n\nWFO: {}\nIssued: {}\nExpires: {}{tag_line}\n\nIEM archive",
             event,
             get("wfo"),
             issue,
@@ -65,8 +99,8 @@ pub fn parse(json: &str) -> anyhow::Result<Vec<GeoFeature>> {
             expires,
             max_hail_in: None,
             max_wind: None,
-            tornado_detection: None,
-            damage_threat: None,
+            tornado_detection,
+            damage_threat,
             source: Some("IEM archive".into()),
             motion: None,
         };
@@ -230,6 +264,46 @@ mod tests {
         assert_eq!(a.id, "OUN-TO-42-2013-05-20T19:56:00+00:00");
         assert!(a.expires.is_some());
         assert_eq!(feats[1].title, "Severe Thunderstorm Warning");
+    }
+
+    #[test]
+    fn a_tornado_emergency_or_pds_escalates_the_same_way_a_live_product_does() {
+        let json = |extra: &str| -> String {
+            format!(
+                r#"{{"type":"FeatureCollection","features":[
+                {{"type":"Feature",
+                 "geometry":{{"type":"Polygon","coordinates":[[[-98,35],[-97,35],[-97,36],[-98,35]]]}},
+                 "properties":{{"wfo":"OUN","phenomena":"TO","significance":"W","eventid":26,
+                   "issue":"2013-05-20T19:56:00+00:00","expire":"2013-05-20T20:39:00+00:00"{extra}}}}}]}}"#
+            )
+        };
+        // Plain: no emergency, no PDS.
+        let plain = parse(&json("")).unwrap();
+        let a = plain[0].alert.as_ref().unwrap();
+        assert_eq!(crate::alerts::escalation(a), 0);
+
+        // The archive's structured `is_emergency` flag, not just the tags the live API also
+        // carries (`tornadotag`/`damagetag`), which the IEM archive often leaves null even for a
+        // real Tornado Emergency — this was silently un-escalating every archived one before.
+        let emergency = parse(&json(r#","is_emergency":true"#)).unwrap();
+        let a = emergency[0].alert.as_ref().unwrap();
+        assert_eq!(crate::alerts::escalation(a), 3);
+        assert!(
+            a.description.contains("TORNADO EMERGENCY"),
+            "{}",
+            a.description
+        );
+
+        let pds = parse(&json(r#","is_pds":true"#)).unwrap();
+        let a = pds[0].alert.as_ref().unwrap();
+        assert_eq!(crate::alerts::escalation(a), 3);
+
+        // The tags themselves, when the archive does populate them, still work — same fields the
+        // live API uses.
+        let observed = parse(&json(r#","tornadotag":"OBSERVED""#)).unwrap();
+        let a = observed[0].alert.as_ref().unwrap();
+        assert_eq!(a.tornado_detection.as_deref(), Some("OBSERVED"));
+        assert_eq!(crate::alerts::escalation(a), 2);
     }
 
     // Trimmed from a real vtec_events_bypoint.py response for -97.5,35.2 (Norman, OK).

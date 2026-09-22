@@ -1698,13 +1698,16 @@ based breakdown as the two detectors, reusing `crate::tds::Reason` rather than a
 same shape, shown on hover in the cells table's detail panel. The backtest scores against NWS DAT
 damage surveys as well as LSR reports now (one truth per surveyed *track*, not per damage point —
 a track is thousands of points and only means one tornado), printed as a second block per detector
-reusing the same scoring/range/missed-report machinery. Warning polygons are the one item from the
-original "backtest against" list still unscored: `wxdata::archive_warnings::fetch` only pulls
-warnings valid at one instant (built for scrubbing the map, not for a backtest sweeping many
-volumes), and `wxdata::confirm::Confirmation` already has the right semantics for it (only an
-`OBSERVED` warning counts, so a detector never gets to confirm itself against an ordinary
-radar-indicated one) — wiring that pair together is the natural next step. A stored score timeline
-is also still open.
+reusing the same scoring/range/missed-report machinery, and against observed tornado warnings as a
+third, independent line of evidence (`wxdata::archive_warnings` fetched per volume, reusing
+`wxdata::confirm`'s existing OBSERVED-only semantics — an ordinary warning is not ground truth, so
+this counts only detections that already cleared that bar, not a POD/FAR table). All three of the
+original "backtest against" list are now wired up. Fixed along the way: `archive_warnings::parse`
+had hard-coded every archived warning's detection/damage-threat tags to `None`, so a scrubbed
+Tornado Emergency read as tier 0 everywhere — the alert panel, badge colors, and now backtest
+confirmation — since the archive's `tornadotag`/`damagetag` fields are usually empty even for a
+real one; it reads the archive's separate `is_emergency`/`is_pds` structured booleans now, the same
+way `escalation` reads a live product's own headline text. A stored score timeline is still open.
 
 **Range-normalised shear — done, in a narrower form than originally proposed.** Scored the raw (pre-
 confidence-filter) candidates from the 8 events in `docs/backtest-events.txt`, split at 60 km — the

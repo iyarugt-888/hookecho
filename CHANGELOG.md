@@ -8,6 +8,33 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: archived Tornado Emergencies read as plain warnings on the scrubbed timeline
+
+`wxdata::archive_warnings::parse` hard-coded `tornado_detection`/`damage_threat` to `None` for
+every warning pulled from the archive, since the IEM `sbw.py` service's own `tornadotag`/
+`damagetag` fields are usually empty even for a real Tornado Emergency. `wxdata::alerts::escalation`
+— which sorts the alert panel, colors badges, and gates the emergency sound and (now) backtest
+confirmation — never saw past tier 0 for anything pulled from the "time machine" archived-warnings
+layer as a result. The archive does reliably carry `is_emergency`/`is_pds` as structured booleans
+even when the tags are empty; `parse` now folds them into the warning's own text the same way
+`escalation` already reads a live product's headline, so a scrubbed Tornado Emergency escalates,
+colors and sounds exactly as it would live.
+
+### Added: the backtest scores against observed tornado warnings too, independent of LSR/DAT
+
+A third, independent line of evidence alongside the LSR-report and DAT-survey tables: whether a
+detection sat inside a tornado warning marked observed (or a Tornado Emergency) at its own volume,
+fetched per volume from `wxdata::archive_warnings` (previously only used for the live map's
+scrub-the-timeline overlay, never for a backtest sweep). Reuses `wxdata::confirm`'s existing
+OBSERVED-only semantics rather than inventing new ones — an *ordinary* warning is not ground truth
+a detector should have "found", since most are issued from the same radar signatures the detector
+itself reads, so this only ever counts detections that already cleared that bar. Printed as a
+compact "N of M detections inside one at their own volume" line, not folded into the POD/FAR tables
+above it, since it is answering a different question (does independent human confirmation back this
+specific detection) than they are (did the detector find every real tornado). A full 8-event
+backtest run found 47 of 453 debris detections and 13 of 321 couplets landed inside an observed
+warning, with no crashes across the pre-dual-pol and non-tornado-day events in the set.
+
 ### Added: the backtest scores against NWS damage surveys too, not just local storm reports
 
 `--headless-backtest`/`--headless-backtest-file` now score each detector against
