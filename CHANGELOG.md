@@ -8,6 +8,25 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: the backtest scores against NWS damage surveys too, not just local storm reports
+
+`--headless-backtest`/`--headless-backtest-file` now score each detector against
+[NWS Damage Assessment Toolkit](https://apps.dat.noaa.gov/StormDamage/DamageViewer/) surveyed
+tracks alongside local storm reports — "the only layer in this app that says what the storm
+actually did" (`wxdata::dat`'s own doc comment), rather than a sighting logged when seen or
+surveyed. Printed as a second "vs DAT surveys" block under each detector's existing "vs LSR
+reports" one, sharing the same per-threshold, by-range and missed-report tables (factored the
+whole block into `score_and_print` so scoring a second truth set costs a function call, not a
+second copy of the code).
+
+One truth per surveyed *track*, not per damage point: the service records one point per damage
+indicator along a path — every damaged building, every snapped tree — and a single tornado's track
+can carry thousands of them. An early version of this scored Moore, OK as "3767 tornadoes" before
+that was caught in testing and fixed; a track is the unit that actually means "a tornado", so a
+track is what gets scored, one `Truth` at its path's midpoint. A real 8-event backtest run
+afterward found DAT tracks for 7 of the events' tornadoes (down from the 3767-point version's
+runaway count), broadly agreeing with the LSR-based numbers on the same run.
+
 ### Added: cell severity scores explain themselves on hover, same as the TDS/rotation markers
 
 `wxdata::cellscore::severity_explain` breaks a cell's 0-100 score down into the same shape

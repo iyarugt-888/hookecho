@@ -1695,8 +1695,16 @@ event's own radar rather than the whole country's tornado reports for that UTC w
 this pass found and fixed — POD/CSI had been understated for every backtest run so far). Cell
 scoring (`wxdata::cellscore`) now has the same `severity`/`severity_explain` split and `Reason`-
 based breakdown as the two detectors, reusing `crate::tds::Reason` rather than a third copy of the
-same shape, shown on hover in the cells table's detail panel. A stored score timeline and
-DAT/warning truth sets are still open.
+same shape, shown on hover in the cells table's detail panel. The backtest scores against NWS DAT
+damage surveys as well as LSR reports now (one truth per surveyed *track*, not per damage point —
+a track is thousands of points and only means one tornado), printed as a second block per detector
+reusing the same scoring/range/missed-report machinery. Warning polygons are the one item from the
+original "backtest against" list still unscored: `wxdata::archive_warnings::fetch` only pulls
+warnings valid at one instant (built for scrubbing the map, not for a backtest sweeping many
+volumes), and `wxdata::confirm::Confirmation` already has the right semantics for it (only an
+`OBSERVED` warning counts, so a detector never gets to confirm itself against an ordinary
+radar-indicated one) — wiring that pair together is the natural next step. A stored score timeline
+is also still open.
 
 **Range-normalised shear — done, in a narrower form than originally proposed.** Scored the raw (pre-
 confidence-filter) candidates from the 8 events in `docs/backtest-events.txt`, split at 60 km — the

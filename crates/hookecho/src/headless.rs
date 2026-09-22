@@ -4623,7 +4623,17 @@ struct BacktestEvent {
     label: String,
     tds: Vec<wxdata::detverify::Detection>,
     rot: Vec<wxdata::detverify::Detection>,
+    /// Local storm reports: a spotter or trained observer's sighting, logged when seen or
+    /// surveyed — approximate in both time and place.
     truths: Vec<wxdata::detverify::Truth>,
+    /// NWS Damage Assessment Toolkit surveyed tracks, one truth per track (see `backtest_event`'s
+    /// own comment on why a track and not a damage point): a crew walking the path afterward and
+    /// rating what they found. Stronger evidence than an LSR — "the only layer in this app that
+    /// says what the storm actually did" (`wxdata::dat`'s own doc comment) — but sparser: a
+    /// survey takes days, and plenty of archived events here predate DAT's public coverage or
+    /// simply were never digitised, so an empty list means "no survey data available", not
+    /// "no tornado".
+    dat_truths: Vec<wxdata::detverify::Truth>,
     volumes: usize,
     /// Volumes that actually carried a correlation-coefficient tilt. Some pre-2013 archives
     /// (the WSR-88D dual-pol rollout ran 2011-2013) have none at all, in which case `tds` is
@@ -4762,11 +4772,69 @@ fn backtest_event(
             })
         })
         .collect();
+
+    // NWS Damage Assessment Toolkit surveyed tracks, over the same window and the same radar-local
+    // box `truths` was filtered to — a stronger truth set where it exists (a surveyed path, not a
+    // sighting), but sparser: no radar position, no box to query, so an empty survey list on a
+    // `None` radar means "not attempted", same as everywhere else `radar_pos` gates a local query.
+    //
+    // One `Truth` per *track*, not per damage point: the service records one point per surveyed
+    // damage indicator along the path — every damaged building, every snapped tree — and a single
+    // tornado's track carries thousands of them. Scoring against points directly made Moore, OK
+    // read as "3767 tornadoes" instead of one; a track is the unit that actually means "a
+    // tornado", so it is the unit scored. The truth sits at the path's midpoint vertex (a genuine
+    // per-vertex time is not published, only one survey timestamp for the whole track) — a rough
+    // placement for a long path, but the 15-minute match window already has to absorb the same
+    // approximation LSR reports make about exactly when a tornado was where.
+    let dat_truths: Vec<Truth> = if let Some((rlon, rlat)) = radar_pos {
+        // Degrees, not km: DAT's bbox query wants a box, and 2.5 deg comfortably covers
+        // `TRUTH_MAX_RANGE_KM` at every CONUS latitude (160 km is under 1.6 deg of longitude even
+        // at 25 N, where a degree of longitude is shortest).
+        const BOX_DEG: f64 = 2.5;
+        let bbox = (
+            rlon - BOX_DEG,
+            rlat - BOX_DEG,
+            rlon + BOX_DEG,
+            rlat + BOX_DEG,
+        );
+        let tracks = rt
+            .block_on(async {
+                let http = reqwest::Client::new();
+                wxdata::dat::fetch(&http, bbox, first - pad, last + pad).await
+            })
+            .map(|(_points, tracks)| tracks)
+            .unwrap_or_else(|e| {
+                eprintln!("  {site}: DAT survey fetch failed, {e}");
+                Vec::new()
+            });
+        tracks
+            .iter()
+            // An EF rating only ever comes from a tornado survey (straight-line wind damage is
+            // rated separately), so this is the tornado filter `truths`' own `ReportKind::Tornado`
+            // is for LSRs.
+            .filter(|t| wxdata::dat::ef_number(&t.efscale).is_some())
+            .filter_map(|t| {
+                let storm = t.storm?;
+                let mid = t.path.get(t.path.len() / 2)?;
+                (crate::geo::great_circle([rlon, rlat], *mid).0 <= TRUTH_MAX_RANGE_KM).then_some(
+                    Truth {
+                        lon: mid[0],
+                        lat: mid[1],
+                        minute: storm.timestamp() / 60,
+                    },
+                )
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+
     Ok(BacktestEvent {
         label: format!("{site} {} {}", day, first.format("%H:%M")),
         tds,
         rot,
         truths,
+        dat_truths,
         volumes,
         dual_pol_volumes,
     })
@@ -4798,9 +4866,6 @@ fn parse_start(
 const RANGE_SPLIT_KM: f32 = 60.0;
 
 fn print_backtest_tables(events: &[BacktestEvent]) {
-    use wxdata::detverify::{score, score_in_range, unmatched, Score};
-    let thresholds = [0.0, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8];
-    let pct = |v: Option<f32>| v.map_or("  - ".to_string(), |v| format!("{:>3.0}%", v * 100.0));
     // Debris signatures need a correlation-coefficient tilt to exist at all; an event with none
     // (a pre-dual-pol radar — the WSR-88D network upgrade ran 2011-2013) is left out of that
     // table entirely rather than counted as a run of correct misses. Left in, it would report a
@@ -4835,131 +4900,157 @@ fn print_backtest_tables(events: &[BacktestEvent]) {
             "\n{name}: {total} detection(s) over {} event(s)",
             scored.len()
         );
-        println!("  min conf   shown  verified    POD    FAR    CSI   (events found / reported)");
-        let mut sums: Vec<Score> = thresholds
-            .iter()
-            .map(|&t| Score {
-                threshold: t,
-                detections: 0,
-                verified: 0,
-                events: 0,
-                found: 0,
-            })
-            .collect();
-        for e in &scored {
-            for (sum, s) in sums.iter_mut().zip(score(
-                &pick(e),
-                &e.truths,
-                BACKTEST_RADIUS_KM,
-                BACKTEST_WINDOW_MIN,
-                &thresholds,
-            )) {
-                sum.detections += s.detections;
-                sum.verified += s.verified;
-                sum.events += s.events;
-                sum.found += s.found;
-            }
-        }
-        for s in sums {
-            println!(
-                "  {:>7.0}%  {:>6}  {:>8}   {}   {}   {}   ({} / {})",
-                s.threshold * 100.0,
-                s.detections,
-                s.verified,
-                pct(s.pod()),
-                pct(s.far()),
-                pct(s.csi()),
-                s.found,
-                s.events
-            );
-        }
-        // Raw candidates (no confidence filter) split by range, so the underlying detection
-        // criterion's own accuracy by range is visible even though the confidence score already
-        // discounts far-range hits — a table with the same shape wouldn't distinguish "the
-        // discount is working" from "the criterion is fine at range".
-        let mut near = Score {
-            threshold: 0.0,
+        // Two truth sets, same detections, same scoring: LSR reports are what someone saw and
+        // logged, DAT survey points are what a crew walked the path and rated afterward —
+        // "the only layer in this app that says what the storm actually did" (`wxdata::dat`'s own
+        // doc comment). An event with no DAT coverage (most of them: a survey takes days, and
+        // plenty of archived events here predate or simply lack digitised coverage) shows 0 truths
+        // rather than a caveat — nothing to score is nothing to score, the same as any other
+        // detector/truth pairing here.
+        println!("  vs LSR reports:");
+        score_and_print(&scored, pick, |e| &e.truths);
+        println!("  vs DAT surveys:");
+        score_and_print(&scored, pick, |e| &e.dat_truths);
+    }
+}
+
+/// One detector's scoring against one truth set: the per-threshold table, the raw-candidate
+/// by-range breakdown, and which specific truths were missed. Split out of
+/// [`print_backtest_tables`] so it runs once per (detector, truth set) pair without the whole
+/// block written out twice.
+fn score_and_print(
+    scored: &[&BacktestEvent],
+    pick: impl Fn(&BacktestEvent) -> Vec<wxdata::detverify::Detection>,
+    truths_of: impl for<'a> Fn(&'a BacktestEvent) -> &'a Vec<wxdata::detverify::Truth>,
+) {
+    use wxdata::detverify::{score, score_in_range, unmatched, Score};
+    let thresholds = [0.0, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8];
+    let pct = |v: Option<f32>| v.map_or("  - ".to_string(), |v| format!("{:>3.0}%", v * 100.0));
+    println!("  min conf   shown  verified    POD    FAR    CSI   (events found / reported)");
+    let mut sums: Vec<Score> = thresholds
+        .iter()
+        .map(|&t| Score {
+            threshold: t,
             detections: 0,
             verified: 0,
             events: 0,
             found: 0,
-        };
-        let mut far = near;
-        for e in &scored {
-            let dets = pick(e);
-            let n = &score_in_range(
-                &dets,
-                &e.truths,
-                BACKTEST_RADIUS_KM,
-                BACKTEST_WINDOW_MIN,
-                0.0,
-                RANGE_SPLIT_KM,
-                &[0.0],
-            )[0];
-            let f = &score_in_range(
-                &dets,
-                &e.truths,
-                BACKTEST_RADIUS_KM,
-                BACKTEST_WINDOW_MIN,
-                RANGE_SPLIT_KM,
-                f32::MAX,
-                &[0.0],
-            )[0];
-            near.detections += n.detections;
-            near.verified += n.verified;
-            near.events += n.events;
-            near.found += n.found;
-            far.detections += f.detections;
-            far.verified += f.verified;
-            far.events += f.events;
-            far.found += f.found;
+        })
+        .collect();
+    for e in scored {
+        for (sum, s) in sums.iter_mut().zip(score(
+            &pick(e),
+            truths_of(e),
+            BACKTEST_RADIUS_KM,
+            BACKTEST_WINDOW_MIN,
+            &thresholds,
+        )) {
+            sum.detections += s.detections;
+            sum.verified += s.verified;
+            sum.events += s.events;
+            sum.found += s.found;
         }
+    }
+    for s in sums {
         println!(
-            "  by range   shown  verified    POD    FAR    CSI   (< {RANGE_SPLIT_KM:.0} km / >= {RANGE_SPLIT_KM:.0} km, raw candidates, no confidence filter)"
+            "  {:>7.0}%  {:>6}  {:>8}   {}   {}   {}   ({} / {})",
+            s.threshold * 100.0,
+            s.detections,
+            s.verified,
+            pct(s.pod()),
+            pct(s.far()),
+            pct(s.csi()),
+            s.found,
+            s.events
         );
-        for (label, s) in [("near", &near), ("far ", &far)] {
-            println!(
-                "  {label}       {:>6}  {:>8}   {}   {}   {}   ({} / {})",
-                s.detections,
-                s.verified,
-                pct(s.pod()),
-                pct(s.far()),
-                pct(s.csi()),
-                s.found,
-                s.events
-            );
+    }
+    // Raw candidates (no confidence filter) split by range, so the underlying detection criterion's
+    // own accuracy by range is visible even though the confidence score already discounts far-range
+    // hits — a table with the same shape wouldn't distinguish "the discount is working" from "the
+    // criterion is fine at range".
+    let mut near = Score {
+        threshold: 0.0,
+        detections: 0,
+        verified: 0,
+        events: 0,
+        found: 0,
+    };
+    let mut far = near;
+    for e in scored {
+        let dets = pick(e);
+        let truths = truths_of(e);
+        let n = &score_in_range(
+            &dets,
+            truths,
+            BACKTEST_RADIUS_KM,
+            BACKTEST_WINDOW_MIN,
+            0.0,
+            RANGE_SPLIT_KM,
+            &[0.0],
+        )[0];
+        let f = &score_in_range(
+            &dets,
+            truths,
+            BACKTEST_RADIUS_KM,
+            BACKTEST_WINDOW_MIN,
+            RANGE_SPLIT_KM,
+            f32::MAX,
+            &[0.0],
+        )[0];
+        near.detections += n.detections;
+        near.verified += n.verified;
+        near.events += n.events;
+        near.found += n.found;
+        far.detections += f.detections;
+        far.verified += f.verified;
+        far.events += f.events;
+        far.found += f.found;
+    }
+    println!(
+        "  by range   shown  verified    POD    FAR    CSI   (< {RANGE_SPLIT_KM:.0} km / >= {RANGE_SPLIT_KM:.0} km, raw candidates, no confidence filter)"
+    );
+    for (label, s) in [("near", &near), ("far ", &far)] {
+        println!(
+            "  {label}       {:>6}  {:>8}   {}   {}   {}   ({} / {})",
+            s.detections,
+            s.verified,
+            pct(s.pod()),
+            pct(s.far()),
+            pct(s.csi()),
+            s.found,
+            s.events
+        );
+    }
+    // Which reports, not just how many: an aggregate table can hide that a change moved the
+    // *total* found count without saying which specific report gained or lost coverage. Only
+    // events with at least one miss print, and only at 0% confidence — a report a lenient enough
+    // filter would show is not usefully called "missed".
+    let mut any_missed = false;
+    for e in scored {
+        let missed = unmatched(
+            &pick(e),
+            truths_of(e),
+            BACKTEST_RADIUS_KM,
+            BACKTEST_WINDOW_MIN,
+            0.0,
+        );
+        if missed.is_empty() {
+            continue;
         }
-        // Which reports, not just how many: an aggregate table can hide that a change moved the
-        // *total* found count without saying which specific report gained or lost coverage. Only
-        // events with at least one miss print, and only at 0% confidence — a report a lenient
-        // enough filter would show is not usefully called "missed".
-        let mut any_missed = false;
-        for e in &scored {
-            let missed = unmatched(
-                &pick(e),
-                &e.truths,
-                BACKTEST_RADIUS_KM,
-                BACKTEST_WINDOW_MIN,
-                0.0,
-            );
-            if missed.is_empty() {
-                continue;
-            }
-            if !any_missed {
-                println!("  by event, reports missed at 0% confidence:");
-                any_missed = true;
-            }
-            let at: Vec<String> = missed
-                .iter()
-                .map(|t| {
-                    chrono::DateTime::from_timestamp(t.minute * 60, 0).map_or_else(
-                        || format!("{:.2},{:.2}", t.lat, t.lon),
-                        |dt| format!("{:.2},{:.2} @ {}", t.lat, t.lon, dt.format("%H:%MZ")),
-                    )
-                })
-                .collect();
-            println!("    {}: {}", e.label, at.join(", "));
+        if !any_missed {
+            println!("    by event, missed at 0% confidence:");
+            any_missed = true;
         }
+        let at: Vec<String> = missed
+            .iter()
+            .map(|t| {
+                chrono::DateTime::from_timestamp(t.minute * 60, 0).map_or_else(
+                    || format!("{:.2},{:.2}", t.lat, t.lon),
+                    |dt| format!("{:.2},{:.2} @ {}", t.lat, t.lon, dt.format("%H:%MZ")),
+                )
+            })
+            .collect();
+        println!("      {}: {}", e.label, at.join(", "));
     }
 }
 
