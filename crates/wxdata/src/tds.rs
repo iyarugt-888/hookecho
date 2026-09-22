@@ -19,7 +19,10 @@
 //!   minimum;
 //! * it is **deep**: debris drives CC well below the threshold, while marginal hits sit just under it;
 //! * it sits in **strong echo**, and repeats **up through the tilts** as a column rather than living
-//!   in whichever single sweep sees clutter.
+//!   in whichever single sweep sees clutter;
+//! * and it is **rooted in the lowest sweep**, because debris is lofted from the ground. Low CC
+//!   that starts in the middle tilts over a clean one beneath is hail or a melting layer aloft
+//!   (see [`UNROOTED_FACTOR`]).
 //!
 //! [`detect`] reads one tilt: it clusters candidate gates by contiguity in the radar's own
 //! azimuth/range grid (so a ball is never split by an arbitrary map grid) and scores each cluster on
@@ -45,6 +48,22 @@ pub const CLUTTER_RANGE_KM: f32 = 15.0;
 
 /// Hits from different tilts closer than this (km) are the same column.
 const ASSOCIATE_KM: f64 = 3.0;
+
+/// Elevation angles at or below this (degrees) are the low-level tilts lofted debris has to appear
+/// in. Every WSR-88D VCP starts at 0.5 deg with a second cut near 0.9 deg, so a volume scanned
+/// normally always has one.
+pub const LOW_TILT_MAX_DEG: f32 = 1.5;
+
+/// The factor applied to the vertical evidence of a column that skips the lowest low-level tilt
+/// scanned.
+///
+/// Debris is lofted *from the ground*: a real debris ball is rooted in the lowest sweep and thins
+/// upward. A low-CC column that lives in the middle tilts with a clean sweep beneath it is the
+/// other thing entirely -- wet or melting hail aloft, or a brightband layer -- which after high
+/// ZDR is the commonest structure a CC-and-Z detector mistakes for debris. It discounts rather
+/// than rejects, since the lowest beam can be blocked by terrain, attenuated on its way through
+/// the core, or looking under the debris at close range.
+pub const UNROOTED_FACTOR: f32 = 0.7;
 
 /// How many gates around a cluster (in azimuth and range) are read as its surroundings.
 const RING: isize = 3;
@@ -84,6 +103,15 @@ pub struct TdsHit {
     /// genuine tornado debris ball often does, which single-tilt CC/Z collocation alone cannot
     /// tell apart.
     pub top_km: f32,
+    /// Beam-center height (km AGL) of the *lowest* tilt contributing to this hit -- where the
+    /// column starts, against `top_km`'s where it ends. Equal to `top_km` out of [`detect`],
+    /// which only ever sees one tilt.
+    pub base_km: f32,
+    /// Whether the column reaches the lowest low-level tilt the volume scanned (see
+    /// [`LOW_TILT_MAX_DEG`] and [`UNROOTED_FACTOR`]). `None` when no low tilt was read, so
+    /// nothing can be said either way; [`detect`] always reports `None`, since one tilt cannot
+    /// know what the tilts under it show.
+    pub rooted: Option<bool>,
     /// Rotational velocity (m/s) of the strongest rotation couplet within
     /// [`ROTATION_ASSOCIATE_KM`], once [`corroborate_with_rotation`] has been run. `None` means no
     /// rotation was found near this hit (or it was never checked); it is not evidence against it.
@@ -232,9 +260,11 @@ impl Terms {
     }
 }
 
-/// Vertical evidence, 0..1: how many tilts show the hit, and how high the column reaches. About
-/// three tilts and 3 km AGL each saturate their half — a debris signature repeating through the
-/// lowest three or four elevation angles is about as convincing as this heuristic gets.
+/// Vertical evidence, 0..1: how many tilts show the hit, how high the column reaches, and whether
+/// it is rooted in the lowest tilt scanned. About three tilts and 3 km AGL each saturate their
+/// half — a debris signature repeating through the lowest three or four elevation angles is about
+/// as convincing as this heuristic gets — and a column that skips the lowest low-level tilt keeps
+/// only [`UNROOTED_FACTOR`] of what it earned.
 ///
 /// Height only counts when more than one tilt confirms the signature there. At long range even the
 /// lowest beam is kilometres above the ground purely from the beam's geometry, so a lone hit's
@@ -242,18 +272,26 @@ impl Terms {
 /// four-gate speck above a nearby one for no reason. And it is absolute, not "what share of the
 /// tilts a caller happened to check": a caller that only looks at the lowest tilt must not make a
 /// lone hit read as the whole column.
-pub fn vertical_term(top_km: f32, tilts: usize) -> f32 {
+///
+/// `rooted` is `None` when the caller read no low tilt at all, and then nothing is deducted: a
+/// column cannot be faulted for missing a sweep nobody looked at.
+pub fn vertical_term(top_km: f32, tilts: usize, rooted: Option<bool>) -> f32 {
     if tilts < 2 {
         return 0.0;
     }
     let height = (top_km / 3.0).clamp(0.0, 1.0);
     let depth = ((tilts as f32 - 1.0) / 2.0).clamp(0.0, 1.0);
-    0.5 * height + 0.5 * depth
+    let rooting = if rooted == Some(false) {
+        UNROOTED_FACTOR
+    } else {
+        1.0
+    };
+    (0.5 * height + 0.5 * depth) * rooting
 }
 
 /// Which revision of the scoring produced a hit. Bump it whenever a weight, threshold or rule above
 /// changes, so a saved or exported detection says what logic scored it.
-pub const ALGORITHM_VERSION: &str = "tds-3";
+pub const ALGORITHM_VERSION: &str = "tds-4";
 
 /// One scored piece of evidence behind a detection.
 #[derive(Debug, Clone, PartialEq)]
@@ -344,7 +382,7 @@ impl TdsHit {
             self.contrast,
             self.range_km,
         );
-        let vertical = vertical_term(self.top_km, self.tilts);
+        let vertical = vertical_term(self.top_km, self.tilts, self.rooted);
         let zdr = self.zdr_db.map(|d| (d, zdr_factor(d)));
         let base_confidence = confidence(evidence, vertical) * zdr.map_or(1.0, |(_, f)| f);
         let rotation_gain = self
@@ -391,10 +429,18 @@ impl Explanation {
         ));
         out.push(if hit.tilts > 1 {
             format!(
-                "Vertical  {:.0}%   {} tilts, up to {:.1} km",
+                "Vertical  {:.0}%   {} tilts, {:.1}-{:.1} km{}",
                 self.vertical * 100.0,
                 hit.tilts,
-                hit.top_km
+                hit.base_km,
+                hit.top_km,
+                match hit.rooted {
+                    // The one worth spelling out: the column is aloft, so it kept only
+                    // `UNROOTED_FACTOR` of the vertical evidence it would otherwise have earned.
+                    Some(false) => ", not rooted in the lowest tilt",
+                    Some(true) => ", rooted in the lowest tilt",
+                    None => "",
+                }
             )
         } else {
             format!(
@@ -560,6 +606,8 @@ pub fn detect(
             range_km,
             tilts: 1,
             top_km,
+            base_km: top_km,
+            rooted: None,
             rotation_ms: None,
             zdr_db: None,
             confirmation: crate::confirm::Confirmation::NONE,
@@ -656,11 +704,49 @@ pub fn corroborate_with_rotation(hits: &mut [TdsHit], couplets: &[(f64, f64, f32
 }
 
 /// Ground distance in km between two lon/lat points, good over the few km hits are compared at.
-fn ground_km(a: (f64, f64), b: (f64, f64)) -> f64 {
+pub(crate) fn ground_km(a: (f64, f64), b: (f64, f64)) -> f64 {
     let mid_lat = ((a.1 + b.1) * 0.5).to_radians();
     let dx = (b.0 - a.0) * mid_lat.cos() * 111.32;
     let dy = (b.1 - a.1) * 110.57;
     dx.hypot(dy)
+}
+
+/// Group `points` so that any two within `radius_km` of one another land in the same group
+/// (single-linkage union-find), returned as lists of indices into `points`.
+///
+/// Association by ground distance, not by snapping to a grid. One feature seen from two tilts sits
+/// a kilometre or two apart, and a grid splits that pair whenever it happens to straddle a cell
+/// edge — turning one column into two single-tilt hits, each capped at its detector's single-tilt
+/// cap, and losing exactly the vertical evidence a volume pass exists to find. Shared with
+/// [`crate::rotation::detect_volume`], which associates couplets the same way.
+pub(crate) fn associate_by_ground(points: &[(f64, f64)], radius_km: f64) -> Vec<Vec<usize>> {
+    let n = points.len();
+    let mut parent: Vec<usize> = (0..n).collect();
+    fn find(parent: &mut [usize], mut i: usize) -> usize {
+        while parent[i] != i {
+            parent[i] = parent[parent[i]];
+            i = parent[i];
+        }
+        i
+    }
+    for i in 0..n {
+        for j in i + 1..n {
+            if ground_km(points[i], points[j]) <= radius_km {
+                let (ri, rj) = (find(&mut parent, i), find(&mut parent, j));
+                if ri != rj {
+                    parent[rj] = ri;
+                }
+            }
+        }
+    }
+    // Keyed by root so the grouping is deterministic, which keeps the output order stable for
+    // callers that sort by confidence and then print.
+    let mut groups: std::collections::BTreeMap<usize, Vec<usize>> = Default::default();
+    for i in 0..n {
+        let root = find(&mut parent, i);
+        groups.entry(root).or_default().push(i);
+    }
+    groups.into_values().collect()
 }
 
 /// The factor mean ZDR applies to a debris score: 1 up to 1 dB, falling to 0.6 by 3.5 dB.
@@ -748,6 +834,17 @@ pub fn detect_volume(
     max_range_km: f32,
     min_gates: usize,
 ) -> Vec<TdsHit> {
+    // The lowest low-level tilt in the volume, found by elevation angle and not by position in
+    // the slice (which `sweeps` is explicitly not required to order). A column that misses it is
+    // low CC aloft rather than lofted debris; see `UNROOTED_FACTOR`. With no low tilt read at all
+    // there is nothing to miss, and rooting stays unknown.
+    let low_tilt = sweeps
+        .iter()
+        .enumerate()
+        .filter(|(_, (_, cc))| cc.elevation_deg <= LOW_TILT_MAX_DEG)
+        .min_by(|a, b| a.1 .1.elevation_deg.total_cmp(&b.1 .1.elevation_deg))
+        .map(|(i, _)| i);
+
     let mut per_tilt: Vec<(usize, TdsHit)> = Vec::new();
     for (tilt, (z, cc)) in sweeps.iter().enumerate() {
         for h in detect(z, cc, cc_max, z_min, max_range_km, min_gates) {
@@ -755,43 +852,16 @@ pub fn detect_volume(
         }
     }
 
-    // Group hits by ground proximity (union-find), so two tilts' views of one ball merge no matter
-    // where an arbitrary grid would have put the boundary.
-    let n = per_tilt.len();
-    let mut parent: Vec<usize> = (0..n).collect();
-    fn find(parent: &mut [usize], mut i: usize) -> usize {
-        while parent[i] != i {
-            parent[i] = parent[parent[i]];
-            i = parent[i];
-        }
-        i
-    }
-    for i in 0..n {
-        for j in i + 1..n {
-            let (a, b) = (&per_tilt[i].1, &per_tilt[j].1);
-            if ground_km((a.lon, a.lat), (b.lon, b.lat)) <= ASSOCIATE_KM {
-                let (ri, rj) = (find(&mut parent, i), find(&mut parent, j));
-                if ri != rj {
-                    parent[rj] = ri;
-                }
-            }
-        }
-    }
-    let mut groups: std::collections::BTreeMap<usize, Vec<usize>> = Default::default();
-    for i in 0..n {
-        let root = find(&mut parent, i);
-        groups.entry(root).or_default().push(i);
-    }
-
-    let mut out: Vec<TdsHit> = groups
-        .into_values()
+    // Group hits by ground proximity, so two tilts' views of one ball merge no matter where an
+    // arbitrary grid would have put the boundary.
+    let centres: Vec<(f64, f64)> = per_tilt.iter().map(|(_, h)| (h.lon, h.lat)).collect();
+    let mut out: Vec<TdsHit> = associate_by_ground(&centres, ASSOCIATE_KM)
+        .into_iter()
         .map(|members| {
             let hits: Vec<&TdsHit> = members.iter().map(|&i| &per_tilt[i].1).collect();
-            let tilts = members
-                .iter()
-                .map(|&i| per_tilt[i].0)
-                .collect::<HashSet<_>>()
-                .len();
+            let contributing: HashSet<usize> = members.iter().map(|&i| per_tilt[i].0).collect();
+            let rooted = low_tilt.map(|t| contributing.contains(&t));
+            let tilts = contributing.len();
             let gates: usize = hits.iter().map(|h| h.gates).sum();
             let w = gates.max(1) as f64;
             let weighted = |f: &dyn Fn(&TdsHit) -> f64| -> f64 {
@@ -812,6 +882,7 @@ pub fn detect_volume(
                 contrasts.iter().map(|(c, g)| c * *g as f32).sum::<f32>() / total.max(1) as f32
             });
             let top_km = hits.iter().map(|h| h.top_km).fold(0.0, f32::max);
+            let base_km = hits.iter().map(|h| h.base_km).fold(f32::MAX, f32::min);
             let range_km = weighted(&|h| f64::from(h.range_km)) as f32;
             let ev = evidence(min_cc, mean_cc, mean_z, area_km2, contrast, range_km);
             TdsHit {
@@ -827,10 +898,12 @@ pub fn detect_volume(
                 range_km,
                 tilts,
                 top_km,
+                base_km,
+                rooted,
                 rotation_ms: None,
                 zdr_db: None,
                 confirmation: crate::confirm::Confirmation::NONE,
-                confidence: confidence(ev, vertical_term(top_km, tilts)),
+                confidence: confidence(ev, vertical_term(top_km, tilts, rooted)),
             }
         })
         .collect();
@@ -1098,9 +1171,9 @@ mod tests {
     fn a_lone_hit_high_in_the_beam_earns_no_credit_for_the_beam_height() {
         // At long range a single low tilt is high off the ground just from beam geometry. That is
         // not lofted debris, so it must not lift a lone hit above the single-tilt cap.
-        assert_eq!(vertical_term(6.0, 1), 0.0);
+        assert_eq!(vertical_term(6.0, 1, None), 0.0);
         assert!(
-            vertical_term(6.0, 2) > 0.5,
+            vertical_term(6.0, 2, None) > 0.5,
             "but two tilts agreeing there do count"
         );
         // A steep tilt puts the beam well over 3 km AGL even at this short range.
@@ -1223,6 +1296,107 @@ mod tests {
         assert!(detect_volume(&[], 0.80, 40.0, 150.0, 4).is_empty());
     }
 
+    /// Debris is lofted from the ground, so a low-CC column that starts in the middle tilts with
+    /// a clean sweep beneath it is hail or a melting layer aloft. It is still reported -- the
+    /// lowest beam can be blocked or attenuated -- but it keeps less of its vertical evidence.
+    #[test]
+    fn a_column_that_skips_the_lowest_tilt_keeps_less_of_its_vertical_evidence() {
+        // The rule itself: same height, same tilt count, only the rooting differs.
+        let anchored = vertical_term(2.0, 3, Some(true));
+        let aloft = vertical_term(2.0, 3, Some(false));
+        assert!(aloft < anchored, "{aloft} vs {anchored}");
+        assert!((aloft / anchored - UNROOTED_FACTOR).abs() < 1e-6);
+        // And nothing is deducted when no low tilt was read at all, so there is nothing to miss.
+        assert_eq!(vertical_term(2.0, 3, None), anchored);
+
+        // End to end: the same two tilts of debris, once with a clean 0.5 deg sweep under them.
+        let rooted = detect_volume(
+            &[debris_pair(0.5, 100..104), debris_pair(1.4, 100..104)],
+            0.80,
+            40.0,
+            150.0,
+            4,
+        );
+        assert_eq!(rooted.len(), 1);
+        assert_eq!(rooted[0].rooted, Some(true));
+        let unrooted = detect_volume(
+            &[
+                // An empty hot wedge is a clean sweep: high CC, weak echo, nothing to flag.
+                debris_pair(0.5, 100..100),
+                debris_pair(1.4, 100..104),
+                debris_pair(2.4, 100..104),
+            ],
+            0.80,
+            40.0,
+            150.0,
+            4,
+        );
+        assert_eq!(
+            unrooted.len(),
+            1,
+            "the two tilts aloft are still one column"
+        );
+        assert_eq!(
+            unrooted[0].rooted,
+            Some(false),
+            "the lowest tilt was scanned and showed nothing"
+        );
+        // With no low tilt in the volume at all, rooting is unknown rather than false.
+        let no_low = detect_volume(
+            &[debris_pair(1.8, 100..104), debris_pair(2.4, 100..104)],
+            0.80,
+            40.0,
+            150.0,
+            4,
+        );
+        assert_eq!(no_low.len(), 1);
+        assert_eq!(no_low[0].rooted, None);
+    }
+
+    /// `base_km` says where the column starts and `top_km` where it ends; a single tilt is both.
+    #[test]
+    fn a_column_reports_the_span_it_covers_not_just_its_top() {
+        let column = detect_volume(
+            &[debris_pair(0.5, 100..104), debris_pair(2.4, 100..104)],
+            0.80,
+            40.0,
+            150.0,
+            4,
+        );
+        assert_eq!(column.len(), 1);
+        assert!(
+            column[0].base_km < column[0].top_km,
+            "{} to {}",
+            column[0].base_km,
+            column[0].top_km
+        );
+        let (z, cc) = debris_pair(0.5, 100..104);
+        let lone = detect(&z, &cc, 0.80, 40.0, 150.0, 4);
+        assert!(!lone.is_empty());
+        assert_eq!(lone[0].base_km, lone[0].top_km);
+    }
+
+    /// The association shared with the rotation detector: everything within the radius of a
+    /// neighbour joins one group, however the points would have fallen on a grid.
+    #[test]
+    fn ground_association_is_single_linkage_and_indifferent_to_grid_edges() {
+        // Three points 2 km apart in a chain, and one 50 km away.
+        let pts = [
+            (-97.5, 35.0),
+            (-97.5, 35.018),
+            (-97.5, 35.036),
+            (-97.5, 35.5),
+        ];
+        let mut groups = associate_by_ground(&pts, 3.0);
+        groups.sort_by_key(|g| g.len());
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0], vec![3]);
+        assert_eq!(groups[1], vec![0, 1, 2], "a chain is one group");
+        // Tighter than every gap: four groups of one.
+        assert_eq!(associate_by_ground(&pts, 0.5).len(), 4);
+        assert!(associate_by_ground(&[], 3.0).is_empty());
+    }
+
     fn hit_at(lon: f64, lat: f64, confidence: f32) -> TdsHit {
         TdsHit {
             lon,
@@ -1237,6 +1411,8 @@ mod tests {
             range_km: 30.0,
             tilts: 1,
             top_km: 0.5,
+            base_km: 0.5,
+            rooted: None,
             rotation_ms: None,
             zdr_db: None,
             confirmation: crate::confirm::Confirmation::NONE,
@@ -1365,7 +1541,7 @@ mod tests {
                 hit.contrast,
                 hit.range_km,
             ),
-            vertical_term(hit.top_km, hit.tilts),
+            vertical_term(hit.top_km, hit.tilts, hit.rooted),
         );
         let e = hit.explain();
         assert!((e.base_confidence - hit.confidence).abs() < 1e-6);
@@ -1493,7 +1669,7 @@ mod tests {
                 hit.contrast,
                 hit.range_km,
             ),
-            vertical_term(hit.top_km, hit.tilts),
+            vertical_term(hit.top_km, hit.tilts, hit.rooted),
         );
         let mut v = [hit];
         apply_zdr(&mut v, &[zdr_sweep(3.0)]);

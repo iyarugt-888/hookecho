@@ -9033,19 +9033,27 @@ impl HookEchoApp {
             use std::io::Write;
             let _ = std::io::stdout().flush();
             let best = *alertable[0]; // sorted strongest-first (by confidence)
+                                      // Debris is lofted from the ground, so a column the lowest tilt does not see is the
+                                      // one qualification worth carrying into the alert itself rather than the hover.
+            let aloft = if best.rooted == Some(false) {
+                ", aloft only"
+            } else {
+                ""
+            };
             log::info!(
                 target: "wxdata::tds",
-                "{site}: TDS detected — {:.0}% confidence, {} tilt{}, lofted to {:.1} km",
+                "{site}: TDS detected — {:.0}% confidence, {} tilt{}, {:.1}-{:.1} km{aloft}",
                 best.confidence * 100.0,
                 best.tilts,
                 if best.tilts == 1 { "" } else { "s" },
+                best.base_km,
                 best.top_km,
             );
             self.banner(
                 "⚠ TDS detected".to_string(),
                 format!(
                     "{} debris signature(s) — possible tornado ({:.0}% confidence, \
-                     {} tilt{}, lofted to {:.1} km{})",
+                     {} tilt{}, lofted to {:.1} km{aloft}{})",
                     alertable.len(),
                     best.confidence * 100.0,
                     best.tilts,
@@ -9301,9 +9309,24 @@ impl HookEchoApp {
             let (km, bearing) =
                 crate::geo::great_circle([radar_lon as f64, radar_lat as f64], [h.lon, h.lat]);
             let where_ = format!("{:.0} km {} of {site}", km, cardinal(bearing));
+            // The two things that change what the confidence means, and both belong in the alert
+            // rather than only in the hover: rotation turning the way tornadoes essentially never
+            // do, and rotation that never reaches the lowest tilt (a mid-level mesocyclone).
+            let mut caveats: Vec<&str> = Vec::new();
+            if h.sense == wxdata::rotation::Sense::Anticyclonic {
+                caveats.push("anticyclonic");
+            }
+            if h.rooted == Some(false) {
+                caveats.push("aloft only");
+            }
+            let caveat = if caveats.is_empty() {
+                String::new()
+            } else {
+                format!(", {}", caveats.join(", "))
+            };
             log::info!(
                 target: "wxdata::rotation",
-                "{site}: rotation detected — {kt:.0} kt, {where_}, {:.0}% confidence, {} tilt{}",
+                "{site}: rotation detected — {kt:.0} kt, {where_}, {:.0}% confidence, {} tilt{}{caveat}",
                 h.confidence * 100.0,
                 h.tilts,
                 if h.tilts == 1 { "" } else { "s" },
@@ -9311,7 +9334,7 @@ impl HookEchoApp {
             self.banner(
                 "⟳ Rotation detected".to_string(),
                 format!(
-                    "{kt:.0} kt couplet — {where_} ({:.0}% confidence, {} tilt{})",
+                    "{kt:.0} kt couplet — {where_} ({:.0}% confidence, {} tilt{}{caveat})",
                     h.confidence * 100.0,
                     h.tilts,
                     if h.tilts == 1 { "" } else { "s" },
@@ -16742,10 +16765,16 @@ impl HookEchoApp {
                     // evidence of anything lofted.
                     if h.tilts > 1 {
                         format!(
-                            "TDS ρ{:.2} · {}t {:.1}km · {:.0}%{rot}{badge}",
+                            "TDS ρ{:.2} · {}t {:.1}km{} · {:.0}%{rot}{badge}",
                             h.min_cc,
                             h.tilts,
                             h.top_km,
+                            // Only the exception is labelled, so the ordinary case stays short.
+                            if h.rooted == Some(false) {
+                                " aloft"
+                            } else {
+                                ""
+                            },
                             h.confidence * 100.0
                         )
                     } else {
@@ -16871,20 +16900,34 @@ impl HookEchoApp {
                     egui::Align2::CENTER_TOP,
                     // Same reasoning as the TDS label: height/tilt-count only means something once
                     // there's more than one tilt behind it.
-                    if h.tilts > 1 {
-                        format!(
-                            "ROT {:.0} kt · {}t {:.1}km · {:.0}%{badge}",
-                            h.vrot_ms * 1.943_844,
-                            h.tilts,
-                            h.top_km,
-                            h.confidence * 100.0
-                        )
-                    } else {
-                        format!(
-                            "ROT {:.0} kt · {:.0}%{badge}",
-                            h.vrot_ms * 1.943_844,
-                            h.confidence * 100.0
-                        )
+                    {
+                        // Only the exceptions are labelled, so the ordinary cyclonic, ground-
+                        // rooted couplet reads exactly as short as it did before.
+                        let anti = if h.sense == wxdata::rotation::Sense::Anticyclonic {
+                            " · anticyc"
+                        } else {
+                            ""
+                        };
+                        if h.tilts > 1 {
+                            format!(
+                                "ROT {:.0} kt · {}t {:.1}km{} · {:.0}%{anti}{badge}",
+                                h.vrot_ms * 1.943_844,
+                                h.tilts,
+                                h.top_km,
+                                if h.rooted == Some(false) {
+                                    " aloft"
+                                } else {
+                                    ""
+                                },
+                                h.confidence * 100.0
+                            )
+                        } else {
+                            format!(
+                                "ROT {:.0} kt · {:.0}%{anti}{badge}",
+                                h.vrot_ms * 1.943_844,
+                                h.confidence * 100.0
+                            )
+                        }
                     },
                     egui::FontId::proportional(11.0),
                     col,

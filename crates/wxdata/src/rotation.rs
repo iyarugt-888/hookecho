@@ -12,8 +12,14 @@
 //! [`detect`] reads one tilt at a time, which is exactly the gap the *classic* TVS criterion
 //! fills with vertical continuity: a couplet confined to a single sweep is as often a gust front,
 //! a data glitch, or shallow non-tornadic shear as it is a real, established circulation.
-//! [`detect_volume`] runs the same detector across several tilts and raises a cell's confidence
-//! by how many of them show the couplet and how high the highest one reaches.
+//! [`detect_volume`] runs the same detector across several tilts and raises a couplet's confidence
+//! by how many of them show it and how high it reaches — and discounts the two shapes that clear
+//! the gate-to-gate criterion without being the signature it is named for:
+//!
+//! * rotation that **never reaches the lowest tilt** is a mid-level mesocyclone, which precedes
+//!   the great majority of tornadoes it never produces (see [`UNROOTED_FACTOR`]);
+//! * rotation turning **the wrong way for the hemisphere** is almost never tornadic, and is
+//!   exactly the shape ordinary shear zones and dealiasing failures take (see [`Sense`]).
 //!
 //! Velocity alone has no idea whether there is a storm at a gate or clear air — a receiver
 //! glitch, a sidelobe return, or ordinary clear-air/AP noise can clear the gate-to-gate shear
@@ -22,6 +28,41 @@
 //! the same collocation `crate::tds` already leans on for its own moments.
 
 use crate::level2::{BinnedSweep, Moment};
+
+/// Which way a couplet turns, allowing for the hemisphere the radar is in.
+///
+/// Radar azimuth increases clockwise from north, so at a fixed range a counterclockwise
+/// circulation reads inbound on its lower-azimuth side and outbound on its higher-azimuth one:
+/// radial velocity rises with azimuth across the couplet, and a clockwise one falls. Counter-
+/// clockwise is the cyclonic sense north of the equator and the anticyclonic one south of it, so
+/// the mapping from measured shear to sense flips with the sign of the radar's latitude.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sense {
+    /// Turning the way this hemisphere's tornadoes almost always do.
+    Cyclonic,
+    /// Turning the other way: real, but rare, and the shape most shear artifacts have.
+    Anticyclonic,
+}
+
+impl Sense {
+    /// The sense of a couplet whose radial velocity rises with azimuth by `signed` (the summed
+    /// signed gate-to-gate difference over the cluster), as seen by a radar at `radar_lat`.
+    pub fn of(signed: f64, radar_lat: f32) -> Sense {
+        if (signed >= 0.0) == (radar_lat >= 0.0) {
+            Sense::Cyclonic
+        } else {
+            Sense::Anticyclonic
+        }
+    }
+
+    /// The sense in a word, for a tooltip or an export.
+    pub fn label(self) -> &'static str {
+        match self {
+            Sense::Cyclonic => "cyclonic",
+            Sense::Anticyclonic => "anticyclonic",
+        }
+    }
+}
 
 /// A detected rotation couplet.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -44,6 +85,17 @@ pub struct CoupletHit {
     pub tilts: usize,
     /// Beam-center height (km AGL) of the highest tilt contributing to this hit.
     pub top_km: f32,
+    /// Beam-center height (km AGL) of the *lowest* tilt contributing to this hit -- where the
+    /// column starts, against `top_km`'s where it ends. Equal to `top_km` out of [`detect`],
+    /// which only ever sees one tilt.
+    pub base_km: f32,
+    /// Whether the column reaches the lowest low-level tilt the volume scanned (see
+    /// [`LOW_TILT_MAX_DEG`] and [`UNROOTED_FACTOR`]). `None` when no low tilt was read, so
+    /// nothing can be said either way; [`detect`] always reports `None`, since one tilt cannot
+    /// know what the tilts under it show.
+    pub rooted: Option<bool>,
+    /// Which way the couplet turns. See [`Sense`] and [`sense_factor`].
+    pub sense: Sense,
     /// 0..1 confidence. `detect()`'s single-tilt read has no vertical evidence at all and caps out
     /// at 0.5 on rotational strength alone; [`detect_volume`] can go higher once a couplet repeats
     /// up through the tilts.
@@ -55,10 +107,42 @@ pub struct CoupletHit {
 }
 
 /// Which revision of the scoring produced a hit; bump it when any weight or rule below changes.
-pub const ALGORITHM_VERSION: &str = "rot-2";
+pub const ALGORITHM_VERSION: &str = "rot-3";
 
 /// The most confidence a couplet can have from one tilt alone.
 pub const SINGLE_TILT_CAP: f32 = 0.5;
+
+/// Couplets from different tilts closer than this (km) are the same circulation. Wider than
+/// [`crate::tds`]'s own 3 km, because a vortex leans downshear with height and the centroid of a
+/// handful of gate pairs wanders more than a debris ball's does.
+const ASSOCIATE_KM: f64 = 4.0;
+
+/// Elevation angles at or below this (degrees) are the low-level tilts a tornadic circulation has
+/// to appear in. Every WSR-88D VCP starts at 0.5 deg with a second cut near 0.9 deg, so a volume
+/// scanned normally always has one.
+pub const LOW_TILT_MAX_DEG: f32 = 1.5;
+
+/// The factor applied to the vertical evidence of a couplet that skips the lowest low-level tilt
+/// scanned.
+///
+/// The signature this detector is named for is a *low-level* one. Rotation confined to the middle
+/// tilts with the sweep beneath it clean is a mid-level mesocyclone: a real and useful thing to
+/// see, and routinely there for a volume or two before anything reaches the ground, but not a
+/// tornado signature, and the great majority of mid-level mesocyclones never become one. It
+/// discounts rather than rejects, since the lowest beam can be blocked by terrain, sit under the
+/// circulation at close range, or lose its velocity data to the clutter filter.
+pub const UNROOTED_FACTOR: f32 = 0.7;
+
+/// The factor an anticyclonic couplet's confidence is multiplied by.
+///
+/// Tornadoes turn cyclonically almost without exception; the anticyclonic ones are mostly
+/// satellite and companion tornadoes and the odd QLCS mesovortex, a couple of percent of the
+/// total. An anticyclonic couplet, meanwhile, is exactly the shape an ordinary shear zone, a
+/// dealiasing failure and the anticyclonic half of a splitting storm all make. So the sense is
+/// real evidence -- and it only ever discounts. A strong anticyclonic couplet is still worth a
+/// look, and the cyclonic sense is shared with every mesocyclone that produces nothing at all, so
+/// it is no proof by itself and earns no credit.
+pub const ANTICYCLONIC_FACTOR: f32 = 0.7;
 
 /// How well the gate-to-gate shear supports a real circulation, 0..1: 25 m/s is the documented
 /// weak-signature threshold and scores 0, 36 m/s the strong one and scores 1.
@@ -79,17 +163,35 @@ pub fn range_factor(range_km: f32) -> f32 {
     1.0 - 0.4 * ((range_km - 60.0) / 90.0).clamp(0.0, 1.0)
 }
 
-/// Vertical continuity, 0..1: height reached and number of tilts, each worth half. About 3 km AGL
+/// Vertical continuity, 0..1: height reached and number of tilts, each worth half, and then
+/// [`UNROOTED_FACTOR`] if the column skips the lowest low-level tilt scanned. About 3 km AGL
 /// saturates the height and three tilts the depth. One tilt is worth nothing: its height is just its
 /// range (a far low beam is high, and that is not a tall circulation), so height only counts once a
 /// second tilt shows the couplet is a column.
-pub fn vertical_term(top_km: f32, tilts: usize) -> f32 {
+///
+/// `rooted` is `None` when the caller read no low tilt at all, and then nothing is deducted: a
+/// column cannot be faulted for missing a sweep nobody looked at.
+pub fn vertical_term(top_km: f32, tilts: usize, rooted: Option<bool>) -> f32 {
     if tilts < 2 {
         return 0.0;
     }
     let height = (top_km / 3.0).clamp(0.0, 1.0);
     let depth = ((tilts as f32 - 1.0) / 2.0).clamp(0.0, 1.0);
-    0.5 * height + 0.5 * depth
+    let rooting = if rooted == Some(false) {
+        UNROOTED_FACTOR
+    } else {
+        1.0
+    };
+    (0.5 * height + 0.5 * depth) * rooting
+}
+
+/// The factor a couplet's sense applies to its score: 1 for cyclonic, [`ANTICYCLONIC_FACTOR`] the
+/// other way.
+pub fn sense_factor(sense: Sense) -> f32 {
+    match sense {
+        Sense::Cyclonic => 1.0,
+        Sense::Anticyclonic => ANTICYCLONIC_FACTOR,
+    }
 }
 
 /// Evidence from one cluster's own measurements: strength (65%) and size (35%), faded by range.
@@ -115,6 +217,8 @@ pub struct Explanation {
     pub evidence: f32,
     /// Vertical continuity, 0..1; 0 for a single shallow tilt.
     pub vertical: f32,
+    /// Which way it turns, and the factor that applied to the score.
+    pub sense: (Sense, f32),
     pub confidence: f32,
 }
 
@@ -146,7 +250,8 @@ impl CoupletHit {
             reasons,
             range_factor: range_factor(self.range_km),
             evidence: evidence(self.g2g_ms, per_tilt, self.range_km),
-            vertical: vertical_term(self.top_km, self.tilts),
+            vertical: vertical_term(self.top_km, self.tilts, self.rooted),
+            sense: (self.sense, sense_factor(self.sense)),
             confidence: self.confidence,
         }
     }
@@ -179,10 +284,18 @@ impl Explanation {
         ));
         out.push(if hit.tilts > 1 {
             format!(
-                "Vertical  {:.0}%   {} tilts, up to {:.1} km",
+                "Vertical  {:.0}%   {} tilts, {:.1}-{:.1} km{}",
                 self.vertical * 100.0,
                 hit.tilts,
-                hit.top_km
+                hit.base_km,
+                hit.top_km,
+                match hit.rooted {
+                    // The one worth spelling out: the rotation is aloft, so it kept only
+                    // `UNROOTED_FACTOR` of the vertical evidence it would otherwise have earned.
+                    Some(false) => ", not rooted in the lowest tilt",
+                    Some(true) => ", rooted in the lowest tilt",
+                    None => "",
+                }
             )
         } else {
             format!(
@@ -191,6 +304,11 @@ impl Explanation {
                 SINGLE_TILT_CAP * 100.0
             )
         });
+        out.push(format!(
+            "Sense     x{:.2}   {}",
+            self.sense.1,
+            self.sense.0.label()
+        ));
         out
     }
 }
@@ -290,8 +408,38 @@ pub fn detect(
     }
     const CELL: f64 = 0.04; // ~4 km cluster cells, matching the TDS detector
     use std::collections::HashMap;
-    /// Running per-cell accumulator: pairs, summed lon/lat/range, min/max velocity, max |dv|.
-    type Cell = (usize, f64, f64, f64, f32, f32, f32);
+    /// One grid cell's running totals, named so the map's own type stays readable.
+    struct Cell {
+        /// Candidate gate pairs.
+        pairs: usize,
+        /// Summed lon / lat / range, for the centroid and the mean range.
+        sum_lon: f64,
+        sum_lat: f64,
+        sum_range: f64,
+        /// The extremes of the cluster's velocity spread; `vrot` is half of it.
+        v_min: f32,
+        v_max: f32,
+        /// Strongest gate-to-gate difference.
+        max_dv: f32,
+        /// Summed *signed* gate-to-gate difference, higher azimuth minus lower. Its sign is which
+        /// way the cluster turns, and summing rather than counting means the strongest pairs have
+        /// the say when a noisy edge of the cluster shears the other way; see [`Sense::of`].
+        signed: f64,
+    }
+    impl Cell {
+        fn new() -> Cell {
+            Cell {
+                pairs: 0,
+                sum_lon: 0.0,
+                sum_lat: 0.0,
+                sum_range: 0.0,
+                v_min: f32::MAX,
+                v_max: f32::MIN,
+                max_dv: 0.0,
+                signed: 0.0,
+            }
+        }
+    }
     let mut cells: HashMap<(i64, i64), Cell> = HashMap::new();
     let (rlon, rlat) = (vel.radar_lon as f64, vel.radar_lat as f64);
 
@@ -351,37 +499,44 @@ pub fn detect(
         }
         for (lon, lat, range, a, b, dv) in row {
             let key = ((lon / CELL).round() as i64, (lat / CELL).round() as i64);
-            let e = cells
-                .entry(key)
-                .or_insert((0, 0.0, 0.0, 0.0, f32::MAX, f32::MIN, 0.0));
-            e.0 += 1;
-            e.1 += lon;
-            e.2 += lat;
-            e.3 += range as f64;
-            e.4 = e.4.min(a).min(b);
-            e.5 = e.5.max(a).max(b);
-            e.6 = e.6.max(dv);
+            let e = cells.entry(key).or_insert_with(Cell::new);
+            e.pairs += 1;
+            e.sum_lon += lon;
+            e.sum_lat += lat;
+            e.sum_range += range as f64;
+            e.v_min = e.v_min.min(a).min(b);
+            e.v_max = e.v_max.max(a).max(b);
+            e.max_dv = e.max_dv.max(dv);
+            e.signed += f64::from(b - a);
         }
     }
 
     let elev = vel.elevation_deg as f64;
     let mut hits: Vec<CoupletHit> = cells
         .into_values()
-        .filter(|(n, ..)| *n >= min_gates)
-        .map(|(n, slon, slat, srange, vmin, vmax, g2g)| {
-            let range_km = (srange / n as f64) as f32;
+        .filter(|c| c.pairs >= min_gates)
+        .map(|c| {
+            let n = c.pairs as f64;
+            let range_km = (c.sum_range / n) as f32;
+            let sense = Sense::of(c.signed, vel.radar_lat);
             // One tilt has no vertical evidence, so it never gets past the single-tilt cap;
             // `detect_volume` rescores the hit once it can see the column.
-            let confidence = confidence(evidence(g2g, n as f32, range_km), 0.0).max(0.05);
+            let confidence = (confidence(evidence(c.max_dv, c.pairs as f32, range_km), 0.0)
+                * sense_factor(sense))
+            .max(0.05);
+            let height = crate::xsection::beam_height_km(range_km as f64, elev) as f32;
             CoupletHit {
-                lon: slon / n as f64,
-                lat: slat / n as f64,
-                vrot_ms: (vmax - vmin) / 2.0,
-                g2g_ms: g2g,
+                lon: c.sum_lon / n,
+                lat: c.sum_lat / n,
+                vrot_ms: (c.v_max - c.v_min) / 2.0,
+                g2g_ms: c.max_dv,
                 range_km,
-                gates: n,
+                gates: c.pairs,
                 tilts: 1,
-                top_km: crate::xsection::beam_height_km(range_km as f64, elev) as f32,
+                top_km: height,
+                base_km: height,
+                rooted: None,
+                sense,
                 confidence,
                 confirmation: crate::confirm::Confirmation::NONE,
             }
@@ -395,11 +550,16 @@ pub fn detect(
 /// Detect couplets across a volume's tilts, not just one — the vertical-continuity check a single
 /// sweep cannot offer, and the classic operational TVS criterion this client-side detector has
 /// never had. Per-tilt hits (each already computed by [`detect`], so an existing single-tilt
-/// caller sees no change) that land in the same ~4 km cell as another tilt's are merged into one
+/// caller sees no change) within `ASSOCIATE_KM` of one another on the ground are merged into one
 /// [`CoupletHit`] with the combined gate count, the strongest rotation and gate-to-gate shear seen
-/// at any contributing tilt, the deepest reach, and a correspondingly higher confidence. `sweeps`
-/// need not be given lowest-first — height comes from each sweep's own `elevation_deg`, not its
+/// at any contributing tilt, the span from its lowest contributing beam to its highest, and a
+/// correspondingly higher confidence. `sweeps` need not be given lowest-first — every height, and
+/// which tilt counts as the lowest, comes from each sweep's own `elevation_deg` and not from its
 /// position in the slice.
+///
+/// Two further readings come out of the column that one tilt cannot give: whether it reaches the
+/// lowest low-level tilt scanned ([`UNROOTED_FACTOR`]), and which way the bulk of it turns
+/// ([`Sense`]).
 ///
 /// A couplet seen at only one tilt is still returned (shallow, transient rotation happens), just
 /// without the confidence boost a taller column earns.
@@ -414,14 +574,19 @@ pub fn detect_volume(
     max_range_km: f32,
     min_gates: usize,
 ) -> Vec<CoupletHit> {
-    const CELL: f64 = 0.04; // same grid `detect` clusters on
-    use std::collections::HashMap;
-    /// One grid cell's running totals: gates, sum_lon*w, sum_lat*w, sum_range*w, max_vrot,
-    /// max_g2g, tilts, top_km. Named so the map's own type stays readable.
-    type CellAccum = (usize, f64, f64, f64, f32, f32, usize, f32);
-    let mut cells: HashMap<(i64, i64), CellAccum> = HashMap::new();
+    // The lowest low-level tilt in the volume, found by elevation angle and not by position in
+    // the slice (which `sweeps` is explicitly not required to order). A column that misses it is
+    // rotation aloft; see `UNROOTED_FACTOR`. With no low tilt read at all there is nothing to
+    // miss, and rooting stays unknown.
+    let low_tilt = sweeps
+        .iter()
+        .enumerate()
+        .filter(|(_, (vel, _))| vel.elevation_deg <= LOW_TILT_MAX_DEG)
+        .min_by(|a, b| a.1 .0.elevation_deg.total_cmp(&b.1 .0.elevation_deg))
+        .map(|(i, _)| i);
 
-    for (vel, z) in sweeps {
+    let mut per_tilt: Vec<(usize, CoupletHit)> = Vec::new();
+    for (tilt, (vel, z)) in sweeps.iter().enumerate() {
         for h in detect(
             vel,
             z,
@@ -431,51 +596,75 @@ pub fn detect_volume(
             max_range_km,
             min_gates,
         ) {
-            let key = ((h.lon / CELL).round() as i64, (h.lat / CELL).round() as i64);
-            let w = h.gates as f64;
-            let e = cells
-                .entry(key)
-                .or_insert((0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0.0));
-            e.0 += h.gates;
-            e.1 += h.lon * w;
-            e.2 += h.lat * w;
-            e.3 += h.range_km as f64 * w;
-            e.4 = e.4.max(h.vrot_ms);
-            e.5 = e.5.max(h.g2g_ms);
-            e.6 += 1;
-            e.7 = e.7.max(h.top_km);
+            per_tilt.push((tilt, h));
         }
     }
 
-    let mut out: Vec<CoupletHit> = cells
-        .into_values()
-        .map(
-            |(gates, slon, slat, srange, vrot_ms, g2g_ms, tilts, top_km)| {
-                let w = gates.max(1) as f64;
-                // What the cluster itself shows (strength and size, faded by range), scaled by the
-                // vertical evidence: a couplet that repeats through several tilts is an established
-                // circulation, where a wide single-tilt patch is as often a gust front or a glitch.
-                // Size is per tilt, so a tall column is not scored as a big patch.
-                let per_tilt = gates as f32 / tilts.max(1) as f32;
-                let range_km = (srange / w) as f32;
-                let confidence = confidence(
-                    evidence(g2g_ms, per_tilt, range_km),
-                    vertical_term(top_km, tilts),
-                );
-                CoupletHit {
-                    lon: slon / w,
-                    lat: slat / w,
-                    vrot_ms,
-                    g2g_ms,
-                    range_km,
-                    gates,
-                    tilts,
-                    top_km,
-                    confidence,
-                    confirmation: crate::confirm::Confirmation::NONE,
-                }
-            },
-        )
+    // Associate by ground distance rather than by snapping to a second grid. `detect` has already
+    // clustered each tilt's gate pairs; re-snapping those clusters split a column whenever two
+    // tilts' centroids fell either side of a cell edge, which turned one two-tilt couplet into two
+    // single-tilt ones, each held to `SINGLE_TILT_CAP`, and lost the vertical evidence this
+    // function exists to find. Same helper `crate::tds::detect_volume` associates debris with.
+    let centres: Vec<(f64, f64)> = per_tilt.iter().map(|(_, h)| (h.lon, h.lat)).collect();
+    let mut out: Vec<CoupletHit> = crate::tds::associate_by_ground(&centres, ASSOCIATE_KM)
+        .into_iter()
+        .map(|members| {
+            let hits: Vec<&CoupletHit> = members.iter().map(|&i| &per_tilt[i].1).collect();
+            let gates: usize = hits.iter().map(|h| h.gates).sum();
+            let w = gates.max(1) as f64;
+            let weighted = |f: &dyn Fn(&CoupletHit) -> f64| -> f64 {
+                hits.iter().map(|h| f(h) * h.gates as f64).sum::<f64>() / w
+            };
+            let contributing: std::collections::HashSet<usize> =
+                members.iter().map(|&i| per_tilt[i].0).collect();
+            let rooted = low_tilt.map(|t| contributing.contains(&t));
+            let tilts = contributing.len();
+            // Which way the bulk of the column turns: the gates vote, not the tilts, so one
+            // tilt's stray counter-turning cluster cannot flip a column that is otherwise plainly
+            // cyclonic. Each per-tilt hit already carries its own hemisphere-corrected sense, so
+            // this is a straight tally and needs no second look at the latitude.
+            let votes: f64 = hits
+                .iter()
+                .map(|h| match h.sense {
+                    Sense::Cyclonic => h.gates as f64,
+                    Sense::Anticyclonic => -(h.gates as f64),
+                })
+                .sum();
+            let sense = if votes >= 0.0 {
+                Sense::Cyclonic
+            } else {
+                Sense::Anticyclonic
+            };
+            let vrot_ms = hits.iter().map(|h| h.vrot_ms).fold(0.0, f32::max);
+            let g2g_ms = hits.iter().map(|h| h.g2g_ms).fold(0.0, f32::max);
+            let top_km = hits.iter().map(|h| h.top_km).fold(0.0, f32::max);
+            let base_km = hits.iter().map(|h| h.base_km).fold(f32::MAX, f32::min);
+            let range_km = weighted(&|h| f64::from(h.range_km)) as f32;
+            // What the cluster itself shows (strength and size, faded by range), scaled by the
+            // vertical evidence: a couplet that repeats through several tilts is an established
+            // circulation, where a wide single-tilt patch is as often a gust front or a glitch.
+            // Size is per tilt, so a tall column is not scored as a big patch.
+            let per_tilt_gates = gates as f32 / tilts.max(1) as f32;
+            let confidence = confidence(
+                evidence(g2g_ms, per_tilt_gates, range_km),
+                vertical_term(top_km, tilts, rooted),
+            ) * sense_factor(sense);
+            CoupletHit {
+                lon: weighted(&|h| h.lon),
+                lat: weighted(&|h| h.lat),
+                vrot_ms,
+                g2g_ms,
+                range_km,
+                gates,
+                tilts,
+                top_km,
+                base_km,
+                rooted,
+                sense,
+                confidence,
+                confirmation: crate::confirm::Confirmation::NONE,
+            }
+        })
         .collect();
     out.sort_by(|a, b| b.confidence.total_cmp(&a.confidence));
     out
@@ -836,6 +1025,115 @@ mod tests {
     fn detect_volume_of_nothing_is_nothing() {
         assert!(detect_volume(&[], 25.0, 20.0, 5.0, 150.0, 3).is_empty());
     }
+
+    /// The fixture paints inbound at the lower azimuth and outbound at the higher one, which is
+    /// velocity rising with azimuth: counterclockwise, and so cyclonic at this radar's latitude.
+    /// Painted the other way round it is the same couplet turning the other way, and it scores
+    /// lower for it.
+    #[test]
+    fn the_detector_reads_which_way_the_couplet_turns() {
+        let z = z_sweep(0.5, Some(45.0));
+        let run = |vel: &BinnedSweep| detect(vel, &z, 25.0, 20.0, 5.0, 150.0, 3);
+        let cyclonic = run(&couplet_sweep(-30.0, 30.0, 0.0));
+        let anticyclonic = run(&couplet_sweep(30.0, -30.0, 0.0));
+        assert_eq!(cyclonic[0].sense, Sense::Cyclonic);
+        assert_eq!(anticyclonic[0].sense, Sense::Anticyclonic);
+        // Same rotation either way, so only the sense can be moving the score.
+        assert!((cyclonic[0].vrot_ms - anticyclonic[0].vrot_ms).abs() < 1e-3);
+        assert!(
+            anticyclonic[0].confidence < cyclonic[0].confidence,
+            "{} vs {}",
+            anticyclonic[0].confidence,
+            cyclonic[0].confidence
+        );
+    }
+
+    /// Two tilts' views of one circulation are a kilometre or two apart on the ground. They used
+    /// to be merged by snapping to a ~4 km grid, which split the column whenever the pair fell
+    /// either side of a cell edge and cost it all of its vertical evidence. Association is by
+    /// ground distance now, so an offset that size merges wherever the grid would have fallen.
+    #[test]
+    fn tilts_offset_on_the_ground_still_merge_into_one_column() {
+        // The upper tilt's couplet sits ~1 km further out in range than the lower one's.
+        let higher = {
+            let (lo, hi) = Moment::Velocity.value_range();
+            let idx = |v: f32| (2.0 + (v - lo) / (hi - lo) * 253.0).round() as u8;
+            let mut s = couplet_sweep_tilt(1.4, 0.0, 0.0, 0.0);
+            for g in 44..52 {
+                for az in 98..100 {
+                    s.data[az * s.gate_count + g] = idx(-30.0);
+                }
+                for az in 100..102 {
+                    s.data[az * s.gate_count + g] = idx(30.0);
+                }
+            }
+            s
+        };
+        let sweeps = [
+            (
+                couplet_sweep_tilt(0.5, -30.0, 30.0, 0.0),
+                z_sweep(0.5, Some(45.0)),
+            ),
+            (higher, z_sweep(1.4, Some(45.0))),
+        ];
+        let hits = detect_volume(&sweeps, 25.0, 20.0, 5.0, 150.0, 3);
+        assert_eq!(hits.len(), 1, "one circulation, not two");
+        assert_eq!(hits[0].tilts, 2);
+        assert_eq!(hits[0].rooted, Some(true), "the lowest tilt shows it");
+        assert!(
+            hits[0].base_km < hits[0].top_km,
+            "{} to {}",
+            hits[0].base_km,
+            hits[0].top_km
+        );
+    }
+
+    /// Rotation that lives in the middle tilts with a clean sweep beneath it is a mid-level
+    /// mesocyclone, not the low-level signature this detector is named for.
+    #[test]
+    fn a_column_that_misses_the_lowest_tilt_is_marked_unrooted() {
+        let flat = || couplet_sweep_tilt(0.5, 0.0, 0.0, 0.0);
+        let unrooted = detect_volume(
+            &[
+                (flat(), z_sweep(0.5, Some(45.0))),
+                (
+                    couplet_sweep_tilt(1.4, -30.0, 30.0, 0.0),
+                    z_sweep(1.4, Some(45.0)),
+                ),
+                (
+                    couplet_sweep_tilt(2.4, -30.0, 30.0, 0.0),
+                    z_sweep(2.4, Some(45.0)),
+                ),
+            ],
+            25.0,
+            20.0,
+            5.0,
+            150.0,
+            3,
+        );
+        assert!(!unrooted.is_empty());
+        assert_eq!(unrooted[0].rooted, Some(false));
+        // With no low tilt scanned at all, there is nothing to have missed.
+        let no_low = detect_volume(
+            &[
+                (
+                    couplet_sweep_tilt(1.8, -30.0, 30.0, 0.0),
+                    z_sweep(1.8, Some(45.0)),
+                ),
+                (
+                    couplet_sweep_tilt(2.4, -30.0, 30.0, 0.0),
+                    z_sweep(2.4, Some(45.0)),
+                ),
+            ],
+            25.0,
+            20.0,
+            5.0,
+            150.0,
+            3,
+        );
+        assert!(!no_low.is_empty());
+        assert_eq!(no_low[0].rooted, None);
+    }
 }
 
 #[cfg(test)]
@@ -843,6 +1141,19 @@ mod scoring_tests {
     use super::*;
 
     fn hit(g2g_ms: f32, gates: usize, range_km: f32, tilts: usize, top_km: f32) -> CoupletHit {
+        sensed_hit(g2g_ms, gates, range_km, tilts, top_km, Sense::Cyclonic)
+    }
+
+    /// `hit`, but turning whichever way is asked for -- scored exactly the way the detectors
+    /// score, so a test cannot disagree with the map about what a couplet is worth.
+    fn sensed_hit(
+        g2g_ms: f32,
+        gates: usize,
+        range_km: f32,
+        tilts: usize,
+        top_km: f32,
+        sense: Sense,
+    ) -> CoupletHit {
         let per_tilt = gates as f32 / tilts as f32;
         CoupletHit {
             lon: -97.5,
@@ -853,10 +1164,13 @@ mod scoring_tests {
             gates,
             tilts,
             top_km,
+            base_km: top_km,
+            rooted: None,
+            sense,
             confidence: confidence(
                 evidence(g2g_ms, per_tilt, range_km),
-                vertical_term(top_km, tilts),
-            ),
+                vertical_term(top_km, tilts, None),
+            ) * sense_factor(sense),
             confirmation: crate::confirm::Confirmation::NONE,
         }
     }
@@ -883,7 +1197,7 @@ mod scoring_tests {
             "{}",
             lone.confidence
         );
-        assert_eq!(vertical_term(4.0, 1), 0.0);
+        assert_eq!(vertical_term(4.0, 1, None), 0.0);
         let column = hit(60.0, 120, 30.0, 3, 4.0);
         assert!(column.confidence > SINGLE_TILT_CAP);
     }
@@ -906,10 +1220,18 @@ mod scoring_tests {
         let sum: f32 = e.reasons.iter().map(|r| r.score * r.weight).sum();
         assert!((sum * e.range_factor - e.evidence).abs() < 1e-5);
         assert!((e.reasons.iter().map(|r| r.weight).sum::<f32>() - 1.0).abs() < 1e-6);
-        let rebuilt = confidence(e.evidence, e.vertical);
+        let rebuilt = confidence(e.evidence, e.vertical) * e.sense.1;
         assert!((rebuilt - h.confidence).abs() < 1e-5);
         let text = e.lines(&h).join("\n");
-        for want in ["Strength", "Size", "Range", "Vertical", ALGORITHM_VERSION] {
+        for want in [
+            "Strength",
+            "Size",
+            "Range",
+            "Vertical",
+            "Sense",
+            "cyclonic",
+            ALGORITHM_VERSION,
+        ] {
             assert!(text.contains(want), "missing {want}: {text}");
         }
         let lone = hit(32.0, 10, 45.0, 1, 0.5);
@@ -918,5 +1240,46 @@ mod scoring_tests {
             .lines(&lone)
             .join("\n")
             .contains("one tilt only"));
+    }
+
+    #[test]
+    fn turning_the_wrong_way_costs_a_couplet_but_never_hides_it() {
+        let cyclonic = hit(36.0, 45, 30.0, 3, 2.0);
+        let anticyclonic = sensed_hit(36.0, 45, 30.0, 3, 2.0, Sense::Anticyclonic);
+        assert!(
+            anticyclonic.confidence < cyclonic.confidence,
+            "{} vs {}",
+            anticyclonic.confidence,
+            cyclonic.confidence
+        );
+        assert!((anticyclonic.confidence / cyclonic.confidence - ANTICYCLONIC_FACTOR).abs() < 1e-5);
+        // A discount, not a rejection: a strong anticyclonic couplet is still worth a look.
+        assert!(anticyclonic.confidence > 0.3, "{}", anticyclonic.confidence);
+        assert_eq!(sense_factor(Sense::Cyclonic), 1.0);
+        // And the explanation names it.
+        let text = anticyclonic.explain().lines(&anticyclonic).join("\n");
+        assert!(text.contains("anticyclonic"), "{text}");
+    }
+
+    /// Velocity rising with azimuth is counterclockwise, which is cyclonic north of the equator
+    /// and anticyclonic south of it.
+    #[test]
+    fn the_sense_of_a_shear_sign_flips_with_the_hemisphere() {
+        assert_eq!(Sense::of(12.0, 35.0), Sense::Cyclonic);
+        assert_eq!(Sense::of(-12.0, 35.0), Sense::Anticyclonic);
+        assert_eq!(Sense::of(12.0, -33.0), Sense::Anticyclonic);
+        assert_eq!(Sense::of(-12.0, -33.0), Sense::Cyclonic);
+    }
+
+    #[test]
+    fn rotation_that_skips_the_lowest_tilt_keeps_less_of_its_vertical_evidence() {
+        let anchored = vertical_term(2.0, 3, Some(true));
+        let aloft = vertical_term(2.0, 3, Some(false));
+        assert!(aloft < anchored, "{aloft} vs {anchored}");
+        assert!((aloft / anchored - UNROOTED_FACTOR).abs() < 1e-6);
+        // Nothing is deducted when no low tilt was read: there was nothing to miss.
+        assert_eq!(vertical_term(2.0, 3, None), anchored);
+        // A single tilt has no vertical evidence to discount either way.
+        assert_eq!(vertical_term(2.0, 1, Some(false)), 0.0);
     }
 }

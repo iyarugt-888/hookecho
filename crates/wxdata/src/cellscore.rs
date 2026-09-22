@@ -180,6 +180,9 @@ mod tests {
             gates: 6,
             tilts: 1,
             top_km: 0.5,
+            base_km: 0.5,
+            rooted: None,
+            sense: crate::rotation::Sense::Cyclonic,
             confidence: 0.5,
             confirmation: crate::confirm::Confirmation::NONE,
         }];

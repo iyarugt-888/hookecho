@@ -1679,10 +1679,27 @@ Export CSV for all statistics.
 Turn current TDS/couplet/cell scoring into an inspectable analyst environment.
 
 Started: the TDS detector is the reference implementation. `TdsHit::explain` returns the algorithm
-version, each weighted term with its measurement, the range and vertical stages, and the rotation
-gain, and every marker shows it on hover. Couplets, cells and the other detectors, a stored score
-timeline, and DAT/warning truth sets are still open. The SPC-report backtest exists
-(`--headless-backtest`, `wxdata::detverify`).
+version, each weighted term with its measurement, the range, vertical and ZDR stages, and the
+rotation gain, and every marker shows it on hover. `CoupletHit::explain` does the same for rotation,
+with its own sense stage. Both detectors now score low-level rooting (`base_km`, `rooted`) as well
+as depth, and couplets carry a cyclonic/anticyclonic sense; scoring versions `tds-4` and `rot-3`.
+Cells and the other detectors, a stored score timeline, and DAT/warning truth sets are still open.
+The SPC-report backtest exists (`--headless-backtest`, `--headless-backtest-file`,
+`wxdata::detverify`).
+
+Still open on these two, in rough value order:
+
+- **Symmetric corroboration.** A debris signature beside a couplet raises the debris score
+  (`tds::corroborate_with_rotation`) but a couplet beside a debris signature gains nothing, though
+  debris on the ground is the strongest confirmation a couplet can have. Doing it without a feedback
+  loop means cross-corroborating from both sides' pre-corroboration confidence, which in `app.rs`
+  means the TDS and couplet caches holding raw hits and corroboration applied on the way out, so
+  neither layer's numbers depend on whether the other layer is enabled.
+- **Range-normalised shear.** The gate-to-gate criterion is a fixed velocity difference, so it is a
+  much stronger shear near the radar than far out, where azimuthal gate spacing is kilometres wide.
+  Scoring shear (s^-1) instead would detect consistently with range - but it would also raise
+  near-range clutter couplets and far-range dealiasing artifacts, the two things the current
+  thresholds were tuned to suppress, so it needs backtest evidence before it is worth trying.
 
 
 For every automatic detection:

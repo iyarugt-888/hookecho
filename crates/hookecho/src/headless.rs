@@ -810,7 +810,8 @@ pub fn run_tds_archive(site: &str, date: &str, hhmm: &str) -> anyhow::Result<()>
     by_conf.sort_by(|a, b| b.confidence.total_cmp(&a.confidence));
     for c in by_conf.iter().take(6) {
         println!(
-            "  couplet {:.3},{:.3}  conf {:>3.0}%  vrot {:.0} kt  g2g {:.0}  {:.0} km  {} gates  {} tilt(s)",
+            "  couplet {:.3},{:.3}  conf {:>3.0}%  vrot {:.0} kt  g2g {:.0}  {:.0} km  {} gates  \
+             {} tilt(s) {:.1}-{:.1} km  {}{}",
             c.lat,
             c.lon,
             c.confidence * 100.0,
@@ -818,7 +819,14 @@ pub fn run_tds_archive(site: &str, date: &str, hhmm: &str) -> anyhow::Result<()>
             c.g2g_ms,
             c.range_km,
             c.gates,
-            c.tilts
+            c.tilts,
+            c.base_km,
+            c.top_km,
+            c.sense.label(),
+            match c.rooted {
+                Some(false) => " (aloft)",
+                _ => "",
+            }
         );
     }
     println!(
@@ -828,13 +836,18 @@ pub fn run_tds_archive(site: &str, date: &str, hhmm: &str) -> anyhow::Result<()>
     );
     for h in hits.iter().take(12) {
         println!(
-            "  {:.3},{:.3}  conf {:>3.0}%  {} tilt(s) to {:.1} km · {} gates {:.1} km² · min CC {:.2} \
-             mean CC {:.2} · Z mean {:.0} max {:.0} · contrast {} · rotation {}",
+            "  {:.3},{:.3}  conf {:>3.0}%  {} tilt(s) {:.1}-{:.1} km{} · {} gates {:.1} km² · min CC \
+             {:.2} mean CC {:.2} · Z mean {:.0} max {:.0} · contrast {} · rotation {}",
             h.lat,
             h.lon,
             h.confidence * 100.0,
             h.tilts,
+            h.base_km,
             h.top_km,
+            match h.rooted {
+                Some(false) => " (aloft)",
+                _ => "",
+            },
             h.gates,
             h.area_km2,
             h.min_cc,
@@ -1066,13 +1079,14 @@ pub fn run_rotation(site: &str) -> anyhow::Result<()> {
     );
     for h in hits.iter().take(8) {
         println!(
-            "  {:.3},{:.3}  vrot {:.0} kt  g2g {:.0} m/s  {:.0} km  {} gates",
+            "  {:.3},{:.3}  vrot {:.0} kt  g2g {:.0} m/s  {:.0} km  {} gates  {}",
             h.lat,
             h.lon,
             h.vrot_ms * 1.943_844,
             h.g2g_ms,
             h.range_km,
-            h.gates
+            h.gates,
+            h.sense.label()
         );
     }
     Ok(())

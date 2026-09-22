@@ -8,6 +8,40 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Improved: both tornado detectors now weigh depth, rooting and which way rotation turns
+
+Three gaps in the TVS/TDS scoring, all of them the operational criterion the detectors were named
+for and did not actually apply.
+
+**Rotation aloft is no longer rotation on the ground.** A couplet or a debris column is a *low-level*
+signature. Both detectors now record where the column starts as well as where it ends (`base_km`
+beside `top_km`), and whether it reaches the lowest low-level tilt the volume scanned. One that does
+not keeps 70% of its vertical evidence: for rotation that is a mid-level mesocyclone, which precedes
+the great majority of tornadoes it never produces; for debris it is wet or melting hail aloft, the
+commonest structure a CC-and-Z detector mistakes for a debris ball after high ZDR. It discounts
+rather than rejects, since the lowest beam can be blocked by terrain or attenuated through the core,
+and nothing is deducted when no low tilt was read at all. The alert banner and the map label say
+"aloft" when it applies; the hover explanation shows the whole span and the rooting either way.
+
+**Couplets now report which way they turn.** Radar azimuth increases clockwise, so radial velocity
+rising across a couplet is counterclockwise -- cyclonic north of the equator, anticyclonic south of
+it, and the detector reads the radar's own latitude rather than assuming. Tornadoes turn cyclonically
+almost without exception, while an anticyclonic couplet is exactly the shape an ordinary shear zone,
+a dealiasing failure and the anticyclonic half of a splitting storm all make, so an anticyclonic one
+now scores 70% of what the same rotation cyclonic would. It only ever discounts: the cyclonic sense
+is shared with every mesocyclone that produces nothing, so it earns no credit of its own, and a
+strong anticyclonic couplet is still shown, labelled.
+
+**Fixed: a couplet seen at two tilts could be scored as two single-tilt couplets.** The volume pass
+merged each tilt's already-clustered couplets by snapping them to a ~4 km grid, so two tilts' views
+of one circulation -- a kilometre or two apart, as they always are -- were split whenever the pair
+straddled a cell edge. Each half was then held to the single-tilt confidence cap of 50%, losing
+exactly the vertical evidence the volume pass exists to find. Couplets now associate by ground
+distance, using the same union-find helper the debris detector already used, which is now shared
+between them instead of written twice.
+
+Scoring versions are `rot-3` and `tds-4`.
+
 ### Fixed: the dock search hid its own matches, and multi-day backtest wiring
 
 The dock layers panel expands matching categories only the first time you search: after that a
