@@ -8,6 +8,16 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: cell severity scores explain themselves on hover, same as the TDS/rotation markers
+
+`wxdata::cellscore::severity_explain` breaks a cell's 0-100 score down into the same shape
+`TdsHit::explain`/`CoupletHit::explain` already return — reusing their `Reason` type rather than a
+third copy of it — with a `lines()` method for a plain-text breakdown. `severity` itself is now
+just `severity_explain(..).score`, so the two can't drift apart, and `score_all_explained` joins a
+whole cell list at once, with `score_all` built on top of it the same way. The storm-cells table's
+detail panel shows it on hover over the severity score, naming exactly which of probability,
+rotation, hail and the radar's own TVS/MESO flag pushed the number where it landed.
+
 ### Fixed: the backtest scored every archived event against tornado reports from the whole country
 
 `wxdata::lsr::fetch`'s window is a national feed, not a local one: an outbreak-day backtest pulled

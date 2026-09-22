@@ -37,28 +37,92 @@ fn km(a_lon: f64, a_lat: f64, b_lon: f64, b_lat: f64) -> f64 {
 /// `prob_pct` is ProbSevere's dominant probability and `vrot_ms` the rotational velocity of the
 /// couplet claimed by this cell; both `None` when nothing covers the storm.
 pub fn severity(cell: &Cell, prob_pct: Option<u8>, vrot_ms: Option<f32>) -> u8 {
+    severity_explain(cell, prob_pct, vrot_ms).score
+}
+
+/// Why a cell scored what it did; see [`severity_explain`].
+///
+/// Same shape as [`crate::tds::TdsHit::explain`] and [`crate::rotation::CoupletHit::explain`],
+/// reusing their [`crate::tds::Reason`] type — `reasons` only lists the components actually
+/// present, and unlike those two modules' fixed four terms, cellscore's weights do not
+/// necessarily sum to 1 across `reasons`: they are renormalized over whichever subset is present
+/// (see `severity`'s own doc comment on that), so a cell with only one component present still
+/// reads that component's raw weighted share correctly relative to `base`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SeverityExplanation {
+    pub reasons: Vec<crate::tds::Reason>,
+    /// 0..100 reflectivity ramp — weak evidence on its own, so it rides alongside the hazard
+    /// blend at a fixed small share rather than joining `reasons`' renormalized one.
+    pub dbz: f32,
+    /// The weighted hazard blend and the reflectivity share combined, before the algorithm-flag
+    /// bump.
+    pub base: f32,
+    /// What the radar's own TVS/MESO flag added on top, 0 if neither fired.
+    pub bump: f32,
+    pub score: u8,
+}
+
+/// Break a cell's score down into the evidence behind it, built with the same weights and
+/// thresholds [`severity`] scores with so it cannot drift from the number on the table.
+pub fn severity_explain(
+    cell: &Cell,
+    prob_pct: Option<u8>,
+    vrot_ms: Option<f32>,
+) -> SeverityExplanation {
     // Weights: the probability is the most informative single input, rotation and hail split the
     // rest. Thresholds are the operational ones — 10 m/s of Vrot is noise, 40 is a strong
     // mesocyclone; half-inch hail is the severe criterion, three inches is a destructive day.
     // POSH — the radar's own probability of severe hail — stands in for ProbSevere where the feed
     // has no storm object over the cell, which is most of the time: the layer is off by default.
     // It is weaker evidence than a machine-learning severe probability, so it carries less weight.
-    let parts = [
-        (0.4, prob_pct.map(|p| p as f32)),
-        (0.3, vrot_ms.map(|v| ramp(v, 10.0, 40.0))),
-        (0.3, cell.hail_in.map(|h| ramp(h, 0.5, 3.0))),
+    // Detail strings carry the raw measurement (%, kt, inches), not the 0..100 ramp `score`
+    // scores on.
+    let parts: [(&'static str, f32, Option<f32>, String); 4] = [
         (
+            "Probability",
+            0.4,
+            prob_pct.map(|p| p as f32),
+            format!("{:.0}% ProbSevere", prob_pct.unwrap_or(0)),
+        ),
+        (
+            "Rotation",
+            0.3,
+            vrot_ms.map(|v| ramp(v, 10.0, 40.0)),
+            format!(
+                "{:.0} kt couplet claimed by this cell",
+                vrot_ms.unwrap_or(0.0) * 1.943_844
+            ),
+        ),
+        (
+            "Hail",
+            0.3,
+            cell.hail_in.map(|h| ramp(h, 0.5, 3.0)),
+            format!("{:.1} in MESH estimate", cell.hail_in.unwrap_or(0.0)),
+        ),
+        (
+            "POSH",
             0.2,
             prob_pct
                 .is_none()
                 .then(|| cell.posh.map(|p| p as f32))
                 .flatten(),
+            format!("{:.0}% (no ProbSevere object here)", cell.posh.unwrap_or(0)),
         ),
     ];
-    let (sum, weight) = parts
-        .iter()
-        .filter_map(|&(w, v)| v.map(|v| (w * v, w)))
-        .fold((0.0, 0.0), |(s, w), (a, b)| (s + a, w + b));
+    let reasons: Vec<crate::tds::Reason> = parts
+        .into_iter()
+        .filter_map(|(label, weight, v, detail)| {
+            v.map(|v| crate::tds::Reason {
+                label,
+                detail,
+                score: (v / 100.0).clamp(0.0, 1.0),
+                weight,
+            })
+        })
+        .collect();
+    let (sum, weight) = reasons.iter().fold((0.0, 0.0), |(s, w), r| {
+        (s + r.score * 100.0 * r.weight, w + r.weight)
+    });
     // Reflectivity is the one field every cell has, and it is the weakest evidence of all: a
     // bright echo is a storm, not a threat. So it rides alongside the hazard blend at a fixed
     // small share rather than being renormalized with it — otherwise a cell with nothing but
@@ -80,13 +144,62 @@ pub fn severity(cell: &Cell, prob_pct: Option<u8>, vrot_ms: Option<f32>) -> u8 {
     } else {
         0.0
     };
-    (base + bump).clamp(0.0, 100.0).round() as u8
+    let score = (base + bump).clamp(0.0, 100.0).round() as u8;
+    SeverityExplanation {
+        reasons,
+        dbz,
+        base,
+        bump,
+        score,
+    }
+}
+
+impl SeverityExplanation {
+    /// The breakdown as plain lines for a tooltip or export, same style as
+    /// [`crate::tds::Explanation::lines`] and [`crate::rotation::Explanation::lines`].
+    pub fn lines(&self) -> Vec<String> {
+        let mut out = vec![format!("Severity {}", self.score)];
+        for r in &self.reasons {
+            out.push(format!(
+                "{:<11} {:>3.0}% x {:.0}%   {}",
+                r.label,
+                r.score * 100.0,
+                r.weight * 100.0,
+                r.detail
+            ));
+        }
+        out.push(format!(
+            "Reflectivity {:.0}%   weakest evidence, fixed 15% share",
+            self.dbz
+        ));
+        if self.bump > 0.0 {
+            out.push(format!(
+                "Flag      +{:.0}   radar-flagged {}",
+                self.bump,
+                if self.bump >= 15.0 { "TVS" } else { "MESO" }
+            ));
+        }
+        out
+    }
 }
 
 /// Score every cell, claiming the ProbSevere polygon it sits inside and the nearest couplet.
 ///
 /// Kept here rather than at the call site so the join is testable and the app wiring is one line.
 pub fn score_all(cells: &[Cell], probsevere: &[GeoFeature], couplets: &[CoupletHit]) -> Vec<u8> {
+    score_all_explained(cells, probsevere, couplets)
+        .into_iter()
+        .map(|e| e.score)
+        .collect()
+}
+
+/// [`score_all`], with the full [`SeverityExplanation`] behind each cell's score rather than just
+/// the number — the join a hover or detail panel wants, one call rather than one per cell.
+pub fn score_all_explained(
+    cells: &[Cell],
+    probsevere: &[GeoFeature],
+    couplets: &[CoupletHit],
+) -> Vec<SeverityExplanation> {
     cells
         .iter()
         .map(|c| {
@@ -96,7 +209,7 @@ pub fn score_all(cells: &[Cell], probsevere: &[GeoFeature], couplets: &[CoupletH
                 .filter(|h| km(h.lon, h.lat, c.lon, c.lat) <= CLAIM_KM)
                 .map(|h| h.vrot_ms)
                 .fold(None::<f32>, |m, v| Some(m.map_or(v, |m| m.max(v))));
-            severity(c, prob, vrot)
+            severity_explain(c, prob, vrot)
         })
         .collect()
 }
@@ -147,6 +260,58 @@ mod tests {
         let mut tvs = cell(-97.5, 35.0);
         tvs.tvs = Some("TVS".into());
         assert_eq!(severity(&tvs, None, None), plain + 15);
+    }
+
+    #[test]
+    fn the_explanation_reproduces_the_score_it_explains() {
+        let mut c = cell(-97.5, 35.0);
+        c.hail_in = Some(1.5);
+        c.posh = Some(40);
+        c.tvs = Some("TVS".into());
+        let e = severity_explain(&c, Some(72), Some(25.0));
+        assert_eq!(e.score, severity(&c, Some(72), Some(25.0)));
+        // Present with ProbSevere: Probability, Rotation, Hail all present; POSH dropped since
+        // it only stands in when there is no ProbSevere object.
+        let labels: Vec<&str> = e.reasons.iter().map(|r| r.label).collect();
+        assert_eq!(labels, vec!["Probability", "Rotation", "Hail"]);
+        assert_eq!(e.bump, 15.0, "TVS flagged");
+        let rebuilt = (0.85
+            * (e.reasons
+                .iter()
+                .map(|r| r.score * 100.0 * r.weight)
+                .sum::<f32>()
+                / e.reasons.iter().map(|r| r.weight).sum::<f32>())
+            + 0.15 * e.dbz
+            + e.bump)
+            .clamp(0.0, 100.0)
+            .round() as u8;
+        assert_eq!(rebuilt, e.score);
+        let text = e.lines().join("\n");
+        for want in ["Probability", "Rotation", "Hail", "Reflectivity", "TVS"] {
+            assert!(text.contains(want), "missing {want}: {text}");
+        }
+    }
+
+    #[test]
+    fn posh_only_shows_up_in_the_explanation_when_probsevere_is_absent() {
+        let mut c = cell(-97.5, 35.0);
+        c.posh = Some(60);
+        // With ProbSevere present, POSH is dropped from the reasons entirely.
+        let with_prob = severity_explain(&c, Some(50), None);
+        assert!(!with_prob.reasons.iter().any(|r| r.label == "POSH"));
+        // Without it, POSH stands in.
+        let without_prob = severity_explain(&c, None, None);
+        assert!(without_prob.reasons.iter().any(|r| r.label == "POSH"));
+    }
+
+    #[test]
+    fn a_bare_cell_explains_as_reflectivity_alone_with_no_bump() {
+        let c = cell(-97.5, 35.0);
+        let e = severity_explain(&c, None, None);
+        assert!(e.reasons.is_empty(), "nothing but reflectivity is known");
+        assert_eq!(e.bump, 0.0);
+        assert_eq!(e.score, severity(&c, None, None));
+        assert!(!e.lines().join("\n").contains("Flag"));
     }
 
     #[test]

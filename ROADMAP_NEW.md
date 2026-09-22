@@ -1686,11 +1686,17 @@ with its own sense and debris-gain stages. Both detectors score low-level rootin
 `tds-4` and `rot-5`. Corroboration is symmetric and feedback-loop-safe
 (`tds::cross_corroborate`, used by every live and headless call site) — a debris signature and a
 nearby couplet each raise the other's confidence, both always read from the other side's
-pre-corroboration evidence. Cells and the other detectors, a stored score timeline, and
-DAT/warning truth sets are still open. The SPC-report backtest exists (`--headless-backtest`,
-`--headless-backtest-file`, `wxdata::detverify`), and now backtests by range too
-(`wxdata::detverify::score_in_range`, the "by range" line under each detector's table) — the tool
-that answered the next item.
+pre-corroboration evidence. The SPC-report backtest exists (`--headless-backtest`,
+`--headless-backtest-file`, `wxdata::detverify`), backtests by range too
+(`wxdata::detverify::score_in_range`, the "by range" line under each detector's table — the tool
+that answered the range-normalised-shear item), and now names the specific reports a detector
+missed (`wxdata::detverify::unmatched`, the "by event, reports missed" line), scoped to each
+event's own radar rather than the whole country's tornado reports for that UTC window (a real bug
+this pass found and fixed — POD/CSI had been understated for every backtest run so far). Cell
+scoring (`wxdata::cellscore`) now has the same `severity`/`severity_explain` split and `Reason`-
+based breakdown as the two detectors, reusing `crate::tds::Reason` rather than a third copy of the
+same shape, shown on hover in the cells table's detail panel. A stored score timeline and
+DAT/warning truth sets are still open.
 
 **Range-normalised shear — done, in a narrower form than originally proposed.** Scored the raw (pre-
 confidence-filter) candidates from the 8 events in `docs/backtest-events.txt`, split at 60 km — the

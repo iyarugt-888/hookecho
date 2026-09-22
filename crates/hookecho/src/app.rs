@@ -23127,12 +23127,18 @@ impl eframe::App for HookEchoApp {
             Some((_, (hits, ..))) => hits,
             None => &[],
         };
-        let cell_scores = wxdata::cellscore::score_all(cells, &self.probsevere, couplets);
+        // One computation, two views: `.score` on each explanation is exactly what `score_all`
+        // itself returns, so the table's ranking and the detail panel's hover breakdown can never
+        // disagree with each other.
+        let cell_explanations =
+            wxdata::cellscore::score_all_explained(cells, &self.probsevere, couplets);
+        let cell_scores: Vec<u8> = cell_explanations.iter().map(|e| e.score).collect();
         if let Some(id) = ui::cells_window::show(
             &mut self.cells_window,
             ctx,
             cells,
             &cell_scores,
+            &cell_explanations,
             &zdr_cells,
             &self.cell_trends,
             crate::theme::accent(self.settings.theme),

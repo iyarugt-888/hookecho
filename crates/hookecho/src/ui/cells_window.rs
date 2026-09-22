@@ -133,6 +133,9 @@ pub fn show(
     cells: &[Cell],
     // Composite severity 0-100 per cell, parallel to `cells` (see [`wxdata::cellscore`]).
     scores: &[u8],
+    // The evidence behind each score, same order as `cells` and `scores` (`.score` on each entry
+    // equals the matching `scores` value) — for the detail panel's hover breakdown.
+    explanations: &[wxdata::cellscore::SeverityExplanation],
     // Cell ids with a ZDR column detected near them — an updraft the storm table cannot see on
     // its own, badged next to the rotation flags it already carries.
     zdr_cells: &std::collections::HashSet<String>,
@@ -257,12 +260,16 @@ pub fn show(
                             chosen = Some(c.id.clone());
                         }
                     });
-                    let score = cells
-                        .iter()
-                        .position(|x| x.id == c.id)
-                        .and_then(|i| scores.get(i));
+                    let idx = cells.iter().position(|x| x.id == c.id);
+                    let score = idx.and_then(|i| scores.get(i));
                     if let Some(score) = score {
-                        ui.weak(format!("Severity score {score}/100"));
+                        // Hover for the working, same "every term, its measurement, what each
+                        // stage added" pattern the TDS/rotation map markers use.
+                        let mut label = ui.weak(format!("Severity score {score}/100"));
+                        if let Some(e) = idx.and_then(|i| explanations.get(i)) {
+                            label = label.on_hover_text(e.lines().join("\n"));
+                        }
+                        let _ = label;
                     }
                     if zdr_cells.contains(&c.id) {
                         ui.label("ZDR column detected");
