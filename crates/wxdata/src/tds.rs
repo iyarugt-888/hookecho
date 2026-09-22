@@ -152,6 +152,20 @@ pub fn couplet_corroborates(range_km: f32, confidence: f32) -> bool {
     range_km <= ROTATION_MAX_RANGE_KM && confidence >= CORROBORATING_COUPLET_CONFIDENCE
 }
 
+/// A debris signature must itself score at least this (its own reading, before corroboration) to
+/// corroborate a rotation couplet. Mirrors [`CORROBORATING_COUPLET_CONFIDENCE`] from the other
+/// side: a marginal low-CC patch is not debris, so it should not be read as confirmation of
+/// anything.
+pub const CORROBORATING_DEBRIS_CONFIDENCE: f32 = 0.40;
+
+/// Whether a debris signature at `range_km` with `confidence` is credible enough to corroborate a
+/// rotation couplet: close enough to be resolved ([`ROTATION_MAX_RANGE_KM`], the same range past
+/// which neither a couplet nor a debris ball is well resolved) and confident enough in its own
+/// right. Mirrors [`couplet_corroborates`] from the other side.
+pub fn debris_corroborates(range_km: f32, confidence: f32) -> bool {
+    range_km <= ROTATION_MAX_RANGE_KM && confidence >= CORROBORATING_DEBRIS_CONFIDENCE
+}
+
 /// Rotation may only corroborate a hit that already stands on its own at this confidence. It is a
 /// second line of evidence for a credible detection, not a way to promote a marginal one.
 pub const ROTATION_MIN_CONFIDENCE: f32 = 0.5;
@@ -701,6 +715,37 @@ pub fn corroborate_with_rotation(hits: &mut [TdsHit], couplets: &[(f64, f64, f32
         }
     }
     hits.sort_by(|a, b| b.confidence.total_cmp(&a.confidence));
+}
+
+/// Corroborate debris signatures and rotation couplets from each other, safely.
+///
+/// [`corroborate_with_rotation`] raises a debris signature's confidence from a nearby couplet, and
+/// [`crate::rotation::corroborate_with_debris`] does the reverse. Calling both by hand risks a
+/// feedback loop: if a couplet already boosted by debris is then used to decide whether it, in
+/// turn, boosts that debris signature, the same evidence gets counted twice under two different
+/// names. This snapshots each side's own confidence *before* either function runs, so both
+/// directions always corroborate from raw, single-source evidence -- exactly what
+/// [`corroborate_with_rotation`] and [`crate::rotation::corroborate_with_debris`] each already
+/// assume of the slice the other side hands them.
+///
+/// Both `tds_hits` and `rot_hits` should be raw (uncorroborated from either direction) on the way
+/// in; corroboration cannot be re-run to layer on more of the same evidence. Both come back
+/// strongest first, per hit type.
+pub fn cross_corroborate(tds_hits: &mut [TdsHit], rot_hits: &mut [crate::rotation::CoupletHit]) {
+    // Every couplet and debris signature that clears the *other* function's own floor and range,
+    // read from confidence as it stood before either direction ran.
+    let raw_couplets: Vec<(f64, f64, f32)> = rot_hits
+        .iter()
+        .filter(|c| couplet_corroborates(c.range_km, c.confidence))
+        .map(|c| (c.lon, c.lat, c.vrot_ms))
+        .collect();
+    let raw_debris: Vec<(f64, f64, f32)> = tds_hits
+        .iter()
+        .filter(|h| debris_corroborates(h.range_km, h.confidence))
+        .map(|h| (h.lon, h.lat, h.confidence))
+        .collect();
+    corroborate_with_rotation(tds_hits, &raw_couplets);
+    crate::rotation::corroborate_with_debris(rot_hits, &raw_debris);
 }
 
 /// Ground distance in km between two lon/lat points, good over the few km hits are compared at.
@@ -1523,6 +1568,89 @@ mod tests {
             hits[0].lon, -97.5,
             "the corroborated hit now leads: {hits:?}"
         );
+    }
+
+    /// A couplet at `confidence`, positioned to be corroborated by `hit_at`'s default location.
+    fn couplet_at(lon: f64, lat: f64, confidence: f32) -> crate::rotation::CoupletHit {
+        crate::rotation::CoupletHit {
+            lon,
+            lat,
+            vrot_ms: 30.0,
+            g2g_ms: 60.0,
+            range_km: 30.0,
+            gates: 10,
+            tilts: 1,
+            top_km: 0.5,
+            base_km: 0.5,
+            rooted: None,
+            sense: crate::rotation::Sense::Cyclonic,
+            debris_confidence: None,
+            confidence,
+            confirmation: crate::confirm::Confirmation::NONE,
+        }
+    }
+
+    #[test]
+    fn cross_corroborate_raises_both_sides_from_their_own_raw_evidence() {
+        let mut debris = [hit_at(-97.5, 35.3, 0.60)];
+        let mut couplets = [couplet_at(-97.478, 35.3, 0.55)]; // ~2 km east, both credible alone
+        cross_corroborate(&mut debris, &mut couplets);
+        assert_eq!(debris[0].rotation_ms, Some(30.0));
+        assert!(
+            debris[0].confidence > 0.60,
+            "debris should gain from the couplet: {}",
+            debris[0].confidence
+        );
+        assert_eq!(couplets[0].debris_confidence, Some(0.60));
+        assert!(
+            couplets[0].confidence > 0.55,
+            "the couplet should gain from the debris signature: {}",
+            couplets[0].confidence
+        );
+    }
+
+    /// The trap `cross_corroborate` exists to avoid: applying the two directions by hand, in
+    /// sequence, lets the first boost feed the second, counting the same evidence twice. Calling
+    /// them through `cross_corroborate` must not reproduce that — both directions have to read
+    /// off the *pre*-corroboration numbers.
+    #[test]
+    fn cross_corroborate_does_not_let_one_direction_feed_the_other() {
+        let (debris_conf, couplet_conf) = (0.60, 0.55);
+        let mut safe_debris = [hit_at(-97.5, 35.3, debris_conf)];
+        let mut safe_couplets = [couplet_at(-97.478, 35.3, couplet_conf)];
+        cross_corroborate(&mut safe_debris, &mut safe_couplets);
+
+        // The naive, unsafe sequence: corroborate debris from the couplet's raw confidence (fine,
+        // that's the same as above), but then corroborate the couplet from debris's *already
+        // boosted* confidence rather than its raw one.
+        let mut fed_debris = [hit_at(-97.5, 35.3, debris_conf)];
+        let mut fed_couplets = [couplet_at(-97.478, 35.3, couplet_conf)];
+        corroborate_with_rotation(&mut fed_debris, &[(-97.478, 35.3, 30.0)]);
+        crate::rotation::corroborate_with_debris(
+            &mut fed_couplets,
+            &[(-97.5, 35.3, fed_debris[0].confidence)], // <- the bug: reads the boosted value
+        );
+
+        assert!(
+            fed_couplets[0].confidence > safe_couplets[0].confidence,
+            "the unsafe sequence double-counts: fed {} vs safe {}",
+            fed_couplets[0].confidence,
+            safe_couplets[0].confidence
+        );
+        // The safe path used the couplet's raw debris reading, not the boosted one.
+        assert_eq!(safe_couplets[0].debris_confidence, Some(debris_conf));
+    }
+
+    #[test]
+    fn cross_corroborate_of_nothing_touches_nothing() {
+        let mut debris: [TdsHit; 0] = [];
+        let mut couplets: [crate::rotation::CoupletHit; 0] = [];
+        cross_corroborate(&mut debris, &mut couplets);
+        let mut debris_only = [hit_at(-97.5, 35.3, 0.6)];
+        let mut no_couplets: [crate::rotation::CoupletHit; 0] = [];
+        cross_corroborate(&mut debris_only, &mut no_couplets);
+        assert_eq!(debris_only[0].confidence, 0.6);
+        assert_eq!(debris_only[0].rotation_ms, None);
     }
 
     #[test]

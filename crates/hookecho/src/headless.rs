@@ -799,13 +799,10 @@ pub fn run_tds_archive(site: &str, date: &str, hhmm: &str) -> anyhow::Result<()>
     println!("{} tilt(s) with reflectivity and CC", pairs.len());
     let mut hits = wxdata::tds::detect_volume(&pairs, 0.80, 40.0, 150.0, 4);
     wxdata::tds::apply_zdr(&mut hits, &zdr_sweeps);
-    let couplets = wxdata::rotation::detect_volume(&vel_pairs, 25.0, 20.0, 15.0, 150.0, 3);
-    let rotation: Vec<_> = couplets
-        .iter()
-        .filter(|c| wxdata::tds::couplet_corroborates(c.range_km, c.confidence))
-        .map(|c| (c.lon, c.lat, c.vrot_ms))
-        .collect();
-    wxdata::tds::corroborate_with_rotation(&mut hits, &rotation);
+    let mut couplets = wxdata::rotation::detect_volume(&vel_pairs, 25.0, 20.0, 15.0, 150.0, 3);
+    // Corroborate both ways at once, each from the other's pre-corroboration confidence, so a
+    // couplet boosted by debris cannot then be used to boost that same debris signature back.
+    wxdata::tds::cross_corroborate(&mut hits, &mut couplets);
     let mut by_conf = couplets.clone();
     by_conf.sort_by(|a, b| b.confidence.total_cmp(&a.confidence));
     for c in by_conf.iter().take(6) {
@@ -4695,13 +4692,12 @@ fn backtest_event(
             }
             let mut hits = wxdata::tds::detect_volume(&pairs, 0.80, 40.0, 150.0, 4);
             wxdata::tds::apply_zdr(&mut hits, &zdr_sweeps);
-            let couplets = wxdata::rotation::detect_volume(&vel_pairs, 25.0, 20.0, 15.0, 150.0, 3);
-            let corroborating: Vec<_> = couplets
-                .iter()
-                .filter(|c| wxdata::tds::couplet_corroborates(c.range_km, c.confidence))
-                .map(|c| (c.lon, c.lat, c.vrot_ms))
-                .collect();
-            wxdata::tds::corroborate_with_rotation(&mut hits, &corroborating);
+            let mut couplets =
+                wxdata::rotation::detect_volume(&vel_pairs, 25.0, 20.0, 15.0, 150.0, 3);
+            // Corroborate both ways at once, each from the other's pre-corroboration confidence,
+            // so the backtest scores what a debris ball beside a couplet is actually worth without
+            // either side's boost feeding the other's back in.
+            wxdata::tds::cross_corroborate(&mut hits, &mut couplets);
             let minute = minute_of(t);
             tds.extend(hits.iter().map(|h| Detection {
                 lon: h.lon,

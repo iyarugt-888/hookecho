@@ -42,6 +42,28 @@ between them instead of written twice.
 
 Scoring versions are `rot-3` and `tds-4`.
 
+### Improved: debris and rotation now corroborate each other both ways
+
+A debris signature beside a couplet already raised the debris score (`tds::corroborate_with_rotation`);
+a couplet beside a debris signature gained nothing back, though debris on the ground -- an actual
+physical object, not just more radar-measured shear -- is the strongest single piece of evidence a
+couplet can have. `rotation::corroborate_with_debris` adds the missing direction, and
+`tds::cross_corroborate` runs both safely: it snapshots each side's own confidence *before* either
+function runs, so a couplet already boosted by debris can never be read back to boost that same
+debris signature, which would count the same evidence twice under two different names. The three call
+sites that used to corroborate by hand (`--headless-tds-archive`, `--headless-backtest`, and the live
+TDS/rotation layers) now go through it.
+
+In the app this meant the TDS and rotation caches had to stop holding corroborated hits, since a
+cache that already includes the other detector's boost would feed that boost back into the next
+corroboration pass. Both now cache raw (single-source) hits, and cross-corroboration runs fresh from
+them on the way out of `compute_tds` and `compute_couplets` -- cheap, since it is O(hits × candidates)
+over a handful of each. The rising-edge chime and banner (which need the corroborated confidence, not
+the raw one) moved with it, from `compute_tds_uncached`/`compute_couplets_uncached` into the two
+now-corroborating callers; the two `_uncached` functions are just the per-tilt gate scan now.
+
+Scoring version `rot-4`.
+
 ### Fixed: the dock search hid its own matches, and multi-day backtest wiring
 
 The dock layers panel expands matching categories only the first time you search: after that a

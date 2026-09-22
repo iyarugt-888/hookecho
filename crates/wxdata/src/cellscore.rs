@@ -183,6 +183,7 @@ mod tests {
             base_km: 0.5,
             rooted: None,
             sense: crate::rotation::Sense::Cyclonic,
+            debris_confidence: None,
             confidence: 0.5,
             confirmation: crate::confirm::Confirmation::NONE,
         }];

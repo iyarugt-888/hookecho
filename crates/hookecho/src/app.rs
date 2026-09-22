@@ -3238,13 +3238,22 @@ pub struct HookEchoApp {
         ((usize, String, usize), usize, u8, Option<(u32, u32)>, u64),
         Vec<(f64, f64, egui::Color32)>,
     )>,
+    /// Raw debris signatures — before either direction of `wxdata::tds::cross_corroborate` runs —
+    /// so the couplet layer reading this to corroborate its own couplets never sees a confidence
+    /// that couplets themselves already raised. See `compute_tds`.
     tds_cache: Option<((usize, String, usize), Vec<wxdata::tds::TdsHit>)>,
     /// Same shape as `tds_cache`, for the hail-spike detector.
     tbss_cache: Option<(TunedKey, Vec<wxdata::dualpol::TbssHit>)>,
     /// ZDR columns, plus the bright band read off the same volume's CC — both cost a full pass
     /// over every tilt, so they share one cache and are computed together.
     zdr_cache: Option<ZdrCache>,
-    couplet_cache: Option<((usize, String, usize), Vec<wxdata::rotation::CoupletHit>)>,
+    /// Raw couplets, the radar position and the tilt count scanned — same "raw" guarantee as
+    /// `tds_cache`, from the other side. See `compute_couplets`.
+    #[allow(clippy::type_complexity)]
+    couplet_cache: Option<(
+        (usize, String, usize),
+        (Vec<wxdata::rotation::CoupletHit>, (f32, f32), usize),
+    )>,
     /// Cells found per decoded volume, so a track built over a dozen frames flood-fills each
     /// sweep once rather than once a frame.
     celltrack_cache: LruCache<String, Vec<wxdata::celltrack::Blob>>,
@@ -8900,128 +8909,22 @@ impl HookEchoApp {
     }
 
     /// Auto TDS detection for the active pane's lowest tilt: bin reflectivity + CC and flag debris
-    /// signatures (low CC in high Z). Fires a chime + banner on the rising edge of a new detection.
+    /// signatures (low CC in high Z), then cross-corroborate with rotation. Fires a chime + banner
+    /// on the rising edge of a new detection.
     fn compute_tds(&mut self, idx: usize) -> Vec<wxdata::tds::TdsHit> {
-        let key = self.volume_key(idx);
-        let cached = self
-            .tds_cache
-            .as_ref()
-            .filter(|(k, _)| *k == key)
-            .map(|(_, v)| v.clone());
-        let all = match cached {
-            Some(all) => all,
-            None => {
-                let all = self.compute_tds_uncached(idx);
-                self.tds_cache = Some((key, all.clone()));
-                all
-            }
-        };
-        // The cache holds everything the detector found; the user's confidence threshold is applied
-        // on the way out, so lowering it shows the hidden hits at once instead of at the next scan.
-        let min = self.settings.detectors.tds_min_confidence;
-        let evidence = self.confirm_evidence(idx);
-        let minute = self.volume_minute(idx);
-        let mut shown: Vec<_> = all
-            .into_iter()
-            .map(|mut h| {
-                h.confirmation = wxdata::confirm::confirm(h.lon, h.lat, minute, &evidence);
-                h
-            })
-            // Human confirmation outranks the radar score, so the slider never hides it.
-            .filter(|h| h.confidence >= min || h.confirmation.level().is_some())
-            .collect();
-        shown.sort_by_key(|h| std::cmp::Reverse(h.confirmation.level()));
-        // Whatever the detector makes of a bad sweep, the map is never buried under markers: the
-        // strongest and the confirmed are kept.
-        shown.truncate(MAX_COUPLET_MARKERS);
-        shown
-    }
+        let mut hits = self.tds_raw(idx);
+        // Cross-corroborate from each side's own raw evidence: a debris signature beside a
+        // couplet, and (symmetrically) a couplet beside a debris signature. `couplets_quiet`
+        // reads the rotation cache without chiming — a TDS layer must not sound the rotation
+        // alarm for rotation the user never asked about, only use it to corroborate its own hits.
+        // `rot` itself is discarded once corroborated: what it gained here is not this cache's to
+        // keep, or the couplet layer would see an already-boosted couplet and double-count it.
+        let mut rot = self.couplets_quiet(idx);
+        wxdata::tds::cross_corroborate(&mut hits, &mut rot);
 
-    /// The tornado reports and tornado warnings a detection can be confirmed by right now: the live
-    /// ones, or the archived ones while the playhead is off live. See [`wxdata::confirm`].
-    fn confirm_evidence(&self, idx: usize) -> wxdata::confirm::Evidence {
-        use wxdata::confirm::{is_observed, report_minute, TornadoReport, TornadoWarning};
-        let minute = self.volume_minute(idx);
-        let warnings = self
-            .active_alert_features()
-            .iter()
-            .filter_map(|f| {
-                let a = f.alert.as_ref()?;
-                if !a.event.eq_ignore_ascii_case("Tornado Warning") {
-                    return None;
-                }
-                Some(TornadoWarning {
-                    rings: f.rings.clone(),
-                    observed: is_observed(
-                        a.tornado_detection.as_deref(),
-                        wxdata::alerts::escalation(a) >= 3,
-                    ),
-                })
-            })
-            .collect();
-        let reports = self
-            .active_storm_reports()
-            .iter()
-            .filter(|r| r.kind == wxdata::spc::ReportKind::Tornado)
-            .filter_map(|r| {
-                Some(TornadoReport {
-                    lon: r.lon,
-                    lat: r.lat,
-                    minute: report_minute(&r.time, minute)?,
-                })
-            })
-            .collect();
-        wxdata::confirm::Evidence { reports, warnings }
-    }
-
-    /// Minutes since the Unix epoch of the pane's displayed volume, the moment its detections are
-    /// about. Zero with no volume, when there are no detections to place anyway.
-    fn volume_minute(&self, idx: usize) -> i64 {
-        self.views[idx]
-            .volume
-            .as_ref()
-            .map_or(0, |v| v.time.timestamp().div_euclid(60))
-    }
-
-    fn compute_tds_uncached(&mut self, idx: usize) -> Vec<wxdata::tds::TdsHit> {
-        // The lowest few tilts, not just the lowest one: a debris ball that repeats up through
-        // them is real vertical evidence a single tilt cannot offer at all (see
-        // `tds::detect_volume`). Capped at 4 tilts' worth of gate scanning rather than the whole
-        // volume — this only runs once per new volume (cached on `volume_key`), but there is no
-        // reason to pay for tilts high enough that lofted-debris relevance has already dropped off.
-        const TILTS: usize = 4;
-        let Some(vol) = self.views[idx].volume.as_mut() else {
-            return Vec::new();
-        };
-        let z_tilts = vol.moment_tilts(Moment::Reflectivity);
-        let cc_tilts = vol.moment_tilts(Moment::CorrelationCoefficient);
-        // Differential reflectivity separates debris (near 0 dB) from the rain and large drops
-        // that also lower CC; absent on a volume without it, which is then simply not discounted.
-        let zdr_tilts = vol.moment_tilts(Moment::DifferentialReflectivity);
-        let pairs: Vec<_> = z_tilts.into_iter().zip(cc_tilts).take(TILTS).collect();
-        if pairs.is_empty() {
-            return Vec::new(); // no dual-pol CC on this volume (legacy pre-dual-pol, or TDWR)
-        }
-        let mut hits = wxdata::tds::detect_volume(&pairs, 0.80, 40.0, 150.0, 4);
-        wxdata::tds::apply_zdr(&mut hits, &zdr_tilts);
-        // Rotation beside a debris signature is the strongest single corroboration there is, and
-        // it is read quietly: a TDS layer must not chime for rotation the user never asked about.
-        let rotation: Vec<(f64, f64, f32)> = self
-            .couplets_quiet(idx)
-            .iter()
-            .filter(|c| wxdata::tds::couplet_corroborates(c.range_km, c.confidence))
-            .map(|c| (c.lon, c.lat, c.vrot_ms))
-            .collect();
-        wxdata::tds::corroborate_with_rotation(&mut hits, &rotation);
-        let site = self.views[idx].site.as_deref().unwrap_or("?");
-        log::debug!(
-            target: "wxdata::tds",
-            "{site}: {} tilt(s) scanned, {} debris signature(s)",
-            pairs.len(),
-            hits.len(),
-        );
-        // Rising-edge alert, on the hits that clear the user's confidence threshold. A threshold
-        // set to quiet doubtful detections must quiet their chime and banner too.
+        let site = self.views[idx].site.clone().unwrap_or_default();
+        // Rising-edge alert, on the corroborated hits that clear the user's confidence threshold.
+        // A threshold set to quiet doubtful detections must quiet their chime and banner too.
         let min_confidence = self.settings.detectors.tds_min_confidence;
         let alertable: Vec<_> = hits
             .iter()
@@ -9077,28 +8980,219 @@ impl HookEchoApp {
             log::debug!(target: "wxdata::tds", "{site}: TDS cleared");
         }
         self.tds_active = now_active;
+
+        // The user's confidence threshold is applied on the way out (after corroboration, not
+        // baked into the cache), so lowering it shows the hidden hits at once instead of at the
+        // next scan.
+        let min = self.settings.detectors.tds_min_confidence;
+        let evidence = self.confirm_evidence(idx);
+        let minute = self.volume_minute(idx);
+        let mut shown: Vec<_> = hits
+            .into_iter()
+            .map(|mut h| {
+                h.confirmation = wxdata::confirm::confirm(h.lon, h.lat, minute, &evidence);
+                h
+            })
+            // Human confirmation outranks the radar score, so the slider never hides it.
+            .filter(|h| h.confidence >= min || h.confirmation.level().is_some())
+            .collect();
+        shown.sort_by_key(|h| std::cmp::Reverse(h.confirmation.level()));
+        // Whatever the detector makes of a bad sweep, the map is never buried under markers: the
+        // strongest and the confirmed are kept.
+        shown.truncate(MAX_COUPLET_MARKERS);
+        shown
+    }
+
+    /// This volume's debris signatures without side effects and never corroborated: the cached
+    /// raw hits if this volume has already been scanned, otherwise a fresh (expensive, per-tilt)
+    /// detection, cached before returning. Kept raw so the rotation layer reading this to
+    /// corroborate its own couplets never sees a confidence corroboration already raised — see
+    /// `compute_tds` and `wxdata::tds::cross_corroborate`.
+    fn tds_raw(&mut self, idx: usize) -> Vec<wxdata::tds::TdsHit> {
+        let key = self.volume_key(idx);
+        if let Some((k, v)) = &self.tds_cache {
+            if *k == key {
+                return v.clone();
+            }
+        }
+        let hits = self.compute_tds_uncached(idx);
+        self.tds_cache = Some((key, hits.clone()));
+        hits
+    }
+
+    /// Same as [`Self::tds_raw`] — the name a caller reads when it specifically wants raw hits
+    /// without side effects (i.e. it must not chime), mirroring [`Self::couplets_quiet`].
+    fn tds_quiet(&mut self, idx: usize) -> Vec<wxdata::tds::TdsHit> {
+        self.tds_raw(idx)
+    }
+
+    /// The tornado reports and tornado warnings a detection can be confirmed by right now: the live
+    /// ones, or the archived ones while the playhead is off live. See [`wxdata::confirm`].
+    fn confirm_evidence(&self, idx: usize) -> wxdata::confirm::Evidence {
+        use wxdata::confirm::{is_observed, report_minute, TornadoReport, TornadoWarning};
+        let minute = self.volume_minute(idx);
+        let warnings = self
+            .active_alert_features()
+            .iter()
+            .filter_map(|f| {
+                let a = f.alert.as_ref()?;
+                if !a.event.eq_ignore_ascii_case("Tornado Warning") {
+                    return None;
+                }
+                Some(TornadoWarning {
+                    rings: f.rings.clone(),
+                    observed: is_observed(
+                        a.tornado_detection.as_deref(),
+                        wxdata::alerts::escalation(a) >= 3,
+                    ),
+                })
+            })
+            .collect();
+        let reports = self
+            .active_storm_reports()
+            .iter()
+            .filter(|r| r.kind == wxdata::spc::ReportKind::Tornado)
+            .filter_map(|r| {
+                Some(TornadoReport {
+                    lon: r.lon,
+                    lat: r.lat,
+                    minute: report_minute(&r.time, minute)?,
+                })
+            })
+            .collect();
+        wxdata::confirm::Evidence { reports, warnings }
+    }
+
+    /// Minutes since the Unix epoch of the pane's displayed volume, the moment its detections are
+    /// about. Zero with no volume, when there are no detections to place anyway.
+    fn volume_minute(&self, idx: usize) -> i64 {
+        self.views[idx]
+            .volume
+            .as_ref()
+            .map_or(0, |v| v.time.timestamp().div_euclid(60))
+    }
+
+    /// The real (expensive) per-tilt gate scan behind [`Self::tds_raw`]: bin reflectivity + CC on
+    /// the lowest few tilts, flag debris signatures, and discount by ZDR. No corroboration and no
+    /// alerting — see [`Self::compute_tds`], which layers both on afterward.
+    fn compute_tds_uncached(&mut self, idx: usize) -> Vec<wxdata::tds::TdsHit> {
+        // The lowest few tilts, not just the lowest one: a debris ball that repeats up through
+        // them is real vertical evidence a single tilt cannot offer at all (see
+        // `tds::detect_volume`). Capped at 4 tilts' worth of gate scanning rather than the whole
+        // volume — this only runs once per new volume (cached on `volume_key`), but there is no
+        // reason to pay for tilts high enough that lofted-debris relevance has already dropped off.
+        const TILTS: usize = 4;
+        let Some(vol) = self.views[idx].volume.as_mut() else {
+            return Vec::new();
+        };
+        let z_tilts = vol.moment_tilts(Moment::Reflectivity);
+        let cc_tilts = vol.moment_tilts(Moment::CorrelationCoefficient);
+        // Differential reflectivity separates debris (near 0 dB) from the rain and large drops
+        // that also lower CC; absent on a volume without it, which is then simply not discounted.
+        let zdr_tilts = vol.moment_tilts(Moment::DifferentialReflectivity);
+        let pairs: Vec<_> = z_tilts.into_iter().zip(cc_tilts).take(TILTS).collect();
+        if pairs.is_empty() {
+            return Vec::new(); // no dual-pol CC on this volume (legacy pre-dual-pol, or TDWR)
+        }
+        let mut hits = wxdata::tds::detect_volume(&pairs, 0.80, 40.0, 150.0, 4);
+        wxdata::tds::apply_zdr(&mut hits, &zdr_tilts);
+        let site = self.views[idx].site.as_deref().unwrap_or("?");
+        log::debug!(
+            target: "wxdata::tds",
+            "{site}: {} tilt(s) scanned, {} debris signature(s)",
+            pairs.len(),
+            hits.len(),
+        );
         hits
     }
 
     /// Client-side rotation detection for the active pane's lowest tilt: bin the dealiased
-    /// velocity sweep and flag gate-to-gate couplets. Fires a chime + banner on the rising edge,
-    /// like the TDS detector (they're complementary: rotation aloft precedes debris at the ground).
+    /// velocity sweep and flag gate-to-gate couplets, then cross-corroborate with debris. Fires a
+    /// chime + banner on the rising edge, like the TDS detector (they're complementary: rotation
+    /// aloft precedes debris at the ground).
     fn compute_couplets(&mut self, idx: usize) -> Vec<wxdata::rotation::CoupletHit> {
-        let key = self.volume_key(idx);
-        // The cache holds every couplet found; the user's confidence threshold is applied on the
-        // way out, so lowering it shows the hidden ones at once instead of at the next scan.
+        let (mut hits, (radar_lon, radar_lat), scanned) = self.couplets_raw(idx);
+        // Cross-corroborate from each side's own raw evidence (see `compute_tds`'s matching
+        // comment). `tds_quiet` reads the debris cache without chiming — the rotation layer must
+        // not sound the TDS alarm for debris the user never asked about, only use it to
+        // corroborate its own couplets. `debris` itself is discarded once corroborated.
+        let mut debris = self.tds_quiet(idx);
+        wxdata::tds::cross_corroborate(&mut debris, &mut hits);
+
+        let site = self.views[idx].site.clone().unwrap_or_default();
+        log::debug!(
+            target: "wxdata::rotation",
+            "{site}: {} tilt(s) scanned, {} couplet(s)",
+            scanned,
+            hits.len(),
+        );
+
+        // Rising-edge alert, on the corroborated hits that clear the user's confidence threshold.
         let min = self.settings.detectors.rotation_min_confidence;
-        let all = match &self.couplet_cache {
-            Some((k, v)) if *k == key => v.clone(),
-            _ => {
-                let out = self.compute_couplets_uncached(idx);
-                self.couplet_cache = Some((key, out.clone()));
-                out
+        // Alerts see only what the user would see; the return value keeps everything.
+        let alertable: Vec<_> = hits
+            .iter()
+            .copied()
+            .filter(|h| h.confidence >= min)
+            .collect();
+        let now_active = !alertable.is_empty();
+        if now_active && !self.rot_active {
+            let h = alertable[0]; // sorted strongest-first (by confidence, now that height/depth count)
+            let kt = h.vrot_ms * 1.943_844;
+            let (km, bearing) =
+                crate::geo::great_circle([radar_lon as f64, radar_lat as f64], [h.lon, h.lat]);
+            let where_ = format!("{:.0} km {} of {site}", km, cardinal(bearing));
+            // The two things that change what the confidence means, and both belong in the alert
+            // rather than only in the hover: rotation turning the way tornadoes essentially never
+            // do, and rotation that never reaches the lowest tilt (a mid-level mesocyclone).
+            let mut caveats: Vec<&str> = Vec::new();
+            if h.sense == wxdata::rotation::Sense::Anticyclonic {
+                caveats.push("anticyclonic");
             }
-        };
+            if h.rooted == Some(false) {
+                caveats.push("aloft only");
+            }
+            let caveat = if caveats.is_empty() {
+                String::new()
+            } else {
+                format!(", {}", caveats.join(", "))
+            };
+            log::info!(
+                target: "wxdata::rotation",
+                "{site}: rotation detected — {kt:.0} kt, {where_}, {:.0}% confidence, {} tilt{}{caveat}",
+                h.confidence * 100.0,
+                h.tilts,
+                if h.tilts == 1 { "" } else { "s" },
+            );
+            self.banner(
+                "⟳ Rotation detected".to_string(),
+                format!(
+                    "{kt:.0} kt couplet — {where_} ({:.0}% confidence, {} tilt{}{caveat})",
+                    h.confidence * 100.0,
+                    h.tilts,
+                    if h.tilts == 1 { "" } else { "s" },
+                ),
+            );
+            self.notify_alert(
+                "⟳ Rotation couplet",
+                &format!("{kt:.0} kt rotational velocity — {where_}"),
+                true,
+            );
+            if self.settings.alert_sound {
+                self.play_alert_urgent(&self.settings.rotation_sound.clone());
+            }
+        } else if self.rot_active && !now_active {
+            log::debug!(target: "wxdata::rotation", "{site}: rotation cleared");
+        }
+        self.rot_active = now_active;
+        self.rotation_near_you(&alertable);
+
+        // The user's confidence threshold is applied on the way out (after corroboration, not
+        // baked into the cache), so lowering it shows the hidden ones at once instead of at the
+        // next scan.
         let evidence = self.confirm_evidence(idx);
         let minute = self.volume_minute(idx);
-        let mut shown: Vec<_> = all
+        let mut shown: Vec<_> = hits
             .into_iter()
             .map(|mut h| {
                 h.confirmation = wxdata::confirm::confirm(h.lon, h.lat, minute, &evidence);
@@ -9235,10 +9329,10 @@ impl HookEchoApp {
         tracks
     }
 
-    /// Detect rotation couplets in one volume, with no alerting. Returns the hits, the radar's
-    /// position, and how many tilts were scanned; `None` if there is no velocity data. Kept apart from
-    /// [`Self::compute_couplets_uncached`] so the TDS detector can read rotation without that
-    /// function's chime and banner firing for a layer the user never turned on.
+    /// The real (expensive) per-tilt gate scan behind [`Self::couplets_raw`]: bin the dealiased
+    /// velocity sweep and flag gate-to-gate couplets, with no corroboration and no alerting.
+    /// Returns the hits, the radar's position, and how many tilts were scanned; `None` if there
+    /// is no velocity data. See [`Self::compute_couplets`], which layers both on afterward.
     fn detect_couplets(
         &mut self,
         idx: usize,
@@ -9270,90 +9364,31 @@ impl HookEchoApp {
         Some((hits, (radar_lon, radar_lat), pairs.len()))
     }
 
-    /// This volume's couplets without side effects: the cached ones if the rotation layer already
-    /// computed them, otherwise a fresh quiet detection.
-    fn couplets_quiet(&mut self, idx: usize) -> Vec<wxdata::rotation::CoupletHit> {
+    /// Raw couplets for this volume plus the radar position and tilt count the alert banner and
+    /// log need: the cached ones if this volume has already been scanned, otherwise a fresh
+    /// (expensive, per-tilt) detection, cached before returning. Kept raw and never corroborated
+    /// by debris — see [`Self::compute_couplets`] and [`wxdata::tds::cross_corroborate`] — so the
+    /// TDS layer reading this to corroborate its own hits never sees a confidence debris itself
+    /// already raised.
+    fn couplets_raw(
+        &mut self,
+        idx: usize,
+    ) -> (Vec<wxdata::rotation::CoupletHit>, (f32, f32), usize) {
         let key = self.volume_key(idx);
         if let Some((k, v)) = &self.couplet_cache {
             if *k == key {
                 return v.clone();
             }
         }
-        self.detect_couplets(idx)
-            .map(|(hits, ..)| hits)
-            .unwrap_or_default()
+        let out = self.detect_couplets(idx).unwrap_or_default();
+        self.couplet_cache = Some((key, out.clone()));
+        out
     }
 
-    fn compute_couplets_uncached(&mut self, idx: usize) -> Vec<wxdata::rotation::CoupletHit> {
-        let Some((hits, (radar_lon, radar_lat), scanned)) = self.detect_couplets(idx) else {
-            return Vec::new();
-        };
-        let site = self.views[idx].site.clone().unwrap_or_default();
-        log::debug!(
-            target: "wxdata::rotation",
-            "{site}: {} tilt(s) scanned, {} couplet(s)",
-            scanned,
-            hits.len(),
-        );
-        let min = self.settings.detectors.rotation_min_confidence;
-        // Alerts see only what the user would see; the cache keeps everything.
-        let shown: Vec<_> = hits
-            .iter()
-            .copied()
-            .filter(|h| h.confidence >= min)
-            .collect();
-        let now_active = !shown.is_empty();
-        if now_active && !self.rot_active {
-            let h = shown[0]; // sorted strongest-first (by confidence, now that height/depth count)
-            let kt = h.vrot_ms * 1.943_844;
-            let (km, bearing) =
-                crate::geo::great_circle([radar_lon as f64, radar_lat as f64], [h.lon, h.lat]);
-            let where_ = format!("{:.0} km {} of {site}", km, cardinal(bearing));
-            // The two things that change what the confidence means, and both belong in the alert
-            // rather than only in the hover: rotation turning the way tornadoes essentially never
-            // do, and rotation that never reaches the lowest tilt (a mid-level mesocyclone).
-            let mut caveats: Vec<&str> = Vec::new();
-            if h.sense == wxdata::rotation::Sense::Anticyclonic {
-                caveats.push("anticyclonic");
-            }
-            if h.rooted == Some(false) {
-                caveats.push("aloft only");
-            }
-            let caveat = if caveats.is_empty() {
-                String::new()
-            } else {
-                format!(", {}", caveats.join(", "))
-            };
-            log::info!(
-                target: "wxdata::rotation",
-                "{site}: rotation detected — {kt:.0} kt, {where_}, {:.0}% confidence, {} tilt{}{caveat}",
-                h.confidence * 100.0,
-                h.tilts,
-                if h.tilts == 1 { "" } else { "s" },
-            );
-            self.banner(
-                "⟳ Rotation detected".to_string(),
-                format!(
-                    "{kt:.0} kt couplet — {where_} ({:.0}% confidence, {} tilt{}{caveat})",
-                    h.confidence * 100.0,
-                    h.tilts,
-                    if h.tilts == 1 { "" } else { "s" },
-                ),
-            );
-            self.notify_alert(
-                "⟳ Rotation couplet",
-                &format!("{kt:.0} kt rotational velocity — {where_}"),
-                true,
-            );
-            if self.settings.alert_sound {
-                self.play_alert_urgent(&self.settings.rotation_sound.clone());
-            }
-        } else if self.rot_active && !now_active {
-            log::debug!(target: "wxdata::rotation", "{site}: rotation cleared");
-        }
-        self.rot_active = now_active;
-        self.rotation_near_you(&shown);
-        hits
+    /// This volume's couplets without side effects (i.e. it must not chime): the cached raw hits
+    /// if the rotation layer already computed them, otherwise a fresh quiet detection.
+    fn couplets_quiet(&mut self, idx: usize) -> Vec<wxdata::rotation::CoupletHit> {
+        self.couplets_raw(idx).0
     }
 
     /// "There is rotation near a place you care about" — the detection above fires once for the
@@ -23086,9 +23121,10 @@ impl eframe::App for HookEchoApp {
         ) {
             self.settings.save();
         }
-        // One score per cell so the table can rank them; the join lives in wxdata.
+        // One score per cell so the table can rank them; the join lives in wxdata. Raw (pre-debris
+        // corroboration) couplets — the same cache `compute_couplets` reads, see its doc comment.
         let couplets: &[wxdata::rotation::CoupletHit] = match &self.couplet_cache {
-            Some((_, hits)) => hits,
+            Some((_, (hits, ..))) => hits,
             None => &[],
         };
         let cell_scores = wxdata::cellscore::score_all(cells, &self.probsevere, couplets);

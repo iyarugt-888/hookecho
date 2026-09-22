@@ -96,9 +96,14 @@ pub struct CoupletHit {
     pub rooted: Option<bool>,
     /// Which way the couplet turns. See [`Sense`] and [`sense_factor`].
     pub sense: Sense,
+    /// The strongest nearby debris signature's own confidence (before either side was
+    /// corroborated), once [`corroborate_with_debris`] has been run. `None` means no debris was
+    /// found near this couplet (or it was never checked); it is not evidence against it.
+    pub debris_confidence: Option<f32>,
     /// 0..1 confidence. `detect()`'s single-tilt read has no vertical evidence at all and caps out
     /// at 0.5 on rotational strength alone; [`detect_volume`] can go higher once a couplet repeats
-    /// up through the tilts.
+    /// up through the tilts. Debris nearby ([`corroborate_with_debris`]) can raise it further: a
+    /// separate line of evidence, not more of the same.
     pub confidence: f32,
     /// What people and forecasters said about it: a tornado report near it, or an observed
     /// tornado warning over it. Separate from `confidence`, which is radar alone and stops at 100%;
@@ -107,7 +112,7 @@ pub struct CoupletHit {
 }
 
 /// Which revision of the scoring produced a hit; bump it when any weight or rule below changes.
-pub const ALGORITHM_VERSION: &str = "rot-3";
+pub const ALGORITHM_VERSION: &str = "rot-4";
 
 /// The most confidence a couplet can have from one tilt alone.
 pub const SINGLE_TILT_CAP: f32 = 0.5;
@@ -194,6 +199,76 @@ pub fn sense_factor(sense: Sense) -> f32 {
     }
 }
 
+/// The share of the remaining gap to 1 that a full-strength debris signature closes.
+///
+/// Larger than [`crate::tds::ROTATION_GAP_SHARE`] (rotation corroborating debris): debris is a
+/// physical object confirmed on the ground, where a couplet beside it is not just more
+/// radar-measured shear but confirmation from the thing the shear was supposed to be lofting. A
+/// couplet beside a debris ball is about as strong a case as this heuristic can make for a real
+/// tornado.
+const DEBRIS_GAP_SHARE: f32 = 0.45;
+
+/// A couplet may only be corroborated by debris once it already stands on its own at this
+/// confidence. Corroboration cannot rescue a marginal detection, only strengthen a credible one --
+/// the same rule [`crate::tds::ROTATION_MIN_CONFIDENCE`] applies from the other side.
+pub const DEBRIS_BOOST_MIN_CONFIDENCE: f32 = 0.4;
+
+/// How much a debris signature of `confidence` (its own, read before any corroboration) supports a
+/// nearby couplet, 0..1. Below [`crate::tds::CORROBORATING_DEBRIS_CONFIDENCE`] scores 0 -- a
+/// marginal low-CC patch is not debris -- and a well-formed debris ball (deep, contrasting,
+/// sizeable) at 80% scores 1.
+pub fn debris_term(confidence: f32) -> f32 {
+    let floor = crate::tds::CORROBORATING_DEBRIS_CONFIDENCE;
+    ((confidence - floor) / (0.80 - floor)).clamp(0.0, 1.0)
+}
+
+/// Raise the confidence of couplets that have a debris signature beside them, and record it on the
+/// hit. `debris` is `(lon, lat, confidence)`, where `confidence` is the debris hit's own reading
+/// from *before* [`crate::tds::corroborate_with_rotation`] ran on it -- the two directions must
+/// each work from the other side's pre-corroboration evidence, or they double-count the same
+/// signature by feeding each other's boost back in. [`crate::tds::cross_corroborate`] does this
+/// safely from raw hits on both sides; call this directly only when you can make the same
+/// guarantee yourself.
+///
+/// Mirrors [`crate::tds::corroborate_with_rotation`] exactly, from the other side: only couplets
+/// within [`crate::tds::ROTATION_MAX_RANGE_KM`] are considered (the same range past which neither
+/// a couplet nor a debris ball is well resolved), a couplet below
+/// [`DEBRIS_BOOST_MIN_CONFIDENCE`] is left alone, and `debris_confidence` is recorded only when
+/// the debris actually counted. The caller should pass only debris hits filtered with
+/// [`crate::tds::debris_corroborates`], mirroring how `corroborate_with_rotation`'s own callers
+/// filter couplets with [`crate::tds::couplet_corroborates`].
+///
+/// The absence of a debris signature changes nothing: many real tornadoes never loft debris the
+/// radar can see, and a couplet is often seen well before any debris appears (or on a tilt the TDS
+/// pass didn't scan). Hits come back strongest first.
+pub fn corroborate_with_debris(hits: &mut [CoupletHit], debris: &[(f64, f64, f32)]) {
+    for h in hits.iter_mut() {
+        h.debris_confidence = None;
+        if h.range_km > crate::tds::ROTATION_MAX_RANGE_KM
+            || h.confidence < DEBRIS_BOOST_MIN_CONFIDENCE
+        {
+            continue;
+        }
+        let strongest = debris
+            .iter()
+            .filter(|(lon, lat, _)| {
+                crate::tds::ground_km((h.lon, h.lat), (*lon, *lat))
+                    <= crate::tds::ROTATION_ASSOCIATE_KM
+            })
+            .map(|(_, _, c)| *c)
+            .filter(|c| c.is_finite())
+            .fold(None, |best: Option<f32>, c| {
+                Some(best.map_or(c, |b| b.max(c)))
+            });
+        h.debris_confidence = strongest;
+        if let Some(c) = strongest {
+            let gap = 1.0 - h.confidence;
+            h.confidence = (h.confidence + gap * DEBRIS_GAP_SHARE * debris_term(c)).clamp(0.0, 1.0);
+        }
+    }
+    hits.sort_by(|a, b| b.confidence.total_cmp(&a.confidence));
+}
+
 /// Evidence from one cluster's own measurements: strength (65%) and size (35%), faded by range.
 pub fn evidence(g2g_ms: f32, pairs_per_tilt: f32, range_km: f32) -> f32 {
     ((0.65 * strength_term(g2g_ms) + 0.35 * size_term(pairs_per_tilt)) * range_factor(range_km))
@@ -219,6 +294,10 @@ pub struct Explanation {
     pub vertical: f32,
     /// Which way it turns, and the factor that applied to the score.
     pub sense: (Sense, f32),
+    /// Evidence, vertical and sense factors combined: the confidence before debris.
+    pub base_confidence: f32,
+    /// What debris beside the couplet added, if it counted.
+    pub debris_gain: Option<f32>,
     pub confidence: f32,
 }
 
@@ -245,13 +324,22 @@ impl CoupletHit {
                 weight: 0.35,
             },
         ];
+        let evidence = evidence(self.g2g_ms, per_tilt, self.range_km);
+        let vertical = vertical_term(self.top_km, self.tilts, self.rooted);
+        let sense = (self.sense, sense_factor(self.sense));
+        let base_confidence = confidence(evidence, vertical) * sense.1;
+        let debris_gain = self
+            .debris_confidence
+            .map(|_| (self.confidence - base_confidence).max(0.0));
         Explanation {
             version: ALGORITHM_VERSION,
             reasons,
             range_factor: range_factor(self.range_km),
-            evidence: evidence(self.g2g_ms, per_tilt, self.range_km),
-            vertical: vertical_term(self.top_km, self.tilts, self.rooted),
-            sense: (self.sense, sense_factor(self.sense)),
+            evidence,
+            vertical,
+            sense,
+            base_confidence,
+            debris_gain,
             confidence: self.confidence,
         }
     }
@@ -309,6 +397,15 @@ impl Explanation {
             self.sense.1,
             self.sense.0.label()
         ));
+        match (hit.debris_confidence, self.debris_gain) {
+            (Some(c), Some(g)) => out.push(format!(
+                "Debris    +{:.0} points   {:.0}% debris signature within {:.0} km",
+                g * 100.0,
+                c * 100.0,
+                crate::tds::ROTATION_ASSOCIATE_KM
+            )),
+            _ => out.push("Debris    none counted (not evidence against it)".to_string()),
+        }
         out
     }
 }
@@ -537,6 +634,7 @@ pub fn detect(
                 base_km: height,
                 rooted: None,
                 sense,
+                debris_confidence: None,
                 confidence,
                 confirmation: crate::confirm::Confirmation::NONE,
             }
@@ -661,6 +759,7 @@ pub fn detect_volume(
                 base_km,
                 rooted,
                 sense,
+                debris_confidence: None,
                 confidence,
                 confirmation: crate::confirm::Confirmation::NONE,
             }
@@ -1167,6 +1266,7 @@ mod scoring_tests {
             base_km: top_km,
             rooted: None,
             sense,
+            debris_confidence: None,
             confidence: confidence(
                 evidence(g2g_ms, per_tilt, range_km),
                 vertical_term(top_km, tilts, None),
@@ -1281,5 +1381,91 @@ mod scoring_tests {
         assert_eq!(vertical_term(2.0, 3, None), anchored);
         // A single tilt has no vertical evidence to discount either way.
         assert_eq!(vertical_term(2.0, 1, Some(false)), 0.0);
+    }
+
+    #[test]
+    fn debris_beside_a_couplet_raises_its_confidence_and_is_recorded() {
+        let mut hits = [hit(36.0, 45, 30.0, 3, 2.0)]; // a credible, well-rooted couplet
+                                                      // A strong debris signature about 2 km east.
+        corroborate_with_debris(&mut hits, &[(-97.478, 35.3, 0.75)]);
+        assert_eq!(hits[0].debris_confidence, Some(0.75));
+        assert!(
+            hits[0].confidence > SINGLE_TILT_CAP,
+            "debris is separate evidence from the couplet's own single-tilt cap: {}",
+            hits[0].confidence
+        );
+    }
+
+    #[test]
+    fn debris_cannot_promote_a_marginal_couplet_or_reach_past_its_range() {
+        // Below the floor, debris is ignored: it corroborates, it does not rescue.
+        let mut weak = [hit(36.0, 45, 30.0, 3, 2.0)];
+        weak[0].confidence = DEBRIS_BOOST_MIN_CONFIDENCE - 0.05;
+        corroborate_with_debris(&mut weak, &[(-97.5, 35.3, 0.9)]);
+        assert_eq!(weak[0].debris_confidence, None);
+        assert_eq!(weak[0].confidence, DEBRIS_BOOST_MIN_CONFIDENCE - 0.05);
+        // Far from the radar, the couplet is left alone even with debris right on it.
+        let mut far = hit(36.0, 45, crate::tds::ROTATION_MAX_RANGE_KM + 10.0, 3, 2.0);
+        far.confidence = 0.7;
+        let mut far = [far];
+        corroborate_with_debris(&mut far, &[(-97.5, 35.3, 0.9)]);
+        assert_eq!(far[0].debris_confidence, None);
+        assert_eq!(far[0].confidence, 0.7);
+        // A stale value from an earlier pass is cleared, not left claiming debris that no longer
+        // counts.
+        let mut again = hit(36.0, 45, 30.0, 3, 2.0);
+        again.debris_confidence = Some(0.8);
+        let mut again = [again];
+        corroborate_with_debris(&mut again, &[]);
+        assert_eq!(again[0].debris_confidence, None);
+    }
+
+    #[test]
+    fn a_stronger_debris_signature_helps_more_and_a_marginal_one_helps_not_at_all() {
+        let conf = |c: f32| {
+            let mut h = [hit(36.0, 45, 30.0, 3, 2.0)];
+            h[0].confidence = 0.55;
+            corroborate_with_debris(&mut h, &[(-97.5, 35.3, c)]);
+            h[0].confidence
+        };
+        assert!(
+            (conf(crate::tds::CORROBORATING_DEBRIS_CONFIDENCE) - 0.55).abs() < 1e-6,
+            "a marginal low-CC patch is not corroboration"
+        );
+        assert!(conf(0.55) > conf(0.45));
+        assert!(conf(0.80) > conf(0.55));
+        // Saturates: nothing past 80% confidence adds more, and confidence never leaves 0..1.
+        assert!((conf(1.0) - conf(0.80)).abs() < 1e-6);
+        assert!(conf(1.0) <= 1.0);
+        assert_eq!(
+            debris_term(crate::tds::CORROBORATING_DEBRIS_CONFIDENCE),
+            0.0
+        );
+        assert_eq!(debris_term(0.80), 1.0);
+    }
+
+    #[test]
+    fn debris_far_away_or_absent_changes_nothing_and_is_not_held_against_the_couplet() {
+        let mut hits = [hit(36.0, 45, 30.0, 3, 2.0)];
+        hits[0].confidence = 0.6;
+        // 30 km away: a different storm's debris.
+        corroborate_with_debris(&mut hits, &[(-97.2, 35.3, 0.9)]);
+        assert_eq!(hits[0].debris_confidence, None);
+        assert_eq!(hits[0].confidence, 0.6);
+        corroborate_with_debris(&mut hits, &[]);
+        assert_eq!(hits[0].debris_confidence, None);
+        assert_eq!(hits[0].confidence, 0.6);
+    }
+
+    #[test]
+    fn debris_corroboration_shows_up_in_the_explanation() {
+        let mut hits = [hit(36.0, 45, 30.0, 3, 2.0)];
+        corroborate_with_debris(&mut hits, &[(-97.478, 35.3, 0.75)]);
+        let e = hits[0].explain();
+        assert_eq!(e.debris_gain, Some(e.confidence - e.base_confidence));
+        assert!(e.debris_gain.unwrap() > 0.0);
+        let text = e.lines(&hits[0]).join("\n");
+        assert!(text.contains("Debris"), "{text}");
+        assert!(text.contains("75%"), "{text}");
     }
 }
