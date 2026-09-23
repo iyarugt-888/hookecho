@@ -14845,7 +14845,9 @@ impl HookEchoApp {
                         ) {
                             ui.checkbox(&mut view.map_3d.smooth_full_range, "Full range")
                                 .on_hover_text(
-                                    "Off: the volume is cropped to the range holding 99% of \n                                     the echo, which keeps its cells small. On: everything the \n                                     radar reported, with coarser cells.",
+                                    "Off: the volume is cropped to the range holding 99% of \
+                                     the echo, which keeps its cells small. On: everything the \
+                                     radar reported, with coarser cells.",
                                 );
                             if let Some((cell_km, outside)) = smooth_info {
                                 let mut line = format!("{cell_km:.2} km cells");

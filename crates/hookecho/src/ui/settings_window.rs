@@ -1036,7 +1036,9 @@ fn general_tab(
             ui.vertical(|ui| {
                 ui.checkbox(&mut settings.hide_far_3d, "Hide far-away items")
                     .on_hover_text(
-                        "When the map is tilted, stop drawing storm reports, lightning, sites and \n                         other markers far out toward the horizon, where they pile up and float \n                         above the map. The radar and map themselves are always drawn.",
+                        "When the map is tilted, stop drawing storm reports, lightning, sites and \
+                         other markers far out toward the horizon, where they pile up and float \
+                         above the map. The radar and map themselves are always drawn.",
                     );
                 ui.add_enabled(
                     settings.hide_far_3d,
@@ -1045,7 +1047,8 @@ fn general_tab(
                         .custom_formatter(|v, _| format!("{v:.1}x")),
                 )
                 .on_hover_text(
-                    "How far past the centre of the map, as a multiple of the camera's distance \n                     to it. Lower hides more.",
+                    "How far past the centre of the map, as a multiple of the camera's distance \
+                     to it. Lower hides more.",
                 );
             });
             ui.end_row();

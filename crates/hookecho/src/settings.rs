@@ -731,13 +731,38 @@ pub struct DetectorTuning {
     /// How far back the flash-extent density grid counts, in minutes.
     pub glm_fed_window_min: i64,
     /// The least confidence (0..1) a debris signature needs to be drawn, to count for alert rules,
-    /// or to raise the TDS alert. Zero shows everything the detector finds.
-    #[serde(default)]
+    /// or to raise the TDS alert. Zero shows everything the detector finds. See
+    /// [`DEFAULT_TDS_MIN_CONFIDENCE`] for the default.
+    #[serde(default = "default_tds_min_confidence")]
     pub tds_min_confidence: f32,
     /// The same for rotation couplets: the least confidence (0..1) one needs to be drawn, to count
-    /// for alert rules, or to raise the rotation alert. Zero shows everything.
-    #[serde(default)]
+    /// for alert rules, or to raise the rotation alert. Zero shows everything. See
+    /// [`DEFAULT_ROTATION_MIN_CONFIDENCE`].
+    #[serde(default = "default_rotation_min_confidence")]
     pub rotation_min_confidence: f32,
+    /// Whether the one-time move off the old 0% floors has happened; see
+    /// [`Settings::adopt_detector_floors`]. A settings file from before it reads `false`.
+    #[serde(default)]
+    pub floors_adopted: bool,
+}
+
+/// The debris-signature floor a fresh install starts with. From the archived-event backtest
+/// (`--headless-backtest-file docs/backtest-events.txt`, `tds-6`): at 60% the detector found as
+/// many of the 37 tornado reports as at 50% (49%) with far fewer false alarms (FAR 51% against
+/// 70%); below 50% the extra reports come at FAR over 80%, above 60% a tornado starts to drop out.
+pub const DEFAULT_TDS_MIN_CONFIDENCE: f32 = 0.6;
+
+/// The rotation-couplet floor a fresh install starts with. Rotation comes before debris, so this
+/// one leans toward finding more: at 50% the backtest found 65% of the tornado reports (FAR 64%);
+/// at 60%, 53% (FAR 52%) — twelve points of detection is too much to give up for an early alarm.
+pub const DEFAULT_ROTATION_MIN_CONFIDENCE: f32 = 0.5;
+
+fn default_tds_min_confidence() -> f32 {
+    DEFAULT_TDS_MIN_CONFIDENCE
+}
+
+fn default_rotation_min_confidence() -> f32 {
+    DEFAULT_ROTATION_MIN_CONFIDENCE
 }
 
 impl Default for DetectorTuning {
@@ -748,8 +773,9 @@ impl Default for DetectorTuning {
             zdr_min_depth_km: 1.0,
             glm_fed_cell_deg: 0.05,
             glm_fed_window_min: 15,
-            tds_min_confidence: 0.0,
-            rotation_min_confidence: 0.0,
+            tds_min_confidence: DEFAULT_TDS_MIN_CONFIDENCE,
+            rotation_min_confidence: DEFAULT_ROTATION_MIN_CONFIDENCE,
+            floors_adopted: true,
         }
     }
 }
@@ -776,6 +802,30 @@ impl Settings {
         self.theme = theme;
         self.density = density;
         true
+    }
+
+    /// Move the detector floors off the old 0% default onto the backtested ones, once.
+    ///
+    /// Floors used to default to 0%, so every settings file saved since has an explicit 0 in it
+    /// that is almost never a choice. Each floor still at exactly 0 moves to its new default; one
+    /// set to anything else was picked on purpose and stays. Once only, so a floor put back to 0
+    /// afterwards stays at 0. Returns whether it changed anything.
+    pub fn adopt_detector_floors(&mut self) -> bool {
+        let d = &mut self.detectors;
+        if d.floors_adopted {
+            return false;
+        }
+        d.floors_adopted = true;
+        let mut changed = false;
+        if d.tds_min_confidence == 0.0 {
+            d.tds_min_confidence = DEFAULT_TDS_MIN_CONFIDENCE;
+            changed = true;
+        }
+        if d.rotation_min_confidence == 0.0 {
+            d.rotation_min_confidence = DEFAULT_ROTATION_MIN_CONFIDENCE;
+            changed = true;
+        }
+        changed
     }
 
     /// Timezone to render `site`'s timestamps in — `None` means "show Zulu", either because the
@@ -1711,6 +1761,7 @@ impl Settings {
             loaded.ui_scale = 1.0;
         }
         loaded.adopt_tablet_default(cfg!(target_os = "android"));
+        loaded.adopt_detector_floors();
         // Saved key tables gain the plain-key alternatives, so a tablet keyboard without an F row
         // or Page keys can reach every action (see `hotkeys::fill_plain_keys`).
         crate::hotkeys::fill_plain_keys(&mut loaded.keybinds);
@@ -2001,17 +2052,19 @@ mod tests {
     }
 
     #[test]
-    fn the_tds_confidence_filter_defaults_to_showing_everything_and_round_trips() {
-        // A detector block written before the filter existed (it has the other knobs but not this
-        // one) must load with the filter off, not fail or start hiding detections.
+    fn the_detector_floors_default_to_the_backtested_values_and_round_trip() {
+        // A detector block written before the filters existed loads with the shipped defaults.
         let old: DetectorTuning = serde_json::from_str(
             r#"{"tbss_core_dbz":60.0,"zdr_min_db":1.0,"zdr_min_depth_km":1.0,
                 "glm_fed_cell_deg":0.05,"glm_fed_window_min":15}"#,
         )
         .unwrap();
-        assert_eq!(old.tds_min_confidence, 0.0);
-        assert_eq!(old.rotation_min_confidence, 0.0);
-        assert_eq!(DetectorTuning::default().tds_min_confidence, 0.0);
+        assert_eq!(old.tds_min_confidence, DEFAULT_TDS_MIN_CONFIDENCE);
+        assert_eq!(old.rotation_min_confidence, DEFAULT_ROTATION_MIN_CONFIDENCE);
+        assert_eq!(
+            DetectorTuning::default().tds_min_confidence,
+            DEFAULT_TDS_MIN_CONFIDENCE
+        );
         // A chosen threshold survives a save and reload.
         let mut s = Settings::default();
         s.detectors.tds_min_confidence = 0.7;
@@ -2019,6 +2072,34 @@ mod tests {
         let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
         assert!((back.detectors.tds_min_confidence - 0.7).abs() < 1e-6);
         assert!((back.detectors.rotation_min_confidence - 0.4).abs() < 1e-6);
+    }
+
+    /// A file saved while 0% was the default carries that 0 explicitly; it moves once, and only
+    /// a floor still at 0 moves.
+    #[test]
+    fn saved_zero_floors_move_to_the_new_defaults_once() {
+        let mut s: Settings = serde_json::from_str(
+            r#"{"detectors":{"tbss_core_dbz":60.0,"zdr_min_db":1.0,"zdr_min_depth_km":1.0,
+                "glm_fed_cell_deg":0.05,"glm_fed_window_min":15,
+                "tds_min_confidence":0.0,"rotation_min_confidence":0.3}}"#,
+        )
+        .unwrap();
+        assert!(!s.detectors.floors_adopted);
+        assert!(s.adopt_detector_floors());
+        assert_eq!(s.detectors.tds_min_confidence, DEFAULT_TDS_MIN_CONFIDENCE);
+        assert_eq!(
+            s.detectors.rotation_min_confidence, 0.3,
+            "a chosen floor stays"
+        );
+        // Put back to 0 on purpose afterwards: it stays at 0.
+        s.detectors.tds_min_confidence = 0.0;
+        assert!(!s.adopt_detector_floors());
+        assert_eq!(s.detectors.tds_min_confidence, 0.0);
+        // And it survives a save.
+        let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert!(back.detectors.floors_adopted);
+        // A fresh install has nothing to move.
+        assert!(!Settings::default().adopt_detector_floors());
     }
 
     #[test]

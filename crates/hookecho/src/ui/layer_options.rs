@@ -848,7 +848,10 @@ pub(crate) fn show(
                 "Hide debris signatures below this confidence, and keep them from raising an \
                  alert. Confidence rises with a deep dip in correlation coefficient that stands \
                  out from its surroundings, strong reflectivity, a compact size, and a signature \
-                 that repeats up through the tilts. One tilt alone never exceeds 60%.",
+                 that repeats up through the tilts. A rotation couplet beside it raises it \
+                 further; none, where velocity was scanned, costs a fifth. One tilt alone never \
+                 exceeds 60%. Starts at 60%: on the archived-event backtest that caught as \
+                 many tornadoes as 50% with far fewer false alarms.",
             )
             .changed()
         {
@@ -866,7 +869,11 @@ pub(crate) fn show(
                     .suffix("%"),
             )
             .on_hover_text(
-                "Hide rotation couplets below this confidence, and keep them from raising an \n                 alert. Confidence rises with strong gate-to-gate shear, a sizeable cluster of \n                 gates, and a couplet that repeats up through the tilts; it fades with range. \n                 One tilt alone never exceeds 50%.",
+                "Hide rotation couplets below this confidence, and keep them from raising an \
+                 alert. Confidence rises with strong gate-to-gate shear, a sizeable cluster of \
+                 gates, and a couplet that repeats up through the tilts; it fades with range. \
+                 One tilt alone never exceeds 50%. Starts at 50%: rotation comes before \
+                 debris, so this errs toward catching more.",
             )
             .changed()
         {

@@ -8,6 +8,24 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Changed: detector confidence floors now default to 60% (debris) and 50% (rotation)
+
+Both floors — what a detection needs to be drawn, count for alert rules, or raise an alert —
+defaulted to 0%, so every weak candidate showed and chimed. They now start at the values the
+archived-event backtest supports: debris at 60%, which found as many of the 37 tornado reports as
+50% did (49%) at a FAR of 51% instead of 70%; rotation at 50%, which keeps 65% of the reports
+(60% would drop to 53%) since rotation is the earlier warning and worth erring toward. A settings
+file saved while 0% was the default carries an explicit 0 that was almost never chosen, so each
+floor still at exactly 0 moves once (`Settings::adopt_detector_floors`); any other value, or a floor
+put back to 0 afterwards, is left alone. "Reset detector thresholds" resets to the new values, and
+each slider's hover says where its default comes from.
+
+### Fixed: four tooltips had stray line breaks and indentation
+
+The rotation-confidence slider, the full-range 3D volume toggle and two map-horizon settings had
+`\n` plus a run of spaces inside their hover text where a string continuation was meant, so each
+rendered with a break and a block of indentation mid-sentence.
+
 ### Changed: debris with no couplet beside it scores lower (`tds-6`)
 
 Large wet hail at S band can look exactly like debris: low CC, high Z, ZDR near 0. The Denver

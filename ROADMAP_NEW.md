@@ -3164,9 +3164,18 @@ went up or stayed at every threshold, FAR at 60% from 69% to 51% at the same POD
 investigation found a bigger problem — debris columns chained through fragment fields and placed
 kilometres from their tornadoes (fixed in `tds-5`, see C5).
 
-Open from this: Nashville (KOHX, 3 Mar 2020), whose couplet the rotation detector places 6.5 km
-from its debris ball — the one tornado the discount cost at the top thresholds. Whether that is the
-couplet's position or the ball's is the next thing to look at.
+Open from this: Nashville (KOHX, 3 Mar 2020) — the one tornado the discount cost at the top
+thresholds. Looked at volume by volume, it is the couplet, not the ball: at 06:36Z the two sit 0.6 km
+apart (91%); from 06:43Z the ball keeps tracking the tornado east through East Nashville and
+Donelson while the rotation detector's strongest couplet stays 6.5 km behind it to the southwest,
+and nothing is found beside the ball. Tried and rejected: comparing velocities across up to 0.5 km
+of arc rather than strictly adjacent radials (a close-range tornado spans several beams). It
+made the misplaced couplet stronger, found the real one only at 23%, and cost rotation POD at 60-70%
+(53% → 47%, 51% → 44%). Next candidates: a lower minimum range with a clutter check, or
+associating debris with rotation along the storm's motion rather than by distance alone.
+
+Detector floors now default to 60% (debris) and 50% (rotation), from this backtest; see the
+changelog.
 
 Still open: user-defined products, and the SPC tornado database.
 
