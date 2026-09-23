@@ -305,7 +305,7 @@ pub fn vertical_term(top_km: f32, tilts: usize, rooted: Option<bool>) -> f32 {
 
 /// Which revision of the scoring produced a hit. Bump it whenever a weight, threshold or rule above
 /// changes, so a saved or exported detection says what logic scored it.
-pub const ALGORITHM_VERSION: &str = "tds-4";
+pub const ALGORITHM_VERSION: &str = "tds-5";
 
 /// One scored piece of evidence behind a detection.
 #[derive(Debug, Clone, PartialEq)]
@@ -756,6 +756,34 @@ pub(crate) fn ground_km(a: (f64, f64), b: (f64, f64)) -> f64 {
     dx.hypot(dy)
 }
 
+/// The core of one associated group: its strongest member (by `strength`) and every member within
+/// `radius_km` *of that one*, strongest first. A detection's position and evidence come from its
+/// core, not from everything single linkage chained into the group.
+///
+/// That matters for debris: a violent tornado's debris ball can sit at the edge of a large field
+/// of weak, fragmented low-CC echo, and linkage at 3 km steps walks from the ball through every
+/// fragment. On Mayfield, KY (KPAH, 11 Dec 2021, 03:30Z) that made one column of 160 per-tilt
+/// hits spread over 25 km, whose gate-weighted centroid sat 12 km north of the tornado -- so its
+/// averaged CC and Z were diluted by the fragments, and it was never paired with its own 72 kt
+/// couplet 3 km from the real ball. The group itself stays one detection (splitting it would
+/// report every fragment as a debris signature of its own); only what it says changes.
+pub(crate) fn strongest_core(
+    members: &[usize],
+    points: &[(f64, f64)],
+    strength: &[f64],
+    radius_km: f64,
+) -> Vec<usize> {
+    let mut order = members.to_vec();
+    order.sort_by(|&a, &b| strength[b].total_cmp(&strength[a]));
+    let Some(&anchor) = order.first() else {
+        return order;
+    };
+    order
+        .into_iter()
+        .filter(|&j| ground_km(points[anchor], points[j]) <= radius_km)
+        .collect()
+}
+
 /// Group `points` so that any two within `radius_km` of one another land in the same group
 /// (single-linkage union-find), returned as lists of indices into `points`.
 ///
@@ -763,7 +791,8 @@ pub(crate) fn ground_km(a: (f64, f64), b: (f64, f64)) -> f64 {
 /// a kilometre or two apart, and a grid splits that pair whenever it happens to straddle a cell
 /// edge — turning one column into two single-tilt hits, each capped at its detector's single-tilt
 /// cap, and losing exactly the vertical evidence a volume pass exists to find. Shared with
-/// [`crate::rotation::detect_volume`], which associates couplets the same way.
+/// [`crate::rotation::detect_volume`], which associates couplets the same way. Debris columns then
+/// describe each group by its [`strongest_core`], since linkage can chain.
 pub(crate) fn associate_by_ground(points: &[(f64, f64)], radius_km: f64) -> Vec<Vec<usize>> {
     let n = points.len();
     let mut parent: Vec<usize> = (0..n).collect();
@@ -897,11 +926,18 @@ pub fn detect_volume(
         }
     }
 
-    // Group hits by ground proximity, so two tilts' views of one ball merge no matter where an
-    // arbitrary grid would have put the boundary.
+    // Group hits by ground distance, so two tilts' views of one ball merge no matter where an
+    // arbitrary grid would have put the boundary; then describe each group by its strongest core,
+    // so a ball at the edge of a field of weak fragments is not averaged into it (see
+    // `strongest_core`).
     let centres: Vec<(f64, f64)> = per_tilt.iter().map(|(_, h)| (h.lon, h.lat)).collect();
+    let strength: Vec<f64> = per_tilt
+        .iter()
+        .map(|(_, h)| f64::from(h.confidence) + h.gates as f64 * 1e-6)
+        .collect();
     let mut out: Vec<TdsHit> = associate_by_ground(&centres, ASSOCIATE_KM)
         .into_iter()
+        .map(|group| strongest_core(&group, &centres, &strength, ASSOCIATE_KM))
         .map(|members| {
             let hits: Vec<&TdsHit> = members.iter().map(|&i| &per_tilt[i].1).collect();
             let contributing: HashSet<usize> = members.iter().map(|&i| per_tilt[i].0).collect();
@@ -1421,8 +1457,8 @@ mod tests {
         assert_eq!(lone[0].base_km, lone[0].top_km);
     }
 
-    /// The association shared with the rotation detector: everything within the radius of a
-    /// neighbour joins one group, however the points would have fallen on a grid.
+    /// The rotation detector's association: everything within the radius of a neighbour joins
+    /// one group, however the points would have fallen on a grid.
     #[test]
     fn ground_association_is_single_linkage_and_indifferent_to_grid_edges() {
         // Three points 2 km apart in a chain, and one 50 km away.
@@ -1440,6 +1476,101 @@ mod tests {
         // Tighter than every gap: four groups of one.
         assert_eq!(associate_by_ground(&pts, 0.5).len(), 4);
         assert!(associate_by_ground(&[], 3.0).is_empty());
+    }
+
+    /// A debris column is described by its core: the strongest member and what is within the
+    /// radius of it, however far linkage chained the rest of the group.
+    #[test]
+    fn a_group_is_described_by_its_strongest_core() {
+        // Four points 2 km apart in a line (one linked chain), strongest at one end.
+        let pts = [
+            (-97.5, 35.0),
+            (-97.5, 35.018),
+            (-97.5, 35.036),
+            (-97.5, 35.054),
+        ];
+        let strength = [0.9, 0.2, 0.3, 0.1];
+        assert_eq!(
+            associate_by_ground(&pts, 3.0).len(),
+            1,
+            "linkage chains them"
+        );
+        assert_eq!(
+            strongest_core(&[0, 1, 2, 3], &pts, &strength, 3.0),
+            vec![0, 1]
+        );
+        // Strongest in the middle: both neighbours are within reach, the far end is not.
+        let middle = [0.2, 0.9, 0.3, 0.1];
+        assert_eq!(
+            strongest_core(&[0, 1, 2, 3], &pts, &middle, 3.0),
+            vec![1, 2, 0]
+        );
+        assert!(strongest_core(&[], &pts, &strength, 3.0).is_empty());
+    }
+
+    /// Paint `v` into a sweep's azimuth x gate box.
+    fn paint(
+        s: &mut BinnedSweep,
+        az: std::ops::Range<usize>,
+        gates: std::ops::Range<usize>,
+        v: u8,
+    ) {
+        for a in az {
+            for g in gates.clone() {
+                s.data[a * s.gate_count + g] = v;
+            }
+        }
+    }
+
+    /// Mayfield, KY in miniature: a strong debris ball at the edge of a long field of weak,
+    /// fragmented low-CC echo. The column has to stay where the ball is -- chained into the
+    /// fragments, its centroid slid 12 km away on the real volume and never met its couplet.
+    #[test]
+    fn a_debris_ball_beside_a_field_of_weak_fragments_keeps_its_own_position() {
+        let gates = 100..108; // ~27 km out, past the clutter ramp
+                              // An empty hot wedge is a clean sweep: the ball is painted in below.
+        let (mut z0, mut cc0) = debris_pair(0.5, 100..100);
+        paint(
+            &mut cc0,
+            100..106,
+            gates.clone(),
+            idx(Moment::CorrelationCoefficient, 0.35),
+        );
+        paint(
+            &mut z0,
+            100..106,
+            gates.clone(),
+            idx(Moment::Reflectivity, 58.0),
+        );
+        // The same ball alone, for where it should be reported.
+        let alone = detect_volume(&[(z0.clone(), cc0.clone())], 0.80, 40.0, 150.0, 4);
+        assert_eq!(alone.len(), 1);
+        let ball = (alone[0].lon, alone[0].lat);
+
+        // Sixteen weak fragments stepping away from it, 1.4 km apart, gaps of clean echo between.
+        let (mut z, mut cc) = (z0, cc0);
+        for k in 0..16 {
+            let az = 110 + 6 * k..114 + 6 * k;
+            paint(
+                &mut cc,
+                az.clone(),
+                gates.clone(),
+                idx(Moment::CorrelationCoefficient, 0.72),
+            );
+            paint(&mut z, az, gates.clone(), idx(Moment::Reflectivity, 45.0));
+        }
+        let hits = detect_volume(&[(z, cc)], 0.80, 40.0, 150.0, 4);
+        // Still one detection -- the fragments are not each a debris signature -- but it is where
+        // the ball is, and it reads the ball's CC rather than the fragments' average.
+        assert_eq!(hits.len(), 1);
+        let best = &hits[0];
+        let off = ground_km((best.lon, best.lat), ball);
+        assert!(off < 1.0, "strongest hit is {off:.1} km from the ball");
+        assert!(
+            best.min_cc < 0.4,
+            "and it is the ball: min CC {}",
+            best.min_cc
+        );
     }
 
     fn hit_at(lon: f64, lat: f64, confidence: f32) -> TdsHit {

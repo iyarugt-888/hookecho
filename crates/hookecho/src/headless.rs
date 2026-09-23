@@ -774,7 +774,13 @@ pub fn run_tds_archive(site: &str, date: &str, hhmm: &str) -> anyhow::Result<()>
             .min_by_key(|(t, _)| (*t - want).num_seconds().abs())
             .ok_or_else(|| anyhow::anyhow!("no volumes for {site} on {date}"))?;
         println!("{site}: volume {} (asked for {want})", id.0);
+        let when = id.0;
         let scan = level2::download_scan(id.1, None).await?;
+        // Every reflectivity tilt and the day's melting level, for the hail-aloft column below.
+        let z_all: Vec<_> = (0..level2::elevation_angles(&scan).len())
+            .filter_map(|tilt| level2::bin_scan(&scan, Moment::Reflectivity, tilt).ok())
+            .collect();
+        let freezing = freezing_levels_for(site, when).await;
         let mut pairs = Vec::new();
         let mut vel_pairs = Vec::new();
         let mut zdr_sweeps = Vec::new();
@@ -793,9 +799,16 @@ pub fn run_tds_archive(site: &str, date: &str, hhmm: &str) -> anyhow::Result<()>
                 vel_pairs.push((vel, z));
             }
         }
-        anyhow::Ok((pairs, vel_pairs, zdr_sweeps))
+        anyhow::Ok((pairs, vel_pairs, zdr_sweeps, z_all, freezing))
     })?;
-    let (pairs, vel_pairs, zdr_sweeps) = pairs;
+    let (pairs, vel_pairs, zdr_sweeps, z_all, freezing) = pairs;
+    if let Some((from, h0, hm20)) = &freezing {
+        println!(
+            "melting level {:.1} km, −20 °C {:.1} km ({from})",
+            h0 / 1000.0,
+            hm20 / 1000.0
+        );
+    }
     println!("{} tilt(s) with reflectivity and CC", pairs.len());
     let mut hits = wxdata::tds::detect_volume(&pairs, 0.80, 40.0, 150.0, 4);
     wxdata::tds::apply_zdr(&mut hits, &zdr_sweeps);
@@ -834,7 +847,8 @@ pub fn run_tds_archive(site: &str, date: &str, hhmm: &str) -> anyhow::Result<()>
     for h in hits.iter().take(12) {
         println!(
             "  {:.3},{:.3}  conf {:>3.0}%  {} tilt(s) {:.1}-{:.1} km{} · {} gates {:.1} km² · min CC \
-             {:.2} mean CC {:.2} · Z mean {:.0} max {:.0} · contrast {} · rotation {}",
+             {:.2} mean CC {:.2} · Z mean {:.0} max {:.0} · ZDR {} · contrast {} · rotation {} · \
+             MEHS aloft {}",
             h.lat,
             h.lon,
             h.confidence * 100.0,
@@ -851,9 +865,17 @@ pub fn run_tds_archive(site: &str, date: &str, hhmm: &str) -> anyhow::Result<()>
             h.mean_cc,
             h.mean_z,
             h.max_z,
+            h.zdr_db.map_or("n/a".to_string(), |d| format!("{d:.1} dB")),
             h.contrast.map_or("n/a".to_string(), |c| format!("{c:.2}")),
             h.rotation_ms
-                .map_or("none".to_string(), |v| format!("{:.0} kt", v * 1.943_844))
+                .map_or("none".to_string(), |v| format!("{:.0} kt", v * 1.943_844)),
+            freezing
+                .as_ref()
+                .and_then(|(_, h0, hm20)| {
+                    let at = |r| wxdata::derived::mehs_at(&z_all, h.lon, h.lat, r, *h0, *hm20);
+                    Some(format!("{:.0}/{:.0} mm", at(0.0)?, at(2.0)?))
+                })
+                .unwrap_or_else(|| "n/a".to_string())
         );
     }
     Ok(())
@@ -4736,6 +4758,7 @@ fn backtest_event(
         rot_tracks,
         hail,
         freezing,
+        scanned,
     ) = rt.block_on(async {
         let mut ids: Vec<_> = level2::list_volumes(site, day)
             .await?
@@ -4764,6 +4787,8 @@ fn backtest_event(
         let mut tds_tracks: Vec<wxdata::scoretrack::ScoreTrack> = Vec::new();
         let mut rot_tracks: Vec<wxdata::scoretrack::ScoreTrack> = Vec::new();
         let mut hail = Vec::new();
+        // The minute of every volume actually decoded, for which reports could be matched at all.
+        let mut scanned: Vec<i64> = Vec::new();
         let freezing = freezing_levels_for(site, first).await;
         for (t, id) in ids {
             let scan = match level2::download_scan(id, None).await {
@@ -4805,6 +4830,7 @@ fn backtest_event(
             // either side's boost feeding the other's back in.
             wxdata::tds::cross_corroborate(&mut hits, &mut couplets);
             let minute = minute_of(t);
+            scanned.push(minute);
 
             // Hail: MEHS/POSH over every reflectivity tilt (the column integral needs all of
             // them, not the four the two detectors above read), reduced to discrete cores.
@@ -4936,6 +4962,7 @@ fn backtest_event(
             rot_tracks,
             hail,
             freezing,
+            scanned,
         ))
     })?;
 
@@ -4959,9 +4986,22 @@ fn backtest_event(
             crate::geo::great_circle([rlon, rlat], [r.lon, r.lat]).0 <= TRUTH_MAX_RANGE_KM
         })
     };
+    // A report can only be matched by a detection from a volume within the matching window of
+    // it, so a report no volume was scanned near can only ever be a miss. The window from first
+    // to last volume is not enough on its own: KPAH's archive for Mayfield, KY jumps from 03:58Z
+    // to 07:16Z, and the three hours between -- with some 20 tornado reports and no radar data --
+    // were being scored as misses. So each report needs a scanned volume near it.
+    let near_a_scan = |minute: i64| {
+        scanned
+            .iter()
+            .any(|v| (minute - v).abs() <= BACKTEST_WINDOW_MIN)
+    };
     let to_truth = |r: &wxdata::spc::StormReport| {
         // Reports carry a time of day; the nearest day to the window resolves midnight.
         let minute = wxdata::confirm::report_minute(&r.time, minute_of(first))?;
+        if !near_a_scan(minute) {
+            return None;
+        }
         Some(Truth {
             lon: r.lon,
             lat: r.lat,

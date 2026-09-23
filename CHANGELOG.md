@@ -8,6 +8,53 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: a debris signature could be placed kilometres from its own tornado (`tds-5`)
+
+Debris hits from different tilts are grouped by single linkage at 3 km, and a group's position
+and evidence were the gate-weighted average of every member. A violent tornado's debris ball can
+sit at the edge of a large field of weak, fragmented low-CC echo, and linkage walks from the ball
+through every fragment. On Mayfield, KY (KPAH, 11 Dec 2021, 03:30Z) that chained the real ball
+(min CC 0.29, 59 dBZ) to 158 fragments over 25 km: the reported signature sat 12 km north of the
+tornado at 72%, with its CC and Z averaged toward the fragments', and never paired with its own
+72 kt couplet. A group is now described by its strongest core — the strongest member and what
+is within 3 km of *it* (`tds::strongest_core`) — while staying one detection. Mayfield now reads
+93%, on the ball, with the couplet beside it.
+
+Across the eight tornado-backtest events (below), with the before/after on the same harness:
+
+| min conf | debris POD / FAR / CSI, before | after | rotation, before | after |
+|---|---|---|---|---|
+| 60% | 49 / 72 / 17 | 49 / 69 / 19 | 53 / 55 / 33 | 53 / 52 / 34 |
+| 70% | 43 / 60 / 23 | 49 / 53 / 28 | 47 / 48 / 34 | 51 / 47 / 38 |
+| 80% | 43 / 33 / 34 | 49 / 31 / 38 | 14 / 64 / 12 | 19 / 58 / 16 |
+
+Rotation improves too: correctly placed debris now corroborates the right couplets.
+
+Tried first and not shipped: grouping around anchors instead of by linkage, which fixed the
+position but reported every fragment as a debris signature of its own (1054 detections instead
+of 678) and raised FAR at 50-60%. Measured and not used as a hail/debris discriminator: spectrum
+width (Mayfield's ball reads 1.9 m/s, inside the Denver hail false alarms' 1.2-3.2) and MEHS over
+the hit (Moore's real ball sits under 20 mm of it, several Denver false alarms under none at all
+— those are the Front Range foothills' terrain clutter, not hail).
+
+### Fixed: backtest windows and truth sets
+
+- Four of the eight tornado events in `docs/backtest-events.txt` had start times typed from
+  memory and wrong by one to six hours — Washington IL, Mayflower/Vilonia AR, Joplin MO and
+  Nashville TN — so their 8-volume windows held no tornado. Each is now a few minutes before the
+  first local tornado report, checked against the LSR archive.
+- Reports are now only scored when some volume was actually scanned within 15 minutes of them.
+  KPAH's archive for Mayfield jumps from 03:58Z to 07:16Z, and the three hours between — about 20
+  tornado reports, no radar data — were all counted as misses.
+
+Every backtest number published before this entry was computed with both problems; the table
+above is the first on the corrected set.
+
+### Added: `--headless-tds-archive` shows each hit's ZDR and the MEHS over it
+
+With the day's melting level from the observed sounding, and `wxdata::derived::mehs_at` for a
+point MEHS without computing the whole grid. It is how the hail/debris question above was checked.
+
 ### Added: hail backtest, and hail grids on archived volumes
 
 `--headless-backtest` / `--headless-backtest-file` now score the MEHS/POSH hail algorithm as well as

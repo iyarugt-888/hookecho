@@ -1738,6 +1738,16 @@ its composite severity alongside VIL/top/reflectivity, and the cell console draw
 sparkline — computed from the same cached couplets the storm-cells table reads, so the trend's last
 point is the table's number.
 
+**Backtest corrections and `tds-5`.** Four of the eight tornado events in the backtest file had
+start times wrong by one to six hours (their windows held no tornado), and reports from archive
+gaps with no radar data were being scored as misses; both fixed, so every earlier number in this
+section was computed on a broken set. On the corrected set, a real detector bug surfaced: debris
+columns chained through fields of weak low-CC fragments by single linkage and were reported at
+the chain's centroid — 12 km from the tornado on Mayfield, never paired with its 72 kt couplet. A
+column is now described by its strongest core (`tds::strongest_core`). At an 80% floor, debris
+went from 43% POD / 33% FAR to 49% / 31%, and rotation (through corroboration) from 14% / 64% to
+19% / 58%; no threshold got worse.
+
 Every item this section originally opened with is now done. What is left in the algorithm-lab
 neighbourhood is smaller, standalone follow-ups rather than open roadmap items: a first backtest
 consumer for cell scoring (`wxdata::cellscore` has no `--headless-backtest` table of its own yet,
@@ -3138,8 +3148,18 @@ melting level comes from the observed sounding that day (`wxdata::raob::melting_
 two sites within 400 km, falling back a launch), since HRRR's public archive does not reach most of
 the backtest events. First result, Denver 8 May 2017 (KFTG, 10 volumes, melting level from Denver's
 own 12Z ascent): POD 88% (22 of 25 reports) at every POSH floor, FAR 85% → 60% and CSI 13% → 51% as
-the floor rises from 0 to 80%. The same storm raised 75 debris-signature false alarms — large hail
-lowers CC just as debris does — which is the next thing worth teaching the TDS detector about.
+the floor rises from 0 to 80%. Over all nine events in the (since corrected) backtest file: POD 83%
+(50 of 60) up to a 40% POSH floor, CSI peaking at 20% at 60%.
+
+The Denver storm also raised 75 debris-signature false alarms. Looked into, they are two things:
+hail near the ground (the Wheat Ridge hit sits under 23-34 mm of MEHS) and terrain clutter from
+the Front Range foothills 55-70 km west of KFTG (no hail aloft at all). Neither spectrum width nor
+MEHS over the hit separates them from real debris — Mayfield's ball reads 1.9 m/s of SW, Moore's
+sits under 20 mm of MEHS — so neither shipped as a discount. What the investigation did find was a
+bigger problem: debris columns chained through fragment fields and were placed kilometres from
+their tornadoes, which broke debris/rotation corroboration on Mayfield (fixed in `tds-5`, see C5
+and the changelog). A terrain-clutter mask (C3's beam-blockage work already has the terrain) is
+the natural next attempt at the Denver cases.
 
 Still open: user-defined products, and the SPC tornado database.
 

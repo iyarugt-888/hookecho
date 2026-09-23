@@ -1,8 +1,9 @@
 # Archived events for `hookecho --headless-backtest-file docs/backtest-events.txt [volumes]`.
-# SITE YYYY-MM-DD HH:MM (UTC). The volumes taken are the ones from that time onward. Times are
-# from memory and approximate (typically within +-15-30 min) - close enough for this tool, which
-# just walks forward from the nearest volume, but not a citable record of when a tornado touched
-# down.
+# SITE YYYY-MM-DD HH:MM (UTC). The volumes taken are the ones from that time onward. Each time is
+# a few minutes before the first local tornado report for the event, checked against the Iowa
+# Mesonet LSR archive (the same reports the backtest scores against). Four of them were once
+# typed from memory and wrong by one to six hours - KILX, KLZK, KSGF and KOHX - so their
+# 8-volume windows held no tornado at all; check any new line the same way before adding it.
 #
 # Debris signatures need a correlation-coefficient tilt, which the WSR-88D network only grew
 # between 2011 and 2013 (site by site). An event on a radar that predates its own dual-pol
@@ -14,12 +15,12 @@
 # Tornado cases, each with a well-documented, well-reported tornado on or near the radar:
 KTLX 2013-05-20 19:50   # Moore, OK
 KTLX 2013-05-31 22:55   # El Reno, OK
-KILX 2013-11-17 22:55   # Washington, IL (dual-pol)
+KILX 2013-11-17 16:50   # Washington, IL (dual-pol)
 KPAH 2021-12-11 03:25   # Mayfield, KY (dual-pol, night)
-KLZK 2014-04-27 22:00   # Mayflower and Vilonia, AR (dual-pol)
-KOHX 2020-03-03 05:35   # Nashville and Cookeville, TN (dual-pol, night)
+KLZK 2014-04-28 00:20   # Mayflower and Vilonia, AR (dual-pol)
+KOHX 2020-03-03 06:30   # Nashville and Cookeville, TN (dual-pol, night)
 # Deliberately a no-CC case, to see the tool call it out rather than silently score it as misses:
-KSGF 2011-05-22 21:25   # Joplin, MO - KSGF was not yet dual-pol; debris signatures are impossible
+KSGF 2011-05-22 22:30   # Joplin, MO - KSGF was not yet dual-pol; debris signatures are impossible
 # Not mainly a tornado day, to measure false alarms in a big hail and wind storm:
 KDVN 2020-08-10 17:30   # Iowa derecho
 # A hail case, for the MEHS/POSH table (and a debris-signature false-alarm test: large hail
