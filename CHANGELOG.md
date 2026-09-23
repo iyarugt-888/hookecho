@@ -8,6 +8,17 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: region statistics — box a storm, compare every moment gate by gate
+
+A new map tool, "Region statistics" (Tools, the dock, the ribbon and the command palette): click two
+opposite corners and every gate of the displayed tilt inside the box is read in every moment at the
+same place. The window shows each moment's spread (gates, min, 10%, median, 90%, max, mean), a
+histogram of any one, and a scatter plot of any two with their correlation, with one-click pairs
+for REF–ZDR, REF–CC, ZDR–KDP and VEL–CC. Every gate exports as CSV, and
+`--headless-region SITE DATE HH:MM LON1 LAT1 LON2 LAT2 [out.csv]` does the same from the command
+line. On Moore's debris ball (KTLX, 20 May 2013) it reads REF against CC at r = -0.27 — the
+stronger the echo the lower the CC, which is debris — where a rain box nearby reads +0.21.
+
 ### Changed: detector confidence floors now default to 60% (debris) and 50% (rotation)
 
 Both floors — what a detection needs to be drawn, count for alert rules, or raise an alert —

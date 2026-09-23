@@ -63,6 +63,7 @@ pub mod placefile;
 pub mod probsevere;
 pub mod raob;
 pub mod recon;
+pub mod regionstats;
 pub mod relay_wire;
 pub mod river;
 pub mod rotation;

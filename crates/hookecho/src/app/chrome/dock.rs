@@ -1266,6 +1266,7 @@ impl HookEchoApp {
                     ),
                     (MapTool::Measure, ph::RULER, "Measure distance"),
                     (MapTool::CrossSection, ph::CHART_LINE_UP, "Cross-section"),
+                    (MapTool::RegionStats, ph::CHART_SCATTER, "Region statistics"),
                     (MapTool::Sounding, ph::THERMOMETER, "Sounding"),
                     (MapTool::Marker, ph::MAP_PIN, "Drop a marker"),
                     (MapTool::AlertZone, ph::WARNING, "Draw a watch zone"),

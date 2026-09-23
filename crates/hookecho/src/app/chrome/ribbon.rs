@@ -644,6 +644,7 @@ impl HookEchoApp {
                                 (MapTool::Measure, "Measure"),
                                 (MapTool::Marker, "Marker"),
                                 (MapTool::CrossSection, "X-section"),
+                                (MapTool::RegionStats, "Region stats"),
                                 (MapTool::Sounding, "Sounding"),
                                 (MapTool::Forecast, "Forecast"),
                             ] {

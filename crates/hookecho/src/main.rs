@@ -773,6 +773,27 @@ fn main() -> eframe::Result<()> {
         return Ok(());
     }
 
+    // Region statistics on an archived volume's lowest tilt:
+    // `hookecho --headless-region <SITE> <YYYY-MM-DD> <HH:MM> <LON1> <LAT1> <LON2> <LAT2> [out.csv]`.
+    if let Some(pos) = args.iter().position(|a| a == "--headless-region") {
+        let arg = |n: usize| args.get(pos + n).map(String::as_str).unwrap_or("");
+        let corners: Vec<f64> = (4..=7).filter_map(|n| arg(n).parse().ok()).collect();
+        let out = args.get(pos + 8).map(String::as_str);
+        let result = match corners.as_slice() {
+            [lon1, lat1, lon2, lat2] => {
+                headless::run_region(arg(1), arg(2), arg(3), [*lon1, *lat1], [*lon2, *lat2], out)
+            }
+            _ => Err(anyhow::anyhow!(
+                "usage: --headless-region SITE YYYY-MM-DD HH:MM LON1 LAT1 LON2 LAT2 [out.csv]"
+            )),
+        };
+        if let Err(e) = result {
+            eprintln!("headless region failed: {e}");
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
+
     // TDS verify: `hookecho --headless-tds <SITE>`.
     if let Some(pos) = args.iter().position(|a| a == "--headless-tds") {
         let site = args.get(pos + 1).map(String::as_str).unwrap_or("KTLX");

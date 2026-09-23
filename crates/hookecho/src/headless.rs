@@ -754,6 +754,95 @@ pub fn run_tds(site: &str) -> anyhow::Result<()> {
 /// nearest that UTC time, runs the debris-signature detector across its lowest four tilts, and
 /// prints every hit with the evidence its confidence is built from. For tuning the detector against
 /// a known event rather than whatever happens to be live.
+/// Region statistics on an archived volume's lowest tilt (ROADMAP_NEW C4): every gate inside the
+/// box with corners `a` and `b` (`[lon, lat]`), across every moment — the same numbers the
+/// region-statistics window shows, printed, with the gates as CSV to `out` when given.
+pub fn run_region(
+    site: &str,
+    date: &str,
+    hhmm: &str,
+    a: [f64; 2],
+    b: [f64; 2],
+    out: Option<&str>,
+) -> anyhow::Result<()> {
+    let (day, want) = parse_start(date, hhmm)?;
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    let sweeps = rt.block_on(async {
+        let (t, id) = level2::list_volumes(site, day)
+            .await?
+            .into_iter()
+            .filter_map(|id| id.date_time().map(|t| (t, id)))
+            .min_by_key(|(t, _)| (*t - want).num_seconds().abs())
+            .ok_or_else(|| anyhow::anyhow!("no volumes for {site} on {date}"))?;
+        println!("{site}: volume {t}");
+        let scan = level2::download_scan(id, None).await?;
+        anyhow::Ok(
+            Moment::ALL
+                .into_iter()
+                .filter_map(|m| level2::bin_scan_opts(&scan, m, 0, m == Moment::Velocity).ok())
+                .collect::<Vec<_>>(),
+        )
+    })?;
+    let s = wxdata::regionstats::gather(&sweeps, wxdata::regionstats::bbox_of(a, b))
+        .ok_or_else(|| anyhow::anyhow!("no gates with data inside that box"))?;
+    println!(
+        "{} gates at {:.1} deg\n{:<6} {:>6} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8}",
+        s.rows.len(),
+        s.elevation_deg,
+        "",
+        "n",
+        "min",
+        "10%",
+        "median",
+        "90%",
+        "max",
+        "mean"
+    );
+    for (i, m) in s.moments.iter().enumerate() {
+        if let Some(v) = s.summary(i) {
+            println!(
+                "{:<6} {:>6} {:>8.2} {:>8.2} {:>8.2} {:>8.2} {:>8.2} {:>8.2}",
+                m.short_name(),
+                v.n,
+                v.min,
+                v.p10,
+                v.median,
+                v.p90,
+                v.max,
+                v.mean
+            );
+        }
+    }
+    for (x, y) in [
+        (Moment::Reflectivity, Moment::DifferentialReflectivity),
+        (Moment::Reflectivity, Moment::CorrelationCoefficient),
+        (
+            Moment::DifferentialReflectivity,
+            Moment::SpecificDifferentialPhase,
+        ),
+        (Moment::Velocity, Moment::CorrelationCoefficient),
+    ] {
+        if let (Some(xi), Some(yi)) = (s.index_of(x), s.index_of(y)) {
+            let r = s
+                .correlation(xi, yi)
+                .map_or("n/a".to_string(), |r| format!("{r:.2}"));
+            println!(
+                "r({} vs {}) = {r} over {} gates",
+                x.short_name(),
+                y.short_name(),
+                s.pairs(xi, yi).len()
+            );
+        }
+    }
+    if let Some(path) = out {
+        std::fs::write(path, s.to_csv())?;
+        println!("wrote {path}");
+    }
+    Ok(())
+}
+
 pub fn run_tds_archive(site: &str, date: &str, hhmm: &str) -> anyhow::Result<()> {
     let day = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d")?;
     let (h, m) = hhmm

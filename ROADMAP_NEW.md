@@ -1657,20 +1657,27 @@ Do not imply perfect propagation; clearly label 4/3-earth assumptions.
 
 ---
 
-## C4. Multi-moment correlation tools
+## C4. Multi-moment correlation tools — partly done
 
 Add linked probes and scatterplots:
 
-- REF vs ZDR
-- REF vs CC
-- ZDR vs KDP
-- VEL vs CC
-- selectable polygon/box area statistics
-- histogram for selected region
-- vertical profile at point
-- time series at fixed lat/lon
+- [x] REF vs ZDR, REF vs CC, ZDR vs KDP, VEL vs CC — one-click pairs in the region-statistics
+  window's scatter plot, plus any two moments from the X/Y pickers, with Pearson r
+- [x] box area statistics — the "Region statistics" map tool: two clicks set a box, and every gate
+  of the displayed tilt inside it is read in every moment at the same place
+  (`wxdata::regionstats::gather`, reflectivity's gates as the rows since it reaches furthest,
+  velocity dealiased). Summary table (n, min, 10%, median, 90%, max, mean). Polygon selection is
+  not done; the box covers the common case.
+- [x] histogram for selected region — per moment, 40 bins across its own range
+- [ ] vertical profile at point — the cross-section and gate inspector cover parts of it
+- [ ] time series at fixed lat/lon
 
-Export CSV for all statistics.
+- [x] Export CSV — every gate in the box, position then each moment (blank where a moment has no
+  data there), from the window or `--headless-region SITE DATE HH:MM LON1 LAT1 LON2 LAT2 [out.csv]`.
+
+Checked on real data: a box over Moore's debris ball (KTLX, 20 May 2013, 20:08Z) reads CC down to
+0.54 at its 10th percentile with REF against CC at r = -0.27 (the stronger the echo, the lower the
+CC: debris), where a rain box to the south reads 0.88 and r = +0.21.
 
 ---
 

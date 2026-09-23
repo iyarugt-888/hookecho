@@ -1222,6 +1222,12 @@ impl HookEchoApp {
                 false,
             ),
             (
+                MapTool::RegionStats,
+                "Tool: Region statistics",
+                "Box a storm for every moment's spread, histograms and scatter plots, and CSV",
+                false,
+            ),
+            (
                 MapTool::Chase,
                 "Tool: Set chase location",
                 "Tell the app where you are, for the chase readout",

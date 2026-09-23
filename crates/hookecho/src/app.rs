@@ -11,6 +11,7 @@ mod field_state;
 mod goes_timeline;
 mod overlay_health;
 mod pane_time;
+mod region_stats;
 pub(crate) use field_state::FieldState;
 use goes_timeline::nearest_goes;
 mod mobile;
@@ -1784,6 +1785,9 @@ pub(crate) enum MapTool {
     Marker,
     /// Draw a two-click line, then reconstruct a vertical cross-section along it.
     CrossSection,
+    /// Click two opposite corners of a box for statistics of every gate in it, across every
+    /// moment: a summary table, histogram, scatter plot and CSV (ROADMAP_NEW C4).
+    RegionStats,
     /// Click a point to pull an HRRR point sounding (Skew-T / hodograph).
     Sounding,
     /// Click to set your position for chase mode (follow-me + nearest-radar handoff).
@@ -4166,6 +4170,8 @@ pub struct HookEchoApp {
     feed_errors_told: std::collections::HashMap<String, Instant>,
     /// Right-dock active-alerts panel toggle.
     show_alert_panel: bool,
+    /// The region-statistics tool's box, samples and window; see `app/region_stats.rs`.
+    region: region_stats::RegionStatsState,
     /// Cross-section tool: clicked endpoints `[lon,lat]` (max 2), the built section + its texture.
     xsection_pts: Vec<[f64; 2]>,
     xsection: Option<wxdata::xsection::CrossSection>,
@@ -5343,6 +5349,7 @@ impl HookEchoApp {
             toasts: Vec::new(),
             feed_errors_told: std::collections::HashMap::new(),
             show_alert_panel: false,
+            region: Default::default(),
             xsection_pts: Vec::new(),
             xsection: None,
             xsection_tex: None,
@@ -15609,6 +15616,7 @@ impl HookEchoApp {
                             self.build_xsection(idx, ctx);
                         }
                     }
+                    MapTool::RegionStats => self.region_click(idx, lon, lat),
                     MapTool::Sounding => self.fetch_sounding(lon, lat),
                     MapTool::Forecast => self.fetch_point_forecast(lon, lat),
                     MapTool::Chase => {
@@ -18898,6 +18906,12 @@ impl HookEchoApp {
                 );
             }
         }
+
+        self.region.paint(&painter, |ll| {
+            let w = crate::render::mercator::lonlat_to_world(ll[0], ll[1]);
+            let (sx, sy) = cam.world_to_screen(w, vp);
+            egui::pos2(prect.left() + sx, prect.top() + sy)
+        });
 
         // Cross-section endpoints + line (cyan, distinct from the yellow measure tool).
         if !self.xsection_pts.is_empty() {
@@ -23588,6 +23602,7 @@ impl eframe::App for HookEchoApp {
         {
             self.show_hodo = false;
         }
+        self.show_region_stats(ctx);
         if let (Some(xs), Some(tex)) = (&self.xsection, &self.xsection_tex) {
             let mut moment = self.xsection_moment;
             let open = ui::xsection_window::show(
