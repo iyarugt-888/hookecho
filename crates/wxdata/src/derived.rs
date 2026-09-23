@@ -305,6 +305,69 @@ pub fn hail(sweeps: &[BinnedSweep], h0_m: f64, hm20_m: f64, opts: &DerivedOpts) 
     })
 }
 
+/// One hail core: a connected patch of the POSH grid at or above a floor, reported where it peaks.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HailCore {
+    pub lon: f64,
+    pub lat: f64,
+    /// Peak probability of severe hail in the patch, percent.
+    pub posh: f32,
+    /// MEHS (mm) at that same peak cell.
+    pub mehs_mm: f32,
+    /// Grid cells in the patch (~1 km² each).
+    pub cells: usize,
+}
+
+/// The hail grids reduced to a list of discrete cores — the unit a backtest can match to a hail
+/// report, where the grids themselves are a field with no notion of "one storm". 8-connected, so
+/// a core running diagonally across the grid stays one core. Strongest (by POSH) first.
+pub fn hail_cores(h: &Hail, min_posh: f32) -> Vec<HailCore> {
+    let (nx, ny) = (h.posh.nx, h.posh.ny);
+    let v = &h.posh.values;
+    let mut seen = vec![false; v.len()];
+    let mut stack = Vec::new();
+    let mut out = Vec::new();
+    for start in 0..v.len() {
+        // NaN is "no hail computed here", and fails `>=` like any value under the floor.
+        if seen[start] || v[start].is_nan() || v[start] < min_posh {
+            continue;
+        }
+        seen[start] = true;
+        stack.push(start);
+        let (mut best, mut cells) = (start, 0usize);
+        while let Some(i) = stack.pop() {
+            cells += 1;
+            if v[i] > v[best] {
+                best = i;
+            }
+            let (x, y) = ((i % nx) as isize, (i / nx) as isize);
+            for dy in -1..=1 {
+                for dx in -1..=1 {
+                    let (xx, yy) = (x + dx, y + dy);
+                    if xx < 0 || yy < 0 || xx >= nx as isize || yy >= ny as isize {
+                        continue;
+                    }
+                    let j = yy as usize * nx + xx as usize;
+                    if !seen[j] && v[j] >= min_posh {
+                        seen[j] = true;
+                        stack.push(j);
+                    }
+                }
+            }
+        }
+        let (gx, gy) = (best % nx, best / nx);
+        out.push(HailCore {
+            lon: h.posh.lon_west + (gx as f64 + 0.5) * RES_DEG,
+            lat: h.posh.lat_north - (gy as f64 + 0.5) * RES_DEG,
+            posh: v[best],
+            mehs_mm: h.mehs.values.get(best).copied().unwrap_or(f32::NAN),
+            cells,
+        });
+    }
+    out.sort_by(|a, b| b.posh.total_cmp(&a.posh));
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -489,6 +552,45 @@ mod tests {
         // 0.5° north (~55 km) puts the upper tilts above the melting level.
         assert!(sample(&h.mehs, -97.0, 35.5) > 0.0);
         assert!(sample(&h.posh, -97.0, 35.5) > 0.0);
+    }
+
+    #[test]
+    fn hail_cores_are_connected_patches_reported_at_their_peak() {
+        let field = |values: Vec<f32>| MrmsField {
+            values,
+            nx: 5,
+            ny: 4,
+            lon_west: -98.0,
+            lon_east: -97.95,
+            lat_north: 35.0,
+            lat_south: 34.96,
+            time: Utc::now(),
+        };
+        let n = f32::NAN;
+        #[rustfmt::skip]
+        let posh = vec![
+            40.0, 60.0, n,    n,    n,
+            n,    n,    80.0, n,    n,   // diagonal to the 60: same core
+            n,    n,    n,    n,    30.0,
+            n,    n,    n,    n,    10.0, // under the floor
+        ];
+        let mehs = posh.iter().map(|p| p / 2.0).collect();
+        let h = Hail {
+            mehs: field(mehs),
+            posh: field(posh),
+        };
+        let cores = hail_cores(&h, 20.0);
+        assert_eq!(cores.len(), 2, "{cores:?}");
+        assert_eq!(cores[0].cells, 3);
+        assert_eq!(cores[0].posh, 80.0);
+        assert_eq!(cores[0].mehs_mm, 40.0);
+        // The peak cell's centre: column 2, row 1.
+        assert!((cores[0].lon - (-98.0 + 0.025)).abs() < 1e-9);
+        assert!((cores[0].lat - (35.0 - 0.015)).abs() < 1e-9);
+        assert_eq!(cores[1].cells, 1);
+        assert_eq!(cores[1].posh, 30.0);
+        // A floor above everything is no cores; NaN never counts.
+        assert!(hail_cores(&h, 90.0).is_empty());
     }
 
     impl Derived {

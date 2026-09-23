@@ -8,6 +8,43 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: hail backtest, and hail grids on archived volumes
+
+`--headless-backtest` / `--headless-backtest-file` now score the MEHS/POSH hail algorithm as well as
+the two tornado detectors. Each archived volume's hail grids are reduced to discrete cores
+(`wxdata::derived::hail_cores`) and matched against severe (≥ ¾ in) hail reports within 10 km and 15
+minutes, in the same table, range split and missed-report list. On the Denver hailstorm of 8 May
+2017 (KFTG, now in `docs/backtest-events.txt`) it found 22 of 25 reports; FAR fell from 85% to 60%
+as the minimum POSH rose to 80%.
+
+The hail algorithm needs a melting level, and the app only took one from the live HRRR analysis, so
+hail grids were live-only. It now takes the observed sounding for the day
+(`wxdata::raob::melting_levels`, with fallback to a neighbouring site or the previous launch) for
+an archived volume, in the backtest and on the map, so MEHS/POSH work while scrubbing the archive.
+The same change fixes a quieter bug: the gate inspector's UDP inputs and the ZDR-column pass read
+the one cached melting level without checking which time it was for, so in archive mode they
+silently used today's. Melting levels are now keyed by site *and* time (`App::freezing_for`).
+
+### Fixed
+
+- The RAOB station list was missing six active CONUS sites: Denver, Tucson, Newport NC, Wallops
+  Island, Great Falls and Spokane. Anywhere on the Front Range took Grand Junction's sounding from
+  across the Continental Divide.
+- The POSH layer description said "hail an inch or larger"; POSH is the probability of hail ≥ 19 mm
+  (¾ in), per the algorithm it implements.
+- `almanac_line_has_both_events_in_the_tropics` read the wall clock, and within a few days of either
+  equinox the sun really does rise at 89° N, so it failed every March and September. It now pins a
+  solstice date.
+
+### Added: cell console shows a severity trend
+
+The cell console's trend history recorded VIL, echo top and peak reflectivity per volume but not the
+composite severity score the storm-cells table ranks by, so there was no way to see whether a storm
+was getting worse by the app's own measure. Each sample now carries that score too, and the console
+draws it as a fourth sparkline (its own row and colour — it is a derived score, not a measurement).
+It is computed when the cell product arrives from the same cached couplets the table reads, never
+by triggering a rotation pass of its own, so the trend's last point is always the table's number.
+
 ### Added: TDS/rotation markers show their score history on hover, not just the current number
 
 The score timeline built last pass (`wxdata::scoretrack`) is now wired into the live map: hovering

@@ -597,14 +597,14 @@ impl HookEchoApp {
                 FL::HailMehs,
                 "Radar",
                 "Max hail size (MEHS, derived)",
-                "Largest hail this storm can be making, from the volume aloft (live only)",
+                "Largest hail this storm can be making, from the volume aloft and that day's melting level",
                 false,
             ),
             (
                 FL::HailPosh,
                 "Radar",
                 "Severe-hail chance (POSH, derived)",
-                "Odds this storm is producing hail an inch or larger (live only)",
+                "Odds this storm is producing hail three-quarters of an inch or larger",
                 false,
             ),
             (

@@ -131,6 +131,25 @@ impl Sounding {
         h
     }
 
+    /// Height (m AGL) where the profile cools through `t_c` on its way up, linear in height
+    /// between the two levels that bracket it — the 0 °C and −20 °C levels the hail algorithm
+    /// (`crate::derived::hail`) weights by. The *highest* crossing, not the first: a shallow cold
+    /// layer near the ground can dip under freezing and back, and the melting level that matters
+    /// to falling hail is the one above it. A profile already at or below `t_c` at the surface
+    /// with no warm layer above is `0.0`; one warmer than `t_c` all the way up is `None`.
+    pub fn isotherm_height_m(&self, t_c: f64) -> Option<f64> {
+        let h = self.heights_m();
+        let mut found = None;
+        for i in 1..self.levels.len() {
+            let (a, b) = (self.levels[i - 1].temp_c, self.levels[i].temp_c);
+            if a > t_c && b <= t_c {
+                let k = (a - t_c) / (a - b);
+                found = Some(h[i - 1] + (h[i] - h[i - 1]) * k);
+            }
+        }
+        found.or_else(|| self.levels.first().filter(|l| l.temp_c <= t_c).map(|_| 0.0))
+    }
+
     /// Surface-based CAPE (J/kg) and LCL height (m AGL) via a stepped pseudoadiabatic parcel.
     pub fn sb_parcel(&self) -> Option<(f64, f64)> {
         let p = self.parcel()?;
@@ -650,6 +669,35 @@ mod tests {
             "500 hPa height {:.0}",
             h[4]
         );
+    }
+
+    #[test]
+    fn isotherm_heights_bracket_the_right_levels() {
+        let s = supercell_profile();
+        let h = s.heights_m();
+        // 0 °C falls between 700 hPa (+10) and 500 hPa (−8); −20 °C between 400 (−18) and 300.
+        let h0 = s.isotherm_height_m(0.0).unwrap();
+        assert!(h[3] < h0 && h0 < h[4], "{h0} not in {}..{}", h[3], h[4]);
+        let hm20 = s.isotherm_height_m(-20.0).unwrap();
+        assert!(
+            h[5] < hm20 && hm20 < h[6],
+            "{hm20} not in {}..{}",
+            h[5],
+            h[6]
+        );
+        assert!(hm20 > h0);
+        // Colder than +40 °C all the way up: that level is the ground itself. Warmer than −80 °C
+        // all the way up: there is no such level in the profile.
+        assert_eq!(s.isotherm_height_m(40.0), Some(0.0));
+        assert_eq!(s.isotherm_height_m(-80.0), None);
+
+        // A shallow cold layer at the ground is not the melting level: the crossing above the
+        // warm nose is.
+        let mut nose = supercell_profile();
+        nose.levels[0].temp_c = -2.0;
+        nose.levels[1].temp_c = 3.0;
+        let n0 = nose.isotherm_height_m(0.0).unwrap();
+        assert!(n0 > nose.heights_m()[3], "{n0}");
     }
 
     #[test]

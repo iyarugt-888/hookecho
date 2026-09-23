@@ -7,6 +7,10 @@ pub struct CellSample {
     pub vil: Option<f32>,
     pub top: Option<f32>,
     pub dbz: Option<f32>,
+    /// Composite severity 0-100 (`wxdata::cellscore::severity`) at the same volume as the other
+    /// three fields — `None` on a build without the score wired in yet, same as any other
+    /// attribute a particular volume didn't carry.
+    pub severity: Option<u8>,
 }
 
 pub fn show(
@@ -154,6 +158,21 @@ pub(crate) fn attributes(ui: &mut egui::Ui, c: &Cell, trend: &[CellSample]) {
                 theme::sparkline(col, &values, egui::Color32::from_rgb(80, 165, 245));
             }
         });
+        // Severity is a composite score, not a raw measurement like the three above it, so it
+        // gets its own row and its own colour rather than crowding a fourth column — the same
+        // "how bad is this storm" number `wxdata::cellscore::severity_explain` breaks down on
+        // hover in the storm-cells table, tracked here over the cell's own lifetime instead of
+        // read at a single instant.
+        let severity: Vec<f32> = trend
+            .iter()
+            .filter_map(|s| s.severity)
+            .map(f32::from)
+            .collect();
+        if severity.len() >= 2 {
+            ui.add_space(4.0);
+            ui.small("Severity trend");
+            theme::sparkline(ui, &severity, egui::Color32::from_rgb(255, 140, 60));
+        }
     }
 }
 /// Anchor forecast clocks to the storm product, never the wall clock or radar playhead.
@@ -222,6 +241,49 @@ mod tests {
         assert!(
             labels.iter().any(|s| s == "View in 3D"),
             "actions must fit without scrolling: {labels:?}"
+        );
+    }
+
+    /// Text drawn by one frame of `attributes` for the given trend.
+    fn trend_labels(trend: &[CellSample]) -> Vec<String> {
+        let ctx = egui::Context::default();
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(900.0, 1200.0),
+            )),
+            ..Default::default()
+        };
+        let output = ctx.run_ui(input, |ui| attributes(ui, &Cell::default(), trend));
+        output
+            .shapes
+            .iter()
+            .filter_map(|s| match &s.shape {
+                egui::Shape::Text(t) => Some(t.galley.job.text.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn severity_trend_shows_only_once_two_scored_volumes_exist() {
+        let sample = |severity| CellSample {
+            vil: Some(30.0),
+            top: Some(40.0),
+            dbz: Some(60.0),
+            severity,
+        };
+        let scored = trend_labels(&[sample(Some(35)), sample(Some(62))]);
+        assert!(scored.iter().any(|s| s == "VIL trend"), "{scored:?}");
+        assert!(scored.iter().any(|s| s == "Severity trend"), "{scored:?}");
+
+        // History from before the score was wired in (or a single scored volume) draws the
+        // measured trends but no severity line from one point.
+        let unscored = trend_labels(&[sample(None), sample(Some(62))]);
+        assert!(unscored.iter().any(|s| s == "VIL trend"), "{unscored:?}");
+        assert!(
+            !unscored.iter().any(|s| s == "Severity trend"),
+            "{unscored:?}"
         );
     }
 

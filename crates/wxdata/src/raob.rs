@@ -29,7 +29,12 @@ pub struct RaobStation {
 
 /// Every fixed North American site the UWyo service currently carries, taken from its own station
 /// list rather than a hand-typed table — it is the authority on what can actually be fetched.
-pub const STATIONS: [RaobStation; 120] = [
+///
+/// Six active CONUS sites that list missed were added by hand after checking the service returns a
+/// sounding for each: Denver, Tucson, Newport NC, Wallops Island, Great Falls and Spokane. Without
+/// Denver, a click anywhere on the Front Range took Grand Junction's ascent, from the other side of
+/// the Continental Divide.
+pub const STATIONS: [RaobStation; 126] = [
     RaobStation {
         id: "70026",
         name: "Barrow",
@@ -313,10 +318,22 @@ pub const STATIONS: [RaobStation; 120] = [
         lon: -102.190,
     },
     RaobStation {
+        id: "72274",
+        name: "Tucson, AZ",
+        lat: 32.228,
+        lon: -110.956,
+    },
+    RaobStation {
         id: "72293",
         name: "San Diego, CA",
         lat: 32.845,
         lon: -117.124,
+    },
+    RaobStation {
+        id: "72305",
+        name: "Newport, NC",
+        lat: 34.776,
+        lon: -76.877,
     },
     RaobStation {
         id: "72317",
@@ -385,6 +402,12 @@ pub const STATIONS: [RaobStation; 120] = [
         lon: -120.560,
     },
     RaobStation {
+        id: "72402",
+        name: "Wallops Island, VA",
+        lat: 37.933,
+        lon: -75.467,
+    },
+    RaobStation {
         id: "72403",
         name: "Sterling, VA",
         lat: 38.977,
@@ -413,6 +436,12 @@ pub const STATIONS: [RaobStation; 120] = [
         name: "Topeka, KS",
         lat: 39.073,
         lon: -95.630,
+    },
+    RaobStation {
+        id: "72469",
+        name: "Denver, CO",
+        lat: 39.768,
+        lon: -104.869,
     },
     RaobStation {
         id: "72476",
@@ -563,6 +592,18 @@ pub const STATIONS: [RaobStation; 120] = [
         name: "Glasgow, MT",
         lat: 48.206,
         lon: -106.626,
+    },
+    RaobStation {
+        id: "72776",
+        name: "Great Falls, MT",
+        lat: 47.461,
+        lon: -111.385,
+    },
+    RaobStation {
+        id: "72786",
+        name: "Spokane, WA",
+        lat: 47.681,
+        lon: -117.627,
     },
     RaobStation {
         id: "72797",
@@ -753,18 +794,25 @@ pub const STATIONS: [RaobStation; 120] = [
 ];
 
 /// The station nearest `(lon, lat)`, or `None` when the nearest is over 800 km away (open ocean).
-/// Flat-earth distance is fine at this scale: the answer only has to beat the runner-up.
 pub fn nearest_station(lon: f64, lat: f64) -> Option<&'static RaobStation> {
+    stations_within(lon, lat, 800.0).first().map(|(s, _)| *s)
+}
+
+/// Every station within `max_km` of `(lon, lat)`, nearest first, with its distance in km — for a
+/// caller that wants a fallback when the nearest site skipped a launch. Flat-earth distance is
+/// fine at this scale: the ordering only has to be right between neighbours.
+pub fn stations_within(lon: f64, lat: f64, max_km: f64) -> Vec<(&'static RaobStation, f64)> {
     let cos = lat.to_radians().cos().abs().max(0.01);
-    let best = STATIONS.iter().min_by(|a, b| {
-        let d = |s: &RaobStation| {
-            let (dx, dy) = ((s.lon - lon) * cos, s.lat - lat);
-            dx * dx + dy * dy
-        };
-        d(a).total_cmp(&d(b))
-    })?;
-    let (dx, dy) = ((best.lon - lon) * cos * 111.32, (best.lat - lat) * 111.32);
-    ((dx * dx + dy * dy).sqrt() <= 800.0).then_some(best)
+    let mut out: Vec<_> = STATIONS
+        .iter()
+        .map(|s| {
+            let (dx, dy) = ((s.lon - lon) * cos * 111.32, (s.lat - lat) * 111.32);
+            (s, (dx * dx + dy * dy).sqrt())
+        })
+        .filter(|(_, km)| *km <= max_km)
+        .collect();
+    out.sort_by(|a, b| a.1.total_cmp(&b.1));
+    out
 }
 
 /// The synoptic launch time at or before `when`. Balloons go up at 00Z and 12Z; a 21Z click wants
@@ -907,6 +955,65 @@ pub async fn fetch(
     })
 }
 
+/// The hail algorithm's two heights from an observed ascent, and which ascent they came from.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MeltingLevels {
+    /// "Denver, CO 08 12Z" — for a status line, so a reader can see which balloon it was.
+    pub label: String,
+    /// 0 °C and −20 °C heights, metres above the launch site's own surface.
+    pub h0_m: f64,
+    pub hm20_m: f64,
+}
+
+/// 0 °C and −20 °C heights for `(lon, lat)` at `when`, from the observed sounding — archived back
+/// decades, which is what lets the hail algorithm (`crate::derived::hail`) run on a past storm
+/// with that day's melting level rather than today's model analysis.
+///
+/// Launches get skipped (weather, equipment, a gap in the archive), so this tries the two nearest
+/// sites within 400 km — far enough to reach a neighbour, near enough to be the same airmass on a
+/// storm day — each at the launch before `when` and then the one before that.
+pub async fn melting_levels(
+    client: &reqwest::Client,
+    lon: f64,
+    lat: f64,
+    when: DateTime<Utc>,
+    cache_dir: Option<std::path::PathBuf>,
+) -> anyhow::Result<MeltingLevels> {
+    let mut last_err = anyhow::anyhow!("no sounding site within 400 km");
+    for (station, _) in stations_within(lon, lat, 400.0).into_iter().take(2) {
+        for back_h in [0, 12] {
+            let at = when - chrono::Duration::hours(back_h);
+            match fetch(client, station, at, cache_dir.clone()).await {
+                Ok(snd) => match levels_of(&snd) {
+                    Some((h0_m, hm20_m)) => {
+                        return Ok(MeltingLevels {
+                            label: format!("{} {}", station.name, snd.run.format("%d %HZ")),
+                            h0_m,
+                            hm20_m,
+                        })
+                    }
+                    None => {
+                        last_err = anyhow::anyhow!(
+                            "{} at {} never reaches −20 °C",
+                            station.name,
+                            snd.run.format("%d %HZ")
+                        )
+                    }
+                },
+                Err(e) => last_err = e,
+            }
+        }
+    }
+    Err(last_err)
+}
+
+/// Both heights, or `None` when the profile is too short to reach −20 °C (a balloon that burst
+/// early) — a melting level with no hail-growth zone above it is no use to the algorithm.
+fn levels_of(snd: &Sounding) -> Option<(f64, f64)> {
+    let (h0, hm20) = (snd.isotherm_height_m(0.0)?, snd.isotherm_height_m(-20.0)?);
+    (hm20 > h0).then_some((h0, hm20))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -967,6 +1074,13 @@ mod tests {
         assert_eq!(s.id, "72357");
         // The middle of the Pacific has none.
         assert!(nearest_station(-150.0, 30.0).is_none());
+        // Denver's radar gets Denver's ascent, not Grand Junction's across the Divide.
+        assert_eq!(nearest_station(-104.55, 39.79).unwrap().id, "72469");
+        // Fallbacks come nearest first, all inside the radius.
+        let near = stations_within(-97.5, 35.4, 500.0);
+        assert_eq!(near[0].0.id, "72357");
+        assert!(near.len() > 1 && near.windows(2).all(|w| w[0].1 <= w[1].1));
+        assert!(near.iter().all(|(_, km)| *km <= 500.0));
 
         let t = |h| Utc.with_ymd_and_hms(2013, 5, 20, h, 30, 0).unwrap();
         assert_eq!(synoptic_before(t(21)).hour(), 12);

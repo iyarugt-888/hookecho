@@ -164,7 +164,7 @@ pub fn show(
                 if let Some((station, o)) = now {
                     ui.label(conditions_line(o, station));
                 }
-                ui.weak(almanac_line(at, tz));
+                ui.weak(almanac_line(at, tz, Utc::now()));
                 ui.separator();
                 if let Some(m) = minute {
                     minute_strip(ui, m);
@@ -914,8 +914,7 @@ fn conditions_line(o: &wxdata::obs::Observation, station: &str) -> String {
 
 /// `Sunrise 6:14 AM · Sunset 8:42 PM · Waxing gibbous`, or just the moon during polar day/night.
 // ponytail: words, not ↑/↓ arrows — those render as tofu boxes in the Android font stack.
-fn almanac_line(at: (f64, f64), tz: Option<wxdata::tz::Tz>) -> String {
-    let now = Utc::now();
+fn almanac_line(at: (f64, f64), tz: Option<wxdata::tz::Tz>, now: DateTime<Utc>) -> String {
     let date = match tz {
         Some(tz) => now.with_timezone(&tz).date_naive(),
         None => now.date_naive(),
@@ -1020,11 +1019,16 @@ mod tests {
 
     #[test]
     fn almanac_line_has_both_events_in_the_tropics() {
-        let s = almanac_line((-97.5, 35.5), None);
+        // A fixed date, not the wall clock: within a few days of either equinox the sun really
+        // does rise and set even at 89 N, so a `Utc::now()` version of this failed every
+        // September and March.
+        let solstice: DateTime<Utc> = "2026-06-21T12:00:00Z".parse().unwrap();
+        let s = almanac_line((-97.5, 35.5), None, solstice);
         assert!(s.contains("Sunrise") && s.contains("Sunset"), "got {s}");
-        // Polar latitudes lose the sun but keep the moon.
-        let polar = almanac_line((15.0, 89.0), None);
+        // Polar latitudes lose the sun (midnight sun here) but keep the moon.
+        let polar = almanac_line((15.0, 89.0), None, solstice);
         assert!(!polar.contains("Sunrise"), "got {polar}");
+        assert!(!polar.is_empty());
     }
 }
 

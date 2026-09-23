@@ -343,8 +343,16 @@ enum OverlayMsg {
         u16,
         Box<wxdata::ensemble::EnsembleRun>,
     ),
-    /// `(0 °C, −20 °C)` level heights above sea level, in metres, at the active radar.
-    FreezingLevels(f64, f64),
+    /// `(0 °C, −20 °C)` level heights above sea level, in metres, at `site`'s radar — for the
+    /// melting-level `epoch` they were requested for (see [`OverlaySource::FreezingLevels`]), so
+    /// a reply that lands after the user moved to another site or time is filed under the one it
+    /// actually answers.
+    FreezingLevels {
+        site: String,
+        epoch: Option<chrono::DateTime<chrono::Utc>>,
+        h0: f64,
+        hm20: f64,
+    },
     /// Local storm reports: live trailing window (`None`) or an archive bucket (feature CC).
     StormReports(Option<i64>, Vec<wxdata::spc::StormReport>),
     /// Live Spotter Network positions (CONUS-wide; filtered to the active site at draw time).
@@ -484,8 +492,17 @@ enum OverlaySource {
     Ensemble(wxdata::ensemble::EnsembleField, u16),
     /// Gridded L3 product (DVL/EET) for a site, projected to a lat/lon field (feature X).
     L3Grid(crate::render::FieldLayer, String),
-    /// Melting-level and −20 °C heights at `(lon, lat)`, for the derived hail grids.
-    FreezingLevels(f64, f64),
+    /// Melting-level and −20 °C heights at `site`'s radar (`lon`, `lat`, `elev_m` above sea
+    /// level), for the derived hail grids. `epoch: None` is the live HRRR analysis; `Some(t)` is
+    /// the observed sounding at synoptic time `t`, for an archived volume — so a storm from 2013
+    /// is integrated with 2013's melting level, not today's.
+    FreezingLevels {
+        site: String,
+        lon: f64,
+        lat: f64,
+        elev_m: f64,
+        epoch: Option<chrono::DateTime<chrono::Utc>>,
+    },
     /// NOHRSC observed snowfall analysis over an accumulation window (hours).
     Snow(u16),
     /// Banded snow: the MRMS mosaic cut to elongated echo and masked to snow.
@@ -975,7 +992,7 @@ impl OverlaySource {
             Self::Spotters => RequestLane::Feed(FeedSource::SpotterNetwork),
             Self::ProbSevere => RequestLane::Feed(FeedSource::ProbSevere),
             Self::Fronts => RequestLane::Feed(FeedSource::SurfaceAnalysis),
-            Self::FreezingLevels(..) => RequestLane::Feed(FeedSource::FreezingLevels),
+            Self::FreezingLevels { .. } => RequestLane::Feed(FeedSource::FreezingLevels),
             Self::Obs { .. } => RequestLane::Feed(FeedSource::RadarObservations),
             Self::Vwp(..) => RequestLane::Feed(FeedSource::VadProfile),
             Self::ArchiveWarnings(..) => RequestLane::Feed(FeedSource::ArchivedWarnings),
@@ -1448,7 +1465,40 @@ impl OverlaySource {
                     )?,
                 )
             }
-            OverlaySource::FreezingLevels(lon, lat) => {
+            OverlaySource::FreezingLevels {
+                site,
+                lon,
+                lat,
+                elev_m,
+                epoch: Some(t),
+            } => {
+                // An archived volume: the balloon that went up that day, not today's model.
+                let m = wxdata::raob::melting_levels(http, lon, lat, t, crate::paths::cache_dir())
+                    .await?;
+                log::info!(
+                    target: "wxdata::derived",
+                    "{site}: melting level {:.1} km, −20 °C {:.1} km, from {}",
+                    m.h0_m / 1000.0,
+                    m.hm20_m / 1000.0,
+                    m.label
+                );
+                // Above the launch site's surface, taken as above the radar (the two sit within a
+                // few hundred metres of each other everywhere in CONUS — see `melting_levels`),
+                // then put back on the sea-level datum the HRRR branch below reports in.
+                OverlayMsg::FreezingLevels {
+                    site,
+                    epoch: Some(t),
+                    h0: m.h0_m + elev_m,
+                    hm20: m.hm20_m + elev_m,
+                }
+            }
+            OverlaySource::FreezingLevels {
+                site,
+                lon,
+                lat,
+                epoch: None,
+                ..
+            } => {
                 // HRRR carries both isotherm heights as analysis fields, so the hail algorithm
                 // sources its own thermodynamics instead of asking the user for a freezing level.
                 let h0 = wxdata::hrrr::fetch_field(
@@ -1474,7 +1524,12 @@ impl OverlaySource {
                     h0.field.sample_bilinear(lon, lat),
                     hm20.field.sample_bilinear(lon, lat),
                 ) {
-                    (Some(a), Some(b)) => OverlayMsg::FreezingLevels(a as f64, b as f64),
+                    (Some(a), Some(b)) => OverlayMsg::FreezingLevels {
+                        site,
+                        epoch: None,
+                        h0: a as f64,
+                        hm20: b as f64,
+                    },
                     _ => anyhow::bail!("no freezing levels at {lon},{lat}"),
                 }
             }
@@ -3689,10 +3744,13 @@ pub struct HookEchoApp {
     /// `(volume name, echo-top threshold, enabled-layer mask, melting level)`. Any of them moving
     /// recomputes.
     derived_key: Option<(String, u32, u8, i32)>,
-    /// `(site, 0 °C height, −20 °C height)` above sea level in metres, for the hail grids, plus
-    /// the clock that refreshes them on the environment cadence.
-    freezing: Option<(String, f64, f64)>,
-    freezing_last_fetch: Option<Instant>,
+    /// `(site, epoch, 0 °C height, −20 °C height)` above sea level in metres, for the hail grids
+    /// and every other consumer of a melting level. `epoch` is `None` for the live HRRR analysis
+    /// and the synoptic time of the observed sounding for an archived volume — read through
+    /// [`App::freezing_for`], which only hands a view the levels for its own site and epoch.
+    freezing: Option<(String, Option<chrono::DateTime<chrono::Utc>>, f64, f64)>,
+    /// When, and for which `(site, epoch)`, the last request went out — the throttle.
+    freezing_last_fetch: Option<(Instant, String, Option<chrono::DateTime<chrono::Utc>>)>,
     /// Accumulation window (hours) for the observed snowfall analysis, and the one last fetched.
     snow_hours: u16,
     snow_fetched: Option<u16>,
@@ -5782,22 +5840,16 @@ impl HookEchoApp {
             return;
         }
         let site = self.views[self.active].site.clone();
-        // The hail algorithm needs the melting level, and the only source for it is the current
-        // model analysis — so, like the live mosaic, the hail grids are live-only rather than
-        // quietly applying today's freezing level to a storm from 2021.
-        let live = self.views[self.active].timeline.following;
-        let mask = if live { mask } else { mask & !HAIL_BITS };
-        if mask == 0 {
-            self.derived_key = None;
-            return;
-        }
-        // Freezing levels are only worth a request when a hail grid is actually on.
-        let levels = match (mask & HAIL_BITS != 0, &self.freezing, &site) {
-            (true, Some((s, h0, hm20)), Some(cur)) if s == cur => Some((*h0, *hm20)),
-            _ => None,
+        // The hail algorithm needs the melting level: the live HRRR analysis while following the
+        // feed, the observed sounding from that day on an archived volume (`freezing_for` never
+        // mixes the two). Only worth a request when a hail grid is actually on.
+        let levels = if mask & HAIL_BITS != 0 {
+            self.freezing_for(self.active)
+        } else {
+            None
         };
         if mask & HAIL_BITS != 0 && levels.is_none() {
-            self.fetch_freezing_levels(ctx);
+            self.fetch_freezing_levels(ctx, self.active);
         }
         // Beam heights are above the radar; the model heights are above sea level.
         let radar_m = site
@@ -5869,24 +5921,60 @@ impl HookEchoApp {
     }
 
     /// Refresh the melting-level heights the hail grids need, on the environment cadence.
-    fn fetch_freezing_levels(&mut self, ctx: &egui::Context) {
-        let Some(site) = self.views[self.active]
+    /// Which melting level view `idx` wants: `None` for the live HRRR analysis while it follows
+    /// the feed, or the synoptic launch at or before its volume's scan time when it is scrubbing
+    /// the archive — the observed ascent that day, not today's model.
+    fn freezing_epoch(&self, idx: usize) -> Option<chrono::DateTime<chrono::Utc>> {
+        let v = &self.views[idx];
+        if v.timeline.following {
+            return None;
+        }
+        v.volume
+            .as_ref()
+            .map(|vol| wxdata::raob::synoptic_before(vol.time))
+    }
+
+    /// `(0 °C, −20 °C)` heights above sea level for view `idx`, only when the cached ones were
+    /// fetched for its own site *and* epoch — a live reading must never stand in for an archived
+    /// storm's, or one site's for another's.
+    fn freezing_for(&self, idx: usize) -> Option<(f64, f64)> {
+        let site = self.views[idx].site.as_deref()?;
+        let epoch = self.freezing_epoch(idx);
+        self.freezing
+            .as_ref()
+            .filter(|(s, e, ..)| s == site && *e == epoch)
+            .map(|(.., h0, hm20)| (*h0, *hm20))
+    }
+
+    /// Request the melting level view `idx` wants (see [`Self::freezing_epoch`]). Throttled per
+    /// `(site, epoch)`: the live analysis refreshes on the 15-minute environment cadence, and an
+    /// archived ascent never changes, so the same cadence only paces retries after a failure.
+    fn fetch_freezing_levels(&mut self, ctx: &egui::Context, idx: usize) {
+        let Some(site) = self.views[idx]
             .site
             .as_deref()
             .and_then(wxdata::sites::site_by_id)
         else {
             return;
         };
+        let epoch = self.freezing_epoch(idx);
         if self
             .freezing_last_fetch
-            .is_some_and(|t| t.elapsed().as_secs() < 900)
+            .as_ref()
+            .is_some_and(|(t, s, e)| s == site.id && *e == epoch && t.elapsed().as_secs() < 900)
         {
             return;
         }
-        self.freezing_last_fetch = Some(Instant::now());
+        self.freezing_last_fetch = Some((Instant::now(), site.id.to_string(), epoch));
         self.spawn_overlay(
             ctx,
-            OverlaySource::FreezingLevels(site.longitude as f64, site.latitude as f64),
+            OverlaySource::FreezingLevels {
+                site: site.id.to_string(),
+                lon: site.longitude as f64,
+                lat: site.latitude as f64,
+                elev_m: site.elevation_meters as f64,
+                epoch,
+            },
         );
     }
 
@@ -8361,23 +8449,15 @@ impl HookEchoApp {
         // which would conflict with `v`'s already-borrowed `&mut self.views[idx]` if called after.
         // `fetch_freezing_levels` self-throttles to 900s and no-ops without a site, so calling it
         // on every inspection is cheap, not a fetch storm.
-        if self
-            .freezing
-            .as_ref()
-            .is_none_or(|(s, ..)| Some(s.as_str()) != site.as_deref())
-        {
-            self.fetch_freezing_levels(ctx);
+        //
+        // Only meaningful for the gate's own site and time — `self.freezing` is a single
+        // most-recent cache, so `freezing_for` filters out another site's reading, or a live one
+        // standing in for an archived volume's. Read before `v` for the same borrow reason.
+        let freezing = self.freezing_for(idx);
+        if freezing.is_none() {
+            self.fetch_freezing_levels(ctx, idx);
         }
         let v = &mut self.views[idx];
-        // Only meaningful for the gate's own site — `self.freezing` is a single most-recent-site
-        // cache (see `fetch_freezing_levels`), not one entry per site, so a stale reading from a
-        // previously followed site must not leak into this one's UDP inputs. `self.freezing` is a
-        // field disjoint from `self.views`, so reading it here doesn't conflict with `v`'s borrow.
-        let freezing = self
-            .freezing
-            .as_ref()
-            .filter(|(s, _, _)| Some(s.as_str()) == site.as_deref())
-            .map(|(_, h0, hm20)| (*h0, *hm20));
         let antenna_altitude_m = site
             .as_deref()
             .and_then(wxdata::sites::site_by_id)
@@ -8878,9 +8958,9 @@ impl HookEchoApp {
 
     /// ZDR columns and the bright band, both from a full pass over the active pane's tilts.
     ///
-    /// The freezing level comes from the same model analysis the hail grids use, so this needs a
-    /// live pane with that fetch already done; without it there is nothing to be "above" and the
-    /// answer is empty.
+    /// The freezing level is the same one the hail grids use (`freezing_for`: the live analysis,
+    /// or the observed sounding for an archived volume), so this needs that fetch already done;
+    /// without it there is nothing to be "above" and the answer is empty.
     fn compute_zdr_columns(
         &mut self,
         idx: usize,
@@ -8902,10 +8982,10 @@ impl HookEchoApp {
             .as_deref()
             .and_then(wxdata::sites::site_by_id)
             .map_or(0.0, |s| s.elevation_meters as f64 / 1000.0);
-        let h0_km = match (&self.freezing, &site) {
-            (Some((s, h0, _)), Some(cur)) if s == cur => *h0 / 1000.0 - radar_km,
-            _ => {
-                self.fetch_freezing_levels(ctx);
+        let h0_km = match self.freezing_for(idx) {
+            Some((h0, _)) => h0 / 1000.0 - radar_km,
+            None => {
+                self.fetch_freezing_levels(ctx, idx);
                 return Vec::new();
             }
         };
@@ -11153,7 +11233,17 @@ impl HookEchoApp {
                         if self.cells_site.as_deref() != Some(site.as_str()) {
                             self.cell_trends.clear();
                         }
-                        for c in &cells {
+                        // The same score the storm-cells table ranks by, from the same cached
+                        // couplets, so the trend line and the table's number never disagree. Read
+                        // from the cache only: a cell-product arrival must not kick off a
+                        // rotation detection pass of its own.
+                        let couplets: &[wxdata::rotation::CoupletHit] = match &self.couplet_cache {
+                            Some((_, (hits, ..))) => hits,
+                            None => &[],
+                        };
+                        let scores: Vec<u8> =
+                            wxdata::cellscore::score_all(&cells, &self.probsevere, couplets);
+                        for (c, &score) in cells.iter().zip(&scores) {
                             if c.id.is_empty() {
                                 continue;
                             }
@@ -11162,10 +11252,12 @@ impl HookEchoApp {
                                 vil: c.vil,
                                 top: c.top_kft,
                                 dbz: c.max_dbz,
+                                severity: Some(score),
                             };
                             // Skip a duplicate of the last sample (same volume re-fetched).
                             if hist.last().is_none_or(|s| {
-                                (s.vil, s.top, s.dbz) != (sample.vil, sample.top, sample.dbz)
+                                (s.vil, s.top, s.dbz, s.severity)
+                                    != (sample.vil, sample.top, sample.dbz, sample.severity)
                             }) {
                                 hist.push(sample);
                                 if hist.len() > 40 {
@@ -11296,11 +11388,12 @@ impl HookEchoApp {
                 }
                 OverlayMsg::Spotters(spotters) => self.spotters = spotters,
                 OverlayMsg::Fronts(a) => self.fronts = Some(a),
-                OverlayMsg::FreezingLevels(h0, hm20) => {
-                    if let Some(site) = self.views[self.active].site.clone() {
-                        self.freezing = Some((site, h0, hm20));
-                    }
-                }
+                OverlayMsg::FreezingLevels {
+                    site,
+                    epoch,
+                    h0,
+                    hm20,
+                } => self.freezing = Some((site, epoch, h0, hm20)),
                 OverlayMsg::ProbSevere(f) => {
                     self.evaluate_probsevere_rules(&f);
                     self.probsevere = f;

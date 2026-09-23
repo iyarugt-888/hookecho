@@ -1733,7 +1733,10 @@ and an unbounded accumulator does not. Caught in review before it shipped: the f
 *raw*, pre-corroboration hits for the replay, which would have shown a sparkline ending in a
 different number than the marker label beside it; fixed to cache the corroborated hits instead,
 filled right after `cross_corroborate` runs, so the sparkline's last point is always the number on
-screen.
+screen. Cell scoring got the same "timeline of score changes": each cell's trend history now records
+its composite severity alongside VIL/top/reflectivity, and the cell console draws it as its own
+sparkline — computed from the same cached couplets the storm-cells table reads, so the trend's last
+point is the table's number.
 
 Every item this section originally opened with is now done. What is left in the algorithm-lab
 neighbourhood is smaller, standalone follow-ups rather than open roadmap items: a first backtest
@@ -3124,7 +3127,21 @@ Metrics:
 Scope today: HRRR, RAP and the NAMs, for 2 m temperature and dewpoint, over the whole domain or the
 map view. It is a region score, not a point series.
 
-## K2. Radar algorithm verification
+## K2. Radar algorithm verification — partly done
+
+TDS and rotation are backtested against LSRs, DAT surveys and observed warnings (see C5). Hail
+diagnostics now are too: `--headless-backtest` runs `wxdata::derived::hail` (MEHS/POSH) on every
+reflectivity tilt of each archived volume, reduces the grid to discrete cores
+(`derived::hail_cores`, confidence = peak POSH), and scores them against severe (≥ ¾ in) hail
+LSRs with the same table, range split and missed-report list the two tornado detectors get. The
+melting level comes from the observed sounding that day (`wxdata::raob::melting_levels`: nearest
+two sites within 400 km, falling back a launch), since HRRR's public archive does not reach most of
+the backtest events. First result, Denver 8 May 2017 (KFTG, 10 volumes, melting level from Denver's
+own 12Z ascent): POD 88% (22 of 25 reports) at every POSH floor, FAR 85% → 60% and CSI 13% → 51% as
+the floor rises from 0 to 80%. The same storm raised 75 debris-signature false alarms — large hail
+lowers CC just as debris does — which is the next thing worth teaching the TDS detector about.
+
+Still open: user-defined products, and the SPC tornado database.
 
 Backtest:
 

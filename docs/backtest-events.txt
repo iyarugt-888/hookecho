@@ -22,3 +22,6 @@ KOHX 2020-03-03 05:35   # Nashville and Cookeville, TN (dual-pol, night)
 KSGF 2011-05-22 21:25   # Joplin, MO - KSGF was not yet dual-pol; debris signatures are impossible
 # Not mainly a tornado day, to measure false alarms in a big hail and wind storm:
 KDVN 2020-08-10 17:30   # Iowa derecho
+# A hail case, for the MEHS/POSH table (and a debris-signature false-alarm test: large hail
+# lowers CC too):
+KFTG 2017-05-08 20:20   # Denver, CO hailstorm

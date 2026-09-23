@@ -76,7 +76,7 @@ impl OverlayMsg {
             | Self::Ero(_, _)
             | Self::FireWx(_, _)
             | Self::Placefile(_, _)
-            | Self::FreezingLevels(_, _)
+            | Self::FreezingLevels { .. }
             | Self::StormReports(_, _)
             | Self::ProbSevere(_)
             | Self::Obs(_, Err(_))

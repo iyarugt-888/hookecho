@@ -4647,6 +4647,16 @@ struct BacktestEvent {
     /// score changes" C5 asks for. See `wxdata::scoretrack`'s own doc comment.
     tds_tracks: Vec<wxdata::scoretrack::ScoreTrack>,
     rot_tracks: Vec<wxdata::scoretrack::ScoreTrack>,
+    /// Hail cores (`wxdata::derived::hail_cores`) from each volume's MEHS/POSH grids, confidence
+    /// being the core's peak POSH as a fraction. Empty when `freezing` is `None`: the algorithm
+    /// cannot run without a melting level, and a guessed one would score a guess.
+    hail: Vec<wxdata::detverify::Detection>,
+    /// Hail reports at or above `SEVERE_HAIL_IN` (or with no size given), same radar-local
+    /// filter as `truths`.
+    hail_truths: Vec<wxdata::detverify::Truth>,
+    /// Where the hail algorithm's 0 °C / −20 °C heights came from and what they were: a label
+    /// for the observed sounding, then both heights in metres above the radar.
+    freezing: Option<(String, f64, f64)>,
     volumes: usize,
     /// Volumes that actually carried a correlation-coefficient tilt. Some pre-2013 archives
     /// (the WSR-88D dual-pol rollout ran 2011-2013) have none at all, in which case `tds` is
@@ -4658,6 +4668,37 @@ struct BacktestEvent {
 /// minutes of its volume verifies it.
 const BACKTEST_RADIUS_KM: f64 = 10.0;
 const BACKTEST_WINDOW_MIN: i64 = 15;
+
+/// A hail core is a connected patch of POSH at or above this, so the confidence table's rows are
+/// minimum *peak* POSH. Low enough that the 30% row is a real filter over the raw candidates; high
+/// enough that one storm's weak fringe does not bridge two storms into one patch.
+const HAIL_MIN_POSH: f32 = 20.0;
+/// Witt et al.'s own definition of "severe" hail, the event POSH is the probability of: 19 mm.
+const SEVERE_HAIL_IN: f64 = 0.75;
+
+/// The 0 °C and −20 °C heights for the hail algorithm, from the observed sounding nearest `site`
+/// at the synoptic time before `when` — archived back past every event in the backtest file,
+/// unlike the HRRR analysis the live map uses (whose public archive starts in 2014).
+///
+/// Heights are above the sounding site's own surface, standing in for "above the radar": the two
+/// are within a few hundred metres of each other at every CONUS pairing, small beside the
+/// 3-4 km between the two levels. Label, then (h0, hm20) in metres.
+async fn freezing_levels_for(
+    site: &str,
+    when: chrono::DateTime<chrono::Utc>,
+) -> Option<(String, f64, f64)> {
+    let s = wxdata::sites::site_by_id(site)?;
+    let http = reqwest::Client::new();
+    match wxdata::raob::melting_levels(&http, s.longitude as f64, s.latitude as f64, when, None)
+        .await
+    {
+        Ok(m) => Some((m.label, m.h0_m, m.hm20_m)),
+        Err(e) => {
+            eprintln!("  {site}: no sounding for the hail algorithm, {e}");
+            None
+        }
+    }
+}
 
 /// The storm-based warnings valid at `t`, or empty on any fetch/parse error — one bad instant
 /// (the archive is a live third-party service) costs that volume's warning count, not the whole
@@ -4693,6 +4734,8 @@ fn backtest_event(
         rot_observed,
         tds_tracks,
         rot_tracks,
+        hail,
+        freezing,
     ) = rt.block_on(async {
         let mut ids: Vec<_> = level2::list_volumes(site, day)
             .await?
@@ -4720,6 +4763,8 @@ fn backtest_event(
         // structure that loses which hits belong to the same recurring feature.
         let mut tds_tracks: Vec<wxdata::scoretrack::ScoreTrack> = Vec::new();
         let mut rot_tracks: Vec<wxdata::scoretrack::ScoreTrack> = Vec::new();
+        let mut hail = Vec::new();
+        let freezing = freezing_levels_for(site, first).await;
         for (t, id) in ids {
             let scan = match level2::download_scan(id, None).await {
                 Ok(s) => s,
@@ -4760,6 +4805,37 @@ fn backtest_event(
             // either side's boost feeding the other's back in.
             wxdata::tds::cross_corroborate(&mut hits, &mut couplets);
             let minute = minute_of(t);
+
+            // Hail: MEHS/POSH over every reflectivity tilt (the column integral needs all of
+            // them, not the four the two detectors above read), reduced to discrete cores.
+            let mut hail_here = 0usize;
+            if let Some((_, h0, hm20)) = &freezing {
+                let zs: Vec<_> = (0..level2::elevation_angles(&scan).len())
+                    .filter_map(|tilt| level2::bin_scan(&scan, Moment::Reflectivity, tilt).ok())
+                    .collect();
+                let opts = wxdata::derived::DerivedOpts {
+                    time: t,
+                    ..Default::default()
+                };
+                if let Some(grids) = wxdata::derived::hail(&zs, *h0, *hm20, &opts) {
+                    let (rlon, rlat) = (zs[0].radar_lon as f64, zs[0].radar_lat as f64);
+                    for c in wxdata::derived::hail_cores(&grids, HAIL_MIN_POSH) {
+                        // Same reach the two detectors use, so every truth filter below applies.
+                        let range_km = crate::geo::great_circle([rlon, rlat], [c.lon, c.lat]).0;
+                        if range_km > 150.0 {
+                            continue;
+                        }
+                        hail_here += 1;
+                        hail.push(Detection {
+                            lon: c.lon,
+                            lat: c.lat,
+                            confidence: c.posh / 100.0,
+                            minute,
+                            range_km: range_km as f32,
+                        });
+                    }
+                }
+            }
 
             tds_tracks = wxdata::scoretrack::associate(
                 &tds_tracks,
@@ -4840,7 +4916,7 @@ fn backtest_event(
                 range_km: c.range_km,
             }));
             println!(
-                "  {site} {}  {} debris signature(s), {} couplet(s)",
+                "  {site} {}  {} debris signature(s), {} couplet(s), {hail_here} hail core(s)",
                 t.format("%H:%M"),
                 hits.len(),
                 couplets.len()
@@ -4858,6 +4934,8 @@ fn backtest_event(
             rot_observed,
             tds_tracks,
             rot_tracks,
+            hail,
+            freezing,
         ))
     })?;
 
@@ -4876,23 +4954,40 @@ fn backtest_event(
     // (150 km, both detectors' own `max_range_km`) plus `BACKTEST_RADIUS_KM`'s own match radius,
     // so nothing a real match could reach is filtered out.
     const TRUTH_MAX_RANGE_KM: f64 = 150.0 + BACKTEST_RADIUS_KM;
+    let local = |r: &&wxdata::spc::StormReport| {
+        radar_pos.is_none_or(|(rlon, rlat)| {
+            crate::geo::great_circle([rlon, rlat], [r.lon, r.lat]).0 <= TRUTH_MAX_RANGE_KM
+        })
+    };
+    let to_truth = |r: &wxdata::spc::StormReport| {
+        // Reports carry a time of day; the nearest day to the window resolves midnight.
+        let minute = wxdata::confirm::report_minute(&r.time, minute_of(first))?;
+        Some(Truth {
+            lon: r.lon,
+            lat: r.lat,
+            minute,
+        })
+    };
     let truths: Vec<Truth> = reports
         .iter()
         .filter(|r| r.kind == wxdata::spc::ReportKind::Tornado)
+        .filter(local)
+        .filter_map(to_truth)
+        .collect();
+    // Hail reports carry their size as "1.75 INCH". Sub-severe hail is not what POSH predicts,
+    // so it is not a miss; a report with no size is still a report of hail and stays in.
+    let hail_truths: Vec<Truth> = reports
+        .iter()
+        .filter(|r| r.kind == wxdata::spc::ReportKind::Hail)
         .filter(|r| {
-            radar_pos.is_none_or(|(rlon, rlat)| {
-                crate::geo::great_circle([rlon, rlat], [r.lon, r.lat]).0 <= TRUTH_MAX_RANGE_KM
-            })
+            r.magnitude
+                .split_whitespace()
+                .next()
+                .and_then(|n| n.parse::<f64>().ok())
+                .is_none_or(|inches| inches >= SEVERE_HAIL_IN)
         })
-        .filter_map(|r| {
-            // Reports carry a time of day; the nearest day to the window resolves midnight.
-            let minute = wxdata::confirm::report_minute(&r.time, minute_of(first))?;
-            Some(Truth {
-                lon: r.lon,
-                lat: r.lat,
-                minute,
-            })
-        })
+        .filter(local)
+        .filter_map(to_truth)
         .collect();
 
     // NWS Damage Assessment Toolkit surveyed tracks, over the same window and the same radar-local
@@ -4961,6 +5056,9 @@ fn backtest_event(
         rot_observed,
         tds_tracks,
         rot_tracks,
+        hail,
+        hail_truths,
+        freezing,
         volumes,
         dual_pol_volumes,
     })
@@ -5087,6 +5185,41 @@ fn print_backtest_tables(events: &[BacktestEvent]) {
             }
         }
     }
+
+    // Hail: scored against severe hail reports, not tornadoes, and only for events that had a
+    // melting level to run the algorithm with.
+    let no_levels: Vec<&str> = events
+        .iter()
+        .filter(|e| e.freezing.is_none())
+        .map(|e| e.label.as_str())
+        .collect();
+    let scored: Vec<&BacktestEvent> = events.iter().filter(|e| e.freezing.is_some()).collect();
+    let total: usize = scored.iter().map(|e| e.hail.len()).sum();
+    println!(
+        "\nHail cores (MEHS/POSH): {total} detection(s) over {} event(s)",
+        scored.len()
+    );
+    if !no_levels.is_empty() {
+        println!(
+            "  left out, no sounding to take a melting level from: {}",
+            no_levels.join(", ")
+        );
+    }
+    if scored.is_empty() {
+        return;
+    }
+    for e in &scored {
+        if let Some((from, h0, hm20)) = &e.freezing {
+            println!(
+                "  {}: 0 °C {:.1} km, −20 °C {:.1} km ({from})",
+                e.label,
+                h0 / 1000.0,
+                hm20 / 1000.0
+            );
+        }
+    }
+    println!("  vs hail reports >= {SEVERE_HAIL_IN:.2} in (\"min conf\" is the core's peak POSH):");
+    score_and_print(&scored, |e| e.hail.clone(), |e| &e.hail_truths);
 }
 
 /// One detector's scoring against one truth set: the per-threshold table, the raw-candidate
@@ -5236,12 +5369,15 @@ fn print_event_line(e: &BacktestEvent) {
         ""
     };
     println!(
-        "{}: {} volume(s), {} debris signature(s), {} couplet(s), {} tornado report(s){cc_note}",
+        "{}: {} volume(s), {} debris signature(s), {} couplet(s), {} tornado report(s), \
+         {} hail core(s), {} severe hail report(s){cc_note}",
         e.label,
         e.volumes,
         e.tds.len(),
         e.rot.len(),
-        e.truths.len()
+        e.truths.len(),
+        e.hail.len(),
+        e.hail_truths.len()
     );
 }
 
@@ -5253,6 +5389,9 @@ fn print_event_line(e: &BacktestEvent) {
 /// as verified when a report lies within 10 km of it and within 15 minutes of the volume. The table
 /// is by minimum confidence, so it shows what the filter slider would cost and buy. Reports come
 /// from the Iowa Mesonet; a tornado nobody reported counts against the detector.
+///
+/// Hail is scored the same way against severe hail reports: MEHS/POSH cores from every tilt, with
+/// the melting level taken from the archived sounding nearest the radar.
 pub fn run_detector_backtest(
     site: &str,
     date: &str,
