@@ -1746,7 +1746,8 @@ columns chained through fields of weak low-CC fragments by single linkage and we
 the chain's centroid — 12 km from the tornado on Mayfield, never paired with its 72 kt couplet. A
 column is now described by its strongest core (`tds::strongest_core`). At an 80% floor, debris
 went from 43% POD / 33% FAR to 49% / 31%, and rotation (through corroboration) from 14% / 64% to
-19% / 58%; no threshold got worse.
+19% / 58%; no threshold got worse. `tds-6` then discounts debris with no couplet beside it when
+velocity was scanned (the hail case, see K2): FAR at 60% from 69% to 51%, same POD.
 
 Every item this section originally opened with is now done. What is left in the algorithm-lab
 neighbourhood is smaller, standalone follow-ups rather than open roadmap items: a first backtest
@@ -3151,15 +3152,21 @@ own 12Z ascent): POD 88% (22 of 25 reports) at every POSH floor, FAR 85% → 60%
 the floor rises from 0 to 80%. Over all nine events in the (since corrected) backtest file: POD 83%
 (50 of 60) up to a 40% POSH floor, CSI peaking at 20% at 60%.
 
-The Denver storm also raised 75 debris-signature false alarms. Looked into, they are two things:
-hail near the ground (the Wheat Ridge hit sits under 23-34 mm of MEHS) and terrain clutter from
-the Front Range foothills 55-70 km west of KFTG (no hail aloft at all). Neither spectrum width nor
-MEHS over the hit separates them from real debris — Mayfield's ball reads 1.9 m/s of SW, Moore's
-sits under 20 mm of MEHS — so neither shipped as a discount. What the investigation did find was a
-bigger problem: debris columns chained through fragment fields and were placed kilometres from
-their tornadoes, which broke debris/rotation corroboration on Mayfield (fixed in `tds-5`, see C5
-and the changelog). A terrain-clutter mask (C3's beam-blockage work already has the terrain) is
-the natural next attempt at the Denver cases.
+The Denver storm also raised 75 debris-signature false alarms: hail near the ground, some of it
+over the Front Range foothills 55-70 km west of KFTG. Three candidate discriminators were measured
+against real debris balls and none separated them: spectrum width (Mayfield's ball reads 1.9 m/s,
+inside the false alarms' range), MEHS over the hit (Moore's ball sits under 20 mm), and the share
+of near-zero-velocity gates (the foothill hits read 0% — moving storm echo, not ground clutter,
+so a terrain mask would not have helped either). The discriminator that did work is the one in
+the operational TDS definition: real balls sit beside a couplet, the Denver hits never did. `tds-6`
+discounts a signature with no credible couplet within 5 km when velocity was scanned (x0.8); CSI
+went up or stayed at every threshold, FAR at 60% from 69% to 51% at the same POD. Along the way the
+investigation found a bigger problem — debris columns chained through fragment fields and placed
+kilometres from their tornadoes (fixed in `tds-5`, see C5).
+
+Open from this: Nashville (KOHX, 3 Mar 2020), whose couplet the rotation detector places 6.5 km
+from its debris ball — the one tornado the discount cost at the top thresholds. Whether that is the
+couplet's position or the ball's is the next thing to look at.
 
 Still open: user-defined products, and the SPC tornado database.
 

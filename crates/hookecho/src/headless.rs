@@ -815,7 +815,7 @@ pub fn run_tds_archive(site: &str, date: &str, hhmm: &str) -> anyhow::Result<()>
     let mut couplets = wxdata::rotation::detect_volume(&vel_pairs, 25.0, 20.0, 15.0, 150.0, 3);
     // Corroborate both ways at once, each from the other's pre-corroboration confidence, so a
     // couplet boosted by debris cannot then be used to boost that same debris signature back.
-    wxdata::tds::cross_corroborate(&mut hits, &mut couplets);
+    wxdata::tds::cross_corroborate(&mut hits, &mut couplets, !vel_pairs.is_empty());
     let mut by_conf = couplets.clone();
     by_conf.sort_by(|a, b| b.confidence.total_cmp(&a.confidence));
     for c in by_conf.iter().take(6) {
@@ -848,7 +848,7 @@ pub fn run_tds_archive(site: &str, date: &str, hhmm: &str) -> anyhow::Result<()>
         println!(
             "  {:.3},{:.3}  conf {:>3.0}%  {} tilt(s) {:.1}-{:.1} km{} · {} gates {:.1} km² · min CC \
              {:.2} mean CC {:.2} · Z mean {:.0} max {:.0} · ZDR {} · contrast {} · rotation {} · \
-             MEHS aloft {}",
+             MEHS aloft {} · still {}",
             h.lat,
             h.lon,
             h.confidence * 100.0,
@@ -875,7 +875,16 @@ pub fn run_tds_archive(site: &str, date: &str, hhmm: &str) -> anyhow::Result<()>
                     let at = |r| wxdata::derived::mehs_at(&z_all, h.lon, h.lat, r, *h0, *hm20);
                     Some(format!("{:.0}/{:.0} mm", at(0.0)?, at(2.0)?))
                 })
-                .unwrap_or_else(|| "n/a".to_string())
+                .unwrap_or_else(|| "n/a".to_string()),
+            vel_pairs
+                .iter()
+                .map(|(v, _)| v)
+                .min_by(|a, b| a.elevation_deg.total_cmp(&b.elevation_deg))
+                .and_then(|v| {
+                    let r = ((h.area_km2 / std::f32::consts::PI).sqrt() + 0.5).clamp(1.0, 3.0);
+                    wxdata::tds::still_fraction(v, h.lon, h.lat, r)
+                })
+                .map_or("n/a".to_string(), |f| format!("{:.0}%", f * 100.0))
         );
     }
     Ok(())
@@ -4828,7 +4837,7 @@ fn backtest_event(
             // Corroborate both ways at once, each from the other's pre-corroboration confidence,
             // so the backtest scores what a debris ball beside a couplet is actually worth without
             // either side's boost feeding the other's back in.
-            wxdata::tds::cross_corroborate(&mut hits, &mut couplets);
+            wxdata::tds::cross_corroborate(&mut hits, &mut couplets, !vel_pairs.is_empty());
             let minute = minute_of(t);
             scanned.push(minute);
 

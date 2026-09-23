@@ -116,6 +116,10 @@ pub struct TdsHit {
     /// [`ROTATION_ASSOCIATE_KM`], once [`corroborate_with_rotation`] has been run. `None` means no
     /// rotation was found near this hit (or it was never checked); it is not evidence against it.
     pub rotation_ms: Option<f32>,
+    /// Set by [`cross_corroborate`] when velocity was scanned, the hit is within
+    /// [`ROTATION_MAX_RANGE_KM`], and no credible couplet sits within [`ROTATION_ASSOCIATE_KM`] of
+    /// it — and its confidence then carries [`NO_ROTATION_FACTOR`]. See that constant.
+    pub unrotated: bool,
     /// Mean differential reflectivity (dB) around the hit, once [`apply_zdr`] has been run. Debris
     /// is randomly oriented, so it reads near 0 dB; a high mean is rain or large drops with low CC
     /// from mixing, not debris. `None` when there was no ZDR to read.
@@ -172,6 +176,17 @@ pub const ROTATION_MIN_CONFIDENCE: f32 = 0.5;
 
 /// The share of the remaining gap to 1 that a full-strength couplet closes.
 const ROTATION_GAP_SHARE: f32 = 0.4;
+
+/// What a debris signature keeps when velocity was scanned and no credible couplet sits beside it.
+///
+/// Debris is lofted by a tornado, so a real signature sits in or beside the strongest low-level
+/// rotation — the operational definition of a TDS includes it. Large wet hail at S band can match
+/// debris on everything else: low CC, high Z, ZDR near 0. The Denver hailstorm of 8 May 2017 (KFTG)
+/// made 60 debris signatures in 8 volumes with no tornado, up to 78%, and none of spectrum width,
+/// MEHS over the hit, or near-zero velocity separated them from real balls; the missing couplet
+/// did. Not a veto — the rotation detector misses some real couplets — so a strong signature with
+/// no couplet still shows, just lower.
+pub const NO_ROTATION_FACTOR: f32 = 0.8;
 
 /// The most confidence a hit can have from one tilt alone.
 pub const SINGLE_TILT_CAP: f32 = 0.6;
@@ -305,7 +320,7 @@ pub fn vertical_term(top_km: f32, tilts: usize, rooted: Option<bool>) -> f32 {
 
 /// Which revision of the scoring produced a hit. Bump it whenever a weight, threshold or rule above
 /// changes, so a saved or exported detection says what logic scored it.
-pub const ALGORITHM_VERSION: &str = "tds-5";
+pub const ALGORITHM_VERSION: &str = "tds-6";
 
 /// One scored piece of evidence behind a detection.
 #[derive(Debug, Clone, PartialEq)]
@@ -340,6 +355,8 @@ pub struct Explanation {
     pub base_confidence: f32,
     /// What rotation beside the hit added, if it counted.
     pub rotation_gain: Option<f32>,
+    /// [`NO_ROTATION_FACTOR`], when velocity was scanned and no couplet sat beside the hit.
+    pub no_rotation_factor: Option<f32>,
     pub confidence: f32,
 }
 
@@ -411,6 +428,7 @@ impl TdsHit {
             zdr,
             base_confidence,
             rotation_gain,
+            no_rotation_factor: self.unrotated.then_some(NO_ROTATION_FACTOR),
             confidence: self.confidence,
         }
     }
@@ -474,7 +492,11 @@ impl Explanation {
                 v * 1.943_844,
                 ROTATION_ASSOCIATE_KM
             )),
-            _ => out.push("Rotation  none counted (not evidence against it)".to_string()),
+            _ if self.no_rotation_factor.is_some() => out.push(format!(
+                "Rotation  x{:.2}   no couplet within {:.0} km, though velocity was scanned",
+                NO_ROTATION_FACTOR, ROTATION_ASSOCIATE_KM
+            )),
+            _ => out.push("Rotation  none read here (no velocity, or too far out)".to_string()),
         }
         out
     }
@@ -623,6 +645,7 @@ pub fn detect(
             base_km: top_km,
             rooted: None,
             rotation_ms: None,
+            unrotated: false,
             zdr_db: None,
             confirmation: crate::confirm::Confirmation::NONE,
             confidence: confidence(
@@ -731,7 +754,15 @@ pub fn corroborate_with_rotation(hits: &mut [TdsHit], couplets: &[(f64, f64, f32
 /// Both `tds_hits` and `rot_hits` should be raw (uncorroborated from either direction) on the way
 /// in; corroboration cannot be re-run to layer on more of the same evidence. Both come back
 /// strongest first, per hit type.
-pub fn cross_corroborate(tds_hits: &mut [TdsHit], rot_hits: &mut [crate::rotation::CoupletHit]) {
+///
+/// `velocity_scanned` says the rotation detector had velocity to read. Then a debris signature in
+/// range with no credible couplet beside it carries [`NO_ROTATION_FACTOR`]; without velocity,
+/// "no couplet" says nothing and nothing is deducted.
+pub fn cross_corroborate(
+    tds_hits: &mut [TdsHit],
+    rot_hits: &mut [crate::rotation::CoupletHit],
+    velocity_scanned: bool,
+) {
     // Every couplet and debris signature that clears the *other* function's own floor and range,
     // read from confidence as it stood before either direction ran.
     let raw_couplets: Vec<(f64, f64, f32)> = rot_hits
@@ -746,6 +777,17 @@ pub fn cross_corroborate(tds_hits: &mut [TdsHit], rot_hits: &mut [crate::rotatio
         .collect();
     corroborate_with_rotation(tds_hits, &raw_couplets);
     crate::rotation::corroborate_with_debris(rot_hits, &raw_debris);
+    for h in tds_hits.iter_mut() {
+        h.unrotated = velocity_scanned
+            && h.range_km <= ROTATION_MAX_RANGE_KM
+            && !raw_couplets.iter().any(|(lon, lat, _)| {
+                ground_km((h.lon, h.lat), (*lon, *lat)) <= ROTATION_ASSOCIATE_KM
+            });
+        if h.unrotated {
+            h.confidence *= NO_ROTATION_FACTOR;
+        }
+    }
+    tds_hits.sort_by(|a, b| b.confidence.total_cmp(&a.confidence));
 }
 
 /// Ground distance in km between two lon/lat points, good over the few km hits are compared at.
@@ -836,8 +878,22 @@ pub fn zdr_factor(mean_db: f32) -> f32 {
 /// Mean of a sweep's decoded values within `radius_km` of a point, or `None` with fewer than four
 /// gates of data there.
 fn mean_around(sweep: &BinnedSweep, lon: f64, lat: f64, radius_km: f32) -> Option<f32> {
+    let v = values_around(sweep, lon, lat, radius_km);
+    (v.len() >= 4).then(|| v.iter().sum::<f32>() / v.len() as f32)
+}
+
+/// Share of the velocity gates within `radius_km` of a hit reading under 1 m/s either way, or
+/// `None` with fewer than four gates of velocity there.
+pub fn still_fraction(vel: &BinnedSweep, lon: f64, lat: f64, radius_km: f32) -> Option<f32> {
+    let v = values_around(vel, lon, lat, radius_km);
+    (v.len() >= 4).then(|| v.iter().filter(|x| x.abs() < 1.0).count() as f32 / v.len() as f32)
+}
+
+/// A sweep's decoded values within `radius_km` of a point (a box of azimuths x gates about it).
+fn values_around(sweep: &BinnedSweep, lon: f64, lat: f64, radius_km: f32) -> Vec<f32> {
+    let mut out = Vec::new();
     if sweep.az_bins == 0 || sweep.gate_count == 0 || sweep.gate_interval_km <= 0.0 {
-        return None;
+        return out;
     }
     let (rlon, rlat) = (f64::from(sweep.radar_lon), f64::from(sweep.radar_lat));
     let east = (lon - rlon) * ((lat + rlat) * 0.5).to_radians().cos() * 111.32;
@@ -851,7 +907,6 @@ fn mean_around(sweep: &BinnedSweep, lon: f64, lat: f64, radius_km: f32) -> Optio
     let d_az = ((f64::from(radius_km) / arc_km).ceil() as i64).clamp(1, 24);
     let g0 = ((range - sweep.first_gate_km) / sweep.gate_interval_km).round() as i64;
     let d_g = ((radius_km / sweep.gate_interval_km).ceil() as i64).clamp(1, 24);
-    let (mut sum, mut n) = (0.0f32, 0usize);
     for da in -d_az..=d_az {
         let a = (az0 + da).rem_euclid(sweep.az_bins as i64) as usize;
         for dg in -d_g..=d_g {
@@ -860,12 +915,11 @@ fn mean_around(sweep: &BinnedSweep, lon: f64, lat: f64, radius_km: f32) -> Optio
                 continue;
             }
             if let Some(v) = decode(sweep, sweep.data[a * sweep.gate_count + g as usize]) {
-                sum += v;
-                n += 1;
+                out.push(v);
             }
         }
     }
-    (n >= 4).then(|| sum / n as f32)
+    out
 }
 
 /// Read the differential reflectivity around each hit from the lowest ZDR sweep and discount the
@@ -982,6 +1036,7 @@ pub fn detect_volume(
                 base_km,
                 rooted,
                 rotation_ms: None,
+                unrotated: false,
                 zdr_db: None,
                 confirmation: crate::confirm::Confirmation::NONE,
                 confidence: confidence(ev, vertical_term(top_km, tilts, rooted)),
@@ -1590,6 +1645,7 @@ mod tests {
             base_km: 0.5,
             rooted: None,
             rotation_ms: None,
+            unrotated: false,
             zdr_db: None,
             confirmation: crate::confirm::Confirmation::NONE,
             confidence,
@@ -1725,7 +1781,7 @@ mod tests {
     fn cross_corroborate_raises_both_sides_from_their_own_raw_evidence() {
         let mut debris = [hit_at(-97.5, 35.3, 0.60)];
         let mut couplets = [couplet_at(-97.478, 35.3, 0.55)]; // ~2 km east, both credible alone
-        cross_corroborate(&mut debris, &mut couplets);
+        cross_corroborate(&mut debris, &mut couplets, true);
         assert_eq!(debris[0].rotation_ms, Some(30.0));
         assert!(
             debris[0].confidence > 0.60,
@@ -1749,7 +1805,7 @@ mod tests {
         let (debris_conf, couplet_conf) = (0.60, 0.55);
         let mut safe_debris = [hit_at(-97.5, 35.3, debris_conf)];
         let mut safe_couplets = [couplet_at(-97.478, 35.3, couplet_conf)];
-        cross_corroborate(&mut safe_debris, &mut safe_couplets);
+        cross_corroborate(&mut safe_debris, &mut safe_couplets, true);
 
         // The naive, unsafe sequence: corroborate debris from the couplet's raw confidence (fine,
         // that's the same as above), but then corroborate the couplet from debris's *already
@@ -1776,12 +1832,53 @@ mod tests {
     fn cross_corroborate_of_nothing_touches_nothing() {
         let mut debris: [TdsHit; 0] = [];
         let mut couplets: [crate::rotation::CoupletHit; 0] = [];
-        cross_corroborate(&mut debris, &mut couplets);
+        cross_corroborate(&mut debris, &mut couplets, true);
         let mut debris_only = [hit_at(-97.5, 35.3, 0.6)];
         let mut no_couplets: [crate::rotation::CoupletHit; 0] = [];
-        cross_corroborate(&mut debris_only, &mut no_couplets);
-        assert_eq!(debris_only[0].confidence, 0.6);
+        cross_corroborate(&mut debris_only, &mut no_couplets, false);
+        assert_eq!(
+            debris_only[0].confidence, 0.6,
+            "no velocity: nothing to hold against it"
+        );
         assert_eq!(debris_only[0].rotation_ms, None);
+        assert!(!debris_only[0].unrotated);
+    }
+
+    /// With velocity scanned, a signature with no couplet beside it keeps `NO_ROTATION_FACTOR`;
+    /// one with a couplet does not, and neither does one past the range couplets are read to.
+    #[test]
+    fn debris_with_no_couplet_beside_it_is_discounted_only_when_velocity_was_read() {
+        let mut lone = [hit_at(-97.5, 35.3, 0.7)];
+        cross_corroborate(&mut lone, &mut [], true);
+        assert!(lone[0].unrotated);
+        assert!((lone[0].confidence - 0.7 * NO_ROTATION_FACTOR).abs() < 1e-6);
+        let e = lone[0].explain();
+        assert_eq!(e.no_rotation_factor, Some(NO_ROTATION_FACTOR));
+        assert!(
+            e.lines(&lone[0])
+                .iter()
+                .any(|l| l.contains("no couplet within")),
+            "{:?}",
+            e.lines(&lone[0])
+        );
+
+        // A couplet 2 km away: no discount (and the usual gain).
+        let mut paired = [hit_at(-97.5, 35.3, 0.7)];
+        cross_corroborate(&mut paired, &mut [couplet_at(-97.478, 35.3, 0.55)], true);
+        assert!(!paired[0].unrotated);
+        assert!(paired[0].confidence > 0.7);
+
+        // A couplet too weak to corroborate does not rescue it either.
+        let mut weak = [hit_at(-97.5, 35.3, 0.7)];
+        cross_corroborate(&mut weak, &mut [couplet_at(-97.478, 35.3, 0.1)], true);
+        assert!(weak[0].unrotated);
+
+        // Beyond the rotation range nothing is expected, so nothing is deducted.
+        let mut far = [hit_at(-97.5, 35.3, 0.7)];
+        far[0].range_km = ROTATION_MAX_RANGE_KM + 10.0;
+        cross_corroborate(&mut far, &mut [], true);
+        assert!(!far[0].unrotated);
+        assert_eq!(far[0].confidence, 0.7);
     }
 
     #[test]
@@ -1830,7 +1927,7 @@ mod tests {
             assert!(text.contains(want), "missing {want}: {text}");
         }
         assert!(text.contains("one tilt only"), "{text}");
-        assert!(text.contains("not evidence against"), "{text}");
+        assert!(text.contains("none read here"), "{text}");
     }
 
     /// Low CC in strong echo right at the tower is clutter and sidelobes, not debris.

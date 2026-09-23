@@ -9015,13 +9015,15 @@ impl HookEchoApp {
     fn compute_tds(&mut self, idx: usize) -> Vec<wxdata::tds::TdsHit> {
         let mut hits = self.tds_raw(idx);
         // Cross-corroborate from each side's own raw evidence: a debris signature beside a
-        // couplet, and (symmetrically) a couplet beside a debris signature. `couplets_quiet`
+        // couplet, and (symmetrically) a couplet beside a debris signature. `couplets_raw`
         // reads the rotation cache without chiming — a TDS layer must not sound the rotation
         // alarm for rotation the user never asked about, only use it to corroborate its own hits.
         // `rot` itself is discarded once corroborated: what it gained here is not this cache's to
         // keep, or the couplet layer would see an already-boosted couplet and double-count it.
-        let mut rot = self.couplets_quiet(idx);
-        wxdata::tds::cross_corroborate(&mut hits, &mut rot);
+        // `scanned` (velocity tilts read) lets a signature with no couplet beside it be held to
+        // `NO_ROTATION_FACTOR` only when there was velocity to find one in.
+        let (mut rot, _, scanned) = self.couplets_raw(idx);
+        wxdata::tds::cross_corroborate(&mut hits, &mut rot, scanned > 0);
         // By volume name, so a score-timeline sparkline can replay several volumes' worth of
         // history using the exact confidence the marker itself shows, not `tds_raw`'s earlier,
         // pre-corroboration one — see `tds_shown_cache`'s own doc comment.
@@ -9128,7 +9130,7 @@ impl HookEchoApp {
     }
 
     /// Same as [`Self::tds_raw`] — the name a caller reads when it specifically wants raw hits
-    /// without side effects (i.e. it must not chime), mirroring [`Self::couplets_quiet`].
+    /// without side effects (i.e. it must not chime), mirroring [`Self::couplets_raw`].
     fn tds_quiet(&mut self, idx: usize) -> Vec<wxdata::tds::TdsHit> {
         self.tds_raw(idx)
     }
@@ -9224,7 +9226,7 @@ impl HookEchoApp {
         // not sound the TDS alarm for debris the user never asked about, only use it to
         // corroborate its own couplets. `debris` itself is discarded once corroborated.
         let mut debris = self.tds_quiet(idx);
-        wxdata::tds::cross_corroborate(&mut debris, &mut hits);
+        wxdata::tds::cross_corroborate(&mut debris, &mut hits, scanned > 0);
         // By volume name, so a score-timeline sparkline can replay several volumes' worth of
         // history using the exact confidence the marker itself shows — see `rot_shown_cache`'s
         // own doc comment.
@@ -9589,12 +9591,6 @@ impl HookEchoApp {
         let out = self.detect_couplets(idx).unwrap_or_default();
         self.couplet_cache = Some((key, out.clone()));
         out
-    }
-
-    /// This volume's couplets without side effects (i.e. it must not chime): the cached raw hits
-    /// if the rotation layer already computed them, otherwise a fresh quiet detection.
-    fn couplets_quiet(&mut self, idx: usize) -> Vec<wxdata::rotation::CoupletHit> {
-        self.couplets_raw(idx).0
     }
 
     /// "There is rotation near a place you care about" — the detection above fires once for the

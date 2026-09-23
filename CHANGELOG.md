@@ -8,6 +8,24 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Changed: debris with no couplet beside it scores lower (`tds-6`)
+
+Large wet hail at S band can look exactly like debris: low CC, high Z, ZDR near 0. The Denver
+hailstorm of 8 May 2017 raised dozens of debris signatures with no tornado, up to 78%, and
+spectrum width, MEHS over the hit and the share of near-zero velocity gates were each measured
+against real debris balls and did not separate them (the foothill hits are moving storm echo, not
+ground clutter). What did: real balls sit beside a couplet, the Denver hits never did. So when
+velocity was scanned and no credible couplet sits within 5 km, a signature within the rotation
+range keeps `NO_ROTATION_FACTOR` (0.8) of its confidence — a discount, not a veto, since the
+rotation detector misses some real couplets. With no velocity there is nothing to hold against it.
+The hover breakdown says which applied.
+
+On the backtest (POD / FAR / CSI, before → after): at 50% 49/79/11 → 49/70/19, at 60% 49/69/19 →
+49/51/29, at 70% 49/53/28 → 46/38/35, at 80% 49/31/38 → 46/32/38. CSI is equal or better at every
+threshold; the cost is one tornado of 37 at the top two floors (Nashville, whose couplet the
+rotation detector places 6.5 km from its debris ball). Detector alert floors default to 0%, so
+out of the box this only reorders what shows; it is the minimum-confidence setting it pays off in.
+
 ### Fixed: a debris signature could be placed kilometres from its own tornado (`tds-5`)
 
 Debris hits from different tilts are grouped by single linkage at 3 km, and a group's position
