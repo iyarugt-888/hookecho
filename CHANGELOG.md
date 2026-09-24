@@ -8,6 +8,24 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: GeoTIFF export of gridded layers
+
+"Export grid (GeoTIFF)…" under Share writes the active pane's top gridded layer — an MRMS mosaic,
+a field derived from the radar volume such as VIL, echo tops, MEHS or POSH, or a model field — as
+a float32 GeoTIFF in EPSG:4326 with no-data declared, which QGIS, ArcGIS, GDAL and rasterio open
+directly. The analysis export now includes it as `grid.tif`, and `--headless-mrms out.tif` writes
+the latest MRMS reflectivity from the command line.
+
+### Fixed: every MRMS layer sat half a cell north-west of where it is
+
+The MRMS GRIB decoder took the grid's first and last *points* (cell centres) as its outer edges,
+while the map, the probe and every sampler treat those bounds as edges with centres half a cell in.
+So each MRMS layer was drawn and probed about half a kilometre north-west of its true position,
+with a cell of 0.0099986° instead of 0.01°. The bounds are now widened by half a cell each way;
+the CONUS mosaic's edges come out as the round 130° W / 55° N the product is defined on. NOHRSC
+snowfall shares the decoder and is fixed with it. Found by checking the new GeoTIFF export's
+georeferencing against the product's published grid.
+
 ### Added: analysis export
 
 `Export analysis…` (under Share) saves one ZIP for other tools: the map as PNG, the case file,

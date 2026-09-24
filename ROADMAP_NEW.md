@@ -3375,16 +3375,24 @@ Optional WebSocket/SSE for state/frame-change events.
 
 Keep it localhost by default; explicit config required to bind externally.
 
-## M5. Scientific export
+## M5. Scientific export — partly done
 
 Add where practical:
 
-- GeoTIFF for georeferenced scalar grids
-- NetCDF for gridded fields
-- CF/Radial-compatible export for selected radar data if feasible
-- CSV for probes/profiles/tables
-- GeoJSON for vectors/tracks/polygons
-- JSON metadata/provenance
+- [x] GeoTIFF for georeferenced scalar grids — `wxdata::geotiff::write`: one float32 band in the
+  field's own units, EPSG:4326, pixel-is-area, NaN declared as nodata, a description naming the
+  product, source and valid time. "Export grid (GeoTIFF)…" under Share writes the active pane's
+  top gridded layer (MRMS, a derived radar field such as VIL or MEHS, a model field); the analysis
+  export includes it as `grid.tif`; `--headless-mrms out.tif` writes the latest MRMS reflectivity.
+  Checked with the `tiff` crate as an independent reader in the tests, and on a real 7000 x 3500
+  CONUS mosaic parsed back in plain Python (same valid count and maximum as the app reported).
+  Writing it found a half-cell georeferencing error in every MRMS layer — see the changelog.
+- [ ] NetCDF for gridded fields
+- [ ] CF/Radial-compatible export for selected radar data if feasible
+- [x] CSV for probes/profiles/tables — region statistics, vertical profile, point series,
+  cross-section, detections, cells, sounding, verification
+- [x] GeoJSON for vectors/tracks/polygons — map export (I6) and the analysis export's annotations
+- [x] JSON metadata/provenance — the analysis export's `provenance.json` (K4)
 
 ---
 

@@ -572,16 +572,35 @@ pub fn decode_grib2(raw: &[u8]) -> anyhow::Result<MrmsField> {
         values.len()
     );
 
+    // GRIB gives the first and last grid *points*, which are cell centres, while `MrmsField`'s
+    // corners are the grid's outer edges (`sample_bilinear`, `max_within_km` and the renderer all
+    // put centres half a cell in from them). Taking the points as the edges drew and probed every
+    // MRMS layer half a cell (~0.5 km) north-west of where it is, at a cell size of 0.0099986°
+    // instead of 0.01°; widening by half a cell each way puts it back.
+    let (half_lon, half_lat) = edge_margins(lon0, lon1, nx, lat0, lat1, ny);
     Ok(MrmsField {
         values,
         nx,
         ny,
-        lon_west: wrap_lon(lon0.min(lon1)),
-        lon_east: wrap_lon(lon0.max(lon1)),
-        lat_north: lat0.max(lat1),
-        lat_south: lat0.min(lat1),
+        lon_west: wrap_lon(lon0.min(lon1)) - half_lon,
+        lon_east: wrap_lon(lon0.max(lon1)) + half_lon,
+        lat_north: lat0.max(lat1) + half_lat,
+        lat_south: lat0.min(lat1) - half_lat,
         time,
     })
+}
+
+/// Half a cell in longitude and latitude, from the first and last grid-point centres and the
+/// point counts; zero along an axis with a single point, which has no spacing to go by.
+fn edge_margins(lon0: f64, lon1: f64, nx: usize, lat0: f64, lat1: f64, ny: usize) -> (f64, f64) {
+    let half = |a: f64, b: f64, n: usize| {
+        if n > 1 {
+            (b - a).abs() / (n - 1) as f64 / 2.0
+        } else {
+            0.0
+        }
+    };
+    (half(lon0, lon1, nx), half(lat0, lat1, ny))
 }
 
 /// Wrap a 0..360 longitude into −180..180.
@@ -604,6 +623,19 @@ fn last_key(xml: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The CONUS mosaic's GRIB grid: first point (54.995 N, 129.995 W), last (20.005 N, 60.005 W),
+    /// 7000 x 3500 at 0.01°. Its edges are the round numbers, half a cell out from those points.
+    #[test]
+    fn grid_edges_sit_half_a_cell_out_from_the_first_and_last_points() {
+        let (hlon, hlat) = edge_margins(-129.995, -60.005, 7000, 54.995, 20.005, 3500);
+        assert!((hlon - 0.005).abs() < 1e-9 && (hlat - 0.005).abs() < 1e-9);
+        assert!((-129.995 - hlon - -130.0f64).abs() < 1e-9);
+        // So one cell is exactly the product's 0.01°, which it was not before.
+        let width = (-60.005 + hlon) - (-129.995 - hlon);
+        assert!((width / 7000.0 - 0.01).abs() < 1e-12, "{}", width / 7000.0);
+        assert_eq!(edge_margins(-98.0, -98.0, 1, 35.0, 35.0, 1), (0.0, 0.0));
+    }
 
     #[test]
     fn archive_keys_select_nearest_across_utc_midnight_without_live_fallback() {

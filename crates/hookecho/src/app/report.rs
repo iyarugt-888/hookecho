@@ -27,11 +27,60 @@ detections.csv        The debris signatures and rotation couplets on the active 
                       shown (after corroboration), with their confidence and algorithm version.\n\
 probes/*.csv          Whichever probes were open: region statistics, the gate inspector's vertical\n\
                       profile and time series, the cross-section.\n\
+grid.tif              The top gridded layer on the active pane, as a float32 GeoTIFF (EPSG:4326,\n\
+                      NaN = no data), when one is on.\n\
 \n\
 Radar data is public (NOAA NEXRAD Level II via the AWS Open Data programme) and is not included;\n\
 provenance.json names every volume used, so it can be fetched again.\n";
 
 impl HookEchoApp {
+    /// The active pane's topmost visible gridded layer that holds a grid, as a GeoTIFF with its
+    /// slug for a file name — the layer the cursor probe would read first, in draw order. The
+    /// comparison layers (difference, A/B, ensemble) keep their grids elsewhere and are skipped.
+    fn top_grid_geotiff(&self) -> Option<(&'static str, Vec<u8>)> {
+        use crate::render::FieldLayer as FL;
+        let view = &self.views[self.active];
+        FL::DRAW_ORDER.iter().rev().find_map(|layer| {
+            if !view.fields_on.contains(layer) {
+                return None;
+            }
+            let state = self.fields.get(layer)?;
+            let grid = state.grid.as_ref()?;
+            let time = state
+                .stamp
+                .as_ref()
+                .map_or(grid.time, |stamp| stamp.valid_time);
+            let description = format!(
+                "{} | {} | valid {} | values as delivered by the source",
+                Self::probe_field_product(*layer),
+                self.probe_field_source(*layer, Some(state)),
+                time.format("%Y-%m-%dT%H:%MZ")
+            );
+            Some((layer.slug(), wxdata::geotiff::write(grid, &description)?))
+        })
+    }
+
+    /// Save the active pane's top gridded layer as a GeoTIFF (ROADMAP_NEW M5).
+    pub(crate) fn export_geotiff(&mut self) {
+        let Some((slug, tif)) = self.top_grid_geotiff() else {
+            self.toast(
+                ToastKind::Error,
+                "No gridded layer on this pane \u{2014} turn on MRMS, a derived or a model field",
+            );
+            return;
+        };
+        match crate::dialog::save_bytes(&format!("{slug}.tif"), "tif", &tif) {
+            crate::dialog::Saved::Where(w) => {
+                self.toast(ToastKind::Success, format!("Grid saved to {w}"))
+            }
+            crate::dialog::Saved::Failed(e) => {
+                log::warn!("GeoTIFF export failed: {e}");
+                self.toast(ToastKind::Error, format!("GeoTIFF export failed: {e}"));
+            }
+            crate::dialog::Saved::Cancelled => {}
+        }
+    }
+
     /// Start an analysis export: capture the map, then build the archive when the image lands.
     pub(crate) fn export_analysis(&mut self, ctx: &egui::Context) {
         self.request_capture(ctx, super::ShotDest::Report);
@@ -176,6 +225,9 @@ impl HookEchoApp {
         }
         if let Some(xs) = &self.xsection {
             entries.push(("probes/xsection.csv".into(), xs.to_csv().into_bytes()));
+        }
+        if let Some((_, tif)) = self.top_grid_geotiff() {
+            entries.push(("grid.tif".into(), tif));
         }
         let zip = crate::zipwrite::zip(&entries, now);
         let file = case.file_name().replace(".hookecho.json", "-analysis.zip");

@@ -82,6 +82,8 @@ tokio = { version = "1", features = ["test-util"] }
 # false` drops criterion's plotting stack — the numbers are read from the terminal here.
 [dev-dependencies]
 criterion = { version = "0.5", default-features = false }
+# An independent TIFF reader for the GeoTIFF writer's tests; already in the tree through `image`.
+tiff = "0.11"
 
 [[bench]]
 name = "hot_paths"

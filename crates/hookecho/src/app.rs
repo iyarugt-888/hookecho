@@ -19760,6 +19760,17 @@ impl HookEchoApp {
                 {
                     self.export_analysis(ui.ctx());
                 }
+                if ui
+                    .button("Export grid (GeoTIFF)…")
+                    .on_hover_text(
+                        "The top gridded layer on this pane — MRMS, a derived radar field such as \
+                         VIL or MEHS, or a model field — as a float32 GeoTIFF for QGIS, ArcGIS \
+                         or GDAL",
+                    )
+                    .clicked()
+                {
+                    self.export_geotiff();
+                }
             });
         }
 

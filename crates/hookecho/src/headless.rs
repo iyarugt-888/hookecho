@@ -1689,6 +1689,20 @@ pub fn run_mrms(out_path: &str) -> anyhow::Result<()> {
         .fold(f32::MIN, f32::max);
     println!("valid gates: {valid}  max dBZ: {vmax:.1}");
 
+    // A `.tif` path writes the grid itself as a GeoTIFF (ROADMAP_NEW M5) instead of a rendering.
+    let lower = out_path.to_ascii_lowercase();
+    if lower.ends_with(".tif") || lower.ends_with(".tiff") {
+        let description = format!(
+            "MRMS merged reflectivity (dBZ) | valid {}",
+            field.time.format("%Y-%m-%dT%H:%MZ")
+        );
+        let tif = wxdata::geotiff::write(&field, &description)
+            .ok_or_else(|| anyhow::anyhow!("the grid is empty"))?;
+        std::fs::write(out_path, &tif)?;
+        println!("wrote {out_path} ({} MB)", tif.len() / 1_000_000);
+        return Ok(());
+    }
+
     let (vmin, vspan_max) = Moment::Reflectivity.value_range();
     let span = (vspan_max - vmin).max(f32::EPSILON);
     let data: Vec<u8> = field
