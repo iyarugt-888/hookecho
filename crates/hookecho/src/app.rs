@@ -13,6 +13,7 @@ mod goes_timeline;
 mod overlay_health;
 mod pane_time;
 mod region_stats;
+mod report;
 pub(crate) use field_state::FieldState;
 use goes_timeline::nearest_goes;
 mod mobile;
@@ -2704,6 +2705,8 @@ enum ShotDest {
     Push(String),
     /// Written silently for the Android home-screen widget to pick up.
     Widget(std::path::PathBuf),
+    /// The map image for an analysis export (ROADMAP_NEW K4); see `app/report.rs`.
+    Report,
 }
 
 /// In-progress loop export (GIF or MP4): steps the active timeline, grabbing one screenshot per
@@ -19746,6 +19749,17 @@ impl HookEchoApp {
                 {
                     self.import_case();
                 }
+                if ui
+                    .button("Export analysis…")
+                    .on_hover_text(
+                        "One ZIP for other tools: the map as PNG, the case, annotations as \
+                         GeoJSON, which radar volumes were used, the detections, and any open \
+                         probes (region, profile, time series, cross-section) as CSV",
+                    )
+                    .clicked()
+                {
+                    self.export_analysis(ui.ctx());
+                }
             });
         }
 
@@ -20600,6 +20614,7 @@ impl HookEchoApp {
                 ShotDest::Loop => self.record_loop_frame(&image),
                 ShotDest::Push(title) => self.push_snapshot(title, &image),
                 ShotDest::Widget(path) => self.save_widget_snapshot(&path, &image),
+                ShotDest::Report => self.write_report(&image),
             }
         }
     }

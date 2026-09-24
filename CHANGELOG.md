@@ -8,6 +8,14 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: analysis export
+
+`Export analysis…` (under Share) saves one ZIP for other tools: the map as PNG, the case file,
+annotations as GeoJSON, `provenance.json` naming the exact NOAA volume, scan time, VCP and tilt
+behind every pane along with the detector versions and melting level in use, the active volume's
+detections as CSV, and whichever probes are open — region statistics, the gate inspector's
+profile and time series, the cross-section — as CSV. A README inside lists them.
+
 ### Added: case-study packages
 
 `Save case…` (under Share) writes a small JSON file that reopens the current analysis anywhere:

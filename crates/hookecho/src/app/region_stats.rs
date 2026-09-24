@@ -19,6 +19,11 @@ pub(crate) struct RegionStatsState {
 }
 
 impl RegionStatsState {
+    /// The gathered box, while its window is open.
+    pub(crate) fn samples(&self) -> Option<&RegionSamples> {
+        self.samples.as_ref()
+    }
+
     /// Outline the box being drawn: a dot for the first corner, the rectangle once there are two.
     /// `screen` maps `[lon, lat]` to the map's screen position.
     pub(crate) fn paint(&self, painter: &egui::Painter, screen: impl Fn([f64; 2]) -> egui::Pos2) {

@@ -3225,15 +3225,25 @@ side). A case is versioned JSON (`format: 1`); a newer format is refused with a 
 rather than half-read. Opening one adds its annotations and bookmarks to the analyst's own,
 skipping any already there, rather than replacing them.
 
-## K4. Analyst notebook/export
+## K4. Analyst notebook/export — done
 
 Provide a generated report/export directory containing:
 
-- screenshots
-- CSV probes
-- GeoJSON annotations
-- metadata/provenance JSON
-- settings/product definitions
+- [x] screenshots — `map.png`, the map as on screen
+- [x] CSV probes — `detections.csv` (the active volume's shown debris signatures and couplets, with
+  confidence and algorithm version) and `probes/*.csv` for whichever probes are open: region
+  statistics, the gate inspector's vertical profile and time series, the cross-section
+- [x] GeoJSON annotations — `annotations.geojson` (drawings, markers, watch zones)
+- [x] metadata/provenance JSON — `provenance.json`: each pane's radar, product, tilt and elevation,
+  the NOAA volume object name and scan time, VCP, the detector algorithm versions and floors, the
+  melting level in use and where it came from
+- [x] settings/product definitions — the K3 case manifest, `case.hookecho.json`, which carries the
+  user-defined products with everything else a case reopens
+
+One ZIP rather than a directory (`Export analysis…` under Share): the same file then works as a
+save on desktop, a download in a browser and a share on Android. Written by `zipwrite.rs`, a
+deflate ZIP writer on the `flate2` already in the tree (no new dependency), checked against
+Python's `zipfile` as an independent reader. A README inside says what each file is.
 
 No need to build a word processor; make HookEcho outputs reproducible in external analysis tools.
 
