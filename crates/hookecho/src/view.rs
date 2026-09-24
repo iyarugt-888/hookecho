@@ -618,6 +618,46 @@ impl MapView {
         }
     }
 
+    /// `moment` at `(lon, lat)` in every volume this pane holds — the displayed one and the ones
+    /// the playhead moved off (see [`Self::recent`]), which is the loop being played — oldest
+    /// first. Read at each volume's tilt nearest `elevation_deg`, since a VCP change can renumber
+    /// tilts; a volume with none within 0.3° of it is left out rather than read at another angle.
+    /// The value is `None` where that volume has nothing at the point. Cheap for a loop that was
+    /// played on this moment and tilt: those sweeps are already binned.
+    pub fn point_series(
+        &mut self,
+        moment: Moment,
+        elevation_deg: f32,
+        lon: f64,
+        lat: f64,
+    ) -> Vec<(DateTime<Utc>, Option<f32>)> {
+        let mut out: Vec<(DateTime<Utc>, Option<f32>)> = self
+            .volume
+            .iter_mut()
+            .chain(self.recent.iter_mut().map(|(_, v)| v))
+            .filter_map(|vol| {
+                let (tilt, e) = vol
+                    .elevations
+                    .iter()
+                    .enumerate()
+                    .min_by(|a, b| {
+                        (a.1 - elevation_deg)
+                            .abs()
+                            .total_cmp(&(b.1 - elevation_deg).abs())
+                    })
+                    .map(|(t, e)| (t, *e))?;
+                if (e - elevation_deg).abs() > 0.3 {
+                    return None;
+                }
+                let time = vol.time;
+                let sweep = vol.binned(moment, tilt, false).ok()?;
+                Some((time, sweep.sample_at(lon, lat).and_then(|g| g.value)))
+            })
+            .collect();
+        out.sort_by_key(|(t, _)| *t);
+        out
+    }
+
     /// Forget every kept volume. The site changed, so none of them is of anywhere being looked at.
     pub fn forget_recent(&mut self) {
         self.recent.clear();

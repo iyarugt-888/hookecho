@@ -8501,6 +8501,9 @@ impl HookEchoApp {
             inspection,
             gate_inputs,
             column_inputs,
+            // Filled on a click only (below): the cursor-probe table calls this on every hover
+            // and keeps just the value, and the series reads every volume the pane holds.
+            series: Vec::new(),
         })
     }
 
@@ -15663,6 +15666,15 @@ impl HookEchoApp {
                             None => (lon, lat, None),
                         };
                         self.gate_popup = self.inspect_gate(ctx, idx, gate_lon, gate_lat, tilt);
+                        // The same point across the loop this pane holds (ROADMAP_NEW C4).
+                        if let Some(p) = self.gate_popup.as_mut() {
+                            p.series = self.views[idx].point_series(
+                                p.moment,
+                                p.inspection.elevation_deg,
+                                gate_lon,
+                                gate_lat,
+                            );
+                        }
                     }
                     MapTool::RadarSuitability => {
                         self.cell_popup = None;

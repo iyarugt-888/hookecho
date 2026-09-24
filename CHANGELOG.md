@@ -8,12 +8,17 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
-### Added: vertical profile in the gate inspector
+### Added: vertical profile and time series in the gate inspector
 
 A click with the gate inspector now also shows the whole column at that point: every tilt, top
 first, with each moment against beam height, the displayed moment drawn up the column with the
 melting level marked when one is known, and the column as CSV. The inspector was already sampling
 every tilt there for user-defined products; this puts those numbers on screen.
+
+It also shows the displayed moment at that point across the loop the pane has loaded — every
+volume it holds, oldest first, at the tilt nearest the displayed one — as a sparkline with its span
+and range, and as CSV. Built on a click only; the hover probe that shares this code does not pay
+for it.
 
 ### Added: region statistics — box a storm, compare every moment gate by gate
 

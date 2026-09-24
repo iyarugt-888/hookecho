@@ -1673,7 +1673,11 @@ Add linked probes and scatterplots:
   at the clicked point, top of the column first, with REF/VEL/SW/ZDR/CC/KDP against beam height,
   the displayed moment drawn up the column with the melting level across it, and CSV. The samples
   were already taken for user-defined products (`column_inputs`); they were just never shown.
-- [ ] time series at fixed lat/lon
+- [x] time series at fixed lat/lon — the gate inspector's "Time series" section: the displayed
+  moment at the clicked point in every volume the pane holds (the loop being played — up to 12 on
+  desktop), oldest first, at each volume's tilt nearest the displayed one; a sparkline, its span
+  and range, and CSV. Bounded by what is loaded rather than fetching history on a click; a longer
+  series would need a background fetch, which is the obvious extension.
 
 - [x] Export CSV — every gate in the box, position then each moment (blank where a moment has no
   data there), from the window or `--headless-region SITE DATE HH:MM LON1 LAT1 LON2 LAT2 [out.csv]`.

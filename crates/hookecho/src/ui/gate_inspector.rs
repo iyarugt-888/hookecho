@@ -25,6 +25,9 @@ pub struct GateInspectorPopup {
     /// user-defined-product formula (`max_vertical`, `max_layer`, …; ROADMAP_NEW C1) reduces
     /// over. A tilt this point falls outside of is simply absent, not a placeholder entry.
     pub column_inputs: Vec<wxdata::udp::GateInputs>,
+    /// `moment` at this point in every volume the pane holds, oldest first — the loop being
+    /// played, at the nearest tilt in each (see `MapView::point_series`).
+    pub series: Vec<(chrono::DateTime<chrono::Utc>, Option<f32>)>,
 }
 
 pub fn show(
@@ -193,6 +196,69 @@ pub(crate) fn attributes(
         });
     }
     vertical_profile(ui, popup);
+    time_series(ui, popup, tz);
+}
+
+/// The point's series as CSV: one row per volume, oldest first, blank where it had no value.
+pub(crate) fn series_csv(
+    moment: Moment,
+    series: &[(chrono::DateTime<chrono::Utc>, Option<f32>)],
+) -> String {
+    let mut out = format!("time_utc,{}\n", moment.short_name());
+    for (t, v) in series {
+        out.push_str(&t.format("%Y-%m-%dT%H:%M:%SZ").to_string());
+        out.push(',');
+        if let Some(v) = v {
+            out.push_str(&format!("{v:.3}"));
+        }
+        out.push('\n');
+    }
+    out
+}
+
+/// The displayed moment at this point across the loop the pane holds (ROADMAP_NEW C4's "time
+/// series at fixed lat/lon"): a sparkline, its span and range, and the series as CSV. Only the
+/// volumes this pane has loaded are in it, so a single frame shows nothing and a played loop
+/// shows the loop.
+fn time_series(ui: &mut egui::Ui, popup: &GateInspectorPopup, tz: Option<wxdata::tz::Tz>) {
+    let s = &popup.series;
+    let values: Vec<f32> = s.iter().filter_map(|(_, v)| *v).collect();
+    if s.len() < 2 || values.is_empty() {
+        return;
+    }
+    let m = popup.moment;
+    ui.add_space(6.0);
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("TIME SERIES").size(11.0).strong());
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            crate::ui::csv_buttons(
+                ui,
+                "point-series.csv",
+                "This point in every loaded volume, oldest first",
+                || series_csv(m, s),
+            );
+        });
+    });
+    ui.separator();
+    let (lo, hi) = values
+        .iter()
+        .fold((f32::MAX, f32::MIN), |(lo, hi), v| (lo.min(*v), hi.max(*v)));
+    let (first, last) = (s[0].0, s[s.len() - 1].0);
+    ui.label(format!(
+        "{} over {} volumes, {}–{}: {:.1} to {:.1} {}",
+        m.short_name(),
+        s.len(),
+        crate::timefmt::fmt_clock(first, tz, false),
+        crate::timefmt::fmt_clock(last, tz, false),
+        lo,
+        hi,
+        m.units()
+    ));
+    crate::theme::sparkline(ui, &values, ui.visuals().selection.bg_fill);
+    let gaps = s.len() - values.len();
+    if gaps > 0 {
+        ui.weak(format!("{gaps} volume(s) had nothing here"));
+    }
 }
 
 /// One moment's value out of a tilt's inputs, for the moments the profile shows.
@@ -429,7 +495,48 @@ mod tests {
             },
             gate_inputs: wxdata::udp::GateInputs::default(),
             column_inputs: Vec::new(),
+            series: Vec::new(),
         }
+    }
+
+    #[test]
+    fn the_time_series_shows_the_loop_and_exports_it() {
+        let t = |m: i64| chrono::DateTime::from_timestamp(1_700_000_000 + m * 60, 0).unwrap();
+        let series = vec![(t(0), Some(40.0)), (t(5), None), (t(10), Some(55.0))];
+        let csv = series_csv(Moment::Reflectivity, &series);
+        let lines: Vec<&str> = csv.lines().collect();
+        assert_eq!(lines[0], "time_utc,REF");
+        assert_eq!(lines.len(), 4);
+        assert!(lines[2].ends_with(','), "a gap is blank: {}", lines[2]);
+        assert!(lines[3].ends_with(",55.000"));
+
+        let ctx = egui::Context::default();
+        let mut popup = sample_popup(Moment::Reflectivity, false, Some(55.0));
+        popup.series = series;
+        let mut labels = Vec::new();
+        for _ in 0..3 {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(900.0, 1400.0),
+                )),
+                ..Default::default()
+            };
+            let output = ctx.run_ui(input, |ui| attributes(ui, &popup, None, &[]));
+            labels = output
+                .shapes
+                .iter()
+                .filter_map(|s| match &s.shape {
+                    egui::Shape::Text(t) => Some(t.galley.job.text.clone()),
+                    _ => None,
+                })
+                .collect();
+        }
+        assert!(labels.iter().any(|s| s == "TIME SERIES"), "{labels:?}");
+        assert!(labels
+            .iter()
+            .any(|s| s.contains("over 3 volumes") && s.contains("40.0 to 55.0")));
+        assert!(labels.iter().any(|s| s == "1 volume(s) had nothing here"));
     }
 
     /// Three tilts over one point, reflectivity weakening with height.
