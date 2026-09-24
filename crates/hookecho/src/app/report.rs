@@ -38,6 +38,39 @@ impl HookEchoApp {
     /// slug for a file name — the layer the cursor probe would read first, in draw order. The
     /// comparison layers (difference, A/B, ensemble) keep their grids elsewhere and are skipped.
     fn top_grid_geotiff(&self) -> Option<(&'static str, Vec<u8>)> {
+        let (layer, grid, product, source, time) = self.top_grid()?;
+        let description = format!(
+            "{product} | {source} | valid {} | values as delivered by the source",
+            time.format("%Y-%m-%dT%H:%MZ")
+        );
+        Some((layer.slug(), wxdata::geotiff::write(grid, &description)?))
+    }
+
+    /// The same grid as [`Self::top_grid_geotiff`], as CF NetCDF.
+    fn top_grid_netcdf(&self) -> Option<(&'static str, Vec<u8>)> {
+        let (layer, grid, product, source, time) = self.top_grid()?;
+        // The file's time is the grid's; the layer's stamp is the better valid time when it has one.
+        let grid = &wxdata::mrms::MrmsField {
+            time,
+            ..grid.clone()
+        };
+        // A NetCDF variable name is letters, digits and underscores; the slug has dashes.
+        let name = layer.slug().replace('-', "_");
+        let nc = wxdata::netcdf::write(grid, &name, &product, None, &source)?;
+        Some((layer.slug(), nc))
+    }
+
+    /// The active pane's topmost visible layer that holds a grid, with its product and source
+    /// names and valid time (the layer's stamp when it has one) — the one both grid exports write.
+    fn top_grid(
+        &self,
+    ) -> Option<(
+        crate::render::FieldLayer,
+        &wxdata::mrms::MrmsField,
+        String,
+        String,
+        chrono::DateTime<chrono::Utc>,
+    )> {
         use crate::render::FieldLayer as FL;
         let view = &self.views[self.active];
         FL::DRAW_ORDER.iter().rev().find_map(|layer| {
@@ -46,18 +79,38 @@ impl HookEchoApp {
             }
             let state = self.fields.get(layer)?;
             let grid = state.grid.as_ref()?;
-            let time = state
-                .stamp
-                .as_ref()
-                .map_or(grid.time, |stamp| stamp.valid_time);
-            let description = format!(
-                "{} | {} | valid {} | values as delivered by the source",
+            Some((
+                *layer,
+                grid,
                 Self::probe_field_product(*layer),
                 self.probe_field_source(*layer, Some(state)),
-                time.format("%Y-%m-%dT%H:%MZ")
-            );
-            Some((layer.slug(), wxdata::geotiff::write(grid, &description)?))
+                state
+                    .stamp
+                    .as_ref()
+                    .map_or(grid.time, |stamp| stamp.valid_time),
+            ))
         })
+    }
+
+    /// Save the active pane's top gridded layer as CF NetCDF (ROADMAP_NEW M5).
+    pub(crate) fn export_netcdf(&mut self) {
+        let Some((slug, nc)) = self.top_grid_netcdf() else {
+            self.toast(
+                ToastKind::Error,
+                "No gridded layer on this pane \u{2014} turn on MRMS, a derived or a model field",
+            );
+            return;
+        };
+        match crate::dialog::save_bytes(&format!("{slug}.nc"), "nc", &nc) {
+            crate::dialog::Saved::Where(w) => {
+                self.toast(ToastKind::Success, format!("Grid saved to {w}"))
+            }
+            crate::dialog::Saved::Failed(e) => {
+                log::warn!("NetCDF export failed: {e}");
+                self.toast(ToastKind::Error, format!("NetCDF export failed: {e}"));
+            }
+            crate::dialog::Saved::Cancelled => {}
+        }
     }
 
     /// Save the active pane's top gridded layer as a GeoTIFF (ROADMAP_NEW M5).

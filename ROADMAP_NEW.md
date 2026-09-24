@@ -3387,7 +3387,14 @@ Add where practical:
   Checked with the `tiff` crate as an independent reader in the tests, and on a real 7000 x 3500
   CONUS mosaic parsed back in plain Python (same valid count and maximum as the app reported).
   Writing it found a half-cell georeferencing error in every MRMS layer — see the changelog.
-- [ ] NetCDF for gridded fields
+- [x] NetCDF for gridded fields — `wxdata::netcdf::write`: the classic format (CDF-1) with CF-1.8
+  metadata, written by hand from the published layout: a scalar `time`, `lat`/`lon` coordinate
+  variables at cell centres, the field as `float32(lat, lon)` with units where known and NaN for
+  missing. "Export grid (NetCDF)…" under Share (the same grid the GeoTIFF export writes) and
+  `--headless-mrms out.nc`. Checked with an independent reader written from the spec in Python
+  against a real CONUS mosaic: every variable at its offset, the data ending at end of file, the
+  valid time, count and maximum as the app reported, and the cell centres exactly on MRMS's own
+  grid points (54.995 N / 129.995 W) — which also confirms the half-cell fix below round-trips.
 - [ ] CF/Radial-compatible export for selected radar data if feasible
 - [x] CSV for probes/profiles/tables — region statistics, vertical profile, point series,
   cross-section, detections, cells, sounding, verification

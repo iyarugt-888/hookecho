@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: NetCDF export of gridded layers
+
+"Export grid (NetCDF)…" writes the same grid as the GeoTIFF export as CF-1.8 NetCDF (the classic
+format): lat/lon coordinate variables at cell centres, the valid time, the field with its units
+where known, NaN for missing — for xarray, Panoply, NCL or MATLAB. `--headless-mrms out.nc` writes
+the latest MRMS reflectivity from the command line.
+
 ### Added: GeoTIFF export of gridded layers
 
 "Export grid (GeoTIFF)…" under Share writes the active pane's top gridded layer — an MRMS mosaic,

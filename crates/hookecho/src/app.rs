@@ -19771,6 +19771,16 @@ impl HookEchoApp {
                 {
                     self.export_geotiff();
                 }
+                if ui
+                    .button("Export grid (NetCDF)…")
+                    .on_hover_text(
+                        "The same grid as CF-1.8 NetCDF, with lat/lon coordinates and its valid \
+                         time — for xarray, Panoply, NCL or MATLAB",
+                    )
+                    .clicked()
+                {
+                    self.export_netcdf();
+                }
             });
         }
 

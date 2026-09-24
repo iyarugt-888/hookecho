@@ -1689,8 +1689,22 @@ pub fn run_mrms(out_path: &str) -> anyhow::Result<()> {
         .fold(f32::MIN, f32::max);
     println!("valid gates: {valid}  max dBZ: {vmax:.1}");
 
-    // A `.tif` path writes the grid itself as a GeoTIFF (ROADMAP_NEW M5) instead of a rendering.
+    // A `.tif` path writes the grid itself as a GeoTIFF, a `.nc` path as CF NetCDF (ROADMAP_NEW
+    // M5), instead of a rendering.
     let lower = out_path.to_ascii_lowercase();
+    if lower.ends_with(".nc") {
+        let nc = wxdata::netcdf::write(
+            &field,
+            "reflectivity",
+            "MRMS merged reflectivity",
+            Some("dBZ"),
+            "NOAA MRMS MergedReflectivityQCComposite",
+        )
+        .ok_or_else(|| anyhow::anyhow!("the grid is empty"))?;
+        std::fs::write(out_path, &nc)?;
+        println!("wrote {out_path} ({} MB)", nc.len() / 1_000_000);
+        return Ok(());
+    }
     if lower.ends_with(".tif") || lower.ends_with(".tiff") {
         let description = format!(
             "MRMS merged reflectivity (dBZ) | valid {}",

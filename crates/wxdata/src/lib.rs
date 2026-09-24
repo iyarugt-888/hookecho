@@ -53,6 +53,7 @@ pub mod mrms;
 pub mod ndbc;
 pub mod ndfd;
 pub mod net;
+pub mod netcdf;
 pub mod nohrsc;
 pub mod obs;
 pub mod odim;
