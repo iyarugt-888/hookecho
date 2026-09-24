@@ -3,6 +3,7 @@
 //! UI code only mutates the active [`MapView`]; a single per-frame sync step turns those
 //! mutations into GPU uploads and background fetches, so buttons and hotkeys share one path.
 
+mod case;
 /// Touch-first Android chrome (top bar, bottom dock, slide-up sheets), replacing the desktop
 /// drawer / pills / alert dock. Only the chrome differs; the map,
 /// windows, and every data path are shared.
@@ -19723,6 +19724,31 @@ impl HookEchoApp {
             });
         }
 
+        if section == Some("Share") {
+            ui.scope(|ui| {
+                if ui
+                    .button("Save case…")
+                    .on_hover_text(
+                        "A small file that reopens this analysis anywhere: the panes and their \
+                         products, this moment with an hour's replay around it, and your \
+                         bookmarks, markers, zones and drawings. Radar data is refetched.",
+                    )
+                    .clicked()
+                {
+                    self.export_case();
+                }
+                if ui
+                    .button("Open case…")
+                    .on_hover_text(
+                        "Reopen a saved case; its annotations and bookmarks are added to yours",
+                    )
+                    .clicked()
+                {
+                    self.import_case();
+                }
+            });
+        }
+
         if section == Some("Backup") {
             ui.scope(|ui| {
                 if ui
@@ -20041,6 +20067,8 @@ impl HookEchoApp {
     fn apply_import(&mut self, import: crate::dialog::Import) {
         use crate::dialog::ImportKind as K;
         match import.kind {
+            // Routed to `open_case` before this, which needs the egui context.
+            K::Case => {}
             K::SettingsBundle => self.apply_settings_bundle(&import),
             K::Palette if import.tag == crate::ui::palette_editor::EDITOR_TAG => {
                 match import.text() {
@@ -21664,7 +21692,12 @@ impl eframe::App for HookEchoApp {
         // button, because on Android the picker is an activity result that lands long after the
         // click — through the same file handover a notification tap uses.
         if let Some(import) = crate::dialog::take_result() {
-            self.apply_import(import);
+            // A case restores panes, which needs the context the other imports do not.
+            if import.kind == crate::dialog::ImportKind::Case {
+                self.open_case(&import, ctx);
+            } else {
+                self.apply_import(import);
+            }
         }
 
         // Android paste: re-focus the text field that lost focus to the Paste-button tap, before

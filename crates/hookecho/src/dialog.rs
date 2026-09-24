@@ -84,6 +84,8 @@ pub enum ImportKind {
     ChaseGpx,
     /// A GeoJSON file to import as a reference overlay (ROADMAP_NEW I1).
     GisFile,
+    /// A case-study package written by Save case (ROADMAP_NEW K3).
+    Case,
 }
 
 impl ImportKind {
@@ -95,6 +97,7 @@ impl ImportKind {
             ImportKind::AlertSound => "Alert sound",
             ImportKind::ChaseGpx => "GPX track",
             ImportKind::GisFile => "GIS file (GeoJSON or Shapefile)",
+            ImportKind::Case => "HookEcho case",
         }
     }
 
@@ -106,6 +109,7 @@ impl ImportKind {
             ImportKind::AlertSound => &["wav", "mp3", "ogg", "flac"],
             ImportKind::ChaseGpx => &["gpx"],
             ImportKind::GisFile => &["json", "geojson", "shp"],
+            ImportKind::Case => &["json"],
         }
     }
 
@@ -124,6 +128,7 @@ impl ImportKind {
             // `.geojson` has no MIME either most pickers register (`application/geo+json` is
             // rarely wired up), and plain GeoJSON is often served/saved as `.json` anyway.
             ImportKind::GisFile => "*/*",
+            ImportKind::Case => "application/json",
         }
     }
 }
@@ -231,6 +236,7 @@ mod android_open {
             ImportKind::AlertSound => "sound",
             ImportKind::ChaseGpx => "gpx",
             ImportKind::GisFile => "gis",
+            ImportKind::Case => "case",
         }
     }
 
@@ -242,6 +248,7 @@ mod android_open {
             "sound" => ImportKind::AlertSound,
             "gpx" => ImportKind::ChaseGpx,
             "gis" => ImportKind::GisFile,
+            "case" => ImportKind::Case,
             _ => return None,
         })
     }

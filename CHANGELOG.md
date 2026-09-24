@@ -8,6 +8,15 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: case-study packages
+
+`Save case…` (under Share) writes a small JSON file that reopens the current analysis anywhere:
+every pane's radar, product, tilt, camera and layers, the analysis instant with an hour's replay
+around it, and the bookmarks, markers, watch zones, drawings and user-defined products you have.
+`Open case…` restores the panes, sends each one to that instant with the replay window, turns on
+warnings and storm reports as an event replay does, and adds the case's annotations and bookmarks
+to yours (skipping any you already have). Radar data is not packed; it is public and refetched.
+
 ### Added: vertical profile and time series in the gate inspector
 
 A click with the gate inspector now also shows the whole column at that point: every tilt, top

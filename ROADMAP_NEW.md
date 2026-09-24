@@ -3206,17 +3206,24 @@ Against:
 - DAT surveys
 - SPC tornado database where applicable
 
-## K3. Case-study package
+## K3. Case-study package — done, apart from bundled data files
 
 Allow user to create a portable case manifest containing:
 
-- event name
-- time range
-- radar sites
-- enabled products
-- annotations
-- bookmarks
-- optional cached public-data files within size limits
+- [x] event name — named for the first pane's radar and the analysis time; free-text notes too
+- [x] time range — the active pane's instant and replay window (an hour when it had none)
+- [x] radar sites
+- [x] enabled products — the whole pane arrangement, as a saved workspace captures it: each
+  pane's site, product, tilt, camera and field layers, plus overlays and linking
+- [x] annotations — freehand strokes, markers and watch zones
+- [x] bookmarks — and user-defined product definitions
+- [ ] optional cached public-data files within size limits — not packed: every volume a case
+  points at is public and refetched on open, which keeps a case to a few kilobytes
+
+`Save case…` / `Open case…` under Share (`crate::case` for the format, `app/case.rs` for the app
+side). A case is versioned JSON (`format: 1`); a newer format is refused with a clear message
+rather than half-read. Opening one adds its annotations and bookmarks to the analyst's own,
+skipping any already there, rather than replacing them.
 
 ## K4. Analyst notebook/export
 
