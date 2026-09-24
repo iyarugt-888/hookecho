@@ -1669,7 +1669,10 @@ Add linked probes and scatterplots:
   velocity dealiased). Summary table (n, min, 10%, median, 90%, max, mean). Polygon selection is
   not done; the box covers the common case.
 - [x] histogram for selected region — per moment, 40 bins across its own range
-- [ ] vertical profile at point — the cross-section and gate inspector cover parts of it
+- [x] vertical profile at point — the gate inspector's new "Vertical profile" section: every tilt
+  at the clicked point, top of the column first, with REF/VEL/SW/ZDR/CC/KDP against beam height,
+  the displayed moment drawn up the column with the melting level across it, and CSV. The samples
+  were already taken for user-defined products (`column_inputs`); they were just never shown.
 - [ ] time series at fixed lat/lon
 
 - [x] Export CSV — every gate in the box, position then each moment (blank where a moment has no

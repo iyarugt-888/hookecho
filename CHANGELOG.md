@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: vertical profile in the gate inspector
+
+A click with the gate inspector now also shows the whole column at that point: every tilt, top
+first, with each moment against beam height, the displayed moment drawn up the column with the
+melting level marked when one is known, and the column as CSV. The inspector was already sampling
+every tilt there for user-defined products; this puts those numbers on screen.
+
 ### Added: region statistics — box a storm, compare every moment gate by gate
 
 A new map tool, "Region statistics" (Tools, the dock, the ribbon and the command palette): click two

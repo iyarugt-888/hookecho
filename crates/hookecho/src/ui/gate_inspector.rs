@@ -192,6 +192,207 @@ pub(crate) fn attributes(
             }
         });
     }
+    vertical_profile(ui, popup);
+}
+
+/// One moment's value out of a tilt's inputs, for the moments the profile shows.
+fn moment_value(g: &wxdata::udp::GateInputs, m: Moment) -> Option<f32> {
+    match m {
+        Moment::Reflectivity => g.reflectivity,
+        Moment::Velocity => g.velocity,
+        Moment::SpectrumWidth => g.spectrum_width,
+        Moment::DifferentialReflectivity => g.differential_reflectivity,
+        Moment::SpecificDifferentialPhase => g.specific_diff_phase,
+        Moment::CorrelationCoefficient => g.correlation_coefficient,
+        Moment::DifferentialPhase => None,
+    }
+}
+
+/// The moments the profile table shows, in column order.
+const PROFILE_MOMENTS: [Moment; 6] = [
+    Moment::Reflectivity,
+    Moment::Velocity,
+    Moment::SpectrumWidth,
+    Moment::DifferentialReflectivity,
+    Moment::CorrelationCoefficient,
+    Moment::SpecificDifferentialPhase,
+];
+
+/// The column at this point as CSV: one row per tilt, low to high — elevation, beam height and
+/// altitude, then each moment (blank where that tilt has no value here).
+pub(crate) fn profile_csv(column: &[wxdata::udp::GateInputs]) -> String {
+    let mut out = String::from("elevation_deg,beam_height_m,beam_altitude_m,range_km");
+    for m in PROFILE_MOMENTS {
+        out.push(',');
+        out.push_str(m.short_name());
+    }
+    out.push('\n');
+    let cell = |v: Option<f32>, d: usize| v.map_or(String::new(), |x| format!("{x:.d$}"));
+    for g in column {
+        out.push_str(&format!(
+            "{},{},{},{}",
+            cell(g.elevation_deg, 2),
+            cell(g.beam_height_m, 0),
+            cell(g.beam_altitude_m, 0),
+            cell(g.range_km, 2)
+        ));
+        for m in PROFILE_MOMENTS {
+            out.push(',');
+            out.push_str(&cell(moment_value(g, m), 3));
+        }
+        out.push('\n');
+    }
+    out
+}
+
+/// Every tilt at the clicked point, low to high (ROADMAP_NEW C4's "vertical profile at point"):
+/// a table of each moment against beam height, and the displayed moment drawn up the column with
+/// the melting level across it when one is known. The samples were already taken for
+/// user-defined products (`column_inputs`); this is where they become visible.
+fn vertical_profile(ui: &mut egui::Ui, popup: &GateInspectorPopup) {
+    let column = &popup.column_inputs;
+    if column.len() < 2 {
+        return;
+    }
+    ui.add_space(6.0);
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("VERTICAL PROFILE").size(11.0).strong());
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            crate::ui::csv_buttons(
+                ui,
+                "profile.csv",
+                "Every tilt at this point, low to high",
+                || profile_csv(column),
+            );
+        });
+    });
+    ui.separator();
+    egui::Grid::new("gate_profile")
+        .striped(true)
+        .num_columns(2 + PROFILE_MOMENTS.len())
+        .show(ui, |ui| {
+            ui.strong("Tilt");
+            ui.strong("Height");
+            for m in PROFILE_MOMENTS {
+                ui.strong(m.short_name());
+            }
+            ui.end_row();
+            // Top of the column first, the way a sounding reads.
+            for g in column.iter().rev() {
+                ui.label(opt(g.elevation_deg, "°", 1));
+                ui.label(opt(g.beam_height_m.map(|h| h * 3.280_84), " ft", 0));
+                for m in PROFILE_MOMENTS {
+                    let d = if m == Moment::CorrelationCoefficient {
+                        3
+                    } else {
+                        1
+                    };
+                    ui.label(opt(moment_value(g, m), "", d));
+                }
+                ui.end_row();
+            }
+        });
+    // The displayed moment up the column; reflectivity when the displayed one is not tabled.
+    let m = if column
+        .iter()
+        .any(|g| moment_value(g, popup.moment).is_some())
+    {
+        popup.moment
+    } else {
+        Moment::Reflectivity
+    };
+    let pts: Vec<(f32, f32)> = column
+        .iter()
+        .filter_map(|g| Some((moment_value(g, m)?, g.beam_altitude_m?)))
+        .collect();
+    if pts.len() < 2 {
+        return;
+    }
+    let melt = column.iter().find_map(|g| g.freezing_level_m);
+    let (vlo, vhi) = pts.iter().fold((f32::MAX, f32::MIN), |(lo, hi), (v, _)| {
+        (lo.min(*v), hi.max(*v))
+    });
+    let (vlo, vhi) = if vhi > vlo {
+        (vlo, vhi)
+    } else {
+        (vlo - 1.0, vhi + 1.0)
+    };
+    let top = pts
+        .iter()
+        .map(|(_, h)| *h)
+        .chain(melt)
+        .fold(0.0f32, f32::max)
+        * 1.05;
+    let bottom = pts
+        .iter()
+        .map(|(_, h)| *h)
+        .fold(f32::MAX, f32::min)
+        .min(melt.unwrap_or(f32::MAX));
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), 150.0),
+        egui::Sense::hover(),
+    );
+    let painter = ui.painter_at(rect);
+    let plot = egui::Rect::from_min_max(
+        rect.left_top() + egui::vec2(46.0, 6.0),
+        rect.right_bottom() - egui::vec2(6.0, 16.0),
+    );
+    let at = |v: f32, h: f32| {
+        egui::pos2(
+            plot.left() + plot.width() * (v - vlo) / (vhi - vlo),
+            plot.bottom() - plot.height() * (h - bottom) / (top - bottom).max(1.0),
+        )
+    };
+    let text = ui.visuals().weak_text_color();
+    let font = egui::FontId::proportional(10.0);
+    if let Some(h0) = melt {
+        let y = at(vlo, h0).y;
+        painter.line_segment(
+            [egui::pos2(plot.left(), y), egui::pos2(plot.right(), y)],
+            egui::Stroke::new(1.0, egui::Color32::from_rgb(90, 170, 255)),
+        );
+        painter.text(
+            egui::pos2(plot.right(), y),
+            egui::Align2::RIGHT_BOTTOM,
+            "0 °C",
+            font.clone(),
+            egui::Color32::from_rgb(90, 170, 255),
+        );
+    }
+    let line: Vec<egui::Pos2> = pts.iter().map(|(v, h)| at(*v, *h)).collect();
+    let col = ui.visuals().selection.bg_fill;
+    painter.add(egui::Shape::line(line.clone(), egui::Stroke::new(1.5, col)));
+    for p in line {
+        painter.circle_filled(p, 2.5, col);
+    }
+    painter.text(
+        egui::pos2(rect.left(), plot.top()),
+        egui::Align2::LEFT_TOP,
+        format!("{:.1} km", top / 1000.0),
+        font.clone(),
+        text,
+    );
+    painter.text(
+        egui::pos2(rect.left(), plot.bottom()),
+        egui::Align2::LEFT_BOTTOM,
+        format!("{:.1} km", bottom / 1000.0),
+        font.clone(),
+        text,
+    );
+    painter.text(
+        egui::pos2(plot.left(), rect.bottom()),
+        egui::Align2::LEFT_BOTTOM,
+        format!("{vlo:.1}"),
+        font.clone(),
+        text,
+    );
+    painter.text(
+        egui::pos2(plot.right(), rect.bottom()),
+        egui::Align2::RIGHT_BOTTOM,
+        format!("{vhi:.1} {} {} (altitude MSL)", m.short_name(), m.units()),
+        font,
+        text,
+    );
 }
 
 #[cfg(test)]
@@ -229,6 +430,82 @@ mod tests {
             gate_inputs: wxdata::udp::GateInputs::default(),
             column_inputs: Vec::new(),
         }
+    }
+
+    /// Three tilts over one point, reflectivity weakening with height.
+    fn column() -> Vec<wxdata::udp::GateInputs> {
+        [
+            (0.5, 800.0, 55.0),
+            (1.5, 1_900.0, 48.0),
+            (2.4, 3_000.0, 40.0),
+        ]
+        .into_iter()
+        .map(|(e, h, z)| wxdata::udp::GateInputs {
+            elevation_deg: Some(e),
+            beam_height_m: Some(h),
+            beam_altitude_m: Some(h + 370.0),
+            range_km: Some(40.0),
+            reflectivity: Some(z),
+            correlation_coefficient: Some(0.97),
+            freezing_level_m: Some(4_000.0),
+            ..Default::default()
+        })
+        .collect()
+    }
+
+    #[test]
+    fn the_profile_csv_has_a_row_per_tilt_and_blanks_what_is_missing() {
+        let csv = profile_csv(&column());
+        let lines: Vec<&str> = csv.lines().collect();
+        assert_eq!(
+            lines[0],
+            "elevation_deg,beam_height_m,beam_altitude_m,range_km,REF,VEL,SW,ZDR,CC,KDP"
+        );
+        assert_eq!(lines.len(), 4);
+        assert_eq!(lines[1], "0.50,800,1170,40.00,55.000,,,,0.970,");
+    }
+
+    #[test]
+    fn the_vertical_profile_renders_top_of_the_column_first() {
+        let ctx = egui::Context::default();
+        let mut popup = sample_popup(Moment::Reflectivity, false, Some(55.0));
+        popup.column_inputs = column();
+        let mut labels = Vec::new();
+        for _ in 0..3 {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(900.0, 1400.0),
+                )),
+                ..Default::default()
+            };
+            let output = ctx.run_ui(input, |ui| attributes(ui, &popup, None, &[]));
+            labels = output
+                .shapes
+                .iter()
+                .filter_map(|s| match &s.shape {
+                    egui::Shape::Text(t) => Some(t.galley.job.text.clone()),
+                    _ => None,
+                })
+                .collect();
+        }
+        assert!(labels.iter().any(|s| s == "VERTICAL PROFILE"), "{labels:?}");
+        assert!(
+            labels.iter().any(|s| s == "0 °C"),
+            "the melting level is marked"
+        );
+        let pos = |want: &str| labels.iter().position(|s| s == want).unwrap();
+        assert!(
+            pos("2.4°") < pos("0.5°"),
+            "top of the column first: {labels:?}"
+        );
+        // One tilt is no profile.
+        popup.column_inputs.truncate(1);
+        let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            attributes(ui, &popup, None, &[])
+        });
+        assert!(!output.shapes.iter().any(|s| matches!(&s.shape,
+            egui::Shape::Text(t) if t.galley.job.text == "VERTICAL PROFILE")));
     }
 
     /// Every documented B4 field must actually reach the screen — a label present in the layout
