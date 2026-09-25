@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: live radar delay in the workstation bar
+
+The WSV3/Dock app bar now shows how far the newest radar frame is behind the current time and
+updates the figure every second. Archive viewing is labeled separately. The hover detail still
+reports the lag measured when the last live frame arrived.
+
 ### Changed: everything is reachable from the Dock layout
 
 The Dock (ImGui) layout used to miss things only the floating panel or the ribbon offered. It now

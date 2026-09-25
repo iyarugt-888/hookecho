@@ -768,3 +768,6 @@ a scale bar on the map; a network round-trip measurement for the app bar; a natu
   four open, docked and floating.
 - The old dock's two `"{2039}"`/`"loading{2026}"` strings were missing their `\u` and rendered
   literally; the model card's is fixed and the arrow buttons are glyphs now.
+- The app bar's live delay now follows the newest radar frame against the current clock, including
+  idle periods. Its hover detail retains the distinct lag measured at receipt. Archive view is
+  labeled as archive rather than treating historical frame age as live latency.

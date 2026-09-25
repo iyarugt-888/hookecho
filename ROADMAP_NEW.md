@@ -3964,7 +3964,10 @@ This is the explicit “what are we still missing?” list for agents.
 
 - [x] in-progress LiveScan-style rendering — B2 now paints every arriving partial chunk and runs a
   bounded lime sweep through the refreshed sector of the currently viewed 2D tilt
-- [ ] precise delay indicator
+- [x] precise delay indicator — the WSV3/Dock app bar now counts from the newest known radar
+  frame to the current clock while following live, updating every second. Archive view says
+  `Archive` rather than presenting the age of historical data as live feed delay. The provider's
+  lag at receipt remains available in the hover detail and source-health panel.
 - [x] scan-age visualization — `wxdata::scan_age` reads the per-azimuth collection times every
   binned sweep already carries, and the "Scan-age ring" layer draws them as a green-to-red ring at
   the sweep edge, labelled with the sweep's time span. Ages are relative to the sweep's own newest

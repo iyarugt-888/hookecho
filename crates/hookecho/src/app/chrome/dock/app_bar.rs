@@ -5,27 +5,83 @@ use super::*;
 use crate::ui::a11y::Named as _;
 use egui_phosphor::regular as ph;
 
+/// Current feed delay is the age of the newest known radar frame, not the ingest lag measured
+/// when an earlier frame arrived. In archive mode that age is not a live-feed measurement.
+fn radar_delay_label(
+    state: &str,
+    newest: Option<chrono::DateTime<chrono::Utc>>,
+    following: bool,
+    now: chrono::DateTime<chrono::Utc>,
+) -> String {
+    if !following {
+        return "Archive".to_string();
+    }
+    let Some(valid) = newest else {
+        return state.to_string();
+    };
+    let seconds = (now - valid).num_seconds().max(0);
+    let delay = if seconds < 3600 {
+        format!("{}m {:02}s", seconds / 60, seconds % 60)
+    } else {
+        format!("{}h {:02}m", seconds / 3600, (seconds % 3600) / 60)
+    };
+    format!("{state} · {delay} behind")
+}
+
+#[cfg(test)]
+mod delay_tests {
+    use super::radar_delay_label;
+
+    #[test]
+    fn live_delay_tracks_the_newest_frame_and_archive_does_not_claim_a_delay() {
+        let now = chrono::DateTime::from_timestamp(10_000, 0).unwrap();
+        let frame = now - chrono::Duration::seconds(81);
+        assert_eq!(
+            radar_delay_label("Fresh", Some(frame), true, now),
+            "Fresh · 1m 21s behind"
+        );
+        assert_eq!(
+            radar_delay_label("Stale", Some(frame), false, now),
+            "Archive"
+        );
+        assert_eq!(radar_delay_label("Waiting", None, true, now), "Waiting");
+        assert_eq!(
+            radar_delay_label("Fresh", Some(now + chrono::Duration::seconds(2)), true, now),
+            "Fresh · 0m 00s behind"
+        );
+    }
+}
+
 impl HookEchoApp {
     pub(super) fn dock_app_bar(&mut self, root: &mut egui::Ui, ctx: &egui::Context) {
         use crate::app::PaletteAction as A;
         let t = self.ws_tokens();
-        // The clock is only right if something repaints it; an idle map does not.
-        ctx.request_repaint_after(std::time::Duration::from_secs(20));
+        // The feed delay includes seconds, so update it even on an idle map.
+        ctx.request_repaint_after(std::time::Duration::from_secs(1));
         let tz = self.active_tz();
+        let now = chrono::Utc::now();
         let width = ctx.content_rect().width();
         let fit = app_bar_fit(width);
         let clock = if fit.date {
-            crate::timefmt::fmt_date_clock(chrono::Utc::now(), tz)
+            crate::timefmt::fmt_date_clock(now, tz)
         } else {
-            crate::timefmt::fmt_clock(chrono::Utc::now(), tz, false)
+            crate::timefmt::fmt_clock(now, tz, false)
         };
         let health = self.radar_health();
         let (state_word, state_color) = crate::ui::layers_panel::health_look(health.state());
-        // Provider ingest lag: how far behind wall clock the newest live volume already was when
-        // it landed. Only a real live arrival sets it, so it never reports a scrub as latency.
-        let lag = self.views[self.active]
-            .last_live_arrival
-            .map(|(arrived, valid)| (arrived - valid).num_seconds().max(0));
+        let following = self.views[self.active].timeline.following;
+        let delay_text = radar_delay_label(state_word, health.latest_valid_time, following, now);
+        let delay_tip = if following {
+            match self.views[self.active].last_live_arrival {
+                Some((arrived, valid)) => format!(
+                    "Newest feed frame behind the current time. Last received frame was {} behind at arrival.",
+                    humanize((arrived - valid).num_seconds().max(0))
+                ),
+                None => "Newest feed frame behind the current time. No live arrival measured yet.".to_string(),
+            }
+        } else {
+            "Viewing the archive. Return to Live to see current feed delay.".to_string()
+        };
         let keepout = if crate::os_decorated() {
             0.0
         } else {
@@ -77,16 +133,9 @@ impl HookEchoApp {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = 4.0;
                         ui.add_space(keepout);
-                        let lag_text = match lag {
-                            Some(s) => format!("{state_word} \u{b7} {s} s lag"),
-                            None => state_word.to_string(),
-                        };
-                        ui.label(ws::text(lag_text, 12.0, t.text_dim))
-                            .on_hover_text(health.error.as_deref().unwrap_or(
-                                "Radar feed health, and how far behind real time the newest \
-                                 live volume already was when it arrived",
-                            ));
-                        ws::status_dot(ui, state_color, 4.0);
+                        ui.label(ws::mono(&delay_text, 12.0, t.text_dim))
+                            .on_hover_text(health.error.as_deref().unwrap_or(&delay_tip));
+                        ws::status_dot(ui, if following { state_color } else { t.warn }, 4.0);
                         ui.add_space(8.0);
                         ui.label(ws::mono(clock, 12.0, t.text));
                         ui.label(ws::text(ph::CLOCK, 14.0, t.text_dim));
