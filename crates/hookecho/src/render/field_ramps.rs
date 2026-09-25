@@ -290,7 +290,7 @@ static SRH: FieldRamp = ramp!(
 );
 
 static FLASH_FLOOD: FieldRamp = ramp!(
-    "Flood recurrence",
+    "Rainfall recurrence",
     "yr",
     1.0,
     100.0,
@@ -1024,6 +1024,12 @@ pub fn ramp_for(layer: FieldLayer) -> Option<&'static FieldRamp> {
         | FL::Qpe12h
         | FL::Qpe24h
         | FL::FlashFlood
+        | FL::FlashFlood1h
+        | FL::FlashFlood3h
+        | FL::FlashFlood6h
+        | FL::FlashFlood12h
+        | FL::FlashFlood24h
+        | FL::FlashFloodMax
         | FL::PrecipType
         | FL::Mosaic
         | FL::CompositeLocal
@@ -1068,6 +1074,12 @@ mod tests {
             ("qpe24h", &QPE_24H),
             ("preciptype", &PRECIP_TYPE),
             ("flashflood", &FLASH_FLOOD),
+            ("flashflood-1h", &FLASH_FLOOD),
+            ("flashflood-3h", &FLASH_FLOOD),
+            ("flashflood-6h", &FLASH_FLOOD),
+            ("flashflood-12h", &FLASH_FLOOD),
+            ("flashflood-24h", &FLASH_FLOOD),
+            ("flashflood-max", &FLASH_FLOOD),
             ("posh", &POSH),
             ("shi", &SHI),
             ("mrms-vil", &VIL),

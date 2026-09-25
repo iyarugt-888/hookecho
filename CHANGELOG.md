@@ -8,6 +8,15 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: full FLASH rainfall-recurrence windows
+
+FLASH QPE average recurrence interval now has 30-minute, 1/3/6/12/24-hour and cross-window
+maximum layers, with a compact picker in the workstation and shared layer options. The original
+`flashflood` saved ID remains the 30-minute product. Names and the legend distinguish rainfall
+rarity in years from a direct flood forecast. The live MRMS contract confirms all 53 paths.
+Headless field checks now report when a current grid has no valid cells instead of printing an
+invalid numeric maximum.
+
 ### Fixed: MRMS echo-top legend across thresholds
 
 The shared km MSL echo-top legend now uses a threshold-neutral title, so 30/50/60-dBZ layers no
@@ -63,6 +72,16 @@ tool matches, it looks up the text as a place. Search results refresh as the tex
 The WSV3/Dock app bar now shows how far the newest radar frame is behind the current time and
 updates the figure every second. Archive viewing is labeled separately. The hover detail still
 reports the lag measured when the last live frame arrived.
+
+### Added: fixed-size stills and timed loops from `--watch`
+
+`--watch` renders at a fixed size whatever the screen: `--size PX`, `--frame WxH`, or `--preset
+1080p`, `1440p`, `4k`, `portrait` or `social`. Wide and tall frames keep the caption and colour
+bar inside them. Stills are PNG, JPEG or WebP, chosen by the file extension. A `--from`/`--to`
+range written to a `.gif` or `.mp4` becomes one loop. By default each frame is held for the real
+time until the next scan, scaled to `--fps`; `--interval fixed` holds every frame the same. The
+loop's sidecar JSON lists every frame's volume, valid time and hold. The app's own loop export
+now uses real scan timing too (switchable in Share preferences) and writes the same sidecar.
 
 ### Changed: everything is reachable from the Dock layout
 

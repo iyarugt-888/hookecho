@@ -44,6 +44,8 @@ pub struct UiActions {
     pub(crate) echo_top_threshold: Option<FieldLayer>,
     /// Pick one MRMS isothermal reflectivity level in the active pane.
     pub(crate) isotherm_level: Option<FieldLayer>,
+    /// Pick one FLASH QPE average-recurrence-interval window in the active pane.
+    pub(crate) flash_ari_window: Option<FieldLayer>,
 }
 
 /// Existing catalog-backed QPE layers stay distinct for saved-workspace and headless slug
@@ -70,6 +72,16 @@ pub(crate) const ISOTHERM_LEVELS: [(FieldLayer, &str); 5] = [
     (FieldLayer::MrmsReflM10c, "-10°C"),
     (FieldLayer::MrmsReflM15c, "-15°C"),
     (FieldLayer::MrmsReflM20c, "-20°C"),
+];
+
+pub(crate) const FLASH_ARI_WINDOWS: [(FieldLayer, &str); 7] = [
+    (FieldLayer::FlashFlood, "30m"),
+    (FieldLayer::FlashFlood1h, "1h"),
+    (FieldLayer::FlashFlood3h, "3h"),
+    (FieldLayer::FlashFlood6h, "6h"),
+    (FieldLayer::FlashFlood12h, "12h"),
+    (FieldLayer::FlashFlood24h, "24h"),
+    (FieldLayer::FlashFloodMax, "Max"),
 ];
 
 fn rotation_window_label(minutes: u16) -> &'static str {
@@ -117,6 +129,13 @@ pub(crate) fn select_isotherm_level(
     selected: FieldLayer,
 ) -> bool {
     select_one_of(on, &ISOTHERM_LEVELS, selected)
+}
+
+pub(crate) fn select_flash_ari_window(
+    on: &mut std::collections::HashSet<FieldLayer>,
+    selected: FieldLayer,
+) -> bool {
+    select_one_of(on, &FLASH_ARI_WINDOWS, selected)
 }
 
 fn catalog_choice_control(
@@ -202,6 +221,22 @@ pub(crate) fn isotherm_level_control(
         "MRMS isothermal reflectivity level",
         "Choose the environmental temperature level for national isothermal reflectivity (dBZ)",
         &ISOTHERM_LEVELS,
+    );
+}
+
+pub(crate) fn flash_ari_window_control(
+    ui: &mut egui::Ui,
+    on: &std::collections::HashSet<FieldLayer>,
+    actions: &mut UiActions,
+) {
+    actions.flash_ari_window = catalog_choice_control(
+        ui,
+        on,
+        "mrms_flash_ari_window",
+        "Rainfall rarity (ARI)",
+        "FLASH QPE average recurrence interval window",
+        "Choose a QPE accumulation window or the maximum across windows; values are years, not flood probability",
+        &FLASH_ARI_WINDOWS,
     );
 }
 
@@ -354,6 +389,12 @@ pub(crate) fn show(
             QPE_WINDOWS.iter().any(|(layer, _)| on.contains(layer)),
         ),
         (
+            "FLASH rainfall rarity",
+            FLASH_ARI_WINDOWS
+                .iter()
+                .any(|(layer, _)| on.contains(layer)),
+        ),
+        (
             "MRMS echo tops",
             ECHO_TOP_THRESHOLDS
                 .iter()
@@ -436,6 +477,9 @@ pub(crate) fn show(
     let in_side_by_side = showing_compare && !blink_compare && !overlay_compare && !swipe_compare;
     if section == "QPE accumulation" {
         qpe_window_control(ui, on, actions);
+    }
+    if section == "FLASH rainfall rarity" {
+        flash_ari_window_control(ui, on, actions);
     }
     if section == "MRMS echo tops" {
         echo_top_threshold_control(ui, on, actions);
@@ -1197,5 +1241,18 @@ mod catalog_choice_tests {
         assert!(on.contains(&FL::MrmsReflM20c));
         assert!(!select_isotherm_level(&mut on, FL::MrmsEchoTop18));
         assert_eq!(on.len(), 3);
+    }
+
+    #[test]
+    fn flash_ari_picker_preserves_other_hydrology_layers() {
+        let mut on = [FL::Qpe6h, FL::FlashFlood, FL::FlashFlood3h]
+            .into_iter()
+            .collect();
+        assert!(select_flash_ari_window(&mut on, FL::FlashFloodMax));
+        assert_eq!(on.len(), 2);
+        assert!(on.contains(&FL::Qpe6h));
+        assert!(on.contains(&FL::FlashFloodMax));
+        assert!(!select_flash_ari_window(&mut on, FL::Qpe1h));
+        assert_eq!(on.len(), 2);
     }
 }

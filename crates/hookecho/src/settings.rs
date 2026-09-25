@@ -681,6 +681,11 @@ pub struct Settings {
     /// receives it.
     #[serde(default = "default_true")]
     pub share_card: bool,
+    /// Exported loops hold each frame for the real time to the next scan (scaled to the playback
+    /// speed) rather than all alike — so a SAILS rescan is a quick step and a gap in the data is
+    /// a pause, as they were.
+    #[serde(default = "default_true")]
+    pub loop_real_timing: bool,
     /// Registry labels in the order the user dragged them, across every category. Labels not in
     /// here keep their registry order behind the ones that are — so a reorder never hides a row,
     /// and a renamed action just falls back to its default place.
@@ -1528,6 +1533,7 @@ impl Default for Settings {
             volume_cache_mb: 0,
             tile_disk_cache_mb: 0,
             share_card: true,
+            loop_real_timing: true,
             layer_order: Vec::new(),
             recent_layers: Vec::new(),
             favorite_layers: Vec::new(),
@@ -2327,6 +2333,7 @@ mod tests {
             smooth_radar: false,
             live_scan_indicator: false,
             share_card: true,
+            loop_real_timing: true,
             layer_order: Vec::new(),
             recent_layers: Vec::new(),
             favorite_layers: Vec::new(),

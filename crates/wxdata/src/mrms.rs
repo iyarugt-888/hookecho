@@ -83,8 +83,20 @@ pub const QPE_24H: &str = "CONUS/MultiSensor_QPE_24H_Pass2_00.00";
 pub const PRECIP_RATE: &str = "CONUS/PrecipRate_00.00";
 /// Surface precipitation type flag (categorical: rain/snow/hail/convective).
 pub const PRECIP_TYPE: &str = "CONUS/PrecipFlag_00.00";
-/// FLASH flash-flood average recurrence interval over the 30-min QPE window (years).
+/// FLASH QPE average recurrence interval over the 30-minute window (years).
 pub const FLASH_ARI30: &str = "CONUS/FLASH_QPE_ARI30M_00.00";
+/// FLASH QPE average recurrence interval over the 1-hour window (years).
+pub const FLASH_ARI01H: &str = "CONUS/FLASH_QPE_ARI01H_00.00";
+/// FLASH QPE average recurrence interval over the 3-hour window (years).
+pub const FLASH_ARI03H: &str = "CONUS/FLASH_QPE_ARI03H_00.00";
+/// FLASH QPE average recurrence interval over the 6-hour window (years).
+pub const FLASH_ARI06H: &str = "CONUS/FLASH_QPE_ARI06H_00.00";
+/// FLASH QPE average recurrence interval over the 12-hour window (years).
+pub const FLASH_ARI12H: &str = "CONUS/FLASH_QPE_ARI12H_00.00";
+/// FLASH QPE average recurrence interval over the 24-hour window (years).
+pub const FLASH_ARI24H: &str = "CONUS/FLASH_QPE_ARI24H_00.00";
+/// Maximum FLASH QPE average recurrence interval across the accumulation windows (years).
+pub const FLASH_ARI_MAX: &str = "CONUS/FLASH_QPE_ARIMAX_00.00";
 /// Probability of Severe Hail (%) — confirmed live on the bucket at `CONUS/POSH_00.50`.
 pub const POSH: &str = "CONUS/POSH_00.50";
 /// Severe Hail Index (dimensionless) — the raw index MESH/POSH are derived from, confirmed live

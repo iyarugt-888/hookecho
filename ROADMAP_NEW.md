@@ -1834,11 +1834,12 @@ The current `mrms.rs` contains a valuable but hand-selected subset. Replace the 
 
 ## D1. MRMS product catalog — partly done, found already built
 
-`wxdata::mrms::catalog` exists (see A1's corrected notes above), now with 29 products as
+`wxdata::mrms::catalog` exists (see A1's corrected notes above), now with 35 products as
 `FieldDescriptor`s: national composite reflectivity, low- and mid-level rotation tracks
-(30/60/120/240/360/1440 min), MESH,
-MESH swaths (30/60/120/240/360/1440 min), azimuthal shear, lightning density (1/5/15/30 min),
-precip rate, QPE 1h/3h/6h/12h/24h, precip type, FLASH ARI-30, POSH (`FieldLayer::Posh`),
+(30/60/120/240/360/1440 min), MESH, MESH swaths (30/60/120/240/360/1440 min), azimuthal
+shear, lightning density (1/5/15/30 min),
+precip rate, QPE 1h/3h/6h/12h/24h, precip type, FLASH QPE ARI 30m/1h/3h/6h/12h/24h/max,
+POSH (`FieldLayer::Posh`),
 Severe Hail Index (`FieldLayer::Shi`), national VIL (`FieldLayer::MrmsVil`, distinct from the
 locally-derived `VilLocal`), and — new this pass — reflectivity at lowest altitude
 (`FieldLayer::ReflLowestAlt`) and low-level composite reflectivity
@@ -1847,7 +1848,7 @@ named below. National echo tops at 18, 30, 50 and 60 dBZ are also cataloged, eac
 stable layer slug and one shared km MSL legend distinct from local and Level III kft echo tops.
 Five isothermal reflectivity products at the environmental 0/-5/-10/-15/-20°C levels use the
 configured dBZ palette. Verified live against the real bucket (see D1's "Rules" item below):
-47/47 paths confirmed.
+53/53 paths confirmed.
 
 Each new product needed more than catalog metadata alone to actually reach a user: a matching
 `FieldLayer` variant (`render/mod.rs`: enum entry, `DRAW_ORDER` slot, a slug that exactly
@@ -1906,18 +1907,17 @@ Target operational groups:
 
 - MRMS snow/precipitation-type products when published in the operational bucket
 
-The 29 products above cover composite reflectivity, both low-level forms (single-tilt and
+The 35 products above cover composite reflectivity, both low-level forms (single-tilt and
 low-level-composite), five isothermal reflectivity levels, low-level azshear, both rotation-track
 bands, MESH + swaths, POSH, SHI, precip rate/QPE (1/3/6/12/24h)/type, national VIL, all four
-national echo-top thresholds, lightning and flash-flood rarity. **Not yet cataloged**, all genuine
+national echo-top thresholds, lightning and every FLASH QPE ARI window. **Not yet cataloged**, all genuine
 gaps rather than oversights — confirmed live on the bucket
 while adding products across this and the prior pass, so these are real, verified prefixes to pick up next,
 not guesses: hail-growth-zone height products (`H50_Above_-20C_00.50` and siblings
 — related to but distinct from a literal "-20°C height," which MRMS does not publish directly;
-`Model_0degC_Height_00.50` is the closest real 0°C-level product), QPE-to-ARI exceedance fields
-beyond the one 30-minute window (`FLASH_QPE_ARI01H/03H/06H/12H/24H/MAX_00.00` all exist live),
-streamflow products (`FLASH_CREST_MAXSTREAMFLOW_00.00` and several sibling FLASH/CREST/HP/SAC
-variants), and MRMS's winter/precip-type-family products beyond the one flag already cataloged
+`Model_0degC_Height_00.50` is the closest real 0°C-level product), streamflow products
+(`FLASH_CREST_MAXSTREAMFLOW_00.00` and several sibling FLASH/CREST/HP/SAC variants), and MRMS's
+winter/precip-type-family products beyond the one flag already cataloged
 (none found with an obviously distinct winter-specific prefix in this pass's bucket listing —
 may not exist as a separate published product, not confirmed either way).
 
@@ -1926,9 +1926,10 @@ may not exist as a separate published product, not confirmed either way).
 - [x] Do not blindly list a product unless a feed contract test confirms it exists —
   `mrms::catalog::the_mrms_catalog_paths_are_real` (network-gated) asks the live bucket for every
   path every product's `FetchMapping` can produce (default plus every published window), the same
-  listing a real fetch depends on. Passing today: 47/47 paths (25 single-path products plus
-  low-/mid-level rotation, lightning and hail-swath windows — 25 + 6 + 6 + 4 + 6 = 47) confirmed
-  live, including both rotation bands, all four echo-top thresholds and five isothermal levels.
+  listing a real fetch depends on. Passing today: 53/53 paths (31 single-path products plus
+  low-/mid-level rotation, lightning and hail-swath windows — 31 + 6 + 6 + 4 + 6 = 53) confirmed
+  live, including all FLASH QPE ARI windows, both rotation bands, all four echo-top thresholds and
+  five isothermal levels.
 
 ## D2. Generic MRMS fetch/decode path — done
 
@@ -1987,6 +1988,10 @@ not a convention callers have to remember.
 - [x] rotation-track window selector — one compact dropdown offers all six operational windows
   for both the 0–2 km and 3–6 km AGL bands. Each band has its own saved layer ID; changing the
   shared window refetches both when loaded.
+- [x] FLASH QPE ARI selector — one compact choice offers 30m/1h/3h/6h/12h/24h and maximum
+  rainfall-recurrence windows. The 30-minute product keeps its original `flashflood` saved slug;
+  selecting a different window replaces only FLASH ARI layers in the active pane. The hint and
+  legend state years of rainfall recurrence rather than flood probability.
 - [x] valid time — `ui::data_inspector`'s "Valid" row, with signed offset from the pane's analysis
   time
 - [x] native resolution — `GridProvenance.native`, shown as part of the same inspector's grid
@@ -2021,11 +2026,11 @@ Do not fabricate 3D from a 2D surface product.
   matching `FieldLayer` slug (plus a ramp when no existing `PaletteId` fit); the fetch, Layers
   picker, search, provenance and health tracking picked them up. Window/threshold controls are
   shared UI over those catalog entries, not generated from metadata.
-- [ ] at least the major WeatherFront-class MRMS groups are covered — 29 products across
+- [ ] at least the major WeatherFront-class MRMS groups are covered — 35 products across
   reflectivity (now including both low-level forms)/severe (POSH/SHI)/precipitation/lightning/
   hydrology (QPE now spans 1h/3h/6h/12h/24h)/VIL/all four echo-top thresholds and five
   reflectivity-at-isotherm levels, plus both rotation bands; several groups from D1's target list
-  (layer heights, streamflow and ARI windows beyond 30 min)
+  (layer heights and streamflow)
   are confirmed real on the live bucket but not yet cataloged — see D1's updated gap list for the
   exact prefixes
 - [x] categorical fields use nearest-neighbor
@@ -3353,13 +3358,33 @@ Controls:
 - warning crawl optional
 - logo/branding slot optional
 
-## M2. Deterministic capture
+## M2. Deterministic capture — done
 
-- fixed-resolution offscreen rendering independent of current window size
-- PNG/JPEG/WebP still
-- MP4/GIF existing export upgraded to use exact timeline timestamps
-- variable/fixed frame interval option
-- metadata sidecar JSON
+- [x] fixed-resolution offscreen rendering independent of current window size — `--watch` renders
+  off screen at `--size PX` (square), `--frame WxH` or `--preset 1080p|1440p|4k|portrait|social`,
+  up to 4096 px. The renderer draws squares (its projection has no aspect ratio), so a wide or tall
+  frame is the middle of a square at its longer edge — same map scale, more map — and the crop
+  happens before the caption, colour bar and city labels are stamped, so they sit inside the frame
+  (`headless::set_crop`)
+- [x] PNG/JPEG/WebP still — by the output's extension (`loopexport::encode_still`; JPEG at
+  quality 90 flattened onto the map's black, WebP lossless via the `image` crate's `webp` feature)
+- [x] MP4/GIF existing export upgraded to use exact timeline timestamps — the app's loop export
+  records each captured frame's volume and scan time, and `--watch --from A --to B --out x.gif|mp4`
+  renders one loop of the range; both hold each frame by its real scan gap
+  (`loopexport::frame_delays_ms`)
+- [x] variable/fixed frame interval option — `--interval real|fixed` and `--fps` (real timing keeps
+  the scans' own spacing scaled to average `fps`, clamped 20 ms..4 s so an outage pauses rather
+  than stalls; the last frame dwells three times its hold); "Real scan timing" in the app's
+  Share preferences. MP4 goes through ffmpeg's concat demuxer with a duration per frame, written
+  at a constant 30 fps so every player honours the holds
+- [x] metadata sidecar JSON — every still's names its volume, valid time, frame size, zoom and
+  centre; every loop's (app and `--watch`) lists each frame's volume, valid time, hold and start
+  time, plus the interval mode, fps and total duration
+
+Checked on the Moore case: 1920x1080 WebP and JPEG and a 1080x1920 portrait PNG of 20:08Z with the
+caption and colour bar inside the frame, and a four-volume GIF of 19:56-20:16Z with real timing
+(scans 4:15 apart held ~250 ms each at 4 fps). MP4 is covered by its frame-list test only: there is
+no ffmpeg on the machine this was built on, and the MP4 encode test skips without one.
 
 ## M3. Automated output — done
 

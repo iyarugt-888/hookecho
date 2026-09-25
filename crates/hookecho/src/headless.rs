@@ -40,7 +40,8 @@ fn extras() -> bool {
     EXTRAS.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-/// Ask for a different output size (256..=2048 px) and/or zoom for the renders that follow.
+/// Ask for a different output size (256..=4096 px) and/or zoom for the renders that follow.
+/// The server clamps its own requests lower; 4096 is for `--watch`'s 4K frames.
 ///
 /// `px: None` leaves the size where it was, but **`zoom: None` clears the override** rather than
 /// leaving it: the caller is saying "frame this the way the site deserves", and on a server the
@@ -49,12 +50,27 @@ fn extras() -> bool {
 /// — a radar page showing the whole continent with a `KFWS · REF 0.5°` caption on it.
 pub fn set_output(px: Option<u32>, zoom: Option<f64>) {
     if let Some(px) = px {
-        SIZE_PX.store(px.clamp(256, 2048), std::sync::atomic::Ordering::Relaxed);
+        SIZE_PX.store(px.clamp(256, 4096), std::sync::atomic::Ordering::Relaxed);
     }
     ZOOM_OVERRIDE.store(
         zoom.map_or(u64::MAX, |z| z.clamp(1.0, 14.0).to_bits()),
         std::sync::atomic::Ordering::Relaxed,
     );
+}
+
+/// A frame to crop the square render to, `(width, height)`, or `None` for the whole square.
+static CROP: std::sync::Mutex<Option<(u32, u32)>> = std::sync::Mutex::new(None);
+
+/// Crop the renders that follow to their middle `width`x`height` (ROADMAP_NEW M2's 16:9 and
+/// portrait frames). The renderer draws squares; a wide frame is the middle of a square at its
+/// longer edge, at the same map scale. The caption, colour bar and labels are painted after the
+/// crop, so they sit inside the frame rather than being cut off with the square's edges.
+/// `None` renders the square whole. Same process-global shape and locking rule as
+/// [`set_output`].
+pub fn set_crop(frame: Option<(u32, u32)>) {
+    if let Ok(mut c) = CROP.lock() {
+        *c = frame;
+    }
 }
 
 /// Built-in alternate palette for the renders that follow, or `None` for each moment's default.
@@ -1990,8 +2006,14 @@ pub fn run_field(slug: &str, out_path: &str) -> anyhow::Result<()> {
         "qpe24h" => (wxdata::mrms::QPE_24H.to_string(), FL::Qpe24h),
         "preciptype" => (wxdata::mrms::PRECIP_TYPE.to_string(), FL::PrecipType),
         "flashflood" => (wxdata::mrms::FLASH_ARI30.to_string(), FL::FlashFlood),
+        "flashflood-1h" => (wxdata::mrms::FLASH_ARI01H.to_string(), FL::FlashFlood1h),
+        "flashflood-3h" => (wxdata::mrms::FLASH_ARI03H.to_string(), FL::FlashFlood3h),
+        "flashflood-6h" => (wxdata::mrms::FLASH_ARI06H.to_string(), FL::FlashFlood6h),
+        "flashflood-12h" => (wxdata::mrms::FLASH_ARI12H.to_string(), FL::FlashFlood12h),
+        "flashflood-24h" => (wxdata::mrms::FLASH_ARI24H.to_string(), FL::FlashFlood24h),
+        "flashflood-max" => (wxdata::mrms::FLASH_ARI_MAX.to_string(), FL::FlashFloodMax),
         "hailswath" => (wxdata::mrms::MESH_1440.to_string(), FL::HailSwath),
-        other => anyhow::bail!("unknown field slug '{other}' (rotation{{30,60,120,240,360,1440}}|rotationml{{30,60,120,240,360,1440}}|mesh|azshear|qpe1h|qpe3h|qpe6h|qpe12h|qpe24h|preciptype|flashflood|hailswath)"),
+        other => anyhow::bail!("unknown field slug '{other}' (rotation{{30,60,120,240,360,1440}}|rotationml{{30,60,120,240,360,1440}}|mesh|azshear|qpe1h|qpe3h|qpe6h|qpe12h|qpe24h|preciptype|flashflood[-1h|-3h|-6h|-12h|-24h|-max]|hailswath)"),
     };
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -2000,20 +2022,23 @@ pub fn run_field(slug: &str, out_path: &str) -> anyhow::Result<()> {
         let client = reqwest::Client::new();
         wxdata::mrms::fetch_latest(&client, &product).await
     })?;
-    let nonzero = field
-        .values
-        .iter()
-        .filter(|v| !v.is_nan() && v.abs() > 0.0)
-        .count();
-    let vmax = field
-        .values
-        .iter()
-        .cloned()
-        .filter(|v| !v.is_nan())
-        .fold(f32::MIN, f32::max);
+    let mut valid = 0usize;
+    let mut nonzero = 0usize;
+    let mut vmax: Option<f32> = None;
+    for &value in &field.values {
+        if value.is_finite() {
+            valid += 1;
+            nonzero += usize::from(value != 0.0);
+            vmax = Some(vmax.map_or(value, |current| current.max(value)));
+        }
+    }
+    let max_label = vmax.map_or_else(
+        || "no valid cells".to_string(),
+        |value| format!("{value:.4}"),
+    );
     println!(
-        "{slug} grid {}x{}  nonzero: {}  max: {:.4}  time {}",
-        field.nx, field.ny, nonzero, vmax, field.time
+        "{slug} grid {}x{}  valid: {}  nonzero: {}  max: {}  time {}",
+        field.nx, field.ny, valid, nonzero, max_label, field.time
     );
 
     let field = field.decimated(8192); // fit oversized (14000×7000) rotation/AzShear grids
@@ -3874,12 +3899,71 @@ fn render_to_png_stamped(
     drop(mapped);
     buffer.unmap();
 
-    if let Some(stamp) = stamp {
-        crate::chrome::draw(&mut rgba, size(), size(), stamp);
+    let crop = CROP.lock().ok().and_then(|c| *c);
+    let (rgba, w, h, stamp) = crop_frame(rgba, size(), crop, stamp);
+    let mut rgba = rgba;
+    if let Some(stamp) = &stamp {
+        crate::chrome::draw(&mut rgba, w, h, stamp);
     }
-    image::save_buffer(out_path, &rgba, size(), size(), image::ColorType::Rgba8)?;
+    image::save_buffer(out_path, &rgba, w, h, image::ColorType::Rgba8)?;
     println!("wrote {out_path}");
     Ok(())
+}
+
+/// Cut the middle `crop` out of a `size`-square RGBA render, and move the stamp's city labels
+/// with it (dropping those that fall outside). `None` passes the square through.
+fn crop_frame(
+    rgba: Vec<u8>,
+    size: u32,
+    crop: Option<(u32, u32)>,
+    stamp: Option<&crate::chrome::Stamp>,
+) -> (Vec<u8>, u32, u32, Option<crate::chrome::Stamp>) {
+    let Some((cw, ch)) = crop.filter(|&(w, h)| (w, h) != (size, size)) else {
+        return (rgba, size, size, stamp.cloned());
+    };
+    let Some(square) = image::RgbaImage::from_raw(size, size, rgba.clone()) else {
+        return (rgba, size, size, stamp.cloned());
+    };
+    let frame = crate::loopexport::crop_center(&square, cw, ch);
+    let (w, h) = (frame.width(), frame.height());
+    let (dx, dy) = (((size - w) / 2) as f32, ((size - h) / 2) as f32);
+    let stamp = stamp.map(|s| crate::chrome::Stamp {
+        labels: s
+            .labels
+            .iter()
+            .map(|(x, y, name)| (x - dx, y - dy, name.clone()))
+            .filter(|(x, y, _)| (0.0..w as f32).contains(x) && (0.0..h as f32).contains(y))
+            .collect(),
+        ..s.clone()
+    });
+    (frame.into_raw(), w, h, stamp)
+}
+
+#[cfg(test)]
+mod crop_tests {
+    use super::*;
+
+    #[test]
+    fn a_crop_keeps_the_middle_and_moves_the_labels_with_it() {
+        // A 10 px square whose pixel value is its column.
+        let rgba: Vec<u8> = (0..10u8)
+            .flat_map(|_| (0..10u8).flat_map(|x| [x, 0, 0, 255]))
+            .collect();
+        let stamp = crate::chrome::Stamp {
+            caption: "KTLX".into(),
+            bar: None,
+            labels: vec![(5.0, 5.0, "Moore".into()), (0.5, 5.0, "Edge".into())],
+        };
+        let (out, w, h, s) = crop_frame(rgba.clone(), 10, Some((6, 4)), Some(&stamp));
+        assert_eq!((w, h, out.len()), (6, 4, 6 * 4 * 4));
+        assert_eq!(out[0], 2, "the crop starts two columns in");
+        let s = s.unwrap();
+        assert_eq!(s.labels, vec![(3.0, 2.0, "Moore".to_string())]);
+        assert_eq!(s.caption, "KTLX");
+        let (same, w, h, _) = crop_frame(rgba.clone(), 10, None, None);
+        assert_eq!((w, h), (10, 10));
+        assert_eq!(same, rgba);
+    }
 }
 
 // ponytail: one golden scene; per-moment/per-palette goldens if renderer churn starts

@@ -24,6 +24,7 @@ const CAPTION_PX: f32 = 15.0;
 const REFERENCE_W: f32 = 1000.0;
 
 /// The color bar to draw, if the render has a moment to explain.
+#[derive(Clone)]
 pub struct Bar {
     pub table: ColorTable,
     /// e.g. `"dBZ"`.
@@ -31,7 +32,7 @@ pub struct Bar {
 }
 
 /// Everything painted on top of a finished render.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Stamp {
     /// One line, bottom left: `KTLX · REF 0.5° · 2026-08-29 20:32Z · hookecho.io`.
     pub caption: String,

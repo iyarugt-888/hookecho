@@ -8,19 +8,28 @@
 //! - **atomically**: the PNG and the sidecar are written beside their targets and renamed over
 //!   them, so a reader never sees half a file;
 //! - **on a schedule** (`--every`), **once** (`--once`), for **one archived instant** (`--time`),
-//!   or for **every volume in a range** (`--from`/`--to`, one numbered file per volume).
+//!   or for **every volume in a range** (`--from`/`--to`, one numbered file per volume);
+//! - **at a fixed size**, whatever the screen (ROADMAP_NEW M2): `--size PX` for a square,
+//!   `--frame WxH`, or `--preset 1080p|1440p|4k|portrait|social`;
+//! - **as a still or a loop**, by the output's extension: `.png`, `.jpg` or `.webp` for stills,
+//!   `.gif` or `.mp4` for one animated loop of a `--from`/`--to` range, each frame held for the
+//!   real time to the next scan (`--interval real`, the default) or evenly (`--interval fixed`),
+//!   at `--fps` frames a second on average. The loop's sidecar lists every frame's volume, valid
+//!   time and hold.
 //!
 //! ```text
 //! hookecho --watch --site KTLX --product REF --out radar.png [--every 60]
 //! hookecho --watch --workspace "Home" --out home.png --once
 //! hookecho --watch --site KTLX --time 2013-05-20T20:08 --out moore.png
 //! hookecho --watch --site KTLX --from 2013-05-20T19:50 --to 2013-05-20T20:30 --out moore.png
+//! hookecho --watch --site KTLX --from 2013-05-20T19:50 --to 2013-05-20T20:30 \
+//!     --preset 1080p --out moore.mp4 --fps 6
 //! ```
 //!
-//! Options: `--tilt N`, `--size PX` (256..=2048), `--zoom Z`, `--center LON,LAT`,
-//! `--basemap SLUG` (`none` for a bare sweep). NEXRAD only: the other networks publish no volume
-//! list to poll or scrub.
+//! Options: `--tilt N`, `--zoom Z`, `--center LON,LAT`, `--basemap SLUG` (`none` for a bare
+//! sweep). NEXRAD only: the other networks publish no volume list to poll or scrub.
 
+use crate::loopexport::{LoopFormat, StillFormat, Timing};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -32,12 +41,51 @@ pub struct Job {
     pub site: String,
     pub moment: Moment,
     pub tilt: usize,
-    pub size: u32,
+    /// Output width and height, px. Rendered as a square at the longer edge and cropped to the
+    /// middle, so a wide frame shows more map at the same scale rather than a stretched one.
+    pub frame: (u32, u32),
+    pub output: Output,
     pub zoom: Option<f64>,
     pub center: Option<(f64, f64)>,
     pub basemap: crate::tiles::BasemapStyle,
     pub out: PathBuf,
     pub when: When,
+}
+
+/// What each render becomes.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Output {
+    /// One picture per volume.
+    Still(StillFormat),
+    /// One animated loop of every volume in the range.
+    Loop(LoopFormat, Timing),
+}
+
+/// The frame sizes a broadcast or social post asks for, by name.
+pub fn preset(name: &str) -> Option<(u32, u32)> {
+    Some(match name.to_ascii_lowercase().as_str() {
+        "1080p" | "hd" => (1920, 1080),
+        "1440p" | "qhd" => (2560, 1440),
+        "4k" | "2160p" | "uhd" => (3840, 2160),
+        "portrait" | "vertical" | "story" => (1080, 1920),
+        "social" | "square" => (1080, 1080),
+        _ => return None,
+    })
+}
+
+/// The largest edge the off-screen renderer draws.
+const MAX_EDGE: u32 = 4096;
+
+fn parse_frame(s: &str) -> anyhow::Result<(u32, u32)> {
+    let (w, h) = s
+        .split_once(['x', 'X'])
+        .ok_or_else(|| anyhow::anyhow!("--frame is WIDTHxHEIGHT, like 1920x1080"))?;
+    let (w, h): (u32, u32) = (w.trim().parse()?, h.trim().parse()?);
+    anyhow::ensure!(
+        (64..=MAX_EDGE).contains(&w) && (64..=MAX_EDGE).contains(&h),
+        "--frame edges are 64..={MAX_EDGE} px"
+    );
+    Ok((w, h))
 }
 
 /// Which volumes to render.
@@ -146,17 +194,54 @@ pub fn parse_args(
         },
         _ => anyhow::bail!("give --time, or --from with --to, or neither for live"),
     };
+    let frame = match (get("frame"), get("preset"), get("size")) {
+        (Some(f), None, None) => parse_frame(f)?,
+        (None, Some(p), None) => preset(p).ok_or_else(|| {
+            anyhow::anyhow!("unknown preset '{p}': 1080p, 1440p, 4k, portrait or social")
+        })?,
+        (None, None, size) => {
+            let px: u32 = size.map_or(Ok(1000), str::parse)?;
+            let px = px.clamp(256, MAX_EDGE);
+            (px, px)
+        }
+        _ => anyhow::bail!("give one of --size, --frame or --preset"),
+    };
+    let out =
+        PathBuf::from(get("out").ok_or_else(|| anyhow::anyhow!("--out PATH.png is required"))?);
+    let fps: f32 = get("fps").map_or(Ok(6.0), str::parse)?;
+    anyhow::ensure!((0.5..=30.0).contains(&fps), "--fps is 0.5..=30");
+    let timing = match get("interval").unwrap_or("real") {
+        "real" => Timing::Real { fps },
+        "fixed" => Timing::Fixed { fps },
+        other => anyhow::bail!("--interval is real or fixed, not '{other}'"),
+    };
+    let ext = out
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+    let output = match (StillFormat::from_path(&out), ext.as_str()) {
+        (Some(f), _) => Output::Still(f),
+        (None, "gif") => Output::Loop(LoopFormat::Gif, timing),
+        (None, "mp4") => Output::Loop(LoopFormat::Mp4, timing),
+        _ => anyhow::bail!("--out ends in .png, .jpg, .webp, .gif or .mp4"),
+    };
+    if matches!(output, Output::Loop(..)) {
+        anyhow::ensure!(
+            matches!(when, When::Range(..)),
+            "a .gif or .mp4 loop needs a --from/--to range"
+        );
+    }
     Ok(Job {
         site,
         moment,
         tilt,
-        size: get("size").map_or(Ok(1000), str::parse)?,
+        frame,
+        output,
         zoom,
         center,
         basemap,
-        out: PathBuf::from(
-            get("out").ok_or_else(|| anyhow::anyhow!("--out PATH.png is required"))?,
-        ),
+        out,
         when,
     })
 }
@@ -186,18 +271,25 @@ fn write_atomic(target: &Path, bytes: &[u8]) -> std::io::Result<()> {
     replace(&tmp, target)
 }
 
-/// Render one volume (`id`) to `out` with its sidecar, both atomically.
-fn render(job: &Job, id: &level2::Identifier, out: &Path) -> anyhow::Result<()> {
+/// Render one volume (`id`) at the job's frame size: a square at the longer edge, cropped to the
+/// middle by the renderer before it stamps the caption and colour bar. Returns the picture and the
+/// volume's valid time.
+fn render_frame(
+    job: &Job,
+    id: &level2::Identifier,
+    scratch: &Path,
+) -> anyhow::Result<(image::RgbaImage, DateTime<Utc>)> {
     let time = id
         .date_time()
         .ok_or_else(|| anyhow::anyhow!("volume {} has no time", id.name()))?;
-    let tmp = out.with_extension("rendering.png");
-    crate::headless::set_output(Some(job.size), job.zoom);
+    let (w, h) = job.frame;
+    crate::headless::set_output(Some(w.max(h)), job.zoom);
+    crate::headless::set_crop(Some((w, h)));
     crate::headless::set_center(job.center);
     crate::headless::set_extras(true);
     crate::headless::set_palette(None);
     crate::headless::run(
-        tmp.to_string_lossy().as_ref(),
+        scratch.to_string_lossy().as_ref(),
         &job.site,
         job.moment,
         job.tilt,
@@ -209,25 +301,110 @@ fn render(job: &Job, id: &level2::Identifier, out: &Path) -> anyhow::Result<()> 
         job.basemap,
         job.moment == Moment::Velocity,
     )?;
-    let meta = serde_json::json!({
+    let img = image::open(scratch)?.to_rgba8();
+    let _ = std::fs::remove_file(scratch);
+    Ok((img, time))
+}
+
+/// What every sidecar says about the job, whichever kind of output it describes.
+fn job_meta(job: &Job) -> serde_json::Value {
+    serde_json::json!({
         "site": job.site,
         "product": job.moment.short_name(),
         "tilt_index": job.tilt,
-        "volume": id.name(),
-        "valid_time_utc": time.to_rfc3339(),
-        "rendered_utc": Utc::now().to_rfc3339(),
-        "size_px": job.size,
+        "frame_px": [job.frame.0, job.frame.1],
         "zoom": job.zoom,
         "center": job.center.map(|(lon, lat)| serde_json::json!({ "lon": lon, "lat": lat })),
+        "rendered_utc": Utc::now().to_rfc3339(),
         "source": "NOAA NEXRAD Level II, rendered by HookEcho",
-    });
-    replace(&tmp, out)?;
+    })
+}
+
+/// Render one volume (`id`) to the still `out` with its sidecar, both atomically.
+fn render(
+    job: &Job,
+    id: &level2::Identifier,
+    out: &Path,
+    format: StillFormat,
+) -> anyhow::Result<()> {
+    let (img, time) = render_frame(job, id, &out.with_extension("rendering.png"))?;
+    let bytes = crate::loopexport::encode_still(&img, format)?;
+    let mut meta = job_meta(job);
+    meta["volume"] = id.name().into();
+    meta["valid_time_utc"] = time.to_rfc3339().into();
+    write_atomic(out, &bytes)?;
     write_atomic(
         &sidecar(out),
         serde_json::to_string_pretty(&meta)?.as_bytes(),
     )?;
     println!("{} -> {}", id.name(), out.display());
     Ok(())
+}
+
+/// Render every volume in `ids` and encode them into one loop at `job.out`, with a sidecar that
+/// lists each frame. Frames are staged as PNGs beside the output, so a long loop never has to
+/// fit in memory, and the finished file is renamed into place.
+fn render_loop(
+    job: &Job,
+    ids: &[level2::Identifier],
+    format: LoopFormat,
+    timing: Timing,
+) -> anyhow::Result<()> {
+    let stage = job.out.with_extension("frames");
+    std::fs::create_dir_all(&stage)?;
+    let result = (|| {
+        let mut files = Vec::with_capacity(ids.len());
+        let mut volumes = Vec::with_capacity(ids.len());
+        for (i, id) in ids.iter().enumerate() {
+            let (img, time) = render_frame(job, id, &stage.join("square.png"))?;
+            let file = stage.join(format!("f{i:05}.png"));
+            img.save(&file)?;
+            files.push(file);
+            volumes.push((id.name().to_string(), time));
+            println!("frame {}/{}: {}", i + 1, ids.len(), id.name());
+        }
+        let frames = crate::loopexport::frame_list(&volumes, timing);
+        let delays: Vec<u32> = frames.iter().map(|f| f.delay_ms).collect();
+        let tmp = job.out.with_extension(match format {
+            LoopFormat::Gif => "tmp.gif",
+            LoopFormat::Mp4 => "tmp.mp4",
+        });
+        match format {
+            #[cfg(not(target_arch = "wasm32"))]
+            LoopFormat::Gif => crate::loopexport::encode_gif_timed(
+                files.iter().map(|f| Ok(image::open(f)?.to_rgba8())),
+                &delays,
+                &tmp,
+            )?,
+            #[cfg(target_arch = "wasm32")]
+            LoopFormat::Gif => anyhow::bail!("GIF export needs a filesystem"),
+            LoopFormat::Mp4 => crate::loopexport::encode_mp4_files(&files, &delays, &tmp)?,
+        }
+        replace(&tmp, &job.out)?;
+        let mut meta = job_meta(job);
+        meta["format"] = match format {
+            LoopFormat::Gif => "gif",
+            LoopFormat::Mp4 => "mp4",
+        }
+        .into();
+        let (interval, fps) = crate::loopexport::timing_words(timing);
+        meta["interval"] = interval.into();
+        meta["fps"] = fps.into();
+        meta["duration_ms"] = frames
+            .iter()
+            .map(|f| u64::from(f.delay_ms))
+            .sum::<u64>()
+            .into();
+        meta["frames"] = serde_json::to_value(&frames)?;
+        write_atomic(
+            &sidecar(&job.out),
+            serde_json::to_string_pretty(&meta)?.as_bytes(),
+        )?;
+        println!("{} frame loop -> {}", frames.len(), job.out.display());
+        Ok(())
+    })();
+    let _ = std::fs::remove_dir_all(&stage);
+    result
 }
 
 /// The volumes a site has on the UTC days `from..=to` touch, oldest first.
@@ -247,6 +424,14 @@ async fn volumes_between(
     out.sort_by_key(|id| id.date_time());
     out.dedup_by_key(|id| id.name().to_string());
     Ok(out)
+}
+
+/// The still format a job writes; only a range job can be a loop, which `parse_args` enforces.
+fn still(job: &Job) -> anyhow::Result<StillFormat> {
+    match job.output {
+        Output::Still(f) => Ok(f),
+        Output::Loop(..) => anyhow::bail!("a loop needs a --from/--to range"),
+    }
 }
 
 /// Run a job to completion (or forever, for a live one without `--once`).
@@ -270,7 +455,7 @@ pub fn run(job: &Job) -> anyhow::Result<()> {
                 .filter(|id| id.date_time().is_some())
                 .min_by_key(|id| (id.date_time().unwrap() - *t).num_seconds().abs())
                 .ok_or_else(|| anyhow::anyhow!("no {} volume near {t}", job.site))?;
-            render(job, &id, &job.out)
+            render(job, &id, &job.out, still(job)?)
         }
         When::Range(a, b) => {
             let ids: Vec<_> = rt
@@ -283,12 +468,17 @@ pub fn run(job: &Job) -> anyhow::Result<()> {
                 "no {} volumes between {a} and {b}",
                 job.site
             );
+            if let Output::Loop(format, timing) = job.output {
+                return render_loop(job, &ids, format, timing);
+            }
+            let format = still(job)?;
             for id in &ids {
                 let t = id.date_time().unwrap_or(*a);
                 render(
                     job,
                     id,
                     &with_suffix(&job.out, &t.format("%Y%m%d_%H%M%S").to_string()),
+                    format,
                 )?;
             }
             println!("{} volume(s) rendered", ids.len());
@@ -303,7 +493,7 @@ pub fn run(job: &Job) -> anyhow::Result<()> {
                     .map(|ids| ids.into_iter().rfind(|id| id.date_time().is_some()));
                 match newest {
                     Ok(Some(id)) if last.as_deref() != Some(id.name()) => {
-                        match render(job, &id, &job.out) {
+                        match render(job, &id, &job.out, still(job)?) {
                             Ok(()) => last = Some(id.name().to_string()),
                             Err(e) => eprintln!("render failed, will retry: {e}"),
                         }
@@ -340,7 +530,11 @@ mod tests {
                 once: false
             }
         );
-        assert_eq!((j.tilt, j.size, j.zoom, j.center), (0, 1000, None, None));
+        assert_eq!(
+            (j.tilt, j.frame, j.zoom, j.center),
+            (0, (1000, 1000), None, None)
+        );
+        assert_eq!(j.output, Output::Still(StillFormat::Png));
         let j = parse_args(&args("--site KTLX --out r.png --every 5 --once"), &[]).unwrap();
         assert_eq!(
             j.when,
@@ -379,6 +573,82 @@ mod tests {
         ] {
             assert!(parse_args(&args(bad), &[]).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn frames_presets_formats_and_loops() {
+        let j = parse_args(&args("--site KTLX --out r.jpg --preset 1080p"), &[]).unwrap();
+        assert_eq!(
+            (j.frame, j.output),
+            ((1920, 1080), Output::Still(StillFormat::Jpeg))
+        );
+        let j = parse_args(&args("--site KTLX --out r.webp --frame 1080x1920"), &[]).unwrap();
+        assert_eq!(
+            (j.frame, j.output),
+            ((1080, 1920), Output::Still(StillFormat::Webp))
+        );
+        assert_eq!(preset("4K"), Some((3840, 2160)));
+        assert_eq!(preset("social"), Some((1080, 1080)));
+        let j = parse_args(
+            &args("--site KTLX --from 2013-05-20T19:50 --to 2013-05-20T20:30 --out m.mp4 --fps 8"),
+            &[],
+        )
+        .unwrap();
+        assert_eq!(
+            j.output,
+            Output::Loop(LoopFormat::Mp4, Timing::Real { fps: 8.0 })
+        );
+        let j = parse_args(
+            &args(
+                "--site KTLX --from 2013-05-20T19:50 --to 2013-05-20T20:30 --out m.gif \
+                 --interval fixed",
+            ),
+            &[],
+        )
+        .unwrap();
+        assert_eq!(
+            j.output,
+            Output::Loop(LoopFormat::Gif, Timing::Fixed { fps: 6.0 })
+        );
+        for bad in [
+            "--site KTLX --out m.gif",
+            "--site KTLX --out m.mp4 --time 2013-05-20T20:08",
+            "--site KTLX --out m.bmp",
+            "--site KTLX --out m.png --preset cinema",
+            "--site KTLX --out m.png --frame 1920",
+            "--site KTLX --out m.png --frame 9000x100",
+            "--site KTLX --out m.png --size 800 --preset 4k",
+            "--site KTLX --from 2013-05-20T19:50 --to 2013-05-20T20:30 --out m.gif --fps 90",
+            "--site KTLX --from 2013-05-20T19:50 --to 2013-05-20T20:30 --out m.gif --interval odd",
+        ] {
+            assert!(parse_args(&args(bad), &[]).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_loops_sidecar_times_every_frame() {
+        use chrono::TimeZone;
+        let t = |m| Utc.with_ymd_and_hms(2013, 5, 20, 20, m, 0).unwrap();
+        let vols = vec![
+            ("KTLX20130520_200000_V06".to_string(), t(0)),
+            ("KTLX20130520_200400_V06".to_string(), t(4)),
+            ("KTLX20130520_200500_V06".to_string(), t(5)),
+        ];
+        let frames = crate::loopexport::frame_list(&vols, Timing::Fixed { fps: 4.0 });
+        assert_eq!(
+            frames
+                .iter()
+                .map(|f| (f.delay_ms, f.start_ms))
+                .collect::<Vec<_>>(),
+            [(250, 0), (250, 250), (750, 500)]
+        );
+        assert_eq!(frames[1].volume, "KTLX20130520_200400_V06");
+        assert_eq!(frames[2].valid_time_utc, "2013-05-20T20:05:00+00:00");
+        let real = crate::loopexport::frame_list(&vols, Timing::Real { fps: 4.0 });
+        assert!(
+            real[0].delay_ms > real[1].delay_ms,
+            "the 4-minute gap outlasts the 1-minute one"
+        );
     }
 
     #[test]

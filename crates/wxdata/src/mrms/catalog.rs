@@ -300,11 +300,11 @@ pub static PRODUCTS: &[Product] = &[
             id: FieldId("flashflood"),
             source: DataSource::NoaaMrms,
             family: FieldFamily::Mrms,
-            name: "Flash-flood rarity (FLASH ARI)",
-            description: "How rare this much rain is here — flash-flood risk",
+            name: "Rainfall rarity (FLASH ARI, 30m)",
+            description: "Average recurrence interval of 30-minute QPE here; not a flood forecast",
             units: Unit::Years,
             value_kind: ValueKind::Scalar,
-            aliases: "hydrology recurrence interval ARI",
+            aliases: "hydrology flash flood recurrence interval ARI",
             default_palette: PaletteId::FloodRecurrence,
             default_contour_interval: None,
             valid_domain: Some(crate::field::GeographicBounds::CONUS),
@@ -312,6 +312,115 @@ pub static PRODUCTS: &[Product] = &[
         },
         common: false,
         fetch: FetchMapping::Fixed(super::FLASH_ARI30),
+    },
+    Product {
+        field: FieldDescriptor {
+            id: FieldId("flashflood-1h"),
+            source: DataSource::NoaaMrms,
+            family: FieldFamily::Mrms,
+            name: "Rainfall rarity (FLASH ARI, 1h)",
+            description: "Average recurrence interval of 1-hour QPE here; not a flood forecast",
+            units: Unit::Years,
+            value_kind: ValueKind::Scalar,
+            aliases: "hydrology flash flood recurrence interval ARI",
+            default_palette: PaletteId::FloodRecurrence,
+            default_contour_interval: None,
+            valid_domain: Some(crate::field::GeographicBounds::CONUS),
+            missing_values: &[-999.0],
+        },
+        common: false,
+        fetch: FetchMapping::Fixed(super::FLASH_ARI01H),
+    },
+    Product {
+        field: FieldDescriptor {
+            id: FieldId("flashflood-3h"),
+            source: DataSource::NoaaMrms,
+            family: FieldFamily::Mrms,
+            name: "Rainfall rarity (FLASH ARI, 3h)",
+            description: "Average recurrence interval of 3-hour QPE here; not a flood forecast",
+            units: Unit::Years,
+            value_kind: ValueKind::Scalar,
+            aliases: "hydrology flash flood recurrence interval ARI",
+            default_palette: PaletteId::FloodRecurrence,
+            default_contour_interval: None,
+            valid_domain: Some(crate::field::GeographicBounds::CONUS),
+            missing_values: &[-999.0],
+        },
+        common: false,
+        fetch: FetchMapping::Fixed(super::FLASH_ARI03H),
+    },
+    Product {
+        field: FieldDescriptor {
+            id: FieldId("flashflood-6h"),
+            source: DataSource::NoaaMrms,
+            family: FieldFamily::Mrms,
+            name: "Rainfall rarity (FLASH ARI, 6h)",
+            description: "Average recurrence interval of 6-hour QPE here; not a flood forecast",
+            units: Unit::Years,
+            value_kind: ValueKind::Scalar,
+            aliases: "hydrology flash flood recurrence interval ARI",
+            default_palette: PaletteId::FloodRecurrence,
+            default_contour_interval: None,
+            valid_domain: Some(crate::field::GeographicBounds::CONUS),
+            missing_values: &[-999.0],
+        },
+        common: false,
+        fetch: FetchMapping::Fixed(super::FLASH_ARI06H),
+    },
+    Product {
+        field: FieldDescriptor {
+            id: FieldId("flashflood-12h"),
+            source: DataSource::NoaaMrms,
+            family: FieldFamily::Mrms,
+            name: "Rainfall rarity (FLASH ARI, 12h)",
+            description: "Average recurrence interval of 12-hour QPE here; not a flood forecast",
+            units: Unit::Years,
+            value_kind: ValueKind::Scalar,
+            aliases: "hydrology flash flood recurrence interval ARI",
+            default_palette: PaletteId::FloodRecurrence,
+            default_contour_interval: None,
+            valid_domain: Some(crate::field::GeographicBounds::CONUS),
+            missing_values: &[-999.0],
+        },
+        common: false,
+        fetch: FetchMapping::Fixed(super::FLASH_ARI12H),
+    },
+    Product {
+        field: FieldDescriptor {
+            id: FieldId("flashflood-24h"),
+            source: DataSource::NoaaMrms,
+            family: FieldFamily::Mrms,
+            name: "Rainfall rarity (FLASH ARI, 24h)",
+            description: "Average recurrence interval of 24-hour QPE here; not a flood forecast",
+            units: Unit::Years,
+            value_kind: ValueKind::Scalar,
+            aliases: "hydrology flash flood recurrence interval ARI",
+            default_palette: PaletteId::FloodRecurrence,
+            default_contour_interval: None,
+            valid_domain: Some(crate::field::GeographicBounds::CONUS),
+            missing_values: &[-999.0],
+        },
+        common: false,
+        fetch: FetchMapping::Fixed(super::FLASH_ARI24H),
+    },
+    Product {
+        field: FieldDescriptor {
+            id: FieldId("flashflood-max"),
+            source: DataSource::NoaaMrms,
+            family: FieldFamily::Mrms,
+            name: "Rainfall rarity (FLASH ARI, max)",
+            description:
+                "Maximum QPE average recurrence interval across windows; not a flood forecast",
+            units: Unit::Years,
+            value_kind: ValueKind::Scalar,
+            aliases: "hydrology flash flood recurrence interval ARI peak",
+            default_palette: PaletteId::FloodRecurrence,
+            default_contour_interval: None,
+            valid_domain: Some(crate::field::GeographicBounds::CONUS),
+            missing_values: &[-999.0],
+        },
+        common: false,
+        fetch: FetchMapping::Fixed(super::FLASH_ARI_MAX),
     },
     Product {
         field: FieldDescriptor {
@@ -661,7 +770,7 @@ mod tests {
             assert!(path.starts_with("CONUS/"));
             assert!(paths.insert(path));
         }
-        assert_eq!(PRODUCTS.len(), 29);
+        assert_eq!(PRODUCTS.len(), 35);
         assert!(find("hrrr").is_none());
         for product in PRODUCTS {
             assert!(std::ptr::eq(
@@ -701,6 +810,25 @@ mod tests {
             assert_eq!(product.field.units, Unit::Dbz);
             assert_eq!(product.field.default_palette, PaletteId::Reflectivity);
             assert_eq!(product.field.missing_values, &[-99.0, -999.0]);
+        }
+    }
+
+    #[test]
+    fn flash_ari_windows_keep_years_and_missing_codes() {
+        for (id, path) in [
+            ("flashflood", super::super::FLASH_ARI30),
+            ("flashflood-1h", super::super::FLASH_ARI01H),
+            ("flashflood-3h", super::super::FLASH_ARI03H),
+            ("flashflood-6h", super::super::FLASH_ARI06H),
+            ("flashflood-12h", super::super::FLASH_ARI12H),
+            ("flashflood-24h", super::super::FLASH_ARI24H),
+            ("flashflood-max", super::super::FLASH_ARI_MAX),
+        ] {
+            let product = find(id).unwrap();
+            assert_eq!(product.path(30, 5, 1440), path);
+            assert_eq!(product.field.units, Unit::Years);
+            assert_eq!(product.field.default_palette, PaletteId::FloodRecurrence);
+            assert_eq!(product.field.missing_values, &[-999.0]);
         }
     }
 

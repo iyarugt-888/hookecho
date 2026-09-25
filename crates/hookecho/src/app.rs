@@ -2509,7 +2509,17 @@ fn field_refresh_secs(layer: crate::render::FieldLayer) -> u64 {
         FL::PrecipRate => 120,
         FL::Qpe1h | FL::Qpe3h | FL::Qpe6h | FL::Qpe12h | FL::Qpe24h => 120,
         // MRMS precip type / flash-flood ARI on the ~2-min cadence; L3 grids on the 120 s L3 cadence.
-        FL::PrecipType | FL::FlashFlood | FL::Vil | FL::EchoTops | FL::Hca => 120,
+        FL::PrecipType
+        | FL::FlashFlood
+        | FL::FlashFlood1h
+        | FL::FlashFlood3h
+        | FL::FlashFlood6h
+        | FL::FlashFlood12h
+        | FL::FlashFlood24h
+        | FL::FlashFloodMax
+        | FL::Vil
+        | FL::EchoTops
+        | FL::Hca => 120,
         // Bands are cut from the ~2-min mosaic, so they are as fresh as it is.
         FL::SnowBands => 120,
         FL::UpdraftHelicity => 600,
@@ -2742,6 +2752,10 @@ struct LoopExport {
     /// Playback speed the scrubber was set to when the export started — the exported clip plays
     /// at the speed the user was watching, instead of a hardcoded 5 fps.
     fps: f32,
+    /// Each captured frame's volume and valid time, for real timing and the sidecar.
+    volumes: Vec<Option<(String, DateTime<Utc>)>>,
+    /// Hold each frame for its real scan gap (`Settings::loop_real_timing`) or all alike.
+    real_timing: bool,
 }
 
 /// A placefile the app has fetched and is tracking (mirrors a `PlacefileConfig` by URL).
@@ -10011,6 +10025,14 @@ impl HookEchoApp {
         }
         if let Some(layer) = actions.isotherm_level {
             if ui::layer_options::select_isotherm_level(
+                &mut self.views[self.active].fields_on,
+                layer,
+            ) {
+                ui::layers_panel::note_recent(&mut self.settings.recent_layers, layer.slug());
+            }
+        }
+        if let Some(layer) = actions.flash_ari_window {
+            if ui::layer_options::select_flash_ari_window(
                 &mut self.views[self.active].fields_on,
                 layer,
             ) {
@@ -19761,6 +19783,11 @@ impl HookEchoApp {
                             "Stamp the site, product, valid time and source onto saved and copied \
                      images, so a screenshot still says what it is once it leaves here",
                         );
+                    toggle(ui, &mut self.settings.loop_real_timing, "Real scan timing")
+                        .on_hover_text(
+                            "Hold each exported frame for the real time to the next scan, scaled \
+                             to the playback speed, instead of all alike",
+                        );
                     if ui
                         .add_enabled(
                             self.loop_export.is_none(),
@@ -20367,6 +20394,8 @@ impl HookEchoApp {
             settle: LOOP_SETTLE_FRAMES,
             capturing: false,
             fps: speed,
+            volumes: Vec::with_capacity(slots),
+            real_timing: self.settings.loop_real_timing,
         });
     }
 
@@ -20400,6 +20429,9 @@ impl HookEchoApp {
         }
         if let Some(img) = image::RgbaImage::from_raw(w, h, buf) {
             le.frames.push(img);
+            let id = self.views[self.active].timeline.current();
+            le.volumes
+                .push(id.and_then(|id| Some((id.name().to_string(), id.date_time()?))));
         }
         le.capturing = false;
         le.remaining -= 1;
@@ -20410,25 +20442,58 @@ impl HookEchoApp {
             }
         } else {
             let le = self.loop_export.take().unwrap();
-            use crate::loopexport::LoopFormat;
+            use crate::loopexport::{LoopFormat, Timing};
+            // Real timing needs every frame's scan time; a frame without one (the forecast tail)
+            // puts the whole loop on the fixed rate rather than guessing.
+            let volumes: Option<Vec<(String, DateTime<Utc>)>> =
+                le.volumes.iter().cloned().collect();
+            let fps = le.fps.clamp(1.0, 15.0);
+            let timing = match (&volumes, le.real_timing) {
+                (Some(_), true) => Timing::Real { fps },
+                _ => Timing::Fixed { fps },
+            };
+            let frames = volumes
+                .as_deref()
+                .map(|v| crate::loopexport::frame_list(v, timing));
+            let delays: Vec<u32> = match &frames {
+                Some(f) => f.iter().map(|f| f.delay_ms).collect(),
+                None => vec![(1000.0 / fps) as u32; le.frames.len()],
+            };
             let res = match le.format {
                 #[cfg(not(target_arch = "wasm32"))]
-                LoopFormat::Gif => crate::loopexport::encode_gif(
-                    &le.frames,
-                    (1000.0 / le.fps.max(0.1)) as u16,
+                LoopFormat::Gif => crate::loopexport::encode_gif_timed(
+                    le.frames.iter().cloned().map(Ok),
+                    &delays,
                     &le.dest,
                 ),
                 // Unreachable on the web: an export needs a destination path and there is none in
                 // a browser, so `start_loop_export` returns before a capture ever begins.
                 #[cfg(target_arch = "wasm32")]
                 LoopFormat::Gif => Err(anyhow::anyhow!("GIF export needs a filesystem")),
-                // The scrubber's slider is 1..=15 fps, which is also what the encoder accepts.
-                LoopFormat::Mp4 => crate::loopexport::encode_mp4(
-                    &le.frames,
-                    le.fps.round().clamp(1.0, 15.0) as u32,
-                    &le.dest,
-                ),
+                LoopFormat::Mp4 => {
+                    crate::loopexport::encode_mp4_timed(&le.frames, &delays, &le.dest)
+                }
             };
+            // The sidecar: which scans the loop shows and how long each is held.
+            if res.is_ok() {
+                let v = &self.views[self.active];
+                let (interval, fps) = crate::loopexport::timing_words(timing);
+                let meta = serde_json::json!({
+                    "site": v.site,
+                    "product": v.moment.short_name(),
+                    "tilt_index": v.tilt,
+                    "format": match le.format { LoopFormat::Gif => "gif", LoopFormat::Mp4 => "mp4" },
+                    "frame_px": le.frames.first().map(|f| [f.width(), f.height()]),
+                    "interval": interval,
+                    "fps": fps,
+                    "duration_ms": delays.iter().map(|d| u64::from(*d)).sum::<u64>(),
+                    "frames": frames,
+                    "source": "NOAA NEXRAD Level II, rendered by HookEcho",
+                });
+                if let Ok(text) = serde_json::to_string_pretty(&meta) {
+                    let _ = std::fs::write(le.dest.with_extension("json"), text);
+                }
+            }
             match res {
                 Ok(()) => {
                     log::info!(

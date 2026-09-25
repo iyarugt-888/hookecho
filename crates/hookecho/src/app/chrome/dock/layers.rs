@@ -191,6 +191,11 @@ impl HookEchoApp {
                                         &model_on,
                                         &mut ui_actions,
                                     );
+                                    crate::ui::layer_options::flash_ari_window_control(
+                                        ui,
+                                        &model_on,
+                                        &mut ui_actions,
+                                    );
                                     crate::ui::layer_options::echo_top_threshold_control(
                                         ui,
                                         &model_on,

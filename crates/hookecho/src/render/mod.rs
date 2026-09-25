@@ -138,6 +138,18 @@ pub enum FieldLayer {
     PrecipType,
     /// MRMS FLASH flash-flood average recurrence interval.
     FlashFlood,
+    /// FLASH QPE average recurrence interval over 1 hour.
+    FlashFlood1h,
+    /// FLASH QPE average recurrence interval over 3 hours.
+    FlashFlood3h,
+    /// FLASH QPE average recurrence interval over 6 hours.
+    FlashFlood6h,
+    /// FLASH QPE average recurrence interval over 12 hours.
+    FlashFlood12h,
+    /// FLASH QPE average recurrence interval over 24 hours.
+    FlashFlood24h,
+    /// Maximum FLASH QPE average recurrence interval across accumulation windows.
+    FlashFloodMax,
     /// Gridded Digital VIL (L3 DVL packet-16 product).
     Vil,
     /// Enhanced Echo Tops (L3 EET packet-16 product).
@@ -355,7 +367,7 @@ impl FieldLayer {
     }
 
     /// Fixed bottom-to-top paint order within each band.
-    pub const DRAW_ORDER: [FieldLayer; 77] = [
+    pub const DRAW_ORDER: [FieldLayer; 83] = [
         // Below-radar context band (bottom to top). The global models sit at the very bottom:
         // they are the synoptic backdrop everything else is drawn against — satellite included,
         // since it is the same kind of backdrop and the radar itself paints over it just the same.
@@ -416,6 +428,12 @@ impl FieldLayer {
         FieldLayer::Qpe12h,
         FieldLayer::Qpe24h,
         FieldLayer::FlashFlood,
+        FieldLayer::FlashFlood1h,
+        FieldLayer::FlashFlood3h,
+        FieldLayer::FlashFlood6h,
+        FieldLayer::FlashFlood12h,
+        FieldLayer::FlashFlood24h,
+        FieldLayer::FlashFloodMax,
         FieldLayer::HailSwath,
         FieldLayer::CompositeLocal,
         FieldLayer::Vil,
@@ -503,6 +521,12 @@ impl FieldLayer {
             FieldLayer::Srh => "srh",
             FieldLayer::PrecipType => "preciptype",
             FieldLayer::FlashFlood => "flashflood",
+            FieldLayer::FlashFlood1h => "flashflood-1h",
+            FieldLayer::FlashFlood3h => "flashflood-3h",
+            FieldLayer::FlashFlood6h => "flashflood-6h",
+            FieldLayer::FlashFlood12h => "flashflood-12h",
+            FieldLayer::FlashFlood24h => "flashflood-24h",
+            FieldLayer::FlashFloodMax => "flashflood-max",
             FieldLayer::Vil => "vil",
             FieldLayer::EchoTops => "echotops",
             FieldLayer::HailSwath => "hailswath",
