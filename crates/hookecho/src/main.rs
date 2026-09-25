@@ -794,6 +794,23 @@ fn main() -> eframe::Result<()> {
         return Ok(());
     }
 
+    // Automated output: `hookecho --watch --site KTLX --out radar.png [...]` (see `watch.rs`).
+    if let Some(pos) = args.iter().position(|a| a == "--watch") {
+        let rest = &args[pos + 1..];
+        let workspaces = if rest.iter().any(|a| a == "--workspace") {
+            hookecho::settings::Settings::saved_workspaces()
+        } else {
+            Vec::new()
+        };
+        let result = hookecho::watch::parse_args(rest, &workspaces)
+            .and_then(|job| hookecho::watch::run(&job));
+        if let Err(e) = result {
+            eprintln!("watch failed: {e}");
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
+
     // CF/Radial export of an archived volume:
     // `hookecho --headless-cfradial <SITE> <YYYY-MM-DD> <HH:MM> <out.nc>`.
     if let Some(pos) = args.iter().position(|a| a == "--headless-cfradial") {

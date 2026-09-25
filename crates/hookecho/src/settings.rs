@@ -1761,6 +1761,15 @@ impl Settings {
         serde_json::from_value(serde_json::Value::Object(good)).unwrap_or_default()
     }
 
+    /// The saved workspaces, read without the repairs [`Settings::load`] writes back — for a
+    /// headless command that only wants to look (`--watch --workspace`). The shipped starters
+    /// when nothing has been saved yet.
+    pub fn saved_workspaces() -> Vec<crate::workspace::Workspace> {
+        Self::read_saved()
+            .map(|s| Self::from_json_lossy(&s).workspaces)
+            .unwrap_or_else(|| Self::default().workspaces)
+    }
+
     pub fn load() -> Self {
         let mut loaded = match Self::read_saved() {
             Some(s) => Self::from_json_lossy(&s),

@@ -143,6 +143,9 @@ pub mod ui;
 pub mod vector_tiles;
 pub mod view;
 pub mod volume;
+/// `--watch`, automated radar output (ROADMAP_NEW M3); desktop only, like `--serve`.
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+pub mod watch;
 pub mod webcache;
 pub mod wind_draw;
 pub mod wind_gpu;

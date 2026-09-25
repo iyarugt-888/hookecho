@@ -3349,15 +3349,28 @@ Controls:
 - variable/fixed frame interval option
 - metadata sidecar JSON
 
-## M3. Automated output
+## M3. Automated output — done
 
 Extend headless mode:
 
-- render named workspace
-- render selected time/range/site/product
-- scheduled repeating snapshot
-- update only when source valid time changes
-- optional atomic file replace for web overlays
+- [x] render named workspace — `--watch --workspace NAME`: the saved workspace's first pane's
+  radar, product, tilt, camera centre, zoom and basemap (flags given as well win)
+- [x] render selected time/range/site/product — `--site/--product/--tilt`, `--time T` for one
+  archived instant, `--from A --to B` for every volume between (one file per volume, named by its
+  scan time)
+- [x] scheduled repeating snapshot — `--every SECS` (floor 15), `--once`
+- [x] update only when source valid time changes — each poll lists the radar's volumes and
+  renders only a newer one
+- [x] atomic file replace — the PNG and its `.json` sidecar are written beside their targets and
+  renamed over them; the sidecar names the site, product, tilt, exact volume and valid time
+
+`hookecho --watch` (`watch.rs`), on the same off-screen renderer as `--serve`, with a new
+`headless::set_center` for a saved view's framing. NEXRAD only (the other networks publish no
+volume list to poll). Checked on real data: Moore at 20:08Z, a 20:08-20:18Z range centred and
+zoomed on Moore (three frames, the debris-ball hook in the second), and a live `--once` on
+today's newest volume. Writing it found that listing volumes on a current-thread runtime left the
+shared HTTP client's pooled connection undriven for the renderer's own runtime, so every
+download failed; `--watch` uses a multi-threaded runtime, as `--serve` does.
 
 ## M4. Local API — done
 

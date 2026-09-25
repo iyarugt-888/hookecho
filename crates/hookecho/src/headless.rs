@@ -72,11 +72,27 @@ pub fn set_palette(name: Option<String>) {
     }
 }
 
+/// A camera centre for the renders that follow, `(lon, lat)`, or `None` for each render's own
+/// framing — how `--watch` renders a saved workspace's view rather than the radar-centred default.
+/// Clears rather than persists, like [`set_output`]'s zoom.
+static CENTER_OVERRIDE: std::sync::Mutex<Option<(f64, f64)>> = std::sync::Mutex::new(None);
+
+/// Centre the renders that follow on `(lon, lat)`, or restore their own framing with `None`.
+pub fn set_center(center: Option<(f64, f64)>) {
+    if let Ok(mut c) = CENTER_OVERRIDE.lock() {
+        *c = center;
+    }
+}
+
 /// `HOOKECHO_CAM=lon,lat,zoom` overrides any headless camera — framing knob for screenshots.
-/// An explicit `--zoom`/`?zoom=` beats both, since it was typed for this render.
+/// An explicit `--zoom`/`?zoom=` beats both, since it was typed for this render, and an explicit
+/// centre ([`set_center`]) beats the environment's.
 fn cam_or_env(lon: f64, lat: f64, zoom: f64) -> Camera {
     let asked = ZOOM_OVERRIDE.load(std::sync::atomic::Ordering::Relaxed);
     let asked = (asked != u64::MAX).then(|| f64::from_bits(asked));
+    if let Some((clon, clat)) = CENTER_OVERRIDE.lock().ok().and_then(|c| *c) {
+        return Camera::at_lonlat(clon, clat, asked.unwrap_or(zoom));
+    }
     if let Ok(v) = std::env::var("HOOKECHO_CAM") {
         let p: Vec<f64> = v.split(',').filter_map(|s| s.trim().parse().ok()).collect();
         if p.len() == 3 {

@@ -8,6 +8,15 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: `--watch`, automated radar output
+
+`hookecho --watch --site KTLX --out radar.png` keeps a radar PNG current: it polls the radar's
+volume list and renders only when a new volume arrives, writing the PNG and a `.json` sidecar
+(site, product, tilt, the exact volume and its valid time) beside their targets and renaming them
+into place, so a web page never reads half a file. `--every`, `--once`, `--product`, `--tilt`,
+`--size`, `--zoom`, `--center LON,LAT` and `--basemap` shape it; `--workspace NAME` renders a saved
+workspace's view; `--time` renders one archived instant and `--from/--to` every volume in a range.
+
 ### Added: a local API for the running app
 
 Turn on **Share → Local API** and other programs on this computer can read what HookEcho is
