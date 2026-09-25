@@ -1967,15 +1967,14 @@ not a convention callers have to remember.
   masquerades as something just picked. Verified live: toggling a product on, then back to the
   Browse landing screen, shows it under "RECENT"; the entry survived a full page reload, proving
   the round trip through actual settings persistence, not just in-memory state.
-- [ ] accumulation selector — QPE now has five windows (1h, 3h, 6h, 12h, 24h) cataloged, closing
-  the D1 coverage gap, but each is still its own fixed catalog entry/layer rather than one layer
-  with a runtime window picker the way rotation/lightning/hail use their `FetchMapping::Rotation`
-  /`Lightning`/`Hail` variants. Collapsing the existing `qpe1h`/`qpe24h` layers into a single
-  picker-driven entry was deliberately avoided here — it would change the on-disk layer slug for
-  two long-lived layers and risk breaking saved workspaces/settings that reference them by slug.
-  A true picker (one `FieldLayer::Qpe` + a window setting, `FetchMapping`-style) is still open if
-  wanted; verified live that all five window paths (`CONUS/MultiSensor_QPE_{01,03,06,12,24}H_Pass2_00.00`)
-  resolve against the real MRMS S3 bucket.
+- [x] accumulation selector — a compact 1h/3h/6h/12h/24h picker is available in the
+  workstation's Satellite tab and in the shared layer options when QPE is on. Choosing a window
+  replaces the other QPE windows in the active pane. It uses the five catalog entries and their
+  existing `qpe*` slugs, so older settings, workspaces and headless commands keep working; the
+  individual layer rows still allow a deliberate multi-window overlay. A single `FieldLayer::Qpe`
+  with a runtime fetch mapping remains an optional internal refactor, not required for the picker.
+  All five source paths (`CONUS/MultiSensor_QPE_{01,03,06,12,24}H_Pass2_00.00`) were verified
+  against the real MRMS S3 bucket in the earlier catalog pass.
 - [x] valid time — `ui::data_inspector`'s "Valid" row, with signed offset from the pane's analysis
   time
 - [x] native resolution — `GridProvenance.native`, shown as part of the same inspector's grid

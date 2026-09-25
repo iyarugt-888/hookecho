@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: MRMS rain-total window picker
+
+Choose a 1, 3, 6, 12 or 24 hour QPE accumulation from the workstation's Satellite tab or the
+shared layer options. The picker switches the active pane to one window while preserving the
+existing layer identifiers used by saved workspaces and headless commands.
+
 ### Improved: keyboard search in the workstation Layers window
 
 Enter now runs a typed time command or opens the first visible search result. If no layer, site or

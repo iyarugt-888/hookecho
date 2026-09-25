@@ -9983,6 +9983,11 @@ impl HookEchoApp {
         if let Some(a) = actions.palette {
             self.apply_palette(a, ctx);
         }
+        if let Some(layer) = actions.qpe_window {
+            if ui::layer_options::select_qpe_window(&mut self.views[self.active].fields_on, layer) {
+                ui::layers_panel::note_recent(&mut self.settings.recent_layers, layer.slug());
+            }
+        }
         if actions.open_site_dialog && self.site_dialog.is_none() {
             self.site_dialog = Some(Default::default());
         }

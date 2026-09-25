@@ -774,3 +774,6 @@ a scale bar on the map; a network round-trip measurement for the app bar; a natu
 - Layers search accepts Enter: a typed time command runs first, otherwise the first visible
   matching row opens; a query with no row match uses the existing place lookup. Results now update
   in the same frame as typing or changing the All/Active/Favorites filter.
+- The Satellite tab now puts the MRMS QPE accumulation-window picker above the National layers
+  tree. It switches the active pane among the existing catalog products and keeps saved layer
+  identifiers intact; the shared layer options offer the same control when QPE is on.

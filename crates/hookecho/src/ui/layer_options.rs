@@ -7,6 +7,7 @@
 //! actually on, so the section is short (usually empty) instead of a wall of dead controls.
 
 use crate::app::OverlayFilters;
+use crate::ui::a11y::Named as _;
 use wxdata::alerts::Category;
 
 /// Signals the chrome (drawer, pills, mobile sheets) raises for the app to act on this frame.
@@ -36,6 +37,64 @@ pub struct UiActions {
     pub cancel_chasepack: bool,
     /// A row in the embedded layers registry was clicked; the app applies it.
     pub(crate) palette: Option<crate::app::PaletteAction>,
+    /// Pick one MRMS QPE accumulation window in the active pane, keeping existing layer slugs.
+    pub(crate) qpe_window: Option<crate::render::FieldLayer>,
+}
+
+/// Existing catalog-backed QPE layers stay distinct for saved-workspace and headless slug
+/// compatibility. The picker treats them as one choice in the active pane.
+pub(crate) const QPE_WINDOWS: [(crate::render::FieldLayer, &str); 5] = [
+    (crate::render::FieldLayer::Qpe1h, "1 hour"),
+    (crate::render::FieldLayer::Qpe3h, "3 hours"),
+    (crate::render::FieldLayer::Qpe6h, "6 hours"),
+    (crate::render::FieldLayer::Qpe12h, "12 hours"),
+    (crate::render::FieldLayer::Qpe24h, "24 hours"),
+];
+
+pub(crate) fn select_qpe_window(
+    on: &mut std::collections::HashSet<crate::render::FieldLayer>,
+    selected: crate::render::FieldLayer,
+) -> bool {
+    if !QPE_WINDOWS.iter().any(|(layer, _)| *layer == selected) {
+        return false;
+    }
+    for (layer, _) in QPE_WINDOWS {
+        on.remove(&layer);
+    }
+    on.insert(selected);
+    true
+}
+
+/// Shared compact control for the workstation and the other layer-options surfaces.
+pub(crate) fn qpe_window_control(
+    ui: &mut egui::Ui,
+    on: &std::collections::HashSet<crate::render::FieldLayer>,
+    actions: &mut UiActions,
+) {
+    let active: Vec<_> = QPE_WINDOWS
+        .iter()
+        .filter(|(layer, _)| on.contains(layer))
+        .collect();
+    let selected = match active.as_slice() {
+        [] => "Choose window",
+        [(_, label)] => *label,
+        _ => "Multiple windows",
+    };
+    ui.horizontal(|ui| {
+        ui.label("Rain total (QPE)");
+        egui::ComboBox::from_id_salt("mrms_qpe_window")
+            .selected_text(selected)
+            .show_ui(ui, |ui| {
+                for (layer, label) in QPE_WINDOWS {
+                    if ui.selectable_label(on.contains(&layer), label).clicked() {
+                        actions.qpe_window = Some(layer);
+                    }
+                }
+            })
+            .response
+            .named("MRMS rain total accumulation window")
+            .on_hover_text("Choose one MRMS rain-accumulation window for this pane");
+    });
 }
 
 /// Read-only chase-pack state the app feeds the UI each frame: the current-view estimate and,
@@ -183,6 +242,10 @@ pub(crate) fn show(
         ("Ensemble", on.contains(&FL::Ensemble)),
         ("Lightning", show_glm || on.contains(&FL::Lightning)),
         (
+            "QPE accumulation",
+            QPE_WINDOWS.iter().any(|(layer, _)| on.contains(layer)),
+        ),
+        (
             "Satellite",
             [
                 FL::GoesIr,
@@ -250,6 +313,9 @@ pub(crate) fn show(
     // `render_pane`'s own comment), so `showing_compare` alone can't tell true two-pane side by
     // side apart from one pane alternating between the two on a timer.
     let in_side_by_side = showing_compare && !blink_compare && !overlay_compare && !swipe_compare;
+    if section == "QPE accumulation" {
+        qpe_window_control(ui, on, actions);
+    }
     if section == "Model comparison" && (on.contains(&FL::ModelDiff) || showing_compare) {
         let (a, b) = diff_field.pair();
         ui.horizontal_wrapped(|ui| {
@@ -939,4 +1005,22 @@ pub(crate) fn show(
     }
 
     actions.overlays_changed |= changed;
+}
+
+#[cfg(test)]
+mod qpe_tests {
+    use super::*;
+    use crate::render::FieldLayer as FL;
+
+    #[test]
+    fn picker_preserves_other_layers_and_existing_qpe_slugs() {
+        let mut on = [FL::Mrms, FL::Qpe1h, FL::Qpe24h].into_iter().collect();
+        assert!(select_qpe_window(&mut on, FL::Qpe6h));
+        assert_eq!(on.len(), 2);
+        assert!(on.contains(&FL::Mrms));
+        assert!(on.contains(&FL::Qpe6h));
+        assert_eq!(FL::Qpe6h.slug(), "qpe6h");
+        assert!(!select_qpe_window(&mut on, FL::Mesh));
+        assert_eq!(on.len(), 2);
+    }
 }

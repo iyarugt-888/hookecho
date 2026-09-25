@@ -168,6 +168,17 @@ impl HookEchoApp {
                                     );
                                 });
                         }
+                        if plain && self.dock.tab == DockTab::Satellite {
+                            egui::Frame::NONE
+                                .inner_margin(egui::Margin::symmetric(10, 6))
+                                .show(ui, |ui| {
+                                    crate::ui::layer_options::qpe_window_control(
+                                        ui,
+                                        &model_on,
+                                        &mut ui_actions,
+                                    );
+                                });
+                        }
                         if plain && self.dock.tab == DockTab::Analysis {
                             egui::Frame::NONE
                                 .inner_margin(egui::Margin::symmetric(10, 6))
