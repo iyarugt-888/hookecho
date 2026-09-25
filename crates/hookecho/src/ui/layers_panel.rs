@@ -115,7 +115,7 @@ fn command_entry(query: &str, selected_day: chrono::NaiveDate) -> Option<Palette
     })
 }
 
-fn parse_utc_time(
+pub(crate) fn parse_utc_time(
     value: &str,
     selected_day: chrono::NaiveDate,
 ) -> Option<chrono::DateTime<chrono::Utc>> {
@@ -160,7 +160,7 @@ pub(crate) fn category_name(category: &str) -> &'static str {
     }
 }
 
-fn category_glyph(category: &str) -> &'static str {
+pub(crate) fn category_glyph(category: &str) -> &'static str {
     use egui_phosphor::regular as ph;
     match category {
         "Radar" => ph::BROADCAST,

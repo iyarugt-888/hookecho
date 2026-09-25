@@ -148,5 +148,6 @@ pub mod video_window;
 pub mod volume3d_window;
 pub mod warning_window;
 /// WSV3-style ribbon chrome primitives.
+pub mod workstation;
 pub mod wsv3;
 pub mod xsection_window;

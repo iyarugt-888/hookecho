@@ -8,6 +8,22 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Changed: the Dock layout is an analyst workstation
+
+The docked layout ("Dock (ImGui)") is redesigned after Dear ImGui tool panels and WSV3. The
+top is now an app bar of workspace tabs (Radar, Models, Satellite, Surface, Analysis, GIS),
+panel buttons, the clock and the radar feed's health with its ingest lag. Under it sits a
+toolbar of radar controls: site, product, tilt, follow-lowest, 2D/3D/volume, smoothing, colour
+table, overlays and map style. The Layers panel gains All / Active / Favorites filters and a
+favourite star per layer, and searching reaches every tab. The right-hand panel is replaced by a
+floating Inspector card that reads the value under the pointer in the colour it is drawn, with
+azimuth, range, beam height and sample time, and can pin a reading. The timeline gains a frame
+track with hour labels and downloaded frames marked, a Live/Archive pill, a jump-to-time field,
+tilt dots with the live sweep ringed, and a buffer bar. The tilt bar folds into the toolbar and
+timeline. On a borderless window the clock no longer sits under the window buttons, and a
+narrower window drops button labels before anything overlaps. Every control is still the same
+action as in the other layouts. See `docs/WSV3_IMGUI_MODERN_DESIGN_PLAN.md`.
+
 ### Added: `--watch`, automated radar output
 
 `hookecho --watch --site KTLX --out radar.png` keeps a radar PNG current: it polls the radar's
