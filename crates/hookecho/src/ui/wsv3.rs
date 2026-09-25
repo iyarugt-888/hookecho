@@ -31,43 +31,12 @@ pub const PILL_BG: Color32 = Color32::from_rgb(0x1b, 0x1e, 0x28);
 pub const STATUS_BG: Color32 = Color32::from_rgb(0x09, 0x0a, 0x0d);
 pub const STATUS_FG: Color32 = Color32::from_rgb(0x86, 0x8c, 0x9a);
 
-/// Ribbon control-row height (the gradient band) for the original `Layout::CommandRibbon` sizing.
-const RIBBON_H_COMFORTABLE: f32 = 130.0;
-/// Docked colour scale height, drawn immediately below the ribbon, at `CommandRibbon` sizing.
-const COLORBAR_H_COMFORTABLE: f32 = 26.0;
-/// Bottom status bar height at `CommandRibbon` sizing.
-const STATUS_H_COMFORTABLE: f32 = 22.0;
-
-/// Ribbon control-row height — denser under the new `Layout::Wsv3` theme
-/// ([`crate::theme::is_wsv3_theme`]) than the original `CommandRibbon` sizing. A function rather
-/// than a `const` because this module's hand-painted geometry doesn't otherwise consult
-/// `Settings`/`ui.visuals()` for sizing at all (see `is_wsv3_theme`'s own doc comment).
-pub fn ribbon_h() -> f32 {
-    if crate::theme::is_wsv3_theme() {
-        104.0
-    } else {
-        RIBBON_H_COMFORTABLE
-    }
-}
-
+/// Ribbon control-row height (the gradient band).
+pub const RIBBON_H: f32 = 130.0;
 /// Docked colour scale height, drawn immediately below the ribbon.
-pub fn colorbar_h() -> f32 {
-    if crate::theme::is_wsv3_theme() {
-        20.0
-    } else {
-        COLORBAR_H_COMFORTABLE
-    }
-}
-
-/// Bottom status bar height. Taller under the `Wsv3` theme, not shorter — it carries extra
-/// telemetry (theme_plan.md §6.3's zoom-preset row and 3D camera readout) `CommandRibbon` doesn't.
-pub fn status_h() -> f32 {
-    if crate::theme::is_wsv3_theme() {
-        36.0
-    } else {
-        STATUS_H_COMFORTABLE
-    }
-}
+pub const COLORBAR_H: f32 = 26.0;
+/// Bottom status bar height.
+pub const STATUS_H: f32 = 22.0;
 /// Right-edge keep-out for the window min/max/close buttons in this layout (they anchor 70 px in
 /// from the edge and are ~100 px wide).
 pub const WINDOW_BTN_KEEPOUT: f32 = 178.0;
@@ -206,7 +175,7 @@ pub fn group_label(ui: &mut Ui, text: &str) {
 /// A full-height faint vertical divider between two ribbon groups.
 pub fn vsep(ui: &mut Ui) {
     ui.add_space(7.0);
-    let (rect, _) = ui.allocate_exact_size(vec2(1.0, ribbon_h() - 14.0), Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(vec2(1.0, RIBBON_H - 14.0), Sense::hover());
     let x = rect.center().x;
     let p = ui.painter();
     let yr = egui::Rangef::new(rect.top() + 6.0, rect.bottom() - 6.0);

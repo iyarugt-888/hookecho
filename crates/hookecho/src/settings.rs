@@ -199,6 +199,10 @@ pub struct Settings {
     /// Desktop/web chrome: the WSV3 ribbon (default) or the original map-first minimal chrome.
     #[serde(default)]
     pub layout: Layout,
+    /// The workstation layouts' last window arrangement, per layout, so a docked Inspector or a
+    /// floating Layers window is where it was left after a restart.
+    #[serde(default)]
+    pub workstation: std::collections::BTreeMap<Layout, crate::workspace::WorkstationChrome>,
     /// Whether the one-time move of a tablet from the ribbon to the docked layout has happened;
     /// see [`Settings::adopt_tablet_default`].
     #[serde(default)]
@@ -1245,13 +1249,15 @@ pub fn default_alert_radius_mi() -> f64 {
 /// to a different theme.
 ///
 /// `CommandRibbon` is the original WSV3-*style* pro layout: a docked ribbon of labeled control
-/// groups over a navy→black gradient, a docked colour scale, and a bottom status bar. `Wsv3` is
-/// the same ribbon chrome with denser spacing and an extended status bar (zoom presets, 3D camera
-/// telemetry) — see `HookEchoApp::wsv3_ribbon`/`wsv3_status_bar`'s own `is_wsv3_theme` checks for
-/// exactly what differs. `Minimal` is the original map-first floating chrome — a search pill, a
-/// right-edge control column, and panels that slide over the map. Android always uses its own
-/// touch chrome regardless of this.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+/// groups over a navy→black gradient, a docked colour scale, and a bottom status bar. `Wsv3` and
+/// `Dock` are the analyst workstation (docs/WSV3_IMGUI_MODERN_DESIGN_PLAN.md): a two-tier top
+/// bar, tool windows that dock or float, a tool rail and a docked timeline — `Wsv3` opening
+/// map-first, `Dock` with its windows showing. `Minimal` is the original map-first floating
+/// chrome — a search pill, a right-edge control column, and panels that slide over the map.
+/// Android always uses its own touch chrome regardless of this.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default,
+)]
 pub enum Layout {
     #[default]
     #[serde(alias = "Wsv3")]
@@ -1260,12 +1266,15 @@ pub enum Layout {
     /// (its pre-rename name), and a unit variant's own implicit tag would otherwise collide with
     /// it (this variant is new, so there is no pre-existing `settings.json` naming to preserve
     /// for it specifically).
+    ///
+    /// The analyst workstation, map-first: the same chrome as `Dock` with its tool windows closed
+    /// until asked for.
     #[serde(rename = "Wsv3Theme")]
     Wsv3,
     Minimal,
-    /// Dear ImGui-style docked panels: a tab row, a layers tree on the left, info panels on the
-    /// right and a timeline under the map. The layout for a tablet or a desktop that wants every
-    /// control visible at once.
+    /// The analyst workstation with its tool windows showing: Layers docked left, the Inspector
+    /// over the map, the timeline under it. For a tablet or a desktop that wants every control
+    /// visible at once.
     Dock,
 }
 
@@ -1286,16 +1295,23 @@ impl Layout {
         }
     }
 
-    /// Whether this theme uses the docked ribbon chrome (`wsv3_ribbon`/`wsv3_status_bar`) at all
-    /// — `CommandRibbon` and `Wsv3` both do, styled differently; `Minimal` doesn't.
+    /// Whether this theme uses the docked ribbon chrome (`wsv3_ribbon`/`wsv3_status_bar`) — only
+    /// `CommandRibbon` now; `Wsv3` moved to the workstation chrome ([`Layout::is_workstation`]).
     pub fn is_ribbon(self) -> bool {
-        matches!(self, Layout::CommandRibbon | Layout::Wsv3)
+        self == Layout::CommandRibbon
     }
 
-    /// Whether this is the docked-panel layout, which draws its own panels and none of the floating
-    /// chrome.
-    pub fn is_dock(self) -> bool {
-        self == Layout::Dock
+    /// Whether this layout draws the analyst workstation (`app::chrome::dock`): app bar, context
+    /// toolbar, tool windows and a docked timeline, and none of the floating chrome. `Dock` opens
+    /// with its tool windows showing; `Wsv3` opens map-first ([`Layout::map_first`]).
+    pub fn is_workstation(self) -> bool {
+        matches!(self, Layout::Dock | Layout::Wsv3)
+    }
+
+    /// A workstation layout that opens with only the map, the bars and the timeline: its Layers
+    /// and Inspector windows wait to be asked for (docs/WSV3_IMGUI_MODERN_DESIGN_PLAN.md §2.1).
+    pub fn map_first(self) -> bool {
+        self == Layout::Wsv3
     }
 
     /// The `(Theme, Density)` pair this theme is designed to look like — applied once, as a
@@ -1520,6 +1536,7 @@ impl Default for Settings {
             poll_interval_secs: 30,
             theme: Theme::Dark,
             layout: Layout::default(),
+            workstation: Default::default(),
             tablet_layout_adopted: false,
             local_api: false,
             local_api_port: default_local_api_port(),
@@ -2191,7 +2208,8 @@ mod tests {
     #[test]
     fn every_layout_is_ribbon_or_not_with_no_third_option() {
         assert!(Layout::CommandRibbon.is_ribbon());
-        assert!(Layout::Wsv3.is_ribbon());
+        assert!(!Layout::Wsv3.is_ribbon() && Layout::Wsv3.is_workstation());
+        assert!(Layout::Wsv3.map_first() && !Layout::Dock.map_first());
         assert!(!Layout::Minimal.is_ribbon());
     }
 
@@ -2320,6 +2338,7 @@ mod tests {
             poll_interval_secs: 45,
             theme: Theme::Synthwave,
             layout: Layout::Minimal,
+            workstation: Default::default(),
             tablet_layout_adopted: false,
             local_api: true,
             local_api_port: 50_000,
@@ -2663,7 +2682,7 @@ mod tests {
     fn the_dock_layout_and_a_phone_design_survive_a_round_trip() {
         let s = Settings::from_json_lossy(r#"{"layout":"Dock","phone_design":"Atlas"}"#);
         assert_eq!(s.layout, Layout::Dock);
-        assert!(s.layout.is_dock() && !s.layout.is_ribbon());
+        assert!(s.layout.is_workstation() && !s.layout.is_ribbon());
         assert_eq!(s.phone_design, PhoneDesign::Atlas);
         let back = Settings::from_json_lossy(&serde_json::to_string(&s).unwrap());
         assert_eq!(

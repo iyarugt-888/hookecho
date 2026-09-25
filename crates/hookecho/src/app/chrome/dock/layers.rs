@@ -16,8 +16,8 @@ enum Hit {
 }
 
 impl HookEchoApp {
-    pub(super) fn dock_left(&mut self, root: &mut egui::Ui, ctx: &egui::Context) {
-        if !self.dock.left_open {
+    pub(super) fn dock_layers(&mut self, host: Host<'_>, ctx: &egui::Context) {
+        if !self.dock.layers_open {
             return;
         }
         let t = self.ws_tokens();
@@ -31,20 +31,39 @@ impl HookEchoApp {
             &self.settings.favorite_layers,
         );
         let mut hit = None;
-        let mut close = false;
         let mut footer = None;
         let model_input = self.model_panel_input();
         let model_on = self.views[self.active].fields_on.clone();
         let model_tz = self.active_tz();
         let mut ui_actions = crate::ui::layer_options::UiActions::default();
-        egui::Panel::left("dock_layers")
-            .exact_size(LEFT_WIDTH)
-            .resizable(false)
-            .frame(ws::panel_frame(&t))
-            .show(root, |ui| {
-                ws::style_scope(ui, &t);
-                if ws::panel_header(ui, &t, ph::STACK, "Layers", None) == ws::HeaderAction::Close {
-                    close = true;
+        let place = self.dock.layers_place;
+        let floating = place == Place::Float;
+        let collapsed = floating && self.dock.layers_collapsed;
+        let map_rect = self.chrome_rect;
+        // A floating window has no panel to fill, so it gets a height of its own.
+        let float_list_h = (map_rect.height() - 170.0).clamp(160.0, 480.0);
+        let mut header = ws::HeaderAction::None;
+        tool_window(
+            host,
+            ToolWindow {
+                id: "dock_layers",
+                place,
+                width: LEFT_WIDTH,
+                float_at: map_rect.left_top() + egui::vec2(12.0, 12.0),
+            },
+            map_rect,
+            &t,
+            |ui| {
+                header = ws::window_header(
+                    ui,
+                    &t,
+                    ph::STACK,
+                    "Layers",
+                    Some(place),
+                    floating.then_some(collapsed),
+                );
+                if collapsed {
+                    return;
                 }
                 egui::Frame::NONE
                     .inner_margin(egui::Margin::symmetric(10, 8))
@@ -71,7 +90,11 @@ impl HookEchoApp {
                         }
                     });
                 let footer_h = 40.0;
-                let list_h = (ui.available_height() - footer_h).max(80.0);
+                let list_h = if floating {
+                    float_list_h
+                } else {
+                    (ui.available_height() - footer_h).max(80.0)
+                };
                 egui::ScrollArea::vertical()
                     .max_height(list_h)
                     .auto_shrink([false, false])
@@ -178,13 +201,17 @@ impl HookEchoApp {
                         AppWindow::LayerManager,
                     ));
                 }
-            });
+            },
+        );
         // The model controls and the layer options both report through one actions struct.
         let from_panels = ui_actions.palette.take();
         self.apply_ui_actions(ui_actions, ctx);
-        if close {
-            self.dock.left_open = false;
-        }
+        apply_header(
+            header,
+            &mut self.dock.layers_open,
+            &mut self.dock.layers_place,
+            &mut self.dock.layers_collapsed,
+        );
         match hit {
             Some(Hit::Row(a)) => self.apply_palette(a, ctx),
             Some(Hit::Star(slug)) => {

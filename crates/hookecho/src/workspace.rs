@@ -109,6 +109,52 @@ pub struct Chrome {
     /// the overlay slugs.
     #[serde(default)]
     pub drawer: Option<String>,
+    /// The workstation layouts' window arrangement (Dock, WSV3), when one of them was showing.
+    /// `None` from a floating-chrome layout and from files written before it existed.
+    #[serde(default)]
+    pub workstation: Option<WorkstationChrome>,
+}
+
+/// Where a workstation tool window sits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub enum Place {
+    #[default]
+    Left,
+    Right,
+    /// Over the map, movable, and collapsible to its title bar.
+    Float,
+}
+
+/// The workstation layouts' window arrangement: which tool windows are open, where each sits, and
+/// which workspace tab the Layers window shows. Saved per layout in `Settings::workstation` (so it
+/// survives a restart) and with a workspace (so a saved workspace brings its arrangement back).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct WorkstationChrome {
+    /// The workspace tab by its label ("Radar", "GIS", ...); an unknown one falls back to Radar.
+    #[serde(default)]
+    pub tab: String,
+    #[serde(default)]
+    pub layers_open: bool,
+    #[serde(default)]
+    pub layers_place: Place,
+    #[serde(default)]
+    pub layers_collapsed: bool,
+    #[serde(default)]
+    pub inspector_open: bool,
+    #[serde(default = "place_float")]
+    pub inspector_place: Place,
+    #[serde(default)]
+    pub inspector_collapsed: bool,
+    #[serde(default = "yes")]
+    pub timeline_open: bool,
+}
+
+fn place_float() -> Place {
+    Place::Float
+}
+
+fn yes() -> bool {
+    true
 }
 
 /// One pane's state. Camera as lon/lat/zoom, basemap as its slug: both survive a file written by
@@ -600,6 +646,16 @@ mod tests {
                 alerts_tab: false,
                 basemap_open: false,
                 drawer: Some("Settings".into()),
+                workstation: Some(WorkstationChrome {
+                    tab: "GIS".into(),
+                    layers_open: true,
+                    layers_place: Place::Right,
+                    layers_collapsed: false,
+                    inspector_open: true,
+                    inspector_place: Place::Float,
+                    inspector_collapsed: true,
+                    timeline_open: false,
+                }),
             }),
         };
         let json = serde_json::to_string(&ws).unwrap();

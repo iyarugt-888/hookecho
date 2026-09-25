@@ -14,6 +14,7 @@
 
 use super::*;
 use crate::ui::workstation as ws;
+use crate::workspace::{Place, WorkstationChrome};
 
 mod app_bar;
 mod inspector;
@@ -51,6 +52,11 @@ impl DockTab {
         DockTab::Analysis,
         DockTab::Gis,
     ];
+
+    /// A tab by its label, as a saved arrangement names it.
+    pub(crate) fn from_label(label: &str) -> Option<DockTab> {
+        DockTab::ALL.into_iter().find(|t| t.label() == label)
+    }
 
     pub(crate) fn label(self) -> &'static str {
         match self {
@@ -99,6 +105,10 @@ pub(crate) struct Probe {
     pub range_km: f32,
     pub beam_ft: f64,
     pub collected_ms: Option<i64>,
+    /// The sweep's estimated Nyquist velocity, m/s (velocity only).
+    pub nyquist_mps: Option<f32>,
+    /// The value came from the dealiased sweep.
+    pub dealiased: bool,
 }
 
 /// Everything the dock remembers between frames.
@@ -106,8 +116,13 @@ pub(crate) struct DockState {
     pub tab: DockTab,
     pub filter: LayerFilter,
     pub query: String,
-    pub left_open: bool,
+    pub layers_open: bool,
+    pub layers_place: Place,
+    /// Folded to its title bar (only while floating).
+    pub layers_collapsed: bool,
     pub inspector_open: bool,
+    pub inspector_place: Place,
+    pub inspector_collapsed: bool,
     pub timeline_open: bool,
     /// The inspector's model-forecast block (shown only while a model layer is on the map).
     pub model_open: bool,
@@ -118,21 +133,164 @@ pub(crate) struct DockState {
     pub last: Option<Probe>,
     /// The "Jump to…" field's text.
     pub jump: String,
+    /// The layout whose saved arrangement is in effect; a different layout loads its own.
+    pub arranged_for: Option<crate::settings::Layout>,
 }
 
 impl Default for DockState {
     fn default() -> Self {
-        Self {
+        let mut s = Self {
             tab: DockTab::Radar,
             filter: LayerFilter::All,
             query: String::new(),
-            left_open: true,
-            inspector_open: true,
+            layers_open: false,
+            layers_place: Place::Left,
+            layers_collapsed: false,
+            inspector_open: false,
+            inspector_place: Place::Float,
+            inspector_collapsed: false,
             timeline_open: true,
             model_open: true,
             pinned: None,
             last: None,
             jump: String::new(),
+            arranged_for: None,
+        };
+        s.arrange(&DockState::preset(crate::settings::Layout::Dock));
+        s
+    }
+}
+
+impl DockState {
+    /// How a layout opens before the user has moved anything. `Dock` shows its windows — Layers
+    /// docked left, the Inspector floating over the map as in the reference mock. `Wsv3` opens
+    /// map-first: the bars and the timeline, with Layers (left) and the Inspector (docked right)
+    /// waiting to be asked for.
+    pub(crate) fn preset(layout: crate::settings::Layout) -> WorkstationChrome {
+        let map_first = layout.map_first();
+        WorkstationChrome {
+            tab: DockTab::Radar.label().to_string(),
+            layers_open: !map_first,
+            layers_place: Place::Left,
+            layers_collapsed: false,
+            inspector_open: !map_first,
+            inspector_place: if map_first {
+                Place::Right
+            } else {
+                Place::Float
+            },
+            inspector_collapsed: false,
+            timeline_open: true,
+        }
+    }
+
+    /// The window arrangement as saved with a workspace and in the settings.
+    pub(crate) fn arrangement(&self) -> WorkstationChrome {
+        WorkstationChrome {
+            tab: self.tab.label().to_string(),
+            layers_open: self.layers_open,
+            layers_place: self.layers_place,
+            layers_collapsed: self.layers_collapsed,
+            inspector_open: self.inspector_open,
+            inspector_place: self.inspector_place,
+            inspector_collapsed: self.inspector_collapsed,
+            timeline_open: self.timeline_open,
+        }
+    }
+
+    /// Put the windows where a saved arrangement says.
+    pub(crate) fn arrange(&mut self, w: &WorkstationChrome) {
+        self.tab = DockTab::from_label(&w.tab).unwrap_or_default();
+        self.layers_open = w.layers_open;
+        self.layers_place = w.layers_place;
+        self.layers_collapsed = w.layers_collapsed;
+        self.inspector_open = w.inspector_open;
+        self.inspector_place = w.inspector_place;
+        self.inspector_collapsed = w.inspector_collapsed;
+        self.timeline_open = w.timeline_open;
+    }
+}
+
+/// What a tool window's header asked for, applied to that window's own state.
+pub(super) fn apply_header(
+    action: ws::HeaderAction,
+    open: &mut bool,
+    place: &mut Place,
+    collapsed: &mut bool,
+) {
+    match action {
+        ws::HeaderAction::None => {}
+        ws::HeaderAction::Close => *open = false,
+        ws::HeaderAction::Collapse => *collapsed = !*collapsed,
+        ws::HeaderAction::Place(p) => {
+            *place = p;
+            // A window that lands in a dock is shown whole; folding is a floating-window thing.
+            if p != Place::Float {
+                *collapsed = false;
+            }
+        }
+    }
+}
+
+/// Where a tool window draws this frame: into a side panel of the root layout (docked, before the
+/// map's rect is taken) or as a window over the map (floating, after it).
+pub(super) enum Host<'a> {
+    Docked(&'a mut egui::Ui),
+    Floating(&'a egui::Context),
+}
+
+/// A tool window: its id, where it sits, how wide it is, and where it first appears when floating.
+pub(super) struct ToolWindow {
+    pub id: &'static str,
+    pub place: Place,
+    pub width: f32,
+    pub float_at: egui::Pos2,
+}
+
+/// Draw a tool window's frame where it sits and run `body` inside it (the body draws its own
+/// header). Docked, it is a fixed-width side panel; floating, a movable window kept inside the map.
+pub(super) fn tool_window(
+    host: Host<'_>,
+    w: ToolWindow,
+    map_rect: egui::Rect,
+    t: &ws::Tokens,
+    body: impl FnOnce(&mut egui::Ui),
+) {
+    let ToolWindow {
+        id,
+        place,
+        width,
+        float_at,
+    } = w;
+    match host {
+        Host::Docked(root) => {
+            let panel = if place == Place::Right {
+                egui::Panel::right(id)
+            } else {
+                egui::Panel::left(id)
+            };
+            panel
+                .exact_size(width)
+                .resizable(false)
+                .frame(ws::panel_frame(t))
+                .show(root, |ui| {
+                    ws::style_scope(ui, t);
+                    body(ui);
+                });
+        }
+        Host::Floating(ctx) => {
+            egui::Window::new(id)
+                .id(egui::Id::new(id))
+                .title_bar(false)
+                .resizable(false)
+                .constrain_to(map_rect)
+                .default_pos(float_at)
+                .frame(ws::card_frame(t))
+                .show(ctx, |ui| {
+                    ws::style_scope(ui, t);
+                    ui.set_width(width);
+                    body(ui);
+                });
         }
     }
 }
@@ -233,20 +391,83 @@ impl HookEchoApp {
         ws::Tokens::new(crate::theme::accent(self.settings.theme))
     }
 
-    /// Draw the whole dock. Called once per frame before the map's own rect is read, so the map
-    /// gets whatever the panels leave. Order is layout: the two top bars, the timeline across the
-    /// full width at the bottom, then the Layers panel and the rail down the left.
+    /// Draw the workstation's docked parts. Called once per frame before the map's own rect is
+    /// read, so the map gets whatever they leave. Order is layout: the two top bars (unless hidden
+    /// for a full-window map), the timeline across the full width at the bottom, then the docked
+    /// tool windows, and the rail last so it sits against the map.
     pub(crate) fn dock_layout(&mut self, root: &mut egui::Ui, ctx: &egui::Context) {
-        self.dock_app_bar(root, ctx);
-        self.dock_toolbar(root, ctx);
+        self.dock_sync_arrangement();
+        if !self.ribbon_collapsed {
+            self.dock_app_bar(root, ctx);
+            self.dock_toolbar(root, ctx);
+        }
         self.dock_timeline(root);
-        self.dock_left(root, ctx);
+        if self.dock.layers_place != Place::Float {
+            self.dock_layers(Host::Docked(root), ctx);
+        }
+        if self.dock.inspector_place != Place::Float {
+            self.dock_inspector(Host::Docked(root), ctx);
+        }
         self.dock_rail(root, ctx);
     }
 
-    /// Over the map: the Inspector card.
+    /// Over the map: the floating tool windows, and the button that brings hidden bars back.
     pub(crate) fn dock_map_overlay(&mut self, ctx: &egui::Context) {
-        self.dock_inspector(ctx);
+        if self.dock.layers_place == Place::Float {
+            self.dock_layers(Host::Floating(ctx), ctx);
+        }
+        if self.dock.inspector_place == Place::Float {
+            self.dock_inspector(Host::Floating(ctx), ctx);
+        }
+        if self.ribbon_collapsed {
+            self.dock_bars_restore(ctx);
+        }
+    }
+
+    /// Load the arrangement saved for the current layout when the layout changes, and save the
+    /// current one back whenever a window moves, opens or closes.
+    fn dock_sync_arrangement(&mut self) {
+        let layout = self.settings.layout;
+        if self.dock.arranged_for != Some(layout) {
+            let saved = self
+                .settings
+                .workstation
+                .get(&layout)
+                .cloned()
+                .unwrap_or_else(|| DockState::preset(layout));
+            self.dock.arrange(&saved);
+            self.dock.arranged_for = Some(layout);
+        }
+        let now = self.dock.arrangement();
+        if self.settings.workstation.get(&layout) != Some(&now) {
+            self.settings.workstation.insert(layout, now);
+        }
+    }
+
+    /// The top bars are hidden for a full-window map (T, or the palette's "top bar" toggle): one
+    /// small tab at the top edge brings them back.
+    fn dock_bars_restore(&mut self, ctx: &egui::Context) {
+        use crate::ui::a11y::Named as _;
+        let t = self.ws_tokens();
+        egui::Area::new(egui::Id::new("dock_bars_restore"))
+            .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 0.0))
+            .show(ctx, |ui| {
+                ws::card_frame(&t)
+                    .corner_radius(egui::CornerRadius {
+                        nw: 0,
+                        ne: 0,
+                        sw: 4,
+                        se: 4,
+                    })
+                    .show(ui, |ui| {
+                        if ws::icon_button(ui, &t, egui_phosphor::regular::CARET_DOWN, "", false)
+                            .named("Show the top bars (T)")
+                            .clicked()
+                        {
+                            self.ribbon_collapsed = false;
+                        }
+                    });
+            });
     }
 }
 
@@ -469,6 +690,86 @@ mod tests {
     fn a_row_that_is_not_a_toggle_counts_as_off() {
         let g = group_entries(&sample(), DockTab::Analysis, LayerFilter::All, "", &[]);
         assert_eq!((g[0].on, g[0].rows.len()), (0, 1));
+    }
+
+    #[test]
+    fn wsv3_opens_map_first_and_the_dock_with_its_windows() {
+        use crate::settings::Layout;
+        let wsv3 = DockState::preset(Layout::Wsv3);
+        assert!(!wsv3.layers_open && !wsv3.inspector_open && wsv3.timeline_open);
+        assert_eq!(
+            wsv3.inspector_place,
+            Place::Right,
+            "docked right when asked for"
+        );
+        let dock = DockState::preset(Layout::Dock);
+        assert!(dock.layers_open && dock.inspector_open);
+        assert_eq!(
+            (dock.layers_place, dock.inspector_place),
+            (Place::Left, Place::Float)
+        );
+        // A fresh state is the Dock's preset, so the Dock layout looks as it did before.
+        assert_eq!(DockState::default().arrangement(), dock);
+    }
+
+    #[test]
+    fn an_arrangement_round_trips_and_an_unknown_tab_falls_back() {
+        let mut s = DockState::default();
+        let w = WorkstationChrome {
+            tab: "GIS".into(),
+            layers_open: true,
+            layers_place: Place::Float,
+            layers_collapsed: true,
+            inspector_open: false,
+            inspector_place: Place::Left,
+            inspector_collapsed: false,
+            timeline_open: false,
+        };
+        s.arrange(&w);
+        assert_eq!(s.tab, DockTab::Gis);
+        assert_eq!(s.arrangement(), w);
+        s.arrange(&WorkstationChrome {
+            tab: "Hydrology".into(),
+            ..w
+        });
+        assert_eq!(s.tab, DockTab::Radar);
+    }
+
+    #[test]
+    fn header_actions_move_fold_and_close_a_window() {
+        let (mut open, mut place, mut folded) = (true, Place::Float, false);
+        apply_header(
+            ws::HeaderAction::Collapse,
+            &mut open,
+            &mut place,
+            &mut folded,
+        );
+        assert!(folded);
+        // Docking a folded window unfolds it: a dock shows a window whole.
+        apply_header(
+            ws::HeaderAction::Place(Place::Right),
+            &mut open,
+            &mut place,
+            &mut folded,
+        );
+        assert_eq!((place, folded), (Place::Right, false));
+        apply_header(ws::HeaderAction::None, &mut open, &mut place, &mut folded);
+        assert!(open);
+        apply_header(ws::HeaderAction::Close, &mut open, &mut place, &mut folded);
+        assert!(!open);
+    }
+
+    #[test]
+    fn the_per_layout_arrangements_survive_the_settings_file() {
+        use crate::settings::{Layout, Settings};
+        let mut s = Settings::default();
+        s.workstation
+            .insert(Layout::Wsv3, DockState::preset(Layout::Wsv3));
+        s.workstation
+            .insert(Layout::Dock, DockState::preset(Layout::Dock));
+        let json = serde_json::to_string(&s).unwrap();
+        let back: Settings = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.workstation, s.workstation);
     }
 }
 

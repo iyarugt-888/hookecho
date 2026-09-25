@@ -434,6 +434,13 @@ click handler, never from a per-frame path). 4 new tests in `settings.rs`, all p
 ### 6.3 Build the new "WSV3" theme from Ref 4 — [x] partly done — geometry + footer shipped, the
     tab-row refactor and checkbox-dense rows deliberately deferred (see below, not silently dropped)
 
+> **Superseded** by `docs/WSV3_IMGUI_MODERN_DESIGN_PLAN.md` §13: `Layout::Wsv3` now draws the
+> analyst workstation (`app/chrome/dock/`), map-first, not the ribbon. The dense ribbon geometry,
+> `WSV3_DENSE`/`is_wsv3_theme()` and the zoom-preset footer row described below were removed with
+> it (the 3D pitch/bearing readout moved to the workstation Inspector). The tab row and dense
+> checkbox rows deferred below are what the workstation's app bar and context toolbar became.
+> Kept as the record of what shipped first.
+
 This is the theme deliverable — a *look*, using layers/tools/products HookEcho already has, not a
 port of WSV3's own feature set (see §1's "don't replicate feature-for-feature" rule).
 

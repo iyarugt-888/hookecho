@@ -160,24 +160,32 @@ pub fn text(s: impl Into<String>, size: f32, color: Color32) -> egui::RichText {
     egui::RichText::new(s.into()).size(size).color(color)
 }
 
-/// What a panel header's buttons asked for.
+/// What a tool window's header asked for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HeaderAction {
     None,
     Close,
-    Pin,
+    /// Fold a floating window to its title bar, or unfold it.
+    Collapse,
+    /// Move the window: dock it to a side or float it over the map.
+    Place(crate::workspace::Place),
 }
 
-/// A panel's header bar: glyph, title, and (right-aligned) an optional pin and a close button.
-pub fn panel_header(
+/// A tool window's header: glyph and title, then (right-aligned) a placement menu, a collapse
+/// button while floating, and close. `place` is `None` for a window that cannot move;
+/// `collapsed` is `Some` only while the window floats. Double-clicking a floating window's
+/// header folds it too, as in Dear ImGui.
+pub fn window_header(
     ui: &mut egui::Ui,
     t: &Tokens,
     glyph: &str,
     title: &str,
-    pinned: Option<bool>,
+    place: Option<crate::workspace::Place>,
+    collapsed: Option<bool>,
 ) -> HeaderAction {
-    let (rect, _) =
-        ui.allocate_exact_size(egui::vec2(ui.available_width(), HEADER_H), Sense::hover());
+    use crate::workspace::Place;
+    let (rect, bar) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), HEADER_H), Sense::click());
     let p = ui.painter();
     p.rect_filled(rect, 0.0, t.panel_hi);
     p.line_segment(
@@ -199,13 +207,14 @@ pub fn panel_header(
         t.text,
     );
     let mut action = HeaderAction::None;
+    if collapsed.is_some() && bar.double_clicked() {
+        action = HeaderAction::Collapse;
+    }
     let mut x = rect.right() - 16.0;
-    let mut button = |glyph: &str, hint: &str, on: bool, act: HeaderAction| {
+    let mut button = |ui: &mut egui::Ui, glyph: &str, hint: &str| -> Response {
         let r = Rect::from_center_size(egui::pos2(x, rect.center().y), egui::vec2(22.0, 22.0));
         x -= 24.0;
-        let resp = ui
-            .interact(r, ui.id().with((title, hint)), Sense::click())
-            .on_hover_text(hint);
+        let resp = ui.interact(r, ui.id().with((title, hint)), Sense::click());
         if resp.hovered() {
             ui.painter().rect_filled(r, 4.0, t.field_hi);
         }
@@ -214,31 +223,38 @@ pub fn panel_header(
             egui::Align2::CENTER_CENTER,
             glyph,
             FontId::proportional(13.0),
-            if on {
-                t.accent
-            } else if resp.hovered() {
-                t.text
-            } else {
-                t.text_dim
-            },
+            if resp.hovered() { t.text } else { t.text_dim },
         );
-        if resp.clicked() {
-            action = act;
-        }
+        let enabled = resp.enabled();
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, hint));
+        resp.on_hover_text(hint)
     };
-    button(
-        egui_phosphor::regular::X,
-        "Close",
-        false,
-        HeaderAction::Close,
-    );
-    if let Some(on) = pinned {
-        button(
-            egui_phosphor::regular::PUSH_PIN,
-            if on { "Unpin" } else { "Pin" },
-            on,
-            HeaderAction::Pin,
-        );
+    if button(ui, egui_phosphor::regular::X, "Close").clicked() {
+        action = HeaderAction::Close;
+    }
+    if let Some(folded) = collapsed {
+        let (glyph, hint) = if folded {
+            (egui_phosphor::regular::CARET_DOWN, "Unfold")
+        } else {
+            (egui_phosphor::regular::CARET_UP, "Fold to the title bar")
+        };
+        if button(ui, glyph, hint).clicked() {
+            action = HeaderAction::Collapse;
+        }
+    }
+    if let Some(now) = place {
+        let menu = button(ui, egui_phosphor::regular::DOTS_THREE, "Move this window");
+        egui::Popup::menu(&menu).show(|ui| {
+            for (p, label) in [
+                (Place::Left, "Dock left"),
+                (Place::Right, "Dock right"),
+                (Place::Float, "Float over the map"),
+            ] {
+                if ui.selectable_label(now == p, label).clicked() {
+                    action = HeaderAction::Place(p);
+                }
+            }
+        });
     }
     action
 }
@@ -501,7 +517,9 @@ fn kv_row(ui: &mut egui::Ui, t: &Tokens, key: &str, value: egui::RichText) {
             FontId::proportional(12.0),
             t.text_dim,
         );
-        ui.label(value);
+        // A long value (a VCP's full name, a volume file) is cut with an ellipsis and shown whole
+        // on hover, rather than widening the card or the docked column it sits in.
+        ui.add(egui::Label::new(value).truncate());
     });
 }
 
@@ -608,7 +626,14 @@ mod tests {
     fn components_draw_their_labels() {
         let got = texts(|ui| {
             let t = t();
-            panel_header(ui, &t, egui_phosphor::regular::STACK, "Layers", Some(false));
+            window_header(
+                ui,
+                &t,
+                egui_phosphor::regular::STACK,
+                "Layers",
+                Some(crate::workspace::Place::Left),
+                Some(false),
+            );
             tab(ui, &t, "Radar", true, APP_BAR_H);
             icon_button(ui, &t, egui_phosphor::regular::GEAR, "Settings", false);
             segmented(ui, &t, &["2D", "3D", "Volume"], 0);

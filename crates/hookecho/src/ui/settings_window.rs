@@ -925,9 +925,11 @@ fn appearance_tab(ui: &mut egui::Ui, settings: &mut Settings) {
                 })
                 .response
                 .on_hover_text(
-                    "Command Ribbon: HookEcho's original docked toolbar. WSV3: the same ribbon \
-                     chrome, denser, styled after TempoQuest's WSV3 desktop app. Minimal: the \
-                     original map-first search pill and control column.",
+                    "Command Ribbon: HookEcho's original docked toolbar. WSV3: the analyst \
+                     workstation, map-first \u{2014} a two-row top bar and a docked timeline, \
+                     with the Layers and Inspector windows opened when you want them. Minimal: \
+                     the original map-first search pill and control column. Dock (ImGui): the \
+                     workstation with its windows showing.",
                 );
                 ui.end_row();
             }

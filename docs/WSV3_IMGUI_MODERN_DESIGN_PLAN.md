@@ -404,32 +404,43 @@ The redesign is ready when:
 
 ---
 
-## 13. The Dock layout as the first implementation ("Analyst Workstation")
+## 13. Implementation: the analyst workstation (`Layout::Wsv3` and `Layout::Dock`)
 
-> **Status:** implemented on this branch for `Layout::Dock` ("Dock (ImGui)"), whose look follows
-> the target mock (reference E below). The Dock was the right first home: it already had docked
-> Layers/Inspector/Timeline panels, so §3–§7 above could land without first building the general
-> docking of §2.3. The WSV3 ribbon (`ribbon.rs`, `wsv3.rs`, `scrubber.rs`, §10) is the next step
-> and reuses the same component kit (`ui/workstation.rs`).
+> **Status:** implemented on this branch. The WSV3 layout *is* the workstation now: `Wsv3` and
+> `Dock` draw the same chrome (`app/chrome/dock/`, over the component kit in
+> `ui/workstation.rs`) and differ only in how they open — `Wsv3` map-first (bars, rail and
+> timeline; Layers and Inspector when asked for, the Inspector docking right), `Dock` with its
+> windows showing (Layers docked left, the Inspector floating, as in the reference mock E). One
+> chrome rather than a restyled ribbon beside a restyled dock is §10's "combine at the
+> visual-primitive level instead of duplicating application state". The dense-ribbon sizing that
+> only `Wsv3` used is gone; `Layout::CommandRibbon` keeps the ribbon (`ribbon.rs`) unchanged.
 >
 > **Against §1–§12 above:**
-> - Followed: two-tier top bar (§2.2) with every Radar row-2 control; compact Layers tree with
->   counts, Active/Favorites, search, status dots and a 2 px accent edge on selected rows (§3,
->   §6.3); contextual Inspector with gate value, azimuth, range, beam height, sample time and the
->   Product settings / Site info / Pin actions (§4); thin two-row timeline with ticks, live-sweep
->   progress, buffered history and explicit Live/Archive and `F+h` (§5); flat palette, ≤ 4 px
->   radius, 24 px controls, 28 px title bars, monospace for values, times, coordinates and VCP
->   (§6); 36 px single-selection tool rail (§7); the same `PaletteAction`/`UiActions`/timeline
->   state behind every control (§12.6); `app.rs` unchanged (§12.12).
-> - Different, on purpose: the Inspector is a floating card over the map's top-right (§2.3 allows
->   "float over map") so both sidebars are never open (§2.1); E's per-row gear/`…` are left out
->   until a per-layer settings page exists; the "latency" is the radar feed's health and provider
->   ingest lag, which the app measures, not a network round trip, which it does not.
-> - Not yet: dock/float/collapse per window and a layout saved per workspace (§2.3, Phase 6,
->   §12.5); per-layer opacity/remove/drag-reorder rows (§3.1: drag-reorder exists in the Layer
->   Manager); quality flags, provenance and the 3D fields on the Inspector (§4); the extra rail
->   tools (pan, zoom/fit, locate, warning focus, 3D camera) (§7); screenshot passes at tablet and
->   phone widths (§12.11; the phone layout is not the Dock and is unchanged).
+> - Followed: map-first canvas with no permanent sidebars (§2.1, §12.1–2); two-tier top bar (§2.2)
+>   with every Radar row-2 control; tool windows that dock left or right, float over the map,
+>   fold to their title bar, close, and are remembered per layout (in the settings) and per
+>   workspace (§2.3, Phase 6, §12.5); compact Layers tree with counts, Active/Favorites, search,
+>   status dots and a 2 px accent edge on selected rows (§3, §6.3); contextual Inspector with gate
+>   value, azimuth, range, beam height, sample time, Nyquist and quality notes (range folded,
+>   dealiased), provenance (volume file, active provider), a 3D block (pitch, bearing, zoom) and
+>   the Product settings / Site info / Pin actions (§4); thin two-row timeline with ticks,
+>   live-sweep progress, buffered history and explicit Live/Archive and `F+h` (§5); flat palette,
+>   ≤ 4 px radius, 24 px controls, 28 px title bars, monospace for values, times, coordinates and
+>   VCP (§6); 36 px single-selection tool rail with Layers and "center on the radar" at its head
+>   (§7); the top bars hide for a full-window map (T) with a tab to bring them back; narrow windows
+>   shed button words before anything overlaps (§9); the same `PaletteAction`/`UiActions`/timeline
+>   state behind every control (§12.6); `app.rs` changed only where the layout is dispatched and
+>   the theme applied (§12.12).
+> - Different, on purpose: E's per-row gear/`…` are left out until a per-layer settings page
+>   exists; the "latency" is the radar feed's health and provider ingest lag, which the app
+>   measures, not a network round trip, which it does not; "data probe" is the Inspector's live
+>   reading plus the gate inspector on the rail rather than a third control; the rail has no
+>   separate pan (the explore tool pans), locate or warning-focus tool, since nothing in the app
+>   does those yet, and the 3D camera is the toolbar's 2D/3D/Volume control.
+> - Not yet: per-layer opacity/remove rows (§3.1; drag-reorder lives in the Layer Manager);
+>   tabbing more windows (warnings, analyst log, sounding, diagnostics) into the docks (§2.3);
+>   the volume-mode 3D Inspector fields (§4: active tilts, beam rise, quality preset); screenshot
+>   passes at tablet and phone widths (§12.11; the phone layout is its own and unchanged).
 
 ### 13.1 References
 
@@ -572,6 +583,24 @@ and card.
   while streaming · right-aligned **Buffer**: a bar and `have/N` of the day's frames that are in
   the decoded-scan cache — the frames the loop can play without a download.
 
+#### 13.2.7 Tool windows: dock, float, fold (Phase 6)
+
+Layers and the Inspector are tool windows. Each header has a `…` menu — **Dock left**, **Dock
+right**, **Float over the map** — and, while floating, a fold button (double-clicking the header
+folds too, as in Dear ImGui); `×` closes. Docked, a window is a fixed-width side panel laid out
+before the map takes its rect, the rail staying against the map; floating, it is a movable window
+kept inside the map, and the Inspector scrolls when docked because a column can be shorter than
+the card. One host (`dock::tool_window`) draws either, so a window's contents do not know where
+they are. Key/value rows ellipsise a long value (the full text is on hover) so a VCP's name or a
+volume file cannot widen a card or push a docked column's contents off its edge.
+
+The arrangement — which windows are open, where each sits, whether it is folded, the Layers tab
+and the timeline — is a `workspace::WorkstationChrome`. It is saved per layout in
+`Settings::workstation`, so each layout comes back as it was left and switching layouts brings the
+other one's arrangement, and it rides along in a workspace's `Chrome`, so applying a saved
+workspace restores its windows too. A layout with nothing saved starts from its preset
+(`DockState::preset`).
+
 ### 13.3 Design tokens
 
 All colours and sizes come from one `Tokens` value (`ui/workstation.rs`), not from constants
@@ -690,5 +719,13 @@ a scale bar on the map; a network round-trip measurement for the app bar; a natu
   1920 × 1080 and 1366 × 768; tablet and phone widths are still to do), with the
   Radar, Models and Analysis tabs, and with a pointer reading on the card (38.3 dBZ drawn in the
   table's yellow, 11.9 mi from KTLX, beam height and sample time filled).
+- Second pass ("continue the plan"): `Layout::Wsv3` moved onto this chrome, map-first, and the
+  WSV3-only dense ribbon sizing (`theme::is_wsv3_theme`, `wsv3::ribbon_h()`/`colorbar_h()`/
+  `status_h()`, the extra status-bar row) was removed; its zoom quick-picks are dropped and its 3D
+  pitch/bearing readout moved to the Inspector. Tool windows dock/float/fold and are saved per
+  layout and per workspace (§13.2.7); the Inspector gained Nyquist, quality notes, provenance and
+  the 3D block; the rail gained Layers and "center on the radar"; the top bars hide with T.
+  Checked by screenshot: WSV3 map-first, WSV3 with Layers floating on the Surface tab and the
+  Inspector docked right, the Dock with Layers folded, and the Command Ribbon unchanged.
 - The old dock's two `"{2039}"`/`"loading{2026}"` strings were missing their `\u` and rendered
   literally; the model card's is fixed and the arrow buttons are glyphs now.

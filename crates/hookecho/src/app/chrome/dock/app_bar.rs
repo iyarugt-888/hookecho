@@ -52,7 +52,7 @@ impl HookEchoApp {
                     }
                     ui.add_space(18.0);
                     for tab in DockTab::ALL {
-                        let on = self.dock.left_open && self.dock.tab == tab;
+                        let on = self.dock.layers_open && self.dock.tab == tab;
                         if ws::tab(ui, &t, tab.label(), on, ws::APP_BAR_H)
                             .named_toggle(tab.label(), on)
                             .clicked()
@@ -60,10 +60,10 @@ impl HookEchoApp {
                             // The open tab's own button folds the panel away; any other opens it
                             // on that tab.
                             if on {
-                                self.dock.left_open = false;
+                                self.dock.layers_open = false;
                             } else {
                                 self.dock.tab = tab;
-                                self.dock.left_open = true;
+                                self.dock.layers_open = true;
                             }
                         }
                     }

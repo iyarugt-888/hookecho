@@ -1156,7 +1156,7 @@ impl HookEchoApp {
         push(
             "Top bar",
             "Reference",
-            "The WSV3 ribbon and its colour scale \u{2014} hide it for a full-window map view",
+            "The top bars (the ribbon, or the workstation's app bar and toolbar) \u{2014} hide them for a full-window map view",
             false,
             PaletteAction::ToggleRibbon,
             Some(!self.ribbon_collapsed),

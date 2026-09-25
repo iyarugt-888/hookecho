@@ -8,6 +8,18 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Changed: WSV3 is the analyst workstation, map-first; tool windows dock and float
+
+The WSV3 layout now uses the workstation described below instead of its three-row ribbon. It
+opens map-first: the two top bars, the tool rail and the timeline, with the Layers and Inspector
+windows opened when you want them. Layers and the Inspector can dock left, dock right or float
+over the map, fold to their title bar, and close. Each layout remembers its arrangement across
+restarts, and a saved workspace restores it. The Inspector adds the Nyquist velocity, quality
+notes (range folded, dealiased), where the data came from (volume file and provider) and, in 3D,
+the camera's pitch, bearing and zoom. The rail gains Layers and "center on the radar", and T hides
+the top bars for a full-window map. WSV3's zoom quick-pick row is gone. The Command Ribbon layout
+is unchanged.
+
 ### Changed: the Dock layout is an analyst workstation
 
 The docked layout ("Dock (ImGui)") is redesigned after Dear ImGui tool panels and WSV3. The

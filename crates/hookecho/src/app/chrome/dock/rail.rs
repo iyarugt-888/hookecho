@@ -1,6 +1,7 @@
-//! The tool rail: every map tool as a square button against the map's left edge, in groups, with
-//! the 3D volume explorer at its foot. Each arms its tool through the palette action, so it is the
-//! same tool the ribbon and the phone rail arm.
+//! The tool rail against the map's left edge: the Layers window and "center on the radar" first,
+//! then every map tool as a square button in groups, with the 3D volume explorer at its foot.
+//! Each tool arms through the palette action, so it is the same tool the ribbon and the phone
+//! rail arm. Only one tool is armed at a time.
 
 use super::*;
 use crate::ui::a11y::Named as _;
@@ -8,6 +9,9 @@ use egui_phosphor::regular as ph;
 
 /// The rail's width: one button and its margin.
 const RAIL_W: f32 = ws::RAIL_BTN + 8.0;
+
+/// The zoom "center on the radar" frames the site at: a radar's useful range fills the map.
+const RADAR_ZOOM: f64 = 8.0;
 
 /// The tools, grouped: looking, measuring, the atmosphere, marking up the map.
 const GROUPS: [&[(MapTool, &str, &str)]; 4] = [
@@ -40,7 +44,11 @@ impl HookEchoApp {
         use crate::app::PaletteAction as A;
         let t = self.ws_tokens();
         let armed = self.tool;
+        let layers_open = self.dock.layers_open;
+        let has_site = self.views[self.active].site.is_some();
         let mut pick = None;
+        let mut toggle_layers = false;
+        let mut center = false;
         egui::Panel::left("dock_rail")
             .exact_size(RAIL_W)
             .resizable(false)
@@ -56,20 +64,20 @@ impl HookEchoApp {
                     .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
                     .auto_shrink([true, false])
                     .show(ui, |ui| {
-                        for (gi, group) in GROUPS.iter().enumerate() {
-                            if gi > 0 {
-                                let (r, _) = ui.allocate_exact_size(
-                                    egui::vec2(ws::RAIL_BTN, 9.0),
-                                    egui::Sense::hover(),
-                                );
-                                ui.painter().line_segment(
-                                    [
-                                        egui::pos2(r.left() + 6.0, r.center().y),
-                                        egui::pos2(r.right() - 6.0, r.center().y),
-                                    ],
-                                    egui::Stroke::new(1.0, t.line),
-                                );
-                            }
+                        if ws::rail_button(ui, &t, ph::STACK, layers_open)
+                            .named_toggle("Layers", layers_open)
+                            .clicked()
+                        {
+                            toggle_layers = true;
+                        }
+                        let r = ui.add_enabled_ui(has_site, |ui| {
+                            ws::rail_button(ui, &t, ph::CROSSHAIR_SIMPLE, false)
+                        });
+                        if r.inner.named("Center on the radar").clicked() {
+                            center = true;
+                        }
+                        for group in GROUPS.iter() {
+                            separator(ui, &t);
                             for &(tool, glyph, name) in group.iter() {
                                 let on = armed == tool;
                                 if ws::rail_button(ui, &t, glyph, on)
@@ -90,8 +98,44 @@ impl HookEchoApp {
                     }
                 });
             });
+        if toggle_layers {
+            self.dock.layers_open = !self.dock.layers_open;
+        }
+        if center {
+            self.dock_center_on_radar();
+        }
         if let Some(a) = pick {
             self.apply_palette(a, ctx);
         }
     }
+
+    /// Put the active pane's radar in the middle of the map at a storm-scale zoom, keeping a 3D
+    /// view's pitch and bearing.
+    fn dock_center_on_radar(&mut self) {
+        let v = &mut self.views[self.active];
+        let Some(site) = v.site.as_deref().and_then(wxdata::sites::site_by_id) else {
+            return;
+        };
+        let old = v.camera;
+        let mut cam = crate::render::mercator::Camera::at_lonlat(
+            f64::from(site.longitude),
+            f64::from(site.latitude),
+            RADAR_ZOOM,
+        );
+        cam.pitch = old.pitch;
+        cam.bearing = old.bearing;
+        v.camera = cam;
+    }
+}
+
+/// The hairline between the rail's groups.
+fn separator(ui: &mut egui::Ui, t: &ws::Tokens) {
+    let (r, _) = ui.allocate_exact_size(egui::vec2(ws::RAIL_BTN, 9.0), egui::Sense::hover());
+    ui.painter().line_segment(
+        [
+            egui::pos2(r.left() + 6.0, r.center().y),
+            egui::pos2(r.right() - 6.0, r.center().y),
+        ],
+        egui::Stroke::new(1.0, t.line),
+    );
 }

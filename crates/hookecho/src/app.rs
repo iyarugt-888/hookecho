@@ -3235,13 +3235,12 @@ fn distinct_tilts(elevations: &[f32], want: usize) -> Vec<usize> {
 const CONTROL_BUTTONS: usize = 6;
 
 /// Everything `theme::apply` is keyed on, remembered so it only re-applies when one of them moves:
-/// `(theme, system_dark, density, accent, layout)`.
+/// `(theme, system_dark, density, accent)`.
 type ThemeApplied = (
     crate::settings::Theme,
     bool,
     crate::ui::m3::Density,
     Option<[u8; 3]>,
-    crate::settings::Layout,
 );
 
 /// Which point-forecast series a request or cache entry is for: `(lat_e5, lon_e5, which series)`.
@@ -3287,7 +3286,7 @@ pub struct HookEchoApp {
     pane_shown: std::collections::HashMap<usize, ShownKey>,
     /// Palette generation currently baked into each pane's LUT (see [`ShownKey`]).
     pane_lut: std::collections::HashMap<usize, u64>,
-    /// Last `(theme, system_dark, density, accent, layout)` handed to `theme::apply`.
+    /// Last `(theme, system_dark, density, accent)` handed to `theme::apply`.
     theme_applied: Option<ThemeApplied>,
     /// When the settings tree was last diffed against the saved copy.
     settings_checked: Option<Instant>,
@@ -21900,7 +21899,6 @@ impl eframe::App for HookEchoApp {
             system_dark,
             self.settings.density,
             self.settings.accent,
-            self.settings.layout,
         );
         if self.theme_applied != Some(theme_key) {
             crate::theme::apply(
@@ -21909,7 +21907,6 @@ impl eframe::App for HookEchoApp {
                 system_dark,
                 self.settings.density,
                 self.settings.accent,
-                self.settings.layout,
             );
             self.theme_applied = Some(theme_key);
         }
@@ -22811,7 +22808,7 @@ impl eframe::App for HookEchoApp {
         // `chrome_rect` is read so the map gets what they leave. It draws none of the floating
         // chrome below (pill, column, scrubber, slide-in panel), which it replaces.
         let dock_layout =
-            !bare && !crate::platform::phone_layout() && self.settings.layout.is_dock();
+            !bare && !crate::platform::phone_layout() && self.settings.layout.is_workstation();
         if dock_layout {
             self.dock_layout(root, ctx);
         }

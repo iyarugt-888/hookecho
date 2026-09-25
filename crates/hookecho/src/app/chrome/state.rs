@@ -47,6 +47,9 @@ impl HookEchoApp {
             alerts_tab: self.show_alert_panel,
             basemap_open: self.basemap_open,
             drawer: self.drawer.top().map(str::to_string),
+            workstation: (self.settings.layout.is_workstation()
+                && !crate::platform::phone_layout())
+            .then(|| self.dock.arrangement()),
         }
     }
 
@@ -54,6 +57,9 @@ impl HookEchoApp {
         self.panel_open = c.panel_open;
         self.show_alert_panel = c.alerts_tab;
         self.basemap_open = c.basemap_open;
+        if let Some(w) = &c.workstation {
+            self.dock.arrange(w);
+        }
         // The page opens the same way clicking its row in the panel opens it: one dispatch path,
         // so a page with side effects (a fetch, a rebuild) gets them here too.
         if let Some(w) = c.drawer.as_deref().and_then(window_for_page) {
