@@ -133,8 +133,20 @@ impl HookEchoApp {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = 4.0;
                         ui.add_space(keepout);
-                        ui.label(ws::mono(&delay_text, 12.0, t.text_dim))
-                            .on_hover_text(health.error.as_deref().unwrap_or(&delay_tip));
+                        if ui
+                            .add(
+                                egui::Label::new(ws::mono(&delay_text, 12.0, t.text_dim))
+                                    .sense(egui::Sense::click()),
+                            )
+                            .named("Open data source health")
+                            .on_hover_text(format!(
+                                "{}\nClick for all active source health",
+                                health.error.as_deref().unwrap_or(&delay_tip)
+                            ))
+                            .clicked()
+                        {
+                            action = Some(A::OpenWindow(AppWindow::DataHealth));
+                        }
                         ws::status_dot(ui, if following { state_color } else { t.warn }, 4.0);
                         ui.add_space(8.0);
                         ui.label(ws::mono(clock, 12.0, t.text));

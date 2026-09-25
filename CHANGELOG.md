@@ -14,6 +14,11 @@ Choose a 1, 3, 6, 12 or 24 hour QPE accumulation from the workstation's Satellit
 shared layer options. The picker switches the active pane to one window while preserving the
 existing layer identifiers used by saved workspaces and headless commands.
 
+### Improved: direct access to source health
+
+Click the radar health and delay readout in the WSV3/Dock app bar to open the consolidated Data
+source health window. Its hover text still distinguishes current frame delay from lag at receipt.
+
 ### Improved: keyboard search in the workstation Layers window
 
 Enter now runs a typed time command or opens the first visible search result. If no layer, site or

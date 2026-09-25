@@ -3454,6 +3454,7 @@ from the command palette/Layers panel like any other tool) lists every currently
 health-tracked source worst-first, reusing the exact `SourceHealth` data and `active_layer` filter
 the per-row popups already use — the two views can never disagree about what counts as "active" or
 what a source's status is, because there is only one health computation feeding both.
+The WSV3/Dock app-bar health readout now opens this window directly on click.
 
 For every active source:
 

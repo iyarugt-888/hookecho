@@ -777,3 +777,5 @@ a scale bar on the map; a network round-trip measurement for the app bar; a natu
 - The Satellite tab now puts the MRMS QPE accumulation-window picker above the National layers
   tree. It switches the active pane among the existing catalog products and keeps saved layer
   identifiers intact; the shared layer options offer the same control when QPE is on.
+- The radar health and delay readout in the app bar opens the existing Data source health window
+  on click, with an accessible action name and a hover hint for the provider detail.
