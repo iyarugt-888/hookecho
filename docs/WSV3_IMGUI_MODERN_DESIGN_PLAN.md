@@ -771,3 +771,6 @@ a scale bar on the map; a network round-trip measurement for the app bar; a natu
 - The app bar's live delay now follows the newest radar frame against the current clock, including
   idle periods. Its hover detail retains the distinct lag measured at receipt. Archive view is
   labeled as archive rather than treating historical frame age as live latency.
+- Layers search accepts Enter: a typed time command runs first, otherwise the first visible
+  matching row opens; a query with no row match uses the existing place lookup. Results now update
+  in the same frame as typing or changing the All/Active/Favorites filter.

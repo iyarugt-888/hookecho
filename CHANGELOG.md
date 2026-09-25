@@ -8,6 +8,11 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Improved: keyboard search in the workstation Layers window
+
+Enter now runs a typed time command or opens the first visible search result. If no layer, site or
+tool matches, it looks up the text as a place. Search results refresh as the text and filters change.
+
 ### Fixed: live radar delay in the workstation bar
 
 The WSV3/Dock app bar now shows how far the newest radar frame is behind the current time and

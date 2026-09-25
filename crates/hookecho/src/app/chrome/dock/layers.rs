@@ -15,6 +15,38 @@ enum Hit {
     Star(&'static str),
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum SearchSubmit {
+    Action(crate::app::PaletteAction),
+    Place(String),
+}
+
+/// Enter uses the same visible search results as a click. A time command takes precedence;
+/// otherwise it opens the first layer row, or offers the place lookup when nothing matches.
+fn submit_search(
+    entries: &[PaletteEntry],
+    tab: DockTab,
+    filter: LayerFilter,
+    query: &str,
+    favorites: &[String],
+    day: chrono::NaiveDate,
+) -> Option<SearchSubmit> {
+    let query = query.trim();
+    if query.is_empty() {
+        return None;
+    }
+    if let Some(command) = crate::ui::layers_panel::command_entry(query, day) {
+        return Some(SearchSubmit::Action(command.action));
+    }
+    if let Some(i) = group_entries(entries, tab, filter, query, favorites)
+        .first()
+        .and_then(|group| group.rows.first())
+    {
+        return Some(SearchSubmit::Action(entries[*i].action));
+    }
+    Some(SearchSubmit::Place(query.to_string()))
+}
+
 impl HookEchoApp {
     pub(super) fn dock_layers(&mut self, host: Host<'_>, ctx: &egui::Context) {
         if !self.dock.layers.open {
@@ -23,20 +55,10 @@ impl HookEchoApp {
         let t = self.ws_tokens();
         let entries = self.palette_entries();
         let active = entries.iter().filter(|e| e.on == Some(true)).count();
-        let groups = group_entries(
-            &entries,
-            self.dock.tab,
-            self.dock.filter,
-            &self.dock.query,
-            &self.settings.favorite_layers,
-        );
         let mut hit = None;
-        // Typed commands ("time 21:30Z", "at now") share the search box, as in the panel.
-        let command = crate::ui::layers_panel::command_entry(
-            &self.dock.query,
-            self.views[self.active].timeline.date,
-        );
+        let selected_day = self.views[self.active].timeline.date;
         let focus_search = std::mem::take(&mut self.dock.focus_search);
+        let mut search_enter = false;
         let mut fly_to = None;
         let mut footer = None;
         let model_input = self.model_panel_input();
@@ -86,6 +108,8 @@ impl HookEchoApp {
                         if focus_search {
                             search.request_focus();
                         }
+                        search_enter = (search.has_focus() || search.lost_focus())
+                            && ui.input(|i| i.key_pressed(egui::Key::Enter));
                         ui.add_space(4.0);
                         let active_label = format!("Active ({active})");
                         let labels = ["All", active_label.as_str(), "Favorites"];
@@ -102,6 +126,16 @@ impl HookEchoApp {
                             ][i];
                         }
                     });
+                let groups = group_entries(
+                    &entries,
+                    self.dock.tab,
+                    self.dock.filter,
+                    &self.dock.query,
+                    &self.settings.favorite_layers,
+                );
+                // Typed commands ("time 21:30Z", "at now") share the search box.
+                let command =
+                    crate::ui::layers_panel::command_entry(&self.dock.query, selected_day);
                 let footer_h = 40.0;
                 let list_h = if floating {
                     float_list_h
@@ -244,6 +278,20 @@ impl HookEchoApp {
         let from_panels = ui_actions.palette.take();
         self.apply_ui_actions(ui_actions, ctx);
         apply_header(header, &mut self.dock.layers);
+        if search_enter && hit.is_none() {
+            match submit_search(
+                &entries,
+                self.dock.tab,
+                self.dock.filter,
+                &self.dock.query,
+                &self.settings.favorite_layers,
+                selected_day,
+            ) {
+                Some(SearchSubmit::Action(action)) => hit = Some(Hit::Row(action)),
+                Some(SearchSubmit::Place(place)) => fly_to = Some(place),
+                None => {}
+            }
+        }
         match hit {
             Some(Hit::Row(a)) => self.apply_palette(a, ctx),
             Some(Hit::Star(slug)) => {
@@ -468,4 +516,47 @@ fn row(
         hit = Some(Hit::Row(e.action));
     }
     hit
+}
+
+#[cfg(test)]
+mod search_tests {
+    use super::*;
+    use crate::app::PaletteAction;
+
+    fn entry(label: &str, category: &'static str, action: PaletteAction) -> PaletteEntry {
+        PaletteEntry {
+            label: label.to_string(),
+            category,
+            action,
+            on: None,
+            desc: "",
+            common: false,
+            key: None,
+            health: None,
+        }
+    }
+
+    #[test]
+    fn enter_uses_the_visible_result_or_place_lookup() {
+        let entries = [
+            entry("Velocity", "Radar", PaletteAction::Reload),
+            entry("KTLX", "Sites", PaletteAction::GoLive),
+        ];
+        let day = chrono::NaiveDate::from_ymd_opt(2026, 9, 24).unwrap();
+        let submit =
+            |query| submit_search(&entries, DockTab::Radar, LayerFilter::All, query, &[], day);
+        assert_eq!(
+            submit("KTLX"),
+            Some(SearchSubmit::Action(PaletteAction::GoLive))
+        );
+        assert_eq!(
+            submit("at now"),
+            Some(SearchSubmit::Action(PaletteAction::GoLive))
+        );
+        assert_eq!(
+            submit("Norman, Oklahoma"),
+            Some(SearchSubmit::Place("Norman, Oklahoma".into()))
+        );
+        assert_eq!(submit("  "), None);
+    }
 }
