@@ -794,6 +794,17 @@ fn main() -> eframe::Result<()> {
         return Ok(());
     }
 
+    // CF/Radial export of an archived volume:
+    // `hookecho --headless-cfradial <SITE> <YYYY-MM-DD> <HH:MM> <out.nc>`.
+    if let Some(pos) = args.iter().position(|a| a == "--headless-cfradial") {
+        let arg = |n: usize| args.get(pos + n).map(String::as_str).unwrap_or("");
+        if let Err(e) = headless::run_cfradial(arg(1), arg(2), arg(3), arg(4)) {
+            eprintln!("headless cfradial failed: {e}");
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
+
     // TDS verify: `hookecho --headless-tds <SITE>`.
     if let Some(pos) = args.iter().position(|a| a == "--headless-tds") {
         let site = args.get(pos + 1).map(String::as_str).unwrap_or("KTLX");

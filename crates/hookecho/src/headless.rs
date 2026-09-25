@@ -843,6 +843,60 @@ pub fn run_region(
     Ok(())
 }
 
+/// Write the archived volume nearest `hhmm` as CF/Radial 1.4 (ROADMAP_NEW M5): every tilt of
+/// every moment, binned as the app bins them, velocity dealiased.
+pub fn run_cfradial(site: &str, date: &str, hhmm: &str, out: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !out.is_empty(),
+        "usage: --headless-cfradial SITE YYYY-MM-DD HH:MM out.nc"
+    );
+    let (day, want) = parse_start(date, hhmm)?;
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    let (time, tilts) = rt.block_on(async {
+        let (t, id) = level2::list_volumes(site, day)
+            .await?
+            .into_iter()
+            .filter_map(|id| id.date_time().map(|t| (t, id)))
+            .min_by_key(|(t, _)| (*t - want).num_seconds().abs())
+            .ok_or_else(|| anyhow::anyhow!("no volumes for {site} on {date}"))?;
+        println!("{site}: volume {t}");
+        let scan = level2::download_scan(id, None).await?;
+        let tilts: Vec<Vec<level2::BinnedSweep>> = (0..level2::elevation_angles(&scan).len())
+            .map(|tilt| {
+                Moment::ALL
+                    .into_iter()
+                    .filter_map(|m| {
+                        level2::bin_scan_opts(&scan, m, tilt, m == Moment::Velocity).ok()
+                    })
+                    .collect()
+            })
+            .collect();
+        anyhow::Ok((t, tilts))
+    })?;
+    let s =
+        wxdata::sites::site_by_id(site).ok_or_else(|| anyhow::anyhow!("unknown site {site}"))?;
+    let nc = wxdata::cfradial::write(
+        wxdata::cfradial::Site {
+            id: site,
+            lat: s.latitude as f64,
+            lon: s.longitude as f64,
+            altitude_m: s.elevation_meters as f64 + wxdata::towers::tower_m(s.id),
+        },
+        time,
+        &tilts,
+    )
+    .ok_or_else(|| anyhow::anyhow!("nothing to write"))?;
+    std::fs::write(out, &nc)?;
+    println!(
+        "wrote {out}: {} tilts, {} MB",
+        tilts.iter().filter(|t| !t.is_empty()).count(),
+        nc.len() / 1_000_000
+    );
+    Ok(())
+}
+
 pub fn run_tds_archive(site: &str, date: &str, hhmm: &str) -> anyhow::Result<()> {
     let day = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d")?;
     let (h, m) = hhmm

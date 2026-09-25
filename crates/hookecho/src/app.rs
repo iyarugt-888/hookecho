@@ -19781,6 +19781,17 @@ impl HookEchoApp {
                 {
                     self.export_netcdf();
                 }
+                if ui
+                    .button("Export volume (CF/Radial)…")
+                    .on_hover_text(
+                        "This pane's radar volume, every tilt and moment, as CF/Radial 1.4 \
+                         NetCDF for Py-ART, LROSE or wradlib. The app's binned 8-bit data, as \
+                         displayed — not the raw Level II words.",
+                    )
+                    .clicked()
+                {
+                    self.export_cfradial();
+                }
             });
         }
 

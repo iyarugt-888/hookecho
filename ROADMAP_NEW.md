@@ -3375,7 +3375,7 @@ Optional WebSocket/SSE for state/frame-change events.
 
 Keep it localhost by default; explicit config required to bind externally.
 
-## M5. Scientific export — partly done
+## M5. Scientific export — done
 
 Add where practical:
 
@@ -3395,7 +3395,19 @@ Add where practical:
   against a real CONUS mosaic: every variable at its offset, the data ending at end of file, the
   valid time, count and maximum as the app reported, and the cell centres exactly on MRMS's own
   grid points (54.995 N / 129.995 W) — which also confirms the half-cell fix below round-trips.
-- [ ] CF/Radial-compatible export for selected radar data if feasible
+- [x] CF/Radial-compatible export for selected radar data — `wxdata::cfradial::write`: CF/Radial
+  1.4 in NetCDF classic (the NetCDF writer was generalised into `netcdf::NcFile` to carry it):
+  `time`/`range`/`sweep` dimensions, per-ray time, azimuth and elevation, per-sweep number, mode,
+  fixed angle and first/last ray, the radar's location and altitude, and every moment as a
+  `(time, range)` byte field with `scale_factor`/`add_offset`/`_FillValue`. It is the app's
+  **binned** volume — fixed azimuth bins and gates, 8 bits per field, exactly what the displays
+  and detectors used — not the raw Level II words; bytes carry those binned values without loss.
+  "Export volume (CF/Radial)…" under Share and `--headless-cfradial SITE DATE HH:MM out.nc`.
+  Checked with the independent Python spec reader on Moore (KTLX 20:08Z): 14 sweeps at VCP 12's
+  angles, 10 080 rays in contiguous sweep blocks, ray times spanning the volume's four minutes,
+  and, decoded at the debris ball, max DBZ 69.4 with RHOHV down to 0.21 — what the debris
+  detector reported for it. Not yet opened in Py-ART or Radx themselves (neither is installed
+  here).
 - [x] CSV for probes/profiles/tables — region statistics, vertical profile, point series,
   cross-section, detections, cells, sounding, verification
 - [x] GeoJSON for vectors/tracks/polygons — map export (I6) and the analysis export's annotations

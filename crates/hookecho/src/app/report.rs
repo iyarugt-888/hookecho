@@ -92,6 +92,55 @@ impl HookEchoApp {
         })
     }
 
+    /// Save the active pane's volume as CF/Radial 1.4 (ROADMAP_NEW M5): every tilt of every
+    /// moment it carries, binned as displayed, velocity dealiased as the detectors read it.
+    pub(crate) fn export_cfradial(&mut self) {
+        let idx = self.active;
+        let site_id = self.views[idx].site.clone();
+        let Some(vol) = self.views[idx].volume.as_mut() else {
+            self.toast(ToastKind::Error, "No radar volume on this pane to export");
+            return;
+        };
+        let time = vol.time;
+        let tilts: Vec<Vec<wxdata::level2::BinnedSweep>> = (0..vol.elevations.len())
+            .map(|tilt| {
+                wxdata::level2::Moment::ALL
+                    .into_iter()
+                    .filter_map(|m| {
+                        vol.binned(m, tilt, m == wxdata::level2::Moment::Velocity)
+                            .ok()
+                            .cloned()
+                    })
+                    .collect()
+            })
+            .collect();
+        let Some(s) = site_id.as_deref().and_then(wxdata::sites::site_by_id) else {
+            self.toast(ToastKind::Error, "This pane's radar site is not known");
+            return;
+        };
+        let site = wxdata::cfradial::Site {
+            id: s.id,
+            lat: s.latitude as f64,
+            lon: s.longitude as f64,
+            altitude_m: s.elevation_meters as f64 + wxdata::towers::tower_m(s.id),
+        };
+        let Some(nc) = wxdata::cfradial::write(site, time, &tilts) else {
+            self.toast(ToastKind::Error, "Nothing in this volume to export");
+            return;
+        };
+        let file = format!("{}_{}.nc", s.id, time.format("%Y%m%d_%H%M%S"));
+        match crate::dialog::save_bytes(&file, "nc", &nc) {
+            crate::dialog::Saved::Where(w) => {
+                self.toast(ToastKind::Success, format!("Volume saved to {w}"))
+            }
+            crate::dialog::Saved::Failed(e) => {
+                log::warn!("CF/Radial export failed: {e}");
+                self.toast(ToastKind::Error, format!("CF/Radial export failed: {e}"));
+            }
+            crate::dialog::Saved::Cancelled => {}
+        }
+    }
+
     /// Save the active pane's top gridded layer as CF NetCDF (ROADMAP_NEW M5).
     pub(crate) fn export_netcdf(&mut self) {
         let Some((slug, nc)) = self.top_grid_netcdf() else {

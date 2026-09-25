@@ -8,6 +8,15 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: CF/Radial export of a radar volume
+
+"Export volume (CF/Radial)…" under Share writes the active pane's volume — every tilt, every
+moment — as CF/Radial 1.4 NetCDF, the format Py-ART, LROSE/Radx and wradlib read, with per-ray
+time/azimuth/elevation, sweep indices and fixed angles, and the radar's location.
+`--headless-cfradial SITE DATE HH:MM out.nc` does the same for an archived volume. It is the
+app's binned 8-bit volume, exactly what the displays and detectors worked from, not the raw
+Level II moment words.
+
 ### Added: NetCDF export of gridded layers
 
 "Export grid (NetCDF)…" writes the same grid as the GeoTIFF export as CF-1.8 NetCDF (the classic
