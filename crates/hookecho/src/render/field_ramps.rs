@@ -960,7 +960,9 @@ pub fn ramp_for(layer: FieldLayer) -> Option<&'static FieldRamp> {
         // a number means the same thing whichever source drew it.
         FL::Vil | FL::VilLocal => &VIL,
         FL::EchoTops | FL::EtopLocal => &ECHO_TOPS,
-        FL::MrmsEchoTop18 => &MRMS_ECHO_TOPS,
+        FL::MrmsEchoTop18 | FL::MrmsEchoTop30 | FL::MrmsEchoTop50 | FL::MrmsEchoTop60 => {
+            &MRMS_ECHO_TOPS
+        }
         FL::VilDensity => &VIL_DENSITY,
         // MEHS shares the MRMS MESH scale: one hail scale app-wide.
         FL::HailMehs => &MESH,
@@ -1063,6 +1065,9 @@ mod tests {
             ("shi", &SHI),
             ("mrms-vil", &VIL),
             ("mrms-etop18", &MRMS_ECHO_TOPS),
+            ("mrms-etop30", &MRMS_ECHO_TOPS),
+            ("mrms-etop50", &MRMS_ECHO_TOPS),
+            ("mrms-etop60", &MRMS_ECHO_TOPS),
         ] {
             let layer = FieldLayer::from_slug(id).unwrap();
             assert!(std::ptr::eq(ramp_for(layer).unwrap(), expected), "{id}");

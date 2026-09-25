@@ -2494,6 +2494,9 @@ fn field_refresh_secs(layer: crate::render::FieldLayer) -> u64 {
         | FL::Shi
         | FL::MrmsVil
         | FL::MrmsEchoTop18
+        | FL::MrmsEchoTop30
+        | FL::MrmsEchoTop50
+        | FL::MrmsEchoTop60
         | FL::ReflLowestAlt
         | FL::LowLevelReflectivity => 120,
         // QPE accumulations update on a ~2-minute MRMS cadence.
@@ -9990,6 +9993,14 @@ impl HookEchoApp {
         }
         if let Some(layer) = actions.qpe_window {
             if ui::layer_options::select_qpe_window(&mut self.views[self.active].fields_on, layer) {
+                ui::layers_panel::note_recent(&mut self.settings.recent_layers, layer.slug());
+            }
+        }
+        if let Some(layer) = actions.echo_top_threshold {
+            if ui::layer_options::select_echo_top_threshold(
+                &mut self.views[self.active].fields_on,
+                layer,
+            ) {
                 ui::layers_panel::note_recent(&mut self.settings.recent_layers, layer.slug());
             }
         }

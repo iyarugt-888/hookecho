@@ -191,6 +191,11 @@ impl HookEchoApp {
                                         &model_on,
                                         &mut ui_actions,
                                     );
+                                    crate::ui::layer_options::echo_top_threshold_control(
+                                        ui,
+                                        &model_on,
+                                        &mut ui_actions,
+                                    );
                                 });
                         }
                         if plain && self.dock.tab == DockTab::Analysis {

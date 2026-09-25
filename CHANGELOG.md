@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: full MRMS echo-top threshold set
+
+The national echo-top layer now has 18, 30, 50 and 60 dBZ variants, all in km MSL, with a compact
+threshold chooser in the workstation Satellite tab and shared layer options. Each variant keeps
+its own layer ID and provenance. The live catalog contract confirms all 33 MRMS paths.
+
 ### Added: national MRMS 18-dBZ echo tops
 
 The MRMS catalog now offers a national 18-dBZ echo-top layer with its own km MSL legend,

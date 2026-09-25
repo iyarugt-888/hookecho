@@ -33,7 +33,7 @@ MRMS fields are labeled derived analyses. Failed refreshes retain the prior
 grid's timestamps, and invalid GRIB timestamps produce an error. See
 [the field migration note](field-registry.md) for scope and remaining work.
 
-The direct MRMS layers now share a 20-product catalog. Layer
+The direct MRMS layers now share a 23-product catalog. Layer
 fetches use its product-specific missing and no-coverage codes from the
 [NOAA operational table](https://www.nssl.noaa.gov/projects/mrms/operational/tables.php),
 so uncovered cells are absent rather than sampled as a measurement. The
@@ -41,9 +41,10 @@ precipitation-type value `0` remains the valid “no precipitation” class. Lay
 search accepts source names (`NOAA MRMS`), units (`mm/hr`), and aliases such as
 `NLDN` or `hydrology`. The source inspector also shows native product units and
 value kind. Product paths and selectable rotation/lightning/hail windows retain
-their existing mappings. The national 18-dBZ echo-top layer uses the NOAA
-`EchoTop_18_00.50` grid in km MSL; its legend uses km MSL rather than the kft
-scale of the separate local and Level III echo-top layers.
+their existing mappings. National 18/30/50/60-dBZ echo-top layers use the NOAA
+`EchoTop_*_00.50` grids in km MSL; their legend uses km MSL rather than the kft
+scale of the separate local and Level III echo-top layers. The Satellite tab
+and layer options can switch the active pane among those thresholds.
 
 ## Warnings, outlooks and reports
 

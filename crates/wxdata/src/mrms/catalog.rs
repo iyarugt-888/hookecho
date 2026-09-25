@@ -383,6 +383,60 @@ pub static PRODUCTS: &[Product] = &[
     },
     Product {
         field: FieldDescriptor {
+            id: FieldId("mrms-etop30"),
+            source: DataSource::NoaaMrms,
+            family: FieldFamily::Mrms,
+            name: "Echo top, 30 dBZ (MRMS)",
+            description: "National height of the top of the 30-dBZ echo, above mean sea level",
+            units: Unit::Kilometers,
+            value_kind: ValueKind::Scalar,
+            aliases: "storm top height echo tops national MSL",
+            default_palette: PaletteId::EchoTopKm,
+            default_contour_interval: None,
+            valid_domain: Some(crate::field::GeographicBounds::CONUS),
+            missing_values: &[-1.0, -3.0],
+        },
+        common: false,
+        fetch: FetchMapping::Fixed(super::ECHO_TOP_30),
+    },
+    Product {
+        field: FieldDescriptor {
+            id: FieldId("mrms-etop50"),
+            source: DataSource::NoaaMrms,
+            family: FieldFamily::Mrms,
+            name: "Echo top, 50 dBZ (MRMS)",
+            description: "National height of the top of the 50-dBZ echo, above mean sea level",
+            units: Unit::Kilometers,
+            value_kind: ValueKind::Scalar,
+            aliases: "storm top height echo tops national MSL severe core",
+            default_palette: PaletteId::EchoTopKm,
+            default_contour_interval: None,
+            valid_domain: Some(crate::field::GeographicBounds::CONUS),
+            missing_values: &[-1.0, -3.0],
+        },
+        common: false,
+        fetch: FetchMapping::Fixed(super::ECHO_TOP_50),
+    },
+    Product {
+        field: FieldDescriptor {
+            id: FieldId("mrms-etop60"),
+            source: DataSource::NoaaMrms,
+            family: FieldFamily::Mrms,
+            name: "Echo top, 60 dBZ (MRMS)",
+            description: "National height of the top of the 60-dBZ echo, above mean sea level",
+            units: Unit::Kilometers,
+            value_kind: ValueKind::Scalar,
+            aliases: "storm top height echo tops national MSL intense core",
+            default_palette: PaletteId::EchoTopKm,
+            default_contour_interval: None,
+            valid_domain: Some(crate::field::GeographicBounds::CONUS),
+            missing_values: &[-1.0, -3.0],
+        },
+        common: false,
+        fetch: FetchMapping::Fixed(super::ECHO_TOP_60),
+    },
+    Product {
+        field: FieldDescriptor {
             id: FieldId("refl-lowest-alt"),
             source: DataSource::NoaaMrms,
             family: FieldFamily::Mrms,
@@ -490,13 +544,29 @@ mod tests {
             assert!(path.starts_with("CONUS/"));
             assert!(paths.insert(path));
         }
-        assert_eq!(PRODUCTS.len(), 20);
+        assert_eq!(PRODUCTS.len(), 23);
         assert!(find("hrrr").is_none());
         for product in PRODUCTS {
             assert!(std::ptr::eq(
                 find_by_path(product.path(30, 5, 1440)).unwrap(),
                 product
             ));
+        }
+    }
+
+    #[test]
+    fn echo_top_thresholds_retain_native_units_and_no_coverage_codes() {
+        for (id, path) in [
+            ("mrms-etop18", super::super::ECHO_TOP_18),
+            ("mrms-etop30", super::super::ECHO_TOP_30),
+            ("mrms-etop50", super::super::ECHO_TOP_50),
+            ("mrms-etop60", super::super::ECHO_TOP_60),
+        ] {
+            let product = find(id).unwrap();
+            assert_eq!(product.path(30, 5, 1440), path);
+            assert_eq!(product.field.units, Unit::Kilometers);
+            assert_eq!(product.field.default_palette, PaletteId::EchoTopKm);
+            assert_eq!(product.field.missing_values, &[-1.0, -3.0]);
         }
     }
 

@@ -7,6 +7,7 @@
 //! actually on, so the section is short (usually empty) instead of a wall of dead controls.
 
 use crate::app::OverlayFilters;
+use crate::render::FieldLayer;
 use crate::ui::a11y::Named as _;
 use wxdata::alerts::Category;
 
@@ -38,63 +39,126 @@ pub struct UiActions {
     /// A row in the embedded layers registry was clicked; the app applies it.
     pub(crate) palette: Option<crate::app::PaletteAction>,
     /// Pick one MRMS QPE accumulation window in the active pane, keeping existing layer slugs.
-    pub(crate) qpe_window: Option<crate::render::FieldLayer>,
+    pub(crate) qpe_window: Option<FieldLayer>,
+    /// Pick one MRMS echo-top reflectivity threshold in the active pane.
+    pub(crate) echo_top_threshold: Option<FieldLayer>,
 }
 
 /// Existing catalog-backed QPE layers stay distinct for saved-workspace and headless slug
 /// compatibility. The picker treats them as one choice in the active pane.
-pub(crate) const QPE_WINDOWS: [(crate::render::FieldLayer, &str); 5] = [
-    (crate::render::FieldLayer::Qpe1h, "1 hour"),
-    (crate::render::FieldLayer::Qpe3h, "3 hours"),
-    (crate::render::FieldLayer::Qpe6h, "6 hours"),
-    (crate::render::FieldLayer::Qpe12h, "12 hours"),
-    (crate::render::FieldLayer::Qpe24h, "24 hours"),
+pub(crate) const QPE_WINDOWS: [(FieldLayer, &str); 5] = [
+    (FieldLayer::Qpe1h, "1 hour"),
+    (FieldLayer::Qpe3h, "3 hours"),
+    (FieldLayer::Qpe6h, "6 hours"),
+    (FieldLayer::Qpe12h, "12 hours"),
+    (FieldLayer::Qpe24h, "24 hours"),
 ];
 
-pub(crate) fn select_qpe_window(
-    on: &mut std::collections::HashSet<crate::render::FieldLayer>,
-    selected: crate::render::FieldLayer,
+/// These are distinct catalog products and stable workspace slugs, sharing one km MSL legend.
+pub(crate) const ECHO_TOP_THRESHOLDS: [(FieldLayer, &str); 4] = [
+    (FieldLayer::MrmsEchoTop18, "18 dBZ"),
+    (FieldLayer::MrmsEchoTop30, "30 dBZ"),
+    (FieldLayer::MrmsEchoTop50, "50 dBZ"),
+    (FieldLayer::MrmsEchoTop60, "60 dBZ"),
+];
+
+fn select_one_of(
+    on: &mut std::collections::HashSet<FieldLayer>,
+    choices: &[(FieldLayer, &str)],
+    selected: FieldLayer,
 ) -> bool {
-    if !QPE_WINDOWS.iter().any(|(layer, _)| *layer == selected) {
+    if !choices.iter().any(|(layer, _)| *layer == selected) {
         return false;
     }
-    for (layer, _) in QPE_WINDOWS {
-        on.remove(&layer);
+    for (layer, _) in choices {
+        on.remove(layer);
     }
     on.insert(selected);
     true
 }
 
-/// Shared compact control for the workstation and the other layer-options surfaces.
-pub(crate) fn qpe_window_control(
+pub(crate) fn select_qpe_window(
+    on: &mut std::collections::HashSet<FieldLayer>,
+    selected: FieldLayer,
+) -> bool {
+    select_one_of(on, &QPE_WINDOWS, selected)
+}
+
+pub(crate) fn select_echo_top_threshold(
+    on: &mut std::collections::HashSet<FieldLayer>,
+    selected: FieldLayer,
+) -> bool {
+    select_one_of(on, &ECHO_TOP_THRESHOLDS, selected)
+}
+
+fn catalog_choice_control(
     ui: &mut egui::Ui,
-    on: &std::collections::HashSet<crate::render::FieldLayer>,
-    actions: &mut UiActions,
-) {
-    let active: Vec<_> = QPE_WINDOWS
+    on: &std::collections::HashSet<FieldLayer>,
+    id: &'static str,
+    label: &'static str,
+    name: &'static str,
+    hint: &'static str,
+    choices: &[(FieldLayer, &str)],
+) -> Option<FieldLayer> {
+    let active: Vec<_> = choices
         .iter()
         .filter(|(layer, _)| on.contains(layer))
         .collect();
     let selected = match active.as_slice() {
-        [] => "Choose window",
+        [] => "Choose",
         [(_, label)] => *label,
-        _ => "Multiple windows",
+        _ => "Multiple",
     };
+    let mut pick = None;
     ui.horizontal(|ui| {
-        ui.label("Rain total (QPE)");
-        egui::ComboBox::from_id_salt("mrms_qpe_window")
+        ui.label(label);
+        egui::ComboBox::from_id_salt(id)
             .selected_text(selected)
             .show_ui(ui, |ui| {
-                for (layer, label) in QPE_WINDOWS {
+                for &(layer, label) in choices {
                     if ui.selectable_label(on.contains(&layer), label).clicked() {
-                        actions.qpe_window = Some(layer);
+                        pick = Some(layer);
                     }
                 }
             })
             .response
-            .named("MRMS rain total accumulation window")
-            .on_hover_text("Choose one MRMS rain-accumulation window for this pane");
+            .named(name)
+            .on_hover_text(hint);
     });
+    pick
+}
+
+/// Shared compact control for the workstation and the other layer-options surfaces.
+pub(crate) fn qpe_window_control(
+    ui: &mut egui::Ui,
+    on: &std::collections::HashSet<FieldLayer>,
+    actions: &mut UiActions,
+) {
+    actions.qpe_window = catalog_choice_control(
+        ui,
+        on,
+        "mrms_qpe_window",
+        "Rain total (QPE)",
+        "MRMS rain total accumulation window",
+        "Choose one MRMS rain-accumulation window for this pane",
+        &QPE_WINDOWS,
+    );
+}
+
+pub(crate) fn echo_top_threshold_control(
+    ui: &mut egui::Ui,
+    on: &std::collections::HashSet<FieldLayer>,
+    actions: &mut UiActions,
+) {
+    actions.echo_top_threshold = catalog_choice_control(
+        ui,
+        on,
+        "mrms_echo_top_threshold",
+        "Echo top (MRMS)",
+        "MRMS echo-top reflectivity threshold",
+        "Choose the 18, 30, 50 or 60 dBZ national echo-top height for this pane (km MSL)",
+        &ECHO_TOP_THRESHOLDS,
+    );
 }
 
 /// Read-only chase-pack state the app feeds the UI each frame: the current-view estimate and,
@@ -246,6 +310,12 @@ pub(crate) fn show(
             QPE_WINDOWS.iter().any(|(layer, _)| on.contains(layer)),
         ),
         (
+            "MRMS echo tops",
+            ECHO_TOP_THRESHOLDS
+                .iter()
+                .any(|(layer, _)| on.contains(layer)),
+        ),
+        (
             "Satellite",
             [
                 FL::GoesIr,
@@ -315,6 +385,9 @@ pub(crate) fn show(
     let in_side_by_side = showing_compare && !blink_compare && !overlay_compare && !swipe_compare;
     if section == "QPE accumulation" {
         qpe_window_control(ui, on, actions);
+    }
+    if section == "MRMS echo tops" {
+        echo_top_threshold_control(ui, on, actions);
     }
     if section == "Model comparison" && (on.contains(&FL::ModelDiff) || showing_compare) {
         let (a, b) = diff_field.pair();
@@ -1008,7 +1081,7 @@ pub(crate) fn show(
 }
 
 #[cfg(test)]
-mod qpe_tests {
+mod catalog_choice_tests {
     use super::*;
     use crate::render::FieldLayer as FL;
 
@@ -1022,5 +1095,19 @@ mod qpe_tests {
         assert_eq!(FL::Qpe6h.slug(), "qpe6h");
         assert!(!select_qpe_window(&mut on, FL::Mesh));
         assert_eq!(on.len(), 2);
+    }
+
+    #[test]
+    fn echo_top_picker_changes_only_its_own_threshold_group() {
+        let mut on = [FL::Mrms, FL::Qpe6h, FL::MrmsEchoTop18, FL::MrmsEchoTop50]
+            .into_iter()
+            .collect();
+        assert!(select_echo_top_threshold(&mut on, FL::MrmsEchoTop60));
+        assert_eq!(on.len(), 3);
+        assert!(on.contains(&FL::Mrms));
+        assert!(on.contains(&FL::Qpe6h));
+        assert!(on.contains(&FL::MrmsEchoTop60));
+        assert!(!select_echo_top_threshold(&mut on, FL::Qpe1h));
+        assert_eq!(on.len(), 3);
     }
 }

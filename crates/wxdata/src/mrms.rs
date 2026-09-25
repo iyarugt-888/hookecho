@@ -87,6 +87,12 @@ pub const VIL: &str = "CONUS/VIL_00.50";
 /// Height of the 18-dBZ echo top (km MSL), a national MRMS grid distinct from local and Level III
 /// echo-top estimates. The product is published at `CONUS/EchoTop_18_00.50`.
 pub const ECHO_TOP_18: &str = "CONUS/EchoTop_18_00.50";
+/// Height of the 30-dBZ echo top (km MSL).
+pub const ECHO_TOP_30: &str = "CONUS/EchoTop_30_00.50";
+/// Height of the 50-dBZ echo top (km MSL).
+pub const ECHO_TOP_50: &str = "CONUS/EchoTop_50_00.50";
+/// Height of the 60-dBZ echo top (km MSL).
+pub const ECHO_TOP_60: &str = "CONUS/EchoTop_60_00.50";
 
 /// Low-level rotation-track (accumulated azimuthal-shear max) product path for `minutes`
 /// (30/60/120 supported; other values fall back to 30).

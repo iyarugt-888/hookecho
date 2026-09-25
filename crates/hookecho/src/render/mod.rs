@@ -142,6 +142,12 @@ pub enum FieldLayer {
     EchoTops,
     /// National MRMS 18-dBZ echo-top altitude (km MSL).
     MrmsEchoTop18,
+    /// National MRMS 30-dBZ echo-top altitude (km MSL).
+    MrmsEchoTop30,
+    /// National MRMS 50-dBZ echo-top altitude (km MSL).
+    MrmsEchoTop50,
+    /// National MRMS 60-dBZ echo-top altitude (km MSL).
+    MrmsEchoTop60,
     /// 24-hour MESH max — hail swaths / damage tracks (MRMS).
     HailSwath,
     /// Hybrid Hydrometeor Classification (L3 HHC packet-16 product, categorical).
@@ -332,7 +338,7 @@ impl FieldLayer {
     }
 
     /// Fixed bottom-to-top paint order within each band.
-    pub const DRAW_ORDER: [FieldLayer; 68] = [
+    pub const DRAW_ORDER: [FieldLayer; 71] = [
         // Below-radar context band (bottom to top). The global models sit at the very bottom:
         // they are the synoptic backdrop everything else is drawn against — satellite included,
         // since it is the same kind of backdrop and the radar itself paints over it just the same.
@@ -394,6 +400,9 @@ impl FieldLayer {
         FieldLayer::VilLocal,
         FieldLayer::MrmsVil,
         FieldLayer::MrmsEchoTop18,
+        FieldLayer::MrmsEchoTop30,
+        FieldLayer::MrmsEchoTop50,
+        FieldLayer::MrmsEchoTop60,
         FieldLayer::EchoTops,
         FieldLayer::EtopLocal,
         FieldLayer::VilDensity,
@@ -492,6 +501,9 @@ impl FieldLayer {
             FieldLayer::Shi => "shi",
             FieldLayer::MrmsVil => "mrms-vil",
             FieldLayer::MrmsEchoTop18 => "mrms-etop18",
+            FieldLayer::MrmsEchoTop30 => "mrms-etop30",
+            FieldLayer::MrmsEchoTop50 => "mrms-etop50",
+            FieldLayer::MrmsEchoTop60 => "mrms-etop60",
             FieldLayer::ReflLowestAlt => "refl-lowest-alt",
             FieldLayer::LowLevelReflectivity => "low-level-reflectivity",
             FieldLayer::Snowfall => "snowfall",
