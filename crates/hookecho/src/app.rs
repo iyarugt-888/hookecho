@@ -3955,6 +3955,8 @@ pub struct HookEchoApp {
     /// Runtime state, not a setting, same as `panel_open`: reopen the app and the ribbon is back.
     /// No-op outside the WSV3 layout, which is the only one that docks a ribbon at all.
     ribbon_collapsed: bool,
+    /// Streaming mode's logo texture and the path it came from (`None` inside: unreadable).
+    broadcast_logo: Option<(String, Option<egui::TextureHandle>)>,
     sidebar_focus_search: bool,
     /// The `?` keyboard cheat sheet is up.
     show_cheatsheet: bool,
@@ -5263,6 +5265,7 @@ impl HookEchoApp {
             panel_open: false,
             basemap_open: false,
             ribbon_collapsed: false,
+            broadcast_logo: None,
             sidebar_focus_search: false,
             show_cheatsheet: false,
             capture_key: false,
@@ -19133,7 +19136,9 @@ impl HookEchoApp {
                 ),
             }
         }
-        if view.show_legend && !crate::platform::phone_layout() {
+        // Streaming mode can take the scale off the picture (`Broadcast::legend`).
+        let legend_allowed = !(self.obs_mode && !self.settings.broadcast.legend);
+        if view.show_legend && legend_allowed && !crate::platform::phone_layout() {
             // The moment's scale floats over this pane's right edge (no panel, no card) so the map
             // keeps the pixels; the field/wind ramps still need their cards. The WSV3 layout docks
             // this same scale under the ribbon, so drawing it here too would be the third copy.
@@ -19580,6 +19585,42 @@ impl HookEchoApp {
                         self.obs_mode = true;
                     }
                 }
+                ui.collapsing("Streaming overlay", |ui| {
+                    let b = &mut self.settings.broadcast;
+                    ui.add(
+                        egui::Slider::new(&mut b.safe_margin_pct, 0.0..=15.0)
+                            .suffix(" %")
+                            .text("Safe margin"),
+                    )
+                    .on_hover_text(
+                        "Keep the clock, caption, crawl and logo this far in from the edge — \
+                         5 % is the broadcast convention",
+                    );
+                    toggle(ui, &mut b.clock, "Clock");
+                    toggle(ui, &mut b.caption, "Source caption");
+                    toggle(ui, &mut b.crawl, "Warning crawl");
+                    toggle(ui, &mut b.legend, "Colour scale");
+                    let mut logo = b.logo.clone().unwrap_or_default();
+                    ui.horizontal(|ui| {
+                        ui.label("Logo");
+                        if ui
+                            .add(
+                                egui::TextEdit::singleline(&mut logo)
+                                    .hint_text("path to a PNG")
+                                    .desired_width(160.0),
+                            )
+                            .changed()
+                        {
+                            b.logo = (!logo.trim().is_empty()).then(|| logo.trim().to_string());
+                        }
+                    });
+                    if b.logo
+                        .as_deref()
+                        .is_some_and(|p| !std::path::Path::new(p).is_file())
+                    {
+                        ui.weak("No image at that path");
+                    }
+                });
 
                 if ui
                     .add_enabled(
@@ -23934,10 +23975,13 @@ impl eframe::App for HookEchoApp {
         }
         self.sync_overlay();
 
-        // OBS-mode hint so the chrome-free view is still escapable.
+        // Streaming mode's broadcast dressing: clock, caption, crawl, logo.
+        self.broadcast_dressing(root);
+        // OBS-mode hint so the chrome-free view is still escapable. Top centre: the corners are
+        // the dressing's.
         if self.obs_mode {
             egui::Area::new("obs_hint".into())
-                .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-10.0, 10.0))
+                .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 10.0))
                 .interactable(false)
                 .show(root, |ui| {
                     let txt = if self.obs_tour {

@@ -26,6 +26,12 @@
 //!     --preset 1080p --out moore.mp4 --fps 6
 //! ```
 //!
+//! - **dressed for broadcast** (ROADMAP_NEW M1): `--broadcast` puts a 5 % title-safe margin, a
+//!   clock and a warning crawl on the frame (the crawl only on a frame recent enough for the live
+//!   alert feed to describe it); `--safe-margin PCT`, `--clock`, `--crawl`, `--logo PATH`,
+//!   `--no-legend` and `--no-caption` set them one by one, and `--transparent` renders the radar
+//!   alone over a transparent background (PNG or WebP) for laying over other video.
+//!
 //! Options: `--tilt N`, `--zoom Z`, `--center LON,LAT`, `--basemap SLUG` (`none` for a bare
 //! sweep). NEXRAD only: the other networks publish no volume list to poll or scrub.
 
@@ -50,6 +56,16 @@ pub struct Job {
     pub basemap: crate::tiles::BasemapStyle,
     pub out: PathBuf,
     pub when: When,
+    /// Broadcast dressing, when any was asked for.
+    pub dress: Option<Dress>,
+}
+
+/// What `--watch` was asked to dress its frames with.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Dress {
+    pub style: crate::broadcast::Broadcast,
+    /// No basemap and a transparent background.
+    pub transparent: bool,
 }
 
 /// What each render becomes.
@@ -116,11 +132,16 @@ pub fn parse_args(
     workspaces: &[crate::workspace::Workspace],
 ) -> anyhow::Result<Job> {
     let mut flags = std::collections::HashMap::new();
+    let mut switches = std::collections::HashSet::new();
     let mut once = false;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
             "--once" => once = true,
+            "--broadcast" | "--clock" | "--crawl" | "--no-legend" | "--no-caption"
+            | "--transparent" => {
+                switches.insert(a.trim_start_matches("--").to_string());
+            }
             f if f.starts_with("--") => {
                 let v = it
                     .next()
@@ -226,6 +247,47 @@ pub fn parse_args(
         (None, "mp4") => Output::Loop(LoopFormat::Mp4, timing),
         _ => anyhow::bail!("--out ends in .png, .jpg, .webp, .gif or .mp4"),
     };
+    let on = |k: &str| switches.contains(k);
+    let dressed = !switches.is_empty() || get("safe-margin").is_some() || get("logo").is_some();
+    let dress = if dressed {
+        let mut style = if on("broadcast") {
+            crate::broadcast::Broadcast::default()
+        } else {
+            crate::broadcast::Broadcast::plain()
+        };
+        if let Some(m) = get("safe-margin") {
+            let m: f32 = m.parse()?;
+            anyhow::ensure!(
+                (0.0..=15.0).contains(&m),
+                "--safe-margin is 0..=15 (percent)"
+            );
+            style.safe_margin_pct = m;
+        }
+        style.clock |= on("clock");
+        style.crawl |= on("crawl");
+        style.legend &= !on("no-legend");
+        style.caption &= !on("no-caption");
+        if let Some(path) = get("logo") {
+            anyhow::ensure!(Path::new(path).is_file(), "--logo {path}: no such file");
+            style.logo = Some(path.to_string());
+        }
+        let transparent = on("transparent");
+        if transparent {
+            anyhow::ensure!(
+                matches!(output, Output::Still(StillFormat::Png | StillFormat::Webp)),
+                "--transparent needs a .png or .webp: JPEG, GIF and MP4 have no alpha to keep"
+            );
+        }
+        Some(Dress { style, transparent })
+    } else {
+        None
+    };
+    // A transparent frame is the radar alone: no basemap under it.
+    let basemap = if dress.as_ref().is_some_and(|d| d.transparent) {
+        crate::tiles::BasemapStyle::None
+    } else {
+        basemap
+    };
     if matches!(output, Output::Loop(..)) {
         anyhow::ensure!(
             matches!(when, When::Range(..)),
@@ -243,6 +305,7 @@ pub fn parse_args(
         basemap,
         out,
         when,
+        dress,
     })
 }
 
@@ -285,6 +348,7 @@ fn render_frame(
     let (w, h) = job.frame;
     crate::headless::set_output(Some(w.max(h)), job.zoom);
     crate::headless::set_crop(Some((w, h)));
+    crate::headless::set_dressing(job.dress.as_ref().map(|d| dressing(job, d, time)));
     crate::headless::set_center(job.center);
     crate::headless::set_extras(true);
     crate::headless::set_palette(None);
@@ -306,6 +370,22 @@ fn render_frame(
     Ok((img, time))
 }
 
+/// The headless renderer's dressing for one frame.
+fn dressing(job: &Job, d: &Dress, time: DateTime<Utc>) -> crate::headless::Dressing {
+    crate::headless::Dressing {
+        style: d.style.clone(),
+        clock: Some(crate::broadcast::clock_lines(&job.site, time)),
+        valid: Some(time),
+        logo: d
+            .style
+            .logo
+            .as_deref()
+            .and_then(|p| image::open(p).ok())
+            .map(|i| i.to_rgba8()),
+        transparent: d.transparent,
+    }
+}
+
 /// What every sidecar says about the job, whichever kind of output it describes.
 fn job_meta(job: &Job) -> serde_json::Value {
     serde_json::json!({
@@ -317,6 +397,15 @@ fn job_meta(job: &Job) -> serde_json::Value {
         "center": job.center.map(|(lon, lat)| serde_json::json!({ "lon": lon, "lat": lat })),
         "rendered_utc": Utc::now().to_rfc3339(),
         "source": "NOAA NEXRAD Level II, rendered by HookEcho",
+        "broadcast": job.dress.as_ref().map(|d| serde_json::json!({
+            "style": d.style,
+            "transparent": d.transparent,
+            "crawl_note": format!(
+                "the crawl names warnings from the live alert feed, so only frames within {} \
+                 minutes of the render carry one",
+                crate::broadcast::CRAWL_MAX_AGE_MIN
+            ),
+        })),
     })
 }
 
@@ -620,6 +709,40 @@ mod tests {
             "--site KTLX --out m.png --size 800 --preset 4k",
             "--site KTLX --from 2013-05-20T19:50 --to 2013-05-20T20:30 --out m.gif --fps 90",
             "--site KTLX --from 2013-05-20T19:50 --to 2013-05-20T20:30 --out m.gif --interval odd",
+        ] {
+            assert!(parse_args(&args(bad), &[]).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn broadcast_dressing_flags() {
+        let j = parse_args(&args("--site KTLX --out r.png"), &[]).unwrap();
+        assert_eq!(j.dress, None, "undressed unless asked");
+        let j = parse_args(
+            &args("--site KTLX --out r.png --broadcast --no-legend"),
+            &[],
+        )
+        .unwrap();
+        let d = j.dress.unwrap();
+        assert!(d.style.clock && d.style.crawl && !d.style.legend && d.style.caption);
+        assert_eq!(d.style.safe_margin_pct, 5.0);
+        let j = parse_args(
+            &args("--site KTLX --out r.webp --safe-margin 8 --clock --transparent"),
+            &[],
+        )
+        .unwrap();
+        let d = j.dress.unwrap();
+        assert!(d.transparent && d.style.clock && !d.style.crawl);
+        assert_eq!(d.style.safe_margin_pct, 8.0);
+        assert_eq!(
+            j.basemap,
+            crate::tiles::BasemapStyle::None,
+            "transparent means no basemap"
+        );
+        for bad in [
+            "--site KTLX --out r.jpg --transparent",
+            "--site KTLX --out r.png --safe-margin 30",
+            "--site KTLX --out r.png --logo no/such/logo.png",
         ] {
             assert!(parse_args(&args(bad), &[]).is_err(), "{bad}");
         }

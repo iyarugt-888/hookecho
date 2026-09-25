@@ -73,6 +73,34 @@ pub fn set_crop(frame: Option<(u32, u32)>) {
     }
 }
 
+/// How the renders that follow are dressed for broadcast (ROADMAP_NEW M1), or `None` for the
+/// plain caption and colour bar. Same process-global shape and locking rule as [`set_output`].
+#[derive(Clone, Default)]
+pub struct Dressing {
+    pub style: crate::broadcast::Broadcast,
+    /// The clock's two lines, already in the site's zone, when the style asks for a clock.
+    pub clock: Option<(String, String)>,
+    /// The frame's valid time: the crawl names only the warnings in force then, and only when it
+    /// is recent enough for the live alert feed to describe it.
+    pub valid: Option<chrono::DateTime<chrono::Utc>>,
+    pub logo: Option<image::RgbaImage>,
+    /// Clear to transparent instead of the map's black, for a picture laid over other video.
+    pub transparent: bool,
+}
+
+static DRESSING: std::sync::Mutex<Option<Dressing>> = std::sync::Mutex::new(None);
+
+/// Dress the renders that follow for broadcast, or `None` for the plain stamp.
+pub fn set_dressing(d: Option<Dressing>) {
+    if let Ok(mut slot) = DRESSING.lock() {
+        *slot = d;
+    }
+}
+
+fn dressing() -> Option<Dressing> {
+    DRESSING.lock().ok().and_then(|d| d.clone())
+}
+
 /// Built-in alternate palette for the renders that follow, or `None` for each moment's default.
 ///
 /// Same process-global shape as [`set_output`], and set under the same render lock — and for the
@@ -250,6 +278,23 @@ fn caption(site: &str, moment: Moment, elevation_deg: f32, at: Option<&str>) -> 
 }
 
 /// City names, projected to pixels, biggest places first so the collision pass keeps those.
+/// The lon/lat box a camera shows on a `vp` canvas: `(min_lon, min_lat, max_lon, max_lat)`.
+fn view_lonlat_bounds(camera: &Camera, vp: (f32, f32)) -> (f64, f64, f64, f64) {
+    let corners = [(0.0, 0.0), (vp.0, 0.0), (0.0, vp.1), (vp.0, vp.1)];
+    corners.iter().fold(
+        (f64::MAX, f64::MAX, f64::MIN, f64::MIN),
+        |(x0, y0, x1, y1), &(sx, sy)| {
+            let w = camera.screen_to_world((sx, sy), vp);
+            let (lon, lat) = crate::render::mercator::world_to_lonlat(w.0, w.1);
+            (x0.min(lon), y0.min(lat), x1.max(lon), y1.max(lat))
+        },
+    )
+}
+
+fn boxes_touch(a: (f64, f64, f64, f64), b: (f64, f64, f64, f64)) -> bool {
+    a.0 <= b.2 && b.0 <= a.2 && a.1 <= b.3 && b.1 <= a.3
+}
+
 fn screen_labels(
     labels: &[crate::vector_tiles::PlaceLabel],
     camera: &Camera,
@@ -483,13 +528,48 @@ pub fn run(
     let overlay = extras()
         .then(|| warnings_overlay(&rt, &client, camera.zoom))
         .flatten();
-    let stamp = extras().then(|| crate::chrome::Stamp {
-        caption: caption(site, moment, sweep.elevation_deg, scan_time.as_deref()),
-        bar: Some(crate::chrome::Bar {
-            table: table.clone(),
-            unit: moment.units(),
-        }),
-        labels: screen_labels(&place_labels, &camera, vp),
+    let stamp = extras().then(|| {
+        let dress = dressing().unwrap_or_default();
+        let style = if dressing().is_some() {
+            dress.style.clone()
+        } else {
+            crate::broadcast::Broadcast::plain()
+        };
+        // The live alert feed describes the present only: a crawl on an older frame would put
+        // today's warnings over yesterday's radar.
+        let crawl = match dress.valid {
+            Some(valid)
+                if style.crawl && crate::broadcast::crawl_applies(valid, chrono::Utc::now()) =>
+            {
+                // Only the warnings this frame shows: a KTLX picture has no business naming a
+                // warning in Maine.
+                let view = view_lonlat_bounds(&camera, vp);
+                let warned: Vec<_> = cached_warnings(&rt, &client)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|f| f.bbox().is_some_and(|b| boxes_touch(b, view)))
+                    .collect();
+                crate::broadcast::crawl_line(&crate::broadcast::crawl_items(&warned, valid))
+            }
+            _ => None,
+        };
+        crate::chrome::Stamp {
+            caption: if style.caption {
+                caption(site, moment, sweep.elevation_deg, scan_time.as_deref())
+            } else {
+                String::new()
+            },
+            bar: style.legend.then(|| crate::chrome::Bar {
+                table: table.clone(),
+                unit: moment.units(),
+            }),
+            labels: screen_labels(&place_labels, &camera, vp),
+            clock: dress.clock.filter(|_| style.clock),
+            crawl,
+            logo: dress.logo,
+            // Set once the frame's final size is known (`render_to_png_stamped`).
+            margin: 0.0,
+        }
     });
 
     let cb = MapCallback {
@@ -1864,6 +1944,7 @@ pub fn run_mrms(out_path: &str) -> anyhow::Result<()> {
         // The same city names the site frames carry — a continental mosaic with no place on it
         // is a shape, not a map.
         labels: screen_labels(&place_labels, &camera, (size() as f32, size() as f32)),
+        ..Default::default()
     });
     let cb = MapCallback {
         pane: 0,
@@ -3813,6 +3894,8 @@ fn render_to_png_stamped(
     out_path: &str,
     stamp: Option<&crate::chrome::Stamp>,
 ) -> anyhow::Result<()> {
+    let dress = dressing();
+    let transparent = dress.as_ref().is_some_and(|d| d.transparent);
     let (device, queue, adapter) = init_gpu(rt)?;
     println!("adapter: {}", adapter.get_info().name);
 
@@ -3839,11 +3922,15 @@ fn render_to_png_stamped(
         &queue,
         &view,
         &cb,
-        wgpu::Color {
-            r: 0.05,
-            g: 0.05,
-            b: 0.08,
-            a: 1.0,
+        if transparent {
+            wgpu::Color::TRANSPARENT
+        } else {
+            wgpu::Color {
+                r: 0.05,
+                g: 0.05,
+                b: 0.08,
+                a: 1.0,
+            }
         },
     );
 
@@ -3902,12 +3989,37 @@ fn render_to_png_stamped(
     let crop = CROP.lock().ok().and_then(|c| *c);
     let (rgba, w, h, stamp) = crop_frame(rgba, size(), crop, stamp);
     let mut rgba = rgba;
+    if transparent {
+        unpremultiply(&mut rgba);
+    }
+    // The safe margin is a share of the frame as delivered, so it is set after the crop.
+    let stamp = stamp.map(|mut s| {
+        if let Some(d) = &dress {
+            s.margin = d.style.margin_px(w as f32, h as f32);
+        }
+        s
+    });
     if let Some(stamp) = &stamp {
         crate::chrome::draw(&mut rgba, w, h, stamp);
     }
     image::save_buffer(out_path, &rgba, w, h, image::ColorType::Rgba8)?;
     println!("wrote {out_path}");
     Ok(())
+}
+
+/// Undo the GPU's premultiplication on a frame cleared to transparent: blending over a transparent
+/// clear leaves colour scaled by its alpha, and a PNG or WebP stores it unscaled. Exact for
+/// anything drawn once over the clear — the radar over no basemap, which is what a transparent
+/// overlay is.
+fn unpremultiply(rgba: &mut [u8]) {
+    for px in rgba.as_chunks_mut::<4>().0 {
+        let a = u32::from(px[3]);
+        if a > 0 && a < 255 {
+            for c in &mut px[..3] {
+                *c = ((u32::from(*c) * 255 + a / 2) / a).min(255) as u8;
+            }
+        }
+    }
 }
 
 /// Cut the middle `crop` out of a `size`-square RGBA render, and move the stamp's city labels
@@ -3944,6 +4056,25 @@ mod crop_tests {
     use super::*;
 
     #[test]
+    fn the_crawl_keeps_to_the_frames_own_ground() {
+        let cam = Camera::at_lonlat(-97.5, 35.3, 7.0);
+        let (x0, y0, x1, y1) = view_lonlat_bounds(&cam, (1000.0, 1000.0));
+        assert!(x0 < -97.5 && x1 > -97.5 && y0 < 35.3 && y1 > 35.3);
+        assert!(boxes_touch((-98.0, 35.0, -97.0, 36.0), (x0, y0, x1, y1)));
+        assert!(
+            !boxes_touch((-70.0, 44.0, -69.0, 45.0), (x0, y0, x1, y1)),
+            "Maine"
+        );
+    }
+
+    #[test]
+    fn a_transparent_frames_colour_is_unscaled() {
+        let mut px = vec![64, 32, 0, 128, 10, 20, 30, 255, 0, 0, 0, 0];
+        unpremultiply(&mut px);
+        assert_eq!(px, [128, 64, 0, 128, 10, 20, 30, 255, 0, 0, 0, 0]);
+    }
+
+    #[test]
     fn a_crop_keeps_the_middle_and_moves_the_labels_with_it() {
         // A 10 px square whose pixel value is its column.
         let rgba: Vec<u8> = (0..10u8)
@@ -3953,6 +4084,7 @@ mod crop_tests {
             caption: "KTLX".into(),
             bar: None,
             labels: vec![(5.0, 5.0, "Moore".into()), (0.5, 5.0, "Edge".into())],
+            ..Default::default()
         };
         let (out, w, h, s) = crop_frame(rgba.clone(), 10, Some((6, 4)), Some(&stamp));
         assert_eq!((w, h, out.len()), (6, 4, 6 * 4 * 4));

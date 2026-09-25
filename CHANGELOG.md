@@ -73,6 +73,17 @@ The WSV3/Dock app bar now shows how far the newest radar frame is behind the cur
 updates the figure every second. Archive viewing is labeled separately. The hover detail still
 reports the lag measured when the last live frame arrived.
 
+### Added: broadcast dressing for streams and rendered frames
+
+Streaming mode (F8) can now dress the map for air: a clock in the radar's own time zone, a
+source caption, a warning crawl of the warnings in force at the frame's time, a logo, and a
+title-safe margin that all of them keep inside. The colour scale can be hidden. Set it up under
+Preferences → Display → Streaming overlay. `--watch` draws the same into its frames:
+`--broadcast` turns on the margin, clock and crawl, and `--safe-margin`, `--clock`, `--crawl`,
+`--logo`, `--no-legend` and `--no-caption` set them individually. `--transparent` renders just the
+radar over a transparent background, for laying over other video. City labels no longer land under
+the caption, colour bar or clock.
+
 ### Added: fixed-size stills and timed loops from `--watch`
 
 `--watch` renders at a fixed size whatever the screen: `--size PX`, `--frame WxH`, or `--preset

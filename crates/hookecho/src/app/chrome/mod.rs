@@ -2,6 +2,7 @@
 //! own file. `overlay` owns the floating map-first surfaces: the search pill, the right-edge
 //! control column and the panels that slide over the map.
 
+mod broadcast;
 mod chips;
 mod dock;
 pub(crate) use dock::DockState;

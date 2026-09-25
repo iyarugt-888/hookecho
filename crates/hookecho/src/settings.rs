@@ -686,6 +686,10 @@ pub struct Settings {
     /// a pause, as they were.
     #[serde(default = "default_true")]
     pub loop_real_timing: bool,
+    /// How streaming mode dresses the map for air: margins, clock, caption, crawl, logo and
+    /// whether the colour scale shows (`crate::broadcast`).
+    #[serde(default)]
+    pub broadcast: crate::broadcast::Broadcast,
     /// Registry labels in the order the user dragged them, across every category. Labels not in
     /// here keep their registry order behind the ones that are — so a reorder never hides a row,
     /// and a renamed action just falls back to its default place.
@@ -1534,6 +1538,7 @@ impl Default for Settings {
             tile_disk_cache_mb: 0,
             share_card: true,
             loop_real_timing: true,
+            broadcast: Default::default(),
             layer_order: Vec::new(),
             recent_layers: Vec::new(),
             favorite_layers: Vec::new(),
@@ -2334,6 +2339,7 @@ mod tests {
             live_scan_indicator: false,
             share_card: true,
             loop_real_timing: true,
+            broadcast: Default::default(),
             layer_order: Vec::new(),
             recent_layers: Vec::new(),
             favorite_layers: Vec::new(),

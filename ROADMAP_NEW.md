@@ -3338,25 +3338,43 @@ Show estimated pack size before download.
 
 **Priority: P1/P2.**
 
-## M1. Broadcast output workspace
+## M1. Broadcast output workspace — done
 
-Build on streamer/OBS mode.
+Built on streamer/OBS mode and on `--watch`: one `broadcast::Broadcast` style dresses both the
+app's streaming mode (drawn with egui, `app/chrome/broadcast.rs`, set under Preferences → Display
+→ Streaming overlay) and the off-screen frames (`chrome::draw`, `--watch --broadcast` and the flags
+below), so a stream and a rendered file look alike.
 
 Presets:
 
-- 1920x1080
-- 2560x1440
-- 3840x2160
-- portrait/social
-- transparent-background overlay where renderer supports it
+- [x] 1920x1080, 2560x1440, 3840x2160, portrait/social — `--preset 1080p|1440p|4k|portrait|social`
+  (M2)
+- [x] transparent-background overlay where renderer supports it — `--transparent` (PNG or WebP):
+  no basemap, cleared to transparent, the GPU's premultiplied colour undone on read-back, and the
+  stamp composited in straight alpha so text keeps its own edges over nothing
 
 Controls:
 
-- safe margins
-- legend visibility
-- clock/source stamp
-- warning crawl optional
-- logo/branding slot optional
+- [x] safe margins — `--safe-margin PCT` (5 % with `--broadcast`), a share of the frame's shorter
+  edge; the clock, caption, bar, crawl and logo keep inside it
+- [x] legend visibility — `--no-legend`; the streaming overlay's "Colour scale" switch hides the
+  map's own scale
+- [x] clock/source stamp — `--clock` (the valid time large in the radar's own zone, site and date
+  under it) and the source caption (`--no-caption` to drop it)
+- [x] warning crawl optional — `--crawl`: a band along the bottom naming the warnings in force at
+  the frame's time that touch the frame, soonest-expiring first. Off-screen it reads the live
+  alert feed, so only frames within 30 minutes of the render get one (an archive frame gets none
+  rather than today's warnings); in the app it reads the same time-matched warnings the map draws,
+  archive included
+- [x] logo/branding slot optional — `--logo PATH` / the overlay's logo path: top left, at most 9 %
+  of the height
+
+City labels now keep clear of all of it: their places are reserved before any name is placed, which
+also stopped plain frames drawing a name under the colour bar. Checked on the Moore case (a
+1080p `--broadcast --logo` frame: logo, clock at 3:08 PM CDT, caption and scale inside the 5 %
+margin, no crawl on a 2013 frame), on live KABX with a real Flash Flood Warning in the crawl,
+on a transparent overlay over a checkerboard, and in the app's streaming mode (F8) with the 2013
+warnings in its crawl.
 
 ## M2. Deterministic capture — done
 
