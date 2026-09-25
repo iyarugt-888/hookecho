@@ -8,6 +8,11 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: MRMS echo-top legend across thresholds
+
+The shared km MSL echo-top legend now uses a threshold-neutral title, so 30/50/60-dBZ layers no
+longer display an incorrect 18-dBZ legend heading.
+
 ### Added: complete MRMS rotation-track windows
 
 Low-level (0–2 km AGL) and mid-level (3–6 km AGL) rotation tracks now offer the published

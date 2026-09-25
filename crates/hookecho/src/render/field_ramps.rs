@@ -339,7 +339,7 @@ static ECHO_TOPS: FieldRamp = ramp!(
 /// MRMS publishes 18-dBZ echo-top heights in km MSL. Keep this native-unit scale separate from
 /// the local and Level III echo-top products above, whose values and legend are in kft.
 static MRMS_ECHO_TOPS: FieldRamp = ramp!(
-    "18-dBZ echo top",
+    "MRMS echo top",
     "km MSL",
     1.5,
     21.0,
