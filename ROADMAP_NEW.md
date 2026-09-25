@@ -1834,7 +1834,7 @@ The current `mrms.rs` contains a valuable but hand-selected subset. Replace the 
 
 ## D1. MRMS product catalog — partly done, found already built
 
-`wxdata::mrms::catalog` exists (see A1's corrected notes above), now with 19 products as
+`wxdata::mrms::catalog` exists (see A1's corrected notes above), now with 20 products as
 `FieldDescriptor`s: national composite reflectivity, rotation tracks (30/60/120 min), MESH,
 MESH swaths (30/60/120/240/360/1440 min), azimuthal shear, lightning density (1/5/15/30 min),
 precip rate, QPE 1h/3h/6h/12h/24h, precip type, FLASH ARI-30, POSH (`FieldLayer::Posh`),
@@ -1842,8 +1842,9 @@ Severe Hail Index (`FieldLayer::Shi`), national VIL (`FieldLayer::MrmsVil`, dist
 locally-derived `VilLocal`), and — new this pass — reflectivity at lowest altitude
 (`FieldLayer::ReflLowestAlt`) and low-level composite reflectivity
 (`FieldLayer::LowLevelReflectivity`), closing the "low-level (single-tilt) reflectivity" gap
-named below. Verified live against the real bucket (see D1's own "Rules" item below) rather
-than just declared: 29/29 paths confirmed (up from 27 before this pass' two additions).
+named below. The 18-dBZ national echo-top field (`FieldLayer::MrmsEchoTop18`) is also cataloged,
+with a km MSL descriptor and legend distinct from local and Level III kft echo tops. Verified
+live against the real bucket (see D1's "Rules" item below): 30/30 paths confirmed.
 
 Each new product needed more than catalog metadata alone to actually reach a user: a matching
 `FieldLayer` variant (`render/mod.rs`: enum entry, `DRAW_ORDER` slot, a slug that exactly
@@ -1902,14 +1903,14 @@ Target operational groups:
 
 - MRMS snow/precipitation-type products when published in the operational bucket
 
-The 19 products above cover composite reflectivity, low-level reflectivity (both the
+The 20 products above cover composite reflectivity, low-level reflectivity (both the
 single-tilt and low-level-composite forms), rotation/azshear, MESH + swaths, POSH, SHI,
-precip rate/QPE (1/3/6/12/24h)/type, national VIL, lightning and flash-flood rarity. **Not yet
-cataloged**, all genuine gaps rather than oversights — confirmed live on the bucket while adding
-products across this and the prior pass, so these are real, verified prefixes to pick up next,
-not guesses: national echo tops (`EchoTop_18/30/50/60_00.50`, distinct from the locally-derived
-`EtopLocal`), hail-growth-zone height products (`H50_Above_-20C_00.50` and siblings — related to
-but distinct from a literal "-20°C height," which MRMS does not publish directly;
+precip rate/QPE (1/3/6/12/24h)/type, national VIL, 18-dBZ echo tops, lightning and flash-flood
+rarity. **Not yet cataloged**, all genuine gaps rather than oversights — confirmed live on the bucket
+while adding products across this and the prior pass, so these are real, verified prefixes to pick up next,
+not guesses: the other national echo-top thresholds (`EchoTop_30/50/60_00.50`, distinct from the
+locally-derived `EtopLocal`), hail-growth-zone height products (`H50_Above_-20C_00.50` and siblings
+— related to but distinct from a literal "-20°C height," which MRMS does not publish directly;
 `Model_0degC_Height_00.50` is the closest real 0°C-level product), reflectivity-at-isotherm
 products (`Reflectivity_0C/-5C/-10C/-15C/-20C_00.50`), mid-level rotation tracks
 (`RotationTrackML*`, alongside the existing low-level ones), QPE-to-ARI exceedance fields
@@ -1924,9 +1925,9 @@ may not exist as a separate published product, not confirmed either way).
 - [x] Do not blindly list a product unless a feed contract test confirms it exists —
   `mrms::catalog::the_mrms_catalog_paths_are_real` (network-gated) asks the live bucket for every
   path every product's `FetchMapping` can produce (default plus every published window), the same
-  listing a real fetch depends on. Passing today: 29/29 paths (16 single-path products plus
-  rotation/lightning/hail-swath's multiple published windows — 16 + 3 + 4 + 6 = 29) confirmed
-  live, up from 27/27 before this pass' two additions.
+  listing a real fetch depends on. Passing today: 30/30 paths (17 single-path products plus
+  rotation/lightning/hail-swath's multiple published windows — 17 + 3 + 4 + 6 = 30) confirmed
+  live, including the 18-dBZ echo-top feed.
 
 ## D2. Generic MRMS fetch/decode path — done
 
@@ -2008,13 +2009,14 @@ Do not fabricate 3D from a 2D surface product.
   reflectivity-at-lowest-altitude/low-level-composite-reflectivity), not just claimed: each
   needed a catalog entry and a matching `FieldLayer` slug (plus a ramp, for the three that don't
   reuse an existing `PaletteId`) — the fetch, Layers-panel picker, search, provenance, and
-  health-tracking all picked them up automatically. D3's per-product UI niceties (an
-  accumulation-window picker) are still not automatic, only the core plumbing.
-- [ ] at least the major WeatherFront-class MRMS groups are covered — 19 products across
+  health-tracking all picked them up automatically. D3's accumulation-window picker is a separate
+  shared control over existing QPE layer slugs, not a control generated from catalog metadata.
+- [ ] at least the major WeatherFront-class MRMS groups are covered — 20 products across
   reflectivity (now including both low-level forms)/severe (POSH/SHI)/precipitation/lightning/
-  hydrology (QPE now spans 1h/3h/6h/12h/24h)/VIL; several groups from D1's own target list (echo
-  tops, layer heights, streamflow, the ARI windows beyond 30 min) are confirmed real on the live
-  bucket but not yet cataloged — see D1's own updated gap list for the exact prefixes
+  hydrology (QPE now spans 1h/3h/6h/12h/24h)/VIL/18-dBZ echo tops; several groups from D1's
+  target list (other echo-top thresholds, layer heights, streamflow and ARI windows beyond 30 min)
+  are confirmed real on the live bucket but not yet cataloged — see D1's updated gap list for the
+  exact prefixes
 - [x] categorical fields use nearest-neighbor
 - [x] all products show exact valid time and units — `DataStamp` + `Unit::symbol`
 
@@ -3805,7 +3807,10 @@ Preserve current accesskit/high-contrast work and ensure new controls have:
   overlay (`coverage_compare`) and the pre-existing model-diff overlay (`fielddiff`) are both
   genuinely color-only on the map itself (a text legend states what the colors mean, but the
   per-pixel data has no second channel) — accepted as a property of this class of diverging-color
-  data visualization, not audited for whether a discrete status *control* elsewhere shares the gap
+  data visualization, not audited for whether a discrete status *control* elsewhere shares the gap.
+  The WSV3/Dock Layers tree now distinguishes all seven source-health states with different
+  shapes and accessible names instead of color-only dots; the broader status-control audit remains
+  open.
 - [x]/[ ] scalable text — investigated this pass: `egui::Context::set_zoom_factor` (which
   `Settings.ui_scale` already drives, `app.rs:18673`, via a Settings slider and Ctrl+=/Ctrl+-/
   Ctrl+0) computes `pixels_per_point = zoom_factor * native_pixels_per_point` — confirmed from

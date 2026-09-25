@@ -8,6 +8,16 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: national MRMS 18-dBZ echo tops
+
+The MRMS catalog now offers a national 18-dBZ echo-top layer with its own km MSL legend,
+provenance, sampling and source health. The live catalog contract confirms its public feed path.
+
+### Improved: source-health indicators in workstation Layers
+
+The seven feed states now have different shapes and accessible names in the compact Layers tree,
+so status is visible without relying on color alone.
+
 ### Added: MRMS rain-total window picker
 
 Choose a 1, 3, 6, 12 or 24 hour QPE accumulation from the workstation's Satellite tab or the

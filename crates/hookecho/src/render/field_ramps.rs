@@ -336,6 +336,23 @@ static ECHO_TOPS: FieldRamp = ramp!(
     ]
 );
 
+/// MRMS publishes 18-dBZ echo-top heights in km MSL. Keep this native-unit scale separate from
+/// the local and Level III echo-top products above, whose values and legend are in kft.
+static MRMS_ECHO_TOPS: FieldRamp = ramp!(
+    "18-dBZ echo top",
+    "km MSL",
+    1.5,
+    21.0,
+    RampScale::Linear,
+    255,
+    &[
+        (0.0, [40, 90, 200]),
+        (0.4, [40, 200, 90]),
+        (0.75, [240, 230, 60]),
+        (1.0, [240, 240, 240]),
+    ]
+);
+
 /// VIL density: water aloft per unit storm depth. Above ~3.5 g/m³ is the classic large-hail
 /// signature, so the scale turns hot exactly there rather than spending its range on drizzle.
 static VIL_DENSITY: FieldRamp = ramp!(
@@ -933,6 +950,7 @@ pub fn ramp_for(layer: FieldLayer) -> Option<&'static FieldRamp> {
             // below for the same reasoning applied the other direction (a national fetch sharing
             // a local one's scale, rather than the reverse).
             PaletteId::Vil => Some(&VIL),
+            PaletteId::EchoTopKm => Some(&MRMS_ECHO_TOPS),
         };
     }
     Some(match layer {
@@ -942,6 +960,7 @@ pub fn ramp_for(layer: FieldLayer) -> Option<&'static FieldRamp> {
         // a number means the same thing whichever source drew it.
         FL::Vil | FL::VilLocal => &VIL,
         FL::EchoTops | FL::EtopLocal => &ECHO_TOPS,
+        FL::MrmsEchoTop18 => &MRMS_ECHO_TOPS,
         FL::VilDensity => &VIL_DENSITY,
         // MEHS shares the MRMS MESH scale: one hail scale app-wide.
         FL::HailMehs => &MESH,
@@ -1043,6 +1062,7 @@ mod tests {
             ("posh", &POSH),
             ("shi", &SHI),
             ("mrms-vil", &VIL),
+            ("mrms-etop18", &MRMS_ECHO_TOPS),
         ] {
             let layer = FieldLayer::from_slug(id).unwrap();
             assert!(std::ptr::eq(ramp_for(layer).unwrap(), expected), "{id}");

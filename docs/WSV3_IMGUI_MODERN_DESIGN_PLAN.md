@@ -529,11 +529,12 @@ wrapping (a wrapped toolbar changes height and moves the map).
   layer options) step aside and every category left standing opens.
 - The tree: a category header row (chevron, category glyph tinted per category, name, `on/total`
   right-aligned in the accent when anything is on), then layer rows: checkbox (none for a one-shot
-  action), the row's own glyph in the category tint, the label (ellipsised), a health dot when the
+  action), the row's own glyph in the category tint, the label (ellipsised), a health glyph when the
   registry reports one (`PaletteEntry::health`, hover for the source and state), and a **star**
   for rows that can be starred (field layers) — shown when starred or under the pointer, so the list
   reads as names rather than a column of hollow stars. Hover highlights the row; the description
-  is the tooltip; a row that is on carries a faint accent wash.
+  is the tooltip; a row that is on carries a faint accent wash. Feed health now uses distinct
+  status shapes with accessible state names as well as color, rather than a color-only dot.
 - No gear or `…` per row: E draws them, but a row has no per-layer settings page to open, and a
   button that opens nothing is worse than no button. The star is the one per-row control with a
   real job. The panel footer keeps **Import…** and **Manage…**.

@@ -109,6 +109,7 @@ pub enum Unit {
     JoulesPerKilogram,
     SquareMetersPerSquareSecond,
     Meters,
+    Kilometers,
     KilogramsPerCubicMeter,
     Pascals,
     Kelvin,
@@ -140,6 +141,7 @@ impl Unit {
             Self::JoulesPerKilogram => "J/kg",
             Self::SquareMetersPerSquareSecond => "m²/s²",
             Self::Meters => "m",
+            Self::Kilometers => "km",
             Self::KilogramsPerCubicMeter => "kg/m³",
             Self::Pascals => "Pa",
             Self::Kelvin => "K",
@@ -167,6 +169,8 @@ impl Unit {
             (Self::Inches, Self::Millimeters) | (Self::InchesPerHour, Self::MillimetersPerHour) => {
                 Some(value * 25.4)
             }
+            (Self::Kilometers, Self::Meters) => Some(value * 1000.0),
+            (Self::Meters, Self::Kilometers) => Some(value / 1000.0),
             _ => None,
         }
     }
@@ -210,6 +214,8 @@ pub enum PaletteId {
     /// locally-derived `FieldLayer::VilLocal`/`VilDensity`, which predate the generic field
     /// registry and render through their own hand-picked ramp rather than a `FieldDescriptor`.
     Vil,
+    /// MRMS 18-dBZ echo-top altitude in km MSL, kept separate from local/L3 kft scales.
+    EchoTopKm,
 }
 
 #[derive(Debug)]
@@ -335,5 +341,7 @@ mod tests {
             None
         );
         assert_eq!(Unit::Dbz.convert(f32::NAN, Unit::Dbz), None);
+        assert_eq!(Unit::Kilometers.convert(12.5, Unit::Meters), Some(12_500.0));
+        assert_eq!(Unit::Meters.convert(2_500.0, Unit::Kilometers), Some(2.5));
     }
 }

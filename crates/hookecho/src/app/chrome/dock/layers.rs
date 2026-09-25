@@ -21,6 +21,20 @@ enum SearchSubmit {
     Place(String),
 }
 
+/// A shape as well as a color for every feed state: the compact tree stays readable when color
+/// cannot distinguish its status dots. The full word remains in the hover and accessible name.
+fn health_glyph(state: HealthState) -> &'static str {
+    match state {
+        HealthState::Fresh => ph::CHECK_CIRCLE,
+        HealthState::Fetching => ph::ARROWS_CLOCKWISE,
+        HealthState::Delayed => ph::CLOCK,
+        HealthState::Stale => ph::WARNING_CIRCLE,
+        HealthState::Cached => ph::DATABASE,
+        HealthState::Failed => ph::X_CIRCLE,
+        HealthState::Waiting => ph::HOURGLASS,
+    }
+}
+
 /// Enter uses the same visible search results as a click. A time command takes precedence;
 /// otherwise it opens the first layer row, or offers the place lookup when nothing matches.
 fn submit_search(
@@ -419,10 +433,17 @@ fn row(
         )
     });
     let over_star = star.as_ref().is_some_and(|(_, r)| r.hovered());
-    let resp = if e.desc.is_empty() {
-        resp.named_toggle(&e.label, on)
+    let accessible_label = if let Some(health) = &e.health {
+        let (word, _) = crate::ui::layers_panel::health_look(health.state());
+        format!("{}; {} source: {word}", e.label, health.source)
     } else {
-        resp.named_toggle(&e.label, on).on_hover_text(e.desc)
+        e.label.clone()
+    };
+    let resp = if e.desc.is_empty() {
+        resp.named_toggle(&accessible_label, on)
+    } else {
+        resp.named_toggle(&accessible_label, on)
+            .on_hover_text(e.desc)
     };
     let p = ui.painter();
     if on {
@@ -481,11 +502,17 @@ fn row(
     p.galley(egui::pos2(x, y - galley.size().y / 2.0), galley, t.text);
     if let Some(h) = &e.health {
         let (word, color) = crate::ui::layers_panel::health_look(h.state());
-        let dot = egui::pos2(rect.right() - 40.0, y);
-        p.circle_filled(dot, 3.5, color);
-        let dot_rect = Rect::from_center_size(dot, egui::vec2(12.0, 12.0));
+        let mark = egui::pos2(rect.right() - 40.0, y);
+        p.text(
+            mark,
+            egui::Align2::CENTER_CENTER,
+            health_glyph(h.state()),
+            FontId::proportional(12.0),
+            color,
+        );
+        let mark_rect = Rect::from_center_size(mark, egui::vec2(14.0, 16.0));
         ui.interact(
-            dot_rect,
+            mark_rect,
             ui.id().with(("dock_health", &e.label)),
             Sense::hover(),
         )
@@ -569,5 +596,25 @@ mod search_tests {
             Some(SearchSubmit::Place("Norman, Oklahoma".into()))
         );
         assert_eq!(submit("  "), None);
+    }
+}
+
+#[cfg(test)]
+mod health_tests {
+    use super::*;
+
+    #[test]
+    fn source_health_states_have_distinct_visible_shapes() {
+        let states = [
+            HealthState::Fresh,
+            HealthState::Fetching,
+            HealthState::Delayed,
+            HealthState::Stale,
+            HealthState::Cached,
+            HealthState::Failed,
+            HealthState::Waiting,
+        ];
+        let glyphs: std::collections::HashSet<_> = states.map(health_glyph).into_iter().collect();
+        assert_eq!(glyphs.len(), states.len());
     }
 }

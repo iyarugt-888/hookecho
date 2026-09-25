@@ -365,6 +365,24 @@ pub static PRODUCTS: &[Product] = &[
     },
     Product {
         field: FieldDescriptor {
+            id: FieldId("mrms-etop18"),
+            source: DataSource::NoaaMrms,
+            family: FieldFamily::Mrms,
+            name: "Echo top, 18 dBZ (MRMS)",
+            description: "National height of the top of the 18-dBZ echo, above mean sea level",
+            units: Unit::Kilometers,
+            value_kind: ValueKind::Scalar,
+            aliases: "storm top cloud height echo tops national MSL",
+            default_palette: PaletteId::EchoTopKm,
+            default_contour_interval: None,
+            valid_domain: Some(crate::field::GeographicBounds::CONUS),
+            missing_values: &[-1.0, -3.0],
+        },
+        common: false,
+        fetch: FetchMapping::Fixed(super::ECHO_TOP_18),
+    },
+    Product {
+        field: FieldDescriptor {
             id: FieldId("refl-lowest-alt"),
             source: DataSource::NoaaMrms,
             family: FieldFamily::Mrms,
@@ -472,7 +490,7 @@ mod tests {
             assert!(path.starts_with("CONUS/"));
             assert!(paths.insert(path));
         }
-        assert_eq!(PRODUCTS.len(), 19);
+        assert_eq!(PRODUCTS.len(), 20);
         assert!(find("hrrr").is_none());
         for product in PRODUCTS {
             assert!(std::ptr::eq(
