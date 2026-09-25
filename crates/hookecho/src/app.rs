@@ -10,6 +10,8 @@ mod case;
 mod chrome;
 mod field_state;
 mod goes_timeline;
+#[cfg(not(target_arch = "wasm32"))]
+mod local_api;
 mod overlay_health;
 mod pane_time;
 mod region_stats;
@@ -2707,6 +2709,9 @@ enum ShotDest {
     Widget(std::path::PathBuf),
     /// The map image for an analysis export (ROADMAP_NEW K4); see `app/report.rs`.
     Report,
+    /// The window for the local API's snapshot endpoint, sent back to the waiting request.
+    #[cfg(not(target_arch = "wasm32"))]
+    Api(std::sync::mpsc::Sender<Result<Vec<u8>, String>>),
 }
 
 /// In-progress loop export (GIF or MP4): steps the active timeline, grabbing one screenshot per
@@ -4176,6 +4181,9 @@ pub struct HookEchoApp {
     show_alert_panel: bool,
     /// The region-statistics tool's box, samples and window; see `app/region_stats.rs`.
     region: region_stats::RegionStatsState,
+    /// The local API server and what it was last told; see `app/local_api.rs`.
+    #[cfg(not(target_arch = "wasm32"))]
+    local_api: local_api::LocalApiState,
     /// Cross-section tool: clicked endpoints `[lon,lat]` (max 2), the built section + its texture.
     xsection_pts: Vec<[f64; 2]>,
     xsection: Option<wxdata::xsection::CrossSection>,
@@ -5354,6 +5362,8 @@ impl HookEchoApp {
             feed_errors_told: std::collections::HashMap::new(),
             show_alert_panel: false,
             region: Default::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            local_api: Default::default(),
             xsection_pts: Vec::new(),
             xsection: None,
             xsection_tex: None,
@@ -19792,6 +19802,25 @@ impl HookEchoApp {
                 {
                     self.export_cfradial();
                 }
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    let port = self.settings.local_api_port;
+                    if ui
+                        .checkbox(
+                            &mut self.settings.local_api,
+                            format!("Local API on 127.0.0.1:{port}"),
+                        )
+                        .on_hover_text(
+                            "Serve what this window shows to other programs on this computer — \
+                             panes, detections, warnings, feed health, a sample at a point, a \
+                             screenshot and a live event stream — at \
+                             http://127.0.0.1:{port}/api/v1. Only this computer can reach it.",
+                        )
+                        .changed()
+                    {
+                        self.settings.save();
+                    }
+                }
             });
         }
 
@@ -19946,26 +19975,30 @@ impl HookEchoApp {
     /// performance counters, as one exportable JSON. Deliberately absent: no location history, no
     /// API keys, no filesystem paths of the user's own — the same discipline `crash.rs`'s own
     /// panic report already commits to.
-    fn export_diagnostics_bundle(&mut self) {
+    /// Every active source's health as the diagnostics bundle and the local API report it.
+    fn diagnostics_source_health(&mut self) -> Vec<DiagnosticsSourceHealth> {
         let entries = self.palette_entries();
-        let source_health: Vec<DiagnosticsSourceHealth> =
-            ui::source_health_window::active_health_rows(&entries)
-                .into_iter()
-                .map(|h| DiagnosticsSourceHealth {
-                    source: h.source.clone(),
-                    endpoint_family: h.endpoint_family.id(),
-                    latest_valid_time: h.latest_valid_time.map(|t| t.to_rfc3339()),
-                    fallback_providers: h.fallback_providers.clone(),
-                    cache_state: h.cache_state.id(),
-                    status: ui::layers_panel::health_look(h.state()).0,
-                    last_success_secs: h.last_success.map(|d| d.as_secs()),
-                    cadence_secs: h.cadence.as_secs(),
-                    recent_successes: h.recent_outcomes.map(|(s, _)| s),
-                    recent_failures: h.recent_outcomes.map(|(_, f)| f),
-                    error: h.error.clone(),
-                    details: h.details.clone(),
-                })
-                .collect();
+        ui::source_health_window::active_health_rows(&entries)
+            .into_iter()
+            .map(|h| DiagnosticsSourceHealth {
+                source: h.source.clone(),
+                endpoint_family: h.endpoint_family.id(),
+                latest_valid_time: h.latest_valid_time.map(|t| t.to_rfc3339()),
+                fallback_providers: h.fallback_providers.clone(),
+                cache_state: h.cache_state.id(),
+                status: ui::layers_panel::health_look(h.state()).0,
+                last_success_secs: h.last_success.map(|d| d.as_secs()),
+                cadence_secs: h.cadence.as_secs(),
+                recent_successes: h.recent_outcomes.map(|(s, _)| s),
+                recent_failures: h.recent_outcomes.map(|(_, f)| f),
+                error: h.error.clone(),
+                details: h.details.clone(),
+            })
+            .collect()
+    }
+
+    fn export_diagnostics_bundle(&mut self) {
+        let source_health = self.diagnostics_source_health();
         let bundle = DiagnosticsBundle {
             generated_at: chrono::Utc::now().to_rfc3339(),
             version: ui::about_window::VERSION,
@@ -20647,6 +20680,8 @@ impl HookEchoApp {
                 ShotDest::Push(title) => self.push_snapshot(title, &image),
                 ShotDest::Widget(path) => self.save_widget_snapshot(&path, &image),
                 ShotDest::Report => self.write_report(&image),
+                #[cfg(not(target_arch = "wasm32"))]
+                ShotDest::Api(reply) => Self::answer_api_snapshot(&reply, &image),
             }
         }
     }
@@ -21738,6 +21773,8 @@ impl eframe::App for HookEchoApp {
         // A file the user picked, from any of the import buttons. Routed here rather than at the
         // button, because on Android the picker is an activity result that lands long after the
         // click — through the same file handover a notification tap uses.
+        #[cfg(not(target_arch = "wasm32"))]
+        self.tick_local_api(ctx);
         if let Some(import) = crate::dialog::take_result() {
             // A case restores panes, which needs the context the other imports do not.
             if import.kind == crate::dialog::ImportKind::Case {

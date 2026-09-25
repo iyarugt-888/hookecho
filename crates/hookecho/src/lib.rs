@@ -62,6 +62,9 @@ pub mod headless;
 pub mod hotkeys;
 pub mod icon;
 pub mod labelplace;
+/// The running app's local HTTP API (ROADMAP_NEW M4); not in a browser, which has no sockets.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod local_api;
 pub mod loopexport;
 pub mod model_browser;
 /// MQTT publishing for home automation; native only (no TCP socket in a browser).

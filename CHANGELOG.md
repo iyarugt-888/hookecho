@@ -8,6 +8,16 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: a local API for the running app
+
+Turn on **Share → Local API** and other programs on this computer can read what HookEcho is
+showing at `http://127.0.0.1:47914/api/v1`: the panes (site, product, tilt, volume and its
+time, camera), the detections on the active volume, the warnings on the map, feed health, the
+volume's products and frame list, every moment at a point (`/sample?lat=&lon=`), a PNG of the
+window, and a Server-Sent Events stream that fires when the displayed volume changes. Off by
+default and loopback only; requests must be addressed to 127.0.0.1/localhost and no CORS header
+is sent, so a web page cannot read it. See `docs/local-api.md`.
+
 ### Added: CF/Radial export of a radar volume
 
 "Export volume (CF/Radial)…" under Share writes the active pane's volume — every tilt, every

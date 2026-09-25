@@ -203,6 +203,12 @@ pub struct Settings {
     /// see [`Settings::adopt_tablet_default`].
     #[serde(default)]
     pub tablet_layout_adopted: bool,
+    /// Serve the running app's state on `127.0.0.1:local_api_port` (ROADMAP_NEW M4; see
+    /// `crate::local_api`). Off unless turned on: it answers anything on this machine.
+    #[serde(default)]
+    pub local_api: bool,
+    #[serde(default = "default_local_api_port")]
+    pub local_api_port: u16,
     /// The touch chrome's look on a phone; see [`PhoneDesign`].
     #[serde(default)]
     pub phone_design: PhoneDesign,
@@ -1485,6 +1491,10 @@ impl VelocityUnit {
     }
 }
 
+fn default_local_api_port() -> u16 {
+    47_914
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -1511,6 +1521,8 @@ impl Default for Settings {
             theme: Theme::Dark,
             layout: Layout::default(),
             tablet_layout_adopted: false,
+            local_api: false,
+            local_api_port: default_local_api_port(),
             phone_design: PhoneDesign::default(),
             density: Density::default(),
             accent: None,
@@ -2300,6 +2312,8 @@ mod tests {
             theme: Theme::Synthwave,
             layout: Layout::Minimal,
             tablet_layout_adopted: false,
+            local_api: true,
+            local_api_port: 50_000,
             phone_design: PhoneDesign::Carbon,
             presets: vec!["KTLX".to_string(), "KOUN".to_string()],
             palettes: BTreeMap::from([("REF".to_string(), "/tmp/foo.pal".to_string())]),

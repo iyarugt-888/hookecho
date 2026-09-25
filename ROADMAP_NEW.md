@@ -3359,21 +3359,31 @@ Extend headless mode:
 - update only when source valid time changes
 - optional atomic file replace for web overlays
 
-## M4. Local API
+## M4. Local API — done
 
 Extend/standardize the existing local serve capabilities with a documented API:
 
-- current view state
-- source health
-- current warnings
-- sampled point
-- available products
-- latest frame timestamps
-- snapshot endpoint
+- [x] current view state — `/api/v1/state`: every pane's site, product, tilt, volume and time,
+  camera, live or not
+- [x] source health — `/api/v1/health`, the diagnostics export's rows
+- [x] current warnings — `/api/v1/warnings`, the warnings on the map
+- [x] sampled point — `/api/v1/sample?lat=&lon=`, every moment of the displayed tilt there
+- [x] available products — `/api/v1/products`: the volume's moments and tilts, the layers on
+- [x] latest frame timestamps — `/api/v1/frames`
+- [x] snapshot endpoint — `/api/v1/snapshot.png`
 
-Optional WebSocket/SSE for state/frame-change events.
+- [x] SSE for state/frame-change events — `/api/v1/events`
 
-Keep it localhost by default; explicit config required to bind externally.
+- [x] localhost only — and off until turned on (Share → Local API)
+
+This is the *running app's* API (`crate::local_api`, `app/local_api.rs`); `--serve` remains the
+headless service for a machine with no app open. Documented in `docs/local-api.md`. Loopback only,
+with no option to bind elsewhere; requests must name 127.0.0.1/localhost in `Host` (so a
+DNS-rebinding page is refused) and no CORS header is ever sent (so another origin's script cannot
+read an answer). The server holds no app state: the app publishes a snapshot each second (at once
+when the displayed volume changes), and a sample or a screenshot is forwarded to the UI thread
+and waited on. Tested over real sockets: snapshot serving, the Host check, no CORS, a forwarded
+sample round trip, and SSE delivering a change.
 
 ## M5. Scientific export — done
 
