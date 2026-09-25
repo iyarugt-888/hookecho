@@ -42,6 +42,8 @@ pub struct UiActions {
     pub(crate) qpe_window: Option<FieldLayer>,
     /// Pick one MRMS echo-top reflectivity threshold in the active pane.
     pub(crate) echo_top_threshold: Option<FieldLayer>,
+    /// Pick one MRMS isothermal reflectivity level in the active pane.
+    pub(crate) isotherm_level: Option<FieldLayer>,
 }
 
 /// Existing catalog-backed QPE layers stay distinct for saved-workspace and headless slug
@@ -60,6 +62,14 @@ pub(crate) const ECHO_TOP_THRESHOLDS: [(FieldLayer, &str); 4] = [
     (FieldLayer::MrmsEchoTop30, "30 dBZ"),
     (FieldLayer::MrmsEchoTop50, "50 dBZ"),
     (FieldLayer::MrmsEchoTop60, "60 dBZ"),
+];
+
+pub(crate) const ISOTHERM_LEVELS: [(FieldLayer, &str); 5] = [
+    (FieldLayer::MrmsRefl0c, "0°C"),
+    (FieldLayer::MrmsReflM5c, "-5°C"),
+    (FieldLayer::MrmsReflM10c, "-10°C"),
+    (FieldLayer::MrmsReflM15c, "-15°C"),
+    (FieldLayer::MrmsReflM20c, "-20°C"),
 ];
 
 fn select_one_of(
@@ -89,6 +99,13 @@ pub(crate) fn select_echo_top_threshold(
     selected: FieldLayer,
 ) -> bool {
     select_one_of(on, &ECHO_TOP_THRESHOLDS, selected)
+}
+
+pub(crate) fn select_isotherm_level(
+    on: &mut std::collections::HashSet<FieldLayer>,
+    selected: FieldLayer,
+) -> bool {
+    select_one_of(on, &ISOTHERM_LEVELS, selected)
 }
 
 fn catalog_choice_control(
@@ -158,6 +175,22 @@ pub(crate) fn echo_top_threshold_control(
         "MRMS echo-top reflectivity threshold",
         "Choose the 18, 30, 50 or 60 dBZ national echo-top height for this pane (km MSL)",
         &ECHO_TOP_THRESHOLDS,
+    );
+}
+
+pub(crate) fn isotherm_level_control(
+    ui: &mut egui::Ui,
+    on: &std::collections::HashSet<FieldLayer>,
+    actions: &mut UiActions,
+) {
+    actions.isotherm_level = catalog_choice_control(
+        ui,
+        on,
+        "mrms_isotherm_level",
+        "Refl. at temperature",
+        "MRMS isothermal reflectivity level",
+        "Choose the environmental temperature level for national isothermal reflectivity (dBZ)",
+        &ISOTHERM_LEVELS,
     );
 }
 
@@ -316,6 +349,10 @@ pub(crate) fn show(
                 .any(|(layer, _)| on.contains(layer)),
         ),
         (
+            "MRMS temperature levels",
+            ISOTHERM_LEVELS.iter().any(|(layer, _)| on.contains(layer)),
+        ),
+        (
             "Satellite",
             [
                 FL::GoesIr,
@@ -388,6 +425,9 @@ pub(crate) fn show(
     }
     if section == "MRMS echo tops" {
         echo_top_threshold_control(ui, on, actions);
+    }
+    if section == "MRMS temperature levels" {
+        isotherm_level_control(ui, on, actions);
     }
     if section == "Model comparison" && (on.contains(&FL::ModelDiff) || showing_compare) {
         let (a, b) = diff_field.pair();
@@ -1108,6 +1148,25 @@ mod catalog_choice_tests {
         assert!(on.contains(&FL::Qpe6h));
         assert!(on.contains(&FL::MrmsEchoTop60));
         assert!(!select_echo_top_threshold(&mut on, FL::Qpe1h));
+        assert_eq!(on.len(), 3);
+    }
+
+    #[test]
+    fn isotherm_picker_changes_only_its_own_temperature_group() {
+        let mut on = [
+            FL::Mrms,
+            FL::MrmsEchoTop50,
+            FL::MrmsRefl0c,
+            FL::MrmsReflM10c,
+        ]
+        .into_iter()
+        .collect();
+        assert!(select_isotherm_level(&mut on, FL::MrmsReflM20c));
+        assert_eq!(on.len(), 3);
+        assert!(on.contains(&FL::Mrms));
+        assert!(on.contains(&FL::MrmsEchoTop50));
+        assert!(on.contains(&FL::MrmsReflM20c));
+        assert!(!select_isotherm_level(&mut on, FL::MrmsEchoTop18));
         assert_eq!(on.len(), 3);
     }
 }

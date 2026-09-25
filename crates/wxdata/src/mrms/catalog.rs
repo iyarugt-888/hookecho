@@ -475,6 +475,96 @@ pub static PRODUCTS: &[Product] = &[
         common: false,
         fetch: FetchMapping::Fixed(super::LOW_LEVEL_COMPOSITE_REFLECTIVITY),
     },
+    Product {
+        field: FieldDescriptor {
+            id: FieldId("mrms-refl-0c"),
+            source: DataSource::NoaaMrms,
+            family: FieldFamily::Mrms,
+            name: "Reflectivity at 0°C",
+            description: "National reflectivity interpolated to the environmental 0°C isotherm",
+            units: Unit::Dbz,
+            value_kind: ValueKind::Scalar,
+            aliases: "isothermal reflectivity freezing level hail growth",
+            default_palette: PaletteId::Reflectivity,
+            default_contour_interval: None,
+            valid_domain: Some(crate::field::GeographicBounds::CONUS),
+            missing_values: &[-99.0, -999.0],
+        },
+        common: false,
+        fetch: FetchMapping::Fixed(super::REFLECTIVITY_0C),
+    },
+    Product {
+        field: FieldDescriptor {
+            id: FieldId("mrms-refl-m5c"),
+            source: DataSource::NoaaMrms,
+            family: FieldFamily::Mrms,
+            name: "Reflectivity at -5°C",
+            description: "National reflectivity interpolated to the environmental -5°C isotherm",
+            units: Unit::Dbz,
+            value_kind: ValueKind::Scalar,
+            aliases: "isothermal reflectivity hail growth",
+            default_palette: PaletteId::Reflectivity,
+            default_contour_interval: None,
+            valid_domain: Some(crate::field::GeographicBounds::CONUS),
+            missing_values: &[-99.0, -999.0],
+        },
+        common: false,
+        fetch: FetchMapping::Fixed(super::REFLECTIVITY_M5C),
+    },
+    Product {
+        field: FieldDescriptor {
+            id: FieldId("mrms-refl-m10c"),
+            source: DataSource::NoaaMrms,
+            family: FieldFamily::Mrms,
+            name: "Reflectivity at -10°C",
+            description: "National reflectivity interpolated to the environmental -10°C isotherm",
+            units: Unit::Dbz,
+            value_kind: ValueKind::Scalar,
+            aliases: "isothermal reflectivity hail growth",
+            default_palette: PaletteId::Reflectivity,
+            default_contour_interval: None,
+            valid_domain: Some(crate::field::GeographicBounds::CONUS),
+            missing_values: &[-99.0, -999.0],
+        },
+        common: false,
+        fetch: FetchMapping::Fixed(super::REFLECTIVITY_M10C),
+    },
+    Product {
+        field: FieldDescriptor {
+            id: FieldId("mrms-refl-m15c"),
+            source: DataSource::NoaaMrms,
+            family: FieldFamily::Mrms,
+            name: "Reflectivity at -15°C",
+            description: "National reflectivity interpolated to the environmental -15°C isotherm",
+            units: Unit::Dbz,
+            value_kind: ValueKind::Scalar,
+            aliases: "isothermal reflectivity hail growth",
+            default_palette: PaletteId::Reflectivity,
+            default_contour_interval: None,
+            valid_domain: Some(crate::field::GeographicBounds::CONUS),
+            missing_values: &[-99.0, -999.0],
+        },
+        common: false,
+        fetch: FetchMapping::Fixed(super::REFLECTIVITY_M15C),
+    },
+    Product {
+        field: FieldDescriptor {
+            id: FieldId("mrms-refl-m20c"),
+            source: DataSource::NoaaMrms,
+            family: FieldFamily::Mrms,
+            name: "Reflectivity at -20°C",
+            description: "National reflectivity interpolated to the environmental -20°C isotherm",
+            units: Unit::Dbz,
+            value_kind: ValueKind::Scalar,
+            aliases: "isothermal reflectivity hail growth",
+            default_palette: PaletteId::Reflectivity,
+            default_contour_interval: None,
+            valid_domain: Some(crate::field::GeographicBounds::CONUS),
+            missing_values: &[-99.0, -999.0],
+        },
+        common: false,
+        fetch: FetchMapping::Fixed(super::REFLECTIVITY_M20C),
+    },
 ];
 
 #[cfg(test)]
@@ -544,7 +634,7 @@ mod tests {
             assert!(path.starts_with("CONUS/"));
             assert!(paths.insert(path));
         }
-        assert_eq!(PRODUCTS.len(), 23);
+        assert_eq!(PRODUCTS.len(), 28);
         assert!(find("hrrr").is_none());
         for product in PRODUCTS {
             assert!(std::ptr::eq(
@@ -567,6 +657,23 @@ mod tests {
             assert_eq!(product.field.units, Unit::Kilometers);
             assert_eq!(product.field.default_palette, PaletteId::EchoTopKm);
             assert_eq!(product.field.missing_values, &[-1.0, -3.0]);
+        }
+    }
+
+    #[test]
+    fn isothermal_reflectivity_uses_dbz_palette_and_missing_codes() {
+        for (id, path) in [
+            ("mrms-refl-0c", super::super::REFLECTIVITY_0C),
+            ("mrms-refl-m5c", super::super::REFLECTIVITY_M5C),
+            ("mrms-refl-m10c", super::super::REFLECTIVITY_M10C),
+            ("mrms-refl-m15c", super::super::REFLECTIVITY_M15C),
+            ("mrms-refl-m20c", super::super::REFLECTIVITY_M20C),
+        ] {
+            let product = find(id).unwrap();
+            assert_eq!(product.path(30, 5, 1440), path);
+            assert_eq!(product.field.units, Unit::Dbz);
+            assert_eq!(product.field.default_palette, PaletteId::Reflectivity);
+            assert_eq!(product.field.missing_values, &[-99.0, -999.0]);
         }
     }
 

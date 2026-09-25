@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: national reflectivity at temperature levels
+
+The MRMS browser now includes reflectivity at the 0, -5, -10, -15 and -20°C environmental
+isotherms. A compact level picker switches the active pane among them while each product retains
+its own saved layer ID, valid time and dBZ palette. The live feed contract covers all 38 MRMS paths.
+
 ### Added: full MRMS echo-top threshold set
 
 The national echo-top layer now has 18, 30, 50 and 60 dBZ variants, all in km MSL, with a compact

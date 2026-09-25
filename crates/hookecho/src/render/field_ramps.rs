@@ -1038,7 +1038,12 @@ pub fn ramp_for(layer: FieldLayer) -> Option<&'static FieldRamp> {
         | FL::Shi
         | FL::MrmsVil
         | FL::ReflLowestAlt
-        | FL::LowLevelReflectivity => return None,
+        | FL::LowLevelReflectivity
+        | FL::MrmsRefl0c
+        | FL::MrmsReflM5c
+        | FL::MrmsReflM10c
+        | FL::MrmsReflM15c
+        | FL::MrmsReflM20c => return None,
     })
 }
 
@@ -1079,6 +1084,15 @@ mod tests {
         // the same way Mrms does, not a fixed ramp.
         assert!(ramp_for(FieldLayer::ReflLowestAlt).is_none());
         assert!(ramp_for(FieldLayer::LowLevelReflectivity).is_none());
+        for layer in [
+            FieldLayer::MrmsRefl0c,
+            FieldLayer::MrmsReflM5c,
+            FieldLayer::MrmsReflM10c,
+            FieldLayer::MrmsReflM15c,
+            FieldLayer::MrmsReflM20c,
+        ] {
+            assert!(ramp_for(layer).is_none());
+        }
     }
 
     #[test]
@@ -1145,7 +1159,7 @@ mod tests {
 
     /// Layers colored outside this table. A new `FieldLayer` must join the table or this list —
     /// forgetting both silently ships a layer with no legend.
-    const NO_RAMP: [FieldLayer; 11] = [
+    const NO_RAMP: [FieldLayer; 16] = [
         FieldLayer::Mrms,
         FieldLayer::Mosaic,
         FieldLayer::CompositeLocal,
@@ -1154,6 +1168,11 @@ mod tests {
         // dBZ/Reflectivity-paletted catalog products — same "user's own .pal" path as Mrms above.
         FieldLayer::ReflLowestAlt,
         FieldLayer::LowLevelReflectivity,
+        FieldLayer::MrmsRefl0c,
+        FieldLayer::MrmsReflM5c,
+        FieldLayer::MrmsReflM10c,
+        FieldLayer::MrmsReflM15c,
+        FieldLayer::MrmsReflM20c,
         // The difference layer's ramp is symmetric about zero and rebuilt whenever the field
         // changes, so it is baked in `fielddiff`, not tabulated here.
         FieldLayer::ModelDiff,

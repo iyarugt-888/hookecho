@@ -2498,7 +2498,12 @@ fn field_refresh_secs(layer: crate::render::FieldLayer) -> u64 {
         | FL::MrmsEchoTop50
         | FL::MrmsEchoTop60
         | FL::ReflLowestAlt
-        | FL::LowLevelReflectivity => 120,
+        | FL::LowLevelReflectivity
+        | FL::MrmsRefl0c
+        | FL::MrmsReflM5c
+        | FL::MrmsReflM10c
+        | FL::MrmsReflM15c
+        | FL::MrmsReflM20c => 120,
         // QPE accumulations update on a ~2-minute MRMS cadence.
         // The rate product lands every 2 minutes; the accumulations move far more slowly.
         FL::PrecipRate => 120,
@@ -9998,6 +10003,14 @@ impl HookEchoApp {
         }
         if let Some(layer) = actions.echo_top_threshold {
             if ui::layer_options::select_echo_top_threshold(
+                &mut self.views[self.active].fields_on,
+                layer,
+            ) {
+                ui::layers_panel::note_recent(&mut self.settings.recent_layers, layer.slug());
+            }
+        }
+        if let Some(layer) = actions.isotherm_level {
+            if ui::layer_options::select_isotherm_level(
                 &mut self.views[self.active].fields_on,
                 layer,
             ) {

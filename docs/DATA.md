@@ -33,7 +33,7 @@ MRMS fields are labeled derived analyses. Failed refreshes retain the prior
 grid's timestamps, and invalid GRIB timestamps produce an error. See
 [the field migration note](field-registry.md) for scope and remaining work.
 
-The direct MRMS layers now share a 23-product catalog. Layer
+The direct MRMS layers now share a 28-product catalog. Layer
 fetches use its product-specific missing and no-coverage codes from the
 [NOAA operational table](https://www.nssl.noaa.gov/projects/mrms/operational/tables.php),
 so uncovered cells are absent rather than sampled as a measurement. The
@@ -45,6 +45,9 @@ their existing mappings. National 18/30/50/60-dBZ echo-top layers use the NOAA
 `EchoTop_*_00.50` grids in km MSL; their legend uses km MSL rather than the kft
 scale of the separate local and Level III echo-top layers. The Satellite tab
 and layer options can switch the active pane among those thresholds.
+Five isothermal reflectivity products sample the environmental 0, -5, -10, -15 and -20°C levels;
+they retain dBZ units and the configured reflectivity palette. The same controls let the active
+pane switch levels without changing saved product IDs.
 
 ## Warnings, outlooks and reports
 

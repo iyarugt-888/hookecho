@@ -24,6 +24,16 @@ pub const REFLECTIVITY_LOWEST_ALTITUDE: &str = "CONUS/ReflectivityAtLowestAltitu
 /// over some depth near the surface, not just one level. Confirmed live at
 /// `CONUS/LowLevelCompositeReflectivity_00.50`.
 pub const LOW_LEVEL_COMPOSITE_REFLECTIVITY: &str = "CONUS/LowLevelCompositeReflectivity_00.50";
+/// Reflectivity interpolated to the environmental 0°C isotherm (dBZ).
+pub const REFLECTIVITY_0C: &str = "CONUS/Reflectivity_0C_00.50";
+/// Reflectivity interpolated to the environmental -5°C isotherm (dBZ).
+pub const REFLECTIVITY_M5C: &str = "CONUS/Reflectivity_-5C_00.50";
+/// Reflectivity interpolated to the environmental -10°C isotherm (dBZ).
+pub const REFLECTIVITY_M10C: &str = "CONUS/Reflectivity_-10C_00.50";
+/// Reflectivity interpolated to the environmental -15°C isotherm (dBZ).
+pub const REFLECTIVITY_M15C: &str = "CONUS/Reflectivity_-15C_00.50";
+/// Reflectivity interpolated to the environmental -20°C isotherm (dBZ).
+pub const REFLECTIVITY_M20C: &str = "CONUS/Reflectivity_-20C_00.50";
 /// Cloud-to-ground lightning strike density, 5-minute average (strikes/km²/min).
 pub const LIGHTNING: &str = "CONUS/NLDN_CG_005min_AvgDensity_00.00";
 

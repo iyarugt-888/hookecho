@@ -214,6 +214,16 @@ pub enum FieldLayer {
     /// high-altitude anvil/elevated convection the whole-column mosaic would still show, unlike
     /// `ReflLowestAlt`'s one-specific-altitude reading.
     LowLevelReflectivity,
+    /// National reflectivity sampled at the environmental 0°C isotherm.
+    MrmsRefl0c,
+    /// National reflectivity sampled at the environmental -5°C isotherm.
+    MrmsReflM5c,
+    /// National reflectivity sampled at the environmental -10°C isotherm.
+    MrmsReflM10c,
+    /// National reflectivity sampled at the environmental -15°C isotherm.
+    MrmsReflM15c,
+    /// National reflectivity sampled at the environmental -20°C isotherm.
+    MrmsReflM20c,
     /// One model minus another — which field, and therefore which pair, is `app.diff_field`.
     ModelDiff,
     /// Model-comparison side A (`app.diff_field.pair().0`'s own field, unsubtracted) — meant for
@@ -300,6 +310,11 @@ impl FieldLayer {
             FieldLayer::Mrms
                 | FieldLayer::ReflLowestAlt
                 | FieldLayer::LowLevelReflectivity
+                | FieldLayer::MrmsRefl0c
+                | FieldLayer::MrmsReflM5c
+                | FieldLayer::MrmsReflM10c
+                | FieldLayer::MrmsReflM15c
+                | FieldLayer::MrmsReflM20c
                 | FieldLayer::Mosaic
                 | FieldLayer::Hrrr
                 | FieldLayer::Cape
@@ -338,7 +353,7 @@ impl FieldLayer {
     }
 
     /// Fixed bottom-to-top paint order within each band.
-    pub const DRAW_ORDER: [FieldLayer; 71] = [
+    pub const DRAW_ORDER: [FieldLayer; 76] = [
         // Below-radar context band (bottom to top). The global models sit at the very bottom:
         // they are the synoptic backdrop everything else is drawn against — satellite included,
         // since it is the same kind of backdrop and the radar itself paints over it just the same.
@@ -376,6 +391,11 @@ impl FieldLayer {
         FieldLayer::Mrms,
         FieldLayer::ReflLowestAlt,
         FieldLayer::LowLevelReflectivity,
+        FieldLayer::MrmsRefl0c,
+        FieldLayer::MrmsReflM5c,
+        FieldLayer::MrmsReflM10c,
+        FieldLayer::MrmsReflM15c,
+        FieldLayer::MrmsReflM20c,
         FieldLayer::Mosaic,
         FieldLayer::Hrrr,
         FieldLayer::Cape,
@@ -494,9 +514,9 @@ impl FieldLayer {
             FieldLayer::EtopLocal => "etop-local",
             FieldLayer::HailMehs => "hail-mehs",
             FieldLayer::HailPosh => "hail-posh",
-            // These three slugs are also `wxdata::mrms::catalog` field IDs — `descriptor()`
-            // resolves them by exact string match, so a slug here that doesn't match its
-            // catalog `FieldId` would silently break provenance/search for the layer.
+            // These national-layer slugs are also `wxdata::mrms::catalog` field IDs —
+            // `descriptor()` resolves them by exact string match, so a mismatch here would
+            // silently break provenance/search for the layer.
             FieldLayer::Posh => "posh",
             FieldLayer::Shi => "shi",
             FieldLayer::MrmsVil => "mrms-vil",
@@ -506,6 +526,11 @@ impl FieldLayer {
             FieldLayer::MrmsEchoTop60 => "mrms-etop60",
             FieldLayer::ReflLowestAlt => "refl-lowest-alt",
             FieldLayer::LowLevelReflectivity => "low-level-reflectivity",
+            FieldLayer::MrmsRefl0c => "mrms-refl-0c",
+            FieldLayer::MrmsReflM5c => "mrms-refl-m5c",
+            FieldLayer::MrmsReflM10c => "mrms-refl-m10c",
+            FieldLayer::MrmsReflM15c => "mrms-refl-m15c",
+            FieldLayer::MrmsReflM20c => "mrms-refl-m20c",
             FieldLayer::Snowfall => "snowfall",
             FieldLayer::SnowAnalysis => "snow-analysis",
             FieldLayer::GlobalMslp => "global-mslp",

@@ -780,5 +780,7 @@ a scale bar on the map; a network round-trip measurement for the app bar; a natu
   identifiers intact; the shared layer options offer the same control when QPE is on.
 - The Satellite tab also offers a compact 18/30/50/60 dBZ MRMS echo-top selector using the same
   choice pattern. The panel stays map-first; changing thresholds only changes the active pane.
+- A matching selector switches MRMS reflectivity among five environmental temperature levels.
+  It uses the same compact row pattern and preserves the map-first layout and per-product IDs.
 - The radar health and delay readout in the app bar opens the existing Data source health window
   on click, with an accessible action name and a hover hint for the provider detail.
