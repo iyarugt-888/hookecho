@@ -2488,7 +2488,7 @@ fn field_refresh_secs(layer: crate::render::FieldLayer) -> u64 {
     use crate::render::FieldLayer as FL;
     match layer {
         FL::Lightning | FL::AzShear => 60,
-        FL::Mrms | FL::Mesh | FL::Rotation | FL::Hrrr | FL::Mosaic => 120,
+        FL::Mrms | FL::Mesh | FL::Rotation | FL::RotationMidLevel | FL::Hrrr | FL::Mosaic => 120,
         // Same MRMS product cadence as MESH/rotation above.
         FL::Posh
         | FL::Shi

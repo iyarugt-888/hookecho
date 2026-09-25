@@ -72,6 +72,17 @@ pub(crate) const ISOTHERM_LEVELS: [(FieldLayer, &str); 5] = [
     (FieldLayer::MrmsReflM20c, "-20°C"),
 ];
 
+fn rotation_window_label(minutes: u16) -> &'static str {
+    match minutes {
+        60 => "1h",
+        120 => "2h",
+        240 => "4h",
+        360 => "6h",
+        1440 => "24h",
+        _ => "30m",
+    }
+}
+
 fn select_one_of(
     on: &mut std::collections::HashSet<FieldLayer>,
     choices: &[(FieldLayer, &str)],
@@ -369,7 +380,10 @@ pub(crate) fn show(
             .any(|l| on.contains(l)),
         ),
         ("Spotters", show_spotters),
-        ("Rotation tracks", on.contains(&FL::Rotation)),
+        (
+            "Rotation tracks",
+            on.contains(&FL::Rotation) || on.contains(&FL::RotationMidLevel),
+        ),
         ("Hail swaths", on.contains(&FL::HailSwath)),
         ("Radar mosaic", on.contains(&FL::Mosaic)),
         ("Nowcast", filters.show_nowcast),
@@ -846,20 +860,35 @@ pub(crate) fn show(
         }
     };
 
-    if section == "Rotation tracks" && on.contains(&FL::Rotation) {
+    if section == "Rotation tracks"
+        && (on.contains(&FL::Rotation) || on.contains(&FL::RotationMidLevel))
+    {
         header(ui, "Rotation tracks");
         ui.horizontal(|ui| {
             ui.label("Window:");
             let mut dur = false;
-            for m in [30u16, 60, 120] {
-                dur |= ui
-                    .selectable_value(rotation_minutes, m, format!("{m}m"))
-                    .changed();
-            }
-            // Duration change → force an immediate refetch of the rotation grid.
+            egui::ComboBox::from_id_salt("mrms_rotation_window")
+                .selected_text(rotation_window_label(*rotation_minutes))
+                .show_ui(ui, |ui| {
+                    for minutes in wxdata::mrms::ROTATION_WINDOWS {
+                        dur |= ui
+                            .selectable_value(
+                                rotation_minutes,
+                                minutes,
+                                rotation_window_label(minutes),
+                            )
+                            .changed();
+                    }
+                })
+                .response
+                .named("MRMS rotation track window")
+                .on_hover_text("Applies to both 0–2 km and 3–6 km AGL tracks in all panes");
+            // Duration change → refetch both altitude bands on their new window.
             if dur {
-                if let Some(s) = fields.get_mut(&FL::Rotation) {
-                    s.last_fetch = None;
+                for layer in [FL::Rotation, FL::RotationMidLevel] {
+                    if let Some(s) = fields.get_mut(&layer) {
+                        s.last_fetch = None;
+                    }
                 }
             }
         });

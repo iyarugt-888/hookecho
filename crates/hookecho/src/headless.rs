@@ -1946,13 +1946,41 @@ pub fn run_lightning(out_path: &str) -> anyhow::Result<()> {
 }
 
 /// Fetch + render one index-mapped national field layer (rotation / MESH / AzShear) over CONUS,
-/// printing grid stats. `slug` = rotation30|rotation60|rotation120|mesh|azshear.
+/// printing grid stats. Rotation accepts 30/60/120/240/360/1440-minute low-level and
+/// `rotationml*` mid-level windows, alongside the other named national fields below.
 pub fn run_field(slug: &str, out_path: &str) -> anyhow::Result<()> {
     use crate::render::FieldLayer as FL;
     let (product, layer): (String, FL) = match slug {
         "rotation30" => (wxdata::mrms::rotation_track(30).to_string(), FL::Rotation),
         "rotation60" => (wxdata::mrms::rotation_track(60).to_string(), FL::Rotation),
         "rotation120" => (wxdata::mrms::rotation_track(120).to_string(), FL::Rotation),
+        "rotation240" => (wxdata::mrms::rotation_track(240).to_string(), FL::Rotation),
+        "rotation360" => (wxdata::mrms::rotation_track(360).to_string(), FL::Rotation),
+        "rotation1440" => (wxdata::mrms::rotation_track(1440).to_string(), FL::Rotation),
+        "rotationml30" => (
+            wxdata::mrms::rotation_track_midlevel(30).to_string(),
+            FL::RotationMidLevel,
+        ),
+        "rotationml60" => (
+            wxdata::mrms::rotation_track_midlevel(60).to_string(),
+            FL::RotationMidLevel,
+        ),
+        "rotationml120" => (
+            wxdata::mrms::rotation_track_midlevel(120).to_string(),
+            FL::RotationMidLevel,
+        ),
+        "rotationml240" => (
+            wxdata::mrms::rotation_track_midlevel(240).to_string(),
+            FL::RotationMidLevel,
+        ),
+        "rotationml360" => (
+            wxdata::mrms::rotation_track_midlevel(360).to_string(),
+            FL::RotationMidLevel,
+        ),
+        "rotationml1440" => (
+            wxdata::mrms::rotation_track_midlevel(1440).to_string(),
+            FL::RotationMidLevel,
+        ),
         "mesh" => (wxdata::mrms::MESH.to_string(), FL::Mesh),
         "azshear" => (wxdata::mrms::AZSHEAR.to_string(), FL::AzShear),
         "qpe1h" => (wxdata::mrms::QPE_01H.to_string(), FL::Qpe1h),
@@ -1963,7 +1991,7 @@ pub fn run_field(slug: &str, out_path: &str) -> anyhow::Result<()> {
         "preciptype" => (wxdata::mrms::PRECIP_TYPE.to_string(), FL::PrecipType),
         "flashflood" => (wxdata::mrms::FLASH_ARI30.to_string(), FL::FlashFlood),
         "hailswath" => (wxdata::mrms::MESH_1440.to_string(), FL::HailSwath),
-        other => anyhow::bail!("unknown field slug '{other}' (rotation30|rotation60|rotation120|mesh|azshear|qpe1h|qpe3h|qpe6h|qpe12h|qpe24h|preciptype|flashflood|hailswath)"),
+        other => anyhow::bail!("unknown field slug '{other}' (rotation{{30,60,120,240,360,1440}}|rotationml{{30,60,120,240,360,1440}}|mesh|azshear|qpe1h|qpe3h|qpe6h|qpe12h|qpe24h|preciptype|flashflood|hailswath)"),
     };
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()

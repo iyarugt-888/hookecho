@@ -6,6 +6,7 @@ use crate::field::{DataSource, FieldDescriptor, FieldFamily, FieldId, PaletteId,
 pub enum FetchMapping {
     Fixed(&'static str),
     Rotation,
+    RotationMidLevel,
     Lightning,
     Hail,
 }
@@ -27,6 +28,7 @@ impl Product {
         match self.fetch {
             FetchMapping::Fixed(path) => path,
             FetchMapping::Rotation => super::rotation_track(rotation_minutes),
+            FetchMapping::RotationMidLevel => super::rotation_track_midlevel(rotation_minutes),
             FetchMapping::Lightning => super::lightning_density(lightning_minutes),
             FetchMapping::Hail => super::hail_swath(hail_minutes),
         }
@@ -41,9 +43,12 @@ pub fn find(id: &str) -> Option<&'static Product> {
 pub fn find_by_path(path: &str) -> Option<&'static Product> {
     PRODUCTS.iter().find(|product| match product.fetch {
         FetchMapping::Fixed(fixed) => path == fixed,
-        FetchMapping::Rotation => [30, 60, 120]
-            .iter()
-            .any(|&minutes| path == super::rotation_track(minutes)),
+        FetchMapping::Rotation => super::ROTATION_WINDOWS
+            .into_iter()
+            .any(|minutes| path == super::rotation_track(minutes)),
+        FetchMapping::RotationMidLevel => super::ROTATION_WINDOWS
+            .into_iter()
+            .any(|minutes| path == super::rotation_track_midlevel(minutes)),
         FetchMapping::Lightning => [1, 5, 15, 30]
             .iter()
             .any(|&minutes| path == super::lightning_density(minutes)),
@@ -77,8 +82,8 @@ pub static PRODUCTS: &[Product] = &[
             id: FieldId("rotation"),
             source: DataSource::NoaaMrms,
             family: FieldFamily::Mrms,
-            name: "Rotation tracks",
-            description: "Where rotation has passed over the last hour — the tornado-track map",
+            name: "Rotation tracks (0–2 km)",
+            description: "Peak low-level cyclonic shear over the selected window (0–2 km AGL)",
             units: Unit::MilliPerSecond,
             value_kind: ValueKind::Scalar,
             aliases: "azimuthal shear swath",
@@ -89,6 +94,24 @@ pub static PRODUCTS: &[Product] = &[
         },
         common: true,
         fetch: FetchMapping::Rotation,
+    },
+    Product {
+        field: FieldDescriptor {
+            id: FieldId("rotation-ml"),
+            source: DataSource::NoaaMrms,
+            family: FieldFamily::Mrms,
+            name: "Rotation tracks (3–6 km)",
+            description: "Peak mid-level cyclonic shear over the selected window (3–6 km AGL)",
+            units: Unit::MilliPerSecond,
+            value_kind: ValueKind::Scalar,
+            aliases: "midlevel mid-level azimuthal shear swath severe",
+            default_palette: PaletteId::Rotation,
+            default_contour_interval: None,
+            valid_domain: Some(crate::field::GeographicBounds::CONUS),
+            missing_values: &[0.0],
+        },
+        common: false,
+        fetch: FetchMapping::RotationMidLevel,
     },
     Product {
         field: FieldDescriptor {
@@ -586,9 +609,13 @@ mod tests {
         for product in PRODUCTS {
             let paths: Vec<&'static str> = match product.fetch {
                 FetchMapping::Fixed(p) => vec![p],
-                FetchMapping::Rotation => [30, 60, 120]
+                FetchMapping::Rotation => super::super::ROTATION_WINDOWS
                     .iter()
                     .map(|&m| super::super::rotation_track(m))
+                    .collect(),
+                FetchMapping::RotationMidLevel => super::super::ROTATION_WINDOWS
+                    .iter()
+                    .map(|&m| super::super::rotation_track_midlevel(m))
                     .collect(),
                 FetchMapping::Lightning => [1, 5, 15, 30]
                     .iter()
@@ -634,7 +661,7 @@ mod tests {
             assert!(path.starts_with("CONUS/"));
             assert!(paths.insert(path));
         }
-        assert_eq!(PRODUCTS.len(), 28);
+        assert_eq!(PRODUCTS.len(), 29);
         assert!(find("hrrr").is_none());
         for product in PRODUCTS {
             assert!(std::ptr::eq(
@@ -684,11 +711,30 @@ mod tests {
             (30, "CONUS/RotationTrack30min_00.50"),
             (60, "CONUS/RotationTrack60min_00.50"),
             (120, "CONUS/RotationTrack120min_00.50"),
+            (240, "CONUS/RotationTrack240min_00.50"),
+            (360, "CONUS/RotationTrack360min_00.50"),
+            (1440, "CONUS/RotationTrack1440min_00.50"),
             (999, "CONUS/RotationTrack30min_00.50"),
         ] {
             assert_eq!(rotation.path(minutes, 5, 1440), path);
             assert_eq!(find_by_path(path).unwrap().field.id, rotation.field.id);
         }
+        let midlevel = find("rotation-ml").unwrap();
+        for (minutes, path) in [
+            (30, "CONUS/RotationTrackML30min_00.50"),
+            (60, "CONUS/RotationTrackML60min_00.50"),
+            (120, "CONUS/RotationTrackML120min_00.50"),
+            (240, "CONUS/RotationTrackML240min_00.50"),
+            (360, "CONUS/RotationTrackML360min_00.50"),
+            (1440, "CONUS/RotationTrackML1440min_00.50"),
+            (999, "CONUS/RotationTrackML30min_00.50"),
+        ] {
+            assert_eq!(midlevel.path(minutes, 5, 1440), path);
+            assert_eq!(find_by_path(path).unwrap().field.id, midlevel.field.id);
+        }
+        assert_eq!(midlevel.field.units, Unit::MilliPerSecond);
+        assert_eq!(midlevel.field.default_palette, PaletteId::Rotation);
+        assert_eq!(midlevel.field.missing_values, &[0.0]);
         let lightning = find("lightning").unwrap();
         for minutes in [1, 5, 15, 30, 999] {
             assert_eq!(

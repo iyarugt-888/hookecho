@@ -1834,8 +1834,9 @@ The current `mrms.rs` contains a valuable but hand-selected subset. Replace the 
 
 ## D1. MRMS product catalog — partly done, found already built
 
-`wxdata::mrms::catalog` exists (see A1's corrected notes above), now with 28 products as
-`FieldDescriptor`s: national composite reflectivity, rotation tracks (30/60/120 min), MESH,
+`wxdata::mrms::catalog` exists (see A1's corrected notes above), now with 29 products as
+`FieldDescriptor`s: national composite reflectivity, low- and mid-level rotation tracks
+(30/60/120/240/360/1440 min), MESH,
 MESH swaths (30/60/120/240/360/1440 min), azimuthal shear, lightning density (1/5/15/30 min),
 precip rate, QPE 1h/3h/6h/12h/24h, precip type, FLASH ARI-30, POSH (`FieldLayer::Posh`),
 Severe Hail Index (`FieldLayer::Shi`), national VIL (`FieldLayer::MrmsVil`, distinct from the
@@ -1846,7 +1847,7 @@ named below. National echo tops at 18, 30, 50 and 60 dBZ are also cataloged, eac
 stable layer slug and one shared km MSL legend distinct from local and Level III kft echo tops.
 Five isothermal reflectivity products at the environmental 0/-5/-10/-15/-20°C levels use the
 configured dBZ palette. Verified live against the real bucket (see D1's "Rules" item below):
-38/38 paths confirmed.
+47/47 paths confirmed.
 
 Each new product needed more than catalog metadata alone to actually reach a user: a matching
 `FieldLayer` variant (`render/mod.rs`: enum entry, `DRAW_ORDER` slot, a slug that exactly
@@ -1905,15 +1906,15 @@ Target operational groups:
 
 - MRMS snow/precipitation-type products when published in the operational bucket
 
-The 28 products above cover composite reflectivity, both low-level forms (single-tilt and
-low-level-composite), five isothermal reflectivity levels, rotation/azshear, MESH + swaths, POSH,
-SHI, precip rate/QPE (1/3/6/12/24h)/type, national VIL, all four national echo-top thresholds, lightning and flash-flood
-rarity. **Not yet cataloged**, all genuine gaps rather than oversights — confirmed live on the bucket
+The 29 products above cover composite reflectivity, both low-level forms (single-tilt and
+low-level-composite), five isothermal reflectivity levels, low-level azshear, both rotation-track
+bands, MESH + swaths, POSH, SHI, precip rate/QPE (1/3/6/12/24h)/type, national VIL, all four
+national echo-top thresholds, lightning and flash-flood rarity. **Not yet cataloged**, all genuine
+gaps rather than oversights — confirmed live on the bucket
 while adding products across this and the prior pass, so these are real, verified prefixes to pick up next,
 not guesses: hail-growth-zone height products (`H50_Above_-20C_00.50` and siblings
 — related to but distinct from a literal "-20°C height," which MRMS does not publish directly;
-`Model_0degC_Height_00.50` is the closest real 0°C-level product), mid-level rotation tracks
-(`RotationTrackML*`, alongside the existing low-level ones), QPE-to-ARI exceedance fields
+`Model_0degC_Height_00.50` is the closest real 0°C-level product), QPE-to-ARI exceedance fields
 beyond the one 30-minute window (`FLASH_QPE_ARI01H/03H/06H/12H/24H/MAX_00.00` all exist live),
 streamflow products (`FLASH_CREST_MAXSTREAMFLOW_00.00` and several sibling FLASH/CREST/HP/SAC
 variants), and MRMS's winter/precip-type-family products beyond the one flag already cataloged
@@ -1925,9 +1926,9 @@ may not exist as a separate published product, not confirmed either way).
 - [x] Do not blindly list a product unless a feed contract test confirms it exists —
   `mrms::catalog::the_mrms_catalog_paths_are_real` (network-gated) asks the live bucket for every
   path every product's `FetchMapping` can produce (default plus every published window), the same
-  listing a real fetch depends on. Passing today: 38/38 paths (25 single-path products plus
-  rotation/lightning/hail-swath's multiple published windows — 25 + 3 + 4 + 6 = 38) confirmed
-  live, including all four echo-top thresholds and five isothermal reflectivity levels.
+  listing a real fetch depends on. Passing today: 47/47 paths (25 single-path products plus
+  low-/mid-level rotation, lightning and hail-swath windows — 25 + 6 + 6 + 4 + 6 = 47) confirmed
+  live, including both rotation bands, all four echo-top thresholds and five isothermal levels.
 
 ## D2. Generic MRMS fetch/decode path — done
 
@@ -1983,6 +1984,9 @@ not a convention callers have to remember.
 - [x] isothermal reflectivity selector — the same compact choice pattern offers the 0/-5/-10/
   -15/-20°C environmental levels. It swaps only the active pane's isothermal reflectivity layer;
   individual catalog rows still permit a deliberate multi-level overlay.
+- [x] rotation-track window selector — one compact dropdown offers all six operational windows
+  for both the 0–2 km and 3–6 km AGL bands. Each band has its own saved layer ID; changing the
+  shared window refetches both when loaded.
 - [x] valid time — `ui::data_inspector`'s "Valid" row, with signed offset from the pane's analysis
   time
 - [x] native resolution — `GridProvenance.native`, shown as part of the same inspector's grid
@@ -2012,17 +2016,16 @@ Do not fabricate 3D from a 2D surface product.
 ### Acceptance criteria
 
 - [x] new scalar MRMS product can be added through catalog metadata with minimal/no new UI code —
-  confirmed by actually doing it five times across two passes (POSH/SHI/national VIL, then
-  reflectivity-at-lowest-altitude/low-level-composite-reflectivity), not just claimed: each
-  needed a catalog entry and a matching `FieldLayer` slug (plus a ramp, for the three that don't
-  reuse an existing `PaletteId`) — the fetch, Layers-panel picker, search, provenance, and
-  health-tracking all picked them up automatically. D3's accumulation-window picker is a separate
-  shared control over existing QPE layer slugs, not a control generated from catalog metadata.
-- [ ] at least the major WeatherFront-class MRMS groups are covered — 28 products across
+  confirmed with POSH/SHI/national VIL, both low-level reflectivity fields, the echo-top and
+  isothermal reflectivity sets, and mid-level rotation tracks. Each needed a catalog entry and a
+  matching `FieldLayer` slug (plus a ramp when no existing `PaletteId` fit); the fetch, Layers
+  picker, search, provenance and health tracking picked them up. Window/threshold controls are
+  shared UI over those catalog entries, not generated from metadata.
+- [ ] at least the major WeatherFront-class MRMS groups are covered — 29 products across
   reflectivity (now including both low-level forms)/severe (POSH/SHI)/precipitation/lightning/
   hydrology (QPE now spans 1h/3h/6h/12h/24h)/VIL/all four echo-top thresholds and five
-  reflectivity-at-isotherm levels; several groups from D1's target list (layer heights,
-  streamflow and ARI windows beyond 30 min)
+  reflectivity-at-isotherm levels, plus both rotation bands; several groups from D1's target list
+  (layer heights, streamflow and ARI windows beyond 30 min)
   are confirmed real on the live bucket but not yet cataloged — see D1's updated gap list for the
   exact prefixes
 - [x] categorical fields use nearest-neighbor

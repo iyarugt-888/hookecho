@@ -117,6 +117,8 @@ pub enum FieldLayer {
     Mrms,
     Hrrr,
     Rotation,
+    /// MRMS peak cyclonic shear track in the 3–6 km AGL layer.
+    RotationMidLevel,
     Mesh,
     AzShear,
     Lightning,
@@ -353,7 +355,7 @@ impl FieldLayer {
     }
 
     /// Fixed bottom-to-top paint order within each band.
-    pub const DRAW_ORDER: [FieldLayer; 76] = [
+    pub const DRAW_ORDER: [FieldLayer; 77] = [
         // Below-radar context band (bottom to top). The global models sit at the very bottom:
         // they are the synoptic backdrop everything else is drawn against — satellite included,
         // since it is the same kind of backdrop and the radar itself paints over it just the same.
@@ -433,6 +435,7 @@ impl FieldLayer {
         FieldLayer::Hca,
         FieldLayer::UpdraftHelicity,
         FieldLayer::Rotation,
+        FieldLayer::RotationMidLevel,
         FieldLayer::Mesh,
         FieldLayer::AzShear,
         FieldLayer::Lightning,
@@ -486,6 +489,7 @@ impl FieldLayer {
             FieldLayer::Mrms => "mrms",
             FieldLayer::Hrrr => "hrrr",
             FieldLayer::Rotation => "rotation",
+            FieldLayer::RotationMidLevel => "rotation-ml",
             FieldLayer::Mesh => "mesh",
             FieldLayer::AzShear => "azshear",
             FieldLayer::Lightning => "lightning",

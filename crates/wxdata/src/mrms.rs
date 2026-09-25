@@ -104,13 +104,32 @@ pub const ECHO_TOP_50: &str = "CONUS/EchoTop_50_00.50";
 /// Height of the 60-dBZ echo top (km MSL).
 pub const ECHO_TOP_60: &str = "CONUS/EchoTop_60_00.50";
 
-/// Low-level rotation-track (accumulated azimuthal-shear max) product path for `minutes`
-/// (30/60/120 supported; other values fall back to 30).
+/// Published low- and mid-level rotation-track accumulation windows, in minutes.
+pub const ROTATION_WINDOWS: [u16; 6] = [30, 60, 120, 240, 360, 1440];
+
+/// Low-level (0–2 km AGL) rotation-track product path for `minutes`.
+/// Unsupported values fall back to 30 minutes.
 pub fn rotation_track(minutes: u16) -> &'static str {
     match minutes {
         60 => "CONUS/RotationTrack60min_00.50",
         120 => "CONUS/RotationTrack120min_00.50",
+        240 => "CONUS/RotationTrack240min_00.50",
+        360 => "CONUS/RotationTrack360min_00.50",
+        1440 => "CONUS/RotationTrack1440min_00.50",
         _ => "CONUS/RotationTrack30min_00.50",
+    }
+}
+
+/// Mid-level (3–6 km AGL) rotation-track product path for `minutes`.
+/// Unsupported values fall back to 30 minutes.
+pub fn rotation_track_midlevel(minutes: u16) -> &'static str {
+    match minutes {
+        60 => "CONUS/RotationTrackML60min_00.50",
+        120 => "CONUS/RotationTrackML120min_00.50",
+        240 => "CONUS/RotationTrackML240min_00.50",
+        360 => "CONUS/RotationTrackML360min_00.50",
+        1440 => "CONUS/RotationTrackML1440min_00.50",
+        _ => "CONUS/RotationTrackML30min_00.50",
     }
 }
 

@@ -1013,6 +1013,7 @@ pub fn ramp_for(layer: FieldLayer) -> Option<&'static FieldRamp> {
         // here — same reason `ModelDiff` has none of its own (built dynamically in `fielddiff`).
         FL::Mrms
         | FL::Rotation
+        | FL::RotationMidLevel
         | FL::AzShear
         | FL::Mesh
         | FL::HailSwath
@@ -1055,6 +1056,7 @@ mod tests {
     fn catalog_palettes_preserve_existing_scales() {
         for (id, expected) in [
             ("rotation", &ROTATION),
+            ("rotation-ml", &ROTATION),
             ("azshear", &ROTATION),
             ("mesh", &MESH),
             ("hailswath", &HAIL_SWATH),

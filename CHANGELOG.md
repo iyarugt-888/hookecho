@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: complete MRMS rotation-track windows
+
+Low-level (0–2 km AGL) and mid-level (3–6 km AGL) rotation tracks now offer the published
+30-minute, 1/2/4/6-hour and 24-hour windows. A compact window control applies to both bands,
+and changing it refetches any loaded tracks. The mid-level band has its own saved layer ID and
+the same shear scale. The live catalog contract confirms all 47 MRMS paths.
+
 ### Added: national reflectivity at temperature levels
 
 The MRMS browser now includes reflectivity at the 0, -5, -10, -15 and -20°C environmental
