@@ -17,7 +17,7 @@ enum Hit {
 
 impl HookEchoApp {
     pub(super) fn dock_layers(&mut self, host: Host<'_>, ctx: &egui::Context) {
-        if !self.dock.layers_open {
+        if !self.dock.layers.open {
             return;
         }
         let t = self.ws_tokens();
@@ -31,14 +31,21 @@ impl HookEchoApp {
             &self.settings.favorite_layers,
         );
         let mut hit = None;
+        // Typed commands ("time 21:30Z", "at now") share the search box, as in the panel.
+        let command = crate::ui::layers_panel::command_entry(
+            &self.dock.query,
+            self.views[self.active].timeline.date,
+        );
+        let focus_search = std::mem::take(&mut self.dock.focus_search);
+        let mut fly_to = None;
         let mut footer = None;
         let model_input = self.model_panel_input();
         let model_on = self.views[self.active].fields_on.clone();
         let model_tz = self.active_tz();
         let mut ui_actions = crate::ui::layer_options::UiActions::default();
-        let place = self.dock.layers_place;
+        let place = self.dock.layers.place;
         let floating = place == Place::Float;
-        let collapsed = floating && self.dock.layers_collapsed;
+        let collapsed = floating && self.dock.layers.collapsed;
         let map_rect = self.chrome_rect;
         // A floating window has no panel to fill, so it gets a height of its own.
         let float_list_h = (map_rect.height() - 170.0).clamp(160.0, 480.0);
@@ -68,11 +75,17 @@ impl HookEchoApp {
                 egui::Frame::NONE
                     .inner_margin(egui::Margin::symmetric(10, 8))
                     .show(ui, |ui| {
-                        ui.add(
+                        let search = ui.add(
                             egui::TextEdit::singleline(&mut self.dock.query)
-                                .hint_text(format!("{}  Search layers", ph::MAGNIFYING_GLASS))
+                                .hint_text(format!(
+                                    "{}  Search layers, sites, tools (Ctrl+K)",
+                                    ph::MAGNIFYING_GLASS
+                                ))
                                 .desired_width(f32::INFINITY),
                         );
+                        if focus_search {
+                            search.request_focus();
+                        }
                         ui.add_space(4.0);
                         let active_label = format!("Active ({active})");
                         let labels = ["All", active_label.as_str(), "Favorites"];
@@ -134,6 +147,16 @@ impl HookEchoApp {
                                     self.layer_options_body(ui, &mut ui_actions);
                                 });
                         }
+                        // A typed command answers first; a place name is the explicit last row.
+                        if let Some(c) = &command {
+                            if ws::button(ui, &t, &c.label, ui.available_width() - 20.0)
+                                .on_hover_text(c.desc)
+                                .clicked()
+                            {
+                                hit = Some(Hit::Row(c.action));
+                            }
+                            ui.add_space(4.0);
+                        }
                         if groups.is_empty() {
                             let why = match self.dock.filter {
                                 LayerFilter::Favorites if self.dock.query.is_empty() => {
@@ -167,6 +190,20 @@ impl HookEchoApp {
                             }
                         }
                     });
+                let query = self.dock.query.trim();
+                if !query.is_empty() {
+                    ui.horizontal(|ui| {
+                        ui.add_space(10.0);
+                        let label = format!("{}  Fly to \u{201c}{query}\u{201d}", ph::MAP_PIN);
+                        if ws::button(ui, &t, &label, ui.available_width() - 10.0)
+                            .named("Look the place up and move the map there")
+                            .clicked()
+                        {
+                            fly_to = Some(query.to_string());
+                        }
+                    });
+                    ui.add_space(4.0);
+                }
                 // The footer: the ways to add a layer that is not in the registry yet.
                 let (rect, _) = ui.allocate_exact_size(
                     egui::vec2(ui.available_width(), footer_h),
@@ -206,12 +243,7 @@ impl HookEchoApp {
         // The model controls and the layer options both report through one actions struct.
         let from_panels = ui_actions.palette.take();
         self.apply_ui_actions(ui_actions, ctx);
-        apply_header(
-            header,
-            &mut self.dock.layers_open,
-            &mut self.dock.layers_place,
-            &mut self.dock.layers_collapsed,
-        );
+        apply_header(header, &mut self.dock.layers);
         match hit {
             Some(Hit::Row(a)) => self.apply_palette(a, ctx),
             Some(Hit::Star(slug)) => {
@@ -221,6 +253,9 @@ impl HookEchoApp {
         }
         for a in [from_panels, footer].into_iter().flatten() {
             self.apply_palette(a, ctx);
+        }
+        if let Some(place) = fly_to {
+            self.start_place_search(place, ctx);
         }
     }
 }

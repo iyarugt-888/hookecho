@@ -601,6 +601,38 @@ other one's arrangement, and it rides along in a workspace's `Chrome`, so applyi
 workspace restores its windows too. A layout with nothing saved starts from its preset
 (`DockState::preset`).
 
+#### 13.2.8 Everything reachable from the workstation
+
+The workstation draws none of the floating chrome — no search pill, no control column, no
+floating panel — so everything those held has a home here, and the homes are checked:
+
+- **Windows.** Every `AppWindow` sits in exactly one app-bar menu (`dock/menus.rs`): *Tools*
+  (Analysis · Data & map · Events & alerts), *Settings*, *Help*, or its own button
+  (*Discussion*). `window_home` is an exhaustive match, so a new window does not compile until it
+  is placed, and a test checks every window is listed once.
+- **Map tools.** Every `MapTool` has a rail button; `rail_group` is exhaustive the same way and a
+  test checks the rail against it. Radar suitability, tornado climatology and the chase location
+  joined the rail for this.
+- **The panel's own pages.** *Map settings* (background, crisp/smooth radar, live sweep
+  indicator, launch position, offline maps) and *Preferences* (display and streaming mode,
+  location, weather radio, share and image export, backup, help) are the **Preferences** tool
+  window, reached from the Settings menu (and Share → "Images, video and more…"). It draws the
+  panel's own `map_rows`/`app_rows`, so the layouts cannot offer different settings.
+- **Alerts.** The alert list is the **Alerts** tool window (bell button with the count in view),
+  the same `ui::alert_panel` list the panel's tab draws; a row flies to the alert and opens it.
+- **Actions that meant "the panel".** In a workstation layout, Ctrl+K / the drawer key open the
+  Layers window with the keyboard in its search box; the panel toggle toggles Layers; the alerts
+  key and the "Active alerts list" row toggle the Alerts window (`workstation_chrome()` in
+  `app.rs` routes them).
+- **Search.** The Layers search covers layers, sites and tools (it is the registry), answers typed
+  time commands (`time 21:30Z`, `at now`) first, and offers **Fly to "…"** for a place name, the
+  panel's geocoder (`start_place_search`).
+- **Share.** Share menu: copy a link to this view, Open in Windy, export/import GeoJSON, images and
+  more, save the layout as a workspace, and open any saved workspace.
+- **Toolbar.** Adds storm-relative velocity to the product menu, the VCP's scan-strategy detail on
+  click, the legend toggle, a map-style picker (the basemap panel; Z still cycles) and pane count
+  and arrangement.
+
 ### 13.3 Design tokens
 
 All colours and sizes come from one `Tokens` value (`ui/workstation.rs`), not from constants
@@ -727,5 +759,12 @@ a scale bar on the map; a network round-trip measurement for the app bar; a natu
   the 3D block; the rail gained Layers and "center on the radar"; the top bars hide with T.
   Checked by screenshot: WSV3 map-first, WSV3 with Layers floating on the Surface tab and the
   Inspector docked right, the Dock with Layers folded, and the Command Ribbon unchanged.
+- Third pass ("focus on the Dock, make everything accessible"): the audit in §13.2.8 found the
+  Dock could not reach command search, the alert list, the panel's Map settings and Preferences
+  pages, place search and time commands, pane count, the legend, SRV, scan-strategy detail,
+  sharing and workspaces, and three map tools; each now has a home, the windows and tools by
+  exhaustive matches. Tool windows became four (Layers, Inspector, Alerts, Preferences), each a
+  `WindowChrome` (open, place, folded) in the saved arrangement. Checked by screenshot with all
+  four open, docked and floating.
 - The old dock's two `"{2039}"`/`"loading{2026}"` strings were missing their `\u` and rendered
   literally; the model card's is fixed and the arrow buttons are glyphs now.

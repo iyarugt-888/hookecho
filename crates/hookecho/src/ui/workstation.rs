@@ -214,7 +214,9 @@ pub fn window_header(
     let mut button = |ui: &mut egui::Ui, glyph: &str, hint: &str| -> Response {
         let r = Rect::from_center_size(egui::pos2(x, rect.center().y), egui::vec2(22.0, 22.0));
         x -= 24.0;
-        let resp = ui.interact(r, ui.id().with((title, hint)), Sense::click());
+        // Keyed on the hint, not the title: a title that carries a count ("Alerts (8)") would
+        // otherwise give the same button a new id whenever the count changes.
+        let resp = ui.interact(r, ui.id().with(("window_header", hint)), Sense::click());
         if resp.hovered() {
             ui.painter().rect_filled(r, 4.0, t.field_hi);
         }

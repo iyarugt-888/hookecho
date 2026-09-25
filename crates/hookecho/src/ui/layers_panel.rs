@@ -79,7 +79,7 @@ pub(crate) fn matches(entries: &[PaletteEntry], query: &str) -> Vec<usize> {
 
 /// Typed timeline commands share the same result list as the action registry. Times without a
 /// date use the day currently selected on the radar timeline; every displayed time is UTC.
-fn command_entry(query: &str, selected_day: chrono::NaiveDate) -> Option<PaletteEntry> {
+pub(crate) fn command_entry(query: &str, selected_day: chrono::NaiveDate) -> Option<PaletteEntry> {
     let (verb, value) = query.trim().split_once(' ')?;
     if !["time", "at", "goto"]
         .iter()

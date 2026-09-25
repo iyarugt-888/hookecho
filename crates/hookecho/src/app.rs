@@ -10642,9 +10642,17 @@ impl HookEchoApp {
         }
     }
 
+    /// Whether this frame draws the analyst workstation (`app::chrome::dock`) rather than the
+    /// floating or ribbon chrome: the actions that open "the panel" open its windows instead.
+    pub(crate) fn workstation_chrome(&self) -> bool {
+        self.settings.layout.is_workstation() && !crate::platform::phone_layout()
+    }
+
     fn overlay_flag(&mut self, t: OverlayToggle) -> &mut bool {
         use OverlayToggle as T;
         match t {
+            // The workstation has an Alerts window of its own rather than the panel's tab.
+            T::AlertPanel if self.workstation_chrome() => &mut self.dock.alerts.open,
             T::AlertPanel => &mut self.show_alert_panel,
             T::StormReports => &mut self.show_storm_reports,
             T::Spotters => &mut self.show_spotters,
@@ -10966,6 +10974,10 @@ impl HookEchoApp {
             }
             PaletteAction::ToggleMute => self.apply_action(BindableAction::ToggleMute, ctx),
             PaletteAction::Explain(i) => self.help_hub.explain(i),
+            // The workstation's Layers window is its panel.
+            PaletteAction::TogglePanel if self.workstation_chrome() => {
+                self.dock.layers.open = !self.dock.layers.open;
+            }
             PaletteAction::TogglePanel => self.panel_open = !self.panel_open,
             PaletteAction::ToggleRibbon => self.ribbon_collapsed = !self.ribbon_collapsed,
             PaletteAction::Reload => self.trigger_reload(ctx),
@@ -13293,6 +13305,9 @@ impl HookEchoApp {
                     self.site_dialog = Some(Default::default());
                 }
             }
+            A::ToggleAlertPanel if self.workstation_chrome() => {
+                self.dock.alerts.open = !self.dock.alerts.open;
+            }
             A::ToggleAlertPanel => {
                 // The bell tab and the panel are one surface now: the key opens the panel on
                 // Alerts, and closes it if that's already what's showing.
@@ -13312,6 +13327,11 @@ impl HookEchoApp {
                 if self.obs_tour {
                     self.obs_mode = true;
                 }
+            }
+            // The workstation searches in its Layers window: open it with the keyboard there.
+            A::ToggleDrawer | A::CommandSearch if self.workstation_chrome() => {
+                self.dock.query.clear();
+                self.dock.open_search();
             }
             A::ToggleDrawer => {
                 // Hidden: bring it back and land in the search box. Visible: focus the search,

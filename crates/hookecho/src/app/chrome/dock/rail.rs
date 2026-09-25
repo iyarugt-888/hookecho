@@ -13,7 +13,8 @@ const RAIL_W: f32 = ws::RAIL_BTN + 8.0;
 /// The zoom "center on the radar" frames the site at: a radar's useful range fills the map.
 const RADAR_ZOOM: f64 = 8.0;
 
-/// The tools, grouped: looking, measuring, the atmosphere, marking up the map.
+/// The tools, grouped: looking, measuring, the atmosphere and the ground, marking up the map.
+/// Every `MapTool` is here — [`rail_group`]'s exhaustive match will not compile otherwise.
 const GROUPS: [&[(MapTool, &str, &str)]; 4] = [
     &[
         (MapTool::Interrogate, ph::CURSOR, "Explore the map"),
@@ -21,6 +22,11 @@ const GROUPS: [&[(MapTool, &str, &str)]; 4] = [
             MapTool::GateInspector,
             ph::CROSSHAIR,
             "Inspect a radar gate",
+        ),
+        (
+            MapTool::RadarSuitability,
+            ph::CELL_TOWER,
+            "Radar suitability: which radar sees a point best",
         ),
     ],
     &[
@@ -31,6 +37,12 @@ const GROUPS: [&[(MapTool, &str, &str)]; 4] = [
     &[
         (MapTool::Sounding, ph::THERMOMETER, "Sounding"),
         (MapTool::Forecast, ph::CLOUD_SUN, "Point forecast"),
+        (MapTool::Climatology, ph::TORNADO, "Tornado climatology"),
+        (
+            MapTool::Chase,
+            ph::NAVIGATION_ARROW,
+            "Set your chase location",
+        ),
     ],
     &[
         (MapTool::Marker, ph::MAP_PIN, "Drop a marker"),
@@ -39,12 +51,22 @@ const GROUPS: [&[(MapTool, &str, &str)]; 4] = [
     ],
 ];
 
+/// Which rail group a tool sits in. Exhaustive, so a new tool has to be given a button.
+fn rail_group(tool: MapTool) -> usize {
+    match tool {
+        MapTool::Interrogate | MapTool::GateInspector | MapTool::RadarSuitability => 0,
+        MapTool::Measure | MapTool::CrossSection | MapTool::RegionStats => 1,
+        MapTool::Sounding | MapTool::Forecast | MapTool::Climatology | MapTool::Chase => 2,
+        MapTool::Marker | MapTool::Draw | MapTool::AlertZone => 3,
+    }
+}
+
 impl HookEchoApp {
     pub(super) fn dock_rail(&mut self, root: &mut egui::Ui, ctx: &egui::Context) {
         use crate::app::PaletteAction as A;
         let t = self.ws_tokens();
         let armed = self.tool;
-        let layers_open = self.dock.layers_open;
+        let layers_open = self.dock.layers.open;
         let has_site = self.views[self.active].site.is_some();
         let mut pick = None;
         let mut toggle_layers = false;
@@ -76,9 +98,10 @@ impl HookEchoApp {
                         if r.inner.named("Center on the radar").clicked() {
                             center = true;
                         }
-                        for group in GROUPS.iter() {
+                        for (gi, group) in GROUPS.iter().enumerate() {
                             separator(ui, &t);
                             for &(tool, glyph, name) in group.iter() {
+                                debug_assert_eq!(rail_group(tool), gi, "{name}");
                                 let on = armed == tool;
                                 if ws::rail_button(ui, &t, glyph, on)
                                     .named_toggle(name, on)
@@ -99,7 +122,7 @@ impl HookEchoApp {
                 });
             });
         if toggle_layers {
-            self.dock.layers_open = !self.dock.layers_open;
+            self.dock.layers.open = !self.dock.layers.open;
         }
         if center {
             self.dock_center_on_radar();
@@ -138,4 +161,23 @@ fn separator(ui: &mut egui::Ui, t: &ws::Tokens) {
         ],
         egui::Stroke::new(1.0, t.line),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_tool_is_on_the_rail_once_in_its_group() {
+        let mut seen = Vec::new();
+        for (gi, group) in GROUPS.iter().enumerate() {
+            for &(tool, _, name) in group.iter() {
+                assert_eq!(rail_group(tool), gi, "{name} is in the wrong group");
+                assert!(!seen.contains(&tool), "{name} is on the rail twice");
+                seen.push(tool);
+            }
+        }
+        // `rail_group` names every variant, so its arms count the tools.
+        assert_eq!(seen.len(), 13);
+    }
 }

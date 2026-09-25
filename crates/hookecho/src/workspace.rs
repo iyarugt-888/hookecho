@@ -125,32 +125,48 @@ pub enum Place {
     Float,
 }
 
-/// The workstation layouts' window arrangement: which tool windows are open, where each sits, and
-/// which workspace tab the Layers window shows. Saved per layout in `Settings::workstation` (so it
-/// survives a restart) and with a workspace (so a saved workspace brings its arrangement back).
+/// One workstation tool window's state: shown or not, where it sits, and whether it is folded to
+/// its title bar (only meaningful while it floats).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub struct WindowChrome {
+    #[serde(default)]
+    pub open: bool,
+    #[serde(default)]
+    pub place: Place,
+    #[serde(default)]
+    pub collapsed: bool,
+}
+
+impl WindowChrome {
+    pub const fn at(open: bool, place: Place) -> Self {
+        WindowChrome {
+            open,
+            place,
+            collapsed: false,
+        }
+    }
+}
+
+/// The workstation layouts' window arrangement: each tool window's state, which workspace tab
+/// the Layers window shows, and whether the timeline is up. Saved per layout in
+/// `Settings::workstation` (so it survives a restart) and with a workspace (so a saved workspace
+/// brings its arrangement back).
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct WorkstationChrome {
     /// The workspace tab by its label ("Radar", "GIS", ...); an unknown one falls back to Radar.
     #[serde(default)]
     pub tab: String,
     #[serde(default)]
-    pub layers_open: bool,
+    pub layers: WindowChrome,
     #[serde(default)]
-    pub layers_place: Place,
+    pub inspector: WindowChrome,
     #[serde(default)]
-    pub layers_collapsed: bool,
+    pub alerts: WindowChrome,
+    /// Map settings and the app preferences.
     #[serde(default)]
-    pub inspector_open: bool,
-    #[serde(default = "place_float")]
-    pub inspector_place: Place,
-    #[serde(default)]
-    pub inspector_collapsed: bool,
+    pub prefs: WindowChrome,
     #[serde(default = "yes")]
     pub timeline_open: bool,
-}
-
-fn place_float() -> Place {
-    Place::Float
 }
 
 fn yes() -> bool {
@@ -648,12 +664,14 @@ mod tests {
                 drawer: Some("Settings".into()),
                 workstation: Some(WorkstationChrome {
                     tab: "GIS".into(),
-                    layers_open: true,
-                    layers_place: Place::Right,
-                    layers_collapsed: false,
-                    inspector_open: true,
-                    inspector_place: Place::Float,
-                    inspector_collapsed: true,
+                    layers: WindowChrome::at(true, Place::Right),
+                    inspector: WindowChrome {
+                        open: true,
+                        place: Place::Float,
+                        collapsed: true,
+                    },
+                    alerts: WindowChrome::at(false, Place::Right),
+                    prefs: WindowChrome::default(),
                     timeline_open: false,
                 }),
             }),

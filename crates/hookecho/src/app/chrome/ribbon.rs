@@ -49,7 +49,7 @@ fn tilt_group_width(tilts: usize) -> f32 {
 /// Phase B5: the VCP chip's popup — the full pattern description plus, per tilt, how many times
 /// this volume revisits it and under what scheme (SAILS/MRLE). Everything here comes straight off
 /// the decoded VCP message; nothing is inferred from how much of the volume has arrived.
-fn scan_strategy_popup(ui: &mut egui::Ui, vcp: &str, cuts: &[wxdata::level2::TiltCuts]) {
+pub(super) fn scan_strategy_popup(ui: &mut egui::Ui, vcp: &str, cuts: &[wxdata::level2::TiltCuts]) {
     ui.set_min_width(230.0);
     ui.strong(if vcp.is_empty() { "Scan strategy" } else { vcp });
     if cuts.is_empty() {

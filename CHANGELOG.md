@@ -8,6 +8,18 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Changed: everything is reachable from the Dock layout
+
+The Dock (ImGui) layout used to miss things only the floating panel or the ribbon offered. It now
+has an Alerts window (the bell in the app bar, with the count in view) and a Preferences window
+with the panel's map settings and app preferences: display, streaming mode, location, weather
+radio, sharing and export, backup. Tools, Share, Settings and Help in the app bar are now menus
+covering every window, sharing and workspaces. Every map tool is on the rail, including radar
+suitability, tornado climatology and the chase location. Ctrl+K opens the Layers search, which
+now takes time commands ("time 21:30Z") and can fly to a place. The toolbar adds storm-relative
+velocity, the scan-strategy details, the legend, a map-style picker and pane count and
+arrangement.
+
 ### Changed: WSV3 is the analyst workstation, map-first; tool windows dock and float
 
 The WSV3 layout now uses the workstation described below instead of its three-row ribbon. It

@@ -31,6 +31,13 @@ impl HookEchoApp {
         } else {
             crate::ui::wsv3::WINDOW_BTN_KEEPOUT
         };
+        let (alert_count, _) = self.alert_badge();
+        let workspaces: Vec<String> = self
+            .settings
+            .workspaces
+            .iter()
+            .map(|w| w.name.clone())
+            .collect();
         let mut action = None;
         egui::Panel::top("dock_app_bar")
             .exact_size(ws::APP_BAR_H)
@@ -52,7 +59,7 @@ impl HookEchoApp {
                     }
                     ui.add_space(18.0);
                     for tab in DockTab::ALL {
-                        let on = self.dock.layers_open && self.dock.tab == tab;
+                        let on = self.dock.layers.open && self.dock.tab == tab;
                         if ws::tab(ui, &t, tab.label(), on, ws::APP_BAR_H)
                             .named_toggle(tab.label(), on)
                             .clicked()
@@ -60,10 +67,10 @@ impl HookEchoApp {
                             // The open tab's own button folds the panel away; any other opens it
                             // on that tab.
                             if on {
-                                self.dock.layers_open = false;
+                                self.dock.layers.open = false;
                             } else {
                                 self.dock.tab = tab;
-                                self.dock.layers_open = true;
+                                self.dock.layers.open = true;
                             }
                         }
                     }
@@ -84,38 +91,132 @@ impl HookEchoApp {
                         ui.label(ws::mono(clock, 12.0, t.text));
                         ui.label(ws::text(ph::CLOCK, 14.0, t.text_dim));
                         ws::divider(ui, &t, ws::APP_BAR_H - 8.0);
-                        let buttons: [(&str, &str, bool, &str); 6] = [
-                            (ph::QUESTION, "Help", false, "Help"),
-                            (ph::GEAR_SIX, "Settings", false, "Settings"),
-                            (ph::WRENCH, "Tools", false, "Tools"),
-                            (ph::CHAT_TEXT, "Discussion", false, "Discussion"),
-                            (ph::PLAY, "Playback", self.dock.timeline_open, "Playback"),
-                            (ph::INFO, "Inspector", self.dock.inspector_open, "Inspector"),
-                        ];
-                        for (glyph, label, on, name) in buttons {
-                            let label = if fit.labels { label } else { "" };
-                            if ws::icon_button(ui, &t, glyph, label, on)
-                                .named_toggle(name, on)
-                                .clicked()
-                            {
-                                match name {
-                                    "Inspector" => {
-                                        self.dock.inspector_open = !self.dock.inspector_open;
-                                    }
-                                    "Playback" => {
-                                        self.dock.timeline_open = !self.dock.timeline_open;
-                                    }
-                                    // The forecast *discussion* (AFD); model forecasts are a tab.
-                                    "Discussion" => action = Some(A::OpenWindow(AppWindow::Afd)),
-                                    "Tools" => {
-                                        action = Some(A::OpenWindow(AppWindow::LayerManager));
-                                    }
-                                    "Settings" => {
-                                        action = Some(A::OpenWindow(AppWindow::Settings));
-                                    }
-                                    _ => action = Some(A::OpenWindow(AppWindow::Help)),
+                        use super::menus::{window_rows, Menu, MenuPick};
+                        let mut menu_pick: Option<MenuPick> = None;
+                        let label = |l: &'static str| if fit.labels { l } else { "" };
+                        // Right to left: Help, Settings, Share, Tools, Discussion, Alerts,
+                        // Playback, Inspector.
+                        let help = ws::icon_button(ui, &t, ph::QUESTION, label("Help"), false)
+                            .named("Help");
+                        egui::Popup::menu(&help).show(|ui| {
+                            ws::style_scope(ui, &t);
+                            ui.set_min_width(220.0);
+                            if let Some(p) = window_rows(ui, &t, Menu::Help) {
+                                menu_pick = Some(p);
+                            }
+                            if ui.button("Keyboard shortcuts (?)").clicked() {
+                                menu_pick = Some(MenuPick::Shortcuts);
+                            }
+                        });
+                        let settings =
+                            ws::icon_button(ui, &t, ph::GEAR_SIX, label("Settings"), false)
+                                .named("Settings");
+                        egui::Popup::menu(&settings).show(|ui| {
+                            ws::style_scope(ui, &t);
+                            ui.set_min_width(220.0);
+                            if let Some(p) = window_rows(ui, &t, Menu::Settings) {
+                                menu_pick = Some(p);
+                            }
+                            if ui.button("Map settings").clicked() {
+                                menu_pick = Some(MenuPick::Prefs(PrefsPage::Map, None));
+                            }
+                            if ui.button("Preferences").clicked() {
+                                menu_pick = Some(MenuPick::Prefs(PrefsPage::App, None));
+                            }
+                            ui.separator();
+                            if ui.button("Hide the top bars (T)").clicked() {
+                                menu_pick = Some(MenuPick::Palette(A::ToggleRibbon));
+                            }
+                        });
+                        let share = ws::icon_button(ui, &t, ph::EXPORT, label("Share"), false)
+                            .named("Share, export and workspaces");
+                        egui::Popup::menu(&share).show(|ui| {
+                            ws::style_scope(ui, &t);
+                            ui.set_min_width(240.0);
+                            for (text, act) in [
+                                ("Copy a link to this view", A::CopyViewLink),
+                                ("Open in Windy", A::OpenInWindy),
+                                ("Export the map as GeoJSON", A::ExportGis),
+                                ("Import GeoJSON or Shapefile\u{2026}", A::ImportGis),
+                            ] {
+                                if ui.button(text).clicked() {
+                                    menu_pick = Some(MenuPick::Palette(act));
                                 }
                             }
+                            if ui.button("Images, video and more\u{2026}").clicked() {
+                                menu_pick = Some(MenuPick::Prefs(PrefsPage::App, Some("Share")));
+                            }
+                            ui.separator();
+                            ui.label(ws::text("WORKSPACES", 10.5, t.text_faint));
+                            if ui.button("Save this layout as a workspace").clicked() {
+                                menu_pick = Some(MenuPick::Palette(A::SaveWorkspace));
+                            }
+                            for (i, name) in workspaces.iter().enumerate() {
+                                if ui.button(format!("Open \u{201c}{name}\u{201d}")).clicked() {
+                                    menu_pick = Some(MenuPick::Palette(A::ApplyWorkspace(i)));
+                                }
+                            }
+                        });
+                        let tools = ws::icon_button(ui, &t, ph::WRENCH, label("Tools"), false)
+                            .named("Tools and windows");
+                        egui::Popup::menu(&tools).show(|ui| {
+                            ws::style_scope(ui, &t);
+                            ui.set_min_width(240.0);
+                            if let Some(p) = window_rows(ui, &t, Menu::Tools) {
+                                menu_pick = Some(p);
+                            }
+                        });
+                        if ws::icon_button(ui, &t, ph::CHAT_TEXT, label("Discussion"), false)
+                            .named("Forecast discussion (AFD)")
+                            .clicked()
+                        {
+                            action = Some(A::OpenWindow(AppWindow::Afd));
+                        }
+                        let alerts_on = self.dock.alerts.open;
+                        let alerts_label = match (fit.labels, alert_count) {
+                            (true, 0) => "Alerts".to_string(),
+                            (true, n) => format!("Alerts {n}"),
+                            (false, 0) => String::new(),
+                            (false, n) => n.to_string(),
+                        };
+                        if ws::icon_button(ui, &t, ph::BELL, &alerts_label, alerts_on)
+                            .named_toggle(&format!("Alerts in view: {alert_count}"), alerts_on)
+                            .clicked()
+                        {
+                            self.dock.alerts.open = !alerts_on;
+                        }
+                        let playing = self.dock.timeline_open;
+                        if ws::icon_button(ui, &t, ph::PLAY, label("Playback"), playing)
+                            .named_toggle("Playback", playing)
+                            .clicked()
+                        {
+                            self.dock.timeline_open = !playing;
+                        }
+                        let inspecting = self.dock.inspector.open;
+                        if ws::icon_button(ui, &t, ph::INFO, label("Inspector"), inspecting)
+                            .named_toggle("Inspector", inspecting)
+                            .clicked()
+                        {
+                            self.dock.inspector.open = !inspecting;
+                        }
+                        match menu_pick {
+                            Some(MenuPick::Palette(a)) => action = Some(a),
+                            Some(MenuPick::Prefs(page, section)) => {
+                                self.dock.prefs.open = true;
+                                self.dock.prefs.collapsed = false;
+                                self.dock.prefs_page = page;
+                                ui.ctx().data_mut(|d| {
+                                    let id = egui::Id::new("preferences_section");
+                                    match section {
+                                        Some(s) => {
+                                            d.insert_temp(id, s);
+                                        }
+                                        None => d.remove::<&'static str>(id),
+                                    }
+                                });
+                            }
+                            Some(MenuPick::Shortcuts) => self.show_cheatsheet = true,
+                            None => {}
                         }
                     });
                 });
@@ -139,11 +240,15 @@ impl HookEchoApp {
         .into_iter()
         .map(|(tg, n)| (tg, n, *self.overlay_flag(tg)))
         .collect();
-        let basemap = if self.settings.basemap.is_empty() {
-            "Default".to_string()
-        } else {
-            self.settings.basemap.clone()
-        };
+        let basemap = self.views[self.active].basemap.label();
+        let basemap_open = self.basemap_open;
+        let panes = self.views.len();
+        let pane_layout = self.pane_layout;
+        let (vcp_full, tilt_cuts) = self.views[self.active]
+            .volume
+            .as_ref()
+            .map(|v| (v.vcp.clone(), wxdata::level2::tilt_cuts(&v.scan)))
+            .unwrap_or_default();
         let streaming = self
             .live_stream
             .as_ref()
@@ -180,6 +285,8 @@ impl HookEchoApp {
             .map(|v| table_label(v))
             .unwrap_or_else(|| "Default".to_string());
         let mut smoothing = self.views[self.active].smooth;
+        let mut legend = self.views[self.active].show_legend;
+        let mut toggle_basemap = false;
         let mut action = None;
         let mut pick_tilt = None;
         let mut flip_follow = false;
@@ -218,7 +325,19 @@ impl HookEchoApp {
                             }
                             if !vcp.is_empty() {
                                 ws::caption(ui, &t, "VCP");
-                                ui.label(ws::mono(&vcp, 12.0, t.text));
+                                // The scan strategy in full, and which tilts it rescans, on click.
+                                let r = ui
+                                    .add(
+                                        egui::Button::new(ws::mono(&vcp, 12.0, t.text))
+                                            .frame(false),
+                                    )
+                                    .named("Scan strategy details");
+                                egui::Popup::menu(&r).show(|ui| {
+                                    ws::style_scope(ui, &t);
+                                    crate::app::chrome::ribbon::scan_strategy_popup(
+                                        ui, &vcp_full, &tilt_cuts,
+                                    );
+                                });
                             }
                             ws::divider(ui, &t, ws::TOOLBAR_H);
                             ws::caption(ui, &t, "Product");
@@ -227,10 +346,20 @@ impl HookEchoApp {
                                 .selected_text(crate::products::name(moment, srv))
                                 .show_ui(ui, |ui| {
                                     for m in Moment::ALL {
-                                        let on = m == moment;
+                                        let on = m == moment && !(srv && m == Moment::Velocity);
                                         let name = crate::products::info(m).name;
                                         if ui.selectable_label(on, name).clicked() {
-                                            action = Some(A::SetMoment(m, srv));
+                                            action = Some(A::SetMoment(m, false));
+                                        }
+                                        // Storm-relative velocity sits right under velocity.
+                                        if m == Moment::Velocity {
+                                            let label = crate::products::name(m, true);
+                                            if ui
+                                                .selectable_label(moment == m && srv, label)
+                                                .clicked()
+                                            {
+                                                action = Some(A::SetMoment(m, true));
+                                            }
                                         }
                                     }
                                 });
@@ -283,6 +412,8 @@ impl HookEchoApp {
                                 None => {}
                             }
                             ws::check(ui, &t, &mut smoothing, "Smoothing");
+                            ws::check(ui, &t, &mut legend, "Legend")
+                                .on_hover_text("The product's colour scale beside the map");
                             ws::divider(ui, &t, ws::TOOLBAR_H);
                             ws::caption(ui, &t, "Color table");
                             egui::ComboBox::from_id_salt("dock_table")
@@ -313,16 +444,50 @@ impl HookEchoApp {
                             }
                             ws::divider(ui, &t, ws::TOOLBAR_H);
                             ws::caption(ui, &t, "Map");
-                            if ws::button(ui, &t, &basemap, 72.0)
-                                .named("Next map style")
+                            let map_label = format!("{basemap}  {}", ph::CARET_DOWN);
+                            if ws::button(ui, &t, &map_label, 72.0)
+                                .named("Choose the map style (Z cycles them)")
                                 .clicked()
                             {
-                                action = Some(A::CycleBasemap);
+                                toggle_basemap = true;
                             }
+                            ws::caption(ui, &t, "Panes");
+                            egui::ComboBox::from_id_salt("dock_panes")
+                                .width(88.0)
+                                .selected_text(format!("{panes} \u{b7} {}", pane_layout.label()))
+                                .show_ui(ui, |ui| {
+                                    for n in [1usize, 2, 3, 4, 6, 9]
+                                        .into_iter()
+                                        .filter(|n| *n <= crate::view::MAX_PANES)
+                                    {
+                                        let label = if n == 1 {
+                                            "1 pane".to_string()
+                                        } else {
+                                            format!("{n} panes")
+                                        };
+                                        if ui.selectable_label(panes == n, label).clicked() {
+                                            action = Some(A::SetPanes(n));
+                                        }
+                                    }
+                                    ui.separator();
+                                    for layout in crate::workspace::PaneLayout::ALL {
+                                        if ui
+                                            .selectable_label(pane_layout == layout, layout.label())
+                                            .on_hover_text(layout.description())
+                                            .clicked()
+                                        {
+                                            action = Some(A::SetPaneLayout(layout));
+                                        }
+                                    }
+                                });
                         });
                     });
             });
         self.views[self.active].smooth = smoothing;
+        self.views[self.active].show_legend = legend;
+        if toggle_basemap {
+            self.basemap_open = !basemap_open;
+        }
         if let Some(i) = pick_tilt {
             self.views[self.active].tilt = i;
         }
@@ -353,7 +518,7 @@ impl HookEchoApp {
     }
 }
 
-/// What the app bar has room for at a window width: the panel buttons' words, the subtitle, and
+/// What the app bar has room for at a window width: the buttons' words, the subtitle, and
 /// the date beside the clock go, in that order, before anything would overlap the tabs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct AppBarFit {
@@ -364,7 +529,7 @@ pub(super) struct AppBarFit {
 
 pub(super) fn app_bar_fit(width: f32) -> AppBarFit {
     AppBarFit {
-        labels: width >= 1780.0,
+        labels: width >= 1900.0,
         subtitle: width >= 1400.0,
         date: width >= 1240.0,
     }

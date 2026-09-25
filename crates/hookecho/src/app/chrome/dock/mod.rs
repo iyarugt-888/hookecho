@@ -14,11 +14,14 @@
 
 use super::*;
 use crate::ui::workstation as ws;
-use crate::workspace::{Place, WorkstationChrome};
+use crate::workspace::{Place, WindowChrome, WorkstationChrome};
 
+mod alerts;
 mod app_bar;
 mod inspector;
 mod layers;
+mod menus;
+mod prefs;
 mod rail;
 mod timeline;
 
@@ -111,18 +114,28 @@ pub(crate) struct Probe {
     pub dealiased: bool,
 }
 
+/// Which page the Preferences window shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum PrefsPage {
+    /// Background, radar appearance, launch position, offline maps.
+    #[default]
+    Map,
+    /// Display, location, weather radio, share, backup, help.
+    App,
+}
+
 /// Everything the dock remembers between frames.
 pub(crate) struct DockState {
     pub tab: DockTab,
     pub filter: LayerFilter,
     pub query: String,
-    pub layers_open: bool,
-    pub layers_place: Place,
-    /// Folded to its title bar (only while floating).
-    pub layers_collapsed: bool,
-    pub inspector_open: bool,
-    pub inspector_place: Place,
-    pub inspector_collapsed: bool,
+    /// Put the keyboard in the Layers search box on the next frame (Ctrl+K, the palette's search).
+    pub focus_search: bool,
+    pub layers: WindowChrome,
+    pub inspector: WindowChrome,
+    pub alerts: WindowChrome,
+    pub prefs: WindowChrome,
+    pub prefs_page: PrefsPage,
     pub timeline_open: bool,
     /// The inspector's model-forecast block (shown only while a model layer is on the map).
     pub model_open: bool,
@@ -143,12 +156,12 @@ impl Default for DockState {
             tab: DockTab::Radar,
             filter: LayerFilter::All,
             query: String::new(),
-            layers_open: false,
-            layers_place: Place::Left,
-            layers_collapsed: false,
-            inspector_open: false,
-            inspector_place: Place::Float,
-            inspector_collapsed: false,
+            focus_search: false,
+            layers: WindowChrome::default(),
+            inspector: WindowChrome::default(),
+            alerts: WindowChrome::default(),
+            prefs: WindowChrome::default(),
+            prefs_page: PrefsPage::Map,
             timeline_open: true,
             model_open: true,
             pinned: None,
@@ -165,21 +178,22 @@ impl DockState {
     /// How a layout opens before the user has moved anything. `Dock` shows its windows — Layers
     /// docked left, the Inspector floating over the map as in the reference mock. `Wsv3` opens
     /// map-first: the bars and the timeline, with Layers (left) and the Inspector (docked right)
-    /// waiting to be asked for.
+    /// waiting to be asked for. Alerts and Preferences dock right when opened, in either.
     pub(crate) fn preset(layout: crate::settings::Layout) -> WorkstationChrome {
         let map_first = layout.map_first();
         WorkstationChrome {
             tab: DockTab::Radar.label().to_string(),
-            layers_open: !map_first,
-            layers_place: Place::Left,
-            layers_collapsed: false,
-            inspector_open: !map_first,
-            inspector_place: if map_first {
-                Place::Right
-            } else {
-                Place::Float
-            },
-            inspector_collapsed: false,
+            layers: WindowChrome::at(!map_first, Place::Left),
+            inspector: WindowChrome::at(
+                !map_first,
+                if map_first {
+                    Place::Right
+                } else {
+                    Place::Float
+                },
+            ),
+            alerts: WindowChrome::at(false, Place::Right),
+            prefs: WindowChrome::at(false, Place::Right),
             timeline_open: true,
         }
     }
@@ -188,12 +202,10 @@ impl DockState {
     pub(crate) fn arrangement(&self) -> WorkstationChrome {
         WorkstationChrome {
             tab: self.tab.label().to_string(),
-            layers_open: self.layers_open,
-            layers_place: self.layers_place,
-            layers_collapsed: self.layers_collapsed,
-            inspector_open: self.inspector_open,
-            inspector_place: self.inspector_place,
-            inspector_collapsed: self.inspector_collapsed,
+            layers: self.layers,
+            inspector: self.inspector,
+            alerts: self.alerts,
+            prefs: self.prefs,
             timeline_open: self.timeline_open,
         }
     }
@@ -201,32 +213,34 @@ impl DockState {
     /// Put the windows where a saved arrangement says.
     pub(crate) fn arrange(&mut self, w: &WorkstationChrome) {
         self.tab = DockTab::from_label(&w.tab).unwrap_or_default();
-        self.layers_open = w.layers_open;
-        self.layers_place = w.layers_place;
-        self.layers_collapsed = w.layers_collapsed;
-        self.inspector_open = w.inspector_open;
-        self.inspector_place = w.inspector_place;
-        self.inspector_collapsed = w.inspector_collapsed;
+        self.layers = w.layers;
+        self.inspector = w.inspector;
+        self.alerts = w.alerts;
+        self.prefs = w.prefs;
         self.timeline_open = w.timeline_open;
+    }
+
+    /// Open the Layers window with the keyboard in its search box, on every tab (Ctrl+K and the
+    /// other "search everything" ways in).
+    pub(crate) fn open_search(&mut self) {
+        self.layers.open = true;
+        self.layers.collapsed = false;
+        self.filter = LayerFilter::All;
+        self.focus_search = true;
     }
 }
 
 /// What a tool window's header asked for, applied to that window's own state.
-pub(super) fn apply_header(
-    action: ws::HeaderAction,
-    open: &mut bool,
-    place: &mut Place,
-    collapsed: &mut bool,
-) {
+pub(super) fn apply_header(action: ws::HeaderAction, w: &mut WindowChrome) {
     match action {
         ws::HeaderAction::None => {}
-        ws::HeaderAction::Close => *open = false,
-        ws::HeaderAction::Collapse => *collapsed = !*collapsed,
+        ws::HeaderAction::Close => w.open = false,
+        ws::HeaderAction::Collapse => w.collapsed = !w.collapsed,
         ws::HeaderAction::Place(p) => {
-            *place = p;
+            w.place = p;
             // A window that lands in a dock is shown whole; folding is a floating-window thing.
             if p != Place::Float {
-                *collapsed = false;
+                w.collapsed = false;
             }
         }
     }
@@ -402,22 +416,34 @@ impl HookEchoApp {
             self.dock_toolbar(root, ctx);
         }
         self.dock_timeline(root);
-        if self.dock.layers_place != Place::Float {
+        if self.dock.layers.place != Place::Float {
             self.dock_layers(Host::Docked(root), ctx);
         }
-        if self.dock.inspector_place != Place::Float {
+        if self.dock.inspector.place != Place::Float {
             self.dock_inspector(Host::Docked(root), ctx);
+        }
+        if self.dock.alerts.place != Place::Float {
+            self.dock_alerts(Host::Docked(root));
+        }
+        if self.dock.prefs.place != Place::Float {
+            self.dock_prefs(Host::Docked(root), ctx);
         }
         self.dock_rail(root, ctx);
     }
 
     /// Over the map: the floating tool windows, and the button that brings hidden bars back.
     pub(crate) fn dock_map_overlay(&mut self, ctx: &egui::Context) {
-        if self.dock.layers_place == Place::Float {
+        if self.dock.layers.place == Place::Float {
             self.dock_layers(Host::Floating(ctx), ctx);
         }
-        if self.dock.inspector_place == Place::Float {
+        if self.dock.inspector.place == Place::Float {
             self.dock_inspector(Host::Floating(ctx), ctx);
+        }
+        if self.dock.alerts.place == Place::Float {
+            self.dock_alerts(Host::Floating(ctx));
+        }
+        if self.dock.prefs.place == Place::Float {
+            self.dock_prefs(Host::Floating(ctx), ctx);
         }
         if self.ribbon_collapsed {
             self.dock_bars_restore(ctx);
@@ -696,18 +722,25 @@ mod tests {
     fn wsv3_opens_map_first_and_the_dock_with_its_windows() {
         use crate::settings::Layout;
         let wsv3 = DockState::preset(Layout::Wsv3);
-        assert!(!wsv3.layers_open && !wsv3.inspector_open && wsv3.timeline_open);
+        assert!(!wsv3.layers.open && !wsv3.inspector.open && wsv3.timeline_open);
         assert_eq!(
-            wsv3.inspector_place,
+            wsv3.inspector.place,
             Place::Right,
             "docked right when asked for"
         );
         let dock = DockState::preset(Layout::Dock);
-        assert!(dock.layers_open && dock.inspector_open);
+        assert!(dock.layers.open && dock.inspector.open);
         assert_eq!(
-            (dock.layers_place, dock.inspector_place),
+            (dock.layers.place, dock.inspector.place),
             (Place::Left, Place::Float)
         );
+        for w in [&wsv3, &dock] {
+            assert!(!w.alerts.open && !w.prefs.open);
+            assert_eq!(
+                (w.alerts.place, w.prefs.place),
+                (Place::Right, Place::Right)
+            );
+        }
         // A fresh state is the Dock's preset, so the Dock layout looks as it did before.
         assert_eq!(DockState::default().arrangement(), dock);
     }
@@ -717,12 +750,14 @@ mod tests {
         let mut s = DockState::default();
         let w = WorkstationChrome {
             tab: "GIS".into(),
-            layers_open: true,
-            layers_place: Place::Float,
-            layers_collapsed: true,
-            inspector_open: false,
-            inspector_place: Place::Left,
-            inspector_collapsed: false,
+            layers: WindowChrome {
+                open: true,
+                place: Place::Float,
+                collapsed: true,
+            },
+            inspector: WindowChrome::at(false, Place::Left),
+            alerts: WindowChrome::at(true, Place::Float),
+            prefs: WindowChrome::at(true, Place::Left),
             timeline_open: false,
         };
         s.arrange(&w);
@@ -736,27 +771,33 @@ mod tests {
     }
 
     #[test]
+    fn search_opens_layers_unfolded_on_everything() {
+        let mut s = DockState {
+            layers: WindowChrome {
+                open: false,
+                place: Place::Float,
+                collapsed: true,
+            },
+            filter: LayerFilter::Favorites,
+            ..DockState::default()
+        };
+        s.open_search();
+        assert!(s.layers.open && !s.layers.collapsed && s.focus_search);
+        assert_eq!(s.filter, LayerFilter::All);
+    }
+
+    #[test]
     fn header_actions_move_fold_and_close_a_window() {
-        let (mut open, mut place, mut folded) = (true, Place::Float, false);
-        apply_header(
-            ws::HeaderAction::Collapse,
-            &mut open,
-            &mut place,
-            &mut folded,
-        );
-        assert!(folded);
+        let mut w = WindowChrome::at(true, Place::Float);
+        apply_header(ws::HeaderAction::Collapse, &mut w);
+        assert!(w.collapsed);
         // Docking a folded window unfolds it: a dock shows a window whole.
-        apply_header(
-            ws::HeaderAction::Place(Place::Right),
-            &mut open,
-            &mut place,
-            &mut folded,
-        );
-        assert_eq!((place, folded), (Place::Right, false));
-        apply_header(ws::HeaderAction::None, &mut open, &mut place, &mut folded);
-        assert!(open);
-        apply_header(ws::HeaderAction::Close, &mut open, &mut place, &mut folded);
-        assert!(!open);
+        apply_header(ws::HeaderAction::Place(Place::Right), &mut w);
+        assert_eq!((w.place, w.collapsed), (Place::Right, false));
+        apply_header(ws::HeaderAction::None, &mut w);
+        assert!(w.open);
+        apply_header(ws::HeaderAction::Close, &mut w);
+        assert!(!w.open);
     }
 
     #[test]

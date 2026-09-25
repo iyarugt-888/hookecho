@@ -482,17 +482,23 @@ impl HookEchoApp {
             self.apply_palette(a, ctx);
         }
         if let Some(place) = fly_to {
-            self.geocode_nav = true;
-            self.save_offer = None; // a new search retires the previous offer
-            self.place_status = Some(("Searching…".to_string(), Instant::now()));
-            let http = self.http.clone();
-            let tx = self.geocode_tx.clone();
-            let ctx2 = ctx.clone();
-            self.spawner.spawn(async move {
-                let _ = tx.send(wxdata::geocode::search(&http, &place).await);
-                ctx2.request_repaint();
-            });
+            self.start_place_search(place, ctx);
         }
+    }
+
+    /// Look a place name up and move the map there when the answer comes back — the panel's and
+    /// the workstation's "Fly to" row.
+    pub(crate) fn start_place_search(&mut self, place: String, ctx: &egui::Context) {
+        self.geocode_nav = true;
+        self.save_offer = None; // a new search retires the previous offer
+        self.place_status = Some(("Searching…".to_string(), Instant::now()));
+        let http = self.http.clone();
+        let tx = self.geocode_tx.clone();
+        let ctx2 = ctx.clone();
+        self.spawner.spawn(async move {
+            let _ = tx.send(wxdata::geocode::search(&http, &place).await);
+            ctx2.request_repaint();
+        });
     }
 
     /// The way into the panel: one pill in the corner the map can spare.

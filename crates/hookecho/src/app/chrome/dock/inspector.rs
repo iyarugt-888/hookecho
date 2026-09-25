@@ -45,7 +45,7 @@ impl HookEchoApp {
     }
 
     pub(super) fn dock_inspector(&mut self, host: Host<'_>, ctx: &egui::Context) {
-        if !self.dock.inspector_open {
+        if !self.dock.inspector.open {
             return;
         }
         let t = self.ws_tokens();
@@ -131,9 +131,9 @@ impl HookEchoApp {
         };
         let pinned = self.dock.pinned.is_some();
         let can_pin = pinned || self.dock.last.is_some();
-        let place = self.dock.inspector_place;
+        let place = self.dock.inspector.place;
         let floating = place == Place::Float;
-        let collapsed = floating && self.dock.inspector_collapsed;
+        let collapsed = floating && self.dock.inspector.collapsed;
         let mut header = ws::HeaderAction::None;
         let mut want = None;
         let mut pin = false;
@@ -316,12 +316,7 @@ impl HookEchoApp {
                 }
             },
         );
-        apply_header(
-            header,
-            &mut self.dock.inspector_open,
-            &mut self.dock.inspector_place,
-            &mut self.dock.inspector_collapsed,
-        );
+        apply_header(header, &mut self.dock.inspector);
         if pin {
             self.dock.pinned = match self.dock.pinned.take() {
                 Some(_) => None,
@@ -334,7 +329,7 @@ impl HookEchoApp {
                 self.dock.tab = tab;
                 self.dock.filter = LayerFilter::All;
                 self.dock.query.clear();
-                self.dock.layers_open = true;
+                self.dock.layers.open = true;
             }
             None => {}
         }
