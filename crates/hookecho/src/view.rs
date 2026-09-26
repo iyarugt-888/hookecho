@@ -32,6 +32,58 @@ pub enum Map3dRepresentation {
     SmoothSpectrumWidth,
 }
 
+impl Map3dRepresentation {
+    /// The name the Inspector's 3D block gives this mode.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::ObservedSweeps => "Observed sweeps",
+            Self::SmoothVolume => "Smooth reflectivity",
+            Self::SmoothDebris => "Debris (low CC)",
+            Self::SmoothSpectrumWidth => "Smooth spectrum width",
+        }
+    }
+}
+
+/// The smooth volume's raymarch quality rungs, coarsest first: what the 3D controls offer and
+/// the name the Inspector reads back.
+pub const QUALITY_PRESETS: [(&str, u32); 3] = [("Low", 64), ("Medium", 96), ("High", 128)];
+
+/// The preset name for a step count, or `None` for a count no preset uses.
+pub fn quality_label(steps: u32) -> Option<&'static str> {
+    QUALITY_PRESETS
+        .iter()
+        .find(|(_, s)| *s == steps)
+        .map(|(l, _)| *l)
+}
+
+/// What the observed 3D view is drawing, for the Inspector: how many real tilts, their
+/// elevation range, and the wall-clock span they were collected over (the tilts of one volume
+/// share a label, not an instant). `None` before the first upload.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ObservedSummary {
+    pub tilts: usize,
+    pub lowest_deg: f32,
+    pub highest_deg: f32,
+    pub span: Option<(DateTime<Utc>, DateTime<Utc>)>,
+}
+
+pub fn observed_summary(layers: &[level2::ObservedLayer]) -> Option<ObservedSummary> {
+    let first = layers.first()?;
+    let (lo, hi) = layers
+        .iter()
+        .fold((first.elevation_deg, first.elevation_deg), |(lo, hi), l| {
+            (lo.min(l.elevation_deg), hi.max(l.elevation_deg))
+        });
+    let start = layers.iter().filter_map(|l| l.scan_start).min();
+    let end = layers.iter().filter_map(|l| l.scan_end).max();
+    Some(ObservedSummary {
+        tilts: layers.len(),
+        lowest_deg: lo,
+        highest_deg: hi,
+        span: start.zip(end),
+    })
+}
+
 /// How many tilts the "Layers" list can have pulled out and highlighted at once. The GPU uniform
 /// carries this many scalar slots rather than a real array — `array<f32,N>` gets padded to a
 /// 16-byte stride in WGSL's uniform address space, which would needlessly balloon the buffer —
@@ -711,6 +763,39 @@ impl MapView {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_observed_summary_spans_every_tilt_in_any_order() {
+        use chrono::TimeZone;
+        let at = |s| chrono::Utc.timestamp_opt(1_369_080_000 + s, 0).single();
+        let layer = |elev: f32, start: i64, end: i64| wxdata::level2::ObservedLayer {
+            elevation_deg: elev,
+            radial_count: 720,
+            gate_count: 1832,
+            coverage_gates: 0,
+            max_value: None,
+            scan_start: at(start),
+            scan_end: at(end),
+        };
+        assert_eq!(super::observed_summary(&[]), None);
+        let sum = super::observed_summary(&[
+            layer(1.3, 40, 60),
+            layer(0.5, 0, 20),
+            layer(19.5, 240, 250),
+        ])
+        .unwrap();
+        assert_eq!(sum.tilts, 3);
+        assert_eq!((sum.lowest_deg, sum.highest_deg), (0.5, 19.5));
+        assert_eq!(sum.span, at(0).zip(at(250)));
+    }
+
+    #[test]
+    fn both_platform_default_qualities_are_named_presets() {
+        let steps = super::Map3dState::default().quality_steps;
+        assert!(super::quality_label(steps).is_some(), "{steps}");
+        assert_eq!(super::quality_label(64), Some("Low"));
+        assert_eq!(super::quality_label(100), None);
+    }
+
     /// Entering 3D has to pitch the camera, or the pane renders as an ordinary flat map with the
     /// extra cost of the 3D path and simply reads as the toggle not working; leaving it has to
     /// put the camera back flat and north-up. Both controls that reach this (the 3D options panel

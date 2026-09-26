@@ -15064,7 +15064,7 @@ impl HookEchoApp {
                         }
                         ui.horizontal(|ui| {
                             ui.label("Quality");
-                            for (label, steps) in [("Low", 64u32), ("Medium", 96), ("High", 128)] {
+                            for (label, steps) in crate::view::QUALITY_PRESETS {
                                 ui.selectable_value(&mut view.map_3d.quality_steps, steps, label);
                             }
                         });

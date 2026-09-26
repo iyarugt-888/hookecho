@@ -105,6 +105,11 @@ impl HookEchoApp {
             .map_3d
             .enabled
             .then_some((cam.pitch, cam.bearing, cam.zoom));
+        let rows_3d = if v.map_3d.enabled {
+            volume_3d_rows(&v.map_3d, tz)
+        } else {
+            Vec::new()
+        };
         let (disp_factor, disp_unit) = display_units(moment, &self.settings);
         let table = self.palettes.table(moment);
         let value_line = probe.as_ref().map(|p| match p.value {
@@ -211,6 +216,9 @@ impl HookEchoApp {
             if let Some((pitch, bearing, zoom)) = view_3d {
                 ui.add_space(6.0);
                 ws::section_rule(ui, &t, "3D view");
+                for (k, v) in &rows_3d {
+                    ws::kv(ui, &t, k, v, None);
+                }
                 ws::kv(ui, &t, "Pitch", &format!("{pitch:.0}\u{b0}"), None);
                 ws::kv(ui, &t, "Bearing", &format!("{bearing:.0}\u{b0}"), None);
                 ws::kv(ui, &t, "Zoom", &format!("{zoom:.1}"), None);
@@ -352,6 +360,48 @@ pub(super) fn probe_flags(p: &Probe) -> Vec<&'static str> {
     flags
 }
 
+/// The 3D block's volume rows (design plan §4): the mode, and for observed sweeps which real
+/// tilts are drawn, the span of time they were collected over and how much of the beam's climb
+/// is shown; for a smooth volume, its quality preset. The camera rows follow separately.
+fn volume_3d_rows(
+    m: &crate::view::Map3dState,
+    tz: Option<wxdata::tz::Tz>,
+) -> Vec<(&'static str, String)> {
+    use crate::view::Map3dRepresentation as R;
+    let mut rows = vec![("Mode", m.representation.label().to_string())];
+    if m.representation == R::ObservedSweeps {
+        if let Some(sum) = crate::view::observed_summary(&m.observed_layers) {
+            rows.push((
+                "Tilts",
+                format!(
+                    "{}  \u{b7}  {:.1}\u{b0}\u{2013}{:.1}\u{b0}",
+                    sum.tilts, sum.lowest_deg, sum.highest_deg
+                ),
+            ));
+            if let Some((a, b)) = sum.span {
+                rows.push((
+                    "Collected",
+                    format!(
+                        "{}\u{2013}{} ({})",
+                        crate::timefmt::fmt_clock(a, tz, true),
+                        crate::timefmt::fmt_clock(b, tz, true),
+                        humanize((b - a).num_seconds().max(0))
+                    ),
+                ));
+            }
+        }
+        rows.push(("Beam rise", format!("{:.0}%", m.beam_rise * 100.0)));
+    } else {
+        let q = crate::view::quality_label(m.quality_steps)
+            .map_or_else(|| format!("{} steps", m.quality_steps), str::to_string);
+        rows.push(("Quality", q));
+    }
+    if m.vertical_exaggeration > 1.0 {
+        rows.push(("Vertical", format!("{:.1}\u{d7}", m.vertical_exaggeration)));
+    }
+    rows
+}
+
 /// The cursor readout folded into the card's pairs: the bearing and distance from the radar on
 /// one row, the position on another.
 pub(super) fn probe_rows(readout: Vec<(&'static str, String)>) -> Vec<(&'static str, String)> {
@@ -383,6 +433,41 @@ pub(super) fn fmt_beam(ft: f64, metric: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_3d_block_names_what_each_mode_is_drawing() {
+        use crate::view::{Map3dRepresentation as R, Map3dState};
+        let keys = |m: &Map3dState| -> Vec<&str> {
+            volume_3d_rows(m, None)
+                .into_iter()
+                .map(|(k, _)| k)
+                .collect()
+        };
+        let mut m = Map3dState::default();
+        // Before the first upload there are no tilts to count, but the mode and beam rise hold.
+        assert_eq!(keys(&m), ["Mode", "Beam rise"]);
+        m.observed_layers = vec![wxdata::level2::ObservedLayer {
+            elevation_deg: 0.5,
+            radial_count: 720,
+            gate_count: 1832,
+            coverage_gates: 0,
+            max_value: None,
+            scan_start: None,
+            scan_end: None,
+        }];
+        m.beam_rise = 0.4;
+        let rows = volume_3d_rows(&m, None);
+        assert_eq!(rows[1].0, "Tilts");
+        assert!(rows[1].1.starts_with("1 "), "{}", rows[1].1);
+        assert_eq!(rows.last().unwrap().1, "40%");
+        m.representation = R::SmoothVolume;
+        m.quality_steps = crate::view::QUALITY_PRESETS[1].1;
+        m.vertical_exaggeration = 2.0;
+        let rows = volume_3d_rows(&m, None);
+        assert_eq!(rows[0].1, "Smooth reflectivity");
+        assert!(rows.contains(&("Quality", "Medium".to_string())));
+        assert!(rows.iter().any(|(k, _)| *k == "Vertical"));
+    }
 
     #[test]
     fn the_card_pairs_position_and_radar_geometry() {

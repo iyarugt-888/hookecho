@@ -437,8 +437,8 @@ The redesign is ready when:
 >   reading plus the gate inspector on the rail rather than a third control; the rail has no
 >   separate pan (the explore tool pans), locate or warning-focus tool, since nothing in the app
 >   does those yet, and the 3D camera is the toolbar's 2D/3D/Volume control.
-> - Not yet: drag-reorder in the tree (§3.1; it lives in the Layer Manager); tabbing more windows (warnings, analyst log, sounding, diagnostics) into the docks (§2.3);
->   the volume-mode 3D Inspector fields (§4: active tilts, beam rise, quality preset); screenshot
+> - Not yet: drag-reorder in the tree (§3.1; it lives in the Layer Manager); tabbing more
+>   windows (warnings, analyst log, sounding, diagnostics) into the docks (§2.3); screenshot
 >   passes at tablet and phone widths (§12.11; the phone layout is its own and unchanged).
 
 ### 13.1 References
@@ -800,3 +800,10 @@ a scale bar on the map; a network round-trip measurement for the app bar; a natu
   controls), and the strip is skipped in the workstation layouts.
 - FLASH ARI layer names lead with the window ("Rainfall rarity, 3 hours (ARI)"), so the seven
   rows stay distinct when the Layers panel truncates them.
+- The Inspector's 3D block (§4) now says what the volume is, not only where the camera is: the
+  mode (observed sweeps, smooth reflectivity, debris, smooth spectrum width); for observed sweeps
+  how many real tilts are drawn and their elevation range, the wall-clock span they were
+  collected over (a volume's tilts share a label, not an instant), and the beam-rise percentage;
+  for a smooth volume its quality preset, named from the same `view::QUALITY_PRESETS` the 3D
+  controls offer; and the vertical exaggeration when it is above 1×. Checked by unit test; the
+  screenshot pass for it is still to do.

@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: the workstation Inspector describes the 3D volume
+
+With a pane in 3D, the Inspector's 3D section now names the mode and, for the observed view, how
+many tilts are drawn (with their elevation range), the time span they were scanned over and the
+beam-rise setting; for a smooth volume it shows the quality preset.
+
 ### Added: fade or remove a layer from the workstation's Layers panel
 
 In the Dock and WSV3 layouts, the Layers panel's **Active** filter now doubles as a layer manager.
