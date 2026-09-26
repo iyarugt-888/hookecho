@@ -35,7 +35,9 @@ impl OverlayMsg {
             Self::StampedField(_, field) | Self::MrmsField(_, field, _) => {
                 Some(field.stamp.valid_time)
             }
-            Self::ModelDiff(_, _, _, times) | Self::Compare(_, _, _, _, times) => Some(times.valid),
+            Self::ModelDiff(_, _, _, _, times) | Self::Compare(_, _, _, _, times) => {
+                Some(times.valid)
+            }
             Self::Ensemble(_, _, run) => Some(run.valid()),
             Self::Spotters(spotters) => latest(spotters.iter().map(|s| s.time)),
             Self::Hrrr(forecast) => Some(forecast.valid()),

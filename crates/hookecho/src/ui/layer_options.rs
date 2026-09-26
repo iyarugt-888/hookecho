@@ -519,7 +519,10 @@ pub(crate) fn show(
         if on.contains(&FL::ModelDiff) {
             ui.horizontal_wrapped(|ui| {
                 ui.label("Difference:");
-                for mode in crate::fielddiff::DiffMode::ALL {
+                for mode in crate::fielddiff::DiffMode::ALL
+                    .into_iter()
+                    .filter(|m| m.offered_for(*diff_field))
+                {
                     changed |= ui.selectable_value(diff_mode, mode, mode.label()).changed();
                 }
             });
@@ -530,6 +533,11 @@ pub(crate) fn show(
                 ),
                 crate::fielddiff::DiffMode::Absolute => format!(
                     "Magnitude of the {a}/{b} difference, in {}. Color shows how far apart they are without direction; agreement is not drawn.",
+                    diff_field.units()
+                ),
+                crate::fielddiff::DiffMode::Percent => format!(
+                    "{a} as a percent change from {b}. Drawn only where {b} is at least {:.0} {}, so a change from almost nothing is not reported as a huge percentage; within ±10 %, nothing is drawn.",
+                    diff_field.percent_floor().unwrap_or(0.0),
                     diff_field.units()
                 ),
                 crate::fielddiff::DiffMode::Disagreement => {

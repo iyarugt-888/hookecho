@@ -2458,14 +2458,16 @@ Support:
   what the GPU upload currently represents. The legend's bar, ticks and title follow the mode, and
   the cursor readout is put through the same transform the upload was, so a magnitude-colored map
   cannot hand back a negative number.
-- [ ] percentage difference where meaningful — still open, and specifically *not* the fourth
-  `DiffMode` variant it looks like from the outside. `Signed`/`Absolute`/`Disagreement` are all
-  pure display transforms of one retained grid, which is why switching between them recolors
-  without refetching. A percentage needs the denominator, and the difference path only ever keeps
-  `a − b` (`diff_grid` is one `MrmsField`); both sides survive only in `compare_grid`, which the
-  separate compare-panes fetch populates. So this costs a fetch/retention change, not a match arm
-  — and it needs a decision about what a percentage means where the denominator is near zero,
-  which for CAPE or a difference field is most of the domain.
+- [x] percentage difference where meaningful — `DiffMode::Percent`, "Percent of B":
+  `100 · (A − B) / |B|` computed alongside the signed difference from the same two fetches
+  (`fielddiff::percent`, kept as `diff_pct`), so switching modes still never refetches. Offered
+  only where a ratio means something (`DiffField::percent_floor`): CAPE and run-to-run CAPE
+  (floor 250 J/kg), SRH (50 m²/s²), 10 m wind (5 kt), precipitation (1 mm); not for temperature,
+  pressure, height or reflectivity. Below the floor nothing is drawn, so a change from almost
+  nothing is not a huge percentage. ±100 % scale, ±10 % drawn as agreement. Found while checking
+  it: the diverging palette's index 0 — which the field upload writes for missing data — was its
+  most saturated blue, so every hole in a signed difference, and every below-floor cell here, drew
+  as the strongest "B higher"; index 0 is now transparent and values use 1..=255.
 - [x] threshold highlighting — the existing deadband mechanism (`DiffField::range`'s second
   number): differences inside it draw as fully transparent, same as every other comparison field
 - [ ] synchronized side-by-side panes — deliberately not offered for this field: the compare-panes

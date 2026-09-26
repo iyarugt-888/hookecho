@@ -8,6 +8,18 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: percent change for model comparisons
+
+Comparing CAPE, helicity, wind or precipitation between two models or two runs now offers
+**Percent of B**: how much A differs as a share of B. It is drawn only where B is large enough
+for a percentage to mean something, so a change from almost nothing is not shown as a huge
+percentage.
+
+### Fixed: missing data in model differences drew as deep blue
+
+Where one side of a model comparison had no data, the difference map showed its strongest blue
+("B much higher") instead of nothing. Those cells are now left clear.
+
 ### Added: analyzed rain in the last hour
 
 The RTMA analysis's hourly precipitation, from gauges and radar, is now a layer ("Rain in the last

@@ -296,16 +296,20 @@ pub fn draw_diff(
     let bar = Rect::from_min_size(panel.min + Vec2::new(PAD_X, 16.0), Vec2::new(BAR_W, BAR_H));
     card(painter, panel);
 
-    let (range, deadband) = field.range();
+    let (range, deadband) = if mode == crate::fielddiff::DiffMode::Percent {
+        crate::fielddiff::PERCENT_RANGE
+    } else {
+        field.range()
+    };
     let lut = crate::fielddiff::display_lut(mode, range, deadband);
     // One column per pixel of bar, sampled through the same value→index→color path as the grid.
     let cols = bar.width().round().max(1.0) as usize;
     for i in 0..cols {
         let fraction = i as f32 / (cols - 1).max(1) as f32;
         let v = match mode {
-            crate::fielddiff::DiffMode::Signed | crate::fielddiff::DiffMode::Disagreement => {
-                (fraction * 2.0 - 1.0) * range
-            }
+            crate::fielddiff::DiffMode::Signed
+            | crate::fielddiff::DiffMode::Disagreement
+            | crate::fielddiff::DiffMode::Percent => (fraction * 2.0 - 1.0) * range,
             crate::fielddiff::DiffMode::Absolute => fraction * range,
         };
         let k = crate::fielddiff::display_index(mode, v, range, deadband) as usize * 4;
@@ -326,6 +330,15 @@ pub fn draw_diff(
 
     let (a, b) = field.pair();
     let ticks = match mode {
+        crate::fielddiff::DiffMode::Percent => [
+            (format!("-{range:.0} %"), Align2::LEFT_TOP, bar.left()),
+            (
+                "0 (\u{2248})".to_string(),
+                Align2::CENTER_TOP,
+                bar.center().x,
+            ),
+            (format!("+{range:.0} %"), Align2::RIGHT_TOP, bar.right()),
+        ],
         crate::fielddiff::DiffMode::Signed => [
             (format!("-{range:.0}"), Align2::LEFT_TOP, bar.left()),
             (
@@ -359,7 +372,11 @@ pub fn draw_diff(
             Color32::from_gray(225),
         );
     }
-    let title = if mode == crate::fielddiff::DiffMode::Disagreement {
+    let title = if mode == crate::fielddiff::DiffMode::Percent {
+        // A ratio has no units, and the full expression overruns the card; the map's banner names
+        // both sides.
+        format!("{} \u{b7} % change", field.label())
+    } else if mode == crate::fielddiff::DiffMode::Disagreement {
         format!("{} mask (>{deadband:.1} {})", field.label(), field.units())
     } else {
         format!(

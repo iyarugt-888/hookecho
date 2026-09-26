@@ -74,22 +74,40 @@ pub enum DiffMode {
     Absolute,
     /// Binary analyst scan: transparent within the field's deadband, one color outside it.
     Disagreement,
+    /// ROADMAP_NEW F5: `100 · (A − B) / |B|`, only where `|B|` clears the field's own floor
+    /// ([`DiffField::percent_floor`]) — elsewhere a percentage of almost nothing is noise, so
+    /// nothing is drawn. Only offered for fields where a ratio means something.
+    Percent,
 }
 
+/// The percent view's scale: ±100 %, and changes within ±10 % drawn as agreement.
+pub const PERCENT_RANGE: (f32, f32) = (100.0, 10.0);
+
 impl DiffMode {
-    pub const ALL: [Self; 3] = [Self::Signed, Self::Absolute, Self::Disagreement];
+    pub const ALL: [Self; 4] = [
+        Self::Signed,
+        Self::Absolute,
+        Self::Disagreement,
+        Self::Percent,
+    ];
+
+    /// Whether this view is available for `field`.
+    pub fn offered_for(self, field: DiffField) -> bool {
+        self != Self::Percent || field.percent_floor().is_some()
+    }
 
     pub fn label(self) -> &'static str {
         match self {
             Self::Signed => "Signed (A − B)",
             Self::Absolute => "Absolute |A − B|",
             Self::Disagreement => "Disagreement mask",
+            Self::Percent => "Percent of B",
         }
     }
 
     pub fn apply(self, value: f32) -> f32 {
         match self {
-            Self::Signed => value,
+            Self::Signed | Self::Percent => value,
             Self::Absolute | Self::Disagreement => value.abs(),
         }
     }
@@ -99,6 +117,7 @@ impl DiffMode {
             Self::Signed => format!("{a} − {b}"),
             Self::Absolute => format!("|{a} − {b}|"),
             Self::Disagreement => format!("{a} ≉ {b}"),
+            Self::Percent => format!("({a} − {b}) / {b}"),
         }
     }
 }
@@ -485,6 +504,21 @@ impl DiffField {
         }
     }
 
+    /// The smallest `|B|`, in display units, a percentage is computed against, or `None` where a
+    /// ratio is meaningless: a temperature in Kelvin or °C has no true zero to be a percent of, a
+    /// pressure or height changes by fractions of a percent, and reflectivity is already
+    /// logarithmic. The floors are where the quantity starts to matter at all, so a CAPE going
+    /// from 5 to 50 J/kg is not reported as +900 %.
+    pub fn percent_floor(self) -> Option<f32> {
+        match self {
+            DiffField::Global(GlobalFieldKind::Wind10m) => Some(5.0),
+            DiffField::Global(GlobalFieldKind::Precip) => Some(1.0),
+            DiffField::Cape | DiffField::RunToRunCape => Some(250.0),
+            DiffField::Srh => Some(50.0),
+            DiffField::Global(_) | DiffField::Reflectivity => None,
+        }
+    }
+
     /// Units, for the legend and the hover text.
     pub fn units(self) -> &'static str {
         match self {
@@ -508,6 +542,22 @@ impl DiffField {
 /// Rejects inputs with different valid times before sampling. `fetch_pair` also records both
 /// source runs and leads; this guard protects direct callers of the pure subtraction.
 pub fn diff(a: &MrmsField, b: &MrmsField) -> Option<MrmsField> {
+    combine(a, b, |x, y| x - y)
+}
+
+/// The percent change of `a` against `b`, `100 · (a − b) / |b|`, on the same lattice as
+/// [`diff`], and NaN wherever `|b|` is under `floor` (in the grids' own units).
+pub fn percent(a: &MrmsField, b: &MrmsField, floor: f32) -> Option<MrmsField> {
+    combine(a, b, |x, y| {
+        if y.abs() >= floor {
+            100.0 * (x - y) / y.abs()
+        } else {
+            f32::NAN
+        }
+    })
+}
+
+fn combine(a: &MrmsField, b: &MrmsField, f: impl Fn(f32, f32) -> f32) -> Option<MrmsField> {
     if a.time != b.time {
         return None;
     }
@@ -548,7 +598,7 @@ pub fn diff(a: &MrmsField, b: &MrmsField) -> Option<MrmsField> {
         for col in 0..nx {
             let lon = lon_west + (col as f64 + 0.5) * dx;
             values.push(match (sample(a, lon, lat), sample(b, lon, lat)) {
-                (Some(x), Some(y)) => x - y,
+                (Some(x), Some(y)) => f(x, y),
                 // Either model missing here means there is no difference to state. NaN is what
                 // the rest of the field pipeline already reads as "no data".
                 _ => f32::NAN,
@@ -609,10 +659,13 @@ fn sample(f: &MrmsField, lon: f64, lat: f64) -> Option<f32> {
 /// The deadband is the point of the layer: models agreeing is the common case and drawing it
 /// would bury the disagreement under a wash of near-white. 256 entries, RGBA, index 128 = zero —
 /// the same 256×1 LUT shape every other field layer uploads.
+/// Index 0 is "no data" (the field upload writes it for NaN) and stays transparent; values use
+/// 1..=255, with 128 at zero.
 pub fn diverging_lut(range: f32, deadband: f32) -> Vec<u8> {
     let mut lut = Vec::with_capacity(256 * 4);
-    for i in 0..256 {
-        let t = (i as f32 / 255.0) * 2.0 - 1.0; // −1..1
+    lut.extend_from_slice(&[0, 0, 0, 0]);
+    for i in 1..256 {
+        let t = ((i - 1) as f32 / 254.0) * 2.0 - 1.0; // −1..1
         let v = t * range;
         if v.abs() <= deadband {
             lut.extend_from_slice(&[0, 0, 0, 0]);
@@ -644,9 +697,10 @@ pub fn diverging_lut(range: f32, deadband: f32) -> Vec<u8> {
 /// which the LUT draws as nothing.
 pub fn diff_index(v: f32, range: f32) -> u8 {
     if !v.is_finite() {
-        return 128;
+        return 0;
     }
-    (((v / range).clamp(-1.0, 1.0) + 1.0) * 127.5) as u8
+    // 1..=255: index 0 is reserved for missing data (see `diverging_lut`).
+    1 + (((v / range).clamp(-1.0, 1.0) + 1.0) * 127.0).round() as u8
 }
 
 /// Amber-to-red sequential scale for `|A - B|`, with the same transparent agreement deadband as
@@ -691,7 +745,7 @@ pub fn disagreement_lut() -> Vec<u8> {
 
 pub fn display_lut(mode: DiffMode, range: f32, deadband: f32) -> Vec<u8> {
     match mode {
-        DiffMode::Signed => diverging_lut(range, deadband),
+        DiffMode::Signed | DiffMode::Percent => diverging_lut(range, deadband),
         DiffMode::Absolute => magnitude_lut(range, deadband),
         DiffMode::Disagreement => disagreement_lut(),
     }
@@ -699,7 +753,7 @@ pub fn display_lut(mode: DiffMode, range: f32, deadband: f32) -> Vec<u8> {
 
 pub fn display_index(mode: DiffMode, value: f32, range: f32, deadband: f32) -> u8 {
     match mode {
-        DiffMode::Signed => diff_index(value, range),
+        DiffMode::Signed | DiffMode::Percent => diff_index(value, range),
         DiffMode::Absolute => magnitude_index(value, range),
         DiffMode::Disagreement => u8::MAX * u8::from(value.is_finite() && value.abs() > deadband),
     }
@@ -708,6 +762,53 @@ pub fn display_index(mode: DiffMode, value: f32, range: f32, deadband: f32) -> u
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn missing_data_is_clear_and_the_extremes_are_not() {
+        let lut = diverging_lut(100.0, 10.0);
+        assert_eq!(lut[3], 0, "index 0, missing data, is transparent");
+        assert_eq!(diff_index(f32::NAN, 100.0), 0);
+        let lo = diff_index(-500.0, 100.0) as usize;
+        let hi = diff_index(500.0, 100.0) as usize;
+        assert_eq!((lo, hi), (1, 255));
+        assert!(
+            lut[lo * 4 + 3] > 200 && lut[hi * 4 + 3] > 200,
+            "both extremes drawn"
+        );
+        assert_eq!(
+            lut[diff_index(0.0, 100.0) as usize * 4 + 3],
+            0,
+            "agreement is clear"
+        );
+    }
+
+    #[test]
+    fn percent_change_is_against_b_and_blank_below_the_floor() {
+        let t = DateTime::from_timestamp(1_700_000_000, 0).unwrap();
+        let grid = |v: [f32; 4]| MrmsField {
+            values: v.to_vec(),
+            nx: 2,
+            ny: 2,
+            lon_west: -100.0,
+            lon_east: -98.0,
+            lat_north: 40.0,
+            lat_south: 38.0,
+            time: t,
+        };
+        let a = grid([1500.0, 500.0, 60.0, 10.0]);
+        let b = grid([1000.0, 1000.0, 40.0, 5.0]);
+        let p = percent(&a, &b, 250.0).unwrap();
+        assert!((p.values[0] - 50.0).abs() < 0.5, "{:?}", p.values);
+        assert!((p.values[1] + 50.0).abs() < 0.5);
+        assert!(
+            p.values[2].is_nan() && p.values[3].is_nan(),
+            "tiny B: no percentage"
+        );
+        // Only fields with a meaningful ratio offer the view.
+        assert!(DiffMode::Percent.offered_for(DiffField::Cape));
+        assert!(!DiffMode::Percent.offered_for(DiffField::Global(GlobalFieldKind::Temp2m)));
+        assert!(DiffMode::Signed.offered_for(DiffField::Reflectivity));
+    }
 
     #[test]
     fn comparison_requires_one_valid_time_and_retains_both_runs() {

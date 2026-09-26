@@ -326,10 +326,12 @@ enum OverlayMsg {
         MrmsRequest,
     ),
     /// A model-difference grid with exact shared valid time and both source runs.
+    /// The signed difference, and the percent grid where the field offers one.
     ModelDiff(
         crate::fielddiff::DiffField,
         u16,
         wxdata::mrms::MrmsField,
+        Option<wxdata::mrms::MrmsField>,
         crate::fielddiff::ComparisonTimes,
     ),
     /// Both sides of a comparison, unsubtracted, plus their shared valid time — the field is included
@@ -1131,7 +1133,11 @@ impl OverlaySource {
                 let pair = crate::fielddiff::fetch_pair(http, field, fh).await?;
                 let d = crate::fielddiff::diff(&pair.a, &pair.b)
                     .ok_or_else(|| anyhow::anyhow!("the two models cover nothing in common"))?;
-                OverlayMsg::ModelDiff(field, fh, d, pair.times)
+                // The floor is in display units; the grids are in wire units.
+                let pct = field.percent_floor().and_then(|floor| {
+                    crate::fielddiff::percent(&pair.a, &pair.b, floor / field.input_scale())
+                });
+                OverlayMsg::ModelDiff(field, fh, d, pct, pair.times)
             }
             OverlaySource::Compare(field, fh) => {
                 let pair = crate::fielddiff::fetch_pair(http, field, fh).await?;
@@ -2702,6 +2708,7 @@ fn format_diff_readout(
     match mode {
         DiffMode::Signed => format!("{signed:+.1} {units}"),
         DiffMode::Absolute => format!("{:.1} {units}", signed.abs()),
+        DiffMode::Percent => format!("{signed:+.0} % of B"),
         DiffMode::Disagreement => {
             let magnitude = signed.abs();
             let class = if magnitude <= deadband {
@@ -3598,6 +3605,9 @@ pub struct HookEchoApp {
     /// The last difference grid, kept on the CPU after upload so the cursor can read a number off
     /// it. A diverging color says "the models disagree here"; only a value says by how much.
     diff_grid: Option<wxdata::mrms::MrmsField>,
+    /// The percent-change grid behind `DiffMode::Percent`, computed with `diff_grid` from the same
+    /// two fetches (`fielddiff::percent`); `None` for a field with no meaningful ratio.
+    diff_pct: Option<wxdata::mrms::MrmsField>,
     /// The field the difference layer was last fetched for, so a change refetches at once.
     diff_key: Option<(crate::fielddiff::DiffField, u16)>,
     /// Which field/mode the resident GPU upload represents. Kept separate from `diff_key` so a
@@ -5144,6 +5154,7 @@ impl HookEchoApp {
             diff_valid: None,
             diff_error: None,
             diff_grid: None,
+            diff_pct: None,
             goes_west_key: std::collections::HashMap::new(),
             goto_poll: None,
             #[cfg(target_arch = "wasm32")]
@@ -8791,11 +8802,10 @@ impl HookEchoApp {
             let (a, b) = self.diff_field.pair();
             let (_, deadband) = self.diff_field.range();
             let value = self
-                .diff_grid
-                .as_ref()
+                .diff_display_grid()
                 .and_then(|grid| grid.sample_bilinear(lon, lat))
                 .filter(|value| value.is_finite())
-                .map(|value| value * self.diff_field.input_scale())
+                .map(|value| self.diff_display_value(value))
                 .map(|value| {
                     format_diff_readout(self.diff_mode, value, deadband, self.diff_field.units())
                 });
@@ -8931,6 +8941,37 @@ impl HookEchoApp {
         } else {
             self.cell_details = true;
         }
+    }
+
+    /// The grid the difference layer is drawing: the percent grid in the percent view, else the
+    /// signed difference. What the upload and every readout sample, so they cannot disagree.
+    fn diff_display_grid(&self) -> Option<&wxdata::mrms::MrmsField> {
+        if self.diff_mode == crate::fielddiff::DiffMode::Percent {
+            self.diff_pct.as_ref()
+        } else {
+            self.diff_grid.as_ref()
+        }
+    }
+
+    /// A sample of [`Self::diff_display_grid`] in display terms: a percent as is, a difference
+    /// in the field's display units.
+    fn diff_display_value(&self, v: f32) -> f32 {
+        if self.diff_mode == crate::fielddiff::DiffMode::Percent {
+            v
+        } else {
+            v * self.diff_field.input_scale()
+        }
+    }
+
+    /// The GPU upload for the current difference view, built from `signed` (the difference) or,
+    /// in the percent view, the percent grid — blank when there is none.
+    fn diff_upload(&self, signed: &wxdata::mrms::MrmsField) -> crate::render::MrmsUpload {
+        let grid = if self.diff_mode == crate::fielddiff::DiffMode::Percent {
+            self.diff_pct.as_ref().unwrap_or(signed)
+        } else {
+            signed
+        };
+        model_diff_upload(grid, self.diff_field, self.diff_mode)
     }
 
     /// The selected storm, current: `cell_popup` is a copy taken at the click, so the newest
@@ -11675,11 +11716,12 @@ impl HookEchoApp {
                         }
                     }
                 }
-                OverlayMsg::ModelDiff(kind, fh, field, valid)
+                OverlayMsg::ModelDiff(kind, fh, field, pct, valid)
                     if kind == self.diff_field && fh == self.global_fcst_hour =>
                 {
                     let layer = crate::render::FieldLayer::ModelDiff;
-                    let upload = model_diff_upload(&field, self.diff_field, self.diff_mode);
+                    self.diff_pct = pct;
+                    let upload = self.diff_upload(&field);
                     if let Some(s) = self.fields.get_mut(&layer) {
                         s.pending = Some(upload);
                         let (a, b) = self.diff_field.pair();
@@ -18769,8 +18811,7 @@ impl HookEchoApp {
         {
             if let Some(hp) = response.hover_pos() {
                 if let Some(v) = self
-                    .diff_grid
-                    .as_ref()
+                    .diff_display_grid()
                     .and_then(|g| self.diff_hover_value(g, cam, prect, vp, hp))
                 {
                     let f = self.diff_field;
@@ -21622,8 +21663,12 @@ fn model_diff_upload(
     kind: crate::fielddiff::DiffField,
     mode: crate::fielddiff::DiffMode,
 ) -> crate::render::MrmsUpload {
-    let (range, deadband) = kind.range();
-    let scale = kind.input_scale();
+    // A percent grid is already a ratio: its own ±100 % scale, no unit conversion.
+    let ((range, deadband), scale) = if mode == crate::fielddiff::DiffMode::Percent {
+        (crate::fielddiff::PERCENT_RANGE, 1.0)
+    } else {
+        (kind.range(), kind.input_scale())
+    };
     field_index_upload(
         field,
         |value| crate::fielddiff::display_index(mode, value * scale, range, deadband),
@@ -22771,14 +22816,18 @@ impl eframe::App for HookEchoApp {
                         .is_none_or(|t| t.elapsed().as_secs() >= field_refresh_secs(layer))
                 });
             let changed = on && self.diff_key != Some((self.diff_field, fh));
+            // A field with no meaningful ratio falls back from the percent view.
+            if !self.diff_mode.offered_for(self.diff_field) {
+                self.diff_mode = crate::fielddiff::DiffMode::Signed;
+            }
             let display_key = (self.diff_field, self.diff_mode);
             let display_changed = on
                 && !changed
                 && self.diff_display_key != Some(display_key)
                 && self.diff_valid.is_some();
             if display_changed {
-                if let Some(grid) = self.diff_grid.as_ref() {
-                    let upload = model_diff_upload(grid, self.diff_field, self.diff_mode);
+                if let Some(grid) = self.diff_grid.clone() {
+                    let upload = self.diff_upload(&grid);
                     if let Some(state) = self.fields.get_mut(&layer) {
                         state.pending = Some(upload);
                         if let Some(stamp) = state.stamp.as_mut() {
@@ -22793,6 +22842,7 @@ impl eframe::App for HookEchoApp {
                 if changed {
                     self.diff_valid = None;
                     self.diff_grid = None;
+                    self.diff_pct = None;
                     self.diff_display_key = None;
                     if let Some(s) = self.fields.get_mut(&layer) {
                         s.stamp = None;
