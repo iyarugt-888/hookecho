@@ -3866,6 +3866,11 @@ Add compact mode:
 - dockable optional analyst panels while preserving current full-map default
 - high-information status footer option
 
+Progress: the Dock/WSV3 workstation (`docs/WSV3_IMGUI_MODERN_DESIGN_PLAN.md` §13) is the compact
+mode. Its Layers panel's Active filter is now also the per-layer manager — remove on every active
+layer, an opacity fader on every field layer — so fading MRMS under radar no longer needs the
+separate Layer Manager window.
+
 ## Q3. Accessibility — ongoing, swept this pass
 
 Preserve current accesskit/high-contrast work and ensure new controls have:

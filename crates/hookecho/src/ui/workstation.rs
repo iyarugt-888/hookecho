@@ -494,6 +494,56 @@ pub fn check(ui: &mut egui::Ui, t: &Tokens, on: &mut bool, label: &str) -> Respo
     resp
 }
 
+/// A flat fraction slider for a dense row: a 3 px track filled with the accent up to `value`, and
+/// a small thumb. Drag or click to set it; with focus, the arrow keys step by 5 %. `value` stays
+/// within `min..=1`, and the response is marked changed only when it moved.
+pub fn fader(
+    ui: &mut egui::Ui,
+    t: &Tokens,
+    value: &mut f32,
+    min: f32,
+    width: f32,
+    label: &str,
+) -> Response {
+    let (rect, mut resp) = ui.allocate_exact_size(egui::vec2(width, 18.0), Sense::click_and_drag());
+    let track = rect.shrink2(egui::vec2(5.0, 0.0));
+    let before = *value;
+    if let Some(p) = resp.interact_pointer_pos() {
+        if resp.dragged() || resp.clicked() {
+            *value = ((p.x - track.left()) / track.width()).clamp(0.0, 1.0);
+        }
+    }
+    if resp.has_focus() {
+        let step = ui.input(|i| {
+            i.num_presses(egui::Key::ArrowRight) as f32 + i.num_presses(egui::Key::ArrowUp) as f32
+                - i.num_presses(egui::Key::ArrowLeft) as f32
+                - i.num_presses(egui::Key::ArrowDown) as f32
+        });
+        *value += step * 0.05;
+    }
+    *value = value.clamp(min, 1.0);
+    if (*value - before).abs() > f32::EPSILON {
+        resp.mark_changed();
+    }
+    let v = *value;
+    resp.widget_info(|| egui::WidgetInfo::slider(true, f64::from(v), label));
+    let y = rect.center().y;
+    let p = ui.painter();
+    let bar =
+        |x0: f32, x1: f32| Rect::from_min_max(egui::pos2(x0, y - 1.5), egui::pos2(x1, y + 1.5));
+    p.rect_filled(bar(track.left(), track.right()), 1.5, t.field_hi);
+    let at = track.left() + track.width() * v;
+    p.rect_filled(bar(track.left(), at), 1.5, t.accent);
+    let hot = resp.hovered() || resp.dragged() || resp.has_focus();
+    p.circle(
+        egui::pos2(at, y),
+        if hot { 5.5 } else { 4.5 },
+        if hot { Color32::WHITE } else { t.text },
+        Stroke::new(1.0, t.accent),
+    );
+    resp
+}
+
 /// A small caption before a control ("Site:").
 pub fn caption(ui: &mut egui::Ui, t: &Tokens, label: &str) {
     ui.label(text(label, 12.0, t.text_dim));
@@ -654,6 +704,24 @@ mod tests {
                 "{want} missing: {got:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_fader_never_leaves_its_range() {
+        let ctx = egui::Context::default();
+        let mut v = 1.4_f32;
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            fader(ui, &t(), &mut v, 0.05, 90.0, "Opacity");
+        });
+        assert_eq!(v, 1.0);
+        v = -3.0;
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            fader(ui, &t(), &mut v, 0.05, 90.0, "Opacity");
+        });
+        assert_eq!(
+            v, 0.05,
+            "an invisible layer is a removed one, not a faded one"
+        );
     }
 
     #[test]

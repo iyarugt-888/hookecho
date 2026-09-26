@@ -13,6 +13,34 @@ const ROW_H: f32 = 26.0;
 enum Hit {
     Row(crate::app::PaletteAction),
     Star(&'static str),
+    /// A field layer's opacity, dragged on its Active-filter control row.
+    Opacity(crate::render::FieldLayer, f32),
+}
+
+/// The height of the control row under an active layer in the Active filter.
+const CONTROL_ROW_H: f32 = 22.0;
+
+/// What an active layer's control row offers (design plan §3.1): an opacity fader for the layers
+/// that paint through the field pipeline, where opacity is a per-frame uniform, and a remove
+/// button for any row whose action switches the layer back off. A radar moment has neither:
+/// it is the pane's product, not a layer on it, so there is nothing to fade or remove.
+fn row_controls(action: crate::app::PaletteAction) -> (Option<crate::render::FieldLayer>, bool) {
+    use crate::app::{OverlayToggle as O, PaletteAction as A};
+    match action {
+        A::ToggleField(l) => (Some(l), true),
+        // Switches that link panes or open a window: on, but nothing on the map to remove.
+        A::ToggleOverlay(
+            O::AlertPanel
+            | O::LinkCameras
+            | O::LinkTimes
+            | O::LockSourceTime
+            | O::LinkSite
+            | O::LinkCursor
+            | O::MiniLoop,
+        ) => (None, false),
+        A::ToggleOverlay(_) | A::ToggleModelProduct(_) => (None, true),
+        _ => (None, false),
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -259,6 +287,8 @@ impl HookEchoApp {
                                 &entries,
                                 force_open,
                                 &self.settings.favorite_layers,
+                                (self.dock.filter == LayerFilter::Active)
+                                    .then_some(&self.settings.field_opacity),
                             ) {
                                 hit = Some(h);
                             }
@@ -337,6 +367,10 @@ impl HookEchoApp {
             Some(Hit::Star(slug)) => {
                 crate::ui::layers_panel::toggle_favorite(&mut self.settings.favorite_layers, slug);
             }
+            Some(Hit::Opacity(layer, v)) => {
+                // Read per frame into the grid uniform: no rebuild, the next frame shows it.
+                self.settings.field_opacity.insert(layer, v);
+            }
             None => {}
         }
         for a in [from_panels, footer].into_iter().flatten() {
@@ -356,6 +390,7 @@ fn group(
     entries: &[PaletteEntry],
     force_open: bool,
     favorites: &[String],
+    opacity: Option<&std::collections::HashMap<crate::render::FieldLayer, f32>>,
 ) -> Option<Hit> {
     let id = ui.make_persistent_id(("dock_group", g.category));
     let mut state = egui::collapsing_header::CollapsingState::load_with_default_open(
@@ -416,7 +451,7 @@ fn group(
     let mut hit = None;
     state.show_body_unindented(ui, |ui| {
         for &i in &g.rows {
-            if let Some(h) = row(ui, t, &entries[i], tint, favorites) {
+            if let Some(h) = row(ui, t, &entries[i], tint, favorites, opacity) {
                 hit = Some(h);
             }
         }
@@ -432,13 +467,19 @@ fn row(
     e: &PaletteEntry,
     tint: egui::Color32,
     favorites: &[String],
+    opacity: Option<&std::collections::HashMap<crate::render::FieldLayer, f32>>,
 ) -> Option<Hit> {
     let (rect, resp) =
         ui.allocate_exact_size(egui::vec2(ui.available_width(), ROW_H), Sense::click());
     let on = e.on == Some(true);
     let slug = favorite_slug(e);
+    // In the Active filter an active layer's own remove button takes the row's last slot and the
+    // star and health mark move one slot in.
+    let (fade, removable) = row_controls(e.action);
+    let managing = opacity.is_some() && on;
+    let shift = if managing && removable { 22.0 } else { 0.0 };
     let star_rect = Rect::from_center_size(
-        egui::pos2(rect.right() - 18.0, rect.center().y),
+        egui::pos2(rect.right() - 18.0 - shift, rect.center().y),
         egui::vec2(20.0, 20.0),
     );
     let star = slug.map(|s| {
@@ -506,7 +547,7 @@ fn row(
     x += 22.0;
     // The name gets whatever the trailing marks leave, cut with an ellipsis rather than spilling
     // under the star.
-    let right = rect.right() - 34.0 - if e.health.is_some() { 14.0 } else { 0.0 };
+    let right = rect.right() - 34.0 - shift - if e.health.is_some() { 14.0 } else { 0.0 };
     let mut job = egui::text::LayoutJob::simple_singleline(
         e.label.clone(),
         FontId::proportional(12.5),
@@ -517,7 +558,7 @@ fn row(
     p.galley(egui::pos2(x, y - galley.size().y / 2.0), galley, t.text);
     if let Some(h) = &e.health {
         let (word, color) = crate::ui::layers_panel::health_look(h.state());
-        let mark = egui::pos2(rect.right() - 40.0, y);
+        let mark = egui::pos2(rect.right() - 40.0 - shift, y);
         p.text(
             mark,
             egui::Align2::CENTER_CENTER,
@@ -565,9 +606,83 @@ fn row(
             hit = Some(Hit::Star(s));
         }
     }
+    if managing && removable {
+        let r = Rect::from_center_size(egui::pos2(rect.right() - 18.0, y), egui::vec2(20.0, 20.0));
+        let x_resp = ui
+            .interact(r, ui.id().with(("dock_remove", &e.label)), Sense::click())
+            .named(&format!("Remove {}", e.label))
+            .on_hover_text("Remove from the map");
+        if x_resp.hovered() {
+            ui.painter().rect_filled(r.shrink(1.0), 3.0, t.field_hi);
+        }
+        ui.painter().text(
+            r.center(),
+            egui::Align2::CENTER_CENTER,
+            ph::X,
+            FontId::proportional(12.0),
+            if x_resp.hovered() {
+                t.danger
+            } else {
+                t.text_dim
+            },
+        );
+        if x_resp.clicked() {
+            hit = Some(Hit::Row(e.action));
+        }
+    }
     if hit.is_none() && resp.clicked() {
         hit = Some(Hit::Row(e.action));
     }
+    if let (Some(levels), Some(layer), true) = (opacity, fade, on) {
+        if let Some(h) = fade_row(ui, t, e, layer, levels) {
+            hit = Some(h);
+        }
+    }
+    hit
+}
+
+/// The row under an active field layer: its opacity, lined up under the layer's name so it reads
+/// as belonging to the row above.
+fn fade_row(
+    ui: &mut egui::Ui,
+    t: &ws::Tokens,
+    e: &PaletteEntry,
+    layer: crate::render::FieldLayer,
+    levels: &std::collections::HashMap<crate::render::FieldLayer, f32>,
+) -> Option<Hit> {
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), CONTROL_ROW_H),
+        Sense::hover(),
+    );
+    let p = ui.painter();
+    p.rect_filled(rect, 0.0, t.accent_soft().gamma_multiply(0.25));
+    p.rect_filled(
+        Rect::from_min_size(rect.min, egui::vec2(2.0, rect.height())),
+        0.0,
+        t.accent,
+    );
+    let mut row = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(
+                rect.with_min_x(rect.left() + 52.0)
+                    .shrink2(egui::vec2(0.0, 2.0)),
+            )
+            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+    );
+    row.spacing_mut().item_spacing.x = 6.0;
+    let mut v = levels.get(&layer).copied().unwrap_or(1.0);
+    row.label(ws::text(ph::DROP_HALF, 13.0, t.text_dim))
+        .on_hover_text("Opacity");
+    let width = (row.available_width() - 56.0).clamp(50.0, 160.0);
+    let label = format!("{} opacity", e.label);
+    let mut hit = None;
+    if ws::fader(&mut row, t, &mut v, 0.05, width, &label)
+        .on_hover_text("Opacity; with focus, the arrow keys step it by 5%")
+        .changed()
+    {
+        hit = Some(Hit::Opacity(layer, v));
+    }
+    row.label(ws::mono(format!("{:>3.0}%", v * 100.0), 11.0, t.text_dim));
     hit
 }
 
@@ -611,6 +726,31 @@ mod search_tests {
             Some(SearchSubmit::Place("Norman, Oklahoma".into()))
         );
         assert_eq!(submit("  "), None);
+    }
+}
+
+#[cfg(test)]
+mod control_tests {
+    use super::*;
+    use crate::app::{OverlayToggle, PaletteAction};
+    use crate::render::FieldLayer;
+
+    #[test]
+    fn only_map_layers_get_fade_and_remove() {
+        assert_eq!(
+            row_controls(PaletteAction::ToggleField(FieldLayer::Mrms)),
+            (Some(FieldLayer::Mrms), true)
+        );
+        assert_eq!(
+            row_controls(PaletteAction::ToggleOverlay(OverlayToggle::Metar)),
+            (None, true)
+        );
+        // Linking panes is a mode, not a layer: nothing to take off the map.
+        assert_eq!(
+            row_controls(PaletteAction::ToggleOverlay(OverlayToggle::LinkCursor)),
+            (None, false)
+        );
+        assert_eq!(row_controls(PaletteAction::Reload), (None, false));
     }
 }
 

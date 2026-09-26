@@ -104,6 +104,14 @@ impl HookEchoApp {
                     .inner_margin(egui::Margin::symmetric(12, 0)),
             )
             .show(root, |ui| {
+                // The bar is the window's title bar: its empty space drags the window. Allocated
+                // before the controls, so each of them keeps its own clicks.
+                let caption = ui.interact(
+                    ui.max_rect(),
+                    ui.id().with("dock_caption"),
+                    egui::Sense::click_and_drag(),
+                );
+                crate::app::chrome::window_frame::caption_drag(ctx, &caption);
                 ui.horizontal_centered(|ui| {
                     ui.spacing_mut().item_spacing.x = 2.0;
                     ui.label(ws::text(ph::BROADCAST, 18.0, t.accent));

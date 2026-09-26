@@ -437,8 +437,7 @@ The redesign is ready when:
 >   reading plus the gate inspector on the rail rather than a third control; the rail has no
 >   separate pan (the explore tool pans), locate or warning-focus tool, since nothing in the app
 >   does those yet, and the 3D camera is the toolbar's 2D/3D/Volume control.
-> - Not yet: per-layer opacity/remove rows (§3.1; drag-reorder lives in the Layer Manager);
->   tabbing more windows (warnings, analyst log, sounding, diagnostics) into the docks (§2.3);
+> - Not yet: drag-reorder in the tree (§3.1; it lives in the Layer Manager); tabbing more windows (warnings, analyst log, sounding, diagnostics) into the docks (§2.3);
 >   the volume-mode 3D Inspector fields (§4: active tilts, beam rise, quality preset); screenshot
 >   passes at tablet and phone widths (§12.11; the phone layout is its own and unchanged).
 
@@ -778,6 +777,8 @@ a scale bar on the map; a network round-trip measurement for the app bar; a natu
 - The Satellite tab now puts the MRMS QPE accumulation-window picker above the National layers
   tree. It switches the active pane among the existing catalog products and keeps saved layer
   identifiers intact; the shared layer options offer the same control when QPE is on.
+- A matching compact FLASH ARI picker selects 30-minute, 1/3/6/12/24-hour or cross-window maximum
+  rainfall rarity. Its hint and legend say rainfall recurrence in years, not flood probability.
 - The Satellite tab also offers a compact 18/30/50/60 dBZ MRMS echo-top selector using the same
   choice pattern. The panel stays map-first; changing thresholds only changes the active pane.
   The shared km MSL legend uses a threshold-neutral title.
@@ -787,3 +788,15 @@ a scale bar on the map; a network round-trip measurement for the app bar; a natu
   tracks. Six published windows fit without widening the dock or crowding the map.
 - The radar health and delay readout in the app bar opens the existing Data source health window
   on click, with an accessible action name and a hover hint for the provider detail.
+- Per-layer controls (§3.1): in the Active filter every layer that is on gets a remove button in
+  its row, and every field layer gets an opacity row beneath it (a flat `ws::fader`, 5–100 %,
+  arrow keys step 5 %). The fader writes `settings.field_opacity`, which the grid uniform reads
+  per frame, so the map follows the drag with no rebuild; the Layer Manager shows the same value.
+  Mode switches that are "on" but are not map layers (pane linking, the alert panel, the mini
+  loop) and radar moments get no remove button.
+- The borderless window's 44 px drag strip was drawn after the workstation's app bar and sat on
+  top of it, taking the clicks meant for the Radar/Models/Satellite/… tabs. The app bar is now
+  the caption itself (`window_frame::caption_drag` on a background response allocated before its
+  controls), and the strip is skipped in the workstation layouts.
+- FLASH ARI layer names lead with the window ("Rainfall rarity, 3 hours (ARI)"), so the seven
+  rows stay distinct when the Layers panel truncates them.

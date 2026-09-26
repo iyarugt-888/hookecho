@@ -23153,7 +23153,9 @@ impl eframe::App for HookEchoApp {
                 if cfg!(target_os = "android") {
                     self.android_back(ctx);
                 }
-                self.window_frame(ctx);
+                // The workstation's app bar is its own caption (drawn above, so a strip now
+                // would cover its tabs).
+                self.window_frame(ctx, !dock_layout);
                 true
             };
             if chrome {

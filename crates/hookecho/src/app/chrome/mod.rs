@@ -15,7 +15,7 @@ mod registry;
 mod ribbon;
 mod scrubber;
 mod state;
-mod window_frame;
+pub(crate) mod window_frame;
 mod windows;
 
 use super::*;

@@ -26,11 +26,17 @@ impl HookEchoApp {
     /// Draw the parts of the window the OS is no longer drawing. Call before the rest of the
     /// chrome: the drag strip covers the top edge, and whatever is drawn after it — the search
     /// pill, the window buttons below — takes its own clicks back.
-    pub(crate) fn window_frame(&mut self, ctx: &egui::Context) {
+    ///
+    /// `strip: false` is for a layout whose own top bar is already drawn and acts as the caption
+    /// ([`caption_drag`]): a strip laid over it afterwards would sit on top and take the clicks
+    /// meant for its tabs and buttons.
+    pub(crate) fn window_frame(&mut self, ctx: &egui::Context, strip: bool) {
         if crate::os_decorated() {
             return;
         }
-        drag_strip(ctx);
+        if strip {
+            drag_strip(ctx);
+        }
         self.window_buttons(ctx);
         resize_grips(ctx);
     }
@@ -104,6 +110,17 @@ fn drag_strip(ctx: &egui::Context) {
             ui.allocate_response(rect.size(), egui::Sense::click_and_drag())
         })
         .inner;
+    caption_drag(ctx, &resp);
+}
+
+/// Make `resp` behave like a title bar: drag moves the window, double-click maximizes. A top bar
+/// that draws its own controls calls this on a background response allocated before them, so
+/// the controls, added later in the same layer, keep their own clicks. A no-op when the OS draws
+/// the frame.
+pub(crate) fn caption_drag(ctx: &egui::Context, resp: &egui::Response) {
+    if crate::os_decorated() {
+        return;
+    }
     if resp.drag_started() {
         // StartDrag hands the window to the compositor, which finishes the gesture itself. egui
         // never sees the rest of the drag, which is why this is `drag_started` and not `dragged`.

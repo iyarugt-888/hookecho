@@ -8,6 +8,25 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: fade or remove a layer from the workstation's Layers panel
+
+In the Dock and WSV3 layouts, the Layers panel's **Active** filter now doubles as a layer manager.
+Every layer that is on has a × to take it off the map, and every gridded layer (MRMS, models,
+satellite) has an opacity slider under it. The map follows the slider as you drag, and the Layer
+Manager window shows the same setting.
+
+### Fixed: the workstation's top tabs ignored clicks
+
+In the Dock and WSV3 layouts, clicking Radar, Models, Satellite, Surface, Analysis or GIS in the
+top bar could do nothing: the invisible strip that lets you drag the borderless window was drawn
+on top of them. The top bar now drags the window from its empty space and leaves its tabs and
+buttons alone.
+
+### Changed: rainfall rarity layers name their window first
+
+The seven FLASH rainfall-rarity layers are now named "Rainfall rarity, 3 hours (ARI)" and so on,
+so they stay distinguishable when a narrow panel shortens their names.
+
 ### Fixed: the browser version could stop after its tab was hidden
 
 With a lot of text on screen (a river-gauge card and the tropical guidance open together, for
