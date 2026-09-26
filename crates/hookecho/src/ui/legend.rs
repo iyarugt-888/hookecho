@@ -463,12 +463,33 @@ pub fn draw_ramp(
                 Stroke::new(1.0, Color32::from_gray(90)),
                 egui::StrokeKind::Inside,
             );
+            // Named bands inside the bar, with a dark edge so they read on any colour, and a
+            // divider at each inner boundary.
+            for (i, (t0, t1, name)) in r.bands.iter().enumerate() {
+                let (x0, x1) = (bar.left() + t0 * bar.width(), bar.left() + t1 * bar.width());
+                if i > 0 {
+                    painter.line_segment(
+                        [egui::pos2(x0, bar.top()), egui::pos2(x0, bar.bottom())],
+                        Stroke::new(1.0, Color32::from_black_alpha(160)),
+                    );
+                }
+                let at = egui::pos2((x0 + x1) / 2.0, bar.center().y);
+                let f = FontId::proportional(10.0);
+                painter.text(
+                    at + Vec2::splat(1.0),
+                    Align2::CENTER_CENTER,
+                    *name,
+                    f.clone(),
+                    Color32::from_black_alpha(200),
+                );
+                painter.text(at, Align2::CENTER_CENTER, *name, f, Color32::WHITE);
+            }
 
             // Sub-unit thresholds (VIL 0.1, QPE 0.25) need decimals; everything else reads
             // better whole — always, for a temperature, since a negative Fahrenheit low would
             // otherwise be the one value on the bar with two decimal places.
             let num = |v: f32| {
-                if r.is_temp_kelvin || v >= 10.0 {
+                if r.is_temp_kelvin || v >= 10.0 || v.fract() == 0.0 {
                     format!("{v:.0}")
                 } else {
                     format!("{v:.2}")
@@ -486,11 +507,16 @@ pub fn draw_ramp(
                     Color32::from_gray(225),
                 );
             }
-            let head = if units.is_empty() {
+            let mut head = if units.is_empty() {
                 r.label.to_string()
             } else {
                 format!("{} ({units})", r.label)
             };
+            // A scale that draws nothing past its top says so: an empty map there is the good
+            // news, not a gap in the data.
+            if r.clear_above.is_some() {
+                head.push_str(&format!("  \u{b7}  clear above {}", num(hi)));
+            }
             painter.text(
                 panel.left_top() + Vec2::new(PAD_X, 3.0),
                 Align2::LEFT_TOP,

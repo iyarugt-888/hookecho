@@ -19,6 +19,7 @@ The RTMA analysis now offers **Visibility** and **Cloud ceiling** layers (search
 pick them under the Analysis model). Both are colored by flight category — magenta for LIFR, red
 for IFR, blue for MVFR — and leave the map clear where conditions are VFR, so fog, low cloud and
 heavy precipitation stand out.
+Their legends name the LIFR, IFR and MVFR bands and say where the map is left clear.
 
 ### Added: link or unlink every pane at once
 

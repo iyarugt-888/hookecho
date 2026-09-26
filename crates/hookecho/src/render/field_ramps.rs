@@ -50,6 +50,9 @@ pub struct FieldRamp {
     /// Past this display value nothing is drawn: for fields where the *low* end is the
     /// interesting one (visibility, ceiling), so good conditions leave the map clear.
     pub clear_above: Option<f32>,
+    /// Named stretches of the bar, `(t0, t1, label)` in ramp position 0..=1, drawn inside the
+    /// legend bar — for a scale whose colours are categories in all but name (flight category).
+    pub bands: &'static [(f32, f32, &'static str)],
 }
 
 impl FieldRamp {
@@ -115,6 +118,7 @@ macro_rules! ramp {
             input_scale: 1.0,
             is_temp_kelvin: false,
             clear_above: None,
+            bands: &[],
             scale: FieldScale::Ramp {
                 lo: $lo,
                 hi: $hi,
@@ -462,6 +466,7 @@ static GLOBAL_DEWPOINT_2M: FieldRamp = FieldRamp {
     input_scale: 1.0,
     is_temp_kelvin: true,
     clear_above: None,
+    bands: &[],
     ..ramp!(
         "2 m dewpoint",
         "K",
@@ -487,6 +492,7 @@ static GOES_IR: FieldRamp = FieldRamp {
     input_scale: 1.0,
     is_temp_kelvin: true,
     clear_above: None,
+    bands: &[],
     ..ramp!(
         "IR brightness temp",
         "K",
@@ -514,6 +520,7 @@ static GOES_VISIBLE: FieldRamp = FieldRamp {
     input_scale: 100.0,
     is_temp_kelvin: false,
     clear_above: None,
+    bands: &[],
     ..ramp!(
         "Visible reflectance",
         "%",
@@ -542,6 +549,7 @@ static GOES_WATER_VAPOR: FieldRamp = FieldRamp {
     input_scale: 1.0,
     is_temp_kelvin: true,
     clear_above: None,
+    bands: &[],
     ..ramp!(
         "Water vapor brightness temp",
         "K",
@@ -568,6 +576,7 @@ static GOES_SHORTWAVE_IR: FieldRamp = FieldRamp {
     input_scale: 1.0,
     is_temp_kelvin: true,
     clear_above: None,
+    bands: &[],
     ..ramp!(
         "Shortwave IR brightness temp",
         "K",
@@ -603,7 +612,8 @@ static GOES_SHORTWAVE_IR: FieldRamp = FieldRamp {
 static GOES_DUST_DIFF: FieldRamp = FieldRamp {
     input_scale: 1.0,
     is_temp_kelvin: false,
-    clear_above: None, // a temperature *difference*, not an absolute reading — no C/F conversion
+    clear_above: None,
+    bands: &[], // a temperature *difference*, not an absolute reading — no C/F conversion
     ..ramp!(
         "Dust/ash signal (Band 13 \u{2212} Band 15)",
         "K",
@@ -636,7 +646,8 @@ pub(crate) const COLD_TOP_THRESHOLD_K: f32 = 210.0;
 static GOES_COLD_TOP: FieldRamp = FieldRamp {
     input_scale: 1.0,
     is_temp_kelvin: false,
-    clear_above: None, // an offset-from-threshold value, not an absolute reading
+    clear_above: None,
+    bands: &[], // an offset-from-threshold value, not an absolute reading
     ..ramp!(
         "Cold cloud top (below 210 K)",
         "K colder than 210 K",
@@ -665,7 +676,8 @@ static GOES_COLD_TOP: FieldRamp = FieldRamp {
 static GOES_COOLING_RATE: FieldRamp = FieldRamp {
     input_scale: 1.0,
     is_temp_kelvin: false,
-    clear_above: None, // a temperature *change* over the lookback window, not an absolute reading
+    clear_above: None,
+    bands: &[], // a temperature *change* over the lookback window, not an absolute reading
     ..ramp!(
         "Cooling rate (15 min)",
         "K",
@@ -688,6 +700,7 @@ static GLOBAL_TEMP_2M: FieldRamp = FieldRamp {
     input_scale: 1.0,
     is_temp_kelvin: true,
     clear_above: None,
+    bands: &[],
     ..ramp!(
         "2 m temp",
         "K",
@@ -718,6 +731,11 @@ const FLIGHT_BLUE: [u8; 3] = [70, 130, 235];
 static RTMA_VISIBILITY: FieldRamp = FieldRamp {
     input_scale: 1.0 / 1609.344, // m → mi
     clear_above: Some(5.0),
+    bands: &[
+        (0.0, 0.589, "LIFR"),
+        (0.589, 0.869, "IFR"),
+        (0.869, 1.0, "MVFR"),
+    ],
     ..ramp!(
         "Visibility",
         "mi",
@@ -742,6 +760,11 @@ static RTMA_VISIBILITY: FieldRamp = FieldRamp {
 static RTMA_CEILING: FieldRamp = FieldRamp {
     input_scale: 3.280_84, // m → ft
     clear_above: Some(3000.0),
+    bands: &[
+        (0.0, 0.473, "LIFR"),
+        (0.473, 0.677, "IFR"),
+        (0.677, 1.0, "MVFR"),
+    ],
     ..ramp!(
         "Cloud ceiling",
         "ft",
@@ -877,6 +900,7 @@ static PRECIP_TYPE: FieldRamp = FieldRamp {
     input_scale: 1.0,
     is_temp_kelvin: false,
     clear_above: None,
+    bands: &[],
     scale: FieldScale::Categorical(&[
         (1, [60, 200, 90], "Rain"),
         (3, [90, 150, 240], "Snow"),
@@ -895,6 +919,7 @@ static HCA: FieldRamp = FieldRamp {
     input_scale: 1.0,
     is_temp_kelvin: false,
     clear_above: None,
+    bands: &[],
     scale: FieldScale::Categorical(&[
         (10, [140, 110, 90], "Biological"),
         (20, [95, 95, 95], "Clutter"),
