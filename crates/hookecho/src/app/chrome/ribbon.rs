@@ -189,6 +189,7 @@ impl HookEchoApp {
         let cur_tool = self.tool;
         let mut smooth = self.settings.smooth_radar;
         let mut follow_lowest_cut = self.views[self.active].follow_lowest_cut;
+        let mut follow_live_sweep = self.views[self.active].follow_live_sweep;
         let mut legend_on = self.views[self.active].show_legend;
         let layers_on = self.panel_open && !self.show_alert_panel;
         let alerts_on = self.panel_open && self.show_alert_panel;
@@ -364,10 +365,12 @@ impl HookEchoApp {
                                     // answer to "which one is that", drawn as a strip inside the
                                     // pill's own bottom edge so it never needs layout space of its
                                     // own that could collide with a wrapped-to-the-next-row pill.
-                                    if show_live_indicator
-                                        && streaming
-                                        && live_progress
-                                            .is_some_and(|p| p.elevation_number.wrapping_sub(1) == i)
+                                    if super::dock::sweeping_tilt(
+                                        live_progress,
+                                        &elevations,
+                                        streaming,
+                                        show_live_indicator,
+                                    ) == Some(i)
                                     {
                                         if let Some(p) = live_progress {
                                             live_sweep_strip(ui, resp.rect, p, accent);
@@ -414,6 +417,18 @@ impl HookEchoApp {
                                     .clicked()
                                 {
                                     follow_lowest_cut = !follow_lowest_cut;
+                                    follow_live_sweep &= !follow_lowest_cut;
+                                }
+                                if wsv3::pill(ui, "Follow sweep", follow_live_sweep, accent)
+                                    .on_hover_text(
+                                        "While following live, change tilt as each new sweep \
+                                         starts, so the display shows the elevation the radar \
+                                         is scanning. A tilt you pick holds until the next sweep.",
+                                    )
+                                    .clicked()
+                                {
+                                    follow_live_sweep = !follow_live_sweep;
+                                    follow_lowest_cut &= !follow_live_sweep;
                                 }
                             });
                         }
@@ -764,6 +779,7 @@ impl HookEchoApp {
         }
         self.views[self.active].show_legend = legend_on;
         self.views[self.active].follow_lowest_cut = follow_lowest_cut;
+        self.views[self.active].follow_live_sweep = follow_live_sweep;
         if let Some(m) = pick_mode {
             self.ribbon_mode = m;
         }

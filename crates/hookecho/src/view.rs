@@ -84,6 +84,22 @@ pub fn observed_summary(layers: &[level2::ObservedLayer]) -> Option<ObservedSumm
     })
 }
 
+/// Which entry of a volume's sorted, deduplicated tilt angles a sweep at `angle_deg` is. Not the
+/// sweep's position in the VCP: SAILS and MRLE rescan low tilts mid-volume, so sweep 4 of VCP 12
+/// is a second 0.5° cut, not the fourth-lowest angle. Matched to the nearest angle within 0.3°
+/// (the recomputed angles wobble by a few hundredths); `None` for an angle the volume does not
+/// hold yet.
+pub fn tilt_index_for_angle(elevations: &[f32], angle_deg: f64) -> Option<usize> {
+    let angle = angle_deg as f32;
+    elevations
+        .iter()
+        .enumerate()
+        .map(|(i, a)| (i, (a - angle).abs()))
+        .filter(|(_, d)| *d < 0.3)
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(i, _)| i)
+}
+
 /// How many tilts the "Layers" list can have pulled out and highlighted at once. The GPU uniform
 /// carries this many scalar slots rather than a real array — `array<f32,N>` gets padded to a
 /// 16-byte stride in WGSL's uniform address space, which would needlessly balloon the buffer —
@@ -406,6 +422,11 @@ impl Volume {
     /// SAILS/MRLE the lowest tilt is rescanned mid-volume, well before the volume as a whole
     /// completes, so waiting for a full-volume boundary to show it throws away exactly the faster
     /// low-level update those scan strategies exist to provide.
+    /// The tilt index (into the sorted, deduplicated `elevations`) of a sweep at `angle_deg`.
+    pub fn tilt_for_angle(&self, angle_deg: f64) -> Option<usize> {
+        tilt_index_for_angle(&self.elevations, angle_deg)
+    }
+
     pub fn changed_includes_lowest_tilt(&self, changed: &[f32]) -> bool {
         self.elevations
             .first()
@@ -464,6 +485,14 @@ pub struct MapView {
     /// whole to complete. Off by default: it overrides the user's own tilt choice, so it should
     /// be something they turn on, not a standing behavior sprung on them.
     pub follow_lowest_cut: bool,
+    /// While following live, show each sweep as the radar starts it: the tilt changes to the
+    /// elevation being scanned when that sweep's first chunk lands. The broader sibling of
+    /// `follow_lowest_cut` (which only ever jumps to the lowest tilt); the controls keep at most
+    /// one of the two on. A tilt picked by hand holds until the next sweep begins.
+    pub follow_live_sweep: bool,
+    /// The sweep (`ScanProgress::elevation_number`) `follow_live_sweep` last moved the tilt to,
+    /// so it moves once per sweep rather than on every chunk.
+    pub followed_sweep: Option<usize>,
     /// Per-moment display threshold (physical units), indexed by [`Moment::index`].
     pub thresholds: [Option<f32>; Moment::ALL.len()],
     pub threshold_enabled: [bool; Moment::ALL.len()],
@@ -582,6 +611,29 @@ impl MapView {
         }
     }
 
+    /// `follow_live_sweep`, applied after a live chunk has merged: move to the tilt the radar is
+    /// sweeping, once per sweep. Waits until the sweep's angle is in the volume (its first chunk
+    /// merged), and does nothing unless following live.
+    pub fn follow_sweep(&mut self) {
+        if !self.follow_live_sweep || !self.timeline.following {
+            return;
+        }
+        let Some(p) = self.live_progress.filter(|p| p.elevation_number > 0) else {
+            return;
+        };
+        if self.followed_sweep == Some(p.elevation_number) {
+            return;
+        }
+        let at = self
+            .volume
+            .as_ref()
+            .and_then(|vol| vol.tilt_for_angle(p.elevation_angle_deg));
+        if let Some(i) = at {
+            self.tilt = i;
+            self.followed_sweep = Some(p.elevation_number);
+        }
+    }
+
     pub fn new(site: Option<String>, camera: crate::render::mercator::Camera) -> Self {
         Self {
             camera,
@@ -590,6 +642,8 @@ impl MapView {
             moment: Moment::Reflectivity,
             tilt: 0,
             follow_lowest_cut: false,
+            follow_live_sweep: false,
+            followed_sweep: None,
             thresholds: [None; Moment::ALL.len()],
             threshold_enabled: [false; Moment::ALL.len()],
             volume: None,
@@ -763,6 +817,16 @@ impl MapView {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_sweep_maps_to_its_angle_not_its_position_in_the_vcp() {
+        let elev = [0.5, 0.9, 1.3, 1.8, 2.4];
+        assert_eq!(super::tilt_index_for_angle(&elev, 1.8), Some(3));
+        // A SAILS cut is sweep 4 of VCP 12, but it is the 0.5° tilt again.
+        assert_eq!(super::tilt_index_for_angle(&elev, 0.48), Some(0));
+        assert_eq!(super::tilt_index_for_angle(&elev, 6.0), None);
+        assert_eq!(super::tilt_index_for_angle(&[], 0.5), None);
+    }
+
     #[test]
     fn the_observed_summary_spans_every_tilt_in_any_order() {
         use chrono::TimeZone;
@@ -1043,6 +1107,51 @@ mod tests {
         assert!(vol.changed_includes_lowest_tilt(&[0.52]));
         assert!(!vol.changed_includes_lowest_tilt(&[1.5, 2.4]));
         assert!(!vol.changed_includes_lowest_tilt(&[]));
+    }
+
+    #[test]
+    fn following_the_sweep_moves_once_per_sweep_and_by_angle() {
+        let progress = |n: usize, angle: f64| wxdata::live::ScanProgress {
+            elevation_number: n,
+            total_elevations: 16,
+            elevation_angle_deg: angle,
+            azimuth_rate_dps: 20.0,
+            azimuth_start_deg: 0.0,
+            azimuth_end_deg: 60.0,
+            chunk_index: 1,
+            chunks_in_sweep: 6,
+        };
+        let mut v = MapView::new(Some("KTLX".into()), Camera::at_lonlat(-97.0, 35.0, 8.0));
+        v.volume = Some(Volume::new(
+            scan_at(&[0.5, 0.9, 1.3]),
+            "a".into(),
+            chrono::Utc::now(),
+        ));
+        v.timeline.following = true;
+        v.live_progress = Some(progress(3, 1.3));
+        v.follow_sweep();
+        assert_eq!(v.tilt, 0, "off unless asked for");
+        v.follow_live_sweep = true;
+        v.follow_sweep();
+        assert_eq!(v.tilt, 2);
+        // A tilt picked by hand holds for the rest of that sweep...
+        v.tilt = 0;
+        v.follow_sweep();
+        assert_eq!(v.tilt, 0);
+        // ...and the next sweep, a SAILS 0.5° cut (sweep 4), is found by its angle.
+        v.tilt = 2;
+        v.live_progress = Some(progress(4, 0.48));
+        v.follow_sweep();
+        assert_eq!(v.tilt, 0);
+        // A sweep whose angle has not landed in the volume yet waits rather than guessing.
+        v.live_progress = Some(progress(5, 1.8));
+        v.follow_sweep();
+        assert_eq!((v.tilt, v.followed_sweep), (0, Some(4)));
+        // Scrubbed back into the archive: the stream no longer drives the tilt.
+        v.timeline.following = false;
+        v.live_progress = Some(progress(6, 0.9));
+        v.follow_sweep();
+        assert_eq!(v.tilt, 0);
     }
 
     #[test]

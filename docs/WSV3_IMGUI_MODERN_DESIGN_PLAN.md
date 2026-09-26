@@ -880,3 +880,17 @@ a scale bar on the map; a network round-trip measurement for the app bar; a natu
   with the plots side by side. Closing the tab closes the sounding. The standalone window's
   phone path now scrolls its whole body too, rather than the plots alone under the header.
   Checked by screenshot: a Moore-area HRRR profile with the Norman RAOB, scrolled to the plots.
+- Live scan progress in the dock, as the ribbon shows it: while a live chunk stream runs, the
+  toolbar gains a chip beside Tilt — "● 1.3°  2/6", the angle being swept and the chunk count,
+  with the ribbon's pulsing fill strip under it (`ribbon::live_sweep_strip`); clicking it shows
+  that tilt. The timeline's live tilt dot gets the same fill as an arc. The live tilt is now
+  found by the sweep's angle (`view::tilt_index_for_angle`) in the ribbon, toolbar and timeline:
+  it had been the sweep's VCP position used as an index into the sorted, deduplicated tilt list,
+  which marks the wrong tilt once SAILS/MRLE rescan a low tilt mid-volume.
+- **Follow sweep**: a Follow control (Off / Lowest / Sweep) replaces the dock's "Follow lowest"
+  checkbox; the ribbon gains a "Follow sweep" pill beside "Follow low", and the two are exclusive.
+  With Sweep, while following live, the displayed tilt moves to each new sweep once its first
+  chunk has merged (`MapView::follow_sweep`), once per sweep, so a tilt picked by hand holds until
+  the radar starts the next. Unit-tested (by angle, SAILS cut, waiting for data, off the live
+  edge); on screen only the control was checked, because the live feed was degraded (no chunk
+  stream) at the time.

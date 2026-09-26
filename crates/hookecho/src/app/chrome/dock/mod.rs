@@ -1025,18 +1025,22 @@ pub(crate) fn cursor_readout(
     rows
 }
 
-/// Which tilt (an index into the volume's elevations) the live stream is sweeping right now.
-/// `None` when nothing is streaming, the indicator is turned off, or no chunk has arrived.
+/// Which tilt (an index into the volume's sorted `elevations`) the live stream is sweeping right
+/// now, matched by angle — see [`crate::view::tilt_index_for_angle`] for why not by sweep number.
+/// `None` when nothing is streaming, the indicator is turned off, no chunk has arrived, or the
+/// sweep's angle is not in the volume yet.
 pub(crate) fn sweeping_tilt(
     progress: Option<wxdata::live::ScanProgress>,
+    elevations: &[f32],
     streaming: bool,
     indicator_on: bool,
 ) -> Option<usize> {
     if !streaming || !indicator_on {
         return None;
     }
-    // Sweeps count from 1; zero means the stream has not said, and must not wrap to a real index.
-    progress.and_then(|p| p.elevation_number.checked_sub(1))
+    // Sweep zero is the stream not having said yet.
+    let p = progress.filter(|p| p.elevation_number > 0)?;
+    crate::view::tilt_index_for_angle(elevations, p.elevation_angle_deg)
 }
 
 /// The one line that says what the radar is doing, for the tilt bar. Empty when not live.
@@ -1557,19 +1561,24 @@ mod tilt_bar_tests {
         }
     }
 
+    const ELEV: [f32; 4] = [0.5, 0.9, 1.3, 1.8];
+
     #[test]
-    fn the_sweeping_tilt_is_the_streams_sweep_number_as_an_index() {
-        assert_eq!(sweeping_tilt(Some(progress(1)), true, true), Some(0));
-        assert_eq!(sweeping_tilt(Some(progress(5)), true, true), Some(4));
+    fn the_sweeping_tilt_is_found_by_the_sweeps_angle() {
+        // `progress` sweeps at 0.9°: the second tilt, whatever its place in the VCP.
+        assert_eq!(sweeping_tilt(Some(progress(2)), &ELEV, true, true), Some(1));
+        assert_eq!(sweeping_tilt(Some(progress(5)), &ELEV, true, true), Some(1));
+        // An angle the volume does not have yet marks nothing rather than a wrong tilt.
+        assert_eq!(sweeping_tilt(Some(progress(2)), &[0.5], true, true), None);
     }
 
     #[test]
     fn nothing_is_marked_when_not_streaming_switched_off_or_silent() {
-        assert_eq!(sweeping_tilt(Some(progress(3)), false, true), None);
-        assert_eq!(sweeping_tilt(Some(progress(3)), true, false), None);
-        assert_eq!(sweeping_tilt(None, true, true), None);
-        // Sweep zero is "not said yet", never the last tilt of the volume.
-        assert_eq!(sweeping_tilt(Some(progress(0)), true, true), None);
+        assert_eq!(sweeping_tilt(Some(progress(3)), &ELEV, false, true), None);
+        assert_eq!(sweeping_tilt(Some(progress(3)), &ELEV, true, false), None);
+        assert_eq!(sweeping_tilt(None, &ELEV, true, true), None);
+        // Sweep zero is "not said yet".
+        assert_eq!(sweeping_tilt(Some(progress(0)), &ELEV, true, true), None);
     }
 
     #[test]

@@ -89,7 +89,6 @@ impl HookEchoApp {
             .is_some_and(|(view, _, _, _)| *view == self.active);
         let progress = self.views[self.active].live_progress;
         let indicator = self.settings.live_scan_indicator;
-        let sweeping = sweeping_tilt(progress, streaming, indicator);
         let status = live_status(progress, streaming, indicator);
         let (elevations, tilt) = {
             let v = &self.views[self.active];
@@ -101,6 +100,7 @@ impl HookEchoApp {
                 v.tilt,
             )
         };
+        let sweeping = sweeping_tilt(progress, &elevations, streaming, indicator);
         let mut go_head = false;
         let mut pick_tilt = None;
         let mut seek = None;
@@ -371,7 +371,27 @@ impl HookEchoApp {
                         );
                     }
                     if live {
-                        ui.painter().circle_stroke(c, 6.5, Stroke::new(1.5, t.live));
+                        // A faint full ring, and over it an arc as far round as the sweep has
+                        // got (chunk of chunks) — the ribbon's fill strip, in the dot's shape.
+                        ui.painter()
+                            .circle_stroke(c, 6.5, Stroke::new(1.0, t.live.gamma_multiply(0.35)));
+                        if let Some(p) = progress {
+                            let f = if p.chunks_in_sweep > 0 {
+                                (p.chunk_index as f32 / p.chunks_in_sweep as f32).clamp(0.12, 1.0)
+                            } else {
+                                0.12
+                            };
+                            let n = (24.0 * f).ceil() as usize;
+                            let arc: Vec<egui::Pos2> = (0..=n)
+                                .map(|k| {
+                                    let a = -std::f32::consts::FRAC_PI_2
+                                        + std::f32::consts::TAU * f * k as f32 / n as f32;
+                                    c + 6.5 * egui::vec2(a.cos(), a.sin())
+                                })
+                                .collect();
+                            ui.painter()
+                                .add(egui::Shape::line(arc, Stroke::new(1.8, t.live)));
+                        }
                     }
                     let name = if live {
                         format!("Tilt {a:.1}\u{b0} (sweeping now)")

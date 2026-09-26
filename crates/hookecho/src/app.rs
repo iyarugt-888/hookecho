@@ -13117,6 +13117,10 @@ impl HookEchoApp {
                     {
                         v.tilt = 0;
                     }
+                    // Follow the live sweep: when a new sweep's first chunk has merged (so its
+                    // tilt exists to show), move to it — once per sweep, so a tilt picked by hand
+                    // mid-sweep holds until the radar starts the next one.
+                    v.follow_sweep();
                     v.last_live_arrival = Some((Utc::now(), time));
                     // `LiveProgress` immediately precedes this partial merge. Keep it: the
                     // scrubber and 2D sweep bar need to describe/animate the chunk now on screen.

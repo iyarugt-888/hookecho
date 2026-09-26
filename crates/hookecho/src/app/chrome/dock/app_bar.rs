@@ -374,12 +374,8 @@ impl HookEchoApp {
             .live_stream
             .as_ref()
             .is_some_and(|(view, _, _, _)| *view == self.active);
-        let sweeping = sweeping_tilt(
-            self.views[self.active].live_progress,
-            streaming,
-            self.settings.live_scan_indicator,
-        );
-        let (site, vcp, moment, srv, tilt, elevations, map_3d, follow_low) = {
+        let live_progress = self.views[self.active].live_progress;
+        let (site, vcp, moment, srv, tilt, elevations, map_3d, follow_now) = {
             let v = &self.views[self.active];
             (
                 v.site.clone(),
@@ -395,9 +391,15 @@ impl HookEchoApp {
                     .map(|x| x.elevations.clone())
                     .unwrap_or_default(),
                 v.map_3d.enabled,
-                v.follow_lowest_cut,
+                Follow::of(v.follow_lowest_cut, v.follow_live_sweep),
             )
         };
+        let sweeping = sweeping_tilt(
+            live_progress,
+            &elevations,
+            streaming,
+            self.settings.live_scan_indicator,
+        );
         let table_key = moment.short_name();
         let table_now = self
             .settings
@@ -410,7 +412,7 @@ impl HookEchoApp {
         let mut toggle_basemap = false;
         let mut action = None;
         let mut pick_tilt = None;
-        let mut flip_follow = false;
+        let mut pick_follow: Option<Follow> = None;
         let mut want_3d = None;
         let mut open_sites = false;
         let mut table_pick: Option<Option<String>> = None;
@@ -527,16 +529,57 @@ impl HookEchoApp {
                                         action = Some(A::AllTilts);
                                     }
                                 });
-                            let mut follow = follow_low;
-                            if ws::check(ui, &t, &mut follow, "Follow lowest")
-                                .on_hover_text(
-                                    "While following live, jump to the lowest tilt the instant \
-                                     it is rescanned (SAILS/MRLE)",
-                                )
-                                .changed()
-                            {
-                                flip_follow = true;
+                            // What the radar is sweeping right now, and how far through the sweep
+                            // it is — the ribbon's strip on the live tilt pill, as one chip.
+                            if let (Some(i), Some(p)) = (sweeping, live_progress) {
+                                let label = format!(
+                                    "\u{25cf} {:.1}\u{b0}  {}/{}",
+                                    p.elevation_angle_deg, p.chunk_index, p.chunks_in_sweep
+                                );
+                                let chip = ui
+                                    .add(
+                                        egui::Button::new(ws::mono(&label, 11.5, t.live))
+                                            .fill(t.field)
+                                            .stroke(egui::Stroke::new(1.0, t.line))
+                                            .min_size(egui::vec2(0.0, ws::CONTROL_H)),
+                                    )
+                                    .named(&format!(
+                                        "Live sweep at {:.1} degrees; show that tilt",
+                                        p.elevation_angle_deg
+                                    ))
+                                    .on_hover_text(format!(
+                                        "The radar is scanning {:.1}\u{b0} now: sweep {} of {}, \
+                                         chunk {} of {}. Click to show that tilt.",
+                                        p.elevation_angle_deg,
+                                        p.elevation_number,
+                                        p.total_elevations,
+                                        p.chunk_index,
+                                        p.chunks_in_sweep
+                                    ));
+                                crate::app::chrome::ribbon::live_sweep_strip(
+                                    ui, chip.rect, p, t.live,
+                                );
+                                if chip.clicked() {
+                                    pick_tilt = Some(i);
+                                }
                             }
+                            ws::caption(ui, &t, "Follow");
+                            egui::ComboBox::from_id_salt("dock_follow")
+                                .width(62.0)
+                                .selected_text(follow_now.label())
+                                .show_ui(ui, |ui| {
+                                    for f in Follow::ALL {
+                                        if ui
+                                            .selectable_label(f == follow_now, f.label())
+                                            .on_hover_text(f.hint())
+                                            .clicked()
+                                        {
+                                            pick_follow = Some(f);
+                                        }
+                                    }
+                                })
+                                .response
+                                .on_hover_text(follow_now.hint());
                             ws::divider(ui, &t, ws::TOOLBAR_H);
                             match ws::segmented(
                                 ui,
@@ -673,9 +716,11 @@ impl HookEchoApp {
         if let Some(i) = pick_tilt {
             self.views[self.active].tilt = i;
         }
-        if flip_follow {
-            let f = &mut self.views[self.active].follow_lowest_cut;
-            *f = !*f;
+        if let Some(f) = pick_follow {
+            let v = &mut self.views[self.active];
+            v.follow_lowest_cut = f == Follow::Lowest;
+            v.follow_live_sweep = f == Follow::Sweep;
+            v.followed_sweep = None;
         }
         if let Some(on) = want_3d {
             self.views[self.active].set_map_3d(on);
@@ -696,6 +741,51 @@ impl HookEchoApp {
         }
         if let Some(a) = action {
             self.apply_palette(a, ctx);
+        }
+    }
+}
+
+/// What the displayed tilt follows while live: nothing (the tilt you pick), the lowest tilt each
+/// time it is rescanned, or every sweep as the radar starts it. One choice, so the two automatic
+/// modes can never both be on and fight.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Follow {
+    Off,
+    Lowest,
+    Sweep,
+}
+
+impl Follow {
+    const ALL: [Follow; 3] = [Follow::Off, Follow::Lowest, Follow::Sweep];
+
+    fn of(lowest: bool, sweep: bool) -> Follow {
+        if sweep {
+            Follow::Sweep
+        } else if lowest {
+            Follow::Lowest
+        } else {
+            Follow::Off
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Follow::Off => "Off",
+            Follow::Lowest => "Lowest",
+            Follow::Sweep => "Sweep",
+        }
+    }
+
+    fn hint(self) -> &'static str {
+        match self {
+            Follow::Off => "The tilt stays where you put it",
+            Follow::Lowest => {
+                "While live, jump to the lowest tilt the instant it is rescanned (SAILS/MRLE)"
+            }
+            Follow::Sweep => {
+                "While live, change tilt as each new sweep starts, showing the elevation the \
+                 radar is scanning; a tilt you pick holds until the next sweep"
+            }
         }
     }
 }
@@ -891,6 +981,14 @@ mod tests {
             !left_fit(800.0, tabs, false).subtitle,
             "the right side vetoes it"
         );
+    }
+
+    #[test]
+    fn follow_is_one_choice_of_three() {
+        assert_eq!(Follow::of(false, false), Follow::Off);
+        assert_eq!(Follow::of(true, false), Follow::Lowest);
+        // Both set (an older state) reads as the broader mode.
+        assert_eq!(Follow::of(true, true), Follow::Sweep);
     }
 
     #[test]
