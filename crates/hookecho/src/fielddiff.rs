@@ -67,7 +67,7 @@ pub struct ComparisonPair {
 /// How the already-computed `A - B` field is presented. Switching modes is a display operation:
 /// the signed CPU grid remains authoritative, so the app can rebuild the upload without fetching
 /// either model again and cursor readouts can still explain exactly what was transformed.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum DiffMode {
     #[default]
     Signed,

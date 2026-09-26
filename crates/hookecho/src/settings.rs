@@ -329,6 +329,10 @@ pub struct Settings {
     /// `FieldLayer::paint_order`. Empty is the built-in order.
     #[serde(default)]
     pub field_order: Vec<crate::render::FieldLayer>,
+    /// The model comparison last chosen (what is differenced, and how it is drawn), so a restart
+    /// keeps it. `None` is the default comparison.
+    #[serde(default)]
+    pub compare_view: Option<(crate::fielddiff::DiffField, crate::fielddiff::DiffMode)>,
     /// Windy API key — adds the Windy webcam network to the keyless FAA cameras, which is what
     /// gives the layer any coverage outside the United States. Held locally, same as the rest.
     #[serde(default)]
@@ -1585,6 +1589,7 @@ impl Default for Settings {
             synoptic_token: String::new(),
             field_opacity: Default::default(),
             field_order: Vec::new(),
+            compare_view: None,
             airnow_key: String::new(),
             windy_key: String::new(),
             field_mill_url: String::new(),
@@ -2170,6 +2175,19 @@ mod tests {
     }
 
     #[test]
+    fn the_comparison_view_and_paint_order_roundtrip() {
+        use crate::fielddiff::{DiffField, DiffMode};
+        let mut s = Settings::default();
+        s.compare_view = Some((DiffField::RunToRunCape, DiffMode::Percent));
+        s.field_order = vec![crate::render::FieldLayer::Mrms];
+        let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert_eq!(back.compare_view, s.compare_view);
+        assert_eq!(back.field_order, s.field_order);
+        let bare: Settings = serde_json::from_str("{}").unwrap();
+        assert!(bare.compare_view.is_none() && bare.field_order.is_empty());
+    }
+
+    #[test]
     fn field_opacity_roundtrips_and_defaults() {
         let mut s = Settings::default();
         assert!(s.field_opacity.is_empty(), "no entry = fully opaque");
@@ -2404,6 +2422,7 @@ mod tests {
             synoptic_token: String::new(),
             field_opacity: Default::default(),
             field_order: Vec::new(),
+            compare_view: None,
             airnow_key: String::new(),
             windy_key: String::new(),
             field_mill_url: String::new(),

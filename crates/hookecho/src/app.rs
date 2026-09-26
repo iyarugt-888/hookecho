@@ -4879,6 +4879,7 @@ impl HookEchoApp {
         let (tray_rx_init, tray_present_init) = crate::tray::spawn();
 
         let mut settings = Settings::load();
+        let compare_view = settings.compare_view;
         // The starter arrangements worth having before you have built any of your own. Once
         // only: the flag is what makes deleting them stick.
         if settings.workspaces.is_empty() && !settings.seeded_workspaces {
@@ -5149,8 +5150,8 @@ impl HookEchoApp {
             global_model: wxdata::global::GlobalModel::default(),
             global_fcst_hour: 0,
             global_layer_key: std::collections::HashMap::new(),
-            diff_field: crate::fielddiff::DiffField::default(),
-            diff_mode: crate::fielddiff::DiffMode::default(),
+            diff_field: compare_view.map(|v| v.0).unwrap_or_default(),
+            diff_mode: compare_view.map(|v| v.1).unwrap_or_default(),
             diff_valid: None,
             diff_error: None,
             diff_grid: None,
@@ -22821,6 +22822,10 @@ impl eframe::App for HookEchoApp {
                 self.diff_mode = crate::fielddiff::DiffMode::Signed;
             }
             let display_key = (self.diff_field, self.diff_mode);
+            // Remembered across restarts; written only when it changes.
+            if self.settings.compare_view != Some(display_key) {
+                self.settings.compare_view = Some(display_key);
+            }
             let display_changed = on
                 && !changed
                 && self.diff_display_key != Some(display_key)
