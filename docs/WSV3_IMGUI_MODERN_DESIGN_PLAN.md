@@ -894,3 +894,7 @@ a scale bar on the map; a network round-trip measurement for the app bar; a natu
   the radar starts the next. Unit-tested (by angle, SAILS cut, waiting for data, off the live
   edge); on screen only the control was checked, because the live feed was degraded (no chunk
   stream) at the time.
+- A workspace can open the Sounding tab: `Workspace::sound_center` sounds the point the map was
+  centered on when it is applied. The Hail analysis starter uses it (roadmap J5), so REF/ZDR/CC/KDP
+  with MESH arrive with the sounding beside them. Checked by screenshot: the preset applied from
+  Layers search over the Moore scene, the sounding in front of the right dock.

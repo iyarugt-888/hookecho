@@ -4825,6 +4825,9 @@ impl HookEchoApp {
             settings.seeded_workspaces = true;
             settings.save();
         }
+        if crate::workspace::upgrade_starters(&mut settings.workspaces) {
+            settings.save();
+        }
         // Sample terrain at the resolution this user packs at, so a hi-res pack is actually read.
         crate::elevation::set_hires(settings.pack_hires_dem);
         // theme_plan.md §4: a saved "Analyst mode: on" needs the log level raised again on this
@@ -19522,6 +19525,8 @@ impl HookEchoApp {
                 .map(|l| l.slug().to_string())
                 .collect(),
             chrome: Some(self.capture_chrome()),
+            // A sounding open when the snapshot is taken is part of how this analyst works here.
+            sound_center: self.sounding_window.open,
         }
     }
 
@@ -19531,6 +19536,11 @@ impl HookEchoApp {
         if ws.panes.is_empty() {
             return;
         }
+        // Where the analyst was looking, before the panes move: what `sound_center` sounds.
+        let looking_at = {
+            let c = self.views[self.active].camera.center;
+            crate::render::mercator::world_to_lonlat(c.0, c.1)
+        };
         let adopted = ws
             .adopt_site
             .then(|| self.views[self.active].site.clone())
@@ -19578,6 +19588,9 @@ impl HookEchoApp {
         }
         if let Some(c) = &ws.chrome {
             self.apply_chrome(c, ctx);
+        }
+        if ws.sound_center {
+            self.fetch_sounding(looking_at.0, looking_at.1);
         }
         self.rebuild_overlays();
         self.pane_shown.clear();

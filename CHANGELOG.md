@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: the Hail analysis workspace opens a sounding
+
+Applying the Hail analysis workspace now also takes a sounding at the spot the map was centered on, so the
+reflectivity, dual-polarization panes and hail-size layer arrive with the Skew-T beside them.
+Existing copies of the preset pick this up automatically unless you have changed their panes.
+Saving your own workspace while a sounding is open makes it do the same.
+
 ### Added: follow the live sweep, and live scan progress in the workstation
 
 A new **Follow sweep** mode changes the tilt as the radar starts each new sweep while you are

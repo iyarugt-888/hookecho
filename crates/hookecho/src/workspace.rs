@@ -7,7 +7,8 @@
 //! It stores state, not actions: the command palette's actions all target the active pane, so a
 //! recorded action list has no way to say "and pane two looks like this". What it deliberately
 //! doesn't capture is anything tied to the moment rather than the arrangement — the archive
-//! playhead, open windows, per-moment thresholds.
+//! playhead, most open windows, per-moment thresholds. The one window an arrangement can ask for
+//! is the sounding (`sound_center`), taken fresh at wherever the map is when it is applied.
 //!
 //! Per-pane display thresholds and field layers ride along, since a pane that shows one field
 //! above 50 dBZ beside another that shows a different one is exactly the arrangement worth saving.
@@ -91,6 +92,12 @@ pub struct Workspace {
     /// defaulted struct would have meant.
     #[serde(default)]
     pub chrome: Option<Chrome>,
+    /// Sound the point the map was centered on when the workspace is applied: an arrangement
+    /// that needs the environment beside the radar (the hail preset) opens with its sounding.
+    /// The point is the one the analyst was looking at before switching, not a saved one — a
+    /// saved point would be yesterday's storm.
+    #[serde(default)]
+    pub sound_center: bool,
 }
 
 /// The floating chrome's state, as far as it is worth restoring: which surface was showing, not
@@ -309,6 +316,26 @@ fn pane(moment: wxdata::level2::Moment, tilt: usize, srv: bool) -> PaneSnap {
     }
 }
 
+/// Bring seeded starters up to date with what the starters ask for now. Starters are copied into
+/// the settings once, on first run, so a capability added later (the hail preset's sounding)
+/// never reached them. Only a stored workspace that is still the starter — same name, same panes
+/// — is touched; one the analyst has rebuilt is theirs. Returns whether anything changed.
+pub fn upgrade_starters(saved: &mut [Workspace]) -> bool {
+    let mut changed = false;
+    for start in starters() {
+        for w in saved.iter_mut() {
+            if w.name == start.name
+                && w.panes == start.panes
+                && w.sound_center != start.sound_center
+            {
+                w.sound_center = start.sound_center;
+                changed = true;
+            }
+        }
+    }
+    changed
+}
+
 /// The arrangements worth having before you have built any of your own. Seeded once, on first
 /// run; deleting them is final (see `Settings::seeded_workspaces`).
 pub fn starters() -> Vec<Workspace> {
@@ -339,6 +366,7 @@ pub fn starters() -> Vec<Workspace> {
             adopt_site: true,
             fields_on: Vec::new(),
             chrome: None,
+            sound_center: false,
         },
         Workspace {
             name: "National overview".into(),
@@ -366,6 +394,7 @@ pub fn starters() -> Vec<Workspace> {
             adopt_site: false,
             fields_on: vec!["mrms".into()],
             chrome: None,
+            sound_center: false,
         },
         Workspace {
             name: "Analysis".into(),
@@ -385,6 +414,7 @@ pub fn starters() -> Vec<Workspace> {
             adopt_site: true,
             fields_on: Vec::new(),
             chrome: None,
+            sound_center: false,
         },
         // ROADMAP_NEW J5's first three analyst presets. Each reuses exactly the same
         // pane/link/overlay mechanism as the three starters above — a preset is a description of
@@ -420,15 +450,15 @@ pub fn starters() -> Vec<Workspace> {
             adopt_site: true,
             fields_on: Vec::new(),
             chrome: None,
+            sound_center: false,
         },
         Workspace {
             name: "Hail analysis".into(),
             // Keep reflectivity large while the three dual-pol panes provide supporting detail.
             pane_layout: PaneLayout::Focus,
             // REF for the core, ZDR/KDP/CC for size and phase, MESH for the swath a single tilt
-            // can't show by itself. The roadmap also asks for the sounding panel open on this
-            // preset; workspaces deliberately don't capture open windows (see this module's own
-            // doc comment), so that part opens by hand rather than being silently dropped.
+            // can't show by itself, and (`sound_center`) the sounding at the point in view: the
+            // freezing level and CAPE a hail call needs beside the radar.
             panes: vec![
                 pane(Moment::Reflectivity, 0, false),
                 pane(Moment::DifferentialReflectivity, 0, false),
@@ -445,6 +475,7 @@ pub fn starters() -> Vec<Workspace> {
             adopt_site: true,
             fields_on: vec!["mesh".into()],
             chrome: None,
+            sound_center: true,
         },
         Workspace {
             name: "Mesoscale analysis".into(),
@@ -484,6 +515,7 @@ pub fn starters() -> Vec<Workspace> {
                 "global-dewpoint2m".into(),
             ],
             chrome: None,
+            sound_center: false,
         },
         Workspace {
             name: "Radar + satellite".into(),
@@ -520,6 +552,7 @@ pub fn starters() -> Vec<Workspace> {
             adopt_site: true,
             fields_on: vec!["goes-ir".into(), "goes-water-vapor".into()],
             chrome: None,
+            sound_center: false,
         },
         Workspace {
             name: "Forecast comparison".into(),
@@ -565,6 +598,7 @@ pub fn starters() -> Vec<Workspace> {
             adopt_site: false,
             fields_on: vec!["mrms".into(), "hrrr".into()],
             chrome: None,
+            sound_center: false,
         },
     ]
 }
@@ -690,6 +724,7 @@ mod tests {
             overlays_on: vec!["Alerts".into(), "Cells".into()],
             adopt_site: false,
             fields_on: vec!["mrms".into()],
+            sound_center: true,
             chrome: Some(Chrome {
                 panel_open: true,
                 alerts_tab: false,
@@ -719,12 +754,49 @@ mod tests {
     }
 
     #[test]
+    fn a_seeded_starter_picks_up_new_capabilities_and_a_rebuilt_one_does_not() {
+        let mut saved = starters();
+        for w in &mut saved {
+            w.sound_center = false; // as seeded before the field existed
+        }
+        let mut rebuilt = saved
+            .iter()
+            .find(|w| w.name == "Hail analysis")
+            .unwrap()
+            .clone();
+        rebuilt.panes.truncate(1);
+        saved.push(rebuilt);
+        assert!(upgrade_starters(&mut saved));
+        let hail: Vec<bool> = saved
+            .iter()
+            .filter(|w| w.name == "Hail analysis")
+            .map(|w| w.sound_center)
+            .collect();
+        assert_eq!(hail, [true, false]);
+        assert!(!upgrade_starters(&mut saved), "once is enough");
+    }
+
+    #[test]
+    fn only_the_hail_starter_opens_a_sounding() {
+        let sounding: Vec<String> = starters()
+            .into_iter()
+            .filter(|w| w.sound_center)
+            .map(|w| w.name)
+            .collect();
+        assert_eq!(sounding, ["Hail analysis"]);
+    }
+
+    #[test]
     fn old_workspace_files_still_load() {
         // Written before `fields_on` and `adopt_site` existed.
         let json = r#"{"name":"old","panes":[],"active":0,"link_cameras":false,
             "overlays_on":["Alerts"]}"#;
         let ws: Workspace = serde_json::from_str(json).unwrap();
         assert!(ws.fields_on.is_empty() && !ws.adopt_site && ws.chrome.is_none());
+        assert!(
+            !ws.sound_center,
+            "an old file opens no sounding it never asked for"
+        );
         assert!(!ws.link_times);
         assert!(!ws.lock_source_time);
         assert!(!ws.link_site);

@@ -3063,7 +3063,7 @@ New this pass, see the Unreleased CHANGELOG entry: a "Tornado analysis" starter 
   table" reads as the existing storm-cells overlay (`Cells`), also on — there is no separate
   tabular storm-list surface to open alongside it
 
-### Hail analysis — mostly done
+### Hail analysis — done
 
 New this pass, see the Unreleased CHANGELOG entry.
 
@@ -3071,10 +3071,11 @@ New this pass, see the Unreleased CHANGELOG entry.
 - [x] ZDR
 - [x] CC/KDP — both get their own pane rather than picking one
 - [x] MESH
-- [ ] sounding panel — workspaces deliberately don't capture open windows (see `workspace.rs`'s
-  own module doc comment, predating this pass); opening the sounding window is a manual step after
-  loading this preset, not something a saved arrangement can do on its own without extending that
-  design
+- [x] sounding panel — `Workspace::sound_center`: applying the preset sounds the point the map
+  was centered on just before (the storm being looked at, not a stored point), and the sounding
+  opens as a tab in the workstation's right dock. Already-seeded copies of the starter are
+  upgraded on load (`workspace::upgrade_starters`) unless the analyst has rebuilt them. Saving a
+  workspace while a sounding is open records the same flag.
 
 ### Mesoscale analysis — done
 
