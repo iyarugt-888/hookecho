@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: workstation windows docked on one side share it as tabs
+
+In the Dock and WSV3 layouts, docking a second window on a side (say Alerts next to the
+Inspector) no longer adds a second panel and narrows the map again. The windows share one panel,
+with a tab for each at the top; the newest one opened comes to the front. The top-bar buttons
+bring a window hidden behind another tab forward instead of closing it.
+
 ### Added: the workstation Inspector describes the 3D volume
 
 With a pane in 3D, the Inspector's 3D section now names the mode and, for the observed view, how

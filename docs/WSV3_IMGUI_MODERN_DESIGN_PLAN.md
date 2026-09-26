@@ -437,8 +437,8 @@ The redesign is ready when:
 >   reading plus the gate inspector on the rail rather than a third control; the rail has no
 >   separate pan (the explore tool pans), locate or warning-focus tool, since nothing in the app
 >   does those yet, and the 3D camera is the toolbar's 2D/3D/Volume control.
-> - Not yet: drag-reorder in the tree (§3.1; it lives in the Layer Manager); tabbing more
->   windows (warnings, analyst log, sounding, diagnostics) into the docks (§2.3); screenshot
+> - Not yet: drag-reorder in the tree (§3.1; it lives in the Layer Manager); more windows as
+>   dock tabs (analyst log, sounding, diagnostics — the tab groups exist, §2.3); screenshot
 >   passes at tablet and phone widths (§12.11; the phone layout is its own and unchanged).
 
 ### 13.1 References
@@ -807,3 +807,12 @@ a scale bar on the map; a network round-trip measurement for the app bar; a natu
   for a smooth volume its quality preset, named from the same `view::QUALITY_PRESETS` the 3D
   controls offer; and the vertical exaggeration when it is above 1×. Checked by unit test; the
   screenshot pass for it is still to do.
+- Tab groups (§2.3): windows docked on the same side share one panel instead of each taking its
+  own strip of the map, as Dear ImGui's docking does. The front window's header becomes a strip of
+  every window's tab (glyph and title; when the titles do not fit, the others shrink to their
+  glyph with the title on hover), with that window's move and close buttons at its end. A window
+  that opens or is docked comes to the front of its side; closing or floating the front one hands
+  the dock to the next. The app bar and rail buttons reflect what is visible: a window behind
+  another tab reads as off, and its button brings it forward rather than closing it. The panel
+  is as wide as its widest member. Checked by screenshot: Inspector and Alerts docked right
+  together, switching by tab and by the app-bar button, and the arrangement surviving a restart.

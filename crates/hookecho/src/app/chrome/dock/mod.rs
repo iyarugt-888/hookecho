@@ -114,6 +114,54 @@ pub(crate) struct Probe {
     pub dealiased: bool,
 }
 
+/// The workstation's tool windows, in the order a dock's tab group lists them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DockWin {
+    Layers,
+    Inspector,
+    Alerts,
+    Prefs,
+}
+
+impl DockWin {
+    pub(crate) const ALL: [DockWin; 4] = [
+        DockWin::Layers,
+        DockWin::Inspector,
+        DockWin::Alerts,
+        DockWin::Prefs,
+    ];
+
+    /// The glyph and plain title a dock's tab shows (the window's own header may add a count).
+    fn tab(self) -> ws::HeaderTab {
+        use egui_phosphor::regular as ph;
+        let (glyph, title) = match self {
+            DockWin::Layers => (ph::STACK, "Layers"),
+            DockWin::Inspector => (ph::INFO, "Inspector"),
+            DockWin::Alerts => (ph::WARNING, "Alerts"),
+            DockWin::Prefs => (ph::GEAR_SIX, "Preferences"),
+        };
+        ws::HeaderTab { glyph, title }
+    }
+
+    fn width(self) -> f32 {
+        match self {
+            DockWin::Layers => LEFT_WIDTH,
+            DockWin::Inspector => inspector::CARD_W,
+            DockWin::Alerts => alerts::ALERTS_W,
+            DockWin::Prefs => prefs::PREFS_W,
+        }
+    }
+}
+
+/// Index of a docked side in [`DockState::front`].
+fn side_slot(place: Place) -> Option<usize> {
+    match place {
+        Place::Left => Some(0),
+        Place::Right => Some(1),
+        Place::Float => None,
+    }
+}
+
 /// Which page the Preferences window shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum PrefsPage {
@@ -148,6 +196,12 @@ pub(crate) struct DockState {
     pub jump: String,
     /// The layout whose saved arrangement is in effect; a different layout loads its own.
     pub arranged_for: Option<crate::settings::Layout>,
+    /// The window in front of each dock's tab group, left then right, when more than one window
+    /// shares that side.
+    pub front: [Option<DockWin>; 2],
+    /// Each window's `(open, place)` last frame, to bring a window that has just opened or just
+    /// moved into a dock to the front of it.
+    seen: [(bool, Place); 4],
 }
 
 impl Default for DockState {
@@ -168,6 +222,8 @@ impl Default for DockState {
             last: None,
             jump: String::new(),
             arranged_for: None,
+            front: [None; 2],
+            seen: [(false, Place::Float); 4],
         };
         s.arrange(&DockState::preset(crate::settings::Layout::Dock));
         s
@@ -220,6 +276,100 @@ impl DockState {
         self.timeline_open = w.timeline_open;
     }
 
+    pub(crate) fn chrome(&self, w: DockWin) -> &WindowChrome {
+        match w {
+            DockWin::Layers => &self.layers,
+            DockWin::Inspector => &self.inspector,
+            DockWin::Alerts => &self.alerts,
+            DockWin::Prefs => &self.prefs,
+        }
+    }
+
+    fn chrome_mut(&mut self, w: DockWin) -> &mut WindowChrome {
+        match w {
+            DockWin::Layers => &mut self.layers,
+            DockWin::Inspector => &mut self.inspector,
+            DockWin::Alerts => &mut self.alerts,
+            DockWin::Prefs => &mut self.prefs,
+        }
+    }
+
+    /// The open windows docked on `side`, in tab order.
+    pub(crate) fn stack(&self, side: Place) -> Vec<DockWin> {
+        DockWin::ALL
+            .into_iter()
+            .filter(|w| {
+                let c = self.chrome(*w);
+                c.open && c.place == side
+            })
+            .collect()
+    }
+
+    /// Keep each dock's front tab sensible: a window that has just opened, or just been docked,
+    /// comes to the front of its side (opening Alerts from the app bar must show Alerts, not
+    /// leave it behind the Inspector); a front window that has left falls back to the first.
+    pub(crate) fn update_fronts(&mut self) {
+        for (i, w) in DockWin::ALL.into_iter().enumerate() {
+            let c = *self.chrome(w);
+            let now = (c.open, c.place);
+            if now != self.seen[i] && c.open {
+                if let Some(slot) = side_slot(c.place) {
+                    self.front[slot] = Some(w);
+                }
+            }
+            self.seen[i] = now;
+        }
+        for side in [Place::Left, Place::Right] {
+            let stack = self.stack(side);
+            let slot = side_slot(side).unwrap_or_default();
+            if !self.front[slot].is_some_and(|f| stack.contains(&f)) {
+                self.front[slot] = stack.first().copied();
+            }
+        }
+    }
+
+    /// Whether `w` can be seen: open, and not behind another window in its dock's tab group.
+    pub(crate) fn shown(&self, w: DockWin) -> bool {
+        let c = self.chrome(w);
+        if !c.open {
+            return false;
+        }
+        match side_slot(c.place) {
+            Some(slot) => self.stack(c.place).len() < 2 || self.front[slot] == Some(w),
+            None => true,
+        }
+    }
+
+    /// A button for `w` (the app bar's, the rail's, a key): hide it when it is showing,
+    /// otherwise show it — which for a window behind another tab means bringing it to the front,
+    /// not closing it.
+    pub(crate) fn toggle(&mut self, w: DockWin) {
+        if self.shown(w) {
+            self.chrome_mut(w).open = false;
+        } else {
+            let c = self.chrome_mut(w);
+            c.open = true;
+            c.collapsed = false;
+            if let Some(slot) = side_slot(c.place) {
+                self.front[slot] = Some(w);
+            }
+        }
+    }
+
+    /// Apply what `win`'s header asked for: a tab click changes its dock's front window, anything
+    /// else changes the window itself.
+    pub(super) fn apply_header(&mut self, win: DockWin, action: ws::HeaderAction) {
+        match action {
+            ws::HeaderAction::Tab(i) => {
+                let side = self.chrome(win).place;
+                if let (Some(slot), Some(&w)) = (side_slot(side), self.stack(side).get(i)) {
+                    self.front[slot] = Some(w);
+                }
+            }
+            other => apply_header(other, self.chrome_mut(win)),
+        }
+    }
+
     /// Open the Layers window with the keyboard in its search box, on every tab (Ctrl+K and the
     /// other "search everything" ways in).
     pub(crate) fn open_search(&mut self) {
@@ -233,7 +383,7 @@ impl DockState {
 /// What a tool window's header asked for, applied to that window's own state.
 pub(super) fn apply_header(action: ws::HeaderAction, w: &mut WindowChrome) {
     match action {
-        ws::HeaderAction::None => {}
+        ws::HeaderAction::None | ws::HeaderAction::Tab(_) => {}
         ws::HeaderAction::Close => w.open = false,
         ws::HeaderAction::Collapse => w.collapsed = !w.collapsed,
         ws::HeaderAction::Place(p) => {
@@ -251,6 +401,8 @@ pub(super) fn apply_header(action: ws::HeaderAction, w: &mut WindowChrome) {
 pub(super) enum Host<'a> {
     Docked(&'a mut egui::Ui),
     Floating(&'a egui::Context),
+    /// The front window of a dock's tab group, drawn straight into the group's panel.
+    Tabbed(&'a mut egui::Ui),
 }
 
 /// A tool window: its id, where it sits, how wide it is, and where it first appears when floating.
@@ -292,6 +444,7 @@ pub(super) fn tool_window(
                     body(ui);
                 });
         }
+        Host::Tabbed(ui) => body(ui),
         Host::Floating(ctx) => {
             egui::Window::new(id)
                 .id(egui::Id::new(id))
@@ -416,34 +569,65 @@ impl HookEchoApp {
             self.dock_toolbar(root, ctx);
         }
         self.dock_timeline(root);
-        if self.dock.layers.place != Place::Float {
-            self.dock_layers(Host::Docked(root), ctx);
-        }
-        if self.dock.inspector.place != Place::Float {
-            self.dock_inspector(Host::Docked(root), ctx);
-        }
-        if self.dock.alerts.place != Place::Float {
-            self.dock_alerts(Host::Docked(root));
-        }
-        if self.dock.prefs.place != Place::Float {
-            self.dock_prefs(Host::Docked(root), ctx);
+        self.dock.update_fronts();
+        for side in [Place::Left, Place::Right] {
+            let stack = self.dock.stack(side);
+            match stack.as_slice() {
+                [] => {}
+                [only] => self.dock_window(*only, Host::Docked(root), ctx),
+                _ => self.dock_group(root, ctx, side, &stack),
+            }
         }
         self.dock_rail(root, ctx);
     }
 
+    /// Several windows docked on one side share one panel as tabs (design plan §2.3), rather than
+    /// each taking its own strip of the map's width. Only the front one is drawn.
+    fn dock_group(
+        &mut self,
+        root: &mut egui::Ui,
+        ctx: &egui::Context,
+        side: Place,
+        stack: &[DockWin],
+    ) {
+        let t = self.ws_tokens();
+        let slot = side_slot(side).unwrap_or_default();
+        let front = self.dock.front[slot].unwrap_or(stack[0]);
+        let width = stack.iter().map(|w| w.width()).fold(0.0, f32::max);
+        let panel = if side == Place::Right {
+            egui::Panel::right("dock_group_right")
+        } else {
+            egui::Panel::left("dock_group_left")
+        };
+        let tabs = ws::HeaderTabs {
+            tabs: stack.iter().map(|w| w.tab()).collect(),
+            front: stack.iter().position(|w| *w == front).unwrap_or(0),
+        };
+        panel
+            .exact_size(width)
+            .resizable(false)
+            .frame(ws::panel_frame(&t))
+            .show(root, |ui| {
+                ws::style_scope(ui, &t);
+                ws::set_header_tabs(ctx, Some(tabs));
+                self.dock_window(front, Host::Tabbed(ui), ctx);
+                ws::set_header_tabs(ctx, None);
+            });
+    }
+
+    fn dock_window(&mut self, w: DockWin, host: Host<'_>, ctx: &egui::Context) {
+        match w {
+            DockWin::Layers => self.dock_layers(host, ctx),
+            DockWin::Inspector => self.dock_inspector(host, ctx),
+            DockWin::Alerts => self.dock_alerts(host),
+            DockWin::Prefs => self.dock_prefs(host, ctx),
+        }
+    }
+
     /// Over the map: the floating tool windows, and the button that brings hidden bars back.
     pub(crate) fn dock_map_overlay(&mut self, ctx: &egui::Context) {
-        if self.dock.layers.place == Place::Float {
-            self.dock_layers(Host::Floating(ctx), ctx);
-        }
-        if self.dock.inspector.place == Place::Float {
-            self.dock_inspector(Host::Floating(ctx), ctx);
-        }
-        if self.dock.alerts.place == Place::Float {
-            self.dock_alerts(Host::Floating(ctx));
-        }
-        if self.dock.prefs.place == Place::Float {
-            self.dock_prefs(Host::Floating(ctx), ctx);
+        for w in self.dock.stack(Place::Float) {
+            self.dock_window(w, Host::Floating(ctx), ctx);
         }
         if self.ribbon_collapsed {
             self.dock_bars_restore(ctx);
@@ -784,6 +968,45 @@ mod tests {
         s.open_search();
         assert!(s.layers.open && !s.layers.collapsed && s.focus_search);
         assert_eq!(s.filter, LayerFilter::All);
+    }
+
+    #[test]
+    fn windows_docked_together_share_one_side_with_the_newest_in_front() {
+        let mut s = DockState::default();
+        s.layers = WindowChrome::at(true, Place::Left);
+        s.inspector = WindowChrome::at(true, Place::Right);
+        s.alerts = WindowChrome::at(false, Place::Right);
+        s.prefs = WindowChrome::at(false, Place::Right);
+        s.update_fronts();
+        assert_eq!(s.front, [Some(DockWin::Layers), Some(DockWin::Inspector)]);
+        // Opening Alerts puts it in the Inspector's dock, in front.
+        s.alerts.open = true;
+        s.update_fronts();
+        assert_eq!(s.stack(Place::Right), [DockWin::Inspector, DockWin::Alerts]);
+        assert_eq!(s.front[1], Some(DockWin::Alerts));
+        // A tab click brings the Inspector back; nothing changing keeps it there.
+        s.apply_header(DockWin::Alerts, ws::HeaderAction::Tab(0));
+        s.update_fronts();
+        assert_eq!(s.front[1], Some(DockWin::Inspector));
+        // Closing the front window hands the dock to what is left.
+        s.apply_header(DockWin::Inspector, ws::HeaderAction::Close);
+        s.update_fronts();
+        assert_eq!(s.front[1], Some(DockWin::Alerts));
+        // A button for a window behind another tab brings it forward rather than closing it.
+        s.inspector.open = true;
+        s.update_fronts();
+        s.apply_header(DockWin::Alerts, ws::HeaderAction::Tab(1));
+        assert!(!s.shown(DockWin::Inspector) && s.shown(DockWin::Alerts));
+        s.toggle(DockWin::Inspector);
+        assert!(s.shown(DockWin::Inspector) && s.inspector.open);
+        s.toggle(DockWin::Inspector);
+        assert!(!s.inspector.open);
+        s.update_fronts();
+        // Floating a window takes it out of the group.
+        s.apply_header(DockWin::Alerts, ws::HeaderAction::Place(Place::Float));
+        s.update_fronts();
+        assert!(s.stack(Place::Right).is_empty());
+        assert_eq!(s.front[1], None);
     }
 
     #[test]

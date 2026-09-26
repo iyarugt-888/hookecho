@@ -5,7 +5,7 @@
 mod broadcast;
 mod chips;
 mod dock;
-pub(crate) use dock::DockState;
+pub(crate) use dock::{DockState, DockWin};
 mod overlay;
 mod permalink;
 mod phone_rail;

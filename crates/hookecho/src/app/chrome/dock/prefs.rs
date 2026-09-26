@@ -9,7 +9,7 @@ use crate::ui::a11y::Named as _;
 use egui_phosphor::regular as ph;
 
 /// The window's width, docked or floating.
-const PREFS_W: f32 = 300.0;
+pub(super) const PREFS_W: f32 = 300.0;
 
 impl HookEchoApp {
     pub(super) fn dock_prefs(&mut self, host: Host<'_>, ctx: &egui::Context) {
@@ -97,7 +97,7 @@ impl HookEchoApp {
                     });
             },
         );
-        apply_header(header, &mut self.dock.prefs);
+        self.dock.apply_header(DockWin::Prefs, header);
         self.apply_ui_actions(opts, ctx);
     }
 }

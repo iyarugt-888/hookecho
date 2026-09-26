@@ -123,18 +123,18 @@ impl HookEchoApp {
                     }
                     ui.add_space(18.0);
                     for tab in DockTab::ALL {
-                        let on = self.dock.layers.open && self.dock.tab == tab;
+                        let on = self.dock.shown(DockWin::Layers) && self.dock.tab == tab;
                         if ws::tab(ui, &t, tab.label(), on, ws::APP_BAR_H)
                             .named_toggle(tab.label(), on)
                             .clicked()
                         {
                             // The open tab's own button folds the panel away; any other opens it
                             // on that tab.
-                            if on {
-                                self.dock.layers.open = false;
-                            } else {
+                            if !on {
                                 self.dock.tab = tab;
-                                self.dock.layers.open = true;
+                            }
+                            if on || !self.dock.shown(DockWin::Layers) {
+                                self.dock.toggle(DockWin::Layers);
                             }
                         }
                     }
@@ -241,7 +241,7 @@ impl HookEchoApp {
                         {
                             action = Some(A::OpenWindow(AppWindow::Afd));
                         }
-                        let alerts_on = self.dock.alerts.open;
+                        let alerts_on = self.dock.shown(DockWin::Alerts);
                         let alerts_label = match (fit.labels, alert_count) {
                             (true, 0) => "Alerts".to_string(),
                             (true, n) => format!("Alerts {n}"),
@@ -252,7 +252,7 @@ impl HookEchoApp {
                             .named_toggle(&format!("Alerts in view: {alert_count}"), alerts_on)
                             .clicked()
                         {
-                            self.dock.alerts.open = !alerts_on;
+                            self.dock.toggle(DockWin::Alerts);
                         }
                         let playing = self.dock.timeline_open;
                         if ws::icon_button(ui, &t, ph::PLAY, label("Playback"), playing)
@@ -261,12 +261,12 @@ impl HookEchoApp {
                         {
                             self.dock.timeline_open = !playing;
                         }
-                        let inspecting = self.dock.inspector.open;
+                        let inspecting = self.dock.shown(DockWin::Inspector);
                         if ws::icon_button(ui, &t, ph::INFO, label("Inspector"), inspecting)
                             .named_toggle("Inspector", inspecting)
                             .clicked()
                         {
-                            self.dock.inspector.open = !inspecting;
+                            self.dock.toggle(DockWin::Inspector);
                         }
                         match menu_pick {
                             Some(MenuPick::Palette(a)) => action = Some(a),

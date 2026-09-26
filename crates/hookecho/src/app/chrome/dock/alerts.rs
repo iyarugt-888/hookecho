@@ -6,7 +6,7 @@ use super::*;
 use egui_phosphor::regular as ph;
 
 /// The window's width, docked or floating.
-const ALERTS_W: f32 = 300.0;
+pub(super) const ALERTS_W: f32 = 300.0;
 
 impl HookEchoApp {
     pub(super) fn dock_alerts(&mut self, host: Host<'_>) {
@@ -68,7 +68,7 @@ impl HookEchoApp {
                 });
             },
         );
-        apply_header(header, &mut self.dock.alerts);
+        self.dock.apply_header(DockWin::Alerts, header);
         self.settings.mute_alerts = muted;
         if let Some((id, lon, lat)) = hit {
             // Fly the active camera to the alert and open its bulletin, as the panel does.

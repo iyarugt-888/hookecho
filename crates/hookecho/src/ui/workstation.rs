@@ -169,6 +169,52 @@ pub enum HeaderAction {
     Collapse,
     /// Move the window: dock it to a side or float it over the map.
     Place(crate::workspace::Place),
+    /// Bring this tab of the header's tab group to the front (see [`HeaderTabs`]).
+    Tab(usize),
+}
+
+/// One tab of a dock's tab group: the window's glyph and plain title.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HeaderTab {
+    pub glyph: &'static str,
+    pub title: &'static str,
+}
+
+/// The windows sharing one dock, as Dear ImGui's docking draws them: the front window's header
+/// becomes a strip of every window's tab, with the front window's own move and close buttons at
+/// its end. Handed to the next [`window_header`] through [`set_header_tabs`], so a window's body
+/// draws the same way whether it is alone or in a group.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HeaderTabs {
+    pub tabs: Vec<HeaderTab>,
+    pub front: usize,
+}
+
+fn header_tabs_id() -> egui::Id {
+    egui::Id::new("ws_header_tabs")
+}
+
+/// Make the next [`window_header`] drawn a tab strip (or, with `None`, stop that).
+pub fn set_header_tabs(ctx: &egui::Context, tabs: Option<HeaderTabs>) {
+    ctx.data_mut(|d| match tabs {
+        Some(t) => {
+            d.insert_temp(header_tabs_id(), t);
+        }
+        None => d.remove::<HeaderTabs>(header_tabs_id()),
+    });
+}
+
+/// A group's tab widths: every tab with its title if they all fit in `avail`; otherwise the front
+/// one keeps its title and the rest shrink to their glyph (the title moves to the hover).
+fn tab_widths(full: &[f32], front: usize, avail: f32) -> Vec<f32> {
+    const GLYPH_ONLY: f32 = 32.0;
+    if full.iter().sum::<f32>() <= avail {
+        return full.to_vec();
+    }
+    full.iter()
+        .enumerate()
+        .map(|(i, w)| if i == front { *w } else { GLYPH_ONLY })
+        .collect()
 }
 
 /// A tool window's header: glyph and title, then (right-aligned) a placement menu, a collapse
@@ -184,6 +230,12 @@ pub fn window_header(
     collapsed: Option<bool>,
 ) -> HeaderAction {
     use crate::workspace::Place;
+    // Taken, not read: the tabs belong to this one header, not to any drawn after it.
+    let tabs = ui.ctx().data_mut(|d| {
+        let tabs = d.get_temp::<HeaderTabs>(header_tabs_id());
+        d.remove::<HeaderTabs>(header_tabs_id());
+        tabs
+    });
     let (rect, bar) =
         ui.allocate_exact_size(egui::vec2(ui.available_width(), HEADER_H), Sense::click());
     let p = ui.painter();
@@ -192,21 +244,98 @@ pub fn window_header(
         [rect.left_bottom(), rect.right_bottom()],
         Stroke::new(1.0, t.line),
     );
-    p.text(
-        rect.left_center() + egui::vec2(10.0, 0.0),
-        egui::Align2::LEFT_CENTER,
-        glyph,
-        FontId::proportional(14.0),
-        t.text_dim,
-    );
-    p.text(
-        rect.left_center() + egui::vec2(30.0, 0.0),
-        egui::Align2::LEFT_CENTER,
-        title,
-        FontId::proportional(13.0),
-        t.text,
-    );
     let mut action = HeaderAction::None;
+    let buttons = 1 + usize::from(collapsed.is_some()) + usize::from(place.is_some());
+    if let Some(group) = &tabs {
+        let font = FontId::proportional(12.5);
+        let full: Vec<f32> = group
+            .tabs
+            .iter()
+            .enumerate()
+            .map(|(i, tab)| {
+                let name = if i == group.front { title } else { tab.title };
+                let text = ui
+                    .painter()
+                    .layout_no_wrap(name.into(), font.clone(), t.text);
+                text.size().x + 44.0
+            })
+            .collect();
+        let avail = rect.width() - 8.0 - 24.0 * buttons as f32;
+        let widths = tab_widths(&full, group.front, avail);
+        let mut x = rect.left();
+        for (i, (tab, w)) in group.tabs.iter().zip(&widths).enumerate() {
+            let r = Rect::from_min_size(egui::pos2(x, rect.top()), egui::vec2(*w, rect.height()));
+            x += w;
+            let front = i == group.front;
+            let name = if front { title } else { tab.title };
+            let resp = ui.interact(r, ui.id().with(("header_tab", tab.title)), Sense::click());
+            let p = ui.painter();
+            if front {
+                // The front tab is cut from the body's colour, so it reads as the top of the page
+                // below it; the accent edge says which one it is without relying on that.
+                p.rect_filled(r.with_min_y(r.top() + 1.0), 0.0, t.panel);
+                p.rect_filled(
+                    Rect::from_min_size(r.min, egui::vec2(r.width(), 2.0)),
+                    0.0,
+                    t.accent,
+                );
+            } else if resp.hovered() {
+                p.rect_filled(r, 0.0, t.field_hi);
+            }
+            let ink = if front || resp.hovered() {
+                t.text
+            } else {
+                t.text_dim
+            };
+            let compact = *w < full[i];
+            p.text(
+                if compact {
+                    r.center()
+                } else {
+                    r.left_center() + egui::vec2(18.0, 0.0)
+                },
+                egui::Align2::CENTER_CENTER,
+                tab.glyph,
+                FontId::proportional(14.0),
+                if front { t.accent } else { ink },
+            );
+            if !compact {
+                p.text(
+                    r.left_center() + egui::vec2(32.0, 0.0),
+                    egui::Align2::LEFT_CENTER,
+                    name,
+                    font.clone(),
+                    ink,
+                );
+            }
+            resp.widget_info(|| {
+                egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, front, name)
+            });
+            let resp = if compact {
+                resp.on_hover_text(name)
+            } else {
+                resp
+            };
+            if resp.clicked() && !front {
+                action = HeaderAction::Tab(i);
+            }
+        }
+    } else {
+        p.text(
+            rect.left_center() + egui::vec2(10.0, 0.0),
+            egui::Align2::LEFT_CENTER,
+            glyph,
+            FontId::proportional(14.0),
+            t.text_dim,
+        );
+        p.text(
+            rect.left_center() + egui::vec2(30.0, 0.0),
+            egui::Align2::LEFT_CENTER,
+            title,
+            FontId::proportional(13.0),
+            t.text,
+        );
+    }
     if collapsed.is_some() && bar.double_clicked() {
         action = HeaderAction::Collapse;
     }
@@ -704,6 +833,65 @@ mod tests {
                 "{want} missing: {got:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_crowded_tab_group_keeps_the_front_title_and_shrinks_the_rest() {
+        assert_eq!(tab_widths(&[80.0, 90.0], 1, 200.0), [80.0, 90.0]);
+        assert_eq!(
+            tab_widths(&[80.0, 90.0, 100.0], 1, 200.0),
+            [32.0, 90.0, 32.0]
+        );
+    }
+
+    #[test]
+    fn a_header_given_tabs_draws_every_title_once() {
+        let got = texts(|ui| {
+            set_header_tabs(
+                ui.ctx(),
+                Some(HeaderTabs {
+                    tabs: vec![
+                        HeaderTab {
+                            glyph: egui_phosphor::regular::INFO,
+                            title: "Inspector",
+                        },
+                        HeaderTab {
+                            glyph: egui_phosphor::regular::WARNING,
+                            title: "Alerts",
+                        },
+                    ],
+                    front: 1,
+                }),
+            );
+            window_header(
+                ui,
+                &t(),
+                egui_phosphor::regular::WARNING,
+                "Alerts (6)",
+                Some(crate::workspace::Place::Right),
+                None,
+            );
+            // The tabs were for that header alone: the next one is a plain title again.
+            window_header(
+                ui,
+                &t(),
+                egui_phosphor::regular::GEAR,
+                "Preferences",
+                None,
+                None,
+            );
+        });
+        for want in ["Inspector", "Alerts (6)", "Preferences"] {
+            assert_eq!(
+                got.iter().filter(|s| s.as_str() == want).count(),
+                1,
+                "{want}: {got:?}"
+            );
+        }
+        assert!(
+            !got.iter().any(|s| s == "Alerts"),
+            "the front tab shows its live title"
+        );
     }
 
     #[test]

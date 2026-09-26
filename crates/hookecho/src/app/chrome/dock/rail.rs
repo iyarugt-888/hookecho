@@ -66,7 +66,7 @@ impl HookEchoApp {
         use crate::app::PaletteAction as A;
         let t = self.ws_tokens();
         let armed = self.tool;
-        let layers_open = self.dock.layers.open;
+        let layers_open = self.dock.shown(DockWin::Layers);
         let has_site = self.views[self.active].site.is_some();
         let mut pick = None;
         let mut toggle_layers = false;
@@ -122,7 +122,7 @@ impl HookEchoApp {
                 });
             });
         if toggle_layers {
-            self.dock.layers.open = !self.dock.layers.open;
+            self.dock.toggle(DockWin::Layers);
         }
         if center {
             self.dock_center_on_radar();

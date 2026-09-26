@@ -11094,7 +11094,7 @@ impl HookEchoApp {
             PaletteAction::Explain(i) => self.help_hub.explain(i),
             // The workstation's Layers window is its panel.
             PaletteAction::TogglePanel if self.workstation_chrome() => {
-                self.dock.layers.open = !self.dock.layers.open;
+                self.dock.toggle(crate::app::chrome::DockWin::Layers);
             }
             PaletteAction::TogglePanel => self.panel_open = !self.panel_open,
             PaletteAction::ToggleRibbon => self.ribbon_collapsed = !self.ribbon_collapsed,
@@ -13431,7 +13431,7 @@ impl HookEchoApp {
                 }
             }
             A::ToggleAlertPanel if self.workstation_chrome() => {
-                self.dock.alerts.open = !self.dock.alerts.open;
+                self.dock.toggle(crate::app::chrome::DockWin::Alerts);
             }
             A::ToggleAlertPanel => {
                 // The bell tab and the panel are one surface now: the key opens the panel on

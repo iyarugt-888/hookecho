@@ -347,7 +347,7 @@ impl HookEchoApp {
         // The model controls and the layer options both report through one actions struct.
         let from_panels = ui_actions.palette.take();
         self.apply_ui_actions(ui_actions, ctx);
-        apply_header(header, &mut self.dock.layers);
+        self.dock.apply_header(DockWin::Layers, header);
         if search_enter && hit.is_none() {
             match submit_search(
                 &entries,
