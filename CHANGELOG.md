@@ -8,6 +8,14 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: the browser version could stop after its tab was hidden
+
+With a lot of text on screen (a river-gauge card and the tropical guidance open together, for
+example), the web version could stop with "Tried to update a texture that has not been allocated
+yet" after its tab had been in the background. The toolkit throws away a hidden frame's texture
+changes, and losing a rebuild of the font texture that way broke the next frame. The app now
+rebuilds the font texture on the first frame after the tab is shown again.
+
 ### Added: tropical model guidance — spaghetti, intensity, invests
 
 The tropical layer can now draw every model's track for every active storm and invest (turn on

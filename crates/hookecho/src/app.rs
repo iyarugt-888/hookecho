@@ -22021,6 +22021,8 @@ impl eframe::App for HookEchoApp {
         if let Some(text) = self.pending_paste.take() {
             raw_input.events.push(egui::Event::Paste(text));
         }
+        // Web: a tab that was hidden may have lost a font-atlas upload; rebuild it on return.
+        crate::platform::guard_font_atlas(raw_input);
     }
 
     fn ui(&mut self, root: &mut egui::Ui, _frame: &mut eframe::Frame) {

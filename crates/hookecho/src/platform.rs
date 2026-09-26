@@ -72,6 +72,45 @@ pub mod activity {
 #[cfg(not(target_os = "android"))]
 pub fn apply_safe_area(_ctx: &egui::Context, _raw_input: &mut egui::RawInput) {}
 
+/// Keep the font atlas on the GPU in step with egui's after the browser tab has been hidden.
+///
+/// eframe's web runner still runs egui's pass while the page is hidden but throws that pass's
+/// texture changes away (`app_runner.rs`: they are appended only `if is_visible`). egui rebuilds
+/// its font atlas when it is 80% full, and a rebuild during a hidden frame loses the full upload;
+/// the next partial glyph upload then panics in egui-wgpu ("Tried to update a texture that has
+/// not been allocated yet") and the app stops. Busy windows full of text (a gauge card and the
+/// tropical guidance open together) fill the atlas enough to hit this.
+///
+/// The cure is a rebuild in the first visible frame: egui rebuilds the atlas whenever its text
+/// options change, and `max_texture_side` is one of them, read from the raw input. Each return
+/// from hidden alternates it between the real limit and one pixel less, which a glyph atlas
+/// never notices.
+// ponytail: works around eframe 0.35; drop it once eframe keeps hidden-frame texture deltas.
+#[cfg(target_arch = "wasm32")]
+pub fn guard_font_atlas(raw_input: &mut egui::RawInput) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static HIDDEN: AtomicBool = AtomicBool::new(false);
+    static SHAVE: AtomicBool = AtomicBool::new(false);
+    let visible = raw_input
+        .viewports
+        .get(&egui::ViewportId::ROOT)
+        .and_then(|v| v.visible())
+        .unwrap_or(true);
+    if !visible {
+        HIDDEN.store(true, Ordering::Relaxed);
+    } else if HIDDEN.swap(false, Ordering::Relaxed) {
+        SHAVE.fetch_xor(true, Ordering::Relaxed);
+    }
+    if SHAVE.load(Ordering::Relaxed) {
+        if let Some(m) = raw_input.max_texture_side.as_mut() {
+            *m = m.saturating_sub(1);
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn guard_font_atlas(_raw_input: &mut egui::RawInput) {}
+
 /// Show/hide the soft keyboard (no-op off-Android — hardware keyboards just work).
 #[cfg(not(target_os = "android"))]
 pub fn show_soft_input(_show: bool) {}
