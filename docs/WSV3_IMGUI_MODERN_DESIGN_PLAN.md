@@ -437,8 +437,7 @@ The redesign is ready when:
 >   reading plus the gate inspector on the rail rather than a third control; the rail has no
 >   separate pan (the explore tool pans), locate or warning-focus tool, since nothing in the app
 >   does those yet, and the 3D camera is the toolbar's 2D/3D/Volume control.
-> - Not yet: drag-reorder in the tree (§3.1; it lives in the Layer Manager); a screenshot pass
->   at phone width (§12.11; the phone layout is its own and unchanged). Every §2.3 window is
+> - Not yet: a screenshot pass at phone width (§12.11; the phone layout is its own and unchanged). Every §2.3 window is
 >   dockable now: Layers, Inspector, 3D view, Sounding, Alerts, Sources, Analyst log, Preferences.
 
 ### 13.1 References
@@ -898,3 +897,12 @@ a scale bar on the map; a network round-trip measurement for the app bar; a natu
   centered on when it is applied. The Hail analysis starter uses it (roadmap J5), so REF/ZDR/CC/KDP
   with MESH arrive with the sounding beside them. Checked by screenshot: the preset applied from
   Layers search over the Moore scene, the sounding in front of the right dock.
+- Drag reorder (§3.1): the Active filter opens with a **Paint order** list — the pane's field
+  layers that are on, top-painted first, each row a drag source (⋮⋮ handle, grab cursor) with an
+  accent line where it will land, and a "radar" rule between the bands; a layer cannot be dropped
+  across the radar. The order is `Settings::field_order`, applied by `FieldLayer::paint_order`,
+  which permutes only the reordered layers among their own `DRAW_ORDER` slots in each band (an
+  empty order is the built-in one exactly). Pane draw lists are sorted by it and the renderer
+  paints them as given; the top-layer legend follows it too. "Reset" restores the built-in order.
+  Checked by screenshot: Rotation tracks dragged above Lightning density and Hail size, and the
+  map's legend changed to rotation.

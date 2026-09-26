@@ -325,6 +325,10 @@ pub struct Settings {
     /// Per-field-layer opacity 0..1 (Layer Manager sliders). A missing entry means fully opaque.
     #[serde(default)]
     pub field_opacity: std::collections::HashMap<crate::render::FieldLayer, f32>,
+    /// The user's paint order for field layers, bottom to top, applied within each band by
+    /// `FieldLayer::paint_order`. Empty is the built-in order.
+    #[serde(default)]
+    pub field_order: Vec<crate::render::FieldLayer>,
     /// Windy API key — adds the Windy webcam network to the keyless FAA cameras, which is what
     /// gives the layer any coverage outside the United States. Held locally, same as the rest.
     #[serde(default)]
@@ -1580,6 +1584,7 @@ impl Default for Settings {
             wu_key: String::new(),
             synoptic_token: String::new(),
             field_opacity: Default::default(),
+            field_order: Vec::new(),
             airnow_key: String::new(),
             windy_key: String::new(),
             field_mill_url: String::new(),
@@ -2398,6 +2403,7 @@ mod tests {
             wu_key: String::new(),
             synoptic_token: String::new(),
             field_opacity: Default::default(),
+            field_order: Vec::new(),
             airnow_key: String::new(),
             windy_key: String::new(),
             field_mill_url: String::new(),

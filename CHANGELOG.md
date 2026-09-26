@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: choose which gridded layer paints on top
+
+With several gridded layers on (hail size, rotation tracks, lightning density, satellite and
+so on), the workstation Layers panel's **Active** filter now starts with a **Paint order** list.
+Drag a layer up or down to paint it over or under the others. Layers stay on their side of the
+radar. **Reset** puts the built-in order back.
+
 ### Added: the Hail analysis workspace opens a sounding
 
 Applying the Hail analysis workspace now also takes a sounding at the spot the map was centered on, so the

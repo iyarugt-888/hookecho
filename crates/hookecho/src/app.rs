@@ -16303,8 +16303,12 @@ impl HookEchoApp {
         } else {
             Vec::new()
         };
-        let field_draws: Vec<(crate::render::FieldLayer, f32)> = self.views[idx]
-            .fields_on
+        // Bottom to top, in the user's paint order: the renderer paints this list as given.
+        let order = crate::render::FieldLayer::paint_order(&self.settings.field_order);
+        let mut on: Vec<crate::render::FieldLayer> =
+            self.views[idx].fields_on.iter().copied().collect();
+        on.sort_by_key(|l| order.iter().position(|o| o == l));
+        let field_draws: Vec<(crate::render::FieldLayer, f32)> = on
             .iter()
             .filter(|layer| {
                 crate::fielddiff::layer_ready(**layer, self.diff_valid, self.compare_valid)
@@ -19303,7 +19307,7 @@ impl HookEchoApp {
             // Whichever gridded layer the user actually sees on top — the last enabled one in
             // paint order — gets its scale keyed underneath. Without this, MESH/QPE/VIL and the
             // categorical classifications were unlabeled color.
-            if let Some(top) = crate::render::FieldLayer::DRAW_ORDER
+            if let Some(top) = crate::render::FieldLayer::paint_order(&self.settings.field_order)
                 .iter()
                 .rev()
                 .find(|l| {

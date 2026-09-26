@@ -366,6 +366,39 @@ impl FieldLayer {
         )
     }
 
+    /// The whole bottom-to-top paint order with the user's reordering applied: every layer below
+    /// the radar, then every layer above it (the radar paints between the two bands, so a layer
+    /// never crosses it). Within a band, the layers named in `custom` take the places those same
+    /// layers hold in [`Self::DRAW_ORDER`], in `custom`'s order; every other layer keeps its
+    /// place. So an empty `custom` is `DRAW_ORDER` exactly, and reordering two layers moves only
+    /// those two.
+    pub fn paint_order(custom: &[FieldLayer]) -> Vec<FieldLayer> {
+        let mut out = Vec::with_capacity(Self::DRAW_ORDER.len());
+        for below in [true, false] {
+            let mut band: Vec<FieldLayer> = Self::DRAW_ORDER
+                .into_iter()
+                .filter(|l| l.below_radar() == below)
+                .collect();
+            let mut chosen: Vec<FieldLayer> = Vec::new();
+            for l in custom {
+                if l.below_radar() == below && !chosen.contains(l) {
+                    chosen.push(*l);
+                }
+            }
+            let slots: Vec<usize> = band
+                .iter()
+                .enumerate()
+                .filter(|(_, l)| chosen.contains(l))
+                .map(|(i, _)| i)
+                .collect();
+            for (slot, layer) in slots.into_iter().zip(chosen) {
+                band[slot] = layer;
+            }
+            out.extend(band);
+        }
+        out
+    }
+
     /// Fixed bottom-to-top paint order within each band.
     pub const DRAW_ORDER: [FieldLayer; 83] = [
         // Below-radar context band (bottom to top). The global models sit at the very bottom:
@@ -2211,8 +2244,9 @@ impl RenderResources {
         below: bool,
         swipe_scissors: Option<SwipeScissors>,
     ) {
-        for layer in FieldLayer::DRAW_ORDER {
-            if layer.below_radar() != below || !pane.field_draws.contains(&layer) {
+        // `field_draws` arrives bottom to top (the app sorts it by `FieldLayer::paint_order`).
+        for layer in pane.field_draws.clone() {
+            if layer.below_radar() != below {
                 continue;
             }
             let scissor = pane.field_swipe.and_then(|swipe| {

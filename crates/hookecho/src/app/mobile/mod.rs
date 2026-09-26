@@ -296,7 +296,7 @@ impl super::HookEchoApp {
 
             // Second strip for the topmost gridded layer — the phone has no room for the desktop
             // legend box, but an unlabeled MESH/QPE wash is just as cryptic here.
-            if let Some(top) = crate::render::FieldLayer::DRAW_ORDER
+            if let Some(top) = crate::render::FieldLayer::paint_order(&self.settings.field_order)
                 .iter()
                 .rev()
                 .find(|l| self.views[self.active].fields_on.contains(l))

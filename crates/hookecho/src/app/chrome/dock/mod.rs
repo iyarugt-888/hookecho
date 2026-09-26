@@ -22,6 +22,7 @@ mod inspector;
 mod layers;
 mod log;
 mod menus;
+mod order;
 mod prefs;
 mod rail;
 mod sounding;

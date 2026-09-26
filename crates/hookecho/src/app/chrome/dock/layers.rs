@@ -100,6 +100,20 @@ impl HookEchoApp {
         // A floating window has no panel to fill, so it gets a height of its own.
         let float_list_h = (map_rect.height() - 170.0).clamp(160.0, 480.0);
         let mut header = ws::HeaderAction::None;
+        // The paint-order list's inputs: the pane's field layers that are on, and each one's row
+        // name and glyph from the registry, so it reads the same as the tree below it.
+        let field_active: Vec<crate::render::FieldLayer> =
+            self.views[self.active].fields_on.iter().copied().collect();
+        let field_names = |l: crate::render::FieldLayer| {
+            entries
+                .iter()
+                .find(|e| e.action == crate::app::PaletteAction::ToggleField(l))
+                .map_or_else(
+                    || (format!("{l:?}"), ph::STACK),
+                    |e| (e.label.clone(), crate::ui::layers_panel::glyph(e)),
+                )
+        };
+        let mut order_hit = None;
         tool_window(
             host,
             ToolWindow {
@@ -235,6 +249,16 @@ impl HookEchoApp {
                                     self.layer_options_body(ui, &mut ui_actions);
                                 });
                         }
+                        if self.dock.filter == LayerFilter::Active && self.dock.query.is_empty() {
+                            ui.add_space(6.0);
+                            order_hit = super::order::paint_order_group(
+                                ui,
+                                &t,
+                                &field_active,
+                                &self.settings.field_order,
+                                &field_names,
+                            );
+                        }
                         // A typed command answers first; a place name is the explicit last row.
                         if let Some(c) = &command {
                             if ws::button(ui, &t, &c.label, ui.available_width() - 20.0)
@@ -334,6 +358,32 @@ impl HookEchoApp {
         let from_panels = ui_actions.palette.take();
         self.apply_ui_actions(ui_actions, ctx);
         self.dock.apply_header(DockWin::Layers, header);
+        match order_hit {
+            Some(super::order::OrderHit::Move {
+                moved,
+                target,
+                above,
+            }) => {
+                let order = crate::render::FieldLayer::paint_order(&self.settings.field_order);
+                let shown: Vec<_> = order
+                    .iter()
+                    .rev()
+                    .copied()
+                    .filter(|l| field_active.contains(l))
+                    .collect();
+                if let Some(new) = super::order::move_layer(
+                    &self.settings.field_order,
+                    &shown,
+                    moved,
+                    target,
+                    above,
+                ) {
+                    self.settings.field_order = new;
+                }
+            }
+            Some(super::order::OrderHit::Reset) => self.settings.field_order.clear(),
+            None => {}
+        }
         if search_enter && hit.is_none() {
             match submit_search(
                 &entries,
