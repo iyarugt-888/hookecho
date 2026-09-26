@@ -33,7 +33,7 @@ MRMS fields are labeled derived analyses. Failed refreshes retain the prior
 grid's timestamps, and invalid GRIB timestamps produce an error. See
 [the field migration note](field-registry.md) for scope and remaining work.
 
-The direct MRMS layers now share a 29-product catalog. Layer
+The direct MRMS layers now share a 35-product catalog. Layer
 fetches use its product-specific missing and no-coverage codes from the
 [NOAA operational table](https://www.nssl.noaa.gov/projects/mrms/operational/tables.php),
 so uncovered cells are absent rather than sampled as a measurement. The
@@ -51,6 +51,9 @@ pane switch levels without changing saved product IDs.
 Rotation tracks cover both the 0–2 km and 3–6 km AGL bands. Each band offers 30-minute,
 1/2/4/6-hour and 24-hour accumulation windows through one compact control; the bands retain
 separate layer IDs and share the same shear scale.
+FLASH QPE average recurrence interval is available for 30-minute, 1/3/6/12/24-hour and maximum
+windows. Its legend reports years of rainfall recurrence, which is not a direct flood forecast;
+the original `flashflood` layer ID still selects the 30-minute product.
 
 ## Warnings, outlooks and reports
 
