@@ -860,3 +860,10 @@ a scale bar on the map; a network round-trip measurement for the app bar; a natu
   are in view and Sources a red one while a feed needs attention (the front tab's own title
   carries the count). The dot is also said in words — "Alerts, needs a look" — in the tab's
   hover and accessible name, so it is not colour alone. Checked by screenshot, zoomed.
+- Docks resize, as ImGui docks do: each side's inner edge is a grip (accent line on hover, resize
+  cursor) that drags the dock between 240 px and 560 px, never past 45% of the window;
+  double-click restores the width its windows ask for. The panel belongs to the side rather than
+  to a window (`dock_side`), so the width holds as windows join, leave or change tabs, and it is
+  saved with the arrangement in whole pixels (`WorkstationChrome::dock_widths`). A wider right
+  dock also lets its tabs show their titles instead of glyphs. Checked by screenshot: dragged
+  wider, kept across a restart, and reset by double-click.

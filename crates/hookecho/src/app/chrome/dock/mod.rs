@@ -31,6 +31,11 @@ mod view3d;
 /// Width of the Layers panel.
 const LEFT_WIDTH: f32 = 284.0;
 
+/// How narrow and how wide a dragged dock may get. The upper bound is also held under half the
+/// window, so a dock can never take the map.
+const DOCK_MIN_W: f32 = 240.0;
+const DOCK_MAX_W: f32 = 560.0;
+
 /// Below this window width only one side dock shows at a time (design plan §9, "laptop / tablet
 /// landscape"): a Layers dock, a right dock and the rail together would leave the map a strip.
 /// It is the two docks and the rail plus a map about as wide as either dock pair.
@@ -180,6 +185,12 @@ impl DockWin {
     }
 }
 
+/// The widest a dock may be dragged in a window this wide: [`DOCK_MAX_W`], and never more than
+/// 45% of the window.
+fn dock_max_width(window_w: f32) -> f32 {
+    DOCK_MAX_W.min(window_w * 0.45)
+}
+
 /// Index of a docked side in [`DockState::front`].
 fn side_slot(place: Place) -> Option<usize> {
     match place {
@@ -256,6 +267,8 @@ pub(crate) struct DockState {
     pub narrow: bool,
     /// The side used most recently (0 left, 1 right): the one that stays while `narrow`.
     last_side: usize,
+    /// Each dock's dragged width, left then right (`None`: its windows' own width).
+    pub dock_widths: [Option<f32>; 2],
 }
 
 impl Default for DockState {
@@ -285,6 +298,7 @@ impl Default for DockState {
             seen: [(false, Place::Float); 7],
             narrow: false,
             last_side: 0,
+            dock_widths: [None; 2],
         };
         s.arrange(&DockState::preset(crate::settings::Layout::Dock));
         s
@@ -314,6 +328,7 @@ impl DockState {
             view3d: WindowChrome::at(true, Place::Right),
             sources: WindowChrome::at(false, Place::Right),
             log: WindowChrome::at(true, Place::Right),
+            dock_widths: [None; 2],
             timeline_open: true,
         }
     }
@@ -329,6 +344,7 @@ impl DockState {
             view3d: self.view3d,
             sources: self.sources,
             log: self.log,
+            dock_widths: self.dock_widths.map(|w| w.map(|w| w.round() as u16)),
             timeline_open: self.timeline_open,
         }
     }
@@ -343,6 +359,7 @@ impl DockState {
         self.view3d = w.view3d;
         self.sources = w.sources;
         self.log = w.log;
+        self.dock_widths = w.dock_widths.map(|w| w.map(f32::from));
         self.timeline_open = w.timeline_open;
     }
 
@@ -527,10 +544,9 @@ pub(super) fn apply_header(action: ws::HeaderAction, w: &mut WindowChrome) {
 /// Where a tool window draws this frame: into a side panel of the root layout (docked, before the
 /// map's rect is taken) or as a window over the map (floating, after it).
 pub(super) enum Host<'a> {
+    /// Drawn straight into its side's dock panel (alone, or as the front of a tab group).
     Docked(&'a mut egui::Ui),
     Floating(&'a egui::Context),
-    /// The front window of a dock's tab group, drawn straight into the group's panel.
-    Tabbed(&'a mut egui::Ui),
 }
 
 /// A tool window: its id, where it sits, how wide it is, and where it first appears when floating.
@@ -542,7 +558,8 @@ pub(super) struct ToolWindow {
 }
 
 /// Draw a tool window's frame where it sits and run `body` inside it (the body draws its own
-/// header). Docked, it is a fixed-width side panel; floating, a movable window kept inside the map.
+/// header). Docked, the side's panel is already there ([`HookEchoApp::dock_side`]); floating, it
+/// is a movable window kept inside the map.
 pub(super) fn tool_window(
     host: Host<'_>,
     w: ToolWindow,
@@ -557,22 +574,10 @@ pub(super) fn tool_window(
         float_at,
     } = w;
     match host {
-        Host::Docked(root) => {
-            let panel = if place == Place::Right {
-                egui::Panel::right(id)
-            } else {
-                egui::Panel::left(id)
-            };
-            panel
-                .exact_size(width)
-                .resizable(false)
-                .frame(ws::panel_frame(t))
-                .show(root, |ui| {
-                    ws::style_scope(ui, t);
-                    body(ui);
-                });
+        Host::Docked(ui) => {
+            let _ = place;
+            body(ui)
         }
-        Host::Tabbed(ui) => body(ui),
         Host::Floating(ctx) => {
             egui::Window::new(id)
                 .id(egui::Id::new(id))
@@ -707,18 +712,19 @@ impl HookEchoApp {
                 continue;
             }
             let stack = self.dock.stack(side);
-            match stack.as_slice() {
-                [] => {}
-                [only] => self.dock_window(*only, Host::Docked(root), ctx),
-                _ => self.dock_group(root, ctx, side, &stack),
+            if !stack.is_empty() {
+                self.dock_side(root, ctx, side, &stack);
             }
         }
         self.dock_rail(root, ctx);
     }
 
-    /// Several windows docked on one side share one panel as tabs (design plan §2.3), rather than
-    /// each taking its own strip of the map's width. Only the front one is drawn.
-    fn dock_group(
+    /// A side's dock: one panel for whatever is docked there. Several windows share it as tabs
+    /// (design plan §2.3) rather than each taking its own strip of the map's width, and only the
+    /// front one is drawn. Its inner edge drags to resize it (double-click restores the width its
+    /// windows ask for); the panel belongs to the side, not the window, so the width holds as
+    /// windows come and go.
+    fn dock_side(
         &mut self,
         root: &mut egui::Ui,
         ctx: &egui::Context,
@@ -728,11 +734,15 @@ impl HookEchoApp {
         let t = self.ws_tokens();
         let slot = side_slot(side).unwrap_or_default();
         let front = self.dock.front[slot].unwrap_or(stack[0]);
-        let width = stack.iter().map(|w| w.width()).fold(0.0, f32::max);
+        let natural = stack.iter().map(|w| w.width()).fold(0.0, f32::max);
+        let max_w = dock_max_width(ctx.content_rect().width());
+        let width = self.dock.dock_widths[slot]
+            .unwrap_or(natural)
+            .clamp(DOCK_MIN_W.min(max_w), max_w);
         let panel = if side == Place::Right {
-            egui::Panel::right("dock_group_right")
+            egui::Panel::right("dock_side_right")
         } else {
-            egui::Panel::left("dock_group_left")
+            egui::Panel::left("dock_side_left")
         };
         let mut tabs = ws::HeaderTabs {
             tabs: stack.iter().map(|w| w.tab()).collect(),
@@ -745,16 +755,64 @@ impl HookEchoApp {
                 _ => None,
             };
         }
-        panel
+        let grouped = stack.len() > 1;
+        let rect = panel
             .exact_size(width)
             .resizable(false)
             .frame(ws::panel_frame(&t))
             .show(root, |ui| {
                 ws::style_scope(ui, &t);
-                ws::set_header_tabs(ctx, Some(tabs));
-                self.dock_window(front, Host::Tabbed(ui), ctx);
+                if grouped {
+                    ws::set_header_tabs(ctx, Some(tabs));
+                }
+                self.dock_window(front, Host::Docked(ui), ctx);
                 ws::set_header_tabs(ctx, None);
-            });
+            })
+            .response
+            .rect;
+        // The resize grip: a strip along the inner edge, inside the panel, registered after its
+        // contents so it wins over whatever they put there.
+        let edge = if side == Place::Right {
+            rect.left()
+        } else {
+            rect.right()
+        };
+        let grip = egui::Rect::from_x_y_ranges(
+            if side == Place::Right {
+                edge..=edge + 5.0
+            } else {
+                edge - 5.0..=edge
+            },
+            rect.y_range(),
+        );
+        let resp = root
+            .interact(
+                grip,
+                egui::Id::new(("dock_resize", slot)),
+                egui::Sense::click_and_drag(),
+            )
+            .on_hover_cursor(egui::CursorIcon::ResizeHorizontal)
+            .on_hover_text("Drag to resize; double-click for the default width");
+        if resp.dragged() {
+            let dx = resp.drag_delta().x;
+            let grown = if side == Place::Right { -dx } else { dx };
+            self.dock.dock_widths[slot] = Some((width + grown).clamp(DOCK_MIN_W, max_w));
+            ctx.set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+        }
+        if resp.double_clicked() {
+            self.dock.dock_widths[slot] = None;
+        }
+        if resp.hovered() || resp.dragged() {
+            let x = if side == Place::Right {
+                edge + 1.0
+            } else {
+                edge - 1.0
+            };
+            root.painter().line_segment(
+                [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
+                egui::Stroke::new(2.0, t.accent),
+            );
+        }
     }
 
     fn dock_window(&mut self, w: DockWin, host: Host<'_>, ctx: &egui::Context) {
@@ -1090,6 +1148,7 @@ mod tests {
             view3d: WindowChrome::at(false, Place::Float),
             sources: WindowChrome::at(true, Place::Right),
             log: WindowChrome::at(false, Place::Left),
+            dock_widths: [None, Some(360)],
             timeline_open: false,
         };
         s.arrange(&w);
@@ -1218,6 +1277,14 @@ mod tests {
         // Floating windows are never set aside.
         s.inspector = WindowChrome::at(true, Place::Float);
         assert!(s.shown(DockWin::Inspector));
+    }
+
+    #[test]
+    fn a_dock_never_takes_the_map() {
+        assert_eq!(dock_max_width(1920.0), DOCK_MAX_W);
+        assert_eq!(dock_max_width(900.0), 405.0);
+        // Tinier than the minimum: the minimum yields rather than the map.
+        assert!(dock_max_width(400.0) < DOCK_MIN_W);
     }
 
     #[test]

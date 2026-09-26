@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: resize the workstation's side panels
+
+In the Dock and WSV3 layouts, drag the inner edge of either side panel to make it wider or
+narrower; double-click the edge to put it back. The width is remembered with the layout and with
+saved workspaces.
+
 ### Fixed: the workstation on laptop and tablet widths
 
 On windows narrower than about 1120 pixels, the Dock and WSV3 layouts' top bar no longer draws

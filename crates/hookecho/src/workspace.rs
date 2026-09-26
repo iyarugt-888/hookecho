@@ -175,6 +175,10 @@ pub struct WorkstationChrome {
     /// Analyst Mode's live log, shown while Analyst Mode is on. Docks right by default.
     #[serde(default = "log_default")]
     pub log: WindowChrome,
+    /// Each dock's width in whole pixels when the user has dragged it, left then right; `None`
+    /// is the width its windows ask for.
+    #[serde(default)]
+    pub dock_widths: [Option<u16>; 2],
     #[serde(default = "yes")]
     pub timeline_open: bool,
 }
@@ -697,6 +701,7 @@ mod tests {
                     view3d: WindowChrome::at(true, Place::Float),
                     sources: WindowChrome::at(true, Place::Left),
                     log: WindowChrome::at(true, Place::Right),
+                    dock_widths: [Some(320), None],
                     timeline_open: false,
                 }),
             }),
