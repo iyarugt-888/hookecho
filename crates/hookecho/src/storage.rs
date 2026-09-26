@@ -58,14 +58,20 @@ pub fn report() -> Vec<Entry> {
         ("Server snapshots", "snapshots", Some(small)),
     ]
     .into_iter()
-    .map(|(label, sub, cap)| {
-        let path = root.join(sub);
-        Entry {
-            label,
-            bytes: dir_size(&path),
-            path,
-            cap,
-        }
+    .map(|(label, sub, cap)| (label, root.join(sub), cap))
+    // The object cache's spaces (model GRIB, MRMS, GOES), each under its own quota.
+    .chain(wxdata::objcache::SPACES.iter().map(|space| {
+        (
+            space.label,
+            root.join("objects").join(space.slug),
+            Some(crate::object_store::cap(space)),
+        )
+    }))
+    .map(|(label, path, cap)| Entry {
+        label,
+        bytes: dir_size(&path),
+        path,
+        cap,
     })
     // Everything else directly in the root: the alert snapshot, the tornado climatology CSV, and
     // whatever a future feature drops there. One row rather than a name each — they are kilobytes.

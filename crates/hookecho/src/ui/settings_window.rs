@@ -281,17 +281,19 @@ impl SettingsWindow {
     #[cfg(target_arch = "wasm32")]
     fn storage_tab(&mut self, ui: &mut egui::Ui, _settings: &mut Settings) {
         let (auto_bytes, auto_count) = crate::webcache::known_auto_cache();
+        let (obj_bytes, obj_count) = crate::webcache::known_object_cache();
         let packs = crate::webcache::known_packs();
         let pack_bytes: u64 = packs.iter().map(|p| p.bytes as u64).sum();
 
         ui.horizontal(|ui| {
             ui.strong(format!(
                 "{} in IndexedDB",
-                crate::storage::human(auto_bytes + pack_bytes)
+                crate::storage::human(auto_bytes + obj_bytes + pack_bytes)
             ));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button("Refresh").clicked() {
                     crate::webcache::spawn_refresh_auto_cache();
+                    crate::webcache::spawn_refresh_object_cache();
                 }
             });
         });
@@ -302,6 +304,25 @@ impl SettingsWindow {
         // than fighting the label for the same row's width — this window is narrow enough (see
         // the Layers panel's own width fights) that a long label plus a right-aligned readout on
         // one line draws the two on top of each other instead of wrapping.
+        ui.horizontal(|ui| {
+            ui.label("Model, MRMS and satellite data");
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button("Clear").clicked() {
+                    crate::webcache::spawn_clear_object_cache();
+                }
+            });
+        })
+        .response
+        .on_hover_text(
+            "Model GRIB messages, MRMS grids and GOES scans already downloaded — they never change \
+             once published, so a reload reads them from here",
+        );
+        ui.weak(format!(
+            "{} \u{2014} {} object{}",
+            crate::storage::human(obj_bytes),
+            obj_count,
+            if obj_count == 1 { "" } else { "s" }
+        ));
         ui.horizontal(|ui| {
             ui.label("Auto-cache");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

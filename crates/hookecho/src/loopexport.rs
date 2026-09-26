@@ -313,6 +313,9 @@ pub fn encode_still(img: &RgbaImage, format: StillFormat) -> anyhow::Result<Vec<
                 image::ExtendedColorType::Rgb8,
             )?;
         }
+        #[cfg(target_arch = "wasm32")]
+        StillFormat::Webp => anyhow::bail!("WebP is written by the desktop build only"),
+        #[cfg(not(target_arch = "wasm32"))]
         StillFormat::Webp => image::codecs::webp::WebPEncoder::new_lossless(&mut out).write_image(
             img.as_raw(),
             img.width(),

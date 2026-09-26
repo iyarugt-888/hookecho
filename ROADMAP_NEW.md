@@ -362,28 +362,45 @@ Opening radar + GOES + MRMS + HRRR in four panes and scrubbing time keeps all pa
 
 ---
 
-## A3. Data cache abstraction
+## A3. Data cache abstraction — done
 
-Native disk cache exists; browser persistence remains a roadmap concern.
+Native and browser persistence both exist, behind one interface.
 
 Radar archive volumes are done (`crates/hookecho/src/webcache.rs`'s `auto_cached_volume`/
 `spawn_auto_cache_put`, wired through `volume::fetch`'s new `archived` flag): an IndexedDB store
 separate from the explicit offline-pack store, LRU-evicted under its own byte cap, mirroring what
-native's disk cache already did for the same data. MRMS/model/satellite caching is not — those
-change on a cadence rather than never, so "cached" there means "cached for a bounded TTL," not
-"cached forever," and needs its own design. No common native/WASM trait yet; the two caches remain
-parallel implementations of the same idea.
+native's disk cache already did for the same data.
+
+Model, MRMS and satellite data now share one cache on every platform: `wxdata::objcache`, an async
+`ObjectStore` interface (get/put by space and key) with `cached()` doing read-through with
+verification both ways. What goes in it is what never changes once published — a GRIB2 message of
+a run (keyed by URL and byte range), an MRMS file (its key names its minute), a GOES scan (its key
+names its start time) — so "cached" means "kept", with no TTL: the *listings* that find the newest
+file still go to the network every time, which is where freshness lives. The desktop and phone
+register a disk store (`hookecho::object_store`, grown out of the GRIB-only store; its old
+`gribcache/` folder is renamed on first run), the web build an IndexedDB store (`webcache.rs`'s
+`objects`/`objects_meta`, database version 3). Six spaces, each with its own quota: HRRR, GEFS,
+RTMA and other-model GRIB, MRMS, GOES.
 
 ### Implement
 
-- [ ] common cache interface for native and WASM
-- [x] browser IndexedDB or OPFS persistence — radar archive volumes only, see above
+- [x] common cache interface for native and WASM — `wxdata::objcache::ObjectStore`, implemented
+  by the disk store and by IndexedDB; `StoreFuture` is `Send` natively and not on the web
+- [x] browser IndexedDB or OPFS persistence — radar archive volumes (auto-cache) and now every
+  model GRIB message, MRMS grid and GOES scan (object cache)
 - [x] cache namespaces by source/product/run - GRIB messages: `wxdata::gribcache` keys on the full file URL (source, run, cycle, product, lead) plus byte range
-- [x] size quota per source family - GRIB: 256 MB each for HRRR, GEFS, RTMA and other models (64 MB on Android), swept oldest-read-first
-- [x] LRU eviction — radar archive volumes only
-- [x] immutable object cache for archived frames — radar archive volumes only
-- [x] partial/range-response caching where useful for GRIB - every model, RTMA and GEFS read; the disk store is native only, the web build still fetches each time
-- [x] checksum/content-length verification when available - kept only at exactly the requested length with GRIB and 7777 framing, and re-verified on read
+- [x] size quota per source family - 256 MB each for HRRR, GEFS, RTMA, other models and MRMS,
+  512 MB for GOES; the smaller quotas (64 MB, 96 MB for GOES) on Android and in the browser; swept
+  oldest-read-first
+- [x] LRU eviction — radar archive volumes and every object-cache space, on disk and in
+  IndexedDB (each space evicts only its own entries)
+- [x] immutable object cache for archived frames — radar volumes, MRMS grids, GOES scans
+- [x] partial/range-response caching where useful for GRIB - every model, RTMA and GEFS read, on
+  every platform now
+- [x] checksum/content-length verification when available - GRIB kept only at exactly the
+  requested length with GRIB and 7777 framing; MRMS only when the gzip decompresses to its end
+  with its CRC-32 trailer matching; GOES only when the file is exactly the end-of-file address its
+  HDF5 superblock declares. All re-verified on read, so a damaged entry is a refetch
 - [x] storage statistics in existing Storage UI — new this pass, see the Unreleased CHANGELOG
   entry: the Storage tab (cache sizes plus Clear buttons) was native-only outright; it's now
   unconditional, with a web-build view of `webcache.rs`'s IndexedDB stores (auto-cache bytes/count
@@ -394,6 +411,16 @@ parallel implementations of the same idea.
 ### Acceptance criteria
 
 Reloading the web app does not redownload unchanged radar/model/satellite data already cached locally, within configured quotas.
+
+Checked in the browser build (`scripts/web/build.sh`, served with `--serve`): turning on HRRR
+reflectivity fetched the `.idx` and one 382 KB message (206) and stored it in IndexedDB
+(`objects`, key `hrrr/…wrfsfcf01.grib2#0-382562`). A marker byte was flipped inside the stored
+copy, the page reloaded and the layer turned back on: only the `.idx` was requested, the entry's
+`last_used` moved, the marker was still there (so nothing re-downloaded and overwrote it), and the
+forecast drew. MRMS and GOES go through the same `cached()`; natively a live MRMS grid and GOES scan
+were each stored once (an ignored network test in `object_store.rs`). Not verified in the browser
+for MRMS: the web build's MRMS layer made no request at all during the test, cache or no cache —
+a separate issue to look into.
 
 ---
 

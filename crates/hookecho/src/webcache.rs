@@ -65,7 +65,7 @@ const AUTO_CACHE_BYTE_CAP: f64 = 150.0 * 1024.0 * 1024.0;
 /// this and [`entries_over_cap`] decide is worth testing without a browser's IndexedDB, and native
 /// is where `cargo test` actually runs.
 #[cfg(any(target_arch = "wasm32", test))]
-#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 struct AutoCacheMeta {
     /// Unix milliseconds of the last read (or write) — the LRU clock.
     last_used: i64,
@@ -88,6 +88,177 @@ fn entries_over_cap(entries: &[(String, AutoCacheMeta)], cap: f64) -> Vec<String
         evict.push(name.clone());
     }
     evict
+}
+
+/// Objects kept for `wxdata::objcache` (GRIB messages, MRMS grids, GOES scans), keyed
+/// `"{space}/{key}"`; their LRU bookkeeping in [`OBJECTS_META`], the same shape as the
+/// auto-cache's.
+#[cfg(target_arch = "wasm32")]
+const OBJECTS: &str = "objects";
+#[cfg(target_arch = "wasm32")]
+const OBJECTS_META: &str = "objects_meta";
+
+/// The IndexedDB record name for `key` in `space`.
+#[cfg(any(target_arch = "wasm32", test))]
+fn object_key(space: &wxdata::objcache::Space, key: &str) -> String {
+    format!("{}/{key}", space.slug)
+}
+
+/// Which of `entries` (every space's) to delete to bring `space` back under its browser quota,
+/// least recently read first. Other spaces are never touched: each keeps its own quota.
+#[cfg(any(target_arch = "wasm32", test))]
+fn objects_over_cap(
+    entries: &[(String, AutoCacheMeta)],
+    space: &wxdata::objcache::Space,
+) -> Vec<String> {
+    let prefix = format!("{}/", space.slug);
+    let own: Vec<(String, AutoCacheMeta)> = entries
+        .iter()
+        .filter(|(k, _)| k.starts_with(&prefix))
+        .cloned()
+        .collect();
+    entries_over_cap(&own, space.cap_small as f64)
+}
+
+/// `wxdata::objcache`'s store on the web: the same spaces and quotas as the desktop's disk store
+/// (the smaller, phone-sized quotas), in IndexedDB, so a reload re-reads a model run, an MRMS
+/// minute or a GOES scan it already has instead of downloading it again.
+#[cfg(target_arch = "wasm32")]
+struct IdbObjects;
+
+#[cfg(target_arch = "wasm32")]
+impl wxdata::objcache::ObjectStore for IdbObjects {
+    fn get<'a>(
+        &'a self,
+        space: &'a wxdata::objcache::Space,
+        key: &'a str,
+    ) -> wxdata::objcache::StoreFuture<'a, Option<Vec<u8>>> {
+        Box::pin(async move {
+            let name = object_key(space, key);
+            let db = open().await.ok()?;
+            let s = store(&db, OBJECTS, IdbTransactionMode::Readonly).ok()?;
+            let v = await_request(s.get(&name.as_str().into()).ok()?)
+                .await
+                .ok()?;
+            let bytes = v.dyn_into::<js_sys::Uint8Array>().ok()?.to_vec();
+            let _ = put_meta(&db, OBJECTS_META, &name, bytes.len()).await;
+            Some(bytes)
+        })
+    }
+
+    fn put<'a>(
+        &'a self,
+        space: &'a wxdata::objcache::Space,
+        key: &'a str,
+        bytes: Vec<u8>,
+    ) -> wxdata::objcache::StoreFuture<'a, ()> {
+        Box::pin(async move {
+            if let Err(e) = object_put(space, key, &bytes).await {
+                log::debug!("object cache put failed: {e}");
+            }
+        })
+    }
+}
+
+/// Record `name`'s LRU bookkeeping (now, `bytes` long) in the meta store `meta`.
+#[cfg(target_arch = "wasm32")]
+async fn put_meta(db: &IdbDatabase, meta: &str, name: &str, bytes: usize) -> anyhow::Result<()> {
+    let m = AutoCacheMeta {
+        last_used: chrono::Utc::now().timestamp_millis(),
+        bytes: bytes as f64,
+    };
+    let s = store(db, meta, IdbTransactionMode::Readwrite)?;
+    let json = serde_json::to_string(&m)?;
+    let req = s
+        .put_with_key(&json.as_str().into(), &name.into())
+        .map_err(|e| anyhow!("{e:?}"))?;
+    await_request(req).await?;
+    Ok(())
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn object_put(
+    space: &wxdata::objcache::Space,
+    key: &str,
+    bytes: &[u8],
+) -> anyhow::Result<()> {
+    let name = object_key(space, key);
+    let db = open().await?;
+    let s = store(&db, OBJECTS, IdbTransactionMode::Readwrite)?;
+    let req = s
+        .put_with_key(&js_sys::Uint8Array::from(bytes), &name.as_str().into())
+        .map_err(|e| anyhow!("{e:?}"))?;
+    await_request(req).await?;
+    put_meta(&db, OBJECTS_META, &name, bytes.len()).await?;
+    for victim in objects_over_cap(&meta_entries(&db, OBJECTS_META).await, space) {
+        for from in [OBJECTS, OBJECTS_META] {
+            if let Ok(s) = store(&db, from, IdbTransactionMode::Readwrite) {
+                if let Ok(req) = s.delete(&victim.as_str().into()) {
+                    let _ = await_request(req).await;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Register the IndexedDB store with `wxdata::objcache`.
+#[cfg(target_arch = "wasm32")]
+pub fn install_object_store() {
+    wxdata::objcache::set_store(std::sync::Arc::new(IdbObjects));
+}
+
+/// What the Storage tab reads for the object cache: bytes and entry count, filled by a read the
+/// first call kicks off (the same "ask once, fill later" shape as the auto-cache's).
+#[cfg(target_arch = "wasm32")]
+static OBJECT_STATE: std::sync::Mutex<(u64, usize, bool)> = std::sync::Mutex::new((0, 0, false));
+
+#[cfg(target_arch = "wasm32")]
+async fn refresh_objects() {
+    let Ok(db) = open().await else { return };
+    let entries = meta_entries(&db, OBJECTS_META).await;
+    let bytes: u64 = entries.iter().map(|(_, m)| m.bytes as u64).sum();
+    if let Ok(mut s) = OBJECT_STATE.lock() {
+        *s = (bytes, entries.len(), true);
+    }
+}
+
+/// Bytes and entries in the object cache, for the Storage tab; `(0, 0)` until the first read lands.
+#[cfg(target_arch = "wasm32")]
+pub fn known_object_cache() -> (u64, usize) {
+    let asked = {
+        let Ok(mut s) = OBJECT_STATE.lock() else {
+            return (0, 0);
+        };
+        std::mem::replace(&mut s.2, true)
+    };
+    if !asked {
+        wasm_bindgen_futures::spawn_local(refresh_objects());
+    }
+    OBJECT_STATE.lock().map(|s| (s.0, s.1)).unwrap_or((0, 0))
+}
+
+/// Re-measure the object cache (the Storage tab's Refresh).
+#[cfg(target_arch = "wasm32")]
+pub fn spawn_refresh_object_cache() {
+    wasm_bindgen_futures::spawn_local(refresh_objects());
+}
+
+/// Empty the object cache, then re-measure it.
+#[cfg(target_arch = "wasm32")]
+pub fn spawn_clear_object_cache() {
+    wasm_bindgen_futures::spawn_local(async {
+        if let Ok(db) = open().await {
+            for name in [OBJECTS, OBJECTS_META] {
+                if let Ok(s) = store(&db, name, IdbTransactionMode::Readwrite) {
+                    if let Ok(req) = s.clear() {
+                        let _ = await_request(req).await;
+                    }
+                }
+            }
+        }
+        refresh_objects().await;
+    });
 }
 
 /// One saved loop.
@@ -143,7 +314,8 @@ async fn await_request(req: IdbRequest) -> anyhow::Result<JsValue> {
 }
 
 /// Open the database, creating any store this build knows about but this browser's copy does not
-/// yet have. Version 2 added [`AUTO_VOLUMES`]/[`AUTO_VOLUMES_META`] to a database that visitors
+/// yet have. Version 3 added [`OBJECTS`]/[`OBJECTS_META`]; version 2 added
+/// [`AUTO_VOLUMES`]/[`AUTO_VOLUMES_META`] to a database that visitors
 /// from before that change already have at version 1 — `IndexedDB` fires `onupgradeneeded` for
 /// exactly that gap, and each store is only created if missing, so both a fresh visitor and one
 /// upgrading from version 1 land in the same place without a "store already exists" exception.
@@ -153,7 +325,7 @@ async fn open() -> anyhow::Result<IdbDatabase> {
         .and_then(|w| w.indexed_db().ok().flatten())
         .ok_or_else(|| anyhow!("no IndexedDB in this browser"))?;
     let req = factory
-        .open_with_u32(DB_NAME, 2)
+        .open_with_u32(DB_NAME, 3)
         .map_err(|e| anyhow!("{e:?}"))?;
     let upgrade = Closure::<dyn FnMut(web_sys::Event)>::new(move |ev: web_sys::Event| {
         let Some(req) = ev.target().and_then(|t| t.dyn_into::<IdbRequest>().ok()) else {
@@ -163,7 +335,14 @@ async fn open() -> anyhow::Result<IdbDatabase> {
             return;
         };
         let existing = db.object_store_names();
-        for name in [VOLUMES, PACKS, AUTO_VOLUMES, AUTO_VOLUMES_META] {
+        for name in [
+            VOLUMES,
+            PACKS,
+            AUTO_VOLUMES,
+            AUTO_VOLUMES_META,
+            OBJECTS,
+            OBJECTS_META,
+        ] {
             if !existing.contains(name) {
                 let _ = db.create_object_store(name);
             }
@@ -319,7 +498,13 @@ pub async fn remove(key: String) {
 /// Every entry's LRU bookkeeping, for eviction and for the read path's own timestamp bump.
 #[cfg(target_arch = "wasm32")]
 async fn auto_cache_entries(db: &IdbDatabase) -> Vec<(String, AutoCacheMeta)> {
-    let Ok(s) = store(db, AUTO_VOLUMES_META, IdbTransactionMode::Readonly) else {
+    meta_entries(db, AUTO_VOLUMES_META).await
+}
+
+/// Every entry's LRU bookkeeping in the meta store `meta`.
+#[cfg(target_arch = "wasm32")]
+async fn meta_entries(db: &IdbDatabase, meta: &str) -> Vec<(String, AutoCacheMeta)> {
+    let Ok(s) = store(db, meta, IdbTransactionMode::Readonly) else {
         return Vec::new();
     };
     let (Ok(keys_req), Ok(vals_req)) = (s.get_all_keys(), s.get_all()) else {
@@ -609,6 +794,30 @@ mod tests {
                 "middle".to_string(),
                 "newest".to_string()
             ]
+        );
+    }
+
+    /// Each object space keeps its own quota: filling one never evicts another's entries.
+    #[test]
+    fn object_spaces_are_evicted_separately() {
+        use wxdata::objcache::{GOES, MRMS};
+        let cap = MRMS.cap_small as f64;
+        let entries = vec![
+            (object_key(&MRMS, "old"), meta(1, cap * 0.6)),
+            (
+                object_key(&GOES, "older"),
+                meta(0, GOES.cap_small as f64 * 0.5),
+            ),
+            (object_key(&MRMS, "new"), meta(2, cap * 0.6)),
+        ];
+        assert_eq!(object_key(&MRMS, "https://x/y"), "mrms/https://x/y");
+        assert_eq!(
+            objects_over_cap(&entries, &MRMS),
+            vec!["mrms/old".to_string()]
+        );
+        assert!(
+            objects_over_cap(&entries, &GOES).is_empty(),
+            "GOES's own quota holds its one entry"
         );
     }
 

@@ -5,16 +5,14 @@
 //! published, so the message can be kept and handed back without a request. That makes scrubbing
 //! back over lead times, flipping between products and re-opening a run free after the first read.
 //!
-//! The store is pluggable: the desktop and phone apps register a disk store ([`set_store`]); a
-//! build with none (the web build, tests, headless tools) simply fetches every time, as before.
-//! Entries are namespaced by [`Family`] so each source family can have its own size quota.
+//! Storage is [`crate::objcache`]'s, shared with every other immutable download: a disk store on
+//! the desktop and phone, IndexedDB in the browser, none in headless tools and tests. Entries are
+//! namespaced by [`Family`] so each source family has its own size quota.
 //!
 //! Nothing is trusted on the way in or out. A message is only kept when it is the length the range
 //! asked for and reads as a complete GRIB2 message (`GRIB` in front, `7777` behind), and a stored
 //! entry that no longer checks out is ignored and replaced. A run still being written to the
 //! bucket, or a connection cut short, therefore never poisons the cache.
-
-use std::sync::{Arc, OnceLock};
 
 /// Which source a message belongs to; the unit of the cache's namespacing and size quota.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -52,6 +50,17 @@ impl Family {
         }
     }
 
+    /// The cache space this family's messages are kept in.
+    pub fn space(self) -> &'static crate::objcache::Space {
+        use crate::objcache as oc;
+        match self {
+            Family::Hrrr => &oc::GRIB_HRRR,
+            Family::Gefs => &oc::GRIB_GEFS,
+            Family::Rtma => &oc::GRIB_RTMA,
+            Family::Models => &oc::GRIB_MODELS,
+        }
+    }
+
     /// Which family a GRIB file URL belongs to. Checked most specific first: a GEFS path also
     /// contains `gefs`-only names, and HRRR sub-hourly paths contain `hrrr`.
     pub fn of_url(url: &str) -> Family {
@@ -66,27 +75,6 @@ impl Family {
             Family::Models
         }
     }
-}
-
-/// Somewhere to keep messages. Implementations must be cheap and must never panic: a cache that
-/// fails is a cache miss, not an error.
-pub trait RangeStore: Send + Sync {
-    /// The bytes stored under `key`, if any.
-    fn get(&self, family: Family, key: &str) -> Option<Vec<u8>>;
-    /// Keep `bytes` under `key`. Best effort.
-    fn put(&self, family: Family, key: &str, bytes: &[u8]);
-}
-
-static STORE: OnceLock<Arc<dyn RangeStore>> = OnceLock::new();
-
-/// Register the store. One-shot: later calls are ignored, like the other process-wide hooks.
-pub fn set_store(store: Arc<dyn RangeStore>) {
-    let _ = STORE.set(store);
-}
-
-/// The registered store, if any.
-pub fn store() -> Option<&'static Arc<dyn RangeStore>> {
-    STORE.get()
 }
 
 /// The cache key for a range of a URL. The whole URL is in it, and therefore the run date and
@@ -117,13 +105,6 @@ pub fn is_complete(bytes: &[u8], range: (u64, Option<u64>)) -> bool {
     bytes.len() >= 12 && bytes.starts_with(b"GRIB") && bytes.ends_with(b"7777")
 }
 
-/// A stable file name for a key: 128 bits of its SHA-256, hex. Used by disk stores.
-pub fn digest(key: &str) -> String {
-    use sha2::Digest;
-    let sum = sha2::Sha256::digest(key.as_bytes());
-    sum[..16].iter().map(|b| format!("{b:02x}")).collect()
-}
-
 /// Range-GET one GRIB2 message from `url`, from the cache when it is there.
 ///
 /// Only a complete answer is cached ([`is_complete`]); an incomplete one is still returned, so the
@@ -135,31 +116,25 @@ pub async fn fetch_range(
     user_agent: &str,
 ) -> anyhow::Result<Vec<u8>> {
     let family = Family::of_url(url);
-    let key = key(url, range);
-    if let Some(store) = store() {
-        if let Some(hit) = store.get(family, &key) {
-            if is_complete(&hit, range) {
-                return Ok(hit);
-            }
-        }
-    }
-    let bytes = http
-        .get(crate::net::fetch_url(url))
-        .timeout(crate::net::FEED_TIMEOUT)
-        .header("User-Agent", user_agent)
-        .header("Range", range_header(range))
-        .send()
-        .await?
-        .error_for_status()?
-        .bytes()
-        .await?
-        .to_vec();
-    if is_complete(&bytes, range) {
-        if let Some(store) = store() {
-            store.put(family, &key, &bytes);
-        }
-    }
-    Ok(bytes)
+    crate::objcache::cached(
+        family.space(),
+        &key(url, range),
+        |b| is_complete(b, range),
+        async {
+            Ok(http
+                .get(crate::net::fetch_url(url))
+                .timeout(crate::net::FEED_TIMEOUT)
+                .header("User-Agent", user_agent)
+                .header("Range", range_header(range))
+                .send()
+                .await?
+                .error_for_status()?
+                .bytes()
+                .await?
+                .to_vec())
+        },
+    )
+    .await
 }
 
 #[cfg(test)]
@@ -204,8 +179,18 @@ mod tests {
             key("https://x/a", (5, None)),
             key("https://x/a", (5, Some(9)))
         );
-        assert_ne!(digest(&a), digest("other"));
-        assert_eq!(digest(&a).len(), 32);
+        assert_ne!(
+            crate::objcache::digest(&a),
+            crate::objcache::digest("other")
+        );
+        assert_eq!(crate::objcache::digest(&a).len(), 32);
+    }
+
+    #[test]
+    fn each_family_has_its_own_space() {
+        let mut slugs: Vec<_> = Family::ALL.iter().map(|f| f.space().slug).collect();
+        slugs.dedup();
+        assert_eq!(slugs, ["hrrr", "gefs", "rtma", "models"]);
     }
 
     #[test]

@@ -56,6 +56,7 @@ pub mod ndfd;
 pub mod net;
 pub mod netcdf;
 pub mod nohrsc;
+pub mod objcache;
 pub mod obs;
 pub mod odim;
 pub mod openmeteo;

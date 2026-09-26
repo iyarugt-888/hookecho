@@ -485,13 +485,24 @@ async fn fetch_key_stamped(
     key: &str,
 ) -> anyhow::Result<crate::field::Stamped<MrmsField>> {
     let url = format!("{BUCKET}/{key}");
-    let gz = http
-        .get(&url)
-        .send()
-        .await?
-        .error_for_status()?
-        .bytes()
-        .await?;
+    // A key names one minute's file for good, so it is kept (`objcache`) and a re-read — scrubbing
+    // back, a reload — costs nothing.
+    let gz = crate::objcache::cached(
+        &crate::objcache::MRMS,
+        &url,
+        crate::objcache::is_whole_gzip,
+        async {
+            Ok(http
+                .get(&url)
+                .send()
+                .await?
+                .error_for_status()?
+                .bytes()
+                .await?
+                .to_vec())
+        },
+    )
+    .await?;
     let received_time = chrono::Utc::now();
     let raw = gunzip(&gz)?;
     // gribberish can panic on some MRMS product packings (a slice off-by-one on rotation-track /

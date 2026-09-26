@@ -328,16 +328,26 @@ async fn fetch_key(
     out_ny: usize,
 ) -> anyhow::Result<MrmsField> {
     let url = format!("{}/{key}", satellite.bucket());
-    let bytes = client
-        .get(crate::net::fetch_url(&url))
-        .timeout(crate::net::FEED_TIMEOUT)
-        .send()
-        .await?
-        .error_for_status()?
-        .bytes()
-        .await?
-        .to_vec();
-    crate::stats::net(bytes.len());
+    // A scan's key carries its start time, so the file never changes: keep it (`objcache`).
+    let bytes = crate::objcache::cached(
+        &crate::objcache::GOES,
+        &url,
+        crate::objcache::is_whole_hdf5,
+        async {
+            let bytes = client
+                .get(crate::net::fetch_url(&url))
+                .timeout(crate::net::FEED_TIMEOUT)
+                .send()
+                .await?
+                .error_for_status()?
+                .bytes()
+                .await?
+                .to_vec();
+            crate::stats::net(bytes.len());
+            Ok(bytes)
+        },
+    )
+    .await?;
     decode(bytes, out_nx, out_ny)
 }
 

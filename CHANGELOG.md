@@ -73,6 +73,17 @@ The WSV3/Dock app bar now shows how far the newest radar frame is behind the cur
 updates the figure every second. Archive viewing is labeled separately. The hover detail still
 reports the lag measured when the last live frame arrived.
 
+### Changed: model, MRMS and satellite data are kept once downloaded, on the web too
+
+A model run's GRIB messages, an MRMS minute and a GOES scan never change once they're published.
+They're now kept after the first download and read back from then on, including after a reload
+in the browser, which used to download them all again. The desktop and phone keep them on disk
+(the GRIB cache folder moves to `objects/` and is renamed rather than refetched), and the browser
+keeps them in IndexedDB. Each source has its own size limit, and the least recently used entries
+go first. Every file is checked before it's kept and again when it's read: GRIB framing and
+length, the gzip checksum for MRMS, the declared file length for GOES. A damaged copy is simply
+downloaded again. The Storage tab shows each cache, on the web as well.
+
 ### Added: broadcast dressing for streams and rendered frames
 
 Streaming mode (F8) can now dress the map for air: a clock in the radar's own time zone, a
