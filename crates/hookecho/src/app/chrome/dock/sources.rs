@@ -44,6 +44,15 @@ fn data_age(
 }
 
 impl HookEchoApp {
+    /// How many active feeds need a look: the Sources window's title count and its tab's dot.
+    pub(super) fn sources_attention(&mut self) -> usize {
+        let entries = self.palette_entries();
+        crate::ui::source_health_window::active_health_rows(&entries)
+            .iter()
+            .filter(|h| needs_attention(h.state()))
+            .count()
+    }
+
     pub(super) fn dock_sources(&mut self, host: Host<'_>) {
         if !self.dock.sources.open {
             return;

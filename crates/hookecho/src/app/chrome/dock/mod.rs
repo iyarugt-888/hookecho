@@ -160,7 +160,11 @@ impl DockWin {
             DockWin::Sources => (ph::PULSE, "Sources"),
             DockWin::Log => (ph::TERMINAL_WINDOW, "Analyst log"),
         };
-        ws::HeaderTab { glyph, title }
+        ws::HeaderTab {
+            glyph,
+            title,
+            dot: None,
+        }
     }
 
     fn width(self) -> f32 {
@@ -730,10 +734,17 @@ impl HookEchoApp {
         } else {
             egui::Panel::left("dock_group_left")
         };
-        let tabs = ws::HeaderTabs {
+        let mut tabs = ws::HeaderTabs {
             tabs: stack.iter().map(|w| w.tab()).collect(),
             front: stack.iter().position(|w| *w == front).unwrap_or(0),
         };
+        for (w, tab) in stack.iter().zip(&mut tabs.tabs) {
+            tab.dot = match w {
+                DockWin::Alerts if self.alert_badge().0 > 0 => Some(t.warn),
+                DockWin::Sources if self.sources_attention() > 0 => Some(t.danger),
+                _ => None,
+            };
+        }
         panel
             .exact_size(width)
             .resizable(false)

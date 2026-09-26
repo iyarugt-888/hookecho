@@ -856,3 +856,7 @@ a scale bar on the map; a network round-trip measurement for the app bar; a natu
   layouts, and both draw `analyst_log_window::body`. Closing it switches Analyst Mode off, as the
   floating window's close does, so the setting and the window agree. Checked by screenshot with a
   live-sweep line in it.
+- A tab behind another in a dock can still ask for a look: Alerts shows an amber dot while alerts
+  are in view and Sources a red one while a feed needs attention (the front tab's own title
+  carries the count). The dot is also said in words — "Alerts, needs a look" — in the tab's
+  hover and accessible name, so it is not colour alone. Checked by screenshot, zoomed.

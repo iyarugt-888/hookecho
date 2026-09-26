@@ -173,11 +173,13 @@ pub enum HeaderAction {
     Tab(usize),
 }
 
-/// One tab of a dock's tab group: the window's glyph and plain title.
+/// One tab of a dock's tab group: the window's glyph and plain title, and a status dot for a
+/// window that wants a look while it is behind another tab (alerts in view, a failing feed).
 #[derive(Clone, Debug, PartialEq)]
 pub struct HeaderTab {
     pub glyph: &'static str,
     pub title: &'static str,
+    pub dot: Option<Color32>,
 }
 
 /// The windows sharing one dock, as Dear ImGui's docking draws them: the front window's header
@@ -308,11 +310,27 @@ pub fn window_header(
                     ink,
                 );
             }
+            // The front tab's own header already says it (a count in its title); a tab behind it
+            // has only this dot to say it wants a look.
+            if let (Some(c), false) = (tab.dot, front) {
+                let at = if compact {
+                    r.center() + egui::vec2(7.0, -6.0)
+                } else {
+                    r.left_center() + egui::vec2(25.0, -6.0)
+                };
+                p.circle(at, 3.5, c, Stroke::new(1.5, t.panel_hi));
+            }
+            // The dot's meaning in words, for the hover and a screen reader.
+            let said = if tab.dot.is_some() && !front {
+                format!("{name}, needs a look")
+            } else {
+                name.to_string()
+            };
             resp.widget_info(|| {
-                egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, front, name)
+                egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, front, &said)
             });
-            let resp = if compact {
-                resp.on_hover_text(name)
+            let resp = if compact || tab.dot.is_some() {
+                resp.on_hover_text(&said)
             } else {
                 resp
             };
@@ -854,10 +872,12 @@ mod tests {
                         HeaderTab {
                             glyph: egui_phosphor::regular::INFO,
                             title: "Inspector",
+                            dot: None,
                         },
                         HeaderTab {
                             glyph: egui_phosphor::regular::WARNING,
                             title: "Alerts",
+                            dot: None,
                         },
                     ],
                     front: 1,
