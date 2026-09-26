@@ -802,17 +802,19 @@ a scale bar on the map; a network round-trip measurement for the app bar; a natu
   rows stay distinct when the Layers panel truncates them.
 - The Inspector's 3D block (§4) now says what the volume is, not only where the camera is: the
   mode (observed sweeps, smooth reflectivity, debris, smooth spectrum width); for observed sweeps
-  how many real tilts are drawn and their elevation range, the wall-clock span they were
-  collected over (a volume's tilts share a label, not an instant), and the beam-rise percentage;
+  how many real tilts are drawn and their elevation range, when the scan started and how long
+  it took (a volume's tilts share a label, not an instant), and the beam-rise percentage;
   for a smooth volume its quality preset, named from the same `view::QUALITY_PRESETS` the 3D
-  controls offer; and the vertical exaggeration when it is above 1×. Checked by unit test; the
-  screenshot pass for it is still to do.
+  controls offer; and the vertical exaggeration when it is above 1×. Checked by screenshot of the
+  Moore scene in 3D (17 tilts, 0.5–19.4°, a 4-minute scan); a single "start–end" row did not fit
+  the card, so start and span are two rows.
 - Tab groups (§2.3): windows docked on the same side share one panel instead of each taking its
   own strip of the map, as Dear ImGui's docking does. The front window's header becomes a strip of
   every window's tab (glyph and title; when the titles do not fit, the others shrink to their
   glyph with the title on hover), with that window's move and close buttons at its end. A window
   that opens or is docked comes to the front of its side; closing or floating the front one hands
-  the dock to the next. The app bar and rail buttons reflect what is visible: a window behind
+  the dock to the next; several arriving at once (a restored arrangement) open on the first in
+  tab order. The app bar and rail buttons reflect what is visible: a window behind
   another tab reads as off, and its button brings it forward rather than closing it. The panel
   is as wide as its widest member. Checked by screenshot: Inspector and Alerts docked right
   together, switching by tab and by the app-bar button, and the arrangement surviving a restart.

@@ -378,16 +378,10 @@ fn volume_3d_rows(
                     sum.tilts, sum.lowest_deg, sum.highest_deg
                 ),
             ));
+            // Two rows, not one "start–end": two clock times do not fit the card's value column.
             if let Some((a, b)) = sum.span {
-                rows.push((
-                    "Collected",
-                    format!(
-                        "{}\u{2013}{} ({})",
-                        crate::timefmt::fmt_clock(a, tz, true),
-                        crate::timefmt::fmt_clock(b, tz, true),
-                        humanize((b - a).num_seconds().max(0))
-                    ),
-                ));
+                rows.push(("Scan start", crate::timefmt::fmt_clock(a, tz, true)));
+                rows.push(("Scan span", humanize((b - a).num_seconds().max(0))));
             }
         }
         rows.push(("Beam rise", format!("{:.0}%", m.beam_rise * 100.0)));

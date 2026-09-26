@@ -308,13 +308,21 @@ impl DockState {
     /// Keep each dock's front tab sensible: a window that has just opened, or just been docked,
     /// comes to the front of its side (opening Alerts from the app bar must show Alerts, not
     /// leave it behind the Inspector); a front window that has left falls back to the first.
+    ///
+    /// When several arrive on one side at once (a restored arrangement, a workspace), the first
+    /// in tab order takes the front, so a dock reopens on its Inspector rather than whichever
+    /// window happens to be listed last.
     pub(crate) fn update_fronts(&mut self) {
+        let mut claimed = [false; 2];
         for (i, w) in DockWin::ALL.into_iter().enumerate() {
             let c = *self.chrome(w);
             let now = (c.open, c.place);
             if now != self.seen[i] && c.open {
                 if let Some(slot) = side_slot(c.place) {
-                    self.front[slot] = Some(w);
+                    if !claimed[slot] {
+                        self.front[slot] = Some(w);
+                        claimed[slot] = true;
+                    }
                 }
             }
             self.seen[i] = now;
@@ -992,6 +1000,12 @@ mod tests {
         s.apply_header(DockWin::Inspector, ws::HeaderAction::Close);
         s.update_fronts();
         assert_eq!(s.front[1], Some(DockWin::Alerts));
+        // Windows arriving together (a restored arrangement) open on the first in tab order.
+        let mut restored = DockState::default();
+        restored.inspector = WindowChrome::at(true, Place::Right);
+        restored.alerts = WindowChrome::at(true, Place::Right);
+        restored.update_fronts();
+        assert_eq!(restored.front[1], Some(DockWin::Inspector));
         // A button for a window behind another tab brings it forward rather than closing it.
         s.inspector.open = true;
         s.update_fronts();
