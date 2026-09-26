@@ -3686,7 +3686,11 @@ Create network tests that run on schedule, not every PR, for public feeds:
   `wxdata::model::tests::the_catalogue_matches_what_the_feeds_publish`
 - [ ] RRFS/REFS feed — not a data source this app has yet (F2's own not-started item); nothing to
   contract-test
-- [ ] RTMA/URMA feed — likewise not built yet (G1)
+- [x] RTMA/URMA feed — `wxdata::rtma::tests::rtma_fields_decode_for_the_newest_hour`: every
+  field (including the derived sea-level pressure and the separate precipitation file) decodes
+  with physical bounds for the newest hour, a named hour comes back as that hour, an ancient one
+  is an error, a 3 h hour is RTMA and a 9 h hour is URMA. Ignored as "network", so the scheduled
+  contract workflow already runs it.
 
 **What was actually missing, and what shipped this pass:** every test above already existed as
 an `#[ignore = "network"]` unit test — the literal gap was that `cargo test --workspace` (CI's own
