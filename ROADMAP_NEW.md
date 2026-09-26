@@ -2577,7 +2577,7 @@ Adding a new model with an already-supported GRIB/projection format should prima
 
 **Priority: P1.**
 
-## G1. RTMA/URMA — partly done
+## G1. RTMA/URMA — done
 
 Add U.S. Real-Time Mesoscale Analysis / UnRestricted Mesoscale Analysis fields where publicly available:
 
@@ -2600,7 +2600,10 @@ analysis, and the model picker offers it as an "Analysis" model with no lead.
 - [x] cloud ceiling (not in the original list, but the other half of flight category and in the
   same file) — `RtmaField::Ceiling`, feet above ground on the same category colours, drawn only
   below 3000 ft
-- [ ] precip analysis fields as appropriate — a separate `pcp` product in the same bucket
+- [x] precip analysis fields as appropriate — `RtmaField::Precip1h`, "Rain in the last hour (RTMA
+  analysis)": the separate `pcp.184` product (one APCP 0–1 h message, stamped with the hour its
+  accumulation starts, so the field is re-stamped to the hour it ends), on MRMS's 1-hour QPE scale
+  for a like-for-like comparison. RTMA only: the URMA publishes no hourly precip in this layout.
 
 - [x] Expose analysis age — the stamp names the analysis hour and the fetch age; the Hour menu lists a day of hourly analyses
 - [x] Distinguish RTMA real-time analysis from URMA retrospective analysis — an hour old enough

@@ -271,7 +271,8 @@ pub(crate) fn field_endpoint_family(layer: FieldLayer) -> EndpointFamily {
         | FL::RtmaGust10m
         | FL::RtmaVisibility
         | FL::RtmaCeiling
-        | FL::RtmaMslp => EndpointFamily::NoaaNcepModels,
+        | FL::RtmaMslp
+        | FL::RtmaPrecip1h => EndpointFamily::NoaaNcepModels,
         FL::SnowAnalysis => EndpointFamily::NoaaOperationalFiles,
         FL::NdfdTemp2m | FL::NdfdWind10m | FL::NdfdGust10m | FL::NdfdSnow => {
             EndpointFamily::NoaaNcepModels

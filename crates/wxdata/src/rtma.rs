@@ -40,10 +40,13 @@ pub enum RtmaField {
     /// mostly maps the terrain, so it is reduced to sea level with the analysis's own terrain
     /// height and 2 m temperature ([`reduce_to_sea_level`]).
     Mslp,
+    /// Precipitation over the hour ending at the analysis hour, mm — the RTMA's separate
+    /// precipitation analysis (`pcp.184`), not a field of the main file.
+    Precip1h,
 }
 
 impl RtmaField {
-    pub const ALL: [RtmaField; 7] = [
+    pub const ALL: [RtmaField; 8] = [
         RtmaField::Temp2m,
         RtmaField::Dewpoint2m,
         RtmaField::Wind10m,
@@ -51,6 +54,7 @@ impl RtmaField {
         RtmaField::Visibility,
         RtmaField::Ceiling,
         RtmaField::Mslp,
+        RtmaField::Precip1h,
     ];
 
     pub fn label(self) -> &'static str {
@@ -62,6 +66,7 @@ impl RtmaField {
             RtmaField::Visibility => "surface visibility",
             RtmaField::Ceiling => "cloud ceiling",
             RtmaField::Mslp => "sea-level pressure",
+            RtmaField::Precip1h => "1-hour precipitation",
         }
     }
 
@@ -74,6 +79,7 @@ impl RtmaField {
             RtmaField::Visibility => "vis",
             RtmaField::Ceiling => "ceil",
             RtmaField::Mslp => "mslp",
+            RtmaField::Precip1h => "pcp1h",
         }
     }
 
@@ -92,6 +98,7 @@ impl RtmaField {
             RtmaField::Visibility => ("VIS", "surface"),
             RtmaField::Ceiling => ("CEIL", "cloud ceiling"),
             RtmaField::Mslp => ("PRES", "surface"),
+            RtmaField::Precip1h => ("APCP", "0 m above mean sea level"),
         }
     }
 
@@ -165,6 +172,21 @@ pub fn run_choices(now: DateTime<Utc>, count: usize) -> Vec<DateTime<Utc>> {
         .collect()
 }
 
+/// The hourly precipitation analysis for the hour ending at `hour`: its own file beside the main
+/// one, named by the full hour rather than by `tHHz`.
+fn precip_url(hour: DateTime<Utc>) -> String {
+    format!(
+        "{BUCKET}/rtma2p5.{:04}{:02}{:02}/rtma2p5.{:04}{:02}{:02}{:02}.pcp.184.grb2",
+        hour.year(),
+        hour.month(),
+        hour.day(),
+        hour.year(),
+        hour.month(),
+        hour.day(),
+        hour.hour()
+    )
+}
+
 fn base_url(kind: AnalysisKind, hour: DateTime<Utc>) -> String {
     let (bucket, stem) = match kind {
         AnalysisKind::Rtma => (BUCKET, "rtma2p5"),
@@ -194,7 +216,12 @@ pub async fn fetch(
     let mut last_err = None;
     let now = Utc::now();
     for hour in candidates {
-        for kind in kinds_for(hour, now) {
+        let kinds = if field == RtmaField::Precip1h {
+            vec![AnalysisKind::Rtma]
+        } else {
+            kinds_for(hour, now)
+        };
+        for kind in kinds {
             // Twice each: a dropped connection on a reused socket is common and says nothing
             // about whether the hour is posted, and walking back would quietly serve a staler
             // analysis for what was only a blip.
@@ -215,7 +242,11 @@ async fn fetch_hour(
     field: RtmaField,
     hour: DateTime<Utc>,
 ) -> anyhow::Result<MrmsField> {
-    let base = base_url(kind, hour);
+    let base = if field == RtmaField::Precip1h {
+        precip_url(hour)
+    } else {
+        base_url(kind, hour)
+    };
     let idx = http
         .get(crate::net::fetch_url(&format!("{base}.idx")))
         .timeout(crate::net::FEED_TIMEOUT)
@@ -246,6 +277,11 @@ async fn fetch_hour(
     let mut grid =
         crate::hrrr::regrid(&n.lats, &n.lons, &data, n.time, RES_DEG, f64::NEG_INFINITY)?;
     fill_scatter_holes(&mut grid, 2);
+    // The precipitation message is stamped with the hour its accumulation *starts*; the analysis
+    // it belongs to is the hour it ends.
+    if field == RtmaField::Precip1h && grid.time + chrono::Duration::hours(1) == hour {
+        grid.time = hour;
+    }
     anyhow::ensure!(
         grid.time == hour,
         "the RTMA message is valid {}, not the requested {hour}",
@@ -448,6 +484,15 @@ mod tests {
     }
 
     #[test]
+    fn the_precipitation_analysis_has_its_own_file() {
+        let hour = Utc.with_ymd_and_hms(2026, 9, 26, 18, 0, 0).unwrap();
+        assert_eq!(
+            precip_url(hour),
+            "https://noaa-rtma-pds.s3.amazonaws.com/rtma2p5.20260926/rtma2p5.2026092618.pcp.184.grb2"
+        );
+    }
+
+    #[test]
     fn an_hour_old_enough_prefers_the_reanalysis() {
         let now = Utc.with_ymd_and_hms(2026, 9, 26, 20, 10, 0).unwrap();
         let recent = Utc.with_ymd_and_hms(2026, 9, 26, 19, 0, 0).unwrap();
@@ -527,6 +572,10 @@ mod tests {
                 // Pa: every CONUS sea-level pressure falls well inside 870..1085 hPa.
                 RtmaField::Mslp => {
                     assert!(lo > 87_000.0 && hi < 108_500.0, "mslp: {lo}..{hi} Pa")
+                }
+                // mm in one hour: never negative, and nothing in CONUS reaches half a metre.
+                RtmaField::Precip1h => {
+                    assert!(lo >= 0.0 && hi < 500.0, "pcp: {lo}..{hi} mm")
                 }
                 RtmaField::Visibility | RtmaField::Ceiling => {
                     assert!(lo >= 0.0 && hi > 1000.0, "{}: {lo}..{hi} m", field.label())

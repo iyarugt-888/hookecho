@@ -57,6 +57,7 @@ pub(crate) fn keywords(e: &PaletteEntry) -> String {
                 | P::AnalysisWind10m
                 | P::AnalysisGust10m => "rtma urma analysis observed model",
                 P::AnalysisMslp => "rtma urma analysis observed model mslp isobars highs lows",
+                P::AnalysisPrecip1h => "rtma analysis observed model precipitation qpe gauge",
                 P::AnalysisVisibility | P::AnalysisCeiling => {
                     "rtma urma analysis observed aviation flight category ifr lifr mvfr fog"
                 }

@@ -1104,6 +1104,8 @@ pub fn ramp_for(layer: FieldLayer) -> Option<&'static FieldRamp> {
         FL::RtmaVisibility => &RTMA_VISIBILITY,
         FL::RtmaCeiling => &RTMA_CEILING,
         FL::RtmaMslp => &GLOBAL_MSLP,
+        // Millimetres over an hour, the same quantity as MRMS's 1-hour QPE.
+        FL::RtmaPrecip1h => &QPE_1H,
         FL::NdfdWind10m | FL::NdfdGust10m => &GLOBAL_WIND_10M,
         FL::NdfdSnow => &SNOWFALL,
         // Composite is reflectivity in dBZ, so like the mosaic it follows the user's own

@@ -1457,6 +1457,7 @@ impl OverlaySource {
                     FL::RtmaVisibility => wxdata::rtma::RtmaField::Visibility,
                     FL::RtmaCeiling => wxdata::rtma::RtmaField::Ceiling,
                     FL::RtmaMslp => wxdata::rtma::RtmaField::Mslp,
+                    FL::RtmaPrecip1h => wxdata::rtma::RtmaField::Precip1h,
                     _ => anyhow::bail!("{layer:?} is not an RTMA field"),
                 };
                 let analysis = wxdata::rtma::fetch(http, field, hour).await?;
@@ -2597,7 +2598,8 @@ fn field_refresh_secs(layer: crate::render::FieldLayer) -> u64 {
         | FL::RtmaGust10m
         | FL::RtmaVisibility
         | FL::RtmaCeiling
-        | FL::RtmaMslp => 600,
+        | FL::RtmaMslp
+        | FL::RtmaPrecip1h => 600,
         // An accumulation moves slower than the grid it accumulates, whatever the window.
         FL::HailSwath => 300,
         // Environment (HRRR CAPE/SRH) refreshes slowly — 15 min.
@@ -8743,7 +8745,8 @@ impl HookEchoApp {
             | FL::RtmaGust10m
             | FL::RtmaVisibility
             | FL::RtmaCeiling
-            | FL::RtmaMslp => "RTMA analysis".into(),
+            | FL::RtmaMslp
+            | FL::RtmaPrecip1h => "RTMA analysis".into(),
             _ => layer.descriptor().map_or_else(
                 || "Gridded field".into(),
                 |descriptor| descriptor.source.display_name().into(),
@@ -22671,6 +22674,7 @@ impl eframe::App for HookEchoApp {
             FL::RtmaVisibility,
             FL::RtmaCeiling,
             FL::RtmaMslp,
+            FL::RtmaPrecip1h,
         ] {
             let hour = if self.model_sel.model == crate::model_browser::BModel::Rtma {
                 self.model_run

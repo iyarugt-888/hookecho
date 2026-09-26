@@ -44,6 +44,7 @@ fn field_layer_is_health_tracked(layer: crate::render::FieldLayer) -> bool {
                 | FL::RtmaVisibility
                 | FL::RtmaCeiling
                 | FL::RtmaMslp
+                | FL::RtmaPrecip1h
         )
 }
 

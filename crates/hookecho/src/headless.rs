@@ -2553,6 +2553,7 @@ pub fn run_rtma(field_slug: &str, out_path: &str) -> anyhow::Result<()> {
         RtmaField::Visibility => FL::RtmaVisibility,
         RtmaField::Ceiling => FL::RtmaCeiling,
         RtmaField::Mslp => FL::RtmaMslp,
+        RtmaField::Precip1h => FL::RtmaPrecip1h,
     };
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()

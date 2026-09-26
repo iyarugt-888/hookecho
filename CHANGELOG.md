@@ -8,6 +8,11 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: analyzed rain in the last hour
+
+The RTMA analysis's hourly precipitation, from gauges and radar, is now a layer ("Rain in the last
+hour"), on the same color scale as the MRMS 1-hour rain total so the two compare directly.
+
 ### Added: older analysis hours use the URMA re-analysis
 
 Picking an analysis hour more than about seven hours old now loads NOAA's URMA, the re-analysis of

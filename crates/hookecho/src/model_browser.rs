@@ -57,6 +57,8 @@ pub enum Product {
     AnalysisCeiling,
     /// Sea-level pressure, reduced from the analysis's surface pressure.
     AnalysisMslp,
+    /// The hour's analyzed precipitation.
+    AnalysisPrecip1h,
 }
 
 /// How models group in a picker.
@@ -234,6 +236,7 @@ impl BModel {
                 AnalysisWind10m,
                 AnalysisGust10m,
                 AnalysisMslp,
+                AnalysisPrecip1h,
                 AnalysisVisibility,
                 AnalysisCeiling,
             ],
@@ -401,7 +404,7 @@ impl BModel {
 }
 
 impl Product {
-    pub const ALL: [Product; 20] = [
+    pub const ALL: [Product; 21] = [
         Product::Reflectivity,
         Product::Cape,
         Product::Srh,
@@ -422,6 +425,7 @@ impl Product {
         Product::AnalysisVisibility,
         Product::AnalysisCeiling,
         Product::AnalysisMslp,
+        Product::AnalysisPrecip1h,
     ];
 
     pub fn label(self) -> &'static str {
@@ -447,6 +451,7 @@ impl Product {
             Product::AnalysisVisibility => "Visibility",
             Product::AnalysisCeiling => "Ceiling",
             Product::AnalysisMslp => "Pressure",
+            Product::AnalysisPrecip1h => "Rain (1 h)",
         }
     }
 
@@ -474,6 +479,7 @@ impl Product {
             Product::AnalysisVisibility => "Visibility (RTMA analysis)",
             Product::AnalysisCeiling => "Cloud ceiling (RTMA analysis)",
             Product::AnalysisMslp => "Sea-level pressure (RTMA analysis)",
+            Product::AnalysisPrecip1h => "Rain in the last hour (RTMA analysis)",
         }
     }
 
@@ -516,6 +522,9 @@ impl Product {
             Product::AnalysisMslp => {
                 "Analyzed pressure reduced to sea level: highs, lows, fronts and troughs right now"
             }
+            Product::AnalysisPrecip1h => {
+                "Analyzed precipitation over the hour ending at the analysis hour, from gauges and radar"
+            }
         }
     }
 
@@ -542,6 +551,7 @@ impl Product {
             Product::AnalysisVisibility => FieldLayer::RtmaVisibility,
             Product::AnalysisCeiling => FieldLayer::RtmaCeiling,
             Product::AnalysisMslp => FieldLayer::RtmaMslp,
+            Product::AnalysisPrecip1h => FieldLayer::RtmaPrecip1h,
         }
     }
 
@@ -706,6 +716,7 @@ fn product_slug(p: Product) -> &'static str {
         Product::AnalysisVisibility => "rtma-visibility",
         Product::AnalysisCeiling => "rtma-ceiling",
         Product::AnalysisMslp => "rtma-mslp",
+        Product::AnalysisPrecip1h => "rtma-pcp1h",
     }
 }
 
@@ -1007,6 +1018,7 @@ mod tests {
                     | FL::RtmaVisibility
                     | FL::RtmaCeiling
                     | FL::RtmaMslp
+                    | FL::RtmaPrecip1h
             ));
             for m in BModel::ALL.into_iter().filter(|m| *m != rtma) {
                 assert!(!m.has(*p), "{m:?} offers the analysis product {p:?}");
