@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: analyzed visibility and cloud ceiling
+
+The RTMA analysis now offers **Visibility** and **Cloud ceiling** layers (search for either, or
+pick them under the Analysis model). Both are colored by flight category — magenta for LIFR, red
+for IFR, blue for MVFR — and leave the map clear where conditions are VFR, so fog, low cloud and
+heavy precipitation stand out.
+
 ### Added: link or unlink every pane at once
 
 The workstation toolbar's **Panes** menu now lists each pane link (maps, times, radar site,

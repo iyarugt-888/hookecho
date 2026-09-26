@@ -47,6 +47,9 @@ pub struct FieldRamp {
     /// converts to [`crate::settings::TempUnit`] for display; the GPU LUT stays in Kelvin
     /// (`index()` never sees this flag, so the color mapping is untouched).
     pub is_temp_kelvin: bool,
+    /// Past this display value nothing is drawn: for fields where the *low* end is the
+    /// interesting one (visibility, ceiling), so good conditions leave the map clear.
+    pub clear_above: Option<f32>,
 }
 
 impl FieldRamp {
@@ -78,6 +81,9 @@ impl FieldRamp {
     /// Raw grid value → LUT index. Index 0 is "nothing here" (fully transparent).
     pub fn index(&self, v: f32) -> u8 {
         let v = self.display(v);
+        if self.clear_above.is_some_and(|c| v > c) {
+            return 0;
+        }
         match &self.scale {
             FieldScale::Categorical(_) => v as u8,
             FieldScale::Ramp {
@@ -108,6 +114,7 @@ macro_rules! ramp {
             alpha: $alpha,
             input_scale: 1.0,
             is_temp_kelvin: false,
+            clear_above: None,
             scale: FieldScale::Ramp {
                 lo: $lo,
                 hi: $hi,
@@ -454,6 +461,7 @@ static GLOBAL_DEWPOINT_2M: FieldRamp = FieldRamp {
     // near the middle where severe forecasters look.
     input_scale: 1.0,
     is_temp_kelvin: true,
+    clear_above: None,
     ..ramp!(
         "2 m dewpoint",
         "K",
@@ -478,6 +486,7 @@ static GLOBAL_DEWPOINT_2M: FieldRamp = FieldRamp {
 static GOES_IR: FieldRamp = FieldRamp {
     input_scale: 1.0,
     is_temp_kelvin: true,
+    clear_above: None,
     ..ramp!(
         "IR brightness temp",
         "K",
@@ -504,6 +513,7 @@ static GOES_IR: FieldRamp = FieldRamp {
 static GOES_VISIBLE: FieldRamp = FieldRamp {
     input_scale: 100.0,
     is_temp_kelvin: false,
+    clear_above: None,
     ..ramp!(
         "Visible reflectance",
         "%",
@@ -531,6 +541,7 @@ static GOES_VISIBLE: FieldRamp = FieldRamp {
 static GOES_WATER_VAPOR: FieldRamp = FieldRamp {
     input_scale: 1.0,
     is_temp_kelvin: true,
+    clear_above: None,
     ..ramp!(
         "Water vapor brightness temp",
         "K",
@@ -556,6 +567,7 @@ static GOES_WATER_VAPOR: FieldRamp = FieldRamp {
 static GOES_SHORTWAVE_IR: FieldRamp = FieldRamp {
     input_scale: 1.0,
     is_temp_kelvin: true,
+    clear_above: None,
     ..ramp!(
         "Shortwave IR brightness temp",
         "K",
@@ -590,7 +602,8 @@ static GOES_SHORTWAVE_IR: FieldRamp = FieldRamp {
 /// range" are the same condition.
 static GOES_DUST_DIFF: FieldRamp = FieldRamp {
     input_scale: 1.0,
-    is_temp_kelvin: false, // a temperature *difference*, not an absolute reading — no C/F conversion
+    is_temp_kelvin: false,
+    clear_above: None, // a temperature *difference*, not an absolute reading — no C/F conversion
     ..ramp!(
         "Dust/ash signal (Band 13 \u{2212} Band 15)",
         "K",
@@ -622,7 +635,8 @@ pub(crate) const COLD_TOP_THRESHOLD_K: f32 = 210.0;
 /// see rather than clipping realistic values early.
 static GOES_COLD_TOP: FieldRamp = FieldRamp {
     input_scale: 1.0,
-    is_temp_kelvin: false, // an offset-from-threshold value, not an absolute reading
+    is_temp_kelvin: false,
+    clear_above: None, // an offset-from-threshold value, not an absolute reading
     ..ramp!(
         "Cold cloud top (below 210 K)",
         "K colder than 210 K",
@@ -650,7 +664,8 @@ static GOES_COLD_TOP: FieldRamp = FieldRamp {
 /// clipping a real, if rare, reading.
 static GOES_COOLING_RATE: FieldRamp = FieldRamp {
     input_scale: 1.0,
-    is_temp_kelvin: false, // a temperature *change* over the lookback window, not an absolute reading
+    is_temp_kelvin: false,
+    clear_above: None, // a temperature *change* over the lookback window, not an absolute reading
     ..ramp!(
         "Cooling rate (15 min)",
         "K",
@@ -672,6 +687,7 @@ static GLOBAL_TEMP_2M: FieldRamp = FieldRamp {
     // the ramp stays in Kelvin and `is_temp_kelvin` has the legend convert to the Units setting.
     input_scale: 1.0,
     is_temp_kelvin: true,
+    clear_above: None,
     ..ramp!(
         "2 m temp",
         "K",
@@ -690,6 +706,60 @@ static GLOBAL_TEMP_2M: FieldRamp = FieldRamp {
 };
 
 /// Global 10 m wind speed (the U component's magnitude band, which is what the layer draws).
+/// Flight-category colours, lowest first: LIFR magenta, IFR red, MVFR blue. Shared by visibility
+/// and ceiling, whose category edges fall at different values but mean the same thing.
+const FLIGHT_MAGENTA: [u8; 3] = [205, 70, 215];
+const FLIGHT_RED: [u8; 3] = [225, 55, 55];
+const FLIGHT_BLUE: [u8; 3] = [70, 130, 235];
+
+/// RTMA visibility in statute miles, log scale 0.1–5 mi: LIFR below 1, IFR 1 to 3, MVFR 3 to 5,
+/// and nothing drawn above 5 (VFR), so fog and heavy precipitation stand alone. The stops are
+/// placed at the category edges on the log scale (1 mi at 0.589, 3 mi at 0.869).
+static RTMA_VISIBILITY: FieldRamp = FieldRamp {
+    input_scale: 1.0 / 1609.344, // m → mi
+    clear_above: Some(5.0),
+    ..ramp!(
+        "Visibility",
+        "mi",
+        0.1,
+        5.0,
+        RampScale::Log,
+        190,
+        &[
+            (0.0, FLIGHT_MAGENTA),
+            (0.584, FLIGHT_MAGENTA),
+            (0.594, FLIGHT_RED),
+            (0.864, FLIGHT_RED),
+            (0.874, FLIGHT_BLUE),
+            (1.0, FLIGHT_BLUE),
+        ]
+    )
+};
+
+/// RTMA cloud ceiling in feet above ground, log scale 100–3000 ft: LIFR below 500, IFR 500 to
+/// 1000, MVFR 1000 to 3000, nothing drawn above (or where there is no ceiling at all). Edges on
+/// the log scale: 500 ft at 0.473, 1000 ft at 0.677.
+static RTMA_CEILING: FieldRamp = FieldRamp {
+    input_scale: 3.280_84, // m → ft
+    clear_above: Some(3000.0),
+    ..ramp!(
+        "Cloud ceiling",
+        "ft",
+        100.0,
+        3000.0,
+        RampScale::Log,
+        190,
+        &[
+            (0.0, FLIGHT_MAGENTA),
+            (0.468, FLIGHT_MAGENTA),
+            (0.478, FLIGHT_RED),
+            (0.672, FLIGHT_RED),
+            (0.682, FLIGHT_BLUE),
+            (1.0, FLIGHT_BLUE),
+        ]
+    )
+};
+
 static GLOBAL_WIND_10M: FieldRamp = FieldRamp {
     input_scale: 1.943_844, // m/s → kt
     ..ramp!(
@@ -806,6 +876,7 @@ static PRECIP_TYPE: FieldRamp = FieldRamp {
     alpha: 200,
     input_scale: 1.0,
     is_temp_kelvin: false,
+    clear_above: None,
     scale: FieldScale::Categorical(&[
         (1, [60, 200, 90], "Rain"),
         (3, [90, 150, 240], "Snow"),
@@ -823,6 +894,7 @@ static HCA: FieldRamp = FieldRamp {
     alpha: 200,
     input_scale: 1.0,
     is_temp_kelvin: false,
+    clear_above: None,
     scale: FieldScale::Categorical(&[
         (10, [140, 110, 90], "Biological"),
         (20, [95, 95, 95], "Clutter"),
@@ -1004,6 +1076,8 @@ pub fn ramp_for(layer: FieldLayer) -> Option<&'static FieldRamp> {
         // models, so it shares their scales: an RTMA temperature and a GFS one read the same.
         FL::RtmaDewpoint2m => &GLOBAL_DEWPOINT_2M,
         FL::RtmaWind10m | FL::RtmaGust10m => &GLOBAL_WIND_10M,
+        FL::RtmaVisibility => &RTMA_VISIBILITY,
+        FL::RtmaCeiling => &RTMA_CEILING,
         FL::NdfdWind10m | FL::NdfdGust10m => &GLOBAL_WIND_10M,
         FL::NdfdSnow => &SNOWFALL,
         // Composite is reflectivity in dBZ, so like the mosaic it follows the user's own
@@ -1364,6 +1438,22 @@ mod tests {
             r.index(40.0) >= r.index(15.0),
             "a stronger cooling signal must read at least as intense, not dimmer"
         );
+    }
+
+    #[test]
+    fn low_visibility_and_ceilings_draw_by_flight_category_and_good_ones_draw_nothing() {
+        let mi = |x: f32| x * 1609.344;
+        let v = &RTMA_VISIBILITY;
+        assert_eq!(v.index(mi(10.0)), 0, "VFR visibility leaves the map clear");
+        let lifr = v.index(mi(0.5));
+        let ifr = v.index(mi(2.0));
+        let mvfr = v.index(mi(4.0));
+        assert!(lifr > 0 && lifr < ifr && ifr < mvfr);
+        let ft = |x: f32| x / 3.280_84;
+        let c = &RTMA_CEILING;
+        assert_eq!(c.index(ft(25_000.0)), 0, "no ceiling, nothing drawn");
+        assert!(c.index(ft(300.0)) < c.index(ft(800.0)));
+        assert!(c.index(ft(800.0)) < c.index(ft(2000.0)));
     }
 
     #[test]

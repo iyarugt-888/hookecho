@@ -31,14 +31,20 @@ pub enum RtmaField {
     /// 10 m wind *speed*, published directly (not a single component).
     Wind10m,
     Gust10m,
+    /// Surface visibility, metres.
+    Visibility,
+    /// Cloud ceiling height above ground, metres (very large where there is no ceiling).
+    Ceiling,
 }
 
 impl RtmaField {
-    pub const ALL: [RtmaField; 4] = [
+    pub const ALL: [RtmaField; 6] = [
         RtmaField::Temp2m,
         RtmaField::Dewpoint2m,
         RtmaField::Wind10m,
         RtmaField::Gust10m,
+        RtmaField::Visibility,
+        RtmaField::Ceiling,
     ];
 
     pub fn label(self) -> &'static str {
@@ -47,6 +53,8 @@ impl RtmaField {
             RtmaField::Dewpoint2m => "2 m dewpoint",
             RtmaField::Wind10m => "10 m wind speed",
             RtmaField::Gust10m => "10 m wind gust",
+            RtmaField::Visibility => "surface visibility",
+            RtmaField::Ceiling => "cloud ceiling",
         }
     }
 
@@ -56,6 +64,8 @@ impl RtmaField {
             RtmaField::Dewpoint2m => "td2m",
             RtmaField::Wind10m => "wind10m",
             RtmaField::Gust10m => "gust10m",
+            RtmaField::Visibility => "vis",
+            RtmaField::Ceiling => "ceil",
         }
     }
 
@@ -70,6 +80,8 @@ impl RtmaField {
             RtmaField::Dewpoint2m => ("DPT", "2 m above ground"),
             RtmaField::Wind10m => ("WIND", "10 m above ground"),
             RtmaField::Gust10m => ("GUST", "10 m above ground"),
+            RtmaField::Visibility => ("VIS", "surface"),
+            RtmaField::Ceiling => ("CEIL", "cloud ceiling"),
         }
     }
 }
@@ -355,6 +367,11 @@ mod tests {
                 }
                 RtmaField::Wind10m | RtmaField::Gust10m => {
                     assert!(lo >= 0.0 && hi < 90.0, "{}: {lo}..{hi} m/s", field.label())
+                }
+                // Metres, never negative; visibility tops out near the 16 km (10 mi) the
+                // observing systems report.
+                RtmaField::Visibility | RtmaField::Ceiling => {
+                    assert!(lo >= 0.0 && hi > 1000.0, "{}: {lo}..{hi} m", field.label())
                 }
             }
         }

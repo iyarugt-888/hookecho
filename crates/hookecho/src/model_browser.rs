@@ -52,6 +52,9 @@ pub enum Product {
     AnalysisDewpoint2m,
     AnalysisWind10m,
     AnalysisGust10m,
+    /// Surface visibility and cloud ceiling: the analysis's aviation fields.
+    AnalysisVisibility,
+    AnalysisCeiling,
 }
 
 /// How models group in a picker.
@@ -228,6 +231,8 @@ impl BModel {
                 AnalysisDewpoint2m,
                 AnalysisWind10m,
                 AnalysisGust10m,
+                AnalysisVisibility,
+                AnalysisCeiling,
             ],
             BModel::Gfs | BModel::Ecmwf | BModel::Gdps => {
                 &[Temp2m, Dewpoint2m, Wind10m, Mslp, Height500, Moisture]
@@ -387,7 +392,7 @@ impl BModel {
 }
 
 impl Product {
-    pub const ALL: [Product; 17] = [
+    pub const ALL: [Product; 19] = [
         Product::Reflectivity,
         Product::Cape,
         Product::Srh,
@@ -405,6 +410,8 @@ impl Product {
         Product::AnalysisDewpoint2m,
         Product::AnalysisWind10m,
         Product::AnalysisGust10m,
+        Product::AnalysisVisibility,
+        Product::AnalysisCeiling,
     ];
 
     pub fn label(self) -> &'static str {
@@ -427,6 +434,8 @@ impl Product {
             Product::AnalysisDewpoint2m => "Dewpoint",
             Product::AnalysisWind10m => "Wind",
             Product::AnalysisGust10m => "Gusts",
+            Product::AnalysisVisibility => "Visibility",
+            Product::AnalysisCeiling => "Ceiling",
         }
     }
 
@@ -451,6 +460,8 @@ impl Product {
             Product::AnalysisDewpoint2m => "Surface dewpoint (RTMA analysis)",
             Product::AnalysisWind10m => "Surface wind (RTMA analysis)",
             Product::AnalysisGust10m => "Wind gusts (RTMA analysis)",
+            Product::AnalysisVisibility => "Visibility (RTMA analysis)",
+            Product::AnalysisCeiling => "Cloud ceiling (RTMA analysis)",
         }
     }
 
@@ -484,6 +495,12 @@ impl Product {
             }
             Product::AnalysisWind10m => "Surface wind speed right now, analyzed from observations",
             Product::AnalysisGust10m => "Analyzed wind gusts at 10 m",
+            Product::AnalysisVisibility => {
+                "Analyzed surface visibility, by flight category: fog and heavy precipitation; clear above 5 mi"
+            }
+            Product::AnalysisCeiling => {
+                "Analyzed cloud ceiling, by flight category: low cloud decks; clear above 3000 ft"
+            }
         }
     }
 
@@ -507,6 +524,8 @@ impl Product {
             Product::AnalysisDewpoint2m => FieldLayer::RtmaDewpoint2m,
             Product::AnalysisWind10m => FieldLayer::RtmaWind10m,
             Product::AnalysisGust10m => FieldLayer::RtmaGust10m,
+            Product::AnalysisVisibility => FieldLayer::RtmaVisibility,
+            Product::AnalysisCeiling => FieldLayer::RtmaCeiling,
         }
     }
 
@@ -668,6 +687,8 @@ fn product_slug(p: Product) -> &'static str {
         Product::AnalysisDewpoint2m => "rtma-td2m",
         Product::AnalysisWind10m => "rtma-wind10m",
         Product::AnalysisGust10m => "rtma-gust10m",
+        Product::AnalysisVisibility => "rtma-visibility",
+        Product::AnalysisCeiling => "rtma-ceiling",
     }
 }
 
@@ -962,7 +983,12 @@ mod tests {
         for p in rtma.products() {
             assert!(matches!(
                 p.layer(),
-                FL::RtmaTemp2m | FL::RtmaDewpoint2m | FL::RtmaWind10m | FL::RtmaGust10m
+                FL::RtmaTemp2m
+                    | FL::RtmaDewpoint2m
+                    | FL::RtmaWind10m
+                    | FL::RtmaGust10m
+                    | FL::RtmaVisibility
+                    | FL::RtmaCeiling
             ));
             for m in BModel::ALL.into_iter().filter(|m| *m != rtma) {
                 assert!(!m.has(*p), "{m:?} offers the analysis product {p:?}");

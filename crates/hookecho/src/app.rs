@@ -1454,6 +1454,8 @@ impl OverlaySource {
                     FL::RtmaDewpoint2m => wxdata::rtma::RtmaField::Dewpoint2m,
                     FL::RtmaWind10m => wxdata::rtma::RtmaField::Wind10m,
                     FL::RtmaGust10m => wxdata::rtma::RtmaField::Gust10m,
+                    FL::RtmaVisibility => wxdata::rtma::RtmaField::Visibility,
+                    FL::RtmaCeiling => wxdata::rtma::RtmaField::Ceiling,
                     _ => anyhow::bail!("{layer:?} is not an RTMA field"),
                 };
                 let analysis = wxdata::rtma::fetch(http, field, hour).await?;
@@ -2588,7 +2590,12 @@ fn field_refresh_secs(layer: crate::render::FieldLayer) -> u64 {
         FL::NdfdTemp2m | FL::NdfdWind10m | FL::NdfdGust10m | FL::NdfdSnow => 1800,
         // A new analysis posts hourly, about 45 minutes after its hour; ten minutes catches it
         // soon after it lands without asking constantly.
-        FL::RtmaTemp2m | FL::RtmaDewpoint2m | FL::RtmaWind10m | FL::RtmaGust10m => 600,
+        FL::RtmaTemp2m
+        | FL::RtmaDewpoint2m
+        | FL::RtmaWind10m
+        | FL::RtmaGust10m
+        | FL::RtmaVisibility
+        | FL::RtmaCeiling => 600,
         // An accumulation moves slower than the grid it accumulates, whatever the window.
         FL::HailSwath => 300,
         // Environment (HRRR CAPE/SRH) refreshes slowly — 15 min.
@@ -8728,9 +8735,12 @@ impl HookEchoApp {
             FL::SnowAnalysis => "NOAA NOHRSC".into(),
             FL::Vil | FL::EchoTops | FL::Hca => "NEXRAD Level III".into(),
             FL::NdfdTemp2m | FL::NdfdWind10m | FL::NdfdGust10m | FL::NdfdSnow => "NWS NDFD".into(),
-            FL::RtmaTemp2m | FL::RtmaDewpoint2m | FL::RtmaWind10m | FL::RtmaGust10m => {
-                "RTMA analysis".into()
-            }
+            FL::RtmaTemp2m
+            | FL::RtmaDewpoint2m
+            | FL::RtmaWind10m
+            | FL::RtmaGust10m
+            | FL::RtmaVisibility
+            | FL::RtmaCeiling => "RTMA analysis".into(),
             _ => layer.descriptor().map_or_else(
                 || "Gridded field".into(),
                 |descriptor| descriptor.source.display_name().into(),
@@ -22655,6 +22665,8 @@ impl eframe::App for HookEchoApp {
             FL::RtmaDewpoint2m,
             FL::RtmaWind10m,
             FL::RtmaGust10m,
+            FL::RtmaVisibility,
+            FL::RtmaCeiling,
         ] {
             let hour = if self.model_sel.model == crate::model_browser::BModel::Rtma {
                 self.model_run

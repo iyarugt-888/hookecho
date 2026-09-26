@@ -2589,7 +2589,12 @@ analysis, and the model picker offers it as an "Analysis" model with no lead.
 - [x] 10 m wind — speed, published directly by the analysis
 - [x] wind gust
 - [ ] pressure — the file carries surface pressure only, not sea-level; needs a reduction before it means anything on a map
-- [ ] visibility — in the file, not yet given a layer or a color scale
+- [x] visibility — `RtmaField::Visibility` / "Visibility (RTMA analysis)", in statute miles on a
+  log scale coloured by flight category (LIFR < 1 mi magenta, IFR 1–3 red, MVFR 3–5 blue) and
+  drawn only below 5 mi (`FieldRamp::clear_above`), so fog and heavy precipitation stand alone
+- [x] cloud ceiling (not in the original list, but the other half of flight category and in the
+  same file) — `RtmaField::Ceiling`, feet above ground on the same category colours, drawn only
+  below 3000 ft
 - [ ] precip analysis fields as appropriate — a separate `pcp` product in the same bucket
 
 - [x] Expose analysis age — the stamp names the analysis hour and the fetch age; the Hour menu lists a day of hourly analyses

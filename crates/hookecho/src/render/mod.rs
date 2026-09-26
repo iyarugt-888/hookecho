@@ -252,6 +252,9 @@ pub enum FieldLayer {
     RtmaDewpoint2m,
     RtmaWind10m,
     RtmaGust10m,
+    /// RTMA surface visibility and cloud ceiling, coloured by flight category.
+    RtmaVisibility,
+    RtmaCeiling,
     /// One ensemble statistic (mean, spread, percentile, exceedance probability) computed from the
     /// GEFS members — which one is `app.ensemble` (ROADMAP_NEW F7).
     Ensemble,
@@ -352,6 +355,8 @@ impl FieldLayer {
                 | FieldLayer::RtmaDewpoint2m
                 | FieldLayer::RtmaWind10m
                 | FieldLayer::RtmaGust10m
+                | FieldLayer::RtmaVisibility
+                | FieldLayer::RtmaCeiling
                 | FieldLayer::GoesIr
                 | FieldLayer::GoesVisible
                 | FieldLayer::GoesWaterVapor
@@ -400,7 +405,7 @@ impl FieldLayer {
     }
 
     /// Fixed bottom-to-top paint order within each band.
-    pub const DRAW_ORDER: [FieldLayer; 83] = [
+    pub const DRAW_ORDER: [FieldLayer; 85] = [
         // Below-radar context band (bottom to top). The global models sit at the very bottom:
         // they are the synoptic backdrop everything else is drawn against — satellite included,
         // since it is the same kind of backdrop and the radar itself paints over it just the same.
@@ -435,6 +440,8 @@ impl FieldLayer {
         FieldLayer::RtmaDewpoint2m,
         FieldLayer::RtmaWind10m,
         FieldLayer::RtmaGust10m,
+        FieldLayer::RtmaVisibility,
+        FieldLayer::RtmaCeiling,
         FieldLayer::Mrms,
         FieldLayer::ReflLowestAlt,
         FieldLayer::LowLevelReflectivity,
@@ -608,6 +615,8 @@ impl FieldLayer {
             FieldLayer::RtmaDewpoint2m => "rtma-dewpoint2m",
             FieldLayer::RtmaWind10m => "rtma-wind10m",
             FieldLayer::RtmaGust10m => "rtma-gust10m",
+            FieldLayer::RtmaVisibility => "rtma-visibility",
+            FieldLayer::RtmaCeiling => "rtma-ceiling",
             FieldLayer::GlmFed => "glm-fed",
             FieldLayer::GoesIr => "goes-ir",
             FieldLayer::GoesVisible => "goes-visible",
