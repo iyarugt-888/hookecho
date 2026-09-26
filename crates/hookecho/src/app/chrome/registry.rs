@@ -1181,6 +1181,11 @@ impl HookEchoApp {
                     "The warnings, watches and advisories in view",
                 ),
                 (
+                    D::Storms,
+                    "Storms window",
+                    "Every storm cell from this radar in one table, ranked by severity",
+                ),
+                (
                     D::Sources,
                     "Sources window",
                     "Every active data feed's health, worst first",

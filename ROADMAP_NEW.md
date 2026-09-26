@@ -3874,8 +3874,14 @@ will find harder than a mouse; those are what to look for.
 
 Add compact mode:
 
-- denser product tables
-- dockable optional analyst panels while preserving current full-map default
+- denser product tables — the workstation's **Storms** tab: every SCIT cell in a 22 px-row,
+  monospace table at dock width (severity, id, range, dBZ, top, VIL, SHI, hail, T/M rotation
+  letters), ranked by the same `cellscore` severity as the Storm attributes window, headers sort,
+  a row click selects the storm (map ring, Inspector section) without leaving the table and a
+  double click centers it. "Storm attributes" opens this tab in the workstation layouts.
+- dockable optional analyst panels while preserving current full-map default — done in the
+  workstation: Layers, Inspector, 3D view, Sounding, Storms, Alerts, Sources, Analyst log and
+  Preferences all dock, tab and float, and WSV3 opens map-first with them closed
 - high-information status footer option — done for the workstation: "Status bar" (search/Ctrl+K,
   saved with the arrangement, off by default) puts one monospace line under the timeline with
   the pointer's lat/lon, range and azimuth from the radar, beam height and value; the active pane,

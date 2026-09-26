@@ -8887,10 +8887,17 @@ impl HookEchoApp {
     /// in the workstation the Inspector's storm section shows it (brought forward if it was hidden
     /// or behind another tab), and the full window waits for its Details button.
     pub(crate) fn select_storm(&mut self, c: Cell) {
+        self.select_storm_from(c, true);
+    }
+
+    /// [`Self::select_storm`], with the choice of leaving the dock alone (`show: false`): a pick
+    /// in the Storms table should not switch the table's own dock over to the Inspector while the
+    /// analyst is stepping down the list — the ring on the map already says which one it is.
+    pub(crate) fn select_storm_from(&mut self, c: Cell, show: bool) {
         self.cell_popup = Some(c);
         if self.workstation_chrome() {
             self.cell_details = false;
-            if !self.dock.shown(chrome::DockWin::Inspector) {
+            if show && !self.dock.shown(chrome::DockWin::Inspector) {
                 self.dock.toggle(chrome::DockWin::Inspector);
             }
         } else {
@@ -11371,6 +11378,9 @@ impl HookEchoApp {
                 W::Cappi => {
                     self.show_cappi = true;
                     self.cappi_key = None; // force a re-slice on open
+                }
+                W::StormTable if self.workstation_chrome() => {
+                    self.dock.toggle(chrome::DockWin::Storms)
                 }
                 W::StormTable => self.cells_window.toggle(),
                 W::Help => self.help_hub.toggle(),

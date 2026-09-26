@@ -934,3 +934,7 @@ a scale bar on the map; a network round-trip measurement for the app bar; a natu
   product, tilt and frame age in the middle; smoothed frame time and zoom on the right, the left
   part cut short before it runs under the others. "Status bar" in search toggles it and the
   arrangement saves it. Checked by screenshot against the Inspector's reading at the same point.
+- **Storms** tab (roadmap Q2): the SCIT storm table at dock width, dense and sortable, ranked by the
+  Storm attributes window's own severity score, with the selected storm highlighted; a row click
+  selects without switching the dock away, a double click also centers. In the workstation,
+  "Storm attributes" opens this tab. Checked by screenshot on live KTLX (18 cells).

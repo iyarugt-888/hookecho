@@ -28,6 +28,7 @@ mod prefs;
 mod rail;
 mod sounding;
 mod sources;
+mod storms;
 mod timeline;
 mod view3d;
 
@@ -145,14 +146,17 @@ pub(crate) enum DockWin {
     Log,
     /// The point sounding (once a point has been sounded).
     Sounding,
+    /// Every storm cell, ranked.
+    Storms,
 }
 
 impl DockWin {
-    pub(crate) const ALL: [DockWin; 8] = [
+    pub(crate) const ALL: [DockWin; 9] = [
         DockWin::Layers,
         DockWin::Inspector,
         DockWin::View3d,
         DockWin::Sounding,
+        DockWin::Storms,
         DockWin::Alerts,
         DockWin::Sources,
         DockWin::Log,
@@ -171,6 +175,7 @@ impl DockWin {
             DockWin::Sources => (ph::PULSE, "Sources"),
             DockWin::Log => (ph::TERMINAL_WINDOW, "Analyst log"),
             DockWin::Sounding => (ph::THERMOMETER, "Sounding"),
+            DockWin::Storms => (ph::TORNADO, "Storms"),
         };
         ws::HeaderTab {
             glyph,
@@ -194,6 +199,7 @@ impl DockWin {
             DockWin::Sources => sources::SOURCES_W,
             DockWin::Log => log::LOG_W,
             DockWin::Sounding => sounding::SOUNDING_W,
+            DockWin::Storms => storms::STORMS_W,
         }
     }
 }
@@ -253,6 +259,10 @@ pub(crate) struct DockState {
     pub sources: WindowChrome,
     pub log: WindowChrome,
     pub sounding: WindowChrome,
+    pub storms: WindowChrome,
+    /// The Storms table's sort column and direction.
+    pub storm_sort: crate::ui::cells_window::SortCol,
+    pub storm_desc: bool,
     /// Whether a point has been sounded (the sounding window's own `open`). Set each frame.
     pub sounding_available: bool,
     /// Whether the Analyst log has anything to show: Analyst Mode is on. Set each frame.
@@ -282,7 +292,7 @@ pub(crate) struct DockState {
     pub front: [Option<DockWin>; 2],
     /// Each window's `(open, place)` last frame, to bring a window that has just opened or just
     /// moved into a dock to the front of it.
-    seen: [(bool, Place); 8],
+    seen: [(bool, Place); 9],
     /// The window is too narrow for docks on both sides ([`ONE_DOCK_BELOW`]). Set each frame.
     pub narrow: bool,
     /// The side used most recently (0 left, 1 right): the one that stays while `narrow`.
@@ -308,6 +318,9 @@ impl Default for DockState {
             log_available: false,
             sounding: WindowChrome::default(),
             sounding_available: false,
+            storms: WindowChrome::default(),
+            storm_sort: Default::default(),
+            storm_desc: true,
             view3d_available: false,
             prefs_page: PrefsPage::Map,
             timeline_open: true,
@@ -319,7 +332,7 @@ impl Default for DockState {
             jump: String::new(),
             arranged_for: None,
             front: [None; 2],
-            seen: [(false, Place::Float); 8],
+            seen: [(false, Place::Float); 9],
             narrow: false,
             last_side: 0,
             dock_widths: [None; 2],
@@ -354,6 +367,7 @@ impl DockState {
             log: WindowChrome::at(true, Place::Right),
             dock_widths: [None; 2],
             sounding: WindowChrome::at(true, Place::Right),
+            storms: WindowChrome::at(false, Place::Right),
             timeline_open: true,
             footer_open: false,
         }
@@ -372,6 +386,7 @@ impl DockState {
             log: self.log,
             dock_widths: self.dock_widths.map(|w| w.map(|w| w.round() as u16)),
             sounding: self.sounding,
+            storms: self.storms,
             timeline_open: self.timeline_open,
             footer_open: self.footer_open,
         }
@@ -389,6 +404,7 @@ impl DockState {
         self.log = w.log;
         self.dock_widths = w.dock_widths.map(|w| w.map(f32::from));
         self.sounding = w.sounding;
+        self.storms = w.storms;
         self.timeline_open = w.timeline_open;
         self.footer_open = w.footer_open;
     }
@@ -403,6 +419,7 @@ impl DockState {
             DockWin::Sources => &self.sources,
             DockWin::Log => &self.log,
             DockWin::Sounding => &self.sounding,
+            DockWin::Storms => &self.storms,
         }
     }
 
@@ -416,6 +433,7 @@ impl DockState {
             DockWin::Sources => &mut self.sources,
             DockWin::Log => &mut self.log,
             DockWin::Sounding => &mut self.sounding,
+            DockWin::Storms => &mut self.storms,
         }
     }
 
@@ -920,6 +938,7 @@ impl HookEchoApp {
             DockWin::Sources => self.dock_sources(host),
             DockWin::Log => self.dock_log(host),
             DockWin::Sounding => self.dock_sounding(host),
+            DockWin::Storms => self.dock_storms(host),
         }
     }
 
@@ -1283,6 +1302,7 @@ mod tests {
             log: WindowChrome::at(false, Place::Left),
             dock_widths: [None, Some(360)],
             sounding: WindowChrome::at(false, Place::Left),
+            storms: WindowChrome::at(false, Place::Right),
             timeline_open: false,
             footer_open: false,
         };

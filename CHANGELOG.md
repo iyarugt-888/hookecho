@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: a Storms table in the workstation panels
+
+"Storm attributes" in the Dock and WSV3 layouts now opens a **Storms** tab in the side panel: every
+storm cell from the radar in a compact table, worst first, sortable by any column. Click a row to
+select that storm (it is circled on the map and shown in the Inspector); double-click to center
+on it.
+
 ### Added: a status bar for the workstation
 
 Search for "Status bar" in the Dock or WSV3 layout to add a thin line under the timeline showing

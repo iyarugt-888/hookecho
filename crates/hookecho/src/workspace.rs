@@ -189,6 +189,9 @@ pub struct WorkstationChrome {
     /// is the width its windows ask for.
     #[serde(default)]
     pub dock_widths: [Option<u16>; 2],
+    /// The storm table. Closed until asked for; docks right when opened.
+    #[serde(default = "storms_default")]
+    pub storms: WindowChrome,
     /// The point sounding, shown once a point has been sounded. Docks right by default.
     #[serde(default = "sounding_default")]
     pub sounding: WindowChrome,
@@ -213,6 +216,10 @@ fn sources_default() -> WindowChrome {
 
 fn log_default() -> WindowChrome {
     WindowChrome::at(true, Place::Right)
+}
+
+fn storms_default() -> WindowChrome {
+    WindowChrome::at(false, Place::Right)
 }
 
 fn sounding_default() -> WindowChrome {
@@ -760,6 +767,7 @@ mod tests {
                     log: WindowChrome::at(true, Place::Right),
                     dock_widths: [Some(320), None],
                     sounding: WindowChrome::at(true, Place::Float),
+                    storms: WindowChrome::at(false, Place::Right),
                     timeline_open: false,
                     footer_open: false,
                 }),
