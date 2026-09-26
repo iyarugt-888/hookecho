@@ -938,3 +938,6 @@ a scale bar on the map; a network round-trip measurement for the app bar; a natu
   Storm attributes window's own severity score, with the selected storm highlighted; a row click
   selects without switching the dock away, a double click also centers. In the workstation,
   "Storm attributes" opens this tab. Checked by screenshot on live KTLX (18 cells).
+- The toolbar's Panes control is a menu rather than a combo box (a combo scrolls past 200 px):
+  pane count, layout, then the five pane links and "Link all / Unlink all (Ctrl+L)", with a link
+  mark on the button while any link is on. Checked by screenshot: two panes, all linked.

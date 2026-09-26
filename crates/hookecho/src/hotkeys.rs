@@ -160,6 +160,8 @@ pub(crate) fn defaults() -> Vec<Binding> {
         // `J`: jump with the radar, sweep to sweep. The other letters that could say "follow"
         // (F, L) already find a site and open the panel.
         plain(K::J, A::Palette(P::ToggleFollowSweep)),
+        // `C`onnect panes: every pane link at once (J6), also on Ctrl+L below.
+        plain(K::C, A::Palette(P::ToggleLinkAll)),
         plain(K::Questionmark, A::CheatSheet),
         // Every action above that lives only on a function key or Page Up/Down gets a second,
         // ordinary key too. A tablet's cover keyboard has no F row and no Page keys, and a
@@ -181,6 +183,11 @@ pub(crate) fn defaults() -> Vec<Binding> {
         Binding {
             shortcut: egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::K),
             action: A::CommandSearch,
+        },
+        // Ctrl+L: link (or unlink) every pane at once — roadmap J6.
+        Binding {
+            shortcut: egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::L),
+            action: A::Palette(P::ToggleLinkAll),
         },
     ]
 }

@@ -3108,7 +3108,7 @@ Shipping this preset from only the pieces that already exist (HRRR vs. observed/
 silently drop RRFS and ensemble probability rather than honestly leave the whole preset undone —
 better to wait until F7 and an RRFS source exist and build the real thing.
 
-## J6. Keyboard-first workflows — partly done
+## J6. Keyboard-first workflows — done
 
 Audited against `hotkeys.rs`'s "one flat table" binding system, which already existed and was
 more complete than this section's own bare checklist suggested — most of what was actually
@@ -3149,11 +3149,10 @@ Add shortcuts for:
   would break the keyboard navigation Q3 already confirmed working — `[`/`]` cycle documents/
   editors already use for a similar "step through the open things" idea, and neither collides
   with the moment-select digits or anything else in the table.
-- [ ] link/unlink — genuinely ambiguous, not skipped by oversight: J2 lists *four* independent
-  link groups (`LinkCameras`/`LinkTimes`/`LinkSite`/`LinkCursor`), each its own
-  `PaletteAction::ToggleOverlay`, and this line doesn't say which one (or whether "all of them at
-  once") it means. Guessing wrong here binds a key to the wrong toggle, which is worse than no
-  binding at all — better to leave it open for a real product decision than pick one.
+- [x] link/unlink — resolved as both: each of the five pane links (maps, times, radar site,
+  crosshair, selected storm) is its own row in the workstation's Panes menu and in search, and
+  "Link all panes" (`PaletteAction::ToggleLinkAll`, `C` or Ctrl+L) turns every one on — or, when
+  all are on, every one off. The Panes button shows a link mark while any link is on.
 - [x] 3D — new this pass: `PaletteAction::ToggleMap3d` plus a `D` shortcut, which also puts the
   3D view in the command palette and the Layers drawer for the first time (it was reachable only
   from the "2D"/"3D map" `selectable_value` pair inside the 3D options panel). The missing work
@@ -3625,7 +3624,7 @@ Status states:
 - [ ] Experimental — no source in this app is marked experimental yet (see F2's Tier 2 targets,
   which do ask for an explicit EXPERIMENTAL label on future AI-guidance products)
 
-## N2. Stale-data policy — partly done
+## N2. Stale-data policy — done
 
 Define per source family.
 

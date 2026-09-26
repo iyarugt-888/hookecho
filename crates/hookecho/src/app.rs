@@ -2227,6 +2227,16 @@ impl OverlayToggle {
         Self::ImportedGis,
     ];
 
+    /// The links between panes (roadmap J2), in the order the Panes menu lists them. The time
+    /// lock is left out: it refines linked times rather than being a link of its own.
+    pub(crate) const PANE_LINKS: [OverlayToggle; 5] = [
+        Self::LinkCameras,
+        Self::LinkTimes,
+        Self::LinkSite,
+        Self::LinkCursor,
+        Self::LinkStorm,
+    ];
+
     /// Toggles that describe this session's window arrangement rather than a layer. Pane links
     /// are captured by a saved workspace but are not global layer preferences; the mini loop is
     /// a window and is not persisted. `ImportedGis` restores from its own remembered file
@@ -2381,6 +2391,8 @@ pub(crate) enum PaletteAction {
     ToggleFollowLowest,
     /// The workstation's status footer under the timeline (roadmap Q2).
     ToggleStatusFooter,
+    /// ROADMAP_NEW J6 "link/unlink": every pane link at once — on if any is off, else all off.
+    ToggleLinkAll,
     /// Copy a `hookecho://goto/…` link to this view (site, center, zoom, archive time).
     CopyViewLink,
     /// Open Help at the glossary entry that explains a label's abbreviation. An index into
@@ -11348,6 +11360,14 @@ impl HookEchoApp {
                 v.followed_sweep = None;
             }
             PaletteAction::ToggleStatusFooter => self.dock.footer_open = !self.dock.footer_open,
+            PaletteAction::ToggleLinkAll => {
+                let on = !OverlayToggle::PANE_LINKS
+                    .iter()
+                    .all(|t| *self.overlay_flag(*t));
+                for t in OverlayToggle::PANE_LINKS {
+                    *self.overlay_flag(t) = on;
+                }
+            }
             PaletteAction::ToggleFollowLowest => {
                 let v = &mut self.views[self.active];
                 v.follow_lowest_cut = !v.follow_lowest_cut;

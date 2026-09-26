@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: link or unlink every pane at once
+
+The workstation toolbar's **Panes** menu now lists each pane link (maps, times, radar site,
+crosshair, selected storm) alongside the pane count and layout, plus **Link all**. Press **C** or
+**Ctrl+L** to link every pane at once, and again to unlink them all. A link mark on the Panes
+button shows when any link is on.
+
 ### Added: a Storms table in the workstation panels
 
 "Storm attributes" in the Dock and WSV3 layouts now opens a **Storms** tab in the side panel: every

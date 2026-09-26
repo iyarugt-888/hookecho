@@ -1216,6 +1216,18 @@ impl HookEchoApp {
                 Some(self.dock.footer_open),
             );
         }
+        let links_on = OverlayToggle::PANE_LINKS
+            .into_iter()
+            .filter(|t| *self.overlay_flag(*t))
+            .count();
+        push(
+            "Link all panes",
+            "Reference",
+            "Link or unlink every pane at once: camera, time, radar site, crosshair and selected storm",
+            false,
+            PaletteAction::ToggleLinkAll,
+            Some(links_on == OverlayToggle::PANE_LINKS.len()),
+        );
         push(
             "Top bar",
             "Reference",

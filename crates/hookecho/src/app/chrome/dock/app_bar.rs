@@ -365,6 +365,10 @@ impl HookEchoApp {
         let basemap_open = self.basemap_open;
         let panes = self.views.len();
         let pane_layout = self.pane_layout;
+        let links: Vec<(T, bool)> = T::PANE_LINKS
+            .into_iter()
+            .map(|t| (t, *self.overlay_flag(t)))
+            .collect();
         let (vcp_full, tilt_cuts) = self.views[self.active]
             .volume
             .as_ref()
@@ -631,15 +635,36 @@ impl HookEchoApp {
                                     toggle_basemap = true;
                                 }
                                 ws::caption(ui, &t, "Panes");
-                                egui::ComboBox::from_id_salt("dock_panes")
-                                    .width(88.0)
-                                    .selected_text(format!(
-                                        "{panes} \u{b7} {}",
-                                        pane_layout.label()
-                                    ))
-                                    .show_ui(ui, |ui| {
-                                        pane_items(ui, panes, pane_layout, &mut action);
+                                // A plain menu rather than a combo box: a combo scrolls
+                                // past 200 px, and counts, layouts and the pane links are more.
+                                let linked = links.iter().filter(|(_, on)| *on).count();
+                                let panes_label = if panes > 1 && linked > 0 {
+                                    format!(
+                                        "{panes} \u{b7} {}  {}  {}",
+                                        pane_layout.label(),
+                                        ph::LINK,
+                                        ph::CARET_DOWN
+                                    )
+                                } else {
+                                    format!(
+                                        "{panes} \u{b7} {}  {}",
+                                        pane_layout.label(),
+                                        ph::CARET_DOWN
+                                    )
+                                };
+                                let menu = ws::button(ui, &t, &panes_label, 0.0)
+                                    .named("Panes, their layout and how they are linked")
+                                    .on_hover_text(if linked > 0 {
+                                        format!("{linked} of {} pane links on", links.len())
+                                    } else {
+                                        "Panes, layout and links".to_string()
                                     });
+                                egui::Popup::menu(&menu).show(|ui| {
+                                    ws::style_scope(ui, &t);
+                                    ui.set_min_width(170.0);
+                                    ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+                                    pane_items(ui, panes, pane_layout, &links, &mut action);
+                                });
                                 widths.groups[ToolGroup::Map as usize] = take(ui);
                             }
                             if folded > 0 {
@@ -698,7 +723,13 @@ impl HookEchoApp {
                                                     pane_layout.label()
                                                 ),
                                                 |ui| {
-                                                    pane_items(ui, panes, pane_layout, &mut action);
+                                                    pane_items(
+                                                        ui,
+                                                        panes,
+                                                        pane_layout,
+                                                        &links,
+                                                        &mut action,
+                                                    );
                                                 },
                                             );
                                         }
@@ -853,6 +884,7 @@ fn pane_items(
     ui: &mut egui::Ui,
     panes: usize,
     pane_layout: crate::workspace::PaneLayout,
+    links: &[(crate::app::OverlayToggle, bool)],
     action: &mut Option<crate::app::PaletteAction>,
 ) {
     use crate::app::PaletteAction as A;
@@ -877,6 +909,38 @@ fn pane_items(
             .clicked()
         {
             *action = Some(A::SetPaneLayout(layout));
+        }
+    }
+    // The links between panes: each on its own, and all at once (Ctrl+L).
+    if panes > 1 {
+        use crate::app::OverlayToggle as T;
+        ui.separator();
+        for (t, on) in links {
+            let label = match t {
+                T::LinkCameras => "Link maps",
+                T::LinkTimes => "Link times",
+                T::LinkSite => "Link radar site",
+                T::LinkCursor => "Link crosshair",
+                T::LinkStorm => "Link selected storm",
+                _ => continue,
+            };
+            if ui.selectable_label(*on, label).clicked() {
+                *action = Some(A::ToggleOverlay(*t));
+            }
+        }
+        let all = links.iter().all(|(_, on)| *on);
+        if ui
+            .selectable_label(
+                false,
+                if all {
+                    "Unlink all (Ctrl+L)"
+                } else {
+                    "Link all (Ctrl+L)"
+                },
+            )
+            .clicked()
+        {
+            *action = Some(A::ToggleLinkAll);
         }
     }
 }
