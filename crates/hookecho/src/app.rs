@@ -2638,6 +2638,12 @@ fn format_probe_field_value(
 
 const COMPARE_OVERLAY_ALPHA: f32 = 0.5;
 
+/// Whether a window this wide (points) is too narrow for the workstation's docks: a phone's
+/// width, M3's compact class.
+fn workstation_too_narrow(window_w: f32) -> bool {
+    crate::ui::m3::width_class(window_w) == crate::ui::m3::WidthClass::Compact
+}
+
 /// Apply the pane-local comparison blend without changing the user's ordinary layer-opacity
 /// preference. The renderer owns a field-per-pane uniform, so this stays local even when another
 /// pane shows B alone at full opacity.
@@ -3988,6 +3994,8 @@ pub struct HookEchoApp {
     /// Viewport minus the docked bars, refreshed each frame — floating `Area`s constrain to this
     /// instead of `content_rect`, which egui measures before panels take their bite.
     chrome_rect: egui::Rect,
+    /// The window's width in points, as of this frame (`workstation_chrome` reads it).
+    window_w: f32,
     layers_query: String,
     /// Ctrl+K command palette: open flag, query, and the highlighted row.
     /// Set by Ctrl+K so the drawer grabs the search field on the frame it opens.
@@ -5314,6 +5322,7 @@ impl HookEchoApp {
             // Map-first by default on both platforms: the floating chrome covers the common paths,
             // and the full toolbox is one "Advanced" tap away.
             chrome_rect: egui::Rect::EVERYTHING,
+            window_w: f32::INFINITY,
             layers_query: String::new(),
             panel_open: false,
             basemap_open: false,
@@ -10772,8 +10781,16 @@ impl HookEchoApp {
 
     /// Whether this frame draws the analyst workstation (`app::chrome::dock`) rather than the
     /// floating or ribbon chrome: the actions that open "the panel" open its windows instead.
+    ///
+    /// Not at phone width: the workstation is docks and bars around a map, and in a phone's
+    /// browser (the native phone app has its own chrome already) there is no map left between
+    /// them. The design plan's §9 rule — a phone gets the map-first composition, not shrunken
+    /// desktop docking — so under 600 pt the minimal floating chrome draws instead, sharing the
+    /// same state; the workstation comes back as the window widens. The arrangement is untouched.
     pub(crate) fn workstation_chrome(&self) -> bool {
-        self.settings.layout.is_workstation() && !crate::platform::phone_layout()
+        self.settings.layout.is_workstation()
+            && !crate::platform::phone_layout()
+            && !workstation_too_narrow(self.window_w)
     }
 
     fn overlay_flag(&mut self, t: OverlayToggle) -> &mut bool {
@@ -23143,8 +23160,8 @@ impl eframe::App for HookEchoApp {
         // The dock layout: its own tab row, layers tree, info panels and timeline, docked before
         // `chrome_rect` is read so the map gets what they leave. It draws none of the floating
         // chrome below (pill, column, scrubber, slide-in panel), which it replaces.
-        let dock_layout =
-            !bare && !crate::platform::phone_layout() && self.settings.layout.is_workstation();
+        self.window_w = ctx.content_rect().width();
+        let dock_layout = !bare && self.workstation_chrome();
         if dock_layout {
             self.dock_layout(root, ctx);
         }
@@ -25863,7 +25880,17 @@ mod probe_grid_tests {
 
 #[cfg(test)]
 mod comparison_display_tests {
-    use super::{field_draw_opacity, format_diff_readout};
+    use super::{field_draw_opacity, format_diff_readout, workstation_too_narrow};
+
+    #[test]
+    fn the_workstation_steps_aside_at_phone_width_only() {
+        assert!(workstation_too_narrow(390.0));
+        assert!(!workstation_too_narrow(768.0), "a tablet keeps it");
+        assert!(
+            !workstation_too_narrow(f32::INFINITY),
+            "before the first frame"
+        );
+    }
     use crate::fielddiff::DiffMode;
     use crate::render::FieldLayer as FL;
 

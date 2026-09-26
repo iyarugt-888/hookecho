@@ -48,9 +48,7 @@ impl HookEchoApp {
             alerts_tab: self.show_alert_panel,
             basemap_open: self.basemap_open,
             drawer: self.drawer.top().map(str::to_string),
-            workstation: (self.settings.layout.is_workstation()
-                && !crate::platform::phone_layout())
-            .then(|| self.dock.arrangement()),
+            workstation: self.workstation_chrome().then(|| self.dock.arrangement()),
         }
     }
 

@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: the workstation layouts in a phone's browser
+
+On a phone-width browser window the Dock and WSV3 layouts left almost no map between their
+panels and bars. Below tablet width they now switch to the map-first controls automatically,
+and switch back when the window is wider, keeping your panel arrangement.
+
 ### Changed: search understands several words in any order
 
 Layer search now matches each word you type on its own, in any order, and knows the model names:

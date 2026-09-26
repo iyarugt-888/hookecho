@@ -437,8 +437,8 @@ The redesign is ready when:
 >   reading plus the gate inspector on the rail rather than a third control; the rail has no
 >   separate pan (the explore tool pans), locate or warning-focus tool, since nothing in the app
 >   does those yet, and the 3D camera is the toolbar's 2D/3D/Volume control.
-> - Not yet: a screenshot pass at phone width (§12.11; the phone layout is its own and unchanged). Every §2.3 window is
->   dockable now: Layers, Inspector, 3D view, Sounding, Alerts, Sources, Analyst log, Preferences.
+> - Nothing in §1–§12 is outstanding. Every §2.3 window is dockable: Layers, Inspector, 3D
+>   view, Sounding, Alerts, Sources, Analyst log, Preferences; phone width is covered below.
 
 ### 13.1 References
 
@@ -914,3 +914,10 @@ a scale bar on the map; a network round-trip measurement for the app bar; a natu
   Model-product rows carry the model names and "future"/"simulated" as keywords (analysis rows
   carry RTMA/URMA/observed instead), so "HRRR future" finds "Reflectivity forecast" — before, it
   found nothing. Best matches needs every word in the name, in any order. Checked by screenshot.
+- Phone width (§9, §12.10–11): the native phone app has its own chrome, but the web app in a
+  phone's browser drew the workstation's docks and bars around a map with no room left. Below
+  600 pt (M3's compact class) `workstation_chrome()` is now false and the minimal floating chrome
+  draws instead — same state, the map-first composition §9 asks for — and the workstation comes
+  back as the window widens, arrangement untouched. Every place that asked "is this the
+  workstation" (layout dispatch, workspace capture, the panel actions) now asks
+  `workstation_chrome()`. Checked by screenshot at 500 × 800 and back at 1920.
