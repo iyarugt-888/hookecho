@@ -157,6 +157,9 @@ pub(crate) fn defaults() -> Vec<Binding> {
         // `D` for the 3D map view, which until now had no shortcut and no palette entry at all —
         // it was reachable only from a dropdown inside the 3D options panel.
         plain(K::D, A::Palette(P::ToggleMap3d)),
+        // `J`: jump with the radar, sweep to sweep. The other letters that could say "follow"
+        // (F, L) already find a site and open the panel.
+        plain(K::J, A::Palette(P::ToggleFollowSweep)),
         plain(K::Questionmark, A::CheatSheet),
         // Every action above that lives only on a function key or Page Up/Down gets a second,
         // ordinary key too. A tablet's cover keyboard has no F row and no Page keys, and a

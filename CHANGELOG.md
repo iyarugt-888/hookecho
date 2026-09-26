@@ -29,7 +29,8 @@ following live, so the map always shows the elevation being scanned. Pick it fro
 control in the Dock and WSV3 toolbar (Off / Lowest / Sweep) or the "Follow sweep" pill on the
 Command Ribbon; a tilt you pick yourself stays until the next sweep begins. The workstation
 toolbar also shows which tilt is being scanned and how far along it is, like the ribbon's tilt
-bar, and clicking it jumps there.
+bar, and clicking it jumps there. Press **J** to turn Follow sweep on or off; both follow modes are also in
+command search.
 
 ### Fixed: the live tilt marker during SAILS and MRLE rescans
 

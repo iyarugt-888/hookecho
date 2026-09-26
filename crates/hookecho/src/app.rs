@@ -2370,6 +2370,10 @@ pub(crate) enum PaletteAction {
     ZoomToGis,
     /// Switch the active pane between the flat map and the map-pitch 3D view (ROADMAP_NEW J6).
     ToggleMap3d,
+    /// While live, change tilt as each new sweep starts (`MapView::follow_live_sweep`).
+    ToggleFollowSweep,
+    /// While live, jump to the lowest tilt each time it is rescanned (`follow_lowest_cut`).
+    ToggleFollowLowest,
     /// Copy a `hookecho://goto/…` link to this view (site, center, zoom, archive time).
     CopyViewLink,
     /// Open Help at the glossary entry that explains a label's abbreviation. An index into
@@ -11193,6 +11197,18 @@ impl HookEchoApp {
                 let view = &mut self.views[self.active];
                 let on = !view.map_3d.enabled;
                 view.set_map_3d(on);
+            }
+            // The two follow modes are one choice: turning either on turns the other off.
+            PaletteAction::ToggleFollowSweep => {
+                let v = &mut self.views[self.active];
+                v.follow_live_sweep = !v.follow_live_sweep;
+                v.follow_lowest_cut &= !v.follow_live_sweep;
+                v.followed_sweep = None;
+            }
+            PaletteAction::ToggleFollowLowest => {
+                let v = &mut self.views[self.active];
+                v.follow_lowest_cut = !v.follow_lowest_cut;
+                v.follow_live_sweep &= !v.follow_lowest_cut;
             }
             PaletteAction::OpenWindow(w) => match w {
                 W::Site => {

@@ -1549,6 +1549,22 @@ impl HookEchoApp {
             None,
         );
         push(
+            "Follow live sweep",
+            "Radar",
+            "While live, change tilt as each new sweep starts, showing the elevation being scanned",
+            false,
+            PaletteAction::ToggleFollowSweep,
+            Some(self.views[self.active].follow_live_sweep),
+        );
+        push(
+            "Follow lowest tilt",
+            "Radar",
+            "While live, jump to the lowest tilt each time it is rescanned (SAILS/MRLE)",
+            false,
+            PaletteAction::ToggleFollowLowest,
+            Some(self.views[self.active].follow_lowest_cut),
+        );
+        push(
             "3D map view",
             "Tools",
             "Pitch this pane over into the map-pitch 3D view and back",

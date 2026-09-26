@@ -3155,6 +3155,9 @@ Add shortcuts for:
   the camera renders as a flat map with the 3D path's cost and reads as a broken toggle, so that
   contract has its own test — as does "re-selecting the current mode leaves a hand-set angle
   alone".
+- [x] follow the live sweep — new: `J` toggles `PaletteAction::ToggleFollowSweep` (tilt changes as
+  each new sweep starts while live); it and "Follow lowest tilt" are also search/Ctrl+K rows, and
+  turning one on turns the other off, matching the toolbar's Follow control and the ribbon pills.
 - [x] every shortcut must appear in command palette/help — automatically true for everything
   above: `ui::cheatsheet` and the settings window's rebind editor both read the live binding table
   generically (resolving a `Palette(_)` action's label from the same registry the drawer/palette
