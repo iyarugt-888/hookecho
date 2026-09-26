@@ -437,9 +437,9 @@ The redesign is ready when:
 >   reading plus the gate inspector on the rail rather than a third control; the rail has no
 >   separate pan (the explore tool pans), locate or warning-focus tool, since nothing in the app
 >   does those yet, and the 3D camera is the toolbar's 2D/3D/Volume control.
-> - Not yet: drag-reorder in the tree (§3.1; it lives in the Layer Manager); the sounding as a
->   dock tab (§2.3; the 3D controls, source health and the analyst log are tabs now); a screenshot
->   pass at phone width (§12.11; the phone layout is its own and unchanged).
+> - Not yet: drag-reorder in the tree (§3.1; it lives in the Layer Manager); a screenshot pass
+>   at phone width (§12.11; the phone layout is its own and unchanged). Every §2.3 window is
+>   dockable now: Layers, Inspector, 3D view, Sounding, Alerts, Sources, Analyst log, Preferences.
 
 ### 13.1 References
 
@@ -873,3 +873,10 @@ a scale bar on the map; a network round-trip measurement for the app bar; a natu
   group — names that hold the query as written, tightest first — so "window" finds the windows
   rather than "Wind toward/away" through a loose subsequence, and Enter takes the best row.
   Descriptions must hold the query as written too. Checked by screenshot searching "window".
+- The point sounding (§2.3) is an eighth tool window, **Sounding**: present once a point has
+  been sounded, it arrives in front of the right dock instead of as a 560 px window over the map.
+  In a dock the indices, the observed-profile line and the plots stack and scroll as one (the
+  Skew-T takes the dock's width, 220–300 px); floating, it is as wide as the standalone window
+  with the plots side by side. Closing the tab closes the sounding. The standalone window's
+  phone path now scrolls its whole body too, rather than the plots alone under the header.
+  Checked by screenshot: a Moore-area HRRR profile with the Norman RAOB, scrolled to the plots.

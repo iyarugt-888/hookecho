@@ -8,6 +8,11 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: the point sounding docks in the workstation
+
+In the Dock and WSV3 layouts, sounding a point on the map now opens the Skew-T, hodograph and
+indices as a **Sounding** tab in the right-hand panel instead of a large window over the map.
+
 ### Changed: search puts the closest names first
 
 In the Dock and WSV3 layouts' Layers search, layers whose names contain what you typed now lead

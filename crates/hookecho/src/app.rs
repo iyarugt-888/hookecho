@@ -23617,7 +23617,10 @@ impl eframe::App for HookEchoApp {
             }
         }
         let tz = self.active_tz();
-        self.sounding_window.show(ctx, tz, &mut self.drawer);
+        // The workstation draws the sounding as a dock tab (`app::chrome::dock::sounding`).
+        if !self.workstation_chrome() {
+            self.sounding_window.show(ctx, tz, &mut self.drawer);
+        }
         if std::mem::take(&mut self.sounding_window.refetch) {
             self.refetch_sounding();
         }

@@ -24,6 +24,7 @@ mod log;
 mod menus;
 mod prefs;
 mod rail;
+mod sounding;
 mod sources;
 mod timeline;
 mod view3d;
@@ -140,13 +141,16 @@ pub(crate) enum DockWin {
     Sources,
     /// Analyst Mode's live log (only while Analyst Mode is on).
     Log,
+    /// The point sounding (once a point has been sounded).
+    Sounding,
 }
 
 impl DockWin {
-    pub(crate) const ALL: [DockWin; 7] = [
+    pub(crate) const ALL: [DockWin; 8] = [
         DockWin::Layers,
         DockWin::Inspector,
         DockWin::View3d,
+        DockWin::Sounding,
         DockWin::Alerts,
         DockWin::Sources,
         DockWin::Log,
@@ -164,6 +168,7 @@ impl DockWin {
             DockWin::View3d => (ph::CUBE, "3D view"),
             DockWin::Sources => (ph::PULSE, "Sources"),
             DockWin::Log => (ph::TERMINAL_WINDOW, "Analyst log"),
+            DockWin::Sounding => (ph::THERMOMETER, "Sounding"),
         };
         ws::HeaderTab {
             glyph,
@@ -186,6 +191,7 @@ impl DockWin {
             DockWin::View3d => view3d::VIEW3D_W,
             DockWin::Sources => sources::SOURCES_W,
             DockWin::Log => log::LOG_W,
+            DockWin::Sounding => sounding::SOUNDING_W,
         }
     }
 }
@@ -244,6 +250,9 @@ pub(crate) struct DockState {
     pub view3d: WindowChrome,
     pub sources: WindowChrome,
     pub log: WindowChrome,
+    pub sounding: WindowChrome,
+    /// Whether a point has been sounded (the sounding window's own `open`). Set each frame.
+    pub sounding_available: bool,
     /// Whether the Analyst log has anything to show: Analyst Mode is on. Set each frame.
     pub log_available: bool,
     /// Whether the 3D view window has anything to show: the active pane is in 3D. Set each frame
@@ -267,7 +276,7 @@ pub(crate) struct DockState {
     pub front: [Option<DockWin>; 2],
     /// Each window's `(open, place)` last frame, to bring a window that has just opened or just
     /// moved into a dock to the front of it.
-    seen: [(bool, Place); 7],
+    seen: [(bool, Place); 8],
     /// The window is too narrow for docks on both sides ([`ONE_DOCK_BELOW`]). Set each frame.
     pub narrow: bool,
     /// The side used most recently (0 left, 1 right): the one that stays while `narrow`.
@@ -291,6 +300,8 @@ impl Default for DockState {
             sources: WindowChrome::default(),
             log: WindowChrome::default(),
             log_available: false,
+            sounding: WindowChrome::default(),
+            sounding_available: false,
             view3d_available: false,
             prefs_page: PrefsPage::Map,
             timeline_open: true,
@@ -300,7 +311,7 @@ impl Default for DockState {
             jump: String::new(),
             arranged_for: None,
             front: [None; 2],
-            seen: [(false, Place::Float); 7],
+            seen: [(false, Place::Float); 8],
             narrow: false,
             last_side: 0,
             dock_widths: [None; 2],
@@ -334,6 +345,7 @@ impl DockState {
             sources: WindowChrome::at(false, Place::Right),
             log: WindowChrome::at(true, Place::Right),
             dock_widths: [None; 2],
+            sounding: WindowChrome::at(true, Place::Right),
             timeline_open: true,
         }
     }
@@ -350,6 +362,7 @@ impl DockState {
             sources: self.sources,
             log: self.log,
             dock_widths: self.dock_widths.map(|w| w.map(|w| w.round() as u16)),
+            sounding: self.sounding,
             timeline_open: self.timeline_open,
         }
     }
@@ -365,6 +378,7 @@ impl DockState {
         self.sources = w.sources;
         self.log = w.log;
         self.dock_widths = w.dock_widths.map(|w| w.map(f32::from));
+        self.sounding = w.sounding;
         self.timeline_open = w.timeline_open;
     }
 
@@ -377,6 +391,7 @@ impl DockState {
             DockWin::View3d => &self.view3d,
             DockWin::Sources => &self.sources,
             DockWin::Log => &self.log,
+            DockWin::Sounding => &self.sounding,
         }
     }
 
@@ -389,6 +404,7 @@ impl DockState {
             DockWin::View3d => &mut self.view3d,
             DockWin::Sources => &mut self.sources,
             DockWin::Log => &mut self.log,
+            DockWin::Sounding => &mut self.sounding,
         }
     }
 
@@ -399,6 +415,7 @@ impl DockState {
             && match w {
                 DockWin::View3d => self.view3d_available,
                 DockWin::Log => self.log_available,
+                DockWin::Sounding => self.sounding_available,
                 _ => true,
             }
     }
@@ -409,6 +426,15 @@ impl DockState {
             .into_iter()
             .filter(|w| self.present(*w) && self.chrome(*w).place == side)
             .collect()
+    }
+
+    /// Say whether a point has been sounded. A new sounding shows the tab again, and brings it
+    /// forward (the analyst just clicked the map for it).
+    pub(crate) fn set_sounding_available(&mut self, available: bool) {
+        if available && !self.sounding_available {
+            self.sounding.open = true;
+        }
+        self.sounding_available = available;
     }
 
     /// Say whether Analyst Mode is on. Turning it on shows the log again, as the floating
@@ -755,6 +781,7 @@ impl HookEchoApp {
         let in_3d = self.views[self.active].map_3d.enabled;
         self.dock.set_view3d_available(in_3d);
         self.dock.set_log_available(self.settings.analyst_mode);
+        self.dock.set_sounding_available(self.sounding_window.open);
         self.dock.update_fronts();
         self.dock.narrow = ctx.content_rect().width() < ONE_DOCK_BELOW;
         for side in [Place::Left, Place::Right] {
@@ -874,6 +901,7 @@ impl HookEchoApp {
             DockWin::View3d => self.dock_view3d(host),
             DockWin::Sources => self.dock_sources(host),
             DockWin::Log => self.dock_log(host),
+            DockWin::Sounding => self.dock_sounding(host),
         }
     }
 
@@ -1232,6 +1260,7 @@ mod tests {
             sources: WindowChrome::at(true, Place::Right),
             log: WindowChrome::at(false, Place::Left),
             dock_widths: [None, Some(360)],
+            sounding: WindowChrome::at(false, Place::Left),
             timeline_open: false,
         };
         s.arrange(&w);
@@ -1310,6 +1339,14 @@ mod tests {
         three.set_log_available(true);
         three.update_fronts();
         assert!(three.shown(DockWin::Log));
+        // A new sounding brings its tab in; with none, there is no tab.
+        three.sounding = WindowChrome::at(true, Place::Right);
+        three.set_sounding_available(false);
+        three.update_fronts();
+        assert!(!three.stack(Place::Right).contains(&DockWin::Sounding));
+        three.set_sounding_available(true);
+        three.update_fronts();
+        assert!(three.shown(DockWin::Sounding));
         // Windows arriving together (a restored arrangement) open on the first in tab order.
         let mut restored = DockState::default();
         restored.inspector = WindowChrome::at(true, Place::Right);

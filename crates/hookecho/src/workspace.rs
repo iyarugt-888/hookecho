@@ -179,6 +179,9 @@ pub struct WorkstationChrome {
     /// is the width its windows ask for.
     #[serde(default)]
     pub dock_widths: [Option<u16>; 2],
+    /// The point sounding, shown once a point has been sounded. Docks right by default.
+    #[serde(default = "sounding_default")]
+    pub sounding: WindowChrome,
     #[serde(default = "yes")]
     pub timeline_open: bool,
 }
@@ -196,6 +199,10 @@ fn sources_default() -> WindowChrome {
 }
 
 fn log_default() -> WindowChrome {
+    WindowChrome::at(true, Place::Right)
+}
+
+fn sounding_default() -> WindowChrome {
     WindowChrome::at(true, Place::Right)
 }
 
@@ -702,6 +709,7 @@ mod tests {
                     sources: WindowChrome::at(true, Place::Left),
                     log: WindowChrome::at(true, Place::Right),
                     dock_widths: [Some(320), None],
+                    sounding: WindowChrome::at(true, Place::Float),
                     timeline_open: false,
                 }),
             }),

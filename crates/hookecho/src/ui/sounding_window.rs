@@ -68,168 +68,181 @@ impl SoundingWindow {
             self.open = open;
             return;
         };
+        let phone = crate::platform::phone_layout();
         window.show(ctx, |ui| {
-                if self.busy {
-                    ui.horizontal(|ui| {
-                        ui.spinner();
-                        ui.weak("fetching HRRR profile…");
-                    });
-                    return;
-                }
-                if let Some(e) = &self.error {
-                    ui.colored_label(egui::Color32::from_rgb(230, 120, 120), format!("Sounding unavailable: {e}"));
-                    return;
-                }
-                let Some(s) = &self.sounding else {
-                    ui.weak("Press Ctrl+K, pick \"Tool: Sounding\", then click a point on the map.");
-                    return;
-                };
-                ui.horizontal_wrapped(|ui| {
-                    ui.strong(format!("{:.2}, {:.2}", s.lat, s.lon));
-                    ui.separator();
-                    // Forecast hour: same run, later in it. The valid time is what the chaser
-                    // actually cares about, so it is the label.
-                    if ui
-                        .add_enabled(self.fh > 0, egui::Button::new("◀"))
-                        .clicked()
-                    {
-                        self.fh = self.fh.saturating_sub(1);
-                        self.refetch = true;
-                    }
-                    ui.strong(format!("f{:02}", s.fh));
-                    if ui
-                        .add_enabled(self.fh < 48, egui::Button::new("▶"))
-                        .clicked()
-                    {
-                        self.fh += 1;
-                        self.refetch = true;
-                    }
-                    ui.weak(format!(
-                        "valid {}",
-                        crate::timefmt::fmt_date_clock(
-                            s.run + chrono::Duration::hours(s.fh as i64),
-                            tz
-                        )
-                    ));
-                    ui.separator();
-                    ui.weak(format!("run {}", crate::timefmt::fmt_date_clock(s.run, tz)));
-                    if let Some(sh) = s.bulk_shear_kt() {
-                        ui.separator();
-                        ui.label(format!("0–6 km shear ≈ {sh:.0} kt"));
-                    }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        crate::ui::csv_buttons(
-                            ui,
-                            "sounding.csv",
-                            "The indices, then the profile they came from",
-                            || s.to_csv(),
-                        );
-                    });
-                });
-                // Fixed-layer composite indices (feature FF): the numbers a chaser scans first.
-                if let Some(ix) = s.indices() {
-                    let parcel = s.parcel();
-                    let level = |v: Option<f64>| match v {
-                        Some(m) => format!("{m:.0} m"),
-                        None => "—".to_string(),
-                    };
-                    let mut cards = vec![
-                        ("SBCAPE", format!("{:.0} J/kg", ix.sbcape)),
-                        (
-                            "SBCIN",
-                            parcel
-                                .as_ref()
-                                .map_or("—".to_string(), |p| format!("{:.0} J/kg", p.cin)),
-                        ),
-                        ("LCL", format!("{:.0} m", ix.lcl_m)),
-                        (
-                            "LFC",
-                            level(parcel.as_ref().and_then(|p| p.lfc_m)),
-                        ),
-                        ("EL", level(parcel.as_ref().and_then(|p| p.el_m))),
-                        ("SRH 0–1", format!("{:.0}", ix.srh1)),
-                        ("SRH 0–3", format!("{:.0}", ix.srh3)),
-                        ("SCP", format!("{:.1}", ix.scp)),
-                        ("STP", format!("{:.1}", ix.stp)),
-                        ("EHI 0–1", format!("{:.1}", ix.ehi1)),
-                    ];
-                    // Effective-layer forms — the same solve the gridded severe layers run per
-                    // cell, so the panel and the map now agree in method. Absent when the column
-                    // has no effective inflow layer, which is the honest answer for a capped one.
-                    let eff = wxdata::severe::effective_indices(s);
-                    if let Some(e) = eff {
-                        let opt = |v: Option<f64>, p: usize| match v {
-                            Some(x) => format!("{x:.*}", p),
-                            None => "—".to_string(),
-                        };
-                        cards.push(("ESRH", format!("{:.0}", e.esrh)));
-                        cards.push(("EBWD", opt(e.ebwd_kt, 0)));
-                        cards.push(("STP (eff)", opt(e.stp_eff, 1)));
-                    }
-                    // Chunked by hand rather than `horizontal_wrapped`: a `Frame` with `set_width`
-                    // — which is what `stat_card` is — doesn't participate in egui's wrapping, so
-                    // all seven stayed on one 900 pt line and dragged the whole window off both
-                    // edges of a phone screen.
-                    let per_row = ((ui.available_width() / CARD_W) as usize).max(1);
-                    for row in cards.chunks(per_row) {
-                        ui.horizontal(|ui| {
-                            for (label, value) in row {
-                                crate::theme::stat_card(ui, label, value);
-                            }
-                        });
-                    }
-                    ui.weak(if eff.is_some() {
-                        "Fixed- and effective-layer forms from 10 mandatory levels — coarser than SPC mesoanalysis."
-                    } else {
-                        "Fixed-layer forms from 10 mandatory levels — no effective inflow layer in this column."
-                    });
-                }
-                // Observed ascent: a line about where it came from, and the toggle.
-                // Wrapped, not a plain `horizontal`: this row is long ("Fort Worth, TX (72249)
-                // 28 Jul 12Z · …") and a non-wrapping row sets the window's minimum width, which
-                // on a phone pushed the whole window off both screen edges.
-                ui.horizontal_wrapped(|ui| match (&self.observed, &self.observed_error) {
-                    (Some(o), _) => {
-                        ui.checkbox(&mut self.show_observed, "Observed (RAOB)");
-                        ui.weak(format!(
-                            "{} · {}",
-                            self.observed_station,
-                            crate::timefmt::fmt_date_clock(o.run, tz)
-                        ));
-                    }
-                    (None, Some(e)) => {
-                        ui.weak(format!("Observed sounding: {e}"));
-                    }
-                    (None, None) => {
-                        ui.weak("Observed sounding: fetching\u{2026}");
-                    }
-                });
-                let observed = self.show_observed.then_some(self.observed.as_ref()).flatten();
-                ui.separator();
-                // Phone: the fixed-width plots (300 + 240 px) side by side overflow the screen —
-                // stack them vertically inside a scroll instead (fixed-width content overrides
-                // phone_surface's max_width; same pattern as cell_window's grid).
-                if crate::platform::phone_layout() {
-                    egui::ScrollArea::vertical().show(ui, |ui| {
-                        skewt(ui, s, observed);
-                        ui.add_space(6.0);
-                        hodograph(ui, s, observed);
-                    });
-                } else {
-                    ui.horizontal(|ui| {
-                        skewt(ui, s, observed);
-                        hodograph(ui, s, observed);
-                    });
-                }
-            });
+            if phone {
+                egui::ScrollArea::vertical().show(ui, |ui| self.body(ui, tz, true));
+            } else {
+                self.body(ui, tz, false);
+            }
+        });
         self.open = open;
+    }
+
+    /// The window's contents: header, indices, the observed-profile line and the two plots —
+    /// side by side, or `stacked` where the width is a phone's or a dock's (the caller scrolls).
+    pub fn body(&mut self, ui: &mut egui::Ui, tz: Option<wxdata::tz::Tz>, stacked: bool) {
+        if self.busy {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.weak("fetching HRRR profile…");
+            });
+            return;
+        }
+        if let Some(e) = &self.error {
+            ui.colored_label(
+                egui::Color32::from_rgb(230, 120, 120),
+                format!("Sounding unavailable: {e}"),
+            );
+            return;
+        }
+        let Some(s) = &self.sounding else {
+            ui.weak("Press Ctrl+K, pick \"Tool: Sounding\", then click a point on the map.");
+            return;
+        };
+        ui.horizontal_wrapped(|ui| {
+            ui.strong(format!("{:.2}, {:.2}", s.lat, s.lon));
+            ui.separator();
+            // Forecast hour: same run, later in it. The valid time is what the chaser
+            // actually cares about, so it is the label.
+            if ui
+                .add_enabled(self.fh > 0, egui::Button::new("◀"))
+                .clicked()
+            {
+                self.fh = self.fh.saturating_sub(1);
+                self.refetch = true;
+            }
+            ui.strong(format!("f{:02}", s.fh));
+            if ui
+                .add_enabled(self.fh < 48, egui::Button::new("▶"))
+                .clicked()
+            {
+                self.fh += 1;
+                self.refetch = true;
+            }
+            ui.weak(format!(
+                "valid {}",
+                crate::timefmt::fmt_date_clock(s.run + chrono::Duration::hours(s.fh as i64), tz)
+            ));
+            ui.separator();
+            ui.weak(format!("run {}", crate::timefmt::fmt_date_clock(s.run, tz)));
+            if let Some(sh) = s.bulk_shear_kt() {
+                ui.separator();
+                ui.label(format!("0–6 km shear ≈ {sh:.0} kt"));
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                crate::ui::csv_buttons(
+                    ui,
+                    "sounding.csv",
+                    "The indices, then the profile they came from",
+                    || s.to_csv(),
+                );
+            });
+        });
+        // Fixed-layer composite indices (feature FF): the numbers a chaser scans first.
+        if let Some(ix) = s.indices() {
+            let parcel = s.parcel();
+            let level = |v: Option<f64>| match v {
+                Some(m) => format!("{m:.0} m"),
+                None => "—".to_string(),
+            };
+            let mut cards = vec![
+                ("SBCAPE", format!("{:.0} J/kg", ix.sbcape)),
+                (
+                    "SBCIN",
+                    parcel
+                        .as_ref()
+                        .map_or("—".to_string(), |p| format!("{:.0} J/kg", p.cin)),
+                ),
+                ("LCL", format!("{:.0} m", ix.lcl_m)),
+                ("LFC", level(parcel.as_ref().and_then(|p| p.lfc_m))),
+                ("EL", level(parcel.as_ref().and_then(|p| p.el_m))),
+                ("SRH 0–1", format!("{:.0}", ix.srh1)),
+                ("SRH 0–3", format!("{:.0}", ix.srh3)),
+                ("SCP", format!("{:.1}", ix.scp)),
+                ("STP", format!("{:.1}", ix.stp)),
+                ("EHI 0–1", format!("{:.1}", ix.ehi1)),
+            ];
+            // Effective-layer forms — the same solve the gridded severe layers run per
+            // cell, so the panel and the map now agree in method. Absent when the column
+            // has no effective inflow layer, which is the honest answer for a capped one.
+            let eff = wxdata::severe::effective_indices(s);
+            if let Some(e) = eff {
+                let opt = |v: Option<f64>, p: usize| match v {
+                    Some(x) => format!("{x:.*}", p),
+                    None => "—".to_string(),
+                };
+                cards.push(("ESRH", format!("{:.0}", e.esrh)));
+                cards.push(("EBWD", opt(e.ebwd_kt, 0)));
+                cards.push(("STP (eff)", opt(e.stp_eff, 1)));
+            }
+            // Chunked by hand rather than `horizontal_wrapped`: a `Frame` with `set_width`
+            // — which is what `stat_card` is — doesn't participate in egui's wrapping, so
+            // all seven stayed on one 900 pt line and dragged the whole window off both
+            // edges of a phone screen.
+            let per_row = ((ui.available_width() / CARD_W) as usize).max(1);
+            for row in cards.chunks(per_row) {
+                ui.horizontal(|ui| {
+                    for (label, value) in row {
+                        crate::theme::stat_card(ui, label, value);
+                    }
+                });
+            }
+            ui.weak(if eff.is_some() {
+                "Fixed- and effective-layer forms from 10 mandatory levels — coarser than SPC mesoanalysis."
+            } else {
+                "Fixed-layer forms from 10 mandatory levels — no effective inflow layer in this column."
+            });
+        }
+        // Observed ascent: a line about where it came from, and the toggle.
+        // Wrapped, not a plain `horizontal`: this row is long ("Fort Worth, TX (72249)
+        // 28 Jul 12Z · …") and a non-wrapping row sets the window's minimum width, which
+        // on a phone pushed the whole window off both screen edges.
+        ui.horizontal_wrapped(|ui| match (&self.observed, &self.observed_error) {
+            (Some(o), _) => {
+                ui.checkbox(&mut self.show_observed, "Observed (RAOB)");
+                ui.weak(format!(
+                    "{} · {}",
+                    self.observed_station,
+                    crate::timefmt::fmt_date_clock(o.run, tz)
+                ));
+            }
+            (None, Some(e)) => {
+                ui.weak(format!("Observed sounding: {e}"));
+            }
+            (None, None) => {
+                ui.weak("Observed sounding: fetching\u{2026}");
+            }
+        });
+        let observed = self
+            .show_observed
+            .then_some(self.observed.as_ref())
+            .flatten();
+        ui.separator();
+        // Phone: the fixed-width plots (300 + 240 px) side by side overflow the screen —
+        // stack them vertically inside a scroll instead (fixed-width content overrides
+        // phone_surface's max_width; same pattern as cell_window's grid).
+        // Stacked, the caller scrolls the whole body: a scroll area of the plots alone, under
+        // the header and indices, was left a sliver of height to show them in.
+        if stacked {
+            skewt(ui, s, observed);
+            ui.add_space(6.0);
+            hodograph(ui, s, observed);
+        } else {
+            ui.horizontal(|ui| {
+                skewt(ui, s, observed);
+                hodograph(ui, s, observed);
+            });
+        }
     }
 }
 
 /// Simplified Skew-T: temperature (red) and dewpoint (green) plotted against log-pressure, with
 /// temperature skewed 45° to the right (the classic emagram layout).
 fn skewt(ui: &mut egui::Ui, s: &Sounding, observed: Option<&Sounding>) {
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(300.0, 380.0), egui::Sense::hover());
+    // Up to 300 px wide: narrower where it sits in a dock. The axes are laid out from `rect`.
+    let w = ui.available_width().clamp(220.0, 300.0);
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(w, 380.0), egui::Sense::hover());
     let p = ui.painter_at(rect);
     p.rect_filled(rect, 4.0, ui.visuals().extreme_bg_color);
     let grid = ui
@@ -341,7 +354,8 @@ fn skewt(ui: &mut egui::Ui, s: &Sounding, observed: Option<&Sounding>) {
 
 /// Hodograph: wind (u, v) at each level, connected surface→top, in knots.
 fn hodograph(ui: &mut egui::Ui, s: &Sounding, observed: Option<&Sounding>) {
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(240.0, 380.0), egui::Sense::hover());
+    let w = ui.available_width().clamp(200.0, 240.0);
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(w, 380.0), egui::Sense::hover());
     let p = ui.painter_at(rect);
     p.rect_filled(rect, 4.0, ui.visuals().extreme_bg_color);
     let grid = ui
