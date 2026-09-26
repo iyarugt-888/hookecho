@@ -36,6 +36,7 @@ fn row_controls(action: crate::app::PaletteAction) -> (Option<crate::render::Fie
             | O::LockSourceTime
             | O::LinkSite
             | O::LinkCursor
+            | O::LinkStorm
             | O::MiniLoop,
         ) => (None, false),
         A::ToggleOverlay(_) | A::ToggleModelProduct(_) => (None, true),

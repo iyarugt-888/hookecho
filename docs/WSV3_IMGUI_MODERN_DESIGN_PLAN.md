@@ -921,3 +921,11 @@ a scale bar on the map; a network round-trip measurement for the app bar; a natu
   back as the window widens, arrangement untouched. Every place that asked "is this the
   workstation" (layout dispatch, workspace capture, the panel actions) now asks
   `workstation_chrome()`. Checked by screenshot at 500 × 800 and back at 1920.
+- Selected storm in the Inspector (§4 context body): clicking a SCIT cell selects it; in the
+  workstation the Inspector shows a Storm section and is brought forward, and the full attributes
+  window opens only from Details…, so the map is not covered. "All panes" is roadmap J2's storm
+  link. Checked by screenshot on live KTLX, one pane and two linked panes.
+- Fixed while checking it: the frame's label placer asserts that layers reserve in priority
+  order, but it was reset once per frame rather than per pane, so a second pane's warning labels
+  panicked debug builds whenever warnings were in view. `Placer::next_pane` restarts the order
+  check for each pane.

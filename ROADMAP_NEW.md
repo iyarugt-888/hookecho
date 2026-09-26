@@ -2980,7 +2980,7 @@ Support:
 
 Android may use fewer panes based on screen size.
 
-## J2. Link groups — partly done
+## J2. Link groups — done, as global links (see note)
 
 This section's own three pre-existing items (camera, zoom, time) are not independent *groups* in
 the sense the rest of this section asks for — one global on/off per attribute, shared by every
@@ -3003,7 +3003,15 @@ Each pane should independently join link groups for:
   storm" rather than making every pane identical — the "Chase" and "Analysis" starter workspaces
   (which already show one site across every pane) now default it on; "National overview" (one
   pane) defaults it off, same as its existing `link_cameras`.
-- [ ] storm selection — no cross-pane storm-selection concept exists yet to link at all
+- [x] storm selection — the selected SCIT cell (`cell_popup`, kept current by id through each
+  update, `HookEchoApp::selected_storm`) is now a cross-pane concept: `OverlayToggle::LinkStorm`
+  ("Link selected storm", saved with a workspace) marks it with a ring and its id in every pane
+  and recenters every pane on it when the selection changes or the storm moves more than a
+  kilometre — once per change, so each pane's own pan and zoom hold between updates. Without the
+  link only the active pane marks it. The workstation Inspector gains a Storm section (max dBZ
+  and height, top, VIL, POSH/POH, max hail, TVS/meso, motion; strong values flagged) with
+  Center, All panes, Details… and Clear; selecting a storm there brings the Inspector forward
+  instead of opening the full attributes window, which Details… opens.
 
 This enables, for example, four products locked in location/time but not product.
 

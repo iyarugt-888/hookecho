@@ -2121,6 +2121,9 @@ pub(crate) enum OverlayToggle {
     /// a compact per-pane value table — a shared crosshair rather than each pane's own independent
     /// cursor.
     LinkCursor,
+    /// ROADMAP_NEW J2's storm-selection link: the selected storm cell is marked in every pane,
+    /// and every pane recenters on it when the selection changes or the storm moves.
+    LinkStorm,
     /// The always-on-top mini-loop window (desktop only).
     MiniLoop,
     /// Beam-vs-terrain blockage shading for the displayed tilt (chase mode).
@@ -2170,7 +2173,7 @@ pub(crate) struct CoverageCompareKey {
 impl OverlayToggle {
     /// Every toggle, for the persistence sweep. A new variant belongs here too, or it silently
     /// stops being remembered across restarts.
-    pub(crate) const ALL: [OverlayToggle; 50] = [
+    pub(crate) const ALL: [OverlayToggle; 51] = [
         Self::AlertPanel,
         Self::StormReports,
         Self::Spotters,
@@ -2216,6 +2219,7 @@ impl OverlayToggle {
         Self::LockSourceTime,
         Self::LinkSite,
         Self::LinkCursor,
+        Self::LinkStorm,
         Self::MiniLoop,
         Self::Blockage,
         Self::LowestTilt,
@@ -2236,6 +2240,7 @@ impl OverlayToggle {
                 | Self::LockSourceTime
                 | Self::LinkSite
                 | Self::LinkCursor
+                | Self::LinkStorm
                 | Self::MiniLoop
                 | Self::ImportedGis
         )
@@ -3526,7 +3531,10 @@ pub struct HookEchoApp {
     overlay_last_fetch: Option<Instant>,
     detail: Option<Detail>,
     /// Open "Storm {id} Attributes" window (a clicked storm cell).
-    cell_popup: Option<Cell>,
+    pub(crate) cell_popup: Option<Cell>,
+    /// Whether the full storm-attributes window is showing for `cell_popup`. Always, outside the
+    /// workstation; there, the Inspector's storm section is the summary and this opens on request.
+    pub(crate) cell_details: bool,
     /// Open gate-inspector popup: every geometry/value fact about the point sampled with the
     /// explicit Gate inspector tool.
     gate_popup: Option<ui::gate_inspector::GateInspectorPopup>,
@@ -3796,6 +3804,12 @@ pub struct HookEchoApp {
     /// here, so every pane can draw a matching crosshair and the probe table can sample all of
     /// them at once — a shared cursor rather than each pane's own independent hover.
     link_cursor: bool,
+    /// ROADMAP_NEW J2: the selected storm (`cell_popup`) is shared by every pane — marked in each,
+    /// and each recenters on it as it moves. See `paint_selected_storm`/`follow_linked_storm`.
+    pub(crate) link_storm: bool,
+    /// The selected storm's id and position the panes were last centered on, so the link moves
+    /// them once per change rather than pinning them against the user's own panning.
+    storm_link_at: Option<(String, f64, f64)>,
     /// The point `link_cursor` is currently sharing across panes, refreshed every frame from
     /// whichever pane the mouse is actually over and cleared when the pointer leaves every pane.
     /// Not persisted — a live hover position, not a saved preference.
@@ -5093,6 +5107,7 @@ impl HookEchoApp {
             overlay_last_fetch: None,
             detail: None,
             cell_popup: None,
+            cell_details: false,
             gate_popup: None,
             suitability_popup: None,
             marker_popup: None,
@@ -5216,6 +5231,8 @@ impl HookEchoApp {
             link_site: false,
             link_cursor: false,
             linked_probe: None,
+            link_storm: false,
+            storm_link_at: None,
             linked_analysis: pane_time::LinkedTimeState::default(),
             mini_loop: false,
             #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
@@ -8864,6 +8881,104 @@ impl HookEchoApp {
         }
     }
 
+    /// Select a storm cell. Outside the workstation that opens its attributes window, as before;
+    /// in the workstation the Inspector's storm section shows it (brought forward if it was hidden
+    /// or behind another tab), and the full window waits for its Details button.
+    pub(crate) fn select_storm(&mut self, c: Cell) {
+        self.cell_popup = Some(c);
+        if self.workstation_chrome() {
+            self.cell_details = false;
+            if !self.dock.shown(chrome::DockWin::Inspector) {
+                self.dock.toggle(chrome::DockWin::Inspector);
+            }
+        } else {
+            self.cell_details = true;
+        }
+    }
+
+    /// The selected storm, current: `cell_popup` is a copy taken at the click, so the newest
+    /// SCIT update of the same cell (by id) replaces it, keeping its position and attributes live.
+    /// `None` when nothing is selected; the click-time copy when the cell has left the product.
+    pub(crate) fn selected_storm(&self) -> Option<Cell> {
+        let picked = self.cell_popup.as_ref()?;
+        Some(
+            self.active_storm_cells()
+                .iter()
+                .find(|c| !picked.id.is_empty() && c.id == picked.id)
+                .cloned()
+                .unwrap_or_else(|| picked.clone()),
+        )
+    }
+
+    /// ROADMAP_NEW J2: mark the selected storm — a ring and its id — in the active pane, and in
+    /// every pane while `link_storm` is on. Geographic, so a pane on another radar or zoom marks
+    /// the same storm.
+    fn paint_selected_storm(&mut self, ui: &egui::Ui, rects: &[egui::Rect], solo: bool) {
+        let Some(cell) = self.selected_storm() else {
+            return;
+        };
+        let world = crate::render::mercator::lonlat_to_world(cell.lon, cell.lat);
+        let accent = crate::theme::accent(self.settings.theme);
+        for (idx, rect) in rects.iter().enumerate() {
+            let linked = self.link_storm && !solo;
+            if idx != self.active && !linked {
+                continue;
+            }
+            let (sx, sy) = self.views[idx]
+                .camera
+                .world_to_screen(world, (rect.width(), rect.height()));
+            let pos = egui::pos2(rect.left() + sx, rect.top() + sy);
+            if !rect.contains(pos) {
+                continue;
+            }
+            let painter = ui.painter_at(*rect);
+            painter.circle_stroke(pos, 17.0, egui::Stroke::new(3.0, egui::Color32::BLACK));
+            painter.circle_stroke(pos, 17.0, egui::Stroke::new(2.0, accent));
+            painter.circle_stroke(
+                pos,
+                22.0,
+                egui::Stroke::new(1.0, accent.gamma_multiply(0.5)),
+            );
+            if !cell.id.is_empty() {
+                let at = pos + egui::vec2(20.0, -20.0);
+                let galley = painter.layout_no_wrap(
+                    cell.id.clone(),
+                    egui::FontId::monospace(12.0),
+                    egui::Color32::WHITE,
+                );
+                let r = egui::Rect::from_min_size(at, galley.size()).expand2(egui::vec2(4.0, 2.0));
+                painter.rect_filled(r, 3.0, accent.gamma_multiply(0.85));
+                painter.galley(at, galley, egui::Color32::WHITE);
+            }
+        }
+    }
+
+    /// ROADMAP_NEW J2: while `link_storm` is on, recenter every pane on the selected storm when
+    /// the selection changes or the storm has moved more than a kilometre since — once per change,
+    /// so each pane's own pan and zoom hold in between.
+    fn follow_linked_storm(&mut self) {
+        let cell = if self.link_storm {
+            self.selected_storm()
+        } else {
+            None
+        };
+        let Some(cell) = cell else {
+            self.storm_link_at = None;
+            return;
+        };
+        let moved = self.storm_link_at.as_ref().is_none_or(|(id, lon, lat)| {
+            *id != cell.id || crate::geo::great_circle([*lon, *lat], [cell.lon, cell.lat]).0 > 1.0
+        });
+        if !moved {
+            return;
+        }
+        let center = crate::render::mercator::lonlat_to_world(cell.lon, cell.lat);
+        for v in &mut self.views {
+            v.camera.center = center;
+        }
+        self.storm_link_at = Some((cell.id.clone(), cell.lon, cell.lat));
+    }
+
     /// ROADMAP_NEW J3: while `link_cursor` is on and some pane is hovered, draw a matching
     /// crosshair on every pane at the same geographic point and show the compact probe table.
     /// The table samples each pane's top visible gridded layer or, when there is none, its radar
@@ -10843,6 +10958,7 @@ impl HookEchoApp {
             T::LockSourceTime => &mut self.lock_source_time,
             T::LinkSite => &mut self.link_site,
             T::LinkCursor => &mut self.link_cursor,
+            T::LinkStorm => &mut self.link_storm,
             T::MiniLoop => &mut self.mini_loop,
             T::Blockage => &mut self.show_blockage,
             T::LowestTilt => &mut self.show_lowest_tilt,
@@ -15310,6 +15426,8 @@ impl HookEchoApp {
         placefile_labels: &[PlaceLabel],
     ) {
         crate::prof_scope!("render_pane");
+        // Every pane draws its label layers top priority first.
+        self.labels.next_pane();
         use crate::tiles::BasemapStyle;
         // This pane's own basemap: panes are independent, the tile caches are keyed by style.
         // `Auto` resolves here rather than where it is stored, so the stored choice keeps
@@ -16073,7 +16191,7 @@ impl HookEchoApp {
                                 Some(c) if !c.id.is_empty() => {
                                     self.detail = None;
                                     self.gate_popup = None;
-                                    self.cell_popup = Some(c);
+                                    self.select_storm(c);
                                 }
                                 Some(c) => {
                                     self.cell_popup = None;
@@ -19550,6 +19668,7 @@ impl HookEchoApp {
             lock_source_time: self.lock_source_time,
             link_site: self.link_site,
             link_cursor: self.link_cursor,
+            link_storm: self.link_storm,
             overlays_on,
             // A workspace you saved records the sites you had open; only the shipped starters
             // adopt whatever is on screen.
@@ -19601,6 +19720,7 @@ impl HookEchoApp {
         self.lock_source_time = ws.lock_source_time;
         self.link_site = ws.link_site;
         self.link_cursor = ws.link_cursor;
+        self.link_storm = ws.link_storm;
         self.linked_probe = None;
         self.linked_analysis = pane_time::LinkedTimeState::default();
         // Overlay names this build doesn't know are skipped, same as the settings restore.
@@ -23980,11 +24100,12 @@ impl eframe::App for HookEchoApp {
                 let cam = &mut self.views[self.active].camera;
                 cam.center = crate::render::mercator::lonlat_to_world(c.lon, c.lat);
                 cam.zoom = cam.zoom.max(8.0);
-                self.cell_popup = Some(c);
+                self.select_storm(c);
             }
         }
         let mut open_3d: Option<[f32; 6]> = None;
-        if let Some(cell) = &self.cell_popup {
+        let show_details = self.cell_details || !self.workstation_chrome();
+        if let Some(cell) = self.cell_popup.as_ref().filter(|_| show_details) {
             let trend = self
                 .cell_trends
                 .get(&cell.id)
@@ -24038,7 +24159,12 @@ impl eframe::App for HookEchoApp {
                 }
             }
             if !open {
-                self.cell_popup = None;
+                // In the workstation the window is the storm's detail, not its selection.
+                if self.workstation_chrome() {
+                    self.cell_details = false;
+                } else {
+                    self.cell_popup = None;
+                }
             }
         }
         if let Some(clip) = open_3d {
@@ -24378,6 +24504,7 @@ impl eframe::App for HookEchoApp {
             // hover block does, when `link_cursor` is on): leaving the map area with no pane
             // hovered must drop the shared point rather than leave the last one drawn everywhere.
             self.linked_probe = None;
+            self.follow_linked_storm();
             for (i, prect) in rects.iter().enumerate() {
                 if solo && i != head {
                     continue;
@@ -24398,6 +24525,7 @@ impl eframe::App for HookEchoApp {
 
             self.paint_linked_time_badges(ui, &rects, solo);
             self.paint_linked_cursor(ui, &rects, solo);
+            self.paint_selected_storm(ui, &rects, solo);
 
             // Pane borders; the active pane gets an accent outline. Nothing to outline under
             // `solo` — there is one pane on screen and the strip says which.

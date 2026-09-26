@@ -143,6 +143,11 @@ impl HookEchoApp {
         let mut want = None;
         let mut pin = false;
         let mut step_model = None;
+        // The selected storm (a click on a SCIT cell), current as of the newest update.
+        let storm = self.selected_storm();
+        let storm_rows = storm.as_ref().map(|c| storm_rows(c, metric));
+        let link_storm = self.link_storm;
+        let mut storm_act = None;
         let mut body = |ui: &mut egui::Ui| {
             ui.horizontal(|ui| {
                 ui.label(ws::text(product, 14.5, t.accent).strong());
@@ -241,6 +246,43 @@ impl HookEchoApp {
                         .clicked()
                     {
                         step_model = Some(1);
+                    }
+                });
+            }
+            if let (Some(c), Some(rows)) = (&storm, &storm_rows) {
+                ui.add_space(6.0);
+                ws::section_rule(ui, &t, &format!("Storm {}", c.id));
+                for (k, v, warn) in rows {
+                    ws::kv(ui, &t, k, v, warn.then_some(t.warn));
+                }
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 6.0;
+                    if ws::button(ui, &t, "Center", 0.0)
+                        .named("Center the map on this storm")
+                        .clicked()
+                    {
+                        storm_act = Some(StormAct::Center);
+                    }
+                    let mut linked = link_storm;
+                    if ws::check(ui, &t, &mut linked, "All panes")
+                        .on_hover_text(
+                            "Mark this storm in every pane and keep each on it as it moves",
+                        )
+                        .changed()
+                    {
+                        storm_act = Some(StormAct::Link);
+                    }
+                    if ws::button(ui, &t, "Details\u{2026}", 0.0)
+                        .named("The storm's full attributes, trend and 3D view")
+                        .clicked()
+                    {
+                        storm_act = Some(StormAct::Details);
+                    }
+                    if ws::button(ui, &t, "Clear", 0.0)
+                        .named("Deselect the storm")
+                        .clicked()
+                    {
+                        storm_act = Some(StormAct::Clear);
                     }
                 });
             }
@@ -344,7 +386,101 @@ impl HookEchoApp {
         if let Some(step) = step_model {
             self.apply_palette(crate::app::PaletteAction::StepModelLead(step), ctx);
         }
+        match (storm_act, storm) {
+            (Some(StormAct::Center), Some(c)) => {
+                let cam = &mut self.views[self.active].camera;
+                cam.center = crate::render::mercator::lonlat_to_world(c.lon, c.lat);
+            }
+            (Some(StormAct::Link), _) => self.apply_palette(
+                crate::app::PaletteAction::ToggleOverlay(crate::app::OverlayToggle::LinkStorm),
+                ctx,
+            ),
+            (Some(StormAct::Clear), _) => {
+                self.cell_popup = None;
+                self.cell_details = false;
+            }
+            (Some(StormAct::Details), _) => self.cell_details = true,
+            _ => {}
+        }
     }
+}
+
+/// What the Inspector's storm section asked for.
+#[derive(Clone, Copy)]
+enum StormAct {
+    Center,
+    Link,
+    Details,
+    Clear,
+}
+
+/// The selected storm's rows: strength, height, water aloft, hail, rotation and motion — what
+/// an analyst reads off a SCIT cell first. `true` marks a value worth a second look (a TVS or
+/// meso, a 50 %+ chance of severe hail). Unknown values are left out rather than shown as dashes.
+pub(super) fn storm_rows(
+    c: &wxdata::level3::Cell,
+    metric: bool,
+) -> Vec<(&'static str, String, bool)> {
+    let mut rows = Vec::new();
+    if let Some(dbz) = c.max_dbz {
+        let at = c
+            .max_dbz_hgt_kft
+            .map(|h| format!(" at {}", fmt_kft(h, metric)))
+            .unwrap_or_default();
+        rows.push(("Max", format!("{dbz:.0} dBZ{at}"), false));
+    }
+    if let Some(top) = c.top_kft {
+        rows.push(("Top", fmt_kft(top, metric), false));
+    }
+    if let Some(vil) = c.vil {
+        rows.push(("VIL", format!("{vil:.0} kg/m\u{b2}"), false));
+    }
+    match (c.posh, c.poh) {
+        (Some(s), Some(h)) => rows.push(("Hail", format!("POSH {s}% \u{b7} POH {h}%"), s >= 50)),
+        (Some(s), None) => rows.push(("Hail", format!("POSH {s}%"), s >= 50)),
+        (None, Some(h)) => rows.push(("Hail", format!("POH {h}%"), false)),
+        (None, None) => {}
+    }
+    if let Some(inch) = c.hail_in.filter(|x| *x > 0.0) {
+        let size = if metric {
+            format!("{:.0} mm", inch * 25.4)
+        } else {
+            format!("{inch:.2} in")
+        };
+        rows.push(("Max hail", size, inch >= 1.0));
+    }
+    if let Some(t) = c.tvs.as_ref().filter(|t| !t.is_empty()) {
+        rows.push(("TVS", t.clone(), true));
+    }
+    if let Some(m) = c.meso.as_ref().filter(|m| !m.is_empty()) {
+        rows.push(("Meso", m.clone(), true));
+    }
+    if let (Some(dir), Some(kt)) = (c.mvt_deg, c.mvt_kt) {
+        let speed = if metric {
+            format!("{:.0} km/h", kt * 1.852)
+        } else {
+            format!("{:.0} mph", kt * 1.150_78)
+        };
+        rows.push(("Moving", format!("{} at {speed}", compass(dir)), false));
+    }
+    rows
+}
+
+fn fmt_kft(kft: f32, metric: bool) -> String {
+    if metric {
+        format!("{:.1} km", kft * 0.3048)
+    } else {
+        format!("{kft:.0} kft")
+    }
+}
+
+/// The 16-point compass name for a bearing the storm is moving toward.
+fn compass(deg: f32) -> &'static str {
+    const NAMES: [&str; 16] = [
+        "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW",
+        "NW", "NNW",
+    ];
+    NAMES[((deg.rem_euclid(360.0) / 22.5).round() as usize) % 16]
 }
 
 /// What a reading's quality notes say: the gate is range folded, or its velocity was dealiased
@@ -427,6 +563,26 @@ pub(super) fn fmt_beam(ft: f64, metric: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_storms_rows_flag_what_needs_a_look_and_skip_what_is_unknown() {
+        let mut c = wxdata::level3::Cell::default();
+        c.id = "O7".into();
+        c.max_dbz = Some(62.0);
+        c.max_dbz_hgt_kft = Some(18.0);
+        c.posh = Some(60);
+        c.mvt_deg = Some(45.0);
+        c.mvt_kt = Some(20.0);
+        c.tvs = Some("TVS".into());
+        let rows = storm_rows(&c, false);
+        let keys: Vec<&str> = rows.iter().map(|r| r.0).collect();
+        assert_eq!(keys, ["Max", "Hail", "TVS", "Moving"]);
+        assert_eq!(rows[0].1, "62 dBZ at 18 kft");
+        assert!(rows[1].2 && rows[2].2, "severe hail and a TVS are flagged");
+        assert_eq!(rows[3].1, "NE at 23 mph");
+        assert_eq!(compass(359.0), "N");
+        assert_eq!(storm_rows(&c, true)[0].1, "62 dBZ at 5.5 km");
+    }
 
     #[test]
     fn the_3d_block_names_what_each_mode_is_drawing() {

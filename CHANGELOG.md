@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: link the selected storm across panes
+
+Clicking a storm cell now selects it. In the Dock and WSV3 layouts the Inspector shows its
+strength, height, water aloft, hail chances, rotation and motion, with buttons to center on it,
+open its full details or clear it. Turn on **All panes** (or "Link selected storm" in search) to
+mark the storm in every pane and keep every pane on it as it moves.
+
 ### Fixed: the workstation layouts in a phone's browser
 
 On a phone-width browser window the Dock and WSV3 layouts left almost no map between their

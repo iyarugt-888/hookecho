@@ -73,6 +73,9 @@ pub struct Workspace {
     /// it off.
     #[serde(default)]
     pub link_cursor: bool,
+    /// ROADMAP_NEW J2: share the selected storm across panes (`OverlayToggle::LinkStorm`).
+    #[serde(default)]
+    pub link_storm: bool,
     /// Overlay toggles that were on, by slug — the same names `Settings::overlays_on` uses, so an
     /// unknown one from a newer build is skipped rather than fatal.
     #[serde(default)]
@@ -356,6 +359,7 @@ pub fn starters() -> Vec<Workspace> {
             lock_source_time: false,
             link_site: true,
             link_cursor: true,
+            link_storm: false,
             overlays_on: vec![
                 "Alerts".into(),
                 "Cells".into(),
@@ -390,6 +394,7 @@ pub fn starters() -> Vec<Workspace> {
             lock_source_time: false,
             link_site: false,
             link_cursor: false,
+            link_storm: false,
             overlays_on: vec!["Alerts".into(), "StormReports".into(), "Fronts".into()],
             adopt_site: false,
             fields_on: vec!["mrms".into()],
@@ -410,6 +415,7 @@ pub fn starters() -> Vec<Workspace> {
             lock_source_time: true,
             link_site: true,
             link_cursor: true,
+            link_storm: false,
             overlays_on: vec!["Alerts".into(), "Cells".into(), "RangeRings".into()],
             adopt_site: true,
             fields_on: Vec::new(),
@@ -440,6 +446,7 @@ pub fn starters() -> Vec<Workspace> {
             // The roadmap's own worked example for J3's synchronized crosshair: probing the same
             // point across all four panes at once is exactly how these moments get read together.
             link_cursor: true,
+            link_storm: false,
             overlays_on: vec![
                 "Alerts".into(),
                 "Cells".into(),
@@ -471,6 +478,7 @@ pub fn starters() -> Vec<Workspace> {
             lock_source_time: false,
             link_site: true,
             link_cursor: true,
+            link_storm: false,
             overlays_on: vec!["Alerts".into(), "Cells".into(), "StormReports".into()],
             adopt_site: true,
             fields_on: vec!["mesh".into()],
@@ -506,6 +514,7 @@ pub fn starters() -> Vec<Workspace> {
             lock_source_time: false,
             link_site: false,
             link_cursor: false,
+            link_storm: false,
             overlays_on: vec!["Alerts".into(), "Fronts".into(), "StormReports".into()],
             adopt_site: false,
             fields_on: vec![
@@ -548,6 +557,7 @@ pub fn starters() -> Vec<Workspace> {
             lock_source_time: false,
             link_site: true,
             link_cursor: true,
+            link_storm: false,
             overlays_on: vec!["Alerts".into(), "Cells".into(), "StormReports".into()],
             adopt_site: true,
             fields_on: vec!["goes-ir".into(), "goes-water-vapor".into()],
@@ -594,6 +604,7 @@ pub fn starters() -> Vec<Workspace> {
             lock_source_time: false,
             link_site: false,
             link_cursor: true,
+            link_storm: false,
             overlays_on: vec!["Alerts".into(), "StormReports".into()],
             adopt_site: false,
             fields_on: vec!["mrms".into(), "hrrr".into()],
@@ -721,6 +732,7 @@ mod tests {
             lock_source_time: true,
             link_site: true,
             link_cursor: true,
+            link_storm: false,
             overlays_on: vec!["Alerts".into(), "Cells".into()],
             adopt_site: false,
             fields_on: vec!["mrms".into()],

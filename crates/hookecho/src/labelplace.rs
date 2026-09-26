@@ -70,6 +70,13 @@ impl Placer {
         self.last_priority = None;
     }
 
+    /// Start the next pane. Its layers reserve from the top priority again, so the order check
+    /// restarts; the occupancy is kept (panes do not overlap on screen, so nothing is lost) and so
+    /// are the frame's shown labels.
+    pub fn next_pane(&mut self) {
+        self.last_priority = None;
+    }
+
     /// Was this label drawn on the previous frame? Layers sort their candidates by this first, so
     /// a label that is already on screen gets its slot back before a newcomer takes it.
     pub fn was_shown(&self, key: LabelKey) -> bool {
@@ -100,6 +107,17 @@ mod tests {
 
     fn r(x: f32, y: f32) -> egui::Rect {
         egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(10.0, 10.0))
+    }
+
+    #[test]
+    fn each_pane_places_in_priority_order_on_its_own() {
+        let mut p = Placer::default();
+        p.begin();
+        assert!(p.place(key("w1"), r(0.0, 0.0), Priority::Warning));
+        assert!(p.place(key("c1"), r(20.0, 0.0), Priority::Place));
+        // The second pane's warnings follow the first pane's town names: allowed after next_pane.
+        p.next_pane();
+        assert!(p.place(key("w2"), r(100.0, 0.0), Priority::Warning));
     }
 
     #[test]

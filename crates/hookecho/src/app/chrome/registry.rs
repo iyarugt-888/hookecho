@@ -1061,6 +1061,13 @@ impl HookEchoApp {
                 false,
             ),
             (
+                T::LinkStorm,
+                "Reference",
+                "Link selected storm",
+                "The storm you select is marked in every pane, and every pane follows it as it moves",
+                false,
+            ),
+            (
                 T::MiniLoop,
                 "Reference",
                 "Mini loop window",
