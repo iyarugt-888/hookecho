@@ -439,8 +439,8 @@ The redesign is ready when:
 >   does those yet, and the 3D camera is the toolbar's 2D/3D/Volume control.
 > - Not yet: drag-reorder in the tree (§3.1; it lives in the Layer Manager); more windows as
 >   dock tabs (analyst log, sounding, diagnostics — the tab groups exist and the 3D controls are
->   one, §2.3); screenshot
->   passes at tablet and phone widths (§12.11; the phone layout is its own and unchanged).
+>   one, §2.3); a screenshot
+>   pass at phone width (§12.11; the phone layout is its own and unchanged).
 
 ### 13.1 References
 
@@ -826,3 +826,15 @@ a scale bar on the map; a network round-trip measurement for the app bar; a natu
   so it no longer floats over the map's right edge and colour scale. Where it sits is saved with
   the arrangement. Tab glyphs now match each window's own header glyph. Checked by screenshot:
   Inspector, 3D view and Alerts sharing the right dock in the Moore scene.
+- Tablet-width pass (§9, §12.11) at 1024 × 768 and the 800 × 600 minimum. Found: the app bar's
+  right-hand buttons overlapped the Surface/Analysis/GIS tabs (its fixed width table predicted
+  neither side's real width); the map was left about 380 px at 1024 and 130 px at 800 between two
+  docks. Fixed: the app bar measures its right-hand cluster each frame (`left_fit`) and gives up,
+  in order, the subtitle, the wordmark and then the six tabs, which fold into one "Satellite ▾"
+  menu; the wall clock goes below 1120 px (the timeline shows the frame time). Below 1120 px
+  (`ONE_DOCK_BELOW`) only one side dock shows at a time, as §9 asks for laptops and tablets — the
+  side used last; the other is set aside, not closed, and any of its buttons (rail, app bar, keys)
+  swaps back. The saved arrangement is untouched, so widening the window restores both. Checked
+  by screenshot at 1024 (right dock, then Layers after the rail button) and 800, and at 1920
+  unchanged. The context toolbar still scrolls sideways at these widths rather than folding into
+  menus.

@@ -29,6 +29,11 @@ mod view3d;
 /// Width of the Layers panel.
 const LEFT_WIDTH: f32 = 284.0;
 
+/// Below this window width only one side dock shows at a time (design plan §9, "laptop / tablet
+/// landscape"): a Layers dock, a right dock and the rail together would leave the map a strip.
+/// It is the two docks and the rail plus a map about as wide as either dock pair.
+const ONE_DOCK_BELOW: f32 = 1120.0;
+
 /// The app bar's workspace tabs. Each is a view of the Layers panel: which registry categories it
 /// lists, and for Models and Analysis the controls drawn above the list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -212,6 +217,10 @@ pub(crate) struct DockState {
     /// Each window's `(open, place)` last frame, to bring a window that has just opened or just
     /// moved into a dock to the front of it.
     seen: [(bool, Place); 5],
+    /// The window is too narrow for docks on both sides ([`ONE_DOCK_BELOW`]). Set each frame.
+    pub narrow: bool,
+    /// The side used most recently (0 left, 1 right): the one that stays while `narrow`.
+    last_side: usize,
 }
 
 impl Default for DockState {
@@ -236,6 +245,8 @@ impl Default for DockState {
             arranged_for: None,
             front: [None; 2],
             seen: [(false, Place::Float); 5],
+            narrow: false,
+            last_side: 0,
         };
         s.arrange(&DockState::preset(crate::settings::Layout::Dock));
         s
@@ -352,6 +363,7 @@ impl DockState {
                         self.front[slot] = Some(w);
                         claimed[slot] = true;
                     }
+                    self.last_side = slot;
                 }
             }
             self.seen[i] = now;
@@ -365,14 +377,28 @@ impl DockState {
         }
     }
 
-    /// Whether `w` can be seen: open, and not behind another window in its dock's tab group.
+    /// Whether the dock at `side` is drawn: always, unless the window is too narrow for two
+    /// docks and the other side, used more recently, has windows too.
+    pub(crate) fn side_visible(&self, side: Place) -> bool {
+        let Some(slot) = side_slot(side) else {
+            return true;
+        };
+        let other = if slot == 0 { Place::Right } else { Place::Left };
+        !self.narrow || self.last_side == slot || self.stack(other).is_empty()
+    }
+
+    /// Whether `w` can be seen: open, not behind another window in its dock's tab group, and not
+    /// in a dock the narrow window has set aside.
     pub(crate) fn shown(&self, w: DockWin) -> bool {
         let c = self.chrome(w);
         if !self.present(w) {
             return false;
         }
         match side_slot(c.place) {
-            Some(slot) => self.stack(c.place).len() < 2 || self.front[slot] == Some(w),
+            Some(slot) => {
+                self.side_visible(c.place)
+                    && (self.stack(c.place).len() < 2 || self.front[slot] == Some(w))
+            }
             None => true,
         }
     }
@@ -389,6 +415,7 @@ impl DockState {
             c.collapsed = false;
             if let Some(slot) = side_slot(c.place) {
                 self.front[slot] = Some(w);
+                self.last_side = slot;
             }
         }
     }
@@ -401,6 +428,7 @@ impl DockState {
                 let side = self.chrome(win).place;
                 if let (Some(slot), Some(&w)) = (side_slot(side), self.stack(side).get(i)) {
                     self.front[slot] = Some(w);
+                    self.last_side = slot;
                 }
             }
             other => apply_header(other, self.chrome_mut(win)),
@@ -609,7 +637,11 @@ impl HookEchoApp {
         let in_3d = self.views[self.active].map_3d.enabled;
         self.dock.set_view3d_available(in_3d);
         self.dock.update_fronts();
+        self.dock.narrow = ctx.content_rect().width() < ONE_DOCK_BELOW;
         for side in [Place::Left, Place::Right] {
+            if !self.dock.side_visible(side) {
+                continue;
+            }
             let stack = self.dock.stack(side);
             match stack.as_slice() {
                 [] => {}
@@ -1073,6 +1105,35 @@ mod tests {
         s.update_fronts();
         assert!(s.stack(Place::Right).is_empty());
         assert_eq!(s.front[1], None);
+    }
+
+    #[test]
+    fn a_narrow_window_shows_one_dock_the_last_one_used() {
+        let mut s = DockState::default();
+        s.layers = WindowChrome::at(true, Place::Left);
+        s.inspector = WindowChrome::at(true, Place::Right);
+        s.update_fronts();
+        assert!(
+            s.shown(DockWin::Layers) && s.shown(DockWin::Inspector),
+            "wide: both"
+        );
+        s.narrow = true;
+        s.toggle(DockWin::Layers);
+        assert!(
+            s.layers.open,
+            "a hidden side's button shows it rather than closing it"
+        );
+        assert!(s.shown(DockWin::Layers) && !s.shown(DockWin::Inspector));
+        assert!(s.inspector.open, "the set-aside side is hidden, not closed");
+        s.toggle(DockWin::Inspector);
+        assert!(!s.shown(DockWin::Layers) && s.shown(DockWin::Inspector));
+        // With the other side empty there is nothing to choose between.
+        s.inspector.open = false;
+        s.update_fronts();
+        assert!(s.side_visible(Place::Left) && s.shown(DockWin::Layers));
+        // Floating windows are never set aside.
+        s.inspector = WindowChrome::at(true, Place::Float);
+        assert!(s.shown(DockWin::Inspector));
     }
 
     #[test]

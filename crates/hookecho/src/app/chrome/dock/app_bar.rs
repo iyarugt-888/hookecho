@@ -67,6 +67,25 @@ impl HookEchoApp {
         } else {
             crate::timefmt::fmt_clock(now, tz, false)
         };
+        // How wide the right-hand cluster came out last frame: the left side fits itself into
+        // what that leaves rather than trusting a width table to predict both.
+        let right_id = egui::Id::new("dock_app_bar_right_w");
+        let right_w = ctx.data(|d| d.get_temp::<f32>(right_id)).unwrap_or(560.0);
+        let tabs_w: f32 = DockTab::ALL
+            .iter()
+            .map(|tab| {
+                ctx.fonts_mut(|f| {
+                    f.layout_no_wrap(
+                        tab.label().to_string(),
+                        egui::FontId::proportional(13.5),
+                        t.text,
+                    )
+                    .size()
+                    .x
+                }) + 24.0
+            })
+            .sum();
+        let head = left_fit(width - 24.0 - right_w, tabs_w, fit.subtitle);
         let health = self.radar_health();
         let (state_word, state_color) = crate::ui::layers_panel::health_look(health.state());
         let following = self.views[self.active].timeline.following;
@@ -114,15 +133,40 @@ impl HookEchoApp {
                 crate::app::chrome::window_frame::caption_drag(ctx, &caption);
                 ui.horizontal_centered(|ui| {
                     ui.spacing_mut().item_spacing.x = 2.0;
-                    ui.label(ws::text(ph::BROADCAST, 18.0, t.accent));
+                    ui.label(ws::text(ph::BROADCAST, 18.0, t.accent))
+                        .on_hover_text("HookEcho");
                     ui.add_space(4.0);
-                    ui.label(ws::text("HookEcho", 14.5, egui::Color32::WHITE).strong());
-                    ui.add_space(6.0);
-                    if fit.subtitle {
+                    if head.wordmark {
+                        ui.label(ws::text("HookEcho", 14.5, egui::Color32::WHITE).strong());
+                        ui.add_space(6.0);
+                    }
+                    if head.subtitle {
                         ui.label(ws::text("Analyst Workstation", 12.0, t.text_faint));
                     }
-                    ui.add_space(18.0);
-                    for tab in DockTab::ALL {
+                    ui.add_space(if head.wordmark { 18.0 } else { 10.0 });
+                    if !head.tabs {
+                        // Too narrow for six tabs: one menu names the current one and lists all.
+                        let current = self.dock.tab;
+                        let menu = ws::icon_button(
+                            ui,
+                            &t,
+                            ph::CARET_DOWN,
+                            current.label(),
+                            self.dock.shown(DockWin::Layers),
+                        )
+                        .named(&format!("Workspace tab: {}", current.label()));
+                        egui::Popup::menu(&menu).show(|ui| {
+                            for tab in DockTab::ALL {
+                                if ui.selectable_label(tab == current, tab.label()).clicked() {
+                                    self.dock.tab = tab;
+                                    if !self.dock.shown(DockWin::Layers) {
+                                        self.dock.toggle(DockWin::Layers);
+                                    }
+                                }
+                            }
+                        });
+                    }
+                    for tab in DockTab::ALL.into_iter().filter(|_| head.tabs) {
                         let on = self.dock.shown(DockWin::Layers) && self.dock.tab == tab;
                         if ws::tab(ui, &t, tab.label(), on, ws::APP_BAR_H)
                             .named_toggle(tab.label(), on)
@@ -138,156 +182,163 @@ impl HookEchoApp {
                             }
                         }
                     }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.spacing_mut().item_spacing.x = 4.0;
-                        ui.add_space(keepout);
-                        if ui
-                            .add(
-                                egui::Label::new(ws::mono(&delay_text, 12.0, t.text_dim))
-                                    .sense(egui::Sense::click()),
-                            )
-                            .named("Open data source health")
-                            .on_hover_text(format!(
-                                "{}\nClick for all active source health",
-                                health.error.as_deref().unwrap_or(&delay_tip)
-                            ))
-                            .clicked()
-                        {
-                            action = Some(A::OpenWindow(AppWindow::DataHealth));
-                        }
-                        ws::status_dot(ui, if following { state_color } else { t.warn }, 4.0);
-                        ui.add_space(8.0);
-                        ui.label(ws::mono(clock, 12.0, t.text));
-                        ui.label(ws::text(ph::CLOCK, 14.0, t.text_dim));
-                        ws::divider(ui, &t, ws::APP_BAR_H - 8.0);
-                        use super::menus::{window_rows, Menu, MenuPick};
-                        let mut menu_pick: Option<MenuPick> = None;
-                        let label = |l: &'static str| if fit.labels { l } else { "" };
-                        // Right to left: Help, Settings, Share, Tools, Discussion, Alerts,
-                        // Playback, Inspector.
-                        let help = ws::icon_button(ui, &t, ph::QUESTION, label("Help"), false)
-                            .named("Help");
-                        egui::Popup::menu(&help).show(|ui| {
-                            ws::style_scope(ui, &t);
-                            ui.set_min_width(220.0);
-                            if let Some(p) = window_rows(ui, &t, Menu::Help) {
-                                menu_pick = Some(p);
+                    let right =
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let start = ui.cursor().right();
+                            ui.spacing_mut().item_spacing.x = 4.0;
+                            ui.add_space(keepout);
+                            if ui
+                                .add(
+                                    egui::Label::new(ws::mono(&delay_text, 12.0, t.text_dim))
+                                        .sense(egui::Sense::click()),
+                                )
+                                .named("Open data source health")
+                                .on_hover_text(format!(
+                                    "{}\nClick for all active source health",
+                                    health.error.as_deref().unwrap_or(&delay_tip)
+                                ))
+                                .clicked()
+                            {
+                                action = Some(A::OpenWindow(AppWindow::DataHealth));
                             }
-                            if ui.button("Keyboard shortcuts (?)").clicked() {
-                                menu_pick = Some(MenuPick::Shortcuts);
+                            ws::status_dot(ui, if following { state_color } else { t.warn }, 4.0);
+                            ui.add_space(8.0);
+                            if fit.clock {
+                                ui.label(ws::mono(clock, 12.0, t.text));
+                                ui.label(ws::text(ph::CLOCK, 14.0, t.text_dim));
                             }
-                        });
-                        let settings =
-                            ws::icon_button(ui, &t, ph::GEAR_SIX, label("Settings"), false)
-                                .named("Settings");
-                        egui::Popup::menu(&settings).show(|ui| {
-                            ws::style_scope(ui, &t);
-                            ui.set_min_width(220.0);
-                            if let Some(p) = window_rows(ui, &t, Menu::Settings) {
-                                menu_pick = Some(p);
-                            }
-                            if ui.button("Map settings").clicked() {
-                                menu_pick = Some(MenuPick::Prefs(PrefsPage::Map, None));
-                            }
-                            if ui.button("Preferences").clicked() {
-                                menu_pick = Some(MenuPick::Prefs(PrefsPage::App, None));
-                            }
-                            ui.separator();
-                            if ui.button("Hide the top bars (T)").clicked() {
-                                menu_pick = Some(MenuPick::Palette(A::ToggleRibbon));
-                            }
-                        });
-                        let share = ws::icon_button(ui, &t, ph::EXPORT, label("Share"), false)
-                            .named("Share, export and workspaces");
-                        egui::Popup::menu(&share).show(|ui| {
-                            ws::style_scope(ui, &t);
-                            ui.set_min_width(240.0);
-                            for (text, act) in [
-                                ("Copy a link to this view", A::CopyViewLink),
-                                ("Open in Windy", A::OpenInWindy),
-                                ("Export the map as GeoJSON", A::ExportGis),
-                                ("Import GeoJSON or Shapefile\u{2026}", A::ImportGis),
-                            ] {
-                                if ui.button(text).clicked() {
-                                    menu_pick = Some(MenuPick::Palette(act));
+                            ws::divider(ui, &t, ws::APP_BAR_H - 8.0);
+                            use super::menus::{window_rows, Menu, MenuPick};
+                            let mut menu_pick: Option<MenuPick> = None;
+                            let label = |l: &'static str| if fit.labels { l } else { "" };
+                            // Right to left: Help, Settings, Share, Tools, Discussion, Alerts,
+                            // Playback, Inspector.
+                            let help = ws::icon_button(ui, &t, ph::QUESTION, label("Help"), false)
+                                .named("Help");
+                            egui::Popup::menu(&help).show(|ui| {
+                                ws::style_scope(ui, &t);
+                                ui.set_min_width(220.0);
+                                if let Some(p) = window_rows(ui, &t, Menu::Help) {
+                                    menu_pick = Some(p);
                                 }
-                            }
-                            if ui.button("Images, video and more\u{2026}").clicked() {
-                                menu_pick = Some(MenuPick::Prefs(PrefsPage::App, Some("Share")));
-                            }
-                            ui.separator();
-                            ui.label(ws::text("WORKSPACES", 10.5, t.text_faint));
-                            if ui.button("Save this layout as a workspace").clicked() {
-                                menu_pick = Some(MenuPick::Palette(A::SaveWorkspace));
-                            }
-                            for (i, name) in workspaces.iter().enumerate() {
-                                if ui.button(format!("Open \u{201c}{name}\u{201d}")).clicked() {
-                                    menu_pick = Some(MenuPick::Palette(A::ApplyWorkspace(i)));
+                                if ui.button("Keyboard shortcuts (?)").clicked() {
+                                    menu_pick = Some(MenuPick::Shortcuts);
                                 }
-                            }
-                        });
-                        let tools = ws::icon_button(ui, &t, ph::WRENCH, label("Tools"), false)
-                            .named("Tools and windows");
-                        egui::Popup::menu(&tools).show(|ui| {
-                            ws::style_scope(ui, &t);
-                            ui.set_min_width(240.0);
-                            if let Some(p) = window_rows(ui, &t, Menu::Tools) {
-                                menu_pick = Some(p);
-                            }
-                        });
-                        if ws::icon_button(ui, &t, ph::CHAT_TEXT, label("Discussion"), false)
-                            .named("Forecast discussion (AFD)")
-                            .clicked()
-                        {
-                            action = Some(A::OpenWindow(AppWindow::Afd));
-                        }
-                        let alerts_on = self.dock.shown(DockWin::Alerts);
-                        let alerts_label = match (fit.labels, alert_count) {
-                            (true, 0) => "Alerts".to_string(),
-                            (true, n) => format!("Alerts {n}"),
-                            (false, 0) => String::new(),
-                            (false, n) => n.to_string(),
-                        };
-                        if ws::icon_button(ui, &t, ph::BELL, &alerts_label, alerts_on)
-                            .named_toggle(&format!("Alerts in view: {alert_count}"), alerts_on)
-                            .clicked()
-                        {
-                            self.dock.toggle(DockWin::Alerts);
-                        }
-                        let playing = self.dock.timeline_open;
-                        if ws::icon_button(ui, &t, ph::PLAY, label("Playback"), playing)
-                            .named_toggle("Playback", playing)
-                            .clicked()
-                        {
-                            self.dock.timeline_open = !playing;
-                        }
-                        let inspecting = self.dock.shown(DockWin::Inspector);
-                        if ws::icon_button(ui, &t, ph::INFO, label("Inspector"), inspecting)
-                            .named_toggle("Inspector", inspecting)
-                            .clicked()
-                        {
-                            self.dock.toggle(DockWin::Inspector);
-                        }
-                        match menu_pick {
-                            Some(MenuPick::Palette(a)) => action = Some(a),
-                            Some(MenuPick::Prefs(page, section)) => {
-                                self.dock.prefs.open = true;
-                                self.dock.prefs.collapsed = false;
-                                self.dock.prefs_page = page;
-                                ui.ctx().data_mut(|d| {
-                                    let id = egui::Id::new("preferences_section");
-                                    match section {
-                                        Some(s) => {
-                                            d.insert_temp(id, s);
-                                        }
-                                        None => d.remove::<&'static str>(id),
+                            });
+                            let settings =
+                                ws::icon_button(ui, &t, ph::GEAR_SIX, label("Settings"), false)
+                                    .named("Settings");
+                            egui::Popup::menu(&settings).show(|ui| {
+                                ws::style_scope(ui, &t);
+                                ui.set_min_width(220.0);
+                                if let Some(p) = window_rows(ui, &t, Menu::Settings) {
+                                    menu_pick = Some(p);
+                                }
+                                if ui.button("Map settings").clicked() {
+                                    menu_pick = Some(MenuPick::Prefs(PrefsPage::Map, None));
+                                }
+                                if ui.button("Preferences").clicked() {
+                                    menu_pick = Some(MenuPick::Prefs(PrefsPage::App, None));
+                                }
+                                ui.separator();
+                                if ui.button("Hide the top bars (T)").clicked() {
+                                    menu_pick = Some(MenuPick::Palette(A::ToggleRibbon));
+                                }
+                            });
+                            let share = ws::icon_button(ui, &t, ph::EXPORT, label("Share"), false)
+                                .named("Share, export and workspaces");
+                            egui::Popup::menu(&share).show(|ui| {
+                                ws::style_scope(ui, &t);
+                                ui.set_min_width(240.0);
+                                for (text, act) in [
+                                    ("Copy a link to this view", A::CopyViewLink),
+                                    ("Open in Windy", A::OpenInWindy),
+                                    ("Export the map as GeoJSON", A::ExportGis),
+                                    ("Import GeoJSON or Shapefile\u{2026}", A::ImportGis),
+                                ] {
+                                    if ui.button(text).clicked() {
+                                        menu_pick = Some(MenuPick::Palette(act));
                                     }
-                                });
+                                }
+                                if ui.button("Images, video and more\u{2026}").clicked() {
+                                    menu_pick =
+                                        Some(MenuPick::Prefs(PrefsPage::App, Some("Share")));
+                                }
+                                ui.separator();
+                                ui.label(ws::text("WORKSPACES", 10.5, t.text_faint));
+                                if ui.button("Save this layout as a workspace").clicked() {
+                                    menu_pick = Some(MenuPick::Palette(A::SaveWorkspace));
+                                }
+                                for (i, name) in workspaces.iter().enumerate() {
+                                    if ui.button(format!("Open \u{201c}{name}\u{201d}")).clicked() {
+                                        menu_pick = Some(MenuPick::Palette(A::ApplyWorkspace(i)));
+                                    }
+                                }
+                            });
+                            let tools = ws::icon_button(ui, &t, ph::WRENCH, label("Tools"), false)
+                                .named("Tools and windows");
+                            egui::Popup::menu(&tools).show(|ui| {
+                                ws::style_scope(ui, &t);
+                                ui.set_min_width(240.0);
+                                if let Some(p) = window_rows(ui, &t, Menu::Tools) {
+                                    menu_pick = Some(p);
+                                }
+                            });
+                            if ws::icon_button(ui, &t, ph::CHAT_TEXT, label("Discussion"), false)
+                                .named("Forecast discussion (AFD)")
+                                .clicked()
+                            {
+                                action = Some(A::OpenWindow(AppWindow::Afd));
                             }
-                            Some(MenuPick::Shortcuts) => self.show_cheatsheet = true,
-                            None => {}
-                        }
-                    });
+                            let alerts_on = self.dock.shown(DockWin::Alerts);
+                            let alerts_label = match (fit.labels, alert_count) {
+                                (true, 0) => "Alerts".to_string(),
+                                (true, n) => format!("Alerts {n}"),
+                                (false, 0) => String::new(),
+                                (false, n) => n.to_string(),
+                            };
+                            if ws::icon_button(ui, &t, ph::BELL, &alerts_label, alerts_on)
+                                .named_toggle(&format!("Alerts in view: {alert_count}"), alerts_on)
+                                .clicked()
+                            {
+                                self.dock.toggle(DockWin::Alerts);
+                            }
+                            let playing = self.dock.timeline_open;
+                            if ws::icon_button(ui, &t, ph::PLAY, label("Playback"), playing)
+                                .named_toggle("Playback", playing)
+                                .clicked()
+                            {
+                                self.dock.timeline_open = !playing;
+                            }
+                            let inspecting = self.dock.shown(DockWin::Inspector);
+                            if ws::icon_button(ui, &t, ph::INFO, label("Inspector"), inspecting)
+                                .named_toggle("Inspector", inspecting)
+                                .clicked()
+                            {
+                                self.dock.toggle(DockWin::Inspector);
+                            }
+                            match menu_pick {
+                                Some(MenuPick::Palette(a)) => action = Some(a),
+                                Some(MenuPick::Prefs(page, section)) => {
+                                    self.dock.prefs.open = true;
+                                    self.dock.prefs.collapsed = false;
+                                    self.dock.prefs_page = page;
+                                    ui.ctx().data_mut(|d| {
+                                        let id = egui::Id::new("preferences_section");
+                                        match section {
+                                            Some(s) => {
+                                                d.insert_temp(id, s);
+                                            }
+                                            None => d.remove::<&'static str>(id),
+                                        }
+                                    });
+                                }
+                                Some(MenuPick::Shortcuts) => self.show_cheatsheet = true,
+                                None => {}
+                            }
+                            start - ui.cursor().right()
+                        });
+                    ctx.data_mut(|d| d.insert_temp(right_id, right.inner));
                 });
             });
         if let Some(a) = action {
@@ -587,13 +638,15 @@ impl HookEchoApp {
     }
 }
 
-/// What the app bar has room for at a window width: the buttons' words, the subtitle, and
-/// the date beside the clock go, in that order, before anything would overlap the tabs.
+/// What the app bar's right-hand cluster has room for at a window width: the buttons' words, the
+/// date beside the clock, and then the wall clock itself (the timeline still shows the frame's
+/// time) go, in that order. The left side then fits itself into what is left ([`left_fit`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct AppBarFit {
     pub labels: bool,
     pub subtitle: bool,
     pub date: bool,
+    pub clock: bool,
 }
 
 pub(super) fn app_bar_fit(width: f32) -> AppBarFit {
@@ -601,6 +654,32 @@ pub(super) fn app_bar_fit(width: f32) -> AppBarFit {
         labels: width >= 1900.0,
         subtitle: width >= 1400.0,
         date: width >= 1240.0,
+        clock: width >= 1120.0,
+    }
+}
+
+/// What the app bar's left side shows in `room` (the width the right-hand cluster left):
+/// the six tabs come first, then the wordmark, then the subtitle; with no room for the tabs at
+/// all they fold into one menu, which leaves room for the wordmark again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct LeftFit {
+    pub tabs: bool,
+    pub wordmark: bool,
+    pub subtitle: bool,
+}
+
+pub(super) fn left_fit(room: f32, tabs_w: f32, subtitle_wanted: bool) -> LeftFit {
+    const GLYPH: f32 = 34.0;
+    const WORDMARK: f32 = 80.0;
+    const SUBTITLE: f32 = 130.0;
+    const MENU: f32 = 120.0;
+    let tabs = GLYPH + tabs_w <= room;
+    let body = if tabs { tabs_w } else { MENU };
+    let wordmark = GLYPH + WORDMARK + body <= room;
+    LeftFit {
+        tabs,
+        wordmark,
+        subtitle: subtitle_wanted && wordmark && GLYPH + WORDMARK + SUBTITLE + body <= room,
     }
 }
 
@@ -639,7 +718,26 @@ mod tests {
         let laptop = app_bar_fit(1536.0);
         assert!(!laptop.labels && laptop.subtitle && laptop.date);
         let tablet = app_bar_fit(1180.0);
-        assert!(!tablet.labels && !tablet.subtitle && !tablet.date);
+        assert!(!tablet.labels && !tablet.subtitle && !tablet.date && tablet.clock);
+        assert!(!app_bar_fit(1024.0).clock);
+    }
+
+    #[test]
+    fn the_left_side_gives_up_words_before_tabs_and_tabs_before_overlapping() {
+        let tabs = 430.0;
+        let all = left_fit(800.0, tabs, true);
+        assert!(all.tabs && all.wordmark && all.subtitle);
+        let no_sub = left_fit(560.0, tabs, true);
+        assert!(no_sub.tabs && no_sub.wordmark && !no_sub.subtitle);
+        let bare = left_fit(470.0, tabs, true);
+        assert!(bare.tabs && !bare.wordmark);
+        // Too narrow for the tabs even bare: one menu, which frees room for the name again.
+        let menu = left_fit(300.0, tabs, true);
+        assert!(!menu.tabs && menu.wordmark && !menu.subtitle);
+        assert!(
+            !left_fit(800.0, tabs, false).subtitle,
+            "the right side vetoes it"
+        );
     }
 
     #[test]

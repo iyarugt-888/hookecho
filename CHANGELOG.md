@@ -8,6 +8,14 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: the workstation on laptop and tablet widths
+
+On windows narrower than about 1120 pixels, the Dock and WSV3 layouts' top bar no longer draws
+its buttons over the workspace tabs; it drops the subtitle, the name and the wall clock as needed,
+and on the narrowest windows the tabs become one menu. Only one side panel shows at a time there,
+so the map keeps its width; the rail and top-bar buttons switch between them, and a wider window
+shows both again.
+
 ### Added: the workstation's 3D controls are a dockable window
 
 In the Dock and WSV3 layouts, switching a pane to 3D now opens its controls as a **3D view**
