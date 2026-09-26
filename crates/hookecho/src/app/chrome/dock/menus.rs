@@ -18,7 +18,7 @@ pub(super) enum Menu {
 
 /// Every window the palette can open, in menu order. Kept beside [`window_home`], whose
 /// exhaustive match is what forces a new window to be added here too.
-pub(super) const ALL_WINDOWS: [AppWindow; 23] = [
+pub(super) const ALL_WINDOWS: [AppWindow; 24] = [
     AppWindow::StormTable,
     AppWindow::Digest,
     AppWindow::Cappi,
@@ -37,6 +37,7 @@ pub(super) const ALL_WINDOWS: [AppWindow; 23] = [
     AppWindow::ChaseReplay,
     AppWindow::AlertRules,
     AppWindow::Afd,
+    AppWindow::Tropical,
     AppWindow::Settings,
     AppWindow::Help,
     AppWindow::Tour,
@@ -69,6 +70,7 @@ pub(super) fn window_home(w: AppWindow) -> (Menu, &'static str, &'static str) {
         W::ChaseReplay => (Menu::Tools, EVENTS, "Chase replay"),
         W::AlertRules => (Menu::Tools, EVENTS, "Alert rules"),
         W::Afd => (Menu::Discussion, "", "Forecast discussion"),
+        W::Tropical => (Menu::Discussion, "", "Tropical models & advisories"),
         W::Settings => (Menu::Settings, "", "Settings\u{2026}"),
         W::Help => (Menu::Help, "", "Help, glossary and shortcuts"),
         W::Tour => (Menu::Help, "", "Take the tour"),

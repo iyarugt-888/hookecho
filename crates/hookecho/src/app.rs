@@ -2292,6 +2292,8 @@ pub(crate) enum AppWindow {
     About,
     /// ROADMAP_NEW N1: every active source's fetch health in one list.
     DataHealth,
+    /// Tropical model guidance (spaghetti), intensity guidance, and NHC advisories.
+    Tropical,
 }
 
 /// One thing the user can do, addressable from any surface (layers panel, command palette,
@@ -3054,6 +3056,9 @@ struct Goto {
     srv: bool,
     /// River gauges whose cards the link opens (`gauge:ACRT2`), turning the gauge layer on.
     gauges: Vec<String>,
+    /// Tropical model guidance on (`tc`), optionally focused on one system (`tc:al062026`, which
+    /// also opens its Models tab). `Some("")` is on with no focus.
+    tropical: Option<String>,
 }
 
 /// Parse `[hookecho://goto/]SITE[,lon,lat,zoom][,extra…]`, where each extra is an RFC3339 time, a
@@ -3083,6 +3088,7 @@ fn parse_goto(v: &str) -> Option<Goto> {
             threshold: None,
             srv: false,
             gauges: Vec::new(),
+            tropical: None,
         }
     } else {
         let (Some(site), Some(Ok(lon)), Some(Ok(lat)), Some(Ok(zoom))) = (
@@ -3105,6 +3111,7 @@ fn parse_goto(v: &str) -> Option<Goto> {
             threshold: None,
             srv: false,
             gauges: Vec::new(),
+            tropical: None,
         }
     };
     for s in p.iter().skip(4).filter(|s| !s.is_empty()) {
@@ -3130,6 +3137,15 @@ fn parse_goto(v: &str) -> Option<Goto> {
             };
         } else if s.eq_ignore_ascii_case("srv") {
             g.srv = true;
+        } else if s.eq_ignore_ascii_case("tc") {
+            g.tropical = Some(String::new());
+        } else if let Some(id) = s.strip_prefix("tc:") {
+            // An ATCF id: basin, number, year (`al062026`).
+            if id.len() == 8 && id.chars().all(|c| c.is_ascii_alphanumeric()) {
+                g.tropical = Some(id.to_ascii_lowercase());
+            } else {
+                log::warn!("goto: want tc:<ATCF id>, got {s:?}");
+            }
         } else if let Some(lid) = s.strip_prefix("gauge:") {
             // An id is a few letters and digits; anything else is not a gauge.
             if !lid.is_empty() && lid.len() <= 8 && lid.chars().all(|c| c.is_ascii_alphanumeric()) {
@@ -3178,7 +3194,13 @@ fn goto_link(g: &Goto) -> String {
         .unwrap_or_default();
     let srv = if g.srv { ",srv" } else { "" };
     let gauges: String = g.gauges.iter().map(|l| format!(",gauge:{l}")).collect();
-    let body = format!("{site},{lon:.4},{lat:.4},{zoom:.1}{t}{m}{z}{thr}{basemap}{srv}{gauges}");
+    let tc = match g.tropical.as_deref() {
+        Some("") => ",tc".to_string(),
+        Some(id) => format!(",tc:{id}"),
+        None => String::new(),
+    };
+    let body =
+        format!("{site},{lon:.4},{lat:.4},{zoom:.1}{t}{m}{z}{thr}{basemap}{srv}{gauges}{tc}");
     #[cfg(target_arch = "wasm32")]
     {
         let origin = web_sys::window()
@@ -3912,8 +3934,10 @@ pub struct HookEchoApp {
     afd_error: Option<String>,
     afd_busy: bool,
     afd_rx: Option<std::sync::mpsc::Receiver<Result<wxdata::afd::Afd, String>>>,
-    /// NHC public advisory / forecast discussion reader.
+    /// The Tropical window: model guidance picker and NHC advisory / discussion reader.
     tropical_window: ui::tropical_window::TropicalWindow,
+    /// Tropical model guidance (spaghetti), best tracks and invests.
+    spaghetti: crate::spaghetti::Spaghetti,
     tropical_text_rx: Option<std::sync::mpsc::Receiver<Result<wxdata::tropical::Advisory, String>>>,
     /// Range rings + azimuth spokes around the active site (feature HH).
     show_range_rings: bool,
@@ -5258,6 +5282,7 @@ impl HookEchoApp {
             afd_busy: false,
             afd_rx: None,
             tropical_window: ui::tropical_window::TropicalWindow::default(),
+            spaghetti: Default::default(),
             tropical_text_rx: None,
             show_range_rings: false,
             show_radar_sites: true,
@@ -5552,6 +5577,16 @@ impl HookEchoApp {
             self.show_gauges = true;
             for lid in &g.gauges {
                 self.gauge_cards.queue(lid);
+            }
+        }
+        if let Some(id) = g.tropical {
+            self.show_tropical = true;
+            self.spaghetti.enabled = true;
+            if !id.is_empty() {
+                self.spaghetti.focus = Some(id.clone());
+                self.tropical_window.storm_id = Some(id);
+                self.tropical_window.tab = ui::tropical_window::Tab::Models;
+                self.tropical_window.open = true;
             }
         }
     }
@@ -11089,6 +11124,10 @@ impl HookEchoApp {
                     srv: v.srv,
                     // Open gauge cards travel with the view: "look at this river" is the point.
                     gauges: self.gauge_cards.lids(),
+                    tropical: self
+                        .spaghetti
+                        .enabled
+                        .then(|| self.spaghetti.focus.clone().unwrap_or_default()),
                 });
                 // A phone or a tablet has a share sheet, and pasting into a chat is what this is
                 // for; the clipboard is the fallback for everything that does not.
@@ -11169,6 +11208,7 @@ impl HookEchoApp {
                     self.afd_open = true;
                     self.fetch_afd();
                 }
+                W::Tropical => self.tropical_window.open = true,
                 W::Cappi => {
                     self.show_cappi = true;
                     self.cappi_key = None; // force a re-slice on open
@@ -15871,6 +15911,29 @@ impl HookEchoApp {
                             self.tropical_window.storm_id = Some(id.clone());
                             let product = self.tropical_window.product;
                             self.fetch_tropical_text(&id, product);
+                            // With the models loaded, the storm's own guidance is what a click
+                            // on it is asking for.
+                            if self.spaghetti.find(&id).is_some() {
+                                self.tropical_window.tab = ui::tropical_window::Tab::Models;
+                            }
+                            self.gate_popup = None;
+                            break 'interrogate;
+                        }
+                        // An invest: no advisory to read, but its models are the point.
+                        let invest_hit = self
+                            .show_tropical
+                            .then(|| {
+                                self.spaghetti.hit(pos, tap_r2(14.0), |lon, lat| {
+                                    let w = crate::render::mercator::lonlat_to_world(lon, lat);
+                                    let (sx, sy) = cam.world_to_screen(w, vp);
+                                    egui::pos2(prect.left() + sx, prect.top() + sy)
+                                })
+                            })
+                            .flatten();
+                        if let Some(id) = invest_hit {
+                            self.tropical_window.open = true;
+                            self.tropical_window.tab = ui::tropical_window::Tab::Models;
+                            self.tropical_window.storm_id = Some(id);
                             self.gate_popup = None;
                             break 'interrogate;
                         }
@@ -18359,12 +18422,30 @@ impl HookEchoApp {
         }
         // NHC tropical suite: dashed cone edge, forecast track, and per-point callouts.
         if self.show_tropical {
+            // Model guidance under the NHC cone and track: the official forecast is the one
+            // that must read on top of the spaghetti.
+            let tip = crate::spaghetti::draw(
+                &painter,
+                &self.spaghetti,
+                prect,
+                cam.zoom as f32,
+                |lon, lat| {
+                    let w = crate::render::mercator::lonlat_to_world(lon, lat);
+                    let (sx, sy) = cam.world_to_screen(w, vp);
+                    egui::pos2(prect.left() + sx, prect.top() + sy)
+                },
+                response.hover_pos(),
+                self.active_tz(),
+            );
             if let Some(t) = &self.tropical {
                 crate::tropical_draw::draw(&painter, t, prect, cam.zoom as f32, |lon, lat| {
                     let w = crate::render::mercator::lonlat_to_world(lon, lat);
                     let (sx, sy) = cam.world_to_screen(w, vp);
                     egui::pos2(prect.left() + sx, prect.top() + sy)
                 });
+            }
+            if let Some(tip) = tip {
+                response.clone().show_tooltip_text(tip);
             }
         }
 
@@ -22190,6 +22271,12 @@ impl eframe::App for HookEchoApp {
             self.outages_last_fetch = Some(Instant::now());
             self.spawn_overlay(ctx, OverlaySource::Outages);
         }
+        // Tropical model guidance: its own half-hourly clock, only while it is on.
+        self.spaghetti.poll();
+        if self.show_tropical && self.spaghetti.due() {
+            let (rt, http) = (self.spawner.clone(), self.http.clone());
+            self.spaghetti.fetch(&rt, &http, ctx);
+        }
         // NHC tropical suite: refresh every 15 min while enabled.
         if self.show_tropical
             && self
@@ -23433,6 +23520,7 @@ impl eframe::App for HookEchoApp {
                             threshold: None,
                             srv: false,
                             gauges: vec![lid],
+                            tropical: None,
                         });
                         if !crate::platform::share_link("HookEcho", &link) {
                             ctx.copy_text(link.clone());
@@ -23483,16 +23571,36 @@ impl eframe::App for HookEchoApp {
                 }
             }
         }
+        if std::mem::take(&mut self.spaghetti.open_window) {
+            self.tropical_window.open = true;
+            self.tropical_window.tab = ui::tropical_window::Tab::Models;
+        }
         if self.tropical_window.open {
             let storms = self
                 .tropical
                 .as_ref()
                 .map(|t| t.storms.clone())
                 .unwrap_or_default();
-            if let Some((id, product)) =
-                ui::tropical_window::show(&mut self.tropical_window, ctx, &storms, &mut self.drawer)
-            {
+            let tz = self.active_tz();
+            let out = ui::tropical_window::show(
+                &mut self.tropical_window,
+                ctx,
+                &storms,
+                &mut self.spaghetti,
+                tz,
+                &mut self.drawer,
+            );
+            if let Some((id, product)) = out.fetch {
                 self.fetch_tropical_text(&id, product);
+            }
+            if let Some((lat, lon)) = out.center {
+                self.follow_cell = None;
+                self.views[self.active].camera.center =
+                    crate::render::mercator::lonlat_to_world(lon, lat);
+            }
+            if out.refresh_models {
+                let (rt, http) = (self.spawner.clone(), self.http.clone());
+                self.spaghetti.fetch(&rt, &http, ctx);
             }
         }
         // Point sounding: poll the async fetch, then render the Skew-T / hodograph.
@@ -24800,6 +24908,22 @@ mod tests {
         let link = super::goto_link(&g);
         assert!(link.ends_with(",gauge:ACRT2,gauge:BRTT2"), "{link}");
         assert_eq!(super::parse_goto(&link).unwrap().gauges, g.gauges);
+        // Tropical guidance: on, or focused on a system; junk ids are refused.
+        let g = super::parse_goto("KAMX,-80.4,25.6,6,tc:AL062026").unwrap();
+        assert_eq!(g.tropical.as_deref(), Some("al062026"));
+        assert!(super::goto_link(&g).ends_with(",tc:al062026"));
+        let g = super::parse_goto("KAMX,-80.4,25.6,6,tc").unwrap();
+        assert_eq!(g.tropical.as_deref(), Some(""));
+        assert_eq!(
+            super::parse_goto(&super::goto_link(&g)).unwrap().tropical,
+            g.tropical
+        );
+        assert_eq!(
+            super::parse_goto("KAMX,-80.4,25.6,6,tc:x/y")
+                .unwrap()
+                .tropical,
+            None
+        );
         // Old links are unchanged: no basemap, not storm-relative.
         let g = super::parse_goto(",-97.3,35.3,6.5").unwrap();
         assert_eq!(g.site, "");
@@ -25066,6 +25190,7 @@ mod tests {
             threshold,
             srv: false,
             gauges: Vec::new(),
+            tropical: None,
         };
         let link = goto_link(&base(Moment::Reflectivity, 0, None));
         assert!(link.starts_with("hookecho://goto/KFWS,"), "{link}");

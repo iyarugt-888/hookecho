@@ -8,6 +8,28 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: tropical model guidance — spaghetti, intensity, invests
+
+The tropical layer can now draw every model's track for every active storm and invest (turn on
+"Model tracks" in the Tropical layer options, or open Discussion → Tropical models & advisories).
+The tracks come from NHC's ATCF files: the global models (GFS, UKMET, Canadian, NAVGEM), the
+hurricane models (HAFS-A, HAFS-B, COAMPS-TC), the consensus aids (TVCN, HCCA, RVCN), the ensemble
+means, all 31 GEFS members, and the statistical tracks. Each model has its own color and is
+labeled at the end of its line, with a dot every 24 hours. Hovering a point gives the model, run,
+forecast hour, valid time, wind and pressure. The observed (best) track is drawn solid, colored by
+the strength it reached. Invests, which NHC runs models on but does not advise on, get a marker on
+the map and their own guidance.
+
+The window's new Models tab picks what draws, by group (consensus, global, hurricane, ensemble
+means and members, statistical, the official forecast) and by individual model, and can show the
+interpolated "early" aids forecasters use at advisory time. It shows how far apart the tracks are
+at 48, 72 and 120 hours (drawn models and ensemble members separately), and an intensity chart:
+the last two days of observed wind running into each model's forecast, over the Saffir–Simpson
+thresholds, with the intensity-only aids (SHIPS, LGEM) available there. Clicking a storm or an
+invest opens its guidance. The window is now reachable from the Discussion menu and the command
+palette, not only by clicking a storm. Share links carry it (`tc`, or `tc:al062026` to open one
+system's guidance), and so does the browser's address bar.
+
 ### Added: click a river gauge for its hydrograph, crests and flood stages
 
 River gauges on the map now open a card when clicked (with the Interrogate tool). The card graphs

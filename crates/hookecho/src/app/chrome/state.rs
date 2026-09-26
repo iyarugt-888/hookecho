@@ -23,6 +23,7 @@ pub(crate) fn window_for_page(title: &str) -> Option<AppWindow> {
         "Help" => AppWindow::Help,
         "About HookEcho" => AppWindow::About,
         "Forecast Discussion" => AppWindow::Afd,
+        "Tropical" => AppWindow::Tropical,
         "CAPPI slice" => AppWindow::Cappi,
         "Storm attributes" => AppWindow::StormTable,
         "Storm Digest" => AppWindow::Digest,

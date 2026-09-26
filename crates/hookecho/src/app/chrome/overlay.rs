@@ -81,6 +81,7 @@ impl HookEchoApp {
             &self.show_tropical,
             &mut self.tropical_wind_kt,
             &mut self.tropical_surge,
+            &mut self.spaghetti,
             l3_site.as_deref(),
             &mut self.global_fcst_hour,
             &mut self.diff_field,

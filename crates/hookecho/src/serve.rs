@@ -1223,6 +1223,8 @@ const ALLOWED_HOSTS: &[&str] = &[
     "mapservices.weather.noaa.gov",
     "www.spc.noaa.gov",
     "www.nhc.noaa.gov",
+    // ATCF model guidance (a-decks) and best tracks (b-decks).
+    "ftp.nhc.noaa.gov",
     "www.ndbc.noaa.gov",
     "api.water.noaa.gov",
     "aviationweather.gov",

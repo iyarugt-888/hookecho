@@ -4,6 +4,7 @@ pub mod afd;
 pub mod airnow;
 pub mod alerts;
 pub mod archive_warnings;
+pub mod atcf;
 pub mod aviation;
 pub mod banding;
 pub mod beam_geometry;

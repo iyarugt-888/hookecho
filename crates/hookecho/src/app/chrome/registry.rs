@@ -1305,6 +1305,12 @@ impl HookEchoApp {
                 false,
             ),
             (
+                W::Tropical,
+                "Tropical models & advisories…",
+                "Hurricane model tracks (spaghetti), intensity guidance, invests, and NHC advisories",
+                false,
+            ),
+            (
                 W::Placefiles,
                 "Placefile manager…",
                 "Add GRLevelX placefile overlays",

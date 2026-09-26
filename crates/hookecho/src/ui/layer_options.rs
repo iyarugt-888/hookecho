@@ -293,6 +293,7 @@ pub(crate) fn show(
     show_tropical: &bool,
     tropical_wind_kt: &mut Option<u8>,
     tropical_surge: &mut bool,
+    spaghetti: &mut crate::spaghetti::Spaghetti,
     l3grid_site: Option<&str>,
     // Global models: which one, and how far into its run.
     global_fcst_hour: &mut u16,
@@ -1055,6 +1056,20 @@ pub(crate) fn show(
                 "How deep water could get above ground if the peak surge arrives at high tide",
             )
             .changed();
+        crate::ui::style::toggle(ui, &mut spaghetti.enabled, "Model tracks (spaghetti)")
+            .on_hover_text(
+                "Every model's track for every active storm and invest, with the observed track",
+            );
+        if spaghetti.enabled {
+            crate::ui::style::toggle(ui, &mut spaghetti.best_track, "Observed track");
+        }
+        if ui
+            .button("Models & advisories\u{2026}")
+            .on_hover_text("Pick models, read the intensity guidance and NHC's advisories")
+            .clicked()
+        {
+            spaghetti.open_window = true;
+        }
     }
 
     if section == "Snowfall" && on.contains(&FL::SnowAnalysis) {

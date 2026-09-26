@@ -81,6 +81,10 @@ impl HookEchoApp {
                 .then(|| v.thresholds[v.moment.index()]),
             srv: v.srv,
             gauges: self.gauge_cards.lids(),
+            tropical: self
+                .spaghetti
+                .enabled
+                .then(|| self.spaghetti.focus.clone().unwrap_or_default()),
         });
         link.find('#').map(|i| link[i..].to_string())
     }
