@@ -82,7 +82,6 @@ impl RtmaField {
 
     /// The `.idx` `(var, level)` this field is read from — for the derived sea-level pressure,
     /// its primary input (see [`Self::inputs`]).
-
     pub fn key(self) -> (&'static str, &'static str) {
         match self {
             RtmaField::Temp2m => ("TMP", "2 m above ground"),
