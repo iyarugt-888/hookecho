@@ -129,6 +129,8 @@ impl HookEchoApp {
             .map(|n| format!("\u{b1}{:.1} {disp_unit}", n * disp_factor));
         let model_shown = crate::model_browser::model_layers()
             .any(|layer| self.views[self.active].fields_on.contains(&layer));
+        // An analysis steps by hour, a forecast by lead: the card's section and buttons say which.
+        let analysis = !self.model_sel.model.has_lead();
         let model_rows = if model_shown && self.dock.model_open {
             model_card_rows(&self.model_panel_input(), tz, chrono::Utc::now())
         } else {
@@ -230,19 +232,35 @@ impl HookEchoApp {
             }
             if !model_rows.is_empty() {
                 ui.add_space(6.0);
-                ws::section_rule(ui, &t, "Model forecast");
+                ws::section_rule(
+                    ui,
+                    &t,
+                    if analysis {
+                        "Analysis"
+                    } else {
+                        "Model forecast"
+                    },
+                );
                 for (k, v) in &model_rows {
                     ws::kv(ui, &t, k.trim_end_matches(':'), v, None);
                 }
                 ui.horizontal(|ui| {
                     if ws::icon_button(ui, &t, ph::CARET_LEFT, "", false)
-                        .named("One lead step earlier")
+                        .named(if analysis {
+                            "One hour earlier"
+                        } else {
+                            "One lead step earlier"
+                        })
                         .clicked()
                     {
                         step_model = Some(-1i8);
                     }
                     if ws::icon_button(ui, &t, ph::CARET_RIGHT, "", false)
-                        .named("One lead step later")
+                        .named(if analysis {
+                            "One hour later"
+                        } else {
+                            "One lead step later"
+                        })
                         .clicked()
                     {
                         step_model = Some(1);

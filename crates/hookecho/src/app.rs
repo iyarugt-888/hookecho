@@ -11097,6 +11097,12 @@ impl HookEchoApp {
                     self.apply_palette(PaletteAction::ToggleCompareSwipe, ctx);
                 }
             }
+            // An analysis has no lead: its steps are hours, through the Hour menu's own list.
+            PaletteAction::StepModelLead(steps) if !self.model_sel.model.has_lead() => {
+                let model = self.model_sel.model;
+                let runs = model.run_choices(Utc::now(), model.run_list_len());
+                self.model_run = crate::model_browser::step_run(&runs, self.model_run, steps);
+            }
             PaletteAction::StepModelLead(steps) => {
                 // Step along the model's own published leads, which are not evenly spaced for
                 // every model (the NAM 12 km and the global models thin out with lead).

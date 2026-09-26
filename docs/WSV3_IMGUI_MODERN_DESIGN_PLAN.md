@@ -941,3 +941,7 @@ a scale bar on the map; a network round-trip measurement for the app bar; a natu
 - The toolbar's Panes control is a menu rather than a combo box (a combo scrolls past 200 px):
   pane count, layout, then the five pane links and "Link all / Unlink all (Ctrl+L)", with a link
   mark on the button while any link is on. Checked by screenshot: two panes, all linked.
+- The Inspector's model card for an analysis (RTMA/URMA) heads "Analysis", and its ‹ › step the
+  analysis hour through the Hour menu's list (`model_browser::step_run`) — they stepped a lead
+  the analysis does not have, so did nothing. Stepping back to the newest returns to Latest.
+  Checked by screenshot: 20Z → 18Z in two clicks.

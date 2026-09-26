@@ -61,6 +61,25 @@ pub enum Product {
     AnalysisPrecip1h,
 }
 
+/// Step `steps` hours along `runs` (newest first) from `current` (`None`: the newest, following):
+/// negative is earlier. Reaching the newest returns `None`, so stepping back to the present
+/// resumes following new hours rather than pinning the one that happened to be newest; the list's
+/// oldest end holds.
+pub fn step_run(
+    runs: &[DateTime<Utc>],
+    current: Option<DateTime<Utc>>,
+    steps: i8,
+) -> Option<DateTime<Utc>> {
+    if runs.is_empty() {
+        return current;
+    }
+    let at = current
+        .and_then(|c| runs.iter().position(|r| *r == c))
+        .unwrap_or(0) as i64;
+    let to = (at - i64::from(steps)).clamp(0, runs.len() as i64 - 1) as usize;
+    (to > 0).then(|| runs[to])
+}
+
 /// How models group in a picker.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Family {
@@ -734,6 +753,30 @@ pub fn format_lead(minutes: u16) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stepping_an_analysis_walks_the_hour_list_and_back_to_following() {
+        use chrono::TimeZone;
+        let h = |x| Utc.with_ymd_and_hms(2026, 9, 26, x, 0, 0).unwrap();
+        let runs = [h(20), h(19), h(18)]; // newest first
+        assert_eq!(
+            step_run(&runs, None, -1),
+            Some(h(19)),
+            "earlier from Latest"
+        );
+        assert_eq!(
+            step_run(&runs, Some(h(19)), -5),
+            Some(h(18)),
+            "the oldest holds"
+        );
+        assert_eq!(
+            step_run(&runs, Some(h(19)), 1),
+            None,
+            "back to the newest follows again"
+        );
+        assert_eq!(step_run(&runs, None, 1), None);
+        assert_eq!(step_run(&[], Some(h(19)), -1), Some(h(19)));
+    }
 
     #[test]
     fn every_model_has_products_and_a_sane_lead_range() {
