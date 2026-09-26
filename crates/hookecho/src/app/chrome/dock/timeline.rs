@@ -269,10 +269,21 @@ impl HookEchoApp {
                             t.text_faint.gamma_multiply(0.6)
                         };
                         let h = if have || forecast { 6.0 } else { 4.0 };
-                        p.line_segment(
-                            [egui::pos2(x, rail_y - h), egui::pos2(x, rail_y + h)],
-                            Stroke::new(1.5, color),
-                        );
+                        if forecast {
+                            // Split at the rail: a forecast hour differs from an observed frame
+                            // in shape, not only in the models' tint (roadmap Q3).
+                            for (a, b) in [(-h, -2.0), (2.0, h)] {
+                                p.line_segment(
+                                    [egui::pos2(x, rail_y + a), egui::pos2(x, rail_y + b)],
+                                    Stroke::new(1.5, color),
+                                );
+                            }
+                        } else {
+                            p.line_segment(
+                                [egui::pos2(x, rail_y - h), egui::pos2(x, rail_y + h)],
+                                Stroke::new(1.5, color),
+                            );
+                        }
                     }
                     let x = slot_x(tl.playhead.min(slots - 1), slots, left, right);
                     p.line_segment(

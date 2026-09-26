@@ -906,3 +906,6 @@ a scale bar on the map; a network round-trip measurement for the app bar; a natu
   paints them as given; the top-layer legend follows it too. "Reset" restores the built-in order.
   Checked by screenshot: Rotation tracks dragged above Lightning density and Hail size, and the
   map's legend changed to rotation.
+- Non-colour state audit of the workstation (roadmap Q3): every status mark has a second cue
+  besides colour; the one that did not, the timeline's forecast-hour ticks, is now split at the
+  rail. Checked by screenshot, zoomed on the timeline.

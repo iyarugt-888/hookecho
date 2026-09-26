@@ -3899,8 +3899,13 @@ Preserve current accesskit/high-contrast work and ensure new controls have:
   per-pixel data has no second channel) — accepted as a property of this class of diverging-color
   data visualization, not audited for whether a discrete status *control* elsewhere shares the gap.
   The WSV3/Dock Layers tree now distinguishes all seven source-health states with different
-  shapes and accessible names instead of color-only dots; the broader status-control audit remains
-  open.
+  shapes and accessible names instead of color-only dots. The workstation's own status marks
+  were then audited as a set: rail and segmented selections are filled boxes (not a color
+  change alone), Sources rows share the tree's state glyphs, background dock-tab dots are said
+  in words in their hover and accessible name, the app bar's feed dot sits beside its own text,
+  the live tilt is a ring (and an arc for progress) rather than a colored dot, and the one mark
+  that relied on color alone, the timeline's forecast-hour ticks, is now split at the rail. The
+  floating chrome and ribbon have not had this pass.
 - [x]/[ ] scalable text — investigated this pass: `egui::Context::set_zoom_factor` (which
   `Settings.ui_scale` already drives, `app.rs:18673`, via a Settings slider and Ctrl+=/Ctrl+-/
   Ctrl+0) computes `pixels_per_point = zoom_factor * native_pixels_per_point` — confirmed from
