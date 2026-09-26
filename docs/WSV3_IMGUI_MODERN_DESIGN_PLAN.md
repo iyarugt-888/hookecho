@@ -836,5 +836,11 @@ a scale bar on the map; a network round-trip measurement for the app bar; a natu
   side used last; the other is set aside, not closed, and any of its buttons (rail, app bar, keys)
   swaps back. The saved arrangement is untouched, so widening the window restores both. Checked
   by screenshot at 1024 (right dock, then Layers after the rail button) and 800, and at 1920
-  unchanged. The context toolbar still scrolls sideways at these widths rather than folding into
-  menus.
+  unchanged.
+- The context toolbar folds too (§9 "ribbon groups collapse into menus"): the groups after the
+  2D/3D/Volume switch fold into one **Display** menu, in order — overlay switches, map style and
+  panes, colour table, then smoothing and legend — until the rest fits. Group widths are measured
+  as drawn (`ToolbarWidths`), so the fold follows the real contents; the button counts the folded
+  overlays that are on ("Display (3)"). Below the fixed part's own width the row still scrolls.
+  Checked by screenshot at 1920 (nothing folded), 1536 (overlays and map), and 1024 (all four,
+  with a range-ring switch flipped from the menu).

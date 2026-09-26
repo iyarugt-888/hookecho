@@ -413,6 +413,13 @@ impl HookEchoApp {
         let mut want_3d = None;
         let mut open_sites = false;
         let mut table_pick: Option<Option<String>> = None;
+        // The groups' widths as last drawn, to decide how many fold into the Display menu.
+        let widths_id = egui::Id::new("dock_toolbar_widths");
+        let mut widths = ctx
+            .data(|d| d.get_temp::<ToolbarWidths>(widths_id))
+            .unwrap_or_default();
+        let folded = toolbar_folds(ctx.content_rect().width() - 20.0, &widths);
+        let fold = |g: ToolGroup| (g as usize) < folded;
         egui::Panel::top("dock_toolbar")
             .exact_size(ws::TOOLBAR_H)
             .frame(
@@ -431,6 +438,16 @@ impl HookEchoApp {
                         ui.set_height(ws::TOOLBAR_H);
                         ui.horizontal_centered(|ui| {
                             ui.spacing_mut().item_spacing.x = 6.0;
+                            let x0 = ui.cursor().left();
+                            // Each group's width, measured from where it starts to where the next
+                            // one does.
+                            let mut mark = x0;
+                            let mut take = |ui: &egui::Ui| {
+                                let x = ui.cursor().left();
+                                let w = x - mark;
+                                mark = x;
+                                w
+                            };
                             ws::caption(ui, &t, "Site");
                             let site_label = format!(
                                 "{}  {}",
@@ -531,78 +548,122 @@ impl HookEchoApp {
                                 Some(_) => action = Some(A::OpenWindow(AppWindow::Volume3d)),
                                 None => {}
                             }
-                            ws::check(ui, &t, &mut smoothing, "Smoothing");
-                            ws::check(ui, &t, &mut legend, "Legend")
-                                .on_hover_text("The product's colour scale beside the map");
-                            ws::divider(ui, &t, ws::TOOLBAR_H);
-                            ws::caption(ui, &t, "Color table");
-                            egui::ComboBox::from_id_salt("dock_table")
-                                .width(120.0)
-                                .selected_text(&table_now)
-                                .show_ui(ui, |ui| {
-                                    if ui
-                                        .selectable_label(table_now == "Default", "Default")
-                                        .clicked()
-                                    {
-                                        table_pick = Some(None);
+                            widths.core = take(ui);
+                            if !fold(ToolGroup::View) {
+                                ws::check(ui, &t, &mut smoothing, "Smoothing");
+                                ws::check(ui, &t, &mut legend, "Legend")
+                                    .on_hover_text("The product's colour scale beside the map");
+                                ws::divider(ui, &t, ws::TOOLBAR_H);
+                                widths.groups[ToolGroup::View as usize] = take(ui);
+                            }
+                            if !fold(ToolGroup::Table) {
+                                ws::caption(ui, &t, "Color table");
+                                egui::ComboBox::from_id_salt("dock_table")
+                                    .width(120.0)
+                                    .selected_text(&table_now)
+                                    .show_ui(ui, |ui| {
+                                        table_items(ui, moment, &table_now, &mut table_pick);
+                                    });
+                                ws::divider(ui, &t, ws::TOOLBAR_H);
+                                widths.groups[ToolGroup::Table as usize] = take(ui);
+                            }
+                            if !fold(ToolGroup::Overlays) {
+                                for (tg, name, on) in &toggles {
+                                    let mut v = *on;
+                                    if ws::check(ui, &t, &mut v, name).changed() {
+                                        action = Some(A::ToggleOverlay(*tg));
                                     }
-                                    for name in crate::colormap::alt_names(moment) {
-                                        if ui.selectable_label(table_now == name, name).clicked() {
-                                            table_pick = Some(Some(format!(
-                                                "{}{name}",
-                                                crate::colormap::BUILTIN_PREFIX
-                                            )));
-                                        }
-                                    }
-                                });
-                            ws::divider(ui, &t, ws::TOOLBAR_H);
-                            for (tg, name, on) in &toggles {
-                                let mut v = *on;
-                                if ws::check(ui, &t, &mut v, name).changed() {
-                                    action = Some(A::ToggleOverlay(*tg));
                                 }
+                                ws::divider(ui, &t, ws::TOOLBAR_H);
+                                widths.groups[ToolGroup::Overlays as usize] = take(ui);
                             }
-                            ws::divider(ui, &t, ws::TOOLBAR_H);
-                            ws::caption(ui, &t, "Map");
-                            let map_label = format!("{basemap}  {}", ph::CARET_DOWN);
-                            if ws::button(ui, &t, &map_label, 72.0)
-                                .named("Choose the map style (Z cycles them)")
-                                .clicked()
-                            {
-                                toggle_basemap = true;
+                            if !fold(ToolGroup::Map) {
+                                ws::caption(ui, &t, "Map");
+                                let map_label = format!("{basemap}  {}", ph::CARET_DOWN);
+                                if ws::button(ui, &t, &map_label, 72.0)
+                                    .named("Choose the map style (Z cycles them)")
+                                    .clicked()
+                                {
+                                    toggle_basemap = true;
+                                }
+                                ws::caption(ui, &t, "Panes");
+                                egui::ComboBox::from_id_salt("dock_panes")
+                                    .width(88.0)
+                                    .selected_text(format!(
+                                        "{panes} \u{b7} {}",
+                                        pane_layout.label()
+                                    ))
+                                    .show_ui(ui, |ui| {
+                                        pane_items(ui, panes, pane_layout, &mut action);
+                                    });
+                                widths.groups[ToolGroup::Map as usize] = take(ui);
                             }
-                            ws::caption(ui, &t, "Panes");
-                            egui::ComboBox::from_id_salt("dock_panes")
-                                .width(88.0)
-                                .selected_text(format!("{panes} \u{b7} {}", pane_layout.label()))
-                                .show_ui(ui, |ui| {
-                                    for n in [1usize, 2, 3, 4, 6, 9]
-                                        .into_iter()
-                                        .filter(|n| *n <= crate::view::MAX_PANES)
-                                    {
-                                        let label = if n == 1 {
-                                            "1 pane".to_string()
-                                        } else {
-                                            format!("{n} panes")
-                                        };
-                                        if ui.selectable_label(panes == n, label).clicked() {
-                                            action = Some(A::SetPanes(n));
+                            if folded > 0 {
+                                // Whatever did not fit, in the same order, behind one button.
+                                let on = toggles.iter().filter(|(_, _, on)| *on).count();
+                                let label = if fold(ToolGroup::Overlays) && on > 0 {
+                                    format!("Display ({on})")
+                                } else {
+                                    "Display".to_string()
+                                };
+                                let menu =
+                                    ws::icon_button(ui, &t, ph::SLIDERS_HORIZONTAL, &label, false)
+                                        .named("Display settings that do not fit the toolbar");
+                                egui::Popup::menu(&menu)
+                                    .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                                    .show(|ui| {
+                                        ws::style_scope(ui, &t);
+                                        if fold(ToolGroup::View) {
+                                            ws::check(ui, &t, &mut smoothing, "Smoothing");
+                                            ws::check(ui, &t, &mut legend, "Legend");
+                                            ui.separator();
                                         }
-                                    }
-                                    ui.separator();
-                                    for layout in crate::workspace::PaneLayout::ALL {
-                                        if ui
-                                            .selectable_label(pane_layout == layout, layout.label())
-                                            .on_hover_text(layout.description())
-                                            .clicked()
-                                        {
-                                            action = Some(A::SetPaneLayout(layout));
+                                        if fold(ToolGroup::Table) {
+                                            ui.menu_button(
+                                                format!("Color table: {table_now}"),
+                                                |ui| {
+                                                    table_items(
+                                                        ui,
+                                                        moment,
+                                                        &table_now,
+                                                        &mut table_pick,
+                                                    );
+                                                },
+                                            );
+                                            ui.separator();
                                         }
-                                    }
-                                });
+                                        if fold(ToolGroup::Overlays) {
+                                            for (tg, name, on) in &toggles {
+                                                let mut v = *on;
+                                                if ws::check(ui, &t, &mut v, name).changed() {
+                                                    action = Some(A::ToggleOverlay(*tg));
+                                                }
+                                            }
+                                            ui.separator();
+                                        }
+                                        if fold(ToolGroup::Map) {
+                                            if ui
+                                                .button(format!("Map style: {basemap}\u{2026}"))
+                                                .clicked()
+                                            {
+                                                toggle_basemap = true;
+                                            }
+                                            ui.menu_button(
+                                                format!(
+                                                    "Panes: {panes} \u{b7} {}",
+                                                    pane_layout.label()
+                                                ),
+                                                |ui| {
+                                                    pane_items(ui, panes, pane_layout, &mut action);
+                                                },
+                                            );
+                                        }
+                                    });
+                            }
                         });
                     });
             });
+        ctx.data_mut(|d| d.insert_temp(widths_id, widths));
         self.views[self.active].smooth = smoothing;
         self.views[self.active].show_legend = legend;
         if toggle_basemap {
@@ -634,6 +695,97 @@ impl HookEchoApp {
         }
         if let Some(a) = action {
             self.apply_palette(a, ctx);
+        }
+    }
+}
+
+/// The context toolbar's foldable groups, in the order they fold into its Display menu when the
+/// window is too narrow for them: the overlay switches first (the rail and Layers panel reach
+/// them too), then the map style and panes, the colour table, and last smoothing and the legend.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ToolGroup {
+    Overlays = 0,
+    Map = 1,
+    Table = 2,
+    View = 3,
+}
+
+/// The toolbar's widths as last drawn: the fixed part (site to the 2D/3D/Volume switch) and each
+/// foldable group, indexed by [`ToolGroup`]. The defaults are the desktop's, for the first frame.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct ToolbarWidths {
+    core: f32,
+    groups: [f32; 4],
+}
+
+impl Default for ToolbarWidths {
+    fn default() -> Self {
+        ToolbarWidths {
+            core: 780.0,
+            groups: [390.0, 270.0, 230.0, 190.0],
+        }
+    }
+}
+
+/// How many groups fold (they go in [`ToolGroup`] order) for everything left to fit in `room`.
+/// When even all four folded do not fit, the row still scrolls sideways.
+fn toolbar_folds(room: f32, w: &ToolbarWidths) -> usize {
+    const MENU: f32 = 110.0;
+    (0..=4)
+        .find(|&k| {
+            let shown: f32 = w.groups[k..].iter().sum();
+            w.core + shown + if k > 0 { MENU } else { 0.0 } <= room
+        })
+        .unwrap_or(4)
+}
+
+fn table_items(
+    ui: &mut egui::Ui,
+    moment: Moment,
+    table_now: &str,
+    pick: &mut Option<Option<String>>,
+) {
+    if ui
+        .selectable_label(table_now == "Default", "Default")
+        .clicked()
+    {
+        *pick = Some(None);
+    }
+    for name in crate::colormap::alt_names(moment) {
+        if ui.selectable_label(table_now == name, name).clicked() {
+            *pick = Some(Some(format!("{}{name}", crate::colormap::BUILTIN_PREFIX)));
+        }
+    }
+}
+
+fn pane_items(
+    ui: &mut egui::Ui,
+    panes: usize,
+    pane_layout: crate::workspace::PaneLayout,
+    action: &mut Option<crate::app::PaletteAction>,
+) {
+    use crate::app::PaletteAction as A;
+    for n in [1usize, 2, 3, 4, 6, 9]
+        .into_iter()
+        .filter(|n| *n <= crate::view::MAX_PANES)
+    {
+        let label = if n == 1 {
+            "1 pane".to_string()
+        } else {
+            format!("{n} panes")
+        };
+        if ui.selectable_label(panes == n, label).clicked() {
+            *action = Some(A::SetPanes(n));
+        }
+    }
+    ui.separator();
+    for layout in crate::workspace::PaneLayout::ALL {
+        if ui
+            .selectable_label(pane_layout == layout, layout.label())
+            .on_hover_text(layout.description())
+            .clicked()
+        {
+            *action = Some(A::SetPaneLayout(layout));
         }
     }
 }
@@ -738,6 +890,21 @@ mod tests {
             !left_fit(800.0, tabs, false).subtitle,
             "the right side vetoes it"
         );
+    }
+
+    #[test]
+    fn the_toolbar_folds_groups_in_order_until_the_rest_fits() {
+        let w = ToolbarWidths {
+            core: 700.0,
+            groups: [400.0, 250.0, 200.0, 150.0],
+        };
+        assert_eq!(toolbar_folds(1700.0, &w), 0);
+        // One short: the overlays go first, and the menu that takes them costs room too.
+        assert_eq!(toolbar_folds(1690.0, &w), 1);
+        assert_eq!(toolbar_folds(1210.0, &w), 2);
+        assert_eq!(toolbar_folds(810.0, &w), 4);
+        // Narrower than even the fixed part: everything folds and the row scrolls.
+        assert_eq!(toolbar_folds(500.0, &w), 4);
     }
 
     #[test]

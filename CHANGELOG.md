@@ -12,7 +12,9 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 On windows narrower than about 1120 pixels, the Dock and WSV3 layouts' top bar no longer draws
 its buttons over the workspace tabs; it drops the subtitle, the name and the wall clock as needed,
-and on the narrowest windows the tabs become one menu. Only one side panel shows at a time there,
+and on the narrowest windows the tabs become one menu. The radar toolbar under it folds the
+controls that do not fit (overlays, map and panes, color table, smoothing and legend) into one
+**Display** menu instead of running off the edge. Only one side panel shows at a time there,
 so the map keeps its width; the rail and top-bar buttons switch between them, and a wider window
 shows both again.
 
