@@ -364,6 +364,55 @@ pub async fn fetch_latest_conus(
     fetch_key(client, satellite, &key, out_nx, out_ny).await
 }
 
+/// Fetch several bands from one scan, decoded to the same `out_nx × out_ny` grid (in `bands`'
+/// order): the newest scan of the first band, and for each other band its granule nearest that
+/// scan's start. A band whose nearest granule is more than `same_scan_secs` away belongs to a
+/// different scan, and the whole fetch is refused rather than composing two moments into one
+/// picture (ROADMAP_NEW E4's RGB recipes, `crate::goes_rgb`).
+pub async fn fetch_same_scan(
+    client: &reqwest::Client,
+    satellite: Satellite,
+    bands: &[u8],
+    same_scan_secs: i64,
+    out_nx: usize,
+    out_ny: usize,
+) -> anyhow::Result<Vec<MrmsField>> {
+    let (&first, rest) = bands
+        .split_first()
+        .ok_or_else(|| anyhow::anyhow!("no bands asked for"))?;
+    let anchor = latest_key(client, satellite, first).await?;
+    let when = key_time(&anchor)
+        .ok_or_else(|| anyhow::anyhow!("could not parse a scan time from {anchor}"))?;
+    let others = futures_util::future::try_join_all(
+        rest.iter()
+            .map(|&band| key_near(client, satellite, band, when)),
+    )
+    .await?;
+    let mut keys = vec![anchor];
+    for (band, key) in rest.iter().zip(others) {
+        let t = key_time(&key).ok_or_else(|| anyhow::anyhow!("no scan time in {key}"))?;
+        anyhow::ensure!(
+            same_scan(when, t, same_scan_secs),
+            "band {band} has no granule from the {when} scan (nearest is {t})"
+        );
+        keys.push(key);
+    }
+    futures_util::future::try_join_all(
+        keys.iter()
+            .map(|k| fetch_key(client, satellite, k, out_nx, out_ny)),
+    )
+    .await
+}
+
+/// Whether two granule start times belong to one scan.
+fn same_scan(
+    a: chrono::DateTime<chrono::Utc>,
+    b: chrono::DateTime<chrono::Utc>,
+    secs: i64,
+) -> bool {
+    (a - b).num_seconds().abs() <= secs
+}
+
 /// Fetch two bands from the same satellite and subtract their brightness temperatures cell by
 /// cell (`band_a` minus `band_b`), for the classic channel-difference analysis techniques
 /// (ROADMAP_NEW E6, e.g. the split-window dust/ash product: Band 15 minus Band 13). The two
