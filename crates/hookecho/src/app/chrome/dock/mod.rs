@@ -128,7 +128,7 @@ pub(crate) struct Probe {
 }
 
 /// The workstation's tool windows, in the order a dock's tab group lists them.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) enum DockWin {
     Layers,
     Inspector,
@@ -170,6 +170,11 @@ impl DockWin {
             title,
             dot: None,
         }
+    }
+
+    /// The glyph its header, its dock tab and its row in the Layers tree share.
+    pub(crate) fn glyph(self) -> &'static str {
+        self.tab().glyph
     }
 
     fn width(self) -> f32 {
@@ -627,6 +632,29 @@ pub(crate) fn group_entries(
 ) -> Vec<Group> {
     let every_category = !query.is_empty() || filter != LayerFilter::All;
     let mut groups: Vec<Group> = Vec::new();
+    let keep = |e: &PaletteEntry| match filter {
+        LayerFilter::All => true,
+        LayerFilter::Active => e.on == Some(true),
+        LayerFilter::Favorites => {
+            favorite_slug(e).is_some_and(|s| favorites.iter().any(|f| f == s))
+        }
+    };
+    // A loose subsequence match is how a short query finds a layer ("srv", "gau"), and it also
+    // lets "window" match "Wind toward/away". So the rows whose names hold the query itself go
+    // first, in their own group, tightest first — and Enter, which takes the first row, takes
+    // the best one rather than whichever category happens to be listed first.
+    let best = best_matches(entries, query, &keep);
+    if !best.is_empty() {
+        groups.push(Group {
+            category: BEST,
+            on: best
+                .iter()
+                .filter(|&&i| entries[i].on == Some(true))
+                .count(),
+            rows: best.clone(),
+        });
+    }
+    let needle = query.trim().to_lowercase();
     for cat in crate::ui::layers_panel::CATEGORIES {
         if !every_category && !tab.categories().contains(&cat) {
             continue;
@@ -634,23 +662,18 @@ pub(crate) fn group_entries(
         let mut rows = Vec::new();
         let mut on = 0;
         for (i, e) in entries.iter().enumerate() {
-            if e.category != cat {
+            if e.category != cat || best.contains(&i) {
                 continue;
             }
             let is_on = e.on == Some(true);
-            let keep = match filter {
-                LayerFilter::All => true,
-                LayerFilter::Active => is_on,
-                LayerFilter::Favorites => {
-                    favorite_slug(e).is_some_and(|s| favorites.iter().any(|f| f == s))
-                }
-            };
-            if !keep {
+            if !keep(e) {
                 continue;
             }
+            // The name may match loosely; a description must hold the query as written, or
+            // every long description matches nearly anything.
             if !query.is_empty()
                 && crate::ui::layers_panel::fuzzy(query, &e.label).is_none()
-                && crate::ui::layers_panel::fuzzy(query, e.desc).is_none()
+                && !e.desc.to_lowercase().contains(&needle)
             {
                 continue;
             }
@@ -668,6 +691,33 @@ pub(crate) fn group_entries(
         }
     }
     groups
+}
+
+/// The search results' own group, ahead of the categories: see [`best_matches`].
+pub(crate) const BEST: &str = "Best";
+
+/// Rows whose name holds `query` as written, tightest first (earliest in the name, then the
+/// shortest name), at most six. Empty for an empty query.
+fn best_matches(
+    entries: &[PaletteEntry],
+    query: &str,
+    keep: &dyn Fn(&PaletteEntry) -> bool,
+) -> Vec<usize> {
+    let needle = query.trim().to_lowercase();
+    if needle.is_empty() {
+        return Vec::new();
+    }
+    let mut hits: Vec<(usize, usize, usize)> = entries
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| keep(e))
+        .filter_map(|(i, e)| {
+            let at = e.label.to_lowercase().find(&needle)?;
+            Some((at, e.label.len(), i))
+        })
+        .collect();
+    hits.sort();
+    hits.into_iter().take(6).map(|(_, _, i)| i).collect()
 }
 
 /// The tint for a category's glyphs in the tree, so a glance tells radar from models from warnings.
@@ -1044,6 +1094,34 @@ mod tests {
     }
 
     #[test]
+    fn a_search_puts_names_holding_the_query_first() {
+        let mut e = sample();
+        let mut inspector = entry("Inspector window", "Reference", Some(false));
+        inspector.desc = "The reading under the pointer";
+        e.push(inspector);
+        let g = group_entries(&e, DockTab::Radar, LayerFilter::All, "window", &[]);
+        assert_eq!(g[0].category, BEST);
+        assert_eq!(e[g[0].rows[0]].label, "Inspector window");
+        // Listed once: not again under its own category.
+        assert!(!g
+            .iter()
+            .skip(1)
+            .any(|g| g.rows.iter().any(|&i| e[i].label == "Inspector window")));
+        // A description has to hold the query as written, not as a scattered subsequence.
+        let g = group_entries(&e, DockTab::Radar, LayerFilter::All, "tpr", &[]);
+        assert!(g
+            .iter()
+            .all(|g| g.rows.iter().all(|&i| e[i].label != "Inspector window")));
+        let g = group_entries(&e, DockTab::Radar, LayerFilter::All, "pointer", &[]);
+        assert!(g
+            .iter()
+            .any(|g| g.rows.iter().any(|&i| e[i].label == "Inspector window")));
+        // No query, no best-matches group.
+        let g = group_entries(&e, DockTab::Radar, LayerFilter::All, "", &[]);
+        assert!(g.iter().all(|g| g.category != BEST));
+    }
+
+    #[test]
     fn each_group_counts_the_rows_that_are_on() {
         let g = group_entries(&sample(), DockTab::Radar, LayerFilter::All, "", &[]);
         let radar = g.iter().find(|g| g.category == "Radar").unwrap();
@@ -1091,8 +1169,13 @@ mod tests {
 
     #[test]
     fn a_search_reaches_every_tab_and_drops_empty_categories() {
-        let g = group_entries(&sample(), DockTab::Radar, LayerFilter::All, "hrrr", &[]);
+        // A loose match still reaches another tab's category...
+        let g = group_entries(&sample(), DockTab::Radar, LayerFilter::All, "hfr", &[]);
         assert_eq!(cats(&g), ["Models"]);
+        assert_eq!(g[0].rows, vec![3]);
+        // ...and a name that holds the query leads, in its own group, leaving Models empty.
+        let g = group_entries(&sample(), DockTab::Radar, LayerFilter::All, "hrrr", &[]);
+        assert_eq!(cats(&g), [BEST]);
         assert_eq!(g[0].rows, vec![3]);
         assert!(
             group_entries(&sample(), DockTab::Radar, LayerFilter::All, "zzzzqq", &[]).is_empty()

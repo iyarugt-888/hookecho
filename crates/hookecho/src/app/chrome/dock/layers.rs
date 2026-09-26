@@ -387,12 +387,17 @@ fn group(
     if force_open {
         state.set_open(true);
     }
+    let best = g.category == BEST;
     let tint = category_color(g.category);
     let (rect, resp) = ui.allocate_exact_size(
         egui::vec2(ui.available_width(), ROW_H + 2.0),
         Sense::click(),
     );
-    let name = crate::ui::layers_panel::category_name(g.category);
+    let name = if best {
+        "Best matches"
+    } else {
+        crate::ui::layers_panel::category_name(g.category)
+    };
     let resp = resp.named_toggle(name, state.is_open());
     if resp.clicked() {
         state.toggle(ui);
@@ -416,9 +421,13 @@ fn group(
     p.text(
         egui::pos2(rect.left() + 28.0, y),
         egui::Align2::LEFT_CENTER,
-        crate::ui::layers_panel::category_glyph(g.category),
+        if best {
+            ph::MAGNIFYING_GLASS
+        } else {
+            crate::ui::layers_panel::category_glyph(g.category)
+        },
         FontId::proportional(14.0),
-        tint,
+        if best { t.accent } else { tint },
     );
     p.text(
         egui::pos2(rect.left() + 48.0, y),
@@ -437,6 +446,12 @@ fn group(
     let mut hit = None;
     state.show_body_unindented(ui, |ui| {
         for &i in &g.rows {
+            // A best match keeps its own category's tint, so it still says what kind of row it is.
+            let tint = if best {
+                category_color(entries[i].category)
+            } else {
+                tint
+            };
             if let Some(h) = row(ui, t, &entries[i], tint, favorites, opacity) {
                 hit = Some(h);
             }

@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Changed: search puts the closest names first
+
+In the Dock and WSV3 layouts' Layers search, layers whose names contain what you typed now lead
+in a "Best matches" group, and Enter opens the first of them. The workstation windows (Inspector,
+Alerts, Sources, Preferences) can be found and opened from search and Ctrl+K, and bound to keys.
+
 ### Added: resize the workstation's side panels
 
 In the Dock and WSV3 layouts, drag the inner edge of either side panel to make it wider or

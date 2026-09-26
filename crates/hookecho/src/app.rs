@@ -2354,6 +2354,9 @@ pub(crate) enum PaletteAction {
     TogglePanel,
     /// Show/hide the WSV3 ribbon and its docked colour scale, for a full-window map view.
     ToggleRibbon,
+    /// Show or hide one of the workstation's tool windows (bringing it forward if it is behind
+    /// another tab), so each is reachable from search, Ctrl+K and a key binding.
+    DockWindow(chrome::DockWin),
     Reload,
     InstantReplay,
     GoLive,
@@ -11098,6 +11101,7 @@ impl HookEchoApp {
             }
             PaletteAction::TogglePanel => self.panel_open = !self.panel_open,
             PaletteAction::ToggleRibbon => self.ribbon_collapsed = !self.ribbon_collapsed,
+            PaletteAction::DockWindow(w) => self.dock.toggle(w),
             PaletteAction::Reload => self.trigger_reload(ctx),
             PaletteAction::InstantReplay => self.instant_replay(),
             PaletteAction::GoLive => self.views[self.active].timeline.go_head(),

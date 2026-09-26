@@ -1145,14 +1145,55 @@ impl HookEchoApp {
             PaletteAction::ToggleMute,
             Some(self.settings.mute_alerts),
         );
+        let workstation = self.workstation_chrome();
         push(
             "Layers panel",
             "Reference",
             "The floating panel \u{2014} close it and nothing covers the map",
             false,
             PaletteAction::TogglePanel,
-            Some(self.panel_open),
+            Some(if workstation {
+                self.dock.shown(super::DockWin::Layers)
+            } else {
+                self.panel_open
+            }),
         );
+        // The workstation's other tool windows. The 3D view and the Analyst log come with 3D and
+        // Analyst Mode, which have their own switches, so they are not rows of their own.
+        if workstation {
+            use super::DockWin as D;
+            for (w, label, desc) in [
+                (
+                    D::Inspector,
+                    "Inspector window",
+                    "The reading under the pointer, the product's provenance and the 3D view's state",
+                ),
+                (
+                    D::Alerts,
+                    "Alerts window",
+                    "The warnings, watches and advisories in view",
+                ),
+                (
+                    D::Sources,
+                    "Sources window",
+                    "Every active data feed's health, worst first",
+                ),
+                (
+                    D::Prefs,
+                    "Preferences window",
+                    "Map, display and app settings",
+                ),
+            ] {
+                push(
+                    label,
+                    "Reference",
+                    desc,
+                    false,
+                    PaletteAction::DockWindow(w),
+                    Some(self.dock.shown(w)),
+                );
+            }
+        }
         push(
             "Top bar",
             "Reference",

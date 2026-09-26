@@ -867,3 +867,9 @@ a scale bar on the map; a network round-trip measurement for the app bar; a natu
   saved with the arrangement in whole pixels (`WorkstationChrome::dock_widths`). A wider right
   dock also lets its tabs show their titles instead of glyphs. Checked by screenshot: dragged
   wider, kept across a restart, and reset by double-click.
+- Every workstation window is a command: Inspector, Alerts, Sources and Preferences have rows
+  (`PaletteAction::DockWindow`) in Layers search and Ctrl+K, bindable to a key, wearing their
+  header's glyph and showing whether they are visible. Search now leads with a **Best matches**
+  group — names that hold the query as written, tightest first — so "window" finds the windows
+  rather than "Wind toward/away" through a loose subsequence, and Enter takes the best row.
+  Descriptions must hold the query as written too. Checked by screenshot searching "window".

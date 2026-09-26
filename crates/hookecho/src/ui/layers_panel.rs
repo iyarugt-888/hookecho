@@ -180,6 +180,10 @@ pub(crate) fn category_glyph(category: &str) -> &'static str {
 /// sync by hand, and the labels already say what the thing is.
 pub(crate) fn glyph(e: &PaletteEntry) -> &'static str {
     use egui_phosphor::regular as ph;
+    // A workstation window's row wears the glyph of the window's own header and dock tab.
+    if let crate::app::PaletteAction::DockWindow(w) = e.action {
+        return w.glyph();
+    }
     let l = e.label.to_lowercase();
     let has = |w: &str| l.contains(w);
     match () {
