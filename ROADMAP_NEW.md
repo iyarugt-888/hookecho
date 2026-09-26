@@ -3041,7 +3041,7 @@ Moving cursor in one pane should optionally show corresponding point in linked p
   their legend labels and Kelvin-backed fields honor the user's temperature unit. With no grid on
   top it still reuses `inspect_gate` for radar, so one table now truthfully spans both paths.
 
-## J4. Compare modes — partly done
+## J4. Compare modes — done
 
 Same modes F6 asks for, applied to model comparison specifically:
 
@@ -3876,7 +3876,10 @@ Add compact mode:
 
 - denser product tables
 - dockable optional analyst panels while preserving current full-map default
-- high-information status footer option
+- high-information status footer option — done for the workstation: "Status bar" (search/Ctrl+K,
+  saved with the arrangement, off by default) puts one monospace line under the timeline with
+  the pointer's lat/lon, range and azimuth from the radar, beam height and value; the active pane,
+  product, tilt and frame age; and the smoothed frame time and zoom.
 
 Progress: the Dock/WSV3 workstation (`docs/WSV3_IMGUI_MODERN_DESIGN_PLAN.md` §13) is the compact
 mode. Its Layers panel's Active filter is now also the per-layer manager — remove on every active

@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: a status bar for the workstation
+
+Search for "Status bar" in the Dock or WSV3 layout to add a thin line under the timeline showing
+where the pointer is, its range and bearing from the radar, the beam height and the value there,
+plus the active pane, product, tilt, how old the frame is, and how fast the app is drawing.
+
 ### Added: link the selected storm across panes
 
 Clicking a storm cell now selects it. In the Dock and WSV3 layouts the Inspector shows its

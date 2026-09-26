@@ -18,6 +18,7 @@ use crate::workspace::{Place, WindowChrome, WorkstationChrome};
 
 mod alerts;
 mod app_bar;
+mod footer;
 mod inspector;
 mod layers;
 mod log;
@@ -261,6 +262,10 @@ pub(crate) struct DockState {
     pub view3d_available: bool,
     pub prefs_page: PrefsPage,
     pub timeline_open: bool,
+    /// The status footer under the timeline.
+    pub footer_open: bool,
+    /// Frame time in milliseconds, smoothed, for the footer.
+    pub frame_ms: f32,
     /// The inspector's model-forecast block (shown only while a model layer is on the map).
     pub model_open: bool,
     /// A pinned reading: kept on the card after the pointer leaves the map.
@@ -306,6 +311,8 @@ impl Default for DockState {
             view3d_available: false,
             prefs_page: PrefsPage::Map,
             timeline_open: true,
+            footer_open: false,
+            frame_ms: 0.0,
             model_open: true,
             pinned: None,
             last: None,
@@ -348,6 +355,7 @@ impl DockState {
             dock_widths: [None; 2],
             sounding: WindowChrome::at(true, Place::Right),
             timeline_open: true,
+            footer_open: false,
         }
     }
 
@@ -365,6 +373,7 @@ impl DockState {
             dock_widths: self.dock_widths.map(|w| w.map(|w| w.round() as u16)),
             sounding: self.sounding,
             timeline_open: self.timeline_open,
+            footer_open: self.footer_open,
         }
     }
 
@@ -381,6 +390,7 @@ impl DockState {
         self.dock_widths = w.dock_widths.map(|w| w.map(f32::from));
         self.sounding = w.sounding;
         self.timeline_open = w.timeline_open;
+        self.footer_open = w.footer_open;
     }
 
     pub(crate) fn chrome(&self, w: DockWin) -> &WindowChrome {
@@ -783,6 +793,8 @@ impl HookEchoApp {
             self.dock_app_bar(root, ctx);
             self.dock_toolbar(root, ctx);
         }
+        // Drawn first of the bottom panels, so it is the lowest: under the timeline.
+        self.dock_footer(root, ctx);
         self.dock_timeline(root);
         let in_3d = self.views[self.active].map_3d.enabled;
         self.dock.set_view3d_available(in_3d);
@@ -1272,6 +1284,7 @@ mod tests {
             dock_widths: [None, Some(360)],
             sounding: WindowChrome::at(false, Place::Left),
             timeline_open: false,
+            footer_open: false,
         };
         s.arrange(&w);
         assert_eq!(s.tab, DockTab::Gis);

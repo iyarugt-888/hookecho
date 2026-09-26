@@ -1201,6 +1201,16 @@ impl HookEchoApp {
                 );
             }
         }
+        if workstation {
+            push(
+                "Status bar",
+                "Reference",
+                "A line under the timeline with the pointer's position, range, beam height and value, the active pane and frame age, and frame time",
+                false,
+                PaletteAction::ToggleStatusFooter,
+                Some(self.dock.footer_open),
+            );
+        }
         push(
             "Top bar",
             "Reference",

@@ -194,6 +194,9 @@ pub struct WorkstationChrome {
     pub sounding: WindowChrome,
     #[serde(default = "yes")]
     pub timeline_open: bool,
+    /// The status footer under the timeline (roadmap Q2). Off unless asked for.
+    #[serde(default)]
+    pub footer_open: bool,
 }
 
 fn yes() -> bool {
@@ -758,6 +761,7 @@ mod tests {
                     dock_widths: [Some(320), None],
                     sounding: WindowChrome::at(true, Place::Float),
                     timeline_open: false,
+                    footer_open: false,
                 }),
             }),
         };

@@ -929,3 +929,8 @@ a scale bar on the map; a network round-trip measurement for the app bar; a natu
   order, but it was reset once per frame rather than per pane, so a second pane's warning labels
   panicked debug builds whenever warnings were in view. `Placer::next_pane` restarts the order
   check for each pane.
+- Status footer (roadmap Q2): an optional 22 px line under the timeline (`dock/footer.rs`), the
+  ImGui status bar — pointer position, range/azimuth, beam height and value on the left; pane,
+  product, tilt and frame age in the middle; smoothed frame time and zoom on the right, the left
+  part cut short before it runs under the others. "Status bar" in search toggles it and the
+  arrangement saves it. Checked by screenshot against the Inspector's reading at the same point.

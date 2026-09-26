@@ -2379,6 +2379,8 @@ pub(crate) enum PaletteAction {
     ToggleFollowSweep,
     /// While live, jump to the lowest tilt each time it is rescanned (`follow_lowest_cut`).
     ToggleFollowLowest,
+    /// The workstation's status footer under the timeline (roadmap Q2).
+    ToggleStatusFooter,
     /// Copy a `hookecho://goto/…` link to this view (site, center, zoom, archive time).
     CopyViewLink,
     /// Open Help at the glossary entry that explains a label's abbreviation. An index into
@@ -11338,6 +11340,7 @@ impl HookEchoApp {
                 v.follow_lowest_cut &= !v.follow_live_sweep;
                 v.followed_sweep = None;
             }
+            PaletteAction::ToggleStatusFooter => self.dock.footer_open = !self.dock.footer_open,
             PaletteAction::ToggleFollowLowest => {
                 let v = &mut self.views[self.active];
                 v.follow_lowest_cut = !v.follow_lowest_cut;
