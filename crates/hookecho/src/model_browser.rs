@@ -341,8 +341,14 @@ impl BModel {
     pub fn run_label(self, run: DateTime<Utc>) -> String {
         let reach = self.leads_at_hour(Some(run.hour())).max / 60;
         if reach == 0 {
-            // An analysis is the picture at its own hour; there is nothing to reach toward.
-            return format!("{:02}Z {} · analysis", run.hour(), run.format("%a %d %b"));
+            // An analysis is the picture at its own hour; there is nothing to reach toward. For
+            // the RTMA, an hour old enough is served from the URMA re-analysis, and says so.
+            let kind = if self == BModel::Rtma {
+                wxdata::rtma::kinds_for(run, Utc::now())[0].label()
+            } else {
+                "analysis"
+            };
+            return format!("{:02}Z {} · {kind}", run.hour(), run.format("%a %d %b"));
         }
         format!(
             "{:02}Z {} · to F+{reach}h",

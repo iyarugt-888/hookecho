@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: older analysis hours use the URMA re-analysis
+
+Picking an analysis hour more than about seven hours old now loads NOAA's URMA, the re-analysis of
+that hour with the observations that arrived late, instead of the real-time RTMA. The Hour menu
+labels each hour with the analysis it will load, and the Inspector names which one is showing.
+
 ### Added: analyzed sea-level pressure
 
 The RTMA analysis also offers **Sea-level pressure**: the current highs and lows, reduced from the

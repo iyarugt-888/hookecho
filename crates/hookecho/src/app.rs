@@ -1464,7 +1464,7 @@ impl OverlaySource {
                 OverlayMsg::StampedField(
                     layer,
                     field_state::model_field(
-                        "RTMA analysis",
+                        analysis.kind.label(),
                         field.slug(),
                         analysis.field,
                         Some(analysis.hour),

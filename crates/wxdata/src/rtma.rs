@@ -17,6 +17,7 @@ use crate::mrms::MrmsField;
 use chrono::{DateTime, Datelike, Timelike, Utc};
 
 const BUCKET: &str = "https://noaa-rtma-pds.s3.amazonaws.com";
+const URMA_BUCKET: &str = "https://noaa-urma-pds.s3.amazonaws.com";
 /// Target cell size. A shade coarser than the 2.5 km native spacing (about 0.0225°) so the scatter
 /// fills every cell rather than leaving a grid of holes.
 const RES_DEG: f64 = 0.03;
@@ -108,11 +109,46 @@ impl RtmaField {
     }
 }
 
+/// Which analysis an hour came from. The RTMA is the real-time run, posted about 45 minutes after
+/// its hour; the URMA re-analyzes the same hour about seven hours later, with the observations
+/// that arrived late, on the same grid with the same fields. For an hour old enough to have one,
+/// the URMA is the better answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnalysisKind {
+    Rtma,
+    Urma,
+}
+
+impl AnalysisKind {
+    /// How the provenance names it.
+    pub fn label(self) -> &'static str {
+        match self {
+            AnalysisKind::Rtma => "RTMA analysis",
+            AnalysisKind::Urma => "URMA analysis",
+        }
+    }
+}
+
+/// How long after its hour a URMA analysis has typically posted.
+const URMA_LAG_HOURS: i64 = 7;
+
+/// The analyses worth trying for `hour`, best first: the URMA and then the RTMA once the URMA can
+/// have posted, the RTMA alone before that.
+pub fn kinds_for(hour: DateTime<Utc>, now: DateTime<Utc>) -> Vec<AnalysisKind> {
+    if now - hour >= chrono::Duration::hours(URMA_LAG_HOURS) {
+        vec![AnalysisKind::Urma, AnalysisKind::Rtma]
+    } else {
+        vec![AnalysisKind::Rtma]
+    }
+}
+
 /// One hour's analysis of one field.
 pub struct RtmaAnalysis {
     pub field: MrmsField,
     /// The hour this analyzes (UTC) — its valid time. An analysis has no lead.
     pub hour: DateTime<Utc>,
+    /// Whether this is the real-time analysis or the later re-analysis of the same hour.
+    pub kind: AnalysisKind,
 }
 
 /// The analysis hours worth offering, newest first, starting at the newest that has plausibly
@@ -129,9 +165,13 @@ pub fn run_choices(now: DateTime<Utc>, count: usize) -> Vec<DateTime<Utc>> {
         .collect()
 }
 
-fn base_url(hour: DateTime<Utc>) -> String {
+fn base_url(kind: AnalysisKind, hour: DateTime<Utc>) -> String {
+    let (bucket, stem) = match kind {
+        AnalysisKind::Rtma => (BUCKET, "rtma2p5"),
+        AnalysisKind::Urma => (URMA_BUCKET, "urma2p5"),
+    };
     format!(
-        "{BUCKET}/rtma2p5.{:04}{:02}{:02}/rtma2p5.t{:02}z.2dvaranl_ndfd.grb2_wexp",
+        "{bucket}/{stem}.{:04}{:02}{:02}/{stem}.t{:02}z.2dvaranl_ndfd.grb2_wexp",
         hour.year(),
         hour.month(),
         hour.day(),
@@ -152,14 +192,17 @@ pub async fn fetch(
         None => run_choices(Utc::now(), 6),
     };
     let mut last_err = None;
+    let now = Utc::now();
     for hour in candidates {
-        // Twice per hour: a dropped connection on a reused socket is common and says nothing
-        // about whether the hour is posted, and walking back would quietly serve a staler
-        // analysis for what was only a blip.
-        for _ in 0..2 {
-            match fetch_hour(http, field, hour).await {
-                Ok(field) => return Ok(RtmaAnalysis { field, hour }),
-                Err(e) => last_err = Some(e),
+        for kind in kinds_for(hour, now) {
+            // Twice each: a dropped connection on a reused socket is common and says nothing
+            // about whether the hour is posted, and walking back would quietly serve a staler
+            // analysis for what was only a blip.
+            for _ in 0..2 {
+                match fetch_hour(http, kind, field, hour).await {
+                    Ok(field) => return Ok(RtmaAnalysis { field, hour, kind }),
+                    Err(e) => last_err = Some(e),
+                }
             }
         }
     }
@@ -168,10 +211,11 @@ pub async fn fetch(
 
 async fn fetch_hour(
     http: &reqwest::Client,
+    kind: AnalysisKind,
     field: RtmaField,
     hour: DateTime<Utc>,
 ) -> anyhow::Result<MrmsField> {
-    let base = base_url(hour);
+    let base = base_url(kind, hour);
     let idx = http
         .get(crate::net::fetch_url(&format!("{base}.idx")))
         .timeout(crate::net::FEED_TIMEOUT)
@@ -374,7 +418,7 @@ mod tests {
     fn the_file_name_follows_the_bucket_layout() {
         let hour = Utc.with_ymd_and_hms(2026, 9, 21, 1, 0, 0).unwrap();
         assert_eq!(
-            base_url(hour),
+            base_url(AnalysisKind::Rtma, hour),
             "https://noaa-rtma-pds.s3.amazonaws.com/rtma2p5.20260921/rtma2p5.t01z.2dvaranl_ndfd.grb2_wexp"
         );
     }
@@ -401,6 +445,21 @@ mod tests {
             combine(RtmaField::Temp2m, vec![3.0], vec![]).unwrap(),
             [3.0]
         );
+    }
+
+    #[test]
+    fn an_hour_old_enough_prefers_the_reanalysis() {
+        let now = Utc.with_ymd_and_hms(2026, 9, 26, 20, 10, 0).unwrap();
+        let recent = Utc.with_ymd_and_hms(2026, 9, 26, 19, 0, 0).unwrap();
+        let old = Utc.with_ymd_and_hms(2026, 9, 26, 12, 0, 0).unwrap();
+        assert_eq!(kinds_for(recent, now), [AnalysisKind::Rtma]);
+        assert_eq!(
+            kinds_for(old, now),
+            [AnalysisKind::Urma, AnalysisKind::Rtma]
+        );
+        assert!(base_url(AnalysisKind::Urma, old)
+            .contains("noaa-urma-pds.s3.amazonaws.com/urma2p5.20260926/urma2p5.t12z."));
+        assert!(base_url(AnalysisKind::Rtma, old).contains("/rtma2p5.20260926/rtma2p5.t12z."));
     }
 
     #[test]
@@ -481,6 +540,17 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(named.hour, earlier);
+        assert_eq!(
+            named.kind,
+            AnalysisKind::Rtma,
+            "three hours on, only the RTMA exists"
+        );
+        // Nine hours back the re-analysis has posted, and it is the one served.
+        let settled = newest - chrono::Duration::hours(9);
+        let urma = fetch(&http, RtmaField::Temp2m, Some(settled))
+            .await
+            .unwrap();
+        assert_eq!((urma.hour, urma.kind), (settled, AnalysisKind::Urma));
         let ancient = Utc.with_ymd_and_hms(2001, 1, 1, 0, 0, 0).unwrap();
         assert!(fetch(&http, RtmaField::Temp2m, Some(ancient))
             .await

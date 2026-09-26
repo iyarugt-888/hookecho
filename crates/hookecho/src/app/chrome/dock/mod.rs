@@ -1016,7 +1016,17 @@ pub(crate) fn model_card_rows(
         (None, None) => "latest".into(),
     };
     let mut rows = vec![
-        ("Model:", sel.model.label().to_string()),
+        // An analysis names which one it is: the real-time RTMA, or the URMA re-analysis an older
+        // hour is served from (the stamp's source says which arrived).
+        (
+            "Model:",
+            match &input.stamp {
+                Some(stamp) if sel.model == crate::model_browser::BModel::Rtma => {
+                    stamp.source_id.trim_end_matches(" analysis").to_string()
+                }
+                _ => sel.model.label().to_string(),
+            },
+        ),
         ("Product:", sel.product.label().to_string()),
         ("Run:", run),
         (
