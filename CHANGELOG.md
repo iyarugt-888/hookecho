@@ -8,6 +8,21 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: click a river gauge for its hydrograph, crests and flood stages
+
+River gauges on the map now open a card when clicked (with the Interrogate tool). The card graphs
+the last 24 hours of river stage (or 3 or 7 days), carries on with the river forecast when one is
+out, and shades the action, minor, moderate and major flood stages behind it. The observed and
+forecast crests are marked with their stage and time. Above the graph: the current stage and flow,
+whether the river is rising or falling and how fast, the change over 24 hours, and how far it is
+from the next flood stage. Below it: what the forecast office says happens at the current level
+and at the forecast crest, every impact statement, the record crest and crest history, the
+seasonal chance of flooding, and buttons for the next gauge upstream and downstream. Flow can be
+drawn on its own axis. On the map, a gauge forecast to reach a worse flood category than it is in
+now wears a ring in that category's color, and gauges with a card open are ringed in white.
+Share links carry open gauges (`gauge:ACRT2`), so a link opens straight onto the river. Every
+platform, the browser included; cards refresh every 15 minutes while open.
+
 ### Added: full FLASH rainfall-recurrence windows
 
 FLASH QPE average recurrence interval now has 30-minute, 1/3/6/12/24-hour and cross-window

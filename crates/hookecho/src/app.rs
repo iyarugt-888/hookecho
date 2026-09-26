@@ -3052,11 +3052,13 @@ struct Goto {
     /// Inner `None`: the link said `thr:off`, which turns the threshold off on purpose.
     threshold: Option<Option<f32>>,
     srv: bool,
+    /// River gauges whose cards the link opens (`gauge:ACRT2`), turning the gauge layer on.
+    gauges: Vec<String>,
 }
 
 /// Parse `[hookecho://goto/]SITE[,lon,lat,zoom][,extra…]`, where each extra is an RFC3339 time, a
-/// moment code (`VEL`), a tilt index, a basemap (`bm:dark`), a threshold (`thr:25` / `thr:off`)
-/// or the literal `srv` — sniffed by shape, so their order does not matter. A bare `SITE` flies to the site itself; the site may be
+/// moment code (`VEL`), a tilt index, a basemap (`bm:dark`), a threshold (`thr:25` / `thr:off`),
+/// a river gauge whose card to open (`gauge:ACRT2`) or the literal `srv` — sniffed by shape, so their order does not matter. A bare `SITE` flies to the site itself; the site may be
 /// empty when lon/lat are given.
 fn parse_goto(v: &str) -> Option<Goto> {
     let v = v.trim().strip_prefix(GOTO_SCHEME).unwrap_or(v.trim());
@@ -3080,6 +3082,7 @@ fn parse_goto(v: &str) -> Option<Goto> {
             basemap: None,
             threshold: None,
             srv: false,
+            gauges: Vec::new(),
         }
     } else {
         let (Some(site), Some(Ok(lon)), Some(Ok(lat)), Some(Ok(zoom))) = (
@@ -3101,6 +3104,7 @@ fn parse_goto(v: &str) -> Option<Goto> {
             basemap: None,
             threshold: None,
             srv: false,
+            gauges: Vec::new(),
         }
     };
     for s in p.iter().skip(4).filter(|s| !s.is_empty()) {
@@ -3126,6 +3130,13 @@ fn parse_goto(v: &str) -> Option<Goto> {
             };
         } else if s.eq_ignore_ascii_case("srv") {
             g.srv = true;
+        } else if let Some(lid) = s.strip_prefix("gauge:") {
+            // An id is a few letters and digits; anything else is not a gauge.
+            if !lid.is_empty() && lid.len() <= 8 && lid.chars().all(|c| c.is_ascii_alphanumeric()) {
+                g.gauges.push(lid.to_ascii_uppercase());
+            } else {
+                log::warn!("goto: want gauge:<id>, got {s:?}");
+            }
         } else {
             log::warn!("goto: ignoring unrecognized field {s:?}");
         }
@@ -3166,7 +3177,8 @@ fn goto_link(g: &Goto) -> String {
         .map(|s| format!(",bm:{s}"))
         .unwrap_or_default();
     let srv = if g.srv { ",srv" } else { "" };
-    let body = format!("{site},{lon:.4},{lat:.4},{zoom:.1}{t}{m}{z}{thr}{basemap}{srv}");
+    let gauges: String = g.gauges.iter().map(|l| format!(",gauge:{l}")).collect();
+    let body = format!("{site},{lon:.4},{lat:.4},{zoom:.1}{t}{m}{z}{thr}{basemap}{srv}{gauges}");
     #[cfg(target_arch = "wasm32")]
     {
         let origin = web_sys::window()
@@ -3806,6 +3818,8 @@ pub struct HookEchoApp {
     gauges: Vec<wxdata::river::Gauge>,
     gauge_last_fetch: Option<Instant>,
     gauge_bounds: Option<(f64, f64, f64, f64)>,
+    /// Open gauge cards (hydrograph, flood stages, crests): what clicking a gauge opens.
+    gauge_cards: crate::ui::gauge_card::Cards,
     /// HRRR model contours: which fields are on — several can be at once, e.g. MSLP and CAPE
     /// overlaid together, each independently fetched and drawn in its own color. `Off` is never a
     /// member; `PaletteAction::SetContours(Off)` clears the whole set instead of toggling it in.
@@ -5193,6 +5207,7 @@ impl HookEchoApp {
             gauges: Vec::new(),
             gauge_last_fetch: None,
             gauge_bounds: None,
+            gauge_cards: Default::default(),
             active_contours: std::collections::BTreeSet::new(),
             contours: std::collections::HashMap::new(),
             env_model: wxdata::hrrr::Model::Hrrr,
@@ -5532,6 +5547,12 @@ impl HookEchoApp {
         }
         if g.srv {
             view.srv = true;
+        }
+        if !g.gauges.is_empty() {
+            self.show_gauges = true;
+            for lid in &g.gauges {
+                self.gauge_cards.queue(lid);
+            }
         }
     }
 
@@ -11066,6 +11087,8 @@ impl HookEchoApp {
                     threshold: v.threshold_enabled[v.moment.index()]
                         .then(|| v.thresholds[v.moment.index()]),
                     srv: v.srv,
+                    // Open gauge cards travel with the view: "look at this river" is the point.
+                    gauges: self.gauge_cards.lids(),
                 });
                 // A phone or a tablet has a share sheet, and pasting into a chat is what this is
                 // for; the clipboard is the fallback for everything that does not.
@@ -15643,6 +15666,40 @@ impl HookEchoApp {
                             .cloned()
                     })
                     .flatten();
+                // A river gauge under an interrogate click, among the ones actually drawn (the
+                // declutter hides some, and a click must not open one the map does not show).
+                let gauge_hit = (marker_hit.is_none()
+                    && !picked_site
+                    && cam_site.is_none()
+                    && dat_hit.is_none()
+                    && tool == MapTool::Interrogate
+                    && self.show_gauges
+                    && cam.zoom >= 6.0)
+                    .then(|| {
+                        self.gauges
+                            .iter()
+                            .filter(|g| self.labels.was_shown(crate::labelplace::key(&g.lid)))
+                            .map(|g| {
+                                let w = crate::render::mercator::lonlat_to_world(g.lon, g.lat);
+                                let (sx, sy) = cam.world_to_screen(w, vp);
+                                let (dx, dy) =
+                                    (prect.left() + sx - pos.x, prect.top() + sy - pos.y);
+                                (g, dx * dx + dy * dy)
+                            })
+                            .filter(|(_, d2)| *d2 <= tap_r2(10.0))
+                            .min_by(|a, b| a.1.total_cmp(&b.1))
+                            .map(|(g, _)| g.clone())
+                    })
+                    .flatten();
+                if let Some(g) = gauge_hit.filter(|_| station_hit.is_none()) {
+                    self.cell_popup = None;
+                    self.warning_popup = None;
+                    self.gate_popup = None;
+                    let (rt, http) = (self.spawner.clone(), self.http.clone());
+                    self.gauge_cards
+                        .open(&g.lid, &g.name, (g.lat, g.lon), &rt, &http, ctx);
+                    return;
+                }
                 if let Some(ob) = station_hit {
                     self.cell_popup = None;
                     self.warning_popup = None;
@@ -18197,26 +18254,12 @@ impl HookEchoApp {
             }
         }
         // River flood gauges (NWPS): category-colored inverted-triangle droplet + stage tooltip.
-        // ponytail: hover tooltip carries name/stage/forecast; skipped a click→Detail popup — the
-        // hover already answers "how high is this river", add the popup if users want to pin it.
+        // An interrogate click opens the gauge's card (`ui::gauge_card`): hydrograph, flood
+        // stages, crests. A gauge forecast to reach a worse category than it is in now wears a
+        // ring in that category's color, and a gauge with its card open a white one.
         if self.show_gauges && cam.zoom >= 6.0 {
-            use wxdata::river::FloodCat;
-            let gcolor = |c: FloodCat| match c {
-                FloodCat::Major => egui::Color32::from_rgb(170, 60, 220),
-                FloodCat::Moderate => egui::Color32::from_rgb(230, 40, 40),
-                FloodCat::Minor => egui::Color32::from_rgb(255, 140, 0),
-                FloodCat::Action => egui::Color32::from_rgb(240, 200, 40),
-                FloodCat::NoFlooding => egui::Color32::from_rgb(80, 200, 220),
-                FloodCat::Unknown => egui::Color32::from_gray(150),
-            };
-            let glabel = |c: FloodCat| match c {
-                FloodCat::Major => "major flooding",
-                FloodCat::Moderate => "moderate flooding",
-                FloodCat::Minor => "minor flooding",
-                FloodCat::Action => "action stage",
-                FloodCat::NoFlooding => "no flooding",
-                FloodCat::Unknown => "no current reading",
-            };
+            let gcolor = crate::ui::gauge_card::cat_color;
+            let glabel = crate::ui::gauge_card::cat_label;
             // Already-drawn gauges get their slot back before a newcomer takes it, the same way
             // the METAR and place-name layers already do. Without it a gauge at the edge of a
             // collision wins and loses on alternate frames, which reads as flicker while panning.
@@ -18254,6 +18297,20 @@ impl HookEchoApp {
                         gcolor(g.cat).gamma_multiply(0.85),
                         egui::Stroke::new(1.2, egui::Color32::from_gray(20)),
                     ));
+                    if g.forecast_ft.is_some() && g.forecast_cat.severity() < g.cat.severity() {
+                        painter.circle_stroke(
+                            p + egui::vec2(0.0, -0.5),
+                            s + 3.0,
+                            egui::Stroke::new(1.8, gcolor(g.forecast_cat)),
+                        );
+                    }
+                    if self.gauge_cards.is_open(&g.lid) {
+                        painter.circle_stroke(
+                            p + egui::vec2(0.0, -0.5),
+                            s + 5.5,
+                            egui::Stroke::new(1.5, egui::Color32::WHITE),
+                        );
+                    }
                     let hit = egui::Rect::from_center_size(p, egui::vec2(16.0, 16.0));
                     if response.hover_pos().is_some_and(|hp| hit.contains(hp)) {
                         let stage = g
@@ -18266,6 +18323,9 @@ impl HookEchoApp {
                                 "\nFcst: {f:.1} ft ({})",
                                 glabel(g.forecast_cat)
                             ));
+                        }
+                        if self.tool == MapTool::Interrogate {
+                            tip.push_str("\nClick for the hydrograph and crests");
                         }
                         response.clone().show_tooltip_text(tip);
                     }
@@ -23346,6 +23406,42 @@ impl eframe::App for HookEchoApp {
                 ctx.request_repaint_after(std::time::Duration::from_millis(33));
             }
         }
+        // River-gauge cards.
+        {
+            let (rt, http) = (self.spawner.clone(), self.http.clone());
+            let tz = self.active_tz();
+            for action in self.gauge_cards.show(ctx, tz, &rt, &http) {
+                match action {
+                    crate::ui::gauge_card::Action::Center { lat, lon } => {
+                        self.follow_cell = None;
+                        self.views[self.active].camera.center =
+                            crate::render::mercator::lonlat_to_world(lon, lat);
+                    }
+                    crate::ui::gauge_card::Action::Share { lid, lat, lon } => {
+                        // The gauge, close enough in that its symbol is drawn, on the radar the
+                        // sender is looking at.
+                        let v = &self.views[self.active];
+                        let link = goto_link(&Goto {
+                            site: v.site.clone().unwrap_or_default(),
+                            lon,
+                            lat,
+                            zoom: v.camera.zoom.max(8.0),
+                            time: None,
+                            moment: None,
+                            tilt: None,
+                            basemap: None,
+                            threshold: None,
+                            srv: false,
+                            gauges: vec![lid],
+                        });
+                        if !crate::platform::share_link("HookEcho", &link) {
+                            ctx.copy_text(link.clone());
+                            self.banner("Link copied".to_string(), link);
+                        }
+                    }
+                }
+            }
+        }
         // Area Forecast Discussion: poll the async fetch, then render the text window.
         if let Some(rx) = &self.afd_rx {
             if let Ok(res) = rx.try_recv() {
@@ -24698,6 +24794,12 @@ mod tests {
         assert_eq!(round.srv, g.srv);
         assert_eq!(round.moment, g.moment);
         assert_eq!(round.tilt, g.tilt);
+        // Gauges ride along, validated, and come back from the link they went into.
+        let g = super::parse_goto("KGRK,-97.7,30.2,9,gauge:acrt2,gauge:../x,gauge:BRTT2").unwrap();
+        assert_eq!(g.gauges, ["ACRT2", "BRTT2"]);
+        let link = super::goto_link(&g);
+        assert!(link.ends_with(",gauge:ACRT2,gauge:BRTT2"), "{link}");
+        assert_eq!(super::parse_goto(&link).unwrap().gauges, g.gauges);
         // Old links are unchanged: no basemap, not storm-relative.
         let g = super::parse_goto(",-97.3,35.3,6.5").unwrap();
         assert_eq!(g.site, "");
@@ -24963,6 +25065,7 @@ mod tests {
             basemap: None,
             threshold,
             srv: false,
+            gauges: Vec::new(),
         };
         let link = goto_link(&base(Moment::Reflectivity, 0, None));
         assert!(link.starts_with("hookecho://goto/KFWS,"), "{link}");

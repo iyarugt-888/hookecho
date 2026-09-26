@@ -80,6 +80,7 @@ impl HookEchoApp {
             threshold: v.threshold_enabled[v.moment.index()]
                 .then(|| v.thresholds[v.moment.index()]),
             srv: v.srv,
+            gauges: self.gauge_cards.lids(),
         });
         link.find('#').map(|i| link[i..].to_string())
     }

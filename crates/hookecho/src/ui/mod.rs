@@ -106,6 +106,8 @@ pub mod event_window;
 pub mod firstrun;
 pub mod forecast_window;
 pub mod gate_inspector;
+/// River-gauge cards: hydrograph, flood stages, crests.
+pub mod gauge_card;
 pub mod glossary;
 pub mod help_hub;
 pub mod hodograph_window;
