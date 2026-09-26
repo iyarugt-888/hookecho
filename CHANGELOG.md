@@ -18,6 +18,12 @@ controls that do not fit (overlays, map and panes, color table, smoothing and le
 so the map keeps its width; the rail and top-bar buttons switch between them, and a wider window
 shows both again.
 
+### Added: a Sources window for feed health in the workstation
+
+Clicking the feed status in the Dock and WSV3 top bar now opens **Sources**, a panel-width list of
+every active data feed, worst first: a status mark, the feed, how old its newest data is, and the
+last error for any that are failing. "Full table…" opens the complete Data source health window.
+
 ### Added: the workstation's 3D controls are a dockable window
 
 In the Dock and WSV3 layouts, switching a pane to 3D now opens its controls as a **3D view**

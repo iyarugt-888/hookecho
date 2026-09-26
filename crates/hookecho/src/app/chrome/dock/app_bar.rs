@@ -192,14 +192,15 @@ impl HookEchoApp {
                                     egui::Label::new(ws::mono(&delay_text, 12.0, t.text_dim))
                                         .sense(egui::Sense::click()),
                                 )
-                                .named("Open data source health")
+                                .named("Show the health of every active source")
                                 .on_hover_text(format!(
-                                    "{}\nClick for all active source health",
+                                    "{}\nClick for every active source's health",
                                     health.error.as_deref().unwrap_or(&delay_tip)
                                 ))
                                 .clicked()
                             {
-                                action = Some(A::OpenWindow(AppWindow::DataHealth));
+                                // The dock-width list; its footer opens the full table.
+                                self.dock.toggle(DockWin::Sources);
                             }
                             ws::status_dot(ui, if following { state_color } else { t.warn }, 4.0);
                             ui.add_space(8.0);

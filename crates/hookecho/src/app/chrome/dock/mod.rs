@@ -23,6 +23,7 @@ mod layers;
 mod menus;
 mod prefs;
 mod rail;
+mod sources;
 mod timeline;
 mod view3d;
 
@@ -129,14 +130,17 @@ pub(crate) enum DockWin {
     Prefs,
     /// The active pane's 3D controls (only while it is in 3D).
     View3d,
+    /// Every active feed's health, compactly.
+    Sources,
 }
 
 impl DockWin {
-    pub(crate) const ALL: [DockWin; 5] = [
+    pub(crate) const ALL: [DockWin; 6] = [
         DockWin::Layers,
         DockWin::Inspector,
         DockWin::View3d,
         DockWin::Alerts,
+        DockWin::Sources,
         DockWin::Prefs,
     ];
 
@@ -149,6 +153,7 @@ impl DockWin {
             DockWin::Alerts => (ph::BELL, "Alerts"),
             DockWin::Prefs => (ph::SLIDERS_HORIZONTAL, "Preferences"),
             DockWin::View3d => (ph::CUBE, "3D view"),
+            DockWin::Sources => (ph::PULSE, "Sources"),
         };
         ws::HeaderTab { glyph, title }
     }
@@ -160,6 +165,7 @@ impl DockWin {
             DockWin::Alerts => alerts::ALERTS_W,
             DockWin::Prefs => prefs::PREFS_W,
             DockWin::View3d => view3d::VIEW3D_W,
+            DockWin::Sources => sources::SOURCES_W,
         }
     }
 }
@@ -170,6 +176,21 @@ fn side_slot(place: Place) -> Option<usize> {
         Place::Left => Some(0),
         Place::Right => Some(1),
         Place::Float => None,
+    }
+}
+
+/// A shape as well as a color for every feed state: the compact lists stay readable when color
+/// cannot distinguish their status marks. The full word remains in the hover and accessible name.
+pub(super) fn health_glyph(state: HealthState) -> &'static str {
+    use egui_phosphor::regular as ph;
+    match state {
+        HealthState::Fresh => ph::CHECK_CIRCLE,
+        HealthState::Fetching => ph::ARROWS_CLOCKWISE,
+        HealthState::Delayed => ph::CLOCK,
+        HealthState::Stale => ph::WARNING_CIRCLE,
+        HealthState::Cached => ph::DATABASE,
+        HealthState::Failed => ph::X_CIRCLE,
+        HealthState::Waiting => ph::HOURGLASS,
     }
 }
 
@@ -195,6 +216,7 @@ pub(crate) struct DockState {
     pub alerts: WindowChrome,
     pub prefs: WindowChrome,
     pub view3d: WindowChrome,
+    pub sources: WindowChrome,
     /// Whether the 3D view window has anything to show: the active pane is in 3D. Set each frame
     /// before the docks are laid out.
     pub view3d_available: bool,
@@ -216,7 +238,7 @@ pub(crate) struct DockState {
     pub front: [Option<DockWin>; 2],
     /// Each window's `(open, place)` last frame, to bring a window that has just opened or just
     /// moved into a dock to the front of it.
-    seen: [(bool, Place); 5],
+    seen: [(bool, Place); 6],
     /// The window is too narrow for docks on both sides ([`ONE_DOCK_BELOW`]). Set each frame.
     pub narrow: bool,
     /// The side used most recently (0 left, 1 right): the one that stays while `narrow`.
@@ -235,6 +257,7 @@ impl Default for DockState {
             alerts: WindowChrome::default(),
             prefs: WindowChrome::default(),
             view3d: WindowChrome::default(),
+            sources: WindowChrome::default(),
             view3d_available: false,
             prefs_page: PrefsPage::Map,
             timeline_open: true,
@@ -244,7 +267,7 @@ impl Default for DockState {
             jump: String::new(),
             arranged_for: None,
             front: [None; 2],
-            seen: [(false, Place::Float); 5],
+            seen: [(false, Place::Float); 6],
             narrow: false,
             last_side: 0,
         };
@@ -274,6 +297,7 @@ impl DockState {
             alerts: WindowChrome::at(false, Place::Right),
             prefs: WindowChrome::at(false, Place::Right),
             view3d: WindowChrome::at(true, Place::Right),
+            sources: WindowChrome::at(false, Place::Right),
             timeline_open: true,
         }
     }
@@ -287,6 +311,7 @@ impl DockState {
             alerts: self.alerts,
             prefs: self.prefs,
             view3d: self.view3d,
+            sources: self.sources,
             timeline_open: self.timeline_open,
         }
     }
@@ -299,6 +324,7 @@ impl DockState {
         self.alerts = w.alerts;
         self.prefs = w.prefs;
         self.view3d = w.view3d;
+        self.sources = w.sources;
         self.timeline_open = w.timeline_open;
     }
 
@@ -309,6 +335,7 @@ impl DockState {
             DockWin::Alerts => &self.alerts,
             DockWin::Prefs => &self.prefs,
             DockWin::View3d => &self.view3d,
+            DockWin::Sources => &self.sources,
         }
     }
 
@@ -319,6 +346,7 @@ impl DockState {
             DockWin::Alerts => &mut self.alerts,
             DockWin::Prefs => &mut self.prefs,
             DockWin::View3d => &mut self.view3d,
+            DockWin::Sources => &mut self.sources,
         }
     }
 
@@ -693,6 +721,7 @@ impl HookEchoApp {
             DockWin::Alerts => self.dock_alerts(host),
             DockWin::Prefs => self.dock_prefs(host, ctx),
             DockWin::View3d => self.dock_view3d(host),
+            DockWin::Sources => self.dock_sources(host),
         }
     }
 
@@ -1015,6 +1044,7 @@ mod tests {
             alerts: WindowChrome::at(true, Place::Float),
             prefs: WindowChrome::at(true, Place::Left),
             view3d: WindowChrome::at(false, Place::Float),
+            sources: WindowChrome::at(true, Place::Right),
             timeline_open: false,
         };
         s.arrange(&w);

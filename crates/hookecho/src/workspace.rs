@@ -169,6 +169,9 @@ pub struct WorkstationChrome {
     /// right, where it joins the Inspector as a tab.
     #[serde(default = "view3d_default")]
     pub view3d: WindowChrome,
+    /// The compact source-health list. Closed until asked for; docks right when opened.
+    #[serde(default = "sources_default")]
+    pub sources: WindowChrome,
     #[serde(default = "yes")]
     pub timeline_open: bool,
 }
@@ -179,6 +182,10 @@ fn yes() -> bool {
 
 fn view3d_default() -> WindowChrome {
     WindowChrome::at(true, Place::Right)
+}
+
+fn sources_default() -> WindowChrome {
+    WindowChrome::at(false, Place::Right)
 }
 
 /// One pane's state. Camera as lon/lat/zoom, basemap as its slug: both survive a file written by
@@ -681,6 +688,7 @@ mod tests {
                     alerts: WindowChrome::at(false, Place::Right),
                     prefs: WindowChrome::default(),
                     view3d: WindowChrome::at(true, Place::Float),
+                    sources: WindowChrome::at(true, Place::Left),
                     timeline_open: false,
                 }),
             }),

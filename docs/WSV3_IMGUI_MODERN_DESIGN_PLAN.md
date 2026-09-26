@@ -438,8 +438,8 @@ The redesign is ready when:
 >   separate pan (the explore tool pans), locate or warning-focus tool, since nothing in the app
 >   does those yet, and the 3D camera is the toolbar's 2D/3D/Volume control.
 > - Not yet: drag-reorder in the tree (§3.1; it lives in the Layer Manager); more windows as
->   dock tabs (analyst log, sounding, diagnostics — the tab groups exist and the 3D controls are
->   one, §2.3); a screenshot
+>   dock tabs (analyst log, sounding — the tab groups exist, and the 3D controls and source
+>   health are tabs now, §2.3); a screenshot
 >   pass at phone width (§12.11; the phone layout is its own and unchanged).
 
 ### 13.1 References
@@ -844,3 +844,11 @@ a scale bar on the map; a network round-trip measurement for the app bar; a natu
   overlays that are on ("Display (3)"). Below the fixed part's own width the row still scrolls.
   Checked by screenshot at 1920 (nothing folded), 1536 (overlays and map), and 1024 (all four,
   with a range-ring switch flipped from the menu).
+- Diagnostics as a dock tab (§2.3): a sixth tool window, **Sources**, lists every active feed's
+  health at dock width, worst first — a status glyph (shape and colour, shared with the Layers
+  tree), the source, how old its newest data is, and for a failing feed its last error under it;
+  the hover has the family, cadence, cache and recent outcomes. It reads the same rows as the
+  seven-column Data source health window (`active_health_rows`), which its footer opens. The app
+  bar's feed readout now toggles it (closed by default, docks right), and its title counts the
+  feeds that need attention. Checked by screenshot during a network outage: two failing feeds
+  first with their errors, then the healthy ones.

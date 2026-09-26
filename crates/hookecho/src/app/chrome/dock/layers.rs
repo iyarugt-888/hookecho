@@ -49,20 +49,6 @@ enum SearchSubmit {
     Place(String),
 }
 
-/// A shape as well as a color for every feed state: the compact tree stays readable when color
-/// cannot distinguish its status dots. The full word remains in the hover and accessible name.
-fn health_glyph(state: HealthState) -> &'static str {
-    match state {
-        HealthState::Fresh => ph::CHECK_CIRCLE,
-        HealthState::Fetching => ph::ARROWS_CLOCKWISE,
-        HealthState::Delayed => ph::CLOCK,
-        HealthState::Stale => ph::WARNING_CIRCLE,
-        HealthState::Cached => ph::DATABASE,
-        HealthState::Failed => ph::X_CIRCLE,
-        HealthState::Waiting => ph::HOURGLASS,
-    }
-}
-
 /// Enter uses the same visible search results as a click. A time command takes precedence;
 /// otherwise it opens the first layer row, or offers the place lookup when nothing matches.
 fn submit_search(
