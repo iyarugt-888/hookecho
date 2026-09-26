@@ -786,6 +786,21 @@ pub(crate) fn decode_regrid_at(
     res_deg: f64,
     min_valid: f64,
 ) -> anyhow::Result<MrmsField> {
+    let n = decode_native(raw)?;
+    regrid(&n.lats, &n.lons, &n.data, n.time, res_deg, min_valid)
+}
+
+/// One GRIB2 message's samples on its own native grid, before any regrid: what a caller needs to
+/// combine several messages point by point (the regrid keeps each cell's *maximum*, so fields
+/// combined after it would pair samples from different points).
+pub(crate) struct NativeGrid {
+    pub lats: Vec<f64>,
+    pub lons: Vec<f64>,
+    pub data: Vec<f64>,
+    pub time: DateTime<Utc>,
+}
+
+pub(crate) fn decode_native(raw: &[u8]) -> anyhow::Result<NativeGrid> {
     use gribberish::data_message::DataMessage;
     use gribberish::message::read_message;
     let msg = read_message(raw, 0).ok_or_else(|| anyhow::anyhow!("no GRIB2 message"))?;
@@ -797,8 +812,12 @@ pub(crate) fn decode_regrid_at(
         lats.len() == data.len() && lons.len() == data.len(),
         "hrrr latlng/data length mismatch"
     );
-
-    regrid(&lats, &lons, &data, time, res_deg, min_valid)
+    Ok(NativeGrid {
+        lats,
+        lons,
+        data,
+        time,
+    })
 }
 
 /// Scatter native (lat, lon, value) triples onto a regular lat/lon grid (max per cell).

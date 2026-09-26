@@ -8,6 +8,11 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: analyzed sea-level pressure
+
+The RTMA analysis also offers **Sea-level pressure**: the current highs and lows, reduced from the
+analysis's surface pressure, on the same color scale as the forecast models' pressure.
+
 ### Added: analyzed visibility and cloud ceiling
 
 The RTMA analysis now offers **Visibility** and **Cloud ceiling** layers (search for either, or

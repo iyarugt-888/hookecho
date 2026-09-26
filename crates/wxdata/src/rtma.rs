@@ -35,16 +35,21 @@ pub enum RtmaField {
     Visibility,
     /// Cloud ceiling height above ground, metres (very large where there is no ceiling).
     Ceiling,
+    /// Sea-level pressure, Pa — derived: the analysis carries only *surface* pressure, which
+    /// mostly maps the terrain, so it is reduced to sea level with the analysis's own terrain
+    /// height and 2 m temperature ([`reduce_to_sea_level`]).
+    Mslp,
 }
 
 impl RtmaField {
-    pub const ALL: [RtmaField; 6] = [
+    pub const ALL: [RtmaField; 7] = [
         RtmaField::Temp2m,
         RtmaField::Dewpoint2m,
         RtmaField::Wind10m,
         RtmaField::Gust10m,
         RtmaField::Visibility,
         RtmaField::Ceiling,
+        RtmaField::Mslp,
     ];
 
     pub fn label(self) -> &'static str {
@@ -55,6 +60,7 @@ impl RtmaField {
             RtmaField::Gust10m => "10 m wind gust",
             RtmaField::Visibility => "surface visibility",
             RtmaField::Ceiling => "cloud ceiling",
+            RtmaField::Mslp => "sea-level pressure",
         }
     }
 
@@ -66,6 +72,7 @@ impl RtmaField {
             RtmaField::Gust10m => "gust10m",
             RtmaField::Visibility => "vis",
             RtmaField::Ceiling => "ceil",
+            RtmaField::Mslp => "mslp",
         }
     }
 
@@ -73,7 +80,9 @@ impl RtmaField {
         Self::ALL.into_iter().find(|f| f.slug() == s)
     }
 
-    /// The `.idx` `(var, level)` for this field.
+    /// The `.idx` `(var, level)` this field is read from — for the derived sea-level pressure,
+    /// its primary input (see [`Self::inputs`]).
+
     pub fn key(self) -> (&'static str, &'static str) {
         match self {
             RtmaField::Temp2m => ("TMP", "2 m above ground"),
@@ -82,6 +91,20 @@ impl RtmaField {
             RtmaField::Gust10m => ("GUST", "10 m above ground"),
             RtmaField::Visibility => ("VIS", "surface"),
             RtmaField::Ceiling => ("CEIL", "cloud ceiling"),
+            RtmaField::Mslp => ("PRES", "surface"),
+        }
+    }
+
+    /// Every message this field needs: one, or for sea-level pressure the surface pressure,
+    /// terrain height and 2 m temperature it is reduced with, in that order.
+    pub fn inputs(self) -> Vec<(&'static str, &'static str)> {
+        match self {
+            RtmaField::Mslp => vec![
+                ("PRES", "surface"),
+                ("HGT", "surface"),
+                ("TMP", "2 m above ground"),
+            ],
+            other => vec![other.key()],
         }
     }
 }
@@ -159,14 +182,26 @@ async fn fetch_hour(
         .error_for_status()?
         .text()
         .await?;
-    let (var, level) = field.key();
-    let (start, end) = crate::hrrr::field_byte_range(&idx, var, level)
-        .ok_or_else(|| anyhow::anyhow!("no {var}:{level} in the RTMA index"))?;
-    let bytes = crate::gribcache::fetch_range(http, &base, (start, end), USER_AGENT).await?;
-    // gribberish can panic on some packings; contain it (see mrms::fetch_latest).
-    let mut grid =
-        crate::task::guarded(|| crate::hrrr::decode_regrid_at(&bytes, RES_DEG, f64::NEG_INFINITY))
+    let mut natives = Vec::new();
+    for (var, level) in field.inputs() {
+        let (start, end) = crate::hrrr::field_byte_range(&idx, var, level)
+            .ok_or_else(|| anyhow::anyhow!("no {var}:{level} in the RTMA index"))?;
+        let bytes = crate::gribcache::fetch_range(http, &base, (start, end), USER_AGENT).await?;
+        // gribberish can panic on some packings; contain it (see mrms::fetch_latest).
+        let native = crate::task::guarded(|| crate::hrrr::decode_native(&bytes))
             .unwrap_or_else(|_| anyhow::bail!("RTMA grib decode panicked"))?;
+        natives.push(native);
+    }
+    // Combine on the native grid, point by point, then regrid once.
+    // `remove`, not `swap_remove`: the rest must stay in `inputs` order (height, then temperature).
+    let n = natives.remove(0);
+    let data = combine(
+        field,
+        n.data,
+        natives.iter().map(|g| g.data.as_slice()).collect(),
+    )?;
+    let mut grid =
+        crate::hrrr::regrid(&n.lats, &n.lons, &data, n.time, RES_DEG, f64::NEG_INFINITY)?;
     fill_scatter_holes(&mut grid, 2);
     anyhow::ensure!(
         grid.time == hour,
@@ -174,6 +209,43 @@ async fn fetch_hour(
         grid.time
     );
     Ok(grid)
+}
+
+/// Reduce surface pressure `p_pa` at terrain height `z_m`, with 2 m temperature `t_k`, to sea level
+/// (Pa): the standard-atmosphere hypsometric reduction, `p · (1 − Γz / (T + Γz))^−(g/RΓ)`, lapse
+/// rate Γ 6.5 K/km. Over high terrain any reduction is an extrapolation through ground, so the
+/// map shows the familiar mountain noise every surface analysis does; that is the method, not a bug.
+pub fn reduce_to_sea_level(p_pa: f32, z_m: f32, t_k: f32) -> f32 {
+    const LAPSE: f32 = 0.0065;
+    const EXPONENT: f32 = 5.257; // g / (R · Γ)
+    if !(p_pa.is_finite() && z_m.is_finite() && t_k.is_finite()) || t_k < 150.0 {
+        return f32::NAN;
+    }
+    let ratio = 1.0 - LAPSE * z_m / (t_k + LAPSE * z_m);
+    p_pa * ratio.powf(-EXPONENT)
+}
+
+/// Turn the first input's native samples, and any others (`rest`, in [`RtmaField::inputs`] order),
+/// into the field's own samples: the first as is, or for sea-level pressure the reduction point by
+/// point. Every input is one file's message on one native grid, so the samples correspond one to
+/// one; a length mismatch is an error rather than a guess.
+fn combine(field: RtmaField, first: Vec<f64>, rest: Vec<&[f64]>) -> anyhow::Result<Vec<f64>> {
+    if field != RtmaField::Mslp {
+        return Ok(first);
+    }
+    let [z, t] = rest.as_slice() else {
+        anyhow::bail!("sea-level pressure needs three inputs");
+    };
+    anyhow::ensure!(
+        z.len() == first.len() && t.len() == first.len(),
+        "the RTMA pressure, height and temperature grids differ in size"
+    );
+    Ok(first
+        .iter()
+        .zip(z.iter())
+        .zip(t.iter())
+        .map(|((p, z), t)| f64::from(reduce_to_sea_level(*p as f32, *z as f32, *t as f32)))
+        .collect())
 }
 
 /// Close the one-cell gaps the scatter regrid leaves where the source grid is sparser than the
@@ -309,6 +381,30 @@ mod tests {
     }
 
     #[test]
+    fn surface_pressure_reduces_to_a_sea_level_value() {
+        // 850 hPa at 1500 m and 15 °C is an ordinary ~1013 hPa day.
+        let mslp = reduce_to_sea_level(85_000.0, 1500.0, 288.15);
+        assert!((101_000.0..101_500.0).contains(&mslp), "{mslp}");
+        // At sea level there is nothing to reduce.
+        assert_eq!(reduce_to_sea_level(101_325.0, 0.0, 288.15), 101_325.0);
+        assert!(reduce_to_sea_level(f32::NAN, 0.0, 288.0).is_nan());
+        // The three inputs combine point by point, each point with its own height.
+        let out = combine(
+            RtmaField::Mslp,
+            vec![85_000.0, 101_000.0],
+            vec![&[1500.0, 0.0], &[288.15, 290.0]],
+        )
+        .unwrap();
+        assert!((101_000.0..101_500.0).contains(&out[0]));
+        assert!((out[1] - 101_000.0).abs() < 1.0);
+        assert!(combine(RtmaField::Mslp, vec![1.0], vec![]).is_err());
+        assert_eq!(
+            combine(RtmaField::Temp2m, vec![3.0], vec![]).unwrap(),
+            [3.0]
+        );
+    }
+
+    #[test]
     fn every_field_has_a_unique_slug_and_key() {
         let mut slugs: Vec<_> = RtmaField::ALL.iter().map(|f| f.slug()).collect();
         slugs.sort_unstable();
@@ -370,6 +466,10 @@ mod tests {
                 }
                 // Metres, never negative; visibility tops out near the 16 km (10 mi) the
                 // observing systems report.
+                // Pa: every CONUS sea-level pressure falls well inside 870..1085 hPa.
+                RtmaField::Mslp => {
+                    assert!(lo > 87_000.0 && hi < 108_500.0, "mslp: {lo}..{hi} Pa")
+                }
                 RtmaField::Visibility | RtmaField::Ceiling => {
                     assert!(lo >= 0.0 && hi > 1000.0, "{}: {lo}..{hi} m", field.label())
                 }

@@ -2588,7 +2588,12 @@ analysis, and the model picker offers it as an "Analysis" model with no lead.
 - [x] dewpoint
 - [x] 10 m wind — speed, published directly by the analysis
 - [x] wind gust
-- [ ] pressure — the file carries surface pressure only, not sea-level; needs a reduction before it means anything on a map
+- [x] pressure — `RtmaField::Mslp`, "Sea-level pressure (RTMA analysis)": the file's surface
+  pressure reduced to sea level with its own terrain height and 2 m temperature (standard
+  hypsometric reduction, 6.5 K/km). The three messages are combined point by point on the native
+  grid and regridded once (`hrrr::decode_native`); combining after the regrid paired each cell's
+  highest-terrain height with its lowest-terrain pressure, since the regrid keeps each cell's
+  maximum. Shares the global models' MSLP scale.
 - [x] visibility — `RtmaField::Visibility` / "Visibility (RTMA analysis)", in statute miles on a
   log scale coloured by flight category (LIFR < 1 mi magenta, IFR 1–3 red, MVFR 3–5 blue) and
   drawn only below 5 mi (`FieldRamp::clear_above`), so fog and heavy precipitation stand alone

@@ -255,6 +255,8 @@ pub enum FieldLayer {
     /// RTMA surface visibility and cloud ceiling, coloured by flight category.
     RtmaVisibility,
     RtmaCeiling,
+    /// RTMA surface pressure reduced to sea level.
+    RtmaMslp,
     /// One ensemble statistic (mean, spread, percentile, exceedance probability) computed from the
     /// GEFS members — which one is `app.ensemble` (ROADMAP_NEW F7).
     Ensemble,
@@ -357,6 +359,7 @@ impl FieldLayer {
                 | FieldLayer::RtmaGust10m
                 | FieldLayer::RtmaVisibility
                 | FieldLayer::RtmaCeiling
+                | FieldLayer::RtmaMslp
                 | FieldLayer::GoesIr
                 | FieldLayer::GoesVisible
                 | FieldLayer::GoesWaterVapor
@@ -405,7 +408,7 @@ impl FieldLayer {
     }
 
     /// Fixed bottom-to-top paint order within each band.
-    pub const DRAW_ORDER: [FieldLayer; 85] = [
+    pub const DRAW_ORDER: [FieldLayer; 86] = [
         // Below-radar context band (bottom to top). The global models sit at the very bottom:
         // they are the synoptic backdrop everything else is drawn against — satellite included,
         // since it is the same kind of backdrop and the radar itself paints over it just the same.
@@ -442,6 +445,7 @@ impl FieldLayer {
         FieldLayer::RtmaGust10m,
         FieldLayer::RtmaVisibility,
         FieldLayer::RtmaCeiling,
+        FieldLayer::RtmaMslp,
         FieldLayer::Mrms,
         FieldLayer::ReflLowestAlt,
         FieldLayer::LowLevelReflectivity,
@@ -617,6 +621,7 @@ impl FieldLayer {
             FieldLayer::RtmaGust10m => "rtma-gust10m",
             FieldLayer::RtmaVisibility => "rtma-visibility",
             FieldLayer::RtmaCeiling => "rtma-ceiling",
+            FieldLayer::RtmaMslp => "rtma-mslp",
             FieldLayer::GlmFed => "glm-fed",
             FieldLayer::GoesIr => "goes-ir",
             FieldLayer::GoesVisible => "goes-visible",
