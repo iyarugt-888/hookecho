@@ -681,7 +681,6 @@ pub(crate) fn group_entries(
             rows: best.clone(),
         });
     }
-    let needle = query.trim().to_lowercase();
     for cat in crate::ui::layers_panel::CATEGORIES {
         if !every_category && !tab.categories().contains(&cat) {
             continue;
@@ -696,11 +695,11 @@ pub(crate) fn group_entries(
             if !keep(e) {
                 continue;
             }
-            // The name may match loosely; a description must hold the query as written, or
-            // every long description matches nearly anything.
-            if !query.is_empty()
+            // Word by word, in any order: the name may match loosely, the description and the
+            // keywords only as written (see `word_match`).
+            if !query.trim().is_empty()
                 && crate::ui::layers_panel::fuzzy(query, &e.label).is_none()
-                && !e.desc.to_lowercase().contains(&needle)
+                && crate::ui::layers_panel::word_match(query, e).is_none()
             {
                 continue;
             }
@@ -730,17 +729,23 @@ fn best_matches(
     query: &str,
     keep: &dyn Fn(&PaletteEntry) -> bool,
 ) -> Vec<usize> {
-    let needle = query.trim().to_lowercase();
-    if needle.is_empty() {
+    let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
+    if words.is_empty() {
         return Vec::new();
     }
+    // Every word as written somewhere in the name, in any order; ranked by where the first one
+    // lands, then by the shorter name.
     let mut hits: Vec<(usize, usize, usize)> = entries
         .iter()
         .enumerate()
         .filter(|(_, e)| keep(e))
         .filter_map(|(i, e)| {
-            let at = e.label.to_lowercase().find(&needle)?;
-            Some((at, e.label.len(), i))
+            let name = e.label.to_lowercase();
+            let mut first = usize::MAX;
+            for w in &words {
+                first = first.min(name.find(w.as_str())?);
+            }
+            Some((first, e.label.len(), i))
         })
         .collect();
     hits.sort();

@@ -909,3 +909,8 @@ a scale bar on the map; a network round-trip measurement for the app bar; a natu
 - Non-colour state audit of the workstation (roadmap Q3): every status mark has a second cue
   besides colour; the one that did not, the timeline's forecast-hour ticks, is now split at the
   rail. Checked by screenshot, zoomed on the timeline.
+- Search matches word by word, in any order (`layers_panel::word_match`): each word matches the
+  name loosely, or the description or the row's keywords as written; a name match ranks first.
+  Model-product rows carry the model names and "future"/"simulated" as keywords (analysis rows
+  carry RTMA/URMA/observed instead), so "HRRR future" finds "Reflectivity forecast" — before, it
+  found nothing. Best matches needs every word in the name, in any order. Checked by screenshot.

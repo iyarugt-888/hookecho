@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Changed: search understands several words in any order
+
+Layer search now matches each word you type on its own, in any order, and knows the model names:
+"HRRR future radar" finds the reflectivity forecast, and "velocity storm" finds storm-relative
+velocity.
+
 ### Added: choose which gridded layer paints on top
 
 With several gridded layers on (hail size, rotation tracks, lightning density, satellite and

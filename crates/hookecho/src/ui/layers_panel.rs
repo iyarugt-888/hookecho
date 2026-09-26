@@ -39,6 +39,66 @@ pub(crate) fn fuzzy(needle: &str, hay: &str) -> Option<usize> {
     Some(score)
 }
 
+/// Words a row can be found by beyond its name and description: a field layer's registry aliases
+/// ("azshear", "mesh"), and for a model product the models that publish it and the ways people
+/// say "forecast" — the row is "Reflectivity forecast", but people type "HRRR future radar".
+pub(crate) fn keywords(e: &PaletteEntry) -> String {
+    match e.action {
+        PaletteAction::ToggleField(layer) => layer
+            .descriptor()
+            .map(|d| d.search_text())
+            .unwrap_or_default(),
+        PaletteAction::ToggleModelProduct(p) | PaletteAction::SetModelProduct(p) => {
+            use crate::model_browser::Product as P;
+            match p {
+                // An analysis is the observed state, not a forecast: found by what it is.
+                P::AnalysisTemp2m
+                | P::AnalysisDewpoint2m
+                | P::AnalysisWind10m
+                | P::AnalysisGust10m => "rtma urma analysis observed model",
+                P::Reflectivity => "model hrrr rap nam gfs guidance future radar simulated",
+                _ => "model hrrr rap nam gfs guidance",
+            }
+            .to_string()
+        }
+        _ => String::new(),
+    }
+}
+
+/// Whether a row answers `query`, and how well (lower is better). Each word of the query has to
+/// match on its own, in any order: tightly within the name (a subsequence, so "srv" still finds
+/// storm-relative velocity), or else as written within the description or the keywords, which
+/// scores behind any name match. `None` if any word matches nothing.
+pub(crate) fn word_match(query: &str, e: &PaletteEntry) -> Option<usize> {
+    let words: Vec<String> = query
+        .split_whitespace()
+        .map(|w| {
+            w.trim_matches(|c: char| c == ',' || c == ';')
+                .to_lowercase()
+        })
+        .filter(|w| !w.is_empty())
+        .collect();
+    if words.is_empty() {
+        return Some(0);
+    }
+    let desc = e.desc.to_lowercase();
+    let mut extra: Option<String> = None;
+    let mut score = 0usize;
+    for w in &words {
+        if let Some(s) = fuzzy(w, &e.label) {
+            score += s;
+            continue;
+        }
+        let kw = extra.get_or_insert_with(|| keywords(e).to_lowercase());
+        if desc.contains(w.as_str()) || kw.contains(w.as_str()) {
+            score += 1000;
+            continue;
+        }
+        return None;
+    }
+    Some(score)
+}
+
 /// Filter + sort entry indices for `query` (best match first, registry order within a tie).
 pub(crate) fn matches(entries: &[PaletteEntry], query: &str) -> Vec<usize> {
     let trimmed = query.trim();
@@ -61,15 +121,8 @@ pub(crate) fn matches(entries: &[PaletteEntry], query: &str) -> Vec<usize> {
             if scope.is_some_and(|category| e.category != category) {
                 return None;
             }
-            let metadata = match e.action {
-                PaletteAction::ToggleField(layer) => layer.descriptor(),
-                _ => None,
-            };
-            let score = fuzzy(needle, &e.label).or_else(|| {
-                metadata
-                    .and_then(|field| fuzzy(needle, &field.search_text()))
-                    .map(|score| score.saturating_add(1000))
-            });
+            // The whole query as one run first (a tight "rvel"), then word by word.
+            let score = fuzzy(needle, &e.label).or_else(|| word_match(needle, e));
             score.map(|score| (score, i))
         })
         .collect();
@@ -1867,6 +1920,37 @@ mod tests {
         let before = pref.clone();
         reorder(&mut pref, &seq2, "Velocity", "Velocity");
         assert_eq!(pref, before);
+    }
+
+    #[test]
+    fn a_query_matches_word_by_word_in_any_order() {
+        let row = |label: &str, desc: &'static str, action| PaletteEntry {
+            label: label.to_string(),
+            category: "Models",
+            action,
+            on: Some(false),
+            desc,
+            common: false,
+            key: None,
+            health: None,
+        };
+        let model = row(
+            "Reflectivity forecast",
+            "Forecast radar picture",
+            PaletteAction::ToggleModelProduct(crate::model_browser::Product::Reflectivity),
+        );
+        // The model's name and "future" are keywords of a model row, not words in its name.
+        assert!(word_match("hrrr future", &model).is_some());
+        assert!(word_match("forecast reflectivity", &model).is_some());
+        assert!(
+            word_match("hrrr velocity", &model).is_none(),
+            "every word must match"
+        );
+        let plain = row("Storm-relative velocity", "", PaletteAction::Reload);
+        assert!(word_match("velocity storm", &plain).is_some());
+        // A name match ranks ahead of a description or keyword match.
+        assert!(word_match("reflectivity", &model) < word_match("future", &model));
+        assert_eq!(word_match("  ", &plain), Some(0));
     }
 
     #[test]
