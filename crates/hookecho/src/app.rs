@@ -24145,7 +24145,10 @@ impl eframe::App for HookEchoApp {
             );
         }
         // theme_plan.md §4: self-gates on `settings.analyst_mode`, so this costs nothing when off.
-        ui::analyst_log_window::show(ctx, &mut self.settings, &mut self.drawer);
+        // The workstation shows the log as a dock tab (`app::chrome::dock::log`).
+        if !self.workstation_chrome() {
+            ui::analyst_log_window::show(ctx, &mut self.settings, &mut self.drawer);
+        }
         self.show_warning_banners(ctx);
         self.show_toasts(ctx);
 

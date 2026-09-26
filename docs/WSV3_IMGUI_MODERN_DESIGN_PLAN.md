@@ -437,9 +437,8 @@ The redesign is ready when:
 >   reading plus the gate inspector on the rail rather than a third control; the rail has no
 >   separate pan (the explore tool pans), locate or warning-focus tool, since nothing in the app
 >   does those yet, and the 3D camera is the toolbar's 2D/3D/Volume control.
-> - Not yet: drag-reorder in the tree (§3.1; it lives in the Layer Manager); more windows as
->   dock tabs (analyst log, sounding — the tab groups exist, and the 3D controls and source
->   health are tabs now, §2.3); a screenshot
+> - Not yet: drag-reorder in the tree (§3.1; it lives in the Layer Manager); the sounding as a
+>   dock tab (§2.3; the 3D controls, source health and the analyst log are tabs now); a screenshot
 >   pass at phone width (§12.11; the phone layout is its own and unchanged).
 
 ### 13.1 References
@@ -852,3 +851,8 @@ a scale bar on the map; a network round-trip measurement for the app bar; a natu
   bar's feed readout now toggles it (closed by default, docks right), and its title counts the
   feeds that need attention. Checked by screenshot during a network outage: two failing feeds
   first with their errors, then the healthy ones.
+- The Analyst log (§2.3) is a seventh tool window in the workstation layouts, present while
+  Analyst Mode is on, docked right by default; the floating window remains for the other
+  layouts, and both draw `analyst_log_window::body`. Closing it switches Analyst Mode off, as the
+  floating window's close does, so the setting and the window agree. Checked by screenshot with a
+  live-sweep line in it.

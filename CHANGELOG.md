@@ -23,6 +23,8 @@ shows both again.
 Clicking the feed status in the Dock and WSV3 top bar now opens **Sources**, a panel-width list of
 every active data feed, worst first: a status mark, the feed, how old its newest data is, and the
 last error for any that are failing. "Full table…" opens the complete Data source health window.
+With Analyst Mode on, its live log is a panel tab there too rather than a separate floating
+window.
 
 ### Added: the workstation's 3D controls are a dockable window
 

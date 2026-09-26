@@ -20,6 +20,7 @@ mod alerts;
 mod app_bar;
 mod inspector;
 mod layers;
+mod log;
 mod menus;
 mod prefs;
 mod rail;
@@ -132,15 +133,18 @@ pub(crate) enum DockWin {
     View3d,
     /// Every active feed's health, compactly.
     Sources,
+    /// Analyst Mode's live log (only while Analyst Mode is on).
+    Log,
 }
 
 impl DockWin {
-    pub(crate) const ALL: [DockWin; 6] = [
+    pub(crate) const ALL: [DockWin; 7] = [
         DockWin::Layers,
         DockWin::Inspector,
         DockWin::View3d,
         DockWin::Alerts,
         DockWin::Sources,
+        DockWin::Log,
         DockWin::Prefs,
     ];
 
@@ -154,6 +158,7 @@ impl DockWin {
             DockWin::Prefs => (ph::SLIDERS_HORIZONTAL, "Preferences"),
             DockWin::View3d => (ph::CUBE, "3D view"),
             DockWin::Sources => (ph::PULSE, "Sources"),
+            DockWin::Log => (ph::TERMINAL_WINDOW, "Analyst log"),
         };
         ws::HeaderTab { glyph, title }
     }
@@ -166,6 +171,7 @@ impl DockWin {
             DockWin::Prefs => prefs::PREFS_W,
             DockWin::View3d => view3d::VIEW3D_W,
             DockWin::Sources => sources::SOURCES_W,
+            DockWin::Log => log::LOG_W,
         }
     }
 }
@@ -217,6 +223,9 @@ pub(crate) struct DockState {
     pub prefs: WindowChrome,
     pub view3d: WindowChrome,
     pub sources: WindowChrome,
+    pub log: WindowChrome,
+    /// Whether the Analyst log has anything to show: Analyst Mode is on. Set each frame.
+    pub log_available: bool,
     /// Whether the 3D view window has anything to show: the active pane is in 3D. Set each frame
     /// before the docks are laid out.
     pub view3d_available: bool,
@@ -238,7 +247,7 @@ pub(crate) struct DockState {
     pub front: [Option<DockWin>; 2],
     /// Each window's `(open, place)` last frame, to bring a window that has just opened or just
     /// moved into a dock to the front of it.
-    seen: [(bool, Place); 6],
+    seen: [(bool, Place); 7],
     /// The window is too narrow for docks on both sides ([`ONE_DOCK_BELOW`]). Set each frame.
     pub narrow: bool,
     /// The side used most recently (0 left, 1 right): the one that stays while `narrow`.
@@ -258,6 +267,8 @@ impl Default for DockState {
             prefs: WindowChrome::default(),
             view3d: WindowChrome::default(),
             sources: WindowChrome::default(),
+            log: WindowChrome::default(),
+            log_available: false,
             view3d_available: false,
             prefs_page: PrefsPage::Map,
             timeline_open: true,
@@ -267,7 +278,7 @@ impl Default for DockState {
             jump: String::new(),
             arranged_for: None,
             front: [None; 2],
-            seen: [(false, Place::Float); 6],
+            seen: [(false, Place::Float); 7],
             narrow: false,
             last_side: 0,
         };
@@ -298,6 +309,7 @@ impl DockState {
             prefs: WindowChrome::at(false, Place::Right),
             view3d: WindowChrome::at(true, Place::Right),
             sources: WindowChrome::at(false, Place::Right),
+            log: WindowChrome::at(true, Place::Right),
             timeline_open: true,
         }
     }
@@ -312,6 +324,7 @@ impl DockState {
             prefs: self.prefs,
             view3d: self.view3d,
             sources: self.sources,
+            log: self.log,
             timeline_open: self.timeline_open,
         }
     }
@@ -325,6 +338,7 @@ impl DockState {
         self.prefs = w.prefs;
         self.view3d = w.view3d;
         self.sources = w.sources;
+        self.log = w.log;
         self.timeline_open = w.timeline_open;
     }
 
@@ -336,6 +350,7 @@ impl DockState {
             DockWin::Prefs => &self.prefs,
             DockWin::View3d => &self.view3d,
             DockWin::Sources => &self.sources,
+            DockWin::Log => &self.log,
         }
     }
 
@@ -347,12 +362,19 @@ impl DockState {
             DockWin::Prefs => &mut self.prefs,
             DockWin::View3d => &mut self.view3d,
             DockWin::Sources => &mut self.sources,
+            DockWin::Log => &mut self.log,
         }
     }
 
-    /// Whether `w` is open and has something to show (the 3D view needs a pane in 3D).
+    /// Whether `w` is open and has something to show (the 3D view needs a pane in 3D, the
+    /// Analyst log needs Analyst Mode).
     fn present(&self, w: DockWin) -> bool {
-        self.chrome(w).open && (w != DockWin::View3d || self.view3d_available)
+        self.chrome(w).open
+            && match w {
+                DockWin::View3d => self.view3d_available,
+                DockWin::Log => self.log_available,
+                _ => true,
+            }
     }
 
     /// The present windows at `side`, in tab order.
@@ -361,6 +383,15 @@ impl DockState {
             .into_iter()
             .filter(|w| self.present(*w) && self.chrome(*w).place == side)
             .collect()
+    }
+
+    /// Say whether Analyst Mode is on. Turning it on shows the log again, as the floating
+    /// window always appeared with it.
+    pub(crate) fn set_log_available(&mut self, available: bool) {
+        if available && !self.log_available {
+            self.log.open = true;
+        }
+        self.log_available = available;
     }
 
     /// Say whether the active pane is in 3D. Entering 3D reopens the 3D view window even if it
@@ -664,6 +695,7 @@ impl HookEchoApp {
         self.dock_timeline(root);
         let in_3d = self.views[self.active].map_3d.enabled;
         self.dock.set_view3d_available(in_3d);
+        self.dock.set_log_available(self.settings.analyst_mode);
         self.dock.update_fronts();
         self.dock.narrow = ctx.content_rect().width() < ONE_DOCK_BELOW;
         for side in [Place::Left, Place::Right] {
@@ -722,6 +754,7 @@ impl HookEchoApp {
             DockWin::Prefs => self.dock_prefs(host, ctx),
             DockWin::View3d => self.dock_view3d(host),
             DockWin::Sources => self.dock_sources(host),
+            DockWin::Log => self.dock_log(host),
         }
     }
 
@@ -1045,6 +1078,7 @@ mod tests {
             prefs: WindowChrome::at(true, Place::Left),
             view3d: WindowChrome::at(false, Place::Float),
             sources: WindowChrome::at(true, Place::Right),
+            log: WindowChrome::at(false, Place::Left),
             timeline_open: false,
         };
         s.arrange(&w);
@@ -1114,6 +1148,15 @@ mod tests {
         three.set_view3d_available(false);
         three.update_fronts();
         assert_eq!(three.front[1], Some(DockWin::Inspector));
+        // The Analyst log is a tab only while Analyst Mode is on, and turning the mode back on
+        // shows it again even after it was closed.
+        three.log = WindowChrome::at(false, Place::Right);
+        three.set_log_available(false);
+        three.update_fronts();
+        assert!(!three.stack(Place::Right).contains(&DockWin::Log));
+        three.set_log_available(true);
+        three.update_fronts();
+        assert!(three.shown(DockWin::Log));
         // Windows arriving together (a restored arrangement) open on the first in tab order.
         let mut restored = DockState::default();
         restored.inspector = WindowChrome::at(true, Place::Right);

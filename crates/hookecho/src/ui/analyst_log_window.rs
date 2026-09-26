@@ -51,50 +51,7 @@ pub(crate) fn show(
         crate::devlog::set_analyst_mode(keep);
         return;
     };
-    window.show(ctx, |ui| {
-        let entries = crate::devlog::recent(MAX_LINES, TARGET_PREFIXES);
-        ui.weak(format!(
-            "Live-sweep, provider-health and failover detail — {} line{} buffered.",
-            entries.len(),
-            if entries.len() == 1 { "" } else { "s" }
-        ));
-        ui.separator();
-        if entries.is_empty() {
-            ui.weak("Nothing yet — follow a live NEXRAD site to see sweep-by-sweep detail here.");
-            return;
-        }
-        egui::ScrollArea::vertical()
-            .stick_to_bottom(true)
-            .max_height(360.0)
-            .show(ui, |ui| {
-                for e in &entries {
-                    let color = level_color(&e.level);
-                    let ts = chrono::DateTime::from_timestamp_millis(e.ts_ms)
-                        .map(|d| d.format("%H:%M:%S%.3f").to_string())
-                        .unwrap_or_default();
-                    ui.horizontal_wrapped(|ui| {
-                        ui.label(
-                            egui::RichText::new(ts)
-                                .size(10.0)
-                                .color(egui::Color32::from_gray(150))
-                                .monospace(),
-                        );
-                        ui.label(
-                            egui::RichText::new(short_target(&e.target))
-                                .size(10.0)
-                                .color(egui::Color32::from_gray(180))
-                                .monospace(),
-                        );
-                        ui.label(
-                            egui::RichText::new(&e.message)
-                                .size(11.0)
-                                .color(color)
-                                .monospace(),
-                        );
-                    });
-                }
-            });
-    });
+    window.show(ctx, |ui| body(ui, 360.0));
     // Mirrors the early-return branch above: the window's own close button can flip `keep` to
     // false during `show()`, and that has to turn Analyst Mode off the same consistent way the
     // Settings checkbox does (including restoring the log level), not just update the flag.
@@ -102,6 +59,53 @@ pub(crate) fn show(
         settings.analyst_mode = keep;
         crate::devlog::set_analyst_mode(keep);
     }
+}
+
+/// The log itself: a line saying what it holds, then the newest matching lines, following the
+/// bottom as they arrive. Drawn by the floating window and by the workstation's Analyst log tab.
+pub(crate) fn body(ui: &mut egui::Ui, max_height: f32) {
+    let entries = crate::devlog::recent(MAX_LINES, TARGET_PREFIXES);
+    ui.weak(format!(
+        "Live-sweep, provider-health and failover detail — {} line{} buffered.",
+        entries.len(),
+        if entries.len() == 1 { "" } else { "s" }
+    ));
+    ui.separator();
+    if entries.is_empty() {
+        ui.weak("Nothing yet — follow a live NEXRAD site to see sweep-by-sweep detail here.");
+        return;
+    }
+    egui::ScrollArea::vertical()
+        .stick_to_bottom(true)
+        .max_height(max_height)
+        .show(ui, |ui| {
+            for e in &entries {
+                let color = level_color(&e.level);
+                let ts = chrono::DateTime::from_timestamp_millis(e.ts_ms)
+                    .map(|d| d.format("%H:%M:%S%.3f").to_string())
+                    .unwrap_or_default();
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(
+                        egui::RichText::new(ts)
+                            .size(10.0)
+                            .color(egui::Color32::from_gray(150))
+                            .monospace(),
+                    );
+                    ui.label(
+                        egui::RichText::new(short_target(&e.target))
+                            .size(10.0)
+                            .color(egui::Color32::from_gray(180))
+                            .monospace(),
+                    );
+                    ui.label(
+                        egui::RichText::new(&e.message)
+                            .size(11.0)
+                            .color(color)
+                            .monospace(),
+                    );
+                });
+            }
+        });
 }
 
 fn level_color(level: &str) -> egui::Color32 {

@@ -172,6 +172,9 @@ pub struct WorkstationChrome {
     /// The compact source-health list. Closed until asked for; docks right when opened.
     #[serde(default = "sources_default")]
     pub sources: WindowChrome,
+    /// Analyst Mode's live log, shown while Analyst Mode is on. Docks right by default.
+    #[serde(default = "log_default")]
+    pub log: WindowChrome,
     #[serde(default = "yes")]
     pub timeline_open: bool,
 }
@@ -186,6 +189,10 @@ fn view3d_default() -> WindowChrome {
 
 fn sources_default() -> WindowChrome {
     WindowChrome::at(false, Place::Right)
+}
+
+fn log_default() -> WindowChrome {
+    WindowChrome::at(true, Place::Right)
 }
 
 /// One pane's state. Camera as lon/lat/zoom, basemap as its slug: both survive a file written by
@@ -689,6 +696,7 @@ mod tests {
                     prefs: WindowChrome::default(),
                     view3d: WindowChrome::at(true, Place::Float),
                     sources: WindowChrome::at(true, Place::Left),
+                    log: WindowChrome::at(true, Place::Right),
                     timeline_open: false,
                 }),
             }),
