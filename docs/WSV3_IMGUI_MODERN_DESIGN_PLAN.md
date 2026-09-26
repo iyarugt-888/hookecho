@@ -438,7 +438,8 @@ The redesign is ready when:
 >   separate pan (the explore tool pans), locate or warning-focus tool, since nothing in the app
 >   does those yet, and the 3D camera is the toolbar's 2D/3D/Volume control.
 > - Not yet: drag-reorder in the tree (§3.1; it lives in the Layer Manager); more windows as
->   dock tabs (analyst log, sounding, diagnostics — the tab groups exist, §2.3); screenshot
+>   dock tabs (analyst log, sounding, diagnostics — the tab groups exist and the 3D controls are
+>   one, §2.3); screenshot
 >   passes at tablet and phone widths (§12.11; the phone layout is its own and unchanged).
 
 ### 13.1 References
@@ -818,3 +819,10 @@ a scale bar on the map; a network round-trip measurement for the app bar; a natu
   another tab reads as off, and its button brings it forward rather than closing it. The panel
   is as wide as its widest member. Checked by screenshot: Inspector and Alerts docked right
   together, switching by tab and by the app-bar button, and the arrangement surviving a restart.
+- The 3D controls (§2.3's "3D volume controls") are a fifth tool window, **3D view**, in the
+  workstation layouts: the same body the floating "3D map" window draws in the other layouts
+  (`map_3d_controls_body`), in workstation chrome. It is present only while the active pane is in
+  3D, reopens each time 3D is entered, and by default docks right as a tab beside the Inspector,
+  so it no longer floats over the map's right edge and colour scale. Where it sits is saved with
+  the arrangement. Tab glyphs now match each window's own header glyph. Checked by screenshot:
+  Inspector, 3D view and Alerts sharing the right dock in the Moore scene.

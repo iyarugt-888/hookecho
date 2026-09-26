@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: the workstation's 3D controls are a dockable window
+
+In the Dock and WSV3 layouts, switching a pane to 3D now opens its controls as a **3D view**
+window docked on the right, as a tab beside the Inspector, instead of a floating box over the map
+and its color scale. Like the other workstation windows it can be docked left, floated or closed,
+and it stays where you put it.
+
 ### Added: workstation windows docked on one side share it as tabs
 
 In the Dock and WSV3 layouts, docking a second window on a side (say Alerts next to the

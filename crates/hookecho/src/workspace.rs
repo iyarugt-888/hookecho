@@ -165,12 +165,20 @@ pub struct WorkstationChrome {
     /// Map settings and the app preferences.
     #[serde(default)]
     pub prefs: WindowChrome,
+    /// The active pane's 3D controls, shown while that pane is in 3D. Defaults to open and docked
+    /// right, where it joins the Inspector as a tab.
+    #[serde(default = "view3d_default")]
+    pub view3d: WindowChrome,
     #[serde(default = "yes")]
     pub timeline_open: bool,
 }
 
 fn yes() -> bool {
     true
+}
+
+fn view3d_default() -> WindowChrome {
+    WindowChrome::at(true, Place::Right)
 }
 
 /// One pane's state. Camera as lon/lat/zoom, basemap as its slug: both survive a file written by
@@ -672,6 +680,7 @@ mod tests {
                     },
                     alerts: WindowChrome::at(false, Place::Right),
                     prefs: WindowChrome::default(),
+                    view3d: WindowChrome::at(true, Place::Float),
                     timeline_open: false,
                 }),
             }),

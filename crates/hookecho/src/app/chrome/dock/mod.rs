@@ -24,6 +24,7 @@ mod menus;
 mod prefs;
 mod rail;
 mod timeline;
+mod view3d;
 
 /// Width of the Layers panel.
 const LEFT_WIDTH: f32 = 284.0;
@@ -121,12 +122,15 @@ pub(crate) enum DockWin {
     Inspector,
     Alerts,
     Prefs,
+    /// The active pane's 3D controls (only while it is in 3D).
+    View3d,
 }
 
 impl DockWin {
-    pub(crate) const ALL: [DockWin; 4] = [
+    pub(crate) const ALL: [DockWin; 5] = [
         DockWin::Layers,
         DockWin::Inspector,
+        DockWin::View3d,
         DockWin::Alerts,
         DockWin::Prefs,
     ];
@@ -137,8 +141,9 @@ impl DockWin {
         let (glyph, title) = match self {
             DockWin::Layers => (ph::STACK, "Layers"),
             DockWin::Inspector => (ph::INFO, "Inspector"),
-            DockWin::Alerts => (ph::WARNING, "Alerts"),
-            DockWin::Prefs => (ph::GEAR_SIX, "Preferences"),
+            DockWin::Alerts => (ph::BELL, "Alerts"),
+            DockWin::Prefs => (ph::SLIDERS_HORIZONTAL, "Preferences"),
+            DockWin::View3d => (ph::CUBE, "3D view"),
         };
         ws::HeaderTab { glyph, title }
     }
@@ -149,6 +154,7 @@ impl DockWin {
             DockWin::Inspector => inspector::CARD_W,
             DockWin::Alerts => alerts::ALERTS_W,
             DockWin::Prefs => prefs::PREFS_W,
+            DockWin::View3d => view3d::VIEW3D_W,
         }
     }
 }
@@ -183,6 +189,10 @@ pub(crate) struct DockState {
     pub inspector: WindowChrome,
     pub alerts: WindowChrome,
     pub prefs: WindowChrome,
+    pub view3d: WindowChrome,
+    /// Whether the 3D view window has anything to show: the active pane is in 3D. Set each frame
+    /// before the docks are laid out.
+    pub view3d_available: bool,
     pub prefs_page: PrefsPage,
     pub timeline_open: bool,
     /// The inspector's model-forecast block (shown only while a model layer is on the map).
@@ -201,7 +211,7 @@ pub(crate) struct DockState {
     pub front: [Option<DockWin>; 2],
     /// Each window's `(open, place)` last frame, to bring a window that has just opened or just
     /// moved into a dock to the front of it.
-    seen: [(bool, Place); 4],
+    seen: [(bool, Place); 5],
 }
 
 impl Default for DockState {
@@ -215,6 +225,8 @@ impl Default for DockState {
             inspector: WindowChrome::default(),
             alerts: WindowChrome::default(),
             prefs: WindowChrome::default(),
+            view3d: WindowChrome::default(),
+            view3d_available: false,
             prefs_page: PrefsPage::Map,
             timeline_open: true,
             model_open: true,
@@ -223,7 +235,7 @@ impl Default for DockState {
             jump: String::new(),
             arranged_for: None,
             front: [None; 2],
-            seen: [(false, Place::Float); 4],
+            seen: [(false, Place::Float); 5],
         };
         s.arrange(&DockState::preset(crate::settings::Layout::Dock));
         s
@@ -250,6 +262,7 @@ impl DockState {
             ),
             alerts: WindowChrome::at(false, Place::Right),
             prefs: WindowChrome::at(false, Place::Right),
+            view3d: WindowChrome::at(true, Place::Right),
             timeline_open: true,
         }
     }
@@ -262,6 +275,7 @@ impl DockState {
             inspector: self.inspector,
             alerts: self.alerts,
             prefs: self.prefs,
+            view3d: self.view3d,
             timeline_open: self.timeline_open,
         }
     }
@@ -273,6 +287,7 @@ impl DockState {
         self.inspector = w.inspector;
         self.alerts = w.alerts;
         self.prefs = w.prefs;
+        self.view3d = w.view3d;
         self.timeline_open = w.timeline_open;
     }
 
@@ -282,6 +297,7 @@ impl DockState {
             DockWin::Inspector => &self.inspector,
             DockWin::Alerts => &self.alerts,
             DockWin::Prefs => &self.prefs,
+            DockWin::View3d => &self.view3d,
         }
     }
 
@@ -291,18 +307,31 @@ impl DockState {
             DockWin::Inspector => &mut self.inspector,
             DockWin::Alerts => &mut self.alerts,
             DockWin::Prefs => &mut self.prefs,
+            DockWin::View3d => &mut self.view3d,
         }
     }
 
-    /// The open windows docked on `side`, in tab order.
+    /// Whether `w` is open and has something to show (the 3D view needs a pane in 3D).
+    fn present(&self, w: DockWin) -> bool {
+        self.chrome(w).open && (w != DockWin::View3d || self.view3d_available)
+    }
+
+    /// The present windows at `side`, in tab order.
     pub(crate) fn stack(&self, side: Place) -> Vec<DockWin> {
         DockWin::ALL
             .into_iter()
-            .filter(|w| {
-                let c = self.chrome(*w);
-                c.open && c.place == side
-            })
+            .filter(|w| self.present(*w) && self.chrome(*w).place == side)
             .collect()
+    }
+
+    /// Say whether the active pane is in 3D. Entering 3D reopens the 3D view window even if it
+    /// was closed last time, as the floating 3D controls always appeared; closing it hides it
+    /// for this visit to 3D only.
+    pub(crate) fn set_view3d_available(&mut self, available: bool) {
+        if available && !self.view3d_available {
+            self.view3d.open = true;
+        }
+        self.view3d_available = available;
     }
 
     /// Keep each dock's front tab sensible: a window that has just opened, or just been docked,
@@ -316,8 +345,8 @@ impl DockState {
         let mut claimed = [false; 2];
         for (i, w) in DockWin::ALL.into_iter().enumerate() {
             let c = *self.chrome(w);
-            let now = (c.open, c.place);
-            if now != self.seen[i] && c.open {
+            let now = (self.present(w), c.place);
+            if now != self.seen[i] && now.0 {
                 if let Some(slot) = side_slot(c.place) {
                     if !claimed[slot] {
                         self.front[slot] = Some(w);
@@ -339,7 +368,7 @@ impl DockState {
     /// Whether `w` can be seen: open, and not behind another window in its dock's tab group.
     pub(crate) fn shown(&self, w: DockWin) -> bool {
         let c = self.chrome(w);
-        if !c.open {
+        if !self.present(w) {
             return false;
         }
         match side_slot(c.place) {
@@ -577,6 +606,8 @@ impl HookEchoApp {
             self.dock_toolbar(root, ctx);
         }
         self.dock_timeline(root);
+        let in_3d = self.views[self.active].map_3d.enabled;
+        self.dock.set_view3d_available(in_3d);
         self.dock.update_fronts();
         for side in [Place::Left, Place::Right] {
             let stack = self.dock.stack(side);
@@ -629,6 +660,7 @@ impl HookEchoApp {
             DockWin::Inspector => self.dock_inspector(host, ctx),
             DockWin::Alerts => self.dock_alerts(host),
             DockWin::Prefs => self.dock_prefs(host, ctx),
+            DockWin::View3d => self.dock_view3d(host),
         }
     }
 
@@ -950,6 +982,7 @@ mod tests {
             inspector: WindowChrome::at(false, Place::Left),
             alerts: WindowChrome::at(true, Place::Float),
             prefs: WindowChrome::at(true, Place::Left),
+            view3d: WindowChrome::at(false, Place::Float),
             timeline_open: false,
         };
         s.arrange(&w);
@@ -1000,6 +1033,25 @@ mod tests {
         s.apply_header(DockWin::Inspector, ws::HeaderAction::Close);
         s.update_fronts();
         assert_eq!(s.front[1], Some(DockWin::Alerts));
+        // The 3D view joins the Inspector's dock while the pane is in 3D, and only then.
+        let mut three = DockState::default();
+        three.inspector = WindowChrome::at(true, Place::Right);
+        three.view3d = WindowChrome::at(false, Place::Right);
+        three.update_fronts();
+        assert_eq!(three.stack(Place::Right), [DockWin::Inspector]);
+        three.set_view3d_available(true);
+        three.update_fronts();
+        assert_eq!(
+            three.stack(Place::Right),
+            [DockWin::Inspector, DockWin::View3d]
+        );
+        assert!(
+            three.shown(DockWin::View3d),
+            "entering 3D brings its controls forward"
+        );
+        three.set_view3d_available(false);
+        three.update_fronts();
+        assert_eq!(three.front[1], Some(DockWin::Inspector));
         // Windows arriving together (a restored arrangement) open on the first in tab order.
         let mut restored = DockState::default();
         restored.inspector = WindowChrome::at(true, Place::Right);
