@@ -272,6 +272,75 @@ impl GlmFeed {
     }
 }
 
+/// The granule keys whose scans began in `[start - 20 s, end]`: each covers 20 seconds, so the
+/// one that began just before `start` holds its first flashes.
+fn keys_in_window(keys: &[String], start: DateTime<Utc>, end: DateTime<Utc>) -> Vec<String> {
+    let from = start - chrono::Duration::seconds(20);
+    keys.iter()
+        .filter(|k| crate::goes_abi::key_time(k).is_some_and(|t| t >= from && t <= end))
+        .cloned()
+        .collect()
+}
+
+/// Every flash GOES-East (and with `west`, GOES-West) recorded in the `minutes` before `end`: the
+/// archive counterpart of [`GlmFeed`], for a view scrubbed back to `end` (ROADMAP_NEW E6: GLM
+/// synchronized to the frame). Granules never change once written, so each is cached
+/// (`objcache::GOES`), and a loop stepping minute by minute reads most of its window from there.
+pub async fn fetch_window(
+    http: &reqwest::Client,
+    west: bool,
+    end: DateTime<Utc>,
+    minutes: i64,
+) -> anyhow::Result<Vec<Flash>> {
+    let start = end - chrono::Duration::minutes(minutes);
+    let buckets: &[&str] = if west { &[EAST, WEST] } else { &[EAST] };
+    let mut wanted = Vec::new();
+    for &bucket in buckets {
+        let mut keys = list_hour(http, bucket, start).await;
+        if start.format("%Y%j%H").to_string() != end.format("%Y%j%H").to_string() {
+            keys.extend(list_hour(http, bucket, end).await);
+        }
+        for key in keys_in_window(&keys, start, end) {
+            wanted.push(format!("{bucket}/{key}"));
+        }
+    }
+    anyhow::ensure!(
+        !wanted.is_empty(),
+        "no GLM granules between {start} and {end}"
+    );
+    let granules = futures_util::future::join_all(wanted.iter().map(|url| async move {
+        crate::objcache::cached(
+            &crate::objcache::GOES,
+            url,
+            crate::objcache::is_whole_hdf5,
+            async {
+                let bytes = http
+                    .get(crate::net::fetch_url(url))
+                    .timeout(crate::net::FEED_TIMEOUT)
+                    .send()
+                    .await?
+                    .error_for_status()?
+                    .bytes()
+                    .await?
+                    .to_vec();
+                crate::stats::net(bytes.len());
+                Ok(bytes)
+            },
+        )
+        .await
+    }))
+    .await;
+    let mut flashes: Vec<Flash> = granules
+        .into_iter()
+        .filter_map(|g| g.ok())
+        .filter_map(|bytes| decode(bytes).ok())
+        .flatten()
+        .filter(|f| f.time >= start && f.time <= end)
+        .collect();
+    flashes.sort_by_key(|f| f.time.timestamp_millis());
+    Ok(flashes)
+}
+
 /// Grid the recent flashes into flash-extent density: how many flashes fell in each cell over the
 /// last `window`.
 ///
@@ -581,5 +650,30 @@ mod tests {
         for f in &flashes {
             assert!((f.time - t0).num_seconds().abs() < 120, "{:?}", f.time);
         }
+    }
+
+    #[test]
+    fn a_window_takes_the_granules_that_began_in_it() {
+        let key = |hms: &str| {
+            format!("GLM-L2-LCFA/2026/270/19/OR_GLM-L2-LCFA_G19_s2026270{hms}0_e0_c0.nc")
+        };
+        let keys = vec![key("185930"), key("185950"), key("190010"), key("190530")];
+        let t = |s: &str| s.parse::<DateTime<Utc>>().unwrap();
+        let got = keys_in_window(&keys, t("2026-09-27T19:00:00Z"), t("2026-09-27T19:05:00Z"));
+        // The one that began 10 s before the window holds its first flashes; one after the end
+        // does not belong.
+        assert_eq!(got, [key("185950"), key("190010")]);
+    }
+
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn fetches_the_flashes_of_a_past_window() {
+        let http = reqwest::Client::new();
+        let end = Utc::now() - chrono::Duration::minutes(90);
+        let flashes = fetch_window(&http, false, end, 5).await.unwrap();
+        eprintln!("{} flashes in the 5 minutes to {end}", flashes.len());
+        assert!(flashes
+            .iter()
+            .all(|f| f.time <= end && f.time >= end - chrono::Duration::minutes(5)));
     }
 }

@@ -123,6 +123,8 @@ pub(crate) enum FeedSource {
     /// Where a GOES mesoscale sector is pointed (ROADMAP_NEW E5), probed while the chosen sector
     /// has moved away from the view.
     GoesMesoSector,
+    /// GLM lightning for a scrubbed-back view (ROADMAP_NEW E6).
+    GlmArchive,
 }
 
 impl FeedSource {
@@ -166,6 +168,7 @@ impl FeedSource {
             Self::WindParticles => "Wind particles",
             Self::DerivedRadarFields => "Derived radar fields",
             Self::GoesMesoSector => "GOES mesoscale sector",
+            Self::GlmArchive => "GLM lightning (archive)",
         }
     }
 
@@ -175,7 +178,8 @@ impl FeedSource {
             | Self::LiveStations
             | Self::FieldMill
             | Self::DerivedRadarFields
-            | Self::GoesMesoSector => 60,
+            | Self::GoesMesoSector
+            | Self::GlmArchive => 60,
             Self::SurfaceObservations => 75,
             Self::MpingReports
             | Self::PowerOutages
@@ -237,7 +241,7 @@ impl FeedSource {
             | Self::PowerOutages
             | Self::RiverGauges => EndpointFamily::PublicPartnerApi,
             Self::DerivedRadarFields => EndpointFamily::LocalProcessing,
-            Self::GoesMesoSector => EndpointFamily::GoesOpenData,
+            Self::GoesMesoSector | Self::GlmArchive => EndpointFamily::GoesOpenData,
             Self::FieldMill => EndpointFamily::UserConfigured,
         }
     }

@@ -506,6 +506,8 @@ enum OverlayMsg {
     Gauges(Vec<wxdata::river::Gauge>),
     /// Where a GOES mesoscale sector is pointed now.
     GoesFootprint(wxdata::goes_abi::Sector, wxdata::goes_abi::Footprint),
+    /// GLM flashes in the window before a past time.
+    GlmWindow(DateTime<Utc>, Vec<wxdata::glm::Flash>),
     /// HRRR model contour polylines for a kind, plus the forecast valid time.
     Contours(
         ContourKind,
@@ -637,6 +639,8 @@ enum OverlaySource {
         wxdata::goes_abi::Sector,
         Option<DateTime<Utc>>,
     ),
+    /// GLM flashes in the minutes before a past time, for a scrubbed-back view (ROADMAP_NEW E6).
+    GlmWindow(DateTime<Utc>, bool),
     /// Where a GOES mesoscale sector is pointed now, or at a past time (ROADMAP_NEW E5).
     GoesFootprint(
         wxdata::goes_abi::Satellite,
@@ -1099,6 +1103,7 @@ impl OverlaySource {
             | Self::Rtma(layer, _) => RequestLane::Field(*layer),
             Self::GoesRgb(..) => RequestLane::Field(FL::GoesRgb),
             Self::GoesFootprint(..) => RequestLane::Feed(FeedSource::GoesMesoSector),
+            Self::GlmWindow(..) => RequestLane::Feed(FeedSource::GlmArchive),
             Self::ModelDiff(..) => RequestLane::Field(FL::ModelDiff),
             // Both compare panes ride one fetch (see `fetch_diff_pair`); either layer name works
             // as the dedup key, so it just picks the first.
@@ -1574,6 +1579,10 @@ impl OverlaySource {
                     wxdata::goes_rgb::pack(&rgb),
                 )
             }
+            OverlaySource::GlmWindow(end, west) => OverlayMsg::GlmWindow(
+                end,
+                wxdata::glm::fetch_window(http, west, end, GLM_ARCHIVE_MINUTES).await?,
+            ),
             OverlaySource::GoesFootprint(satellite, sector, at) => OverlayMsg::GoesFootprint(
                 sector,
                 wxdata::goes_abi::footprint(http, satellite, sector, at).await?,
@@ -3769,6 +3778,10 @@ pub struct HookEchoApp {
     /// else the archive slot a scrubbed view asked for (ROADMAP_NEW A2/E7: satellite follows the
     /// radar's time).
     goes_fetched_slot: std::collections::HashMap<crate::render::FieldLayer, Option<i64>>,
+    /// GLM flashes for a scrubbed-back view: the window ending at that time (ROADMAP_NEW E6).
+    glm_archive: Option<(DateTime<Utc>, Vec<wxdata::glm::Flash>)>,
+    /// The minute slot the GLM archive window was last asked for.
+    glm_archive_slot: Option<i64>,
     /// When `goto.txt` was last looked for — see the poll in `update`.
     goto_poll: Option<Instant>,
     /// The `#goto=` fragment last applied, web only — so a kiosk tab that never navigates away
@@ -5342,6 +5355,8 @@ impl HookEchoApp {
             goes_footprint: None,
             goes_footprint_probe: None,
             goes_fetched_slot: std::collections::HashMap::new(),
+            glm_archive: None,
+            glm_archive_slot: None,
             goto_poll: None,
             #[cfg(target_arch = "wasm32")]
             last_goto_hash: None,
@@ -11937,6 +11952,11 @@ impl HookEchoApp {
                 OverlayMsg::GoesFootprint(sector, fp) => {
                     self.goes_footprint = Some((sector, fp));
                 }
+                OverlayMsg::GlmWindow(end, flashes) => {
+                    self.glm_archive = Some((end, flashes));
+                    // The density grid is rebuilt from these now, not on its next tick.
+                    self.glm_fed_last = None;
+                }
                 OverlayMsg::StampedField(layer, field) => {
                     self.accept_field(layer, field.data, Some(field.stamp));
                 }
@@ -17675,7 +17695,14 @@ impl HookEchoApp {
         // GOES lightning: one dot per flash, fading as it ages.
         if self.show_glm {
             if let Ok(feed) = self.glm.lock() {
-                let now = chrono::Utc::now();
+                // Live, the feed aged against now; scrubbed back, the archive window aged
+                // against the view's time (ROADMAP_NEW E6).
+                let (flashes, now) = glm_flashes_for(
+                    self.goes_target_time(),
+                    feed.flashes(),
+                    self.glm_archive.as_ref(),
+                    chrono::Utc::now(),
+                );
                 // Reject off-screen flashes in lon/lat before projecting each one: a GLM feed can
                 // carry tens of thousands of flashes while the pane shows a corner of one state.
                 let corner = |px: (f32, f32)| {
@@ -17685,7 +17712,7 @@ impl HookEchoApp {
                 let (c0, c1) = (corner((0.0, 0.0)), corner((vp.0, vp.1)));
                 let (lon_lo, lon_hi) = (c0.0.min(c1.0), c0.0.max(c1.0));
                 let (lat_lo, lat_hi) = (c0.1.min(c1.1), c0.1.max(c1.1));
-                for f in feed.flashes() {
+                for f in flashes {
                     if f.lon < lon_lo || f.lon > lon_hi || f.lat < lat_lo || f.lat > lat_hi {
                         continue;
                     }
@@ -22271,6 +22298,35 @@ fn goes_grid(sector: wxdata::goes_abi::Sector) -> (usize, usize) {
     }
 }
 
+/// How many minutes of GLM flashes a scrubbed-back view shows: the dots' fade is fifteen, but
+/// the last ten carry all but the faintest, at a third fewer granules to read.
+const GLM_ARCHIVE_MINUTES: i64 = 10;
+
+/// The GLM flashes a view at `target` shows, and the time their age is told against: live, the
+/// feed and now; scrubbed back, the archive window when it is the one for this minute (else
+/// nothing, rather than today's flashes over an old scan).
+fn glm_flashes_for<'a>(
+    target: Option<DateTime<Utc>>,
+    live: &'a std::collections::VecDeque<wxdata::glm::Flash>,
+    archive: Option<&'a (DateTime<Utc>, Vec<wxdata::glm::Flash>)>,
+    now: DateTime<Utc>,
+) -> (Vec<&'a wxdata::glm::Flash>, DateTime<Utc>) {
+    match target {
+        None => (live.iter().collect(), now),
+        Some(t) => match archive {
+            Some((end, flashes)) if glm_slot(*end) == glm_slot(t) => {
+                (flashes.iter().filter(|f| f.time <= t).collect(), t)
+            }
+            _ => (Vec::new(), t),
+        },
+    }
+}
+
+/// The minute a GLM archive window belongs to.
+fn glm_slot(t: DateTime<Utc>) -> i64 {
+    t.timestamp().div_euclid(60)
+}
+
 /// The GOES layers read from one scan of one sector: the bands and the RGB composite.
 const GOES_FRAME_LAYERS: [crate::render::FieldLayer; 9] = [
     crate::render::FieldLayer::GoesIr,
@@ -23788,6 +23844,20 @@ impl eframe::App for HookEchoApp {
             });
         }
 
+        // Scrubbed back: the flashes of the window ending at the view's time, once per minute of
+        // scrubbing (ROADMAP_NEW E6).
+        if let Some(target) = self.goes_target_time() {
+            if (self.show_glm || glm_fed_on) && self.glm_archive_slot != Some(glm_slot(target)) {
+                self.glm_archive_slot = Some(glm_slot(target));
+                self.spawn_overlay(
+                    ctx,
+                    OverlaySource::GlmWindow(target, self.settings.glm_goes_west),
+                );
+            }
+        } else {
+            self.glm_archive_slot = None;
+        }
+
         // GLM flash-extent density: the same flashes the dots come from, gridded. Cheap enough
         // (one pass over a few thousand points) to do inline on the field-layer cadence rather
         // than spawning for it.
@@ -23800,15 +23870,21 @@ impl eframe::App for HookEchoApp {
             if let Some(s) = self.fields.get_mut(&FL::GlmFed) {
                 s.last_fetch = Some(Instant::now());
             }
+            let target = self.goes_target_time();
             let field = self.glm.lock().ok().and_then(|f| {
+                let (flashes, end) =
+                    glm_flashes_for(target, f.flashes(), self.glm_archive.as_ref(), Utc::now());
+                let flashes: std::collections::VecDeque<wxdata::glm::Flash> =
+                    flashes.into_iter().copied().collect();
                 wxdata::glm::flash_density(
-                    f.flashes(),
+                    &flashes,
                     self.settings.detectors.glm_fed_cell_deg,
                     chrono::Duration::minutes(self.settings.detectors.glm_fed_window_min),
-                    Utc::now(),
+                    end,
                 )
             });
-            if let Some(field) = &field {
+            // Alert rules watch what is happening now, never a scrubbed-back view.
+            if let Some(field) = field.as_ref().filter(|_| target.is_none()) {
                 self.evaluate_grid_rules(crate::settings::RuleTrigger::GlmFed, field);
                 // The jump is the difference between this grid and the one before it, so it can
                 // only be asked for once there is a previous one — the first grid after launch
@@ -26966,6 +27042,27 @@ mod probe_grid_tests {
             assert!(!goes_frame_ready(Some(s), None, Some(t(0)), None, tol));
             // The nearest frame the bucket had was far off (a gap in the archive): not painted.
             assert!(!goes_frame_ready(Some(s), s, Some(t(40)), Some(t(0)), tol));
+        }
+        {
+            use crate::app::glm_flashes_for;
+            let t = |m: i64| chrono::DateTime::from_timestamp(1_790_000_000 + m * 60, 0).unwrap();
+            let flash = |m: i64| wxdata::glm::Flash {
+                lon: -97.0,
+                lat: 35.0,
+                energy: 1.0,
+                time: t(m),
+            };
+            let live: std::collections::VecDeque<_> = [flash(100), flash(101)].into();
+            let archive = (t(0), vec![flash(-3), flash(-1)]);
+            // Live: the feed, aged against now.
+            let (f, clock) = glm_flashes_for(None, &live, Some(&archive), t(102));
+            assert_eq!((f.len(), clock), (2, t(102)));
+            // Scrubbed to the archive window's minute: its flashes, aged against the view's time.
+            let (f, clock) = glm_flashes_for(Some(t(0)), &live, Some(&archive), t(102));
+            assert_eq!((f.len(), clock), (2, t(0)));
+            // Scrubbed elsewhere before its window arrives: nothing, not today's flashes.
+            let (f, _) = glm_flashes_for(Some(t(30)), &live, Some(&archive), t(102));
+            assert!(f.is_empty());
         }
         let dust = format_probe_field_value(FL::GoesDustDiff, 3.0, TempUnit::Fahrenheit)
             .expect("a finite sample formats");

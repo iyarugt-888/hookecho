@@ -311,7 +311,7 @@ fn all_keys(xml: &str) -> Vec<String> {
 /// <min(2)><sec(2)><tenth(1)>_` field — e.g. `..._s20262621801173_e...` is 2026-262 (day of year)
 /// 18:01:17.3 UTC. Confirmed against a real listing from the live bucket, not assumed from
 /// documentation alone (see this module's own `#[ignore = "network"]` tests).
-fn key_time(key: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+pub(crate) fn key_time(key: &str) -> Option<chrono::DateTime<chrono::Utc>> {
     let i = key.find("_s")?;
     let digits = key.get(i + 2..i + 2 + 14)?;
     if !digits.bytes().all(|b| b.is_ascii_digit()) {

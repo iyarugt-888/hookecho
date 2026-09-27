@@ -2225,7 +2225,7 @@ pick the scan for the GOES band layers and the RGB composite.
   each scan. The loop is the radar timeline's; there is no satellite-only loop at the satellite's
   own one-minute cadence between radar scans.
 
-## E6. Satellite analysis tools — partly done
+## E6. Satellite analysis tools — done
 
 - [x] brightness-temperature sample — closed by J3's gridded-layer probe (see that section), which
   solved both blockers this entry used to describe: a field's decoded CPU grid is now retained for
@@ -2281,18 +2281,16 @@ pick the scan for the GOES band layers and the RGB composite.
   checking the bulk of the scene rather than its single most extreme pixel, for the reason just
   given). 495 wxdata tests passing (4 new), 619 hookecho tests (1 new), native + wasm32 checks
   clean on both crates.
-- [ ] GLM overlay synchronized to frame — now audited: it isn't, and can't usefully be yet. The
-  flash-dot overlay (`show_glm` in `app.rs`, near `glm_style`) fades each dot's age against
-  `chrono::Utc::now()` — real wall-clock time, not the pane's own analysis time
-  (`linked_analysis_time`) or the GOES frame's valid time. That only matches a *live* pane by
-  coincidence (now and the live frame's time are close together); scrubbing a pane to an archived
-  time would show today's live flashes, faded by their real age, next to yesterday's radar/
-  satellite frame — not a stale-sync bug so much as GLM having no archive path at all yet
-  (`wxdata::glm::GlmFeed` is a rolling live buffer with no historical query, consistent with A3's
-  own "MRMS/model/satellite caching is not built" note). Fixing the age-fade clock alone wouldn't
-  fix this — the flashes themselves would still be live-only data misleadingly overlaid on a
-  non-live frame. Left open as a real gap rather than a one-line clock fix that wouldn't actually
-  solve it.
+- [x] GLM overlay synchronized to frame. Live, the flash dots are the rolling feed aged against
+  now, as before. Scrubbed back (the linked archive instant, or the active pane's scan when its
+  timeline is not following live: the same `goes_target_time` the GOES layers use), they are the
+  flashes of the ten minutes ending at that time (`wxdata::glm::fetch_window`: every 20-second
+  granule that began in the window, from GOES-East and optionally West, each cached in
+  `objcache::GOES`), aged against the view's time; until that window has arrived nothing is
+  drawn rather than today's flashes over an old scan (`app::glm_flashes_for`). The flash-extent
+  density layer is gridded from the same flashes at the same time. Alert rules on GLM density
+  still watch live data only. Checked live: 6,865 flashes in a five-minute window 90 minutes
+  back; in the browser, a pane scrubbed to 17:01Z read the granules of 16:51–17:01Z.
 - [x] radar + satellite dual/quad pane presets — a new "Radar + satellite" starter workspace
   (`crates/hookecho/src/workspace.rs::starters`), reusing J5's existing preset mechanism (data
   only, no new code): reflectivity alone as a baseline, the same moment again with GOES IR then
@@ -2325,8 +2323,7 @@ Allow selected time/range/sector frames to be downloaded into chase packs subjec
   mismatch tolerance of it (`app::goes_frame_ready`), so a live frame never sits over an archive
   scan, nor an archive frame over live radar. The two GOES products that only exist live (the
   dust difference and the cooling rate) are hidden while scrubbed. Checked live: asked for the
-  Mesoscale 1 frame 63 minutes back and got one 1 s from it. GLM is still live-only (E6's open
-  entry), so GLM does not align yet.
+  Mesoscale 1 frame 63 minutes back and got one 1 s from it. GLM aligns the same way (E6).
 - [x] quality/missing pixels are distinct from cold/low values — met as of this pass: E2's own
   entry above covers `wxdata::goes_abi::decode`'s new DQF masking, applied uniformly to every
   channel.

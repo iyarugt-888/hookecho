@@ -33,6 +33,7 @@ impl OverlayMsg {
             Self::Cells(_, cells, _) => latest(cells.iter().filter_map(|c| c.time)),
             Self::Field(_, field) => Some(field.time),
             Self::GoesFootprint(_, fp) => Some(fp.time),
+            Self::GlmWindow(end, _) => Some(*end),
             Self::StampedField(_, field) | Self::MrmsField(_, field, _) => {
                 Some(field.stamp.valid_time)
             }

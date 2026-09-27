@@ -18,6 +18,8 @@ five-minute view until the box comes back.
 
 The satellite layers now follow the radar's time: scrub back or play a loop and each frame shows
 the satellite scan nearest it (one-minute steps from a mesoscale sector), instead of the newest.
+Satellite lightning (GLM) follows too: a scrubbed-back view shows the flashes of the ten minutes
+before that scan, not today's.
 
 ### Added: GOES RGB composites
 
