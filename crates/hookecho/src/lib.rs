@@ -330,9 +330,8 @@ pub async fn start(canvas_id: String) -> Result<(), wasm_bindgen::JsValue> {
 #[cfg(target_os = "android")]
 #[no_mangle]
 fn android_main(app: winit::platform::android::activity::AndroidApp) {
-    android_logger::init_once(
-        android_logger::Config::default().with_max_level(log::LevelFilter::Info),
-    );
+    // Logcat, plus the capture the Analyst log reads (see `devlog::install_android`).
+    devlog::install_android(log::LevelFilter::Info);
     // Settings, caches, and exports live under the activity's private internal data dir. This
     // comes before the panic hook, which writes its report in there.
     if let Some(path) = app.internal_data_path() {

@@ -20,6 +20,11 @@ const TARGET_PREFIXES: &[&str] = &[
     "hookecho::provider_health",
     "hookecho::failover_arbiter",
     "hookecho::radar_provider_manager",
+    // The detectors: what each volume's rotation and debris scans found. They always logged
+    // under these targets; the window just never read them.
+    "wxdata::rotation",
+    "wxdata::tds",
+    "wxdata::derived",
 ];
 
 /// How many recent matching lines to keep on screen. Generous enough to scroll back through a

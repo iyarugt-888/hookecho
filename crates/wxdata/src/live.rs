@@ -80,6 +80,19 @@ impl ScanProgress {
     }
 }
 
+/// The oldest a joined live volume may be and still be the one being scanned: a volume lasts four
+/// to ten minutes, so twenty allows a slow upload and a clear-air VCP.
+const MAX_LIVE_VOLUME_AGE_MIN: i64 = 20;
+
+/// `Some(age)` when a volume that started at `started` is too old to be the live one.
+pub fn stale_feed(
+    started: chrono::DateTime<chrono::Utc>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Option<chrono::Duration> {
+    let age = now - started;
+    (age > chrono::Duration::minutes(MAX_LIVE_VOLUME_AGE_MIN)).then_some(age)
+}
+
 /// A merged live volume ready to display.
 pub struct Update {
     /// A synthetic name identifying this update (volume prefix + sequence).
@@ -132,6 +145,16 @@ where
         .await
         .map_err(|e| anyhow::anyhow!("chunk iterator start: {e}"))?;
     let mut it = init.iterator;
+    // A chunk feed that has stopped publishing still answers with its last volume, which can be
+    // days old; streaming that would label yesterday's scan "live". Refuse it, so the caller falls
+    // back to polling the archive, which has the current volumes.
+    let started = init.latest_chunk.identifier.date_time_prefix().and_utc();
+    if let Some(age) = stale_feed(started, chrono::Utc::now()) {
+        anyhow::bail!(
+            "{site} chunk feed is stale: its newest volume started {} min ago",
+            age.num_minutes()
+        );
+    }
 
     // Assemble the current volume: start chunk + backfilled middle chunks + the joined chunk.
     let mut chunks: Vec<Chunk<'static>> = Vec::new();
@@ -707,6 +730,13 @@ mod retry_tests {
     use super::{frame, split_framed, tolerate_failure};
 
     #[test]
+    fn a_volume_older_than_twenty_minutes_is_not_live() {
+        let now = chrono::DateTime::from_timestamp(1_790_000_000, 0).unwrap();
+        assert!(super::stale_feed(now - chrono::Duration::minutes(6), now).is_none());
+        assert!(super::stale_feed(now - chrono::Duration::hours(24), now).is_some());
+    }
+
+    #[test]
     fn transient_failures_retry_then_give_up() {
         assert!(tolerate_failure(1));
         assert!(tolerate_failure(4));
@@ -731,5 +761,47 @@ mod retry_tests {
         assert!(split_framed(&[])
             .expect("empty framing is an empty window")
             .is_empty());
+    }
+}
+
+#[cfg(test)]
+mod live_contract {
+    /// The live stream must join the volume being scanned now, not an older pass through the
+    /// same reused directory (see the vendored `list_chunks_in_volume`). KVNX's directories held
+    /// two passes days apart when the stream was found joining one from the previous day.
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn the_live_stream_joins_the_current_volume() {
+        use nexrad_data::aws::realtime::ChunkIterator;
+        // Every site either joins a current volume or is recognised as a stopped feed — never a
+        // stale volume passed off as live.
+        for site in ["KVNX", "KTLX", "KFWS", "KDDC"] {
+            let init = ChunkIterator::start(site).await.unwrap();
+            let id = &init.latest_chunk.identifier;
+            let started = id.date_time_prefix().and_utc();
+            let stale = super::stale_feed(started, chrono::Utc::now());
+            println!(
+                "{site}: volume {} started {started}, stale {stale:?}",
+                id.volume().as_number()
+            );
+            if stale.is_some() {
+                // The feed really has stopped: no directory holds anything newer.
+                for probe in 1..=999 {
+                    let v = nexrad_data::aws::realtime::VolumeIndex::new(probe);
+                    if probe % 97 != 0 {
+                        continue;
+                    }
+                    let chunks = nexrad_data::aws::realtime::list_chunks_in_volume(site, v, 1)
+                        .await
+                        .unwrap();
+                    if let Some(c) = chunks.first() {
+                        assert!(
+                            *c.date_time_prefix() <= started.naive_utc(),
+                            "{site}/{probe} is newer"
+                        );
+                    }
+                }
+            }
+        }
     }
 }

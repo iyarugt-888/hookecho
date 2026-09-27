@@ -8,6 +8,21 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: "Live" could show a radar scan from the day before
+
+Live Level II could show an old volume labelled as the current one — a scan from 3:46 AM at
+8 PM, for example. The live feed reuses each of its 999 volume folders every few days and still
+holds the older pass, and the app was reading the older one. It now reads only the newest pass,
+and if a radar's live feed has stopped altogether it falls back to the regular archive instead of
+showing its last volume as live.
+
+### Fixed: the Analyst log was empty
+
+On Android the log captured nothing, and everywhere the rotation and debris detector messages
+never reached it. Both now show. The workstation's Analyst log tab also gains a header with the
+live feed's state, the sweep in progress, ingest lag, decode time, detections and a graph of recent
+arrivals.
+
 ### Added: fading max/min trails
 
 The Max/min trail layer has a **Fade with age** option: the storm's newest core stays at full

@@ -266,6 +266,9 @@ impl Default for Map3dState {
     }
 }
 
+/// How many live arrivals the Analyst log's graph keeps.
+pub const LIVE_HISTORY: usize = 90;
+
 /// How many binned sweeps one volume keeps. A sweep is ~1.3 MB.
 ///
 /// Twelve was below the number of tilts in a volume, which is the one size it must not be: VCP
@@ -547,6 +550,9 @@ pub struct MapView {
     /// `wxdata::live::Update::decode_time`. Only ever set from a live-stream sweep merge, so it
     /// stays meaningful (not zeroed by an unrelated redraw) between updates.
     pub last_decode_time: Option<std::time::Duration>,
+    /// Recent live arrivals for the Analyst log's graph, oldest first: `(arrived, ingest lag in
+    /// seconds, decode milliseconds)`. Capped at [`LIVE_HISTORY`].
+    pub live_history: std::collections::VecDeque<(DateTime<Utc>, f32, f32)>,
     /// One-shot start for the next 2D upload after a live update, and its last measured
     /// receipt-to-GPU-queue duration in microseconds (0 means no live upload measured yet).
     pub live_render_started: Option<Instant>,
@@ -666,6 +672,7 @@ impl MapView {
             live_progress_at: None,
             live_scan_revision: 0,
             live_retries: 0,
+            live_history: Default::default(),
             last_decode_time: None,
             live_render_started: None,
             live_gpu_queue_micros: Arc::new(std::sync::atomic::AtomicU64::new(0)),

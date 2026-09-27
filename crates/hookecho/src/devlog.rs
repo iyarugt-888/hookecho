@@ -310,6 +310,47 @@ mod native {
 #[cfg(not(target_arch = "wasm32"))]
 pub use native::{install as install_native, maybe_spawn_shipper as maybe_spawn_native_shipper};
 
+/// Android: logcat through `android_logger`, and the same capture the desktop wrapper does. It
+/// used to be `android_logger` alone, so nothing ever reached the buffer and the Analyst log was
+/// always empty on phones and tablets.
+#[cfg(target_os = "android")]
+mod android {
+    use super::*;
+
+    struct AndroidCapture {
+        inner: android_logger::AndroidLogger,
+        /// The level logcat gets; Analyst Mode's capture level is checked separately.
+        print: log::LevelFilter,
+    }
+
+    impl log::Log for AndroidCapture {
+        fn enabled(&self, metadata: &log::Metadata) -> bool {
+            metadata.level() <= self.print || metadata.level() <= capture_level()
+        }
+
+        fn log(&self, record: &log::Record) {
+            if record.level() <= self.print || record.level() <= capture_level() {
+                capture(record);
+            }
+            if record.level() <= self.print {
+                log::Log::log(&self.inner, record);
+            }
+        }
+
+        fn flush(&self) {}
+    }
+
+    pub fn install(print: log::LevelFilter) {
+        let inner = android_logger::AndroidLogger::new(
+            android_logger::Config::default().with_max_level(print),
+        );
+        log::set_max_level(print);
+        let _ = log::set_boxed_logger(Box::new(AndroidCapture { inner, print }));
+    }
+}
+#[cfg(target_os = "android")]
+pub use android::install as install_android;
+
 #[cfg(target_arch = "wasm32")]
 mod web {
     use super::*;

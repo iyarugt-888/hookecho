@@ -13393,6 +13393,15 @@ impl HookEchoApp {
                     // Stream end and site changes clear it, so it cannot linger indefinitely.
                     v.live_retries = retries;
                     v.last_decode_time = Some(decode_time);
+                    let now = Utc::now();
+                    v.live_history.push_back((
+                        now,
+                        (now - time).num_milliseconds() as f32 / 1000.0,
+                        decode_time.as_secs_f32() * 1000.0,
+                    ));
+                    while v.live_history.len() > crate::view::LIVE_HISTORY {
+                        v.live_history.pop_front();
+                    }
                     v.loading = false;
                     v.error = None;
                     v.clamp_tilt();
