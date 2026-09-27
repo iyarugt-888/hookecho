@@ -162,6 +162,34 @@ pub fn decay_codes(elapsed_min: f32, window_min: u16) -> u8 {
         .min(255.0) as u8
 }
 
+/// The outline of where a gridded trail reaches `level` — at or above it for a kept maximum, at or
+/// below it for a kept minimum — as closed `(lon, lat)` polylines: the "core path" an analyst
+/// draws by hand. Contoured from a 0/1 mask at 0.5, so exactly one level comes back.
+pub fn outline(grid: &crate::mrms::MrmsField, level: f32, keep: Extremum) -> Vec<Vec<(f64, f64)>> {
+    let mask = crate::mrms::MrmsField {
+        values: grid
+            .values
+            .iter()
+            .map(|v| {
+                let inside = match keep {
+                    Extremum::Max => *v >= level,
+                    Extremum::Min => *v <= level,
+                };
+                if v.is_finite() && inside {
+                    1.0
+                } else {
+                    0.0
+                }
+            })
+            .collect(),
+        ..grid.clone()
+    };
+    crate::contour::contour_lines(&mask, 0.5)
+        .into_iter()
+        .map(|l| l.pts)
+        .collect()
+}
+
 /// Fold a whole window in one call, oldest frame first, starting a fresh trail whenever the
 /// sequence changes beam.
 ///
@@ -220,6 +248,38 @@ fn mismatch(acc: &BinnedSweep, sweep: &BinnedSweep) -> Option<Mismatch> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_outline_encloses_the_cells_past_the_level() {
+        let t = chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap();
+        let mut values = vec![0.0f32; 8 * 8];
+        for y in 3..5 {
+            for x in 3..5 {
+                values[y * 8 + x] = 60.0;
+            }
+        }
+        let grid = crate::mrms::MrmsField {
+            values,
+            nx: 8,
+            ny: 8,
+            lon_west: -98.0,
+            lon_east: -97.0,
+            lat_north: 36.0,
+            lat_south: 35.0,
+            time: t,
+        };
+        let rings = outline(&grid, 50.0, Extremum::Max);
+        // Marching squares may hand the ring back in more than one stitched piece; every piece
+        // lies on the core's edge.
+        assert!(!rings.is_empty());
+        for p in rings.iter().flatten() {
+            assert!(
+                (p.0 + 97.5).abs() < 0.2 && (p.1 - 35.5).abs() < 0.2,
+                "{p:?}"
+            );
+        }
+        assert!(outline(&grid, 70.0, Extremum::Max).is_empty());
+    }
 
     #[test]
     fn decay_fades_a_kept_maximum_and_drops_it_off_the_bottom() {

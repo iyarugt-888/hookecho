@@ -10336,6 +10336,9 @@ impl HookEchoApp {
         if actions.instant_replay {
             self.instant_replay();
         }
+        if let Some(raster) = actions.export_trail {
+            self.export_trail(raster);
+        }
         if actions.reset_trail {
             // `advance_trail` always chooses frames at or before the active playhead, so dropping
             // this accumulator is a deterministic reset at the selected live/archive time. Also
@@ -14394,6 +14397,108 @@ impl HookEchoApp {
             self.filters.trail_status.push_str(", older part faded");
         }
         has_image.then(|| format!("trail{generation}"))
+    }
+
+    /// Write the current max/min trail out (ROADMAP_NEW C2): as a GeoTIFF of its values on a
+    /// lat/lon grid, or as GeoJSON outlines of the path at the pane's value threshold — or, with
+    /// none set, at [`trail_outline_level`] for the product.
+    fn export_trail(&mut self, raster: bool) {
+        use wxdata::extrema::Extremum;
+        let v = &self.views[self.active];
+        let time = v
+            .timeline
+            .current()
+            .and_then(|id| id.date_time())
+            .unwrap_or_else(Utc::now);
+        let (moment, threshold) = (v.moment, v.active_threshold());
+        let Some(state) = self.trail.as_ref() else {
+            self.toast(
+                ToastKind::Error,
+                "No trail yet \u{2014} turn on the Max/min trail layer",
+            );
+            return;
+        };
+        let keep = state.key.3;
+        let window = state.key.4;
+        let Some(grid) = state
+            .acc
+            .as_ref()
+            .and_then(|acc| wxdata::derived::sweep_grid(acc, time))
+        else {
+            self.toast(ToastKind::Error, "The trail has nothing to export yet");
+            return;
+        };
+        let what = match keep {
+            Extremum::Max => "max",
+            Extremum::Min => "min",
+        };
+        let slug = format!(
+            "trail-{}-{what}-{window}min-{}",
+            moment.short_name().to_lowercase(),
+            time.format("%Y%m%dT%H%MZ")
+        );
+        let (bytes, ext, count) = if raster {
+            let desc = format!(
+                "HookEcho {what} {} trail, {window} min ending {}",
+                moment.short_name(),
+                time.to_rfc3339()
+            );
+            match wxdata::geotiff::write(&grid, &desc) {
+                Some(b) => (b, "tif", None),
+                None => {
+                    self.toast(ToastKind::Error, "Could not encode the trail");
+                    return;
+                }
+            }
+        } else {
+            let level = threshold.unwrap_or_else(|| trail_outline_level(moment, keep));
+            let rings = wxdata::extrema::outline(&grid, level, keep);
+            let features: Vec<wxdata::gis::GisFeature> = rings
+                .into_iter()
+                .map(|r| wxdata::gis::GisFeature {
+                    geometry: wxdata::gis::Geometry::LineString(
+                        r.into_iter().map(|(x, y)| [x, y]).collect(),
+                    ),
+                    properties: serde_json::json!({
+                        "hookecho": "trail-outline",
+                        "product": moment.short_name(),
+                        "keep": what,
+                        "level": level,
+                        "window_min": window,
+                        "ending_utc": time.to_rfc3339(),
+                    })
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default(),
+                })
+                .collect();
+            let n = features.len();
+            if n == 0 {
+                self.toast(
+                    ToastKind::Error,
+                    format!("Nothing in the trail reaches {level:.2} \u{2014} lower the threshold"),
+                );
+                return;
+            }
+            (
+                wxdata::gis::to_geojson(&features).into_bytes(),
+                "geojson",
+                Some(n),
+            )
+        };
+        match crate::dialog::save_bytes(&format!("{slug}.{ext}"), ext, &bytes) {
+            crate::dialog::Saved::Where(w) => self.toast(
+                ToastKind::Success,
+                match count {
+                    Some(n) => format!("Trail outline ({n} shapes) saved to {w}"),
+                    None => format!("Trail saved to {w}"),
+                },
+            ),
+            crate::dialog::Saved::Failed(e) => {
+                self.toast(ToastKind::Error, format!("Trail export failed: {e}"))
+            }
+            crate::dialog::Saved::Cancelled => {}
+        }
     }
 
     /// Volumes folded into the trail per UI frame; see [`Self::advance_trail`].
@@ -26190,6 +26295,22 @@ mod comparison_display_tests {
 
 /// The one-line trail readout for Layer options: progress while folding, the restart reason when
 /// the sequence changed beam, and what is being kept once it is complete.
+/// The level a trail outline is drawn at when the pane has no value threshold: the conventional
+/// "this matters" value for the product — a 50 dBZ core, 0.80 CC (debris), and so on.
+fn trail_outline_level(moment: Moment, keep: wxdata::extrema::Extremum) -> f32 {
+    use wxdata::extrema::Extremum;
+    match (moment, keep) {
+        (Moment::CorrelationCoefficient, _) => 0.80,
+        (_, Extremum::Min) => 0.0,
+        (Moment::Reflectivity, _) => 50.0,
+        (Moment::Velocity, _) => 30.0,
+        (Moment::SpectrumWidth, _) => 8.0,
+        (Moment::DifferentialReflectivity, _) => 3.0,
+        (Moment::SpecificDifferentialPhase, _) => 2.0,
+        _ => 0.0,
+    }
+}
+
 fn trail_status_line(
     folded: usize,
     wanted: usize,

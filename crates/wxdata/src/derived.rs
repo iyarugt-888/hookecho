@@ -117,6 +117,25 @@ impl Grid {
     }
 }
 
+/// One polar sweep resampled onto the derived products' 0.01° lat/lon grid covering its range
+/// disk, in the moment's physical units, NaN where the sweep has nothing (no gate, no data, below
+/// threshold). The nearest gate at each cell's ground range and azimuth, as the cross-section does
+/// — what an exported max/min trail is written from (`extrema`).
+pub fn sweep_grid(sweep: &BinnedSweep, time: DateTime<Utc>) -> Option<MrmsField> {
+    let one = std::slice::from_ref(sweep);
+    let g = Grid::for_sweeps(one)?;
+    let mut values = Vec::with_capacity(g.nx * g.ny);
+    let mut samples: Vec<(f64, f32)> = Vec::with_capacity(1);
+    for gy in 0..g.ny {
+        for gx in 0..g.nx {
+            let (ground_km, az) = g.ground_az(gx, gy);
+            column_samples(one, ground_km, az, &mut samples);
+            values.push(samples.first().map_or(f32::NAN, |s| s.1));
+        }
+    }
+    Some(g.field(values, time))
+}
+
 /// How high the lowest beam may sit and still have its value carried down to the surface.
 /// Under this height the beam is close enough that the air beneath it is the same air; above it,
 /// at a 0.5° tilt roughly 200 km out, the layer being invented is most of the column and the

@@ -24,6 +24,8 @@ pub struct UiActions {
     pub instant_replay: bool,
     /// Rebuild the max/min trail from its cached window ending at the current playhead.
     pub reset_trail: bool,
+    /// Export the trail: `true` as a GeoTIFF raster, `false` as a GeoJSON outline.
+    pub export_trail: Option<bool>,
     /// The Day-1 outlook hazard changed; the app must clear + refetch that day's outlook.
     pub outlook_kind_changed: bool,
     /// The WSSI day changed; the app must clear + refetch it.
@@ -1012,6 +1014,28 @@ pub(crate) fn show(
         {
             actions.reset_trail = true;
         }
+        ui.horizontal(|ui| {
+            ui.label("Export:");
+            if ui
+                .button("GeoTIFF\u{2026}")
+                .on_hover_text(
+                    "The trail's values on a lat/lon grid, float32, for QGIS, ArcGIS or GDAL",
+                )
+                .clicked()
+            {
+                actions.export_trail = Some(true);
+            }
+            if ui
+                .button("Outline (GeoJSON)\u{2026}")
+                .on_hover_text(
+                    "The path's outline at the value threshold if one is set, otherwise at a \
+                     standard level for the product (50 dBZ reflectivity, 0.80 CC minimum)",
+                )
+                .clicked()
+            {
+                actions.export_trail = Some(false);
+            }
+        });
         if !filters.trail_status.is_empty() {
             ui.small(filters.trail_status.as_str());
         }

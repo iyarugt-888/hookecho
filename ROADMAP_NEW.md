@@ -1606,7 +1606,11 @@ Use cases:
   discards the running accumulator and deterministically rebuilds its cached window ending at the
   selected live/archive frame. The uploaded radar image is invalidated too, avoiding a generation-
   zero cache-key collision with the trail that was just discarded.
-- [ ] export raster/vector trail
+- [x] export raster/vector trail — Layer options → Export: **GeoTIFF** writes the trail's values
+  resampled to the derived products' 0.01° lat/lon grid (`derived::sweep_grid`, nearest gate),
+  float32 in the moment's units; **Outline (GeoJSON)** writes the path's outline at the pane's
+  value threshold, or 50 dBZ / 0.80 CC by default (`extrema::outline`). Unit-tested; not yet
+  opened in QGIS.
 
 ### Acceptance criteria
 
