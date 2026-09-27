@@ -38,6 +38,7 @@ pub mod glm;
 pub mod global;
 pub mod goes_abi;
 pub mod goes_rgb;
+pub mod grib_split;
 pub mod gribcache;
 pub mod gridverify;
 pub mod hrrr;

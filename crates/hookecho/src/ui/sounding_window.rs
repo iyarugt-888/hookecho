@@ -1,7 +1,8 @@
 //! Skew-T / hodograph window for a point sounding. A simplified Skew-T (temperature + dewpoint
 //! vs log-pressure, temperature skewed) beside a hodograph of the wind profile.
 //!
-//! Two profiles can share the plot: the HRRR forecast (solid) and, when a radiosonde site is near
+//! The model profile comes from HRRR, RAP or the NAM 3 km nest (picked in the window). Two
+//! profiles can share the plot: the model forecast (solid) and, when a radiosonde site is near
 //! enough, the observed ascent from that site (dashed). Seeing them together is the point — the
 //! model's idea of the atmosphere against a sample of the real one.
 
@@ -30,7 +31,9 @@ pub struct SoundingWindow {
     pub storm_motion: Option<((f64, f64), (f64, f64))>,
     /// Which parcel the CAPE cards and the Skew-T trace show.
     pub parcel_kind: wxdata::sounding::ParcelKind,
-    /// The same valid time from the HRRR run an hour earlier, drawn dotted when shown.
+    /// Which model the profile is read from; a change asks the app for a new profile.
+    pub model: wxdata::sounding::SoundingModel,
+    /// The same valid time from the model's previous cycle, drawn dotted when shown.
     pub previous: Option<Sounding>,
     pub previous_error: Option<String>,
     pub show_previous: bool,
@@ -55,6 +58,7 @@ impl Default for SoundingWindow {
             refetch: false,
             storm_motion: None,
             parcel_kind: Default::default(),
+            model: Default::default(),
             previous: None,
             previous_error: None,
             // Off by default: it is another forty-odd range requests.
@@ -100,10 +104,37 @@ impl SoundingWindow {
     /// The window's contents: header, indices, the observed-profile line and the two plots —
     /// side by side, or `stacked` where the width is a phone's or a dock's (the caller scrolls).
     pub fn body(&mut self, ui: &mut egui::Ui, tz: Option<wxdata::tz::Tz>, stacked: bool) {
+        // The model, above everything else so it can still be changed after a failed fetch.
+        ui.horizontal(|ui| {
+            ui.weak("Model");
+            for model in wxdata::sounding::SoundingModel::ALL {
+                if ui
+                    .add_enabled(
+                        model.available(),
+                        egui::Button::selectable(self.model == model, model.label()),
+                    )
+                    .on_disabled_hover_text(
+                        "Desktop only: the browser build cannot decode RAP's JPEG 2000 files",
+                    )
+                    .on_hover_text(match model {
+                        wxdata::sounding::SoundingModel::Hrrr => "HRRR, 3 km, hourly",
+                        wxdata::sounding::SoundingModel::Rap => "RAP, 13 km, hourly",
+                        wxdata::sounding::SoundingModel::NamNest => {
+                            "NAM 3 km CONUS nest, every six hours, to 60 h"
+                        }
+                    })
+                    .clicked()
+                    && self.model != model
+                {
+                    self.model = model;
+                    self.refetch = true;
+                }
+            }
+        });
         if self.busy {
             ui.horizontal(|ui| {
                 ui.spinner();
-                ui.weak("fetching HRRR profile…");
+                ui.weak(format!("fetching {} profile…", self.model.label()));
             });
             return;
         }
@@ -132,7 +163,7 @@ impl SoundingWindow {
             }
             ui.strong(format!("f{:02}", s.fh));
             if ui
-                .add_enabled(self.fh < 48, egui::Button::new("▶"))
+                .add_enabled(self.fh < 60, egui::Button::new("▶"))
                 .clicked()
             {
                 self.fh += 1;
@@ -326,12 +357,12 @@ impl SoundingWindow {
             .show_observed
             .then_some(self.observed.as_ref())
             .flatten();
-        // The previous HRRR run at the same valid time, fetched when first asked for.
+        // The model's previous cycle at the same valid time, fetched when first asked for.
         ui.horizontal_wrapped(|ui| {
             if ui
                 .checkbox(&mut self.show_previous, "Previous run")
                 .on_hover_text(
-                    "The HRRR run an hour earlier at the same valid time, dotted: how the \
+                    "The model's previous cycle at the same valid time, dotted: how the \
                      forecast changed between cycles",
                 )
                 .changed()

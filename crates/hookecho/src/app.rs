@@ -9339,14 +9339,16 @@ impl HookEchoApp {
             return;
         };
         let fh = self.sounding_window.fh;
+        let model = self.sounding_window.model;
         let (tx, rx) = std::sync::mpsc::channel();
         self.sounding_rx = Some(rx);
         self.sounding_window.open = true;
         self.sounding_window.busy = true;
         self.sounding_window.sounding = None;
+        self.sounding_window.error = None;
         let http = self.http.clone();
         self.spawner.spawn(async move {
-            let res = wxdata::sounding::fetch_at(&http, lon, lat, fh)
+            let res = wxdata::sounding::fetch_model_at(&http, model, lon, lat, fh)
                 .await
                 .map_err(|e| e.to_string());
             let _ = tx.send(res);
@@ -9366,11 +9368,12 @@ impl HookEchoApp {
             levels: Vec::new(),
         };
         self.sounding_window.previous_error = None;
+        let model = self.sounding_window.model;
         let (tx, rx) = std::sync::mpsc::channel();
         self.previous_sounding_rx = Some(rx);
         let http = self.http.clone();
         self.spawner.spawn(async move {
-            let res = wxdata::sounding::fetch_previous_run(&http, &current)
+            let res = wxdata::sounding::fetch_previous_model_run(&http, model, &current)
                 .await
                 .map_err(|e| e.to_string());
             let _ = tx.send(res);

@@ -2630,7 +2630,18 @@ Probability examples:
 
 Point sounding should support:
 
-- [ ] any supported deterministic model — still HRRR pressure levels only
+- [x] any supported deterministic model — HRRR, RAP and the NAM 3 km nest, picked in the window
+  (`sounding::SoundingModel`: each model's pressure-level file, cycle spacing and forecast
+  length; `fetch_model_at`, and the previous-run overlay steps back by that model's cycle).
+  Moisture is dewpoint where the file has it and derived from RH where it does not (RAP). RAP and
+  the NAM pack U and V as two fields of one GRIB2 message, which the decoder used to read as U
+  twice; `wxdata::grib_split::extract_field` rebuilds the second field as a standalone message
+  (shared grid and identification sections, that field's own sections 4-7, a "same bitmap as
+  before" reference resolved), so the winds are right. Checked live: RAP and NAM 500 hPa
+  temperature and wind within a few degrees and m/s of HRRR, U never equal to V. RAP's files are
+  JPEG 2000, a codec the web build leaves out, so in a browser RAP is disabled with that reason
+  rather than failing; NAM 3 km works there (checked). The GFS and NAM 12 km are not wired: the
+  former is global on its own path, the latter lacks full mandatory-level moisture in `awip12`.
 - [ ] ensemble member soundings
 - [ ] ensemble envelope
 - [x] observed RAOB overlay — the nearest radiosonde ascent, dashed under the model profile on

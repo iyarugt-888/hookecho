@@ -47,6 +47,8 @@ A parcel picker (surface-based, mixed-layer, most unstable) chooses which CAPE t
 and draws.
 "Previous run" draws the HRRR run an hour older at the same valid time, dotted, to show how the
 forecast changed between cycles.
+The point sounding can come from RAP or the NAM 3 km nest as well as HRRR (RAP in the desktop app
+only).
 
 ### Added: GOES RGB composites
 

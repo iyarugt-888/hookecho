@@ -631,76 +631,212 @@ impl Sounding {
 /// fetch makes: enough to hide latency, not enough to look like a scraper.
 const SOUNDING_CONCURRENCY: usize = 8;
 
+/// Which model a point sounding is read from. Each is its pressure-level GRIB2 file on NOAA's
+/// open-data buckets, sampled at the nearest grid point.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SoundingModel {
+    /// HRRR `wrfprs`: 3 km, hourly cycles, 18 h (48 h at 00/06/12/18Z).
+    #[default]
+    Hrrr,
+    /// RAP `awp130pgrb`: 13 km, hourly cycles, 21 h (51 h at 03/09/15/21Z). Moisture is RH, and
+    /// U and V share one GRIB message (read apart by [`crate::grib_split`]).
+    Rap,
+    /// NAM 3 km CONUS nest: its own dynamical core, 6-hourly cycles to 60 h.
+    NamNest,
+}
+
+impl SoundingModel {
+    pub const ALL: [SoundingModel; 3] = [Self::Hrrr, Self::Rap, Self::NamNest];
+
+    /// Whether this build can decode the model's files: RAP's are JPEG 2000 packed, and the web
+    /// build leaves that codec out (see wxdata's Cargo.toml), so a browser cannot read them.
+    pub fn available(self) -> bool {
+        !(cfg!(target_arch = "wasm32") && self == Self::Rap)
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Hrrr => "HRRR",
+            Self::Rap => "RAP",
+            Self::NamNest => "NAM 3 km",
+        }
+    }
+
+    fn url(self, run: DateTime<Utc>, fh: u8) -> String {
+        let date = format!("{:04}{:02}{:02}", run.year(), run.month(), run.day());
+        let h = run.hour();
+        match self {
+            Self::Hrrr => format!("{BUCKET}/hrrr.{date}/conus/hrrr.t{h:02}z.wrfprsf{fh:02}.grib2"),
+            Self::Rap => format!(
+                "https://noaa-rap-pds.s3.amazonaws.com/rap.{date}/rap.t{h:02}z.awp130pgrbf{fh:02}.grib2"
+            ),
+            Self::NamNest => format!(
+                "https://noaa-nam-pds.s3.amazonaws.com/nam.{date}/nam.t{h:02}z.conusnest.hiresf{fh:02}.tm00.grib2"
+            ),
+        }
+    }
+
+    /// Hours between cycles.
+    fn cycle_hours(self) -> u32 {
+        match self {
+            Self::NamNest => 6,
+            _ => 1,
+        }
+    }
+
+    /// The longest forecast hour a run from `run` publishes.
+    pub fn max_fh(self, run: DateTime<Utc>) -> u32 {
+        match self {
+            Self::Hrrr => {
+                if run.hour().is_multiple_of(6) {
+                    48
+                } else {
+                    18
+                }
+            }
+            Self::Rap => {
+                if run.hour() % 6 == 3 {
+                    51
+                } else {
+                    21
+                }
+            }
+            Self::NamNest => 60,
+        }
+    }
+
+    fn domain(self) -> crate::model::Domain {
+        match self {
+            Self::Hrrr => crate::hrrr::Model::HrrrPressure.def().domain,
+            Self::Rap => crate::hrrr::Model::Rap.def().domain,
+            Self::NamNest => crate::hrrr::Model::NamNest.def().domain,
+        }
+    }
+}
+
 /// Fetch a sounding at `(lon, lat)` from the most recent HRRR pressure-level analysis (f00).
 pub async fn fetch(http: &reqwest::Client, lon: f64, lat: f64) -> anyhow::Result<Sounding> {
     fetch_at(http, lon, lat, 0).await
 }
 
 /// Fetch a sounding valid `fh` hours into the most recent usable HRRR run.
-///
-/// HRRR runs out to 48 hours on the 00/06/12/18Z cycles and 18 hours otherwise, so the hour is
-/// clamped to what the chosen run actually published.
 pub async fn fetch_at(
     http: &reqwest::Client,
     lon: f64,
     lat: f64,
     fh: u8,
 ) -> anyhow::Result<Sounding> {
-    let domain = crate::hrrr::Model::HrrrPressure.def().domain;
+    fetch_model_at(http, SoundingModel::Hrrr, lon, lat, fh).await
+}
+
+/// Fetch a sounding valid `fh` hours into the most recent usable run of `model`, clamped to what
+/// that run publishes.
+pub async fn fetch_model_at(
+    http: &reqwest::Client,
+    model: SoundingModel,
+    lon: f64,
+    lat: f64,
+    fh: u8,
+) -> anyhow::Result<Sounding> {
     anyhow::ensure!(
-        domain.contains(lon, lat),
-        "HRRR sounding location {lat:.3}, {lon:.3} is outside the published model domain"
+        model.available(),
+        "{} soundings need the desktop app: the browser build cannot decode its JPEG 2000 files",
+        model.label()
     );
+    anyhow::ensure!(
+        model.domain().contains(lon, lat),
+        "{} sounding location {lat:.3}, {lon:.3} is outside the published model domain",
+        model.label()
+    );
+    let step = model.cycle_hours();
     let now = Utc::now();
+    let newest = (now - chrono::Duration::hours(1))
+        .with_minute(0)
+        .unwrap()
+        .with_second(0)
+        .unwrap()
+        .with_nanosecond(0)
+        .unwrap();
+    let newest = newest - chrono::Duration::hours((newest.hour() % step) as i64);
     let mut last_err = None;
-    for back in 1..=6 {
-        let run = (now - chrono::Duration::hours(back))
-            .with_minute(0)
-            .unwrap()
-            .with_second(0)
-            .unwrap()
-            .with_nanosecond(0)
-            .unwrap();
-        let max_fh = if run.hour().is_multiple_of(6) { 48 } else { 18 };
-        match fetch_run(http, run, lon, lat, fh.min(max_fh)).await {
+    // Six cycles back: six hours for the hourly models, a day and a half for the NAM.
+    for back in 0..6 {
+        let run = newest - chrono::Duration::hours((back * step) as i64);
+        let fh = (fh as u32).min(model.max_fh(run)) as u8;
+        match fetch_run(http, model, run, lon, lat, fh).await {
             Ok(s) => return Ok(s),
             Err(e) => last_err = Some(e),
         }
     }
-    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("no HRRR run found")))
+    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("no {} run found", model.label())))
 }
 
-/// The same point at the same valid time from the HRRR run an hour before `current`'s, for
-/// seeing how the model's idea of the profile changed between cycles. The earlier run's
-/// forecast hour is one longer; a run that does not reach that far (18 hours for the
-/// off-synoptic cycles) is an error, not a quietly different valid time.
+/// The same point at the same valid time from the HRRR run an hour before `current`'s.
 pub async fn fetch_previous_run(
     http: &reqwest::Client,
     current: &Sounding,
 ) -> anyhow::Result<Sounding> {
-    let run = current.run - chrono::Duration::hours(1);
-    let fh = current.fh as u32 + 1;
-    let max_fh = if run.hour().is_multiple_of(6) { 48 } else { 18 };
+    fetch_previous_model_run(http, SoundingModel::Hrrr, current).await
+}
+
+/// The same point at the same valid time from `model`'s previous cycle (an hour earlier for the
+/// hourly models, six for the NAM), for seeing how the forecast changed between cycles. The
+/// earlier run's forecast hour is longer by the gap; a run that does not reach that far is an
+/// error, not a quietly different valid time.
+pub async fn fetch_previous_model_run(
+    http: &reqwest::Client,
+    model: SoundingModel,
+    current: &Sounding,
+) -> anyhow::Result<Sounding> {
+    let step = model.cycle_hours();
+    let run = current.run - chrono::Duration::hours(step as i64);
+    let fh = current.fh as u32 + step;
+    let max_fh = model.max_fh(run);
     anyhow::ensure!(
         fh <= max_fh,
         "the {}Z run stops at f{max_fh}, short of this valid time",
         run.format("%H")
     );
-    fetch_run(http, run, current.lon, current.lat, fh as u8).await
+    fetch_run(http, model, run, current.lon, current.lat, fh as u8).await
+}
+
+/// Dewpoint (°C) from temperature (°C) and relative humidity (%), inverting Bolton's saturation
+/// vapour pressure — for models that publish RH on pressure levels rather than dewpoint.
+fn dewpoint_from_rh(t_c: f64, rh: f64) -> f64 {
+    let e = e_sat_hpa(t_c) * (rh.clamp(0.5, 100.0) / 100.0);
+    let ln = (e / 6.112).ln();
+    (243.5 * ln / (17.67 - ln)).min(t_c)
+}
+
+/// Where a variable sits in the `.idx`: its message's byte range and which field of that message
+/// it is (U and V share one message in the RAP and NAM files).
+fn locate(idx: &str, var: &str, level: &str) -> Option<(u64, Option<u64>, usize)> {
+    let lines: Vec<&str> = idx.lines().collect();
+    for (i, line) in lines.iter().enumerate() {
+        let f: Vec<&str> = line.split(':').collect();
+        if f.len() < 5 || f[3] != var || f[4] != level {
+            continue;
+        }
+        let start: u64 = f[1].parse().ok()?;
+        let end = lines[i + 1..]
+            .iter()
+            .filter_map(|n| n.split(':').nth(1))
+            .filter_map(|s| s.parse::<u64>().ok())
+            .find(|&o| o > start);
+        return Some((start, end, crate::grib_split::subfield_of(f[0])));
+    }
+    None
 }
 
 async fn fetch_run(
     http: &reqwest::Client,
+    model: SoundingModel,
     run: DateTime<Utc>,
     lon: f64,
     lat: f64,
     fh: u8,
 ) -> anyhow::Result<Sounding> {
-    let date = format!("{:04}{:02}{:02}", run.year(), run.month(), run.day());
-    let base = format!(
-        "{BUCKET}/hrrr.{date}/conus/hrrr.t{:02}z.wrfprsf{fh:02}.grib2",
-        run.hour()
-    );
+    let base = model.url(run, fh);
     let idx = http
         .get(crate::net::fetch_url(&format!("{base}.idx")))
         .timeout(crate::net::FEED_TIMEOUT)
@@ -715,29 +851,32 @@ async fn fetch_run(
     // forty range requests serial in everything but name — a click cost forty round trips.
     // Slot index rather than the variable name: a `&'static str` in the job tuple makes the
     // stream's closure higher-ranked over a lifetime and the whole future stops being `Send`.
+    // Slot 1 is moisture: dewpoint where the file has it, else relative humidity (RAP).
     const VARS: [&str; 4] = ["TMP", "DPT", "UGRD", "VGRD"];
-    let mut jobs: Vec<(u32, usize, u64, Option<u64>)> = Vec::new();
+    let mut jobs: Vec<(u32, usize, u64, Option<u64>, usize, bool)> = Vec::new();
     for &hpa in LEVELS_HPA {
         let level = format!("{hpa} mb");
         for (i, var) in VARS.iter().enumerate() {
-            if let Some((start, end)) = crate::hrrr::field_byte_range(&idx, var, &level) {
-                jobs.push((hpa, i, start, end));
+            let (found, is_rh) = match locate(&idx, var, &level) {
+                Some(r) => (Some(r), false),
+                None if *var == "DPT" => (locate(&idx, "RH", &level), true),
+                None => (None, false),
+            };
+            if let Some((start, end, sub)) = found {
+                jobs.push((hpa, i, start, end, sub, is_rh));
             }
         }
     }
     // `base` is cloned per job rather than borrowed: a borrow here makes the whole future
     // higher-ranked over the borrow's lifetime, which the app's `spawn` can't prove is `Send`.
     let results: Vec<_> =
-        futures_util::stream::iter(jobs.into_iter().map(|(hpa, slot, start, end)| {
+        futures_util::stream::iter(jobs.into_iter().map(|(hpa, slot, start, end, sub, is_rh)| {
             let (base, http) = (base.clone(), http.clone());
             async move {
-                (
-                    hpa,
-                    slot,
-                    sample_message(&http, &base, start, end, lon, lat)
-                        .await
-                        .ok(),
-                )
+                let v = sample_message(&http, &base, start, end, sub, lon, lat)
+                    .await
+                    .ok();
+                (hpa, slot, v, is_rh)
             }
         }))
         .buffered(SOUNDING_CONCURRENCY)
@@ -746,18 +885,28 @@ async fn fetch_run(
 
     let mut by_level: std::collections::BTreeMap<u32, [Option<f64>; 4]> =
         std::collections::BTreeMap::new();
-    for (hpa, slot, val) in results {
+    let mut rh_levels = std::collections::BTreeSet::new();
+    for (hpa, slot, val, is_rh) in results {
         by_level.entry(hpa).or_insert([None; 4])[slot] = val;
+        if is_rh {
+            rh_levels.insert(hpa);
+        }
     }
 
     // Assemble complete levels (surface-first = highest pressure first).
     let mut levels: Vec<SoundingLevel> = Vec::new();
     for (&hpa, vals) in by_level.iter().rev() {
-        if let [Some(t), Some(d), Some(u), Some(v)] = *vals {
+        if let [Some(t), Some(m), Some(u), Some(v)] = *vals {
+            let temp_c = t - 273.15; // grib TMP/DPT are Kelvin
+            let dewpt_c = if rh_levels.contains(&hpa) {
+                dewpoint_from_rh(temp_c, m)
+            } else {
+                m - 273.15
+            };
             levels.push(SoundingLevel {
                 pressure_hpa: hpa as f64,
-                temp_c: t - 273.15, // grib TMP/DPT are Kelvin
-                dewpt_c: d - 273.15,
+                temp_c,
+                dewpt_c,
                 u_ms: u,
                 v_ms: v,
             });
@@ -780,6 +929,7 @@ async fn sample_message(
     base: &str,
     start: u64,
     end: Option<u64>,
+    sub: usize,
     lon: f64,
     lat: f64,
 ) -> anyhow::Result<f64> {
@@ -800,8 +950,18 @@ async fn sample_message(
     // Off the async worker: each of these decodes a full HRRR level and scans ~1.9M grid points,
     // so leaving them here made forty concurrent fetches finish one decode at a time.
     crate::task::blocking(move || {
-        crate::task::guarded(|| sample_nearest(&bytes, lon, lat))
-            .unwrap_or_else(|_| anyhow::bail!("grib decode panicked"))
+        crate::task::guarded(|| {
+            // A later field of a multi-field message is rebuilt as a message of its own; the
+            // decoder would otherwise hand back the first field (V read as U).
+            if sub == 0 {
+                sample_nearest(&bytes, lon, lat)
+            } else {
+                let one = crate::grib_split::extract_field(&bytes, sub)
+                    .ok_or_else(|| anyhow::anyhow!("no field {sub} in that message"))?;
+                sample_nearest(&one, lon, lat)
+            }
+        })
+        .unwrap_or_else(|_| anyhow::bail!("grib decode panicked"))
     })
     .await?
 }
@@ -1312,5 +1472,51 @@ mod f8_tests {
             "run {} f{} vs run {} f{}: 500 hPa {:.1} vs {:.1} C",
             now.run, now.fh, before.run, before.fh, now.levels[5].temp_c, before.levels[5].temp_c
         );
+    }
+
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn rap_and_the_nam_nest_give_soundings_with_real_winds() {
+        let http = reqwest::Client::new();
+        let hrrr = fetch(&http, -97.5, 35.2).await.unwrap();
+        for model in [SoundingModel::Rap, SoundingModel::NamNest] {
+            let s = fetch_model_at(&http, model, -97.5, 35.2, 1).await.unwrap();
+            assert!(
+                s.levels.len() >= 8,
+                "{}: {} levels",
+                model.label(),
+                s.levels.len()
+            );
+            // U and V really are two fields: the old trap reads V as a copy of U everywhere.
+            assert!(
+                s.levels.iter().any(|l| (l.u_ms - l.v_ms).abs() > 0.5),
+                "{}: u == v at every level",
+                model.label()
+            );
+            let (m5, h5) = (
+                s.levels.iter().find(|l| l.pressure_hpa == 500.0).unwrap(),
+                hrrr.levels
+                    .iter()
+                    .find(|l| l.pressure_hpa == 500.0)
+                    .unwrap(),
+            );
+            eprintln!(
+                "{} run {} f{}: 500 hPa T {:.1} Td {:.1} wind ({:.1},{:.1}) vs HRRR T {:.1} Td {:.1} ({:.1},{:.1}); PWAT {:.1} mm",
+                model.label(), s.run, s.fh, m5.temp_c, m5.dewpt_c, m5.u_ms, m5.v_ms,
+                h5.temp_c, h5.dewpt_c, h5.u_ms, h5.v_ms, s.pwat_mm().unwrap_or(f64::NAN)
+            );
+            // Models disagree, but not by a different airmass at 500 hPa.
+            assert!((m5.temp_c - h5.temp_c).abs() < 4.0);
+            assert!((m5.u_ms - h5.u_ms).abs() < 12.0 && (m5.v_ms - h5.v_ms).abs() < 12.0);
+        }
+    }
+
+    #[test]
+    fn a_dewpoint_comes_back_from_its_relative_humidity() {
+        for (t, td) in [(30.0, 20.0), (0.0, -12.0), (-40.0, -45.0)] {
+            let rh = 100.0 * e_sat_hpa(td) / e_sat_hpa(t);
+            assert!((dewpoint_from_rh(t, rh) - td).abs() < 0.01, "{t} {td}");
+        }
+        assert!((dewpoint_from_rh(10.0, 100.0) - 10.0).abs() < 1e-9);
     }
 }
