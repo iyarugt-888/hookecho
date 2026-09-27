@@ -25,6 +25,9 @@ pub struct SoundingWindow {
     pub fh: u8,
     /// Set for one frame when `fh` changed, so the app refetches.
     pub refetch: bool,
+    /// The analyst's own storm motion (u, v, m/s), set by clicking the hodograph, and the point
+    /// it was set for; `None` uses the Bunkers right mover.
+    pub storm_motion: Option<((f64, f64), (f64, f64))>,
 }
 
 impl Default for SoundingWindow {
@@ -42,6 +45,7 @@ impl Default for SoundingWindow {
             show_observed: true,
             fh: 0,
             refetch: false,
+            storm_motion: None,
         }
     }
 }
@@ -139,8 +143,26 @@ impl SoundingWindow {
                 );
             });
         });
+        // A storm motion set at another point does not apply to this one.
+        let here = (s.lon, s.lat);
+        if self.storm_motion.is_some_and(|(_, at)| at != here) {
+            self.storm_motion = None;
+        }
+        let custom = self.storm_motion.map(|(m, _)| m);
         // Fixed-layer composite indices (feature FF): the numbers a chaser scans first.
-        if let Some(ix) = s.indices() {
+        if let Some(mut ix) = s.indices() {
+            // An analyst's storm motion changes the helicity and everything built on it.
+            if let Some(m) = custom {
+                if let (Some(h1), Some(h3)) = (s.srh_relative(1000.0, m), s.srh_relative(3000.0, m))
+                {
+                    let shear6_ms = ix.shear6_kt / 1.943_844;
+                    ix.srh1 = h1;
+                    ix.srh3 = h3;
+                    ix.scp = wxdata::severe::scp(ix.sbcape, h3, shear6_ms);
+                    ix.stp = wxdata::severe::stp(ix.sbcape, h1, shear6_ms, ix.lcl_m);
+                    ix.ehi1 = wxdata::severe::ehi1(ix.sbcape, h1);
+                }
+            }
             let parcel = s.parcel();
             let level = |v: Option<f64>| match v {
                 Some(m) => format!("{m:.0} m"),
@@ -176,6 +198,34 @@ impl SoundingWindow {
                 cards.push(("EBWD", opt(e.ebwd_kt, 0)));
                 cards.push(("STP (eff)", opt(e.stp_eff, 1)));
             }
+            // Moisture, downdraft potential, lapse rates and the hail-growth temperatures.
+            let or_dash = |v: Option<f64>, f: &dyn Fn(f64) -> String| v.map_or("—".to_string(), f);
+            cards.push((
+                "PWAT",
+                or_dash(s.pwat_mm(), &|v| format!("{v:.0} mm ({:.2}\")", v / 25.4)),
+            ));
+            cards.push(("DCAPE", or_dash(s.dcape(), &|v| format!("{v:.0} J/kg"))));
+            cards.push((
+                "LR 0–3 km",
+                or_dash(s.lapse_rate_c_km(0.0, 3000.0), &|v| format!("{v:.1} °C/km")),
+            ));
+            cards.push((
+                "LR 700–500",
+                or_dash(s.lapse_rate_between_c_km(700.0, 500.0), &|v| {
+                    format!("{v:.1} °C/km")
+                }),
+            ));
+            for (label, t) in [
+                ("0 °C", 0.0),
+                ("−10 °C", -10.0),
+                ("−20 °C", -20.0),
+                ("−30 °C", -30.0),
+            ] {
+                cards.push((
+                    label,
+                    or_dash(s.isotherm_height_m(t), &|v| format!("{v:.0} m")),
+                ));
+            }
             // Chunked by hand rather than `horizontal_wrapped`: a `Frame` with `set_width`
             // — which is what `stat_card` is — doesn't participate in egui's wrapping, so
             // all seven stayed on one 900 pt line and dragged the whole window off both
@@ -192,6 +242,20 @@ impl SoundingWindow {
                 "Fixed- and effective-layer forms from 10 mandatory levels — coarser than SPC mesoanalysis."
             } else {
                 "Fixed-layer forms from 10 mandatory levels — no effective inflow layer in this column."
+            });
+            ui.horizontal_wrapped(|ui| match custom {
+                Some((u, v)) => {
+                    let (dir, kt) = motion_dir_kt(u, v);
+                    ui.weak(format!(
+                        "Storm motion: yours, from {dir:03.0}° at {kt:.0} kt — SRH, SCP, STP and EHI use it."
+                    ));
+                    if ui.small_button("Use Bunkers").clicked() {
+                        self.storm_motion = None;
+                    }
+                }
+                None => {
+                    ui.weak("Storm motion: Bunkers right mover. Click the hodograph to set your own.");
+                }
             });
         }
         // Observed ascent: a line about where it came from, and the toggle.
@@ -224,15 +288,19 @@ impl SoundingWindow {
         // phone_surface's max_width; same pattern as cell_window's grid).
         // Stacked, the caller scrolls the whole body: a scroll area of the plots alone, under
         // the header and indices, was left a sliver of height to show them in.
+        let mut clicked = None;
         if stacked {
             skewt(ui, s, observed);
             ui.add_space(6.0);
-            hodograph(ui, s, observed);
+            clicked = hodograph(ui, s, observed, custom);
         } else {
             ui.horizontal(|ui| {
                 skewt(ui, s, observed);
-                hodograph(ui, s, observed);
+                clicked = hodograph(ui, s, observed, custom);
             });
+        }
+        if let Some(m) = clicked {
+            self.storm_motion = Some((m, here));
         }
     }
 }
@@ -352,10 +420,31 @@ fn skewt(ui: &mut egui::Ui, s: &Sounding, observed: Option<&Sounding>) {
     );
 }
 
-/// Hodograph: wind (u, v) at each level, connected surface→top, in knots.
-fn hodograph(ui: &mut egui::Ui, s: &Sounding, observed: Option<&Sounding>) {
+/// The direction a storm moves *from* (degrees) and its speed (kt), the way motions are quoted.
+fn motion_dir_kt(u: f64, v: f64) -> (f64, f64) {
+    let dir = (u.atan2(v).to_degrees() + 180.0).rem_euclid(360.0);
+    (dir, (u * u + v * v).sqrt() * 1.943_844)
+}
+
+/// The hodograph's height bands (m AGL) and their colours: the conventional 0–1, 1–3, 3–6 and
+/// 6–9 km layers, so where the curvature and the shear live reads at a glance.
+const HODO_LAYERS: [(f64, f64, [u8; 3]); 4] = [
+    (0.0, 1000.0, [235, 80, 80]),
+    (1000.0, 3000.0, [90, 200, 90]),
+    (3000.0, 6000.0, [235, 200, 60]),
+    (6000.0, 9000.0, [90, 190, 235]),
+];
+
+/// Hodograph: wind (u, v) at each level, connected surface→top, in knots, coloured by height,
+/// with the Bunkers storm motions marked. A click sets a storm motion; it is returned (m/s).
+fn hodograph(
+    ui: &mut egui::Ui,
+    s: &Sounding,
+    observed: Option<&Sounding>,
+    custom: Option<(f64, f64)>,
+) -> Option<(f64, f64)> {
     let w = ui.available_width().clamp(200.0, 240.0);
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(w, 380.0), egui::Sense::hover());
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(w, 380.0), egui::Sense::click());
     let p = ui.painter_at(rect);
     p.rect_filled(rect, 4.0, ui.visuals().extreme_bg_color);
     let grid = ui
@@ -417,15 +506,97 @@ fn hodograph(ui: &mut egui::Ui, s: &Sounding, observed: Option<&Sounding>) {
             ));
         }
     }
-    let pts: Vec<egui::Pos2> = s.levels.iter().map(|l| to_px(l.u_ms, l.v_ms)).collect();
-    if pts.len() >= 2 {
+    // The profile sampled every 250 m through each height band, in the band's colour; above
+    // 9 km, the remaining levels in grey.
+    let heights = s.heights_m();
+    for (z0, z1, [r, g, b]) in HODO_LAYERS {
+        let mut pts = Vec::new();
+        let mut z = z0;
+        while z <= z1 + 1e-6 {
+            match s.wind_at_height(z) {
+                Some((u, v)) => pts.push(to_px(u, v)),
+                None => break,
+            }
+            z += 250.0;
+        }
+        if pts.len() >= 2 {
+            p.add(egui::Shape::line(
+                pts,
+                egui::Stroke::new(2.4, egui::Color32::from_rgb(r, g, b)),
+            ));
+        }
+    }
+    let upper: Vec<egui::Pos2> = s
+        .levels
+        .iter()
+        .zip(&heights)
+        .filter(|(l, &z)| z >= 9000.0 && l.pressure_hpa >= 200.0)
+        .map(|(l, _)| to_px(l.u_ms, l.v_ms))
+        .collect();
+    if let (Some(top), Some((u9, v9))) = (upper.first(), s.wind_at_height(9000.0)) {
+        let mut line = vec![to_px(u9, v9), *top];
+        line.extend(upper.iter().skip(1));
         p.add(egui::Shape::line(
-            pts.clone(),
-            egui::Stroke::new(2.0, egui::Color32::from_rgb(120, 180, 255)),
+            line,
+            egui::Stroke::new(1.6, egui::Color32::from_gray(150)),
         ));
     }
-    if let Some(sfc) = pts.first() {
-        p.circle_filled(*sfc, 3.0, egui::Color32::WHITE); // surface marker
+    if let Some(sfc) = s.levels.first() {
+        p.circle_filled(to_px(sfc.u_ms, sfc.v_ms), 3.0, egui::Color32::WHITE); // surface marker
+    }
+    // Storm motions: Bunkers right (RM) and left (LM) movers, and the analyst's own.
+    let mark = |at: egui::Pos2, text: &str, color: egui::Color32| {
+        p.circle_stroke(at, 4.0, egui::Stroke::new(1.6, color));
+        p.text(
+            at + egui::vec2(6.0, -6.0),
+            egui::Align2::LEFT_BOTTOM,
+            text,
+            egui::FontId::proportional(10.0),
+            color,
+        );
+    };
+    if let Some((u, v)) = s.bunkers_rm() {
+        mark(to_px(u, v), "RM", egui::Color32::from_rgb(240, 110, 110));
+    }
+    if let Some((u, v)) = s.bunkers_lm() {
+        mark(to_px(u, v), "LM", egui::Color32::from_rgb(130, 170, 250));
+    }
+    if let Some((u, v)) = custom {
+        let at = to_px(u, v);
+        let c = egui::Color32::WHITE;
+        let d = 5.0;
+        p.line_segment(
+            [at - egui::vec2(d, d), at + egui::vec2(d, d)],
+            egui::Stroke::new(2.0, c),
+        );
+        p.line_segment(
+            [at + egui::vec2(-d, d), at + egui::vec2(d, -d)],
+            egui::Stroke::new(2.0, c),
+        );
+        p.text(
+            at + egui::vec2(7.0, 7.0),
+            egui::Align2::LEFT_TOP,
+            "yours",
+            egui::FontId::proportional(10.0),
+            c,
+        );
+    }
+    // The layer key along the bottom.
+    let mut x = rect.left() + 8.0;
+    for (label, (_, _, [r, g, b])) in ["0–1", "1–3", "3–6", "6–9 km"].iter().zip(HODO_LAYERS)
+    {
+        let galley = p.layout_no_wrap(
+            label.to_string(),
+            egui::FontId::proportional(9.5),
+            egui::Color32::from_rgb(r, g, b),
+        );
+        let wdt = galley.size().x;
+        p.galley(
+            egui::pos2(x, rect.bottom() - 16.0),
+            galley,
+            egui::Color32::WHITE,
+        );
+        x += wdt + 8.0;
     }
     p.text(
         rect.center_top() + egui::vec2(0.0, 10.0),
@@ -434,4 +605,13 @@ fn hodograph(ui: &mut egui::Ui, s: &Sounding, observed: Option<&Sounding>) {
         egui::FontId::proportional(11.0),
         ui.visuals().weak_text_color(),
     );
+    // A click anywhere on the plot sets the storm motion there.
+    let click = response
+        .on_hover_text("Click to set your own storm motion")
+        .clicked()
+        .then(|| ui.input(|i| i.pointer.interact_pos()))
+        .flatten()?;
+    let u_kt = (click.x - center.x) / r_px * max_kt;
+    let v_kt = (center.y - click.y) / r_px * max_kt;
+    Some((u_kt as f64 / 1.943_844, v_kt as f64 / 1.943_844))
 }

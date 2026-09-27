@@ -40,6 +40,9 @@ shows only while the view's time is inside its window, live or scrubbed.
 Shapefiles in UTM, State Plane (metres or feet) or CONUS Albers coordinates now import in the
 right place instead of being refused, and so do older GeoJSON files that name a UTM zone, Web
 Mercator or Albers in their "crs".
+The point sounding gains PWAT, DCAPE, 0–3 km and 700–500 hPa lapse rates and the 0/-10/-20/-30 °C
+heights; its hodograph is coloured by height with Bunkers right and left movers marked, and a
+click on it sets your own storm motion for the helicity numbers.
 
 ### Added: GOES RGB composites
 

@@ -90,28 +90,69 @@ const G: f64 = 9.80665;
 const KAPPA: f64 = 0.2854;
 
 /// Saturation vapor pressure (hPa) over water — Bolton (1980).
+///
+/// Clamped at -120 °C: the formula's denominator goes through zero at -243.5 °C, and a model's
+/// "no moisture here" dewpoint (HRRR writes 0 K at 100 hPa) must read as no vapour, not infinity.
 fn e_sat_hpa(t_c: f64) -> f64 {
+    let t_c = t_c.max(-120.0);
     6.112 * ((17.67 * t_c) / (t_c + 243.5)).exp()
 }
 
 /// Parcel temperature (K) after pseudoadiabatic ascent from `(p0, t0k)` to `p1` (hPa, p1 < p0),
 /// stepped in small pressure increments.
 fn moist_ascent_k(p0: f64, t0k: f64, p1: f64) -> f64 {
+    moist_adiabat_k(p0, t0k, p1)
+}
+
+/// Temperature (K) along the pseudoadiabat through `(p0, t0k)` at `p1` (hPa), up or down: a
+/// rising saturated parcel, or a descending one kept saturated by evaporation (a downdraft).
+fn moist_adiabat_k(p0: f64, t0k: f64, p1: f64) -> f64 {
     let mut t = t0k;
     let mut p = p0;
     const LV: f64 = 2.501e6;
     const CPD: f64 = 1005.7;
     const EPS: f64 = 0.622;
-    while p > p1 {
-        let dp = (p - p1).min(5.0);
+    // dT/dp (K/hPa) along the pseudoadiabat at (p, t).
+    let slope = |p: f64, t: f64| {
         let tc = t - 273.15;
         let rs = EPS * e_sat_hpa(tc) / (p - e_sat_hpa(tc)).max(1.0);
-        // Pseudoadiabatic lapse dT/dp (K/hPa).
-        let dtdp = (1.0 / p) * (RD * t + LV * rs) / (CPD + LV * LV * rs * EPS / (RD * t * t));
-        t -= dtdp * dp;
-        p -= dp;
+        (1.0 / p) * (RD * t + LV * rs) / (CPD + LV * LV * rs * EPS / (RD * t * t))
+    };
+    // Midpoint steps: a parcel taken up and brought back down lands where it started, which a
+    // plain Euler step does not quite manage.
+    while (p - p1).abs() > 1e-9 {
+        let dp = (p1 - p).clamp(-5.0, 5.0);
+        let k1 = slope(p, t);
+        let k2 = slope(p + dp / 2.0, t + k1 * dp / 2.0);
+        t += k2 * dp;
+        p += dp;
     }
     t
+}
+
+/// Bolton's (1980) LCL of air at `t_c`/`td_c`: its temperature (K) and pressure (hPa).
+fn lcl(p_hpa: f64, t_c: f64, td_c: f64) -> (f64, f64) {
+    let tk = t_c + 273.15;
+    let e = e_sat_hpa(td_c).max(1e-3);
+    let t_lcl = 2840.0 / (3.5 * tk.ln() - e.ln() - 4.805) + 55.0;
+    (t_lcl, p_hpa * (t_lcl / tk).powf(1.0 / KAPPA))
+}
+
+/// Wet-bulb temperature (K) by Normand's rule: lift to the LCL, come back down the moist
+/// adiabat to the starting pressure.
+fn wet_bulb_k(p_hpa: f64, t_c: f64, td_c: f64) -> f64 {
+    let (t_lcl, p_lcl) = lcl(p_hpa, t_c, td_c);
+    moist_adiabat_k(p_lcl, t_lcl, p_hpa)
+}
+
+/// Equivalent potential temperature (K), Bolton (1980) eq. 43 — for ranking levels only.
+fn theta_e_k(p_hpa: f64, t_c: f64, td_c: f64) -> f64 {
+    let tk = t_c + 273.15;
+    let e = e_sat_hpa(td_c);
+    let r = 0.622 * e / (p_hpa - e).max(1.0);
+    let (t_lcl, _) = lcl(p_hpa, t_c, td_c);
+    tk * (1000.0 / p_hpa).powf(0.2854 * (1.0 - 0.28 * r))
+        * ((3.376 / t_lcl - 0.00254) * r * 1000.0 * (1.0 + 0.81 * r)).exp()
 }
 
 impl Sounding {
@@ -246,6 +287,114 @@ impl Sounding {
         ))
     }
 
+    /// Wind (u, v, m/s) at `z_m` above ground, interpolated between levels; `None` above the top.
+    pub fn wind_at_height(&self, z_m: f64) -> Option<(f64, f64)> {
+        self.wind_at(&self.heights_m(), z_m)
+    }
+
+    /// Bunkers left-mover storm motion: the right mover's mirror across the 0–6 km mean wind.
+    pub fn bunkers_lm(&self) -> Option<(f64, f64)> {
+        let (ru, rv) = self.bunkers_rm()?;
+        let (mu, mv) = self.mean_wind_0_6()?;
+        Some((2.0 * mu - ru, 2.0 * mv - rv))
+    }
+
+    /// The 0–6 km mean wind, sampled every 500 m.
+    fn mean_wind_0_6(&self) -> Option<(f64, f64)> {
+        let h = self.heights_m();
+        let (mut mu, mut mv, mut n) = (0.0, 0.0, 0);
+        for z in (0..=6000).step_by(500) {
+            if let Some((u, v)) = self.wind_at(&h, z as f64) {
+                mu += u;
+                mv += v;
+                n += 1;
+            }
+        }
+        (n > 0).then(|| (mu / n as f64, mv / n as f64))
+    }
+
+    /// Precipitable water (mm): the column's water vapour, `∫ q dp / g` from the surface up.
+    pub fn pwat_mm(&self) -> Option<f64> {
+        if self.levels.len() < 2 {
+            return None;
+        }
+        let q = |l: &SoundingLevel| {
+            let e = e_sat_hpa(l.dewpt_c);
+            0.622 * e / (l.pressure_hpa - 0.378 * e).max(1.0)
+        };
+        let total: f64 = self
+            .levels
+            .windows(2)
+            .map(|w| (q(&w[0]) + q(&w[1])) / 2.0 * (w[0].pressure_hpa - w[1].pressure_hpa) * 100.0)
+            .sum();
+        // kg/m² of water is mm of depth.
+        Some(total / G)
+    }
+
+    /// Downdraft CAPE (J/kg): a parcel from the level of lowest equivalent potential temperature
+    /// in the lowest 400 hPa, at its wet-bulb temperature, brought down the moist adiabat to the
+    /// surface; the energy is how much colder than the air it stays on the way (SHARPpy's
+    /// method, from the mandatory levels). Large values mean strong evaporatively driven
+    /// downdrafts and outflow.
+    pub fn dcape(&self) -> Option<f64> {
+        let sfc = self.levels.first()?;
+        let top = sfc.pressure_hpa - 400.0;
+        let (start, lvl) = self
+            .levels
+            .iter()
+            .enumerate()
+            .filter(|(_, l)| l.pressure_hpa >= top)
+            .min_by(|a, b| {
+                let ta = theta_e_k(a.1.pressure_hpa, a.1.temp_c, a.1.dewpt_c);
+                let tb = theta_e_k(b.1.pressure_hpa, b.1.temp_c, b.1.dewpt_c);
+                ta.total_cmp(&tb)
+            })?;
+        if start == 0 {
+            return Some(0.0);
+        }
+        let t0 = wet_bulb_k(lvl.pressure_hpa, lvl.temp_c, lvl.dewpt_c);
+        let parcel = |p: f64| moist_adiabat_k(lvl.pressure_hpa, t0, p);
+        let mut total = 0.0;
+        for w in self.levels[..=start].windows(2) {
+            let (lo, hi) = (&w[0], &w[1]);
+            let b_lo = (lo.temp_c + 273.15) - parcel(lo.pressure_hpa);
+            let b_hi = (hi.temp_c + 273.15) - parcel(hi.pressure_hpa);
+            total += RD * (b_lo.max(0.0) + b_hi.max(0.0)) / 2.0
+                * (lo.pressure_hpa / hi.pressure_hpa).ln();
+        }
+        Some(total)
+    }
+
+    /// Environmental lapse rate (°C/km) between two heights above ground.
+    pub fn lapse_rate_c_km(&self, z0_m: f64, z1_m: f64) -> Option<f64> {
+        let h = self.heights_m();
+        let temp_at = |z: f64| {
+            let i = h.iter().position(|&hz| hz >= z)?;
+            if i == 0 {
+                return self.levels.first().map(|l| l.temp_c);
+            }
+            let k = (z - h[i - 1]) / (h[i] - h[i - 1]).max(1e-6);
+            let (a, b) = (&self.levels[i - 1], &self.levels[i]);
+            Some(a.temp_c + (b.temp_c - a.temp_c) * k)
+        };
+        Some((temp_at(z0_m)? - temp_at(z1_m)?) / ((z1_m - z0_m) / 1000.0))
+    }
+
+    /// Environmental lapse rate (°C/km) between two pressure levels in the profile, such as the
+    /// 700–500 hPa mid-level rate.
+    pub fn lapse_rate_between_c_km(&self, p0_hpa: f64, p1_hpa: f64) -> Option<f64> {
+        let h = self.heights_m();
+        let find = |p: f64| {
+            let i = self
+                .levels
+                .iter()
+                .position(|l| (l.pressure_hpa - p).abs() < 0.5)?;
+            Some((self.levels[i].temp_c, h[i]))
+        };
+        let ((t0, z0), (t1, z1)) = (find(p0_hpa)?, find(p1_hpa)?);
+        (z1 > z0).then(|| (t0 - t1) / ((z1 - z0) / 1000.0))
+    }
+
     /// Bunkers right-mover storm motion: 0–6 km mean wind plus 7.5 m/s at right angles to the
     /// 0–6 km shear vector.
     pub fn bunkers_rm(&self) -> Option<(f64, f64)> {
@@ -272,8 +421,14 @@ impl Sounding {
 
     /// Storm-relative helicity (m²/s²) over 0..`depth_m`, relative to the Bunkers right mover.
     pub fn srh(&self, depth_m: f64) -> Option<f64> {
+        self.srh_relative(depth_m, self.bunkers_rm()?)
+    }
+
+    /// Storm-relative helicity (m²/s²) over 0..`depth_m` for a given storm motion (u, v, m/s):
+    /// what an analyst's own motion estimate makes of the same hodograph.
+    pub fn srh_relative(&self, depth_m: f64, motion: (f64, f64)) -> Option<f64> {
         let h = self.heights_m();
-        let (cu, cv) = self.bunkers_rm()?;
+        let (cu, cv) = motion;
         let mut total = 0.0;
         let step = 250.0;
         let mut z = 0.0;
@@ -339,6 +494,28 @@ impl Sounding {
             put("scp", format!("{:.2}", ix.scp));
             put("stp", format!("{:.2}", ix.stp));
             put("ehi_0_1", format!("{:.2}", ix.ehi1));
+        }
+        let opt =
+            |v: Option<f64>, digits: usize| v.map_or(String::new(), |v| format!("{v:.digits$}"));
+        put("pwat_mm", opt(self.pwat_mm(), 1));
+        put("dcape_jkg", opt(self.dcape(), 0));
+        put(
+            "lapse_0_3km_c_km",
+            opt(self.lapse_rate_c_km(0.0, 3000.0), 1),
+        );
+        put(
+            "lapse_700_500_c_km",
+            opt(self.lapse_rate_between_c_km(700.0, 500.0), 1),
+        );
+        for t in [0, -10, -20, -30] {
+            put(
+                &format!("height_{}c_m", t.to_string().replace('-', "m")),
+                opt(self.isotherm_height_m(t as f64), 0),
+            );
+        }
+        if let Some((u, v)) = self.bunkers_rm() {
+            put("bunkers_rm_u_ms", format!("{u:.1}"));
+            put("bunkers_rm_v_ms", format!("{v:.1}"));
         }
         // Empty where the column has no effective inflow layer, or no equilibrium level to
         // measure the shear layer against — the same absence the panel shows as an em dash.
@@ -859,5 +1036,141 @@ mod tests {
         // sb_parcel still answers what it always did.
         let (cape, lcl) = s.sb_parcel().unwrap();
         assert_eq!((cape, lcl), (p.cape, p.lcl_m));
+    }
+}
+
+#[cfg(test)]
+mod f8_tests {
+    use super::*;
+
+    /// A warm, moist, sheared plains profile on the mandatory levels.
+    fn plains() -> Sounding {
+        let lv = |p: f64, t: f64, td: f64, u: f64, v: f64| SoundingLevel {
+            pressure_hpa: p,
+            temp_c: t,
+            dewpt_c: td,
+            u_ms: u,
+            v_ms: v,
+        };
+        Sounding {
+            lon: -97.5,
+            lat: 35.2,
+            run: chrono::DateTime::UNIX_EPOCH,
+            fh: 0,
+            levels: vec![
+                lv(1000.0, 30.0, 21.0, 2.0, 8.0),
+                lv(925.0, 25.0, 18.0, 6.0, 14.0),
+                lv(850.0, 21.0, 12.0, 10.0, 16.0),
+                lv(700.0, 9.0, -2.0, 16.0, 14.0),
+                lv(600.0, 0.0, -12.0, 20.0, 12.0),
+                lv(500.0, -9.0, -25.0, 24.0, 10.0),
+                lv(400.0, -21.0, -38.0, 28.0, 10.0),
+                lv(300.0, -37.0, -50.0, 32.0, 8.0),
+                lv(250.0, -47.0, -58.0, 34.0, 8.0),
+                lv(200.0, -55.0, -65.0, 34.0, 6.0),
+            ],
+        }
+    }
+
+    #[test]
+    fn a_zero_kelvin_dewpoint_reads_as_no_vapour() {
+        let mut s = plains();
+        let pw = s.pwat_mm().unwrap();
+        s.levels.last_mut().unwrap().dewpt_c = -273.15;
+        let dry_top = s.pwat_mm().unwrap();
+        assert!(
+            dry_top.is_finite() && (dry_top - pw).abs() < 0.5,
+            "{dry_top} vs {pw}"
+        );
+    }
+
+    #[test]
+    fn precipitable_water_is_a_humid_summer_amount() {
+        let pw = plains().pwat_mm().unwrap();
+        assert!((30.0..55.0).contains(&pw), "{pw} mm");
+        // Drying every level lowers it.
+        let mut dry = plains();
+        dry.levels.iter_mut().for_each(|l| l.dewpt_c -= 15.0);
+        assert!(dry.pwat_mm().unwrap() < pw / 2.0);
+    }
+
+    #[test]
+    fn downdraft_cape_is_positive_under_a_dry_mid_level() {
+        let d = plains().dcape().unwrap();
+        assert!((300.0..2000.0).contains(&d), "{d} J/kg");
+        // Moister mid-levels: a warmer wet bulb to start from, so a weaker downdraft.
+        let mut moist = plains();
+        moist
+            .levels
+            .iter_mut()
+            .filter(|l| l.pressure_hpa <= 850.0)
+            .for_each(|l| {
+                l.dewpt_c = (l.dewpt_c + 8.0).min(l.temp_c);
+            });
+        assert!(
+            moist.dcape().unwrap() < d,
+            "{} vs {d}",
+            moist.dcape().unwrap()
+        );
+    }
+
+    #[test]
+    fn a_saturated_parcel_goes_down_the_moist_adiabat_it_came_up() {
+        let up = moist_adiabat_k(900.0, 290.0, 500.0);
+        let down = moist_adiabat_k(500.0, up, 900.0);
+        assert!((down - 290.0).abs() < 0.05, "{down}");
+        // Normand's rule: the wet bulb sits between the dewpoint and the temperature.
+        let tw = wet_bulb_k(1000.0, 30.0, 20.0) - 273.15;
+        assert!(
+            (20.0..30.0).contains(&tw) && (tw - 23.0).abs() < 1.5,
+            "{tw}"
+        );
+    }
+
+    #[test]
+    fn lapse_rates_and_the_left_mover_read_sensibly() {
+        let s = plains();
+        let mid = s.lapse_rate_between_c_km(700.0, 500.0).unwrap();
+        assert!((6.0..8.5).contains(&mid), "{mid} C/km");
+        let low = s.lapse_rate_c_km(0.0, 3000.0).unwrap();
+        assert!((5.0..9.9).contains(&low), "{low} C/km");
+        let (rm, lm) = (s.bunkers_rm().unwrap(), s.bunkers_lm().unwrap());
+        let mean = s.mean_wind_0_6().unwrap();
+        assert!(((rm.0 + lm.0) / 2.0 - mean.0).abs() < 1e-9, "mirror images");
+        // Veering winds: more helicity for the right mover than the left.
+        assert!(s.srh_relative(3000.0, rm).unwrap() > s.srh_relative(3000.0, lm).unwrap());
+        assert_eq!(s.srh(3000.0), s.srh_relative(3000.0, rm));
+        let csv = s.to_csv();
+        for key in [
+            "pwat_mm,",
+            "dcape_jkg,",
+            "lapse_700_500_c_km,",
+            "height_m20c_m,",
+        ] {
+            assert!(csv.contains(key), "{key} missing from\n{csv}");
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn a_live_hrrr_profile_reads_all_the_new_numbers() {
+        let s = fetch(&reqwest::Client::new(), -97.5, 35.2).await.unwrap();
+        let (pw, dc) = (s.pwat_mm().unwrap(), s.dcape().unwrap());
+        let (lr03, lr75) = (
+            s.lapse_rate_c_km(0.0, 3000.0).unwrap(),
+            s.lapse_rate_between_c_km(700.0, 500.0).unwrap(),
+        );
+        eprintln!(
+            "HRRR {} f{:02} at OKC: PWAT {pw:.1} mm, DCAPE {dc:.0} J/kg, LR0-3 {lr03:.1}, LR700-500 {lr75:.1} C/km, 0C {:?} m, -20C {:?} m, RM {:?}, LM {:?}",
+            s.run,
+            s.fh,
+            s.isotherm_height_m(0.0).map(|v| v.round()),
+            s.isotherm_height_m(-20.0).map(|v| v.round()),
+            s.bunkers_rm(),
+            s.bunkers_lm(),
+        );
+        assert!((1.0..80.0).contains(&pw));
+        assert!((0.0..3000.0).contains(&dc));
+        assert!((2.0..11.0).contains(&lr75));
     }
 }

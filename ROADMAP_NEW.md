@@ -2626,25 +2626,43 @@ Probability examples:
 - snow > threshold
 - UH > threshold for convection-allowing ensembles
 
-## F8. Point sounding overhaul
+## F8. Point sounding overhaul — partly done
 
 Point sounding should support:
 
-- any supported deterministic model
-- ensemble member soundings
-- ensemble envelope
-- observed RAOB overlay
-- previous model run overlay
-- parcel selection
-- Bunkers vectors
-- effective inflow layer
-- freezing/-10/-20/-30 C heights
-- DCAPE
-- lapse rates
-- PWAT
-- hodograph layer coloring
-- storm-motion user override
-- downloadable CSV
+- [ ] any supported deterministic model — still HRRR pressure levels only
+- [ ] ensemble member soundings
+- [ ] ensemble envelope
+- [x] observed RAOB overlay — the nearest radiosonde ascent, dashed under the model profile on
+  the Skew-T and hodograph (built earlier)
+- [ ] previous model run overlay
+- [x] parcel selection — partly: the surface parcel is drawn with its CAPE shaded, and the
+  effective-layer solve lifts a parcel from every candidate level (`Sounding::parcel_from`); no
+  picker for mixed-layer or most-unstable parcels on the Skew-T yet
+- [x] Bunkers vectors — right and left movers (`bunkers_rm`, new `bunkers_lm`, the mirror image
+  across the 0–6 km mean wind) marked RM and LM on the hodograph
+- [x] effective inflow layer — ESRH, EBWD and effective STP cards (built earlier)
+- [x] freezing/-10/-20/-30 C heights — four cards from `isotherm_height_m` (the highest crossing)
+- [x] DCAPE — `Sounding::dcape`: the parcel from the lowest-θe level in the lowest 400 hPa, at its
+  wet-bulb temperature (Normand's rule), brought down the pseudoadiabat to the surface; the
+  moist adiabat is now integrated with midpoint steps in either direction, so a parcel taken up
+  and back down lands within 0.05 K of where it started
+- [x] lapse rates — 0–3 km and 700–500 hPa (°C/km)
+- [x] PWAT — `Sounding::pwat_mm` (`∫ q dp / g`), in mm and inches. A live HRRR profile writes a
+  0 K dewpoint at 100 hPa as "no moisture"; saturation vapour pressure is now clamped at -120 °C
+  so that reads as no vapour instead of infinity (found by the live check: OKC then read 31.8 mm)
+- [x] hodograph layer coloring — 0–1 km red, 1–3 km green, 3–6 km yellow, 6–9 km blue, sampled
+  every 250 m, grey above, with a key along the bottom
+- [x] storm-motion user override — click the hodograph to set a motion; SRH 0–1/0–3 and the SCP,
+  STP and EHI built on them are recomputed against it (`Sounding::srh_relative`), the line under
+  the cards says "yours, from 208° at 80 kt", and "Use Bunkers" puts it back. Cleared when the
+  sounding moves to another point.
+- [x] downloadable CSV — gains PWAT, DCAPE, both lapse rates, the four isotherm heights and the
+  Bunkers right-mover components
+
+Checked in the browser: a live HRRR sounding near Oklahoma City showed PWAT 32 mm (1.25"),
+DCAPE 1438 J/kg, lapse rates 8.0 and 5.6 °C/km, 0/-10/-20/-30 °C at 4479/6174/7537/8869 m, the
+banded hodograph with RM/LM, and a clicked storm motion recomputing SRH.
 
 ### Acceptance criteria
 
