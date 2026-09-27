@@ -27,10 +27,89 @@ impl Satellite {
     }
 }
 
-/// CONUS: available every ~5 minutes from both satellites and covers the whole area this app's
-/// other overlays care about, unlike a mesoscale sector (repositionable, not always pointed
-/// anywhere useful) or a full disk (10-minute cadence, mostly ocean for a US-focused app).
-const PRODUCT: &str = "ABI-L2-CMIPC";
+/// Which ABI scan a granule comes from. CONUS: every ~5 minutes from both satellites, covering
+/// the whole area this app's other overlays care about. A mesoscale sector: a box about 1000 km
+/// on a side, scanned every minute, that NOAA points at whatever is happening (ROADMAP_NEW E5's
+/// rapid scan) and moves as the event does — so where it is has to be read from each granule
+/// ([`Footprint`]), never assumed. Full disk (10-minute cadence, mostly ocean for a US-focused
+/// app) is not read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub enum Sector {
+    #[default]
+    Conus,
+    Meso1,
+    Meso2,
+}
+
+impl Sector {
+    pub const ALL: [Sector; 3] = [Sector::Conus, Sector::Meso1, Sector::Meso2];
+
+    /// The S3 product directory.
+    fn product(self) -> &'static str {
+        match self {
+            Sector::Conus => "ABI-L2-CMIPC",
+            Sector::Meso1 | Sector::Meso2 => "ABI-L2-CMIPM",
+        }
+    }
+
+    /// The product as the file names spell it (the mesoscale sectors add their number).
+    fn file_product(self) -> &'static str {
+        match self {
+            Sector::Conus => "ABI-L2-CMIPC",
+            Sector::Meso1 => "ABI-L2-CMIPM1",
+            Sector::Meso2 => "ABI-L2-CMIPM2",
+        }
+    }
+
+    /// How often a new scan lands.
+    pub fn cadence_secs(self) -> u64 {
+        match self {
+            Sector::Conus => 300,
+            Sector::Meso1 | Sector::Meso2 => 60,
+        }
+    }
+
+    pub fn is_meso(self) -> bool {
+        self != Sector::Conus
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Sector::Conus => "CONUS (5 min)",
+            Sector::Meso1 => "Mesoscale 1 (1 min)",
+            Sector::Meso2 => "Mesoscale 2 (1 min)",
+        }
+    }
+}
+
+/// Where a mesoscale sector is pointed now: the lat/lon box its newest granule covers, and when
+/// that scan began.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Footprint {
+    pub lon_west: f64,
+    pub lon_east: f64,
+    pub lat_south: f64,
+    pub lat_north: f64,
+    pub time: chrono::DateTime<chrono::Utc>,
+}
+
+impl Footprint {
+    /// The box a decoded granule covers.
+    pub fn of(field: &MrmsField) -> Footprint {
+        Footprint {
+            lon_west: field.lon_west,
+            lon_east: field.lon_east,
+            lat_south: field.lat_south,
+            lat_north: field.lat_north,
+            time: field.time,
+        }
+    }
+
+    pub fn contains(&self, lon: f64, lat: f64) -> bool {
+        (self.lon_west..=self.lon_east).contains(&lon)
+            && (self.lat_south..=self.lat_north).contains(&lat)
+    }
+}
 
 /// The GOES-R fixed-grid geostationary projection, read off a granule's `goes_imager_projection`
 /// attributes. Same for every file from the same satellite; re-derived per fetch rather than
@@ -253,18 +332,22 @@ fn key_time(key: &str) -> Option<chrono::DateTime<chrono::Utc>> {
 async fn keys_in_hour(
     client: &reqwest::Client,
     satellite: Satellite,
+    sector: Sector,
     band: u8,
     t: chrono::DateTime<chrono::Utc>,
 ) -> Vec<String> {
     use chrono::{Datelike, Timelike};
     let prefix = format!(
-        "{PRODUCT}/{:04}/{:03}/{:02}/OR_{PRODUCT}-M6C{band:02}_",
+        "{}/{:04}/{:03}/{:02}/OR_{}-M6C{band:02}_",
+        sector.product(),
         t.year(),
         t.ordinal(),
-        t.hour()
+        t.hour(),
+        sector.file_product(),
     );
+    // A mesoscale sector files 60 scans a band an hour (CONUS 12): room for all of them.
     let url = format!(
-        "{}/?list-type=2&prefix={prefix}&max-keys=50",
+        "{}/?list-type=2&prefix={prefix}&max-keys=100",
         satellite.bucket()
     );
     let Ok(resp) = client.get(crate::net::fetch_url(&url)).send().await else {
@@ -281,6 +364,7 @@ async fn keys_in_hour(
 async fn latest_key(
     client: &reqwest::Client,
     satellite: Satellite,
+    sector: Sector,
     band: u8,
 ) -> anyhow::Result<String> {
     let now = chrono::Utc::now();
@@ -290,7 +374,7 @@ async fn latest_key(
         };
         // Keys within one hour are already in lexicographic == chronological order (zero-padded
         // fields), so the last one in the listing is the newest — no need for `key_time` here.
-        if let Some(key) = keys_in_hour(client, satellite, band, t).await.pop() {
+        if let Some(key) = keys_in_hour(client, satellite, sector, band, t).await.pop() {
             return Ok(key);
         }
     }
@@ -303,6 +387,7 @@ async fn latest_key(
 async fn key_near(
     client: &reqwest::Client,
     satellite: Satellite,
+    sector: Sector,
     band: u8,
     target: chrono::DateTime<chrono::Utc>,
 ) -> anyhow::Result<String> {
@@ -311,7 +396,7 @@ async fn key_near(
         let Some(t) = target.checked_add_signed(chrono::Duration::hours(hours)) else {
             continue;
         };
-        keys.extend(keys_in_hour(client, satellite, band, t).await);
+        keys.extend(keys_in_hour(client, satellite, sector, band, t).await);
     }
     keys.into_iter()
         .filter_map(|k| key_time(&k).map(|t| ((t - target).num_seconds().abs(), k)))
@@ -360,8 +445,33 @@ pub async fn fetch_latest_conus(
     out_nx: usize,
     out_ny: usize,
 ) -> anyhow::Result<MrmsField> {
-    let key = latest_key(client, satellite, band).await?;
+    fetch_latest(client, satellite, Sector::Conus, band, out_nx, out_ny).await
+}
+
+/// Fetch and decode the newest granule for `band` from `sector` on `satellite`. A mesoscale
+/// granule's grid spans the box the sector covers at that minute ([`Footprint::of`]).
+pub async fn fetch_latest(
+    client: &reqwest::Client,
+    satellite: Satellite,
+    sector: Sector,
+    band: u8,
+    out_nx: usize,
+    out_ny: usize,
+) -> anyhow::Result<MrmsField> {
+    let key = latest_key(client, satellite, sector, band).await?;
     fetch_key(client, satellite, &key, out_nx, out_ny).await
+}
+
+/// Where `sector` is pointed now: the box its newest band 13 granule covers (decoded coarse —
+/// only the bounds are wanted; the file is about a megabyte).
+pub async fn footprint(
+    client: &reqwest::Client,
+    satellite: Satellite,
+    sector: Sector,
+) -> anyhow::Result<Footprint> {
+    Ok(Footprint::of(
+        &fetch_latest(client, satellite, sector, 13, 32, 32).await?,
+    ))
 }
 
 /// Fetch several bands from one scan, decoded to the same `out_nx × out_ny` grid (in `bands`'
@@ -372,6 +482,7 @@ pub async fn fetch_latest_conus(
 pub async fn fetch_same_scan(
     client: &reqwest::Client,
     satellite: Satellite,
+    sector: Sector,
     bands: &[u8],
     same_scan_secs: i64,
     out_nx: usize,
@@ -380,12 +491,12 @@ pub async fn fetch_same_scan(
     let (&first, rest) = bands
         .split_first()
         .ok_or_else(|| anyhow::anyhow!("no bands asked for"))?;
-    let anchor = latest_key(client, satellite, first).await?;
+    let anchor = latest_key(client, satellite, sector, first).await?;
     let when = key_time(&anchor)
         .ok_or_else(|| anyhow::anyhow!("could not parse a scan time from {anchor}"))?;
     let others = futures_util::future::try_join_all(
         rest.iter()
-            .map(|&band| key_near(client, satellite, band, when)),
+            .map(|&band| key_near(client, satellite, sector, band, when)),
     )
     .await?;
     let mut keys = vec![anchor];
@@ -462,11 +573,11 @@ pub async fn fetch_cooling_rate(
     out_nx: usize,
     out_ny: usize,
 ) -> anyhow::Result<MrmsField> {
-    let latest = latest_key(client, satellite, band).await?;
+    let latest = latest_key(client, satellite, Sector::Conus, band).await?;
     let latest_time = key_time(&latest)
         .ok_or_else(|| anyhow::anyhow!("could not parse a scan time from {latest}"))?;
     let target = latest_time - chrono::Duration::minutes(lookback_minutes);
-    let earlier = key_near(client, satellite, band, target).await?;
+    let earlier = key_near(client, satellite, Sector::Conus, band, target).await?;
     let (now_field, past_field) = futures_util::future::try_join(
         fetch_key(client, satellite, &latest, out_nx, out_ny),
         fetch_key(client, satellite, &earlier, out_nx, out_ny),
@@ -566,6 +677,43 @@ mod tests {
         assert_eq!(keys.len(), 2);
         assert!(keys[0].ends_with("s20262621801173_e20262621803558_c20262621804022.nc"));
         assert!(keys[1].ends_with("s20262621806173_e20262621808558_c20262621809040.nc"));
+    }
+
+    #[test]
+    fn each_sector_names_its_own_files_and_cadence() {
+        // As the live bucket files them (checked against a listing).
+        assert_eq!(
+            (Sector::Meso1.product(), Sector::Meso1.file_product()),
+            ("ABI-L2-CMIPM", "ABI-L2-CMIPM1")
+        );
+        assert_eq!(Sector::Meso2.file_product(), "ABI-L2-CMIPM2");
+        assert_eq!(Sector::Conus.product(), Sector::Conus.file_product());
+        assert_eq!(Sector::Meso1.cadence_secs(), 60);
+        assert_eq!(Sector::Conus.cadence_secs(), 300);
+        assert!(Sector::Meso2.is_meso() && !Sector::Conus.is_meso());
+        let key = "ABI-L2-CMIPM/2026/270/17/OR_ABI-L2-CMIPM1-M6C13_G19_s20262701701247_e20262701701316_c20262701701368.nc";
+        assert_eq!(
+            key_time(key).map(|t| t.to_rfc3339()),
+            Some("2026-09-27T17:01:24+00:00".to_string()),
+            "a mesoscale key's scan time parses like a CONUS one"
+        );
+    }
+
+    #[test]
+    fn a_footprint_is_the_box_its_granule_covers() {
+        let f = MrmsField {
+            values: vec![0.0; 4],
+            nx: 2,
+            ny: 2,
+            lon_west: -100.0,
+            lon_east: -90.0,
+            lat_north: 40.0,
+            lat_south: 32.0,
+            time: chrono::DateTime::UNIX_EPOCH,
+        };
+        let fp = Footprint::of(&f);
+        assert!(fp.contains(-95.0, 35.0));
+        assert!(!fp.contains(-101.0, 35.0) && !fp.contains(-95.0, 41.0));
     }
 
     #[test]
@@ -928,6 +1076,25 @@ mod tests {
         assert!(
             p95_abs < 30.0,
             "even the more active 5% of the scene swinging {p95_abs} K in 15 minutes is implausible"
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn finds_where_mesoscale_sector_1_is_pointed() {
+        let client = reqwest::Client::new();
+        let fp = footprint(&client, Satellite::East, Sector::Meso1)
+            .await
+            .unwrap();
+        eprintln!("meso 1: {fp:?}");
+        let (w, h) = (fp.lon_east - fp.lon_west, fp.lat_north - fp.lat_south);
+        assert!(
+            (3.0..30.0).contains(&w) && (3.0..30.0).contains(&h),
+            "{w} x {h} degrees"
+        );
+        assert!(
+            (chrono::Utc::now() - fp.time).num_minutes() < 30,
+            "a fresh minute"
         );
     }
 }

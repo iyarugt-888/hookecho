@@ -120,6 +120,9 @@ pub(crate) enum FeedSource {
     TropicalCyclones,
     WindParticles,
     DerivedRadarFields,
+    /// Where a GOES mesoscale sector is pointed (ROADMAP_NEW E5), probed while the chosen sector
+    /// has moved away from the view.
+    GoesMesoSector,
 }
 
 impl FeedSource {
@@ -162,6 +165,7 @@ impl FeedSource {
             Self::TropicalCyclones => "Tropical cyclones",
             Self::WindParticles => "Wind particles",
             Self::DerivedRadarFields => "Derived radar fields",
+            Self::GoesMesoSector => "GOES mesoscale sector",
         }
     }
 
@@ -170,7 +174,8 @@ impl FeedSource {
             Self::SpotterNetwork
             | Self::LiveStations
             | Self::FieldMill
-            | Self::DerivedRadarFields => 60,
+            | Self::DerivedRadarFields
+            | Self::GoesMesoSector => 60,
             Self::SurfaceObservations => 75,
             Self::MpingReports
             | Self::PowerOutages
@@ -232,6 +237,7 @@ impl FeedSource {
             | Self::PowerOutages
             | Self::RiverGauges => EndpointFamily::PublicPartnerApi,
             Self::DerivedRadarFields => EndpointFamily::LocalProcessing,
+            Self::GoesMesoSector => EndpointFamily::GoesOpenData,
             Self::FieldMill => EndpointFamily::UserConfigured,
         }
     }

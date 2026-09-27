@@ -504,6 +504,8 @@ enum OverlayMsg {
     ),
     /// River flood gauges (NWPS) for the requested bbox.
     Gauges(Vec<wxdata::river::Gauge>),
+    /// Where a GOES mesoscale sector is pointed now.
+    GoesFootprint(wxdata::goes_abi::Sector, wxdata::goes_abi::Footprint),
     /// HRRR model contour polylines for a kind, plus the forecast valid time.
     Contours(
         ContourKind,
@@ -611,7 +613,11 @@ enum OverlaySource {
     /// the second field (`settings.goes_satellite_west`, resolved at spawn time). `GoesColdTop`
     /// reuses Band 13 but transforms the fetched value before it reaches the field cache — see
     /// the handler's own comment.
-    Goes(crate::render::FieldLayer, wxdata::goes_abi::Satellite),
+    Goes(
+        crate::render::FieldLayer,
+        wxdata::goes_abi::Satellite,
+        wxdata::goes_abi::Sector,
+    ),
     /// A two-band GOES ABI channel-difference product, CONUS sector — today only
     /// `FieldLayer::GoesDustDiff` (ROADMAP_NEW E6's split-window dust/ash technique, Band 13
     /// minus Band 15), but the variant carries the layer rather than being hardcoded so a second
@@ -627,7 +633,10 @@ enum OverlaySource {
     GoesRgb(
         &'static wxdata::goes_rgb::Recipe,
         wxdata::goes_abi::Satellite,
+        wxdata::goes_abi::Sector,
     ),
+    /// Where a GOES mesoscale sector is pointed now (ROADMAP_NEW E5).
+    GoesFootprint(wxdata::goes_abi::Satellite, wxdata::goes_abi::Sector),
     /// An NDFD element (the NWS's own forecaster-blended grid), CONUS short range — which
     /// element is `NdfdTemp2m`/`NdfdWind10m`/`NdfdGust10m`/`NdfdSnow`.
     Ndfd(crate::render::FieldLayer),
@@ -1083,6 +1092,7 @@ impl OverlaySource {
             | Self::Ndfd(layer)
             | Self::Rtma(layer, _) => RequestLane::Field(*layer),
             Self::GoesRgb(..) => RequestLane::Field(FL::GoesRgb),
+            Self::GoesFootprint(..) => RequestLane::Feed(FeedSource::GoesMesoSector),
             Self::ModelDiff(..) => RequestLane::Field(FL::ModelDiff),
             // Both compare panes ride one fetch (see `fetch_diff_pair`); either layer name works
             // as the dedup key, so it just picks the first.
@@ -1481,7 +1491,7 @@ impl OverlaySource {
                 crate::render::FieldLayer::SnowAnalysis,
                 wxdata::nohrsc::fetch(http, hours).await?,
             ),
-            OverlaySource::Goes(layer, satellite) => {
+            OverlaySource::Goes(layer, satellite, sector) => {
                 use crate::render::FieldLayer as FL;
                 // Band number for each channel's own S3 objects — see `wxdata::goes_abi`'s doc
                 // comment for why CMIP CONUS is the product either way.
@@ -1495,8 +1505,10 @@ impl OverlaySource {
                     FL::GoesDirtyIr => 15,
                     _ => anyhow::bail!("{layer:?} is not a GOES band"),
                 };
+                // A mesoscale box is about 1000 km a side: square, and finer per degree.
+                let (nx, ny) = goes_grid(sector);
                 let mut field =
-                    wxdata::goes_abi::fetch_latest_conus(http, satellite, band, 1200, 700).await?;
+                    wxdata::goes_abi::fetch_latest(http, satellite, sector, band, nx, ny).await?;
                 // Cold-cloud-top threshold overlay (ROADMAP_NEW E6): the exact same Band 13 data
                 // as GoesIr, re-expressed as "how many kelvin colder than the overshooting-top
                 // threshold" so this layer's own ramp (`GOES_COLD_TOP`) can hide ordinary cloud
@@ -1546,14 +1558,19 @@ impl OverlaySource {
                     .await?,
                 )
             }
-            OverlaySource::GoesRgb(recipe, satellite) => {
+            OverlaySource::GoesRgb(recipe, satellite, sector) => {
+                let (nx, ny) = goes_grid(sector);
                 let rgb =
-                    wxdata::goes_rgb::fetch_recipe(http, satellite, recipe, 1200, 700).await?;
+                    wxdata::goes_rgb::fetch_recipe(http, satellite, sector, recipe, nx, ny).await?;
                 OverlayMsg::Field(
                     crate::render::FieldLayer::GoesRgb,
                     wxdata::goes_rgb::pack(&rgb),
                 )
             }
+            OverlaySource::GoesFootprint(satellite, sector) => OverlayMsg::GoesFootprint(
+                sector,
+                wxdata::goes_abi::footprint(http, satellite, sector).await?,
+            ),
             OverlaySource::Ndfd(layer) => {
                 use crate::render::FieldLayer as FL;
                 let field = match layer {
@@ -3733,6 +3750,14 @@ pub struct HookEchoApp {
     goes_west_key: std::collections::HashMap<crate::render::FieldLayer, bool>,
     /// The GOES RGB recipe last fetched, so picking another refetches at once.
     goes_rgb_fetched: Option<&'static str>,
+    /// The ABI sector each GOES layer was last fetched from, so a change of sector (a choice, or
+    /// the fallback to CONUS when a mesoscale box leaves the view) refetches at once.
+    goes_fetched_sector:
+        std::collections::HashMap<crate::render::FieldLayer, wxdata::goes_abi::Sector>,
+    /// Where the chosen mesoscale sector was last seen pointed (ROADMAP_NEW E5).
+    goes_footprint: Option<(wxdata::goes_abi::Sector, wxdata::goes_abi::Footprint)>,
+    /// When the mesoscale footprint was last probed on its own (while falling back to CONUS).
+    goes_footprint_probe: Option<Instant>,
     /// When `goto.txt` was last looked for — see the poll in `update`.
     goto_poll: Option<Instant>,
     /// The `#goto=` fragment last applied, web only — so a kiosk tab that never navigates away
@@ -5302,6 +5327,9 @@ impl HookEchoApp {
             diff_pct: None,
             goes_west_key: std::collections::HashMap::new(),
             goes_rgb_fetched: None,
+            goes_fetched_sector: std::collections::HashMap::new(),
+            goes_footprint: None,
+            goes_footprint_probe: None,
             goto_poll: None,
             #[cfg(target_arch = "wasm32")]
             last_goto_hash: None,
@@ -11885,7 +11913,17 @@ impl HookEchoApp {
                     }
                 }
                 OverlayMsg::Field(layer, field) => {
+                    // A GOES layer read from a mesoscale sector says where the sector is now.
+                    if let Some(&sector) = self.goes_fetched_sector.get(&layer) {
+                        if sector.is_meso() {
+                            self.goes_footprint =
+                                Some((sector, wxdata::goes_abi::Footprint::of(&field)));
+                        }
+                    }
                     self.accept_field(layer, field, None);
+                }
+                OverlayMsg::GoesFootprint(sector, fp) => {
+                    self.goes_footprint = Some((sector, fp));
                 }
                 OverlayMsg::StampedField(layer, field) => {
                     self.accept_field(layer, field.data, Some(field.stamp));
@@ -12864,6 +12902,60 @@ impl HookEchoApp {
             return 0;
         }
         crate::ui::gauge_dashboard::summarize(&self.gauges).in_flood()
+    }
+
+    /// The ABI sector the GOES layers read this frame (see [`goes_sector_for`]).
+    pub(crate) fn goes_sector_now(&self) -> wxdata::goes_abi::Sector {
+        let (min_lon, min_lat, max_lon, max_lat) = self.view_bounds();
+        let center = ((min_lon + max_lon) * 0.5, (min_lat + max_lat) * 0.5);
+        goes_sector_for(self.settings.goes_sector, self.goes_footprint, center)
+    }
+
+    /// Whether any layer that reads the chosen GOES sector is on.
+    fn goes_layers_on(&self) -> bool {
+        use crate::render::FieldLayer as FL;
+        [
+            FL::GoesIr,
+            FL::GoesVisible,
+            FL::GoesWaterVapor,
+            FL::GoesShortwaveIr,
+            FL::GoesMidWaterVapor,
+            FL::GoesLowWaterVapor,
+            FL::GoesDirtyIr,
+            FL::GoesColdTop,
+            FL::GoesRgb,
+        ]
+        .into_iter()
+        .any(|l| self.field_wanted(l))
+    }
+
+    /// A line for the Satellite settings on where the chosen mesoscale box is, and whether the
+    /// view is reading it or falling back to CONUS.
+    pub(crate) fn goes_sector_note(&self) -> Option<String> {
+        let chosen = self.settings.goes_sector;
+        if !chosen.is_meso() {
+            return None;
+        }
+        let Some((sector, fp)) = self.goes_footprint.filter(|(s, _)| *s == chosen) else {
+            return Some("Finding where the sector is pointed\u{2026}".into());
+        };
+        let place = format!(
+            "{:.0}\u{2013}{:.0}\u{b0}N, {:.0}\u{2013}{:.0}\u{b0}W at {}",
+            fp.lat_south,
+            fp.lat_north,
+            -fp.lon_east,
+            -fp.lon_west,
+            fp.time.format("%H:%MZ")
+        );
+        Some(if self.goes_sector_now() == sector {
+            format!("{} is over {place}.", sector.label())
+        } else {
+            format!(
+                "{} is over {place}, away from this view: showing CONUS until it covers the view \
+                 again.",
+                sector.label()
+            )
+        })
     }
 
     /// Drive the river-gauge fetch (NWPS), mirroring [`Self::sync_metar`] but with a slower cadence
@@ -17627,6 +17719,61 @@ impl HookEchoApp {
             }
         }
 
+        // Where the chosen GOES mesoscale sector is pointed (ROADMAP_NEW E5), while a GOES layer
+        // reads it: its box, following the sector as NOAA moves it, and whether this view is in it.
+        if let Some((sector, fp)) = self
+            .goes_footprint
+            .filter(|(s, _)| *s == self.settings.goes_sector && s.is_meso())
+            .filter(|_| self.goes_layers_on())
+        {
+            let to_screen = |lon: f64, lat: f64| {
+                let w = crate::render::mercator::lonlat_to_world(lon, lat);
+                let (sx, sy) = cam.world_to_screen(w, vp);
+                egui::pos2(prect.left() + sx, prect.top() + sy)
+            };
+            let corners = [
+                to_screen(fp.lon_west, fp.lat_north),
+                to_screen(fp.lon_east, fp.lat_north),
+                to_screen(fp.lon_east, fp.lat_south),
+                to_screen(fp.lon_west, fp.lat_south),
+            ];
+            let color = egui::Color32::from_rgb(255, 214, 90);
+            let mut ring = corners.to_vec();
+            ring.push(corners[0]);
+            painter.extend(egui::Shape::dashed_line(
+                &ring,
+                egui::Stroke::new(1.5, color),
+                8.0,
+                5.0,
+            ));
+            let reading = self.goes_sector_now() == sector;
+            // At the bottom-left corner: the top-left is where the layer's colour scale sits.
+            painter.text(
+                corners[3] + egui::vec2(4.0, -4.0),
+                egui::Align2::LEFT_BOTTOM,
+                format!(
+                    "{} {} \u{b7} {}{}",
+                    if self.settings.goes_satellite_west {
+                        "GOES-West"
+                    } else {
+                        "GOES-East"
+                    },
+                    match sector {
+                        wxdata::goes_abi::Sector::Meso2 => "Meso 2",
+                        _ => "Meso 1",
+                    },
+                    fp.time.format("%H:%MZ"),
+                    if reading {
+                        ""
+                    } else {
+                        " (view outside: CONUS)"
+                    }
+                ),
+                egui::FontId::proportional(11.0),
+                color,
+            );
+        }
+
         // HRRR model contours (MSLP / 2 m temp / dewpoint / CAPE / SRH / …): labeled isolines plus
         // one stacked banner per active kind. Several can be on at once, each independently
         // fetched and colored — overlaying, say, MSLP and CAPE together rather than one exclusive
@@ -22067,6 +22214,37 @@ pub(crate) fn field_index_upload(
     }
 }
 
+/// The lat/lon grid a GOES granule is decoded to. CONUS spans about 60 by 25 degrees; a
+/// mesoscale box about 10 by 10, square, and scanned at about 500 by 500 pixels in the 2 km bands.
+/// The decode scatters each source pixel to its nearest cell, so a grid finer than the source
+/// leaves holes (stripes of no data): the box's grid stays just under the source.
+fn goes_grid(sector: wxdata::goes_abi::Sector) -> (usize, usize) {
+    if sector.is_meso() {
+        (480, 480)
+    } else {
+        (1200, 700)
+    }
+}
+
+/// Which ABI sector to read for a view centred at `(lon, lat)`: the chosen one, unless it is a
+/// mesoscale box known to be pointed somewhere that does not cover the view, in which case CONUS
+/// (ROADMAP_NEW E5's graceful switch). A box not yet seen is tried: its first granule says where
+/// it is.
+pub(crate) fn goes_sector_for(
+    chosen: wxdata::goes_abi::Sector,
+    footprint: Option<(wxdata::goes_abi::Sector, wxdata::goes_abi::Footprint)>,
+    (lon, lat): (f64, f64),
+) -> wxdata::goes_abi::Sector {
+    use wxdata::goes_abi::Sector;
+    if !chosen.is_meso() {
+        return chosen;
+    }
+    match footprint {
+        Some((sector, fp)) if sector == chosen && !fp.contains(lon, lat) => Sector::Conus,
+        _ => chosen,
+    }
+}
+
 /// An RGB composite's upload: its packed colours (`wxdata::goes_rgb::pack`) reduced to an
 /// adaptive palette of 254 colours, which the field pipeline draws like any indexed layer. Index 0
 /// is no data and 1 is left unused, as the pipeline reserves them.
@@ -22711,7 +22889,7 @@ impl eframe::App for HookEchoApp {
         if let Some(text) = self.pending_paste.take() {
             raw_input.events.push(egui::Event::Paste(text));
         }
-        // Web: a tab that was hidden may have lost a font-atlas upload; rebuild it on return.
+        // Web: never let eframe drop a frame's texture changes as hidden (see the function).
         crate::platform::guard_font_atlas(raw_input);
     }
 
@@ -23064,6 +23242,16 @@ impl eframe::App for HookEchoApp {
         } else {
             wxdata::goes_abi::Satellite::East
         };
+        // The ABI sector to read: the chosen one, unless it is a mesoscale box that has moved
+        // away from the view, which reads CONUS until it covers the view again (ROADMAP_NEW E5).
+        let sector = self.goes_sector_now();
+        let refresh = |layer| {
+            if sector.is_meso() {
+                sector.cadence_secs()
+            } else {
+                field_refresh_secs(layer)
+            }
+        };
         for layer in [
             FL::GoesIr,
             FL::GoesVisible,
@@ -23078,14 +23266,30 @@ impl eframe::App for HookEchoApp {
             let stale = on
                 && self.fields.get(&layer).is_none_or(|s| {
                     s.last_fetch
-                        .is_none_or(|t| t.elapsed().as_secs() >= field_refresh_secs(layer))
+                        .is_none_or(|t| t.elapsed().as_secs() >= refresh(layer))
                 });
-            let changed = on && self.goes_west_key.get(&layer) != Some(&west);
+            let changed = on
+                && (self.goes_west_key.get(&layer) != Some(&west)
+                    || self.goes_fetched_sector.get(&layer) != Some(&sector));
             if stale || changed {
                 self.fields.entry(layer).or_default().last_fetch = Some(Instant::now());
                 self.goes_west_key.insert(layer, west);
-                self.spawn_overlay(ctx, OverlaySource::Goes(layer, satellite));
+                self.goes_fetched_sector.insert(layer, sector);
+                self.spawn_overlay(ctx, OverlaySource::Goes(layer, satellite, sector));
             }
+        }
+        // Falling back to CONUS: keep an eye on where the chosen box goes, so the view gets it
+        // back the minute it covers the view again.
+        let chosen = self.settings.goes_sector;
+        if chosen.is_meso()
+            && sector != chosen
+            && self.goes_layers_on()
+            && self
+                .goes_footprint_probe
+                .is_none_or(|t| t.elapsed().as_secs() >= chosen.cadence_secs())
+        {
+            self.goes_footprint_probe = Some(Instant::now());
+            self.spawn_overlay(ctx, OverlaySource::GoesFootprint(satellite, chosen));
         }
         // GOES channel-difference products: same staleness/satellite-flip rules as the single-band
         // layers above, but a distinct `OverlaySource` variant since each one fetches two bands.
@@ -23135,16 +23339,18 @@ impl eframe::App for HookEchoApp {
             let stale = on
                 && self.fields.get(&layer).is_none_or(|s| {
                     s.last_fetch
-                        .is_none_or(|t| t.elapsed().as_secs() >= field_refresh_secs(layer))
+                        .is_none_or(|t| t.elapsed().as_secs() >= refresh(layer))
                 });
             let changed = on
                 && (self.goes_west_key.get(&layer) != Some(&west)
-                    || self.goes_rgb_fetched != Some(recipe.slug));
+                    || self.goes_rgb_fetched != Some(recipe.slug)
+                    || self.goes_fetched_sector.get(&layer) != Some(&sector));
             if stale || changed {
                 self.fields.entry(layer).or_default().last_fetch = Some(Instant::now());
                 self.goes_west_key.insert(layer, west);
                 self.goes_rgb_fetched = Some(recipe.slug);
-                self.spawn_overlay(ctx, OverlaySource::GoesRgb(recipe, satellite));
+                self.goes_fetched_sector.insert(layer, sector);
+                self.spawn_overlay(ctx, OverlaySource::GoesRgb(recipe, satellite, sector));
             }
         }
         // NDFD elements: also no forecast hour to scrub — each fetch is the whole short-range
@@ -26586,6 +26792,40 @@ mod probe_grid_tests {
             Some("RGB 128 64 32"),
             "a composite probes as its colour, not its packed number"
         );
+        {
+            use crate::app::{goes_grid, goes_sector_for};
+            use wxdata::goes_abi::{Footprint, Sector};
+            let fp = Footprint {
+                lon_west: -82.0,
+                lon_east: -68.0,
+                lat_south: 32.0,
+                lat_north: 46.0,
+                time: chrono::DateTime::UNIX_EPOCH,
+            };
+            let boston = (-71.0, 42.3);
+            let okc = (-97.5, 35.5);
+            // CONUS stays CONUS; a box not yet seen is tried; a box over the view is read.
+            assert_eq!(
+                goes_sector_for(Sector::Conus, Some((Sector::Meso1, fp)), okc),
+                Sector::Conus
+            );
+            assert_eq!(goes_sector_for(Sector::Meso1, None, okc), Sector::Meso1);
+            assert_eq!(
+                goes_sector_for(Sector::Meso1, Some((Sector::Meso1, fp)), boston),
+                Sector::Meso1
+            );
+            // The box moved away from the view: CONUS until it covers it again.
+            assert_eq!(
+                goes_sector_for(Sector::Meso1, Some((Sector::Meso1, fp)), okc),
+                Sector::Conus
+            );
+            // Where Meso 1 is says nothing about Meso 2.
+            assert_eq!(
+                goes_sector_for(Sector::Meso2, Some((Sector::Meso1, fp)), okc),
+                Sector::Meso2
+            );
+            assert_eq!(goes_grid(Sector::Meso2), (480, 480));
+        }
         let dust = format_probe_field_value(FL::GoesDustDiff, 3.0, TempUnit::Fahrenheit)
             .expect("a finite sample formats");
         assert!(

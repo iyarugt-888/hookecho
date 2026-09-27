@@ -483,13 +483,16 @@ pub const SAME_SCAN_SECS: i64 = 120;
 pub async fn fetch_recipe(
     client: &reqwest::Client,
     satellite: Satellite,
+    sector: crate::goes_abi::Sector,
     recipe: &Recipe,
     out_nx: usize,
     out_ny: usize,
 ) -> anyhow::Result<RgbGrid> {
     let bands = recipe.bands();
+    // A mesoscale sector scans every minute; its bands of one scan are seconds apart.
+    let same = if sector.is_meso() { 30 } else { SAME_SCAN_SECS };
     let fields =
-        crate::goes_abi::fetch_same_scan(client, satellite, &bands, SAME_SCAN_SECS, out_nx, out_ny)
+        crate::goes_abi::fetch_same_scan(client, satellite, sector, &bands, same, out_nx, out_ny)
             .await?;
     compose(recipe, &bands, &fields)
 }
@@ -651,9 +654,16 @@ mod tests {
     #[ignore = "network"]
     async fn fetches_and_packs_a_real_air_mass_composite() {
         let client = reqwest::Client::new();
-        let rgb = fetch_recipe(&client, Satellite::East, &AIR_MASS, 600, 350)
-            .await
-            .unwrap();
+        let rgb = fetch_recipe(
+            &client,
+            Satellite::East,
+            crate::goes_abi::Sector::Conus,
+            &AIR_MASS,
+            600,
+            350,
+        )
+        .await
+        .unwrap();
         let field = pack(&rgb);
         let valid = field.values.iter().filter(|v| v.is_finite()).count();
         let q = quantize(&field.values, 254);
@@ -675,9 +685,16 @@ mod tests {
     #[ignore = "network"]
     async fn fetches_a_real_day_cloud_phase_composite() {
         let client = reqwest::Client::new();
-        let rgb = fetch_recipe(&client, Satellite::East, &DAY_CLOUD_PHASE, 600, 350)
-            .await
-            .unwrap();
+        let rgb = fetch_recipe(
+            &client,
+            Satellite::East,
+            crate::goes_abi::Sector::Conus,
+            &DAY_CLOUD_PHASE,
+            600,
+            350,
+        )
+        .await
+        .unwrap();
         let q = quantize(&pack(&rgb).values, 254);
         eprintln!(
             "day cloud phase at {}: {} colours",

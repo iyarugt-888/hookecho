@@ -2194,13 +2194,32 @@ colours) in the browser build, and Day Cloud Phase natively (band 2's ~70 MB hal
 granule included). The browser build's proxy used to cap responses at 64 MB, which a band 2
 granule exceeds (so the plain visible layer failed there too); it is now 128 MB.
 
-## E5. Rapid-scan handling
+## E5. Rapid-scan handling — done, apart from a 1-minute loop timeline
 
-- discover active mesoscale sector footprints
-- 1-minute frame timeline
-- dynamically follow sector movement
-- show sector boundary
-- graceful switch when the event exits the meso sector
+`wxdata::goes_abi::Sector` (CONUS, Mesoscale 1, Mesoscale 2) runs through key discovery
+(`ABI-L2-CMIPM/…/OR_ABI-L2-CMIPM1-…`, listings raised to 100 keys an hour since a mesoscale sector
+files 60 a band), `fetch_latest`, `fetch_same_scan` and the RGB recipes. The Satellite settings
+pick the scan for the GOES band layers and the RGB composite.
+
+- [x] Discover active mesoscale sector footprints: a mesoscale granule decodes to the box it
+  covers that minute (`Footprint::of`), and `goes_abi::footprint` asks for it alone (band 13,
+  decoded coarse, about a megabyte). Checked live: Mesoscale 1 over the Northeast, 32–46°N,
+  68–82°W, scan at 18:01Z.
+- [x] Dynamically follow sector movement: every mesoscale fetch updates the footprint, so the
+  box on the map moves when NOAA moves the sector.
+- [x] Show sector boundary: a dashed box on the map with "GOES-East Meso 1 · 18:42Z", and a line in
+  the Satellite settings saying where it is. A box is decoded to 480 × 480 cells, just under its
+  ~500 × 500 source pixels in the 2 km bands, since a finer grid than the source leaves striped
+  holes in the nearest-pixel decode. Checked in the browser: IR from Mesoscale 1 over New England
+  inside its box; the view moved to Oklahoma read CONUS with the note "away from this view:
+  showing CONUS until it covers the view again".
+- [x] Graceful switch when the event exits the meso sector: when the view's centre is outside the
+  chosen box, the layers read CONUS (`app::goes_sector_for`) and say so, on the map and in the
+  settings; a probe keeps watching the box every minute, and the view goes back to the mesoscale
+  sector as soon as the box covers it again.
+- [ ] 1-minute frame timeline — partly: a mesoscale layer refreshes every minute (its own
+  cadence), but the GOES layers show the newest frame, not a loop; a scrubbable loop of recent
+  minutes is still to do.
 
 ## E6. Satellite analysis tools — partly done
 

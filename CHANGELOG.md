@@ -8,6 +8,14 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: GOES one-minute rapid scan
+
+The satellite layers can read a GOES mesoscale sector instead of the whole country: a box about
+1000 km across that NOAA points at the day's big weather and scans every minute. Pick **Mesoscale 1**
+or **2** under the layer's Satellite settings. The box is drawn on the map and moves when NOAA
+moves it; if it is pointed somewhere else than you are looking, the layer shows the regular
+five-minute view until the box comes back.
+
 ### Added: GOES RGB composites
 
 A new layer, **GOES RGB composite**, builds the standard satellite RGBs straight from GOES-East or
@@ -42,6 +50,12 @@ list only those); the worst gauges' change over the past week on one chart; and 
 searchable table with each gauge's stage, forecast crest, a week's sparkline and its 24-hour
 change. Click a gauge for its hydrograph (now up to 30 days), flood stages, forecast, crest history
 and impacts. In the Dock and WSV3 layouts it is a dockable tool window.
+
+### Fixed: the web app could stop on load in a background tab
+
+Opening HookEcho in a browser tab that was not in front (or one hidden for a moment while it
+loaded) could stop it with "Tried to update a texture that has not been allocated yet". The page
+now keeps every frame's drawing changes, hidden or not.
 
 ### Fixed: "Live" could show a radar scan from the day before
 

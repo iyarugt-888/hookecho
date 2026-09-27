@@ -396,6 +396,10 @@ pub struct Settings {
     /// Which GOES RGB composite the RGB layer shows, by recipe slug (`wxdata::goes_rgb`).
     #[serde(default = "default_goes_rgb_recipe")]
     pub goes_rgb_recipe: String,
+    /// Which ABI scan the GOES band and RGB layers read: CONUS every 5 minutes, or a mesoscale
+    /// sector every minute (ROADMAP_NEW E5).
+    #[serde(default)]
+    pub goes_sector: wxdata::goes_abi::Sector,
     /// How far from the active radar to draw Spotter Network dots, in km. 0 = no limit (the whole
     /// CONUS feed). Default 230 km, roughly the radar's own useful range.
     #[serde(default = "default_spotter_range_km")]
@@ -1636,6 +1640,7 @@ impl Default for Settings {
             glm_goes_west: false,
             goes_satellite_west: false,
             goes_rgb_recipe: default_goes_rgb_recipe(),
+            goes_sector: Default::default(),
             spotter_range_km: default_spotter_range_km(),
             alert_sound: true,
             smooth_radar: true,
@@ -2470,6 +2475,7 @@ mod tests {
             glm_goes_west: false,
             goes_satellite_west: false,
             goes_rgb_recipe: default_goes_rgb_recipe(),
+            goes_sector: Default::default(),
             spotter_range_km: default_spotter_range_km(),
             alert_sound: false,
             ntfy_topic: "hookecho-test".to_string(),

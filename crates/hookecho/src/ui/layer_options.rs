@@ -358,6 +358,9 @@ pub(crate) fn show(
     goes_satellite_west: &mut bool,
     // Satellite: which RGB composite the GOES RGB layer shows, by recipe slug.
     goes_rgb_recipe: &mut String,
+    // Satellite: CONUS or a mesoscale sector, and a line on where the sector is pointed.
+    goes_sector: &mut wxdata::goes_abi::Sector,
+    goes_sector_note: Option<&str>,
     // Spotter Network dots: on-state, and how far from the radar to draw them (0 = whole feed).
     show_spotters: bool,
     spotter_range_km: &mut f64,
@@ -757,6 +760,28 @@ pub(crate) fn show(
     }
 
     if section == "Satellite" {
+        ui.horizontal(|ui| {
+            ui.label("Scan:");
+            egui::ComboBox::from_id_salt("goes_sector")
+                .selected_text(goes_sector.label())
+                .show_ui(ui, |ui| {
+                    for s in wxdata::goes_abi::Sector::ALL {
+                        if ui.selectable_value(goes_sector, s, s.label()).changed() {
+                            changed = true;
+                        }
+                    }
+                })
+                .response
+                .on_hover_text(
+                    "A mesoscale sector is a box about 1000 km a side that NOAA points at \
+                     whatever is happening and scans every minute. Its box is drawn on the map; \
+                     when it is pointed away from this view the layers read CONUS until it comes \
+                     back.",
+                );
+        });
+        if let Some(note) = goes_sector_note {
+            ui.label(egui::RichText::new(note).small());
+        }
         changed |= crate::ui::style::toggle(ui, goes_satellite_west, "Use GOES-West")
             .on_hover_text(
                 "GOES-18 instead of GOES-East — covers the Pacific and the western half of the \

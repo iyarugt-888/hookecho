@@ -65,6 +65,7 @@ impl HookEchoApp {
             || self.views[self.active]
                 .fields_on
                 .contains(&crate::render::FieldLayer::GlmFed);
+        let goes_note = self.goes_sector_note();
         crate::ui::layer_options::show(
             ui,
             &mut self.filters,
@@ -101,6 +102,8 @@ impl HookEchoApp {
             &mut self.settings.glm_goes_west,
             &mut self.settings.goes_satellite_west,
             &mut self.settings.goes_rgb_recipe,
+            &mut self.settings.goes_sector,
+            goes_note.as_deref(),
             self.show_spotters,
             &mut self.settings.spotter_range_km,
             &mut self.settings.detectors,
