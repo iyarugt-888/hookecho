@@ -8,6 +8,32 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: dock windows by dragging them, and a bottom dock
+
+In the Dock and WSV3 layouts, drag a floating window and dock targets appear at the left, right
+and bottom of the map; drop it on one to dock it there. Drag a docked window's title (or one of its
+tabs) out of its dock to float it again. There is now a dock under the map as well, good for the
+storm and gauge tables and the analyst log; drag its top edge to resize it.
+
+### Added: the workstation on your phone
+
+Phones get a new look, **Station**, modelled on the desktop's Dock layout: a top bar with search,
+alerts and a menu that reaches every tool and setting; big Site, Product and Tilt buttons with a
+2D/3D switch; map tools down the left edge and the color scale down the right; and a panel at the
+bottom whose tabs are the Inspector, Layers, Storms and Alerts (plus storm details, soundings, flood
+gauges and anything else you open). Drag the panel up to read more, fold it down to see more map,
+or go full screen. Phones on the old default design switch to Station once; the other designs are
+still under Settings → Appearance.
+
+### Added: flood gauge dashboard
+
+**Tools → Flood gauges** lists every river gauge in view in one window: how many are flooding, at
+action stage, forecast to flood and rising; a bar of gauges by flood category (click a segment to
+list only those); the worst gauges' change over the past week on one chart; and a sortable,
+searchable table with each gauge's stage, forecast crest, a week's sparkline and its 24-hour
+change. Click a gauge for its hydrograph (now up to 30 days), flood stages, forecast, crest history
+and impacts. In the Dock and WSV3 layouts it is a dockable tool window.
+
 ### Fixed: "Live" could show a radar scan from the day before
 
 Live Level II could show an old volume labelled as the current one — a scan from 3:46 AM at

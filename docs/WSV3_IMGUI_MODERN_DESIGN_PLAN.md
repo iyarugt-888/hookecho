@@ -988,3 +988,46 @@ a scale bar on the map; a network round-trip measurement for the app bar; a natu
   close). It floats by default; docked, the view fills the column. It shares
   `volume3d_window::body` with the floating window the other layouts keep. Checked by
   screenshot: View in 3D on a live KVNX cell, then docked right.
+- A flood-gauge dashboard, **Flood gauges** (Tools → Analysis, or the palette), as a workstation
+  tool window (dock, float, fold, close; docks right when opened). It lists every river gauge the
+  map's gauge layer fetched for the view (opening it switches that layer on): headline counts
+  (in flood, action, forecast to flood, rising), a bar of gauges per flood category that filters
+  the table when a segment is clicked, the worst gauges' change over the past week on one chart,
+  then a sortable, searchable table — category, stage, forecast crest, a week's sparkline and the
+  24-hour change. Selecting a row draws that gauge's card in the window (`Cards::show_focus`, the
+  same card a map click opens: hydrograph now out to 30 days, flood stages, crests, impacts,
+  outlook); upstream/downstream move the selection, and Pop out opens it as its own card.
+  Sparklines are fetched one gauge a minute while the window is up (NWPS allows ten requests in
+  five minutes), flooding gauges first, and back off for five minutes on a 429. The tab wears a
+  dot while any gauge in view is at minor flooding or worse. The other layouts show the same body
+  in a floating window.
+- The workstation on a phone: a sixth phone design, **Station** (now the default; a phone still
+  on the old default, Aurora, moves to it once — `Settings::adopt_station_default`). It is the
+  dock's own windows, not copies (`app::chrome::dock::phone`): an app bar (name, search, the
+  alerts bell with a count, and a gear menu holding every desktop app-bar menu — settings, all the
+  tools, forecasts, share and workspaces, help), a row of big Site / Product / Tilt fields with a
+  2D / 3D switch and the Layers button, a tool rail down the map's left edge (locate, center on
+  the radar, a Display menu with smoothing, colour scale, follow, colour table, overlays, map
+  style, panes and the 3D explorer, measure, every map tool, full screen), the tall colour scale
+  down its right, and a bottom sheet whose tabs are the windows — Inspector, Layers, Storms and
+  Alerts always, then whatever else is open (storm details, sounding, gauges, region, 3D,
+  sources, preferences). The sheet folds to its tabs, sits at about two fifths of the room, or
+  pulls up to leave a strip of map; drag or tap the handle, tap a tab to bring it back up, Back
+  folds it before leaving the app. Window headers take a touch form (`ws::set_touch`): taller,
+  word tabs, no move or fold. The timeline has a phone form: big transport, Live and the archive
+  day, then the time and speed, then the track. The Layers tab carries the workspace chips the
+  app bar holds on a desktop. `?phone` in a browser address draws it (in a narrow window), for
+  trying it without a phone. Checked by screenshot at 412 × 870 against the reference mock.
+- The bottom dock (§2.3's "dock left / right / bottom"): `Place::Bottom`, a third dock under the
+  map, between the side docks and the rail, for the wide, short windows (the storm and gauge
+  tables, the analyst log). It holds a tab group like the sides, its top edge drags to resize it
+  (double-click restores 240 px; never more than half the window), its height is saved with the
+  arrangement (`WorkstationChrome::bottom_h`), and a narrow window never sets it aside.
+- Docking by dragging, as in Dear ImGui. Dragging a floating window shows three dock targets at
+  the middle of the map's left, right and bottom edges; over one, the area the window would take
+  is drawn in the accent; letting go there docks it, in front of that dock's tab group. And the
+  reverse: dragging a docked header, or one tab of a group, more than 14 px tears it out and
+  floats it under the pointer (`HeaderAction::TearOff`). A click that wobbles is still a click; a
+  floating header never tears (its drag moves the window); the phone never tears (its windows live
+  in the sheet). "Dock bottom" joins the "⋯" menu. Checked in the browser: a floating Inspector
+  dragged onto the bottom target docks there; the tear-off is covered by a headless egui test.
