@@ -15,6 +15,7 @@
 //! attribute and data-driven category styling remain deliberately separate work.
 
 use crate::settings::ImportedGisStyle;
+use chrono::{DateTime, Utc};
 use wxdata::gis::{Geometry, GisFeature};
 use wxdata::overlay::{FeatureKind, GeoFeature};
 
@@ -202,6 +203,73 @@ pub(crate) fn color_by(marks: &Marks, key: &str) -> (Vec<Option<[u8; 3]>>, Legen
         .map(|((v, _), c)| (v, c))
         .collect();
     (colors, Legend::Categories { values, others })
+}
+
+/// Each feature's valid window (I5), from the attributes mapped to its start and end: `None` on
+/// a side means unbounded there (no attribute chosen, or this feature's value is missing or not
+/// a time).
+pub(crate) type TimeBounds = Vec<(Option<DateTime<Utc>>, Option<DateTime<Utc>>)>;
+
+/// An attribute value as a time: RFC 3339 / ISO 8601 with or without an offset (no offset reads
+/// as UTC), a `YYYY-MM-DD HH:MM[:SS]` or bare date (midnight UTC), a compact `YYYYMMDD`, or a
+/// Unix timestamp in seconds or milliseconds.
+pub(crate) fn parse_time(v: &serde_json::Value) -> Option<DateTime<Utc>> {
+    use chrono::{NaiveDate, NaiveDateTime, TimeZone};
+    let epoch = |x: f64| {
+        let ms = if x.abs() >= 1e11 { x } else { x * 1000.0 };
+        Utc.timestamp_millis_opt(ms as i64).single()
+    };
+    let s = match v {
+        serde_json::Value::Number(n) => return epoch(n.as_f64()?),
+        serde_json::Value::String(s) => s.trim(),
+        _ => return None,
+    };
+    if let Ok(t) = DateTime::parse_from_rfc3339(s) {
+        return Some(t.with_timezone(&Utc));
+    }
+    for fmt in [
+        "%Y-%m-%dT%H:%M:%S%.f",
+        "%Y-%m-%dT%H:%M",
+        "%Y-%m-%d %H:%M:%S%.f",
+        "%Y-%m-%d %H:%M",
+        "%Y/%m/%d %H:%M:%S",
+        "%Y/%m/%d %H:%M",
+    ] {
+        if let Ok(t) = NaiveDateTime::parse_from_str(s, fmt) {
+            return Some(t.and_utc());
+        }
+    }
+    for fmt in ["%Y-%m-%d", "%Y/%m/%d", "%Y%m%d"] {
+        if let Ok(d) = NaiveDate::parse_from_str(s, fmt) {
+            return Some(d.and_hms_opt(0, 0, 0)?.and_utc());
+        }
+    }
+    // A bare number in text: a timestamp, but only if it is not also a plausible `YYYYMMDD`
+    // (handled above) — ten or thirteen digits.
+    if s.len() >= 10 && s.bytes().all(|b| b.is_ascii_digit()) {
+        return epoch(s.parse().ok()?);
+    }
+    None
+}
+
+/// Every feature's valid window from the attributes mapped to its start and end.
+pub(crate) fn time_bounds(marks: &Marks, start: Option<&str>, end: Option<&str>) -> TimeBounds {
+    let read = |p: &serde_json::Map<String, serde_json::Value>, key: Option<&str>| {
+        key.and_then(|k| p.get(k)).and_then(parse_time)
+    };
+    marks
+        .props
+        .iter()
+        .map(|p| (read(p, start), read(p, end)))
+        .collect()
+}
+
+/// Which features are valid at `t`: from their start (inclusive) until their end (exclusive).
+pub(crate) fn shown_at(bounds: &TimeBounds, t: DateTime<Utc>) -> Vec<bool> {
+    bounds
+        .iter()
+        .map(|(s, e)| s.is_none_or(|s| s <= t) && e.is_none_or(|e| t < e))
+        .collect()
 }
 
 /// A ring's area centroid (shoelace), or the mean of its vertices for a degenerate ring.
@@ -661,6 +729,59 @@ mod tests {
             .map(|v| feature(Geometry::Point([0.0, 0.0]), json!({ "v": v })))
             .collect();
         to_renderable(features).1
+    }
+
+    #[test]
+    fn times_read_in_the_forms_gis_files_write_them() {
+        use chrono::TimeZone;
+        let t = |y, mo, d, h, mi| Utc.with_ymd_and_hms(y, mo, d, h, mi, 0).unwrap();
+        for (v, want) in [
+            (json!("2026-09-27T17:05:00Z"), t(2026, 9, 27, 17, 5)),
+            (json!("2026-09-27T12:05:00-05:00"), t(2026, 9, 27, 17, 5)),
+            (json!("2026-09-27T17:05:00"), t(2026, 9, 27, 17, 5)),
+            (json!("2026-09-27 17:05"), t(2026, 9, 27, 17, 5)),
+            (json!("2026-09-27"), t(2026, 9, 27, 0, 0)),
+            (json!("20260927"), t(2026, 9, 27, 0, 0)),
+            (json!(1790528700), t(2026, 9, 27, 17, 5)),
+            (json!(1790528700000_i64), t(2026, 9, 27, 17, 5)),
+            (json!("1790528700"), t(2026, 9, 27, 17, 5)),
+        ] {
+            assert_eq!(parse_time(&v), Some(want), "{v}");
+        }
+        assert_eq!(parse_time(&json!("soon")), None);
+        assert_eq!(parse_time(&json!(null)), None);
+    }
+
+    #[test]
+    fn a_feature_shows_from_its_start_until_its_end() {
+        let features = [
+            json!({"s": "2026-09-27T17:00:00Z", "e": "2026-09-27T18:00:00Z"}),
+            json!({"s": "2026-09-27T18:00:00Z"}),
+            json!({"e": "not a time"}),
+        ]
+        .into_iter()
+        .map(|p| feature(Geometry::Point([0.0, 0.0]), p))
+        .collect();
+        let (_, marks) = to_renderable(features);
+        let bounds = time_bounds(&marks, Some("s"), Some("e"));
+        let at = |s: &str| shown_at(&bounds, s.parse().unwrap());
+        assert_eq!(at("2026-09-27T16:59:00Z"), [false, false, true]);
+        assert_eq!(
+            at("2026-09-27T17:00:00Z"),
+            [true, false, true],
+            "start is inclusive"
+        );
+        assert_eq!(
+            at("2026-09-27T18:00:00Z"),
+            [false, true, true],
+            "end is exclusive"
+        );
+        // Only an end mapped: everything is shown until its end.
+        let ends = time_bounds(&marks, None, Some("e"));
+        assert_eq!(
+            shown_at(&ends, "2020-01-01T00:00:00Z".parse().unwrap()),
+            [true; 3]
+        );
     }
 
     #[test]

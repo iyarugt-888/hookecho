@@ -3006,14 +3006,28 @@ check for the same case exists here anyway, since that's not a guarantee this mo
   nothing of the layer draws.
 - z-order
 
-## I5. Time-aware GIS
+## I5. Time-aware GIS — done
 
 Allow a user to map attributes to:
 
-- valid start
-- valid end
+- [x] valid start
+- [x] valid end
 
 Then hide/show features with the HookEcho timeline.
+
+- [x] "Valid from" / "Valid until" in the Layer Manager map any attribute to each end
+  (`Settings.imported_gis_time_start`/`_end`, by name). Values read as RFC 3339 / ISO 8601 with or
+  without an offset (none is UTC), `YYYY-MM-DD HH:MM[:SS]`, a bare or compact date, or a Unix
+  timestamp in seconds or milliseconds (`gis_import::parse_time`); a missing or unreadable value
+  leaves that side open. A feature shows from its start (inclusive) until its end (exclusive)
+  at the view's time: the same `view_target_time` the MRMS/GOES/GLM layers follow (the linked
+  archive instant, or the active pane's scrubbed or playing scan), and now when live. Times are
+  parsed once per mapping; each frame only compares, and the overlays are rebuilt only when the
+  set of valid features changes (`app::sync_imported_time`), so a loop plays features on and off
+  without re-tessellating every frame. Points, lines, labels, polygons and the click hit-test all
+  follow it; the Layer Manager says how many features are valid at the view's time. Checked in the
+  browser: live showed the feature valid now and hid the one that ended an hour ago; scrubbed to
+  two hours back, the reverse.
 
 ## I6. GIS export — mostly done
 

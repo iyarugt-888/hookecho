@@ -4316,6 +4316,15 @@ pub struct HookEchoApp {
     /// The imported features' colours by `settings.imported_gis_color_by` and their legend,
     /// for the attribute they were computed for; cleared on import.
     imported_colors: Option<crate::gis_import::ColoredBy>,
+    /// The imported features' valid windows for the mapped start/end attributes (I5), for the
+    /// attributes they were read with; cleared on import.
+    imported_time: Option<(
+        (Option<String>, Option<String>),
+        crate::gis_import::TimeBounds,
+    )>,
+    /// Which imported features are valid at the view's time; `None` when no time attribute is
+    /// mapped, which shows them all.
+    imported_shown: Option<Vec<bool>>,
     /// AirNow AQI dots: toggle, the obs in view, and the bbox/clock they were fetched for. Needs
     /// a user key; without one the layer never fetches.
     show_aqi: bool,
@@ -5620,6 +5629,8 @@ impl HookEchoApp {
             imported_gis: Vec::new(),
             imported_marks: crate::gis_import::Marks::default(),
             imported_colors: None,
+            imported_time: None,
+            imported_shown: None,
             show_aqi: false,
             aqi: Vec::new(),
             aqi_bounds: None,
@@ -13290,18 +13301,68 @@ impl HookEchoApp {
             self.refresh_imported_colors();
             let colors = self.imported_colors.as_ref().map(|(_, c, _)| c);
             let src = &self.imported_marks.shape_src;
-            v.extend(self.imported_gis.iter().enumerate().map(|(i, feature)| {
-                let mut feature = feature.clone();
-                let mut style = style;
-                if let Some(c) = colors.and_then(|c| *c.get(*src.get(i)?)?) {
-                    style.color = c;
-                }
-                crate::gis_import::apply_style(&mut feature, style);
-                feature
-            }));
+            let shown = |i: usize| {
+                self.imported_shown
+                    .as_ref()
+                    .is_none_or(|m| src.get(i).and_then(|&s| m.get(s)).copied().unwrap_or(true))
+            };
+            v.extend(
+                self.imported_gis
+                    .iter()
+                    .enumerate()
+                    .filter(|&(i, _)| shown(i))
+                    .map(|(i, feature)| {
+                        let mut feature = feature.clone();
+                        let mut style = style;
+                        if let Some(c) = colors.and_then(|c| *c.get(*src.get(i)?)?) {
+                            style.color = c;
+                        }
+                        crate::gis_import::apply_style(&mut feature, style);
+                        feature
+                    }),
+            );
         }
         self.overlays = v;
         self.overlay_gen = self.overlay_gen.wrapping_add(1);
+    }
+
+    /// Keep the imported features' time filter (I5) in step with the view's time, rebuilding
+    /// the overlays only when the set of valid features actually changes.
+    fn sync_imported_time(&mut self) {
+        let keys = (
+            self.settings.imported_gis_time_start.clone(),
+            self.settings.imported_gis_time_end.clone(),
+        );
+        if keys == (None, None) || self.imported_marks.props.is_empty() {
+            if self.imported_shown.take().is_some() {
+                self.rebuild_overlays();
+            }
+            return;
+        }
+        if self.imported_time.as_ref().is_none_or(|(k, _)| *k != keys) {
+            let bounds = crate::gis_import::time_bounds(
+                &self.imported_marks,
+                keys.0.as_deref(),
+                keys.1.as_deref(),
+            );
+            self.imported_time = Some((keys, bounds));
+        }
+        let Some((_, bounds)) = &self.imported_time else {
+            return;
+        };
+        let t = self.view_target_time().unwrap_or_else(Utc::now);
+        let shown = crate::gis_import::shown_at(bounds, t);
+        if self.imported_shown.as_ref() != Some(&shown) {
+            self.imported_shown = Some(shown);
+            self.rebuild_overlays();
+        }
+    }
+
+    /// Whether imported feature `src` is valid at the view's time (always, with no time filter).
+    fn imported_valid(&self, src: Option<&usize>) -> bool {
+        self.imported_shown
+            .as_ref()
+            .is_none_or(|m| src.and_then(|&s| m.get(s)).copied().unwrap_or(true))
     }
 
     /// Recompute the imported features' colours when the colouring attribute changed.
@@ -19944,11 +20005,17 @@ impl HookEchoApp {
             };
             let marks = &self.imported_marks;
             for (i, line) in marks.lines.iter().enumerate() {
+                if !self.imported_valid(marks.line_src.get(i)) {
+                    continue;
+                }
                 let pts: Vec<egui::Pos2> = line.iter().map(screen).collect();
                 let color = color_of(marks.line_src.get(i));
                 painter.add(egui::Shape::line(pts, egui::Stroke::new(width, color)));
             }
             for (i, point) in marks.points.iter().enumerate() {
+                if !self.imported_valid(marks.point_src.get(i)) {
+                    continue;
+                }
                 let p = screen(point);
                 if !prect.contains(p) {
                     continue;
@@ -19988,6 +20055,9 @@ impl HookEchoApp {
             let mut taken = std::collections::HashSet::new();
             let mut drawn = 0;
             for &(at, src) in &self.imported_marks.anchors {
+                if !self.imported_valid(Some(&src)) {
+                    continue;
+                }
                 if drawn >= 600 {
                     break;
                 }
@@ -21330,6 +21400,7 @@ impl HookEchoApp {
                 self.imported_gis = shapes;
                 self.imported_marks = marks;
                 self.imported_colors = None;
+                self.imported_time = None;
                 // The remembered layer should actually come back, not merely sit loaded and
                 // invisible until the user rediscovers its toggle after every restart.
                 self.show_imported_gis = true;
@@ -21523,6 +21594,7 @@ impl HookEchoApp {
                     self.imported_gis = shapes;
                     self.imported_marks = marks;
                     self.imported_colors = None;
+                    self.imported_time = None;
                     self.show_imported_gis = true;
                     self.rebuild_overlays();
                     self.settings.imported_gis = remembered.ok();
@@ -24611,13 +24683,21 @@ impl eframe::App for HookEchoApp {
             Vec::new()
         };
         let legend = self.imported_colors.as_ref().map(|(_, _, l)| l.clone());
+        let time_count = self
+            .imported_shown
+            .as_ref()
+            .map(|m| (m.iter().filter(|&&s| s).count(), m.len()));
+        let imported = ui::layer_window::Imported {
+            keys: &label_keys,
+            legend: legend.as_ref(),
+            time_count,
+        };
         if ui::layer_window::show(
             ctx,
             &mut self.layer_window_open,
             &mut self.settings,
             &active_fields,
-            &label_keys,
-            legend.as_ref(),
+            &imported,
             &mut self.drawer,
         ) {
             // Imported polygon colors are applied while assembling `self.overlays`, so style
@@ -25476,6 +25556,7 @@ impl eframe::App for HookEchoApp {
                 self.sync_pane(idx, ctx);
             }
         }
+        self.sync_imported_time();
         self.sync_overlay();
 
         // Streaming mode's broadcast dressing: clock, caption, crawl, logo.

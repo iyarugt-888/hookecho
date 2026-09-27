@@ -275,6 +275,12 @@ pub struct Settings {
     /// a palette for categories), or `None` for the layer's one colour.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub imported_gis_color_by: Option<String>,
+    /// ROADMAP_NEW I5: the attributes holding each imported feature's valid start and end. With
+    /// either set, a feature shows only while the view's time is inside its window.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub imported_gis_time_start: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub imported_gis_time_end: Option<String>,
     /// Velocity/spectrum-width display unit (internal data stays m/s).
     pub velocity_unit: VelocityUnit,
     /// Temperature display unit for the surface station plots (internal data stays Celsius).
@@ -1588,6 +1594,8 @@ impl Default for Settings {
             imported_gis_style: ImportedGisStyle::default(),
             imported_gis_label: None,
             imported_gis_color_by: None,
+            imported_gis_time_start: None,
+            imported_gis_time_end: None,
             detectors: DetectorTuning::default(),
             alert_rules: Vec::new(),
             serve_token: String::new(),
@@ -2401,6 +2409,8 @@ mod tests {
             },
             imported_gis_label: Some("NAME".into()),
             imported_gis_color_by: Some("POP".into()),
+            imported_gis_time_start: Some("BEGIN".into()),
+            imported_gis_time_end: None,
             reduce_motion: true,
             hide_far_3d: true,
             far_3d_factor: default_far_3d(),

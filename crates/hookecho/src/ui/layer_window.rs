@@ -9,6 +9,44 @@
 use crate::render::FieldLayer;
 use crate::settings::Settings;
 
+/// What the Layer Manager shows about the imported GIS layer beyond its settings.
+pub(crate) struct Imported<'a> {
+    /// Every attribute name in the file: the choices for labels, colours and times.
+    pub keys: &'a [String],
+    /// The colour-by legend, when one is on.
+    pub legend: Option<&'a crate::gis_import::Legend>,
+    /// With a time attribute mapped: how many features are valid at the view's time, of all.
+    pub time_count: Option<(usize, usize)>,
+}
+
+/// One attribute picker: "None" or any of `keys`, bound to `value`.
+fn attribute_combo(
+    ui: &mut egui::Ui,
+    id: &str,
+    none: &str,
+    keys: &[String],
+    value: &mut Option<String>,
+) -> bool {
+    let mut changed = false;
+    let current = value.clone();
+    egui::ComboBox::from_id_salt(id)
+        .selected_text(current.as_deref().unwrap_or(none))
+        .show_ui(ui, |ui| {
+            if ui.selectable_label(current.is_none(), none).clicked() {
+                *value = None;
+                changed = true;
+            }
+            for key in keys {
+                let on = current.as_deref() == Some(key.as_str());
+                if ui.selectable_label(on, key).clicked() {
+                    *value = Some(key.clone());
+                    changed = true;
+                }
+            }
+        });
+    changed
+}
+
 /// Show the window. `active` is the field layers currently painting, with their display names
 /// (only those get a slider).
 /// Returns `true` if anything changed (the caller bumps the overlay generation so the tessellated
@@ -18,8 +56,7 @@ pub(crate) fn show(
     open: &mut bool,
     settings: &mut Settings,
     active: &[(FieldLayer, String)],
-    label_keys: &[String],
-    legend: Option<&crate::gis_import::Legend>,
+    imported: &Imported,
     drawer: &mut crate::ui::drawer::Drawer,
 ) -> bool {
     if !*open {
@@ -104,58 +141,64 @@ pub(crate) fn show(
                     ))
                     .changed();
             });
+            let keys = imported.keys;
             ui.horizontal(|ui| {
-                ui.label("Label");
-                let current = settings.imported_gis_label.clone();
-                egui::ComboBox::from_id_salt("imported_gis_label")
-                    .selected_text(current.as_deref().unwrap_or("None"))
-                    .show_ui(ui, |ui| {
-                        if ui.selectable_label(current.is_none(), "None").clicked() {
-                            settings.imported_gis_label = None;
-                            changed = true;
-                        }
-                        for key in label_keys {
-                            let on = current.as_deref() == Some(key.as_str());
-                            if ui.selectable_label(on, key).clicked() {
-                                settings.imported_gis_label = Some(key.clone());
-                                changed = true;
-                            }
-                        }
-                    })
-                    .response
+                ui.label("Label")
                     .on_hover_text("Label each imported feature with this attribute's value");
+                changed |= attribute_combo(
+                    ui,
+                    "imported_gis_label",
+                    "None",
+                    keys,
+                    &mut settings.imported_gis_label,
+                );
             });
             ui.horizontal(|ui| {
-                ui.label("Color by");
-                let current = settings.imported_gis_color_by.clone();
-                egui::ComboBox::from_id_salt("imported_gis_color_by")
-                    .selected_text(current.as_deref().unwrap_or("None (one color)"))
-                    .show_ui(ui, |ui| {
-                        if ui
-                            .selectable_label(current.is_none(), "None (one color)")
-                            .clicked()
-                        {
-                            settings.imported_gis_color_by = None;
-                            changed = true;
-                        }
-                        for key in label_keys {
-                            let on = current.as_deref() == Some(key.as_str());
-                            if ui.selectable_label(on, key).clicked() {
-                                settings.imported_gis_color_by = Some(key.clone());
-                                changed = true;
-                            }
-                        }
-                    })
-                    .response
-                    .on_hover_text(
-                        "Color features by an attribute: a ramp for numbers, a palette for \
-                         categories",
-                    );
+                ui.label("Color by").on_hover_text(
+                    "Color features by an attribute: a ramp for numbers, a palette for categories",
+                );
+                changed |= attribute_combo(
+                    ui,
+                    "imported_gis_color_by",
+                    "None (one color)",
+                    keys,
+                    &mut settings.imported_gis_color_by,
+                );
             });
             if settings.imported_gis_color_by.is_some() {
-                if let Some(legend) = legend {
+                if let Some(legend) = imported.legend {
                     color_legend(ui, legend);
                 }
+            }
+            ui.horizontal(|ui| {
+                ui.label("Valid from").on_hover_text(
+                    "Show each feature only from the time in this attribute, following the \
+                     timeline",
+                );
+                changed |= attribute_combo(
+                    ui,
+                    "imported_gis_time_start",
+                    "Always",
+                    keys,
+                    &mut settings.imported_gis_time_start,
+                );
+            });
+            ui.horizontal(|ui| {
+                ui.label("Valid until").on_hover_text(
+                    "Hide each feature from the time in this attribute, following the timeline",
+                );
+                changed |= attribute_combo(
+                    ui,
+                    "imported_gis_time_end",
+                    "Always",
+                    keys,
+                    &mut settings.imported_gis_time_end,
+                );
+            });
+            if let Some((shown, total)) = imported.time_count {
+                ui.weak(format!(
+                    "{shown} of {total} features valid at the view's time"
+                ));
             }
             ui.horizontal(|ui| {
                 ui.label("Show from zoom");
@@ -177,7 +220,7 @@ pub(crate) fn show(
                     )
                     .changed();
             });
-            ui.weak("One style applies to every geometry in the imported file.");
+            ui.weak("Color, outline and opacity apply to every geometry; Color by recolors each feature.");
             ui.separator();
         }
         if settings.placefiles.is_empty() {

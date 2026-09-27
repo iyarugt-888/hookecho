@@ -35,6 +35,8 @@ Imported GIS layers can be labelled from any attribute (Layer Manager, "Label"),
 zoomed out past a chosen level ("Show from zoom"), so a dense file does not smother a wide view.
 They can also be coloured by an attribute ("Color by"): a colour ramp for numbers, one colour per
 value for categories, with a legend in the Layer Manager.
+And they can follow the timeline: map attributes to "Valid from" and "Valid until" and each feature
+shows only while the view's time is inside its window, live or scrubbed.
 
 ### Added: GOES RGB composites
 
