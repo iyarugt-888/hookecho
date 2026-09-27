@@ -833,7 +833,7 @@ mod tests {
         use chrono::TimeZone;
         // One pixel over Oklahoma: bands 1, 2, 3 then 13. Bright reflective cloud, cold top.
         let at = |t, refl: f32, k: f32| {
-            let mut g = |v: f32| {
+            let g = |v: f32| {
                 let mut f = grid(vec![v]);
                 (f.lon_west, f.lon_east, f.lat_north, f.lat_south) = (-97.5, -97.0, 35.5, 35.0);
                 f.time = t;
