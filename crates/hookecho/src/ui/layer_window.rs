@@ -200,6 +200,15 @@ pub(crate) fn show(
                     "{shown} of {total} features valid at the view's time"
                 ));
             }
+            changed |= ui
+                .checkbox(
+                    &mut settings.imported_gis_below,
+                    "Draw under warnings, watches and outlooks",
+                )
+                .on_hover_text(
+                    "Paint the imported polygons beneath the official products instead of over                      them; clicks prefer the official shape either way",
+                )
+                .changed();
             ui.horizontal(|ui| {
                 ui.label("Show from zoom");
                 changed |= ui

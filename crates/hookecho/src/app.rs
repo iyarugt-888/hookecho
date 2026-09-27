@@ -13306,21 +13306,26 @@ impl HookEchoApp {
                     .as_ref()
                     .is_none_or(|m| src.get(i).and_then(|&s| m.get(s)).copied().unwrap_or(true))
             };
-            v.extend(
-                self.imported_gis
-                    .iter()
-                    .enumerate()
-                    .filter(|&(i, _)| shown(i))
-                    .map(|(i, feature)| {
-                        let mut feature = feature.clone();
-                        let mut style = style;
-                        if let Some(c) = colors.and_then(|c| *c.get(*src.get(i)?)?) {
-                            style.color = c;
-                        }
-                        crate::gis_import::apply_style(&mut feature, style);
-                        feature
-                    }),
-            );
+            let imported = self
+                .imported_gis
+                .iter()
+                .enumerate()
+                .filter(|&(i, _)| shown(i))
+                .map(|(i, feature)| {
+                    let mut feature = feature.clone();
+                    let mut style = style;
+                    if let Some(c) = colors.and_then(|c| *c.get(*src.get(i)?)?) {
+                        style.color = c;
+                    }
+                    crate::gis_import::apply_style(&mut feature, style);
+                    feature
+                });
+            // The list is painted in order: first is underneath (I4 z-order).
+            if self.settings.imported_gis_below {
+                v.splice(0..0, imported);
+            } else {
+                v.extend(imported);
+            }
         }
         self.overlays = v;
         self.overlay_gen = self.overlay_gen.wrapping_add(1);

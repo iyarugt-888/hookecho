@@ -2970,7 +2970,7 @@ are valid top-level GeoJSON), a `GeometryCollection`, and polygon holes survivin
 degenerate one-coordinate `Position` before this module's own code ever sees one (a defensive
 check for the same case exists here anyway, since that's not a guarantee this module controls).
 
-## I4. Styling
+## I4. Styling — done
 
 - [x] stroke color/width — the imported layer has one persistent color and screen-space outline
   width shared by polygons, lines and point symbols. Width is clamped at the render boundary,
@@ -3004,7 +3004,11 @@ check for the same case exists here anyway, since that's not a guarantee this mo
   tessellation (`overlay_build`'s `show_imported`, retessellated when the threshold is crossed)
   and out of the click hit-test too. Checked in the browser: at zoom 8.3 with the threshold at 9
   nothing of the layer draws.
-- z-order
+- [x] z-order — "Draw under warnings, watches and outlooks" (`Settings.imported_gis_below`): the
+  imported polygons go to the front of the overlay list (painted first, so underneath) instead of
+  the end. Off by default, which keeps the old order. Clicks already prefer an official shape
+  whichever way it is drawn (`FeatureKind::Imported` is the lowest hit-test tier). The directly
+  painted points, lines and labels stay above the tessellated polygons either way.
 
 ## I5. Time-aware GIS — done
 
