@@ -40,6 +40,33 @@ pub struct Parcel {
     pub trace_c: Vec<f64>,
 }
 
+/// Which air a parcel is lifted from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ParcelKind {
+    /// The surface level as it is.
+    #[default]
+    SurfaceBased,
+    /// The lowest 100 hPa mixed: mean potential temperature and mean mixing ratio, lifted from
+    /// the surface — what a well-mixed afternoon boundary layer actually feeds a storm.
+    MixedLayer,
+    /// The level in the lowest 300 hPa whose parcel has the most CAPE — the elevated
+    /// instability over a stable surface layer that surface-based numbers miss.
+    MostUnstable,
+}
+
+impl ParcelKind {
+    pub const ALL: [ParcelKind; 3] = [Self::SurfaceBased, Self::MixedLayer, Self::MostUnstable];
+
+    /// The usual prefix: SB, ML, MU.
+    pub fn short(self) -> &'static str {
+        match self {
+            Self::SurfaceBased => "SB",
+            Self::MixedLayer => "ML",
+            Self::MostUnstable => "MU",
+        }
+    }
+}
+
 /// A vertical profile at a point.
 pub struct Sounding {
     pub lon: f64,
@@ -207,13 +234,20 @@ impl Sounding {
     /// inflow layer is made of: a parcel from each candidate level, kept when it has enough CAPE
     /// and little enough CIN.
     pub fn parcel_from(&self, i: usize) -> Option<Parcel> {
+        let l = self.levels.get(i)?;
+        self.lift_from(i, l.temp_c, l.dewpt_c)
+    }
+
+    /// Lift air of temperature `t_c` and dewpoint `td_c` from level `i`'s pressure, through the
+    /// real environment above it.
+    fn lift_from(&self, i: usize, t_c: f64, td_c: f64) -> Option<Parcel> {
         let sfc = self.levels.get(i)?;
         if self.levels.len() - i < 3 {
             return None;
         }
-        let tk = sfc.temp_c + 273.15;
+        let tk = t_c + 273.15;
         // Bolton (1980) LCL temperature from T and the vapor pressure at Td.
-        let e = e_sat_hpa(sfc.dewpt_c).max(1e-3);
+        let e = e_sat_hpa(td_c).max(1e-3);
         let t_lcl = 2840.0 / (3.5 * tk.ln() - e.ln() - 4.805) + 55.0;
         let p_lcl = sfc.pressure_hpa * (t_lcl / tk).powf(1.0 / KAPPA);
         let lcl_m = RD * (tk + t_lcl) / 2.0 / G * (sfc.pressure_hpa / p_lcl).ln();
@@ -269,6 +303,52 @@ impl Sounding {
             el_m,
             trace_c,
         })
+    }
+
+    /// The parcel of `kind` and the index of the level it starts from (its trace below that
+    /// level means nothing and is not drawn).
+    pub fn parcel_of(&self, kind: ParcelKind) -> Option<(Parcel, usize)> {
+        match kind {
+            ParcelKind::SurfaceBased => Some((self.parcel()?, 0)),
+            ParcelKind::MixedLayer => {
+                let sfc = self.levels.first()?;
+                let layer: Vec<&SoundingLevel> = self
+                    .levels
+                    .iter()
+                    .filter(|l| l.pressure_hpa >= sfc.pressure_hpa - 100.0)
+                    .collect();
+                let n = layer.len() as f64;
+                let theta = layer
+                    .iter()
+                    .map(|l| (l.temp_c + 273.15) * (1000.0 / l.pressure_hpa).powf(KAPPA))
+                    .sum::<f64>()
+                    / n;
+                let r = layer
+                    .iter()
+                    .map(|l| {
+                        let e = e_sat_hpa(l.dewpt_c);
+                        0.622 * e / (l.pressure_hpa - e).max(1.0)
+                    })
+                    .sum::<f64>()
+                    / n;
+                // The mixed air brought to the surface pressure: its temperature from the mean
+                // theta, its dewpoint from the mean mixing ratio (vapour pressure inverted
+                // through Bolton's formula).
+                let p0 = sfc.pressure_hpa;
+                let t_c = theta * (p0 / 1000.0).powf(KAPPA) - 273.15;
+                let e = r * p0 / (0.622 + r);
+                let ln = (e / 6.112).ln();
+                let td_c = (243.5 * ln / (17.67 - ln)).min(t_c);
+                Some((self.lift_from(0, t_c, td_c)?, 0))
+            }
+            ParcelKind::MostUnstable => {
+                let sfc = self.levels.first()?.pressure_hpa;
+                (0..self.levels.len())
+                    .filter(|&i| self.levels[i].pressure_hpa >= sfc - 300.0)
+                    .filter_map(|i| Some((self.parcel_from(i)?, i)))
+                    .max_by(|a, b| a.0.cape.total_cmp(&b.0.cape))
+            }
+        }
     }
 
     /// Wind (u, v) linearly interpolated to height `z_m` AGL.
@@ -1172,5 +1252,31 @@ mod f8_tests {
         assert!((1.0..80.0).contains(&pw));
         assert!((0.0..3000.0).contains(&dc));
         assert!((2.0..11.0).contains(&lr75));
+    }
+
+    #[test]
+    fn the_three_parcels_differ_the_way_they_should() {
+        let s = plains();
+        let (sb, _) = s.parcel_of(ParcelKind::SurfaceBased).unwrap();
+        let (ml, _) = s.parcel_of(ParcelKind::MixedLayer).unwrap();
+        let (mu, _) = s.parcel_of(ParcelKind::MostUnstable).unwrap();
+        // A superadiabatic, moist surface: mixing it with drier air above lowers the CAPE.
+        assert!(ml.cape < sb.cape, "ML {} < SB {}", ml.cape, sb.cape);
+        assert!(mu.cape >= sb.cape, "MU {} >= SB {}", mu.cape, sb.cape);
+        // A cold, stable surface layer under warm moist air: the most unstable parcel is aloft.
+        let mut elevated = plains();
+        elevated.levels[0].temp_c = 12.0;
+        elevated.levels[0].dewpt_c = 10.0;
+        elevated.levels[1].temp_c = 24.0;
+        elevated.levels[1].dewpt_c = 20.0;
+        let (sb, _) = elevated.parcel_of(ParcelKind::SurfaceBased).unwrap();
+        let (mu, start) = elevated.parcel_of(ParcelKind::MostUnstable).unwrap();
+        assert!(start > 0, "lifted from above the surface");
+        assert!(
+            mu.cape > sb.cape + 100.0,
+            "MU {} vs SB {}",
+            mu.cape,
+            sb.cape
+        );
     }
 }

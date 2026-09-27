@@ -28,6 +28,8 @@ pub struct SoundingWindow {
     /// The analyst's own storm motion (u, v, m/s), set by clicking the hodograph, and the point
     /// it was set for; `None` uses the Bunkers right mover.
     pub storm_motion: Option<((f64, f64), (f64, f64))>,
+    /// Which parcel the CAPE cards and the Skew-T trace show.
+    pub parcel_kind: wxdata::sounding::ParcelKind,
 }
 
 impl Default for SoundingWindow {
@@ -46,6 +48,7 @@ impl Default for SoundingWindow {
             fh: 0,
             refetch: false,
             storm_motion: None,
+            parcel_kind: Default::default(),
         }
     }
 }
@@ -163,20 +166,50 @@ impl SoundingWindow {
                     ix.ehi1 = wxdata::severe::ehi1(ix.sbcape, h1);
                 }
             }
-            let parcel = s.parcel();
+            // The parcel the energy cards describe: surface-based, mixed-layer or most unstable.
+            use wxdata::sounding::ParcelKind;
+            ui.horizontal(|ui| {
+                ui.weak("Parcel");
+                for kind in ParcelKind::ALL {
+                    ui.selectable_value(&mut self.parcel_kind, kind, kind.short())
+                        .on_hover_text(match kind {
+                            ParcelKind::SurfaceBased => "Surface-based: the surface air as it is",
+                            ParcelKind::MixedLayer => "Mixed-layer: the lowest 100 hPa mixed",
+                            ParcelKind::MostUnstable => {
+                                "Most unstable: the level in the lowest 300 hPa with the most CAPE"
+                            }
+                        });
+                }
+            });
+            let parcel = s.parcel_of(self.parcel_kind).map(|(p, _)| p);
+            let (cape_label, cin_label) = match self.parcel_kind {
+                ParcelKind::SurfaceBased => ("SBCAPE", "SBCIN"),
+                ParcelKind::MixedLayer => ("MLCAPE", "MLCIN"),
+                ParcelKind::MostUnstable => ("MUCAPE", "MUCIN"),
+            };
             let level = |v: Option<f64>| match v {
                 Some(m) => format!("{m:.0} m"),
                 None => "—".to_string(),
             };
             let mut cards = vec![
-                ("SBCAPE", format!("{:.0} J/kg", ix.sbcape)),
                 (
-                    "SBCIN",
+                    cape_label,
+                    parcel
+                        .as_ref()
+                        .map_or("—".to_string(), |p| format!("{:.0} J/kg", p.cape)),
+                ),
+                (
+                    cin_label,
                     parcel
                         .as_ref()
                         .map_or("—".to_string(), |p| format!("{:.0} J/kg", p.cin)),
                 ),
-                ("LCL", format!("{:.0} m", ix.lcl_m)),
+                (
+                    "LCL",
+                    parcel
+                        .as_ref()
+                        .map_or("—".to_string(), |p| format!("{:.0} m", p.lcl_m)),
+                ),
                 ("LFC", level(parcel.as_ref().and_then(|p| p.lfc_m))),
                 ("EL", level(parcel.as_ref().and_then(|p| p.el_m))),
                 ("SRH 0–1", format!("{:.0}", ix.srh1)),
@@ -289,13 +322,14 @@ impl SoundingWindow {
         // Stacked, the caller scrolls the whole body: a scroll area of the plots alone, under
         // the header and indices, was left a sliver of height to show them in.
         let mut clicked = None;
+        let chosen = s.parcel_of(self.parcel_kind);
         if stacked {
-            skewt(ui, s, observed);
+            skewt(ui, s, observed, chosen.as_ref());
             ui.add_space(6.0);
             clicked = hodograph(ui, s, observed, custom);
         } else {
             ui.horizontal(|ui| {
-                skewt(ui, s, observed);
+                skewt(ui, s, observed, chosen.as_ref());
                 clicked = hodograph(ui, s, observed, custom);
             });
         }
@@ -307,7 +341,12 @@ impl SoundingWindow {
 
 /// Simplified Skew-T: temperature (red) and dewpoint (green) plotted against log-pressure, with
 /// temperature skewed 45° to the right (the classic emagram layout).
-fn skewt(ui: &mut egui::Ui, s: &Sounding, observed: Option<&Sounding>) {
+fn skewt(
+    ui: &mut egui::Ui,
+    s: &Sounding,
+    observed: Option<&Sounding>,
+    parcel: Option<&(wxdata::sounding::Parcel, usize)>,
+) {
     // Up to 300 px wide: narrower where it sits in a dock. The axes are laid out from `rect`.
     let w = ui.available_width().clamp(220.0, 300.0);
     let (rect, _) = ui.allocate_exact_size(egui::vec2(w, 380.0), egui::Sense::hover());
@@ -380,17 +419,20 @@ fn skewt(ui: &mut egui::Ui, s: &Sounding, observed: Option<&Sounding>) {
     trace(s, green, false, &|l| l.dewpt_c);
     trace(s, red, false, &|l| l.temp_c);
     // The lifted parcel, and the CAPE it encloses: the shaded area *is* the number on the card.
-    if let Some(parcel) = s.parcel() {
+    // Drawn from the level it starts at: a most-unstable parcel has no trace below its origin.
+    if let Some((parcel, start)) = parcel {
         let pts: Vec<egui::Pos2> = s
             .levels
             .iter()
             .zip(&parcel.trace_c)
+            .skip(*start)
             .filter(|(l, _)| l.pressure_hpa >= 195.0)
             .map(|(l, &t)| egui::pos2(x_of(t, l.pressure_hpa), y_of(l.pressure_hpa)))
             .collect();
         let env: Vec<egui::Pos2> = s
             .levels
             .iter()
+            .skip(*start)
             .filter(|l| l.pressure_hpa >= 195.0)
             .map(|l| egui::pos2(x_of(l.temp_c, l.pressure_hpa), y_of(l.pressure_hpa)))
             .collect();

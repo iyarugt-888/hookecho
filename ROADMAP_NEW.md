@@ -2636,9 +2636,12 @@ Point sounding should support:
 - [x] observed RAOB overlay — the nearest radiosonde ascent, dashed under the model profile on
   the Skew-T and hodograph (built earlier)
 - [ ] previous model run overlay
-- [x] parcel selection — partly: the surface parcel is drawn with its CAPE shaded, and the
-  effective-layer solve lifts a parcel from every candidate level (`Sounding::parcel_from`); no
-  picker for mixed-layer or most-unstable parcels on the Skew-T yet
+- [x] parcel selection — an SB / ML / MU picker above the cards (`Sounding::parcel_of`):
+  surface-based; mixed-layer (the lowest 100 hPa's mean potential temperature and mixing ratio,
+  lifted from the surface through the real environment, `lift_from`); most unstable (the level in
+  the lowest 300 hPa whose parcel has the most CAPE). The CAPE/CIN/LCL/LFC/EL cards and the
+  Skew-T trace and shading follow the choice, the trace drawn only from the parcel's origin up.
+  Checked live near Oklahoma City: SB 727, ML about 560, MU 727 J/kg in a mixed afternoon layer.
 - [x] Bunkers vectors — right and left movers (`bunkers_rm`, new `bunkers_lm`, the mirror image
   across the 0–6 km mean wind) marked RM and LM on the hodograph
 - [x] effective inflow layer — ESRH, EBWD and effective STP cards (built earlier)
