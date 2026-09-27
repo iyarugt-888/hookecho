@@ -25,6 +25,8 @@ each frame showing the MRMS grid nearest that scan; before, only a linked archiv
 
 New satellite layer: GOES longwave IR (Band 14), the classic IR channel, beside clean and
 split-window IR.
+New RGB recipe: Sandwich (visible + IR), the visible picture with the coldest storm tops
+coloured over it, for reading overshooting tops and anvil texture against cloud-top temperature.
 
 ### Added: GOES RGB composites
 

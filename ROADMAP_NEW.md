@@ -2170,7 +2170,7 @@ checks this against a real downloaded granule, not just a synthetic fixture — 
 landmarks against NOAA imagery" acceptance criterion, satisfied by geographic-extent plausibility
 rather than a named-landmark pixel check specifically.
 
-## E4. RGB recipe engine — done, apart from the Sandwich product
+## E4. RGB recipe engine — done, apart from GeoColor proper
 
 Recipes are data, not code: `wxdata::goes_rgb::Recipe` is three channels of weighted band terms
 (a band, or a difference like 8 minus 10), each with the operational CIRA/RAMMB quick-guide range
@@ -2187,8 +2187,14 @@ so two moments are never composed into one picture). Adding a recipe is adding a
 - [x] Dust
 - [x] Fire Temperature
 - [x] Nighttime Microphysics
-- [ ] Sandwich product — not done: it is not a three-channel stretch but a blend (a visible band
-  under a coloured, partly transparent IR layer), which the recipe shape does not describe yet.
+- [x] Sandwich product. A blend rather than a three-channel stretch, so the recipe shape grew an
+  optional `IrOverlay`: the stretched picture (here band 2 as grey) with a coloured, partly
+  transparent brightness-temperature layer over it (band 13 from -30 °C, fully tinted by -45 °C,
+  the CIRA-style cyan → green → yellow → red → magenta → white steps down to -90 °C). The overlay
+  colour is shaded by the visible brightness so overshooting tops and anvil texture read through
+  it; a pixel with no IR keeps the visible picture. `SANDWICH` is one more constant in `RECIPES`,
+  so it appears in the picker and fetches its two bands from one scan like any recipe. Checked
+  live on a GOES-East Mesoscale 1 box: 205,266 pixels, 3.6% tinted by cold tops, texture intact.
 - [ ] GeoColor proper (true colour by day blended into a night IR/city-lights view) — not done;
   the true-color recipe is the daytime half.
 

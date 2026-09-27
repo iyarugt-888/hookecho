@@ -4,7 +4,9 @@
 //! bands (usually a difference), stretched over a fixed range, sometimes gamma-curved, and read
 //! against a published guide that says what each colour means. So a [`Recipe`] is exactly that
 //! — three [`Channel`]s of weighted band terms, a range and a gamma — plus a line on what the
-//! result shows. One function ([`compose`]) turns any recipe into an RGBA grid, and one
+//! result shows. A blend product (the Sandwich: visible under a coloured, partly transparent IR
+//! layer) is the same shape plus an [`IrOverlay`] laid over the stretched picture. One function
+//! ([`compose`]) turns any recipe into an RGBA grid, and one
 //! ([`fetch_recipe`]) fetches its bands from a single scan. Adding a recipe is adding a constant.
 //!
 //! The ranges and gammas are the operational ones from the CIRA/RAMMB GOES-R RGB quick guides
@@ -59,6 +61,66 @@ impl Channel {
     }
 }
 
+/// A coloured, partly transparent brightness-temperature layer laid over a recipe's picture:
+/// the "sandwich" half of the Sandwich product. Pixels warmer than `warm` show the picture
+/// alone; the overlay fades in down to `opaque_below`, where it reaches `alpha`. Colours come
+/// from `ramp`, `(kelvin, rgb)` stops from warm to cold, interpolated linearly between stops.
+/// The overlay colour is shaded by the picture's own brightness, so the visible texture (the
+/// overshooting tops and gravity waves the product exists to show) stays readable through it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct IrOverlay {
+    pub band: u8,
+    pub warm: f32,
+    pub opaque_below: f32,
+    pub alpha: f32,
+    pub ramp: &'static [(f32, [u8; 3])],
+}
+
+impl IrOverlay {
+    /// The overlay's colour and opacity for a brightness temperature; `None` where it shows
+    /// nothing (warmer than `warm`, or no data).
+    pub fn at(&self, k: f32) -> Option<([u8; 3], f32)> {
+        if !k.is_finite() || k >= self.warm {
+            return None;
+        }
+        let fade = ((self.warm - k) / (self.warm - self.opaque_below)).clamp(0.0, 1.0);
+        let stops = self.ramp;
+        let first = stops.first()?;
+        let last = stops.last()?;
+        let rgb = if k >= first.0 {
+            first.1
+        } else if k <= last.0 {
+            last.1
+        } else {
+            let i = stops.windows(2).position(|w| k <= w[0].0 && k >= w[1].0)?;
+            let ((k0, c0), (k1, c1)) = (stops[i], stops[i + 1]);
+            let t = (k0 - k) / (k0 - k1);
+            std::array::from_fn(|j| {
+                (c0[j] as f32 + t * (c1[j] as f32 - c0[j] as f32)).round() as u8
+            })
+        };
+        Some((rgb, fade * self.alpha))
+    }
+
+    /// Lay the overlay over one picture pixel for a brightness temperature `k`.
+    pub fn blend(&self, pixel: [u8; 3], k: f32) -> [u8; 3] {
+        let Some((rgb, a)) = self.at(k) else {
+            return pixel;
+        };
+        // The picture's brightness shades the overlay colour: dark shadows stay darker, sunlit
+        // tops brighter, so the texture shows through the colour.
+        let lum =
+            (0.299 * pixel[0] as f32 + 0.587 * pixel[1] as f32 + 0.114 * pixel[2] as f32) / 255.0;
+        let shade = 0.35 + 0.65 * lum;
+        std::array::from_fn(|j| {
+            let over = rgb[j] as f32 * shade;
+            (pixel[j] as f32 * (1.0 - a) + over * a)
+                .round()
+                .clamp(0.0, 255.0) as u8
+        })
+    }
+}
+
 /// A named RGB composite.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Recipe {
@@ -70,6 +132,8 @@ pub struct Recipe {
     /// Only meaningful in daylight: a reflective band carries it.
     pub daytime: bool,
     pub channels: [Channel; 3],
+    /// A blend product's coloured IR layer over the stretched picture; `None` for a plain RGB.
+    pub overlay: Option<IrOverlay>,
 }
 
 /// Air mass: jet streaks, dry intrusions and potential-vorticity anomalies. Red is the 6.2-7.3 µm
@@ -95,6 +159,7 @@ pub const AIR_MASS: Recipe = Recipe {
         },
         Channel::band(8, 243.9, 208.5, 1.0),
     ],
+    overlay: None,
 };
 
 /// Dust: airborne dust (magenta) against cloud and surface, day or night.
@@ -119,6 +184,7 @@ pub const DUST: Recipe = Recipe {
         },
         Channel::band(13, 261.2, 288.7, 1.0),
     ],
+    overlay: None,
 };
 
 /// Night microphysics: fog and low stratus versus clear ground at night.
@@ -143,6 +209,7 @@ pub const NIGHT_MICROPHYSICS: Recipe = Recipe {
         },
         Channel::band(13, 243.55, 292.65, 1.0),
     ],
+    overlay: None,
 };
 
 /// Day cloud phase: glaciating tops (developing convection) against water cloud and snow.
@@ -157,6 +224,7 @@ pub const DAY_CLOUD_PHASE: Recipe = Recipe {
         Channel::band(2, 0.0, 0.78, 1.0),
         Channel::band(5, 0.01, 0.59, 1.0),
     ],
+    overlay: None,
 };
 
 /// Day convection: strong updrafts with small ice particles (yellow) in severe convection.
@@ -186,6 +254,7 @@ pub const DAY_CONVECTION: Recipe = Recipe {
             gamma: 1.0,
         },
     ],
+    overlay: None,
 };
 
 /// Fire temperature: active fires from warm (red) to intense (yellow-white).
@@ -200,6 +269,7 @@ pub const FIRE_TEMPERATURE: Recipe = Recipe {
         Channel::band(6, 0.0, 1.0, 1.0),
         Channel::band(5, 0.0, 0.75, 1.0),
     ],
+    overlay: None,
 };
 
 /// True colour (daytime): red and blue are ABI's red and blue, and the green ABI lacks is
@@ -220,16 +290,51 @@ pub const TRUE_COLOR: Recipe = Recipe {
         },
         Channel::band(1, 0.0, 1.0, 2.2),
     ],
+    overlay: None,
+};
+
+/// The Sandwich: the half-kilometre red visible band, with the clean IR band's cold cloud tops
+/// laid over it in colour, so the visible texture of a storm top (overshooting tops, above-anvil
+/// plumes, gravity waves) and how cold it is read in one picture. The IR layer starts at -30 °C
+/// and is fully tinted by -45 °C; the colour steps follow the usual CIRA enhancement, cyan
+/// through green, yellow and red to magenta and white at the very coldest tops.
+pub const SANDWICH: Recipe = Recipe {
+    slug: "sandwich",
+    name: "Sandwich (visible + IR)",
+    reading: "Visible texture under colour-enhanced cold tops: blue-green around -40 °C, yellow               to red below -60 °C, magenta and white at the coldest overshooting tops.               Uncoloured cloud is warmer than -30 °C. Daylight only.",
+    daytime: true,
+    channels: [
+        Channel::band(2, 0.0, 1.0, 1.4),
+        Channel::band(2, 0.0, 1.0, 1.4),
+        Channel::band(2, 0.0, 1.0, 1.4),
+    ],
+    overlay: Some(IrOverlay {
+        band: 13,
+        warm: 243.15,
+        opaque_below: 228.15,
+        alpha: 0.6,
+        ramp: &[
+            (243.15, [0, 200, 230]),
+            (233.15, [0, 110, 255]),
+            (223.15, [0, 210, 60]),
+            (213.15, [255, 240, 0]),
+            (203.15, [255, 110, 0]),
+            (198.15, [220, 0, 0]),
+            (193.15, [220, 0, 220]),
+            (183.15, [255, 255, 255]),
+        ],
+    }),
 };
 
 /// Every recipe, in menu order.
-pub const RECIPES: [Recipe; 7] = [
+pub const RECIPES: [Recipe; 8] = [
     AIR_MASS,
     DAY_CLOUD_PHASE,
     DAY_CONVECTION,
     DUST,
     FIRE_TEMPERATURE,
     NIGHT_MICROPHYSICS,
+    SANDWICH,
     TRUE_COLOR,
 ];
 
@@ -245,6 +350,7 @@ impl Recipe {
             .channels
             .iter()
             .flat_map(|c| c.terms.iter().map(|&(band, _)| band))
+            .chain(self.overlay.map(|o| o.band))
             .collect();
         b.sort_unstable();
         b.dedup();
@@ -283,14 +389,12 @@ pub fn compose(
         bands.iter().all(|b| b.nx == first.nx && b.ny == first.ny),
         "band grids have different shapes"
     );
-    for c in &recipe.channels {
-        for (band, _) in c.terms {
-            anyhow::ensure!(
-                band_numbers.contains(band),
-                "{} needs band {band}",
-                recipe.name
-            );
-        }
+    for band in recipe.bands() {
+        anyhow::ensure!(
+            band_numbers.contains(&band),
+            "{} needs band {band}",
+            recipe.name
+        );
     }
     let index = |band: u8| band_numbers.iter().position(|&b| b == band).unwrap_or(0);
     // Each channel's terms as (grid index, weight), resolved once rather than per pixel.
@@ -299,6 +403,7 @@ pub fn compose(
         .iter()
         .map(|c| c.terms.iter().map(|&(b, w)| (index(b), w)).collect())
         .collect();
+    let overlay = recipe.overlay.map(|o| (o, index(o.band)));
     let n = first.nx * first.ny;
     let mut rgba = vec![0u8; n * 4];
     for px in 0..n {
@@ -316,6 +421,11 @@ pub fn compose(
             out[ch] = channel.stretch(v);
         }
         if valid {
+            // No IR under a visible pixel leaves the picture alone rather than blanking it.
+            if let Some((o, i)) = overlay {
+                let [r, g, b] = o.blend([out[0], out[1], out[2]], bands[i].values[px]);
+                out[..3].copy_from_slice(&[r, g, b]);
+            }
             out[3] = 255;
             rgba[px * 4..px * 4 + 4].copy_from_slice(&out);
         }
@@ -548,6 +658,56 @@ mod tests {
         }
         assert_eq!(AIR_MASS.bands(), [8, 10, 12, 13]);
         assert_eq!(TRUE_COLOR.bands(), [1, 2, 3]);
+        assert_eq!(
+            SANDWICH.bands(),
+            [2, 13],
+            "the overlay's band is fetched too"
+        );
+        for r in RECIPES {
+            let Some(o) = r.overlay else { continue };
+            assert!(o.warm > o.opaque_below && o.alpha > 0.0 && o.alpha <= 1.0);
+            assert!(
+                o.ramp.windows(2).all(|w| w[0].0 > w[1].0),
+                "{}: ramp stops run warm to cold",
+                r.name
+            );
+        }
+    }
+
+    #[test]
+    fn the_sandwich_colours_only_cold_tops_and_keeps_the_visible_texture() {
+        // Band 2 then band 13 for four pixels: warm bright cloud, a -50 °C anvil, a -85 °C
+        // overshooting top, and a sunlit anvil with no IR.
+        let vis = grid(vec![0.8, 0.8, 0.8, 0.5]);
+        let ir = grid(vec![270.0, 223.15, 188.15, f32::NAN]);
+        let rgb = compose(&SANDWICH, &[2, 13], &[vis.clone(), ir.clone()]).unwrap();
+        let px = |i: usize| &rgb.rgba[i * 4..i * 4 + 4];
+        let warm = px(0);
+        assert!(
+            warm[0] == warm[1] && warm[1] == warm[2],
+            "warm cloud stays grey: {warm:?}"
+        );
+        let anvil = px(1);
+        assert!(
+            anvil[1] > anvil[0] && anvil[1] > anvil[2],
+            "-50 °C reads green: {anvil:?}"
+        );
+        let top = px(2);
+        assert!(
+            top[0] > 200 && top[2] > 200,
+            "-85 °C reads magenta-white: {top:?}"
+        );
+        let no_ir = px(3);
+        assert_eq!(no_ir[3], 255, "missing IR keeps the visible picture");
+        assert!(no_ir[0] == no_ir[1] && no_ir[1] == no_ir[2]);
+        // A darker visible pixel under the same cold top comes out darker: texture survives.
+        let dim = grid(vec![0.2, 0.2, 0.2, 0.2]);
+        let shaded = compose(&SANDWICH, &[2, 13], &[dim, ir]).unwrap();
+        let sum = |p: &[u8]| p[..3].iter().map(|&c| c as u32).sum::<u32>();
+        assert!(sum(&shaded.rgba[4..8]) < sum(&rgb.rgba[4..8]));
+        // No visible band: nothing to lay the IR over, so no picture.
+        let dark = compose(&SANDWICH, &[2, 13], &[grid(vec![f32::NAN; 4]), vis]).unwrap();
+        assert_eq!(dark.rgba[3], 0);
     }
 
     #[test]
@@ -706,5 +866,34 @@ mod tests {
             q.palette.len()
         );
         assert!(q.palette.len() > 50);
+    }
+
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn fetches_a_real_sandwich_over_a_mesoscale_sector() {
+        let client = reqwest::Client::new();
+        let rgb = fetch_recipe(
+            &client,
+            Satellite::East,
+            crate::goes_abi::Sector::Meso1,
+            None,
+            &SANDWICH,
+            480,
+            480,
+        )
+        .await
+        .unwrap();
+        let px: Vec<&[u8]> = rgb.rgba.chunks(4).filter(|p| p[3] == 255).collect();
+        let tinted = px
+            .iter()
+            .filter(|p| !(p[0] == p[1] && p[1] == p[2]))
+            .count();
+        eprintln!(
+            "sandwich at {}: {} pixels, {:.1}% tinted by cold tops",
+            rgb.time,
+            px.len(),
+            100.0 * tinted as f64 / px.len().max(1) as f64
+        );
+        assert!(px.len() * 2 > rgb.nx * rgb.ny, "most of the box is covered");
     }
 }
