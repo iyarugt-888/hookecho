@@ -165,6 +165,8 @@ impl HookEchoApp {
             .count();
         let mut header = ws::HeaderAction::None;
         let mut hit = None;
+        let mut popup = self.warning_popup.take();
+        let mut close_bulletin = false;
         tool_window(
             host,
             ToolWindow {
@@ -186,6 +188,24 @@ impl HookEchoApp {
                     floating.then_some(collapsed),
                 );
                 if collapsed {
+                    return;
+                }
+                if let Some(p) = popup.as_mut() {
+                    let scroll = egui::ScrollArea::vertical()
+                        .id_salt("dock_bulletin")
+                        .auto_shrink([false, floating]);
+                    let scroll = if floating {
+                        scroll.max_height(list_h)
+                    } else {
+                        scroll
+                    };
+                    scroll.show(ui, |ui| {
+                        egui::Frame::NONE
+                            .inner_margin(egui::Margin::symmetric(10, 8))
+                            .show(ui, |ui| {
+                                close_bulletin = bulletin(ui, &t, p, at, tz);
+                            });
+                    });
                     return;
                 }
                 egui::Frame::NONE
@@ -253,6 +273,12 @@ impl HookEchoApp {
             },
         );
         rows.clear();
+        if !close_bulletin && self.warning_popup.is_none() {
+            self.warning_popup = popup;
+        }
+        if header == ws::HeaderAction::Close {
+            self.warning_popup = None;
+        }
         self.dock.apply_header(DockWin::Alerts, header);
         self.settings.mute_alerts = muted;
         if let Some((id, lon, lat)) = hit {
@@ -263,6 +289,136 @@ impl HookEchoApp {
             self.open_alert_popup(&id);
         }
     }
+}
+
+/// A warning's bulletin in the Alerts window, in place of the floating popup: back to the list,
+/// the event with its colour and escalation, where it stands at the map's time, what to expect,
+/// then the text. Overlapping polygons give several cards; the first opens and "Back" shows them
+/// all. Returns true when the bulletin should close (back to the alert list).
+fn bulletin(
+    ui: &mut egui::Ui,
+    t: &ws::Tokens,
+    p: &mut crate::ui::warning_window::WarningPopup,
+    at: DateTime<Utc>,
+    tz: Option<wxdata::tz::Tz>,
+) -> bool {
+    let many = p.cards.len() > 1;
+    let Some(i) = p.selected.filter(|i| *i < p.cards.len()) else {
+        // The stack: every alert under the click.
+        if ws::button(ui, t, "\u{2039} All alerts", 0.0).clicked() {
+            return true;
+        }
+        ui.add_space(4.0);
+        ui.label(ws::text(
+            format!("{} alerts here", p.cards.len()),
+            11.5,
+            t.text_dim,
+        ));
+        ui.spacing_mut().item_spacing.y = 4.0;
+        for (k, c) in p.cards.iter().enumerate() {
+            let row = crate::ui::alert_panel::Row {
+                info: &c.info,
+                color: c.color,
+                center: (0.0, 0.0),
+                esc: wxdata::alerts::escalation(&c.info),
+            };
+            let st = AlertStatus::at(issued(&c.info), c.info.expires, at);
+            if alert_row(ui, t, &row, &st, tz).is_some() {
+                p.selected = Some(k);
+            }
+        }
+        return false;
+    };
+    let card = &p.cards[i];
+    let a = &card.info;
+    let back = if many {
+        "\u{2039} Alerts here"
+    } else {
+        "\u{2039} All alerts"
+    };
+    if ws::button(ui, t, back, 0.0).clicked() {
+        if many {
+            p.selected = None;
+        } else {
+            return true;
+        }
+    }
+    ui.add_space(6.0);
+    let edge = color32(card.color);
+    ui.horizontal(|ui| {
+        let (r, _) = ui.allocate_exact_size(egui::vec2(4.0, 20.0), egui::Sense::hover());
+        ui.painter().rect_filled(r, 1.0, edge);
+        ui.label(ws::text(&a.event, 15.0, t.text).strong());
+        if wxdata::alerts::escalation(a) >= 2 {
+            ws::badge(ui, t, escalation_chip(a), t.danger);
+        }
+    });
+    let st = AlertStatus::at(issued(a), a.expires, at);
+    let ink = match st {
+        AlertStatus::InEffect(Some(m)) if m <= 10 => t.warn,
+        AlertStatus::InEffect(_) => t.live,
+        _ => t.text_faint,
+    };
+    ui.horizontal(|ui| {
+        ui.label(ws::mono(st.label(), 11.5, ink));
+        let times = match (issued(a), a.expires) {
+            (Some(i), Some(e)) => format!("{} \u{2013} {}", clock(i, tz), clock(e, tz)),
+            (None, Some(e)) => format!("until {}", clock(e, tz)),
+            _ => String::new(),
+        };
+        ui.label(ws::mono(times, 11.5, t.text_faint));
+    });
+    if !a.headline.is_empty() && a.headline != a.event {
+        ui.add_space(2.0);
+        ui.add(egui::Label::new(ws::text(&a.headline, 11.5, t.text_dim)).wrap());
+    }
+    let mut expect: Vec<(&str, String)> = Vec::new();
+    if let Some(w) = a.max_wind.as_deref().filter(|w| !w.is_empty()) {
+        expect.push(("Max wind", w.to_string()));
+    }
+    if let Some(h) = a.max_hail_in.filter(|h| *h > 0.0) {
+        expect.push(("Max hail", format!("{h:.2} in")));
+    }
+    if let Some(d) = a.tornado_detection.as_deref() {
+        expect.push(("Tornado", d.to_string()));
+    }
+    if let Some(d) = a.damage_threat.as_deref() {
+        expect.push(("Damage threat", d.to_string()));
+    }
+    if let Some(s) = a.source.as_deref() {
+        expect.push(("Source", s.to_string()));
+    }
+    if let Some(m) = &a.motion {
+        expect.push((
+            "Motion",
+            format!("from {:.0}\u{b0} at {:.0} kt", m.deg, m.kt),
+        ));
+    }
+    if !expect.is_empty() {
+        let n = expect.len().to_string();
+        ws::fold_section(
+            ui,
+            t,
+            "bulletin_expect",
+            "What to expect",
+            Some(&n),
+            true,
+            |ui| {
+                for (k, v) in &expect {
+                    ws::kv(ui, t, k, v, None);
+                }
+            },
+        );
+    }
+    ws::fold_section(ui, t, "bulletin_text", "Bulletin", None, true, |ui| {
+        ui.add(egui::Label::new(ws::mono(a.description.trim(), 11.0, t.text_dim)).wrap());
+        if !a.instruction.trim().is_empty() {
+            ui.add_space(6.0);
+            ui.label(ws::text("PRECAUTIONARY ACTIONS", 10.0, t.text_faint));
+            ui.add(egui::Label::new(ws::mono(a.instruction.trim(), 11.0, t.text_dim)).wrap());
+        }
+    });
+    false
 }
 
 /// One alert: an edge in its map colour, the event (and an escalation chip), the hazard tags

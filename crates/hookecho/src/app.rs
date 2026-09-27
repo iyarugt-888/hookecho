@@ -16468,7 +16468,7 @@ impl HookEchoApp {
                                     // across MultiPolygon parts); other features use the generic popup.
                                     let hits = overlay::hit_all(&self.overlays, lon, lat);
                                     let mut seen = std::collections::HashSet::new();
-                                    let cards: Vec<ui::warning_window::WarnCard> = hits
+                                    let mut cards: Vec<ui::warning_window::WarnCard> = hits
                                         .iter()
                                         .filter_map(|f| f.alert.as_ref().map(|a| (a, f.stroke)))
                                         .filter(|(a, _)| seen.insert(a.id.clone()))
@@ -16477,6 +16477,14 @@ impl HookEchoApp {
                                             color,
                                         })
                                         .collect();
+                                    // The bulletin that opens is the one that matters most where
+                                    // polygons overlap: an emergency before a plain warning.
+                                    cards.sort_by_key(|c| {
+                                        std::cmp::Reverse((
+                                            wxdata::alerts::escalation(&c.info),
+                                            ui::alert_panel::severity_rank(&c.info.event),
+                                        ))
+                                    });
                                     if !cards.is_empty() {
                                         self.detail = None;
                                         self.gate_popup = None;
@@ -24529,7 +24537,9 @@ impl eframe::App for HookEchoApp {
         if !self.obs_mode {
             self.chase_hud(ctx);
         }
-        if let Some(popup) = &mut self.warning_popup {
+        // The workstation reads the bulletin in its Alerts window (`chrome/dock/alerts.rs`).
+        let workstation = self.workstation_chrome();
+        if let Some(popup) = self.warning_popup.as_mut().filter(|_| !workstation) {
             if !ui::warning_window::show(ctx, popup, &mut self.popovers) {
                 self.warning_popup = None;
             }

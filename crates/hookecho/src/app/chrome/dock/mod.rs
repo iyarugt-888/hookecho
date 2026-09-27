@@ -317,6 +317,9 @@ pub(crate) struct DockState {
     last_side: usize,
     /// Each dock's dragged width, left then right (`None`: its windows' own width).
     pub dock_widths: [Option<f32>; 2],
+    /// The alert whose bulletin the Alerts window last brought forward, so a new one (a click on
+    /// a warning polygon) brings it forward once and the analyst's own tab choice then holds.
+    pub bulletin_seen: Option<String>,
 }
 
 impl Default for DockState {
@@ -358,6 +361,7 @@ impl Default for DockState {
             narrow: false,
             last_side: 0,
             dock_widths: [None; 2],
+            bulletin_seen: None,
         };
         s.arrange(&DockState::preset(crate::settings::Layout::Dock));
         s
@@ -600,13 +604,18 @@ impl DockState {
         if self.shown(w) {
             self.chrome_mut(w).open = false;
         } else {
-            let c = self.chrome_mut(w);
-            c.open = true;
-            c.collapsed = false;
-            if let Some(slot) = side_slot(c.place) {
-                self.front[slot] = Some(w);
-                self.last_side = slot;
-            }
+            self.bring_forward(w);
+        }
+    }
+
+    /// Open `w`, unfolded, in front of its dock's tab group.
+    pub(crate) fn bring_forward(&mut self, w: DockWin) {
+        let c = self.chrome_mut(w);
+        c.open = true;
+        c.collapsed = false;
+        if let Some(slot) = side_slot(c.place) {
+            self.front[slot] = Some(w);
+            self.last_side = slot;
         }
     }
 
@@ -857,6 +866,19 @@ impl HookEchoApp {
     /// tool windows, and the rail last so it sits against the map.
     pub(crate) fn dock_layout(&mut self, root: &mut egui::Ui, ctx: &egui::Context) {
         self.dock_sync_arrangement();
+        // A warning's bulletin reads in the Alerts window here, not over the map: a new one brings
+        // that window forward.
+        let bulletin = self
+            .warning_popup
+            .as_ref()
+            .and_then(|p| p.cards.first())
+            .map(|c| c.info.id.clone());
+        if bulletin != self.dock.bulletin_seen {
+            if bulletin.is_some() {
+                self.dock.bring_forward(DockWin::Alerts);
+            }
+            self.dock.bulletin_seen = bulletin;
+        }
         if !self.ribbon_collapsed {
             self.dock_app_bar(root, ctx);
             self.dock_toolbar(root, ctx);
