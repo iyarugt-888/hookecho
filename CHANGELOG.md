@@ -16,6 +16,9 @@ or **2** under the layer's Satellite settings. The box is drawn on the map and m
 moves it; if it is pointed somewhere else than you are looking, the layer shows the regular
 five-minute view until the box comes back.
 
+The satellite layers now follow the radar's time: scrub back or play a loop and each frame shows
+the satellite scan nearest it (one-minute steps from a mesoscale sector), instead of the newest.
+
 ### Added: GOES RGB composites
 
 A new layer, **GOES RGB composite**, builds the standard satellite RGBs straight from GOES-East or

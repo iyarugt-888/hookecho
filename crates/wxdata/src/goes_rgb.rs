@@ -484,6 +484,7 @@ pub async fn fetch_recipe(
     client: &reqwest::Client,
     satellite: Satellite,
     sector: crate::goes_abi::Sector,
+    at: Option<chrono::DateTime<chrono::Utc>>,
     recipe: &Recipe,
     out_nx: usize,
     out_ny: usize,
@@ -491,9 +492,10 @@ pub async fn fetch_recipe(
     let bands = recipe.bands();
     // A mesoscale sector scans every minute; its bands of one scan are seconds apart.
     let same = if sector.is_meso() { 30 } else { SAME_SCAN_SECS };
-    let fields =
-        crate::goes_abi::fetch_same_scan(client, satellite, sector, &bands, same, out_nx, out_ny)
-            .await?;
+    let fields = crate::goes_abi::fetch_same_scan(
+        client, satellite, sector, at, &bands, same, out_nx, out_ny,
+    )
+    .await?;
     compose(recipe, &bands, &fields)
 }
 
@@ -658,6 +660,7 @@ mod tests {
             &client,
             Satellite::East,
             crate::goes_abi::Sector::Conus,
+            None,
             &AIR_MASS,
             600,
             350,
@@ -689,6 +692,7 @@ mod tests {
             &client,
             Satellite::East,
             crate::goes_abi::Sector::Conus,
+            None,
             &DAY_CLOUD_PHASE,
             600,
             350,

@@ -617,6 +617,7 @@ enum OverlaySource {
         crate::render::FieldLayer,
         wxdata::goes_abi::Satellite,
         wxdata::goes_abi::Sector,
+        Option<DateTime<Utc>>,
     ),
     /// A two-band GOES ABI channel-difference product, CONUS sector — today only
     /// `FieldLayer::GoesDustDiff` (ROADMAP_NEW E6's split-window dust/ash technique, Band 13
@@ -634,9 +635,14 @@ enum OverlaySource {
         &'static wxdata::goes_rgb::Recipe,
         wxdata::goes_abi::Satellite,
         wxdata::goes_abi::Sector,
+        Option<DateTime<Utc>>,
     ),
-    /// Where a GOES mesoscale sector is pointed now (ROADMAP_NEW E5).
-    GoesFootprint(wxdata::goes_abi::Satellite, wxdata::goes_abi::Sector),
+    /// Where a GOES mesoscale sector is pointed now, or at a past time (ROADMAP_NEW E5).
+    GoesFootprint(
+        wxdata::goes_abi::Satellite,
+        wxdata::goes_abi::Sector,
+        Option<DateTime<Utc>>,
+    ),
     /// An NDFD element (the NWS's own forecaster-blended grid), CONUS short range — which
     /// element is `NdfdTemp2m`/`NdfdWind10m`/`NdfdGust10m`/`NdfdSnow`.
     Ndfd(crate::render::FieldLayer),
@@ -1491,7 +1497,7 @@ impl OverlaySource {
                 crate::render::FieldLayer::SnowAnalysis,
                 wxdata::nohrsc::fetch(http, hours).await?,
             ),
-            OverlaySource::Goes(layer, satellite, sector) => {
+            OverlaySource::Goes(layer, satellite, sector, at) => {
                 use crate::render::FieldLayer as FL;
                 // Band number for each channel's own S3 objects — see `wxdata::goes_abi`'s doc
                 // comment for why CMIP CONUS is the product either way.
@@ -1508,7 +1514,7 @@ impl OverlaySource {
                 // A mesoscale box is about 1000 km a side: square, and finer per degree.
                 let (nx, ny) = goes_grid(sector);
                 let mut field =
-                    wxdata::goes_abi::fetch_latest(http, satellite, sector, band, nx, ny).await?;
+                    wxdata::goes_abi::fetch_at(http, satellite, sector, band, at, nx, ny).await?;
                 // Cold-cloud-top threshold overlay (ROADMAP_NEW E6): the exact same Band 13 data
                 // as GoesIr, re-expressed as "how many kelvin colder than the overshooting-top
                 // threshold" so this layer's own ramp (`GOES_COLD_TOP`) can hide ordinary cloud
@@ -1558,18 +1564,19 @@ impl OverlaySource {
                     .await?,
                 )
             }
-            OverlaySource::GoesRgb(recipe, satellite, sector) => {
+            OverlaySource::GoesRgb(recipe, satellite, sector, at) => {
                 let (nx, ny) = goes_grid(sector);
                 let rgb =
-                    wxdata::goes_rgb::fetch_recipe(http, satellite, sector, recipe, nx, ny).await?;
+                    wxdata::goes_rgb::fetch_recipe(http, satellite, sector, at, recipe, nx, ny)
+                        .await?;
                 OverlayMsg::Field(
                     crate::render::FieldLayer::GoesRgb,
                     wxdata::goes_rgb::pack(&rgb),
                 )
             }
-            OverlaySource::GoesFootprint(satellite, sector) => OverlayMsg::GoesFootprint(
+            OverlaySource::GoesFootprint(satellite, sector, at) => OverlayMsg::GoesFootprint(
                 sector,
-                wxdata::goes_abi::footprint(http, satellite, sector).await?,
+                wxdata::goes_abi::footprint(http, satellite, sector, at).await?,
             ),
             OverlaySource::Ndfd(layer) => {
                 use crate::render::FieldLayer as FL;
@@ -3758,6 +3765,10 @@ pub struct HookEchoApp {
     goes_footprint: Option<(wxdata::goes_abi::Sector, wxdata::goes_abi::Footprint)>,
     /// When the mesoscale footprint was last probed on its own (while falling back to CONUS).
     goes_footprint_probe: Option<Instant>,
+    /// The scan slot each GOES layer was last fetched for (`goes_slot`): `None` for the newest,
+    /// else the archive slot a scrubbed view asked for (ROADMAP_NEW A2/E7: satellite follows the
+    /// radar's time).
+    goes_fetched_slot: std::collections::HashMap<crate::render::FieldLayer, Option<i64>>,
     /// When `goto.txt` was last looked for — see the poll in `update`.
     goto_poll: Option<Instant>,
     /// The `#goto=` fragment last applied, web only — so a kiosk tab that never navigates away
@@ -5330,6 +5341,7 @@ impl HookEchoApp {
             goes_fetched_sector: std::collections::HashMap::new(),
             goes_footprint: None,
             goes_footprint_probe: None,
+            goes_fetched_slot: std::collections::HashMap::new(),
             goto_poll: None,
             #[cfg(target_arch = "wasm32")]
             last_goto_hash: None,
@@ -12911,22 +12923,51 @@ impl HookEchoApp {
         goes_sector_for(self.settings.goes_sector, self.goes_footprint, center)
     }
 
+    /// The time the GOES layers should show: the linked archive instant, or the active pane's
+    /// scan when its timeline is scrubbed back rather than following live; `None` for live.
+    pub(crate) fn goes_target_time(&self) -> Option<DateTime<Utc>> {
+        self.linked_archive_time().or_else(|| {
+            let tl = &self.views[self.active].timeline;
+            if tl.following || tl.forecast_hour().is_some() {
+                return None;
+            }
+            tl.current().and_then(|id| id.date_time())
+        })
+    }
+
+    /// Whether a GOES layer's grid matches the time the view shows (see [`goes_frame_ready`]).
+    /// The two derived products that only exist live (the band difference and the cooling rate)
+    /// are not painted over a scrubbed view at all. Any other layer answers true.
+    pub(crate) fn goes_ready(&self, layer: crate::render::FieldLayer) -> bool {
+        use crate::render::FieldLayer as FL;
+        let target = self.goes_target_time();
+        if matches!(layer, FL::GoesDustDiff | FL::GoesCoolingRate) {
+            return target.is_none();
+        }
+        if !is_goes_frame_layer(layer) {
+            return true;
+        }
+        let sector = self
+            .goes_fetched_sector
+            .get(&layer)
+            .copied()
+            .unwrap_or_default();
+        goes_frame_ready(
+            self.goes_fetched_slot.get(&layer).copied(),
+            goes_slot(target, sector),
+            self.fields
+                .get(&layer)
+                .and_then(|s| s.grid.as_ref())
+                .map(|g| g.time),
+            target,
+            chrono::Duration::minutes(self.settings.time_mismatch_minutes as i64)
+                .max(chrono::Duration::seconds(sector.cadence_secs() as i64)),
+        )
+    }
+
     /// Whether any layer that reads the chosen GOES sector is on.
     fn goes_layers_on(&self) -> bool {
-        use crate::render::FieldLayer as FL;
-        [
-            FL::GoesIr,
-            FL::GoesVisible,
-            FL::GoesWaterVapor,
-            FL::GoesShortwaveIr,
-            FL::GoesMidWaterVapor,
-            FL::GoesLowWaterVapor,
-            FL::GoesDirtyIr,
-            FL::GoesColdTop,
-            FL::GoesRgb,
-        ]
-        .into_iter()
-        .any(|l| self.field_wanted(l))
+        GOES_FRAME_LAYERS.into_iter().any(|l| self.field_wanted(l))
     }
 
     /// A line for the Satellite settings on where the chosen mesoscale box is, and whether the
@@ -14208,6 +14249,10 @@ impl HookEchoApp {
     }
 
     fn mrms_ready(&self, layer: crate::render::FieldLayer) -> bool {
+        // GOES layers follow the view's time the same way (ROADMAP_NEW A2/E7).
+        if !self.goes_ready(layer) {
+            return false;
+        }
         // These two current-only composites do not have archive selection yet. A previous live
         // texture must not be painted over a linked archive scan.
         if self.linked_archive_time().is_some()
@@ -22226,6 +22271,53 @@ fn goes_grid(sector: wxdata::goes_abi::Sector) -> (usize, usize) {
     }
 }
 
+/// The GOES layers read from one scan of one sector: the bands and the RGB composite.
+const GOES_FRAME_LAYERS: [crate::render::FieldLayer; 9] = [
+    crate::render::FieldLayer::GoesIr,
+    crate::render::FieldLayer::GoesVisible,
+    crate::render::FieldLayer::GoesWaterVapor,
+    crate::render::FieldLayer::GoesShortwaveIr,
+    crate::render::FieldLayer::GoesMidWaterVapor,
+    crate::render::FieldLayer::GoesLowWaterVapor,
+    crate::render::FieldLayer::GoesDirtyIr,
+    crate::render::FieldLayer::GoesColdTop,
+    crate::render::FieldLayer::GoesRgb,
+];
+
+fn is_goes_frame_layer(layer: crate::render::FieldLayer) -> bool {
+    GOES_FRAME_LAYERS.contains(&layer)
+}
+
+/// The scan slot a GOES request for `at` falls in: `None` for the newest, else the sector's
+/// cadence-long slot holding `at`, so scrubbing within one scan does not refetch but stepping to
+/// the next does.
+pub(crate) fn goes_slot(
+    at: Option<DateTime<Utc>>,
+    sector: wxdata::goes_abi::Sector,
+) -> Option<i64> {
+    at.map(|t| t.timestamp().div_euclid(sector.cadence_secs() as i64))
+}
+
+/// Whether a GOES layer's grid can be painted for a view at `target` (`None`: live): only one
+/// fetched for the slot now wanted, and, scrubbed back, a frame within `tolerance` of the target.
+/// So an old live frame never sits over an archive scan, nor an archive frame over live radar.
+pub(crate) fn goes_frame_ready(
+    fetched_slot: Option<Option<i64>>,
+    wanted_slot: Option<i64>,
+    frame_time: Option<DateTime<Utc>>,
+    target: Option<DateTime<Utc>>,
+    tolerance: chrono::Duration,
+) -> bool {
+    if fetched_slot != Some(wanted_slot) {
+        return false;
+    }
+    match (target, frame_time) {
+        (None, _) => true,
+        (Some(t), Some(f)) => (f - t).abs() <= tolerance,
+        (Some(_), None) => false,
+    }
+}
+
 /// Which ABI sector to read for a view centred at `(lon, lat)`: the chosen one, unless it is a
 /// mesoscale box known to be pointed somewhere that does not cover the view, in which case CONUS
 /// (ROADMAP_NEW E5's graceful switch). A box not yet seen is tried: its first granule says where
@@ -23245,6 +23337,10 @@ impl eframe::App for HookEchoApp {
         // The ABI sector to read: the chosen one, unless it is a mesoscale box that has moved
         // away from the view, which reads CONUS until it covers the view again (ROADMAP_NEW E5).
         let sector = self.goes_sector_now();
+        // Scrubbed back (or linked to an archive instant), the frame nearest that time; live, the
+        // newest, refreshed on the scan cadence.
+        let at = self.goes_target_time();
+        let slot = goes_slot(at, sector);
         let refresh = |layer| {
             if sector.is_meso() {
                 sector.cadence_secs()
@@ -23263,19 +23359,23 @@ impl eframe::App for HookEchoApp {
             FL::GoesColdTop,
         ] {
             let on = self.field_wanted(layer);
+            // An archive frame never changes: only the newest is refreshed.
             let stale = on
+                && at.is_none()
                 && self.fields.get(&layer).is_none_or(|s| {
                     s.last_fetch
                         .is_none_or(|t| t.elapsed().as_secs() >= refresh(layer))
                 });
             let changed = on
                 && (self.goes_west_key.get(&layer) != Some(&west)
-                    || self.goes_fetched_sector.get(&layer) != Some(&sector));
+                    || self.goes_fetched_sector.get(&layer) != Some(&sector)
+                    || self.goes_fetched_slot.get(&layer) != Some(&slot));
             if stale || changed {
                 self.fields.entry(layer).or_default().last_fetch = Some(Instant::now());
                 self.goes_west_key.insert(layer, west);
                 self.goes_fetched_sector.insert(layer, sector);
-                self.spawn_overlay(ctx, OverlaySource::Goes(layer, satellite, sector));
+                self.goes_fetched_slot.insert(layer, slot);
+                self.spawn_overlay(ctx, OverlaySource::Goes(layer, satellite, sector, at));
             }
         }
         // Falling back to CONUS: keep an eye on where the chosen box goes, so the view gets it
@@ -23289,7 +23389,7 @@ impl eframe::App for HookEchoApp {
                 .is_none_or(|t| t.elapsed().as_secs() >= chosen.cadence_secs())
         {
             self.goes_footprint_probe = Some(Instant::now());
-            self.spawn_overlay(ctx, OverlaySource::GoesFootprint(satellite, chosen));
+            self.spawn_overlay(ctx, OverlaySource::GoesFootprint(satellite, chosen, at));
         }
         // GOES channel-difference products: same staleness/satellite-flip rules as the single-band
         // layers above, but a distinct `OverlaySource` variant since each one fetches two bands.
@@ -23337,6 +23437,7 @@ impl eframe::App for HookEchoApp {
                 .unwrap_or(&wxdata::goes_rgb::AIR_MASS);
             let on = self.field_wanted(layer);
             let stale = on
+                && at.is_none()
                 && self.fields.get(&layer).is_none_or(|s| {
                     s.last_fetch
                         .is_none_or(|t| t.elapsed().as_secs() >= refresh(layer))
@@ -23344,13 +23445,15 @@ impl eframe::App for HookEchoApp {
             let changed = on
                 && (self.goes_west_key.get(&layer) != Some(&west)
                     || self.goes_rgb_fetched != Some(recipe.slug)
-                    || self.goes_fetched_sector.get(&layer) != Some(&sector));
+                    || self.goes_fetched_sector.get(&layer) != Some(&sector)
+                    || self.goes_fetched_slot.get(&layer) != Some(&slot));
             if stale || changed {
                 self.fields.entry(layer).or_default().last_fetch = Some(Instant::now());
                 self.goes_west_key.insert(layer, west);
                 self.goes_rgb_fetched = Some(recipe.slug);
                 self.goes_fetched_sector.insert(layer, sector);
-                self.spawn_overlay(ctx, OverlaySource::GoesRgb(recipe, satellite, sector));
+                self.goes_fetched_slot.insert(layer, slot);
+                self.spawn_overlay(ctx, OverlaySource::GoesRgb(recipe, satellite, sector, at));
             }
         }
         // NDFD elements: also no forecast hour to scrub — each fetch is the whole short-range
@@ -26825,6 +26928,44 @@ mod probe_grid_tests {
                 Sector::Meso2
             );
             assert_eq!(goes_grid(Sector::Meso2), (480, 480));
+        }
+        {
+            use crate::app::{goes_frame_ready, goes_slot};
+            use wxdata::goes_abi::Sector;
+            let t = |m: i64| chrono::DateTime::from_timestamp(1_790_000_000 + m * 60, 0).unwrap();
+            let tol = chrono::Duration::minutes(10);
+            // Live: the slot is None and a live fetch is ready whatever its time.
+            assert_eq!(goes_slot(None, Sector::Conus), None);
+            assert!(goes_frame_ready(Some(None), None, Some(t(-3)), None, tol));
+            // Scrubbed within one 5-minute CONUS slot: no refetch; into the next: refetch.
+            assert_eq!(
+                goes_slot(Some(t(0)), Sector::Conus),
+                goes_slot(Some(t(0)), Sector::Conus)
+            );
+            assert_ne!(
+                goes_slot(Some(t(0)), Sector::Conus),
+                goes_slot(Some(t(6)), Sector::Conus)
+            );
+            // A mesoscale slot is a minute.
+            assert_ne!(
+                goes_slot(Some(t(0)), Sector::Meso1),
+                goes_slot(Some(t(1)), Sector::Meso1)
+            );
+            let s = goes_slot(Some(t(0)), Sector::Conus);
+            // The archive frame for this slot, close to the target: painted.
+            assert!(goes_frame_ready(Some(s), s, Some(t(2)), Some(t(0)), tol));
+            // A live frame still held when the view is scrubbed back: not painted.
+            assert!(!goes_frame_ready(
+                Some(None),
+                s,
+                Some(t(0)),
+                Some(t(0)),
+                tol
+            ));
+            // An archive frame still held after going live: not painted until the newest lands.
+            assert!(!goes_frame_ready(Some(s), None, Some(t(0)), None, tol));
+            // The nearest frame the bucket had was far off (a gap in the archive): not painted.
+            assert!(!goes_frame_ready(Some(s), s, Some(t(40)), Some(t(0)), tol));
         }
         let dust = format_probe_field_value(FL::GoesDustDiff, 3.0, TempUnit::Fahrenheit)
             .expect("a finite sample formats");

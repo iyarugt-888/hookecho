@@ -355,6 +355,9 @@ an unavailable frame leaves the layer hidden rather than painting a previous liv
 to live refreshes the current field. Current-only local mosaic and snow-band composites are hidden
 while linked archive mode is active. Model archive seeking and independent per-pane GOES frame
 caches remain open. Run-to-run model alignment remains open.
+The GOES ABI layers read straight from S3 (the bands, the RGB composite, CONUS or a mesoscale
+sector) now follow the same cursor: see E7's acceptance entry for how the nearest granule is
+chosen and when a frame is held back.
 
 ### Acceptance criteria
 
@@ -2217,9 +2220,10 @@ pick the scan for the GOES band layers and the RGB composite.
   chosen box, the layers read CONUS (`app::goes_sector_for`) and say so, on the map and in the
   settings; a probe keeps watching the box every minute, and the view goes back to the mesoscale
   sector as soon as the box covers it again.
-- [ ] 1-minute frame timeline — partly: a mesoscale layer refreshes every minute (its own
-  cadence), but the GOES layers show the newest frame, not a loop; a scrubbable loop of recent
-  minutes is still to do.
+- [x] 1-minute frame timeline: the GOES layers follow the view's time (below, and A2): stepping or
+  playing the radar loop steps a mesoscale layer through its one-minute frames, the frame nearest
+  each scan. The loop is the radar timeline's; there is no satellite-only loop at the satellite's
+  own one-minute cadence between radar scans.
 
 ## E6. Satellite analysis tools — partly done
 
@@ -2307,14 +2311,22 @@ Allow selected time/range/sector frames to be downloaded into chase packs subjec
 
 ### Acceptance criteria
 
-- [ ] live 1-minute mesoscale frames animate correctly when available — no mesoscale ingest exists
-  yet (E1); CONUS's ~5-minute cadence is what's implemented.
-- [ ] clean IR and water-vapor values can be sampled numerically — not audited this pass; whether
-  the existing generic cursor-probe/data-inspector machinery already covers GOES fields (they're
-  stored as the same `MrmsField` grid shape every other gridded overlay uses) or needs its own
-  wiring is an open question for whoever picks up E6, not something this pass's channel-count
-  expansion answered.
-- [ ] radar, GLM and satellite align by valid time — not audited this pass.
+- [x] live 1-minute mesoscale frames animate correctly when available — E5: a mesoscale sector reads
+  every minute live, and a scrubbed or playing view steps through its frames (below).
+- [x] clean IR and water-vapor values can be sampled numerically — E6's first entry: J3's
+  gridded-layer probe reads any retained field grid, GOES included (brightness temperature in the
+  user's unit; an RGB composite reads as its colour).
+- [x] radar and satellite align by valid time — the GOES band layers and the RGB composite now
+  follow the view's time: the linked archive instant, or the active pane's scan when its timeline
+  is scrubbed back rather than live (`app::goes_target_time`). Each fetches the granule nearest
+  that time (`goes_abi::fetch_at`, `fetch_same_scan`'s `at`), refetching only when the time moves
+  into another scan slot (`app::goes_slot`: five minutes for CONUS, one for a mesoscale sector);
+  a frame is painted only when it was fetched for the slot now shown and lies within the shared
+  mismatch tolerance of it (`app::goes_frame_ready`), so a live frame never sits over an archive
+  scan, nor an archive frame over live radar. The two GOES products that only exist live (the
+  dust difference and the cooling rate) are hidden while scrubbed. Checked live: asked for the
+  Mesoscale 1 frame 63 minutes back and got one 1 s from it. GLM is still live-only (E6's open
+  entry), so GLM does not align yet.
 - [x] quality/missing pixels are distinct from cold/low values — met as of this pass: E2's own
   entry above covers `wxdata::goes_abi::decode`'s new DQF masking, applied uniformly to every
   channel.

@@ -445,20 +445,26 @@ pub async fn fetch_latest_conus(
     out_nx: usize,
     out_ny: usize,
 ) -> anyhow::Result<MrmsField> {
-    fetch_latest(client, satellite, Sector::Conus, band, out_nx, out_ny).await
+    fetch_at(client, satellite, Sector::Conus, band, None, out_nx, out_ny).await
 }
 
-/// Fetch and decode the newest granule for `band` from `sector` on `satellite`. A mesoscale
-/// granule's grid spans the box the sector covers at that minute ([`Footprint::of`]).
-pub async fn fetch_latest(
+/// Fetch and decode a granule for `band` from `sector` on `satellite`: the newest, or with `at`
+/// the one whose scan began nearest that time (an archive frame, for a view scrubbed back — the
+/// caller checks the result's `time` against its own tolerance). A mesoscale granule's grid spans
+/// the box the sector covered at that minute ([`Footprint::of`]).
+pub async fn fetch_at(
     client: &reqwest::Client,
     satellite: Satellite,
     sector: Sector,
     band: u8,
+    at: Option<chrono::DateTime<chrono::Utc>>,
     out_nx: usize,
     out_ny: usize,
 ) -> anyhow::Result<MrmsField> {
-    let key = latest_key(client, satellite, sector, band).await?;
+    let key = match at {
+        Some(t) => key_near(client, satellite, sector, band, t).await?,
+        None => latest_key(client, satellite, sector, band).await?,
+    };
     fetch_key(client, satellite, &key, out_nx, out_ny).await
 }
 
@@ -468,9 +474,10 @@ pub async fn footprint(
     client: &reqwest::Client,
     satellite: Satellite,
     sector: Sector,
+    at: Option<chrono::DateTime<chrono::Utc>>,
 ) -> anyhow::Result<Footprint> {
     Ok(Footprint::of(
-        &fetch_latest(client, satellite, sector, 13, 32, 32).await?,
+        &fetch_at(client, satellite, sector, 13, at, 32, 32).await?,
     ))
 }
 
@@ -479,10 +486,12 @@ pub async fn footprint(
 /// scan's start. A band whose nearest granule is more than `same_scan_secs` away belongs to a
 /// different scan, and the whole fetch is refused rather than composing two moments into one
 /// picture (ROADMAP_NEW E4's RGB recipes, `crate::goes_rgb`).
+#[allow(clippy::too_many_arguments)] // one call site; a params struct buys nothing
 pub async fn fetch_same_scan(
     client: &reqwest::Client,
     satellite: Satellite,
     sector: Sector,
+    at: Option<chrono::DateTime<chrono::Utc>>,
     bands: &[u8],
     same_scan_secs: i64,
     out_nx: usize,
@@ -491,7 +500,11 @@ pub async fn fetch_same_scan(
     let (&first, rest) = bands
         .split_first()
         .ok_or_else(|| anyhow::anyhow!("no bands asked for"))?;
-    let anchor = latest_key(client, satellite, sector, first).await?;
+    // The newest scan, or the one nearest `at` (a view scrubbed back).
+    let anchor = match at {
+        Some(t) => key_near(client, satellite, sector, first, t).await?,
+        None => latest_key(client, satellite, sector, first).await?,
+    };
     let when = key_time(&anchor)
         .ok_or_else(|| anyhow::anyhow!("could not parse a scan time from {anchor}"))?;
     let others = futures_util::future::try_join_all(
@@ -1083,7 +1096,7 @@ mod tests {
     #[ignore = "network"]
     async fn finds_where_mesoscale_sector_1_is_pointed() {
         let client = reqwest::Client::new();
-        let fp = footprint(&client, Satellite::East, Sector::Meso1)
+        let fp = footprint(&client, Satellite::East, Sector::Meso1, None)
             .await
             .unwrap();
         eprintln!("meso 1: {fp:?}");
@@ -1096,5 +1109,27 @@ mod tests {
             (chrono::Utc::now() - fp.time).num_minutes() < 30,
             "a fresh minute"
         );
+    }
+
+    /// An archive frame: the granule nearest an hour ago, not the newest.
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn fetches_the_mesoscale_frame_nearest_a_past_time() {
+        let client = reqwest::Client::new();
+        let target = chrono::Utc::now() - chrono::Duration::minutes(63);
+        let f = fetch_at(
+            &client,
+            Satellite::East,
+            Sector::Meso1,
+            13,
+            Some(target),
+            60,
+            60,
+        )
+        .await
+        .unwrap();
+        let off = (f.time - target).num_seconds().abs();
+        eprintln!("asked {target}, got {} ({off} s off)", f.time);
+        assert!(off <= 60, "a mesoscale sector scans every minute");
     }
 }
