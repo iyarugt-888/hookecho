@@ -201,6 +201,9 @@ pub struct WorkstationChrome {
     /// The region-statistics box, shown once one is drawn. Docks right by default.
     #[serde(default = "sounding_default")]
     pub region: WindowChrome,
+    /// The orbitable 3D volume, shown while it is open. Floats over the map by default.
+    #[serde(default = "volume_default")]
+    pub volume: WindowChrome,
     #[serde(default = "yes")]
     pub timeline_open: bool,
     /// The status footer under the timeline (roadmap Q2). Off unless asked for.
@@ -226,6 +229,10 @@ fn log_default() -> WindowChrome {
 
 fn storms_default() -> WindowChrome {
     WindowChrome::at(false, Place::Right)
+}
+
+fn volume_default() -> WindowChrome {
+    WindowChrome::at(true, Place::Float)
 }
 
 fn sounding_default() -> WindowChrome {
@@ -776,6 +783,7 @@ mod tests {
                     storms: WindowChrome::at(false, Place::Right),
                     cell: WindowChrome::at(true, Place::Left),
                     region: WindowChrome::at(true, Place::Float),
+                    volume: WindowChrome::at(false, Place::Left),
                     timeline_open: false,
                     footer_open: false,
                 }),

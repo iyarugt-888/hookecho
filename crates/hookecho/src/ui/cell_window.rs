@@ -13,6 +13,8 @@ pub struct CellSample {
     pub severity: Option<u8>,
     /// The scan the sample came from, for a trend chart's hover.
     pub time: Option<chrono::DateTime<chrono::Utc>>,
+    /// Height of the max reflectivity, kft.
+    pub dbz_hgt: Option<f32>,
 }
 
 pub fn show(
@@ -275,6 +277,7 @@ mod tests {
             dbz: Some(60.0),
             severity,
             time: None,
+            dbz_hgt: None,
         };
         let scored = trend_labels(&[sample(Some(35)), sample(Some(62))]);
         assert!(scored.iter().any(|s| s == "VIL trend"), "{scored:?}");

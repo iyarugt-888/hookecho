@@ -1035,6 +1035,216 @@ pub fn trend_chart(
     resp.named_toggle_info(title, expanded)
 }
 
+/// One line of a [`series_chart`]: its name (for the hover), colour, and `(x, value)` points in
+/// ascending x — x is seconds (a Unix time), so lines sampled at different scans still line up.
+pub struct Series<'a> {
+    pub name: &'a str,
+    pub color: Color32,
+    pub points: &'a [(f64, f32)],
+}
+
+/// The index of the point in `points` (ascending x) nearest to `x`.
+pub fn nearest_by_x(points: &[(f64, f32)], x: f64) -> Option<usize> {
+    if points.is_empty() {
+        return None;
+    }
+    let i = points.partition_point(|p| p.0 < x);
+    Some(match i {
+        0 => 0,
+        i if i >= points.len() => points.len() - 1,
+        i if (points[i].0 - x) < (x - points[i - 1].0) => i,
+        i => i - 1,
+    })
+}
+
+/// A trend over time with one or more lines: a compact sparkline (latest value and its change
+/// for one line, how many lines for several) until clicked, then expanded with gridlines, the
+/// time range and a point per sample. Hovering marks the pointer's time and reads each line's
+/// nearest sample and its change from the one before; `fmt_x` writes a time. Expansion is
+/// remembered per `id`.
+pub fn series_chart(
+    ui: &mut egui::Ui,
+    t: &Tokens,
+    id: impl std::hash::Hash + std::fmt::Debug,
+    title: &str,
+    unit: &str,
+    series: &[Series<'_>],
+    fmt_x: &dyn Fn(f64) -> String,
+) -> Response {
+    let key = ui.make_persistent_id(("ws_series", id));
+    let mut expanded = ui.ctx().data(|d| d.get_temp::<bool>(key)).unwrap_or(false);
+    let h = if expanded { 150.0 } else { 48.0 };
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), h), Sense::click());
+    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+    if resp.clicked() {
+        expanded = !expanded;
+        ui.ctx().data_mut(|d| d.insert_temp(key, expanded));
+    }
+    let p = ui.painter_at(rect);
+    p.rect_filled(rect, 3.0, t.field);
+    if resp.hovered() {
+        p.rect_stroke(
+            rect,
+            3.0,
+            Stroke::new(1.0, t.line),
+            egui::StrokeKind::Inside,
+        );
+    }
+    let lines: Vec<&Series> = series.iter().filter(|s| !s.points.is_empty()).collect();
+    let head = match lines.as_slice() {
+        [one] => {
+            let n = one.points.len();
+            let last = one.points[n - 1].1;
+            match n.checked_sub(2).map(|i| one.points[i].1) {
+                Some(prev) => {
+                    let d = last - prev;
+                    let arrow = if d > 0.0 {
+                        "\u{25b2}"
+                    } else if d < 0.0 {
+                        "\u{25bc}"
+                    } else {
+                        "="
+                    };
+                    format!("{last:.1} {unit}  {arrow}{:.1}", d.abs())
+                }
+                None => format!("{last:.1} {unit}"),
+            }
+        }
+        [] => "\u{2014}".into(),
+        many => format!("{} lines \u{b7} {unit}", many.len()),
+    };
+    p.text(
+        rect.left_top() + egui::vec2(6.0, 3.0),
+        egui::Align2::LEFT_TOP,
+        title,
+        FontId::proportional(10.5),
+        t.text_dim,
+    );
+    p.text(
+        rect.right_top() + egui::vec2(-6.0, 3.0),
+        egui::Align2::RIGHT_TOP,
+        head,
+        FontId::monospace(10.5),
+        t.text,
+    );
+    let total: usize = lines.iter().map(|s| s.points.len()).sum();
+    let (x0, x1) = lines
+        .iter()
+        .flat_map(|s| s.points.iter())
+        .fold((f64::MAX, f64::MIN), |(a, b), q| (a.min(q.0), b.max(q.0)));
+    if total < 2 || x1 <= x0 {
+        p.text(
+            rect.center() + egui::vec2(0.0, 6.0),
+            egui::Align2::CENTER_CENTER,
+            "needs two scans",
+            FontId::proportional(10.0),
+            t.text_faint,
+        );
+        return resp.named_toggle_info(title, expanded);
+    }
+    let (lo, hi) = lines
+        .iter()
+        .flat_map(|s| s.points.iter())
+        .fold((f32::MAX, f32::MIN), |(a, b), q| (a.min(q.1), b.max(q.1)));
+    let (lo, hi) = if hi > lo {
+        (lo, hi)
+    } else {
+        (lo - 1.0, hi + 1.0)
+    };
+    let plot = Rect::from_min_max(
+        rect.left_top()
+            + egui::vec2(
+                if expanded { 34.0 } else { 6.0 },
+                if expanded { 26.0 } else { 18.0 },
+            ),
+        rect.right_bottom() - egui::vec2(6.0, if expanded { 16.0 } else { 5.0 }),
+    );
+    let at = |x: f64, v: f32| {
+        egui::pos2(
+            plot.left() + plot.width() * ((x - x0) / (x1 - x0)) as f32,
+            plot.bottom() - plot.height() * (v - lo) / (hi - lo),
+        )
+    };
+    if expanded {
+        for k in 0..=3 {
+            let v = lo + (hi - lo) * k as f32 / 3.0;
+            let y = plot.bottom() - plot.height() * k as f32 / 3.0;
+            p.line_segment(
+                [egui::pos2(plot.left(), y), egui::pos2(plot.right(), y)],
+                Stroke::new(1.0, t.line_soft),
+            );
+            p.text(
+                egui::pos2(plot.left() - 4.0, y),
+                egui::Align2::RIGHT_CENTER,
+                format!("{v:.0}"),
+                FontId::monospace(9.5),
+                t.text_faint,
+            );
+        }
+        for (x, align) in [
+            (x0, egui::Align2::LEFT_BOTTOM),
+            (x1, egui::Align2::RIGHT_BOTTOM),
+        ] {
+            p.text(
+                egui::pos2(at(x, lo).x, rect.bottom() - 2.0),
+                align,
+                fmt_x(x),
+                FontId::monospace(9.5),
+                t.text_faint,
+            );
+        }
+    }
+    for s in &lines {
+        let pts: Vec<egui::Pos2> = s.points.iter().map(|q| at(q.0, q.1)).collect();
+        if pts.len() == 1 {
+            p.circle_filled(pts[0], 2.5, s.color);
+        } else {
+            p.add(egui::Shape::line(pts.clone(), Stroke::new(1.6, s.color)));
+        }
+        if expanded {
+            for q in &pts {
+                p.circle_filled(*q, 2.0, s.color);
+            }
+        }
+    }
+    let mut resp = resp;
+    if let Some(pos) = resp.hover_pos() {
+        let x = x0 + (x1 - x0) * ((pos.x - plot.left()) / plot.width()).clamp(0.0, 1.0) as f64;
+        let xp = at(x, lo).x;
+        p.line_segment(
+            [egui::pos2(xp, plot.top()), egui::pos2(xp, plot.bottom())],
+            Stroke::new(1.0, t.text_faint),
+        );
+        let mut text = fmt_x(x);
+        for s in &lines {
+            let Some(i) = nearest_by_x(s.points, x) else {
+                continue;
+            };
+            let (qx, qv) = s.points[i];
+            p.circle_filled(at(qx, qv), 3.5, Color32::WHITE);
+            p.circle_filled(at(qx, qv), 2.5, s.color);
+            let d = if i > 0 {
+                format!(" ({:+.1})", qv - s.points[i - 1].1)
+            } else {
+                String::new()
+            };
+            let name = if lines.len() > 1 {
+                format!("{}: ", s.name)
+            } else {
+                String::new()
+            };
+            text.push_str(&format!("\n{name}{qv:.1} {unit}{d} at {}", fmt_x(qx)));
+        }
+        text.push_str(if expanded {
+            "\nClick to fold"
+        } else {
+            "\nClick to expand"
+        });
+        resp = resp.on_hover_text(text);
+    }
+    resp.named_toggle_info(title, expanded)
+}
+
 trait ToggleInfo {
     fn named_toggle_info(self, name: &str, on: bool) -> Response;
 }
@@ -1218,6 +1428,51 @@ mod tests {
         for l in ["REF", "ZDR", "CC"] {
             assert!(got.iter().any(|s| s == l), "{got:?}");
         }
+    }
+
+    #[test]
+    fn a_series_reads_the_sample_nearest_in_time() {
+        let pts = [(0.0, 1.0), (300.0, 2.0), (900.0, 3.0)];
+        assert_eq!(nearest_by_x(&pts, -50.0), Some(0));
+        assert_eq!(nearest_by_x(&pts, 140.0), Some(0));
+        assert_eq!(nearest_by_x(&pts, 160.0), Some(1));
+        assert_eq!(nearest_by_x(&pts, 700.0), Some(2));
+        assert_eq!(nearest_by_x(&pts, 5000.0), Some(2));
+        assert_eq!(nearest_by_x(&[], 1.0), None);
+    }
+
+    #[test]
+    fn a_series_chart_heads_one_line_with_its_change_and_several_with_a_count() {
+        let a = [(0.0, 50.0), (300.0, 55.0)];
+        let b = [(100.0, 40.0), (400.0, 42.0)];
+        let got = texts(|ui| {
+            let t = t();
+            let one = [Series {
+                name: "B2",
+                color: t.accent,
+                points: &a,
+            }];
+            series_chart(ui, &t, "one", "Peak", "dBZ", &one, &|x| format!("{x}"));
+            let two = [
+                Series {
+                    name: "B2",
+                    color: t.accent,
+                    points: &a,
+                },
+                Series {
+                    name: "S6",
+                    color: t.warn,
+                    points: &b,
+                },
+            ];
+            series_chart(ui, &t, "two", "Peak", "dBZ", &two, &|x| format!("{x}"));
+        });
+        assert!(
+            got.iter()
+                .any(|s| s.starts_with("55.0 dBZ") && s.contains("5.0")),
+            "{got:?}"
+        );
+        assert!(got.iter().any(|s| s.starts_with("2 lines")), "{got:?}");
     }
 
     #[test]

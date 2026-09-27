@@ -33,6 +33,7 @@ mod sources;
 mod storms;
 mod timeline;
 mod view3d;
+mod volume;
 
 /// Width of the Layers panel.
 const LEFT_WIDTH: f32 = 284.0;
@@ -154,10 +155,12 @@ pub(crate) enum DockWin {
     Cell,
     /// The region-statistics tool's box: summary, histogram and scatter.
     Region,
+    /// The orbitable 3D reflectivity volume (the floating "3D Reflectivity" window elsewhere).
+    Volume,
 }
 
 impl DockWin {
-    pub(crate) const ALL: [DockWin; 11] = [
+    pub(crate) const ALL: [DockWin; 12] = [
         DockWin::Layers,
         DockWin::Inspector,
         DockWin::View3d,
@@ -165,6 +168,7 @@ impl DockWin {
         DockWin::Storms,
         DockWin::Cell,
         DockWin::Region,
+        DockWin::Volume,
         DockWin::Alerts,
         DockWin::Sources,
         DockWin::Log,
@@ -186,6 +190,7 @@ impl DockWin {
             DockWin::Storms => (ph::TORNADO, "Storms"),
             DockWin::Cell => (ph::CROSSHAIR, "Cell"),
             DockWin::Region => (ph::CHART_SCATTER, "Region"),
+            DockWin::Volume => (ph::CUBE, "3D volume"),
         };
         ws::HeaderTab {
             glyph,
@@ -212,6 +217,7 @@ impl DockWin {
             DockWin::Storms => storms::STORMS_W,
             DockWin::Cell => cell::CELL_W,
             DockWin::Region => region::REGION_W,
+            DockWin::Volume => volume::VOLUME_W,
         }
     }
 }
@@ -278,6 +284,9 @@ pub(crate) struct DockState {
     pub region: WindowChrome,
     /// Whether a region box has been gathered. Set each frame.
     pub region_available: bool,
+    pub volume: WindowChrome,
+    /// Whether the 3D volume is open (`show_3d`). Set each frame.
+    pub volume_available: bool,
     /// The Storms table's sort column and direction.
     pub storm_sort: crate::ui::cells_window::SortCol,
     pub storm_desc: bool,
@@ -310,7 +319,7 @@ pub(crate) struct DockState {
     pub front: [Option<DockWin>; 2],
     /// Each window's `(open, place)` last frame, to bring a window that has just opened or just
     /// moved into a dock to the front of it.
-    seen: [(bool, Place); 11],
+    seen: [(bool, Place); 12],
     /// The window is too narrow for docks on both sides ([`ONE_DOCK_BELOW`]). Set each frame.
     pub narrow: bool,
     /// The side used most recently (0 left, 1 right): the one that stays while `narrow`.
@@ -320,6 +329,12 @@ pub(crate) struct DockState {
     /// The alert whose bulletin the Alerts window last brought forward, so a new one (a click on
     /// a warning polygon) brings it forward once and the analyst's own tab choice then holds.
     pub bulletin_seen: Option<String>,
+    /// The storms open in the Cell window, oldest first (at most [`cell::MAX_OPEN`]).
+    pub cells_open: Vec<String>,
+    /// The Cell window shows its open storms side by side.
+    pub cell_compare: bool,
+    /// The storm selected last frame, so a newly selected one joins the Cell window once.
+    cell_last_sel: Option<String>,
 }
 
 impl Default for DockState {
@@ -344,6 +359,8 @@ impl Default for DockState {
             cell_available: false,
             region: WindowChrome::at(true, Place::Right),
             region_available: false,
+            volume: WindowChrome::at(true, Place::Float),
+            volume_available: false,
             storm_sort: Default::default(),
             storm_desc: true,
             view3d_available: false,
@@ -357,11 +374,14 @@ impl Default for DockState {
             jump: String::new(),
             arranged_for: None,
             front: [None; 2],
-            seen: [(false, Place::Float); 11],
+            seen: [(false, Place::Float); 12],
             narrow: false,
             last_side: 0,
             dock_widths: [None; 2],
             bulletin_seen: None,
+            cells_open: Vec::new(),
+            cell_compare: false,
+            cell_last_sel: None,
         };
         s.arrange(&DockState::preset(crate::settings::Layout::Dock));
         s
@@ -396,6 +416,7 @@ impl DockState {
             storms: WindowChrome::at(false, Place::Right),
             cell: WindowChrome::at(true, Place::Right),
             region: WindowChrome::at(true, Place::Right),
+            volume: WindowChrome::at(true, Place::Float),
             timeline_open: true,
             footer_open: false,
         }
@@ -417,6 +438,7 @@ impl DockState {
             storms: self.storms,
             cell: self.cell,
             region: self.region,
+            volume: self.volume,
             timeline_open: self.timeline_open,
             footer_open: self.footer_open,
         }
@@ -437,6 +459,7 @@ impl DockState {
         self.storms = w.storms;
         self.cell = w.cell;
         self.region = w.region;
+        self.volume = w.volume;
         self.timeline_open = w.timeline_open;
         self.footer_open = w.footer_open;
     }
@@ -454,6 +477,7 @@ impl DockState {
             DockWin::Storms => &self.storms,
             DockWin::Cell => &self.cell,
             DockWin::Region => &self.region,
+            DockWin::Volume => &self.volume,
         }
     }
 
@@ -470,6 +494,7 @@ impl DockState {
             DockWin::Storms => &mut self.storms,
             DockWin::Cell => &mut self.cell,
             DockWin::Region => &mut self.region,
+            DockWin::Volume => &mut self.volume,
         }
     }
 
@@ -483,6 +508,7 @@ impl DockState {
                 DockWin::Sounding => self.sounding_available,
                 DockWin::Cell => self.cell_available,
                 DockWin::Region => self.region_available,
+                DockWin::Volume => self.volume_available,
                 _ => true,
             }
     }
@@ -518,6 +544,15 @@ impl DockState {
             self.region.open = true;
         }
         self.region_available = available;
+    }
+
+    /// Say whether the 3D volume is open: opening it shows its window in front.
+    pub(crate) fn set_volume_available(&mut self, available: bool) {
+        if available && !self.volume_available {
+            self.volume.open = true;
+            self.volume.collapsed = false;
+        }
+        self.volume_available = available;
     }
 
     /// Say whether Analyst Mode is on. Turning it on shows the log again, as the floating
@@ -873,6 +908,7 @@ impl HookEchoApp {
             .as_ref()
             .and_then(|p| p.cards.first())
             .map(|c| c.info.id.clone());
+        self.sync_open_cells();
         if bulletin != self.dock.bulletin_seen {
             if bulletin.is_some() {
                 self.dock.bring_forward(DockWin::Alerts);
@@ -894,6 +930,7 @@ impl HookEchoApp {
             .set_cell_available(self.cell_details && self.cell_popup.is_some());
         self.dock
             .set_region_available(self.region.samples().is_some());
+        self.dock.set_volume_available(self.show_3d);
         self.dock.update_fronts();
         self.dock.narrow = ctx.content_rect().width() < ONE_DOCK_BELOW;
         for side in [Place::Left, Place::Right] {
@@ -1017,6 +1054,7 @@ impl HookEchoApp {
             DockWin::Storms => self.dock_storms(host),
             DockWin::Cell => self.dock_cell(host),
             DockWin::Region => self.dock_region(host),
+            DockWin::Volume => self.dock_volume(host),
         }
     }
 
@@ -1393,6 +1431,7 @@ mod tests {
             storms: WindowChrome::at(false, Place::Right),
             cell: WindowChrome::at(true, Place::Float),
             region: WindowChrome::at(false, Place::Left),
+            volume: WindowChrome::at(true, Place::Right),
             timeline_open: false,
             footer_open: false,
         };

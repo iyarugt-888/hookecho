@@ -160,6 +160,41 @@ pub fn show(
         return;
     };
     window.show(ctx, |ui| {
+        let size = ui.available_size();
+        body(
+            ui,
+            st,
+            pending,
+            n,
+            nz,
+            top_km,
+            range,
+            cappi_alt_km,
+            degraded,
+            size,
+        );
+    });
+    *open = keep;
+}
+
+/// The window's contents: the controls, then the orbitable view filling `view` (width, and the
+/// height the view may take below the controls). Shared by the floating window and the
+/// workstation's 3D volume tool window.
+#[allow(clippy::too_many_arguments)]
+pub fn body(
+    ui: &mut egui::Ui,
+    st: &mut Volume3dState,
+    pending: &mut Option<Volume3dUpload>,
+    n: u32,
+    nz: u32,
+    top_km: f32,
+    range: (f32, f32),
+    cappi_alt_km: f32,
+    degraded: bool,
+    view: egui::Vec2,
+) {
+    let ctx = ui.ctx().clone();
+    {
         ui.weak("Drag to orbit · scroll to zoom · max-intensity projection");
         ui.horizontal(|ui| {
             let mut on = st.threshold_dbz.is_finite();
@@ -208,7 +243,11 @@ pub fn show(
                 plane_controls(ui, &mut st.plane);
                 cappi_marker_controls(ui, &mut st.cappi_marker, cappi_alt_km);
             });
-        let (rect, resp) = ui.allocate_exact_size(ui.available_size(), egui::Sense::drag());
+        let size = egui::vec2(
+            view.x.min(ui.available_width()),
+            view.y.min(ui.available_height()).max(160.0),
+        );
+        let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::drag());
         if resp.dragged() {
             let d = resp.drag_delta();
             st.az -= d.x * 0.4;
@@ -261,8 +300,7 @@ pub fn show(
         let cb = Volume3dCallback { upload, uniform };
         ui.painter()
             .add(egui_wgpu::Callback::new_paint_callback(rect, cb));
-    });
-    *open = keep;
+    }
 }
 
 fn effective_steps(chosen: u32, degraded: bool) -> u32 {

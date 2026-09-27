@@ -290,6 +290,88 @@ impl MrmsRequest {
 }
 
 /// Background overlay fetch results.
+/// Earlier scans' storm cells with each product's time, oldest first.
+type CellHistory = Vec<(DateTime<Utc>, Vec<Cell>)>;
+
+/// How many earlier SCIT scans a cell's trend starts with (about two hours at 5-minute volumes).
+const CELL_HISTORY_SCANS: usize = 24;
+
+/// Most samples a cell's trend keeps.
+const CELL_TREND_MAX: usize = 40;
+
+/// Fold earlier scans into the trends of the cells still tracked (SCIT keeps a storm's id from
+/// volume to volume). A scan already in a trend (the same product time) is not added twice;
+/// earlier scans carry only what the NST product has (max dBZ and its height), so the VIL, top
+/// and severity lines start where the live products do.
+fn merge_cell_history(
+    trends: &mut std::collections::HashMap<String, Vec<ui::cell_window::CellSample>>,
+    past: &CellHistory,
+) {
+    for (time, cells) in past {
+        for c in cells {
+            let Some(hist) = trends.get_mut(&c.id) else {
+                continue;
+            };
+            if hist.iter().any(|s| s.time == Some(*time)) {
+                continue;
+            }
+            hist.push(ui::cell_window::CellSample {
+                vil: None,
+                top: None,
+                dbz: c.max_dbz,
+                severity: None,
+                time: Some(*time),
+                dbz_hgt: c.max_dbz_hgt_kft,
+            });
+        }
+    }
+    for hist in trends.values_mut() {
+        hist.sort_by_key(|s| s.time);
+        let over = hist.len().saturating_sub(CELL_TREND_MAX);
+        hist.drain(..over);
+    }
+}
+
+#[cfg(test)]
+mod cell_history_tests {
+    use super::*;
+    use chrono::TimeZone;
+
+    #[test]
+    fn history_prepends_tracked_cells_once_in_time_order() {
+        let at = |m| Utc.with_ymd_and_hms(2026, 9, 27, 1, m, 0).unwrap();
+        let live = ui::cell_window::CellSample {
+            vil: Some(40.0),
+            top: Some(30.0),
+            dbz: Some(60.0),
+            severity: Some(40),
+            time: Some(at(20)),
+            dbz_hgt: Some(19.0),
+        };
+        let mut trends = std::collections::HashMap::from([("B2".to_string(), vec![live])]);
+        let cell = |id: &str, dbz| Cell {
+            id: id.into(),
+            max_dbz: Some(dbz),
+            ..Default::default()
+        };
+        let past = vec![
+            (at(10), vec![cell("B2", 52.0), cell("Z9", 50.0)]),
+            (at(15), vec![cell("B2", 56.0)]),
+            // The live scan again: not a second sample.
+            (at(20), vec![cell("B2", 60.0)]),
+        ];
+        merge_cell_history(&mut trends, &past);
+        let b2 = &trends["B2"];
+        let dbz: Vec<_> = b2.iter().map(|s| s.dbz.unwrap()).collect();
+        assert_eq!(dbz, vec![52.0, 56.0, 60.0]);
+        assert!(b2[0].vil.is_none() && b2[2].vil.is_some());
+        assert!(
+            !trends.contains_key("Z9"),
+            "a cell no longer tracked gets no trend"
+        );
+    }
+}
+
 enum OverlayMsg {
     Alerts(Vec<GeoFeature>),
     /// Last run's alert overlay, read from disk off the launch path. Applied only if no live
@@ -313,8 +395,9 @@ enum OverlayMsg {
     Pireps(Vec<wxdata::aviation::Pirep>),
     /// Hurricane-hunter flight-track observations.
     Recon(Vec<wxdata::recon::HdobOb>),
-    /// Storm cells for a specific site (dropped if the active site changed meanwhile).
-    Cells(String, Vec<Cell>),
+    /// Storm cells for a specific site (dropped if the active site changed meanwhile), and when
+    /// asked for, the cells of its earlier scans (oldest first) to start the trends with.
+    Cells(String, Vec<Cell>, CellHistory),
     /// A fetched placefile keyed by its URL.
     Placefile(String, wxdata::placefile::Placefile),
     /// The latest grid for a national field layer (mosaic, rotation, MESH, AzShear, lightning).
@@ -456,7 +539,8 @@ enum OverlaySource {
     /// Hurricane-hunter HDOBs from the last few hours.
     Recon,
     Outlook(u8, wxdata::spc::OutlookKind),
-    Cells(String),
+    /// A site's storm cells; `true` also fetches its earlier scans ([`CELL_HISTORY_SCANS`]).
+    Cells(String, bool),
     Placefile(String),
     /// A national field layer plus the MRMS S3 product path to fetch it from.
     Field(crate::render::FieldLayer, MrmsRequest),
@@ -1070,9 +1154,15 @@ impl OverlaySource {
             OverlaySource::Outlook(day, kind) => {
                 OverlayMsg::Outlook(day, wxdata::spc::fetch_outlook_kind(http, day, kind).await?)
             }
-            OverlaySource::Cells(site) => {
-                let cells = level3::fetch_cells(http, &site).await;
-                OverlayMsg::Cells(site, cells)
+            OverlaySource::Cells(site, history) => {
+                let (cells, past) = futures_util::join!(level3::fetch_cells(http, &site), async {
+                    if history {
+                        level3::fetch_cell_history(http, &site, CELL_HISTORY_SCANS).await
+                    } else {
+                        Vec::new()
+                    }
+                });
+                OverlayMsg::Cells(site, cells, past)
             }
             OverlaySource::Placefile(url) => {
                 let pf = wxdata::placefile::fetch(http, &url).await?;
@@ -3708,6 +3798,8 @@ pub struct HookEchoApp {
     /// Level 3 clickable storm cells for `cells_site` (the active site when last fetched).
     storm_cells: Vec<Cell>,
     cells_site: Option<String>,
+    /// The site whose earlier scans have been merged into `cell_trends`, so they are fetched once.
+    cells_history_site: Option<String>,
     /// Per-cell-id trend history (VIL/top/dBZ across volumes); cleared when the site changes.
     cell_trends: std::collections::HashMap<String, Vec<ui::cell_window::CellSample>>,
     /// Last `ui_scale` pushed to egui, to tell slider changes apart from keyboard zoom.
@@ -5298,6 +5390,7 @@ impl HookEchoApp {
             #[cfg(target_arch = "wasm32")]
             crash_report: None,
             cells_site: None,
+            cells_history_site: None,
             cell_trends: std::collections::HashMap::new(),
             fields: crate::render::FieldLayer::DRAW_ORDER
                 .iter()
@@ -6279,7 +6372,8 @@ impl HookEchoApp {
             .clone()
             .filter(|s| wxdata::sites::is_nexrad(s))
         {
-            self.spawn_overlay(ctx, OverlaySource::Cells(site));
+            let history = self.cells_history_site.as_deref() != Some(site.as_str());
+            self.spawn_overlay(ctx, OverlaySource::Cells(site, history));
         }
     }
 
@@ -8954,8 +9048,13 @@ impl HookEchoApp {
     pub(crate) fn select_storm_from(&mut self, c: Cell, show: bool) {
         self.cell_popup = Some(c);
         if self.workstation_chrome() {
-            self.cell_details = false;
-            if show && !self.dock.shown(chrome::DockWin::Inspector) {
+            if self.cell_details {
+                // The Cell window is open: the storm joins it (`sync_open_cells`) to be read
+                // beside the others, rather than closing it for the Inspector.
+                if show && !self.dock.shown(chrome::DockWin::Cell) {
+                    self.dock.bring_forward(chrome::DockWin::Cell);
+                }
+            } else if show && !self.dock.shown(chrome::DockWin::Inspector) {
                 self.dock.toggle(chrome::DockWin::Inspector);
             }
         } else {
@@ -11662,7 +11761,7 @@ impl HookEchoApp {
                         self.outlook_features[(day - 1) as usize] = f;
                     }
                 }
-                OverlayMsg::Cells(site, cells) => {
+                OverlayMsg::Cells(site, cells, past) => {
                     // Keep only if still the active site.
                     if self.views[self.active].site.as_deref() == Some(site.as_str()) {
                         // Reset trend history on a site change; append this volume's samples.
@@ -11690,6 +11789,7 @@ impl HookEchoApp {
                                 dbz: c.max_dbz,
                                 severity: Some(score),
                                 time: c.time,
+                                dbz_hgt: c.max_dbz_hgt_kft,
                             };
                             // Skip a duplicate of the last sample (same volume re-fetched).
                             if hist.last().is_none_or(|s| {
@@ -11697,7 +11797,7 @@ impl HookEchoApp {
                                     != (sample.vil, sample.top, sample.dbz, sample.severity)
                             }) {
                                 hist.push(sample);
-                                if hist.len() > 40 {
+                                if hist.len() > CELL_TREND_MAX {
                                     hist.remove(0);
                                 }
                             }
@@ -11707,6 +11807,10 @@ impl HookEchoApp {
                         // Keep the ones this volume still has.
                         self.cell_trends
                             .retain(|id, _| cells.iter().any(|c| &c.id == id));
+                        if !past.is_empty() {
+                            merge_cell_history(&mut self.cell_trends, &past);
+                            self.cells_history_site = Some(site.clone());
+                        }
                         self.storm_cells = cells;
                         self.cells_site = Some(site);
                         self.update_follow();
@@ -13956,7 +14060,8 @@ impl HookEchoApp {
                 self.cell_trends.clear();
                 self.cell_popup = None;
                 if let Some(site) = self.views[idx].site.clone() {
-                    self.spawn_overlay(ctx, OverlaySource::Cells(site));
+                    let history = self.cells_history_site.as_deref() != Some(site.as_str());
+                    self.spawn_overlay(ctx, OverlaySource::Cells(site, history));
                 }
             }
         }
@@ -24580,8 +24685,11 @@ impl eframe::App for HookEchoApp {
                 self.build_xsection(idx, ctx);
             }
         }
+        // The workstation shows the volume in its 3D volume tool window (`chrome/dock/volume.rs`).
         if self.show_3d {
             self.drain_volume3d(ctx);
+        }
+        if self.show_3d && !self.workstation_chrome() {
             let mut open = true;
             ui::volume3d_window::show(
                 ctx,

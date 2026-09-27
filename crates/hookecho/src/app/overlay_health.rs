@@ -30,7 +30,7 @@ impl OverlayMsg {
             Self::Mping(reports) => latest(reports.iter().map(|r| r.time)),
             Self::Pireps(reports) => latest(reports.iter().map(|r| r.time)),
             Self::Recon(observations) => latest(observations.iter().map(|o| o.time)),
-            Self::Cells(_, cells) => latest(cells.iter().filter_map(|c| c.time)),
+            Self::Cells(_, cells, _) => latest(cells.iter().filter_map(|c| c.time)),
             Self::Field(_, field) => Some(field.time),
             Self::StampedField(_, field) | Self::MrmsField(_, field, _) => {
                 Some(field.stamp.valid_time)

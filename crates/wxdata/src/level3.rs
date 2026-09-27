@@ -183,6 +183,124 @@ struct MesoFeat {
 /// Association radius: fold a meso detection into the nearest storm cell within this range.
 const MERGE_KM: f64 = 10.0;
 
+/// The storm cells of one NST (storm tracking) product: position, motion and forecast track,
+/// the max reflectivity and its height, and past-track polylines. `time` is the product's.
+fn nst_cells(p: &Level3Product, time: Option<chrono::DateTime<chrono::Utc>>) -> Vec<Cell> {
+    let mut storms = Vec::new();
+    let (lat0, lon0) = (p.lat as f64, p.lon as f64);
+    let table = p.tabular.clone().unwrap_or_default();
+    let graphic = p.graphic.clone().unwrap_or_default();
+    let fcst = parse_position_forecast(&table);
+    let dbz = parse_graphic_attrs(&graphic);
+    for c in &p.cells {
+        let (lon, lat) = offset_lonlat(lon0, lat0, c.x_km, c.y_km);
+        let mut cell = Cell::new(CellKind::Storm, lon, lat, c.id.clone(), c.id.clone());
+        cell.time = time;
+        if let Some(pf) = fcst.get(&c.id) {
+            cell.az_deg = Some(pf.az);
+            cell.range_nm = Some(pf.range);
+            cell.mvt_deg = Some(pf.mvt_deg);
+            cell.mvt_kt = Some(pf.mvt_kt);
+            cell.fcst_err_nm = Some(pf.fcst_err);
+            cell.mean_err_nm = Some(pf.mean_err);
+            cell.track = pf
+                .fcst
+                .iter()
+                .map(|&(min, az, rng)| {
+                    let (lon, lat) = azran_lonlat(lon0, lat0, az, rng);
+                    TrackPoint {
+                        minutes: min,
+                        lon,
+                        lat,
+                    }
+                })
+                .collect();
+        }
+        if let Some(&(d, h)) = dbz.get(&c.id) {
+            cell.max_dbz = Some(d);
+            cell.max_dbz_hgt_kft = Some(h);
+        }
+        storms.push(cell);
+    }
+    // Attach past-track polylines (packet 23) to the nearest cell by their current endpoint.
+    for poly in &p.past_tracks {
+        let ll: Vec<(f64, f64)> = poly
+            .iter()
+            .map(|&(x, y)| offset_lonlat(lon0, lat0, x, y))
+            .collect();
+        let Some(&(elon, elat)) = ll.last() else {
+            continue;
+        };
+        if let Some(i) = nearest_storm(&storms, elon, elat) {
+            storms[i].past_track = ll;
+        }
+    }
+    storms
+}
+
+/// Every `<Key>` in an S3 list-objects-v2 XML response, in the bucket's (ascending) order.
+fn all_keys(xml: &str) -> Vec<String> {
+    xml.split("<Key>")
+        .skip(1)
+        .filter_map(|k| k.split("</Key>").next())
+        .map(str::to_string)
+        .collect()
+}
+
+/// The storm cells of the last `n` NST products for `site` (yesterday's and today's, UTC), oldest
+/// first, each with its product time: what SCIT said about each earlier volume, so a cell's
+/// trend starts with history instead of filling one volume at a time. Only NST is kept in the
+/// bucket's history, so these carry position, motion and the max reflectivity with its height;
+/// structure (VIL, top) and hail come only with the live products.
+pub async fn fetch_cell_history(
+    http: &reqwest::Client,
+    site: &str,
+    n: usize,
+) -> Vec<(chrono::DateTime<chrono::Utc>, Vec<Cell>)> {
+    let s3 = l3_site(site);
+    let today = chrono::Utc::now().date_naive();
+    let mut keys = Vec::new();
+    for day in [today.pred_opt().unwrap_or(today), today] {
+        let prefix = format!("{s3}_NST_{}", day.format("%Y_%m_%d"));
+        let url = format!("{BUCKET}/?list-type=2&prefix={prefix}");
+        let Ok(resp) = http
+            .get(crate::net::fetch_url(&url))
+            .timeout(crate::net::FEED_TIMEOUT)
+            .send()
+            .await
+        else {
+            continue;
+        };
+        let Ok(xml) = resp.text().await else { continue };
+        crate::stats::net(xml.len());
+        keys.extend(all_keys(&xml));
+    }
+    let skip = keys.len().saturating_sub(n);
+    let fetches = keys.into_iter().skip(skip).map(|key| async move {
+        let time = key_time(&key)?;
+        let resp = http
+            .get(crate::net::fetch_url(&format!("{BUCKET}/{key}")))
+            .timeout(crate::net::FEED_TIMEOUT)
+            .send()
+            .await
+            .ok()?;
+        let bytes = resp.bytes().await.ok()?;
+        crate::stats::net(bytes.len());
+        match decode(&bytes) {
+            Ok(p) => Some((time, nst_cells(&p, Some(time)))),
+            Err(e) => {
+                log::warn!("level3 history decode {key}: {e}");
+                None
+            }
+        }
+    });
+    futures_util::future::join_all(fetches)
+        .await
+        .into_iter()
+        .flatten()
+        .collect()
+}
+
 /// Fetch storm cells (NST) + structure (SS) + hail (HI) + mesocyclones (NMD) for `site` and merge
 /// them into one clickable marker per storm. Failed products are skipped (their fields stay `None`).
 pub async fn fetch_cells(http: &reqwest::Client, site: &str) -> Vec<Cell> {
@@ -200,54 +318,9 @@ pub async fn fetch_cells(http: &reqwest::Client, site: &str) -> Vec<Cell> {
     );
 
     if let Some((p, time)) = nst {
-        let (lat0, lon0) = (p.lat as f64, p.lon as f64);
-        let table = p.tabular.clone().unwrap_or_default();
-        let graphic = p.graphic.clone().unwrap_or_default();
-        let fcst = parse_position_forecast(&table);
-        let dbz = parse_graphic_attrs(&graphic);
-        for c in &p.cells {
-            let (lon, lat) = offset_lonlat(lon0, lat0, c.x_km, c.y_km);
-            let mut cell = Cell::new(CellKind::Storm, lon, lat, c.id.clone(), c.id.clone());
-            cell.time = time;
-            if let Some(pf) = fcst.get(&c.id) {
-                cell.az_deg = Some(pf.az);
-                cell.range_nm = Some(pf.range);
-                cell.mvt_deg = Some(pf.mvt_deg);
-                cell.mvt_kt = Some(pf.mvt_kt);
-                cell.fcst_err_nm = Some(pf.fcst_err);
-                cell.mean_err_nm = Some(pf.mean_err);
-                cell.track = pf
-                    .fcst
-                    .iter()
-                    .map(|&(min, az, rng)| {
-                        let (lon, lat) = azran_lonlat(lon0, lat0, az, rng);
-                        TrackPoint {
-                            minutes: min,
-                            lon,
-                            lat,
-                        }
-                    })
-                    .collect();
-            }
-            if let Some(&(d, h)) = dbz.get(&c.id) {
-                cell.max_dbz = Some(d);
-                cell.max_dbz_hgt_kft = Some(h);
-            }
-            by_id.insert(c.id.clone(), storms.len());
-            storms.push(cell);
-        }
-        // Attach past-track polylines (packet 23) to the nearest cell by their current endpoint.
-        for poly in &p.past_tracks {
-            let ll: Vec<(f64, f64)> = poly
-                .iter()
-                .map(|&(x, y)| offset_lonlat(lon0, lat0, x, y))
-                .collect();
-            let Some(&(elon, elat)) = ll.last() else {
-                continue;
-            };
-            if let Some(i) = nearest_storm(&storms, elon, elat) {
-                storms[i].past_track = ll;
-            }
+        storms = nst_cells(&p, time);
+        for (i, c) in storms.iter().enumerate() {
+            by_id.insert(c.id.clone(), i);
         }
     }
 
@@ -856,6 +929,23 @@ fn last_key(xml: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn all_keys_lists_every_key_in_order() {
+        let xml = "<a><Contents><Key>TLX_NST_1</Key></Contents><Contents><Key>TLX_NST_2</Key>\
+                   </Contents></a>";
+        assert_eq!(all_keys(xml), vec!["TLX_NST_1", "TLX_NST_2"]);
+        assert!(all_keys("<a></a>").is_empty());
+    }
+
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn cell_history_returns_past_scans_oldest_first() {
+        let http = reqwest::Client::new();
+        let h = fetch_cell_history(&http, "KTLX", 6).await;
+        assert!(!h.is_empty(), "the bucket keeps NST history");
+        assert!(h.windows(2).all(|w| w[0].0 < w[1].0));
+    }
 
     #[test]
     fn key_time_parses_the_s3_naming() {
