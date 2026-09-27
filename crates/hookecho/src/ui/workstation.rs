@@ -94,6 +94,18 @@ pub fn card_frame(t: &Tokens) -> Frame {
 /// Stock egui widgets in the workstation look, for the controls the dock embeds rather than
 /// paints (text fields, combo boxes and their menus, sliders, the shared model and layer-option
 /// panels).
+/// Whether `ui` is inside a [`style_scope`]: shared widgets drawn in both the phone-sized
+/// panels and the workstation (the settings switch) take the compact metrics here. Read from
+/// the two metrics the scope sets together, which no app theme uses as a pair.
+pub fn in_scope(ui: &egui::Ui) -> bool {
+    ui.spacing().interact_size.y == CONTROL_H
+        && ui
+            .style()
+            .text_styles
+            .get(&egui::TextStyle::Body)
+            .is_some_and(|f| f.size == 13.0)
+}
+
 pub fn style_scope(ui: &mut egui::Ui, t: &Tokens) {
     let style = ui.style_mut();
     style.override_text_style = None;

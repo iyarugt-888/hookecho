@@ -390,6 +390,8 @@ impl DockState {
             dock_widths: [None; 2],
             sounding: WindowChrome::at(true, Place::Right),
             storms: WindowChrome::at(false, Place::Right),
+            cell: WindowChrome::at(true, Place::Right),
+            region: WindowChrome::at(true, Place::Right),
             timeline_open: true,
             footer_open: false,
         }
@@ -409,6 +411,8 @@ impl DockState {
             dock_widths: self.dock_widths.map(|w| w.map(|w| w.round() as u16)),
             sounding: self.sounding,
             storms: self.storms,
+            cell: self.cell,
+            region: self.region,
             timeline_open: self.timeline_open,
             footer_open: self.footer_open,
         }
@@ -427,6 +431,8 @@ impl DockState {
         self.dock_widths = w.dock_widths.map(|w| w.map(f32::from));
         self.sounding = w.sounding;
         self.storms = w.storms;
+        self.cell = w.cell;
+        self.region = w.region;
         self.timeline_open = w.timeline_open;
         self.footer_open = w.footer_open;
     }
@@ -1363,6 +1369,8 @@ mod tests {
             dock_widths: [None, Some(360)],
             sounding: WindowChrome::at(false, Place::Left),
             storms: WindowChrome::at(false, Place::Right),
+            cell: WindowChrome::at(true, Place::Float),
+            region: WindowChrome::at(false, Place::Left),
             timeline_open: false,
             footer_open: false,
         };

@@ -195,6 +195,12 @@ pub struct WorkstationChrome {
     /// The point sounding, shown once a point has been sounded. Docks right by default.
     #[serde(default = "sounding_default")]
     pub sounding: WindowChrome,
+    /// The selected storm's details, shown once Details… is asked for. Docks right by default.
+    #[serde(default = "sounding_default")]
+    pub cell: WindowChrome,
+    /// The region-statistics box, shown once one is drawn. Docks right by default.
+    #[serde(default = "sounding_default")]
+    pub region: WindowChrome,
     #[serde(default = "yes")]
     pub timeline_open: bool,
     /// The status footer under the timeline (roadmap Q2). Off unless asked for.
@@ -768,6 +774,8 @@ mod tests {
                     dock_widths: [Some(320), None],
                     sounding: WindowChrome::at(true, Place::Float),
                     storms: WindowChrome::at(false, Place::Right),
+                    cell: WindowChrome::at(true, Place::Left),
+                    region: WindowChrome::at(true, Place::Float),
                     timeline_open: false,
                     footer_open: false,
                 }),

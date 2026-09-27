@@ -106,9 +106,15 @@ pub fn square_btn(ui: &mut egui::Ui, glyph: &str, active: bool, accent: Color32)
 /// Full-width, keyboard-accessible settings switch.
 pub(crate) fn toggle(ui: &mut egui::Ui, value: &mut bool, label: &str) -> egui::Response {
     use crate::ui::a11y::Named;
+    // Touch-sized in the panels; the workstation's denser rows inside its style scope.
+    let (h, text, glyph) = if crate::ui::workstation::in_scope(ui) {
+        (26.0, 12.5, 20.0)
+    } else {
+        (38.0, 14.0, 28.0)
+    };
     let mut response = ui
         .add_sized(
-            egui::vec2(ui.available_width(), 38.0),
+            egui::vec2(ui.available_width(), h),
             egui::Button::new("").frame(false),
         )
         .named_toggle(label, *value);
@@ -121,7 +127,7 @@ pub(crate) fn toggle(ui: &mut egui::Ui, value: &mut bool, label: &str) -> egui::
         rect.left_center(),
         egui::Align2::LEFT_CENTER,
         label,
-        egui::FontId::proportional(14.0),
+        egui::FontId::proportional(text),
         ui.visuals().text_color(),
     );
     ui.painter().text(
@@ -132,7 +138,7 @@ pub(crate) fn toggle(ui: &mut egui::Ui, value: &mut bool, label: &str) -> egui::
         } else {
             egui_phosphor::regular::TOGGLE_LEFT
         },
-        egui::FontId::proportional(28.0),
+        egui::FontId::proportional(glyph),
         if *value {
             ui.visuals().selection.stroke.color
         } else {
