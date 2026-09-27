@@ -72,39 +72,26 @@ pub mod activity {
 #[cfg(not(target_os = "android"))]
 pub fn apply_safe_area(_ctx: &egui::Context, _raw_input: &mut egui::RawInput) {}
 
-/// Keep the font atlas on the GPU in step with egui's after the browser tab has been hidden.
+/// Never let eframe treat a web frame as hidden, so no frame's texture changes are thrown away.
 ///
-/// eframe's web runner still runs egui's pass while the page is hidden but throws that pass's
-/// texture changes away (`app_runner.rs`: they are appended only `if is_visible`). egui rebuilds
-/// its font atlas when it is 80% full, and a rebuild during a hidden frame loses the full upload;
-/// the next partial glyph upload then panics in egui-wgpu ("Tried to update a texture that has
-/// not been allocated yet") and the app stops. Busy windows full of text (a gauge card and the
-/// tropical guidance open together) fill the atlas enough to hit this.
+/// eframe's web runner marks the page occluded whenever `document.hidden` is true, and for an
+/// occluded frame it still runs egui's pass but drops that pass's texture changes
+/// (`app_runner.rs`: they are appended only `if is_visible`). A texture created or rebuilt in such
+/// a frame (the font atlas on first load, or when it fills and is rebuilt) never reaches the GPU,
+/// and the next partial update to it panics in egui-wgpu ("Tried to update a texture that has not
+/// been allocated yet"): the app stops. A tab loaded in the background, or a page that is hidden
+/// for a single frame while it loads, is enough.
 ///
-/// The cure is a rebuild in the first visible frame: egui rebuilds the atlas whenever its text
-/// options change, and `max_texture_side` is one of them, read from the raw input. Each return
-/// from hidden alternates it between the real limit and one pixel less, which a glyph atlas
-/// never notices.
+/// An earlier guard rebuilt the font atlas on the first visible frame after a hidden one; it
+/// missed a texture made hidden and updated in the same visible frame. Clearing the flag here
+/// (the hook runs before eframe reads it) means every frame's changes are kept. The cost is that a
+/// hidden tab lays out the frames it still gets; browsers already throttle a hidden tab's timers,
+/// so that is a frame now and then.
 // ponytail: works around eframe 0.35; drop it once eframe keeps hidden-frame texture deltas.
 #[cfg(target_arch = "wasm32")]
 pub fn guard_font_atlas(raw_input: &mut egui::RawInput) {
-    use std::sync::atomic::{AtomicBool, Ordering};
-    static HIDDEN: AtomicBool = AtomicBool::new(false);
-    static SHAVE: AtomicBool = AtomicBool::new(false);
-    let visible = raw_input
-        .viewports
-        .get(&egui::ViewportId::ROOT)
-        .and_then(|v| v.visible())
-        .unwrap_or(true);
-    if !visible {
-        HIDDEN.store(true, Ordering::Relaxed);
-    } else if HIDDEN.swap(false, Ordering::Relaxed) {
-        SHAVE.fetch_xor(true, Ordering::Relaxed);
-    }
-    if SHAVE.load(Ordering::Relaxed) {
-        if let Some(m) = raw_input.max_texture_side.as_mut() {
-            *m = m.saturating_sub(1);
-        }
+    if let Some(v) = raw_input.viewports.get_mut(&egui::ViewportId::ROOT) {
+        v.occluded = Some(false);
     }
 }
 
