@@ -332,6 +332,147 @@ pub fn compose(
     })
 }
 
+/// A composite as an ordinary scalar grid, so it can travel, cache and loop like every other
+/// field: each cell's value is its colour packed into one number (`r * 65536 + g * 256 + b`,
+/// exact in an `f32`, whose 24-bit mantissa holds every one of the 16.7 million colours), and a
+/// cell with no data is `NaN`. [`unpack`] reads a value back.
+pub fn pack(rgb: &RgbGrid) -> MrmsField {
+    let values = rgb
+        .rgba
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|p| {
+            if p[3] == 0 {
+                f32::NAN
+            } else {
+                ((u32::from(p[0]) << 16) | (u32::from(p[1]) << 8) | u32::from(p[2])) as f32
+            }
+        })
+        .collect();
+    MrmsField {
+        values,
+        nx: rgb.nx,
+        ny: rgb.ny,
+        lon_west: rgb.lon_west,
+        lon_east: rgb.lon_east,
+        lat_north: rgb.lat_north,
+        lat_south: rgb.lat_south,
+        time: rgb.time,
+    }
+}
+
+/// The colour a [`pack`]ed value holds; `None` for no data (or a value that is not one).
+pub fn unpack(v: f32) -> Option<[u8; 3]> {
+    if !v.is_finite() || !(0.0..=16_777_215.0).contains(&v) {
+        return None;
+    }
+    let c = v as u32;
+    Some([(c >> 16) as u8, (c >> 8) as u8, c as u8])
+}
+
+/// A packed composite reduced to at most a given number of colours, for a renderer that draws an
+/// indexed grid through a colour table: each cell's index into `palette` (`None` for no data).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Indexed {
+    pub palette: Vec<[u8; 3]>,
+    pub index: Vec<Option<u8>>,
+}
+
+/// A colour's median-cut bin: 5 bits a channel, 32 768 bins.
+fn bin_of(c: [u8; 3]) -> usize {
+    (usize::from(c[0] >> 3) << 10) | (usize::from(c[1] >> 3) << 5) | usize::from(c[2] >> 3)
+}
+
+/// Channel `k` (0 red, 1 green, 2 blue) of a bin, 0..32.
+fn bin_channel(bin: usize, k: usize) -> u8 {
+    ((bin >> (10 - 5 * k)) & 31) as u8
+}
+
+/// A box's widest channel: how wide, and which.
+fn widest(bins: &[usize]) -> (u8, usize) {
+    let mut best = (0u8, 0usize);
+    for k in 0..3 {
+        let (lo, hi) = bins.iter().fold((31u8, 0u8), |(lo, hi), &b| {
+            (lo.min(bin_channel(b, k)), hi.max(bin_channel(b, k)))
+        });
+        if hi - lo > best.0 {
+            best = (hi - lo, k);
+        }
+    }
+    best
+}
+
+/// Reduce a [`pack`]ed grid to at most `max_colors` (1..=256) colours by median cut: the colours
+/// (at 5 bits a channel) are split, box by box, across the channel with the widest spread at the
+/// pixel-weighted median, until there are `max_colors` boxes; each box's colour is its pixels'
+/// mean. The box split next is the one whose spread times pixel count is largest, so a broad
+/// family of colours gets more shades than a speck. An RGB composite is mostly a few broad colour
+/// families (the guides read it that way), so 255 adaptive colours are close to
+/// indistinguishable from the full image, where a fixed colour cube would band.
+pub fn quantize(values: &[f32], max_colors: usize) -> Indexed {
+    let max_colors = max_colors.clamp(1, 256);
+    let mut count = vec![0u32; 1 << 15];
+    let mut sum = vec![[0u64; 3]; 1 << 15];
+    for c in values.iter().filter_map(|v| unpack(*v)) {
+        let b = bin_of(c);
+        count[b] += 1;
+        for k in 0..3 {
+            sum[b][k] += u64::from(c[k]);
+        }
+    }
+    let used: Vec<usize> = (0..1usize << 15).filter(|&b| count[b] > 0).collect();
+    let pixels = |bins: &[usize]| -> u64 { bins.iter().map(|&b| u64::from(count[b])).sum() };
+    let mut boxes: Vec<Vec<usize>> = if used.is_empty() {
+        Vec::new()
+    } else {
+        vec![used]
+    };
+    while boxes.len() < max_colors {
+        let pick = boxes
+            .iter()
+            .enumerate()
+            .filter(|(_, bx)| bx.len() > 1)
+            .max_by_key(|(_, bx)| u64::from(widest(bx).0) * pixels(bx).max(1))
+            .map(|(i, _)| i);
+        let Some(i) = pick else { break };
+        let mut bx = boxes.swap_remove(i);
+        let k = widest(&bx).1;
+        bx.sort_by_key(|&b| bin_channel(b, k));
+        let total = pixels(&bx);
+        let mut acc = 0u64;
+        let mut cut = 1;
+        for (j, &b) in bx.iter().enumerate() {
+            acc += u64::from(count[b]);
+            if acc * 2 >= total {
+                cut = (j + 1).clamp(1, bx.len() - 1);
+                break;
+            }
+        }
+        let tail = bx.split_off(cut);
+        boxes.push(bx);
+        boxes.push(tail);
+    }
+    let mut palette = Vec::with_capacity(boxes.len());
+    let mut of_bin = vec![0u8; 1 << 15];
+    for (i, bx) in boxes.iter().enumerate() {
+        let n = pixels(bx).max(1);
+        let mut c = [0u64; 3];
+        for &b in bx {
+            for k in 0..3 {
+                c[k] += sum[b][k];
+            }
+            of_bin[b] = i as u8;
+        }
+        palette.push([(c[0] / n) as u8, (c[1] / n) as u8, (c[2] / n) as u8]);
+    }
+    let index = values
+        .iter()
+        .map(|v| unpack(*v).map(|c| of_bin[bin_of(c)]))
+        .collect();
+    Indexed { palette, index }
+}
+
 /// How far apart two bands' scan times may be and still count as one scan. A CONUS scan covers
 /// every band within about a minute; a full five-minute gap means a different scan.
 pub const SAME_SCAN_SECS: i64 = 120;
@@ -431,5 +572,118 @@ mod tests {
         );
         let short = grid(vec![250.0]);
         assert!(compose(&DUST, &[11, 13, 15], &[a.clone(), a, short]).is_err());
+    }
+
+    #[test]
+    fn a_composite_packs_into_a_field_and_back_exactly() {
+        let rgb = RgbGrid {
+            rgba: vec![255, 0, 128, 255, 1, 2, 3, 0, 0, 0, 0, 255],
+            nx: 3,
+            ny: 1,
+            lon_west: -100.0,
+            lon_east: -90.0,
+            lat_north: 40.0,
+            lat_south: 30.0,
+            time: chrono::DateTime::UNIX_EPOCH,
+        };
+        let f = pack(&rgb);
+        assert_eq!(unpack(f.values[0]), Some([255, 0, 128]));
+        assert!(f.values[1].is_nan(), "alpha 0 is no data");
+        assert_eq!(
+            unpack(f.values[2]),
+            Some([0, 0, 0]),
+            "black is a colour, not no data"
+        );
+        assert_eq!(unpack(16_777_215.0), Some([255, 255, 255]));
+        assert_eq!(unpack(f32::NAN), None);
+        assert_eq!(unpack(-1.0), None);
+        assert_eq!((f.nx, f.ny, f.lon_west), (3, 1, -100.0));
+    }
+
+    fn packed(c: [u8; 3]) -> f32 {
+        ((u32::from(c[0]) << 16) | (u32::from(c[1]) << 8) | u32::from(c[2])) as f32
+    }
+
+    #[test]
+    fn quantizing_keeps_a_few_colours_exact_and_many_close() {
+        // Three colours, fewer than the budget: each gets its own entry, exactly.
+        let few = [
+            packed([200, 0, 0]),
+            packed([0, 200, 0]),
+            packed([0, 0, 200]),
+            f32::NAN,
+            packed([200, 0, 0]),
+        ];
+        let q = quantize(&few, 255);
+        assert_eq!(q.palette.len(), 3);
+        assert_eq!(q.index[3], None);
+        assert_eq!(q.index[0], q.index[4]);
+        assert_eq!(q.palette[q.index[0].unwrap() as usize], [200, 0, 0]);
+        // A smooth ramp of 4096 colours into 16: every pixel lands close to its entry.
+        let ramp: Vec<f32> = (0..4096u32)
+            .map(|i| packed([(i % 64 * 4) as u8, (i / 64 * 4) as u8, 100]))
+            .collect();
+        let q = quantize(&ramp, 16);
+        assert!(q.palette.len() <= 16);
+        let worst = ramp
+            .iter()
+            .zip(&q.index)
+            .map(|(val, i)| {
+                let c = unpack(*val).unwrap();
+                let p = q.palette[i.unwrap() as usize];
+                (0..3)
+                    .map(|k| (i32::from(c[k]) - i32::from(p[k])).abs())
+                    .max()
+                    .unwrap()
+            })
+            .max()
+            .unwrap();
+        assert!(worst <= 40, "worst channel error {worst}");
+        // With the full budget the same ramp is near exact.
+        let q = quantize(&ramp, 255);
+        assert!(q.palette.len() > 200);
+        // Nothing to show: an empty palette and every cell empty.
+        let none = quantize(&[f32::NAN, f32::NAN], 255);
+        assert!(none.palette.is_empty() && none.index.iter().all(Option::is_none));
+    }
+
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn fetches_and_packs_a_real_air_mass_composite() {
+        let client = reqwest::Client::new();
+        let rgb = fetch_recipe(&client, Satellite::East, &AIR_MASS, 600, 350)
+            .await
+            .unwrap();
+        let field = pack(&rgb);
+        let valid = field.values.iter().filter(|v| v.is_finite()).count();
+        let q = quantize(&field.values, 254);
+        eprintln!(
+            "air mass {} x {} at {}: {:.0}% covered, {} palette colours",
+            rgb.nx,
+            rgb.ny,
+            rgb.time,
+            100.0 * valid as f64 / field.values.len() as f64,
+            q.palette.len()
+        );
+        assert!(valid * 2 > field.values.len(), "most of CONUS is covered");
+        assert!(q.palette.len() > 100, "a real scene has many colours");
+    }
+
+    /// A daytime recipe, with band 2's ~70 MB half-kilometre granule in it. Run in daylight over
+    /// the U.S.; at night it still composes, just dark.
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn fetches_a_real_day_cloud_phase_composite() {
+        let client = reqwest::Client::new();
+        let rgb = fetch_recipe(&client, Satellite::East, &DAY_CLOUD_PHASE, 600, 350)
+            .await
+            .unwrap();
+        let q = quantize(&pack(&rgb).values, 254);
+        eprintln!(
+            "day cloud phase at {}: {} colours",
+            rgb.time,
+            q.palette.len()
+        );
+        assert!(q.palette.len() > 50);
     }
 }

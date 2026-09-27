@@ -393,6 +393,9 @@ pub struct Settings {
     /// the Pacific and the western half of the country, East for everywhere else.
     #[serde(default)]
     pub goes_satellite_west: bool,
+    /// Which GOES RGB composite the RGB layer shows, by recipe slug (`wxdata::goes_rgb`).
+    #[serde(default = "default_goes_rgb_recipe")]
+    pub goes_rgb_recipe: String,
     /// How far from the active radar to draw Spotter Network dots, in km. 0 = no limit (the whole
     /// CONUS feed). Default 230 km, roughly the radar's own useful range.
     #[serde(default = "default_spotter_range_km")]
@@ -1547,6 +1550,10 @@ impl VelocityUnit {
     }
 }
 
+fn default_goes_rgb_recipe() -> String {
+    wxdata::goes_rgb::AIR_MASS.slug.to_string()
+}
+
 fn default_local_api_port() -> u16 {
     47_914
 }
@@ -1628,6 +1635,7 @@ impl Default for Settings {
             lightning_minutes: default_lightning_minutes(),
             glm_goes_west: false,
             goes_satellite_west: false,
+            goes_rgb_recipe: default_goes_rgb_recipe(),
             spotter_range_km: default_spotter_range_km(),
             alert_sound: true,
             smooth_radar: true,
@@ -2461,6 +2469,7 @@ mod tests {
             lightning_minutes: default_lightning_minutes(),
             glm_goes_west: false,
             goes_satellite_west: false,
+            goes_rgb_recipe: default_goes_rgb_recipe(),
             spotter_range_km: default_spotter_range_km(),
             alert_sound: false,
             ntfy_topic: "hookecho-test".to_string(),

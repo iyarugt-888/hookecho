@@ -1153,6 +1153,8 @@ pub fn ramp_for(layer: FieldLayer) -> Option<&'static FieldRamp> {
         | FL::MrmsReflM10c
         | FL::MrmsReflM15c
         | FL::MrmsReflM20c => return None,
+        // Its colours are its own (a composite's adaptive palette, `app::rgb_upload`), not a ramp.
+        FL::GoesRgb => return None,
     })
 }
 
@@ -1275,8 +1277,10 @@ mod tests {
 
     /// Layers colored outside this table. A new `FieldLayer` must join the table or this list —
     /// forgetting both silently ships a layer with no legend.
-    const NO_RAMP: [FieldLayer; 16] = [
+    const NO_RAMP: [FieldLayer; 17] = [
         FieldLayer::Mrms,
+        // An RGB composite colours itself: its upload builds an adaptive palette per image.
+        FieldLayer::GoesRgb,
         FieldLayer::Mosaic,
         FieldLayer::CompositeLocal,
         FieldLayer::Hrrr,

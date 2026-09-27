@@ -313,6 +313,11 @@ pub enum FieldLayer {
     /// out below the ramp's `lo`. See `field_ramps`'s `GOES_COOLING_RATE` doc comment for why the
     /// subtraction runs earlier-minus-now rather than the more commonly quoted now-minus-earlier.
     GoesCoolingRate,
+    /// A GOES ABI RGB composite (ROADMAP_NEW E4): Air Mass, Dust, Day Cloud Phase and the other
+    /// standard recipes in `wxdata::goes_rgb`, CONUS sector — which one is
+    /// `settings.goes_rgb_recipe`. Its grid holds each cell's colour packed into one value
+    /// (`goes_rgb::pack`); the upload reduces it to an adaptive 255-colour palette.
+    GoesRgb,
     /// NDFD 2 m temperature — the NWS's own forecaster-blended grid, not a raw model run.
     NdfdTemp2m,
     /// NDFD 10 m sustained wind speed.
@@ -370,6 +375,7 @@ impl FieldLayer {
                 | FieldLayer::GoesMidWaterVapor
                 | FieldLayer::GoesLowWaterVapor
                 | FieldLayer::GoesDirtyIr
+                | FieldLayer::GoesRgb
                 | FieldLayer::NdfdTemp2m
                 | FieldLayer::NdfdWind10m
                 | FieldLayer::NdfdGust10m
@@ -411,7 +417,7 @@ impl FieldLayer {
     }
 
     /// Fixed bottom-to-top paint order within each band.
-    pub const DRAW_ORDER: [FieldLayer; 87] = [
+    pub const DRAW_ORDER: [FieldLayer; 88] = [
         // Below-radar context band (bottom to top). The global models sit at the very bottom:
         // they are the synoptic backdrop everything else is drawn against — satellite included,
         // since it is the same kind of backdrop and the radar itself paints over it just the same.
@@ -426,6 +432,9 @@ impl FieldLayer {
         FieldLayer::GoesShortwaveIr,
         FieldLayer::GoesDirtyIr,
         FieldLayer::GoesIr,
+        // A composite is a whole picture, not a channel: over the single bands, so turning one
+        // on while a band is on shows the composite.
+        FieldLayer::GoesRgb,
         // NDFD sits with the models it's an alternative to, not with GOES — a forecaster-blended
         // grid rather than a raw model run, but same shape of thing as the global fields.
         FieldLayer::NdfdTemp2m,
@@ -638,6 +647,7 @@ impl FieldLayer {
             FieldLayer::GoesDustDiff => "goes-dust-diff",
             FieldLayer::GoesColdTop => "goes-cold-top",
             FieldLayer::GoesCoolingRate => "goes-cooling-rate",
+            FieldLayer::GoesRgb => "goes-rgb",
             FieldLayer::NdfdTemp2m => "ndfd-temp2m",
             FieldLayer::NdfdWind10m => "ndfd-wind10m",
             FieldLayer::NdfdGust10m => "ndfd-gust10m",

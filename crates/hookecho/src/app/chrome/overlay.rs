@@ -100,6 +100,7 @@ impl HookEchoApp {
             glm_options,
             &mut self.settings.glm_goes_west,
             &mut self.settings.goes_satellite_west,
+            &mut self.settings.goes_rgb_recipe,
             self.show_spotters,
             &mut self.settings.spotter_range_km,
             &mut self.settings.detectors,

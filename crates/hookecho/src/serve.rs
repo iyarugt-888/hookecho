@@ -1331,9 +1331,11 @@ fn etag_of(body: &[u8]) -> String {
 static PROXY_HITS: AtomicU64 = AtomicU64::new(0);
 static PROXY_MISSES: AtomicU64 = AtomicU64::new(0);
 
-/// Nothing bigger than this comes back through the proxy. An archive volume is a few MB; this is
-/// generous for every feed on the list and still bounds a hostile or broken upstream.
-const PROXY_MAX_BYTES: usize = 64 * 1024 * 1024;
+/// Nothing bigger than this comes back through the proxy. An archive volume is a few MB, but a
+/// GOES ABI band 2 (0.5 km red visible) CONUS granule is about 70 MB, and the visible layer and
+/// the daytime RGB composites (Day Cloud Phase, Day Convection, True Color) all need one; this
+/// still bounds a hostile or broken upstream on the allow-listed hosts.
+const PROXY_MAX_BYTES: usize = 128 * 1024 * 1024;
 
 /// `GET /proxy/{host}/{rest}` → `https://{host}/{rest}`, for the browser build.
 ///

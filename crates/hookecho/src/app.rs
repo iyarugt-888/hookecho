@@ -622,6 +622,12 @@ enum OverlaySource {
     /// 15 minutes ago minus now), same "carry the layer, not a hardcoded band" shape as
     /// `GoesDiff` above so a second lookback-window product only needs a new match arm.
     GoesCoolingRate(crate::render::FieldLayer, wxdata::goes_abi::Satellite),
+    /// A GOES RGB composite (`FieldLayer::GoesRgb`): every band of the recipe from one scan,
+    /// composed and packed into one grid (`wxdata::goes_rgb`).
+    GoesRgb(
+        &'static wxdata::goes_rgb::Recipe,
+        wxdata::goes_abi::Satellite,
+    ),
     /// An NDFD element (the NWS's own forecaster-blended grid), CONUS short range — which
     /// element is `NdfdTemp2m`/`NdfdWind10m`/`NdfdGust10m`/`NdfdSnow`.
     Ndfd(crate::render::FieldLayer),
@@ -1076,6 +1082,7 @@ impl OverlaySource {
             | Self::GoesCoolingRate(layer, ..)
             | Self::Ndfd(layer)
             | Self::Rtma(layer, _) => RequestLane::Field(*layer),
+            Self::GoesRgb(..) => RequestLane::Field(FL::GoesRgb),
             Self::ModelDiff(..) => RequestLane::Field(FL::ModelDiff),
             // Both compare panes ride one fetch (see `fetch_diff_pair`); either layer name works
             // as the dedup key, so it just picks the first.
@@ -1537,6 +1544,14 @@ impl OverlaySource {
                         700,
                     )
                     .await?,
+                )
+            }
+            OverlaySource::GoesRgb(recipe, satellite) => {
+                let rgb =
+                    wxdata::goes_rgb::fetch_recipe(http, satellite, recipe, 1200, 700).await?;
+                OverlayMsg::Field(
+                    crate::render::FieldLayer::GoesRgb,
+                    wxdata::goes_rgb::pack(&rgb),
                 )
             }
             OverlaySource::Ndfd(layer) => {
@@ -2692,7 +2707,8 @@ fn field_refresh_secs(layer: crate::render::FieldLayer) -> u64 {
         | FL::GoesDirtyIr
         | FL::GoesDustDiff
         | FL::GoesColdTop
-        | FL::GoesCoolingRate => 300,
+        | FL::GoesCoolingRate
+        | FL::GoesRgb => 300,
         // NDFD elements update on a forecaster's schedule, not a fixed clock, and each fetch is
         // a whole multi-day CONUS grid (tens of MB) with no way to ask for just the new part —
         // half an hour balances staying current against re-downloading that for no reason.
@@ -2761,6 +2777,11 @@ fn format_probe_field_value(
     use crate::render::FieldLayer as FL;
     if matches!(layer, FL::Mrms | FL::Hrrr | FL::Mosaic | FL::CompositeLocal) {
         return Some(format!("{raw:.1} dBZ"));
+    }
+    // A composite's value is a colour, which is what the probe says; its meaning is in the
+    // recipe's reading.
+    if layer == FL::GoesRgb {
+        return wxdata::goes_rgb::unpack(raw).map(|[r, g, b]| format!("RGB {r} {g} {b}"));
     }
     let units = layer
         .descriptor()
@@ -3710,6 +3731,8 @@ pub struct HookEchoApp {
     /// Which `settings.goes_satellite_west` each GOES band was last fetched for, so flipping the
     /// satellite refetches at once instead of waiting out the normal cadence.
     goes_west_key: std::collections::HashMap<crate::render::FieldLayer, bool>,
+    /// The GOES RGB recipe last fetched, so picking another refetches at once.
+    goes_rgb_fetched: Option<&'static str>,
     /// When `goto.txt` was last looked for — see the poll in `update`.
     goto_poll: Option<Instant>,
     /// The `#goto=` fragment last applied, web only — so a kiosk tab that never navigates away
@@ -5278,6 +5301,7 @@ impl HookEchoApp {
             diff_grid: None,
             diff_pct: None,
             goes_west_key: std::collections::HashMap::new(),
+            goes_rgb_fetched: None,
             goto_poll: None,
             #[cfg(target_arch = "wasm32")]
             last_goto_hash: None,
@@ -22043,6 +22067,21 @@ pub(crate) fn field_index_upload(
     }
 }
 
+/// An RGB composite's upload: its packed colours (`wxdata::goes_rgb::pack`) reduced to an
+/// adaptive palette of 254 colours, which the field pipeline draws like any indexed layer. Index 0
+/// is no data and 1 is left unused, as the pipeline reserves them.
+pub(crate) fn rgb_upload(f: &wxdata::mrms::MrmsField) -> crate::render::MrmsUpload {
+    let q = wxdata::goes_rgb::quantize(&f.values, 254);
+    let mut lut = vec![0u8; 256 * 4];
+    for (i, c) in q.palette.iter().enumerate() {
+        let at = (i + 2) * 4;
+        lut[at..at + 4].copy_from_slice(&[c[0], c[1], c[2], 255]);
+    }
+    let mut upload = field_index_upload(f, |_| 0, lut);
+    upload.data = q.index.iter().map(|i| i.map_or(0, |i| i + 2)).collect();
+    upload
+}
+
 /// Recolor the retained signed comparison grid for the selected display mode. All modes share
 /// one fetched/scientifically-derived field; only the value-to-index mapping and LUT differ.
 fn model_diff_upload(
@@ -22267,6 +22306,9 @@ pub(crate) fn field_upload_indexed(
     f: &wxdata::mrms::MrmsField,
 ) -> crate::render::MrmsUpload {
     use crate::render::field_ramps::{ramp_for, FieldScale};
+    if layer == crate::render::FieldLayer::GoesRgb {
+        return rgb_upload(f);
+    }
     // Lightning keeps its own mapping (density counts, not a physical scale).
     if layer
         .descriptor()
@@ -23081,6 +23123,28 @@ impl eframe::App for HookEchoApp {
                 self.fields.entry(layer).or_default().last_fetch = Some(Instant::now());
                 self.goes_west_key.insert(layer, west);
                 self.spawn_overlay(ctx, OverlaySource::GoesCoolingRate(layer, satellite));
+            }
+        }
+        // The GOES RGB composite: the same five-minute cadence and satellite flip, and a new
+        // recipe refetches at once (its bands differ).
+        {
+            let layer = FL::GoesRgb;
+            let recipe = wxdata::goes_rgb::by_slug(&self.settings.goes_rgb_recipe)
+                .unwrap_or(&wxdata::goes_rgb::AIR_MASS);
+            let on = self.field_wanted(layer);
+            let stale = on
+                && self.fields.get(&layer).is_none_or(|s| {
+                    s.last_fetch
+                        .is_none_or(|t| t.elapsed().as_secs() >= field_refresh_secs(layer))
+                });
+            let changed = on
+                && (self.goes_west_key.get(&layer) != Some(&west)
+                    || self.goes_rgb_fetched != Some(recipe.slug));
+            if stale || changed {
+                self.fields.entry(layer).or_default().last_fetch = Some(Instant::now());
+                self.goes_west_key.insert(layer, west);
+                self.goes_rgb_fetched = Some(recipe.slug);
+                self.spawn_overlay(ctx, OverlaySource::GoesRgb(recipe, satellite));
             }
         }
         // NDFD elements: also no forecast hour to scrub — each fetch is the whole short-range
@@ -26516,6 +26580,12 @@ mod probe_grid_tests {
         );
         assert!(cold_top.starts_with("20.0"), "{cold_top}");
 
+        assert_eq!(
+            format_probe_field_value(FL::GoesRgb, (0x80_40_20 as u32) as f32, TempUnit::Celsius)
+                .as_deref(),
+            Some("RGB 128 64 32"),
+            "a composite probes as its colour, not its packed number"
+        );
         let dust = format_probe_field_value(FL::GoesDustDiff, 3.0, TempUnit::Fahrenheit)
             .expect("a finite sample formats");
         assert!(

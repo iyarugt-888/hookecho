@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: GOES RGB composites
+
+A new layer, **GOES RGB composite**, builds the standard satellite RGBs straight from GOES-East or
+-West's own bands: Air Mass, Dust, Day Cloud Phase, Day Convection, Fire Temperature, Nighttime
+Microphysics and True Color. Pick one in the layer's settings; the colours' meaning is written
+under the picker. It refreshes every five minutes like the other satellite layers.
+
 ### Added: dock windows by dragging them, and a bottom dock
 
 In the Dock and WSV3 layouts, drag a floating window and dock targets appear at the left, right

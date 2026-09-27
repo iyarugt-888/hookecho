@@ -262,7 +262,8 @@ pub(crate) fn field_endpoint_family(layer: FieldLayer) -> EndpointFamily {
         | FL::GoesDirtyIr
         | FL::GoesDustDiff
         | FL::GoesColdTop
-        | FL::GoesCoolingRate => EndpointFamily::GoesOpenData,
+        | FL::GoesCoolingRate
+        | FL::GoesRgb => EndpointFamily::GoesOpenData,
         FL::ModelDiff | FL::CompareA | FL::CompareB => EndpointFamily::MixedModels,
         FL::Ensemble
         | FL::RtmaTemp2m

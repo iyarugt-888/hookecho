@@ -526,6 +526,15 @@ impl HookEchoApp {
                 false,
             ),
             (
+                FL::GoesRgb,
+                "National",
+                "GOES RGB composite",
+                "Air Mass, Dust, Day Cloud Phase, Day Convection, Fire Temperature, Night \
+                 Microphysics or True Color, built from the satellite's own bands (pick the \
+                 recipe in the layer's settings)",
+                true,
+            ),
+            (
                 FL::GoesCoolingRate,
                 "National",
                 "GOES cooling rate",

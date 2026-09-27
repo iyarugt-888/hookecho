@@ -50,6 +50,39 @@ pub struct UiActions {
     pub(crate) flash_ari_window: Option<FieldLayer>,
 }
 
+/// The GOES RGB layer's recipe: a choice of the standard composites, with what the chosen one's
+/// colours mean and whether it needs daylight. True when the pick changed.
+pub(crate) fn goes_rgb_picker(ui: &mut egui::Ui, recipe: &mut String) -> bool {
+    use wxdata::goes_rgb::{by_slug, AIR_MASS, RECIPES};
+    let now = by_slug(recipe).unwrap_or(&AIR_MASS);
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        ui.label("RGB composite:");
+        egui::ComboBox::from_id_salt("goes_rgb_recipe")
+            .selected_text(now.name)
+            .show_ui(ui, |ui| {
+                for r in RECIPES {
+                    if ui.selectable_label(r.slug == now.slug, r.name).clicked()
+                        && r.slug != now.slug
+                    {
+                        *recipe = r.slug.to_string();
+                        changed = true;
+                    }
+                }
+            });
+    });
+    let now = by_slug(recipe).unwrap_or(&AIR_MASS);
+    ui.label(egui::RichText::new(now.reading).small());
+    if now.daytime {
+        ui.label(
+            egui::RichText::new("Daylight only: its visible and near-IR bands are dark at night.")
+                .small()
+                .weak(),
+        );
+    }
+    changed
+}
+
 /// Existing catalog-backed QPE layers stay distinct for saved-workspace and headless slug
 /// compatibility. The picker treats them as one choice in the active pane.
 pub(crate) const QPE_WINDOWS: [(FieldLayer, &str); 5] = [
@@ -323,6 +356,8 @@ pub(crate) fn show(
     // Satellite: GOES-East or -West for the IR/visible/water-vapor CMIP bands (exclusive,
     // unlike GLM's additive choice above — the two satellites' CONUS scans overlap).
     goes_satellite_west: &mut bool,
+    // Satellite: which RGB composite the GOES RGB layer shows, by recipe slug.
+    goes_rgb_recipe: &mut String,
     // Spotter Network dots: on-state, and how far from the radar to draw them (0 = whole feed).
     show_spotters: bool,
     spotter_range_km: &mut f64,
@@ -419,6 +454,7 @@ pub(crate) fn show(
                 FL::GoesDirtyIr,
                 FL::GoesDustDiff,
                 FL::GoesColdTop,
+                FL::GoesRgb,
             ]
             .iter()
             .any(|l| on.contains(l)),
@@ -714,6 +750,10 @@ pub(crate) fn show(
         changed |= crate::ui::style::toggle(ui, glm_goes_west, "Include GOES-West")
             .on_hover_text("Adds GOES-18 so the Pacific and the west coast are covered too")
             .changed();
+    }
+
+    if section == "Satellite" && on.contains(&FL::GoesRgb) {
+        changed |= goes_rgb_picker(ui, goes_rgb_recipe);
     }
 
     if section == "Satellite" {

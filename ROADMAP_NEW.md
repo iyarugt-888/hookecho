@@ -2113,10 +2113,9 @@ Implement analyst channels at native/reasonable resolution:
   their own; this channel's actual value is as the other half of the split-window (Band 15 minus
   Band 13) dust/ash difference technique E6 hasn't built yet. Shipped standalone first since the
   channel has to exist before that difference can be computed.
-- [ ] C01 blue, C03 veggie, C05 snow/ice — not done. These are the remaining true-color/RGB-recipe
-  input channels (E4); no standalone analyst use case for them was obvious enough to prioritize
-  ahead of RGB recipe work actually needing them, unlike C07/C09/C10/C15 which each have a real
-  standalone reason to exist today.
+- [x] C01 blue, C03 veggie, C05 snow/ice — read as RGB-recipe inputs (E4: true color, Day Cloud
+  Phase, Day Convection, Fire Temperature), along with C06, C11 and C12. Not standalone layers:
+  no standalone analyst use case for them was obvious enough, unlike C07/C09/C10/C15.
 - [ ] C14 longwave IR — not done. Reads almost identically to C13 clean IR (both are atmospheric-
   window channels a few tenths of a micron apart) with no standalone or difference-product use
   case as clear as C15's, so it wasn't added just to complete the letter/number list.
@@ -2159,22 +2158,41 @@ checks this against a real downloaded granule, not just a synthetic fixture — 
 landmarks against NOAA imagery" acceptance criterion, satisfied by geographic-extent plausibility
 rather than a named-landmark pixel check specifically.
 
-## E4. RGB recipe engine
+## E4. RGB recipe engine — done, apart from the Sandwich product
 
-Create reusable recipe definitions rather than hard-code each RGB.
+Recipes are data, not code: `wxdata::goes_rgb::Recipe` is three channels of weighted band terms
+(a band, or a difference like 8 minus 10), each with the operational CIRA/RAMMB quick-guide range
+(high-to-low inverts, "colder is brighter") and gamma, plus a one-line reading of what the colours
+mean and whether it needs daylight. `compose` turns any recipe into an RGBA grid and
+`fetch_recipe` fetches its bands from one scan (`goes_abi::fetch_same_scan`: the newest scan of the
+first band, then each other band's granule nearest it, refused if it is more than two minutes off,
+so two moments are never composed into one picture). Adding a recipe is adding a constant.
 
-Target:
+- [x] True color (daytime; synthetic green from bands 1, 2 and 3, the standard CIRA recipe)
+- [x] Day Cloud Phase Distinction
+- [x] Day Convection
+- [x] Air Mass
+- [x] Dust
+- [x] Fire Temperature
+- [x] Nighttime Microphysics
+- [ ] Sandwich product — not done: it is not a three-channel stretch but a blend (a visible band
+  under a coloured, partly transparent IR layer), which the recipe shape does not describe yet.
+- [ ] GeoColor proper (true colour by day blended into a night IR/city-lights view) — not done;
+  the true-color recipe is the daytime half.
 
-- GeoColor / true-color-style composite
-- Day Cloud Phase
-- Day Convection
-- Air Mass
-- Dust
-- Fire Temperature
-- Night Microphysics
-- Sandwich product
+On the map it is one layer, **GOES RGB composite** (`FieldLayer::GoesRgb`), with the recipe picked
+in its settings (Satellite), each recipe's reading under the picker and a daylight-only note for
+the reflective ones. It rides the ordinary field pipeline rather than a new renderer path: the
+composite travels as a scalar grid whose value is each cell's colour packed into one number
+(`goes_rgb::pack`, exact in an `f32`), so it caches, loops and probes like every other layer (the
+probe reads "RGB r g b"), and the upload reduces each image to an adaptive 254-colour palette by
+median cut (`goes_rgb::quantize`, `app::rgb_upload`) that the indexed field shader draws. Same
+five-minute cadence and GOES-East/West choice as the single bands; a new recipe refetches at once.
 
-Recipe metadata should specify channel inputs, transforms, gamma/ranges and output meaning.
+Checked live: an Air Mass composite from GOES-East (four bands, 62% of the grid covered, 254
+colours) in the browser build, and Day Cloud Phase natively (band 2's ~70 MB half-kilometre
+granule included). The browser build's proxy used to cap responses at 64 MB, which a band 2
+granule exceeds (so the plain visible layer failed there too); it is now 128 MB.
 
 ## E5. Rapid-scan handling
 
