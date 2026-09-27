@@ -670,6 +670,25 @@ pub async fn fetch_at(
     Err(last_err.unwrap_or_else(|| anyhow::anyhow!("no HRRR run found")))
 }
 
+/// The same point at the same valid time from the HRRR run an hour before `current`'s, for
+/// seeing how the model's idea of the profile changed between cycles. The earlier run's
+/// forecast hour is one longer; a run that does not reach that far (18 hours for the
+/// off-synoptic cycles) is an error, not a quietly different valid time.
+pub async fn fetch_previous_run(
+    http: &reqwest::Client,
+    current: &Sounding,
+) -> anyhow::Result<Sounding> {
+    let run = current.run - chrono::Duration::hours(1);
+    let fh = current.fh as u32 + 1;
+    let max_fh = if run.hour().is_multiple_of(6) { 48 } else { 18 };
+    anyhow::ensure!(
+        fh <= max_fh,
+        "the {}Z run stops at f{max_fh}, short of this valid time",
+        run.format("%H")
+    );
+    fetch_run(http, run, current.lon, current.lat, fh as u8).await
+}
+
 async fn fetch_run(
     http: &reqwest::Client,
     run: DateTime<Utc>,
@@ -1277,6 +1296,21 @@ mod f8_tests {
             "MU {} vs SB {}",
             mu.cape,
             sb.cape
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn the_previous_run_is_the_same_valid_time_an_hour_older() {
+        let http = reqwest::Client::new();
+        let now = fetch_at(&http, -97.5, 35.2, 3).await.unwrap();
+        let before = fetch_previous_run(&http, &now).await.unwrap();
+        let valid = |s: &Sounding| s.run + chrono::Duration::hours(s.fh as i64);
+        assert_eq!(valid(&before), valid(&now));
+        assert_eq!(before.run, now.run - chrono::Duration::hours(1));
+        eprintln!(
+            "run {} f{} vs run {} f{}: 500 hPa {:.1} vs {:.1} C",
+            now.run, now.fh, before.run, before.fh, now.levels[5].temp_c, before.levels[5].temp_c
         );
     }
 }

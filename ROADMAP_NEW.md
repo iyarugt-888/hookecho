@@ -2635,7 +2635,12 @@ Point sounding should support:
 - [ ] ensemble envelope
 - [x] observed RAOB overlay — the nearest radiosonde ascent, dashed under the model profile on
   the Skew-T and hodograph (built earlier)
-- [ ] previous model run overlay
+- [x] previous model run overlay — a "Previous run" checkbox fetches the same point at the same
+  valid time from the HRRR run an hour earlier (`sounding::fetch_previous_run`: the earlier run
+  at one more forecast hour, refused rather than shifted when that run stops short), drawn dotted
+  and dimmed on the Skew-T and in grey on the hodograph, and refetched when the main profile
+  changes. Off by default, since it is another forty-odd range requests. Checked live: 21Z f03 and
+  20Z f04 matched in valid time; in the browser the 3 PM f01 run drew under the 4 PM f00 one.
 - [x] parcel selection — an SB / ML / MU picker above the cards (`Sounding::parcel_of`):
   surface-based; mixed-layer (the lowest 100 hPa's mean potential temperature and mixing ratio,
   lifted from the surface through the real environment, `lift_from`); most unstable (the level in

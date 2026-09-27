@@ -3925,6 +3925,9 @@ pub struct HookEchoApp {
     sounding_rx: Option<std::sync::mpsc::Receiver<Result<wxdata::sounding::Sounding, String>>>,
     /// The observed RAOB fetched alongside the HRRR profile, for the same click.
     raob_rx: Option<std::sync::mpsc::Receiver<Result<wxdata::sounding::Sounding, String>>>,
+    /// The previous HRRR run's profile at the sounding's valid time (ROADMAP_NEW F8).
+    previous_sounding_rx:
+        Option<std::sync::mpsc::Receiver<Result<wxdata::sounding::Sounding, String>>>,
     /// Last spoken storm-position update: when, and the distance in whole miles it reported.
     spoke_pos: Option<(Instant, i32)>,
     /// Detections seen recently, for compound rules to ask "and was there also…". Trimmed to the
@@ -5434,6 +5437,7 @@ impl HookEchoApp {
             sounding_window: Default::default(),
             sounding_rx: None,
             raob_rx: None,
+            previous_sounding_rx: None,
             chase_mode: false,
             spoke_pos: None,
             recent_hits: Vec::new(),
@@ -9343,6 +9347,30 @@ impl HookEchoApp {
         let http = self.http.clone();
         self.spawner.spawn(async move {
             let res = wxdata::sounding::fetch_at(&http, lon, lat, fh)
+                .await
+                .map_err(|e| e.to_string());
+            let _ = tx.send(res);
+        });
+    }
+
+    /// The previous HRRR run at the current sounding's valid time.
+    fn fetch_previous_sounding(&mut self) {
+        let Some(current) = self.sounding_window.sounding.as_ref() else {
+            return;
+        };
+        let current = wxdata::sounding::Sounding {
+            lon: current.lon,
+            lat: current.lat,
+            run: current.run,
+            fh: current.fh,
+            levels: Vec::new(),
+        };
+        self.sounding_window.previous_error = None;
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.previous_sounding_rx = Some(rx);
+        let http = self.http.clone();
+        self.spawner.spawn(async move {
+            let res = wxdata::sounding::fetch_previous_run(&http, &current)
                 .await
                 .map_err(|e| e.to_string());
             let _ = tx.send(res);
@@ -24964,6 +24992,11 @@ impl eframe::App for HookEchoApp {
             if let Ok(res) = rx.try_recv() {
                 self.sounding_window.busy = false;
                 self.sounding_rx = None;
+                // A new profile makes the previous run's stale: fetch it again if it is shown.
+                self.sounding_window.previous = None;
+                self.sounding_window.previous_error = None;
+                self.previous_sounding_rx = None;
+                self.sounding_window.want_previous = self.sounding_window.show_previous;
                 match res {
                     Ok(s) => self.sounding_window.sounding = Some(s),
                     Err(e) => {
@@ -24971,6 +25004,18 @@ impl eframe::App for HookEchoApp {
                     }
                 }
             }
+        }
+        if let Some(rx) = &self.previous_sounding_rx {
+            if let Ok(res) = rx.try_recv() {
+                self.previous_sounding_rx = None;
+                match res {
+                    Ok(s) => self.sounding_window.previous = Some(s),
+                    Err(e) => self.sounding_window.previous_error = Some(e),
+                }
+            }
+        }
+        if std::mem::take(&mut self.sounding_window.want_previous) {
+            self.fetch_previous_sounding();
         }
         if let Some(rx) = &self.raob_rx {
             if let Ok(res) = rx.try_recv() {

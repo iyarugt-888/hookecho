@@ -30,6 +30,12 @@ pub struct SoundingWindow {
     pub storm_motion: Option<((f64, f64), (f64, f64))>,
     /// Which parcel the CAPE cards and the Skew-T trace show.
     pub parcel_kind: wxdata::sounding::ParcelKind,
+    /// The same valid time from the HRRR run an hour earlier, drawn dotted when shown.
+    pub previous: Option<Sounding>,
+    pub previous_error: Option<String>,
+    pub show_previous: bool,
+    /// Set for one frame when the previous run is wanted and not yet fetched.
+    pub want_previous: bool,
 }
 
 impl Default for SoundingWindow {
@@ -49,6 +55,11 @@ impl Default for SoundingWindow {
             refetch: false,
             storm_motion: None,
             parcel_kind: Default::default(),
+            previous: None,
+            previous_error: None,
+            // Off by default: it is another forty-odd range requests.
+            show_previous: false,
+            want_previous: false,
         }
     }
 }
@@ -315,6 +326,42 @@ impl SoundingWindow {
             .show_observed
             .then_some(self.observed.as_ref())
             .flatten();
+        // The previous HRRR run at the same valid time, fetched when first asked for.
+        ui.horizontal_wrapped(|ui| {
+            if ui
+                .checkbox(&mut self.show_previous, "Previous run")
+                .on_hover_text(
+                    "The HRRR run an hour earlier at the same valid time, dotted: how the \
+                     forecast changed between cycles",
+                )
+                .changed()
+                && self.show_previous
+                && self.previous.is_none()
+            {
+                self.want_previous = true;
+            }
+            if self.show_previous {
+                match (&self.previous, &self.previous_error) {
+                    (Some(p), _) => {
+                        ui.weak(format!(
+                            "run {} f{:02}",
+                            crate::timefmt::fmt_date_clock(p.run, tz),
+                            p.fh
+                        ));
+                    }
+                    (None, Some(e)) => {
+                        ui.weak(format!("unavailable: {e}"));
+                    }
+                    (None, None) => {
+                        ui.weak("fetching\u{2026}");
+                    }
+                }
+            }
+        });
+        let previous = self
+            .show_previous
+            .then_some(self.previous.as_ref())
+            .flatten();
         ui.separator();
         // Phone: the fixed-width plots (300 + 240 px) side by side overflow the screen —
         // stack them vertically inside a scroll instead (fixed-width content overrides
@@ -324,13 +371,13 @@ impl SoundingWindow {
         let mut clicked = None;
         let chosen = s.parcel_of(self.parcel_kind);
         if stacked {
-            skewt(ui, s, observed, chosen.as_ref());
+            skewt(ui, s, observed, previous, chosen.as_ref());
             ui.add_space(6.0);
-            clicked = hodograph(ui, s, observed, custom);
+            clicked = hodograph(ui, s, observed, previous, custom);
         } else {
             ui.horizontal(|ui| {
-                skewt(ui, s, observed, chosen.as_ref());
-                clicked = hodograph(ui, s, observed, custom);
+                skewt(ui, s, observed, previous, chosen.as_ref());
+                clicked = hodograph(ui, s, observed, previous, custom);
             });
         }
         if let Some(m) = clicked {
@@ -345,6 +392,7 @@ fn skewt(
     ui: &mut egui::Ui,
     s: &Sounding,
     observed: Option<&Sounding>,
+    previous: Option<&Sounding>,
     parcel: Option<&(wxdata::sounding::Parcel, usize)>,
 ) {
     // Up to 300 px wide: narrower where it sits in a dock. The axes are laid out from `rect`.
@@ -387,9 +435,11 @@ fn skewt(
         );
     }
 
+    // `dash`: none for the forecast, long dashes for the observed ascent, dots for the
+    // previous run.
     let trace = |src: &Sounding,
                  color: egui::Color32,
-                 dashed: bool,
+                 dash: Option<(f32, f32)>,
                  pick: &dyn Fn(&wxdata::sounding::SoundingLevel) -> f64| {
         let pts: Vec<egui::Pos2> = src
             .levels
@@ -401,10 +451,11 @@ fn skewt(
             return;
         }
         let stroke = egui::Stroke::new(2.0, color);
-        if dashed {
-            p.extend(egui::Shape::dashed_line(&pts, stroke, 5.0, 4.0));
-        } else {
-            p.add(egui::Shape::line(pts, stroke));
+        match dash {
+            Some((on, off)) => p.extend(egui::Shape::dashed_line(&pts, stroke, on, off)),
+            None => {
+                p.add(egui::Shape::line(pts, stroke));
+            }
         }
     };
     let (green, red) = (
@@ -413,11 +464,19 @@ fn skewt(
     );
     // Observed underneath, so the forecast trace stays readable where they overlap.
     if let Some(o) = observed {
-        trace(o, green.gamma_multiply(0.85), true, &|l| l.dewpt_c);
-        trace(o, red.gamma_multiply(0.85), true, &|l| l.temp_c);
+        trace(o, green.gamma_multiply(0.85), Some((5.0, 4.0)), &|l| {
+            l.dewpt_c
+        });
+        trace(o, red.gamma_multiply(0.85), Some((5.0, 4.0)), &|l| l.temp_c);
     }
-    trace(s, green, false, &|l| l.dewpt_c);
-    trace(s, red, false, &|l| l.temp_c);
+    if let Some(o) = previous {
+        trace(o, green.gamma_multiply(0.6), Some((1.5, 3.0)), &|l| {
+            l.dewpt_c
+        });
+        trace(o, red.gamma_multiply(0.6), Some((1.5, 3.0)), &|l| l.temp_c);
+    }
+    trace(s, green, None, &|l| l.dewpt_c);
+    trace(s, red, None, &|l| l.temp_c);
     // The lifted parcel, and the CAPE it encloses: the shaded area *is* the number on the card.
     // Drawn from the level it starts at: a most-unstable parcel has no trace below its origin.
     if let Some((parcel, start)) = parcel {
@@ -483,6 +542,7 @@ fn hodograph(
     ui: &mut egui::Ui,
     s: &Sounding,
     observed: Option<&Sounding>,
+    previous: Option<&Sounding>,
     custom: Option<(f64, f64)>,
 ) -> Option<(f64, f64)> {
     let w = ui.available_width().clamp(200.0, 240.0);
@@ -545,6 +605,23 @@ fn hodograph(
                 ),
                 5.0,
                 4.0,
+            ));
+        }
+    }
+    // The previous run's winds, dotted grey.
+    if let Some(o) = previous {
+        let pts: Vec<egui::Pos2> = o
+            .levels
+            .iter()
+            .filter(|l| l.pressure_hpa >= 250.0)
+            .map(|l| to_px(l.u_ms, l.v_ms))
+            .collect();
+        if pts.len() >= 2 {
+            p.extend(egui::Shape::dashed_line(
+                &pts,
+                egui::Stroke::new(1.8, egui::Color32::from_gray(170)),
+                1.5,
+                3.0,
             ));
         }
     }

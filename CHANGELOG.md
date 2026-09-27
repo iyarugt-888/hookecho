@@ -45,6 +45,8 @@ heights; its hodograph is coloured by height with Bunkers right and left movers 
 click on it sets your own storm motion for the helicity numbers.
 A parcel picker (surface-based, mixed-layer, most unstable) chooses which CAPE the sounding shows
 and draws.
+"Previous run" draws the HRRR run an hour older at the same valid time, dotted, to show how the
+forecast changed between cycles.
 
 ### Added: GOES RGB composites
 
