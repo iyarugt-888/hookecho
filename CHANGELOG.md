@@ -49,6 +49,8 @@ and draws.
 forecast changed between cycles.
 The point sounding can come from RAP or the NAM 3 km nest as well as HRRR (RAP in the desktop app
 only).
+The 3D map can show smooth ZDR and KDP volumes (ZDR columns, heavy-rain and hail cores), masked
+to real echo so noise in weak returns does not fill the view.
 
 ### Added: GOES RGB composites
 

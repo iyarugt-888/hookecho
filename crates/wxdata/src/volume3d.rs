@@ -266,6 +266,25 @@ pub fn build(
     })
 }
 
+/// Clear every voxel of `v3` where `by` — a volume on the same grid, usually reflectivity — is
+/// empty or below `min_value`. The polarimetric fields are only trustworthy where there is
+/// signal: in weak echo ZDR and KDP are noise, and a maximum-intensity raymarch finds that noise
+/// first, painting the whole volume one colour. Masking at ~20 dBZ keeps a ZDR column or a KDP
+/// core and drops the speckle. Returns `false` (and leaves `v3` alone) when the grids differ.
+pub fn mask_by(v3: &mut Volume3d, by: &Volume3d, min_value: f32) -> bool {
+    if v3.n != by.n || v3.nz != by.nz || (v3.half_km - by.half_km).abs() > 1e-3 {
+        return false;
+    }
+    let span = (by.value_max - by.value_min).max(f32::EPSILON);
+    let floor = (2.0 + ((min_value - by.value_min) / span).clamp(0.0, 1.0) * 253.0).ceil() as u8;
+    for (v, &b) in v3.data.iter_mut().zip(&by.data) {
+        if b < 2 || b < floor {
+            *v = 0;
+        }
+    }
+    true
+}
+
 /// Flip the volume's index mapping end for end: the voxel that held `value_min` now holds
 /// `value_max`'s index and vice versa, with everything between mirrored the same way. `value_min`/
 /// `value_max` themselves are left untouched — they still describe the true physical range, just
@@ -617,5 +636,31 @@ mod clip_tests {
         let n = clip_around(150.0, 0.0, 150.0, 25.0);
         assert_eq!(n[3], 1.0);
         assert!((n[3] - n[2] - (c[1] - c[0])).abs() < 1e-3);
+    }
+
+    #[test]
+    fn a_volume_is_masked_where_the_other_is_weak_or_empty() {
+        use super::{mask_by, Volume3d};
+        let grid = |data: Vec<u8>, lo: f32, hi: f32| Volume3d {
+            data,
+            n: 2,
+            nz: 1,
+            half_km: 10.0,
+            top_km: 5.0,
+            value_min: lo,
+            value_max: hi,
+        };
+        // Reflectivity over -30..80 dBZ: empty, ~0 dBZ, ~25 dBZ, ~60 dBZ.
+        let dbz = |v: f32| 2 + ((v + 30.0) / 110.0 * 253.0) as u8;
+        let refl = grid(vec![0, dbz(0.0), dbz(25.0), dbz(60.0)], -30.0, 80.0);
+        let mut zdr = grid(vec![200, 200, 200, 200], -8.0, 8.0);
+        assert!(mask_by(&mut zdr, &refl, 20.0));
+        assert_eq!(zdr.data, [0, 0, 200, 200]);
+        let mut other = grid(vec![1; 8], -8.0, 8.0);
+        other.n = 4;
+        assert!(
+            !mask_by(&mut other, &refl, 20.0),
+            "different grids are refused"
+        );
     }
 }

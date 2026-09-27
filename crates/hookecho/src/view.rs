@@ -30,9 +30,30 @@ pub enum Map3dRepresentation {
     /// spectral width along a ray is the interesting case (shear, turbulence, a couplet's own
     /// broadening), the same sense a reflectivity core is "high is interesting".
     SmoothSpectrumWidth,
+    /// A resampled differential-reflectivity volume (Phase H1): high ZDR lofted above the
+    /// melting level is a ZDR column, the updraft's fingerprint, and a tall one is the best
+    /// radar sign of a strengthening updraft.
+    SmoothZdr,
+    /// A resampled specific-differential-phase volume (Phase H1): high KDP marks heavy rain and
+    /// melting hail, and its core's height and depth say where the heaviest precipitation is.
+    SmoothKdp,
 }
 
 impl Map3dRepresentation {
+    /// The moment a resampled representation is built from, and whether its index is inverted
+    /// before raymarching (low CC is the interesting debris case); `None` for observed sweeps.
+    pub fn smooth_moment(self) -> Option<(wxdata::level2::Moment, bool)> {
+        use wxdata::level2::Moment as M;
+        match self {
+            Self::ObservedSweeps => None,
+            Self::SmoothVolume => Some((M::Reflectivity, false)),
+            Self::SmoothDebris => Some((M::CorrelationCoefficient, true)),
+            Self::SmoothSpectrumWidth => Some((M::SpectrumWidth, false)),
+            Self::SmoothZdr => Some((M::DifferentialReflectivity, false)),
+            Self::SmoothKdp => Some((M::SpecificDifferentialPhase, false)),
+        }
+    }
+
     /// The name the Inspector's 3D block gives this mode.
     pub fn label(self) -> &'static str {
         match self {
@@ -40,6 +61,8 @@ impl Map3dRepresentation {
             Self::SmoothVolume => "Smooth reflectivity",
             Self::SmoothDebris => "Debris (low CC)",
             Self::SmoothSpectrumWidth => "Smooth spectrum width",
+            Self::SmoothZdr => "Smooth ZDR",
+            Self::SmoothKdp => "Smooth KDP",
         }
     }
 }
@@ -201,6 +224,11 @@ pub struct Map3dState {
     /// and switching representations must not silently carry one moment's floor into another's.
     /// 8 m/s clears ordinary spectral broadening and keeps genuine turbulence/shear signatures.
     pub sw_floor_ms: f32,
+    /// ZDR floor (dB) for `SmoothZdr`: 1 dB clears the near-zero ZDR of dry snow and small
+    /// drops and keeps the columns and big-drop cores.
+    pub zdr_floor_db: f32,
+    /// KDP floor (°/km) for `SmoothKdp`: 0.5 °/km clears noise and light rain.
+    pub kdp_floor_deg_km: f32,
     /// CC-anomaly opacity, used by `SmoothDebris` and by `ObservedSweeps` while the pane's moment
     /// is correlation coefficient. See [`CcAnomaly`]. Separate from `denoise_enabled` because it
     /// is not a floor at all — the two are alternative ways of deciding what a voxel is worth
@@ -253,6 +281,8 @@ impl Default for Map3dState {
             denoise_enabled: true,
             reflectivity_floor_dbz: 18.0,
             sw_floor_ms: 8.0,
+            zdr_floor_db: 1.0,
+            kdp_floor_deg_km: 0.5,
             cc_anomaly: CcAnomaly::default(),
             clip: [0.0, 1.0, 0.0, 1.0, 0.0, 1.0],
             plane: None,
@@ -824,6 +854,31 @@ impl MapView {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn each_smooth_representation_resamples_its_own_moment() {
+        use super::Map3dRepresentation as R;
+        use wxdata::level2::Moment as M;
+        assert_eq!(R::ObservedSweeps.smooth_moment(), None);
+        assert_eq!(
+            R::SmoothZdr.smooth_moment(),
+            Some((M::DifferentialReflectivity, false))
+        );
+        assert_eq!(
+            R::SmoothKdp.smooth_moment(),
+            Some((M::SpecificDifferentialPhase, false))
+        );
+        assert_eq!(
+            R::SmoothDebris.smooth_moment(),
+            Some((M::CorrelationCoefficient, true))
+        );
+        // The two new floors sit inside their moment's value range, so the slider can reach them.
+        let s = super::Map3dState::default();
+        let (lo, hi) = M::DifferentialReflectivity.value_range();
+        assert!((lo..hi).contains(&s.zdr_floor_db));
+        let (lo, hi) = M::SpecificDifferentialPhase.value_range();
+        assert!((lo..hi).contains(&s.kdp_floor_deg_km));
+    }
+
     #[test]
     fn a_sweep_maps_to_its_angle_not_its_position_in_the_vcp() {
         let elev = [0.5, 0.9, 1.3, 1.8, 2.4];

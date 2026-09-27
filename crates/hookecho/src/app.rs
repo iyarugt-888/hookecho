@@ -15449,12 +15449,7 @@ impl HookEchoApp {
         if !state.enabled {
             return None;
         }
-        let (resample_moment, invert) = match state.representation {
-            Map3dRepresentation::SmoothVolume => (Moment::Reflectivity, false),
-            Map3dRepresentation::SmoothDebris => (Moment::CorrelationCoefficient, true),
-            Map3dRepresentation::SmoothSpectrumWidth => (Moment::SpectrumWidth, false),
-            Map3dRepresentation::ObservedSweeps => return None,
-        };
+        let (resample_moment, invert) = state.representation.smooth_moment()?;
         if self.views[idx].moment != resample_moment {
             // `map_3d_controls` already resets back to Observed the moment this stops being
             // true; this is a second, cheap guard against ever resampling the wrong moment.
@@ -15499,6 +15494,13 @@ impl HookEchoApp {
                 );
                 if self.smooth_vol_key[idx].as_ref() != Some(&key) {
                     let sweeps = vol.moment_tilts(resample_moment);
+                    // ZDR and KDP are noise in weak echo, and a maximum-intensity raymarch finds
+                    // the noise first; they are masked by reflectivity on the same grid.
+                    let mask_sweeps = matches!(
+                        resample_moment,
+                        Moment::DifferentialReflectivity | Moment::SpecificDifferentialPhase
+                    )
+                    .then(|| vol.moment_tilts(Moment::Reflectivity));
                     if !sweeps.is_empty() {
                         self.smooth_vol_key[idx] = Some(key);
                         let table = crate::colormap::effective_table(
@@ -15533,6 +15535,17 @@ impl HookEchoApp {
                                 );
                                 let mut v3 =
                                     wxdata::volume3d::build(&sweeps, n, nz, half_km, VOL3D_TOP_KM)?;
+                                if let Some(mask) = mask_sweeps.as_deref() {
+                                    if let Some(refl) =
+                                        wxdata::volume3d::build(mask, n, nz, half_km, VOL3D_TOP_KM)
+                                    {
+                                        wxdata::volume3d::mask_by(
+                                            &mut v3,
+                                            &refl,
+                                            POLARIMETRIC_MASK_DBZ,
+                                        );
+                                    }
+                                }
                                 if invert {
                                     wxdata::volume3d::invert_in_place(&mut v3);
                                 }
@@ -15590,6 +15603,8 @@ impl HookEchoApp {
         let denoise_floor = match state.representation {
             Map3dRepresentation::SmoothVolume => Some(state.reflectivity_floor_dbz),
             Map3dRepresentation::SmoothSpectrumWidth => Some(state.sw_floor_ms),
+            Map3dRepresentation::SmoothZdr => Some(state.zdr_floor_db),
+            Map3dRepresentation::SmoothKdp => Some(state.kdp_floor_deg_km),
             Map3dRepresentation::SmoothDebris | Map3dRepresentation::ObservedSweeps => None,
         };
         let threshold_idx = match denoise_floor {
@@ -15704,13 +15719,12 @@ impl HookEchoApp {
         // Each resampled representation only ever shows one moment's volume; if
         // the pane's 2D product moves off that moment, fall back to Observed
         // rather than keep showing a volume for a product no longer selected.
-        let stale_smooth = view.map_3d.representation == Map3dRepresentation::SmoothVolume
-            && moment != Moment::Reflectivity;
-        let stale_debris = view.map_3d.representation == Map3dRepresentation::SmoothDebris
-            && moment != Moment::CorrelationCoefficient;
-        let stale_sw = view.map_3d.representation == Map3dRepresentation::SmoothSpectrumWidth
-            && moment != Moment::SpectrumWidth;
-        if stale_smooth || stale_debris || stale_sw {
+        let stale = view
+            .map_3d
+            .representation
+            .smooth_moment()
+            .is_some_and(|(m, _)| m != moment);
+        if stale {
             view.map_3d.representation = Map3dRepresentation::ObservedSweeps;
         }
         ui.horizontal(|ui| {
@@ -15756,6 +15770,33 @@ impl HookEchoApp {
                 "Regularized spectrum-width volume — shear and turbulence \
                      signatures, the same continuous fill as Smooth/Debris",
             );
+            ui.add_enabled_ui(
+                volume_supported && moment == Moment::DifferentialReflectivity,
+                |ui| {
+                    ui.selectable_value(
+                        &mut view.map_3d.representation,
+                        Map3dRepresentation::SmoothZdr,
+                        "ZDR",
+                    )
+                },
+            )
+            .response
+            .on_hover_text(
+                "Regularized ZDR volume — ZDR columns above the melting level mark \
+                     strong updrafts",
+            );
+            ui.add_enabled_ui(
+                volume_supported && moment == Moment::SpecificDifferentialPhase,
+                |ui| {
+                    ui.selectable_value(
+                        &mut view.map_3d.representation,
+                        Map3dRepresentation::SmoothKdp,
+                        "KDP",
+                    )
+                },
+            )
+            .response
+            .on_hover_text("Regularized KDP volume — heavy rain and melting-hail cores");
         });
         ui.add(
             egui::Slider::new(
@@ -15933,6 +15974,8 @@ impl HookEchoApp {
                 Map3dRepresentation::SmoothVolume
                     | Map3dRepresentation::SmoothDebris
                     | Map3dRepresentation::SmoothSpectrumWidth
+                    | Map3dRepresentation::SmoothZdr
+                    | Map3dRepresentation::SmoothKdp
             ) {
                 ui.checkbox(&mut view.map_3d.smooth_full_range, "Full range")
                     .on_hover_text(
@@ -15969,6 +16012,16 @@ impl HookEchoApp {
                     &mut view.map_3d.sw_floor_ms,
                     Moment::SpectrumWidth.value_range(),
                     " m/s",
+                )),
+                Map3dRepresentation::SmoothZdr => Some((
+                    &mut view.map_3d.zdr_floor_db,
+                    Moment::DifferentialReflectivity.value_range(),
+                    " dB",
+                )),
+                Map3dRepresentation::SmoothKdp => Some((
+                    &mut view.map_3d.kdp_floor_deg_km,
+                    Moment::SpecificDifferentialPhase.value_range(),
+                    " °/km",
                 )),
                 Map3dRepresentation::SmoothDebris | Map3dRepresentation::ObservedSweeps => None,
             };
@@ -22562,6 +22615,10 @@ fn glm_flashes_for<'a>(
 fn glm_slot(t: DateTime<Utc>) -> i64 {
     t.timestamp().div_euclid(60)
 }
+
+/// Reflectivity below which the 3D ZDR and KDP volumes are masked out: the polarimetric fields
+/// are noise in weaker echo (ROADMAP_NEW H1/H2 quality mask).
+const POLARIMETRIC_MASK_DBZ: f32 = 20.0;
 
 /// The GOES layers read from one scan of one sector: the bands and the RGB composite.
 const GOES_FRAME_LAYERS: [crate::render::FieldLayer; 10] = [

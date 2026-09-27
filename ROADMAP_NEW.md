@@ -2772,29 +2772,39 @@ This is useful for model bias and boundary evolution.
 
 Current `wxdata::volume3d` resamples reflectivity into a Cartesian 3D grid and `render3d.rs` displays it. Build on this rather than replacing it blindly.
 
-## H1. Multi-moment 3D
+## H1. Multi-moment 3D — done, apart from velocity and user-defined products
 
-Support 3D for:
+Support 3D for (the map's 3D view, `view::Map3dRepresentation`, one resampled volume per
+moment through `smooth_moment()`):
 
-- reflectivity
-- velocity/SRV where scientifically interpretable
-- ZDR
-- CC
-- KDP
-- user-defined products
+- [x] reflectivity — "Smooth"
+- [ ] velocity/SRV where scientifically interpretable — not offered: the raymarch is a
+  maximum-intensity projection, and the maximum of a signed field along a ray hides the inbound
+  half of every couplet. Needs a different compositing rule (max |V|, or a split in/outbound
+  pair) before it means anything; the Observed-sweeps mode already shows real velocity tilts.
+- [x] ZDR — "ZDR" (`SmoothZdr`): ZDR columns above the melting level, with a 1 dB denoise floor
+- [x] CC — "Debris" (inverted, low CC wins the maximum; built earlier)
+- [x] KDP — "KDP" (`SmoothKdp`): heavy-rain and melting-hail cores, 0.5 °/km floor
+- [ ] user-defined products — C1's expressions have no binned-sweep output to resample yet
 
-## H2. Transfer-function editor
+ZDR and KDP are noise in weak echo, and a maximum-intensity raymarch finds the noise first: the
+first live look at ZDR was one colour across the whole volume. Both are now masked by a
+reflectivity volume built on the same grid (`volume3d::mask_by`, below 20 dBZ), which is H2's
+"quality mask". Checked in the browser on KTLX: unmasked, the whole disk; masked, one real
+high-ZDR region southwest of Oklahoma City.
+
+## H2. Transfer-function editor — partly done
 
 Add analyst controls:
 
-- opacity vs value curve
-- color transfer function
-- threshold clipping
-- value window
-- vertical exaggeration
-- quality mask
+- [ ] opacity vs value curve — one global opacity slider, not a curve
+- [ ] color transfer function — the product's own palette (user palettes apply), not editable here
+- [x] threshold clipping — the Denoise floor, per moment, in the moment's own units
+- [ ] value window — a floor only, no upper bound
+- [x] vertical exaggeration — the "Vertical" 1-8x slider
+- [x] quality mask — reflectivity below 20 dBZ masks the ZDR and KDP volumes (H1)
 
-Save presets per product.
+Save presets per product. — not done; the floors are per moment but not saved as presets.
 
 ## H3. Isosurfaces
 
