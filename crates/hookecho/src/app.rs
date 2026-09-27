@@ -15624,8 +15624,15 @@ impl HookEchoApp {
             ),
             _ => [0.0; 4],
         };
+        let ceiling_idx = match state.ceilings[state.representation as usize] {
+            Some(top) if denoise_floor.is_some() && state.denoise_enabled => {
+                crate::render3d::threshold_index(top, resample_moment.value_range())
+            }
+            _ => 0.0,
+        };
         let view = crate::render3d::View3d {
             threshold_idx,
+            ceiling_idx,
             clip: state.clip,
             plane: state.plane,
             cc,
@@ -16025,6 +16032,7 @@ impl HookEchoApp {
                 )),
                 Map3dRepresentation::SmoothDebris | Map3dRepresentation::ObservedSweeps => None,
             };
+            let rep = view.map_3d.representation as usize;
             if let Some((floor, (lo, hi), suffix)) = denoise_field {
                 ui.horizontal(|ui| {
                     ui.checkbox(&mut view.map_3d.denoise_enabled, "Denoise")
@@ -16036,6 +16044,28 @@ impl HookEchoApp {
                         ui.add(egui::Slider::new(floor, lo..=hi).suffix(suffix));
                     }
                 });
+                // The value window's other end: with a ceiling too, only one band of values
+                // stays, such as the 45-55 dBZ shell around a hail core.
+                if view.map_3d.denoise_enabled {
+                    let floor_now = *floor;
+                    let ceiling = &mut view.map_3d.ceilings[rep];
+                    ui.horizontal(|ui| {
+                        let mut on = ceiling.is_some();
+                        if ui
+                            .checkbox(&mut on, "Ceiling")
+                            .on_hover_text(
+                                "Also hide values above this, keeping one band between the \
+                                 floor and the ceiling",
+                            )
+                            .changed()
+                        {
+                            *ceiling = on.then_some(hi.min(floor_now + (hi - lo) * 0.2));
+                        }
+                        if let Some(top) = ceiling {
+                            ui.add(egui::Slider::new(top, floor_now..=hi).suffix(suffix));
+                        }
+                    });
+                }
             }
             ui.horizontal(|ui| {
                 ui.label("Quality");

@@ -2800,7 +2800,12 @@ Add analyst controls:
 - [ ] opacity vs value curve — one global opacity slider, not a curve
 - [ ] color transfer function — the product's own palette (user palettes apply), not editable here
 - [x] threshold clipping — the Denoise floor, per moment, in the moment's own units
-- [ ] value window — a floor only, no upper bound
+- [x] value window — a "Ceiling" under Denoise: with the floor, keeps one band of values (a
+  45-55 dBZ shell, say), stored per representation in that moment's own units
+  (`Map3dState::ceilings`). It rides the raymarch uniform's spare `ctl.w` (0 = none), the
+  shader skips voxels above it, and the opacity ramp then spans the band instead of the whole
+  scale, so a narrow window still reads solid. Checked in the browser on KTLX: a -32 to -6.6 dBZ
+  window left only the weakest returns by the radar; opening it to 65 dBZ brought the rain back.
 - [x] vertical exaggeration — the "Vertical" 1-8x slider
 - [x] quality mask — reflectivity below 20 dBZ masks the ZDR and KDP volumes (H1)
 

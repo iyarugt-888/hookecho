@@ -51,6 +51,8 @@ The point sounding can come from RAP or the NAM 3 km nest as well as HRRR (RAP i
 only).
 The 3D map can show smooth ZDR and KDP volumes (ZDR columns, heavy-rain and hail cores), masked
 to real echo so noise in weak returns does not fill the view.
+A "Ceiling" beside the 3D Denoise floor keeps just one band of values, such as the 45-55 dBZ
+shell around a hail core.
 
 ### Added: GOES RGB composites
 

@@ -229,6 +229,10 @@ pub struct Map3dState {
     pub zdr_floor_db: f32,
     /// KDP floor (°/km) for `SmoothKdp`: 0.5 °/km clears noise and light rain.
     pub kdp_floor_deg_km: f32,
+    /// An upper bound per representation (Phase H2's value window), in that representation's
+    /// own units, indexed by `Map3dRepresentation as usize`; `None` = no ceiling. Kept per
+    /// representation for the same reason the floors are: a dBZ number means nothing in dB.
+    pub ceilings: [Option<f32>; 6],
     /// CC-anomaly opacity, used by `SmoothDebris` and by `ObservedSweeps` while the pane's moment
     /// is correlation coefficient. See [`CcAnomaly`]. Separate from `denoise_enabled` because it
     /// is not a floor at all — the two are alternative ways of deciding what a voxel is worth
@@ -283,6 +287,7 @@ impl Default for Map3dState {
             sw_floor_ms: 8.0,
             zdr_floor_db: 1.0,
             kdp_floor_deg_km: 0.5,
+            ceilings: [None; 6],
             cc_anomaly: CcAnomaly::default(),
             clip: [0.0, 1.0, 0.0, 1.0, 0.0, 1.0],
             plane: None,

@@ -119,6 +119,9 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     // Below the threshold a voxel is treated as empty, so raising it carves the weak echo away
     // and leaves the cores standing on their own.
     let floor_idx = u32(max(u.ctl.x, 2.0));
+    // ctl.w is an optional ceiling (Phase H2's value window): above it a voxel is empty too, so
+    // floor and ceiling together keep one band of values. 0 means none.
+    let ceil_idx = select(255u, u32(u.ctl.w), u.ctl.w >= 2.0);
     var max_idx: u32 = 0u;
     for (var s = 0; s < steps; s = s + 1) {
         let t = tmin + (tmax - tmin) * (f32(s) + 0.5) / f32(steps);
@@ -144,7 +147,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
             if (samp.g > 0.5) {
                 idx = u32(round(samp.r * 255.0 / samp.g));
             }
-            if (idx >= floor_idx && idx > max_idx) {
+            if (idx >= floor_idx && idx <= ceil_idx && idx > max_idx) {
                 max_idx = idx;
             }
         }
@@ -186,7 +189,8 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         } else {
             // Opacity ramps from the threshold, not from zero: with a 45 dBZ floor the surviving
             // cores read solid instead of uniformly hazy.
-            let head = max(255.0 - f32(floor_idx), 1.0);
+            // With a ceiling the ramp spans the kept band, so a narrow window still reads solid.
+            let head = max(f32(ceil_idx) - f32(floor_idx), 1.0);
             alpha = clamp((f32(max_idx) - f32(floor_idx)) / head * 1.6 + 0.15, 0.0, 1.0) * u.ctl.y;
         }
         if (alpha > 0.0) {

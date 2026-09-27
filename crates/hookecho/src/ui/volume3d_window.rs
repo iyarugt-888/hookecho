@@ -273,6 +273,7 @@ pub fn body(
             } else {
                 2.0
             },
+            ceiling_idx: 0.0,
             clip: st.clip,
             plane: st.plane,
             // The standalone orbit window is the reflectivity viewer; CC never reaches it, so it

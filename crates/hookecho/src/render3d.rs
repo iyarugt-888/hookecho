@@ -12,7 +12,7 @@ pub struct Uniforms {
     box_min: [f32; 4],
     box_max: [f32; 4],
     dims: [f32; 4], // nx, ny, nz, step_count
-    ctl: [f32; 4],  // minimum reflectivity index to draw; rest spare
+    ctl: [f32; 4],  // floor index, opacity, cell size, ceiling index (0 = none)
     clip_min: [f32; 4],
     clip_max: [f32; 4],
     /// See `shaders/raymarch.wgsl`'s own field of the same name: xy a world-space unit normal, z
@@ -110,6 +110,9 @@ pub struct VerticalPlane {
 pub struct View3d {
     /// Minimum volume index (2..=255) a voxel must reach to be drawn. 2 = everything.
     pub threshold_idx: f32,
+    /// Maximum volume index a voxel may have and still be drawn (Phase H2's value window): with
+    /// the floor, isolates a band such as 45-55 dBZ. 0 = no ceiling.
+    pub ceiling_idx: f32,
     /// Slab bounds as fractions of the box, `[x0, x1, y0, y1, z0, z1]`.
     pub clip: [f32; 6],
     /// `None` disables the plane clip entirely (the common case).
@@ -128,6 +131,7 @@ impl Default for View3d {
     fn default() -> Self {
         Self {
             threshold_idx: 2.0,
+            ceiling_idx: 0.0,
             clip: [0.0, 1.0, 0.0, 1.0, 0.0, 1.0],
             plane: None,
             cc: [0.0; 4],
@@ -254,7 +258,7 @@ pub fn orbit_uniform(
         box_min: [BOX_MIN.x, BOX_MIN.y, BOX_MIN.z, 0.0],
         box_max: [BOX_MAX.x, BOX_MAX.y, BOX_MAX.z, 0.0],
         dims: [n as f32, n as f32, nz as f32, steps as f32],
-        ctl: [v3.threshold_idx, 1.0, 0.0, 0.0],
+        ctl: [v3.threshold_idx, 1.0, 0.0, v3.ceiling_idx],
         clip_min: [v3.clip[0], v3.clip[2], v3.clip[4], 0.0],
         clip_max: [v3.clip[1], v3.clip[3], v3.clip[5], 0.0],
         plane: plane_uniform(v3.plane, BOX_MIN, BOX_MAX),
@@ -324,7 +328,7 @@ pub fn map_uniform(
                         / upload.nz.max(1) as f64,
                 )
                 .max(1e-6) as f32,
-            0.0,
+            view.ceiling_idx,
         ],
         clip_min: [view.clip[0], view.clip[2], view.clip[4], 0.0],
         clip_max: [view.clip[1], view.clip[3], view.clip[5], 0.0],
