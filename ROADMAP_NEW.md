@@ -2642,8 +2642,10 @@ Point sounding should support:
   JPEG 2000, a codec the web build leaves out, so in a browser RAP is disabled with that reason
   rather than failing; NAM 3 km works there (checked). The GFS and NAM 12 km are not wired: the
   former is global on its own path, the latter lacks full mandatory-level moisture in `awip12`.
-- [ ] ensemble member soundings
-- [ ] ensemble envelope
+- [ ] ensemble member soundings — open on cost, not difficulty: the point path samples one GRIB
+  message per variable and level, so 31 GEFS members at 12 levels and 4 variables is ~1,500 range
+  requests per click. Needs a coarser level set or a server-side point extract first.
+- [ ] ensemble envelope — the same fetch, then a min/max band per level on the Skew-T
 - [x] observed RAOB overlay — the nearest radiosonde ascent, dashed under the model profile on
   the Skew-T and hodograph (built earlier)
 - [x] previous model run overlay — a "Previous run" checkbox fetches the same point at the same
