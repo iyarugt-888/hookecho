@@ -2987,8 +2987,18 @@ check for the same case exists here anyway, since that's not a guarantee this mo
   32 characters. Decluttered on a coarse screen grid in file order (at most 600 on screen), so a
   dense file is a readable scatter of names that fills in as you zoom. Checked in the browser
   with a KML of Oklahoma towns, a box and a route.
-- symbol by category
-- graduated color by numeric attribute
+- [x] symbol by category — "Color by" in the Layer Manager: a text attribute gives each value its own
+  colour (the Tableau 10 set, commonest values first, ties by name; values past ten share grey),
+  with a swatch legend under the picker. Polygons, lines and points all take the feature's
+  colour, keeping the layer's opacity; a feature without the attribute keeps the layer colour.
+  Colour rather than shape: every symbol here is a dot, and colour is what reads at map scale.
+- [x] graduated color by numeric attribute — the same picker: when every present value is a
+  number (numbers stored as text count), features are coloured along a blue → green → yellow →
+  red ramp over the attribute's range, with a gradient legend showing the min and max
+  (`gis_import::color_by`, cached per attribute and recomputed on import). Each point, line and
+  polygon part keeps an index to its feature's attributes (`Marks::props` and `*_src`), so no
+  attribute is copied per part. Checked in the browser with a KML of towns and boxes coloured by
+  population (graduated) and by kind (categorical).
 - [x] visibility by zoom — "Show from zoom" (`ImportedGisStyle::min_zoom`, 0 = always): below
   it the imported points, lines, labels and polygons are all left out, the polygons at
   tessellation (`overlay_build`'s `show_imported`, retessellated when the threshold is crossed)

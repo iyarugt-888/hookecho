@@ -37,18 +37,26 @@ pub(crate) fn apply_style(feature: &mut GeoFeature, style: ImportedGisStyle) {
 pub(crate) struct Marks {
     pub points: Vec<[f64; 2]>,
     pub lines: Vec<Vec<[f64; 2]>>,
-    /// Where each feature's label goes (I4), with the attributes a label is chosen from: a point
-    /// at itself, a line at its middle vertex, a polygon at its outer ring's centroid. One per
-    /// part, so every island of a multi-part county is named. Not counted as marks to draw.
-    pub anchors: Vec<([f64; 2], serde_json::Map<String, serde_json::Value>)>,
+    /// Each source feature's attributes, once (I4): what labels and colours are chosen from.
+    pub props: Vec<serde_json::Map<String, serde_json::Value>>,
+    /// The feature (an index into `props`) each point, line and polygon part came from, in the
+    /// same order as `points`, `lines` and the polygons `to_renderable` returned.
+    pub point_src: Vec<usize>,
+    pub line_src: Vec<usize>,
+    pub shape_src: Vec<usize>,
+    /// Where each feature's label goes, and whose it is: a point at itself, a line at its middle
+    /// vertex, a polygon at its outer ring's centroid. One per part, so every island of a
+    /// multi-part county is named. Not counted as marks to draw.
+    pub anchors: Vec<([f64; 2], usize)>,
 }
 
-/// Every attribute name among the imported features, sorted: the choices for the label.
+/// Every attribute name among the imported features, sorted: the choices for a label or a
+/// colour.
 pub(crate) fn label_keys(marks: &Marks) -> Vec<String> {
     let mut keys: Vec<String> = marks
-        .anchors
+        .props
         .iter()
-        .flat_map(|(_, props)| props.keys().cloned())
+        .flat_map(|props| props.keys().cloned())
         .collect();
     keys.sort_unstable_by_key(|k| k.to_lowercase());
     keys.dedup();
@@ -76,6 +84,124 @@ pub(crate) fn label_text(
     } else {
         text
     })
+}
+
+/// How an imported layer is coloured by an attribute (I4): a ramp over a numeric attribute's
+/// range, or one colour per value of a categorical one.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum Legend {
+    Graduated {
+        min: f64,
+        max: f64,
+    },
+    /// The most common values first, each with its colour; `others` counts the values past the
+    /// palette, which share one grey.
+    Categories {
+        values: Vec<(String, [u8; 3])>,
+        others: usize,
+    },
+}
+
+/// Features coloured by an attribute: the attribute, each feature's colour and the legend.
+pub(crate) type ColoredBy = (String, Vec<Option<[u8; 3]>>, Legend);
+
+/// The graduated ramp, low to high: blue through green and yellow to red, every stop light
+/// enough to read over the dark basemap.
+pub(crate) const GRADUATED: [[u8; 3]; 5] = [
+    [60, 120, 230],
+    [40, 190, 190],
+    [120, 210, 70],
+    [250, 200, 40],
+    [235, 70, 50],
+];
+
+/// Ten distinct category colours (the Tableau 10 set), then grey for the rest.
+const CATEGORIES: [[u8; 3]; 10] = [
+    [78, 121, 167],
+    [242, 142, 43],
+    [225, 87, 89],
+    [118, 183, 178],
+    [89, 161, 79],
+    [237, 201, 72],
+    [176, 122, 161],
+    [255, 157, 167],
+    [156, 117, 95],
+    [186, 176, 172],
+];
+const OTHER: [u8; 3] = [150, 150, 150];
+
+/// A colour along the graduated ramp, `t` from 0 to 1.
+pub(crate) fn ramp(t: f64) -> [u8; 3] {
+    let t = t.clamp(0.0, 1.0) * (GRADUATED.len() - 1) as f64;
+    let i = (t.floor() as usize).min(GRADUATED.len() - 2);
+    let f = t - i as f64;
+    let (a, b) = (GRADUATED[i], GRADUATED[i + 1]);
+    std::array::from_fn(|j| (a[j] as f64 + f * (b[j] as f64 - a[j] as f64)).round() as u8)
+}
+
+/// An attribute's value as a number, if it is one (a string holding a number counts: text
+/// formats carry every value as text).
+fn number(v: &serde_json::Value) -> Option<f64> {
+    match v {
+        serde_json::Value::Number(n) => n.as_f64(),
+        serde_json::Value::String(s) => s.trim().parse().ok(),
+        _ => None,
+    }
+    .filter(|x: &f64| x.is_finite())
+}
+
+/// Each feature's colour by attribute `key` (indexed like `marks.props`; `None` where the
+/// feature lacks it, which then keeps the layer's own colour), and the legend that explains
+/// them. Numeric when every present value is a number and they are not all equal; categorical
+/// otherwise, the commonest values getting the first colours.
+pub(crate) fn color_by(marks: &Marks, key: &str) -> (Vec<Option<[u8; 3]>>, Legend) {
+    let values: Vec<Option<&serde_json::Value>> = marks
+        .props
+        .iter()
+        .map(|p| p.get(key).filter(|v| !v.is_null()))
+        .collect();
+    let nums: Vec<Option<f64>> = values.iter().map(|v| v.and_then(number)).collect();
+    let present = values.iter().flatten().count();
+    let numeric = nums.iter().flatten().count();
+    let (min, max) = nums
+        .iter()
+        .flatten()
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), &x| {
+            (lo.min(x), hi.max(x))
+        });
+    if present > 0 && numeric == present && max > min {
+        let colors = nums
+            .iter()
+            .map(|x| x.map(|x| ramp((x - min) / (max - min))))
+            .collect();
+        return (colors, Legend::Graduated { min, max });
+    }
+    let text = |v: &serde_json::Value| match v {
+        serde_json::Value::String(s) => s.trim().to_string(),
+        other => other.to_string(),
+    };
+    let mut counts: std::collections::HashMap<String, usize> = Default::default();
+    for v in values.iter().flatten() {
+        *counts.entry(text(v)).or_default() += 1;
+    }
+    let mut order: Vec<(String, usize)> = counts.into_iter().collect();
+    order.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    let palette: std::collections::HashMap<&str, [u8; 3]> = order
+        .iter()
+        .zip(CATEGORIES)
+        .map(|((v, _), c)| (v.as_str(), c))
+        .collect();
+    let colors = values
+        .iter()
+        .map(|v| v.map(|v| palette.get(text(v).as_str()).copied().unwrap_or(OTHER)))
+        .collect();
+    let others = order.len().saturating_sub(CATEGORIES.len());
+    let values = order
+        .into_iter()
+        .zip(CATEGORIES)
+        .map(|((v, _), c)| (v, c))
+        .collect();
+    (colors, Legend::Categories { values, others })
 }
 
 /// A ring's area centroid (shoelace), or the mean of its vertices for a degenerate ring.
@@ -120,11 +246,12 @@ pub(crate) fn to_renderable(features: Vec<GisFeature>) -> (Vec<GeoFeature>, Mark
     for f in features {
         let title = feature_title(&f);
         let detail = feature_detail(&f);
-        let props = &f.properties;
+        let src = marks.props.len();
+        marks.props.push(f.properties.clone());
         let anchors = &mut marks.anchors;
         let mut anchor = |at: Option<[f64; 2]>| {
             if let Some(at) = at {
-                anchors.push((at, props.clone()));
+                anchors.push((at, src));
             }
         };
         match &f.geometry {
@@ -144,23 +271,37 @@ pub(crate) fn to_renderable(features: Vec<GisFeature>) -> (Vec<GeoFeature>, Mark
             }
         }
         match f.geometry {
-            Geometry::Polygon(rings) => out.push(polygon_feature(rings, title, detail)),
+            Geometry::Polygon(rings) => {
+                out.push(polygon_feature(rings, title, detail));
+                marks.shape_src.push(src);
+            }
             Geometry::MultiPolygon(parts) => {
                 for rings in parts {
                     out.push(polygon_feature(rings, title.clone(), detail.clone()));
+                    marks.shape_src.push(src);
                 }
             }
-            Geometry::Point(p) => marks.points.push(p),
-            Geometry::MultiPoint(ps) => marks.points.extend(ps),
+            Geometry::Point(p) => {
+                marks.points.push(p);
+                marks.point_src.push(src);
+            }
+            Geometry::MultiPoint(ps) => {
+                marks.point_src.extend(std::iter::repeat_n(src, ps.len()));
+                marks.points.extend(ps);
+            }
             // A one-position line has nothing to draw between; dropping it here keeps the painter
             // from having to care, the same way the annotation painter skips its own stub strokes.
             Geometry::LineString(l) => {
                 if l.len() >= 2 {
                     marks.lines.push(l);
+                    marks.line_src.push(src);
                 }
             }
             Geometry::MultiLineString(ls) => {
-                marks.lines.extend(ls.into_iter().filter(|l| l.len() >= 2));
+                for l in ls.into_iter().filter(|l| l.len() >= 2) {
+                    marks.lines.push(l);
+                    marks.line_src.push(src);
+                }
             }
         }
     }
@@ -487,12 +628,22 @@ mod tests {
         ];
         let (_, marks) = to_renderable(features);
         assert_eq!(marks.len(), 2, "anchors are not marks to draw");
+        assert_eq!(marks.props.len(), 3, "one attribute set per feature");
+        assert_eq!(
+            (marks.point_src.clone(), marks.line_src.clone()),
+            (vec![0], vec![1])
+        );
+        assert_eq!(
+            marks.shape_src,
+            [2, 2],
+            "both parts are the third feature's"
+        );
         assert_eq!(
             marks.anchors.len(),
             4,
             "point, line, and one per polygon part"
         );
-        assert_eq!(marks.anchors[0].0, [5.0, 6.0]);
+        assert_eq!(marks.anchors[0], ([5.0, 6.0], 0));
         assert_eq!(marks.anchors[1].0, [1.0, 1.0], "a line's middle vertex");
         let c = marks.anchors[2].0;
         assert!(
@@ -500,8 +651,58 @@ mod tests {
             "centroid {c:?}"
         );
         assert_eq!(label_keys(&marks), ["id", "name", "ROUTE"]);
-        assert_eq!(label_text(&marks.anchors[0].1, "id").as_deref(), Some("3"));
-        assert_eq!(label_text(&marks.anchors[1].1, "name"), None);
+        assert_eq!(label_text(&marks.props[0], "id").as_deref(), Some("3"));
+        assert_eq!(label_text(&marks.props[1], "name"), None);
+    }
+
+    fn marks_with(values: &[serde_json::Value]) -> Marks {
+        let features = values
+            .iter()
+            .map(|v| feature(Geometry::Point([0.0, 0.0]), json!({ "v": v })))
+            .collect();
+        to_renderable(features).1
+    }
+
+    #[test]
+    fn a_numeric_attribute_colours_along_the_ramp() {
+        let marks = marks_with(&[json!(10), json!("20"), json!(30), json!(null)]);
+        let (colors, legend) = color_by(&marks, "v");
+        assert_eq!(
+            legend,
+            Legend::Graduated {
+                min: 10.0,
+                max: 30.0
+            }
+        );
+        assert_eq!(colors[0], Some(GRADUATED[0]));
+        assert_eq!(
+            colors[1],
+            Some(GRADUATED[2]),
+            "a number in text still counts"
+        );
+        assert_eq!(colors[2], Some(GRADUATED[4]));
+        assert_eq!(colors[3], None, "no value keeps the layer colour");
+        assert_eq!(color_by(&marks, "missing").0, vec![None; 4]);
+    }
+
+    #[test]
+    fn a_categorical_attribute_gives_the_commonest_values_the_first_colours() {
+        let mut vals: Vec<serde_json::Value> = ["b", "a", "b", "c"].map(|s| json!(s)).to_vec();
+        vals.extend((0..12).map(|i| json!(format!("rare{i:02}"))));
+        let marks = marks_with(&vals);
+        let (colors, legend) = color_by(&marks, "v");
+        let Legend::Categories { values, others } = legend else {
+            panic!("categorical")
+        };
+        assert_eq!(values[0], ("b".to_string(), CATEGORIES[0]));
+        assert_eq!(values[1].0, "a", "ties break by name");
+        assert_eq!(colors[0], Some(CATEGORIES[0]));
+        assert_eq!(values.len(), 10);
+        assert_eq!(others, 5, "15 distinct values, 10 coloured");
+        assert_eq!(colors.last().copied().flatten(), Some(OTHER));
+        // One repeated number is not a range: it reads as a single category.
+        let flat = marks_with(&[json!(5), json!(5)]);
+        assert!(matches!(color_by(&flat, "v").1, Legend::Categories { .. }));
     }
 
     #[test]

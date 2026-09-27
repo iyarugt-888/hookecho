@@ -271,6 +271,10 @@ pub struct Settings {
     /// `None` for no labels. A name rather than an index, so it survives re-importing the file.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub imported_gis_label: Option<String>,
+    /// ROADMAP_NEW I4: the attribute that colours the imported features (a ramp for a number,
+    /// a palette for categories), or `None` for the layer's one colour.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub imported_gis_color_by: Option<String>,
     /// Velocity/spectrum-width display unit (internal data stays m/s).
     pub velocity_unit: VelocityUnit,
     /// Temperature display unit for the surface station plots (internal data stays Celsius).
@@ -1583,6 +1587,7 @@ impl Default for Settings {
             imported_gis: None,
             imported_gis_style: ImportedGisStyle::default(),
             imported_gis_label: None,
+            imported_gis_color_by: None,
             detectors: DetectorTuning::default(),
             alert_rules: Vec::new(),
             serve_token: String::new(),
@@ -2395,6 +2400,7 @@ mod tests {
                 min_zoom: 6.5,
             },
             imported_gis_label: Some("NAME".into()),
+            imported_gis_color_by: Some("POP".into()),
             reduce_motion: true,
             hide_far_3d: true,
             far_3d_factor: default_far_3d(),

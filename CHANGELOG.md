@@ -33,6 +33,8 @@ and dawn so a satellite loop never goes black.
 with each placemark's name, description and extended data in its click popup.
 Imported GIS layers can be labelled from any attribute (Layer Manager, "Label"), and hidden when
 zoomed out past a chosen level ("Show from zoom"), so a dense file does not smother a wide view.
+They can also be coloured by an attribute ("Color by"): a colour ramp for numbers, one colour per
+value for categories, with a legend in the Layer Manager.
 
 ### Added: GOES RGB composites
 

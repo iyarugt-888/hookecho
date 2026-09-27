@@ -4313,6 +4313,9 @@ pub struct HookEchoApp {
     /// The imported points and lines, which `GeoFeature`'s rings-only shape cannot hold — painted
     /// directly by `render_pane` beside the freehand annotation strokes.
     imported_marks: crate::gis_import::Marks,
+    /// The imported features' colours by `settings.imported_gis_color_by` and their legend,
+    /// for the attribute they were computed for; cleared on import.
+    imported_colors: Option<crate::gis_import::ColoredBy>,
     /// AirNow AQI dots: toggle, the obs in view, and the bbox/clock they were fetched for. Needs
     /// a user key; without one the layer never fetches.
     show_aqi: bool,
@@ -5616,6 +5619,7 @@ impl HookEchoApp {
             show_imported_gis: false,
             imported_gis: Vec::new(),
             imported_marks: crate::gis_import::Marks::default(),
+            imported_colors: None,
             show_aqi: false,
             aqi: Vec::new(),
             aqi_bounds: None,
@@ -13283,13 +13287,38 @@ impl HookEchoApp {
         }
         if self.show_imported_gis {
             let style = self.settings.imported_gis_style;
-            v.extend(self.imported_gis.iter().cloned().map(|mut feature| {
+            self.refresh_imported_colors();
+            let colors = self.imported_colors.as_ref().map(|(_, c, _)| c);
+            let src = &self.imported_marks.shape_src;
+            v.extend(self.imported_gis.iter().enumerate().map(|(i, feature)| {
+                let mut feature = feature.clone();
+                let mut style = style;
+                if let Some(c) = colors.and_then(|c| *c.get(*src.get(i)?)?) {
+                    style.color = c;
+                }
                 crate::gis_import::apply_style(&mut feature, style);
                 feature
             }));
         }
         self.overlays = v;
         self.overlay_gen = self.overlay_gen.wrapping_add(1);
+    }
+
+    /// Recompute the imported features' colours when the colouring attribute changed.
+    fn refresh_imported_colors(&mut self) {
+        let Some(key) = self.settings.imported_gis_color_by.clone() else {
+            self.imported_colors = None;
+            return;
+        };
+        if self
+            .imported_colors
+            .as_ref()
+            .is_some_and(|(k, _, _)| *k == key)
+        {
+            return;
+        }
+        let (colors, legend) = crate::gis_import::color_by(&self.imported_marks, &key);
+        self.imported_colors = Some((key, colors, legend));
     }
 
     /// Approximate map view range in nautical miles (viewport height), for placefile thresholds.
@@ -19897,22 +19926,34 @@ impl HookEchoApp {
         if imported_shown && !self.imported_marks.is_empty() {
             let style = self.settings.imported_gis_style;
             let c = style.stroke_rgba();
-            let color = egui::Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+            let layer_color = egui::Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+            // A mark coloured by attribute keeps the layer's opacity.
+            let colors = self.imported_colors.as_ref().map(|(_, c, _)| c);
+            let color_of = |src: Option<&usize>| {
+                colors
+                    .and_then(|c| *c.get(*src?)?)
+                    .map_or(layer_color, |[r, g, b]| {
+                        egui::Color32::from_rgba_unmultiplied(r, g, b, c[3])
+                    })
+            };
             let width = style.rendered_stroke_width();
             let screen = |ll: &[f64; 2]| {
                 let w = crate::render::mercator::lonlat_to_world(ll[0], ll[1]);
                 let (sx, sy) = cam.world_to_screen(w, vp);
                 egui::pos2(prect.left() + sx, prect.top() + sy)
             };
-            for line in &self.imported_marks.lines {
+            let marks = &self.imported_marks;
+            for (i, line) in marks.lines.iter().enumerate() {
                 let pts: Vec<egui::Pos2> = line.iter().map(screen).collect();
+                let color = color_of(marks.line_src.get(i));
                 painter.add(egui::Shape::line(pts, egui::Stroke::new(width, color)));
             }
-            for point in &self.imported_marks.points {
+            for (i, point) in marks.points.iter().enumerate() {
                 let p = screen(point);
                 if !prect.contains(p) {
                     continue;
                 }
+                let color = color_of(marks.point_src.get(i));
                 // Outlined rather than a plain dot: an imported site has to stay visible over both
                 // a bright radar core and a dark basemap, which one flat color cannot manage.
                 // The outline-width control also scales point symbols so a mixed-geometry file
@@ -19946,7 +19987,7 @@ impl HookEchoApp {
             let (cell_w, cell_h) = (90.0_f32, 18.0_f32);
             let mut taken = std::collections::HashSet::new();
             let mut drawn = 0;
-            for (at, props) in &self.imported_marks.anchors {
+            for &(at, src) in &self.imported_marks.anchors {
                 if drawn >= 600 {
                     break;
                 }
@@ -19960,7 +20001,12 @@ impl HookEchoApp {
                 if !taken.insert(cell) {
                     continue;
                 }
-                let Some(text) = crate::gis_import::label_text(props, key) else {
+                let Some(text) = self
+                    .imported_marks
+                    .props
+                    .get(src)
+                    .and_then(|props| crate::gis_import::label_text(props, key))
+                else {
                     continue;
                 };
                 let galley = painter.layout_no_wrap(text, font.clone(), text_color);
@@ -21283,6 +21329,7 @@ impl HookEchoApp {
                 let (shapes, marks) = crate::gis_import::to_renderable(loaded.features);
                 self.imported_gis = shapes;
                 self.imported_marks = marks;
+                self.imported_colors = None;
                 // The remembered layer should actually come back, not merely sit loaded and
                 // invisible until the user rediscovers its toggle after every restart.
                 self.show_imported_gis = true;
@@ -21475,6 +21522,7 @@ impl HookEchoApp {
                     let n = shapes.len() + marks.len();
                     self.imported_gis = shapes;
                     self.imported_marks = marks;
+                    self.imported_colors = None;
                     self.show_imported_gis = true;
                     self.rebuild_overlays();
                     self.settings.imported_gis = remembered.ok();
@@ -24562,12 +24610,14 @@ impl eframe::App for HookEchoApp {
         } else {
             Vec::new()
         };
+        let legend = self.imported_colors.as_ref().map(|(_, _, l)| l.clone());
         if ui::layer_window::show(
             ctx,
             &mut self.layer_window_open,
             &mut self.settings,
             &active_fields,
             &label_keys,
+            legend.as_ref(),
             &mut self.drawer,
         ) {
             // Imported polygon colors are applied while assembling `self.overlays`, so style

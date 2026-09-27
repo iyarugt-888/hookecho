@@ -19,6 +19,7 @@ pub(crate) fn show(
     settings: &mut Settings,
     active: &[(FieldLayer, String)],
     label_keys: &[String],
+    legend: Option<&crate::gis_import::Legend>,
     drawer: &mut crate::ui::drawer::Drawer,
 ) -> bool {
     if !*open {
@@ -125,6 +126,38 @@ pub(crate) fn show(
                     .on_hover_text("Label each imported feature with this attribute's value");
             });
             ui.horizontal(|ui| {
+                ui.label("Color by");
+                let current = settings.imported_gis_color_by.clone();
+                egui::ComboBox::from_id_salt("imported_gis_color_by")
+                    .selected_text(current.as_deref().unwrap_or("None (one color)"))
+                    .show_ui(ui, |ui| {
+                        if ui
+                            .selectable_label(current.is_none(), "None (one color)")
+                            .clicked()
+                        {
+                            settings.imported_gis_color_by = None;
+                            changed = true;
+                        }
+                        for key in label_keys {
+                            let on = current.as_deref() == Some(key.as_str());
+                            if ui.selectable_label(on, key).clicked() {
+                                settings.imported_gis_color_by = Some(key.clone());
+                                changed = true;
+                            }
+                        }
+                    })
+                    .response
+                    .on_hover_text(
+                        "Color features by an attribute: a ramp for numbers, a palette for \
+                         categories",
+                    );
+            });
+            if settings.imported_gis_color_by.is_some() {
+                if let Some(legend) = legend {
+                    color_legend(ui, legend);
+                }
+            }
+            ui.horizontal(|ui| {
                 ui.label("Show from zoom");
                 changed |= ui
                     .add(
@@ -195,4 +228,49 @@ pub(crate) fn show(
     });
     *open = win_open;
     changed
+}
+
+/// The imported layer's colour key: a gradient bar with its range, or a swatch per category.
+fn color_legend(ui: &mut egui::Ui, legend: &crate::gis_import::Legend) {
+    use crate::gis_import::Legend;
+    let swatch = |ui: &mut egui::Ui, [r, g, b]: [u8; 3]| {
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
+        ui.painter()
+            .rect_filled(rect, 2.0, egui::Color32::from_rgb(r, g, b));
+    };
+    match legend {
+        Legend::Graduated { min, max } => {
+            ui.horizontal(|ui| {
+                ui.weak(format!("{min}"));
+                let (rect, _) =
+                    ui.allocate_exact_size(egui::vec2(140.0, 10.0), egui::Sense::hover());
+                let steps = 28;
+                for i in 0..steps {
+                    let t = i as f64 / (steps - 1) as f64;
+                    let [r, g, b] = crate::gis_import::ramp(t);
+                    let x0 = rect.left() + rect.width() * i as f32 / steps as f32;
+                    let x1 = rect.left() + rect.width() * (i + 1) as f32 / steps as f32;
+                    ui.painter().rect_filled(
+                        egui::Rect::from_x_y_ranges(x0..=x1, rect.y_range()),
+                        0.0,
+                        egui::Color32::from_rgb(r, g, b),
+                    );
+                }
+                ui.weak(format!("{max}"));
+            });
+        }
+        Legend::Categories { values, others } => {
+            ui.horizontal_wrapped(|ui| {
+                for (value, color) in values {
+                    swatch(ui, *color);
+                    ui.label(egui::RichText::new(value).small());
+                    ui.add_space(4.0);
+                }
+                if *others > 0 {
+                    swatch(ui, [150, 150, 150]);
+                    ui.label(egui::RichText::new(format!("{others} more")).small());
+                }
+            });
+        }
+    }
 }
