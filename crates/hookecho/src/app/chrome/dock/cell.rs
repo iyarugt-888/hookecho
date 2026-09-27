@@ -155,6 +155,8 @@ impl HookEchoApp {
         let rows = super::inspector::storm_rows(&c, metric);
         let mut header = ws::HeaderAction::None;
         let mut act = None;
+        let mut hl = None;
+        let mut pass = 0;
         let title = format!("Cell {}", c.id);
         tool_window(
             host,
@@ -240,6 +242,25 @@ impl HookEchoApp {
                                             10.5,
                                             t.text_faint,
                                         ));
+                                    });
+                                    // The same gates as a distribution: the Region window's histogram, centred on the
+                                    // storm. Hovering a bar outlines those gates on the map.
+                                    let key = ui.make_persistent_id("cell_dist_moment");
+                                    let mut i = ui.ctx().data(|d| d.get_temp::<usize>(key)).unwrap_or(0);
+                                    i = i.min(s.moments.len().saturating_sub(1));
+                                    let name = crate::products::info(s.moments[i]).short;
+                                    ws::fold_section(ui, &t, "cell_dist", "Core distribution", Some(name), false, |ui| {
+                                        let labels: Vec<&str> =
+                                            s.moments.iter().map(|m| crate::products::info(*m).short).collect();
+                                        if let Some(j) = ws::chips(ui, &t, &labels, Some(i)) {
+                                            i = j;
+                                            ui.ctx().data_mut(|d| d.insert_temp(key, j));
+                                        }
+                                        ui.add_space(4.0);
+                                        pass = ui.ctx().cumulative_pass_nr();
+                                        // A cell's core is a couple of thousand gates: a fresh cache per frame is cheap.
+                                        let cache = &mut crate::ui::region_stats_window::RegionCache::default();
+                                        crate::ui::region_stats_window::ws_histogram(ui, &t, ("cell", &c.id), s, cache, i, &mut hl);
                                     });
                                 }
                                 None => {
@@ -334,6 +355,10 @@ impl HookEchoApp {
                 });
             },
         );
+        if let (Some(h), Some(s)) = (hl, &core) {
+            let pts = crate::app::region_stats::highlight_points(s, &h);
+            self.region.set_highlight(pass, pts);
+        }
         if header == ws::HeaderAction::Close {
             self.cell_details = false;
         }

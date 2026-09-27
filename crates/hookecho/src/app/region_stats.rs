@@ -16,12 +16,63 @@ pub(crate) struct RegionStatsState {
     pts: Vec<[f64; 2]>,
     samples: Option<RegionSamples>,
     ui: crate::ui::region_stats_window::RegionStatsUi,
+    cache: crate::ui::region_stats_window::RegionCache,
+    /// Gates a hovered chart bar or scatter cell stands for, `[lon, lat]`, and the pass that set
+    /// them: they draw only while something keeps hovering.
+    hl: Vec<[f64; 2]>,
+    hl_pass: u64,
+}
+
+/// Most gates the map outlines for one hovered bar; past it every n-th stands in.
+const MAX_HIGHLIGHT: usize = 20_000;
+
+/// The positions of `s`'s gates that `h` keeps.
+pub(crate) fn highlight_points(
+    s: &RegionSamples,
+    h: &crate::ui::region_stats_window::Highlight,
+) -> Vec<[f64; 2]> {
+    let pts: Vec<[f64; 2]> = s
+        .rows
+        .iter()
+        .filter(|r| h.matches(r))
+        .map(|r| [r.lon, r.lat])
+        .collect();
+    let step = pts.len().div_ceil(MAX_HIGHLIGHT).max(1);
+    pts.into_iter().step_by(step).collect()
 }
 
 impl RegionStatsState {
     /// The gathered box, while its window is open.
     pub(crate) fn samples(&self) -> Option<&RegionSamples> {
         self.samples.as_ref()
+    }
+
+    /// The samples and the window's choices together, for the workstation's Region window.
+    pub(crate) fn dock_parts(
+        &mut self,
+    ) -> Option<(
+        &RegionSamples,
+        &mut crate::ui::region_stats_window::RegionCache,
+        &mut crate::ui::region_stats_window::RegionStatsUi,
+    )> {
+        match (&self.samples, &mut self.cache, &mut self.ui) {
+            (Some(s), cache, ui) => Some((s, cache, ui)),
+            _ => None,
+        }
+    }
+
+    /// Outline `pts` on the map this pass (and the next, whichever of the map and the window
+    /// draws first).
+    pub(crate) fn set_highlight(&mut self, pass: u64, pts: Vec<[f64; 2]>) {
+        self.hl = pts;
+        self.hl_pass = pass;
+    }
+
+    /// Close the box: its samples, its corners and any outline.
+    pub(crate) fn clear(&mut self) {
+        self.samples = None;
+        self.pts.clear();
+        self.hl.clear();
     }
 
     /// Outline the box being drawn: a dot for the first corner, the rectangle once there are two.
@@ -44,6 +95,14 @@ impl RegionStatsState {
                 );
             }
             _ => {}
+        }
+        let pass = painter.ctx().cumulative_pass_nr();
+        if !self.hl.is_empty() && self.hl_pass + 1 >= pass {
+            for p in &self.hl {
+                painter.circle_filled(screen(*p), 1.3, egui::Color32::WHITE);
+            }
+            // One more pass takes the outline away once nothing hovers.
+            painter.ctx().request_repaint();
         }
     }
 }
@@ -94,12 +153,15 @@ impl HookEchoApp {
 
     /// The window, while there are samples to show; closing it clears the box.
     pub(crate) fn show_region_stats(&mut self, ctx: &egui::Context) {
+        // The workstation shows these in its Region tool window (`chrome/dock/region.rs`).
+        if self.workstation_chrome() {
+            return;
+        }
         let Some(s) = &self.region.samples else {
             return;
         };
         if !crate::ui::region_stats_window::show(ctx, s, &mut self.region.ui, &mut self.drawer) {
-            self.region.samples = None;
-            self.region.pts.clear();
+            self.region.clear();
         }
     }
 }

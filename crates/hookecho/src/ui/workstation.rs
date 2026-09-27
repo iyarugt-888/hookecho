@@ -1012,6 +1012,64 @@ impl ToggleInfo for Response {
     }
 }
 
+/// A row of small pill choices that wraps to the width (moment pickers, quick pairs); returns
+/// the one clicked. `selected` None highlights none.
+pub fn chips(
+    ui: &mut egui::Ui,
+    t: &Tokens,
+    labels: &[&str],
+    selected: Option<usize>,
+) -> Option<usize> {
+    let mut clicked = None;
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
+        let font = FontId::proportional(11.5);
+        for (i, label) in labels.iter().enumerate() {
+            let galley = ui
+                .painter()
+                .layout_no_wrap(label.to_string(), font.clone(), t.text);
+            let (rect, resp) =
+                ui.allocate_exact_size(egui::vec2(galley.size().x + 14.0, 20.0), Sense::click());
+            let on = selected == Some(i);
+            let fill = if on {
+                t.accent_soft()
+            } else if resp.hovered() {
+                t.field_hi
+            } else {
+                t.field
+            };
+            ui.painter().rect(
+                rect,
+                10.0,
+                fill,
+                Stroke::new(1.0, if on { t.accent } else { t.line_soft }),
+                egui::StrokeKind::Inside,
+            );
+            ui.painter().text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                *label,
+                font.clone(),
+                if on {
+                    t.accent
+                } else if resp.hovered() {
+                    t.text
+                } else {
+                    t.text_dim
+                },
+            );
+            let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+            resp.widget_info(|| {
+                egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, on, *label)
+            });
+            if resp.clicked() {
+                clicked = Some(i);
+            }
+        }
+    });
+    clicked
+}
+
 /// A small pill: a dot and a word ("● Live").
 pub fn badge(ui: &mut egui::Ui, t: &Tokens, label: &str, color: Color32) -> Response {
     let font = FontId::proportional(11.5);
@@ -1115,6 +1173,17 @@ mod tests {
                 got.iter().any(|s| s.contains(want)),
                 "{want} missing: {got:?}"
             );
+        }
+    }
+
+    #[test]
+    fn chips_draw_every_choice() {
+        let got = texts(|ui| {
+            let t = t();
+            assert_eq!(chips(ui, &t, &["REF", "ZDR", "CC"], Some(1)), None);
+        });
+        for l in ["REF", "ZDR", "CC"] {
+            assert!(got.iter().any(|s| s == l), "{got:?}");
         }
     }
 

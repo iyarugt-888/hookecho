@@ -27,6 +27,7 @@ mod menus;
 mod order;
 mod prefs;
 mod rail;
+mod region;
 mod sounding;
 mod sources;
 mod storms;
@@ -151,16 +152,19 @@ pub(crate) enum DockWin {
     Storms,
     /// The selected storm's full details (once Details… is asked for).
     Cell,
+    /// The region-statistics tool's box: summary, histogram and scatter.
+    Region,
 }
 
 impl DockWin {
-    pub(crate) const ALL: [DockWin; 10] = [
+    pub(crate) const ALL: [DockWin; 11] = [
         DockWin::Layers,
         DockWin::Inspector,
         DockWin::View3d,
         DockWin::Sounding,
         DockWin::Storms,
         DockWin::Cell,
+        DockWin::Region,
         DockWin::Alerts,
         DockWin::Sources,
         DockWin::Log,
@@ -181,6 +185,7 @@ impl DockWin {
             DockWin::Sounding => (ph::THERMOMETER, "Sounding"),
             DockWin::Storms => (ph::TORNADO, "Storms"),
             DockWin::Cell => (ph::CROSSHAIR, "Cell"),
+            DockWin::Region => (ph::CHART_SCATTER, "Region"),
         };
         ws::HeaderTab {
             glyph,
@@ -206,6 +211,7 @@ impl DockWin {
             DockWin::Sounding => sounding::SOUNDING_W,
             DockWin::Storms => storms::STORMS_W,
             DockWin::Cell => cell::CELL_W,
+            DockWin::Region => region::REGION_W,
         }
     }
 }
@@ -269,6 +275,9 @@ pub(crate) struct DockState {
     pub cell: WindowChrome,
     /// Whether the Cell window has a storm whose details were asked for. Set each frame.
     pub cell_available: bool,
+    pub region: WindowChrome,
+    /// Whether a region box has been gathered. Set each frame.
+    pub region_available: bool,
     /// The Storms table's sort column and direction.
     pub storm_sort: crate::ui::cells_window::SortCol,
     pub storm_desc: bool,
@@ -301,7 +310,7 @@ pub(crate) struct DockState {
     pub front: [Option<DockWin>; 2],
     /// Each window's `(open, place)` last frame, to bring a window that has just opened or just
     /// moved into a dock to the front of it.
-    seen: [(bool, Place); 10],
+    seen: [(bool, Place); 11],
     /// The window is too narrow for docks on both sides ([`ONE_DOCK_BELOW`]). Set each frame.
     pub narrow: bool,
     /// The side used most recently (0 left, 1 right): the one that stays while `narrow`.
@@ -330,6 +339,8 @@ impl Default for DockState {
             storms: WindowChrome::default(),
             cell: WindowChrome::at(true, Place::Right),
             cell_available: false,
+            region: WindowChrome::at(true, Place::Right),
+            region_available: false,
             storm_sort: Default::default(),
             storm_desc: true,
             view3d_available: false,
@@ -343,7 +354,7 @@ impl Default for DockState {
             jump: String::new(),
             arranged_for: None,
             front: [None; 2],
-            seen: [(false, Place::Float); 10],
+            seen: [(false, Place::Float); 11],
             narrow: false,
             last_side: 0,
             dock_widths: [None; 2],
@@ -432,6 +443,7 @@ impl DockState {
             DockWin::Sounding => &self.sounding,
             DockWin::Storms => &self.storms,
             DockWin::Cell => &self.cell,
+            DockWin::Region => &self.region,
         }
     }
 
@@ -447,6 +459,7 @@ impl DockState {
             DockWin::Sounding => &mut self.sounding,
             DockWin::Storms => &mut self.storms,
             DockWin::Cell => &mut self.cell,
+            DockWin::Region => &mut self.region,
         }
     }
 
@@ -459,6 +472,7 @@ impl DockState {
                 DockWin::Log => self.log_available,
                 DockWin::Sounding => self.sounding_available,
                 DockWin::Cell => self.cell_available,
+                DockWin::Region => self.region_available,
                 _ => true,
             }
     }
@@ -486,6 +500,14 @@ impl DockState {
             self.cell.open = true;
         }
         self.cell_available = available;
+    }
+
+    /// Say whether a region box is gathered: a new box shows the Region window in front.
+    pub(crate) fn set_region_available(&mut self, available: bool) {
+        if available && !self.region_available {
+            self.region.open = true;
+        }
+        self.region_available = available;
     }
 
     /// Say whether Analyst Mode is on. Turning it on shows the log again, as the floating
@@ -842,6 +864,8 @@ impl HookEchoApp {
         self.dock.set_sounding_available(self.sounding_window.open);
         self.dock
             .set_cell_available(self.cell_details && self.cell_popup.is_some());
+        self.dock
+            .set_region_available(self.region.samples().is_some());
         self.dock.update_fronts();
         self.dock.narrow = ctx.content_rect().width() < ONE_DOCK_BELOW;
         for side in [Place::Left, Place::Right] {
@@ -964,6 +988,7 @@ impl HookEchoApp {
             DockWin::Sounding => self.dock_sounding(host),
             DockWin::Storms => self.dock_storms(host),
             DockWin::Cell => self.dock_cell(host),
+            DockWin::Region => self.dock_region(host),
         }
     }
 
