@@ -194,7 +194,7 @@ pub fn text(s: impl Into<String>, size: f32, color: Color32) -> egui::RichText {
 }
 
 /// What a tool window's header asked for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum HeaderAction {
     None,
     Close,
@@ -204,6 +204,18 @@ pub enum HeaderAction {
     Place(crate::workspace::Place),
     /// Bring this tab of the header's tab group to the front (see [`HeaderTabs`]).
     Tab(usize),
+    /// Dragged out of its dock: float it (a group's tab `Some(i)`, or the window itself) with its
+    /// header under this point, as Dear ImGui tears a tab out of a dock node.
+    TearOff(Option<usize>, egui::Pos2),
+}
+
+/// How far a docked header or tab has to be dragged before it tears off, so a click that wobbles
+/// is still a click.
+const TEAR_DISTANCE: f32 = 14.0;
+
+/// Whether a drag of `delta` from a docked header has gone far enough to tear it off.
+pub fn tears_off(delta: egui::Vec2) -> bool {
+    delta.length() >= TEAR_DISTANCE
 }
 
 /// One tab of a dock's tab group: the window's glyph and plain title, and a status dot for a
@@ -227,6 +239,32 @@ pub struct HeaderTabs {
 
 fn header_tabs_id() -> egui::Id {
     egui::Id::new("ws_header_tabs")
+}
+
+fn touch_id() -> egui::Id {
+    egui::Id::new("ws_touch")
+}
+
+/// Say whether the workstation is on a phone (the Station design): window headers are taller,
+/// their tabs are words a finger can hit, and a window cannot be moved or folded (it lives in the
+/// bottom sheet).
+pub fn set_touch(ctx: &egui::Context, on: bool) {
+    ctx.data_mut(|d| d.insert_temp(touch_id(), on));
+}
+
+/// Whether [`set_touch`] said the workstation is on a phone.
+pub fn touch(ctx: &egui::Context) -> bool {
+    ctx.data(|d| d.get_temp::<bool>(touch_id()))
+        .unwrap_or(false)
+}
+
+/// The header height: taller for a finger.
+pub fn header_h(ctx: &egui::Context) -> f32 {
+    if touch(ctx) {
+        40.0
+    } else {
+        HEADER_H
+    }
 }
 
 /// Make the next [`window_header`] drawn a tab strip (or, with `None`, stop that).
@@ -265,14 +303,30 @@ pub fn window_header(
     collapsed: Option<bool>,
 ) -> HeaderAction {
     use crate::workspace::Place;
+    // On a phone a window lives in the bottom sheet: it cannot be moved or folded.
+    let touch = touch(ui.ctx());
+    let (place, collapsed) = if touch {
+        (None, None)
+    } else {
+        (place, collapsed)
+    };
     // Taken, not read: the tabs belong to this one header, not to any drawn after it.
     let tabs = ui.ctx().data_mut(|d| {
         let tabs = d.get_temp::<HeaderTabs>(header_tabs_id());
         d.remove::<HeaderTabs>(header_tabs_id());
         tabs
     });
-    let (rect, bar) =
-        ui.allocate_exact_size(egui::vec2(ui.available_width(), HEADER_H), Sense::click());
+    // A docked header can be dragged out of its dock; a floating one is how its window is moved,
+    // so it must leave the drag to the window.
+    let docked = place.is_some_and(|p| p != Place::Float);
+    let (rect, bar) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), header_h(ui.ctx())),
+        if docked {
+            Sense::click_and_drag()
+        } else {
+            Sense::click()
+        },
+    );
     let p = ui.painter();
     p.rect_filled(rect, 0.0, t.panel_hi);
     p.line_segment(
@@ -282,28 +336,49 @@ pub fn window_header(
     let mut action = HeaderAction::None;
     let buttons = 1 + usize::from(collapsed.is_some()) + usize::from(place.is_some());
     if let Some(group) = &tabs {
-        let font = FontId::proportional(12.5);
+        let font = FontId::proportional(if touch { 13.5 } else { 12.5 });
+        // A touch tab is its word alone, as a phone's tabs are; the glyph comes back when it has
+        // to shrink to one.
+        let pad = if touch { 20.0 } else { 44.0 };
         let full: Vec<f32> = group
             .tabs
             .iter()
             .enumerate()
             .map(|(i, tab)| {
-                let name = if i == group.front { title } else { tab.title };
+                let name = if i == group.front && !touch {
+                    title
+                } else {
+                    tab.title
+                };
                 let text = ui
                     .painter()
                     .layout_no_wrap(name.into(), font.clone(), t.text);
-                text.size().x + 44.0
+                text.size().x + pad
             })
             .collect();
-        let avail = rect.width() - 8.0 - 24.0 * buttons as f32;
+        let per_button = if touch { 44.0 } else { 24.0 };
+        let avail = rect.width() - 8.0 - per_button * buttons as f32;
         let widths = tab_widths(&full, group.front, avail);
         let mut x = rect.left();
         for (i, (tab, w)) in group.tabs.iter().zip(&widths).enumerate() {
             let r = Rect::from_min_size(egui::pos2(x, rect.top()), egui::vec2(*w, rect.height()));
             x += w;
             let front = i == group.front;
-            let name = if front { title } else { tab.title };
-            let resp = ui.interact(r, ui.id().with(("header_tab", tab.title)), Sense::click());
+            let name = if front && !touch { title } else { tab.title };
+            let resp = ui.interact(
+                r,
+                ui.id().with(("header_tab", tab.title)),
+                if docked {
+                    Sense::click_and_drag()
+                } else {
+                    Sense::click()
+                },
+            );
+            if resp.dragged() && tears_off(resp.total_drag_delta().unwrap_or_default()) {
+                if let Some(at) = resp.interact_pointer_pos() {
+                    action = HeaderAction::TearOff(Some(i), at);
+                }
+            }
             let p = ui.painter();
             if front {
                 // The front tab is cut from the body's colour, so it reads as the top of the page
@@ -323,18 +398,28 @@ pub fn window_header(
                 t.text_dim
             };
             let compact = *w < full[i];
-            p.text(
-                if compact {
-                    r.center()
-                } else {
-                    r.left_center() + egui::vec2(18.0, 0.0)
-                },
-                egui::Align2::CENTER_CENTER,
-                tab.glyph,
-                FontId::proportional(14.0),
-                if front { t.accent } else { ink },
-            );
-            if !compact {
+            if touch && !compact {
+                p.text(
+                    r.center(),
+                    egui::Align2::CENTER_CENTER,
+                    name,
+                    font.clone(),
+                    if front { Color32::WHITE } else { ink },
+                );
+            } else {
+                p.text(
+                    if compact {
+                        r.center()
+                    } else {
+                        r.left_center() + egui::vec2(18.0, 0.0)
+                    },
+                    egui::Align2::CENTER_CENTER,
+                    tab.glyph,
+                    FontId::proportional(if touch { 18.0 } else { 14.0 }),
+                    if front { t.accent } else { ink },
+                );
+            }
+            if !compact && !touch {
                 p.text(
                     r.left_center() + egui::vec2(32.0, 0.0),
                     egui::Align2::LEFT_CENTER,
@@ -367,7 +452,8 @@ pub fn window_header(
             } else {
                 resp
             };
-            if resp.clicked() && !front {
+            // On a phone the front tab answers too: it is how a folded sheet is opened again.
+            if resp.clicked() && (!front || touch) {
                 action = HeaderAction::Tab(i);
             }
         }
@@ -390,10 +476,19 @@ pub fn window_header(
     if collapsed.is_some() && bar.double_clicked() {
         action = HeaderAction::Collapse;
     }
+    if docked && bar.dragged() && tears_off(bar.total_drag_delta().unwrap_or_default()) {
+        if let Some(at) = bar.interact_pointer_pos() {
+            action = HeaderAction::TearOff(None, at);
+        }
+    }
     let mut x = rect.right() - 16.0;
+    let btn = if touch { 36.0 } else { 22.0 };
+    if touch {
+        x -= 6.0;
+    }
     let mut button = |ui: &mut egui::Ui, glyph: &str, hint: &str| -> Response {
-        let r = Rect::from_center_size(egui::pos2(x, rect.center().y), egui::vec2(22.0, 22.0));
-        x -= 24.0;
+        let r = Rect::from_center_size(egui::pos2(x, rect.center().y), egui::vec2(btn, btn));
+        x -= btn + 2.0;
         // Keyed on the hint, not the title: a title that carries a count ("Alerts (8)") would
         // otherwise give the same button a new id whenever the count changes.
         let resp = ui.interact(r, ui.id().with(("window_header", hint)), Sense::click());
@@ -404,7 +499,7 @@ pub fn window_header(
             r.center(),
             egui::Align2::CENTER_CENTER,
             glyph,
-            FontId::proportional(13.0),
+            FontId::proportional(if btn > 30.0 { 18.0 } else { 13.0 }),
             if resp.hovered() { t.text } else { t.text_dim },
         );
         let enabled = resp.enabled();
@@ -430,6 +525,7 @@ pub fn window_header(
             for (p, label) in [
                 (Place::Left, "Dock left"),
                 (Place::Right, "Dock right"),
+                (Place::Bottom, "Dock bottom"),
                 (Place::Float, "Float over the map"),
             ] {
                 if ui.selectable_label(now == p, label).clicked() {
@@ -1602,6 +1698,73 @@ mod tests {
         assert_ne!(
             t.panel, t.panel_hi,
             "a header must stand apart from its body"
+        );
+    }
+
+    /// Draw a header docked right for a few frames while the pointer presses on it at `from` and
+    /// moves to each of `path`; what the header said on each frame.
+    fn drag_header(
+        place: crate::workspace::Place,
+        from: egui::Pos2,
+        path: &[egui::Pos2],
+    ) -> Vec<HeaderAction> {
+        let ctx = egui::Context::default();
+        let t = Tokens::new(Color32::from_rgb(70, 130, 230));
+        let mut out = Vec::new();
+        let mut events: Vec<Vec<egui::Event>> = vec![
+            vec![egui::Event::PointerMoved(from)],
+            vec![egui::Event::PointerButton {
+                pos: from,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: Default::default(),
+            }],
+        ];
+        for p in path {
+            events.push(vec![egui::Event::PointerMoved(*p)]);
+        }
+        for (i, ev) in events.into_iter().enumerate() {
+            let input = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(400.0, 300.0),
+                )),
+                events: ev,
+                time: Some(i as f64 * 0.05),
+                ..Default::default()
+            };
+            let mut a = HeaderAction::None;
+            let _ = ctx.run_ui(input, |ui| {
+                a = window_header(ui, &t, "i", "Inspector", Some(place), None);
+            });
+            out.push(a);
+        }
+        out
+    }
+
+    #[test]
+    fn a_docked_header_dragged_far_enough_tears_off() {
+        use crate::workspace::Place;
+        let from = egui::pos2(60.0, 10.0);
+        let path = [
+            egui::pos2(64.0, 14.0),
+            egui::pos2(80.0, 40.0),
+            egui::pos2(120.0, 90.0),
+        ];
+        let said = drag_header(Place::Right, from, &path);
+        // A few points of wobble is still a click; past the threshold it tears off, under the
+        // pointer.
+        assert_eq!(said[2], HeaderAction::None, "{said:?}");
+        assert!(
+            said.iter()
+                .any(|a| matches!(a, HeaderAction::TearOff(None, p) if p.y > 30.0)),
+            "{said:?}"
+        );
+        // A floating window's header leaves the drag to the window: it never tears off.
+        let floating = drag_header(Place::Float, from, &path);
+        assert!(
+            floating.iter().all(|a| *a == HeaderAction::None),
+            "{floating:?}"
         );
     }
 }

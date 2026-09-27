@@ -7,6 +7,9 @@
 //! next flood stage, what happens at this level in the forecast office's words, the crest record,
 //! and the seasonal chance of flooding.
 //!
+//! The flood-gauge dashboard (`ui::gauge_dashboard`) draws the same card for its selected gauge,
+//! inside itself rather than in a window ([`Cards::show_focus`]).
+//!
 //! Every platform: it is two small JSON documents and egui painting, nothing native.
 
 use chrono::{DateTime, Duration, Utc};
@@ -50,7 +53,7 @@ pub fn cat_label(c: FloodCat) -> &'static str {
 }
 
 /// A flood stage's name, as a threshold ("Minor 33 ft").
-fn stage_name(c: FloodCat) -> &'static str {
+pub fn stage_name(c: FloodCat) -> &'static str {
     match c {
         FloodCat::Major => "Major",
         FloodCat::Moderate => "Moderate",
@@ -66,6 +69,8 @@ enum Past {
     Day,
     ThreeDays,
     Week,
+    /// The whole observed record the service keeps (about 30 days).
+    Month,
 }
 
 impl Past {
@@ -74,6 +79,7 @@ impl Past {
             Past::Day => 24,
             Past::ThreeDays => 72,
             Past::Week => 168,
+            Past::Month => 720,
         }
     }
     fn label(self) -> &'static str {
@@ -81,6 +87,7 @@ impl Past {
             Past::Day => "24 h",
             Past::ThreeDays => "3 days",
             Past::Week => "7 days",
+            Past::Month => "30 days",
         }
     }
 }
@@ -110,6 +117,31 @@ pub struct Card {
     show_flow: bool,
 }
 
+impl Card {
+    fn new(lid: &str, name: &str, (lat, lon): (f64, f64)) -> Card {
+        Card {
+            lid: lid.to_string(),
+            name: if name.is_empty() {
+                lid.to_string()
+            } else {
+                name.to_string()
+            },
+            lat,
+            lon,
+            detail: None,
+            hydro: None,
+            error: None,
+            loading: false,
+            fetched: None,
+            open: true,
+            past: Past::Day,
+            show_forecast: true,
+            show_stages: true,
+            show_flow: false,
+        }
+    }
+}
+
 /// What a card asks of the app.
 pub enum Action {
     /// Center the map on a gauge.
@@ -121,6 +153,9 @@ pub enum Action {
 /// Every open gauge card and the channel their fetches report on.
 pub struct Cards {
     pub cards: Vec<Card>,
+    /// The gauge the flood-gauge dashboard has selected: a card drawn inside the dashboard rather
+    /// than in a window of its own, sharing this channel and its refresh.
+    focus: Option<Card>,
     /// Gauges asked for by a deep link, opened on the next frame (a link is read before there is
     /// a frame to open a window in).
     queued: Vec<String>,
@@ -133,6 +168,7 @@ impl Default for Cards {
         let (tx, rx) = std::sync::mpsc::channel();
         Self {
             cards: Vec::new(),
+            focus: None,
             queued: Vec::new(),
             tx,
             rx,
@@ -156,32 +192,92 @@ impl Cards {
             ctx.move_to_top(egui::LayerId::new(egui::Order::Middle, window_id(lid)));
             return;
         }
-        self.cards.push(Card {
-            lid: lid.to_string(),
-            name: if name.is_empty() {
-                lid.to_string()
-            } else {
-                name.to_string()
-            },
-            lat,
-            lon,
-            detail: None,
-            hydro: None,
-            error: None,
-            loading: false,
-            fetched: None,
-            open: true,
-            past: Past::Day,
-            show_forecast: true,
-            show_stages: true,
-            show_flow: false,
-        });
-        self.fetch(lid, spawner, http, ctx);
+        self.cards.push(Card::new(lid, name, (lat, lon)));
+        if !self.adopt(lid) {
+            self.fetch(lid, spawner, http, ctx);
+        }
     }
 
-    /// The gauges with a card up, for the map to ring.
+    /// Select a gauge in the dashboard: its card is drawn there by [`Self::show_focus`]. A gauge
+    /// that already has a card up shares what that card fetched rather than asking again.
+    pub fn set_focus(
+        &mut self,
+        lid: &str,
+        name: &str,
+        (lat, lon): (f64, f64),
+        spawner: &crate::rt::Spawner,
+        http: &reqwest::Client,
+        ctx: &egui::Context,
+    ) {
+        if self.focus.as_ref().is_some_and(|f| f.lid == lid) {
+            return;
+        }
+        let mut card = Card::new(lid, name, (lat, lon));
+        // The dashboard is for looking back: a week of the river unless asked otherwise.
+        card.past = Past::Week;
+        self.focus = Some(card);
+        if !self.adopt(lid) {
+            self.fetch(lid, spawner, http, ctx);
+        }
+    }
+
+    /// The dashboard's selected gauge, if any.
+    pub fn focus_lid(&self) -> Option<&str> {
+        self.focus.as_ref().map(|f| f.lid.as_str())
+    }
+
+    /// The selected gauge's hydrograph, once it has landed.
+    pub fn focus_hydro(&self) -> Option<&Hydrograph> {
+        self.focus.as_ref().and_then(|f| f.hydro.as_ref())
+    }
+
+    /// Drop the dashboard's selection.
+    pub fn clear_focus(&mut self) {
+        self.focus = None;
+    }
+
+    /// Give a new card for `lid` whatever another card for the same gauge already holds (a card
+    /// window and the dashboard's selection can show one gauge). True when there was something
+    /// to share, so no fetch is needed.
+    fn adopt(&mut self, lid: &str) -> bool {
+        let donor = self
+            .cards
+            .iter()
+            .chain(self.focus.iter())
+            .find(|c| c.lid == lid && c.detail.is_some())
+            .map(|c| {
+                (
+                    c.detail.clone(),
+                    c.hydro.clone(),
+                    c.fetched,
+                    c.name.clone(),
+                    (c.lat, c.lon),
+                )
+            });
+        let Some((detail, hydro, fetched, name, at)) = donor else {
+            return false;
+        };
+        for c in self
+            .cards
+            .iter_mut()
+            .chain(self.focus.iter_mut())
+            .filter(|c| c.lid == lid && c.detail.is_none())
+        {
+            c.detail = detail.clone();
+            c.hydro = hydro.clone();
+            c.fetched = fetched;
+            c.name = name.clone();
+            (c.lat, c.lon) = at;
+        }
+        true
+    }
+
+    /// The gauges with a card up (or selected in the dashboard), for the map to ring.
     pub fn is_open(&self, lid: &str) -> bool {
-        self.cards.iter().any(|c| c.lid == lid)
+        self.cards
+            .iter()
+            .chain(self.focus.iter())
+            .any(|c| c.lid == lid)
     }
 
     /// Every open card's gauge id, oldest first (for a shared view link).
@@ -201,11 +297,20 @@ impl Cards {
         http: &reqwest::Client,
         ctx: &egui::Context,
     ) {
-        let Some(card) = self.cards.iter_mut().find(|c| c.lid == lid) else {
+        let mut any = false;
+        for card in self
+            .cards
+            .iter_mut()
+            .chain(self.focus.iter_mut())
+            .filter(|c| c.lid == lid)
+        {
+            card.loading = true;
+            card.fetched = Some(Instant::now());
+            any = true;
+        }
+        if !any {
             return;
-        };
-        card.loading = true;
-        card.fetched = Some(Instant::now());
+        }
         let (tx, http, ctx, lid) = (self.tx.clone(), http.clone(), ctx.clone(), lid.to_string());
         spawner.spawn(async move {
             let (d, h) = futures_util::future::join(
@@ -233,22 +338,7 @@ impl Cards {
         for lid in std::mem::take(&mut self.queued) {
             self.open(&lid, "", (0.0, 0.0), spawner, http, ctx);
         }
-        for (lid, d, h) in self.rx.try_iter() {
-            let Some(card) = self.cards.iter_mut().find(|c| c.lid == lid) else {
-                continue;
-            };
-            card.loading = false;
-            // Keep what was there when a refresh fails: an hour-old hydrograph beats a blank one.
-            card.error = d.as_ref().err().or(h.as_ref().err()).cloned();
-            if let Ok(d) = d {
-                card.name = d.summary.name.clone();
-                (card.lat, card.lon) = (d.summary.lat, d.summary.lon);
-                card.detail = Some(d);
-            }
-            if let Ok(h) = h {
-                card.hydro = Some(h);
-            }
-        }
+        self.land();
         let mut actions = Vec::new();
         let mut neighbors = Vec::new();
         let mut refetch = Vec::new();
@@ -277,6 +367,64 @@ impl Cards {
         if !self.cards.is_empty() {
             ctx.request_repaint_after(std::time::Duration::from_secs(30));
         }
+        actions
+    }
+}
+
+impl Cards {
+    /// Land finished fetches in every card (window or dashboard) showing that gauge.
+    fn land(&mut self) {
+        for (lid, d, h) in self.rx.try_iter() {
+            for card in self
+                .cards
+                .iter_mut()
+                .chain(self.focus.iter_mut())
+                .filter(|c| c.lid == lid)
+            {
+                card.loading = false;
+                // Keep what was there when a refresh fails: an hour-old hydrograph beats a blank
+                // one.
+                card.error = d.as_ref().err().or(h.as_ref().err()).cloned();
+                if let Ok(d) = &d {
+                    card.name = d.summary.name.clone();
+                    (card.lat, card.lon) = (d.summary.lat, d.summary.lon);
+                    card.detail = Some(d.clone());
+                }
+                if let Ok(h) = &h {
+                    card.hydro = Some(h.clone());
+                }
+            }
+        }
+    }
+
+    /// Draw the dashboard's selected gauge into `ui`: the same card a map click opens, without
+    /// its window. Upstream and downstream move the selection rather than opening windows.
+    pub fn show_focus(
+        &mut self,
+        ui: &mut egui::Ui,
+        tz: Option<Tz>,
+        spawner: &crate::rt::Spawner,
+        http: &reqwest::Client,
+    ) -> Vec<Action> {
+        let ctx = ui.ctx().clone();
+        self.land();
+        let mut actions = Vec::new();
+        let Some(card) = self.focus.as_mut() else {
+            return actions;
+        };
+        let request = body(ui, card, tz, &mut actions);
+        let stale = card
+            .fetched
+            .is_none_or(|t| t.elapsed().as_secs() >= REFRESH_SECS);
+        let refresh = !card.loading && (stale || matches!(request, Some(Request::Refresh)));
+        let lid = card.lid.clone();
+        if refresh {
+            self.fetch(&lid, spawner, http, &ctx);
+        }
+        if let Some(Request::Open(next)) = request {
+            self.set_focus(&next, "", (0.0, 0.0), spawner, http, &ctx);
+        }
+        ctx.request_repaint_after(std::time::Duration::from_secs(30));
         actions
     }
 }
@@ -347,7 +495,7 @@ fn body(
     header(ui, d, card.hydro.as_ref(), tz);
     ui.add_space(4.0);
     ui.horizontal_wrapped(|ui| {
-        for p in [Past::Day, Past::ThreeDays, Past::Week] {
+        for p in [Past::Day, Past::ThreeDays, Past::Week, Past::Month] {
             ui.selectable_value(&mut card.past, p, p.label());
         }
         ui.separator();
@@ -474,7 +622,7 @@ fn chip(ui: &mut egui::Ui, text: &str, bg: Color32) {
 }
 
 /// A flow in the units a reader expects: cfs under ten thousand, kcfs above.
-fn flow_text(v: f64, units: &str) -> String {
+pub fn flow_text(v: f64, units: &str) -> String {
     let cfs = match units {
         "kcfs" => v * 1000.0,
         "cfs" => v,
@@ -495,7 +643,7 @@ fn when(t: DateTime<Utc>, tz: Option<Tz>) -> String {
     }
 }
 
-fn age_text(t: DateTime<Utc>, now: DateTime<Utc>) -> String {
+pub fn age_text(t: DateTime<Utc>, now: DateTime<Utc>) -> String {
     let m = (now - t).num_minutes().max(0);
     match m {
         0 => "just now".into(),
@@ -819,10 +967,10 @@ fn hydrograph(
 
     // Time axis: ticks on round local hours.
     let span_h = span_s / 3600.0;
-    let step_h = [1i64, 2, 3, 6, 12, 24, 48]
+    let step_h = [1i64, 2, 3, 6, 12, 24, 48, 96, 168]
         .into_iter()
         .find(|s| span_h / *s as f64 <= 8.0)
-        .unwrap_or(48);
+        .unwrap_or(168);
     let offset_s = tz.map_or(0, |z| {
         use chrono::Offset;
         x0.with_timezone(&z).offset().fix().local_minus_utc() as i64
@@ -845,7 +993,10 @@ fn hydrograph(
         let local = tz.map(|z| tm.with_timezone(&z).naive_local());
         let naive = local.unwrap_or(tm.naive_utc());
         let midnight = chrono::Timelike::hour(&naive) == 0;
-        let label = if midnight || step_h >= 24 {
+        let label = if step_h >= 72 {
+            // Weekday names repeat over a month; dates do not.
+            naive.format("%-m/%-d").to_string()
+        } else if midnight || step_h >= 24 {
             naive.format(fmt_day).to_string()
         } else {
             naive.format(fmt_hour).to_string()

@@ -120,7 +120,7 @@ impl HookEchoApp {
 
     /// Centre the map on the device. The first press starts the location feed (which asks for the
     /// permission); once there is a position, a press recentres on it.
-    fn locate_me(&mut self) {
+    pub(crate) fn locate_me(&mut self) {
         if self.gps_rx.is_none() {
             let rx = if cfg!(target_os = "android") {
                 crate::platform::start_location()

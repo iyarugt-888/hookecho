@@ -207,6 +207,10 @@ pub struct Settings {
     /// see [`Settings::adopt_tablet_default`].
     #[serde(default)]
     pub tablet_layout_adopted: bool,
+    /// Whether the one-time move of a phone from the old default design to Station has happened;
+    /// see [`Settings::adopt_station_default`].
+    #[serde(default)]
+    pub station_adopted: bool,
     /// Serve the running app's state on `127.0.0.1:local_api_port` (ROADMAP_NEW M4; see
     /// `crate::local_api`). Off unless turned on: it answers anything on this machine.
     #[serde(default)]
@@ -831,6 +835,21 @@ impl Settings {
         true
     }
 
+    /// Move a phone still on the old default design (Aurora) to Station, the workstation's
+    /// windows in a bottom sheet, once. A design picked on purpose is kept, and one changed back
+    /// later stays changed. Returns whether it changed anything.
+    pub fn adopt_station_default(&mut self) -> bool {
+        if self.station_adopted {
+            return false;
+        }
+        self.station_adopted = true;
+        if self.phone_design != PhoneDesign::Aurora {
+            return false;
+        }
+        self.phone_design = PhoneDesign::Station;
+        true
+    }
+
     /// Move the detector floors off the old 0% default onto the backtested ones, once.
     ///
     /// Floors used to default to 0%, so every settings file saved since has an explicit 0 in it
@@ -1352,8 +1371,12 @@ impl Layout {
 /// can do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum PhoneDesign {
-    /// Clean, minimal, touch-friendly: a right-hand tool rail and a 2D / Tilt toggle.
+    /// The analyst workstation on a phone: an app bar, a Site / Product / Tilt row, a tool rail
+    /// over the map, and the workstation's windows as the tabs of a bottom sheet
+    /// (`app::chrome::dock::phone`).
     #[default]
+    Station,
+    /// Clean, minimal, touch-friendly: a right-hand tool rail and a 2D / Tilt toggle.
     Aurora,
     /// Analyst-focused: a left tool rail, a tall dBZ scale and a squarer look.
     Storm,
@@ -1557,6 +1580,7 @@ impl Default for Settings {
             layout: Layout::default(),
             workstation: Default::default(),
             tablet_layout_adopted: false,
+            station_adopted: false,
             local_api: false,
             local_api_port: default_local_api_port(),
             phone_design: PhoneDesign::default(),
@@ -2376,6 +2400,7 @@ mod tests {
             layout: Layout::Minimal,
             workstation: Default::default(),
             tablet_layout_adopted: false,
+            station_adopted: true,
             local_api: true,
             local_api_port: 50_000,
             phone_design: PhoneDesign::Carbon,
@@ -2738,11 +2763,32 @@ mod tests {
     }
 
     #[test]
-    fn a_settings_file_with_no_phone_design_gets_aurora() {
+    fn a_settings_file_with_no_phone_design_gets_station() {
         assert_eq!(
             Settings::from_json_lossy("{}").phone_design,
-            PhoneDesign::Aurora
+            PhoneDesign::Station
         );
+    }
+
+    #[test]
+    fn a_phone_on_the_old_default_design_moves_to_station_once() {
+        let mut s = Settings {
+            phone_design: PhoneDesign::Aurora,
+            ..Settings::default()
+        };
+        assert!(s.adopt_station_default());
+        assert_eq!(s.phone_design, PhoneDesign::Station);
+        // Changed back on purpose: stays changed.
+        s.phone_design = PhoneDesign::Aurora;
+        assert!(!s.adopt_station_default());
+        assert_eq!(s.phone_design, PhoneDesign::Aurora);
+        // A design picked on purpose is never replaced.
+        let mut carbon = Settings {
+            phone_design: PhoneDesign::Carbon,
+            ..Settings::default()
+        };
+        assert!(!carbon.adopt_station_default());
+        assert_eq!(carbon.phone_design, PhoneDesign::Carbon);
     }
 
     #[test]

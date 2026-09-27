@@ -10,6 +10,8 @@ use egui_phosphor::regular as ph;
 
 /// The panel's height: the three rows and their margins.
 const TIMELINE_H: f32 = 122.0;
+/// The phone's timeline: transport and state, the time and speed, then the track.
+pub(super) const PHONE_TIMELINE_H: f32 = 124.0;
 /// Labels on the track closer than this would run into each other; the later one is dropped.
 const HOUR_LABEL_GAP: f32 = 52.0;
 
@@ -66,7 +68,10 @@ pub(super) fn slot_at(x: f32, n: usize, left: f32, right: f32) -> usize {
 }
 
 impl HookEchoApp {
-    pub(super) fn dock_timeline(&mut self, root: &mut egui::Ui) {
+    /// The timeline docked under everything. `phone` lays it out for a phone's width and a
+    /// finger (the Station design): transport, Live and the archive day on one row, the time and
+    /// speed on the next, then the track; the tilts are in the phone's control row instead.
+    pub(super) fn dock_timeline(&mut self, root: &mut egui::Ui, phone: bool) {
         if !self.dock.timeline_open {
             return;
         }
@@ -105,7 +110,7 @@ impl HookEchoApp {
         let mut pick_tilt = None;
         let mut seek = None;
         egui::Panel::bottom("dock_timeline")
-            .exact_size(TIMELINE_H)
+            .exact_size(if phone { PHONE_TIMELINE_H } else { TIMELINE_H })
             .resizable(false)
             .frame(
                 ws::panel_frame(&t).inner_margin(egui::Margin {
@@ -120,8 +125,11 @@ impl HookEchoApp {
                 let tl = &mut self.views[self.active].timeline;
                 let slots = tl.slot_count();
                 let observed = tl.frames.len();
+                if phone {
+                    phone_rows(ui, &t, tl, &site, tz, &mut go_head);
+                }
                 // Row 1: transport, state, time, speed | archive, jump.
-                ui.horizontal(|ui| {
+                if !phone { ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 2.0;
                     let b = |ui: &mut egui::Ui, glyph: &str, name: &str| {
                         ws::icon_button(ui, &t, glyph, "", false).named(name).clicked()
@@ -238,7 +246,7 @@ impl HookEchoApp {
                                 }
                             });
                     });
-                });
+                }); }
                 ui.add_space(4.0);
                 // Row 2: the track. One tick per slot, brighter where the frame is downloaded,
                 // the playhead in the accent, and the hours underneath.
@@ -327,6 +335,9 @@ impl HookEchoApp {
                         FontId::proportional(11.5),
                         t.text_dim,
                     );
+                }
+                if phone {
+                    return;
                 }
                 // Row 3: frame counter, the tilts, what the radar is doing | the buffer. The row
                 // is split into two fixed rects and the buffer side is built first, so its widget
@@ -433,6 +444,170 @@ impl HookEchoApp {
             self.apply_palette(crate::app::PaletteAction::SeekTime(ts), &ctx);
         }
     }
+}
+
+/// A finger-sized transport button: the play button filled with the accent, the rest plain.
+fn touch_button(ui: &mut egui::Ui, t: &ws::Tokens, glyph: &str, filled: bool) -> egui::Response {
+    let (r, resp) = ui.allocate_exact_size(egui::vec2(46.0, 38.0), Sense::click());
+    let fill = if filled {
+        t.accent
+    } else if resp.is_pointer_button_down_on() || resp.hovered() {
+        t.field_hi
+    } else {
+        t.field
+    };
+    ui.painter().rect(
+        r,
+        8.0,
+        fill,
+        Stroke::new(1.0, if filled { t.accent } else { t.line }),
+        egui::StrokeKind::Inside,
+    );
+    ui.painter().text(
+        r.center(),
+        egui::Align2::CENTER_CENTER,
+        glyph,
+        FontId::proportional(19.0),
+        if filled { egui::Color32::WHITE } else { t.text },
+    );
+    resp
+}
+
+/// The phone's first two timeline rows: transport, Live and the archive day; then the time and
+/// the loop speed.
+fn phone_rows(
+    ui: &mut egui::Ui,
+    t: &ws::Tokens,
+    tl: &mut crate::timeline::Timeline,
+    site: &str,
+    tz: Option<wxdata::tz::Tz>,
+    go_head: &mut bool,
+) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 8.0;
+        if touch_button(ui, t, ph::REWIND, false)
+            .named("Previous frame")
+            .clicked()
+        {
+            tl.step(-1);
+        }
+        let playing = tl.playing;
+        if touch_button(ui, t, if playing { ph::PAUSE } else { ph::PLAY }, true)
+            .named_toggle(if playing { "Pause" } else { "Play" }, playing)
+            .clicked()
+        {
+            tl.toggle_play();
+        }
+        if touch_button(ui, t, ph::FAST_FORWARD, false)
+            .named("Next frame")
+            .clicked()
+        {
+            tl.step(1);
+        }
+        if touch_button(ui, t, ph::SKIP_FORWARD, false)
+            .named("Jump to newest")
+            .clicked()
+        {
+            *go_head = true;
+        }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let cal = touch_button(ui, t, ph::CALENDAR_BLANK, false).named("Archive: pick a day");
+            egui::Popup::menu(&cal)
+                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                .show(|ui| {
+                    ws::menu_scope(ui, t);
+                    ui.set_min_width(240.0);
+                    ui.label(ws::text(
+                        format!("Showing {}", tl.date.format("%b %-d, %Y")),
+                        12.0,
+                        t.text_dim,
+                    ));
+                    ui.horizontal(|ui| {
+                        if ui.button(ph::CARET_LEFT).named("Previous day").clicked() {
+                            if let Some(d) = tl.date.pred_opt() {
+                                crate::app::chrome::scrubber::seek_to_day(tl, site, d);
+                            }
+                        }
+                        if let Some(d) = archive_day_input(ui, tl.date) {
+                            crate::app::chrome::scrubber::seek_to_day(tl, site, d);
+                        }
+                        let is_today = tl.date >= Utc::now().date_naive();
+                        if ui
+                            .add_enabled(!is_today, egui::Button::new(ph::CARET_RIGHT))
+                            .named("Next day")
+                            .clicked()
+                        {
+                            if let Some(d) = tl.date.succ_opt() {
+                                crate::app::chrome::scrubber::seek_to_day(tl, site, d);
+                            }
+                        }
+                    });
+                    if let Some(d) = archive_day_calendar(ui, tl.date) {
+                        crate::app::chrome::scrubber::seek_to_day(tl, site, d);
+                    }
+                });
+            let live = tl.following && tl.forecast_hour().is_none();
+            let (word, color) = if live {
+                ("Live", t.live)
+            } else {
+                ("Archive", t.warn)
+            };
+            // A pill a finger can hit: the state, and a tap goes live.
+            let galley =
+                ui.painter()
+                    .layout_no_wrap(word.to_string(), FontId::proportional(15.0), color);
+            let (r, resp) =
+                ui.allocate_exact_size(egui::vec2(galley.size().x + 40.0, 38.0), Sense::click());
+            ui.painter().rect(
+                r,
+                8.0,
+                t.field,
+                Stroke::new(1.0, t.line),
+                egui::StrokeKind::Inside,
+            );
+            ui.painter()
+                .circle_filled(egui::pos2(r.left() + 16.0, r.center().y), 5.0, color);
+            ui.painter().galley(
+                egui::pos2(r.left() + 28.0, r.center().y - galley.size().y / 2.0),
+                galley,
+                color,
+            );
+            if resp
+                .named(if live {
+                    "Following the newest scan"
+                } else {
+                    "Go live"
+                })
+                .clicked()
+            {
+                *go_head = true;
+            }
+        });
+    });
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        let label = match tl.forecast_hour() {
+            Some(h) => format!("Forecast +{h} h"),
+            None => tl
+                .current()
+                .and_then(|id| id.date_time())
+                .map(|d| crate::timefmt::fmt_date_clock(d, tz))
+                .unwrap_or_else(|| "\u{2014}".to_string()),
+        };
+        ui.label(ws::mono(label, 14.0, egui::Color32::WHITE));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            egui::ComboBox::from_id_salt("phone_speed")
+                .width(70.0)
+                .selected_text(format!("{:.0} fps", tl.speed))
+                .show_ui(ui, |ui| {
+                    ws::menu_scope(ui, t);
+                    for s in [2.0f32, 4.0, 6.0, 8.0, 12.0, 16.0] {
+                        ui.selectable_value(&mut tl.speed, s, format!("{s:.0} fps"));
+                    }
+                });
+            ws::caption(ui, t, "Speed");
+        });
+    });
 }
 
 #[cfg(test)]

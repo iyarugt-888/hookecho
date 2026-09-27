@@ -15,7 +15,7 @@ const RADAR_ZOOM: f64 = 8.0;
 
 /// The tools, grouped: looking, measuring, the atmosphere and the ground, marking up the map.
 /// Every `MapTool` is here — [`rail_group`]'s exhaustive match will not compile otherwise.
-const GROUPS: [&[(MapTool, &str, &str)]; 4] = [
+pub(super) const GROUPS: [&[(MapTool, &str, &str)]; 4] = [
     &[
         (MapTool::Interrogate, ph::CURSOR, "Explore the map"),
         (
@@ -134,7 +134,7 @@ impl HookEchoApp {
 
     /// Put the active pane's radar in the middle of the map at a storm-scale zoom, keeping a 3D
     /// view's pitch and bearing.
-    fn dock_center_on_radar(&mut self) {
+    pub(super) fn dock_center_on_radar(&mut self) {
         let v = &mut self.views[self.active];
         let Some(site) = v.site.as_deref().and_then(wxdata::sites::site_by_id) else {
             return;

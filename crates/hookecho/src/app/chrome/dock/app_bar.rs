@@ -252,29 +252,8 @@ impl HookEchoApp {
                             egui::Popup::menu(&share).show(|ui| {
                                 ws::menu_scope(ui, &t);
                                 ui.set_min_width(240.0);
-                                for (text, act) in [
-                                    ("Copy a link to this view", A::CopyViewLink),
-                                    ("Open in Windy", A::OpenInWindy),
-                                    ("Export the map as GeoJSON", A::ExportGis),
-                                    ("Import GeoJSON or Shapefile\u{2026}", A::ImportGis),
-                                ] {
-                                    if ui.button(text).clicked() {
-                                        menu_pick = Some(MenuPick::Palette(act));
-                                    }
-                                }
-                                if ui.button("Images, video and more\u{2026}").clicked() {
-                                    menu_pick =
-                                        Some(MenuPick::Prefs(PrefsPage::App, Some("Share")));
-                                }
-                                ui.separator();
-                                ui.label(ws::text("WORKSPACES", 10.5, t.text_faint));
-                                if ui.button("Save this layout as a workspace").clicked() {
-                                    menu_pick = Some(MenuPick::Palette(A::SaveWorkspace));
-                                }
-                                for (i, name) in workspaces.iter().enumerate() {
-                                    if ui.button(format!("Open \u{201c}{name}\u{201d}")).clicked() {
-                                        menu_pick = Some(MenuPick::Palette(A::ApplyWorkspace(i)));
-                                    }
+                                if let Some(p) = share_rows(ui, &t, &workspaces) {
+                                    menu_pick = Some(p);
                                 }
                             });
                             let tools = ws::icon_button(ui, &t, ph::WRENCH, label("Tools"), false)
@@ -785,16 +764,16 @@ impl HookEchoApp {
 /// time it is rescanned, or every sweep as the radar starts it. One choice, so the two automatic
 /// modes can never both be on and fight.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Follow {
+pub(super) enum Follow {
     Off,
     Lowest,
     Sweep,
 }
 
 impl Follow {
-    const ALL: [Follow; 3] = [Follow::Off, Follow::Lowest, Follow::Sweep];
+    pub(super) const ALL: [Follow; 3] = [Follow::Off, Follow::Lowest, Follow::Sweep];
 
-    fn of(lowest: bool, sweep: bool) -> Follow {
+    pub(super) fn of(lowest: bool, sweep: bool) -> Follow {
         if sweep {
             Follow::Sweep
         } else if lowest {
@@ -804,7 +783,7 @@ impl Follow {
         }
     }
 
-    fn label(self) -> &'static str {
+    pub(super) fn label(self) -> &'static str {
         match self {
             Follow::Off => "Off",
             Follow::Lowest => "Lowest",
@@ -812,7 +791,7 @@ impl Follow {
         }
     }
 
-    fn hint(self) -> &'static str {
+    pub(super) fn hint(self) -> &'static str {
         match self {
             Follow::Off => "The tilt stays where you put it",
             Follow::Lowest => {
@@ -866,7 +845,42 @@ fn toolbar_folds(room: f32, w: &ToolbarWidths) -> usize {
         .unwrap_or(4)
 }
 
-fn table_items(
+/// The Share menu's rows: links, export and import, and the saved workspaces.
+pub(super) fn share_rows(
+    ui: &mut egui::Ui,
+    t: &ws::Tokens,
+    workspaces: &[String],
+) -> Option<super::menus::MenuPick> {
+    use super::menus::MenuPick;
+    use crate::app::PaletteAction as A;
+    let mut pick = None;
+    for (text, act) in [
+        ("Copy a link to this view", A::CopyViewLink),
+        ("Open in Windy", A::OpenInWindy),
+        ("Export the map as GeoJSON", A::ExportGis),
+        ("Import GeoJSON or Shapefile\u{2026}", A::ImportGis),
+    ] {
+        if ui.button(text).clicked() {
+            pick = Some(MenuPick::Palette(act));
+        }
+    }
+    if ui.button("Images, video and more\u{2026}").clicked() {
+        pick = Some(MenuPick::Prefs(PrefsPage::App, Some("Share")));
+    }
+    ui.separator();
+    ui.label(ws::text("WORKSPACES", 10.5, t.text_faint));
+    if ui.button("Save this layout as a workspace").clicked() {
+        pick = Some(MenuPick::Palette(A::SaveWorkspace));
+    }
+    for (i, name) in workspaces.iter().enumerate() {
+        if ui.button(format!("Open \u{201c}{name}\u{201d}")).clicked() {
+            pick = Some(MenuPick::Palette(A::ApplyWorkspace(i)));
+        }
+    }
+    pick
+}
+
+pub(super) fn table_items(
     ui: &mut egui::Ui,
     moment: Moment,
     table_now: &str,
@@ -885,7 +899,7 @@ fn table_items(
     }
 }
 
-fn pane_items(
+pub(super) fn pane_items(
     ui: &mut egui::Ui,
     panes: usize,
     pane_layout: crate::workspace::PaneLayout,

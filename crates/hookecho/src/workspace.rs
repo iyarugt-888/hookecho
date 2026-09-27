@@ -133,6 +133,9 @@ pub enum Place {
     Right,
     /// Over the map, movable, and collapsible to its title bar.
     Float,
+    /// Docked under the map, between the side docks: for the wide, short windows (the storm and
+    /// gauge tables, the analyst log).
+    Bottom,
 }
 
 /// One workstation tool window's state: shown or not, where it sits, and whether it is folded to
@@ -189,6 +192,10 @@ pub struct WorkstationChrome {
     /// is the width its windows ask for.
     #[serde(default)]
     pub dock_widths: [Option<u16>; 2],
+    /// The bottom dock's height in whole pixels when the user has dragged it; `None` is its
+    /// default.
+    #[serde(default)]
+    pub bottom_h: Option<u16>,
     /// The storm table. Closed until asked for; docks right when opened.
     #[serde(default = "storms_default")]
     pub storms: WindowChrome,
@@ -204,6 +211,9 @@ pub struct WorkstationChrome {
     /// The orbitable 3D volume, shown while it is open. Floats over the map by default.
     #[serde(default = "volume_default")]
     pub volume: WindowChrome,
+    /// The flood-gauge dashboard. Closed until asked for; docks right when opened.
+    #[serde(default = "storms_default")]
+    pub gauges: WindowChrome,
     #[serde(default = "yes")]
     pub timeline_open: bool,
     /// The status footer under the timeline (roadmap Q2). Off unless asked for.
@@ -779,11 +789,13 @@ mod tests {
                     sources: WindowChrome::at(true, Place::Left),
                     log: WindowChrome::at(true, Place::Right),
                     dock_widths: [Some(320), None],
+                    bottom_h: Some(260),
                     sounding: WindowChrome::at(true, Place::Float),
                     storms: WindowChrome::at(false, Place::Right),
                     cell: WindowChrome::at(true, Place::Left),
                     region: WindowChrome::at(true, Place::Float),
                     volume: WindowChrome::at(false, Place::Left),
+                    gauges: WindowChrome::at(true, Place::Left),
                     timeline_open: false,
                     footer_open: false,
                 }),

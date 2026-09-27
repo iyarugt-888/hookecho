@@ -63,6 +63,10 @@ const QUIET_AFTER: std::time::Duration = std::time::Duration::from_secs(2);
 /// unaffected — see the comment at the use site.
 const IDLE_QUIET_MS: u64 = 500;
 
+/// River gauges are fetched only for a view narrower than this, in degrees of longitude: wider,
+/// there are too many to read.
+const GAUGE_MAX_SPAN_DEG: f64 = 12.0;
+
 /// How long any one overlay or field fetch may run before it is abandoned.
 ///
 /// Shorter than the cadences that drive them (120 s for the alert/watch/MD burst, 60 s at the
@@ -2388,6 +2392,8 @@ pub(crate) enum AppWindow {
     Cappi,
     Volume3d,
     StormTable,
+    /// Every river gauge in view, with flood categories, sparklines and the selected hydrograph.
+    FloodGauges,
     /// Phase C1: define/edit GR2Analyst-style formula products, evaluated live in the gate
     /// inspector.
     UdpProducts,
@@ -4013,6 +4019,8 @@ pub struct HookEchoApp {
     gauge_bounds: Option<(f64, f64, f64, f64)>,
     /// Open gauge cards (hydrograph, flood stages, crests): what clicking a gauge opens.
     gauge_cards: crate::ui::gauge_card::Cards,
+    /// The flood-gauge dashboard's filters and sparklines.
+    gauge_dash: crate::ui::gauge_dashboard::Dashboard,
     /// HRRR model contours: which fields are on — several can be at once, e.g. MSLP and CAPE
     /// overlaid together, each independently fetched and drawn in its own color. `Off` is never a
     /// member; `PaletteAction::SetContours(Off)` clears the whole set instead of toggling it in.
@@ -5416,6 +5424,7 @@ impl HookEchoApp {
             gauge_last_fetch: None,
             gauge_bounds: None,
             gauge_cards: Default::default(),
+            gauge_dash: Default::default(),
             active_contours: std::collections::BTreeSet::new(),
             contours: std::collections::HashMap::new(),
             env_model: wxdata::hrrr::Model::Hrrr,
@@ -11098,10 +11107,14 @@ impl HookEchoApp {
     /// them. The design plan's §9 rule — a phone gets the map-first composition, not shrunken
     /// desktop docking — so under 600 pt the minimal floating chrome draws instead, sharing the
     /// same state; the workstation comes back as the window widens. The arrangement is untouched.
+    ///
+    /// On a phone with the Station design, the workstation is drawn in its phone form instead
+    /// (`app::chrome::dock::phone`): its windows are the tabs of a bottom sheet.
     pub(crate) fn workstation_chrome(&self) -> bool {
-        self.settings.layout.is_workstation()
-            && !crate::platform::phone_layout()
-            && !workstation_too_narrow(self.window_w)
+        self.phone_station()
+            || (self.settings.layout.is_workstation()
+                && !crate::platform::phone_layout()
+                && !workstation_too_narrow(self.window_w))
     }
 
     fn overlay_flag(&mut self, t: OverlayToggle) -> &mut bool {
@@ -11584,6 +11597,15 @@ impl HookEchoApp {
                     self.dock.toggle(chrome::DockWin::Storms)
                 }
                 W::StormTable => self.cells_window.toggle(),
+                W::FloodGauges => {
+                    // The list is the map layer's fetch: asking for the dashboard asks for it.
+                    self.show_gauges = true;
+                    if self.workstation_chrome() {
+                        self.dock.toggle(chrome::DockWin::Gauges);
+                    } else {
+                        self.gauge_dash.window_open = !self.gauge_dash.window_open;
+                    }
+                }
                 W::Help => self.help_hub.toggle(),
                 W::AlertRules => self.rules_window.toggle(),
                 W::Verify => self.open_verify(),
@@ -12742,6 +12764,78 @@ impl HookEchoApp {
         });
     }
 
+    /// Carry out what a river-gauge card (a window, or the dashboard's selected gauge) asked for.
+    pub(crate) fn gauge_card_action(
+        &mut self,
+        action: crate::ui::gauge_card::Action,
+        ctx: &egui::Context,
+    ) {
+        match action {
+            crate::ui::gauge_card::Action::Center { lat, lon } => {
+                self.follow_cell = None;
+                self.views[self.active].camera.center =
+                    crate::render::mercator::lonlat_to_world(lon, lat);
+            }
+            crate::ui::gauge_card::Action::Share { lid, lat, lon } => {
+                // The gauge, close enough in that its symbol is drawn, on the radar the sender is
+                // looking at.
+                let v = &self.views[self.active];
+                let link = goto_link(&Goto {
+                    site: v.site.clone().unwrap_or_default(),
+                    lon,
+                    lat,
+                    zoom: v.camera.zoom.max(8.0),
+                    time: None,
+                    moment: None,
+                    tilt: None,
+                    basemap: None,
+                    threshold: None,
+                    srv: false,
+                    gauges: vec![lid],
+                    tropical: None,
+                });
+                if !crate::platform::share_link("HookEcho", &link) {
+                    ctx.copy_text(link.clone());
+                    self.banner("Link copied".to_string(), link);
+                }
+            }
+        }
+    }
+
+    /// Carry out what the flood-gauge dashboard asked for.
+    pub(crate) fn gauge_dash_out(
+        &mut self,
+        out: crate::ui::gauge_dashboard::Out,
+        ctx: &egui::Context,
+    ) {
+        use crate::ui::gauge_dashboard::Out;
+        match out {
+            Out::ShowLayer => self.show_gauges = true,
+            Out::Center { lat, lon } => {
+                self.follow_cell = None;
+                let cam = &mut self.views[self.active].camera;
+                cam.center = crate::render::mercator::lonlat_to_world(lon, lat);
+                // Close enough in that the gauge's symbol is drawn.
+                cam.zoom = cam.zoom.max(8.0);
+            }
+            Out::Card(a) => self.gauge_card_action(a, ctx),
+        }
+    }
+
+    /// The view is too wide for the gauge layer to fetch (see [`Self::sync_gauges`]).
+    pub(crate) fn gauges_zoomed_out(&self) -> bool {
+        let (min_lon, _, max_lon, _) = self.view_bounds();
+        !(max_lon - min_lon).is_finite() || max_lon - min_lon > GAUGE_MAX_SPAN_DEG
+    }
+
+    /// Gauges in view at minor flooding or worse, for the dashboard's tab dot.
+    pub(crate) fn gauges_in_flood(&self) -> usize {
+        if !self.show_gauges {
+            return 0;
+        }
+        crate::ui::gauge_dashboard::summarize(&self.gauges).in_flood()
+    }
+
     /// Drive the river-gauge fetch (NWPS), mirroring [`Self::sync_metar`] but with a slower cadence
     /// (gauge stages update every ~15 min upstream, so 300 s is plenty).
     fn sync_gauges(&mut self, ctx: &egui::Context) {
@@ -12757,7 +12851,7 @@ impl HookEchoApp {
         {
             return;
         }
-        if (max_lon - min_lon) > 12.0 {
+        if (max_lon - min_lon) > GAUGE_MAX_SPAN_DEG {
             return; // too zoomed out — too many gauges to be readable
         }
         let (clon, clat) = ((min_lon + max_lon) * 0.5, (min_lat + max_lat) * 0.5);
@@ -19769,9 +19863,24 @@ impl HookEchoApp {
             use crate::ui::phone_design::Legend;
             let (df, dl) = display_units(view.moment, &self.settings);
             let table = self.palettes.table(view.moment);
-            // Clear of the pill, mode bar and rail above, and the timeline below.
-            let top = chrome::phone_top(ui.ctx()) + 56.0 + chrome::MODE_BAR_H + 8.0;
-            let clear_bottom = 132.0 + self.phone_nav_h();
+            // Clear of the pill, mode bar and rail above, and the timeline below. Station's bars
+            // and sheet are docked around the map, so its scale only keeps off the edges.
+            let (top, clear_bottom) = if self.phone_station() {
+                // Full screen, the way back (the eye) sits in the top-right corner.
+                (
+                    if self.mobile_chrome_hidden {
+                        76.0
+                    } else {
+                        10.0
+                    },
+                    10.0,
+                )
+            } else {
+                (
+                    chrome::phone_top(ui.ctx()) + 56.0 + chrome::MODE_BAR_H + 8.0,
+                    132.0 + self.phone_nav_h(),
+                )
+            };
             match self.settings.phone_design.spec().legend {
                 Legend::StripOnly => {}
                 Legend::Vertical => ui::legend::draw_vertical(
@@ -23666,8 +23775,15 @@ impl eframe::App for HookEchoApp {
         // `chrome_rect` is read so the map gets what they leave. It draws none of the floating
         // chrome below (pill, column, scrubber, slide-in panel), which it replaces.
         self.window_w = ctx.content_rect().width();
+        if crate::platform::phone_layout() {
+            // A phone still on the old default design moves to Station, once.
+            self.settings.adopt_station_default();
+        }
+        let phone_station = !bare && self.phone_station();
         let dock_layout = !bare && self.workstation_chrome();
-        if dock_layout {
+        if phone_station {
+            self.phone_layout(root, ctx);
+        } else if dock_layout {
             self.dock_layout(root, ctx);
         }
 
@@ -23717,7 +23833,9 @@ impl eframe::App for HookEchoApp {
                 if wsv3_layout {
                     self.wsv3_timestamp(ctx);
                 }
-                if dock_layout {
+                if phone_station {
+                    self.phone_overlay(ctx);
+                } else if dock_layout {
                     self.dock_map_overlay(ctx);
                 }
                 if !dock_layout {
@@ -24048,35 +24166,45 @@ impl eframe::App for HookEchoApp {
             let (rt, http) = (self.spawner.clone(), self.http.clone());
             let tz = self.active_tz();
             for action in self.gauge_cards.show(ctx, tz, &rt, &http) {
-                match action {
-                    crate::ui::gauge_card::Action::Center { lat, lon } => {
-                        self.follow_cell = None;
-                        self.views[self.active].camera.center =
-                            crate::render::mercator::lonlat_to_world(lon, lat);
-                    }
-                    crate::ui::gauge_card::Action::Share { lid, lat, lon } => {
-                        // The gauge, close enough in that its symbol is drawn, on the radar the
-                        // sender is looking at.
-                        let v = &self.views[self.active];
-                        let link = goto_link(&Goto {
-                            site: v.site.clone().unwrap_or_default(),
-                            lon,
-                            lat,
-                            zoom: v.camera.zoom.max(8.0),
-                            time: None,
-                            moment: None,
-                            tilt: None,
-                            basemap: None,
-                            threshold: None,
-                            srv: false,
-                            gauges: vec![lid],
-                            tropical: None,
-                        });
-                        if !crate::platform::share_link("HookEcho", &link) {
-                            ctx.copy_text(link.clone());
-                            self.banner("Link copied".to_string(), link);
-                        }
-                    }
+                self.gauge_card_action(action, ctx);
+            }
+            // The flood-gauge dashboard, as a window, in the layouts without the workstation's
+            // docks (the workstation draws it as a tool window).
+            if !self.workstation_chrome() && self.gauge_dash.window_open {
+                let t = self.ws_tokens();
+                let mut open = true;
+                let mut outs = Vec::new();
+                let zoomed_out = self.gauges_zoomed_out();
+                egui::Window::new("Flood gauges")
+                    .open(&mut open)
+                    .default_size([440.0, 640.0])
+                    .resizable(true)
+                    .show(ctx, |ui| {
+                        crate::ui::workstation::style_scope(ui, &t);
+                        egui::ScrollArea::vertical()
+                            .id_salt("gauge_dash_window")
+                            .max_height(ctx.content_rect().height() * 0.8)
+                            .show(ui, |ui| {
+                                outs = crate::ui::gauge_dashboard::body(
+                                    ui,
+                                    &t,
+                                    &mut self.gauge_dash,
+                                    &self.gauges,
+                                    &mut self.gauge_cards,
+                                    crate::ui::gauge_dashboard::Env {
+                                        tz,
+                                        spawner: &rt,
+                                        http: &http,
+                                        layer_on: self.show_gauges,
+                                        zoomed_out,
+                                        max_table_h: 260.0,
+                                    },
+                                );
+                            });
+                    });
+                self.gauge_dash.window_open = open;
+                for o in outs {
+                    self.gauge_dash_out(o, ctx);
                 }
             }
         }

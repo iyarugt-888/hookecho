@@ -1414,6 +1414,12 @@ impl HookEchoApp {
                 true,
             ),
             (
+                W::FloodGauges,
+                "Flood gauges\u{2026}",
+                "Every river gauge in view: flood categories, what is rising, a week of each river, hydrographs and crest history",
+                false,
+            ),
+            (
                 W::UdpProducts,
                 "User-defined products…",
                 "Write your own formula from REF/VEL/ZDR/etc.; see it evaluated live in the gate inspector",

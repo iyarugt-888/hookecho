@@ -140,6 +140,16 @@ impl HookEchoApp {
                 egui::Frame::NONE
                     .inner_margin(egui::Margin::symmetric(10, 8))
                     .show(ui, |ui| {
+                        // A phone has no app bar for the workspace tabs: they sit here instead.
+                        if self.dock.phone {
+                            let labels: Vec<&str> =
+                                DockTab::ALL.iter().map(|t| t.label()).collect();
+                            let at = DockTab::ALL.iter().position(|x| *x == self.dock.tab);
+                            if let Some(i) = ws::chips(ui, &t, &labels, at) {
+                                self.dock.tab = DockTab::ALL[i];
+                            }
+                            ui.add_space(4.0);
+                        }
                         let search = ui.add(
                             egui::TextEdit::singleline(&mut self.dock.query)
                                 .hint_text(format!(

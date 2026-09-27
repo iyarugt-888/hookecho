@@ -1558,14 +1558,30 @@ pub mod form_factor {
     }
 
     /// Debug builds only: `HOOKECHO_PHONE=1` draws the phone chrome on a desktop, in a phone-sized
-    /// window, so the layout can be looked at (and screenshotted) without a phone. Never true in a
-    /// release build, on Android, or in a browser.
+    /// window, so the layout can be looked at (and screenshotted) without a phone. In a browser,
+    /// `?phone` in the address does the same (a narrow window is still needed: a wide one is a
+    /// tablet). Never true in a native release build or on Android, which has the real thing.
     pub fn emulating_phone() -> bool {
         static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         *ON.get_or_init(|| {
-            cfg!(debug_assertions)
-                && !cfg!(any(target_os = "android", target_arch = "wasm32"))
-                && std::env::var_os("HOOKECHO_PHONE").is_some()
+            #[cfg(target_arch = "wasm32")]
+            {
+                // In a browser, `?phone` in the address asks for it: the phone layout can be
+                // tried (and screenshotted) in a narrow window without a phone.
+                web_sys::window()
+                    .and_then(|w| w.location().search().ok())
+                    .is_some_and(|s| {
+                        s.trim_start_matches('?')
+                            .split('&')
+                            .any(|kv| kv == "phone" || kv.starts_with("phone="))
+                    })
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                cfg!(debug_assertions)
+                    && !cfg!(target_os = "android")
+                    && std::env::var_os("HOOKECHO_PHONE").is_some()
+            }
         })
     }
 

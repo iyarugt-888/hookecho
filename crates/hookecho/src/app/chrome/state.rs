@@ -26,6 +26,7 @@ pub(crate) fn window_for_page(title: &str) -> Option<AppWindow> {
         "Tropical" => AppWindow::Tropical,
         "CAPPI slice" => AppWindow::Cappi,
         "Storm attributes" => AppWindow::StormTable,
+        "Flood gauges" => AppWindow::FloodGauges,
         "Storm Digest" => AppWindow::Digest,
         "Layer Manager" => AppWindow::LayerManager,
         "Location Markers" => AppWindow::Markers,

@@ -162,6 +162,7 @@ impl super::HookEchoApp {
             || self.basemap_open
             || self.panel_open
             || self.mobile_chrome_hidden
+            || (self.phone_station() && self.dock.sheet != crate::app::chrome::Sheet::Peek)
     }
 
     /// What Android's back gesture dismisses, innermost first. Returns without doing anything when
@@ -216,6 +217,10 @@ impl super::HookEchoApp {
             self.panel_open,
             self.mobile_chrome_hidden,
         );
+        // Station's bottom sheet folds down before Back leaves the app.
+        if self.phone_station() && self.dock.sheet != crate::app::chrome::Sheet::Peek {
+            self.dock.sheet = crate::app::chrome::Sheet::Peek;
+        }
     }
 
     /// The phone-only chrome, drawn before the shared floating chrome: the back wiring, the color
@@ -245,38 +250,48 @@ impl super::HookEchoApp {
 
         let content = ctx.content_rect();
         let inset_top = (content.top() - ctx.viewport_rect().top()).max(0.0);
+        let station = self.phone_station();
 
         // Hide/show all chrome (view the whole radar). Always drawn; when hidden it is the only
-        // floating control, so the map is fully visible.
-        egui::Area::new(Id::new("m_chrome_toggle"))
-            .anchor(
-                Align2::RIGHT_TOP,
-                vec2(-crate::ui::m3::SP_3, inset_top + 26.0),
-            )
-            // Plain Middle order, so any surface opened afterwards (a full-screen window, a
-            // modal sheet's scrim) covers it instead of leaving an eye floating over the content.
-            .show(ctx, |ui| {
-                let g = if self.mobile_chrome_hidden {
-                    ph::EYE
-                } else {
-                    ph::EYE_SLASH
-                };
-                let name = if self.mobile_chrome_hidden {
-                    "Show chrome"
-                } else {
-                    "Hide chrome"
-                };
-                if square_btn(ui, g, self.mobile_chrome_hidden, OMEGA_ORANGE)
-                    .named(name)
-                    .clicked()
-                {
-                    self.mobile_chrome_hidden = !self.mobile_chrome_hidden;
-                    self.panel_open = false;
-                    self.basemap_open = false;
-                }
-            });
+        // floating control, so the map is fully visible. Station hides from its rail, so it only
+        // needs the way back.
+        if !station || self.mobile_chrome_hidden {
+            egui::Area::new(Id::new("m_chrome_toggle"))
+                .anchor(
+                    Align2::RIGHT_TOP,
+                    vec2(-crate::ui::m3::SP_3, inset_top + 26.0),
+                )
+                // Plain Middle order, so any surface opened afterwards (a full-screen window, a
+                // modal sheet's scrim) covers it instead of leaving an eye floating over the content.
+                .show(ctx, |ui| {
+                    let g = if self.mobile_chrome_hidden {
+                        ph::EYE
+                    } else {
+                        ph::EYE_SLASH
+                    };
+                    let name = if self.mobile_chrome_hidden {
+                        "Show chrome"
+                    } else {
+                        "Hide chrome"
+                    };
+                    if square_btn(ui, g, self.mobile_chrome_hidden, OMEGA_ORANGE)
+                        .named(name)
+                        .clicked()
+                    {
+                        self.mobile_chrome_hidden = !self.mobile_chrome_hidden;
+                        self.panel_open = false;
+                        self.basemap_open = false;
+                    }
+                });
+        }
         if self.mobile_chrome_hidden {
             return false;
+        }
+        if station {
+            // Its scale is the tall one down the map's edge; the strips are for the floating
+            // chrome, which has no room for one.
+            self.mobile_tool_hint(ctx, content);
+            return true;
         }
 
         // ---------- FULL-WIDTH COLOR SCALE (top edge, under the status bar) ----------
@@ -324,8 +339,14 @@ impl super::HookEchoApp {
             _ => return,
         };
         let accent = crate::theme::accent(self.settings.theme);
+        // Under Station's bars, or under the floating chrome's pill.
+        let y = if self.phone_station() {
+            self.chrome_rect.top() - content.top() + 12.0
+        } else {
+            92.0
+        };
         egui::Area::new(Id::new("m_toolhint"))
-            .anchor(Align2::CENTER_TOP, vec2(0.0, 92.0))
+            .anchor(Align2::CENTER_TOP, vec2(0.0, y))
             .show(ctx, |ui| {
                 egui::Frame::new()
                     .fill(accent)

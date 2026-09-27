@@ -94,7 +94,8 @@ pub struct Spec {
 }
 
 impl PhoneDesign {
-    pub const ALL: [PhoneDesign; 5] = [
+    pub const ALL: [PhoneDesign; 6] = [
+        PhoneDesign::Station,
         PhoneDesign::Aurora,
         PhoneDesign::Storm,
         PhoneDesign::Carbon,
@@ -104,6 +105,7 @@ impl PhoneDesign {
 
     pub fn label(self) -> &'static str {
         match self {
+            PhoneDesign::Station => "Station",
             PhoneDesign::Aurora => "Aurora",
             PhoneDesign::Storm => "Storm",
             PhoneDesign::Carbon => "Carbon",
@@ -114,6 +116,7 @@ impl PhoneDesign {
 
     pub fn tagline(self) -> &'static str {
         match self {
+            PhoneDesign::Station => "The workstation's windows in a bottom sheet",
             PhoneDesign::Aurora => "Clean, minimal, touch-friendly",
             PhoneDesign::Storm => "Analyst-focused, data-rich",
             PhoneDesign::Carbon => "Dark, high-contrast, labelled tools",
@@ -125,6 +128,26 @@ impl PhoneDesign {
     pub fn spec(self) -> Spec {
         use RailItem as R;
         match self {
+            // Station draws its own chrome (`app::chrome::dock::phone`); of this table it uses
+            // the legend and the accent. The rest describes that chrome for the tests.
+            PhoneDesign::Station => Spec {
+                rail_side: Side::Left,
+                rail: &[
+                    R::Locate,
+                    R::Layers,
+                    R::Measure,
+                    R::Analysis,
+                    R::Alerts,
+                    R::Settings,
+                ],
+                rail_labels: false,
+                modes: &[Mode::Flat, Mode::Tilt, Mode::Volume],
+                legend: Legend::Vertical,
+                bottom_nav: false,
+                panel_alpha: 255,
+                corner: 10.0,
+                accent: [59, 130, 246],
+            },
             PhoneDesign::Aurora => Spec {
                 rail_side: Side::Right,
                 rail: &[R::Locate, R::Layers, R::Basemaps, R::Alerts, R::Share],
@@ -196,10 +219,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn there_are_five_and_each_has_its_own_name() {
+    fn there_are_six_and_each_has_its_own_name() {
         let names: std::collections::HashSet<_> =
             PhoneDesign::ALL.iter().map(|d| d.label()).collect();
-        assert_eq!(names.len(), 5);
+        assert_eq!(names.len(), 6);
     }
 
     #[test]

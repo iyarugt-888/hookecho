@@ -20,11 +20,13 @@ mod alerts;
 mod app_bar;
 mod cell;
 mod footer;
+mod gauges;
 mod inspector;
 mod layers;
 mod log;
 mod menus;
 mod order;
+mod phone;
 mod prefs;
 mod rail;
 mod region;
@@ -42,6 +44,12 @@ const LEFT_WIDTH: f32 = 284.0;
 /// window, so a dock can never take the map.
 const DOCK_MIN_W: f32 = 240.0;
 const DOCK_MAX_W: f32 = 560.0;
+
+/// The bottom dock's default height, and how short and how tall a drag may make it. The upper
+/// bound is also held under half the window's height, so the map keeps the rest.
+const BOTTOM_H: f32 = 240.0;
+const BOTTOM_MIN_H: f32 = 120.0;
+const BOTTOM_MAX_H: f32 = 520.0;
 
 /// Below this window width only one side dock shows at a time (design plan §9, "laptop / tablet
 /// landscape"): a Layers dock, a right dock and the rail together would leave the map a strip.
@@ -157,10 +165,12 @@ pub(crate) enum DockWin {
     Region,
     /// The orbitable 3D reflectivity volume (the floating "3D Reflectivity" window elsewhere).
     Volume,
+    /// Every river gauge in view: flood categories, sparklines, the selected gauge's hydrograph.
+    Gauges,
 }
 
 impl DockWin {
-    pub(crate) const ALL: [DockWin; 12] = [
+    pub(crate) const ALL: [DockWin; 13] = [
         DockWin::Layers,
         DockWin::Inspector,
         DockWin::View3d,
@@ -169,6 +179,7 @@ impl DockWin {
         DockWin::Cell,
         DockWin::Region,
         DockWin::Volume,
+        DockWin::Gauges,
         DockWin::Alerts,
         DockWin::Sources,
         DockWin::Log,
@@ -191,6 +202,7 @@ impl DockWin {
             DockWin::Cell => (ph::CROSSHAIR, "Cell"),
             DockWin::Region => (ph::CHART_SCATTER, "Region"),
             DockWin::Volume => (ph::CUBE, "3D volume"),
+            DockWin::Gauges => (ph::DROP, "Gauges"),
         };
         ws::HeaderTab {
             glyph,
@@ -218,6 +230,7 @@ impl DockWin {
             DockWin::Cell => cell::CELL_W,
             DockWin::Region => region::REGION_W,
             DockWin::Volume => volume::VOLUME_W,
+            DockWin::Gauges => gauges::GAUGES_W,
         }
     }
 }
@@ -233,8 +246,18 @@ fn side_slot(place: Place) -> Option<usize> {
     match place {
         Place::Left => Some(0),
         Place::Right => Some(1),
+        Place::Bottom => Some(2),
         Place::Float => None,
     }
+}
+
+/// The docks, in the order they are laid out.
+const DOCKS: [Place; 3] = [Place::Left, Place::Right, Place::Bottom];
+
+/// The tallest the bottom dock may be in a window this tall: [`BOTTOM_MAX_H`], and never more than
+/// half the window.
+fn bottom_max_height(window_h: f32) -> f32 {
+    BOTTOM_MAX_H.min(window_h * 0.5)
 }
 
 /// A shape as well as a color for every feed state: the compact lists stay readable when color
@@ -251,6 +274,43 @@ pub(super) fn health_glyph(state: HealthState) -> &'static str {
         HealthState::Waiting => ph::HOURGLASS,
     }
 }
+
+/// How far the phone's bottom sheet is pulled up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum Sheet {
+    /// Only the handle and the tab strip: the map gets the screen.
+    Peek,
+    /// About a third of the screen: the Inspector under the map, as in the mock.
+    #[default]
+    Half,
+    /// Most of the screen, for reading a long window (Layers, a bulletin, the gauges).
+    Full,
+}
+
+/// The windows a phone's bottom sheet lists, in its tab order: the everyday ones first.
+pub(crate) const PHONE_ORDER: [DockWin; 13] = [
+    DockWin::Inspector,
+    DockWin::Layers,
+    DockWin::Storms,
+    DockWin::Cell,
+    DockWin::Alerts,
+    DockWin::Gauges,
+    DockWin::Sounding,
+    DockWin::Region,
+    DockWin::Volume,
+    DockWin::View3d,
+    DockWin::Sources,
+    DockWin::Log,
+    DockWin::Prefs,
+];
+
+/// The sheet's standing tabs on a phone: always there, so closing one folds the sheet instead.
+pub(crate) const PHONE_CORE: [DockWin; 4] = [
+    DockWin::Inspector,
+    DockWin::Layers,
+    DockWin::Storms,
+    DockWin::Alerts,
+];
 
 /// Which page the Preferences window shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -285,6 +345,7 @@ pub(crate) struct DockState {
     /// Whether a region box has been gathered. Set each frame.
     pub region_available: bool,
     pub volume: WindowChrome,
+    pub gauges: WindowChrome,
     /// Whether the 3D volume is open (`show_3d`). Set each frame.
     pub volume_available: bool,
     /// The Storms table's sort column and direction.
@@ -316,16 +377,20 @@ pub(crate) struct DockState {
     pub arranged_for: Option<crate::settings::Layout>,
     /// The window in front of each dock's tab group, left then right, when more than one window
     /// shares that side.
-    pub front: [Option<DockWin>; 2],
+    pub front: [Option<DockWin>; 3],
     /// Each window's `(open, place)` last frame, to bring a window that has just opened or just
     /// moved into a dock to the front of it.
-    seen: [(bool, Place); 12],
+    seen: [(bool, Place); 13],
     /// The window is too narrow for docks on both sides ([`ONE_DOCK_BELOW`]). Set each frame.
     pub narrow: bool,
     /// The side used most recently (0 left, 1 right): the one that stays while `narrow`.
     last_side: usize,
     /// Each dock's dragged width, left then right (`None`: its windows' own width).
     pub dock_widths: [Option<f32>; 2],
+    /// The bottom dock's dragged height (`None`: [`BOTTOM_H`]).
+    pub bottom_h: Option<f32>,
+    /// A window just torn out of a dock, and where to put it: under the pointer that tore it.
+    pending_float: Option<(DockWin, egui::Pos2)>,
     /// The alert whose bulletin the Alerts window last brought forward, so a new one (a click on
     /// a warning polygon) brings it forward once and the analyst's own tab choice then holds.
     pub bulletin_seen: Option<String>,
@@ -335,6 +400,13 @@ pub(crate) struct DockState {
     pub cell_compare: bool,
     /// The storm selected last frame, so a newly selected one joins the Cell window once.
     cell_last_sel: Option<String>,
+    /// On a phone (the Station design): every window is a tab of one bottom sheet rather than
+    /// docked to a side. Set each frame.
+    pub phone: bool,
+    /// The window in front of the phone's sheet.
+    pub phone_front: Option<DockWin>,
+    /// How far the phone's sheet is pulled up.
+    pub sheet: Sheet,
 }
 
 impl Default for DockState {
@@ -360,6 +432,7 @@ impl Default for DockState {
             region: WindowChrome::at(true, Place::Right),
             region_available: false,
             volume: WindowChrome::at(true, Place::Float),
+            gauges: WindowChrome::at(false, Place::Right),
             volume_available: false,
             storm_sort: Default::default(),
             storm_desc: true,
@@ -373,15 +446,20 @@ impl Default for DockState {
             last: None,
             jump: String::new(),
             arranged_for: None,
-            front: [None; 2],
-            seen: [(false, Place::Float); 12],
+            front: [None; 3],
+            seen: [(false, Place::Float); 13],
             narrow: false,
             last_side: 0,
             dock_widths: [None; 2],
+            bottom_h: None,
+            pending_float: None,
             bulletin_seen: None,
             cells_open: Vec::new(),
             cell_compare: false,
             cell_last_sel: None,
+            phone: false,
+            phone_front: None,
+            sheet: Sheet::Half,
         };
         s.arrange(&DockState::preset(crate::settings::Layout::Dock));
         s
@@ -412,11 +490,13 @@ impl DockState {
             sources: WindowChrome::at(false, Place::Right),
             log: WindowChrome::at(true, Place::Right),
             dock_widths: [None; 2],
+            bottom_h: None,
             sounding: WindowChrome::at(true, Place::Right),
             storms: WindowChrome::at(false, Place::Right),
             cell: WindowChrome::at(true, Place::Right),
             region: WindowChrome::at(true, Place::Right),
             volume: WindowChrome::at(true, Place::Float),
+            gauges: WindowChrome::at(false, Place::Right),
             timeline_open: true,
             footer_open: false,
         }
@@ -434,11 +514,13 @@ impl DockState {
             sources: self.sources,
             log: self.log,
             dock_widths: self.dock_widths.map(|w| w.map(|w| w.round() as u16)),
+            bottom_h: self.bottom_h.map(|h| h.round() as u16),
             sounding: self.sounding,
             storms: self.storms,
             cell: self.cell,
             region: self.region,
             volume: self.volume,
+            gauges: self.gauges,
             timeline_open: self.timeline_open,
             footer_open: self.footer_open,
         }
@@ -455,11 +537,13 @@ impl DockState {
         self.sources = w.sources;
         self.log = w.log;
         self.dock_widths = w.dock_widths.map(|w| w.map(f32::from));
+        self.bottom_h = w.bottom_h.map(f32::from);
         self.sounding = w.sounding;
         self.storms = w.storms;
         self.cell = w.cell;
         self.region = w.region;
         self.volume = w.volume;
+        self.gauges = w.gauges;
         self.timeline_open = w.timeline_open;
         self.footer_open = w.footer_open;
     }
@@ -478,6 +562,7 @@ impl DockState {
             DockWin::Cell => &self.cell,
             DockWin::Region => &self.region,
             DockWin::Volume => &self.volume,
+            DockWin::Gauges => &self.gauges,
         }
     }
 
@@ -495,6 +580,7 @@ impl DockState {
             DockWin::Cell => &mut self.cell,
             DockWin::Region => &mut self.region,
             DockWin::Volume => &mut self.volume,
+            DockWin::Gauges => &mut self.gauges,
         }
     }
 
@@ -511,6 +597,22 @@ impl DockState {
                 DockWin::Volume => self.volume_available,
                 _ => true,
             }
+    }
+
+    /// The phone sheet's tabs: every present window, in [`PHONE_ORDER`].
+    pub(crate) fn phone_stack(&self) -> Vec<DockWin> {
+        PHONE_ORDER
+            .into_iter()
+            .filter(|w| self.present(*w))
+            .collect()
+    }
+
+    /// Put a window in front of the phone's sheet, pulling a folded sheet up to show it.
+    fn phone_show(&mut self, w: DockWin) {
+        self.phone_front = Some(w);
+        if self.sheet == Sheet::Peek {
+            self.sheet = Sheet::Half;
+        }
     }
 
     /// The present windows at `side`, in tab order.
@@ -582,7 +684,27 @@ impl DockState {
     /// in tab order takes the front, so a dock reopens on its Inspector rather than whichever
     /// window happens to be listed last.
     pub(crate) fn update_fronts(&mut self) {
-        let mut claimed = [false; 2];
+        if self.phone {
+            // One sheet: the first window (in the sheet's order) that has just appeared comes to
+            // its front, and a front that has gone falls back to the first tab.
+            let mut arrived = Vec::new();
+            for (i, w) in DockWin::ALL.into_iter().enumerate() {
+                let now = (self.present(w), self.chrome(w).place);
+                if now.0 && !self.seen[i].0 {
+                    arrived.push(w);
+                }
+                self.seen[i] = now;
+            }
+            if let Some(w) = PHONE_ORDER.into_iter().find(|w| arrived.contains(w)) {
+                self.phone_front = Some(w);
+            }
+            let stack = self.phone_stack();
+            if !self.phone_front.is_some_and(|f| stack.contains(&f)) {
+                self.phone_front = stack.first().copied();
+            }
+            return;
+        }
+        let mut claimed = [false; 3];
         for (i, w) in DockWin::ALL.into_iter().enumerate() {
             let c = *self.chrome(w);
             let now = (self.present(w), c.place);
@@ -592,12 +714,12 @@ impl DockState {
                         self.front[slot] = Some(w);
                         claimed[slot] = true;
                     }
-                    self.last_side = slot;
+                    self.note_side(slot);
                 }
             }
             self.seen[i] = now;
         }
-        for side in [Place::Left, Place::Right] {
+        for side in DOCKS {
             let stack = self.stack(side);
             let slot = side_slot(side).unwrap_or_default();
             if !self.front[slot].is_some_and(|f| stack.contains(&f)) {
@@ -609,7 +731,8 @@ impl DockState {
     /// Whether the dock at `side` is drawn: always, unless the window is too narrow for two
     /// docks and the other side, used more recently, has windows too.
     pub(crate) fn side_visible(&self, side: Place) -> bool {
-        let Some(slot) = side_slot(side) else {
+        let Some(slot) = side_slot(side).filter(|s| *s < 2) else {
+            // Floating windows and the bottom dock are never set aside.
             return true;
         };
         let other = if slot == 0 { Place::Right } else { Place::Left };
@@ -622,6 +745,9 @@ impl DockState {
         let c = self.chrome(w);
         if !self.present(w) {
             return false;
+        }
+        if self.phone {
+            return self.sheet != Sheet::Peek && self.phone_front == Some(w);
         }
         match side_slot(c.place) {
             Some(slot) => {
@@ -648,8 +774,21 @@ impl DockState {
         let c = self.chrome_mut(w);
         c.open = true;
         c.collapsed = false;
-        if let Some(slot) = side_slot(c.place) {
+        let place = c.place;
+        if self.phone {
+            self.phone_show(w);
+            return;
+        }
+        if let Some(slot) = side_slot(place) {
             self.front[slot] = Some(w);
+            self.note_side(slot);
+        }
+    }
+
+    /// Remember the side dock used most recently (the one that stays in a narrow window). The
+    /// bottom dock is not a side.
+    fn note_side(&mut self, slot: usize) {
+        if slot < 2 {
             self.last_side = slot;
         }
     }
@@ -658,12 +797,30 @@ impl DockState {
     /// else changes the window itself.
     pub(super) fn apply_header(&mut self, win: DockWin, action: ws::HeaderAction) {
         match action {
+            ws::HeaderAction::Tab(i) if self.phone => {
+                if let Some(&w) = self.phone_stack().get(i) {
+                    self.phone_show(w);
+                }
+            }
             ws::HeaderAction::Tab(i) => {
                 let side = self.chrome(win).place;
                 if let (Some(slot), Some(&w)) = (side_slot(side), self.stack(side).get(i)) {
                     self.front[slot] = Some(w);
-                    self.last_side = slot;
+                    self.note_side(slot);
                 }
+            }
+            ws::HeaderAction::TearOff(_, _) if self.phone => {}
+            ws::HeaderAction::TearOff(tab, at) => {
+                // A tab of a group tears off that tab's window; a lone header, the window itself.
+                let side = self.chrome(win).place;
+                let w = tab
+                    .and_then(|i| self.stack(side).get(i).copied())
+                    .unwrap_or(win);
+                let c = self.chrome_mut(w);
+                c.place = Place::Float;
+                c.collapsed = false;
+                c.open = true;
+                self.pending_float = Some((w, at));
             }
             other => apply_header(other, self.chrome_mut(win)),
         }
@@ -682,7 +839,7 @@ impl DockState {
 /// What a tool window's header asked for, applied to that window's own state.
 pub(super) fn apply_header(action: ws::HeaderAction, w: &mut WindowChrome) {
     match action {
-        ws::HeaderAction::None | ws::HeaderAction::Tab(_) => {}
+        ws::HeaderAction::None | ws::HeaderAction::Tab(_) | ws::HeaderAction::TearOff(..) => {}
         ws::HeaderAction::Close => w.open = false,
         ws::HeaderAction::Collapse => w.collapsed = !w.collapsed,
         ws::HeaderAction::Place(p) => {
@@ -692,6 +849,102 @@ pub(super) fn apply_header(action: ws::HeaderAction, w: &mut WindowChrome) {
                 w.collapsed = false;
             }
         }
+    }
+}
+
+/// Where the next floating tool window opens (set by a tear-off, taken by that window).
+fn float_at_id() -> egui::Id {
+    egui::Id::new("ws_float_at")
+}
+
+/// The dock a floating window was just dropped on (set by [`tool_window`], taken by the overlay).
+fn dock_drop_id() -> egui::Id {
+    egui::Id::new("ws_dock_drop")
+}
+
+/// Edge of a dock target, and how far outside it a drop still counts.
+const TARGET: f32 = 40.0;
+const TARGET_SLOP: f32 = 14.0;
+
+/// The dock targets shown while a floating window is dragged: at the middle of the map's left,
+/// right and bottom edges, as Dear ImGui draws them.
+fn dock_targets(map: egui::Rect) -> [(Place, egui::Rect); 3] {
+    let at = |c: egui::Pos2| egui::Rect::from_center_size(c, egui::vec2(TARGET, TARGET));
+    let inset = TARGET * 0.5 + 12.0;
+    [
+        (
+            Place::Left,
+            at(egui::pos2(map.left() + inset, map.center().y)),
+        ),
+        (
+            Place::Right,
+            at(egui::pos2(map.right() - inset, map.center().y)),
+        ),
+        (
+            Place::Bottom,
+            at(egui::pos2(map.center().x, map.bottom() - inset)),
+        ),
+    ]
+}
+
+/// The dock target under `p`, if any.
+fn dock_target_at(map: egui::Rect, p: egui::Pos2) -> Option<Place> {
+    dock_targets(map)
+        .into_iter()
+        .find(|(_, r)| r.expand(TARGET_SLOP).contains(p))
+        .map(|(place, _)| place)
+}
+
+/// Paint the dock targets over everything, and the area a window would take if dropped on the
+/// one under the pointer.
+fn paint_dock_targets(ctx: &egui::Context, t: &ws::Tokens, map: egui::Rect, hot: Option<Place>) {
+    use egui_phosphor::regular as ph;
+    let p = ctx.layer_painter(egui::LayerId::new(
+        egui::Order::Foreground,
+        egui::Id::new("ws_dock_targets"),
+    ));
+    if let Some(place) = hot {
+        let w = (map.width() * 0.3).clamp(DOCK_MIN_W.min(map.width()), DOCK_MAX_W);
+        let h = BOTTOM_H.min(map.height() * 0.45);
+        let area = match place {
+            Place::Left => egui::Rect::from_min_size(map.min, egui::vec2(w, map.height())),
+            Place::Right => {
+                egui::Rect::from_min_max(egui::pos2(map.right() - w, map.top()), map.max)
+            }
+            _ => egui::Rect::from_min_max(egui::pos2(map.left(), map.bottom() - h), map.max),
+        };
+        p.rect(
+            area.shrink(2.0),
+            4.0,
+            t.accent_soft(),
+            egui::Stroke::new(1.5, t.accent),
+            egui::StrokeKind::Inside,
+        );
+    }
+    for (place, r) in dock_targets(map) {
+        let on = hot == Some(place);
+        p.rect(
+            r,
+            6.0,
+            if on {
+                t.accent
+            } else {
+                t.panel_hi.gamma_multiply(0.95)
+            },
+            egui::Stroke::new(1.5, if on { t.accent } else { t.line }),
+            egui::StrokeKind::Inside,
+        );
+        p.text(
+            r.center(),
+            egui::Align2::CENTER_CENTER,
+            match place {
+                Place::Left => ph::ARROW_LINE_LEFT,
+                Place::Right => ph::ARROW_LINE_RIGHT,
+                _ => ph::ARROW_LINE_DOWN,
+            },
+            egui::FontId::proportional(20.0),
+            if on { egui::Color32::WHITE } else { t.text },
+        );
     }
 }
 
@@ -733,18 +986,38 @@ pub(super) fn tool_window(
             body(ui)
         }
         Host::Floating(ctx) => {
-            egui::Window::new(id)
+            let mut window = egui::Window::new(id)
                 .id(egui::Id::new(id))
                 .title_bar(false)
                 .resizable(false)
                 .constrain_to(map_rect)
                 .default_pos(float_at)
-                .frame(ws::card_frame(t))
-                .show(ctx, |ui| {
-                    ws::style_scope(ui, t);
-                    ui.set_width(width);
-                    body(ui);
-                });
+                .frame(ws::card_frame(t));
+            // Just torn out of a dock: its header under the pointer that tore it.
+            if let Some(at) = ctx.data_mut(|d| d.remove_temp::<egui::Pos2>(float_at_id())) {
+                window = window.current_pos(at - egui::vec2(40.0, 14.0));
+            }
+            let shown = window.show(ctx, |ui| {
+                ws::style_scope(ui, t);
+                ui.set_width(width);
+                body(ui);
+            });
+            // Dragging a floating window shows where it can dock; letting go on a target docks it.
+            if let Some(r) = shown {
+                let moved = &r.response;
+                if moved.dragged() {
+                    let hot = ctx
+                        .pointer_interact_pos()
+                        .and_then(|p| dock_target_at(map_rect, p));
+                    paint_dock_targets(ctx, t, map_rect, hot);
+                }
+                if moved.drag_stopped() {
+                    let at = ctx.input(|i| i.pointer.latest_pos());
+                    if let Some(place) = at.and_then(|p| dock_target_at(map_rect, p)) {
+                        ctx.data_mut(|d| d.insert_temp(dock_drop_id(), place));
+                    }
+                }
+            }
         }
     }
 }
@@ -900,9 +1173,39 @@ impl HookEchoApp {
     /// for a full-window map), the timeline across the full width at the bottom, then the docked
     /// tool windows, and the rail last so it sits against the map.
     pub(crate) fn dock_layout(&mut self, root: &mut egui::Ui, ctx: &egui::Context) {
+        self.dock.phone = false;
+        ws::set_touch(ctx, false);
         self.dock_sync_arrangement();
-        // A warning's bulletin reads in the Alerts window here, not over the map: a new one brings
-        // that window forward.
+        self.dock_sync_bulletin();
+        if !self.ribbon_collapsed {
+            self.dock_app_bar(root, ctx);
+            self.dock_toolbar(root, ctx);
+        }
+        // Drawn first of the bottom panels, so it is the lowest: under the timeline.
+        self.dock_footer(root, ctx);
+        self.dock_timeline(root, false);
+        self.dock_sync_available();
+        self.dock.narrow = ctx.content_rect().width() < ONE_DOCK_BELOW;
+        for side in [Place::Left, Place::Right] {
+            if !self.dock.side_visible(side) {
+                continue;
+            }
+            let stack = self.dock.stack(side);
+            if !stack.is_empty() {
+                self.dock_side(root, ctx, side, &stack);
+            }
+        }
+        self.dock_rail(root, ctx);
+        // Last, so it spans only the map's width, between the side docks and the rail.
+        let stack = self.dock.stack(Place::Bottom);
+        if !stack.is_empty() {
+            self.dock_side(root, ctx, Place::Bottom, &stack);
+        }
+    }
+
+    /// A warning's bulletin reads in the Alerts window here, not over the map: a new one brings
+    /// that window forward. And a newly selected storm joins the Cell window.
+    fn dock_sync_bulletin(&mut self) {
         let bulletin = self
             .warning_popup
             .as_ref()
@@ -915,13 +1218,10 @@ impl HookEchoApp {
             }
             self.dock.bulletin_seen = bulletin;
         }
-        if !self.ribbon_collapsed {
-            self.dock_app_bar(root, ctx);
-            self.dock_toolbar(root, ctx);
-        }
-        // Drawn first of the bottom panels, so it is the lowest: under the timeline.
-        self.dock_footer(root, ctx);
-        self.dock_timeline(root);
+    }
+
+    /// Say which windows have something to show this frame, and settle which is in front.
+    fn dock_sync_available(&mut self) {
         let in_3d = self.views[self.active].map_3d.enabled;
         self.dock.set_view3d_available(in_3d);
         self.dock.set_log_available(self.settings.analyst_mode);
@@ -932,17 +1232,6 @@ impl HookEchoApp {
             .set_region_available(self.region.samples().is_some());
         self.dock.set_volume_available(self.show_3d);
         self.dock.update_fronts();
-        self.dock.narrow = ctx.content_rect().width() < ONE_DOCK_BELOW;
-        for side in [Place::Left, Place::Right] {
-            if !self.dock.side_visible(side) {
-                continue;
-            }
-            let stack = self.dock.stack(side);
-            if !stack.is_empty() {
-                self.dock_side(root, ctx, side, &stack);
-            }
-        }
-        self.dock_rail(root, ctx);
     }
 
     /// A side's dock: one panel for whatever is docked there. Several windows share it as tabs
@@ -960,15 +1249,26 @@ impl HookEchoApp {
         let t = self.ws_tokens();
         let slot = side_slot(side).unwrap_or_default();
         let front = self.dock.front[slot].unwrap_or(stack[0]);
-        let natural = stack.iter().map(|w| w.width()).fold(0.0, f32::max);
-        let max_w = dock_max_width(ctx.content_rect().width());
-        let width = self.dock.dock_widths[slot]
-            .unwrap_or(natural)
-            .clamp(DOCK_MIN_W.min(max_w), max_w);
-        let panel = if side == Place::Right {
-            egui::Panel::right("dock_side_right")
+        let bottom = side == Place::Bottom;
+        // A side dock's width, or the bottom dock's height: dragged, or what its windows ask for.
+        let (min, max) = if bottom {
+            let max = bottom_max_height(ctx.content_rect().height());
+            (BOTTOM_MIN_H.min(max), max)
         } else {
-            egui::Panel::left("dock_side_left")
+            let max = dock_max_width(ctx.content_rect().width());
+            (DOCK_MIN_W.min(max), max)
+        };
+        let width = if bottom {
+            self.dock.bottom_h.unwrap_or(BOTTOM_H)
+        } else {
+            let natural = stack.iter().map(|w| w.width()).fold(0.0, f32::max);
+            self.dock.dock_widths[slot].unwrap_or(natural)
+        }
+        .clamp(min, max);
+        let panel = match side {
+            Place::Right => egui::Panel::right("dock_side_right"),
+            Place::Bottom => egui::Panel::bottom("dock_side_bottom"),
+            _ => egui::Panel::left("dock_side_left"),
         };
         let mut tabs = ws::HeaderTabs {
             tabs: stack.iter().map(|w| w.tab()).collect(),
@@ -978,6 +1278,7 @@ impl HookEchoApp {
             tab.dot = match w {
                 DockWin::Alerts if self.alert_badge().0 > 0 => Some(t.warn),
                 DockWin::Sources if self.sources_attention() > 0 => Some(t.danger),
+                DockWin::Gauges if self.gauges_in_flood() > 0 => Some(t.warn),
                 _ => None,
             };
         }
@@ -998,46 +1299,62 @@ impl HookEchoApp {
             .rect;
         // The resize grip: a strip along the inner edge, inside the panel, registered after its
         // contents so it wins over whatever they put there.
-        let edge = if side == Place::Right {
-            rect.left()
-        } else {
-            rect.right()
+        let grip = match side {
+            Place::Right => {
+                egui::Rect::from_x_y_ranges(rect.left()..=rect.left() + 5.0, rect.y_range())
+            }
+            Place::Bottom => {
+                egui::Rect::from_x_y_ranges(rect.x_range(), rect.top()..=rect.top() + 5.0)
+            }
+            _ => egui::Rect::from_x_y_ranges(rect.right() - 5.0..=rect.right(), rect.y_range()),
         };
-        let grip = egui::Rect::from_x_y_ranges(
-            if side == Place::Right {
-                edge..=edge + 5.0
-            } else {
-                edge - 5.0..=edge
-            },
-            rect.y_range(),
-        );
+        let cursor = if bottom {
+            egui::CursorIcon::ResizeVertical
+        } else {
+            egui::CursorIcon::ResizeHorizontal
+        };
         let resp = root
             .interact(
                 grip,
                 egui::Id::new(("dock_resize", slot)),
                 egui::Sense::click_and_drag(),
             )
-            .on_hover_cursor(egui::CursorIcon::ResizeHorizontal)
-            .on_hover_text("Drag to resize; double-click for the default width");
+            .on_hover_cursor(cursor)
+            .on_hover_text(if bottom {
+                "Drag to resize; double-click for the default height"
+            } else {
+                "Drag to resize; double-click for the default width"
+            });
         if resp.dragged() {
-            let dx = resp.drag_delta().x;
-            let grown = if side == Place::Right { -dx } else { dx };
-            self.dock.dock_widths[slot] = Some((width + grown).clamp(DOCK_MIN_W, max_w));
-            ctx.set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+            let d = resp.drag_delta();
+            let grown = match side {
+                Place::Right => -d.x,
+                Place::Bottom => -d.y,
+                _ => d.x,
+            };
+            let size = Some((width + grown).clamp(min, max));
+            if bottom {
+                self.dock.bottom_h = size;
+            } else {
+                self.dock.dock_widths[slot] = size;
+            }
+            ctx.set_cursor_icon(cursor);
         }
         if resp.double_clicked() {
-            self.dock.dock_widths[slot] = None;
+            if bottom {
+                self.dock.bottom_h = None;
+            } else {
+                self.dock.dock_widths[slot] = None;
+            }
         }
         if resp.hovered() || resp.dragged() {
-            let x = if side == Place::Right {
-                edge + 1.0
-            } else {
-                edge - 1.0
+            let line = match side {
+                Place::Right => [rect.left_top(), rect.left_bottom()],
+                Place::Bottom => [rect.left_top(), rect.right_top()],
+                _ => [rect.right_top(), rect.right_bottom()],
             };
-            root.painter().line_segment(
-                [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
-                egui::Stroke::new(2.0, t.accent),
-            );
+            root.painter()
+                .line_segment(line, egui::Stroke::new(2.0, t.accent));
         }
     }
 
@@ -1055,13 +1372,26 @@ impl HookEchoApp {
             DockWin::Cell => self.dock_cell(host),
             DockWin::Region => self.dock_region(host),
             DockWin::Volume => self.dock_volume(host),
+            DockWin::Gauges => self.dock_gauges(host, ctx),
         }
     }
 
     /// Over the map: the floating tool windows, and the button that brings hidden bars back.
     pub(crate) fn dock_map_overlay(&mut self, ctx: &egui::Context) {
         for w in self.dock.stack(Place::Float) {
+            // A window just torn out of a dock opens under the pointer that tore it.
+            if let Some((torn, at)) = self.dock.pending_float {
+                if torn == w {
+                    ctx.data_mut(|d| d.insert_temp(float_at_id(), at));
+                    self.dock.pending_float = None;
+                }
+            }
             self.dock_window(w, Host::Floating(ctx), ctx);
+            // Dropped on a dock target while being dragged: dock it there, in front.
+            if let Some(place) = ctx.data_mut(|d| d.remove_temp::<Place>(dock_drop_id())) {
+                self.dock.chrome_mut(w).place = place;
+                self.dock.bring_forward(w);
+            }
         }
         if self.ribbon_collapsed {
             self.dock_bars_restore(ctx);
@@ -1427,11 +1757,13 @@ mod tests {
             sources: WindowChrome::at(true, Place::Right),
             log: WindowChrome::at(false, Place::Left),
             dock_widths: [None, Some(360)],
+            bottom_h: Some(280),
             sounding: WindowChrome::at(false, Place::Left),
             storms: WindowChrome::at(false, Place::Right),
             cell: WindowChrome::at(true, Place::Float),
             region: WindowChrome::at(false, Place::Left),
             volume: WindowChrome::at(true, Place::Right),
+            gauges: WindowChrome::at(true, Place::Left),
             timeline_open: false,
             footer_open: false,
         };
@@ -1469,7 +1801,10 @@ mod tests {
         s.alerts = WindowChrome::at(false, Place::Right);
         s.prefs = WindowChrome::at(false, Place::Right);
         s.update_fronts();
-        assert_eq!(s.front, [Some(DockWin::Layers), Some(DockWin::Inspector)]);
+        assert_eq!(
+            s.front,
+            [Some(DockWin::Layers), Some(DockWin::Inspector), None]
+        );
         // Opening Alerts puts it in the Inspector's dock, in front.
         s.alerts.open = true;
         s.update_fronts();
@@ -1543,6 +1878,45 @@ mod tests {
     }
 
     #[test]
+    fn on_a_phone_every_window_is_a_tab_of_one_sheet() {
+        let mut s = DockState {
+            phone: true,
+            ..DockState::default()
+        };
+        for w in PHONE_CORE {
+            s.chrome_mut(w).open = true;
+        }
+        s.update_fronts();
+        // Arriving together, the sheet opens on the first of its tabs, wherever they were docked.
+        assert_eq!(s.phone_front, Some(DockWin::Inspector));
+        assert_eq!(s.phone_stack()[..4], PHONE_CORE);
+        assert!(s.shown(DockWin::Inspector) && !s.shown(DockWin::Layers));
+        // A tab click brings its window forward; a folded sheet comes back up for it.
+        s.sheet = Sheet::Peek;
+        assert!(!s.shown(DockWin::Inspector), "a folded sheet shows nothing");
+        s.apply_header(DockWin::Inspector, ws::HeaderAction::Tab(2));
+        assert_eq!(
+            (s.phone_front, s.sheet),
+            (Some(DockWin::Storms), Sheet::Half)
+        );
+        // A window that appears (a sounding) comes to the front.
+        s.set_sounding_available(true);
+        s.update_fronts();
+        assert_eq!(s.phone_front, Some(DockWin::Sounding));
+        // Its going hands the front back to the first tab.
+        s.set_sounding_available(false);
+        s.update_fronts();
+        assert_eq!(s.phone_front, Some(DockWin::Inspector));
+        // A button for a window shows it rather than closing it when it is behind another.
+        s.toggle(DockWin::Alerts);
+        assert!(s.shown(DockWin::Alerts));
+        // Every window has a place in the sheet's order.
+        for w in DockWin::ALL {
+            assert!(PHONE_ORDER.contains(&w), "{w:?}");
+        }
+    }
+
+    #[test]
     fn a_narrow_window_shows_one_dock_the_last_one_used() {
         let mut s = DockState::default();
         s.layers = WindowChrome::at(true, Place::Left);
@@ -1569,6 +1943,103 @@ mod tests {
         // Floating windows are never set aside.
         s.inspector = WindowChrome::at(true, Place::Float);
         assert!(s.shown(DockWin::Inspector));
+    }
+
+    #[test]
+    fn the_bottom_dock_holds_a_tab_group_of_its_own() {
+        let mut s = DockState {
+            storms: WindowChrome::at(true, Place::Bottom),
+            log: WindowChrome::at(true, Place::Bottom),
+            inspector: WindowChrome::at(true, Place::Right),
+            ..DockState::default()
+        };
+        s.set_log_available(true);
+        s.update_fronts();
+        assert_eq!(s.stack(Place::Bottom), [DockWin::Storms, DockWin::Log]);
+        assert_eq!(s.front[2], Some(DockWin::Storms));
+        assert!(s.shown(DockWin::Storms) && !s.shown(DockWin::Log));
+        s.apply_header(DockWin::Storms, ws::HeaderAction::Tab(1));
+        assert!(s.shown(DockWin::Log));
+        // A narrow window sets a side dock aside, never the bottom one, and a window arriving
+        // in the bottom dock does not count as using a side.
+        s.narrow = true;
+        s.last_side = 0;
+        s.gauges = WindowChrome::at(true, Place::Bottom);
+        s.update_fronts();
+        assert_eq!(
+            s.front[2],
+            Some(DockWin::Gauges),
+            "the newcomer is in front"
+        );
+        assert!(s.side_visible(Place::Bottom));
+        assert_eq!(s.last_side, 0, "the bottom dock is not a side");
+        // It survives the settings file with its height.
+        s.bottom_h = Some(300.0);
+        let back = {
+            let mut t = DockState::default();
+            t.arrange(
+                &serde_json::from_str(&serde_json::to_string(&s.arrangement()).unwrap()).unwrap(),
+            );
+            t
+        };
+        assert_eq!(back.storms.place, Place::Bottom);
+        assert_eq!(back.bottom_h, Some(300.0));
+        assert_eq!(bottom_max_height(400.0), 200.0);
+    }
+
+    #[test]
+    fn a_tab_torn_out_of_a_dock_floats_under_the_pointer() {
+        let mut s = DockState {
+            inspector: WindowChrome::at(true, Place::Right),
+            alerts: WindowChrome::at(true, Place::Right),
+            ..DockState::default()
+        };
+        s.update_fronts();
+        let at = egui::pos2(500.0, 300.0);
+        // The group's second tab, torn off from the Inspector's header.
+        s.apply_header(DockWin::Inspector, ws::HeaderAction::TearOff(Some(1), at));
+        assert_eq!(s.alerts.place, Place::Float);
+        assert_eq!(s.inspector.place, Place::Right, "the front window stays");
+        assert_eq!(s.pending_float, Some((DockWin::Alerts, at)));
+        // A lone header tears off its own window.
+        s.apply_header(DockWin::Inspector, ws::HeaderAction::TearOff(None, at));
+        assert_eq!(s.inspector.place, Place::Float);
+        // Not on a phone: there every window lives in the sheet.
+        let mut phone = DockState {
+            phone: true,
+            ..DockState::default()
+        };
+        phone.inspector = WindowChrome::at(true, Place::Right);
+        phone.apply_header(DockWin::Inspector, ws::HeaderAction::TearOff(None, at));
+        assert_eq!(phone.inspector.place, Place::Right);
+        assert!(
+            !ws::tears_off(egui::vec2(6.0, 6.0)),
+            "a wobbly click is a click"
+        );
+        assert!(ws::tears_off(egui::vec2(0.0, 20.0)));
+    }
+
+    #[test]
+    fn a_floating_window_docks_on_the_target_it_is_dropped_on() {
+        let map = egui::Rect::from_min_size(egui::pos2(100.0, 50.0), egui::vec2(1000.0, 700.0));
+        for (place, r) in dock_targets(map) {
+            assert!(map.contains_rect(r), "{place:?} target inside the map");
+            assert_eq!(dock_target_at(map, r.center()), Some(place));
+        }
+        assert_eq!(
+            dock_target_at(map, map.center()),
+            None,
+            "the middle of the map is not a dock"
+        );
+        let left = dock_targets(map)[0].1;
+        assert_eq!(
+            dock_target_at(
+                map,
+                left.right_center() + egui::vec2(TARGET_SLOP - 1.0, 0.0)
+            ),
+            Some(Place::Left),
+            "a near miss still counts"
+        );
     }
 
     #[test]
