@@ -12945,9 +12945,10 @@ impl HookEchoApp {
         goes_sector_for(self.settings.goes_sector, self.goes_footprint, center)
     }
 
-    /// The time the GOES layers should show: the linked archive instant, or the active pane's
-    /// scan when its timeline is scrubbed back rather than following live; `None` for live.
-    pub(crate) fn goes_target_time(&self) -> Option<DateTime<Utc>> {
+    /// The time the time-following layers (MRMS, GOES, GLM) should show: the linked archive
+    /// instant, or the active pane's scan when its timeline is scrubbed back or playing rather
+    /// than following live; `None` for live.
+    pub(crate) fn view_target_time(&self) -> Option<DateTime<Utc>> {
         self.linked_archive_time().or_else(|| {
             let tl = &self.views[self.active].timeline;
             if tl.following || tl.forecast_hour().is_some() {
@@ -12962,7 +12963,7 @@ impl HookEchoApp {
     /// are not painted over a scrubbed view at all. Any other layer answers true.
     pub(crate) fn goes_ready(&self, layer: crate::render::FieldLayer) -> bool {
         use crate::render::FieldLayer as FL;
-        let target = self.goes_target_time();
+        let target = self.view_target_time();
         if matches!(layer, FL::GoesDustDiff | FL::GoesCoolingRate) {
             return target.is_none();
         }
@@ -14265,7 +14266,7 @@ impl HookEchoApp {
         Some(MrmsRequest {
             product: self.mrms_product(layer)?,
             archive: self
-                .linked_archive_time()
+                .view_target_time()
                 .map(|target| (target, self.settings.time_mismatch_minutes)),
         })
     }
@@ -14276,8 +14277,8 @@ impl HookEchoApp {
             return false;
         }
         // These two current-only composites do not have archive selection yet. A previous live
-        // texture must not be painted over a linked archive scan.
-        if self.linked_archive_time().is_some()
+        // texture must not be painted over an archive scan.
+        if self.view_target_time().is_some()
             && matches!(
                 layer,
                 crate::render::FieldLayer::Mosaic | crate::render::FieldLayer::SnowBands
@@ -17700,7 +17701,7 @@ impl HookEchoApp {
                 // Live, the feed aged against now; scrubbed back, the archive window aged
                 // against the view's time (ROADMAP_NEW E6).
                 let (flashes, now) = glm_flashes_for(
-                    self.goes_target_time(),
+                    self.view_target_time(),
                     feed.flashes(),
                     self.glm_archive.as_ref(),
                     chrono::Utc::now(),
@@ -23371,7 +23372,7 @@ impl eframe::App for HookEchoApp {
         // Snow bands: the mosaic and the precipitation-type grid, cut to the banded snow.
         {
             let layer = FL::SnowBands;
-            let stale = self.linked_archive_time().is_none()
+            let stale = self.view_target_time().is_none()
                 && self.field_wanted(layer)
                 && self.fields.get(&layer).is_none_or(|s| {
                     s.last_fetch
@@ -23398,7 +23399,7 @@ impl eframe::App for HookEchoApp {
         let sector = self.goes_sector_now();
         // Scrubbed back (or linked to an archive instant), the frame nearest that time; live, the
         // newest, refreshed on the scan cadence.
-        let at = self.goes_target_time();
+        let at = self.view_target_time();
         let slot = goes_slot(at, sector);
         let refresh = |layer| {
             if sector.is_meso() {
@@ -23850,7 +23851,7 @@ impl eframe::App for HookEchoApp {
 
         // Scrubbed back: the flashes of the window ending at the view's time, once per minute of
         // scrubbing (ROADMAP_NEW E6).
-        if let Some(target) = self.goes_target_time() {
+        if let Some(target) = self.view_target_time() {
             if (self.show_glm || glm_fed_on) && self.glm_archive_slot != Some(glm_slot(target)) {
                 self.glm_archive_slot = Some(glm_slot(target));
                 self.spawn_overlay(
@@ -23874,7 +23875,7 @@ impl eframe::App for HookEchoApp {
             if let Some(s) = self.fields.get_mut(&FL::GlmFed) {
                 s.last_fetch = Some(Instant::now());
             }
-            let target = self.goes_target_time();
+            let target = self.view_target_time();
             let field = self.glm.lock().ok().and_then(|f| {
                 let (flashes, end) =
                     glm_flashes_for(target, f.flashes(), self.glm_archive.as_ref(), Utc::now());

@@ -355,6 +355,7 @@ an unavailable frame leaves the layer hidden rather than painting a previous liv
 to live refreshes the current field. Current-only local mosaic and snow-band composites are hidden
 while linked archive mode is active. Model archive seeking and independent per-pane GOES frame
 caches remain open. Run-to-run model alignment remains open.
+MRMS catalog layers also follow an unlinked pane's scrubbed or playing timeline now (D3).
 The GOES ABI layers read straight from S3 (the bands, the RGB composite, CONUS or a mesoscale
 sector) now follow the same cursor: see E7's acceptance entry for how the nearest granule is
 chosen and when a frame is held back.
@@ -1990,7 +1991,7 @@ One code path already supports any catalog scalar grid, and has since before thi
 Categorical products must never use bilinear interpolation — enforced by the type dispatch above,
 not a convention callers have to remember.
 
-## D3. MRMS browser UI — partly done
+## D3. MRMS browser UI — done
 
 - [x] search — the same fuzzy search/command-palette every action in the app uses, reading
   `FieldDescriptor::search_text()` (name, source, family, units, description, aliases)
@@ -2042,10 +2043,15 @@ not a convention callers have to remember.
   whichever layer is on top at the shared point and reports it with its own product name, valid
   time and legend units. The API existing and a user being able to reach it were separate claims,
   and both hold today.
-- [ ] animation — not verified either way; MRMS layers appear to always fetch "latest" rather
-  than loop an archived sequence the way the radar timeline does (consistent with A3's own note
-  that MRMS/model/satellite caching, which archived playback would need, isn't built). Marked
-  open rather than assumed.
+- [x] animation — the MRMS catalog layers follow the view's time the same way the GOES and GLM
+  layers do (`app::view_target_time`): the linked archive instant, or the active pane's scan when
+  its timeline is scrubbed back or playing. Each frame fetches the nearest archived object within
+  the shared mismatch tolerance (`mrms::fetch_nearest_stamped`, cached in `objcache::MRMS`, so a
+  loop's second pass reads from the cache) and is painted only once it matches that frame; a
+  product whose cadence is coarser than the tolerance (the hourly Pass 2 QPE windows) shows only
+  on frames near its hour rather than a mismatched grid. The two current-only composites (the
+  local mosaic and snow bands) are hidden on any scrubbed frame, not only a linked one. Checked
+  in the browser: a pane scrubbed to 17:29:42Z read `MRMS_VIL_00.50_20260927-173040`.
 
 ## D4. MRMS 3D/vertical products
 

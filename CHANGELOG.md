@@ -20,6 +20,8 @@ The satellite layers now follow the radar's time: scrub back or play a loop and 
 the satellite scan nearest it (one-minute steps from a mesoscale sector), instead of the newest.
 Satellite lightning (GLM) follows too: a scrubbed-back view shows the flashes of the ten minutes
 before that scan, not today's.
+MRMS layers (VIL, rotation tracks, echo tops and the rest) follow a scrubbed or playing loop too,
+each frame showing the MRMS grid nearest that scan; before, only a linked archive time moved them.
 
 New satellite layer: GOES longwave IR (Band 14), the classic IR channel, beside clean and
 split-window IR.
