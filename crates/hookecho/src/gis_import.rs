@@ -37,6 +37,67 @@ pub(crate) fn apply_style(feature: &mut GeoFeature, style: ImportedGisStyle) {
 pub(crate) struct Marks {
     pub points: Vec<[f64; 2]>,
     pub lines: Vec<Vec<[f64; 2]>>,
+    /// Where each feature's label goes (I4), with the attributes a label is chosen from: a point
+    /// at itself, a line at its middle vertex, a polygon at its outer ring's centroid. One per
+    /// part, so every island of a multi-part county is named. Not counted as marks to draw.
+    pub anchors: Vec<([f64; 2], serde_json::Map<String, serde_json::Value>)>,
+}
+
+/// Every attribute name among the imported features, sorted: the choices for the label.
+pub(crate) fn label_keys(marks: &Marks) -> Vec<String> {
+    let mut keys: Vec<String> = marks
+        .anchors
+        .iter()
+        .flat_map(|(_, props)| props.keys().cloned())
+        .collect();
+    keys.sort_unstable_by_key(|k| k.to_lowercase());
+    keys.dedup();
+    keys
+}
+
+/// A feature's label for attribute `key`: its value as text, trimmed and shortened to a label's
+/// length; `None` when the feature lacks it or it is empty.
+pub(crate) fn label_text(
+    props: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> Option<String> {
+    let text = match props.get(key)? {
+        serde_json::Value::String(s) => s.trim().to_string(),
+        serde_json::Value::Null => return None,
+        other => other.to_string(),
+    };
+    if text.is_empty() {
+        return None;
+    }
+    const MAX: usize = 32;
+    Some(if text.chars().count() > MAX {
+        let cut: String = text.chars().take(MAX - 1).collect();
+        format!("{}…", cut.trim_end())
+    } else {
+        text
+    })
+}
+
+/// A ring's area centroid (shoelace), or the mean of its vertices for a degenerate ring.
+fn ring_anchor(ring: &[[f64; 2]]) -> Option<[f64; 2]> {
+    let first = *ring.first()?;
+    let (mut a, mut cx, mut cy) = (0.0, 0.0, 0.0);
+    for w in ring.windows(2) {
+        let (x0, y0) = (w[0][0] - first[0], w[0][1] - first[1]);
+        let (x1, y1) = (w[1][0] - first[0], w[1][1] - first[1]);
+        let cross = x0 * y1 - x1 * y0;
+        a += cross;
+        cx += (x0 + x1) * cross;
+        cy += (y0 + y1) * cross;
+    }
+    if a.abs() > 1e-12 {
+        return Some([first[0] + cx / (3.0 * a), first[1] + cy / (3.0 * a)]);
+    }
+    let n = ring.len() as f64;
+    Some([
+        ring.iter().map(|p| p[0]).sum::<f64>() / n,
+        ring.iter().map(|p| p[1]).sum::<f64>() / n,
+    ])
 }
 
 impl Marks {
@@ -59,6 +120,29 @@ pub(crate) fn to_renderable(features: Vec<GisFeature>) -> (Vec<GeoFeature>, Mark
     for f in features {
         let title = feature_title(&f);
         let detail = feature_detail(&f);
+        let props = &f.properties;
+        let anchors = &mut marks.anchors;
+        let mut anchor = |at: Option<[f64; 2]>| {
+            if let Some(at) = at {
+                anchors.push((at, props.clone()));
+            }
+        };
+        match &f.geometry {
+            Geometry::Polygon(rings) => anchor(rings.first().and_then(|r| ring_anchor(r))),
+            Geometry::MultiPolygon(parts) => {
+                for rings in parts {
+                    anchor(rings.first().and_then(|r| ring_anchor(r)));
+                }
+            }
+            Geometry::Point(p) => anchor(Some(*p)),
+            Geometry::MultiPoint(ps) => ps.iter().for_each(|p| anchor(Some(*p))),
+            Geometry::LineString(l) => anchor(l.get(l.len() / 2).copied()),
+            Geometry::MultiLineString(ls) => {
+                for l in ls {
+                    anchor(l.get(l.len() / 2).copied());
+                }
+            }
+        }
         match f.geometry {
             Geometry::Polygon(rings) => out.push(polygon_feature(rings, title, detail)),
             Geometry::MultiPolygon(parts) => {
@@ -379,6 +463,69 @@ mod tests {
     }
 
     #[test]
+    fn every_feature_part_gets_a_label_anchor_with_its_attributes() {
+        let square = vec![vec![
+            [0.0, 0.0],
+            [2.0, 0.0],
+            [2.0, 2.0],
+            [0.0, 2.0],
+            [0.0, 0.0],
+        ]];
+        let features = vec![
+            feature(
+                Geometry::Point([5.0, 6.0]),
+                json!({"name": "Site", "id": 3}),
+            ),
+            feature(
+                Geometry::LineString(vec![[0.0, 0.0], [1.0, 1.0], [2.0, 0.0]]),
+                json!({"ROUTE": "I-35"}),
+            ),
+            feature(
+                Geometry::MultiPolygon(vec![square.clone(), square]),
+                json!({"name": "Islands"}),
+            ),
+        ];
+        let (_, marks) = to_renderable(features);
+        assert_eq!(marks.len(), 2, "anchors are not marks to draw");
+        assert_eq!(
+            marks.anchors.len(),
+            4,
+            "point, line, and one per polygon part"
+        );
+        assert_eq!(marks.anchors[0].0, [5.0, 6.0]);
+        assert_eq!(marks.anchors[1].0, [1.0, 1.0], "a line's middle vertex");
+        let c = marks.anchors[2].0;
+        assert!(
+            (c[0] - 1.0).abs() < 1e-9 && (c[1] - 1.0).abs() < 1e-9,
+            "centroid {c:?}"
+        );
+        assert_eq!(label_keys(&marks), ["id", "name", "ROUTE"]);
+        assert_eq!(label_text(&marks.anchors[0].1, "id").as_deref(), Some("3"));
+        assert_eq!(label_text(&marks.anchors[1].1, "name"), None);
+    }
+
+    #[test]
+    fn a_label_is_trimmed_shortened_and_never_empty() {
+        let props = json!({"a": "  Norman  ", "b": "", "c": null, "d": "x".repeat(50)});
+        let props = props.as_object().unwrap();
+        assert_eq!(label_text(props, "a").as_deref(), Some("Norman"));
+        assert_eq!(label_text(props, "b"), None);
+        assert_eq!(label_text(props, "c"), None);
+        let long = label_text(props, "d").unwrap();
+        assert_eq!(long.chars().count(), 32);
+        assert!(long.ends_with('…'));
+    }
+
+    #[test]
+    fn the_layer_hides_below_its_minimum_zoom() {
+        let mut style = ImportedGisStyle::default();
+        assert!(style.visible_at(0.0), "shown at every zoom by default");
+        style.min_zoom = 7.0;
+        assert!(!style.visible_at(6.9));
+        assert!(style.visible_at(7.0));
+    }
+
+    #[test]
     fn imported_polygon_style_changes_only_paint_not_identity_or_geometry() {
         let rings = vec![vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 0.0]]];
         let mut f = polygon_feature(rings.clone(), "District".into(), "id: 7".into());
@@ -388,6 +535,7 @@ mod tests {
                 color: [240, 80, 40],
                 stroke_width: 3.0,
                 opacity: 0.5,
+                min_zoom: 0.0,
             },
         );
         assert_eq!(f.fill, [240, 80, 40, 30]);

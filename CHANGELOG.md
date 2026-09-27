@@ -31,6 +31,8 @@ New RGB recipe: Day/Night Color, true colour by day and IR cloud by night, blend
 and dawn so a satellite loop never goes black.
 "Import GIS file…" now reads KML and KMZ (Google Earth) files too: points, lines and polygons,
 with each placemark's name, description and extended data in its click popup.
+Imported GIS layers can be labelled from any attribute (Layer Manager, "Label"), and hidden when
+zoomed out past a chosen level ("Show from zoom"), so a dense file does not smother a wide view.
 
 ### Added: GOES RGB composites
 

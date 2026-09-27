@@ -142,6 +142,9 @@ pub struct ImportedGisStyle {
     /// Multiplies the established polygon-fill/stroke alpha instead of replacing it; 100% is
     /// therefore byte-for-byte compatible with the appearance shipped before this control.
     pub opacity: f32,
+    /// The map zoom below which the layer is hidden (and not clickable), so a dense file of
+    /// parcels or sites does not smother a national view. 0 shows it at every zoom.
+    pub min_zoom: f32,
 }
 
 impl ImportedGisStyle {
@@ -176,6 +179,11 @@ impl ImportedGisStyle {
     pub fn rendered_stroke_width(self) -> f32 {
         self.stroke_width.clamp(0.5, 8.0)
     }
+
+    /// Whether the layer shows at a map zoom.
+    pub fn visible_at(self, zoom: f64) -> bool {
+        zoom >= f64::from(self.min_zoom)
+    }
 }
 
 impl Default for ImportedGisStyle {
@@ -184,6 +192,7 @@ impl Default for ImportedGisStyle {
             color: Self::DEFAULT_COLOR,
             stroke_width: Self::DEFAULT_STROKE_WIDTH,
             opacity: 1.0,
+            min_zoom: 0.0,
         }
     }
 }
@@ -258,6 +267,10 @@ pub struct Settings {
     /// default to the exact neutral-blue appearance they had before styling was configurable.
     #[serde(default)]
     pub imported_gis_style: ImportedGisStyle,
+    /// ROADMAP_NEW I4: the attribute whose value labels each imported feature on the map, or
+    /// `None` for no labels. A name rather than an index, so it survives re-importing the file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub imported_gis_label: Option<String>,
     /// Velocity/spectrum-width display unit (internal data stays m/s).
     pub velocity_unit: VelocityUnit,
     /// Temperature display unit for the surface station plots (internal data stays Celsius).
@@ -1569,6 +1582,7 @@ impl Default for Settings {
             web_files: BTreeMap::new(),
             imported_gis: None,
             imported_gis_style: ImportedGisStyle::default(),
+            imported_gis_label: None,
             detectors: DetectorTuning::default(),
             alert_rules: Vec::new(),
             serve_token: String::new(),
@@ -2378,7 +2392,9 @@ mod tests {
                 color: [240, 80, 40],
                 stroke_width: 3.25,
                 opacity: 0.5,
+                min_zoom: 6.5,
             },
+            imported_gis_label: Some("NAME".into()),
             reduce_motion: true,
             hide_far_3d: true,
             far_3d_factor: default_far_3d(),

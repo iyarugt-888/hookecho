@@ -62,7 +62,7 @@ pub fn build_with_theme(
     zoom: f64,
     theme: crate::settings::Theme,
 ) -> OverlayGeom {
-    build_with_theme_and_imported_width(features, zoom, theme, 1.6)
+    build_with_theme_and_imported_width(features, zoom, theme, 1.6, true)
 }
 
 /// Theme-aware overlay build with a user-selected imported-GIS outline width. Official products
@@ -72,6 +72,7 @@ pub fn build_with_theme_and_imported_width(
     zoom: f64,
     theme: crate::settings::Theme,
     imported_stroke_px: f32,
+    show_imported: bool,
 ) -> OverlayGeom {
     let mut geom = OverlayGeom::default();
     let mut fill_tess = FillTessellator::new();
@@ -83,6 +84,10 @@ pub fn build_with_theme_and_imported_width(
     let fill_opts = FillOptions::default().with_tolerance(px(1.6) * 0.5);
 
     for f in features {
+        // An imported layer below its minimum zoom (I4) is left out, not drawn transparent.
+        if !show_imported && f.kind == wxdata::overlay::FeatureKind::Imported {
+            continue;
+        }
         let stroke_w = px(feature_stroke_px(f.kind, imported_stroke_px));
         let stroke_opts = StrokeOptions::default()
             .with_line_width(stroke_w)
@@ -382,5 +387,26 @@ mod high_contrast_tests {
             1.6,
             "official warning geometry keeps its established outline"
         );
+    }
+
+    #[test]
+    fn an_imported_shape_below_its_minimum_zoom_is_left_out() {
+        let rings = vec![vec![
+            [-98.0, 35.0],
+            [-97.0, 35.0],
+            [-97.0, 36.0],
+            [-98.0, 35.0],
+        ]];
+        let (shapes, _) = crate::gis_import::to_renderable(vec![wxdata::gis::GisFeature {
+            geometry: wxdata::gis::Geometry::Polygon(rings),
+            properties: Default::default(),
+        }]);
+        let f = shapes[0].clone();
+        assert_eq!(f.kind, wxdata::overlay::FeatureKind::Imported);
+        let theme = crate::settings::Theme::Dark;
+        let shown = build_with_theme_and_imported_width(&[f.clone()], 6.0, theme, 1.6, true);
+        let hidden = build_with_theme_and_imported_width(&[f], 6.0, theme, 1.6, false);
+        assert!(!shown.indices.is_empty());
+        assert!(hidden.indices.is_empty());
     }
 }

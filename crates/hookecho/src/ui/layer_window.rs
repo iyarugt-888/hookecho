@@ -18,6 +18,7 @@ pub(crate) fn show(
     open: &mut bool,
     settings: &mut Settings,
     active: &[(FieldLayer, String)],
+    label_keys: &[String],
     drawer: &mut crate::ui::drawer::Drawer,
 ) -> bool {
     if !*open {
@@ -100,6 +101,47 @@ pub(crate) fn show(
                         "Opacity {:.0}%",
                         settings.imported_gis_style.opacity * 100.0
                     ))
+                    .changed();
+            });
+            ui.horizontal(|ui| {
+                ui.label("Label");
+                let current = settings.imported_gis_label.clone();
+                egui::ComboBox::from_id_salt("imported_gis_label")
+                    .selected_text(current.as_deref().unwrap_or("None"))
+                    .show_ui(ui, |ui| {
+                        if ui.selectable_label(current.is_none(), "None").clicked() {
+                            settings.imported_gis_label = None;
+                            changed = true;
+                        }
+                        for key in label_keys {
+                            let on = current.as_deref() == Some(key.as_str());
+                            if ui.selectable_label(on, key).clicked() {
+                                settings.imported_gis_label = Some(key.clone());
+                                changed = true;
+                            }
+                        }
+                    })
+                    .response
+                    .on_hover_text("Label each imported feature with this attribute's value");
+            });
+            ui.horizontal(|ui| {
+                ui.label("Show from zoom");
+                changed |= ui
+                    .add(
+                        egui::Slider::new(&mut settings.imported_gis_style.min_zoom, 0.0..=14.0)
+                            .step_by(0.5)
+                            .custom_formatter(|v, _| {
+                                if v <= 0.0 {
+                                    "always".to_string()
+                                } else {
+                                    format!("{v:.1}")
+                                }
+                            }),
+                    )
+                    .on_hover_text(
+                        "Hide the imported layer when zoomed out past this (about 4 is the \
+                         whole U.S., 7 a state, 10 a county)",
+                    )
                     .changed();
             });
             ui.weak("One style applies to every geometry in the imported file.");

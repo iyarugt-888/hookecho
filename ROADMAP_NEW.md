@@ -2979,10 +2979,21 @@ check for the same case exists here anyway, since that's not a guarantee this mo
   polygon fill and outlines without mutating the imported geometry. Existing settings default to
   the original neutral blue byte-for-byte, and a remembered file now returns visible rather than
   reloading silently behind an off toggle
-- labels from chosen attribute
+- [x] labels from chosen attribute — a "Label" picker in the Layer Manager lists every attribute
+  name in the file (`gis_import::label_keys`) and is remembered by name
+  (`Settings.imported_gis_label`), so it survives re-importing. Each feature part has an anchor
+  (a point itself, a line's middle vertex, a polygon's outer-ring centroid, one per part of a
+  multi-part shape), and the map paints the value beside it with a dark halo, trimmed and cut to
+  32 characters. Decluttered on a coarse screen grid in file order (at most 600 on screen), so a
+  dense file is a readable scatter of names that fills in as you zoom. Checked in the browser
+  with a KML of Oklahoma towns, a box and a route.
 - symbol by category
 - graduated color by numeric attribute
-- visibility by zoom
+- [x] visibility by zoom — "Show from zoom" (`ImportedGisStyle::min_zoom`, 0 = always): below
+  it the imported points, lines, labels and polygons are all left out, the polygons at
+  tessellation (`overlay_build`'s `show_imported`, retessellated when the threshold is crossed)
+  and out of the click hit-test too. Checked in the browser: at zoom 8.3 with the threshold at 9
+  nothing of the layer draws.
 - z-order
 
 ## I5. Time-aware GIS

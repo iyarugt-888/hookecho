@@ -3724,6 +3724,8 @@ pub struct HookEchoApp {
     overlay_gen: u64,
     built_gen: u64,
     built_zoom_bucket: i32,
+    /// Whether the imported GIS layer was above its minimum zoom at the last tessellation (I4).
+    built_imported_visible: bool,
     built_theme: crate::settings::Theme,
     pending_overlay: Option<OverlayUpload>,
     overlay_ready: bool,
@@ -5330,6 +5332,7 @@ impl HookEchoApp {
             overlay_gen: 0,
             built_gen: u64::MAX,
             built_zoom_bucket: i32::MIN,
+            built_imported_visible: true,
             built_theme: crate::settings::Theme::Dark,
             pending_overlay: None,
             overlay_ready: false,
@@ -13511,16 +13514,20 @@ impl HookEchoApp {
         // A geometry change (`overlay_gen`) is not deferred — that is new data arriving, not the
         // camera moving, and it should appear when it lands.
         let theme_changed = self.settings.theme != self.built_theme;
+        let imported_visible = self.settings.imported_gis_style.visible_at(zoom);
+        let imported_flipped = imported_visible != self.built_imported_visible;
         if should_retess(
             self.gesture_live,
             self.overlay_gen != self.built_gen || theme_changed,
-            bucket != self.built_zoom_bucket || theme_changed,
+            bucket != self.built_zoom_bucket || theme_changed || imported_flipped,
         ) {
+            self.built_imported_visible = imported_visible;
             let mut geom = overlay_build::build_with_theme_and_imported_width(
                 &self.overlays,
                 zoom,
                 self.settings.theme,
                 self.settings.imported_gis_style.rendered_stroke_width(),
+                imported_visible,
             );
             let pf: Vec<(&wxdata::placefile::PlaceItem, f32)> = self
                 .visible_placefile_iter()
@@ -16851,7 +16858,16 @@ impl HookEchoApp {
                                 None => {
                                     // Warnings/watches open the warning window (deduped by alert id
                                     // across MultiPolygon parts); other features use the generic popup.
-                                    let hits = overlay::hit_all(&self.overlays, lon, lat);
+                                    let mut hits = overlay::hit_all(&self.overlays, lon, lat);
+                                    // An imported layer hidden below its minimum zoom is not
+                                    // there to click either.
+                                    if !self
+                                        .settings
+                                        .imported_gis_style
+                                        .visible_at(self.views[self.active].camera.zoom)
+                                    {
+                                        hits.retain(|f| f.kind != overlay::FeatureKind::Imported);
+                                    }
                                     let mut seen = std::collections::HashSet::new();
                                     let mut cards: Vec<ui::warning_window::WarnCard> = hits
                                         .iter()
@@ -19876,7 +19892,9 @@ impl HookEchoApp {
         // Imported GIS points and lines (ROADMAP_NEW I1). The polygon half of an import rides the
         // overlay pipeline like every NWS feed's does; these two geometries have no rings to put
         // there, so they paint here through the same lon/lat projection as the strokes above.
-        if self.show_imported_gis && !self.imported_marks.is_empty() {
+        let imported_shown =
+            self.show_imported_gis && self.settings.imported_gis_style.visible_at(cam.zoom);
+        if imported_shown && !self.imported_marks.is_empty() {
             let style = self.settings.imported_gis_style;
             let c = style.stroke_rgba();
             let color = egui::Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
@@ -19906,6 +19924,63 @@ impl HookEchoApp {
                     radius,
                     egui::Stroke::new(1.0, egui::Color32::from_black_alpha(180)),
                 );
+            }
+        }
+        // Labels from the chosen attribute (I4), for every geometry family. Decluttered on a
+        // coarse screen grid in file order: a label whose cell is taken is skipped, so a dense
+        // file reads as a scatter of names rather than an unreadable smear, and more appear as
+        // the map zooms in.
+        if let Some(key) = self
+            .settings
+            .imported_gis_label
+            .as_deref()
+            .filter(|_| imported_shown)
+        {
+            let c = self.settings.imported_gis_style.stroke_rgba();
+            let text_color = egui::Color32::from_rgb(
+                c[0].saturating_add(90),
+                c[1].saturating_add(90),
+                c[2].saturating_add(90),
+            );
+            let font = egui::FontId::proportional(11.5);
+            let (cell_w, cell_h) = (90.0_f32, 18.0_f32);
+            let mut taken = std::collections::HashSet::new();
+            let mut drawn = 0;
+            for (at, props) in &self.imported_marks.anchors {
+                if drawn >= 600 {
+                    break;
+                }
+                let w = crate::render::mercator::lonlat_to_world(at[0], at[1]);
+                let (sx, sy) = cam.world_to_screen(w, vp);
+                let p = egui::pos2(prect.left() + sx, prect.top() + sy);
+                if !prect.shrink(4.0).contains(p) {
+                    continue;
+                }
+                let cell = ((p.x / cell_w) as i32, (p.y / cell_h) as i32);
+                if !taken.insert(cell) {
+                    continue;
+                }
+                let Some(text) = crate::gis_import::label_text(props, key) else {
+                    continue;
+                };
+                let galley = painter.layout_no_wrap(text, font.clone(), text_color);
+                // Beside a point's dot, centred on a line or polygon's anchor; a dark halo keeps
+                // it legible over radar and basemap alike.
+                let pos = p + egui::vec2(6.0, -galley.size().y * 0.5);
+                for d in [
+                    egui::vec2(-1.0, 0.0),
+                    egui::vec2(1.0, 0.0),
+                    egui::vec2(0.0, -1.0),
+                    egui::vec2(0.0, 1.0),
+                ] {
+                    painter.galley_with_override_text_color(
+                        pos + d,
+                        galley.clone(),
+                        egui::Color32::from_black_alpha(200),
+                    );
+                }
+                painter.galley(pos, galley, text_color);
+                drawn += 1;
             }
         }
 
@@ -24482,11 +24557,17 @@ impl eframe::App for HookEchoApp {
                     (l, name)
                 })
                 .collect();
+        let label_keys = if self.layer_window_open && self.settings.imported_gis.is_some() {
+            crate::gis_import::label_keys(&self.imported_marks)
+        } else {
+            Vec::new()
+        };
         if ui::layer_window::show(
             ctx,
             &mut self.layer_window_open,
             &mut self.settings,
             &active_fields,
+            &label_keys,
             &mut self.drawer,
         ) {
             // Imported polygon colors are applied while assembling `self.overlays`, so style
