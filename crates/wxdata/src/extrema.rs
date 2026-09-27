@@ -128,6 +128,40 @@ pub fn accumulate(acc: &mut BinnedSweep, sweep: &BinnedSweep, keep: Extremum) ->
     Merge::Merged
 }
 
+/// Age the trail by `codes` before the next frame is folded in — ROADMAP_NEW C2's decay view. A
+/// kept maximum drops by that many codes and a kept minimum rises by them, so the newest part of
+/// the path stays at full strength and the older part fades toward the unremarkable end; a value
+/// that decays past the end of the scale leaves the trail. Sentinels are left alone. The codes
+/// are a linear map onto the moment's physical range, so a fixed code step is a fixed physical
+/// step (so many dBZ) everywhere on the sweep.
+pub fn decay(acc: &mut BinnedSweep, keep: Extremum, codes: u8) {
+    if codes == 0 {
+        return;
+    }
+    for slot in &mut acc.data {
+        if *slot < FIRST_VALUE_CODE {
+            continue;
+        }
+        *slot = match keep {
+            Extremum::Max => match slot.checked_sub(codes) {
+                Some(c) if c >= FIRST_VALUE_CODE => c,
+                _ => 0,
+            },
+            Extremum::Min => slot.saturating_add(codes),
+        };
+    }
+}
+
+/// The decay step for `elapsed_min` minutes on a trail whose window is `window_min` long: a
+/// quarter of the code scale over the whole window, so a core from the start of the window shows
+/// about a quarter of the scale weaker than it was (for reflectivity, roughly 30 dBZ).
+pub fn decay_codes(elapsed_min: f32, window_min: u16) -> u8 {
+    let span = f32::from(u8::MAX - FIRST_VALUE_CODE);
+    (0.25 * span * elapsed_min.max(0.0) / f32::from(window_min.max(1)))
+        .round()
+        .min(255.0) as u8
+}
+
 /// Fold a whole window in one call, oldest frame first, starting a fresh trail whenever the
 /// sequence changes beam.
 ///
@@ -186,6 +220,25 @@ fn mismatch(acc: &BinnedSweep, sweep: &BinnedSweep) -> Option<Mismatch> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn decay_fades_a_kept_maximum_and_drops_it_off_the_bottom() {
+        let mut acc = sweep(Moment::Reflectivity, &[0, 1, 2, 10, 200]);
+        decay(&mut acc, Extremum::Max, 5);
+        assert_eq!(
+            acc.data,
+            [0, 1, 0, 5, 195],
+            "sentinels kept; too weak leaves the trail"
+        );
+        decay(&mut acc, Extremum::Min, 100);
+        assert_eq!(
+            acc.data,
+            [0, 1, 0, 105, 255],
+            "a minimum rises toward the top"
+        );
+        assert_eq!(decay_codes(60.0, 60), 63);
+        assert_eq!(decay_codes(0.0, 60), 0);
+    }
     use crate::level2::Moment;
 
     const AZ: usize = 8;

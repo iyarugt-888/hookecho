@@ -1580,7 +1580,8 @@ fresh boot shows a short trail; velocity uses the raw (folded) sweep, never the 
 because the two are not mergeable; and the moments here are the Level 2 ones. Rotation and
 hail paths from the MRMS AzShear/MESH grids are a separate route (Phase D) and the ZDR-column
 maximum is not a sweep moment, so those use cases are not covered by this layer. Verified by
-unit tests and the lint gate; **not yet exercised on screen in a running app.**
+unit tests and the lint gate, and exercised on screen: a 60-minute reflectivity maximum trail of
+the Moore 20 May 2013 storm from 15 cached volumes.
 
 Use cases:
 
@@ -1594,7 +1595,11 @@ Use cases:
 ### Controls
 
 - [x] window: 15/30/60/120 minutes — no custom entry yet
-- [ ] decay visualization
+- [x] decay visualization — "Fade with age": before each newer frame is folded in, the trail
+  is aged by the time between the two frames (`extrema::decay`, `decay_codes`: a quarter of the
+  code scale over the whole window), so the newest core stays at full strength and the path fades
+  behind it. A kept minimum rises instead; a value aged past the scale leaves the trail. Checked
+  on screen: the Moore 20 May 2013 60-minute reflectivity trail, faded toward the southwest.
 - [x] threshold — the pane's existing value threshold applies to the trail
 - [x] min or max mode — `extrema::Extremum`
 - [x] reset at selected archive time — Layer options now exposes **Reset at playhead**, which

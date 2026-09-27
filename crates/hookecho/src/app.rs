@@ -216,6 +216,8 @@ pub struct OverlayFilters {
     pub trail_window_min: u16,
     /// Keep the weakest value instead of the strongest (CC-minimum paths).
     pub trail_keep_min: bool,
+    /// Fade the older part of the trail (ROADMAP_NEW C2 decay), so the path reads as a direction.
+    pub trail_decay: bool,
     /// One line of trail progress or restart reason, written by the app and read by Layer options.
     pub trail_status: String,
     /// Auto tornado-debris-signature detection (low CC collocated with high reflectivity).
@@ -249,6 +251,7 @@ impl Default for OverlayFilters {
             show_trail: false,
             trail_window_min: 30,
             trail_keep_min: false,
+            trail_decay: false,
             trail_status: String::new(),
             show_tds: false,
             show_couplets: false,
@@ -3018,7 +3021,15 @@ fn scan_age_color(t: f32) -> egui::Color32 {
 }
 
 /// What a trail was built for, so any change starts it over.
-type TrailKey = (usize, Moment, usize, wxdata::extrema::Extremum, u16, String);
+type TrailKey = (
+    usize,
+    Moment,
+    usize,
+    wxdata::extrema::Extremum,
+    u16,
+    bool,
+    String,
+);
 
 /// The C2 accumulator and the frames already folded into it, oldest first.
 struct TrailState {
@@ -3028,6 +3039,8 @@ struct TrailState {
     /// Bumped on every fold or restart so the shown-image key changes as the trail grows.
     generation: u32,
     restarted: Option<wxdata::extrema::Mismatch>,
+    /// When the newest folded frame was taken, for the decay step to the next one.
+    last_time: Option<DateTime<Utc>>,
 }
 
 type ShownKey = (
@@ -14311,7 +14324,8 @@ impl HookEchoApp {
             self.trail_more = false;
             return None;
         };
-        let key: TrailKey = (data, moment, tilt, keep, window, oldest);
+        let decaying = self.filters.trail_decay;
+        let key: TrailKey = (data, moment, tilt, keep, window, decaying, oldest);
         let stale = self
             .trail
             .as_ref()
@@ -14326,6 +14340,7 @@ impl HookEchoApp {
                     .as_ref()
                     .map_or(0, |t| t.generation.wrapping_add(1)),
                 restarted: None,
+                last_time: None,
             });
         }
         let state = self.trail.as_mut()?;
@@ -14345,9 +14360,22 @@ impl HookEchoApp {
                     continue;
                 }
             };
+            let taken = self.views[data]
+                .timeline
+                .frames
+                .iter()
+                .find(|id| id.name() == name.as_str())
+                .and_then(|id| id.date_time());
+            state.last_time = taken.or(state.last_time);
             match state.acc.as_mut() {
                 None => state.acc = Some(extrema::start(&sweep)),
                 Some(acc) => {
+                    if decaying {
+                        if let (Some(then), Some(now)) = (state.last_time, taken) {
+                            let min = (now - then).num_seconds() as f32 / 60.0;
+                            extrema::decay(acc, keep, extrema::decay_codes(min, window));
+                        }
+                    }
                     if let Merge::Reset(why) = extrema::accumulate(acc, &sweep, keep) {
                         state.restarted = Some(why);
                         *acc = extrema::start(&sweep);
@@ -14362,6 +14390,9 @@ impl HookEchoApp {
         let has_image = state.acc.is_some();
         self.filters.trail_status =
             trail_status_line(folded, wanted.len(), window, keep, restarted);
+        if decaying {
+            self.filters.trail_status.push_str(", older part faded");
+        }
         has_image.then(|| format!("trail{generation}"))
     }
 

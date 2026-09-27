@@ -8,6 +8,11 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: fading max/min trails
+
+The Max/min trail layer has a **Fade with age** option: the storm's newest core stays at full
+strength and the older part of its path fades, so the trail shows which way the storm went.
+
 ### Added: percent change for model comparisons
 
 Comparing CAPE, helicity, wind or precipitation between two models or two runs now offers

@@ -997,6 +997,12 @@ pub(crate) fn show(
             ui.selectable_value(&mut filters.trail_keep_min, false, "Maximum");
             ui.selectable_value(&mut filters.trail_keep_min, true, "Minimum");
         });
+        ui.checkbox(&mut filters.trail_decay, "Fade with age")
+            .on_hover_text(
+                "Let the older part of the trail fade, so the path reads as a direction: \
+                 the newest core at full strength, a quarter of the scale weaker by the start of \
+                 the window",
+            );
         if ui
             .button("Reset at playhead")
             .on_hover_text(
