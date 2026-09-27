@@ -15,8 +15,11 @@
 //! - **WGS 84 and NAD 83** geographic: taken as lon/lat. The two differ by about a metre over the
 //!   U.S., far below anything a weather map can show.
 //! - **Web Mercator** (EPSG:3857): inverse-projected here.
-//! - **Anything else**, including every State Plane and UTM zone: a named error saying what the
-//!   file is in. Reprojection beyond Web Mercator is not built yet.
+//! - **Transverse Mercator, Lambert Conformal Conic and Albers** on NAD 83 / WGS 84 — every UTM
+//!   zone, every State Plane zone (metres or U.S. survey feet) and the national CONUS Albers
+//!   systems: inverse-projected by [`crate::projection`] from the `.prj`'s own parameters.
+//! - **Anything else** (another projection, or an older datum such as NAD 27): a named error
+//!   saying what the file is in.
 //! - **No `.prj`**: accepted only when every coordinate is a plausible lon/lat, otherwise an
 //!   error — a file of metres would otherwise land in the Gulf of Guinea.
 //!
@@ -37,12 +40,14 @@ const DBF_FIELD_DESC_LEN: usize = 32;
 const EARTH_RADIUS_M: f64 = 6_378_137.0;
 
 /// How a file's coordinates are to be read, decided from its `.prj`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Crs {
     /// Already lon/lat in a datum indistinguishable from WGS 84 at map scale.
     LonLat,
     /// EPSG:3857 metres, to be inverse-projected.
     WebMercator,
+    /// A UTM, State Plane or Albers system, to be inverse-projected.
+    Projected(crate::projection::Projection),
 }
 
 /// Decide the coordinate system from a `.prj` (ESRI WKT), or say why it cannot be used.
@@ -57,11 +62,9 @@ pub fn crs_from_prj(prj: &str) -> Result<Crs> {
         if is_web_mercator {
             return Ok(Crs::WebMercator);
         }
-        bail!(
-            "this shapefile is in a projected coordinate system ({}), which HookEcho cannot \
-             place yet — re-export it as WGS 84 (EPSG:4326) or Web Mercator (EPSG:3857)",
-            wkt_name(prj)
-        );
+        return crate::projection::from_wkt(prj)
+            .map(Crs::Projected)
+            .map_err(|e| anyhow!("this shapefile cannot be placed: {e}"));
     }
     if upper.trim_start().starts_with("GEOGCS") {
         let ok = [
@@ -137,6 +140,11 @@ pub fn parse(shp: &[u8], dbf: Option<&[u8]>, prj: Option<&str>) -> Result<Vec<Gi
                 map_points(&mut f.geometry, mercator_to_lonlat);
             }
         }
+        Some(Crs::Projected(p)) => {
+            for f in &mut out {
+                map_points(&mut f.geometry, |q| p.inverse(q[0], q[1]));
+            }
+        }
         None => {
             let mut plausible = true;
             for f in &mut out {
@@ -158,14 +166,14 @@ pub fn parse(shp: &[u8], dbf: Option<&[u8]>, prj: Option<&str>) -> Result<Vec<Gi
     Ok(out)
 }
 
-fn mercator_to_lonlat(p: [f64; 2]) -> [f64; 2] {
+pub(crate) fn mercator_to_lonlat(p: [f64; 2]) -> [f64; 2] {
     let lon = (p[0] / EARTH_RADIUS_M).to_degrees();
     let lat =
         (2.0 * (p[1] / EARTH_RADIUS_M).exp().atan() - std::f64::consts::FRAC_PI_2).to_degrees();
     [lon, lat]
 }
 
-fn map_points(g: &mut Geometry, mut f: impl FnMut([f64; 2]) -> [f64; 2]) {
+pub(crate) fn map_points(g: &mut Geometry, mut f: impl FnMut([f64; 2]) -> [f64; 2]) {
     let mut each = |p: &mut [f64; 2]| *p = f(*p);
     match g {
         Geometry::Point(p) => each(p),
@@ -766,11 +774,29 @@ mod tests {
     }
 
     #[test]
-    fn a_state_plane_file_is_refused_and_named() {
-        let prj = r#"PROJCS["NAD_1983_StatePlane_Oklahoma_South_FIPS_3502_Feet",GEOGCS["GCS_North_American_1983"]]"#;
+    fn a_state_plane_file_in_feet_lands_where_it_should() {
+        let prj = r#"PROJCS["NAD_1983_StatePlane_Oklahoma_South_FIPS_3502_Feet",GEOGCS["GCS_North_American_1983",DATUM["D_North_American_1983",SPHEROID["GRS_1980",6378137.0,298.257222101]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Lambert_Conformal_Conic"],PARAMETER["False_Easting",1968500.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-98.0],PARAMETER["Standard_Parallel_1",33.93333333333333],PARAMETER["Standard_Parallel_2",35.23333333333333],PARAMETER["Latitude_Of_Origin",33.33333333333334],UNIT["Foot_US",0.3048006096012192]]"#;
+        let Crs::Projected(p) = crs_from_prj(prj).unwrap() else {
+            panic!("projected")
+        };
+        // Norman, written in the zone's own feet, reads back as Norman.
+        let [x, y] = p.forward(-97.44, 35.22);
+        let f = parse(&shp_file(&[point(x, y)]), None, Some(prj)).expect("parses");
+        let Geometry::Point([lon, lat]) = f[0].geometry else {
+            panic!("{:?}", f[0].geometry)
+        };
+        assert!(
+            (lon + 97.44).abs() < 1e-7 && (lat - 35.22).abs() < 1e-7,
+            "{lon},{lat}"
+        );
+    }
+
+    #[test]
+    fn a_projection_it_cannot_invert_is_refused_and_named() {
+        let prj = r#"PROJCS["North_Pole_Stereographic",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]]],PROJECTION["Stereographic_North_Pole"],UNIT["Meter",1.0]]"#;
         let err = crs_from_prj(prj).unwrap_err().to_string();
         assert!(
-            err.contains("StatePlane_Oklahoma_South"),
+            err.contains("North_Pole_Stereographic"),
             "must say what it is in: {err}"
         );
     }

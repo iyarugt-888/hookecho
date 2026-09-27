@@ -12,8 +12,9 @@
 //! straight back through [`parse_geojson`].
 //!
 //! The other import formats live beside it and produce the same [`GisFeature`]:
-//! [`crate::shapefile`] and [`crate::kml`] (KML and KMZ). GeoPackage import and reprojection from
-//! coordinate systems other than WGS 84 / NAD 83 / Web Mercator (I2) are not built.
+//! [`crate::shapefile`] and [`crate::kml`] (KML and KMZ). A legacy `crs` member naming a UTM zone,
+//! Web Mercator or CONUS Albers is inverse-projected ([`crate::projection`]); GeoPackage import is
+//! not built.
 
 use geojson::{Feature, FeatureCollection, GeoJson, GeometryValue, Position};
 
@@ -150,7 +151,46 @@ pub fn parse_geojson(json: &str) -> anyhow::Result<Vec<GisFeature>> {
             });
         }
     })?;
+    // The current spec says a GeoJSON document is WGS 84, but files written before it (and some
+    // still written by desktop GIS) carry a `crs` member naming a projected system. Honour the
+    // ones HookEcho can invert (ROADMAP_NEW I2) and refuse the rest, rather than drawing metres
+    // as degrees somewhere off West Africa.
+    if let Some(name) = crs_name(json) {
+        use crate::projection::{epsg_in, from_epsg, Epsg};
+        let code = epsg_in(&name);
+        match code.and_then(from_epsg) {
+            Some(Epsg::LonLat) => {}
+            Some(Epsg::WebMercator) => {
+                for f in &mut out {
+                    crate::shapefile::map_points(
+                        &mut f.geometry,
+                        crate::shapefile::mercator_to_lonlat,
+                    );
+                }
+            }
+            Some(Epsg::Projected(p)) => {
+                for f in &mut out {
+                    crate::shapefile::map_points(&mut f.geometry, |q| p.inverse(q[0], q[1]));
+                }
+            }
+            None => anyhow::bail!(
+                "this GeoJSON names the coordinate system \"{name}\", which HookEcho cannot \
+                 place — re-export it as WGS 84 (EPSG:4326)"
+            ),
+        }
+    }
     Ok(out)
+}
+
+/// The legacy top-level `crs` member's name (`{"type":"name","properties":{"name":…}}`), if the
+/// document has one. Only looked for when the text mentions it, so the common case costs nothing.
+fn crs_name(json: &str) -> Option<String> {
+    if !json.contains("\"crs\"") {
+        return None;
+    }
+    let doc: serde_json::Value = serde_json::from_str(json).ok()?;
+    let name = doc.get("crs")?.get("properties")?.get("name")?.as_str()?;
+    Some(name.to_string())
 }
 
 /// Serialize features as one GeoJSON `FeatureCollection` (ROADMAP_NEW I6) — the writing half of
@@ -359,5 +399,35 @@ mod tests {
         assert_eq!(rings.len(), 2, "outer boundary plus one hole");
         assert_eq!(rings[0].len(), 5);
         assert_eq!(rings[1].len(), 4);
+    }
+
+    #[test]
+    fn a_legacy_crs_member_is_honoured_or_refused() {
+        let utm = r#"{"type":"FeatureCollection",
+            "crs":{"type":"name","properties":{"name":"urn:ogc:def:crs:EPSG::26914"}},
+            "features":[{"type":"Feature","properties":{},
+              "geometry":{"type":"Point","coordinates":[500000.0,3873000.0]}}]}"#;
+        let f = parse_geojson(utm).unwrap();
+        let Geometry::Point([lon, lat]) = f[0].geometry else {
+            panic!("{:?}", f[0].geometry)
+        };
+        assert!(
+            (lon + 99.0).abs() < 1e-9,
+            "on zone 14's central meridian: {lon}"
+        );
+        assert!((lat - 35.0).abs() < 0.01, "{lat}");
+        let wgs = utm
+            .replace(
+                "urn:ogc:def:crs:EPSG::26914",
+                "urn:ogc:def:crs:OGC:1.3:CRS84",
+            )
+            .replace("500000.0,3873000.0", "-97.5,35.2");
+        assert_eq!(
+            parse_geojson(&wgs).unwrap()[0].geometry,
+            Geometry::Point([-97.5, 35.2])
+        );
+        let state_plane = utm.replace("26914", "2267");
+        let err = parse_geojson(&state_plane).unwrap_err().to_string();
+        assert!(err.contains("2267"), "{err}");
     }
 }

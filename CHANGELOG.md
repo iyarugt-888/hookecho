@@ -37,6 +37,9 @@ They can also be coloured by an attribute ("Color by"): a colour ramp for number
 value for categories, with a legend in the Layer Manager.
 And they can follow the timeline: map attributes to "Valid from" and "Valid until" and each feature
 shows only while the view's time is inside its window, live or scrubbed.
+Shapefiles in UTM, State Plane (metres or feet) or CONUS Albers coordinates now import in the
+right place instead of being refused, and so do older GeoJSON files that name a UTM zone, Web
+Mercator or Albers in their "crs".
 
 ### Added: GOES RGB composites
 

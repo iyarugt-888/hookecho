@@ -2911,7 +2911,9 @@ Implement in this order:
    - Coordinate system (I2's rule): WGS 84 and NAD 83 read as lon/lat, Web Mercator is
      inverse-projected, and anything else — every State Plane and UTM zone, and the older NAD 27
      datum, which can sit tens of metres off — is a named error rather than misplaced geometry.
-     With no `.prj`, coordinates must be a plausible lon/lat or the import is refused.
+     With no `.prj`, coordinates must be a plausible lon/lat or the import is refused. (Since
+     extended by I2: UTM, State Plane and Albers files are now inverse-projected from their
+     `.prj`.)
    - Hostile input: every read is bounds-checked and a length field cannot drive an allocation;
      a test cuts a valid pair at every byte and requires an error or a result, never a panic.
    - Where the sidecars come from: on desktop the `.dbf` and `.prj` are read from beside the
@@ -2941,15 +2943,26 @@ Implement in this order:
    through the app's own load path; not yet against real Google Earth exports.
 5. [ ] GeoPackage if a cross-platform Rust path is practical
 
-## I2. Projection handling
+## I2. Projection handling — done for the U.S. systems
 
-- parse CRS from source metadata
-- transform to WGS84/Web Mercator display coordinates
-- support common U.S. EPSG projections
-- reject unknown projections with a useful error instead of silently misplacing geometry
-
-Not started. Moot for GeoJSON specifically (the format is specified as always WGS84), but real
-for Shapefile's own `.prj` once that importer exists.
+- [x] parse CRS from source metadata — a shapefile's `.prj` (ESRI or OGC WKT: `PROJECTION`, its
+  `PARAMETER`s, the linear `UNIT` and the `SPHEROID`, `projection::from_wkt`) and a GeoJSON file's
+  legacy `crs` member (`EPSG:…`, `urn:ogc:def:crs:EPSG::…`, the `…/EPSG/0/…` URL form, `CRS84`).
+  KML is WGS 84 by definition.
+- [x] transform to WGS84/Web Mercator display coordinates — `wxdata::projection` inverts
+  Transverse Mercator, Lambert Conformal Conic (1SP and 2SP) and Albers Equal Area with Snyder's
+  ellipsoidal formulas, on the file's own ellipsoid, in metres or U.S. survey feet. Checked against
+  the EPSG guidance note 7-2 worked examples (the British National Grid TM and Texas South Central
+  LCC in U.S. feet) to 5 cm and 1e-7°, the published 45° meridian arc, and round trips across
+  CONUS.
+- [x] support common U.S. EPSG projections — every UTM zone and State Plane zone from its `.prj`,
+  whatever its units; by EPSG code alone (GeoJSON): WGS 84/NAD 83 geographic, Web Mercator, the
+  UTM zones on WGS 84 (326xx/327xx) and NAD 83 (269xx), and CONUS Albers (5070, 6350, 5069). A
+  State Plane *code* without its parameters is refused by name: there are over a hundred zones and
+  a wrong table entry would misplace silently.
+- [x] reject unknown projections with a useful error — another projection (polar stereographic,
+  say) or an older datum (NAD 27, which can sit tens of metres off) is refused with the system's
+  own name and what to re-export as, never drawn in the wrong place.
 
 ## I3. Geometry types — done, for GeoJSON
 
