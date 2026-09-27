@@ -974,3 +974,17 @@ a scale bar on the map; a network round-trip measurement for the app bar; a natu
   type. Before, they were stacks of framed buttons in the app's larger global style (combo boxes
   open in their own layer and missed the scope). The shared settings switch takes compact
   metrics inside the workstation scope (`ws::in_scope`), so layer options match the dock.
+- Several storms in the Cell window, and a comparison view. Selecting a storm while the window is
+  open adds it (up to six); chips switch between them, and Close drops one. **Compare** shows a
+  table with a column per storm and each row's worst value in amber: severity, max dBZ and its
+  height, top, VIL, POSH, hail, speed, core ZDR/KDP/CC and ΔV. Each trend is one chart with a
+  line per storm (`ws::series_chart`, on a real time axis).
+- Trends start with past scans. The first storm-cell fetch for a site also reads the site's
+  last 24 NST products from the Level 3 bucket (`level3::fetch_cell_history`), about two hours.
+  Those scans carry SCIT's peak dBZ and its height; VIL, top and severity begin with the live
+  products, since the bucket keeps no structure or hail history. Checked on live KVNX: 11–23
+  scans on open.
+- The 3D reflectivity volume is a workstation tool window, **3D volume** (dock, float, fold,
+  close). It floats by default; docked, the view fills the column. It shares
+  `volume3d_window::body` with the floating window the other layouts keep. Checked by
+  screenshot: View in 3D on a live KVNX cell, then docked right.
