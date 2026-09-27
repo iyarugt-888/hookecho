@@ -1031,3 +1031,19 @@ a scale bar on the map; a network round-trip measurement for the app bar; a natu
   floating header never tears (its drag moves the window); the phone never tears (its windows live
   in the sheet). "Dock bottom" joins the "⋯" menu. Checked in the browser: a floating Inspector
   dragged onto the bottom target docks there; the tear-off is covered by a headless egui test.
+- Tabs reorder by dragging, as in Dear ImGui: a tab dragged along its strip over another takes its
+  place; only one pulled off the strip (above or below it by more than 14 px) tears off
+  (`ws::tab_drag`). The order is saved with the arrangement by window name
+  (`WorkstationChrome::tab_order`; the usual order saves as nothing, and a name a later version
+  drops is skipped).
+- A Windows menu in the app bar: every tool window, highlighted when showing, with where it sits
+  (left, right, bottom, floating) as a menu to move it; the ones with nothing to show yet are
+  greyed with what brings them (the sounding: "Shows once a point is sounded"). Under them,
+  **Reset window layout** (also in the palette) puts every window back where the layout starts it,
+  at its usual size and tab order.
+- Ctrl+Tab / Ctrl+Shift+Tab step through the tabs of the dock under the pointer (else the side
+  used last).
+- Checked in the browser with real mouse input at 1366 × 768: a tab dragged along the right dock's
+  strip swaps places; dragged onto the map it floats; the floating window dropped on the right
+  target docks back in front; Ctrl+Tab over the dock switches tabs; Reset returns a bottom-docked
+  Inspector to floating.

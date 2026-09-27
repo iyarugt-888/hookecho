@@ -13,7 +13,9 @@ The rolling `latest` release tracks `main` and is not listed here.
 In the Dock and WSV3 layouts, drag a floating window and dock targets appear at the left, right
 and bottom of the map; drop it on one to dock it there. Drag a docked window's title (or one of its
 tabs) out of its dock to float it again. There is now a dock under the map as well, good for the
-storm and gauge tables and the analyst log; drag its top edge to resize it.
+storm and gauge tables and the analyst log; drag its top edge to resize it. Drag a tab along its
+strip to reorder it, press Ctrl+Tab to step through a dock's tabs, and use the new **Windows** menu
+to show, hide or move any tool window, or **Reset window layout** to put them all back.
 
 ### Added: the workstation on your phone
 
