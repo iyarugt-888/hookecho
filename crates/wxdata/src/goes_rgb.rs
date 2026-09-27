@@ -121,6 +121,74 @@ impl IrOverlay {
     }
 }
 
+/// The night half of a day/night product: where the sun is down, an IR picture (cold cloud
+/// bright, warm ground dark) instead of the recipe's reflective one, which has nothing to show
+/// at night. The two are blended across the terminator by solar zenith angle, fully the day
+/// picture at `day_zenith` degrees and below, fully the night one at `night_zenith` and above.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct NightBlend {
+    pub band: u8,
+    /// Brightness temperature (K) that reads as bare `ground`.
+    pub warm: f32,
+    /// Brightness temperature (K) that reads as full `cloud`.
+    pub cold: f32,
+    pub ground: [u8; 3],
+    pub cloud: [u8; 3],
+    pub day_zenith: f32,
+    pub night_zenith: f32,
+}
+
+impl NightBlend {
+    /// The night picture for a brightness temperature; `None` with no data.
+    pub fn night(&self, k: f32) -> Option<[u8; 3]> {
+        if !k.is_finite() {
+            return None;
+        }
+        let t = ((self.warm - k) / (self.warm - self.cold)).clamp(0.0, 1.0);
+        Some(std::array::from_fn(|j| {
+            (self.ground[j] as f32 + t * (self.cloud[j] as f32 - self.ground[j] as f32)).round()
+                as u8
+        }))
+    }
+
+    /// How much of the day picture shows at a solar zenith angle (degrees): 1 in full sun, 0 at
+    /// night, linear across the terminator.
+    pub fn day_weight(&self, zenith: f32) -> f32 {
+        ((self.night_zenith - zenith) / (self.night_zenith - self.day_zenith)).clamp(0.0, 1.0)
+    }
+}
+
+/// The sun's declination (radians) and the equation of time (minutes) at `t` — NOAA's
+/// low-precision series, good to a few tenths of a degree, far finer than a blend across a ten
+/// degree terminator needs.
+fn solar_terms(t: chrono::DateTime<chrono::Utc>) -> (f64, f64) {
+    use chrono::{Datelike, Timelike};
+    let hour = t.hour() as f64 + t.minute() as f64 / 60.0 + t.second() as f64 / 3600.0;
+    let g = std::f64::consts::TAU / 365.0 * (t.ordinal() as f64 - 1.0 + (hour - 12.0) / 24.0);
+    let decl = 0.006918 - 0.399912 * g.cos() + 0.070257 * g.sin() - 0.006758 * (2.0 * g).cos()
+        + 0.000907 * (2.0 * g).sin()
+        - 0.002697 * (3.0 * g).cos()
+        + 0.00148 * (3.0 * g).sin();
+    let eqtime = 229.18
+        * (0.000075 + 0.001868 * g.cos()
+            - 0.032077 * g.sin()
+            - 0.014615 * (2.0 * g).cos()
+            - 0.040849 * (2.0 * g).sin());
+    (decl, eqtime)
+}
+
+/// The solar zenith angle (degrees) at a point, given [`solar_terms`] for the time.
+fn solar_zenith(lat: f64, lon: f64, t: chrono::DateTime<chrono::Utc>, terms: (f64, f64)) -> f64 {
+    use chrono::Timelike;
+    let (decl, eqtime) = terms;
+    let minutes = t.hour() as f64 * 60.0 + t.minute() as f64 + t.second() as f64 / 60.0;
+    let true_solar = minutes + eqtime + 4.0 * lon;
+    let hour_angle = (true_solar / 4.0 - 180.0).to_radians();
+    let lat = lat.to_radians();
+    let cos_z = lat.sin() * decl.sin() + lat.cos() * decl.cos() * hour_angle.cos();
+    cos_z.clamp(-1.0, 1.0).acos().to_degrees()
+}
+
 /// A named RGB composite.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Recipe {
@@ -134,6 +202,9 @@ pub struct Recipe {
     pub channels: [Channel; 3],
     /// A blend product's coloured IR layer over the stretched picture; `None` for a plain RGB.
     pub overlay: Option<IrOverlay>,
+    /// A day/night product's IR night picture, blended in by solar zenith; `None` for a plain
+    /// RGB, which shows its own channels whatever the sun is doing.
+    pub night: Option<NightBlend>,
 }
 
 /// Air mass: jet streaks, dry intrusions and potential-vorticity anomalies. Red is the 6.2-7.3 µm
@@ -160,6 +231,7 @@ pub const AIR_MASS: Recipe = Recipe {
         Channel::band(8, 243.9, 208.5, 1.0),
     ],
     overlay: None,
+    night: None,
 };
 
 /// Dust: airborne dust (magenta) against cloud and surface, day or night.
@@ -185,6 +257,7 @@ pub const DUST: Recipe = Recipe {
         Channel::band(13, 261.2, 288.7, 1.0),
     ],
     overlay: None,
+    night: None,
 };
 
 /// Night microphysics: fog and low stratus versus clear ground at night.
@@ -210,6 +283,7 @@ pub const NIGHT_MICROPHYSICS: Recipe = Recipe {
         Channel::band(13, 243.55, 292.65, 1.0),
     ],
     overlay: None,
+    night: None,
 };
 
 /// Day cloud phase: glaciating tops (developing convection) against water cloud and snow.
@@ -225,6 +299,7 @@ pub const DAY_CLOUD_PHASE: Recipe = Recipe {
         Channel::band(5, 0.01, 0.59, 1.0),
     ],
     overlay: None,
+    night: None,
 };
 
 /// Day convection: strong updrafts with small ice particles (yellow) in severe convection.
@@ -255,6 +330,7 @@ pub const DAY_CONVECTION: Recipe = Recipe {
         },
     ],
     overlay: None,
+    night: None,
 };
 
 /// Fire temperature: active fires from warm (red) to intense (yellow-white).
@@ -270,6 +346,7 @@ pub const FIRE_TEMPERATURE: Recipe = Recipe {
         Channel::band(5, 0.0, 0.75, 1.0),
     ],
     overlay: None,
+    night: None,
 };
 
 /// True colour (daytime): red and blue are ABI's red and blue, and the green ABI lacks is
@@ -291,6 +368,7 @@ pub const TRUE_COLOR: Recipe = Recipe {
         Channel::band(1, 0.0, 1.0, 2.2),
     ],
     overlay: None,
+    night: None,
 };
 
 /// The Sandwich: the half-kilometre red visible band, with the clean IR band's cold cloud tops
@@ -324,13 +402,39 @@ pub const SANDWICH: Recipe = Recipe {
             (183.15, [255, 255, 255]),
         ],
     }),
+    night: None,
+};
+
+/// Day/night colour, in the spirit of CIRA's GeoColor: true colour where the sun is up, and
+/// where it is down the clean IR band as cloud over a dark blue ground, blended across the
+/// terminator by solar zenith angle so a loop runs through dusk without going black. GeoColor
+/// proper also lays city lights and a static surface under the night side and picks out low
+/// cloud with the 3.9 µm difference; this has neither, so the night side shows the cloud the IR
+/// band sees.
+pub const DAY_NIGHT_COLOR: Recipe = Recipe {
+    slug: "day-night-color",
+    name: "Day/Night Color",
+    reading: "By day, roughly what the eye would see. At night, cloud from the IR band: the               brighter, the colder and higher; dark blue is clear or warm low cloud. The two blend               through dusk and dawn.",
+    daytime: false,
+    channels: TRUE_COLOR.channels,
+    overlay: None,
+    night: Some(NightBlend {
+        band: 13,
+        warm: 295.0,
+        cold: 215.0,
+        ground: [8, 16, 44],
+        cloud: [236, 240, 248],
+        day_zenith: 80.0,
+        night_zenith: 92.0,
+    }),
 };
 
 /// Every recipe, in menu order.
-pub const RECIPES: [Recipe; 8] = [
+pub const RECIPES: [Recipe; 9] = [
     AIR_MASS,
     DAY_CLOUD_PHASE,
     DAY_CONVECTION,
+    DAY_NIGHT_COLOR,
     DUST,
     FIRE_TEMPERATURE,
     NIGHT_MICROPHYSICS,
@@ -351,6 +455,7 @@ impl Recipe {
             .iter()
             .flat_map(|c| c.terms.iter().map(|&(band, _)| band))
             .chain(self.overlay.map(|o| o.band))
+            .chain(self.night.map(|n| n.band))
             .collect();
         b.sort_unstable();
         b.dedup();
@@ -404,7 +509,12 @@ pub fn compose(
         .map(|c| c.terms.iter().map(|&(b, w)| (index(b), w)).collect())
         .collect();
     let overlay = recipe.overlay.map(|o| (o, index(o.band)));
-    let n = first.nx * first.ny;
+    let night = recipe.night.map(|nb| (nb, index(nb.band)));
+    let sun = solar_terms(first.time);
+    let (nx, ny) = (first.nx, first.ny);
+    let dlon = (first.lon_east - first.lon_west) / nx as f64;
+    let dlat = (first.lat_north - first.lat_south) / ny as f64;
+    let n = nx * ny;
     let mut rgba = vec![0u8; n * 4];
     for px in 0..n {
         let mut out = [0u8; 4];
@@ -419,6 +529,27 @@ pub fn compose(
                 v += w * x;
             }
             out[ch] = channel.stretch(v);
+        }
+        // A day/night product: the night picture where the sun is down, the day one where it is
+        // up, mixed across the terminator. Either alone stands in where the other has no data.
+        if let Some((nb, i)) = night {
+            let (row, col) = (px / nx, px % nx);
+            let lat = first.lat_north - (row as f64 + 0.5) * dlat;
+            let lon = first.lon_west + (col as f64 + 0.5) * dlon;
+            let w = nb.day_weight(solar_zenith(lat, lon, first.time, sun) as f32);
+            match (valid && w > 0.0, nb.night(bands[i].values[px])) {
+                (true, Some(dark)) => {
+                    for j in 0..3 {
+                        out[j] = (out[j] as f32 * w + dark[j] as f32 * (1.0 - w)).round() as u8;
+                    }
+                }
+                (true, None) => {}
+                (false, Some(dark)) => {
+                    out[..3].copy_from_slice(&dark);
+                    valid = true;
+                }
+                (false, None) => valid = false,
+            }
         }
         if valid {
             // No IR under a visible pixel leaves the picture alone rather than blanking it.
@@ -653,11 +784,18 @@ mod tests {
                 }
             }
             assert_eq!(by_slug(r.slug), Some(&r));
-            // Reflective bands only answer in daylight, and the flag says so.
-            assert_eq!(r.daytime, r.bands().iter().any(|b| *b <= 6), "{}", r.name);
+            // Reflective bands only answer in daylight, and the flag says so, unless a night
+            // picture takes over after dark.
+            let reflective = r.bands().iter().any(|b| *b <= 6);
+            assert_eq!(r.daytime, reflective && r.night.is_none(), "{}", r.name);
         }
         assert_eq!(AIR_MASS.bands(), [8, 10, 12, 13]);
         assert_eq!(TRUE_COLOR.bands(), [1, 2, 3]);
+        assert_eq!(
+            DAY_NIGHT_COLOR.bands(),
+            [1, 2, 3, 13],
+            "and the night picture's"
+        );
         assert_eq!(
             SANDWICH.bands(),
             [2, 13],
@@ -672,6 +810,56 @@ mod tests {
                 r.name
             );
         }
+    }
+
+    #[test]
+    fn the_sun_is_overhead_at_the_subsolar_point_and_down_at_its_antipode() {
+        use chrono::TimeZone;
+        // The June solstice at noon over Greenwich: the sun stands over the Tropic of Cancer.
+        let t = chrono::Utc.with_ymd_and_hms(2026, 6, 21, 12, 0, 0).unwrap();
+        let terms = solar_terms(t);
+        assert!(solar_zenith(23.44, 0.0, t, terms) < 1.0);
+        assert!(solar_zenith(-23.44, 180.0, t, terms) > 179.0);
+        // Oklahoma at 20 UTC in late September is mid-afternoon; at 06 UTC it is night.
+        let afternoon = chrono::Utc.with_ymd_and_hms(2026, 9, 27, 20, 0, 0).unwrap();
+        let z = solar_zenith(35.3, -97.3, afternoon, solar_terms(afternoon));
+        assert!((40.0..60.0).contains(&z), "{z}");
+        let night = chrono::Utc.with_ymd_and_hms(2026, 9, 27, 6, 0, 0).unwrap();
+        assert!(solar_zenith(35.3, -97.3, night, solar_terms(night)) > 100.0);
+    }
+
+    #[test]
+    fn day_night_color_is_true_color_by_day_and_ir_by_night() {
+        use chrono::TimeZone;
+        // One pixel over Oklahoma: bands 1, 2, 3 then 13. Bright reflective cloud, cold top.
+        let at = |t, refl: f32, k: f32| {
+            let mut g = |v: f32| {
+                let mut f = grid(vec![v]);
+                (f.lon_west, f.lon_east, f.lat_north, f.lat_south) = (-97.5, -97.0, 35.5, 35.0);
+                f.time = t;
+                f
+            };
+            let b = [g(refl), g(refl), g(refl), g(k)];
+            compose(&DAY_NIGHT_COLOR, &[1, 2, 3, 13], &b).unwrap().rgba
+        };
+        let day = chrono::Utc.with_ymd_and_hms(2026, 9, 27, 19, 0, 0).unwrap();
+        let night = chrono::Utc.with_ymd_and_hms(2026, 9, 27, 7, 0, 0).unwrap();
+        // By day, what the reflective bands say, whatever the IR says.
+        assert_eq!(
+            at(day, 0.0, 220.0)[..3],
+            [0, 0, 0],
+            "a black surface stays black by day"
+        );
+        // By night, the IR: a cold top bright, warm ground dark blue; reflectance ignored.
+        let cold = at(night, 0.0, 215.0);
+        assert!(cold[0] > 200 && cold[3] == 255, "{cold:?}");
+        let warm = at(night, 0.9, 300.0);
+        assert_eq!(warm[..3], DAY_NIGHT_COLOR.night.unwrap().ground);
+        // At night a missing reflective band does not blank the IR picture.
+        let dark = at(night, f32::NAN, 215.0);
+        assert_eq!(dark[3], 255);
+        // And by day a missing IR band leaves the true colour.
+        assert_eq!(at(day, 0.5, f32::NAN)[3], 255);
     }
 
     #[test]

@@ -2170,7 +2170,7 @@ checks this against a real downloaded granule, not just a synthetic fixture — 
 landmarks against NOAA imagery" acceptance criterion, satisfied by geographic-extent plausibility
 rather than a named-landmark pixel check specifically.
 
-## E4. RGB recipe engine — done, apart from GeoColor proper
+## E4. RGB recipe engine — done
 
 Recipes are data, not code: `wxdata::goes_rgb::Recipe` is three channels of weighted band terms
 (a band, or a difference like 8 minus 10), each with the operational CIRA/RAMMB quick-guide range
@@ -2195,8 +2195,15 @@ so two moments are never composed into one picture). Adding a recipe is adding a
   it; a pixel with no IR keeps the visible picture. `SANDWICH` is one more constant in `RECIPES`,
   so it appears in the picker and fetches its two bands from one scan like any recipe. Checked
   live on a GOES-East Mesoscale 1 box: 205,266 pixels, 3.6% tinted by cold tops, texture intact.
-- [ ] GeoColor proper (true colour by day blended into a night IR/city-lights view) — not done;
-  the true-color recipe is the daytime half.
+- [x] GeoColor-style day/night — `DAY_NIGHT_COLOR` ("Day/Night Color"): the true-colour channels
+  by day and, where the sun is down, the clean IR band as cloud over a dark blue ground, blended
+  across the terminator by solar zenith angle (fully day at 80°, fully night at 92°; NOAA's
+  low-precision solar position per pixel, `goes_rgb::solar_zenith`). Another optional recipe part,
+  `NightBlend`, so either half stands in where the other has no data, and the recipe is not
+  daylight-only. Not the whole CIRA product: no city lights or static surface under the night
+  side, and no 3.9 µm low-cloud layer, so night shows what the IR band sees. Checked live: a
+  GOES-East CONUS frame at 11:32Z runs from IR night in the west through dawn to true colour in
+  the east with no seam.
 
 On the map it is one layer, **GOES RGB composite** (`FieldLayer::GoesRgb`), with the recipe picked
 in its settings (Satellite), each recipe's reading under the picker and a daylight-only note for
