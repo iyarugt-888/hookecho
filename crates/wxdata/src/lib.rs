@@ -42,6 +42,7 @@ pub mod gribcache;
 pub mod gridverify;
 pub mod hrrr;
 pub mod kdp;
+pub mod kml;
 pub mod level2;
 pub mod level3;
 pub mod live;

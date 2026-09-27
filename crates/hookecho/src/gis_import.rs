@@ -172,6 +172,40 @@ pub(crate) fn is_shapefile(name: &str) -> bool {
     name.to_ascii_lowercase().ends_with(".shp")
 }
 
+/// Is this file name a KML document?
+pub(crate) fn is_kml(name: &str) -> bool {
+    name.to_ascii_lowercase().ends_with(".kml")
+}
+
+/// Is this file name a KMZ (zipped KML)?
+pub(crate) fn is_kmz(name: &str) -> bool {
+    name.to_ascii_lowercase().ends_with(".kmz")
+}
+
+/// Is this a binary format, which a browser has to remember as the GeoJSON it reads back as
+/// rather than as its own text?
+pub(crate) fn is_binary(name: &str) -> bool {
+    is_shapefile(name) || is_kmz(name)
+}
+
+pub(crate) fn load_kml(text: &str) -> Result<Loaded, String> {
+    wxdata::kml::parse(text)
+        .map(|features| Loaded {
+            features,
+            note: None,
+        })
+        .map_err(|e| format!("{e:#}"))
+}
+
+pub(crate) fn load_kmz(bytes: &[u8]) -> Result<Loaded, String> {
+    wxdata::kml::parse_kmz(bytes)
+        .map(|features| Loaded {
+            features,
+            note: None,
+        })
+        .map_err(|e| format!("{e:#}"))
+}
+
 pub(crate) fn load_geojson(text: &str) -> Result<Loaded, String> {
     wxdata::gis::parse_geojson(text)
         .map(|features| Loaded {
@@ -229,6 +263,12 @@ pub(crate) fn load_path(path: &str) -> Result<Loaded, String> {
         if is_shapefile(path) {
             return load_shapefile_path(std::path::Path::new(path));
         }
+        if is_kmz(path) {
+            return load_kmz(&std::fs::read(path).map_err(|e| e.to_string())?);
+        }
+        if is_kml(path) {
+            return load_kml(&std::fs::read_to_string(path).map_err(|e| e.to_string())?);
+        }
         load_geojson(&std::fs::read_to_string(path).map_err(|e| e.to_string())?)
     }
     #[cfg(target_arch = "wasm32")]
@@ -239,7 +279,17 @@ pub(crate) fn load_path(path: &str) -> Result<Loaded, String> {
 
 /// Read what the picker just returned, whichever format it is.
 pub(crate) fn load_import(import: &crate::dialog::Import) -> Result<Loaded, String> {
-    if !is_shapefile(&import.name()) {
+    let name = import.name();
+    if is_kmz(&name) {
+        return match &import.bytes {
+            Some(bytes) => load_kmz(bytes),
+            None => load_kmz(&std::fs::read(&import.path).map_err(|e| e.to_string())?),
+        };
+    }
+    if is_kml(&name) {
+        return load_kml(&import.text()?);
+    }
+    if !is_shapefile(&name) {
         return load_geojson(&import.text()?);
     }
     match &import.bytes {
@@ -492,6 +542,28 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn a_kml_on_disk_imports_to_shapes_and_marks_with_its_names() {
+        let dir = scratch("kml");
+        let kml = r#"<kml xmlns="http://www.opengis.net/kml/2.2"><Document>
+            <Placemark><name>Staging</name>
+              <Point><coordinates>-97.9,35.0,0</coordinates></Point></Placemark>
+            <Placemark><name>Box</name><Polygon><outerBoundaryIs><LinearRing>
+              <coordinates>-98,35 -97,35 -97,36 -98,35</coordinates>
+            </LinearRing></outerBoundaryIs></Polygon></Placemark>
+            </Document></kml>"#;
+        let path = dir.join("Plan.KML");
+        std::fs::write(&path, kml).unwrap();
+        let loaded = load_path(path.to_str().unwrap()).expect("loads");
+        assert_eq!(loaded.features.len(), 2);
+        let (shapes, marks) = to_renderable(loaded.features);
+        assert_eq!(shapes.len(), 1);
+        assert_eq!(shapes[0].title, "Box");
+        assert_eq!(marks.len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn a_lone_shp_still_imports_and_says_what_it_did_not_have() {
         let dir = scratch("lone");
         std::fs::write(dir.join("lone.shp"), point_shp(-97.5, 35.2)).unwrap();
@@ -555,6 +627,8 @@ mod tests {
     fn shapefile_names_are_recognised_in_any_case() {
         assert!(is_shapefile("Parcels.SHP"));
         assert!(is_shapefile("/a/b/c.shp"));
+        assert!(is_kml("Plan.KML") && is_kmz("plan.kmz") && !is_kml("plan.kmz"));
+        assert!(is_binary("a.kmz") && is_binary("a.shp") && !is_binary("a.kml"));
         assert!(!is_shapefile("c.geojson"));
         assert!(!is_shapefile("c.shp.json"));
     }

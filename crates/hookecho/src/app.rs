@@ -21195,9 +21195,11 @@ impl HookEchoApp {
         let Some(key) = self.settings.imported_gis.clone() else {
             return;
         };
-        // A browser's remembered content is text (a shapefile there was stored as GeoJSON); a
-        // path is read whichever format it is, a shapefile picking up its .dbf and .prj again.
+        // A browser's remembered content is text (a shapefile or KMZ there was stored as
+        // GeoJSON, a KML as itself); a path is read whichever format it is, a shapefile picking
+        // up its .dbf and .prj again.
         let loaded = match self.settings.web_files.get(&key) {
+            Some(text) if crate::gis_import::is_kml(&key) => crate::gis_import::load_kml(text),
             Some(text) => crate::gis_import::load_geojson(text),
             None => crate::gis_import::load_path(&key),
         };
@@ -21372,14 +21374,14 @@ impl HookEchoApp {
                     // Remember it the same two ways an imported `.pal` is remembered: a path
                     // where there is a filesystem, the content itself in a browser, which has
                     // no path that would survive a reload. A boundary file someone works with
-                    // daily should not need re-picking on every launch. A browser's shapefile is
-                    // binary and `web_files` holds text, so it is kept as the GeoJSON it reads
-                    // back as — lossless, since export and import share one type.
+                    // daily should not need re-picking on every launch. A browser's shapefile or
+                    // KMZ is binary and `web_files` holds text, so it is kept as the GeoJSON it
+                    // reads back as — lossless, since export and import share one type.
                     let remembered = match &import.bytes {
                         None => Ok(import.path.to_string_lossy().into_owned()),
-                        Some(_) if crate::gis_import::is_shapefile(&import.name()) => {
+                        Some(_) if crate::gis_import::is_binary(&import.name()) => {
                             let stem = import.path.file_stem().map_or_else(
-                                || "shapefile".to_string(),
+                                || "import".to_string(),
                                 |s| s.to_string_lossy().into_owned(),
                             );
                             let name = format!("{stem}.geojson");
@@ -26971,7 +26973,7 @@ mod probe_grid_tests {
         assert!(cold_top.starts_with("20.0"), "{cold_top}");
 
         assert_eq!(
-            format_probe_field_value(FL::GoesRgb, (0x80_40_20 as u32) as f32, TempUnit::Celsius)
+            format_probe_field_value(FL::GoesRgb, 0x80_40_20_u32 as f32, TempUnit::Celsius)
                 .as_deref(),
             Some("RGB 128 64 32"),
             "a composite probes as its colour, not its packed number"

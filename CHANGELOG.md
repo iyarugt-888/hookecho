@@ -29,6 +29,8 @@ New RGB recipe: Sandwich (visible + IR), the visible picture with the coldest st
 coloured over it, for reading overshooting tops and anvil texture against cloud-top temperature.
 New RGB recipe: Day/Night Color, true colour by day and IR cloud by night, blended through dusk
 and dawn so a satellite loop never goes black.
+"Import GIS file…" now reads KML and KMZ (Google Earth) files too: points, lines and polygons,
+with each placemark's name, description and extended data in its click popup.
 
 ### Added: GOES RGB composites
 

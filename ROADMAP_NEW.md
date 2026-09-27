@@ -2922,8 +2922,23 @@ Implement in this order:
      in a browser, `.cpg` codepages (text is UTF-8, falling back to Latin-1). Tested against
      synthetic files written by the test suite; **not yet against real-world shapefiles from GIS
      software, nor exercised through the picker in a running app.**
-3. [ ] KML
-4. [ ] KMZ
+3. [x] KML — `wxdata::kml::parse`, read by tag like the crate's other XML (no XML dependency):
+   every `Placemark`'s `Point`, `LineString`, `LinearRing` and `Polygon` with holes, however deeply
+   `MultiGeometry`/`Folder` nest them (a multi-geometry's parts become separate features sharing
+   its attributes, as a GeoJSON `GeometryCollection` does), with `name`, `description` and
+   `ExtendedData` (`Data`/`value` and schema `SimpleData`) as attributes. Namespace prefixes,
+   comments, CDATA and entities are handled; a coordinate that is not a plausible lon/lat is
+   dropped. Styles, ground overlays, network links, tours and `gx:` tracks are not read. Same
+   `GisFeature` as the other importers, so drawing, click popups, zoom-to-fit, remembering (a
+   browser keeps the KML text) and GeoJSON export work unchanged.
+4. [x] KMZ — `wxdata::kml::parse_kmz`: a small zip reader finds `doc.kml` (else the first `.kml`)
+   and inflates it (stored or deflate via `flate2`); every offset and length is checked against
+   the archive, the inflated size is capped at 256 MB and grown as it inflates rather than
+   pre-allocated from the archive's own word, and zip64 or encrypted entries are named errors. A
+   test cuts an archive at every byte and flips every byte, requiring an error or a result, never
+   a panic. A browser remembers a KMZ as the GeoJSON it reads back as, like a shapefile. Both
+   formats are in the "Import GIS file…" picker. Tested against synthetic files and a KML on disk
+   through the app's own load path; not yet against real Google Earth exports.
 5. [ ] GeoPackage if a cross-platform Rust path is practical
 
 ## I2. Projection handling

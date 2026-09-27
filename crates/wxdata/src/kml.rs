@@ -1,0 +1,569 @@
+//! KML and KMZ import (ROADMAP_NEW I1 steps 3 and 4), into the same [`GisFeature`] GeoJSON and
+//! Shapefile import produce, so drawing, click popups, zoom-to-fit, remembering and export all
+//! work on it unchanged.
+//!
+//! KML is XML, and this reads it the way the rest of the crate reads the XML it meets (S3
+//! listings, TFR details): by tag, without a general XML parser. That is enough for the shapes
+//! KML can carry — every `Placemark`'s `Point`, `LineString`, `LinearRing` and `Polygon` (with
+//! holes), however deeply a `MultiGeometry` or `Folder` nests them — plus its `name`,
+//! `description` and `ExtendedData` (`Data`/`value` pairs and schema `SimpleData`) as attributes.
+//! Namespace prefixes (`kml:Placemark`), comments, CDATA sections and the five predefined
+//! entities are handled. Styles, overlays, network links, tours and `gx:` tracks are not read:
+//! they are display hints and remote content, not shapes. KML coordinates are WGS 84 by
+//! definition, so there is nothing to reproject.
+//!
+//! A KMZ is a zip archive holding a KML (conventionally `doc.kml`) and its icons. [`parse_kmz`]
+//! reads just enough of the zip format to find that KML and inflate it: stored and deflated
+//! entries, with every offset and length checked against the archive, and the inflated size
+//! capped so a hostile archive cannot drive an unbounded allocation.
+
+use crate::gis::{Geometry, GisFeature};
+use std::io::Read;
+
+/// Every placemark shape in a KML document.
+pub fn parse(kml: &str) -> anyhow::Result<Vec<GisFeature>> {
+    let doc = clean(kml);
+    anyhow::ensure!(
+        doc.contains("<kml") || doc.contains("<Placemark") || doc.contains("<Document"),
+        "not a KML document"
+    );
+    let mut out = Vec::new();
+    for placemark in elements(&doc, "Placemark") {
+        let mut properties = serde_json::Map::new();
+        if let Some(name) = first_text(placemark, "name") {
+            properties.insert("name".into(), name.into());
+        }
+        if let Some(d) = first_text(placemark, "description") {
+            properties.insert("description".into(), d.into());
+        }
+        for (k, v) in extended_data(placemark) {
+            properties.entry(k).or_insert(v.into());
+        }
+        for geometry in geometries(placemark) {
+            out.push(GisFeature {
+                geometry,
+                properties: properties.clone(),
+            });
+        }
+    }
+    Ok(out)
+}
+
+/// Every placemark shape in a KMZ archive's KML.
+pub fn parse_kmz(bytes: &[u8]) -> anyhow::Result<Vec<GisFeature>> {
+    parse(&kml_of_kmz(bytes)?)
+}
+
+/// Is this file a zip archive (a KMZ), judging by its first bytes rather than its name?
+pub fn is_zip(bytes: &[u8]) -> bool {
+    bytes.starts_with(b"PK\x03\x04")
+}
+
+// ---- KML ---------------------------------------------------------------------------------------
+
+/// The document with comments removed, CDATA unwrapped (its text escaped, so the tag scan
+/// cannot mistake markup inside it for elements) and namespace prefixes dropped from tag names.
+fn clean(kml: &str) -> String {
+    let mut s = String::with_capacity(kml.len());
+    let mut rest = kml;
+    while let Some(i) = rest.find('<') {
+        s.push_str(&rest[..i]);
+        rest = &rest[i..];
+        if let Some(body) = rest.strip_prefix("<!--") {
+            rest = body.find("-->").map_or("", |j| &body[j + 3..]);
+        } else if let Some(body) = rest.strip_prefix("<![CDATA[") {
+            let end = body.find("]]>").unwrap_or(body.len());
+            s.push_str(
+                &body[..end]
+                    .replace('&', "&amp;")
+                    .replace('<', "&lt;")
+                    .replace('>', "&gt;"),
+            );
+            rest = body.get(end + 3..).unwrap_or("");
+        } else {
+            // A tag: copy it, minus any `prefix:` on its name.
+            let end = rest.find('>').map_or(rest.len(), |j| j + 1);
+            let tag = &rest[..end];
+            let (open, name_start) = if tag.starts_with("</") {
+                ("</", 2)
+            } else {
+                ("<", 1)
+            };
+            let body = &tag[name_start..];
+            let name_end = body
+                .find(|c: char| c.is_whitespace() || c == '>' || c == '/')
+                .unwrap_or(body.len());
+            match body[..name_end].rfind(':') {
+                Some(colon) if !body.starts_with('?') && !body.starts_with('!') => {
+                    s.push_str(open);
+                    s.push_str(&body[colon + 1..]);
+                }
+                _ => s.push_str(tag),
+            }
+            rest = &rest[end..];
+        }
+    }
+    s.push_str(rest);
+    s
+}
+
+/// Where the next `<name …>` element starts at or after `from`: the index of its `<`, and of the
+/// first byte after its opening tag. A self-closing `<name/>` has no content, so it is skipped.
+fn open_tag(s: &str, name: &str, mut from: usize) -> Option<(usize, usize)> {
+    let pat = format!("<{name}");
+    loop {
+        let i = from + s.get(from..)?.find(&pat)?;
+        let after = i + pat.len();
+        let next = s[after..].chars().next()?;
+        if next == '>' || next.is_whitespace() || next == '/' {
+            let close = after + s[after..].find('>')?;
+            if s[..close].ends_with('/') {
+                from = close;
+                continue;
+            }
+            return Some((i, close + 1));
+        }
+        from = after;
+    }
+}
+
+/// The content of every `<name>` element in `s`, outermost first, in document order. Elements
+/// of the same name nested in each other (a `Folder` in a `Folder`) are matched by depth.
+fn elements<'a>(s: &'a str, name: &str) -> Vec<&'a str> {
+    let close = format!("</{name}>");
+    let mut out = Vec::new();
+    let mut from = 0;
+    while let Some((_, content)) = open_tag(s, name, from) {
+        let mut depth = 1;
+        let mut at = content;
+        let end = loop {
+            let next_close = s[at..].find(&close).map(|j| at + j);
+            let next_open = open_tag(s, name, at).map(|(i, _)| i);
+            match (next_open, next_close) {
+                (Some(o), Some(c)) if o < c => {
+                    depth += 1;
+                    at = o + 1;
+                }
+                (_, Some(c)) => {
+                    depth -= 1;
+                    if depth == 0 {
+                        break Some(c);
+                    }
+                    at = c + close.len();
+                }
+                (_, None) => break None,
+            }
+        };
+        let Some(end) = end else { break };
+        out.push(&s[content..end]);
+        from = end + close.len();
+    }
+    out
+}
+
+/// The text of the first `<name>` element, entities decoded and trimmed; `None` when absent or
+/// empty.
+fn first_text(s: &str, name: &str) -> Option<String> {
+    let text = decode(elements(s, name).first()?.trim());
+    (!text.is_empty()).then_some(text)
+}
+
+/// The value of an attribute in the opening tag that ends just before `content_start`.
+fn attribute(s: &str, tag_start: usize, content_start: usize, attr: &str) -> Option<String> {
+    let tag = &s[tag_start..content_start];
+    let pat = format!("{attr}=");
+    let i = tag.find(&pat)? + pat.len();
+    let quote = tag[i..].chars().next()?;
+    if quote != '"' && quote != '\'' {
+        return None;
+    }
+    let body = &tag[i + 1..];
+    Some(decode(&body[..body.find(quote)?]))
+}
+
+/// A placemark's `ExtendedData`: `<Data name="k"><value>v</value></Data>` and schema
+/// `<SimpleData name="k">v</SimpleData>` alike.
+fn extended_data(placemark: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for ed in elements(placemark, "ExtendedData") {
+        for (tag, value_in) in [("Data", true), ("SimpleData", false)] {
+            let close = format!("</{tag}>");
+            let mut from = 0;
+            while let Some((start, content)) = open_tag(ed, tag, from) {
+                let Some(end) = ed[content..].find(&close).map(|j| content + j) else {
+                    break;
+                };
+                if let Some(key) = attribute(ed, start, content, "name") {
+                    let body = &ed[content..end];
+                    let value = if value_in {
+                        first_text(body, "value").unwrap_or_default()
+                    } else {
+                        decode(body.trim())
+                    };
+                    out.push((key, value));
+                }
+                from = end + close.len();
+            }
+        }
+    }
+    out
+}
+
+/// The five predefined XML entities and numeric character references.
+fn decode(s: &str) -> String {
+    if !s.contains('&') {
+        return s.to_string();
+    }
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(i) = rest.find('&') {
+        out.push_str(&rest[..i]);
+        rest = &rest[i..];
+        let Some(semi) = rest.find(';').filter(|&j| j <= 10) else {
+            out.push('&');
+            rest = &rest[1..];
+            continue;
+        };
+        let entity = &rest[1..semi];
+        let ch = match entity {
+            "amp" => Some('&'),
+            "lt" => Some('<'),
+            "gt" => Some('>'),
+            "quot" => Some('"'),
+            "apos" => Some('\''),
+            e if e.starts_with("#x") || e.starts_with("#X") => u32::from_str_radix(&e[2..], 16)
+                .ok()
+                .and_then(char::from_u32),
+            e if e.starts_with('#') => e[1..].parse().ok().and_then(char::from_u32),
+            _ => None,
+        };
+        match ch {
+            Some(c) => {
+                out.push(c);
+                rest = &rest[semi + 1..];
+            }
+            None => {
+                out.push('&');
+                rest = &rest[1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// A `<coordinates>` list: whitespace-separated `lon,lat[,alt]` tuples. A tuple that does not
+/// read as a plausible longitude/latitude is dropped rather than drawn somewhere wrong.
+fn coordinates(s: &str) -> Vec<[f64; 2]> {
+    let Some(text) = elements(s, "coordinates").into_iter().next() else {
+        return Vec::new();
+    };
+    text.split_whitespace()
+        .filter_map(|t| {
+            let mut it = t.split(',').map(|v| v.trim().parse::<f64>());
+            let lon = it.next()?.ok()?;
+            let lat = it.next()?.ok()?;
+            ((-180.0..=180.0).contains(&lon) && (-90.0..=90.0).contains(&lat)).then_some([lon, lat])
+        })
+        .collect()
+}
+
+/// Every shape in a placemark, in the order polygons, lines, points. A `Polygon`'s rings are
+/// taken out of the text before lines are looked for, so a polygon boundary is not also read as
+/// a line.
+fn geometries(placemark: &str) -> Vec<Geometry> {
+    let mut out = Vec::new();
+    let mut rest = placemark.to_string();
+    for poly in elements(placemark, "Polygon") {
+        let mut rings = Vec::new();
+        for outer in elements(poly, "outerBoundaryIs") {
+            rings.push(coordinates(outer));
+        }
+        rings.truncate(1);
+        for inner in elements(poly, "innerBoundaryIs") {
+            for ring in elements(inner, "LinearRing") {
+                rings.push(coordinates(ring));
+            }
+        }
+        if rings.first().is_some_and(|r| r.len() >= 3) {
+            rings.retain(|r| r.len() >= 3);
+            out.push(Geometry::Polygon(rings));
+        }
+        rest = rest.replacen(poly, "", 1);
+    }
+    for tag in ["LineString", "LinearRing"] {
+        for line in elements(&rest, tag) {
+            let pts = coordinates(line);
+            if pts.len() >= 2 {
+                out.push(Geometry::LineString(pts));
+            }
+        }
+    }
+    for point in elements(&rest, "Point") {
+        if let Some(&p) = coordinates(point).first() {
+            out.push(Geometry::Point(p));
+        }
+    }
+    out
+}
+
+// ---- KMZ ---------------------------------------------------------------------------------------
+
+/// The largest KML a KMZ may inflate to.
+const MAX_KML_BYTES: u64 = 256 * 1024 * 1024;
+
+fn u16_at(b: &[u8], at: usize) -> anyhow::Result<u16> {
+    let s = b
+        .get(at..at + 2)
+        .ok_or_else(|| anyhow::anyhow!("the zip is cut short"))?;
+    Ok(u16::from_le_bytes([s[0], s[1]]))
+}
+
+fn u32_at(b: &[u8], at: usize) -> anyhow::Result<u32> {
+    let s = b
+        .get(at..at + 4)
+        .ok_or_else(|| anyhow::anyhow!("the zip is cut short"))?;
+    Ok(u32::from_le_bytes([s[0], s[1], s[2], s[3]]))
+}
+
+/// The KML inside a KMZ: `doc.kml` at the top level if there is one, else the first `.kml`
+/// entry, as KMZ readers do.
+pub fn kml_of_kmz(zip: &[u8]) -> anyhow::Result<String> {
+    // The end-of-central-directory record: 22 bytes plus a comment of up to 64 KiB, at the end.
+    let floor = zip.len().saturating_sub(22 + 0xFFFF);
+    let eocd = (floor..zip.len().saturating_sub(21))
+        .rev()
+        .find(|&i| zip[i..].starts_with(b"PK\x05\x06"))
+        .ok_or_else(|| anyhow::anyhow!("not a zip archive (no central directory)"))?;
+    let entries = u16_at(zip, eocd + 10)? as usize;
+    let mut at = u32_at(zip, eocd + 16)? as usize;
+    anyhow::ensure!(
+        at != 0xFFFF_FFFF,
+        "a zip64 archive is not supported; re-save the KMZ"
+    );
+    let mut chosen: Option<(String, u16, u16, usize, u64, u64)> = None;
+    for _ in 0..entries {
+        anyhow::ensure!(
+            zip.get(at..at + 4) == Some(b"PK\x01\x02"),
+            "a damaged zip central directory"
+        );
+        let flags = u16_at(zip, at + 8)?;
+        let method = u16_at(zip, at + 10)?;
+        let comp = u32_at(zip, at + 20)? as u64;
+        let size = u32_at(zip, at + 24)? as u64;
+        let name_len = u16_at(zip, at + 28)? as usize;
+        let extra = u16_at(zip, at + 30)? as usize;
+        let comment = u16_at(zip, at + 32)? as usize;
+        let local = u32_at(zip, at + 42)? as usize;
+        let name = zip
+            .get(at + 46..at + 46 + name_len)
+            .ok_or_else(|| anyhow::anyhow!("the zip is cut short"))?;
+        let name = String::from_utf8_lossy(name).into_owned();
+        at += 46 + name_len + extra + comment;
+        if !name.to_ascii_lowercase().ends_with(".kml") {
+            continue;
+        }
+        let is_doc = name.eq_ignore_ascii_case("doc.kml");
+        if chosen.is_none() || is_doc {
+            chosen = Some((name, flags, method, local, comp, size));
+        }
+        if is_doc {
+            break;
+        }
+    }
+    let (name, flags, method, local, comp, size) =
+        chosen.ok_or_else(|| anyhow::anyhow!("the KMZ holds no .kml file"))?;
+    anyhow::ensure!(flags & 1 == 0, "{name} is encrypted");
+    anyhow::ensure!(size <= MAX_KML_BYTES, "{name} is too large ({size} bytes)");
+    anyhow::ensure!(
+        zip.get(local..local + 4) == Some(b"PK\x03\x04"),
+        "a damaged zip entry for {name}"
+    );
+    let start = local + 30 + u16_at(zip, local + 26)? as usize + u16_at(zip, local + 28)? as usize;
+    let data = zip
+        .get(start..start.saturating_add(comp as usize))
+        .ok_or_else(|| anyhow::anyhow!("{name} runs past the end of the zip"))?;
+    let bytes = match method {
+        0 => data.to_vec(),
+        8 => {
+            // Grown as it inflates: the declared size is the archive's word, not a fact.
+            let mut out = Vec::new();
+            flate2::read::DeflateDecoder::new(data)
+                .take(MAX_KML_BYTES + 1)
+                .read_to_end(&mut out)?;
+            anyhow::ensure!(
+                out.len() as u64 <= MAX_KML_BYTES,
+                "{name} inflates past {MAX_KML_BYTES} bytes"
+            );
+            out
+        }
+        m => anyhow::bail!("{name} uses zip compression method {m}, which is not supported"),
+    };
+    Ok(String::from_utf8(bytes)
+        .unwrap_or_else(|e| e.into_bytes().iter().map(|&b| b as char).collect()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const DOC: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+<Document>
+  <name>Chase plan</name>
+  <!-- a comment with <Placemark> inside must not count -->
+  <Folder><name>Targets</name>
+    <Folder>
+      <Placemark>
+        <name>Target &amp; staging</name>
+        <description><![CDATA[Meet at <b>the gas station</b>]]></description>
+        <ExtendedData>
+          <Data name="priority"><value>1</value></Data>
+          <SchemaData schemaUrl="#s"><SimpleData name="county">Grady</SimpleData></SchemaData>
+        </ExtendedData>
+        <Point><coordinates>-97.94,35.05,0</coordinates></Point>
+      </Placemark>
+    </Folder>
+  </Folder>
+  <Placemark>
+    <name>Route</name>
+    <LineString><tessellate>1</tessellate>
+      <coordinates>
+        -97.5,35.2,0 -97.6,35.3,0
+        -97.7,35.4,0
+      </coordinates>
+    </LineString>
+  </Placemark>
+  <Placemark>
+    <name>Area</name>
+    <MultiGeometry>
+      <Polygon>
+        <outerBoundaryIs><LinearRing><coordinates>0,0 4,0 4,4 0,4 0,0</coordinates></LinearRing></outerBoundaryIs>
+        <innerBoundaryIs><LinearRing><coordinates>1,1 2,1 2,2 1,1</coordinates></LinearRing></innerBoundaryIs>
+      </Polygon>
+      <Point><coordinates>2,2</coordinates></Point>
+    </MultiGeometry>
+  </Placemark>
+  <Placemark><name>No shape</name></Placemark>
+</Document>
+</kml>"##;
+
+    #[test]
+    fn reads_every_placemark_shape_with_its_attributes() {
+        let f = parse(DOC).unwrap();
+        assert_eq!(f.len(), 4, "{f:#?}");
+        assert_eq!(f[0].geometry, Geometry::Point([-97.94, 35.05]));
+        assert_eq!(f[0].properties["name"], "Target & staging");
+        assert_eq!(
+            f[0].properties["description"],
+            "Meet at <b>the gas station</b>"
+        );
+        assert_eq!(f[0].properties["priority"], "1");
+        assert_eq!(f[0].properties["county"], "Grady");
+        assert_eq!(
+            f[1].geometry,
+            Geometry::LineString(vec![[-97.5, 35.2], [-97.6, 35.3], [-97.7, 35.4]])
+        );
+        let Geometry::Polygon(rings) = &f[2].geometry else {
+            panic!("{:?}", f[2].geometry)
+        };
+        assert_eq!(rings.len(), 2, "outer ring and one hole");
+        assert_eq!(rings[1][0], [1.0, 1.0]);
+        assert_eq!(f[3].geometry, Geometry::Point([2.0, 2.0]));
+        assert_eq!(
+            f[3].properties["name"], "Area",
+            "a MultiGeometry's parts share it"
+        );
+    }
+
+    #[test]
+    fn namespace_prefixes_and_entities_are_handled() {
+        let doc = r#"<kml:kml xmlns:kml="http://www.opengis.net/kml/2.2"><kml:Placemark>
+            <kml:name>A &lt;b&gt; &#233;t&#xE9;</kml:name>
+            <kml:Point><kml:coordinates>10,20</kml:coordinates></kml:Point>
+            </kml:Placemark></kml:kml>"#;
+        let f = parse(doc).unwrap();
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0].properties["name"], "A <b> été");
+        assert_eq!(f[0].geometry, Geometry::Point([10.0, 20.0]));
+    }
+
+    #[test]
+    fn implausible_coordinates_and_non_kml_are_refused() {
+        let doc = "<kml><Placemark><Point><coordinates>500000,4000000</coordinates></Point>\
+                   </Placemark></kml>";
+        assert!(parse(doc).unwrap().is_empty());
+        assert!(parse("{\"type\": \"FeatureCollection\"}").is_err());
+    }
+
+    /// A one-entry zip archive, stored or deflated.
+    fn zip_of(name: &str, body: &[u8], deflate: bool) -> Vec<u8> {
+        use std::io::Write;
+        let data = if deflate {
+            let mut e =
+                flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::default());
+            e.write_all(body).unwrap();
+            e.finish().unwrap()
+        } else {
+            body.to_vec()
+        };
+        let method: u16 = if deflate { 8 } else { 0 };
+        let mut z = Vec::new();
+        z.extend_from_slice(b"PK\x03\x04");
+        z.extend_from_slice(&[20, 0, 0, 0]);
+        z.extend_from_slice(&method.to_le_bytes());
+        z.extend_from_slice(&[0; 8]); // time, date, crc
+        z.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        z.extend_from_slice(&(body.len() as u32).to_le_bytes());
+        z.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        z.extend_from_slice(&[0, 0]);
+        z.extend_from_slice(name.as_bytes());
+        z.extend_from_slice(&data);
+        let cd = z.len();
+        z.extend_from_slice(b"PK\x01\x02");
+        z.extend_from_slice(&[20, 0, 20, 0, 0, 0]);
+        z.extend_from_slice(&method.to_le_bytes());
+        z.extend_from_slice(&[0; 8]);
+        z.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        z.extend_from_slice(&(body.len() as u32).to_le_bytes());
+        z.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        z.extend_from_slice(&[0; 12]); // extra, comment, disk, attrs
+        z.extend_from_slice(&0u32.to_le_bytes()); // local header offset
+        z.extend_from_slice(name.as_bytes());
+        let cd_len = z.len() - cd;
+        z.extend_from_slice(b"PK\x05\x06");
+        z.extend_from_slice(&[0, 0, 0, 0, 1, 0, 1, 0]);
+        z.extend_from_slice(&(cd_len as u32).to_le_bytes());
+        z.extend_from_slice(&(cd as u32).to_le_bytes());
+        z.extend_from_slice(&[0, 0]);
+        z
+    }
+
+    #[test]
+    fn a_kmz_is_unzipped_stored_or_deflated() {
+        for deflate in [false, true] {
+            let z = zip_of("doc.kml", DOC.as_bytes(), deflate);
+            assert!(is_zip(&z));
+            assert_eq!(parse_kmz(&z).unwrap().len(), 4, "deflate {deflate}");
+        }
+        let none = zip_of("icon.png", b"\x89PNG", false);
+        assert!(parse_kmz(&none)
+            .unwrap_err()
+            .to_string()
+            .contains("no .kml"));
+    }
+
+    #[test]
+    fn a_damaged_kmz_is_an_error_never_a_panic() {
+        let z = zip_of("doc.kml", DOC.as_bytes(), true);
+        for cut in 0..z.len() {
+            let _ = parse_kmz(&z[..cut]);
+        }
+        let mut flipped = z.clone();
+        for i in 0..flipped.len() {
+            flipped[i] ^= 0xFF;
+            let _ = parse_kmz(&flipped);
+            flipped[i] ^= 0xFF;
+        }
+    }
+}

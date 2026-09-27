@@ -11,11 +11,9 @@
 //! types, so anything this app draws can leave it for QGIS/ArcGIS and anything written here reads
 //! straight back through [`parse_geojson`].
 //!
-//! What this module deliberately does *not* do yet, per I1's own suggested order: Shapefile, KML,
-//! KMZ and GeoPackage import (GeoJSON first; the others are separate, larger parsers with their
-//! own formats to get right), and reprojection from a non-WGS84 CRS (I2 — a GeoJSON document is
-//! supposed to always be WGS84 per the spec, so this isn't blocking GeoJSON specifically, but a
-//! Shapefile's `.prj` will need it).
+//! The other import formats live beside it and produce the same [`GisFeature`]:
+//! [`crate::shapefile`] and [`crate::kml`] (KML and KMZ). GeoPackage import and reprojection from
+//! coordinate systems other than WGS 84 / NAD 83 / Web Mercator (I2) are not built.
 
 use geojson::{Feature, FeatureCollection, GeoJson, GeometryValue, Position};
 
