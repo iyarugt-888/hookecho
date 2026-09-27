@@ -1219,6 +1219,14 @@ impl HookEchoApp {
                 PaletteAction::ToggleStatusFooter,
                 Some(self.dock.footer_open),
             );
+            push(
+                "Reset window layout",
+                "Tools",
+                "Put every window back where this layout starts it, at its usual size and tab order",
+                false,
+                PaletteAction::ResetWindowLayout,
+                None,
+            );
         }
         let links_on = OverlayToggle::PANE_LINKS
             .into_iter()

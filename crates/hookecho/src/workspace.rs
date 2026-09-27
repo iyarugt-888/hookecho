@@ -196,6 +196,10 @@ pub struct WorkstationChrome {
     /// default.
     #[serde(default)]
     pub bottom_h: Option<u16>,
+    /// The order the windows' tabs were dragged into, by window name (`"Storms"`); windows not
+    /// named keep their usual place after the named ones. Empty is the usual order.
+    #[serde(default)]
+    pub tab_order: Vec<String>,
     /// The storm table. Closed until asked for; docks right when opened.
     #[serde(default = "storms_default")]
     pub storms: WindowChrome,
@@ -790,6 +794,7 @@ mod tests {
                     log: WindowChrome::at(true, Place::Right),
                     dock_widths: [Some(320), None],
                     bottom_h: Some(260),
+                    tab_order: vec!["Storms".into(), "Inspector".into()],
                     sounding: WindowChrome::at(true, Place::Float),
                     storms: WindowChrome::at(false, Place::Right),
                     cell: WindowChrome::at(true, Place::Left),

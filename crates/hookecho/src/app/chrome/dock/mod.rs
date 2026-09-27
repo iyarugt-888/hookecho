@@ -211,6 +211,25 @@ impl DockWin {
         }
     }
 
+    /// Its name in a saved arrangement (the tab order): stable, unlike its title.
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            DockWin::Layers => "Layers",
+            DockWin::Inspector => "Inspector",
+            DockWin::Alerts => "Alerts",
+            DockWin::Prefs => "Prefs",
+            DockWin::View3d => "View3d",
+            DockWin::Sources => "Sources",
+            DockWin::Log => "Log",
+            DockWin::Sounding => "Sounding",
+            DockWin::Storms => "Storms",
+            DockWin::Cell => "Cell",
+            DockWin::Region => "Region",
+            DockWin::Volume => "Volume",
+            DockWin::Gauges => "Gauges",
+        }
+    }
+
     /// The glyph its header, its dock tab and its row in the Layers tree share.
     pub(crate) fn glyph(self) -> &'static str {
         self.tab().glyph
@@ -233,6 +252,22 @@ impl DockWin {
             DockWin::Gauges => gauges::GAUGES_W,
         }
     }
+}
+
+/// A saved tab order back into windows: the named ones first, in that order, then every other
+/// window in its usual place. Unknown names (a window a later version dropped) are skipped.
+fn tab_order_from(names: &[String]) -> Vec<DockWin> {
+    let mut v: Vec<DockWin> = names
+        .iter()
+        .filter_map(|n| DockWin::ALL.into_iter().find(|w| w.name() == n))
+        .collect();
+    v.dedup();
+    for w in DockWin::ALL {
+        if !v.contains(&w) {
+            v.push(w);
+        }
+    }
+    v
 }
 
 /// The widest a dock may be dragged in a window this wide: [`DOCK_MAX_W`], and never more than
@@ -391,6 +426,11 @@ pub(crate) struct DockState {
     pub bottom_h: Option<f32>,
     /// A window just torn out of a dock, and where to put it: under the pointer that tore it.
     pending_float: Option<(DockWin, egui::Pos2)>,
+    /// The windows' tab order, as dragged: every window once.
+    pub tab_order: Vec<DockWin>,
+    /// Where each dock (left, right, bottom) was drawn last frame, for Ctrl+Tab to find the one
+    /// under the pointer.
+    rects: [Option<egui::Rect>; 3],
     /// The alert whose bulletin the Alerts window last brought forward, so a new one (a click on
     /// a warning polygon) brings it forward once and the analyst's own tab choice then holds.
     pub bulletin_seen: Option<String>,
@@ -453,6 +493,8 @@ impl Default for DockState {
             dock_widths: [None; 2],
             bottom_h: None,
             pending_float: None,
+            tab_order: DockWin::ALL.to_vec(),
+            rects: [None; 3],
             bulletin_seen: None,
             cells_open: Vec::new(),
             cell_compare: false,
@@ -491,6 +533,7 @@ impl DockState {
             log: WindowChrome::at(true, Place::Right),
             dock_widths: [None; 2],
             bottom_h: None,
+            tab_order: Vec::new(),
             sounding: WindowChrome::at(true, Place::Right),
             storms: WindowChrome::at(false, Place::Right),
             cell: WindowChrome::at(true, Place::Right),
@@ -515,6 +558,14 @@ impl DockState {
             log: self.log,
             dock_widths: self.dock_widths.map(|w| w.map(|w| w.round() as u16)),
             bottom_h: self.bottom_h.map(|h| h.round() as u16),
+            tab_order: if self.tab_order == DockWin::ALL {
+                Vec::new()
+            } else {
+                self.tab_order
+                    .iter()
+                    .map(|w| w.name().to_string())
+                    .collect()
+            },
             sounding: self.sounding,
             storms: self.storms,
             cell: self.cell,
@@ -538,6 +589,7 @@ impl DockState {
         self.log = w.log;
         self.dock_widths = w.dock_widths.map(|w| w.map(f32::from));
         self.bottom_h = w.bottom_h.map(f32::from);
+        self.tab_order = tab_order_from(&w.tab_order);
         self.sounding = w.sounding;
         self.storms = w.storms;
         self.cell = w.cell;
@@ -617,10 +669,84 @@ impl DockState {
 
     /// The present windows at `side`, in tab order.
     pub(crate) fn stack(&self, side: Place) -> Vec<DockWin> {
-        DockWin::ALL
+        let mut v: Vec<DockWin> = DockWin::ALL
             .into_iter()
             .filter(|w| self.present(*w) && self.chrome(*w).place == side)
-            .collect()
+            .collect();
+        v.sort_by_key(|w| {
+            self.tab_order
+                .iter()
+                .position(|o| o == w)
+                .unwrap_or(usize::MAX)
+        });
+        v
+    }
+
+    /// Whether `w` has something to show now, open or not (the sounding needs a sounded point,
+    /// the Cell window a storm's details, ...). The windows menu greys out the ones that do not.
+    pub(crate) fn available(&self, w: DockWin) -> bool {
+        match w {
+            DockWin::View3d => self.view3d_available,
+            DockWin::Log => self.log_available,
+            DockWin::Sounding => self.sounding_available,
+            DockWin::Cell => self.cell_available,
+            DockWin::Region => self.region_available,
+            DockWin::Volume => self.volume_available,
+            _ => true,
+        }
+    }
+
+    /// Put every window back where the layout starts them, at their usual sizes and in their
+    /// usual tab order.
+    pub(crate) fn reset_layout(&mut self, layout: crate::settings::Layout) {
+        self.arrange(&DockState::preset(layout));
+        self.dock_widths = [None; 2];
+        self.bottom_h = None;
+        self.tab_order = DockWin::ALL.to_vec();
+        self.pending_float = None;
+    }
+
+    /// Move `w` into a dock (or float it), in front there.
+    pub(crate) fn place_window(&mut self, w: DockWin, place: Place) {
+        let c = self.chrome_mut(w);
+        c.place = place;
+        c.collapsed = false;
+        self.bring_forward(w);
+    }
+
+    /// Ctrl+Tab: the next (or, `back`, the previous) tab of the dock at `side` to the front.
+    pub(crate) fn cycle_tab(&mut self, side: Place, back: bool) {
+        let stack = self.stack(side);
+        let Some(slot) = side_slot(side) else {
+            return;
+        };
+        if stack.len() < 2 {
+            return;
+        }
+        let at = self.front[slot]
+            .and_then(|f| stack.iter().position(|w| *w == f))
+            .unwrap_or(0);
+        let n = stack.len();
+        let next = if back { (at + n - 1) % n } else { (at + 1) % n };
+        self.front[slot] = Some(stack[next]);
+        self.note_side(slot);
+    }
+
+    /// The dock Ctrl+Tab steps through: the one under `pointer` (as drawn last frame), else the
+    /// side used last.
+    fn cycle_target(&self, pointer: Option<egui::Pos2>) -> Place {
+        let under = pointer.and_then(|p| {
+            DOCKS
+                .into_iter()
+                .zip(self.rects)
+                .find(|(_, r)| r.is_some_and(|r| r.contains(p)))
+                .map(|(side, _)| side)
+        });
+        under.unwrap_or(if self.last_side == 0 {
+            Place::Left
+        } else {
+            Place::Right
+        })
     }
 
     /// Say whether a point has been sounded. A new sounding shows the tab again, and brings it
@@ -809,6 +935,20 @@ impl DockState {
                     self.note_side(slot);
                 }
             }
+            ws::HeaderAction::Reorder(from, to) if !self.phone => {
+                let side = self.chrome(win).place;
+                let stack = self.stack(side);
+                if let (Some(&a), Some(&b)) = (stack.get(from), stack.get(to)) {
+                    self.tab_order.retain(|w| *w != a);
+                    let at = self
+                        .tab_order
+                        .iter()
+                        .position(|w| *w == b)
+                        .map_or(self.tab_order.len(), |i| if from < to { i + 1 } else { i });
+                    self.tab_order.insert(at, a);
+                }
+            }
+            ws::HeaderAction::Reorder(..) => {}
             ws::HeaderAction::TearOff(_, _) if self.phone => {}
             ws::HeaderAction::TearOff(tab, at) => {
                 // A tab of a group tears off that tab's window; a lone header, the window itself.
@@ -839,7 +979,10 @@ impl DockState {
 /// What a tool window's header asked for, applied to that window's own state.
 pub(super) fn apply_header(action: ws::HeaderAction, w: &mut WindowChrome) {
     match action {
-        ws::HeaderAction::None | ws::HeaderAction::Tab(_) | ws::HeaderAction::TearOff(..) => {}
+        ws::HeaderAction::None
+        | ws::HeaderAction::Tab(_)
+        | ws::HeaderAction::TearOff(..)
+        | ws::HeaderAction::Reorder(..) => {}
         ws::HeaderAction::Close => w.open = false,
         ws::HeaderAction::Collapse => w.collapsed = !w.collapsed,
         ws::HeaderAction::Place(p) => {
@@ -1186,6 +1329,22 @@ impl HookEchoApp {
         self.dock_timeline(root, false);
         self.dock_sync_available();
         self.dock.narrow = ctx.content_rect().width() < ONE_DOCK_BELOW;
+        // Ctrl+Tab steps through the tabs of the dock under the pointer (Shift goes back), as
+        // Dear ImGui's window switcher does. Taken before any widget can use Tab for focus.
+        let (back, fwd) = ctx.input_mut(|i| {
+            (
+                i.consume_key(
+                    egui::Modifiers::CTRL | egui::Modifiers::SHIFT,
+                    egui::Key::Tab,
+                ),
+                i.consume_key(egui::Modifiers::CTRL, egui::Key::Tab),
+            )
+        });
+        if back || fwd {
+            let side = self.dock.cycle_target(ctx.pointer_latest_pos());
+            self.dock.cycle_tab(side, back);
+        }
+        self.dock.rects = [None; 3];
         for side in [Place::Left, Place::Right] {
             if !self.dock.side_visible(side) {
                 continue;
@@ -1297,6 +1456,7 @@ impl HookEchoApp {
             })
             .response
             .rect;
+        self.dock.rects[slot] = Some(rect);
         // The resize grip: a strip along the inner edge, inside the panel, registered after its
         // contents so it wins over whatever they put there.
         let grip = match side {
@@ -1758,6 +1918,11 @@ mod tests {
             log: WindowChrome::at(false, Place::Left),
             dock_widths: [None, Some(360)],
             bottom_h: Some(280),
+            // Saved complete: the moved window first, then the rest in their usual order.
+            tab_order: tab_order_from(&["Gauges".into()])
+                .iter()
+                .map(|w| w.name().to_string())
+                .collect(),
             sounding: WindowChrome::at(false, Place::Left),
             storms: WindowChrome::at(false, Place::Right),
             cell: WindowChrome::at(true, Place::Float),
@@ -2039,6 +2204,104 @@ mod tests {
             ),
             Some(Place::Left),
             "a near miss still counts"
+        );
+    }
+
+    #[test]
+    fn tabs_dragged_along_the_strip_change_places_and_the_order_is_saved() {
+        let mut s = DockState {
+            inspector: WindowChrome::at(true, Place::Right),
+            alerts: WindowChrome::at(true, Place::Right),
+            storms: WindowChrome::at(true, Place::Right),
+            ..DockState::default()
+        };
+        s.update_fronts();
+        assert_eq!(
+            s.stack(Place::Right),
+            [DockWin::Inspector, DockWin::Storms, DockWin::Alerts]
+        );
+        // Storms (tab 1) dragged over Inspector (tab 0): it goes first.
+        s.apply_header(DockWin::Inspector, ws::HeaderAction::Reorder(1, 0));
+        assert_eq!(
+            s.stack(Place::Right),
+            [DockWin::Storms, DockWin::Inspector, DockWin::Alerts]
+        );
+        // And to the end.
+        s.apply_header(DockWin::Inspector, ws::HeaderAction::Reorder(0, 2));
+        assert_eq!(
+            s.stack(Place::Right),
+            [DockWin::Inspector, DockWin::Alerts, DockWin::Storms]
+        );
+        // The order survives the settings file, by name; the usual order saves as nothing.
+        let saved = s.arrangement();
+        assert!(!saved.tab_order.is_empty());
+        let mut back = DockState::default();
+        back.arrange(&saved);
+        assert_eq!(back.stack(Place::Right), s.stack(Place::Right));
+        assert!(DockState::default().arrangement().tab_order.is_empty());
+        // A name a later version dropped is skipped, and every window still has a place.
+        let order = tab_order_from(&["Nope".into(), "Log".into(), "Log".into()]);
+        assert_eq!(order[0], DockWin::Log);
+        assert_eq!(order.len(), DockWin::ALL.len());
+        // Tab-strip geometry: along the strip over another tab reorders; off it tears.
+        let strip = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(300.0, 28.0));
+        let tabs = [
+            egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(100.0, 28.0)),
+            egui::Rect::from_min_size(egui::pos2(100.0, 0.0), egui::vec2(100.0, 28.0)),
+        ];
+        assert_eq!(
+            ws::tab_drag(0, egui::pos2(150.0, 14.0), strip, &tabs),
+            ws::HeaderAction::Reorder(0, 1)
+        );
+        assert_eq!(
+            ws::tab_drag(0, egui::pos2(50.0, 20.0), strip, &tabs),
+            ws::HeaderAction::None
+        );
+        assert!(matches!(
+            ws::tab_drag(1, egui::pos2(150.0, 90.0), strip, &tabs),
+            ws::HeaderAction::TearOff(Some(1), _)
+        ));
+    }
+
+    #[test]
+    fn ctrl_tab_steps_through_a_dock_and_reset_puts_everything_back() {
+        let mut s = DockState {
+            inspector: WindowChrome::at(true, Place::Right),
+            alerts: WindowChrome::at(true, Place::Right),
+            storms: WindowChrome::at(true, Place::Right),
+            ..DockState::default()
+        };
+        s.update_fronts();
+        assert_eq!(s.front[1], Some(DockWin::Inspector));
+        s.cycle_tab(Place::Right, false);
+        assert_eq!(s.front[1], Some(DockWin::Storms));
+        s.cycle_tab(Place::Right, true);
+        s.cycle_tab(Place::Right, true);
+        assert_eq!(s.front[1], Some(DockWin::Alerts), "back wraps round");
+        // The dock under the pointer wins; otherwise the side used last.
+        s.rects[0] = Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(100.0, 100.0),
+        ));
+        assert_eq!(s.cycle_target(Some(egui::pos2(50.0, 50.0))), Place::Left);
+        s.last_side = 1;
+        assert_eq!(s.cycle_target(Some(egui::pos2(500.0, 50.0))), Place::Right);
+        // Reset: the layout's own arrangement, usual sizes and order.
+        s.bottom_h = Some(400.0);
+        s.dock_widths = [Some(500.0), None];
+        s.apply_header(DockWin::Inspector, ws::HeaderAction::Reorder(0, 2));
+        s.reset_layout(crate::settings::Layout::Dock);
+        assert_eq!(
+            s.arrangement(),
+            DockState::preset(crate::settings::Layout::Dock)
+        );
+        assert_eq!(s.tab_order, DockWin::ALL);
+        // Moving a window by the menu brings it to the front where it lands.
+        s.place_window(DockWin::Gauges, Place::Bottom);
+        assert!(s.gauges.open && s.front[2] == Some(DockWin::Gauges));
+        assert!(
+            !s.available(DockWin::Cell),
+            "no storm's details asked for yet"
         );
     }
 

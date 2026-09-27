@@ -256,6 +256,18 @@ impl HookEchoApp {
                                     menu_pick = Some(p);
                                 }
                             });
+                            let windows =
+                                ws::icon_button(ui, &t, ph::APP_WINDOW, label("Windows"), false)
+                                    .named("Every tool window: show, hide, move, reset");
+                            egui::Popup::menu(&windows)
+                                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                                .show(|ui| {
+                                    ws::menu_scope(ui, &t);
+                                    ui.set_min_width(250.0);
+                                    if let Some(a) = self.dock_windows_menu(ui, &t) {
+                                        action = Some(a);
+                                    }
+                                });
                             let tools = ws::icon_button(ui, &t, ph::WRENCH, label("Tools"), false)
                                 .named("Tools and windows");
                             egui::Popup::menu(&tools).show(|ui| {
@@ -757,6 +769,107 @@ impl HookEchoApp {
         if let Some(a) = action {
             self.apply_palette(a, ctx);
         }
+    }
+}
+
+impl HookEchoApp {
+    /// The Windows menu: every tool window with whether it is showing and where it sits, a way
+    /// to move each, and a reset. A window with nothing to show yet (the sounding before a point
+    /// is sounded) is listed greyed, with what brings it.
+    fn dock_windows_menu(
+        &mut self,
+        ui: &mut egui::Ui,
+        t: &ws::Tokens,
+    ) -> Option<crate::app::PaletteAction> {
+        use crate::app::PaletteAction as A;
+        let mut action = None;
+        let mut toggle = None;
+        let mut moved = None;
+        // A fixed width: the place labels are right-aligned against it, and the note under the
+        // list wraps to it rather than widening the menu.
+        ui.set_width(280.0);
+        for w in DockWin::ALL {
+            let shown = self.dock.shown(w);
+            let available = self.dock.available(w);
+            let place = self.dock.chrome(w).place;
+            let tab = w.tab();
+            ui.horizontal(|ui| {
+                let row = ui
+                    .add_enabled(
+                        available,
+                        egui::Button::selectable(shown, format!("{}   {}", tab.glyph, tab.title)),
+                    )
+                    .on_disabled_hover_text(match w {
+                        DockWin::View3d => "Shows while a pane is in 3D",
+                        DockWin::Log => "Shows with Analyst Mode on",
+                        DockWin::Sounding => "Shows once a point is sounded (the Sounding tool)",
+                        DockWin::Cell => "Shows once Details\u{2026} is asked for on a storm",
+                        DockWin::Region => "Shows once a region box is drawn (Region statistics)",
+                        DockWin::Volume => "Shows while the 3D volume explorer is open",
+                        _ => "",
+                    });
+                if row.clicked() {
+                    toggle = Some(w);
+                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.menu_button(
+                        ws::text(
+                            match place {
+                                Place::Left => "left",
+                                Place::Right => "right",
+                                Place::Bottom => "bottom",
+                                Place::Float => "floating",
+                            },
+                            11.0,
+                            t.text_faint,
+                        ),
+                        |ui| {
+                            ws::menu_scope(ui, t);
+                            for (p, label) in [
+                                (Place::Left, "Dock left"),
+                                (Place::Right, "Dock right"),
+                                (Place::Bottom, "Dock bottom"),
+                                (Place::Float, "Float over the map"),
+                            ] {
+                                if ui.selectable_label(place == p, label).clicked() {
+                                    moved = Some((w, p));
+                                }
+                            }
+                        },
+                    );
+                });
+            });
+        }
+        ui.separator();
+        if ui
+            .button("Reset window layout")
+            .on_hover_text(
+                "Every window back where this layout starts it, at its usual size and tab order",
+            )
+            .clicked()
+        {
+            action = Some(A::ResetWindowLayout);
+        }
+        ui.add(
+            egui::Label::new(ws::text(
+                "Drag a floating window onto a dock target to dock it; drag a tab out to float                  it; drag tabs along their strip to reorder them. Ctrl+Tab steps through a                  dock's tabs.",
+                10.5,
+                t.text_faint,
+            ))
+            .wrap(),
+        );
+        match toggle {
+            // The gauges' list is the map layer's fetch: opening the window turns it on.
+            Some(DockWin::Gauges) if !self.dock.shown(DockWin::Gauges) => {
+                action = Some(A::OpenWindow(AppWindow::FloodGauges));
+            }
+            Some(w) => self.dock.toggle(w),
+            None => {}
+        }
+        if let Some((w, p)) = moved {
+            self.dock.place_window(w, p);
+        }
+        action
     }
 }
 

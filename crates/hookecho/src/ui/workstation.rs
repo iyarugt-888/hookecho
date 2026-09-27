@@ -207,6 +207,20 @@ pub enum HeaderAction {
     /// Dragged out of its dock: float it (a group's tab `Some(i)`, or the window itself) with its
     /// header under this point, as Dear ImGui tears a tab out of a dock node.
     TearOff(Option<usize>, egui::Pos2),
+    /// A group's tab dragged along the strip over another: move tab `.0` to where tab `.1` is.
+    Reorder(usize, usize),
+}
+
+/// What dragging tab `i` of a strip to `at` asks for: out of the strip (above or below it by more
+/// than [`TEAR_DISTANCE`]) tears the tab off; along it, over another tab, moves it there.
+pub fn tab_drag(i: usize, at: egui::Pos2, strip: Rect, tabs: &[Rect]) -> HeaderAction {
+    if at.y < strip.top() - TEAR_DISTANCE || at.y > strip.bottom() + TEAR_DISTANCE {
+        return HeaderAction::TearOff(Some(i), at);
+    }
+    match tabs.iter().position(|r| r.x_range().contains(at.x)) {
+        Some(j) if j != i => HeaderAction::Reorder(i, j),
+        _ => HeaderAction::None,
+    }
 }
 
 /// How far a docked header or tab has to be dragged before it tears off, so a click that wobbles
@@ -359,6 +373,15 @@ pub fn window_header(
         let per_button = if touch { 44.0 } else { 24.0 };
         let avail = rect.width() - 8.0 - per_button * buttons as f32;
         let widths = tab_widths(&full, group.front, avail);
+        let tab_rects: Vec<Rect> = widths
+            .iter()
+            .scan(rect.left(), |x, w| {
+                let r =
+                    Rect::from_min_size(egui::pos2(*x, rect.top()), egui::vec2(*w, rect.height()));
+                *x += w;
+                Some(r)
+            })
+            .collect();
         let mut x = rect.left();
         for (i, (tab, w)) in group.tabs.iter().zip(&widths).enumerate() {
             let r = Rect::from_min_size(egui::pos2(x, rect.top()), egui::vec2(*w, rect.height()));
@@ -376,7 +399,10 @@ pub fn window_header(
             );
             if resp.dragged() && tears_off(resp.total_drag_delta().unwrap_or_default()) {
                 if let Some(at) = resp.interact_pointer_pos() {
-                    action = HeaderAction::TearOff(Some(i), at);
+                    let asked = tab_drag(i, at, rect, &tab_rects);
+                    if asked != HeaderAction::None {
+                        action = asked;
+                    }
                 }
             }
             let p = ui.painter();

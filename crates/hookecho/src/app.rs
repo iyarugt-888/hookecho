@@ -2500,6 +2500,8 @@ pub(crate) enum PaletteAction {
     ToggleFollowLowest,
     /// The workstation's status footer under the timeline (roadmap Q2).
     ToggleStatusFooter,
+    /// Put the workstation's windows back where the layout starts them.
+    ResetWindowLayout,
     /// ROADMAP_NEW J6 "link/unlink": every pane link at once — on if any is off, else all off.
     ToggleLinkAll,
     /// Copy a `hookecho://goto/…` link to this view (site, center, zoom, archive time).
@@ -11554,6 +11556,10 @@ impl HookEchoApp {
                 v.followed_sweep = None;
             }
             PaletteAction::ToggleStatusFooter => self.dock.footer_open = !self.dock.footer_open,
+            PaletteAction::ResetWindowLayout => {
+                let layout = self.settings.layout;
+                self.dock.reset_layout(layout);
+            }
             PaletteAction::ToggleLinkAll => {
                 let on = !OverlayToggle::PANE_LINKS
                     .iter()
