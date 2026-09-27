@@ -293,6 +293,11 @@ pub enum FieldLayer {
     /// as the other half of the classic split-window technique, [`FieldLayer::GoesDustDiff`],
     /// for dust and volcanic-ash detection.
     GoesDirtyIr,
+    /// GOES ABI Band 14 (longwave IR, 11.2 µm) brightness temperature. The traditional
+    /// "IR" channel of the older GOES imagers, a window channel between Band 13 and
+    /// Band 15: kept for continuity with that record and for side-by-side reading
+    /// against the clean window, sharing Band 13's ramp.
+    GoesLongwaveIr,
     /// The split-window dust/ash product itself (ROADMAP_NEW E6): Band 13 minus Band 15
     /// brightness temperature, CONUS sector — positive and above a small deadband over a
     /// dust/ash cloud, near-zero (transparent) everywhere else. See `field_ramps`'s
@@ -375,6 +380,7 @@ impl FieldLayer {
                 | FieldLayer::GoesMidWaterVapor
                 | FieldLayer::GoesLowWaterVapor
                 | FieldLayer::GoesDirtyIr
+                | FieldLayer::GoesLongwaveIr
                 | FieldLayer::GoesRgb
                 | FieldLayer::NdfdTemp2m
                 | FieldLayer::NdfdWind10m
@@ -417,7 +423,7 @@ impl FieldLayer {
     }
 
     /// Fixed bottom-to-top paint order within each band.
-    pub const DRAW_ORDER: [FieldLayer; 88] = [
+    pub const DRAW_ORDER: [FieldLayer; 89] = [
         // Below-radar context band (bottom to top). The global models sit at the very bottom:
         // they are the synoptic backdrop everything else is drawn against — satellite included,
         // since it is the same kind of backdrop and the radar itself paints over it just the same.
@@ -431,6 +437,7 @@ impl FieldLayer {
         FieldLayer::GoesVisible,
         FieldLayer::GoesShortwaveIr,
         FieldLayer::GoesDirtyIr,
+        FieldLayer::GoesLongwaveIr,
         FieldLayer::GoesIr,
         // A composite is a whole picture, not a channel: over the single bands, so turning one
         // on while a band is on shows the composite.
@@ -644,6 +651,7 @@ impl FieldLayer {
             FieldLayer::GoesMidWaterVapor => "goes-mid-water-vapor",
             FieldLayer::GoesLowWaterVapor => "goes-low-water-vapor",
             FieldLayer::GoesDirtyIr => "goes-dirty-ir",
+            FieldLayer::GoesLongwaveIr => "goes-longwave-ir",
             FieldLayer::GoesDustDiff => "goes-dust-diff",
             FieldLayer::GoesColdTop => "goes-cold-top",
             FieldLayer::GoesCoolingRate => "goes-cooling-rate",

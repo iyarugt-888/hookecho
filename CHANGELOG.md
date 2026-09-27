@@ -21,6 +21,9 @@ the satellite scan nearest it (one-minute steps from a mesoscale sector), instea
 Satellite lightning (GLM) follows too: a scrubbed-back view shows the flashes of the ten minutes
 before that scan, not today's.
 
+New satellite layer: GOES longwave IR (Band 14), the classic IR channel, beside clean and
+split-window IR.
+
 ### Added: GOES RGB composites
 
 A new layer, **GOES RGB composite**, builds the standard satellite RGBs straight from GOES-East or

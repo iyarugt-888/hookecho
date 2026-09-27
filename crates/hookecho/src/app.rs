@@ -611,7 +611,7 @@ enum OverlaySource {
     SnowBands,
     /// A GOES ABI band, CONUS sector, read directly from S3 rather than GIBS' pre-rendered
     /// tiles — which band is `GoesIr`/`GoesVisible`/`GoesWaterVapor`/`GoesShortwaveIr`/
-    /// `GoesMidWaterVapor`/`GoesLowWaterVapor`/`GoesDirtyIr`/`GoesColdTop`, which satellite is
+    /// `GoesMidWaterVapor`/`GoesLowWaterVapor`/`GoesDirtyIr`/`GoesLongwaveIr`/`GoesColdTop`, which satellite is
     /// the second field (`settings.goes_satellite_west`, resolved at spawn time). `GoesColdTop`
     /// reuses Band 13 but transforms the fetched value before it reaches the field cache — see
     /// the handler's own comment.
@@ -1514,6 +1514,7 @@ impl OverlaySource {
                     FL::GoesMidWaterVapor => 9,
                     FL::GoesLowWaterVapor => 10,
                     FL::GoesDirtyIr => 15,
+                    FL::GoesLongwaveIr => 14,
                     _ => anyhow::bail!("{layer:?} is not a GOES band"),
                 };
                 // A mesoscale box is about 1000 km a side: square, and finer per degree.
@@ -2738,6 +2739,7 @@ fn field_refresh_secs(layer: crate::render::FieldLayer) -> u64 {
         | FL::GoesMidWaterVapor
         | FL::GoesLowWaterVapor
         | FL::GoesDirtyIr
+        | FL::GoesLongwaveIr
         | FL::GoesDustDiff
         | FL::GoesColdTop
         | FL::GoesCoolingRate
@@ -22328,7 +22330,7 @@ fn glm_slot(t: DateTime<Utc>) -> i64 {
 }
 
 /// The GOES layers read from one scan of one sector: the bands and the RGB composite.
-const GOES_FRAME_LAYERS: [crate::render::FieldLayer; 9] = [
+const GOES_FRAME_LAYERS: [crate::render::FieldLayer; 10] = [
     crate::render::FieldLayer::GoesIr,
     crate::render::FieldLayer::GoesVisible,
     crate::render::FieldLayer::GoesWaterVapor,
@@ -22336,6 +22338,7 @@ const GOES_FRAME_LAYERS: [crate::render::FieldLayer; 9] = [
     crate::render::FieldLayer::GoesMidWaterVapor,
     crate::render::FieldLayer::GoesLowWaterVapor,
     crate::render::FieldLayer::GoesDirtyIr,
+    crate::render::FieldLayer::GoesLongwaveIr,
     crate::render::FieldLayer::GoesColdTop,
     crate::render::FieldLayer::GoesRgb,
 ];
@@ -23412,6 +23415,7 @@ impl eframe::App for HookEchoApp {
             FL::GoesMidWaterVapor,
             FL::GoesLowWaterVapor,
             FL::GoesDirtyIr,
+            FL::GoesLongwaveIr,
             FL::GoesColdTop,
         ] {
             let on = self.field_wanted(layer);

@@ -455,6 +455,7 @@ pub(crate) fn show(
                 FL::GoesMidWaterVapor,
                 FL::GoesLowWaterVapor,
                 FL::GoesDirtyIr,
+                FL::GoesLongwaveIr,
                 FL::GoesDustDiff,
                 FL::GoesColdTop,
                 FL::GoesRgb,

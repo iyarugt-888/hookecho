@@ -1084,6 +1084,7 @@ pub fn ramp_for(layer: FieldLayer) -> Option<&'static FieldRamp> {
         // (ROADMAP_NEW E6) — so sharing the ramp here rather than tabulating a visually
         // indistinguishable second one is honest, not a shortcut.
         FL::GoesDirtyIr => &GOES_IR,
+        FL::GoesLongwaveIr => &GOES_IR,
         FL::GoesVisible => &GOES_VISIBLE,
         // Same physical quantity and the same forecaster reading convention at all three
         // altitudes — see GOES_WATER_VAPOR's own doc comment for why this is a genuine three-way
@@ -1373,6 +1374,8 @@ mod tests {
         let ir = ramp_for(FieldLayer::GoesIr).unwrap();
         let dirty_ir = ramp_for(FieldLayer::GoesDirtyIr).unwrap();
         assert!(std::ptr::eq(ir, dirty_ir));
+        let longwave_ir = ramp_for(FieldLayer::GoesLongwaveIr).unwrap();
+        assert!(std::ptr::eq(ir, longwave_ir));
     }
 
     #[test]

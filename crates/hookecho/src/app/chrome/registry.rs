@@ -510,6 +510,14 @@ impl HookEchoApp {
                 false,
             ),
             (
+                FL::GoesLongwaveIr,
+                "National",
+                "GOES longwave IR",
+                "Band 14 — the traditional IR window channel of the older GOES imagers, between \
+                 clean and split-window IR",
+                false,
+            ),
+            (
                 FL::GoesDustDiff,
                 "National",
                 "GOES dust/ash detection",

@@ -270,6 +270,7 @@ pub(crate) fn field_endpoint_family(layer: FieldLayer) -> EndpointFamily {
         | FL::GoesMidWaterVapor
         | FL::GoesLowWaterVapor
         | FL::GoesDirtyIr
+        | FL::GoesLongwaveIr
         | FL::GoesDustDiff
         | FL::GoesColdTop
         | FL::GoesCoolingRate

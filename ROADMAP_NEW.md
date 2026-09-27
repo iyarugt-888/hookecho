@@ -2094,7 +2094,7 @@ assume). **Not done:** mesoscale sectors 1/2 and full disk are not fetched at al
 particular is real, separately-scoped work (E5's "discover active mesoscale sector footprints,"
 not just a product-string swap, since a mesoscale sector moves and CONUS doesn't).
 
-## E2. ABI channel support — partly done
+## E2. ABI channel support — done
 
 Implement analyst channels at native/reasonable resolution:
 
@@ -2119,11 +2119,14 @@ Implement analyst channels at native/reasonable resolution:
 - [x] C01 blue, C03 veggie, C05 snow/ice — read as RGB-recipe inputs (E4: true color, Day Cloud
   Phase, Day Convection, Fire Temperature), along with C06, C11 and C12. Not standalone layers:
   no standalone analyst use case for them was obvious enough, unlike C07/C09/C10/C15.
-- [ ] C14 longwave IR — not done. Reads almost identically to C13 clean IR (both are atmospheric-
-  window channels a few tenths of a micron apart) with no standalone or difference-product use
-  case as clear as C15's, so it wasn't added just to complete the letter/number list.
-- [ ] "other channels necessary for RGB recipes" — none of E4's recipes are built yet, so nothing
-  further was pulled in on their behalf; revisit per-recipe once E4 actually starts.
+- [x] C14 longwave IR (`FieldLayer::GoesLongwaveIr`). The traditional "IR" window channel of the
+  older GOES imagers, so a view can be read against that long record or side by side with the
+  clean window; shares the C13 ramp like C15 (checked by pointer in
+  `the_shared_goes_ramps_really_are_the_same_ramp`), follows the view's time and a mesoscale
+  sector like every other band.
+- [x] other channels necessary for RGB recipes — E4 reads C01, C03, C05, C06, C11 and C12 as recipe
+  inputs from the same scan (`goes_rgb::fetch_recipe`), so every ABI channel the app's recipes and
+  analysts need is covered.
 
 Every new channel reuses the exact wiring the original three established (`OverlaySource::Goes`'s
 band lookup in `app.rs`, the same 300s CONUS refresh cadence, the same satellite-flip refetch
