@@ -945,3 +945,32 @@ a scale bar on the map; a network round-trip measurement for the app bar; a natu
   analysis hour through the Hour menu's list (`model_browser::step_run`) — they stepped a lead
   the analysis does not have, so did nothing. Stepping back to the newest returns to Latest.
   Checked by screenshot: 20Z → 18Z in two clicks.
+- **Cell** tool window (roadmap Q2): the Inspector's Details… opens the selected storm's full
+  picture as a dock tab instead of the floating attributes card. It has folding sections:
+  severity with its evidence, the SCIT attributes, core statistics (every moment within 8 km of
+  the centroid through the Region statistics engine; ZDR, KDP and CC read p95/p5 over the
+  ≥40 dBZ core, so edge noise cannot flag them), a core distribution histogram, position and
+  forecast track, and trend charts (`ws::trend_chart`: hover reads a scan, click expands).
+  Follow, Center and View in 3D go through the floating card's own logic. Checked on live KVNX
+  storms.
+- **Region** tool window (roadmap C4): a drawn box's statistics as a dock tab. It has a summary
+  table whose rows pick the histogram, an interactive histogram (hover reads a bar's range,
+  count and share; dashed p10, median and p90; click expands) and a density scatter (every gate
+  binned; hover reads a cell; click expands). Hovering a bar or cell outlines those gates on the
+  map. Derived statistics are cached per box (`RegionCache`); a 150k-gate box had been
+  re-sorting every frame. Cell and Region placement is saved with the arrangement. Checked on
+  live KVNX.
+- **Alerts** rows in the workstation's own style. Each row has an edge in the map colour, the
+  event with its escalation, hazard tags and the area ("NWS OUN office" when the archive gives
+  only the code), and issued–expiry times. Status (N min left, expired, not yet issued) is told
+  against the map's time (`alerts_at`: the scrubbed frame while archived warnings show).
+  In-effect alerts come first. Archived warnings had all read EXPIRED against today's clock; the
+  floating popup and the panel's list had the same bug, now fixed. Checked on the Moore scene
+  at 3:12 PM.
+- Warning bulletins read in the Alerts tab (brought forward), not over the map. Back returns to
+  the alerts under the click, or to the full list. Where polygons overlap, the most escalated
+  opens first (the Moore Tornado Emergency before a plain warning), in every layout.
+- Menus and dropdowns are ImGui-flat (`ws::menu_scope`): flat rows lit on hover, in the dock's
+  type. Before, they were stacks of framed buttons in the app's larger global style (combo boxes
+  open in their own layer and missed the scope). The shared settings switch takes compact
+  metrics inside the workstation scope (`ws::in_scope`), so layer options match the dock.

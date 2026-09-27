@@ -166,7 +166,7 @@ pub fn plan_grid(
     let mut n = n_want.min(max_dim);
     if n * n * nz > max_voxels {
         // Horizontal detail is what the data has, so trade vertical levels away first.
-        nz = nz.min(48).max(16);
+        nz = nz.clamp(16, 48);
         n = ((max_voxels / nz) as f64).sqrt() as usize;
         n = n.clamp(64, max_dim);
     }
