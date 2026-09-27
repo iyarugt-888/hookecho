@@ -404,7 +404,8 @@ mod high_contrast_tests {
         let f = shapes[0].clone();
         assert_eq!(f.kind, wxdata::overlay::FeatureKind::Imported);
         let theme = crate::settings::Theme::Dark;
-        let shown = build_with_theme_and_imported_width(&[f.clone()], 6.0, theme, 1.6, true);
+        let shown =
+            build_with_theme_and_imported_width(std::slice::from_ref(&f), 6.0, theme, 1.6, true);
         let hidden = build_with_theme_and_imported_width(&[f], 6.0, theme, 1.6, false);
         assert!(!shown.indices.is_empty());
         assert!(hidden.indices.is_empty());
