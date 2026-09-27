@@ -106,6 +106,27 @@ pub fn in_scope(ui: &egui::Ui) -> bool {
             .is_some_and(|f| f.size == 13.0)
 }
 
+/// [`style_scope`] for a popup menu: the same tokens, but items are flat rows that light up on
+/// hover, as Dear ImGui's menus are, rather than a stack of framed buttons.
+pub fn menu_scope(ui: &mut egui::Ui, t: &Tokens) {
+    style_scope(ui, t);
+    let style = ui.style_mut();
+    style.spacing.item_spacing.y = 1.0;
+    style.spacing.button_padding = egui::vec2(8.0, 4.0);
+    let v = &mut style.visuals;
+    for w in [&mut v.widgets.inactive, &mut v.widgets.noninteractive] {
+        w.bg_fill = Color32::TRANSPARENT;
+        w.weak_bg_fill = Color32::TRANSPARENT;
+        w.bg_stroke = Stroke::NONE;
+    }
+    for w in [&mut v.widgets.hovered, &mut v.widgets.open] {
+        w.bg_fill = t.field_hi;
+        w.weak_bg_fill = t.field_hi;
+        w.bg_stroke = Stroke::NONE;
+    }
+    v.widgets.active.bg_stroke = Stroke::NONE;
+}
+
 pub fn style_scope(ui: &mut egui::Ui, t: &Tokens) {
     let style = ui.style_mut();
     style.override_text_style = None;

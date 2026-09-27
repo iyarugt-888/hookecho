@@ -14,6 +14,9 @@ pub struct WarnCard {
 pub struct WarningPopup {
     pub cards: Vec<WarnCard>,
     pub selected: Option<usize>,
+    /// The time the cards' countdowns are told against: the scrubbed frame's when these are
+    /// archived warnings, else `None` for the clock.
+    pub at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 /// Show the warning window. Returns `false` when it should close.
@@ -29,14 +32,19 @@ pub fn show(
         .default_size([460.0, 560.0])
         .show(ctx, |ui| match popup.selected {
             Some(i) if i < popup.cards.len() => {
-                detail_view(ui, &popup.cards[i], &mut popup.selected)
+                detail_view(ui, &popup.cards[i], &mut popup.selected, popup.at)
             }
-            _ => stack_view(ui, &popup.cards, &mut popup.selected),
+            _ => stack_view(ui, &popup.cards, &mut popup.selected, popup.at),
         });
     open
 }
 
-fn stack_view(ui: &mut egui::Ui, cards: &[WarnCard], selected: &mut Option<usize>) {
+fn stack_view(
+    ui: &mut egui::Ui,
+    cards: &[WarnCard],
+    selected: &mut Option<usize>,
+    at: Option<chrono::DateTime<chrono::Utc>>,
+) {
     egui::ScrollArea::vertical().show(ui, |ui| {
         for (i, card) in cards.iter().enumerate() {
             let a = &card.info;
@@ -61,7 +69,7 @@ fn stack_view(ui: &mut egui::Ui, cards: &[WarnCard], selected: &mut Option<usize
                     if let Some(w) = &a.max_wind {
                         bits.push(w.clone());
                     }
-                    bits.push(countdown(a));
+                    bits.push(countdown(a, at));
                     ui.label(bits.join("  ·  "));
                     if !a.area.is_empty() {
                         ui.add(
@@ -79,13 +87,18 @@ fn stack_view(ui: &mut egui::Ui, cards: &[WarnCard], selected: &mut Option<usize
     });
 }
 
-fn detail_view(ui: &mut egui::Ui, card: &WarnCard, selected: &mut Option<usize>) {
+fn detail_view(
+    ui: &mut egui::Ui,
+    card: &WarnCard,
+    selected: &mut Option<usize>,
+    at: Option<chrono::DateTime<chrono::Utc>>,
+) {
     let a = &card.info;
     ui.horizontal(|ui| {
         if ui.button("‹ Back").clicked() {
             *selected = None;
         }
-        ui.label(countdown(a));
+        ui.label(countdown(a, at));
     });
     ui.separator();
     ui.heading(egui::RichText::new(&a.event).color(color32(card.color)));
@@ -129,12 +142,13 @@ fn detail_view(ui: &mut egui::Ui, card: &WarnCard, selected: &mut Option<usize>)
     });
 }
 
-/// "Expires in N min" / "Expires in H h M min" / "EXPIRED" from the alert expiry.
-pub(crate) fn countdown(a: &AlertInfo) -> String {
+/// "Expires in N min" / "Expires in H h M min" / "EXPIRED" from the alert expiry, told against
+/// `at` (an archive frame's time) or the clock.
+pub(crate) fn countdown(a: &AlertInfo, at: Option<chrono::DateTime<chrono::Utc>>) -> String {
     let Some(exp) = a.expires else {
         return "No expiry".into();
     };
-    let secs = (exp - chrono::Utc::now()).num_seconds();
+    let secs = (exp - at.unwrap_or_else(chrono::Utc::now)).num_seconds();
     if secs <= 0 {
         return "EXPIRED".into();
     }

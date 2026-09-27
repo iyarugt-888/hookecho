@@ -138,15 +138,9 @@ impl HookEchoApp {
         let feats = self.active_alert_features().to_vec();
         let tz = self.active_tz();
         // The time the list is read against: the scrubbed frame while archived warnings show.
-        let archive = self.arch_warn_shown.is_some();
-        let at = if archive {
-            self.views[self.active]
-                .volume
-                .as_ref()
-                .map_or_else(Utc::now, |v| v.time)
-        } else {
-            Utc::now()
-        };
+        let archive_at = self.alerts_at();
+        let archive = archive_at.is_some();
+        let at = archive_at.unwrap_or_else(Utc::now);
         let mut muted = self.settings.mute_alerts;
         let place = self.dock.alerts.place;
         let floating = place == Place::Float;

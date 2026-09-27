@@ -11510,6 +11510,14 @@ impl HookEchoApp {
         }
     }
 
+    /// The time alert statuses are told against: the scrubbed frame's while archived warnings
+    /// are shown (an archived warning was in effect then, however long ago), else `None`, the
+    /// clock.
+    pub(crate) fn alerts_at(&self) -> Option<chrono::DateTime<chrono::Utc>> {
+        self.arch_warn_shown?;
+        self.views[self.active].volume.as_ref().map(|v| v.time)
+    }
+
     fn open_alert_popup(&mut self, id: &str) {
         let mut seen = std::collections::HashSet::new();
         let cards: Vec<ui::warning_window::WarnCard> = self
@@ -11527,6 +11535,7 @@ impl HookEchoApp {
             self.warning_popup = Some(ui::warning_window::WarningPopup {
                 cards,
                 selected: Some(0),
+                at: self.alerts_at(),
             });
         }
     }
@@ -16477,6 +16486,7 @@ impl HookEchoApp {
                                             Some(ui::warning_window::WarningPopup {
                                                 cards,
                                                 selected: Some(0),
+                                                at: self.alerts_at(),
                                             });
                                     } else if let Some(f) = hits.first() {
                                         self.warning_popup = None;

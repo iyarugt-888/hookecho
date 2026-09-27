@@ -156,6 +156,7 @@ impl HookEchoApp {
                         )
                         .named(&format!("Workspace tab: {}", current.label()));
                         egui::Popup::menu(&menu).show(|ui| {
+                            ws::menu_scope(ui, &t);
                             for tab in DockTab::ALL {
                                 if ui.selectable_label(tab == current, tab.label()).clicked() {
                                     self.dock.tab = tab;
@@ -217,7 +218,7 @@ impl HookEchoApp {
                             let help = ws::icon_button(ui, &t, ph::QUESTION, label("Help"), false)
                                 .named("Help");
                             egui::Popup::menu(&help).show(|ui| {
-                                ws::style_scope(ui, &t);
+                                ws::menu_scope(ui, &t);
                                 ui.set_min_width(220.0);
                                 if let Some(p) = window_rows(ui, &t, Menu::Help) {
                                     menu_pick = Some(p);
@@ -230,7 +231,7 @@ impl HookEchoApp {
                                 ws::icon_button(ui, &t, ph::GEAR_SIX, label("Settings"), false)
                                     .named("Settings");
                             egui::Popup::menu(&settings).show(|ui| {
-                                ws::style_scope(ui, &t);
+                                ws::menu_scope(ui, &t);
                                 ui.set_min_width(220.0);
                                 if let Some(p) = window_rows(ui, &t, Menu::Settings) {
                                     menu_pick = Some(p);
@@ -249,7 +250,7 @@ impl HookEchoApp {
                             let share = ws::icon_button(ui, &t, ph::EXPORT, label("Share"), false)
                                 .named("Share, export and workspaces");
                             egui::Popup::menu(&share).show(|ui| {
-                                ws::style_scope(ui, &t);
+                                ws::menu_scope(ui, &t);
                                 ui.set_min_width(240.0);
                                 for (text, act) in [
                                     ("Copy a link to this view", A::CopyViewLink),
@@ -279,7 +280,7 @@ impl HookEchoApp {
                             let tools = ws::icon_button(ui, &t, ph::WRENCH, label("Tools"), false)
                                 .named("Tools and windows");
                             egui::Popup::menu(&tools).show(|ui| {
-                                ws::style_scope(ui, &t);
+                                ws::menu_scope(ui, &t);
                                 ui.set_min_width(240.0);
                                 if let Some(p) = window_rows(ui, &t, Menu::Tools) {
                                     menu_pick = Some(p);
@@ -477,7 +478,7 @@ impl HookEchoApp {
                                     )
                                     .named("Scan strategy details");
                                 egui::Popup::menu(&r).show(|ui| {
-                                    ws::style_scope(ui, &t);
+                                    ws::menu_scope(ui, &t);
                                     crate::app::chrome::ribbon::scan_strategy_popup(
                                         ui, &vcp_full, &tilt_cuts,
                                     );
@@ -489,6 +490,7 @@ impl HookEchoApp {
                                 .width(170.0)
                                 .selected_text(crate::products::name(moment, srv))
                                 .show_ui(ui, |ui| {
+                                    ws::menu_scope(ui, &t);
                                     for m in Moment::ALL {
                                         let on = m == moment && !(srv && m == Moment::Velocity);
                                         let name = crate::products::info(m).name;
@@ -516,6 +518,7 @@ impl HookEchoApp {
                                 .width(64.0)
                                 .selected_text(tilt_text)
                                 .show_ui(ui, |ui| {
+                                    ws::menu_scope(ui, &t);
                                     for (i, a) in elevations.iter().enumerate() {
                                         let mut label = format!("{a:.1}\u{b0}");
                                         if sweeping == Some(i) {
@@ -572,6 +575,7 @@ impl HookEchoApp {
                                 .width(62.0)
                                 .selected_text(follow_now.label())
                                 .show_ui(ui, |ui| {
+                                    ws::menu_scope(ui, &t);
                                     for f in Follow::ALL {
                                         if ui
                                             .selectable_label(f == follow_now, f.label())
@@ -610,6 +614,7 @@ impl HookEchoApp {
                                     .width(120.0)
                                     .selected_text(&table_now)
                                     .show_ui(ui, |ui| {
+                                        ws::menu_scope(ui, &t);
                                         table_items(ui, moment, &table_now, &mut table_pick);
                                     });
                                 ws::divider(ui, &t, ws::TOOLBAR_H);
@@ -660,7 +665,7 @@ impl HookEchoApp {
                                         "Panes, layout and links".to_string()
                                     });
                                 egui::Popup::menu(&menu).show(|ui| {
-                                    ws::style_scope(ui, &t);
+                                    ws::menu_scope(ui, &t);
                                     ui.set_min_width(170.0);
                                     ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
                                     pane_items(ui, panes, pane_layout, &links, &mut action);
@@ -681,7 +686,7 @@ impl HookEchoApp {
                                 egui::Popup::menu(&menu)
                                     .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
                                     .show(|ui| {
-                                        ws::style_scope(ui, &t);
+                                        ws::menu_scope(ui, &t);
                                         if fold(ToolGroup::View) {
                                             ws::check(ui, &t, &mut smoothing, "Smoothing");
                                             ws::check(ui, &t, &mut legend, "Legend");

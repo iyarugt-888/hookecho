@@ -165,6 +165,7 @@ impl HookEchoApp {
         let (alert_count, _) = self.alert_badge();
         let bounds = self.view_bounds();
         let feats = self.active_alert_features().to_vec();
+        let alerts_at = self.alerts_at();
         let mut muted = self.settings.mute_alerts;
         let mut alert_hit = None;
         // Read before the panel closure: the Layer options callback runs inside a `&mut self`
@@ -261,7 +262,7 @@ impl HookEchoApp {
                 });
                 ui.add_space(6.0);
                 if alerts_tab {
-                    alert_hit = ui::alert_panel::body(ui, &feats, bounds, &mut muted);
+                    alert_hit = ui::alert_panel::body(ui, &feats, bounds, &mut muted, alerts_at);
                     return;
                 }
                 // A drag rewrites the order in place, so persist it when it moves.

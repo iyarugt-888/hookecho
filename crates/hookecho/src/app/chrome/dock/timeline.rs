@@ -175,6 +175,7 @@ impl HookEchoApp {
                         .width(64.0)
                         .selected_text(format!("{:.0} fps", tl.speed))
                         .show_ui(ui, |ui| {
+                            ws::menu_scope(ui, &t);
                             for s in [2.0f32, 4.0, 6.0, 8.0, 12.0, 16.0] {
                                 ui.selectable_value(&mut tl.speed, s, format!("{s:.0} fps"));
                             }

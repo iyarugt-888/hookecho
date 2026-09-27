@@ -104,6 +104,7 @@ pub fn body(
     feats: &[GeoFeature],
     bounds: (f64, f64, f64, f64),
     muted: &mut bool,
+    at: Option<chrono::DateTime<chrono::Utc>>,
 ) -> Option<(String, f64, f64)> {
     let rows = rows_in_view(feats, bounds);
     let mut clicked = None;
@@ -180,7 +181,7 @@ pub fn body(
                                     .truncate(),
                             );
                             ui.label(
-                                egui::RichText::new(crate::ui::warning_window::countdown(a))
+                                egui::RichText::new(crate::ui::warning_window::countdown(a, at))
                                     .small(),
                             );
                         })
