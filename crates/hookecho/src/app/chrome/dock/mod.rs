@@ -18,6 +18,7 @@ use crate::workspace::{Place, WindowChrome, WorkstationChrome};
 
 mod alerts;
 mod app_bar;
+mod cell;
 mod footer;
 mod inspector;
 mod layers;
@@ -148,15 +149,18 @@ pub(crate) enum DockWin {
     Sounding,
     /// Every storm cell, ranked.
     Storms,
+    /// The selected storm's full details (once Details… is asked for).
+    Cell,
 }
 
 impl DockWin {
-    pub(crate) const ALL: [DockWin; 9] = [
+    pub(crate) const ALL: [DockWin; 10] = [
         DockWin::Layers,
         DockWin::Inspector,
         DockWin::View3d,
         DockWin::Sounding,
         DockWin::Storms,
+        DockWin::Cell,
         DockWin::Alerts,
         DockWin::Sources,
         DockWin::Log,
@@ -176,6 +180,7 @@ impl DockWin {
             DockWin::Log => (ph::TERMINAL_WINDOW, "Analyst log"),
             DockWin::Sounding => (ph::THERMOMETER, "Sounding"),
             DockWin::Storms => (ph::TORNADO, "Storms"),
+            DockWin::Cell => (ph::CROSSHAIR, "Cell"),
         };
         ws::HeaderTab {
             glyph,
@@ -200,6 +205,7 @@ impl DockWin {
             DockWin::Log => log::LOG_W,
             DockWin::Sounding => sounding::SOUNDING_W,
             DockWin::Storms => storms::STORMS_W,
+            DockWin::Cell => cell::CELL_W,
         }
     }
 }
@@ -260,6 +266,9 @@ pub(crate) struct DockState {
     pub log: WindowChrome,
     pub sounding: WindowChrome,
     pub storms: WindowChrome,
+    pub cell: WindowChrome,
+    /// Whether the Cell window has a storm whose details were asked for. Set each frame.
+    pub cell_available: bool,
     /// The Storms table's sort column and direction.
     pub storm_sort: crate::ui::cells_window::SortCol,
     pub storm_desc: bool,
@@ -292,7 +301,7 @@ pub(crate) struct DockState {
     pub front: [Option<DockWin>; 2],
     /// Each window's `(open, place)` last frame, to bring a window that has just opened or just
     /// moved into a dock to the front of it.
-    seen: [(bool, Place); 9],
+    seen: [(bool, Place); 10],
     /// The window is too narrow for docks on both sides ([`ONE_DOCK_BELOW`]). Set each frame.
     pub narrow: bool,
     /// The side used most recently (0 left, 1 right): the one that stays while `narrow`.
@@ -319,6 +328,8 @@ impl Default for DockState {
             sounding: WindowChrome::default(),
             sounding_available: false,
             storms: WindowChrome::default(),
+            cell: WindowChrome::at(true, Place::Right),
+            cell_available: false,
             storm_sort: Default::default(),
             storm_desc: true,
             view3d_available: false,
@@ -332,7 +343,7 @@ impl Default for DockState {
             jump: String::new(),
             arranged_for: None,
             front: [None; 2],
-            seen: [(false, Place::Float); 9],
+            seen: [(false, Place::Float); 10],
             narrow: false,
             last_side: 0,
             dock_widths: [None; 2],
@@ -420,6 +431,7 @@ impl DockState {
             DockWin::Log => &self.log,
             DockWin::Sounding => &self.sounding,
             DockWin::Storms => &self.storms,
+            DockWin::Cell => &self.cell,
         }
     }
 
@@ -434,6 +446,7 @@ impl DockState {
             DockWin::Log => &mut self.log,
             DockWin::Sounding => &mut self.sounding,
             DockWin::Storms => &mut self.storms,
+            DockWin::Cell => &mut self.cell,
         }
     }
 
@@ -445,6 +458,7 @@ impl DockState {
                 DockWin::View3d => self.view3d_available,
                 DockWin::Log => self.log_available,
                 DockWin::Sounding => self.sounding_available,
+                DockWin::Cell => self.cell_available,
                 _ => true,
             }
     }
@@ -464,6 +478,14 @@ impl DockState {
             self.sounding.open = true;
         }
         self.sounding_available = available;
+    }
+
+    /// Say whether a storm's details are wanted: becoming wanted shows the Cell window in front.
+    pub(crate) fn set_cell_available(&mut self, available: bool) {
+        if available && !self.cell_available {
+            self.cell.open = true;
+        }
+        self.cell_available = available;
     }
 
     /// Say whether Analyst Mode is on. Turning it on shows the log again, as the floating
@@ -818,6 +840,8 @@ impl HookEchoApp {
         self.dock.set_view3d_available(in_3d);
         self.dock.set_log_available(self.settings.analyst_mode);
         self.dock.set_sounding_available(self.sounding_window.open);
+        self.dock
+            .set_cell_available(self.cell_details && self.cell_popup.is_some());
         self.dock.update_fronts();
         self.dock.narrow = ctx.content_rect().width() < ONE_DOCK_BELOW;
         for side in [Place::Left, Place::Right] {
@@ -939,6 +963,7 @@ impl HookEchoApp {
             DockWin::Log => self.dock_log(host),
             DockWin::Sounding => self.dock_sounding(host),
             DockWin::Storms => self.dock_storms(host),
+            DockWin::Cell => self.dock_cell(host),
         }
     }
 

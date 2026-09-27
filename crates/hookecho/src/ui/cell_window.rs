@@ -11,6 +11,8 @@ pub struct CellSample {
     /// three fields — `None` on a build without the score wired in yet, same as any other
     /// attribute a particular volume didn't carry.
     pub severity: Option<u8>,
+    /// The scan the sample came from, for a trend chart's hover.
+    pub time: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 pub fn show(
@@ -272,6 +274,7 @@ mod tests {
             top: Some(40.0),
             dbz: Some(60.0),
             severity,
+            time: None,
         };
         let scored = trend_labels(&[sample(Some(35)), sample(Some(62))]);
         assert!(scored.iter().any(|s| s == "VIL trend"), "{scored:?}");

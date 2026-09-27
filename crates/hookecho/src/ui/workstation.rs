@@ -747,6 +747,271 @@ pub fn section_rule(ui: &mut egui::Ui, t: &Tokens, label: &str) {
     }
 }
 
+/// A section that folds: the [`section_rule`] look with a caret, open state remembered per `id`.
+/// `count` (when given) sits at the right end of the rule, e.g. how many rows are inside.
+pub fn fold_section<R>(
+    ui: &mut egui::Ui,
+    t: &Tokens,
+    id: impl std::hash::Hash + std::fmt::Debug,
+    label: &str,
+    count: Option<&str>,
+    default_open: bool,
+    body: impl FnOnce(&mut egui::Ui) -> R,
+) -> Option<R> {
+    let id = ui.make_persistent_id(("ws_fold", id));
+    let mut state = egui::collapsing_header::CollapsingState::load_with_default_open(
+        ui.ctx(),
+        id,
+        default_open,
+    );
+    let (rect, resp) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 22.0), Sense::click());
+    let open = state.is_open();
+    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+    resp.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::CollapsingHeader, true, open, label)
+    });
+    if resp.clicked() {
+        state.toggle(ui);
+    }
+    let p = ui.painter();
+    let ink = if resp.hovered() { t.text } else { t.text_dim };
+    p.text(
+        egui::pos2(rect.left() + 5.0, rect.center().y),
+        egui::Align2::CENTER_CENTER,
+        if open {
+            egui_phosphor::regular::CARET_DOWN
+        } else {
+            egui_phosphor::regular::CARET_RIGHT
+        },
+        FontId::proportional(10.0),
+        ink,
+    );
+    let galley = p.layout_no_wrap(label.to_uppercase(), FontId::proportional(10.5), ink);
+    let x = rect.left() + 16.0;
+    let gx = x + galley.size().x + 8.0;
+    p.galley(
+        egui::pos2(x, rect.center().y - galley.size().y / 2.0),
+        galley,
+        ink,
+    );
+    let mut right = rect.right();
+    if let Some(c) = count {
+        let cg = p.layout_no_wrap(c.to_string(), FontId::monospace(10.5), t.text_faint);
+        right -= cg.size().x + 6.0;
+        p.galley(
+            egui::pos2(right + 6.0, rect.center().y - cg.size().y / 2.0),
+            cg,
+            t.text_faint,
+        );
+    }
+    if gx < right {
+        p.line_segment(
+            [
+                egui::pos2(gx, rect.center().y),
+                egui::pos2(right, rect.center().y),
+            ],
+            Stroke::new(1.0, t.line_soft),
+        );
+    }
+    state.store(ui.ctx());
+    state.show_body_unindented(ui, body).map(|r| r.inner)
+}
+
+/// One point of a [`trend_chart`]: its value and the label the hover shows for it (a time).
+#[derive(Clone, Debug, PartialEq)]
+pub struct TrendPoint {
+    pub label: String,
+    pub value: f32,
+}
+
+/// The nearest point to `x` in a chart `n` points wide spread over `left..right`.
+pub fn nearest_index(x: f32, left: f32, right: f32, n: usize) -> usize {
+    if n < 2 || right <= left {
+        return 0;
+    }
+    (((x - left) / (right - left)) * (n - 1) as f32)
+        .round()
+        .clamp(0.0, (n - 1) as f32) as usize
+}
+
+/// An interactive trend: compact (a sparkline with the latest value and its change) until
+/// clicked, then expanded with gridlines, the range, and a point per sample. Hovering either
+/// form marks the nearest sample and reads its label, value and change from the one before.
+/// `expanded` is remembered per `id`.
+pub fn trend_chart(
+    ui: &mut egui::Ui,
+    t: &Tokens,
+    id: impl std::hash::Hash + std::fmt::Debug,
+    title: &str,
+    unit: &str,
+    points: &[TrendPoint],
+    color: Color32,
+) -> Response {
+    let key = ui.make_persistent_id(("ws_trend", id));
+    let mut expanded = ui.ctx().data(|d| d.get_temp::<bool>(key)).unwrap_or(false);
+    let h = if expanded { 132.0 } else { 44.0 };
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), h), Sense::click());
+    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+    if resp.clicked() {
+        expanded = !expanded;
+        ui.ctx().data_mut(|d| d.insert_temp(key, expanded));
+    }
+    let p = ui.painter_at(rect);
+    p.rect_filled(rect, 3.0, t.field);
+    if resp.hovered() {
+        p.rect_stroke(
+            rect,
+            3.0,
+            Stroke::new(1.0, t.line),
+            egui::StrokeKind::Inside,
+        );
+    }
+    let last = points.last();
+    let head = match (last, points.len().checked_sub(2).map(|i| &points[i])) {
+        (Some(l), Some(prev)) => {
+            let d = l.value - prev.value;
+            let arrow = if d > 0.0 {
+                "\u{25b2}"
+            } else if d < 0.0 {
+                "\u{25bc}"
+            } else {
+                "="
+            };
+            format!("{:.1} {unit}  {arrow}{:.1}", l.value, d.abs())
+        }
+        (Some(l), None) => format!("{:.1} {unit}", l.value),
+        _ => "\u{2014}".into(),
+    };
+    p.text(
+        rect.left_top() + egui::vec2(6.0, 3.0),
+        egui::Align2::LEFT_TOP,
+        title,
+        FontId::proportional(10.5),
+        t.text_dim,
+    );
+    p.text(
+        rect.right_top() + egui::vec2(-6.0, 3.0),
+        egui::Align2::RIGHT_TOP,
+        head,
+        FontId::monospace(10.5),
+        t.text,
+    );
+    if points.len() < 2 {
+        p.text(
+            rect.center() + egui::vec2(0.0, 6.0),
+            egui::Align2::CENTER_CENTER,
+            "needs two volumes",
+            FontId::proportional(10.0),
+            t.text_faint,
+        );
+        return resp.named_toggle_info(title, expanded);
+    }
+    let plot = Rect::from_min_max(
+        rect.left_top()
+            + egui::vec2(
+                if expanded { 34.0 } else { 6.0 },
+                if expanded { 26.0 } else { 18.0 },
+            ),
+        rect.right_bottom() - egui::vec2(6.0, if expanded { 16.0 } else { 5.0 }),
+    );
+    let (lo, hi) = points.iter().fold((f32::MAX, f32::MIN), |(lo, hi), q| {
+        (lo.min(q.value), hi.max(q.value))
+    });
+    let (lo, hi) = if hi > lo {
+        (lo, hi)
+    } else {
+        (lo - 1.0, hi + 1.0)
+    };
+    let n = points.len();
+    let at = |i: usize, v: f32| {
+        egui::pos2(
+            plot.left() + plot.width() * i as f32 / (n - 1) as f32,
+            plot.bottom() - plot.height() * (v - lo) / (hi - lo),
+        )
+    };
+    if expanded {
+        for k in 0..=3 {
+            let v = lo + (hi - lo) * k as f32 / 3.0;
+            let y = plot.bottom() - plot.height() * k as f32 / 3.0;
+            p.line_segment(
+                [egui::pos2(plot.left(), y), egui::pos2(plot.right(), y)],
+                Stroke::new(1.0, t.line_soft),
+            );
+            p.text(
+                egui::pos2(plot.left() - 4.0, y),
+                egui::Align2::RIGHT_CENTER,
+                format!("{v:.0}"),
+                FontId::monospace(9.5),
+                t.text_faint,
+            );
+        }
+        for (i, label) in [(0, &points[0].label), (n - 1, &points[n - 1].label)] {
+            p.text(
+                egui::pos2(at(i, lo).x, rect.bottom() - 2.0),
+                if i == 0 {
+                    egui::Align2::LEFT_BOTTOM
+                } else {
+                    egui::Align2::RIGHT_BOTTOM
+                },
+                label,
+                FontId::monospace(9.5),
+                t.text_faint,
+            );
+        }
+    }
+    let line: Vec<egui::Pos2> = points
+        .iter()
+        .enumerate()
+        .map(|(i, q)| at(i, q.value))
+        .collect();
+    p.add(egui::Shape::line(line.clone(), Stroke::new(1.6, color)));
+    if expanded {
+        for q in &line {
+            p.circle_filled(*q, 2.2, color);
+        }
+    }
+    let mut resp = resp;
+    if let Some(pos) = resp.hover_pos() {
+        let i = nearest_index(pos.x, plot.left(), plot.right(), n);
+        let q = line[i];
+        p.line_segment(
+            [egui::pos2(q.x, plot.top()), egui::pos2(q.x, plot.bottom())],
+            Stroke::new(1.0, t.text_faint),
+        );
+        p.circle_filled(q, 3.5, Color32::WHITE);
+        let d = if i > 0 {
+            format!(
+                " ({:+.1} from the scan before)",
+                points[i].value - points[i - 1].value
+            )
+        } else {
+            String::new()
+        };
+        resp = resp.on_hover_text(format!(
+            "{}: {:.1} {unit}{d}\n{}",
+            points[i].label,
+            points[i].value,
+            if expanded {
+                "Click to fold"
+            } else {
+                "Click to expand"
+            }
+        ));
+    }
+    resp.named_toggle_info(title, expanded)
+}
+
+trait ToggleInfo {
+    fn named_toggle_info(self, name: &str, on: bool) -> Response;
+}
+impl ToggleInfo for Response {
+    fn named_toggle_info(self, name: &str, on: bool) -> Response {
+        self.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, name));
+        self
+    }
+}
+
 /// A small pill: a dot and a word ("● Live").
 pub fn badge(ui: &mut egui::Ui, t: &Tokens, label: &str, color: Color32) -> Response {
     let font = FontId::proportional(11.5);
@@ -851,6 +1116,43 @@ mod tests {
                 "{want} missing: {got:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_chart_reads_the_nearest_sample() {
+        assert_eq!(nearest_index(0.0, 0.0, 100.0, 5), 0);
+        assert_eq!(nearest_index(49.0, 0.0, 100.0, 5), 2);
+        assert_eq!(nearest_index(500.0, 0.0, 100.0, 5), 4);
+        assert_eq!(nearest_index(10.0, 0.0, 100.0, 1), 0);
+    }
+
+    #[test]
+    fn a_folded_section_hides_its_body_and_a_chart_draws_its_latest_change() {
+        let got = texts(|ui| {
+            let t = t();
+            fold_section(ui, &t, "a", "Core", Some("3"), true, |ui| {
+                ui.label("inside");
+            });
+            fold_section(ui, &t, "b", "Hidden", None, false, |ui| {
+                ui.label("never drawn");
+            });
+            let pts: Vec<TrendPoint> = [50.0, 55.0, 52.0]
+                .iter()
+                .enumerate()
+                .map(|(i, v)| TrendPoint {
+                    label: format!("{i}"),
+                    value: *v,
+                })
+                .collect();
+            trend_chart(ui, &t, "dbz", "Reflectivity", "dBZ", &pts, t.accent);
+        });
+        assert!(got.iter().any(|s| s == "CORE") && got.iter().any(|s| s == "inside"));
+        assert!(!got.iter().any(|s| s == "never drawn"));
+        assert!(
+            got.iter()
+                .any(|s| s.starts_with("52.0 dBZ") && s.contains("3.0")),
+            "{got:?}"
+        );
     }
 
     #[test]

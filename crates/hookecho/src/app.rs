@@ -3580,6 +3580,10 @@ pub struct HookEchoApp {
     /// Whether the full storm-attributes window is showing for `cell_popup`. Always, outside the
     /// workstation; there, the Inspector's storm section is the summary and this opens on request.
     pub(crate) cell_details: bool,
+    /// The workstation Cell window's Follow and View in 3D buttons, answered with the floating
+    /// window's own logic below.
+    pub(crate) cell_follow_toggle: bool,
+    pub(crate) cell_view3d: bool,
     /// Open gate-inspector popup: every geometry/value fact about the point sampled with the
     /// explicit Gate inspector tool.
     gate_popup: Option<ui::gate_inspector::GateInspectorPopup>,
@@ -5157,6 +5161,8 @@ impl HookEchoApp {
             detail: None,
             cell_popup: None,
             cell_details: false,
+            cell_follow_toggle: false,
+            cell_view3d: false,
             gate_popup: None,
             suitability_popup: None,
             marker_popup: None,
@@ -11678,6 +11684,7 @@ impl HookEchoApp {
                                 top: c.top_kft,
                                 dbz: c.max_dbz,
                                 severity: Some(score),
+                                time: c.time,
                             };
                             // Skip a duplicate of the last sample (same volume re-fetched).
                             if hist.last().is_none_or(|s| {
@@ -24363,7 +24370,12 @@ impl eframe::App for HookEchoApp {
             }
         }
         let mut open_3d: Option<[f32; 6]> = None;
-        let show_details = self.cell_details || !self.workstation_chrome();
+        // In the workstation the details are the Cell dock window (`dock/cell.rs`); its buttons
+        // come back through `cell_follow_toggle` / `cell_view3d` and are answered here.
+        let workstation = self.workstation_chrome();
+        let dock_follow = std::mem::take(&mut self.cell_follow_toggle);
+        let dock_3d = std::mem::take(&mut self.cell_view3d);
+        let show_details = !workstation || dock_follow || dock_3d;
         if let Some(cell) = self.cell_popup.as_ref().filter(|_| show_details) {
             let trend = self
                 .cell_trends
@@ -24375,8 +24387,11 @@ impl eframe::App for HookEchoApp {
                 .as_ref()
                 .is_some_and(|(_, c, _)| c.id == cell.id);
             let tz = self.active_tz();
-            let (open, toggled, to_3d) =
-                ui::cell_window::show(ctx, cell, trend, following, tz, &mut self.popovers);
+            let (open, toggled, to_3d) = if workstation {
+                (true, dock_follow, dock_3d)
+            } else {
+                ui::cell_window::show(ctx, cell, trend, following, tz, &mut self.popovers)
+            };
             // Crop the volume to this storm before opening it: a wall-to-wall box is a wall of
             // echo you would then have to hunt through by hand. The clip is computed here, where
             // the cell is still borrowed, and applied below.
