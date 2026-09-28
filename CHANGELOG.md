@@ -63,7 +63,8 @@ time, progress from your chase position, and where the route enters active warni
 It also lists tracked storms near the route: how close each gets and when, which side it will be
 on, and where its track crosses the road with both arrival times.
 The route check also flags heavy echo on the road (from an MRMS reflectivity layer) and recent
-satellite lightning within 5 miles of it.
+satellite lightning within 5 miles of it, and (when those MRMS layers are on) large hail, heavy
+hourly rain and rare short-duration rainfall on the road.
 
 ### Added: GOES RGB composites
 

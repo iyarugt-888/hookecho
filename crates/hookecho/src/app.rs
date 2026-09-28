@@ -9487,6 +9487,33 @@ impl HookEchoApp {
                         lines.push(("Heavy echo (50+ dBZ, MRMS)".into(), m / 1000.0, s, false));
                     }
                 }
+                // Hail, heavy rain and rare rainfall from the MRMS layers that are displayed.
+                for (layer, at_least, what) in [
+                    (FL::Mesh, 25.4, "Hail 1 in or larger (MESH)"),
+                    (
+                        FL::Qpe1h,
+                        50.8,
+                        "2 in or more of rain in the last hour (MRMS)",
+                    ),
+                    (
+                        FL::FlashFlood,
+                        10.0,
+                        "30-min rainfall rarer than 1-in-10-year (MRMS FLASH)",
+                    ),
+                ] {
+                    let Some(g) = self
+                        .mrms_ready(layer)
+                        .then(|| self.fields.get(&layer)?.grid.as_ref())
+                        .flatten()
+                    else {
+                        continue;
+                    };
+                    if let Some((m, sec)) = wxdata::route::first_along(r, from, |p| {
+                        wxdata::route::grid_value(g, p).is_some_and(|v| v >= at_least)
+                    }) {
+                        lines.push((what.into(), m / 1000.0, sec, false));
+                    }
+                }
                 // Lightning within 8 km of the road in the last 15 minutes (live only).
                 if self.view_target_time().is_none() {
                     let cutoff = Utc::now() - chrono::Duration::minutes(15);

@@ -3592,7 +3592,9 @@ Sample along the route against:
 - [x] current radar — heavy echo (50+ dBZ) from a displayed MRMS reflectivity grid (the mosaic
   or lowest-altitude reflectivity) that matches the view's time: "Heavy echo (50+ dBZ, MRMS) on
   the route in 9 mi" (`route::first_along`, `route::grid_value`)
-- [ ] MRMS precip/MESH/FLASH
+- [x] MRMS precip/MESH/FLASH — from the displayed, time-matched layers: hail of 1 in or more
+  (MESH), 2 in or more of rain in the last hour (QPE 1 h), 30-minute rainfall rarer than
+  1-in-10-year (FLASH ARI)
 - [x] lightning — GLM flashes of the last 15 minutes within 8 km of the road ahead, live only
 - [x] storm-motion cones — as L4's intercept geometry: each tracked storm's straight-line track
   against the route, closest approach and crossing ETAs
