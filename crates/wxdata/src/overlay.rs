@@ -25,6 +25,9 @@ pub enum FeatureKind {
     /// A shape from a user's own imported GIS file (ROADMAP_NEW I1), not an official product from
     /// any feed this app fetches.
     Imported,
+    /// A reference line, not a product: a forecast zone's outline or a county warning area's
+    /// boundary. Drawn thin, never filled, and a CWA boundary is an open polyline.
+    Boundary,
 }
 
 impl FeatureKind {
@@ -49,6 +52,8 @@ impl FeatureKind {
             // outline) should never steal a click away from an operationally meaningful feature
             // it happens to overlap — it only wins the hit-test when nothing else is there.
             FeatureKind::Imported => 0,
+            // Reference lines likewise: a zone outline answers a click only on empty map.
+            FeatureKind::Boundary => 0,
         }
     }
 }

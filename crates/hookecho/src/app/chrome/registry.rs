@@ -971,6 +971,20 @@ impl HookEchoApp {
                 false,
             ),
             (
+                T::ForecastZones,
+                "Reference",
+                "Forecast zones",
+                "NWS public forecast zones, the areas watches and advisories are issued for",
+                false,
+            ),
+            (
+                T::CwaBoundaries,
+                "Reference",
+                "CWA boundaries",
+                "Each NWS forecast office's county warning area: whose warnings cover where",
+                false,
+            ),
+            (
                 T::Tfr,
                 "Reference",
                 "Flight restrictions (TFR)",

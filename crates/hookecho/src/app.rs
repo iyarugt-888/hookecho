@@ -3,6 +3,7 @@
 //! UI code only mutates the active [`MapView`]; a single per-frame sync step turns those
 //! mutations into GPU uploads and background fetches, so buttons and hotkeys share one path.
 
+mod boundaries;
 mod case;
 /// Touch-first Android chrome (top bar, bottom dock, slide-up sheets), replacing the desktop
 /// drawer / pills / alert dock. Only the chrome differs; the map,
@@ -2225,6 +2226,10 @@ pub(crate) enum OverlayToggle {
     Tropical,
     /// County power outages (ODIN).
     Outages,
+    /// NWS forecast-zone outlines.
+    ForecastZones,
+    /// Each forecast office's county warning area.
+    CwaBoundaries,
     ProbSevere,
     Aviation,
     Tfr,
@@ -4184,6 +4189,8 @@ pub struct HookEchoApp {
     /// Bumped whenever `precip_flag_grid` is replaced, so a pane knows its upload is stale.
     precip_flag_gen: u32,
     show_tfr: bool,
+    /// Forecast-zone and CWA reference layers.
+    boundaries: boundaries::BoundaryState,
     tfr_features: std::collections::HashMap<String, GeoFeature>,
     tfr_last_fetch: Option<Instant>,
     tfr_pending: usize,
@@ -5596,6 +5603,7 @@ impl HookEchoApp {
             precip_flag_grid: None,
             precip_flag_gen: 0,
             show_tfr: false,
+            boundaries: Default::default(),
             tfr_features: std::collections::HashMap::new(),
             tfr_last_fetch: None,
             tfr_pending: 0,
@@ -11583,6 +11591,8 @@ impl HookEchoApp {
             T::Gauges => &mut self.show_gauges,
             T::Tropical => &mut self.show_tropical,
             T::Outages => &mut self.show_outages,
+            T::ForecastZones => &mut self.boundaries.show_zones,
+            T::CwaBoundaries => &mut self.boundaries.show_cwa,
             T::ProbSevere => &mut self.show_probsevere,
             T::Aviation => &mut self.show_aviation,
             T::Tfr => &mut self.show_tfr,
@@ -11780,6 +11790,8 @@ impl HookEchoApp {
                     t,
                     T::Tropical
                         | T::Outages
+                        | T::ForecastZones
+                        | T::CwaBoundaries
                         | T::ProbSevere
                         | T::Aviation
                         | T::Tfr
@@ -13582,7 +13594,8 @@ impl HookEchoApp {
 
     /// Reassemble the displayed overlay set from the fetched sources and current filters.
     fn rebuild_overlays(&mut self) {
-        let mut v = Vec::new();
+        // Reference lines first, so every product draws over them.
+        let mut v: Vec<GeoFeature> = self.boundaries.features().cloned().collect();
         if (1..=8).contains(&self.filters.outlook_day) {
             v.extend(
                 self.outlook_features[(self.filters.outlook_day - 1) as usize]
@@ -21572,6 +21585,34 @@ impl HookEchoApp {
             }
         }
 
+        // Alert spotlight: while an alert's card is open, dim the map outside its polygon. Under
+        // the legends, so the scale stays readable.
+        if self.settings.alert_spotlight {
+            if let Some(id) = self.warning_popup.as_ref().and_then(|p| {
+                p.cards
+                    .get(p.selected.unwrap_or(0))
+                    .map(|c| c.info.id.clone())
+            }) {
+                let screen = |p: &[f64; 2]| {
+                    let w = crate::render::mercator::lonlat_to_world(p[0], p[1]);
+                    let (sx, sy) = cam.world_to_screen(w, vp);
+                    egui::pos2(prect.left() + sx, prect.top() + sy)
+                };
+                let rings: Vec<Vec<egui::Pos2>> = self
+                    .active_alert_features()
+                    .iter()
+                    .filter(|f| f.alert.as_ref().is_some_and(|a| a.id == id))
+                    .flat_map(|f| f.rings.iter())
+                    .map(|ring| ring.iter().map(screen).collect())
+                    .collect();
+                if let Some(mesh) =
+                    crate::spotlight::dim_outside(prect, &rings, crate::spotlight::DIM_ALPHA)
+                {
+                    painter.add(egui::Shape::mesh(mesh));
+                }
+            }
+        }
+
         // The boxed legend is desktop-only; Android draws a full-width color scale in the mobile
         // chrome (see `app::mobile`), so drawing both would be redundant.
         // The phone keeps the thin strip along the top edge in every design; Storm and Carbon add a
@@ -26891,6 +26932,7 @@ impl eframe::App for HookEchoApp {
             self.prebuild_loop3d(idx, ctx);
         }
         self.sync_cloud_top();
+        self.sync_boundaries(ctx);
         self.sync_model_isotherms();
         self.sync_overlay();
 

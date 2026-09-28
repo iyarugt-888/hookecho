@@ -122,6 +122,7 @@ pub(crate) mod source_health;
 /// Tropical model guidance (spaghetti), best tracks and invests on the map.
 pub mod spaghetti;
 pub mod speech;
+pub mod spotlight;
 /// Live station markers and their telemetry cards.
 pub mod stationlayer;
 /// The `--status` report; native only — it builds its own runtime.

@@ -1195,6 +1195,11 @@ fn general_tab(
 pub fn sound_picker(ui: &mut egui::Ui, settings: &mut Settings) {
     use crate::settings::AlertSound;
 
+    ui.checkbox(
+        &mut settings.alert_spotlight,
+        "Dim the map around an open alert",
+    )
+    .on_hover_text("While an alert's card is open, the map outside its area is darkened");
     ui.checkbox(&mut settings.mute_alerts, "Mute all alert audio")
         .on_hover_text("Silences chimes and spoken warnings without changing the choices below");
     ui.checkbox(&mut settings.alert_sound, "Play a sound on alerts")

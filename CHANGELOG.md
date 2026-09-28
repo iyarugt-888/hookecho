@@ -8,6 +8,15 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: forecast zones, CWA boundaries, alert spotlight
+
+Two reference layers: **Forecast zones** outlines the NWS public forecast zones, and **CWA
+boundaries** draws each forecast office's county warning area, so you can see whose warnings
+cover where. Shapes load state by state as you move the map.
+
+Opening an alert's card now dims the map outside the alert, so the warned area stands out.
+Turn it off under Settings > Alerts.
+
 ### Added: flash a range
 
 Drag across the colour scale under the ribbon and every echo in that range flashes on the map,

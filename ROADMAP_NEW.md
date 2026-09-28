@@ -4462,7 +4462,9 @@ Plus:
 - [x] Enhanced search — "Search all" across products, stations and places
 - [ ] Y'all mode (watches, Y'all-O-Meter, tracks, outlooks) — watches, tracks and outlooks
   exist separately; no meter and no mode
-- [ ] Popup spotlight: dim the map around an alert — not built
+- [x] Popup spotlight: dim the map around an alert — while an alert's card is open the map
+  outside its polygon is darkened (`spotlight::dim_outside`, an even-odd mask under the
+  legends); Settings > Alerts turns it off. Tested; not yet seen on screen with a live alert
 - [ ] Popup drag handle — to verify
 
 Pro:
@@ -4486,7 +4488,11 @@ Pro:
 - [x] Up to 24 runs per model — every model lists 24 (a day of hourly runs, six days of
   six-hourly ones); ECMWF runs past its portal's three days come from ECMWF's AWS mirror. GDPS
   lists 2: Environment Canada's Datamart serves only today
-- [ ] US CWA boundaries and forecast zones layers — zone shapes are fetched for alerts only
+- [x] US CWA boundaries and forecast zones layers — "Forecast zones" and "CWA boundaries"
+  under Reference: the NWS UGC shapes from the Iowa Environmental Mesonet, per state as the view
+  reaches them (up to 8 states a view, kept on disk 30 days), and each office's county warning
+  area dissolved from its counties (`wxdata::ugc::cwa_outlines`: on Oklahoma, 1,847 of 7,975
+  county edges kept, in 8 polylines). Checked in the browser
 - [ ] Historical satellite imagery by date and time — to verify
 - [ ] Historical model runs by date and time — to verify
 

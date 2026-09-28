@@ -42,6 +42,8 @@ fn color(rgba: [u8; 4]) -> [f32; 4] {
 fn feature_stroke_px(kind: FeatureKind, imported_stroke_px: f32) -> f32 {
     if kind == FeatureKind::Imported {
         imported_stroke_px.clamp(0.5, 8.0)
+    } else if kind == FeatureKind::Boundary {
+        1.0
     } else {
         1.6
     }
@@ -289,7 +291,8 @@ fn feature_path(f: &GeoFeature) -> Path {
             for p in pts {
                 b.line_to(p);
             }
-            b.end(true);
+            // A boundary's rings are open polylines; every other kind's are polygons.
+            b.end(f.kind != FeatureKind::Boundary);
         }
     }
     b.build()

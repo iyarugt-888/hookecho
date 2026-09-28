@@ -314,6 +314,9 @@ pub struct Settings {
     /// Unfold aliased Doppler velocity (region-based dealiasing) when displaying VEL.
     #[serde(default)]
     pub dealias_velocity: bool,
+    /// Dim the map outside an alert's polygon while its card is open.
+    #[serde(default = "default_true")]
+    pub alert_spotlight: bool,
     /// ROADMAP_NEW B6: base URL of a self-hosted `radar-ingest` relay (e.g.
     /// `https://relay.example.com`), the second independently-acquired live Level II path. Empty
     /// (default) means no relay is configured — live radar then runs Unidata-only with a NOAA
@@ -1654,6 +1657,7 @@ impl Default for Settings {
             udp_products: Vec::new(),
             precip_tint: false,
             dealias_velocity: false,
+            alert_spotlight: true,
             radar_relay_url: String::new(),
             radar_provider_override: RadarProviderOverride::default(),
             mapbox_key: String::new(),
@@ -2499,6 +2503,7 @@ mod tests {
                 home: true,
             }],
             dealias_velocity: true,
+            alert_spotlight: false,
             radar_relay_url: "http://relay.local:8080".to_string(),
             radar_provider_override: RadarProviderOverride::Backup,
             mapbox_key: "pk.test".to_string(),
