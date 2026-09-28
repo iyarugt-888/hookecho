@@ -16,6 +16,7 @@ pub(crate) mod impact;
 mod local_api;
 mod overlay_health;
 mod pane_time;
+mod radar_wind;
 mod region_stats;
 mod report;
 pub(crate) use field_state::FieldState;
@@ -2263,6 +2264,8 @@ pub(crate) enum OverlayToggle {
     /// Ground strikes republished onto the user's own MQTT broker (see `strikes_topic`).
     Strikes,
     Wind,
+    /// Wind particles from the active radar's Doppler velocity (and its VAD), not the model.
+    RadarWind,
     LinkCameras,
     /// Align archive radar panes by valid time, using each site's nearest volume.
     LinkTimes,
@@ -2328,7 +2331,7 @@ pub(crate) struct CoverageCompareKey {
 impl OverlayToggle {
     /// Every toggle, for the persistence sweep. A new variant belongs here too, or it silently
     /// stops being remembered across restarts.
-    pub(crate) const ALL: [OverlayToggle; 51] = [
+    pub(crate) const ALL: [OverlayToggle; 54] = [
         Self::AlertPanel,
         Self::StormReports,
         Self::Spotters,
@@ -2342,6 +2345,8 @@ impl OverlayToggle {
         Self::Gauges,
         Self::Tropical,
         Self::Outages,
+        Self::ForecastZones,
+        Self::CwaBoundaries,
         Self::ProbSevere,
         Self::Aviation,
         Self::Tfr,
@@ -2369,6 +2374,7 @@ impl OverlayToggle {
         Self::GlmLightning,
         Self::Strikes,
         Self::Wind,
+        Self::RadarWind,
         Self::LinkCameras,
         Self::LinkTimes,
         Self::LockSourceTime,
@@ -4471,6 +4477,8 @@ pub struct HookEchoApp {
     wind_uploaded: Option<(chrono::DateTime<chrono::Utc>, u8, wxdata::hrrr::WindLevel)>,
     /// What the current grids are of, so a level or forecast-hour change refetches at once.
     wind_fetched: Option<(wxdata::hrrr::WindLevel, u8)>,
+    /// Wind particles from the radar's Doppler velocity instead of the HRRR.
+    radar_wind: radar_wind::RadarWindState,
     wind_last_fetch: Option<Instant>,
     /// When the in-flight fetch started, or `None` if none is. One at a time: 10 m u+v is 4.5 MB
     /// an hour, and a fast scrub across the forecast tail would otherwise queue ~82 MB of GRIB
@@ -5749,6 +5757,7 @@ impl HookEchoApp {
             wind_on_gpu: std::env::var("HOOKECHO_CPU_WIND").is_err(),
             wind_uploaded: None,
             wind_fetched: None,
+            radar_wind: Default::default(),
             wind_last_fetch: None,
             wind_inflight: None,
             wind_last_frame: None,
@@ -11609,6 +11618,7 @@ impl HookEchoApp {
             T::GlmLightning => &mut self.show_glm,
             T::Strikes => &mut self.show_strikes,
             T::Wind => &mut self.show_wind,
+            T::RadarWind => &mut self.radar_wind.on,
             T::Sensors => &mut self.show_sensors,
             T::Hodo => &mut self.show_hodo,
             T::Cells => &mut self.filters.show_cells,
@@ -11792,6 +11802,9 @@ impl HookEchoApp {
             PaletteAction::ToggleOverlay(t) => {
                 let f = self.overlay_flag(t);
                 *f = !*f;
+                if t == OverlayToggle::RadarWind {
+                    self.radar_wind_toggled();
+                }
                 // These feed the assembled feature set rather than a painter flag.
                 use OverlayToggle as T;
                 if matches!(
@@ -12562,8 +12575,9 @@ impl HookEchoApp {
                 OverlayMsg::Outages(f) => self.outage_features = f,
                 OverlayMsg::Wind(w) => {
                     self.wind_inflight = None;
-                    // Keep only if the selection didn't change while the fetch was in flight.
-                    if self.wind_fetched == Some((w.level, w.fcst_hour)) {
+                    // Keep only if the selection didn't change while the fetch was in flight, and
+                    // radar winds have not taken over the particles meanwhile.
+                    if self.wind_fetched == Some((w.level, w.fcst_hour)) && !self.radar_wind.on {
                         self.wind = Some(*w);
                     }
                 }
@@ -25538,7 +25552,8 @@ impl eframe::App for HookEchoApp {
             let free = self
                 .wind_inflight
                 .is_none_or(|t| t.elapsed().as_secs() >= 60);
-            if (stale || changed) && free {
+            // Radar winds drive the particles on their own (`sync_radar_wind`).
+            if (stale || changed) && free && !self.radar_wind.on {
                 self.wind_last_fetch = Some(Instant::now());
                 self.wind_inflight = Some(Instant::now());
                 self.wind_fetched = Some(want);
@@ -26967,6 +26982,7 @@ impl eframe::App for HookEchoApp {
         self.sync_cloud_top();
         self.sync_boundaries(ctx);
         self.sync_impacts(ctx);
+        self.sync_radar_wind(ctx);
         // One Smoothing toggle for radar and every gridded layer.
         crate::render::set_field_smoothing(self.settings.smooth_radar);
         self.sync_model_isotherms();

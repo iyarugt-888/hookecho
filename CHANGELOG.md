@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: radar winds
+
+**Radar winds (Doppler)** animates the wind particles from the radar's own velocity instead of
+the HRRR forecast: the speed along each beam exactly as measured, with the sideways part from
+the radar's wind profile. Particles appear only where the radar sees something.
+
 ### Added: clean reflectivity
 
 "Clean" in the tilt row removes birds, insects, ground clutter and other non-weather echo from

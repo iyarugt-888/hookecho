@@ -21,6 +21,7 @@ pub mod dealias;
 pub mod derived;
 pub mod detverify;
 pub mod dotcams;
+pub mod doppler_wind;
 pub mod dualpol;
 pub mod dwd;
 pub mod eccc;

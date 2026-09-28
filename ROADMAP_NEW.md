@@ -4476,7 +4476,11 @@ Pro:
 - [x] Triple / quad view — see split view
 - [x] FastScan ultra-low-latency scans — live chunk streaming (B1/B6)
 - [ ] Tornado ID (AI tornado detection) — Level III TVS and warning tags only; no detector
-- [ ] Radar wind particles from Doppler winds — particles use model winds
+- [x] Radar wind particles from Doppler winds — "Radar winds (Doppler)" drives the wind
+  particles from the active radar's lowest dealiased velocity tilt (`wxdata::doppler_wind`): each
+  gate keeps its measured speed along the beam, and only the crosswise part comes from the same
+  sweep's VAD, fitted per 1 km range ring; gaps in the data stay empty. Tested on a synthetic
+  uniform wind; checked in the browser on KTLX
 - [x] Realtime radar cross section — X-section tool and window
 - [ ] Expert mode — to verify (per-product expert knobs exist)
 - [x] Reflectivity X and max reflectivity — Reflectivity X: "Clean" in the tilt row removes

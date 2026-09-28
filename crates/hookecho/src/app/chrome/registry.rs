@@ -313,6 +313,7 @@ impl HookEchoApp {
                 T::Fronts => RequestLane::Feed(FeedSource::SurfaceAnalysis),
                 T::Watches => RequestLane::Feed(FeedSource::WatchBoxes),
                 T::Wind => RequestLane::Feed(FeedSource::WindParticles),
+                T::RadarWind => RequestLane::Feed(FeedSource::WindParticles),
                 _ => return None,
             },
             _ => return None,
@@ -1019,6 +1020,14 @@ impl HookEchoApp {
                 "Wind (animated)",
                 "HRRR 10 m wind as drifting particles \u{2014} forecast output, CONUS only",
                 true,
+            ),
+            (
+                T::RadarWind,
+                "Radar",
+                "Radar winds (Doppler)",
+                "Wind particles from the radar's own velocity: each gate's measured speed along the \
+                 beam, with the crosswise part from the scan's VAD wind profile",
+                false,
             ),
             (
                 T::GlmLightning,
