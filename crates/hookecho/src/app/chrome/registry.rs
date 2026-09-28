@@ -1030,6 +1030,14 @@ impl HookEchoApp {
                 false,
             ),
             (
+                T::TornadoId,
+                "Severe",
+                "Tornado ID",
+                "One verdict per possible tornado \u{2014} possible, likely, debris or confirmed \
+                 \u{2014} from the rotation and debris detectors and tornado reports",
+                false,
+            ),
+            (
                 T::GlmLightning,
                 "Severe",
                 "Satellite lightning (GLM)",

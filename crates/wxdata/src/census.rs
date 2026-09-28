@@ -170,10 +170,9 @@ mod tests {
 
     #[test]
     fn parses_totals_and_places() {
-        let totals: serde_json::Value = serde_json::from_str(
-            r#"{"features":[{"attributes":{"pop":281434,"hu":129785}}]}"#,
-        )
-        .unwrap();
+        let totals: serde_json::Value =
+            serde_json::from_str(r#"{"features":[{"attributes":{"pop":281434,"hu":129785}}]}"#)
+                .unwrap();
         assert_eq!(parse_totals(&totals), (281_434, 129_785));
         let places: serde_json::Value = serde_json::from_str(
             r#"{"features":[{"attributes":{"NAME":"Oklahoma City city","POP100":681054}},

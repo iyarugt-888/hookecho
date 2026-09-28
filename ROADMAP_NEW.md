@@ -4475,7 +4475,12 @@ Pro:
 
 - [x] Triple / quad view — see split view
 - [x] FastScan ultra-low-latency scans — live chunk streaming (B1/B6)
-- [ ] Tornado ID (AI tornado detection) — Level III TVS and warning tags only; no detector
+- [x] Tornado ID — "Tornado ID" (Severe) puts one verdict at each place a tornado may be,
+  from HookEcho's own multi-tilt rotation and debris detectors and the report/observed-warning
+  confirmation (`wxdata::tornado_id`): Possible, Likely, Debris or Confirmed, a combined score,
+  and the reasons in words on hover. Not a trained model: every tier is read off the detectors'
+  numbers and says which. Checked on the 20 May 2013 Moore archive: "Tornado confirmed 97%" over
+  Moore (debris CC 0.21 in 68 dBZ over 4 tilts, 98 kt rotation from 0.4 to 0.8 km)
 - [x] Radar wind particles from Doppler winds — "Radar winds (Doppler)" drives the wind
   particles from the active radar's lowest dealiased velocity tilt (`wxdata::doppler_wind`): each
   gate keeps its measured speed along the beam, and only the crosswise part comes from the same

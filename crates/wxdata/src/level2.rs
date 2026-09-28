@@ -1054,8 +1054,8 @@ pub fn clean_reflectivity(refl: &BinnedSweep, cc: &BinnedSweep) -> BinnedSweep {
                     continue;
                 }
                 let range = refl.first_gate_km + g as f32 * refl.gate_interval_km;
-                let cg = ((range - cc.first_gate_km) / cc.gate_interval_km.max(f32::EPSILON))
-                    .round();
+                let cg =
+                    ((range - cc.first_gate_km) / cc.gate_interval_km.max(f32::EPSILON)).round();
                 if cg < 0.0 || cg as usize >= cc.gate_count {
                     continue;
                 }

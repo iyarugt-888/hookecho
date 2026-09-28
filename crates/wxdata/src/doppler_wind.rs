@@ -120,7 +120,8 @@ pub fn wind_field(
             let x = -half_km + 2.0 * half_km * i as f64 / (n - 1) as f64;
             let ground = (x * x + y * y).sqrt();
             let slant = ground / cos_e;
-            let g = ((slant - sweep.first_gate_km as f64) / sweep.gate_interval_km.max(0.01) as f64)
+            let g = ((slant - sweep.first_gate_km as f64)
+                / sweep.gate_interval_km.max(0.01) as f64)
                 .round();
             if g < 0.0 || g as usize >= gates {
                 continue;

@@ -221,6 +221,8 @@ pub struct OverlayFilters {
     pub show_tds: bool,
     /// Flag velocity rotation couplets (client-side gate-to-gate azimuthal shear).
     pub show_couplets: bool,
+    /// Tornado ID: one verdict per place from the couplet and debris detectors together.
+    pub show_tornado_id: bool,
     /// Flag three-body scatter spikes (hail spikes) off the lowest tilt.
     pub show_tbss: bool,
     /// Flag ZDR columns — rain lofted above the freezing level, an updraft proxy.
@@ -252,6 +254,7 @@ impl Default for OverlayFilters {
             trail_status: String::new(),
             show_tds: false,
             show_couplets: false,
+            show_tornado_id: false,
             show_tbss: false,
             show_zdr_columns: false,
         }
@@ -2248,6 +2251,8 @@ pub(crate) enum OverlayToggle {
     ScanAge,
     Tds,
     Couplets,
+    /// Tornado ID (`wxdata::tornado_id`).
+    TornadoId,
     Tbss,
     ZdrColumns,
     Alerts,
@@ -2331,7 +2336,7 @@ pub(crate) struct CoverageCompareKey {
 impl OverlayToggle {
     /// Every toggle, for the persistence sweep. A new variant belongs here too, or it silently
     /// stops being remembered across restarts.
-    pub(crate) const ALL: [OverlayToggle; 54] = [
+    pub(crate) const ALL: [OverlayToggle; 55] = [
         Self::AlertPanel,
         Self::StormReports,
         Self::Spotters,
@@ -2361,6 +2366,7 @@ impl OverlayToggle {
         Self::ScanAge,
         Self::Tds,
         Self::Couplets,
+        Self::TornadoId,
         Self::Tbss,
         Self::ZdrColumns,
         Self::Alerts,
@@ -11631,6 +11637,7 @@ impl HookEchoApp {
             T::Tbss => &mut self.filters.show_tbss,
             T::ZdrColumns => &mut self.filters.show_zdr_columns,
             T::Couplets => &mut self.filters.show_couplets,
+            T::TornadoId => &mut self.filters.show_tornado_id,
             T::Alerts => &mut self.filters.show_alerts,
             T::Mds => &mut self.filters.show_mds,
             T::Watches => &mut self.filters.show_watches,
@@ -18219,12 +18226,16 @@ impl HookEchoApp {
                 .iter()
                 .any(|r| r.enabled && &r.trigger == t)
         };
-        let want_tds = self.filters.show_tds || armed(&crate::settings::RuleTrigger::Tds);
+        // Tornado ID reads both detectors, whether or not their own layers are shown.
+        let want_tds = self.filters.show_tds
+            || self.filters.show_tornado_id
+            || armed(&crate::settings::RuleTrigger::Tds);
         let want_tbss = self.filters.show_tbss || armed(&crate::settings::RuleTrigger::Tbss);
         let want_zdr =
             self.filters.show_zdr_columns || armed(&crate::settings::RuleTrigger::ZdrColumn);
-        let want_couplets =
-            self.filters.show_couplets || armed(&crate::settings::RuleTrigger::Rotation);
+        let want_couplets = self.filters.show_couplets
+            || self.filters.show_tornado_id
+            || armed(&crate::settings::RuleTrigger::Rotation);
         let tds_hits = if want_tds && idx == self.active {
             self.compute_tds(idx)
         } else {
@@ -18267,6 +18278,11 @@ impl HookEchoApp {
             self.check_rain_arrival();
             self.evaluate_scan_rules(idx, &tds_hits, &tbss_hits, &zdr_hits, &couplets);
         }
+        let tornado_ids = if self.filters.show_tornado_id && idx == self.active {
+            wxdata::tornado_id::identify(&couplets, &tds_hits)
+        } else {
+            Vec::new()
+        };
         // Hidden layers computed only for a rule must not also be drawn.
         let tds_hits = if self.filters.show_tds {
             tds_hits
@@ -19282,6 +19298,56 @@ impl HookEchoApp {
                     response
                         .clone()
                         .show_tooltip_ui(|ui| score_tooltip(ui, lines, track, col));
+                }
+            }
+
+            // Tornado ID: a warning triangle per identification, coloured by tier, the reasons on
+            // hover. Drawn over the couplet and debris markers it was made from.
+            for t in &tornado_ids {
+                use wxdata::tornado_id::Tier;
+                let p = to_screen(t.lon, t.lat);
+                if !prect.contains(p) {
+                    continue;
+                }
+                let col = match t.tier {
+                    Tier::Possible => egui::Color32::from_rgb(245, 210, 60),
+                    Tier::Likely => egui::Color32::from_rgb(245, 110, 40),
+                    Tier::Debris => egui::Color32::from_rgb(225, 70, 225),
+                    Tier::Confirmed => CONFIRMED_GOLD,
+                };
+                let tri = vec![
+                    p + egui::vec2(0.0, -13.0),
+                    p + egui::vec2(11.5, 7.0),
+                    p + egui::vec2(-11.5, 7.0),
+                ];
+                painter.add(egui::Shape::convex_polygon(
+                    tri,
+                    col,
+                    egui::Stroke::new(1.5, egui::Color32::BLACK),
+                ));
+                painter.text(
+                    p + egui::vec2(0.0, 1.0),
+                    egui::Align2::CENTER_CENTER,
+                    "!",
+                    egui::FontId::proportional(12.0),
+                    egui::Color32::BLACK,
+                );
+                painter.text(
+                    p + egui::vec2(0.0, 10.0),
+                    egui::Align2::CENTER_TOP,
+                    format!("{} \u{b7} {:.0}%", t.tier.label(), t.score * 100.0),
+                    egui::FontId::proportional(11.5),
+                    col,
+                );
+                let hit = egui::Rect::from_center_size(p, egui::vec2(28.0, 28.0));
+                if response.hover_pos().is_some_and(|hp| hit.contains(hp)) {
+                    response.clone().show_tooltip_ui(|ui| {
+                        ui.strong(t.tier.label());
+                        for r in &t.reasons {
+                            ui.label(r);
+                        }
+                        ui.weak("From this radar's rotation and debris detectors, and reports");
+                    });
                 }
             }
 

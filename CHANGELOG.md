@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: Tornado ID
+
+**Tornado ID** marks each place a tornado may be with one warning triangle: possible, likely,
+debris or confirmed, with a score and, on hover, the reasons (the rotation, the debris
+signature, a report or an observed warning). It combines the rotation and debris detectors so
+you do not have to read two layers.
+
 ### Added: radar winds
 
 **Radar winds (Doppler)** animates the wind particles from the radar's own velocity instead of
