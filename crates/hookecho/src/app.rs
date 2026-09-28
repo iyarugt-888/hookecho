@@ -16199,6 +16199,12 @@ impl HookEchoApp {
                 );
             });
         }
+        ui.checkbox(&mut view.map_3d.mrms_surface, "MRMS echo tops as a surface")
+            .on_hover_text(
+                "Draw a displayed MRMS echo-top layer (18/30/50/60 dBZ) at its height: translucent \
+                 with an analysis grid over it, so the analysed MRMS surface never reads as the \
+                 observed radar",
+            );
         ui.checkbox(&mut view.map_3d.beam_guides, "Beam guides")
             .on_hover_text(
                 "Draw the radar's beam geometry: each tilt's cone as rings at 50-200 km (low tilts                  cyan, high magenta), the lowest and highest beams toward the view with their                  0.95° beamwidth edges, and the antenna mast",
@@ -20490,6 +20496,78 @@ impl HookEchoApp {
                     v.map_3d.iso_lit,
                 );
                 painter.add(egui::Shape::mesh(shape));
+            }
+        }
+
+        // An MRMS echo-top layer as a height surface (ROADMAP_NEW H6): translucent, with an analysis
+        // grid over it, so it never reads as the observed radar volume.
+        if self.views[idx].map_3d.enabled && self.views[idx].map_3d.mrms_surface {
+            use crate::render::FieldLayer as FL;
+            let v = &self.views[idx];
+            let layer = [
+                FL::MrmsEchoTop18,
+                FL::MrmsEchoTop30,
+                FL::MrmsEchoTop50,
+                FL::MrmsEchoTop60,
+            ]
+            .into_iter()
+            .find(|l| v.fields_on.contains(l) && self.mrms_ready(*l));
+            if let (Some(layer), Some(ramp)) =
+                (layer, layer.and_then(crate::render::field_ramps::ramp_for))
+            {
+                if let Some(grid) = self.fields.get(&layer).and_then(|f| f.grid.as_ref()) {
+                    // The lon/lat box the view covers, from its corners, capped at a regional size.
+                    let corners = [
+                        (0.0, 0.0),
+                        (vp.0, 0.0),
+                        (0.0, vp.1),
+                        (vp.0, vp.1),
+                        (vp.0 * 0.5, vp.1 * 0.5),
+                    ]
+                    .map(|p| {
+                        let w = cam.screen_to_world(p, vp);
+                        crate::render::mercator::world_to_lonlat(w.0, w.1)
+                    });
+                    let (clon, clat) = corners[4];
+                    let mut b = [f64::MAX, f64::MAX, f64::MIN, f64::MIN];
+                    for (lon, lat) in corners {
+                        b = [b[0].min(lon), b[1].min(lat), b[2].max(lon), b[3].max(lat)];
+                    }
+                    let b = [
+                        b[0].max(clon - 6.0),
+                        b[1].max(clat - 4.0),
+                        b[2].min(clon + 6.0),
+                        b[3].min(clat + 4.0),
+                    ];
+                    let lut = match &ramp.scale {
+                        crate::render::field_ramps::FieldScale::Ramp { stops, .. } => {
+                            crate::render::field_ramps::bake_ramp_lut(stops, 255)
+                        }
+                        _ => Vec::new(),
+                    };
+                    let (mesh, lines) = crate::render3d::height_surface_screen(
+                        &cam,
+                        vp,
+                        prect.min,
+                        grid,
+                        b,
+                        160,
+                        v.map_3d.vertical_exaggeration as f64,
+                        0.5,
+                        |km| {
+                            let i = ramp.index(km) as usize;
+                            (i > 0 && lut.len() >= (i + 1) * 4)
+                                .then(|| [lut[i * 4], lut[i * 4 + 1], lut[i * 4 + 2]])
+                        },
+                    );
+                    painter.add(egui::Shape::mesh(mesh));
+                    for l in lines {
+                        painter.add(egui::Shape::line(
+                            l,
+                            egui::Stroke::new(0.6, egui::Color32::from_white_alpha(70)),
+                        ));
+                    }
+                }
             }
         }
 

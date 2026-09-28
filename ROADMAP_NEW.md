@@ -2905,15 +2905,23 @@ test helper), so the guides line up with the sweeps at any vertical exaggeration
 Checked in the browser on KTLX: rings, beams and edges drawn over the observed sweeps, separating
 as the vertical exaggeration goes up.
 
-## H6. 3D overlay fusion
+## H6. 3D overlay fusion — started: MRMS echo-top surfaces
 
 After radar 3D is mature, add optional:
 
-- MRMS layer-height surfaces
-- satellite cloud-top-height surface when a trustworthy source exists
-- model isosurfaces for selected scalar fields
+- [x] MRMS layer-height surfaces — "MRMS echo tops as a surface" in the 3D map controls draws a
+  displayed MRMS echo-top layer (18/30/50/60 dBZ, km MSL) at its height
+  (`render3d::height_surface_screen`): sampled over the visible area on at most 160 x 160 cells,
+  each the largest top in its footprint (so a storm's top survives the coarse sampling rather than
+  whichever fine cell a sample lands on), coloured by the layer's own ramp, depth-sorted
+- [ ] satellite cloud-top-height surface when a trustworthy source exists
+- [ ] model isosurfaces for selected scalar fields
 
-Keep observed radar, analyzed MRMS and forecast model geometry visually distinct.
+Keep observed radar, analyzed MRMS and forecast model geometry visually distinct. — the MRMS
+surface is translucent with a sparse white analysis grid drawn over it, which the observed radar
+volume never has. Tested (a synthetic grid covers only its tops and rises with them) and checked in
+the browser: blue 18 dBZ echo-top shading and grid lines over the storms near Dallas, Oklahoma City
+and Denver, gone with the toggle off.
 
 ## H7. 3D performance targets
 

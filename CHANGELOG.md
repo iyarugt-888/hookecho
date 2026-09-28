@@ -65,6 +65,8 @@ on, and where its track crosses the road with both arrival times.
 The route check also flags heavy echo on the road (from an MRMS reflectivity layer) and recent
 satellite lightning within 5 miles of it, and (when those MRMS layers are on) large hail, heavy
 hourly rain and rare short-duration rainfall on the road.
+The 3D map can draw an MRMS echo-top layer as a translucent surface at its height, gridded so it
+reads as analysis rather than radar.
 
 ### Added: GOES RGB composites
 

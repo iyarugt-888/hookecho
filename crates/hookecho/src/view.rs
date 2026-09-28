@@ -246,6 +246,8 @@ pub struct Map3dState {
     pub iso_lit: bool,
     /// Explicit display smoothing of the surface's vertices; the radar values are never smoothed.
     pub iso_smooth: bool,
+    /// Phase H6: draw a displayed MRMS echo-top layer as a height surface in the 3D map.
+    pub mrms_surface: bool,
     /// CC-anomaly opacity, used by `SmoothDebris` and by `ObservedSweeps` while the pane's moment
     /// is correlation coefficient. See [`CcAnomaly`]. Separate from `denoise_enabled` because it
     /// is not a floor at all — the two are alternative ways of deciding what a voxel is worth
@@ -307,6 +309,7 @@ impl Default for Map3dState {
             iso_opacity: 0.55,
             iso_lit: true,
             iso_smooth: false,
+            mrms_surface: false,
             cc_anomaly: CcAnomaly::default(),
             clip: [0.0, 1.0, 0.0, 1.0, 0.0, 1.0],
             plane: None,

@@ -574,6 +574,175 @@ pub fn beam_guides(
     BeamGuides { rings, beams, mast }
 }
 
+/// An MRMS layer-height field (echo tops, km MSL) as a surface over the 3D map (Phase H6), for
+/// the lon/lat box `bounds` (`[west, south, east, north]`), sampled on at most `max_side` cells a
+/// side. Each cell's colour comes from `color_of(value)` (`None` = nothing there). Returns the
+/// translucent surface and, every `grid_every` cells, the analysis grid lines drawn over it — the
+/// look that keeps an analysed MRMS surface from reading as observed radar.
+#[allow(clippy::too_many_arguments)]
+pub fn height_surface_screen(
+    camera: &crate::render::mercator::Camera,
+    viewport_px: (f32, f32),
+    origin: egui::Pos2,
+    grid: &wxdata::mrms::MrmsField,
+    bounds: [f64; 4],
+    max_side: usize,
+    vertical_exaggeration: f64,
+    opacity: f32,
+    color_of: impl Fn(f32) -> Option<[u8; 3]>,
+) -> (egui::Mesh, Vec<Vec<egui::Pos2>>) {
+    let w = bounds[0].max(grid.lon_west);
+    let e = bounds[2].min(grid.lon_east);
+    let s = bounds[1].max(grid.lat_south);
+    let n = bounds[3].min(grid.lat_north);
+    let mut mesh = egui::Mesh::default();
+    if w >= e || s >= n {
+        return (mesh, Vec::new());
+    }
+    let side = max_side.max(2);
+    let (nx, ny) = (side, side);
+    let wpp = camera.world_per_pixel();
+    let mpp = crate::render::mercator::Camera::world_units_per_metre((s + n) * 0.5) / wpp;
+    let vp = camera.view_projection(viewport_px);
+    // Each sample: its value, and its screen position with clip depth.
+    let mut pts: Vec<Option<(f32, egui::Pos2, f32)>> = Vec::with_capacity(nx * ny);
+    for j in 0..ny {
+        let lat = n - (n - s) * j as f64 / (ny - 1) as f64;
+        for i in 0..nx {
+            let lon = w + (e - w) * i as f64 / (nx - 1) as f64;
+            let v = block_max(
+                grid,
+                lon,
+                lat,
+                (e - w) / (nx - 1) as f64 * 0.5,
+                (n - s) / (ny - 1) as f64 * 0.5,
+            );
+            pts.push(v.and_then(|km| {
+                let world = crate::render::mercator::lonlat_to_world(lon, lat);
+                let mut dx = world.0 - camera.center.0;
+                dx -= (dx + 0.5).floor();
+                let dy = world.1 - camera.center.1;
+                let p = Vec3::new(
+                    (dx / wpp) as f32,
+                    (-dy / wpp) as f32,
+                    (km as f64 * 1_000.0 * mpp * vertical_exaggeration) as f32,
+                );
+                let clip = vp * glam::Vec4::new(p.x, p.y, p.z, 1.0);
+                (clip.w > f32::EPSILON).then(|| {
+                    let ndc = clip.truncate() / clip.w;
+                    (
+                        km,
+                        origin
+                            + egui::vec2(
+                                (ndc.x + 1.0) * viewport_px.0 * 0.5,
+                                (1.0 - ndc.y) * viewport_px.1 * 0.5,
+                            ),
+                        clip.w,
+                    )
+                })
+            }));
+        }
+    }
+    let at = |i: usize, j: usize| pts[j * nx + i];
+    let alpha = (opacity.clamp(0.0, 1.0) * 255.0) as u8;
+    // (summed depth, corners as (value, screen position, depth)).
+    type Quad = (f32, [(f32, egui::Pos2, f32); 4]);
+    let mut quads: Vec<Quad> = Vec::new();
+    for j in 0..ny - 1 {
+        for i in 0..nx - 1 {
+            if let (Some(a), Some(b), Some(c), Some(d)) =
+                (at(i, j), at(i + 1, j), at(i + 1, j + 1), at(i, j + 1))
+            {
+                quads.push((a.2 + b.2 + c.2 + d.2, [a, b, c, d]));
+            }
+        }
+    }
+    quads.sort_by(|x, y| y.0.total_cmp(&x.0));
+    for (_, q) in quads {
+        let mean = (q[0].0 + q[1].0 + q[2].0 + q[3].0) / 4.0;
+        let Some([r, g, b]) = color_of(mean) else {
+            continue;
+        };
+        let col = egui::Color32::from_rgba_unmultiplied(r, g, b, alpha);
+        let base = mesh.vertices.len() as u32;
+        for v in &q {
+            mesh.colored_vertex(v.1, col);
+        }
+        mesh.add_triangle(base, base + 1, base + 2);
+        mesh.add_triangle(base, base + 2, base + 3);
+    }
+    // Analysis grid lines along every `grid_every`-th row and column, broken where there is no
+    // surface.
+    let grid_every = (side / 12).max(4);
+    let mut lines = Vec::new();
+    let mut run = |line: &mut Vec<egui::Pos2>, p: Option<(f32, egui::Pos2, f32)>| match p {
+        Some(p) => line.push(p.1),
+        None => {
+            if line.len() >= 2 {
+                lines.push(std::mem::take(line));
+            } else {
+                line.clear();
+            }
+        }
+    };
+    for j in (0..ny).step_by(grid_every) {
+        let mut line = Vec::new();
+        for i in 0..nx {
+            run(&mut line, at(i, j));
+        }
+        run(&mut line, None);
+    }
+    for i in (0..nx).step_by(grid_every) {
+        let mut line = Vec::new();
+        for j in 0..ny {
+            run(&mut line, at(i, j));
+        }
+        run(&mut line, None);
+    }
+    (mesh, lines)
+}
+
+/// The largest positive value of `grid` within `half_lon` x `half_lat` degrees of `(lon, lat)`:
+/// what a coarse surface sample should show of the finer grid under it (a storm's top, not
+/// whichever cell the sample point happens to land on).
+fn block_max(
+    grid: &wxdata::mrms::MrmsField,
+    lon: f64,
+    lat: f64,
+    half_lon: f64,
+    half_lat: f64,
+) -> Option<f32> {
+    if grid.nx == 0 || grid.ny == 0 || grid.values.len() != grid.nx * grid.ny {
+        return None;
+    }
+    let col =
+        |x: f64| ((x - grid.lon_west) / (grid.lon_east - grid.lon_west) * grid.nx as f64).floor();
+    let row = |y: f64| {
+        ((grid.lat_north - y) / (grid.lat_north - grid.lat_south) * grid.ny as f64).floor()
+    };
+    let (c0, c1) = (
+        col(lon - half_lon).max(0.0),
+        col(lon + half_lon).min(grid.nx as f64 - 1.0),
+    );
+    let (r0, r1) = (
+        row(lat + half_lat).max(0.0),
+        row(lat - half_lat).min(grid.ny as f64 - 1.0),
+    );
+    if c0 > c1 || r0 > r1 {
+        return None;
+    }
+    let mut best: Option<f32> = None;
+    for r in r0 as usize..=r1 as usize {
+        for c in c0 as usize..=c1 as usize {
+            let v = grid.values[r * grid.nx + c];
+            if v.is_finite() && v > 0.0 && best.is_none_or(|b| v > b) {
+                best = Some(v);
+            }
+        }
+    }
+    best
+}
+
 /// An isosurface (Phase H3, `wxdata::isosurface`) on screen as an `egui` mesh: each vertex moved
 /// from the volume's radar-relative km into the camera's local frame exactly as `map_uniform`
 /// places the smooth volume's box, triangles sorted far to near (the painter has no depth
@@ -1926,6 +2095,55 @@ mod pick_tests {
         cam.pitch = 45.0;
         cam.bearing = 0.0;
         cam
+    }
+
+    #[test]
+    fn an_echo_top_surface_covers_only_the_tops_and_rises_with_them() {
+        let mut cam = Camera::at_lonlat(-97.5, 35.3, 8.0);
+        cam.pitch = 50.0;
+        let vp = (1000.0, 700.0);
+        // 10 x 10 cells over a degree: tops of 12 km in the west half, none in the east half.
+        let grid = wxdata::mrms::MrmsField {
+            values: (0..100)
+                .map(|i| if i % 10 < 5 { 12.0 } else { 0.0 })
+                .collect(),
+            nx: 10,
+            ny: 10,
+            lon_west: -98.0,
+            lon_east: -97.0,
+            lat_north: 35.8,
+            lat_south: 34.8,
+            time: chrono::DateTime::UNIX_EPOCH,
+        };
+        let draw = |grid: &wxdata::mrms::MrmsField| {
+            super::height_surface_screen(
+                &cam,
+                vp,
+                egui::Pos2::ZERO,
+                grid,
+                [-98.0, 34.8, -97.0, 35.8],
+                20,
+                1.0,
+                0.5,
+                |_| Some([200, 200, 200]),
+            )
+        };
+        let (mesh, lines) = draw(&grid);
+        assert!(!mesh.vertices.is_empty() && !lines.is_empty());
+        // Every vertex sits in the west half.
+        let (east_x, _) =
+            cam.world_to_screen(crate::render::mercator::lonlat_to_world(-97.45, 35.3), vp);
+        assert!(mesh.vertices.iter().all(|v| v.pos.x < east_x + 5.0));
+        // Twice the height sits higher on screen.
+        let tall = wxdata::mrms::MrmsField {
+            values: grid.values.iter().map(|v| v * 2.0).collect(),
+            ..grid.clone()
+        };
+        let (taller, _) = draw(&tall);
+        let mean_y = |m: &egui::Mesh| {
+            m.vertices.iter().map(|v| v.pos.y).sum::<f32>() / m.vertices.len() as f32
+        };
+        assert!(mean_y(&taller) < mean_y(&mesh));
     }
 
     #[test]
