@@ -4572,6 +4572,13 @@ pub struct HookEchoApp {
     /// Per pane: the isosurface built for (volume, live revision, moment, threshold bits, smooth)
     /// and the build in flight (ROADMAP_NEW H3).
     iso_mesh: [Option<(IsoKey, wxdata::isosurface::IsoMesh)>; crate::view::MAX_PANES],
+    /// GOES cloud top height for the 3D map's satellite surface (ROADMAP_NEW H6), keyed by
+    /// (five-minute slot of the view's time, West satellite), and the fetch in flight.
+    cloud_top: Option<((i64, bool), wxdata::mrms::MrmsField)>,
+    cloud_top_rx: Option<(
+        (i64, bool),
+        std::sync::mpsc::Receiver<wxdata::mrms::MrmsField>,
+    )>,
     iso_rx: [Option<(
         IsoKey,
         std::sync::mpsc::Receiver<wxdata::isosurface::IsoMesh>,
@@ -5768,6 +5775,8 @@ impl HookEchoApp {
             // `Receiver`/`Volume3dUpload` inside it is not; `from_fn` avoids that requirement.
             smooth_vol_key: std::array::from_fn(|_| None),
             iso_mesh: std::array::from_fn(|_| None),
+            cloud_top: None,
+            cloud_top_rx: None,
             iso_rx: std::array::from_fn(|_| None),
             smooth_vol_info: std::array::from_fn(|_| None),
             vol3d_max_dim,
@@ -13703,6 +13712,54 @@ impl HookEchoApp {
             .is_none_or(|m| src.and_then(|&s| m.get(s)).copied().unwrap_or(true))
     }
 
+    /// Keep the GOES cloud-top-height field for the 3D map's satellite surface current: fetched
+    /// only while some pane shows it, for the five-minute slot of the view's time (so it follows
+    /// a scrubbed view, and refreshes live as the slot turns over).
+    fn sync_cloud_top(&mut self) {
+        if let Some((key, rx)) = &self.cloud_top_rx {
+            match rx.try_recv() {
+                Ok(field) => {
+                    self.cloud_top = Some((*key, field));
+                    self.cloud_top_rx = None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => self.cloud_top_rx = None,
+                Err(std::sync::mpsc::TryRecvError::Empty) => return,
+            }
+        }
+        let wanted = self
+            .views
+            .iter()
+            .any(|v| v.map_3d.enabled && v.map_3d.cloud_top_surface);
+        if !wanted {
+            return;
+        }
+        let at = self.view_target_time();
+        let west = self.settings.goes_satellite_west;
+        let key = (
+            at.unwrap_or_else(Utc::now).timestamp().div_euclid(300),
+            west,
+        );
+        if self.cloud_top.as_ref().is_some_and(|(k, _)| *k == key) {
+            return;
+        }
+        let satellite = if west {
+            wxdata::goes_abi::Satellite::West
+        } else {
+            wxdata::goes_abi::Satellite::East
+        };
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.cloud_top_rx = Some((key, rx));
+        let http = self.http.clone();
+        self.spawner.spawn(async move {
+            match wxdata::goes_abi::fetch_cloud_top_height(&http, satellite, at, 900, 525).await {
+                Ok(field) => {
+                    let _ = tx.send(field);
+                }
+                Err(e) => log::warn!("cloud top height: {e:#}"),
+            }
+        });
+    }
+
     /// Keep pane `idx`'s isosurface in step with its volume, moment and threshold: take a finished
     /// build, and start one when what is shown has changed. Velocity has no surface (a signed
     /// field's threshold is half a couplet).
@@ -16230,6 +16287,15 @@ impl HookEchoApp {
                  with an analysis grid over it, so the analysed MRMS surface never reads as the \
                  observed radar",
             );
+        ui.checkbox(
+            &mut view.map_3d.cloud_top_surface,
+            "Satellite cloud tops as a surface",
+        )
+        .on_hover_text(
+            "GOES cloud top height (NOAA's ACHA product, 10 km, every 5 minutes) drawn at its \
+                 height: pale grey to white, higher is whiter, fainter than the MRMS surface and \
+                 without its grid",
+        );
         ui.checkbox(&mut view.map_3d.beam_guides, "Beam guides")
             .on_hover_text(
                 "Draw the radar's beam geometry: each tilt's cone as rings at 50-200 km (low tilts cyan, high magenta), the lowest and highest beams toward the view with their 0.95° beamwidth edges, and the antenna mast",
@@ -20504,6 +20570,53 @@ impl HookEchoApp {
                         ));
                     }
                 }
+            }
+        }
+
+        // GOES cloud top height as a surface (ROADMAP_NEW H6): pale grey to white by height, no
+        // grid, fainter than the MRMS surface — satellite geometry, kept apart from both radar
+        // and the MRMS analysis by look.
+        if self.views[idx].map_3d.enabled && self.views[idx].map_3d.cloud_top_surface {
+            if let Some((_, field)) = self.cloud_top.as_ref() {
+                let v = &self.views[idx];
+                let corners = [
+                    (0.0, 0.0),
+                    (vp.0, 0.0),
+                    (0.0, vp.1),
+                    (vp.0, vp.1),
+                    (vp.0 * 0.5, vp.1 * 0.5),
+                ]
+                .map(|p| {
+                    let w = cam.screen_to_world(p, vp);
+                    crate::render::mercator::world_to_lonlat(w.0, w.1)
+                });
+                let (clon, clat) = corners[4];
+                let mut b = [f64::MAX, f64::MAX, f64::MIN, f64::MIN];
+                for (lon, lat) in corners {
+                    b = [b[0].min(lon), b[1].min(lat), b[2].max(lon), b[3].max(lat)];
+                }
+                let b = [
+                    b[0].max(clon - 8.0),
+                    b[1].max(clat - 6.0),
+                    b[2].min(clon + 8.0),
+                    b[3].min(clat + 6.0),
+                ];
+                let (mesh, _) = crate::render3d::height_surface_screen(
+                    &cam,
+                    vp,
+                    prect.min,
+                    field,
+                    b,
+                    120,
+                    v.map_3d.vertical_exaggeration as f64,
+                    0.35,
+                    |km| {
+                        let t = (km / 15.0).clamp(0.0, 1.0);
+                        let lerp = |a: f32, b: f32| (a + t * (b - a)) as u8;
+                        Some([lerp(120.0, 250.0), lerp(130.0, 252.0), lerp(150.0, 255.0)])
+                    },
+                );
+                painter.add(egui::Shape::mesh(mesh));
             }
         }
 
@@ -26280,6 +26393,7 @@ impl eframe::App for HookEchoApp {
         for idx in 0..self.views.len() {
             self.sync_isosurface(idx);
         }
+        self.sync_cloud_top();
         self.sync_overlay();
 
         // Streaming mode's broadcast dressing: clock, caption, crawl, logo.

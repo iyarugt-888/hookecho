@@ -2918,7 +2918,7 @@ test helper), so the guides line up with the sweeps at any vertical exaggeration
 Checked in the browser on KTLX: rings, beams and edges drawn over the observed sweeps, separating
 as the vertical exaggeration goes up.
 
-## H6. 3D overlay fusion — started: MRMS echo-top surfaces
+## H6. 3D overlay fusion — partly done: MRMS and satellite surfaces
 
 After radar 3D is mature, add optional:
 
@@ -2927,7 +2927,13 @@ After radar 3D is mature, add optional:
   (`render3d::height_surface_screen`): sampled over the visible area on at most 160 x 160 cells,
   each the largest top in its footprint (so a storm's top survives the coarse sampling rather than
   whichever fine cell a sample lands on), coloured by the layer's own ramp, depth-sorted
-- [ ] satellite cloud-top-height surface when a trustworthy source exists
+- [x] satellite cloud-top-height surface when a trustworthy source exists — NOAA's operational ABI
+  Level 2 cloud top height (ACHA, `ABI-L2-ACHAC`, CONUS, 10 km, every five minutes, quality flags
+  applied: `goes_abi::fetch_cloud_top_height`, via a variable-generic `decode_var`), GOES-East or
+  West as set. "Satellite cloud tops as a surface" draws it at its height, pale grey to white by
+  height, fainter than the MRMS surface and without its grid; it follows the view's time in
+  five-minute slots. Checked live (89,097 cloudy cells, highest 17.2 km) and in the browser (the
+  plains cloud deck as a translucent sheet over the map).
 - [ ] model isosurfaces for selected scalar fields
 
 Keep observed radar, analyzed MRMS and forecast model geometry visually distinct. — the MRMS

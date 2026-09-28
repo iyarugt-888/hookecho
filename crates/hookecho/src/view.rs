@@ -248,6 +248,8 @@ pub struct Map3dState {
     pub iso_smooth: bool,
     /// Phase H6: draw a displayed MRMS echo-top layer as a height surface in the 3D map.
     pub mrms_surface: bool,
+    /// Phase H6: draw GOES cloud top height (ABI ACHA) as a surface in the 3D map.
+    pub cloud_top_surface: bool,
     /// CC-anomaly opacity, used by `SmoothDebris` and by `ObservedSweeps` while the pane's moment
     /// is correlation coefficient. See [`CcAnomaly`]. Separate from `denoise_enabled` because it
     /// is not a floor at all — the two are alternative ways of deciding what a voxel is worth
@@ -310,6 +312,7 @@ impl Default for Map3dState {
             iso_lit: true,
             iso_smooth: false,
             mrms_surface: false,
+            cloud_top_surface: false,
             cc_anomaly: CcAnomaly::default(),
             clip: [0.0, 1.0, 0.0, 1.0, 0.0, 1.0],
             plane: None,

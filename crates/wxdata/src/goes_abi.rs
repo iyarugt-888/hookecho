@@ -180,6 +180,18 @@ impl Projection {
 /// this dense on a CONUS-sized output grid leaves at most a handful of unclaimed cells, which stay
 /// `NaN` like any other gap this app's grids already carry.
 pub fn decode(bytes: Vec<u8>, out_nx: usize, out_ny: usize) -> anyhow::Result<MrmsField> {
+    decode_var(bytes, "CMI", out_nx, out_ny)
+}
+
+/// [`decode`] for any variable on the ABI fixed grid — the Level 2 products carry theirs under
+/// their own names (`HT`, cloud top height, in the ACHA product), with the same projection, `x`/`y`,
+/// `t` and `DQF` layout as CMIP.
+pub fn decode_var(
+    bytes: Vec<u8>,
+    var: &str,
+    out_nx: usize,
+    out_ny: usize,
+) -> anyhow::Result<MrmsField> {
     let f = hdf5lite::File::open(bytes).map_err(|e| anyhow::anyhow!("{e}"))?;
     let proj_attrs = f
         .attributes("goes_imager_projection")
@@ -189,11 +201,11 @@ pub fn decode(bytes: Vec<u8>, out_nx: usize, out_ny: usize) -> anyhow::Result<Mr
 
     let x = f.read_f64("x").map_err(|e| anyhow::anyhow!("x: {e}"))?;
     let y = f.read_f64("y").map_err(|e| anyhow::anyhow!("y: {e}"))?;
-    let mut cmi = f.read_f64("CMI").map_err(|e| anyhow::anyhow!("CMI: {e}"))?;
+    let mut cmi = f.read_f64(var).map_err(|e| anyhow::anyhow!("{var}: {e}"))?;
     let (nx, ny) = (x.len(), y.len());
     anyhow::ensure!(
         cmi.len() == nx * ny,
-        "CMI is {} values, expected {nx}x{ny}={}",
+        "{var} is {} values, expected {nx}x{ny}={}",
         cmi.len(),
         nx * ny
     );
@@ -434,6 +446,75 @@ async fn fetch_key(
     )
     .await?;
     decode(bytes, out_nx, out_ny)
+}
+
+/// Cloud top height (km above mean sea level) from the ABI Level 2 ACHA product, CONUS, every five
+/// minutes at 10 km (ROADMAP_NEW H6's "satellite cloud-top-height surface when a trustworthy source
+/// exists": NOAA's operational product, with its quality flags applied). The newest granule, or
+/// with `at` the one nearest that time; resampled onto `out_nx × out_ny`. Pixels without a cloud
+/// top (clear sky, or flagged) are `NaN`.
+pub async fn fetch_cloud_top_height(
+    client: &reqwest::Client,
+    satellite: Satellite,
+    at: Option<chrono::DateTime<chrono::Utc>>,
+    out_nx: usize,
+    out_ny: usize,
+) -> anyhow::Result<MrmsField> {
+    use chrono::{Datelike, Timelike};
+    let target = at.unwrap_or_else(chrono::Utc::now);
+    let mut keys = Vec::new();
+    for hours in [-1i64, 0, 1] {
+        let Some(t) = target.checked_add_signed(chrono::Duration::hours(hours)) else {
+            continue;
+        };
+        let prefix = format!(
+            "ABI-L2-ACHAC/{:04}/{:03}/{:02}/OR_ABI-L2-ACHAC-M6_",
+            t.year(),
+            t.ordinal(),
+            t.hour()
+        );
+        let url = format!(
+            "{}/?list-type=2&prefix={prefix}&max-keys=100",
+            satellite.bucket()
+        );
+        if let Ok(resp) = client.get(crate::net::fetch_url(&url)).send().await {
+            if let Ok(xml) = resp.text().await {
+                keys.extend(all_keys(&xml));
+            }
+        }
+    }
+    let key = keys
+        .into_iter()
+        .filter_map(|k| key_time(&k).map(|t| ((t - target).num_seconds().abs(), k)))
+        .min_by_key(|(d, _)| *d)
+        .map(|(_, k)| k)
+        .ok_or_else(|| anyhow::anyhow!("no ABI cloud-top-height granule near {target}"))?;
+    let url = format!("{}/{key}", satellite.bucket());
+    let bytes = crate::objcache::cached(
+        &crate::objcache::GOES,
+        &url,
+        crate::objcache::is_whole_hdf5,
+        async {
+            let bytes = client
+                .get(crate::net::fetch_url(&url))
+                .timeout(crate::net::FEED_TIMEOUT)
+                .send()
+                .await?
+                .error_for_status()?
+                .bytes()
+                .await?
+                .to_vec();
+            crate::stats::net(bytes.len());
+            Ok(bytes)
+        },
+    )
+    .await?;
+    let mut field = decode_var(bytes, "HT", out_nx, out_ny)?;
+    // Metres in the file; kilometres like every other height layer here.
+    for v in &mut field.values {
+        *v /= 1000.0;
+    }
+    Ok(field)
 }
 
 /// Fetch and decode the latest CONUS CMIP granule for `band` on `satellite`, resampled onto an
@@ -1131,5 +1212,28 @@ mod tests {
         let off = (f.time - target).num_seconds().abs();
         eprintln!("asked {target}, got {} ({off} s off)", f.time);
         assert!(off <= 60, "a mesoscale sector scans every minute");
+    }
+
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn fetches_a_real_cloud_top_height_field() {
+        let f = fetch_cloud_top_height(&reqwest::Client::new(), Satellite::East, None, 600, 350)
+            .await
+            .unwrap();
+        let tops: Vec<f32> = f.values.iter().copied().filter(|v| v.is_finite()).collect();
+        let max = tops.iter().copied().fold(0.0f32, f32::max);
+        eprintln!(
+            "ACHA at {}: {} cloudy cells of {}, highest {max:.1} km, lon {:.1}..{:.1}",
+            f.time,
+            tops.len(),
+            f.values.len(),
+            f.lon_west,
+            f.lon_east
+        );
+        assert!(!tops.is_empty());
+        assert!(
+            tops.iter().all(|&v| (-1.0..25.0).contains(&v)),
+            "km, not metres"
+        );
     }
 }

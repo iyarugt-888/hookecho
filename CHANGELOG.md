@@ -69,6 +69,8 @@ The 3D map can draw an MRMS echo-top layer as a translucent surface at its heigh
 reads as analysis rather than radar.
 The 3D Reflectivity window has the 3D map's layer-by-layer tilt list: pick tilts to see just their
 beams as scanned, with each tilt's coverage, strongest reading and scan time.
+The 3D map can also draw GOES cloud top height as a translucent sheet at its height, whiter where
+the tops are higher.
 
 ### Added: GOES RGB composites
 
