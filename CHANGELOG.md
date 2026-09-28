@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Changed: 24 runs per model
+
+The run picker lists 24 runs for every model: six days of GFS, ECMWF, GEFS and NAM runs
+instead of two. Older ECMWF runs come from ECMWF's own archive copy. (GDPS lists today's two
+runs, all its source keeps.)
+
 ### Added: max reflectivity
 
 "Max" in the tilt row shows reflectivity's column maximum: the strongest echo any tilt

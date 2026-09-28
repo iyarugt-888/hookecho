@@ -4454,7 +4454,7 @@ Plus:
 - [x] Split view — 1, 2, 3, 4, 6 and 9 panes
 - [ ] Radar, composite, model and satellite smoothing — radar yes; others to verify
 - [ ] Playback up to 100 radar scans, 50 composite/satellite frames — live loops stop at 30
-- [x] Up to 12 runs per model — hourly models list 24, six-hourly 8 (two days)
+- [x] Up to 12 runs per model — see 24 below
 - [x] RenderStream — progressive radial rendering (B2)
 - [ ] Enhanced lightning — to verify
 - [ ] Alerts, discussions and storm tracks in radar history — to verify
@@ -4479,7 +4479,9 @@ Pro:
 - [ ] Flash a custom reflectivity range — not built
 - [ ] Population and impact reports for alerts and discussions — not built
 - [ ] Play up to 200 radar scans, 100 satellite/composite frames — see playback above
-- [ ] Up to 24 runs per model — six-hourly models list 8
+- [x] Up to 24 runs per model — every model lists 24 (a day of hourly runs, six days of
+  six-hourly ones); ECMWF runs past its portal's three days come from ECMWF's AWS mirror. GDPS
+  lists 2: Environment Canada's Datamart serves only today
 - [ ] US CWA boundaries and forecast zones layers — zone shapes are fetched for alerts only
 - [ ] Historical satellite imagery by date and time — to verify
 - [ ] Historical model runs by date and time — to verify

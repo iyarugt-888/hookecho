@@ -350,12 +350,13 @@ impl BModel {
         }
     }
 
-    /// How many runs the picker lists for this model.
+    /// How many runs the picker lists for this model: 24, a day of hourly runs or six days of
+    /// six-hourly ones, from NOAA's AWS archives and ECMWF's AWS mirror. GDPS is the exception:
+    /// Environment Canada's Datamart serves only today, its two runs.
     pub fn run_list_len(self) -> usize {
-        match self.engine() {
-            Engine::Regional(model) if model.def().cycle_hours == 1 => 24,
-            Engine::Sub15 | Engine::Analysis => 24,
-            _ => 8,
+        match self {
+            BModel::Gdps => 2,
+            _ => 24,
         }
     }
 
@@ -1027,9 +1028,10 @@ mod tests {
             // Nothing newer than the model can plausibly have finished.
             assert!(runs[0] < now - chrono::Duration::hours(4), "{m:?}");
         }
-        // A day of hourly runs, two days of six-hourly ones.
+        // A day of hourly runs, six days of six-hourly ones; GDPS only has today.
         assert_eq!(BModel::Hrrr.run_list_len(), 24);
-        assert_eq!(BModel::Gfs.run_list_len(), 8);
+        assert_eq!(BModel::Gfs.run_list_len(), 24);
+        assert_eq!(BModel::Gdps.run_list_len(), 2);
     }
 
     #[test]

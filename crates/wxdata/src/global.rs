@@ -21,6 +21,11 @@ use chrono::{DateTime, Datelike, Timelike, Utc};
 
 const GFS_BUCKET: &str = "https://noaa-gfs-bdp-pds.s3.amazonaws.com";
 const ECMWF_BASE: &str = "https://data.ecmwf.int/forecasts";
+/// ECMWF's AWS mirror of the same files, same paths, with the whole archive. data.ecmwf.int
+/// keeps about three days (a four-day-old run is a 404 there and present here).
+const ECMWF_ARCHIVE: &str = "https://ecmwf-forecasts.s3.eu-central-1.amazonaws.com";
+/// Runs older than this are read from [`ECMWF_ARCHIVE`].
+const ECMWF_PORTAL_HOURS: i64 = 60;
 const GEFS_BUCKET: &str = "https://noaa-gefs-pds.s3.amazonaws.com";
 /// Environment and Climate Change Canada's public "Datamart" — plain HTTPS directory listings,
 /// one GRIB2 message per file already (no sidecar index to slice one out of a bundle the way
@@ -453,8 +458,13 @@ async fn fetch_run(
             (base, r)
         }
         GlobalModel::Ecmwf => {
+            let root = if Utc::now() - run > chrono::Duration::hours(ECMWF_PORTAL_HOURS) {
+                ECMWF_ARCHIVE
+            } else {
+                ECMWF_BASE
+            };
             let base = format!(
-                "{ECMWF_BASE}/{date}/{:02}z/ifs/0p25/oper/{date}{:02}0000-{fh}h-oper-fc.grib2",
+                "{root}/{date}/{:02}z/ifs/0p25/oper/{date}{:02}0000-{fh}h-oper-fc.grib2",
                 run.hour(),
                 run.hour()
             );
@@ -766,6 +776,24 @@ mod tests {
         assert!(err
             .to_string()
             .contains("outside the published field domain"));
+    }
+
+    /// The oldest run a 24-run picker lists, six days back: ECMWF from its AWS mirror (the
+    /// portal no longer has it), GFS from NOAA's archive.
+    /// `cargo test -p wxdata old_runs_live -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn old_runs_live() {
+        let http = reqwest::Client::new();
+        for model in [GlobalModel::Gfs, GlobalModel::Ecmwf] {
+            let run = *model.run_choices(Utc::now(), 24).last().unwrap();
+            let f = fetch_at_run(&http, model, GlobalField::Mslp, run, 6)
+                .await
+                .unwrap_or_else(|e| panic!("{} {run}: {e}", model.label()));
+            let finite = f.field.values.iter().filter(|v| v.is_finite()).count();
+            println!("{} {run} F006: {finite} finite values", model.label());
+            assert!(finite > 0);
+        }
     }
 
     /// Both sources, live, at the newest usable cycle.
