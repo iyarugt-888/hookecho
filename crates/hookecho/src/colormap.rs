@@ -103,6 +103,68 @@ pub fn bake_lut(table: &ColorTable, range: (f32, f32), threshold: Option<f32>) -
     lut
 }
 
+/// `table` with the band `lo..=hi` (internal units, either order) painted flat in `rgba`, every
+/// value outside it keeping exactly the colour it had: the stop below the band has its gradient
+/// pinned to its old colour at `lo`, and a new stop at `hi` resumes the old ramp where it was.
+/// What "flash a range" swaps in on its bright half-beats.
+pub fn highlight(table: &ColorTable, lo: f32, hi: f32, rgba: [u8; 4]) -> ColorTable {
+    let (lo, hi) = (lo.min(hi), lo.max(hi));
+    let mut stops: Vec<PalStop> = table
+        .stops
+        .iter()
+        .filter(|s| s.value < lo)
+        .copied()
+        .collect();
+    if let (Some(last), Some(at_lo)) = (stops.last_mut(), table.sample(lo)) {
+        if !last.solid {
+            last.end = Some(at_lo);
+        }
+    }
+    stops.push(PalStop {
+        value: lo,
+        rgba,
+        end: None,
+        solid: true,
+    });
+    if let Some(at_hi) = table.sample(hi) {
+        let seg = table.stops.partition_point(|s| s.value <= hi) - 1;
+        let s = table.stops[seg];
+        // Just past `hi`, so a value exactly at `hi` is still in the band.
+        let resume = if s.solid {
+            PalStop {
+                value: hi.next_up(),
+                rgba: s.rgba,
+                end: None,
+                solid: true,
+            }
+        } else {
+            // The colour the old segment was heading for, so the ramp above `hi` is unchanged.
+            let target = s.end.or_else(|| table.stops.get(seg + 1).map(|n| n.rgba));
+            PalStop {
+                value: hi.next_up(),
+                rgba: at_hi,
+                end: target,
+                solid: target.is_none(),
+            }
+        };
+        stops.push(resume);
+    } else {
+        // The band ends below the table's floor: close it with a transparent stop, which draws
+        // exactly as "below the floor" does.
+        stops.push(PalStop {
+            value: hi.next_up(),
+            rgba: [0, 0, 0, 0],
+            end: None,
+            solid: true,
+        });
+    }
+    stops.extend(table.stops.iter().filter(|s| s.value > hi).copied());
+    ColorTable {
+        stops,
+        ..table.clone()
+    }
+}
+
 /// Bake the LUT for a speed-ordered velocity volume ([`wxdata::volume3d::fold_by_speed`]): entry
 /// `raw` is the colour of the signed velocity [`wxdata::volume3d::speed_value`] gives it, so a
 /// voxel re-indexed by speed is still painted inbound or outbound.
@@ -639,6 +701,32 @@ impl Palettes {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn highlight_paints_only_the_band_and_keeps_every_other_colour() {
+        let white = [255, 255, 255, 255];
+        let table = default_table(Moment::Reflectivity);
+        for (lo, hi) in [(50.0, 60.0), (60.0, 50.0), (-10.0, 5.0), (40.0, 40.0)] {
+            let h = highlight(table, lo, hi, white);
+            let (a, b) = (lo.min(hi), lo.max(hi));
+            let mut v = -32.0f32;
+            while v <= 95.0 {
+                if (a..=b).contains(&v) {
+                    assert_eq!(h.sample(v), Some(white), "{v} is in {a}..={b}");
+                } else {
+                    // A transparent colour and no colour draw the same.
+                    let seen = |c: Option<[u8; 4]>| c.filter(|c| c[3] > 0);
+                    let (was, now) = (seen(table.sample(v)), seen(h.sample(v)));
+                    let close = match (was, now) {
+                        (Some(x), Some(y)) => x.iter().zip(y).all(|(p, q)| p.abs_diff(q) <= 1),
+                        (x, y) => x == y,
+                    };
+                    assert!(close, "{v} outside {a}..={b}: {was:?} became {now:?}");
+                }
+                v += 0.25;
+            }
+        }
+    }
 
     #[test]
     fn an_inline_table_loads_without_a_file() {

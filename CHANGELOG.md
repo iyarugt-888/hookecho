@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: flash a range
+
+Drag across the colour scale under the ribbon and every echo in that range flashes on the map,
+so a 50-60 dBZ band or a strong-wind band jumps out. Click the scale to stop. With reduced
+motion on, the range stays lit instead of flashing.
+
 ### Changed: 24 runs per model
 
 The run picker lists 24 runs for every model: six days of GFS, ECMWF, GEFS and NAM runs

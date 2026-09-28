@@ -4476,7 +4476,11 @@ Pro:
 - [ ] Reflectivity X and max reflectivity — max reflectivity done: "Max" in the tilt row
   shows the column maximum over every tilt (`level2::column_max`, on the lowest tilt's grid
   at ground range, each tilt read at its own slant range). Reflectivity X not built
-- [ ] Flash a custom reflectivity range — not built
+- [x] Flash a custom reflectivity range — drag across the ribbon's colour scale: that band
+  flashes white on the map, twice a second (steady with reduced motion); a click stops it. Any
+  product, per pane (`MapView::flash_ranges`, `colormap::highlight`); a beat rewrites only the
+  3 KB colour table. Checked in the browser. The vertical legend of the other layouts does not
+  take the drag yet
 - [ ] Population and impact reports for alerts and discussions — not built
 - [ ] Play up to 200 radar scans, 100 satellite/composite frames — see playback above
 - [x] Up to 24 runs per model — every model lists 24 (a day of hourly runs, six days of

@@ -248,6 +248,49 @@ pub fn check(ui: &mut Ui, label: &str, on: &mut bool) -> bool {
     resp.clicked()
 }
 
+/// The colour bar's own strip inside the docked scale's `rect`, and the value range it spans
+/// (the table's first to last stop), shared by the drawing and by the pointer.
+fn colorbar_geometry(rect: Rect, table: &ColorTable) -> Option<(Rect, f32, f32)> {
+    let (vmin, vmax) = match (table.stops.first(), table.stops.last()) {
+        (Some(a), Some(b)) if b.value > a.value => (a.value, b.value),
+        _ => return None,
+    };
+    let bar = Rect::from_min_max(
+        pos2(rect.left() + 6.0, rect.top() + 3.0),
+        pos2(rect.right() - 6.0, rect.top() + 14.0),
+    );
+    Some((bar, vmin, vmax))
+}
+
+/// The value (the table's internal units) under screen x on the docked colour scale.
+pub fn colorbar_value_at(rect: Rect, table: &ColorTable, x: f32) -> Option<f32> {
+    let (bar, vmin, vmax) = colorbar_geometry(rect, table)?;
+    let t = ((x - bar.left()) / bar.width().max(1.0)).clamp(0.0, 1.0);
+    Some(vmin + t * (vmax - vmin))
+}
+
+/// Outline the band `lo..=hi` on the docked colour scale: the range flashing on the map.
+pub fn colorbar_band(painter: &egui::Painter, rect: Rect, table: &ColorTable, lo: f32, hi: f32) {
+    let Some((bar, vmin, vmax)) = colorbar_geometry(rect, table) else {
+        return;
+    };
+    let span = (vmax - vmin).max(f32::EPSILON);
+    let x_of = |v: f32| bar.left() + ((v - vmin) / span).clamp(0.0, 1.0) * bar.width();
+    let band = Rect::from_min_max(
+        pos2(x_of(lo.min(hi)), bar.top() - 2.0),
+        pos2(
+            x_of(lo.max(hi)).max(x_of(lo.min(hi)) + 2.0),
+            bar.bottom() + 2.0,
+        ),
+    );
+    painter.rect_stroke(
+        band,
+        1.0,
+        Stroke::new(2.0, Color32::WHITE),
+        StrokeKind::Outside,
+    );
+}
+
 /// The docked horizontal colour scale under the ribbon. Mirrors [`crate::ui::legend::draw_vertical`]
 /// — same [`ColorTable`], so the bar and the radar LUT never diverge — but laid out left→right with
 /// tick labels riding under the bar.
@@ -259,15 +302,10 @@ pub fn colorbar(
     disp_label: &str,
 ) {
     painter.rect_filled(rect, 0.0, Color32::from_rgb(0x05, 0x05, 0x07));
-    let (vmin, vmax) = match (table.stops.first(), table.stops.last()) {
-        (Some(a), Some(b)) if b.value > a.value => (a.value, b.value),
-        _ => return,
+    let Some((bar, vmin, vmax)) = colorbar_geometry(rect, table) else {
+        return;
     };
     let span = (vmax - vmin).max(f32::EPSILON);
-    let bar = Rect::from_min_max(
-        pos2(rect.left() + 6.0, rect.top() + 3.0),
-        pos2(rect.right() - 6.0, rect.top() + 14.0),
-    );
     let x_of = |v: f32| bar.left() + ((v - vmin) / span).clamp(0.0, 1.0) * bar.width();
     let col = |c: [u8; 4]| Color32::from_rgb(c[0], c[1], c[2]);
 

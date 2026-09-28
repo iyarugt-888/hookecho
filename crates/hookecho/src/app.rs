@@ -4591,6 +4591,18 @@ pub struct HookEchoApp {
     volume3d_supported: bool,
 }
 
+/// Half a flash cycle, ms: a range flashes on for one beat and off for the next.
+const FLASH_BEAT_MS: u64 = 450;
+/// The colour a flashing range takes on its bright beats.
+const FLASH_RGBA: [u8; 4] = [255, 255, 255, 255];
+
+/// Whether a flashing range is on its bright beat. With reduced motion it stays on: a steady
+/// highlight, not a blink.
+fn flash_beat_on() -> bool {
+    crate::ui::motion::reduced()
+        || (chrono::Utc::now().timestamp_millis() as u64 / FLASH_BEAT_MS).is_multiple_of(2)
+}
+
 /// Split `r` into `n` pane rects: 1 full; 2 and 3 as an adaptive row/column strip (columns in
 /// landscape, rows in portrait); 4 as a 2x2 grid; 6 as an adaptive 3x2/2x3 grid; 9 as 3x3.
 fn pane_rects(r: egui::Rect, n: usize) -> Vec<egui::Rect> {
@@ -15808,13 +15820,21 @@ impl HookEchoApp {
             dealias,
             self.settings.precip_tint.then_some(self.precip_flag_gen),
         );
-        let lut_gen = self.palettes.gen.wrapping_add(
-            if crate::theme::is_high_contrast(self.settings.theme) {
+        // Flash a range: on its bright half-beats the band is painted white. Only the colour table
+        // changes, so the beat costs a 3 KB table write, not a sweep upload.
+        let flash = self.views[idx].flash_ranges[moment.index()].filter(|_| flash_beat_on());
+        let flash_tag = flash.map_or(0u64, |(lo, hi)| {
+            (u64::from(lo.to_bits()) << 32 | u64::from(hi.to_bits())) | 1
+        });
+        let lut_gen = self
+            .palettes
+            .gen
+            .wrapping_add(if crate::theme::is_high_contrast(self.settings.theme) {
                 0x9e37_79b9_7f4a_7c15
             } else {
                 0
-            },
-        );
+            })
+            .wrapping_add(flash_tag.wrapping_mul(0x2545_f491_4f6c_dd1d));
         // Same sweep already up: the only thing left that can differ is the color table, and
         // that is a 3 KB write into the texture already bound.
         let lut_only = self.pane_shown.get(&idx) == Some(&key);
@@ -15824,8 +15844,11 @@ impl HookEchoApp {
         if lut_only && self.pane_lut.get(&idx) == Some(&lut_gen) && !ring_owed {
             return (None, true);
         }
-        let table_owned =
+        let mut table_owned =
             crate::colormap::effective_table(&self.palettes, moment, self.settings.theme);
+        if let Some((lo, hi)) = flash {
+            table_owned = crate::colormap::highlight(&table_owned, lo, hi, FLASH_RGBA);
+        }
         let table = &table_owned;
         // Cheap handle taken before the volume is borrowed mutably below.
         let precip = (self.settings.precip_tint
@@ -17901,6 +17924,12 @@ impl HookEchoApp {
         // --- Radar (this pane's product, its own volume) ---
         self.map_3d_controls(idx, prect, ctx);
         let (radar_upload, mut draw_radar) = self.pane_radar(idx, idx);
+        // A flashing range needs a frame at its next beat, even with nothing else moving.
+        if self.views[idx].flash_ranges.iter().any(Option::is_some) {
+            ctx.request_repaint_after(std::time::Duration::from_millis(
+                FLASH_BEAT_MS - (chrono::Utc::now().timestamp_millis() as u64 % FLASH_BEAT_MS),
+            ));
+        }
         if self.trail_more {
             ctx.request_repaint();
         }

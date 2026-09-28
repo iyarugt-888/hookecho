@@ -609,6 +609,10 @@ pub struct MapView {
     /// Show the column maximum over every tilt ("max reflectivity") instead of one tilt.
     /// Reflectivity only; other moments ignore it.
     pub column_max: bool,
+    /// Per product (indexed by [`Moment::index`]): a value band, internal units, that flashes on
+    /// the map so every echo in it stands out ("flash a range"). Set by dragging across the
+    /// colour scale; a click on the scale clears it.
+    pub flash_ranges: [Option<(f32, f32)>; Moment::ALL.len()],
     /// While following live, show each sweep as the radar starts it: the tilt changes to the
     /// elevation being scanned when that sweep's first chunk lands. The broader sibling of
     /// `follow_lowest_cut` (which only ever jumps to the lowest tilt); the controls keep at most
@@ -770,6 +774,7 @@ impl MapView {
             tilt: 0,
             follow_lowest_cut: false,
             column_max: false,
+            flash_ranges: [None; Moment::ALL.len()],
             follow_live_sweep: false,
             followed_sweep: None,
             thresholds: [None; Moment::ALL.len()],

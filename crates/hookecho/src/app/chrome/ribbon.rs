@@ -220,6 +220,10 @@ impl HookEchoApp {
         let mut pick_contour: Vec<crate::app::ContourKind> = Vec::new();
         let mut all_tilts = false;
         let column_max_on = self.views[self.active].column_max;
+        let flash_now = self.views[self.active].flash_ranges[moment.index()];
+        // Dragged across the colour scale this frame: `Some(Some(band))` sets the flashing range,
+        // `Some(None)` (a click) clears it.
+        let mut pick_flash: Option<Option<(f32, f32)>> = None;
         let mut toggle_column_max = false;
         let mut open_command_search = false;
         let env_model = self.env_model;
@@ -724,6 +728,35 @@ impl HookEchoApp {
                     full.max,
                 );
                 wsv3::colorbar(ui.painter(), cb, &table, disp_f, disp_l);
+                // Flash a range: drag across the scale and every echo in that band flashes on the
+                // map; a click on the scale stops it.
+                let id = egui::Id::new("wsv3_colorbar_flash");
+                let resp = ui
+                    .interact(cb, id, egui::Sense::click_and_drag())
+                    .on_hover_text(
+                        "Drag across the scale to flash that range on the map; click to stop",
+                    );
+                let value_at = |x: f32| wsv3::colorbar_value_at(cb, &table, x);
+                if resp.drag_started() {
+                    // Where the button went down: by the time a drag registers the pointer has
+                    // already moved on.
+                    let origin = ui.input(|i| i.pointer.press_origin());
+                    if let Some(v) = origin.and_then(|p| value_at(p.x)) {
+                        ui.ctx().data_mut(|d| d.insert_temp(id, v));
+                    }
+                }
+                if resp.dragged() {
+                    let start = ui.ctx().data(|d| d.get_temp::<f32>(id));
+                    let now = resp.interact_pointer_pos().and_then(|p| value_at(p.x));
+                    if let (Some(a), Some(b)) = (start, now) {
+                        pick_flash = Some(Some((a.min(b), a.max(b))));
+                    }
+                } else if resp.clicked() {
+                    pick_flash = Some(None);
+                }
+                if let Some((lo, hi)) = pick_flash.unwrap_or(flash_now) {
+                    wsv3::colorbar_band(ui.painter(), cb, &table, lo, hi);
+                }
             });
         // Drawn after the panel above (not before it), so it paints on top of the ribbon's own
         // background gradient rather than underneath it.
@@ -782,6 +815,9 @@ impl HookEchoApp {
         if let Some(i) = pick_tilt {
             self.views[self.active].tilt = i;
             self.views[self.active].column_max = false;
+        }
+        if let Some(band) = pick_flash {
+            self.views[self.active].flash_ranges[moment.index()] = band;
         }
         if toggle_column_max {
             let v = &mut self.views[self.active];
