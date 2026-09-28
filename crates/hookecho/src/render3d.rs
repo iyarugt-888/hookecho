@@ -574,6 +574,100 @@ pub fn beam_guides(
     BeamGuides { rings, beams, mast }
 }
 
+/// An isosurface (Phase H3, `wxdata::isosurface`) on screen as an `egui` mesh: each vertex moved
+/// from the volume's radar-relative km into the camera's local frame exactly as `map_uniform`
+/// places the smooth volume's box, triangles sorted far to near (the painter has no depth
+/// buffer, and the surface is translucent), and optionally shaded by a fixed light from the
+/// northwest and above so the surface's shape reads.
+#[allow(clippy::too_many_arguments)]
+pub fn iso_mesh_screen(
+    camera: &crate::render::mercator::Camera,
+    viewport_px: (f32, f32),
+    origin: egui::Pos2,
+    radar_lon: f64,
+    radar_lat: f64,
+    antenna_altitude_m: f64,
+    vertical_exaggeration: f64,
+    mesh: &wxdata::isosurface::IsoMesh,
+    color: [u8; 3],
+    opacity: f32,
+    lit: bool,
+) -> egui::Mesh {
+    let radar_world = crate::render::mercator::lonlat_to_world(radar_lon, radar_lat);
+    let wpp = camera.world_per_pixel();
+    let dx = (radar_world.0 - camera.center.0 + 0.5).rem_euclid(1.0) - 0.5;
+    let dy = camera.center.1 - radar_world.1;
+    let mpp = crate::render::mercator::Camera::world_units_per_metre(radar_lat) / wpp;
+    let local: Vec<Vec3> = mesh
+        .verts
+        .iter()
+        .map(|p| {
+            Vec3::new(
+                (dx / wpp + p[0] as f64 * 1_000.0 * mpp) as f32,
+                (dy / wpp + p[1] as f64 * 1_000.0 * mpp) as f32,
+                ((antenna_altitude_m + p[2] as f64 * 1_000.0) * mpp * vertical_exaggeration) as f32,
+            )
+        })
+        .collect();
+    let vp = camera.view_projection(viewport_px);
+    let screen: Vec<Option<(egui::Pos2, f32)>> = local
+        .iter()
+        .map(|p| {
+            let clip = vp * glam::Vec4::new(p.x, p.y, p.z, 1.0);
+            (clip.w > f32::EPSILON).then(|| {
+                let ndc = clip.truncate() / clip.w;
+                (
+                    origin
+                        + egui::vec2(
+                            (ndc.x + 1.0) * viewport_px.0 * 0.5,
+                            (1.0 - ndc.y) * viewport_px.1 * 0.5,
+                        ),
+                    clip.w,
+                )
+            })
+        })
+        .collect();
+    let light = Vec3::new(-0.4, 0.5, 0.8).normalize();
+    let mut order: Vec<(f32, usize)> = mesh
+        .tris
+        .iter()
+        .enumerate()
+        .filter_map(|(i, t)| {
+            let w: f32 = t
+                .iter()
+                .map(|&v| screen[v as usize].map(|s| s.1))
+                .sum::<Option<f32>>()?;
+            Some((w, i))
+        })
+        .collect();
+    order.sort_by(|a, b| b.0.total_cmp(&a.0));
+    let mut out = egui::Mesh::default();
+    let alpha = (opacity.clamp(0.0, 1.0) * 255.0) as u8;
+    for (_, i) in order {
+        let t = mesh.tris[i];
+        let shade = if lit {
+            let [a, b, c] = t.map(|v| local[v as usize]);
+            let n = (b - a).cross(c - a).normalize_or_zero();
+            0.35 + 0.65 * n.dot(light).abs()
+        } else {
+            1.0
+        };
+        let col = egui::Color32::from_rgba_unmultiplied(
+            (color[0] as f32 * shade) as u8,
+            (color[1] as f32 * shade) as u8,
+            (color[2] as f32 * shade) as u8,
+            alpha,
+        );
+        let base = out.vertices.len() as u32;
+        for &v in &t {
+            let (pos, _) = screen[v as usize].expect("filtered above");
+            out.colored_vertex(pos, col);
+        }
+        out.add_triangle(base, base + 1, base + 2);
+    }
+    out
+}
+
 /// How many `t` samples to scan for a sign change before bisecting.
 const PICK_SAMPLES: usize = 400;
 /// Bisection refinements once a crossing is bracketed — 24 halvings of even the widest bracket

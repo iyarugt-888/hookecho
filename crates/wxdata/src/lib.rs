@@ -42,6 +42,7 @@ pub mod grib_split;
 pub mod gribcache;
 pub mod gridverify;
 pub mod hrrr;
+pub mod isosurface;
 pub mod kdp;
 pub mod kml;
 pub mod level2;

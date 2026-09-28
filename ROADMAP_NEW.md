@@ -2813,24 +2813,39 @@ Add analyst controls:
 
 Save presets per product. — not done; the floors are per moment but not saved as presets.
 
-## H3. Isosurfaces
+## H3. Isosurfaces — done
 
 Implement GPU/CPU isosurface generation, preferably marching cubes or equivalent.
 
+`wxdata::isosurface`: naive surface nets on a CPU `Volume3d` of the pane's moment (one vertex per
+crossed cell at the mean of its edge crossings, one quad per crossed grid edge). It is watertight
+and outward-wound, with no case table (tested on a ball: every edge shared by two triangles,
+positive signed volume, vertices at the radius). The app builds it off the UI thread on a 1 km
+grid, capped at 1.5 M voxels and 60 k triangles, rebuilding when the volume, moment, threshold
+or smoothing changes (`app::sync_isosurface`). `render3d::iso_mesh_screen` places it exactly as
+the smooth volume's box is placed and paints it as a depth-sorted translucent mesh over the 3D map.
+
 Examples:
 
-- 40/50/60 dBZ surfaces
-- low-CC debris region
-- ZDR column threshold
+- [x] 40/50/60 dBZ surfaces — reflectivity, default 50 dBZ
+- [x] low-CC debris region — CC with low values inside, default 0.8
+- [x] ZDR column threshold — ZDR, default 3 dB (KDP 2 °/km, SW 8 m/s, ΦDP too; not velocity,
+  whose threshold is half a couplet)
 
 Controls:
 
-- threshold
-- transparency
-- lighting
-- smoothing toggle
+- [x] threshold — per moment, in the moment's units
+- [x] transparency — "Surface opacity"
+- [x] lighting — "Lit": a fixed light from the northwest and above
+- [x] smoothing toggle — "Smooth surface": Laplacian smoothing of the mesh's vertices only
+  (`isosurface::smooth`), off by default
 
-Never smooth the source values silently; smoothing must be explicit display processing.
+Never smooth the source values silently; smoothing must be explicit display processing. — held:
+the only interpolation is along a single grid edge to find the crossing, and vertex smoothing is
+an opt-in toggle on the drawn surface.
+
+Checked in the browser on KTLX: a lit surface wrapping the echo around the radar, lining up
+with the observed sweeps.
 
 ## H4. Movable clipping and slicing planes — done
 

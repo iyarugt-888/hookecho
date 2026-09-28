@@ -4561,6 +4561,13 @@ pub struct HookEchoApp {
     /// kept separately from the (heavy) upload so the frames between rebuilds don't need the
     /// tens-of-MB volume held twice just to recompute the camera uniform.
     smooth_vol_key: [Option<(String, u64, Moment, bool)>; crate::view::MAX_PANES],
+    /// Per pane: the isosurface built for (volume, live revision, moment, threshold bits, smooth)
+    /// and the build in flight (ROADMAP_NEW H3).
+    iso_mesh: [Option<(IsoKey, wxdata::isosurface::IsoMesh)>; crate::view::MAX_PANES],
+    iso_rx: [Option<(
+        IsoKey,
+        std::sync::mpsc::Receiver<wxdata::isosurface::IsoMesh>,
+    )>; crate::view::MAX_PANES],
     /// `(horizontal cell km, share of echo outside the box)` of each pane's resident Smooth volume,
     /// for the readout under the representation buttons.
     smooth_vol_info: [Option<(f32, f32)>; crate::view::MAX_PANES],
@@ -5749,6 +5756,8 @@ impl HookEchoApp {
             // `[None; MAX_PANES]` needs `Option<T>: Copy`, which a
             // `Receiver`/`Volume3dUpload` inside it is not; `from_fn` avoids that requirement.
             smooth_vol_key: std::array::from_fn(|_| None),
+            iso_mesh: std::array::from_fn(|_| None),
+            iso_rx: std::array::from_fn(|_| None),
             smooth_vol_info: std::array::from_fn(|_| None),
             vol3d_max_dim,
             smooth_vol_rx: std::array::from_fn(|_| None),
@@ -13401,6 +13410,74 @@ impl HookEchoApp {
             .is_none_or(|m| src.and_then(|&s| m.get(s)).copied().unwrap_or(true))
     }
 
+    /// Keep pane `idx`'s isosurface in step with its volume, moment and threshold: take a finished
+    /// build, and start one when what is shown has changed. Velocity has no surface (a signed
+    /// field's threshold is half a couplet).
+    fn sync_isosurface(&mut self, idx: usize) {
+        if let Some((key, rx)) = &self.iso_rx[idx] {
+            match rx.try_recv() {
+                Ok(mesh) => {
+                    self.iso_mesh[idx] = Some((key.clone(), mesh));
+                    self.iso_rx[idx] = None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => self.iso_rx[idx] = None,
+                Err(std::sync::mpsc::TryRecvError::Empty) => return,
+            }
+        }
+        let v = &self.views[idx];
+        let state = &v.map_3d;
+        if !state.enabled || !state.iso_enabled || v.moment == Moment::Velocity {
+            return;
+        }
+        let moment = v.moment;
+        let mi = Moment::ALL.iter().position(|m| *m == moment).unwrap_or(0);
+        let value = state.iso_values[mi];
+        let smooth = state.iso_smooth;
+        let rev = v.live_scan_revision;
+        let max_dim = self.vol3d_max_dim;
+        let Some(vol) = self.views[idx].volume.as_mut() else {
+            return;
+        };
+        let key: IsoKey = (vol.name.clone(), rev, moment, value.to_bits(), smooth);
+        if self.iso_mesh[idx].as_ref().is_some_and(|(k, _)| *k == key) {
+            return;
+        }
+        let sweeps = vol.moment_tilts(moment);
+        if sweeps.is_empty() {
+            return;
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.iso_rx[idx] = Some((key, rx));
+        self.spawner.spawn(async move {
+            let built = wxdata::task::blocking(move || {
+                let full = wxdata::volume3d::max_sample_range_km(&sweeps).max(50.0);
+                let half = wxdata::volume3d::echo_extent_km(&sweeps, full).half_km;
+                let (n, nz) = wxdata::volume3d::plan_grid(
+                    half,
+                    VOL3D_TOP_KM,
+                    ISO_CELL_KM,
+                    ISO_MAX_VOXELS,
+                    max_dim,
+                );
+                let v3 = wxdata::volume3d::build(&sweeps, n, nz, half, VOL3D_TOP_KM)?;
+                // Low CC is the interesting side (debris); every other moment is high-inside.
+                let high_inside = moment != Moment::CorrelationCoefficient;
+                let mut mesh =
+                    wxdata::isosurface::isosurface(&v3, value, high_inside, ISO_MAX_TRIS);
+                if smooth {
+                    wxdata::isosurface::smooth(&mut mesh, 2);
+                }
+                Some(mesh)
+            })
+            .await
+            .ok()
+            .flatten();
+            if let Some(mesh) = built {
+                let _ = tx.send(mesh);
+            }
+        });
+    }
+
     /// Recompute the imported features' colours when the colouring attribute changed.
     fn refresh_imported_colors(&mut self) {
         let Some(key) = self.settings.imported_gis_color_by.clone() else {
@@ -15824,6 +15901,36 @@ impl HookEchoApp {
                 .suffix("×"),
         );
         ui.add(egui::Slider::new(&mut view.map_3d.opacity, 0.1..=1.0).text("Opacity"));
+        // Isosurface (Phase H3): the pane's moment at one threshold, per-moment.
+        ui.horizontal(|ui| {
+            ui.add_enabled_ui(moment != Moment::Velocity, |ui| {
+                ui.checkbox(&mut view.map_3d.iso_enabled, "Isosurface")
+                    .on_hover_text(
+                        "A surface where this product crosses a threshold: a 50 dBZ core, a 3 dB \
+                         ZDR column, a low-CC debris pocket (low CC is inside). Not for velocity.",
+                    )
+            });
+        });
+        if view.map_3d.iso_enabled && moment != Moment::Velocity {
+            let mi = Moment::ALL.iter().position(|m| *m == moment).unwrap_or(0);
+            let (lo, hi) = moment.value_range();
+            ui.add(
+                egui::Slider::new(&mut view.map_3d.iso_values[mi], lo..=hi)
+                    .text("Threshold")
+                    .max_decimals(2),
+            );
+            ui.add(
+                egui::Slider::new(&mut view.map_3d.iso_opacity, 0.1..=1.0).text("Surface opacity"),
+            );
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut view.map_3d.iso_lit, "Lit")
+                    .on_hover_text("Shade by a light from the northwest so the shape reads");
+                ui.checkbox(&mut view.map_3d.iso_smooth, "Smooth surface")
+                    .on_hover_text(
+                    "Display smoothing of the surface only; the radar values are never smoothed",
+                );
+            });
+        }
         ui.checkbox(&mut view.map_3d.beam_guides, "Beam guides")
             .on_hover_text(
                 "Draw the radar's beam geometry: each tilt's cone as rings at 50-200 km (low tilts                  cyan, high magenta), the lowest and highest beams toward the view with their                  0.95° beamwidth edges, and the antenna mast",
@@ -20083,6 +20190,36 @@ impl HookEchoApp {
             );
         }
 
+        // Isosurface over the 3D map (ROADMAP_NEW H3); built by `sync_isosurface` each frame.
+        if self.views[idx].map_3d.enabled && self.views[idx].map_3d.iso_enabled {
+            let v = &self.views[idx];
+            let moment = v.moment;
+            if let (Some(site), Some((_, mesh))) = (
+                v.site.as_deref().and_then(wxdata::sites::site_by_id),
+                self.iso_mesh[idx].as_ref(),
+            ) {
+                let mi = Moment::ALL.iter().position(|m| *m == moment).unwrap_or(0);
+                let value = v.map_3d.iso_values[mi];
+                let table =
+                    crate::colormap::effective_table(&self.palettes, moment, self.settings.theme);
+                let c = table.sample(value).unwrap_or([200, 200, 200, 255]);
+                let shape = crate::render3d::iso_mesh_screen(
+                    &cam,
+                    vp,
+                    prect.min,
+                    site.longitude as f64,
+                    site.latitude as f64,
+                    site.elevation_meters as f64 + wxdata::towers::tower_m(site.id),
+                    v.map_3d.vertical_exaggeration as f64,
+                    mesh,
+                    [c[0], c[1], c[2]],
+                    v.map_3d.iso_opacity,
+                    v.map_3d.iso_lit,
+                );
+                painter.add(egui::Shape::mesh(shape));
+            }
+        }
+
         // Beam guides over the 3D map (ROADMAP_NEW H5): the geometry every observed gate sits on.
         if self.views[idx].map_3d.enabled && self.views[idx].map_3d.beam_guides {
             let v = &self.views[idx];
@@ -22716,6 +22853,15 @@ fn glm_flashes_for<'a>(
 fn glm_slot(t: DateTime<Utc>) -> i64 {
     t.timestamp().div_euclid(60)
 }
+
+/// What an isosurface was built from: volume name, live revision, moment, threshold bits, smooth.
+type IsoKey = (String, u64, Moment, u32, bool);
+
+/// Isosurface grid: coarser than the smooth volume (a surface is read at a glance, and every
+/// triangle is drawn by the painter each frame), capped in voxels and triangles.
+const ISO_CELL_KM: f32 = 1.0;
+const ISO_MAX_VOXELS: usize = 1_500_000;
+const ISO_MAX_TRIS: usize = 60_000;
 
 /// Reflectivity below which the 3D ZDR and KDP volumes are masked out: the polarimetric fields
 /// are noise in weaker echo (ROADMAP_NEW H1/H2 quality mask).
@@ -25768,6 +25914,9 @@ impl eframe::App for HookEchoApp {
             }
         }
         self.sync_imported_time();
+        for idx in 0..self.views.len() {
+            self.sync_isosurface(idx);
+        }
         self.sync_overlay();
 
         // Streaming mode's broadcast dressing: clock, caption, crawl, logo.

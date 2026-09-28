@@ -55,6 +55,8 @@ A "Ceiling" beside the 3D Denoise floor keeps just one band of values, such as t
 shell around a hail core.
 "Beam guides" in the 3D map draws the radar's beam geometry: each tilt's cone as range rings, the
 lowest and highest beams with their beamwidth, and the antenna mast.
+Isosurfaces in the 3D map: a lit, translucent surface where the product crosses a threshold (a
+50 dBZ core, a ZDR column, a low-CC debris pocket), with opacity and optional display smoothing.
 
 ### Added: GOES RGB composites
 

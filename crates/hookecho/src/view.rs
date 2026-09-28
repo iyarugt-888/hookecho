@@ -236,6 +236,16 @@ pub struct Map3dState {
     /// Phase H5: draw the radar's beam geometry over the 3D map — each tilt's cone as range
     /// rings, the lowest and highest beams' centrelines and beamwidth edges, and the mast.
     pub beam_guides: bool,
+    /// Phase H3: draw an isosurface of the pane's moment at `iso_values[moment]`.
+    pub iso_enabled: bool,
+    /// The isosurface threshold per moment, in `Moment::ALL` order and each moment's own units:
+    /// 50 dBZ, 20 m/s, 8 m/s, 3 dB ZDR, 90° ΦDP, 2 °/km KDP, and CC 0.8 (with low CC inside,
+    /// the debris case).
+    pub iso_values: [f32; 7],
+    pub iso_opacity: f32,
+    pub iso_lit: bool,
+    /// Explicit display smoothing of the surface's vertices; the radar values are never smoothed.
+    pub iso_smooth: bool,
     /// CC-anomaly opacity, used by `SmoothDebris` and by `ObservedSweeps` while the pane's moment
     /// is correlation coefficient. See [`CcAnomaly`]. Separate from `denoise_enabled` because it
     /// is not a floor at all — the two are alternative ways of deciding what a voxel is worth
@@ -292,6 +302,11 @@ impl Default for Map3dState {
             kdp_floor_deg_km: 0.5,
             ceilings: [None; 6],
             beam_guides: false,
+            iso_enabled: false,
+            iso_values: [50.0, 20.0, 8.0, 3.0, 90.0, 2.0, 0.8],
+            iso_opacity: 0.55,
+            iso_lit: true,
+            iso_smooth: false,
             cc_anomaly: CcAnomaly::default(),
             clip: [0.0, 1.0, 0.0, 1.0, 0.0, 1.0],
             plane: None,
