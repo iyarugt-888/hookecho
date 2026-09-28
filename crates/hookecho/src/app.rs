@@ -15817,10 +15817,13 @@ impl HookEchoApp {
         };
         // Max reflectivity: the column maximum over every tilt stands in for the one tilt.
         let column_max = self.views[idx].column_max && moment == Moment::Reflectivity;
-        let name = if column_max {
-            format!("{name}\u{2}max")
-        } else {
-            name
+        // Reflectivity X: the same with non-weather echo removed.
+        let clean = self.views[idx].clean_reflectivity && moment == Moment::Reflectivity;
+        let name = match (column_max, clean) {
+            (true, true) => format!("{name}\u{2}maxclean"),
+            (true, false) => format!("{name}\u{2}max"),
+            (false, true) => format!("{name}\u{2}clean"),
+            (false, false) => name,
         };
         let uv_key = storm_uv.map(|(e, n)| (e.to_bits(), n.to_bits()));
         // Dealiasing only applies to Doppler velocity, and only where it is actually folded:
@@ -15908,7 +15911,9 @@ impl HookEchoApp {
                 return (None, true);
             }
             let sweep = if column_max {
-                vol.column_max(moment)
+                vol.column_max(moment, clean)
+            } else if clean {
+                vol.clean_reflectivity(tilt)
             } else {
                 vol.binned(moment, tilt, dealias)
             };

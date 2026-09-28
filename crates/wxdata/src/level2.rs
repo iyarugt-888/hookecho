@@ -1023,6 +1023,84 @@ pub fn bin_scan(scan: &Scan, moment: Moment, tilt: usize) -> anyhow::Result<Binn
     bin_scan_opts(scan, moment, tilt, false)
 }
 
+/// Correlation coefficient below which a weak echo is taken for non-weather (birds, insects,
+/// ground clutter, chaff, smoke): rain and snow hold CC near 0.95-1, the melting layer rarely
+/// dips under 0.85, and biological and clutter returns sit around 0.3-0.8.
+pub const CLEAN_CC_MIN: f32 = 0.85;
+/// Reflectivity (dBZ) at and above which a gate is always kept, whatever its CC: large hail and
+/// tornado debris are strong echoes with low CC, and are the last thing to filter out.
+pub const CLEAN_KEEP_DBZ: f32 = 35.0;
+
+/// "Reflectivity X": `refl` with its non-weather echo removed using the same tilt's correlation
+/// coefficient `cc`. A gate goes where CC is under [`CLEAN_CC_MIN`] and reflectivity under
+/// [`CLEAN_KEEP_DBZ`]; then any gate left with fewer than two neighbours (of eight) holding echo
+/// goes too, which clears the speckle the first pass leaves. A gate with no CC is kept (a
+/// legacy radar, a gate past the dual-pol range): the filter only removes what it can tell is
+/// not weather. The two sweeps may have different gate spacing; CC is read at the same range and
+/// azimuth.
+pub fn clean_reflectivity(refl: &BinnedSweep, cc: &BinnedSweep) -> BinnedSweep {
+    let (az_bins, gates) = (refl.az_bins, refl.gate_count);
+    let z_span = refl.value_max - refl.value_min;
+    let cc_span = cc.value_max - cc.value_min;
+    let keep_idx = 2.0 + (CLEAN_KEEP_DBZ - refl.value_min) / z_span.max(f32::EPSILON) * 253.0;
+    let mut data = refl.data.clone();
+    if cc.az_bins > 0 && cc.gate_count > 0 {
+        for a in 0..az_bins {
+            let ca = ((2 * a + 1) * cc.az_bins / (2 * az_bins.max(1))) % cc.az_bins;
+            for g in 0..gates {
+                let i = a * gates + g;
+                let z = data[i];
+                if z < 2 || z as f32 >= keep_idx {
+                    continue;
+                }
+                let range = refl.first_gate_km + g as f32 * refl.gate_interval_km;
+                let cg = ((range - cc.first_gate_km) / cc.gate_interval_km.max(f32::EPSILON))
+                    .round();
+                if cg < 0.0 || cg as usize >= cc.gate_count {
+                    continue;
+                }
+                let c = cc.data[ca * cc.gate_count + cg as usize];
+                if c < 2 {
+                    continue;
+                }
+                let cc_value = cc.value_min + (c as f32 - 2.0) / 253.0 * cc_span;
+                if cc_value < CLEAN_CC_MIN {
+                    data[i] = 0;
+                }
+            }
+        }
+    }
+    // Speckle: an echo gate with fewer than two echo neighbours, the azimuth wrapping round.
+    let echo = |d: &[u8], a: usize, g: usize| d[(a % az_bins) * gates + g] >= 2;
+    let mut out = data.clone();
+    if az_bins > 0 {
+        for a in 0..az_bins {
+            for g in 0..gates {
+                if data[a * gates + g] < 2 {
+                    continue;
+                }
+                let mut n = 0;
+                for da in [az_bins - 1, 0, 1] {
+                    for dg in [-1i64, 0, 1] {
+                        let gg = g as i64 + dg;
+                        if (da == 0 && dg == 0) || gg < 0 || gg as usize >= gates {
+                            continue;
+                        }
+                        n += usize::from(echo(&data, a + da, gg as usize));
+                    }
+                }
+                if n < 2 {
+                    out[a * gates + g] = 0;
+                }
+            }
+        }
+    }
+    BinnedSweep {
+        data: out,
+        ..refl.clone()
+    }
+}
+
 /// The column maximum of a volume: at every azimuth and ground range, the largest value any tilt
 /// reports above that point (for reflectivity, the radar's own composite reflectivity, "max
 /// reflectivity"). `sweeps` are one moment's tilts, lowest first.
@@ -1503,6 +1581,59 @@ mod tests {
 
     /// A completed archive sweep is one pass end to end. Marking any of it stale would dim
     /// data that is not stale, so the mask has to stay silent.
+    #[test]
+    fn clean_reflectivity_drops_non_weather_and_keeps_strong_cores() {
+        let (zl, zh) = Moment::Reflectivity.value_range();
+        let (cl, ch) = Moment::CorrelationCoefficient.value_range();
+        let z = |v: f32| 2 + (((v - zl) / (zh - zl)) * 253.0) as u8;
+        let c = |v: f32| 2 + (((v - cl) / (ch - cl)) * 253.0) as u8;
+        let (az, gates) = (8usize, 10usize);
+        let mut zd = vec![0u8; az * gates];
+        let mut cd = vec![0u8; az * gates];
+        let mut set = |a: usize, g: usize, zv: f32, cv: Option<f32>| {
+            zd[a * gates + g] = z(zv);
+            if let Some(cv) = cv {
+                cd[a * gates + g] = c(cv);
+            }
+        };
+        for a in 0..4 {
+            for g in 2..6 {
+                set(a, g, 30.0, Some(0.98)); // rain
+            }
+        }
+        for a in 4..8 {
+            for g in 2..6 {
+                set(a, g, 10.0, Some(0.5)); // birds and insects
+            }
+        }
+        for (a, g) in [(5, 3), (5, 4), (6, 3), (6, 4)] {
+            set(a, g, 55.0, Some(0.7)); // a hail core: strong, low CC
+        }
+        set(0, 9, 30.0, Some(0.98)); // one lone gate: speckle
+        set(1, 3, 10.0, None); // weak echo with no CC: kept
+        let sweep = |moment, data, lo, hi| BinnedSweep {
+            moment,
+            az_bins: az,
+            gate_count: gates,
+            data,
+            first_gate_km: 1.0,
+            gate_interval_km: 1.0,
+            value_min: lo,
+            value_max: hi,
+            ..Default::default()
+        };
+        let out = clean_reflectivity(
+            &sweep(Moment::Reflectivity, zd, zl, zh),
+            &sweep(Moment::CorrelationCoefficient, cd, cl, ch),
+        );
+        let at = |a: usize, g: usize| out.data[a * gates + g];
+        assert!(at(2, 3) >= 2, "rain stays");
+        assert_eq!(at(7, 2), 0, "low-CC weak echo goes");
+        assert!(at(5, 3) >= 2 && at(6, 4) >= 2, "the hail core stays");
+        assert_eq!(at(0, 9), 0, "a lone gate goes");
+        assert!(at(1, 3) >= 2, "no CC, no verdict");
+    }
+
     #[test]
     fn column_max_takes_the_strongest_tilt_above_each_point() {
         let (lo, hi) = Moment::Reflectivity.value_range();

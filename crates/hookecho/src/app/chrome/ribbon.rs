@@ -225,6 +225,8 @@ impl HookEchoApp {
         // `Some(None)` (a click) clears it.
         let mut pick_flash: Option<Option<(f32, f32)>> = None;
         let mut toggle_column_max = false;
+        let clean_on = self.views[self.active].clean_reflectivity;
+        let mut toggle_clean = false;
         let mut open_command_search = false;
         let env_model = self.env_model;
 
@@ -429,6 +431,18 @@ impl HookEchoApp {
                                         .clicked()
                                 {
                                     toggle_column_max = true;
+                                }
+                                if moment == wxdata::level2::Moment::Reflectivity
+                                    && wsv3::pill(ui, "Clean", clean_on, accent)
+                                        .on_hover_text(
+                                            "Reflectivity X: birds, insects, ground clutter and \
+                                             other non-weather echo removed, using the same \
+                                             tilt's correlation coefficient. Strong cores (35 dBZ \
+                                             and up) are never removed, so hail and debris stay.",
+                                        )
+                                        .clicked()
+                                {
+                                    toggle_clean = true;
                                 }
                                 if wsv3::pill(ui, "Follow low", follow_lowest_cut, accent)
                                     .on_hover_text(
@@ -818,6 +832,10 @@ impl HookEchoApp {
         }
         if let Some(band) = pick_flash {
             self.views[self.active].flash_ranges[moment.index()] = band;
+        }
+        if toggle_clean {
+            let v = &mut self.views[self.active];
+            v.clean_reflectivity = !v.clean_reflectivity;
         }
         if toggle_column_max {
             let v = &mut self.views[self.active];

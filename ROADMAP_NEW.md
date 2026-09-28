@@ -4479,9 +4479,13 @@ Pro:
 - [ ] Radar wind particles from Doppler winds — particles use model winds
 - [x] Realtime radar cross section — X-section tool and window
 - [ ] Expert mode — to verify (per-product expert knobs exist)
-- [ ] Reflectivity X and max reflectivity — max reflectivity done: "Max" in the tilt row
+- [x] Reflectivity X and max reflectivity — Reflectivity X: "Clean" in the tilt row removes
+  non-weather echo with the same tilt's CC (`level2::clean_reflectivity`: gone where CC < 0.85
+  and reflectivity < 35 dBZ, then speckle with fewer than two echo neighbours), never a strong
+  core; checked in the browser on KTLX at night, where it cleared the bird and insect disk and
+  kept the storms. With Max, the maximum of the cleaned tilts. Max reflectivity: "Max" in the tilt row
   shows the column maximum over every tilt (`level2::column_max`, on the lowest tilt's grid
-  at ground range, each tilt read at its own slant range). Reflectivity X not built
+  at ground range, each tilt read at its own slant range)
 - [x] Flash a custom reflectivity range — drag across the ribbon's colour scale: that band
   flashes white on the map, twice a second (steady with reduced motion); a click stops it. Any
   product, per pane (`MapView::flash_ranges`, `colormap::highlight`); a beat rewrites only the

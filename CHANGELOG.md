@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: clean reflectivity
+
+"Clean" in the tilt row removes birds, insects, ground clutter and other non-weather echo from
+reflectivity, using the radar's correlation coefficient. Echo of 35 dBZ and up is never removed,
+so hail cores and tornado debris stay. It works with Max too.
+
 ### Added: people in the area
 
 An alert's card now says about how many people and homes are inside it and names its largest

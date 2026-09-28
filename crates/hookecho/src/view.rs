@@ -407,8 +407,11 @@ const RECENT_VOLUMES: usize = if cfg!(target_os = "android") {
     12
 };
 
-/// The binned-sweep cache's tilt slot for a column maximum ([`Volume::column_max`]).
+/// The binned-sweep cache's tilt slot for a column maximum ([`Volume::column_max`]); one below
+/// it is the column maximum of the cleaned tilts.
 const COLUMN_MAX_TILT: usize = usize::MAX;
+/// Offset of a cleaned reflectivity tilt's cache slot ([`Volume::clean_reflectivity`]).
+const CLEAN_TILT_BASE: usize = usize::MAX / 2;
 
 /// A decoded volume plus lazily-binned sweeps for the moments/tilts the user has viewed.
 pub struct Volume {
@@ -475,9 +478,19 @@ impl Volume {
             return;
         }
         self.scan = scan;
-        // Any changed tilt changes the column maximum above it.
+        // Any changed tilt changes the column maximum above it, and its cleaned copy.
         for m in Moment::ALL {
             self.binned.pop(&(m, COLUMN_MAX_TILT, false));
+            self.binned.pop(&(m, COLUMN_MAX_TILT - 1, false));
+        }
+        let cleaned: Vec<_> = self
+            .binned
+            .iter()
+            .map(|(k, _)| *k)
+            .filter(|(_, t, _)| (CLEAN_TILT_BASE..COLUMN_MAX_TILT - 1).contains(t))
+            .collect();
+        for k in cleaned {
+            self.binned.pop(&k);
         }
         if !tilts_only_grew(&self.elevations, &new_elev) {
             self.binned.clear(); // tilt indices may have shifted
@@ -554,12 +567,36 @@ impl Volume {
         })
     }
 
-    /// The column maximum of `moment` over every tilt (`level2::column_max`: for reflectivity,
-    /// the radar's composite "max reflectivity"), cached with the binned sweeps.
-    pub fn column_max(&mut self, moment: Moment) -> anyhow::Result<&BinnedSweep> {
-        let key = (moment, COLUMN_MAX_TILT, false);
+    /// Reflectivity at tilt `tilt` with its non-weather echo removed by the same tilt's CC
+    /// (`level2::clean_reflectivity`, "Reflectivity X"), cached with the binned sweeps. Without
+    /// CC at this tilt, the reflectivity as it is.
+    pub fn clean_reflectivity(&mut self, tilt: usize) -> anyhow::Result<&BinnedSweep> {
+        let key = (Moment::Reflectivity, CLEAN_TILT_BASE + tilt, false);
         if !self.binned.contains(&key) {
-            let tilts = self.moment_tilts(moment);
+            let refl = self.binned(Moment::Reflectivity, tilt, false)?.clone();
+            let clean = match self.binned(Moment::CorrelationCoefficient, tilt, false) {
+                Ok(cc) => level2::clean_reflectivity(&refl, cc),
+                Err(_) => refl,
+            };
+            self.binned.put(key, clean);
+        }
+        Ok(self.binned.get(&key).expect("just inserted"))
+    }
+
+    /// The column maximum of `moment` over every tilt (`level2::column_max`: for reflectivity,
+    /// the radar's composite "max reflectivity"), cached with the binned sweeps. `clean` takes it
+    /// over the cleaned reflectivity tilts instead.
+    pub fn column_max(&mut self, moment: Moment, clean: bool) -> anyhow::Result<&BinnedSweep> {
+        let clean = clean && moment == Moment::Reflectivity;
+        let key = (moment, COLUMN_MAX_TILT - usize::from(clean), false);
+        if !self.binned.contains(&key) {
+            let tilts = if clean {
+                (0..self.elevations.len())
+                    .filter_map(|t| self.clean_reflectivity(t).ok().cloned())
+                    .collect()
+            } else {
+                self.moment_tilts(moment)
+            };
             let cm = level2::column_max(&tilts)
                 .ok_or_else(|| anyhow::anyhow!("no {moment:?} tilts for a column maximum"))?;
             self.binned.put(key, cm);
@@ -609,6 +646,10 @@ pub struct MapView {
     /// Show the column maximum over every tilt ("max reflectivity") instead of one tilt.
     /// Reflectivity only; other moments ignore it.
     pub column_max: bool,
+    /// Show reflectivity with its non-weather echo removed ("Reflectivity X", `level2::
+    /// clean_reflectivity`). Reflectivity only; with `column_max`, the maximum of the cleaned
+    /// tilts.
+    pub clean_reflectivity: bool,
     /// Per product (indexed by [`Moment::index`]): a value band, internal units, that flashes on
     /// the map so every echo in it stands out ("flash a range"). Set by dragging across the
     /// colour scale; a click on the scale clears it.
@@ -774,6 +815,7 @@ impl MapView {
             tilt: 0,
             follow_lowest_cut: false,
             column_max: false,
+            clean_reflectivity: false,
             flash_ranges: [None; Moment::ALL.len()],
             follow_live_sweep: false,
             followed_sweep: None,
