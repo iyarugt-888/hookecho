@@ -21,6 +21,8 @@ reqwest.workspace = true
 flate2.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# Valhalla takes its request as URL-encoded JSON (`route.rs`); already in the tree via reqwest.
+percent-encoding = "2.3"
 chrono.workspace = true
 lru.workspace = true
 directories.workspace = true

@@ -588,6 +588,12 @@ pub struct Settings {
     /// memory only until you save it.
     #[serde(default)]
     pub chase_log: bool,
+    /// ROADMAP_NEW L1: the routing server the Route tool asks — the user's own OSRM or Valhalla,
+    /// or a public demo they chose knowingly. Empty until they pick one: no provider is assumed.
+    #[serde(default)]
+    pub route_engine: wxdata::route::Engine,
+    #[serde(default)]
+    pub route_url: String,
     /// Attach a picture of the radar to the ntfy push when a warning fires. Desktop only: the
     /// Android background service has no GPU surface to render from, and says so in the UI.
     #[serde(default)]
@@ -1713,6 +1719,8 @@ impl Default for Settings {
             setup_done: false,
             desktop_notify: false,
             chase_log: false,
+            route_engine: Default::default(),
+            route_url: String::new(),
             battery_saver: false,
             ntfy_snapshot: false,
             alert_follow_gps: false,
@@ -2559,6 +2567,8 @@ mod tests {
             setup_done: true,
             desktop_notify: false,
             chase_log: false,
+            route_engine: Default::default(),
+            route_url: String::new(),
             battery_saver: false,
             ntfy_snapshot: false,
             alert_follow_gps: false,

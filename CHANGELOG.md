@@ -57,6 +57,9 @@ shell around a hail core.
 lowest and highest beams with their beamwidth, and the antenna mast.
 Isosurfaces in the 3D map: a lit, translucent surface where the product crosses a threshold (a
 50 dBZ core, a ZDR column, a low-CC debris pocket), with opacity and optional display smoothing.
+A Route tool: click a start, stops and a destination for driving routes (with alternatives) from
+your own OSRM or Valhalla server, or a public demo you choose. The route window shows distance,
+time, progress from your chase position, and where the route enters active warnings and watches.
 
 ### Added: GOES RGB composites
 

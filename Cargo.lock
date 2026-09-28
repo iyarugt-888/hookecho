@@ -7524,6 +7524,7 @@ dependencies = [
  "nexrad-data",
  "nexrad-level3",
  "nexrad-model",
+ "percent-encoding",
  "postcard",
  "rayon",
  "reqwest 0.12.28",

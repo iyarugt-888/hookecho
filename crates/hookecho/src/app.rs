@@ -1960,6 +1960,9 @@ pub(crate) enum MapTool {
     Draw,
     /// Click out a watch zone vertex by vertex; double-click (or Enter) closes and names it.
     AlertZone,
+    /// Click route points (start, stops, destination) for a driving route and what it runs into
+    /// (ROADMAP_NEW L1-L3).
+    Route,
 }
 
 /// Which set of controls the WSV3 ribbon shows. WSV3 swaps its whole toolbar by data type; this
@@ -3925,6 +3928,12 @@ pub struct HookEchoApp {
     sounding_rx: Option<std::sync::mpsc::Receiver<Result<wxdata::sounding::Sounding, String>>>,
     /// The observed RAOB fetched alongside the HRRR profile, for the same click.
     raob_rx: Option<std::sync::mpsc::Receiver<Result<wxdata::sounding::Sounding, String>>>,
+    /// The route window and its fetch in flight (ROADMAP_NEW L1-L3).
+    route_window: ui::route_window::RouteWindow,
+    route_rx: Option<std::sync::mpsc::Receiver<Result<Vec<wxdata::route::Route>, String>>>,
+    /// Exposure along the chosen route for (route generation, overlay generation, progress in
+    /// 100 m steps), so it is recomputed only when one of those moves.
+    route_exposure: RouteExposure,
     /// The previous HRRR run's profile at the sounding's valid time (ROADMAP_NEW F8).
     previous_sounding_rx:
         Option<std::sync::mpsc::Receiver<Result<wxdata::sounding::Sounding, String>>>,
@@ -4321,10 +4330,7 @@ pub struct HookEchoApp {
     imported_colors: Option<crate::gis_import::ColoredBy>,
     /// The imported features' valid windows for the mapped start/end attributes (I5), for the
     /// attributes they were read with; cleared on import.
-    imported_time: Option<(
-        (Option<String>, Option<String>),
-        crate::gis_import::TimeBounds,
-    )>,
+    imported_time: Option<ImportedTime>,
     /// Which imported features are valid at the view's time; `None` when no time attribute is
     /// mapped, which shows them all.
     imported_shown: Option<Vec<bool>>,
@@ -5444,6 +5450,9 @@ impl HookEchoApp {
             sounding_window: Default::default(),
             sounding_rx: None,
             raob_rx: None,
+            route_window: Default::default(),
+            route_rx: None,
+            route_exposure: ((u64::MAX, u64::MAX, 0), Vec::new()),
             previous_sounding_rx: None,
             chase_mode: false,
             spoke_pos: None,
@@ -9362,6 +9371,133 @@ impl HookEchoApp {
                 .map_err(|e| e.to_string());
             let _ = tx.send(res);
         });
+    }
+
+    /// Ask the configured routing server for routes through the route window's waypoints.
+    fn fetch_route(&mut self) {
+        let w = &mut self.route_window;
+        if w.waypoints.len() < 2 {
+            w.routes.clear();
+            w.generation += 1;
+            w.busy = false;
+            self.route_rx = None;
+            return;
+        }
+        w.busy = true;
+        w.error = None;
+        let (engine, url) = (self.settings.route_engine, self.settings.route_url.clone());
+        let waypoints = w.waypoints.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.route_rx = Some(rx);
+        let http = self.http.clone();
+        self.spawner.spawn(async move {
+            let res = wxdata::route::fetch(&http, engine, &url, &waypoints)
+                .await
+                .map_err(|e| format!("{e:#}"));
+            let _ = tx.send(res);
+        });
+    }
+
+    /// The route window's per-frame work: take a finished fetch, work out progress and exposure
+    /// along the chosen route, draw the window, and act on what it asks.
+    fn route_frame(&mut self, ctx: &egui::Context) {
+        if let Some(rx) = &self.route_rx {
+            if let Ok(res) = rx.try_recv() {
+                self.route_rx = None;
+                let w = &mut self.route_window;
+                w.busy = false;
+                match res {
+                    Ok(routes) => {
+                        w.routes = routes;
+                        w.selected = 0;
+                    }
+                    Err(e) => {
+                        w.routes.clear();
+                        w.error = Some(e);
+                    }
+                }
+                w.generation += 1;
+            }
+        }
+        if !self.route_window.open {
+            return;
+        }
+        let route = self
+            .route_window
+            .routes
+            .get(self.route_window.selected)
+            .cloned();
+        // Progress from the chase position, when it is on (or within 2 km of) the route.
+        let along = route
+            .as_ref()
+            .zip(self.chase_pos)
+            .and_then(|(r, (lon, lat))| {
+                let (m, off) = wxdata::route::progress(&r.coords, [lon, lat])?;
+                (off < 2_000.0).then_some(m)
+            });
+        let remaining = route.as_ref().zip(along).map(|(r, m)| {
+            let total = wxdata::route::cumulative_m(&r.coords)
+                .last()
+                .copied()
+                .unwrap_or(1.0);
+            let left = (total - m).max(0.0);
+            (left / 1000.0, r.duration_s * left / total.max(1.0))
+        });
+        let key = (
+            self.route_window.generation,
+            self.overlay_gen,
+            (along.unwrap_or(0.0) / 100.0) as i64,
+        );
+        if self.route_exposure.0 != key {
+            // Warnings and watches in effect now: every overlay polygon that carries an alert.
+            let alerts: Vec<(&str, Vec<Vec<[f64; 2]>>)> = self
+                .overlays
+                .iter()
+                .filter_map(|f| Some((f.alert.as_ref()?.event.as_str(), f.rings.clone())))
+                .collect();
+            let polys: Vec<Vec<Vec<[f64; 2]>>> = alerts.iter().map(|(_, r)| r.clone()).collect();
+            let hits = route
+                .as_ref()
+                .map(|r| wxdata::route::exposure(r, &polys, along.unwrap_or(0.0)))
+                .unwrap_or_default();
+            // One line per kind of alert: the nearest of each.
+            let mut lines: Vec<(String, f64, f64)> = Vec::new();
+            for h in hits {
+                let what = alerts[h.polygon].0.to_string();
+                if !lines.iter().any(|(w, _, _)| *w == what) {
+                    lines.push((what, h.at_m / 1000.0, h.at_s));
+                }
+            }
+            self.route_exposure = (key, lines);
+        }
+        let readout = ui::route_window::RouteReadout {
+            metric: self.metric(),
+            have_position: self.chase_pos.is_some(),
+            remaining,
+            exposure: &self.route_exposure.1,
+        };
+        let before = (self.settings.route_engine, self.settings.route_url.clone());
+        let action = self.route_window.show(
+            ctx,
+            &mut self.settings.route_engine,
+            &mut self.settings.route_url,
+            &readout,
+            &mut self.drawer,
+        );
+        match action {
+            ui::route_window::RouteAction::StartHere => {
+                if let Some((lon, lat)) = self.chase_pos {
+                    self.route_window.waypoints.insert(0, [lon, lat]);
+                    self.fetch_route();
+                }
+            }
+            ui::route_window::RouteAction::Fetch => self.fetch_route(),
+            ui::route_window::RouteAction::None => {
+                if before != (self.settings.route_engine, self.settings.route_url.clone()) {
+                    self.settings.save();
+                }
+            }
+        }
     }
 
     /// The previous HRRR run at the current sounding's valid time.
@@ -16938,6 +17074,11 @@ impl HookEchoApp {
                     // Drawing happens on drag, not on click; a bare click leaves no mark.
                     MapTool::Draw => {}
                     MapTool::AlertZone => self.zone_pts.push([lon, lat]),
+                    MapTool::Route => {
+                        self.route_window.open = true;
+                        self.route_window.waypoints.push([lon, lat]);
+                        self.fetch_route();
+                    }
                     MapTool::GateInspector => {
                         self.cell_popup = None;
                         self.warning_popup = None;
@@ -20287,6 +20428,57 @@ impl HookEchoApp {
             }
         }
 
+        // Routes (ROADMAP_NEW L2): alternatives thin and grey, the chosen one wide and blue over a
+        // dark casing so it reads over radar, and the waypoints lettered.
+        if !self.route_window.routes.is_empty() || !self.route_window.waypoints.is_empty() {
+            let screen = |p: &[f64; 2]| {
+                let w = crate::render::mercator::lonlat_to_world(p[0], p[1]);
+                let (sx, sy) = cam.world_to_screen(w, vp);
+                egui::pos2(prect.left() + sx, prect.top() + sy)
+            };
+            let chosen = self.route_window.selected;
+            for (i, r) in self.route_window.routes.iter().enumerate() {
+                if i == chosen {
+                    continue;
+                }
+                let pts: Vec<egui::Pos2> = r.coords.iter().map(screen).collect();
+                painter.add(egui::Shape::line(
+                    pts,
+                    egui::Stroke::new(
+                        3.0,
+                        egui::Color32::from_rgba_unmultiplied(170, 170, 185, 170),
+                    ),
+                ));
+            }
+            if let Some(r) = self.route_window.routes.get(chosen) {
+                let pts: Vec<egui::Pos2> = r.coords.iter().map(screen).collect();
+                painter.add(egui::Shape::line(
+                    pts.clone(),
+                    egui::Stroke::new(7.0, egui::Color32::from_black_alpha(170)),
+                ));
+                painter.add(egui::Shape::line(
+                    pts,
+                    egui::Stroke::new(4.0, egui::Color32::from_rgb(70, 150, 255)),
+                ));
+            }
+            for (i, p) in self.route_window.waypoints.iter().enumerate() {
+                let at = screen(p);
+                painter.circle(
+                    at,
+                    8.0,
+                    egui::Color32::from_rgb(70, 150, 255),
+                    egui::Stroke::new(1.5, egui::Color32::WHITE),
+                );
+                painter.text(
+                    at,
+                    egui::Align2::CENTER_CENTER,
+                    ((b'A' + (i as u8).min(25)) as char).to_string(),
+                    egui::FontId::proportional(10.0),
+                    egui::Color32::WHITE,
+                );
+            }
+        }
+
         // Freehand annotation strokes. Painted with the rest of the tool graphics so they sit
         // above every overlay, and drawn in OBS mode too — circling a storm on a stream is the
         // whole point of the tool.
@@ -22854,6 +23046,16 @@ fn glm_slot(t: DateTime<Utc>) -> i64 {
     t.timestamp().div_euclid(60)
 }
 
+/// Exposure along the chosen route and what it was computed for: (route generation, overlay
+/// generation, progress in 100 m steps) and `(alert kind, km ahead, seconds ahead)` lines.
+type RouteExposure = ((u64, u64, i64), Vec<(String, f64, f64)>);
+
+/// The imported features' valid windows and the start/end attributes they were read with.
+type ImportedTime = (
+    (Option<String>, Option<String>),
+    crate::gis_import::TimeBounds,
+);
+
 /// What an isosurface was built from: volume name, live revision, moment, threshold bits, smooth.
 type IsoKey = (String, u64, Moment, u32, bool);
 
@@ -25338,6 +25540,7 @@ impl eframe::App for HookEchoApp {
         if !self.workstation_chrome() {
             self.sounding_window.show(ctx, tz, &mut self.drawer);
         }
+        self.route_frame(ctx);
         if std::mem::take(&mut self.sounding_window.refetch) {
             self.refetch_sounding();
         }

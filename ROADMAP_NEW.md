@@ -3552,41 +3552,59 @@ No need to build a word processor; make HookEcho outputs reproducible in externa
 
 HookEcho already has GPS, chase HUD, offline basemap packs and position sharing. Build weather-aware route analysis on top.
 
-## L1. Route engine abstraction
+## L1. Route engine abstraction — done
 
-Support pluggable route sources:
+Support pluggable route sources (`wxdata::route`, the Route map tool and window):
 
-- user-configured OSRM/Valhalla endpoint initially
-- optional public routing provider only if terms permit
-- later offline routing graph included in a chase pack if size/performance is acceptable
+- [x] user-configured OSRM/Valhalla endpoint initially — `Settings.route_engine` and `route_url`,
+  empty until the user picks a server; both engines are asked with a plain GET (Valhalla's
+  `?json=` form), so a browser calls a CORS-enabled server directly without the app's proxy
+- [x] optional public routing provider only if terms permit — "Use the public demo server" fills in
+  the OSRM or Valhalla project demo on an explicit click, with their light-use terms stated beside
+  it; nothing is contacted until a server is chosen
+- [ ] later offline routing graph included in a chase pack if size/performance is acceptable
 
-Never hard-code dependency on a paid provider.
+Never hard-code dependency on a paid provider. — held: no provider is built in, only an opt-in to
+the two open-source projects' own demos. Parsing is tested against OSRM and Valhalla fixtures
+(polyline6 against Google's reference example, multi-leg joins, errors); checked live, both demos
+route Oklahoma City to Norman (OSRM 32 km/29 min with an alternative, Valhalla 35 km/26 min with
+two).
 
-## L2. Route display
+## L2. Route display — done, apart from turn-by-turn
 
-- start / waypoint / destination
-- live GPS progress
-- ETA
-- distance
-- alternate routes when provider supplies them
+- [x] start / waypoint / destination — each click with the Route tool adds a point (lettered A, B,
+  C… on the map, listed in the window with a remove button); "Start from my position" puts the
+  chase/GPS position first
+- [x] live GPS progress — the chase position projected onto the chosen route
+  (`route::progress`); when it is within 2 km of it, the window shows distance and time left
+- [x] ETA — the route's own duration, and the remaining share of it along the way
+- [x] distance — in the user's units
+- [x] alternate routes when provider supplies them — drawn thin and grey, selectable in the window;
+  the chosen route is blue on a dark casing
 
-## L3. Weather exposure analysis
+## L3. Weather exposure analysis — started: warning and watch polygons
 
 Sample along the route against:
 
-- warning polygons
-- current radar
-- MRMS precip/MESH/FLASH
-- lightning
-- storm-motion cones
-- forecast radar/model fields
+- [x] warning polygons — and watches: every alert polygon on the map (`route::exposure`, sampled
+  every ~200 m from the vehicle's progress on), one line per kind, nearest first: "Enters a Tornado
+  Warning in 18 mi (about 22 min)", or "Inside a … now"
+- [ ] current radar
+- [ ] MRMS precip/MESH/FLASH
+- [ ] lightning
+- [ ] storm-motion cones
+- [ ] forecast radar/model fields
 
 Output should say things like:
 
 - “route intersects active tornado warning polygon in 18 mi”
 - “forecast path intersects heavy reflectivity between 21:10–21:25Z”
 
-Do **not** label a route safe or guarantee avoidance.
+Do **not** label a route safe or guarantee avoidance. — held: with nothing on the route the window
+says only that no polygon in effect crosses it now, and every list ends "Not a safety assessment:
+warnings can be issued over any road at any moment, and this only checks the polygons in effect
+now." Checked in the browser: a route from Guthrie to Norman down I-35 (49.7 mi, 1 h 06 min) drawn
+and assessed against the current polygons.
 
 ## L4. Storm intercept geometry
 

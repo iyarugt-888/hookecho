@@ -130,6 +130,7 @@ pub mod phone_design;
 pub mod placefile_window;
 pub mod popover;
 pub mod region_stats_window;
+pub mod route_window;
 pub mod rules_window;
 pub mod sensor_window;
 pub mod settings_window;

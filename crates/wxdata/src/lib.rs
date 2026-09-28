@@ -77,6 +77,7 @@ pub mod regionstats;
 pub mod relay_wire;
 pub mod river;
 pub mod rotation;
+pub mod route;
 pub mod rtma;
 pub mod scan_age;
 pub mod scoretrack;

@@ -43,6 +43,7 @@ pub(super) const GROUPS: [&[(MapTool, &str, &str)]; 4] = [
             ph::NAVIGATION_ARROW,
             "Set your chase location",
         ),
+        (MapTool::Route, ph::PATH, "Plan a route"),
     ],
     &[
         (MapTool::Marker, ph::MAP_PIN, "Drop a marker"),
@@ -56,7 +57,11 @@ fn rail_group(tool: MapTool) -> usize {
     match tool {
         MapTool::Interrogate | MapTool::GateInspector | MapTool::RadarSuitability => 0,
         MapTool::Measure | MapTool::CrossSection | MapTool::RegionStats => 1,
-        MapTool::Sounding | MapTool::Forecast | MapTool::Climatology | MapTool::Chase => 2,
+        MapTool::Sounding
+        | MapTool::Forecast
+        | MapTool::Climatology
+        | MapTool::Chase
+        | MapTool::Route => 2,
         MapTool::Marker | MapTool::Draw | MapTool::AlertZone => 3,
     }
 }
@@ -178,6 +183,6 @@ mod tests {
             }
         }
         // `rail_group` names every variant, so its arms count the tools.
-        assert_eq!(seen.len(), 13);
+        assert_eq!(seen.len(), 14);
     }
 }
