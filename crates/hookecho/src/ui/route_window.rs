@@ -37,8 +37,10 @@ pub struct RouteReadout<'a> {
     /// Distance left (km) and time left (s) on the chosen route from the chase position, when
     /// the position is on or near it.
     pub remaining: Option<(f64, f64)>,
-    /// `(what, km ahead, seconds ahead)` for each polygon the chosen route enters, nearest first.
-    pub exposure: &'a [(String, f64, f64)],
+    /// `(what, km ahead, seconds ahead, is a polygon)` for each hazard the chosen route meets,
+    /// nearest first: warning/watch polygons it enters, and fields or points on it (heavy echo,
+    /// lightning near the road).
+    pub exposure: &'a [(String, f64, f64, bool)],
     /// Tracked storms near the route and how they meet it (L4), nearest approach first.
     pub intercepts: &'a [String],
 }
@@ -206,16 +208,22 @@ impl RouteWindow {
             ui.strong("Along this route");
             if readout.exposure.is_empty() {
                 ui.label("No active warning or watch polygon crosses it right now.");
+                ui.weak(
+                    "Heavy echo is checked when an MRMS reflectivity layer is on; lightning, when \
+                     satellite lightning is.",
+                );
             }
-            for (what, km, s) in readout.exposure {
-                let text = if *km < 0.05 {
-                    format!("Inside a {what} now")
-                } else {
-                    format!(
-                        "Enters a {what} in {} (about {})",
-                        crate::geo::fmt_distance(*km, readout.metric, 0),
-                        fmt_duration(*s)
-                    )
+            for (what, km, s, polygon) in readout.exposure {
+                let dist = crate::geo::fmt_distance(*km, readout.metric, 0);
+                let text = match (*km < 0.05, polygon) {
+                    (true, true) => format!("Inside a {what} now"),
+                    (true, false) => format!("{what} on the route here now"),
+                    (false, true) => {
+                        format!("Enters a {what} in {dist} (about {})", fmt_duration(*s))
+                    }
+                    (false, false) => {
+                        format!("{what} on the route in {dist} (about {})", fmt_duration(*s))
+                    }
                 };
                 ui.colored_label(egui::Color32::from_rgb(240, 170, 90), text);
             }

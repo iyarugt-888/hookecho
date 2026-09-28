@@ -298,6 +298,41 @@ fn point_in_ring(ring: &[[f64; 2]], p: [f64; 2]) -> bool {
     inside
 }
 
+/// Where along the route (from `from_m` on) a condition first holds: metres ahead and seconds
+/// ahead at the route's pace, sampling every ~200 m. For gridded fields (heavy reflectivity) and
+/// point data (lightning near the road).
+pub fn first_along(
+    route: &Route,
+    from_m: f64,
+    mut hit: impl FnMut([f64; 2]) -> bool,
+) -> Option<(f64, f64)> {
+    let cum = cumulative_m(&route.coords);
+    let total = cum.last().copied().unwrap_or(0.0).max(1.0);
+    let pace = route.duration_s / total;
+    let mut d = from_m.max(0.0);
+    while d <= total {
+        if hit(point_along(&route.coords, &cum, d)) {
+            return Some((d - from_m, (d - from_m) * pace));
+        }
+        d += 200.0;
+    }
+    None
+}
+
+/// A regular grid's nearest cell to `p` (row 0 northernmost), or `None` outside it or missing.
+pub fn grid_value(grid: &crate::mrms::MrmsField, p: [f64; 2]) -> Option<f32> {
+    if grid.nx == 0 || grid.ny == 0 || grid.values.len() != grid.nx * grid.ny {
+        return None;
+    }
+    let fx = (p[0] - grid.lon_west) / (grid.lon_east - grid.lon_west);
+    let fy = (grid.lat_north - p[1]) / (grid.lat_north - grid.lat_south);
+    if !(0.0..1.0).contains(&fx) || !(0.0..1.0).contains(&fy) {
+        return None;
+    }
+    let v = grid.values[(fy * grid.ny as f64) as usize * grid.nx + (fx * grid.nx as f64) as usize];
+    v.is_finite().then_some(v)
+}
+
 /// A polygon the route crosses: where it first enters it along the route.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Encounter {
@@ -646,6 +681,44 @@ mod tests {
             (30.0..150.0).contains(&away.closest_bearing_deg),
             "{away:?}"
         );
+    }
+
+    #[test]
+    fn a_field_and_a_flash_are_found_along_the_road() {
+        let r = straight_north();
+        // Heavy echo north of 35.7°N on a 0.1° grid.
+        let (nx, ny) = (20, 20);
+        let grid = crate::mrms::MrmsField {
+            values: (0..nx * ny)
+                .map(|i| {
+                    if 36.5 - (i / nx) as f64 * 0.1 > 35.7 {
+                        55.0
+                    } else {
+                        20.0
+                    }
+                })
+                .collect(),
+            nx,
+            ny,
+            lon_west: -98.0,
+            lon_east: -96.0,
+            lat_north: 36.5,
+            lat_south: 34.5,
+            time: chrono::DateTime::UNIX_EPOCH,
+        };
+        let (m, s) =
+            first_along(&r, 0.0, |p| grid_value(&grid, p).is_some_and(|v| v >= 50.0)).unwrap();
+        assert!((m - 77_800.0).abs() < 1_500.0, "{m}");
+        assert!((s - m * 3_600.0 / 111_195.0).abs() < 60.0);
+        assert!(
+            grid_value(&grid, [-90.0, 35.0]).is_none(),
+            "outside the grid"
+        );
+        // A flash 3 km off the road at 35.3°N.
+        let flash = destination([-97.0, 35.3], 90.0, 3_000.0);
+        let (m, _) = first_along(&r, 0.0, |p| haversine_m(p, flash) < 8_000.0).unwrap();
+        // Within 8 km from sqrt(8² - 3²) = 7.4 km before the nearest point, 33.3 km along.
+        assert!((m - 25_900.0).abs() < 500.0, "{m}");
     }
 
     #[test]

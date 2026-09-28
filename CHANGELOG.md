@@ -62,6 +62,8 @@ your own OSRM or Valhalla server, or a public demo you choose. The route window 
 time, progress from your chase position, and where the route enters active warnings and watches.
 It also lists tracked storms near the route: how close each gets and when, which side it will be
 on, and where its track crosses the road with both arrival times.
+The route check also flags heavy echo on the road (from an MRMS reflectivity layer) and recent
+satellite lightning within 5 miles of it.
 
 ### Added: GOES RGB composites
 

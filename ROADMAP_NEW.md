@@ -3582,17 +3582,20 @@ two).
 - [x] alternate routes when provider supplies them — drawn thin and grey, selectable in the window;
   the chosen route is blue on a dark casing
 
-## L3. Weather exposure analysis — started: warning and watch polygons
+## L3. Weather exposure analysis — partly done
 
 Sample along the route against:
 
 - [x] warning polygons — and watches: every alert polygon on the map (`route::exposure`, sampled
   every ~200 m from the vehicle's progress on), one line per kind, nearest first: "Enters a Tornado
   Warning in 18 mi (about 22 min)", or "Inside a … now"
-- [ ] current radar
+- [x] current radar — heavy echo (50+ dBZ) from a displayed MRMS reflectivity grid (the mosaic
+  or lowest-altitude reflectivity) that matches the view's time: "Heavy echo (50+ dBZ, MRMS) on
+  the route in 9 mi" (`route::first_along`, `route::grid_value`)
 - [ ] MRMS precip/MESH/FLASH
-- [ ] lightning
-- [ ] storm-motion cones
+- [x] lightning — GLM flashes of the last 15 minutes within 8 km of the road ahead, live only
+- [x] storm-motion cones — as L4's intercept geometry: each tracked storm's straight-line track
+  against the route, closest approach and crossing ETAs
 - [ ] forecast radar/model fields
 
 Output should say things like:

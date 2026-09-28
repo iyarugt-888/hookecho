@@ -5452,7 +5452,7 @@ impl HookEchoApp {
             raob_rx: None,
             route_window: Default::default(),
             route_rx: None,
-            route_exposure: ((u64::MAX, u64::MAX, 0, 0), Vec::new(), Vec::new()),
+            route_exposure: ((u64::MAX, u64::MAX, 0, 0, 0), Vec::new(), Vec::new()),
             previous_sounding_rx: None,
             chase_mode: false,
             spoke_pos: None,
@@ -9448,6 +9448,8 @@ impl HookEchoApp {
             self.overlay_gen,
             (along.unwrap_or(0.0) / 100.0) as i64,
             self.active_storm_cells().len(),
+            // Lightning and the fields refresh by the minute.
+            Utc::now().timestamp() / 60,
         );
         if self.route_exposure.0 != key {
             // Warnings and watches in effect now: every overlay polygon that carries an alert.
@@ -9462,13 +9464,67 @@ impl HookEchoApp {
                 .map(|r| wxdata::route::exposure(r, &polys, along.unwrap_or(0.0)))
                 .unwrap_or_default();
             // One line per kind of alert: the nearest of each.
-            let mut lines: Vec<(String, f64, f64)> = Vec::new();
+            let mut lines: Vec<(String, f64, f64, bool)> = Vec::new();
             for h in hits {
                 let what = alerts[h.polygon].0.to_string();
-                if !lines.iter().any(|(w, _, _)| *w == what) {
-                    lines.push((what, h.at_m / 1000.0, h.at_s));
+                if !lines.iter().any(|(w, ..)| *w == what) {
+                    lines.push((what, h.at_m / 1000.0, h.at_s, true));
                 }
             }
+            if let Some(r) = route.as_ref() {
+                let from = along.unwrap_or(0.0);
+                // Heavy echo from a displayed MRMS reflectivity grid that matches the view's time.
+                use crate::render::FieldLayer as FL;
+                let grid = [FL::Mosaic, FL::ReflLowestAlt].into_iter().find_map(|l| {
+                    self.mrms_ready(l)
+                        .then(|| self.fields.get(&l)?.grid.as_ref())
+                        .flatten()
+                });
+                if let Some(g) = grid {
+                    if let Some((m, s)) = wxdata::route::first_along(r, from, |p| {
+                        wxdata::route::grid_value(g, p).is_some_and(|v| v >= 50.0)
+                    }) {
+                        lines.push(("Heavy echo (50+ dBZ, MRMS)".into(), m / 1000.0, s, false));
+                    }
+                }
+                // Lightning within 8 km of the road in the last 15 minutes (live only).
+                if self.view_target_time().is_none() {
+                    let cutoff = Utc::now() - chrono::Duration::minutes(15);
+                    let (mut w, mut s, mut e, mut n) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+                    for p in &r.coords {
+                        (w, s, e, n) = (w.min(p[0]), s.min(p[1]), e.max(p[0]), n.max(p[1]));
+                    }
+                    let near: Vec<[f64; 2]> = self
+                        .glm
+                        .lock()
+                        .map(|f| {
+                            f.flashes()
+                                .iter()
+                                .filter(|fl| {
+                                    fl.time >= cutoff
+                                        && (w - 0.1..=e + 0.1).contains(&fl.lon)
+                                        && (s - 0.1..=n + 0.1).contains(&fl.lat)
+                                })
+                                .map(|fl| [fl.lon, fl.lat])
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    if !near.is_empty() {
+                        if let Some((m, sec)) = wxdata::route::first_along(r, from, |p| {
+                            near.iter()
+                                .any(|f| wxdata::route::haversine_m(p, *f) < 8_000.0)
+                        }) {
+                            lines.push((
+                                "Lightning within 5 mi in the last 15 min".into(),
+                                m / 1000.0,
+                                sec,
+                                false,
+                            ));
+                        }
+                    }
+                }
+            }
+            lines.sort_by(|a, b| a.1.total_cmp(&b.1));
             // Tracked storms with a motion, within 150 km of the route (L4).
             let metric = self.metric();
             let mut storms: Vec<(f64, String)> = Vec::new();
@@ -23097,7 +23153,11 @@ fn glm_slot(t: DateTime<Utc>) -> i64 {
 
 /// Exposure along the chosen route and what it was computed for: (route generation, overlay
 /// generation, progress in 100 m steps) and `(alert kind, km ahead, seconds ahead)` lines.
-type RouteExposure = ((u64, u64, i64, usize), Vec<(String, f64, f64)>, Vec<String>);
+type RouteExposure = (
+    (u64, u64, i64, usize, i64),
+    Vec<(String, f64, f64, bool)>,
+    Vec<String>,
+);
 
 /// Eight-point compass name for a bearing.
 fn compass8(deg: f64) -> &'static str {
