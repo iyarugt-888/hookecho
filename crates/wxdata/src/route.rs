@@ -370,6 +370,129 @@ pub fn exposure(route: &Route, polygons: &[Vec<Vec<[f64; 2]>>], from_m: f64) -> 
     out
 }
 
+// ---- storm intercept geometry (L4) -------------------------------------------------------------
+
+/// Where `start` ends up after `m` metres on initial bearing `bearing_deg` (spherical earth).
+fn destination(start: [f64; 2], bearing_deg: f64, m: f64) -> [f64; 2] {
+    let d = m / 6_371_008.8;
+    let brg = bearing_deg.to_radians();
+    let (lon1, lat1) = (start[0].to_radians(), start[1].to_radians());
+    let lat2 = (lat1.sin() * d.cos() + lat1.cos() * d.sin() * brg.cos()).asin();
+    let lon2 = lon1 + (brg.sin() * d.sin() * lat1.cos()).atan2(d.cos() - lat1.sin() * lat2.sin());
+    [lon2.to_degrees(), lat2.to_degrees()]
+}
+
+/// Initial bearing (degrees from north) from `a` to `b`.
+fn bearing(a: [f64; 2], b: [f64; 2]) -> f64 {
+    let (la1, la2) = (a[1].to_radians(), b[1].to_radians());
+    let dlo = (b[0] - a[0]).to_radians();
+    let y = dlo.sin() * la2.cos();
+    let x = la1.cos() * la2.sin() - la1.sin() * la2.cos() * dlo.cos();
+    y.atan2(x).to_degrees().rem_euclid(360.0)
+}
+
+/// The point `m` metres along the route (clamped to its ends).
+fn point_along(coords: &[[f64; 2]], cum: &[f64], m: f64) -> [f64; 2] {
+    let Some(i) = cum.iter().position(|&d| d >= m) else {
+        return *coords.last().unwrap_or(&[0.0, 0.0]);
+    };
+    if i == 0 {
+        return coords[0];
+    }
+    let t = ((m - cum[i - 1]) / (cum[i] - cum[i - 1]).max(f64::EPSILON)).clamp(0.0, 1.0);
+    let (a, b) = (coords[i - 1], coords[i]);
+    [a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])]
+}
+
+/// A storm against a route (ROADMAP_NEW L4), from the vehicle's current progress on it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Intercept {
+    /// The closest the storm and the vehicle come (m) while the vehicle drives the route at its
+    /// own pace and the storm keeps its motion, and when (s from now).
+    pub closest_m: f64,
+    pub closest_s: f64,
+    /// Where the storm is, seen from the vehicle, at that moment (degrees from north).
+    pub closest_bearing_deg: f64,
+    /// Where the storm's track crosses the route ahead: metres ahead along the route, when the
+    /// storm gets there, and when the vehicle does (both s from now). `None` when the track does
+    /// not cross the route within the horizon.
+    pub crossing: Option<(f64, f64, f64)>,
+}
+
+/// Intercept geometry for a storm at `storm` moving toward `mvt_deg` at `mvt_kt`, against the
+/// vehicle `from_m` metres along `route`, looking `horizon_s` ahead. Straight-line storm motion
+/// and the route's average pace: an estimate to plan by, not a forecast.
+pub fn intercept(
+    route: &Route,
+    from_m: f64,
+    storm: [f64; 2],
+    mvt_deg: f64,
+    mvt_kt: f64,
+    horizon_s: f64,
+) -> Option<Intercept> {
+    let cum = cumulative_m(&route.coords);
+    let total = *cum.last()?;
+    if total <= 0.0 {
+        return None;
+    }
+    let speed = mvt_kt * 0.514_444; // m/s
+    let pace = route.duration_s / total; // s per metre
+    let vehicle_at = |t: f64| point_along(&route.coords, &cum, from_m + t / pace.max(1e-9));
+    let storm_at = |t: f64| destination(storm, mvt_deg, speed * t);
+    let mut best = (f64::MAX, 0.0);
+    let mut t = 0.0;
+    while t <= horizon_s {
+        let d = haversine_m(vehicle_at(t), storm_at(t));
+        if d < best.0 {
+            best = (d, t);
+        }
+        t += 30.0;
+    }
+    // The storm's track against each route segment ahead, in a local flat frame.
+    let k = storm[1].to_radians().cos();
+    let flat = |p: [f64; 2]| (p[0] * k, p[1]);
+    let track_end = storm_at(horizon_s);
+    let (s0, s1) = (flat(storm), flat(track_end));
+    let mut crossing = None;
+    for i in 1..route.coords.len() {
+        if cum[i] < from_m {
+            continue;
+        }
+        let (a, b) = (flat(route.coords[i - 1]), flat(route.coords[i]));
+        let (r, q) = ((b.0 - a.0, b.1 - a.1), (s1.0 - s0.0, s1.1 - s0.1));
+        let den = r.0 * q.1 - r.1 * q.0;
+        if den.abs() < 1e-15 {
+            continue;
+        }
+        let (ax, ay) = (s0.0 - a.0, s0.1 - a.1);
+        let u = (ax * q.1 - ay * q.0) / den; // along the route segment
+        let v = (ax * r.1 - ay * r.0) / den; // along the storm track
+        if (0.0..=1.0).contains(&u) && (0.0..=1.0).contains(&v) {
+            let at_m = cum[i - 1] + u * (cum[i] - cum[i - 1]);
+            if at_m < from_m {
+                continue;
+            }
+            let x = [
+                route.coords[i - 1][0] + u * (route.coords[i][0] - route.coords[i - 1][0]),
+                route.coords[i - 1][1] + u * (route.coords[i][1] - route.coords[i - 1][1]),
+            ];
+            let storm_s = if speed > 0.0 {
+                haversine_m(storm, x) / speed
+            } else {
+                f64::INFINITY
+            };
+            crossing = Some((at_m - from_m, storm_s, (at_m - from_m) * pace));
+            break;
+        }
+    }
+    Some(Intercept {
+        closest_m: best.0,
+        closest_s: best.1,
+        closest_bearing_deg: bearing(vehicle_at(best.1), storm_at(best.1)),
+        crossing,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -496,6 +619,32 @@ mod tests {
             (later[0].at_m - 26_700.0).abs() < 400.0,
             "{}",
             later[0].at_m
+        );
+    }
+
+    #[test]
+    fn a_storm_crossing_the_road_ahead_is_timed_against_the_vehicle() {
+        // The road runs due north ~111 km in an hour. A storm 30 km east of its midpoint moves due
+        // west at 30 kt (~15.4 m/s): it reaches the road in ~32 min, 55.6 km along; the vehicle,
+        // starting at the south end, gets there in ~30 min.
+        let r = straight_north();
+        let storm = destination([-97.0, 35.5], 90.0, 30_000.0);
+        let i = intercept(&r, 0.0, storm, 270.0, 30.0, 3_600.0).unwrap();
+        let (ahead_m, storm_s, vehicle_s) = i.crossing.unwrap();
+        assert!((ahead_m - 55_600.0).abs() < 500.0, "{ahead_m}");
+        assert!((storm_s - 1_944.0).abs() < 30.0, "{storm_s}");
+        assert!((vehicle_s - 1_800.0).abs() < 30.0, "{vehicle_s}");
+        // They meet near there: the closest approach is a couple of km, about half an hour out.
+        assert!(
+            i.closest_m < 3_000.0 && (1_500.0..2_300.0).contains(&i.closest_s),
+            "{i:?}"
+        );
+        // A storm moving away never crosses, and stays east of the vehicle.
+        let away = intercept(&r, 0.0, storm, 90.0, 30.0, 3_600.0).unwrap();
+        assert!(away.crossing.is_none());
+        assert!(
+            (30.0..150.0).contains(&away.closest_bearing_deg),
+            "{away:?}"
         );
     }
 

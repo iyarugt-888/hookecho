@@ -3606,15 +3606,23 @@ warnings can be issued over any road at any moment, and this only checks the pol
 now." Checked in the browser: a route from Guthrie to Norman down I-35 (49.7 mi, 1 h 06 min) drawn
 and assessed against the current polygons.
 
-## L4. Storm intercept geometry
+## L4. Storm intercept geometry — done, apart from the escape-direction link
 
-For a selected tracked storm and route:
+For a selected tracked storm and route (every SCIT cell with a motion within 150 km of the chosen
+route, nearest approach first, in the route window's "Storms near this route"):
 
-- closest approach
-- relative bearing
-- projected intersection time
-- storm ETA vs vehicle ETA
-- escape-direction visualization already present should integrate with route
+- [x] closest approach — `route::intercept`: the vehicle driving the route at its average pace
+  from its current progress, the storm on its motion vector, sampled every 30 s over two hours
+- [x] relative bearing — where the storm is from the vehicle at that moment, as a compass point
+- [x] projected intersection time — where the storm's track crosses the route ahead
+- [x] storm ETA vs vehicle ETA — both to that crossing: "crosses the route 12 mi ahead: storm in
+  18 min, you in 14 min"
+- [ ] escape-direction visualization already present should integrate with route
+
+Straight-line motion and average pace, labelled as an estimate in the window. Tested with a
+synthetic crossing (a 30 kt storm reaching a north-south road in ~32 min, the vehicle in ~30, a
+closest approach under 3 km); not yet seen live, since no tracked storm was near a route while it
+was checked.
 
 ## L5. Offline chase pack v2
 

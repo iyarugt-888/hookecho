@@ -5452,7 +5452,7 @@ impl HookEchoApp {
             raob_rx: None,
             route_window: Default::default(),
             route_rx: None,
-            route_exposure: ((u64::MAX, u64::MAX, 0), Vec::new()),
+            route_exposure: ((u64::MAX, u64::MAX, 0, 0), Vec::new(), Vec::new()),
             previous_sounding_rx: None,
             chase_mode: false,
             spoke_pos: None,
@@ -9447,6 +9447,7 @@ impl HookEchoApp {
             self.route_window.generation,
             self.overlay_gen,
             (along.unwrap_or(0.0) / 100.0) as i64,
+            self.active_storm_cells().len(),
         );
         if self.route_exposure.0 != key {
             // Warnings and watches in effect now: every overlay polygon that carries an alert.
@@ -9468,13 +9469,61 @@ impl HookEchoApp {
                     lines.push((what, h.at_m / 1000.0, h.at_s));
                 }
             }
-            self.route_exposure = (key, lines);
+            // Tracked storms with a motion, within 150 km of the route (L4).
+            let metric = self.metric();
+            let mut storms: Vec<(f64, String)> = Vec::new();
+            if let Some(r) = route.as_ref() {
+                let from = along.unwrap_or(0.0);
+                for c in self.active_storm_cells() {
+                    let (Some(deg), Some(kt)) = (c.mvt_deg, c.mvt_kt) else {
+                        continue;
+                    };
+                    let near = wxdata::route::progress(&r.coords, [c.lon, c.lat])
+                        .is_some_and(|(_, off)| off < 150_000.0);
+                    if !near {
+                        continue;
+                    }
+                    let Some(i) = wxdata::route::intercept(
+                        r,
+                        from,
+                        [c.lon, c.lat],
+                        deg as f64,
+                        kt as f64,
+                        2.0 * 3600.0,
+                    ) else {
+                        continue;
+                    };
+                    let name = match c.max_dbz {
+                        Some(z) => format!("{} ({z:.0} dBZ)", c.title),
+                        None => c.title.clone(),
+                    };
+                    let mut line = format!(
+                        "{name}: closest {} in {} min, to your {}",
+                        crate::geo::fmt_distance(i.closest_m / 1000.0, metric, 0),
+                        (i.closest_s / 60.0).round(),
+                        compass8(i.closest_bearing_deg)
+                    );
+                    if let Some((ahead, storm_s, you_s)) = i.crossing {
+                        line.push_str(&format!(
+                            "; crosses the route {} ahead: storm in {} min, you in {} min",
+                            crate::geo::fmt_distance(ahead / 1000.0, metric, 0),
+                            (storm_s / 60.0).round(),
+                            (you_s / 60.0).round()
+                        ));
+                    }
+                    storms.push((i.closest_m, line));
+                }
+            }
+            storms.sort_by(|a, b| a.0.total_cmp(&b.0));
+            let intercepts = storms.into_iter().take(6).map(|(_, l)| l).collect();
+            self.route_exposure = (key, lines, intercepts);
         }
         let readout = ui::route_window::RouteReadout {
             metric: self.metric(),
             have_position: self.chase_pos.is_some(),
             remaining,
             exposure: &self.route_exposure.1,
+            intercepts: &self.route_exposure.2,
         };
         let before = (self.settings.route_engine, self.settings.route_url.clone());
         let action = self.route_window.show(
@@ -23048,7 +23097,13 @@ fn glm_slot(t: DateTime<Utc>) -> i64 {
 
 /// Exposure along the chosen route and what it was computed for: (route generation, overlay
 /// generation, progress in 100 m steps) and `(alert kind, km ahead, seconds ahead)` lines.
-type RouteExposure = ((u64, u64, i64), Vec<(String, f64, f64)>);
+type RouteExposure = ((u64, u64, i64, usize), Vec<(String, f64, f64)>, Vec<String>);
+
+/// Eight-point compass name for a bearing.
+fn compass8(deg: f64) -> &'static str {
+    const N: [&str; 8] = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+    N[(((deg.rem_euclid(360.0) + 22.5) / 45.0) as usize) % 8]
+}
 
 /// The imported features' valid windows and the start/end attributes they were read with.
 type ImportedTime = (

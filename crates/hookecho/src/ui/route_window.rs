@@ -39,6 +39,8 @@ pub struct RouteReadout<'a> {
     pub remaining: Option<(f64, f64)>,
     /// `(what, km ahead, seconds ahead)` for each polygon the chosen route enters, nearest first.
     pub exposure: &'a [(String, f64, f64)],
+    /// Tracked storms near the route and how they meet it (L4), nearest approach first.
+    pub intercepts: &'a [String],
 }
 
 fn fmt_duration(s: f64) -> String {
@@ -216,6 +218,14 @@ impl RouteWindow {
                     )
                 };
                 ui.colored_label(egui::Color32::from_rgb(240, 170, 90), text);
+            }
+            if !readout.intercepts.is_empty() {
+                ui.separator();
+                ui.strong("Storms near this route");
+                for line in readout.intercepts {
+                    ui.label(line);
+                }
+                ui.weak("Straight-line storm motion and the route's average pace: an estimate.");
             }
             ui.weak(
                 "Not a safety assessment: warnings can be issued over any road at any moment, and \

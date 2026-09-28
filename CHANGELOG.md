@@ -60,6 +60,8 @@ Isosurfaces in the 3D map: a lit, translucent surface where the product crosses 
 A Route tool: click a start, stops and a destination for driving routes (with alternatives) from
 your own OSRM or Valhalla server, or a public demo you choose. The route window shows distance,
 time, progress from your chase position, and where the route enters active warnings and watches.
+It also lists tracked storms near the route: how close each gets and when, which side it will be
+on, and where its track crosses the road with both arrival times.
 
 ### Added: GOES RGB composites
 
