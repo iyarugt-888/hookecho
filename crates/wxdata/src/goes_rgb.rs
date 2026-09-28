@@ -379,7 +379,7 @@ pub const TRUE_COLOR: Recipe = Recipe {
 pub const SANDWICH: Recipe = Recipe {
     slug: "sandwich",
     name: "Sandwich (visible + IR)",
-    reading: "Visible texture under colour-enhanced cold tops: blue-green around -40 °C, yellow               to red below -60 °C, magenta and white at the coldest overshooting tops.               Uncoloured cloud is warmer than -30 °C. Daylight only.",
+    reading: "Visible texture under colour-enhanced cold tops: blue-green around -40 °C, yellow to red below -60 °C, magenta and white at the coldest overshooting tops. Uncoloured cloud is warmer than -30 °C. Daylight only.",
     daytime: true,
     channels: [
         Channel::band(2, 0.0, 1.0, 1.4),
@@ -414,7 +414,7 @@ pub const SANDWICH: Recipe = Recipe {
 pub const DAY_NIGHT_COLOR: Recipe = Recipe {
     slug: "day-night-color",
     name: "Day/Night Color",
-    reading: "By day, roughly what the eye would see. At night, cloud from the IR band: the               brighter, the colder and higher; dark blue is clear or warm low cloud. The two blend               through dusk and dawn.",
+    reading: "By day, roughly what the eye would see. At night, cloud from the IR band: the brighter, the colder and higher; dark blue is clear or warm low cloud. The two blend through dusk and dawn.",
     daytime: false,
     channels: TRUE_COLOR.channels,
     overlay: None,

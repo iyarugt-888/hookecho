@@ -852,7 +852,7 @@ impl HookEchoApp {
         }
         ui.add(
             egui::Label::new(ws::text(
-                "Drag a floating window onto a dock target to dock it; drag a tab out to float                  it; drag tabs along their strip to reorder them. Ctrl+Tab steps through a                  dock's tabs.",
+                "Drag a floating window onto a dock target to dock it; drag a tab out to float it; drag tabs along their strip to reorder them. Ctrl+Tab steps through a dock's tabs.",
                 10.5,
                 t.text_faint,
             ))

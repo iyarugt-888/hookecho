@@ -583,7 +583,7 @@ impl HookEchoApp {
                 FL::GlmFed,
                 "National",
                 "Lightning flashes (GLM)",
-                "Where the satellite flashes are densest \u{2014} the total-lightning field                  behind the individual dots, and where a lightning jump shows up first.",
+                "Where the satellite flashes are densest \u{2014} the total-lightning field behind the individual dots, and where a lightning jump shows up first.",
                 false,
             ),
             (

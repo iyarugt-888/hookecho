@@ -206,7 +206,7 @@ pub(crate) fn show(
                     "Draw under warnings, watches and outlooks",
                 )
                 .on_hover_text(
-                    "Paint the imported polygons beneath the official products instead of over                      them; clicks prefer the official shape either way",
+                    "Paint the imported polygons beneath the official products instead of over them; clicks prefer the official shape either way",
                 )
                 .changed();
             ui.horizontal(|ui| {

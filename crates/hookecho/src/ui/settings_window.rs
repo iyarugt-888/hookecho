@@ -1325,7 +1325,7 @@ fn alerts_tab(ui: &mut egui::Ui, settings: &mut Settings) {
         );
     });
     ui.weak(
-        "On an outbreak day, pushes past that rate collapse into one rolling summary instead of          one buzz per warning. 0 turns it off; escalated warnings always push as themselves.",
+        "On an outbreak day, pushes past that rate collapse into one rolling summary instead of one buzz per warning. 0 turns it off; escalated warnings always push as themselves.",
     );
 
     ui.add_space(8.0);

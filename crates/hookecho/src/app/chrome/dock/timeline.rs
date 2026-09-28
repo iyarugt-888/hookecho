@@ -196,7 +196,7 @@ impl HookEchoApp {
                                 .desired_width(110.0),
                         )
                         .on_hover_text(
-                            "A UTC time on the shown day (20:12), or a date and time                              (2013-05-20 20:12); Enter seeks there",
+                            "A UTC time on the shown day (20:12), or a date and time (2013-05-20 20:12); Enter seeks there",
                         );
                         if jump.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                             if let Some(at) =
