@@ -30,6 +30,22 @@ pub struct Uniforms {
     /// spare, enabled]` in the same world units as `box_min`/`box_max`. See
     /// [`cappi_marker_uniform`]; all-zero means off, same convention as `plane`/`cc`.
     cappi_marker: [f32; 4],
+    /// Opacity transfer function (Phase H2's curve): the four control points' volume indices,
+    /// ascending, and their opacities 0..1. `tf_a[0] < 0` means off. See [`tf_uniform`].
+    tf_x: [f32; 4],
+    tf_a: [f32; 4],
+}
+
+/// The transfer-function uniform pair for `tf` (four `[index, opacity]` points): the indices and
+/// opacities, sorted by index; `None` gives the "off" pair.
+pub fn tf_uniform(tf: Option<[[f32; 2]; 4]>) -> ([f32; 4], [f32; 4]) {
+    match tf {
+        Some(mut pts) => {
+            pts.sort_by(|a, b| a[0].total_cmp(&b[0]));
+            (pts.map(|p| p[0]), pts.map(|p| p[1].clamp(0.0, 1.0)))
+        }
+        None => ([0.0; 4], [-1.0; 4]),
+    }
 }
 
 /// A new volume grid to upload: `data` is `n×n×nz` interleaved (value index, valid) byte pairs —
@@ -125,6 +141,10 @@ pub struct View3d {
     /// at this height as its own separate 2D tool, but nothing showed *where* that height sits
     /// relative to the storm until now. `None` disables it (the common case).
     pub cappi_km: Option<f32>,
+    /// Opacity transfer function: four `[volume index, opacity]` points, opacity drawn piecewise
+    /// linear between them (and flat past the ends), replacing the fixed ramp. `None` keeps the
+    /// ramp.
+    pub tf: Option<[[f32; 2]; 4]>,
 }
 
 impl Default for View3d {
@@ -136,6 +156,7 @@ impl Default for View3d {
             plane: None,
             cc: [0.0; 4],
             cappi_km: None,
+            tf: None,
         }
     }
 }
@@ -265,6 +286,8 @@ pub fn orbit_uniform(
         plane_slab: plane_slab_uniform(v3.plane, BOX_MIN, BOX_MAX),
         cc: v3.cc,
         cappi_marker: cappi_marker_uniform(v3.cappi_km, top_km, BOX_MIN, BOX_MAX),
+        tf_x: tf_uniform(v3.tf).0,
+        tf_a: tf_uniform(v3.tf).1,
     }
 }
 
@@ -336,6 +359,8 @@ pub fn map_uniform(
         plane_slab: plane_slab_uniform(view.plane, box_min, box_max),
         cc: view.cc,
         cappi_marker: cappi_marker_uniform(view.cappi_km, upload.top_km, box_min, box_max),
+        tf_x: tf_uniform(view.tf).0,
+        tf_a: tf_uniform(view.tf).1,
     }
 }
 

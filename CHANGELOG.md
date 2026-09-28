@@ -8,6 +8,22 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: 3D opacity curve and presets
+
+The 3D map's Smooth volumes have an **Opacity curve**: drag four points to say how see-through
+each value is, so a hail core can stand solid inside a faint storm. Save a floor, ceiling and
+curve as a named preset for each 3D product and bring it back with one click.
+
+### Fixed: 3D floors below zero
+
+A Denoise floor or ceiling below zero (a -10 dBZ floor, a negative ZDR) was read as positive.
+
+### Added: long loops
+
+Loops can now run to 200 radar scans on desktop and 100 on phones and in the browser. Frames the
+loop has already played are kept light (just the tilt and product on screen), so a long loop
+plays smoothly once it has been through once. Pausing loads the full scan as before.
+
 ### Added: Tornado ID
 
 **Tornado ID** marks each place a tornado may be with one warning triangle: possible, likely,

@@ -401,7 +401,7 @@ impl HookEchoApp {
                             );
                             ui.add(
                                 egui::DragValue::new(&mut loop_frames)
-                                    .range(2..=30)
+                                    .range(2..=crate::app::long_loop::MAX_LOOP_FRAMES)
                                     .suffix(" frames"),
                             )
                             .on_hover_text(
@@ -668,7 +668,12 @@ impl HookEchoApp {
                                         .selected_text(format!("{loop_frames}"))
                                         .width(48.0)
                                         .show_ui(ui, |ui| {
-                                            for n in [6usize, 12, 24, 48] {
+                                            for n in [6usize, 12, 24, 48, 100, 200]
+                                                .into_iter()
+                                                .filter(|n| {
+                                                    *n <= crate::app::long_loop::MAX_LOOP_FRAMES
+                                                })
+                                            {
                                                 ui.selectable_value(
                                                     &mut loop_frames,
                                                     n,

@@ -40,7 +40,30 @@ struct Uniforms {
     // whatever the volume itself draws, so it reads as "where this height sits" rather than
     // hiding the storm.
     cappi_marker: vec4<f32>,
+    // Opacity transfer function: four control points, their volume indices ascending (tf_x) and
+    // opacities 0..1 (tf_a), piecewise linear between and flat past the ends. tf_a.x < 0 is off.
+    tf_x: vec4<f32>,
+    tf_a: vec4<f32>,
 };
+
+// The transfer function's opacity at volume index `i`.
+fn tf_alpha(i: f32) -> f32 {
+    let x = u.tf_x;
+    let a = u.tf_a;
+    if (i <= x.x) {
+        return a.x;
+    }
+    if (i <= x.y) {
+        return mix(a.x, a.y, (i - x.x) / max(x.y - x.x, 0.001));
+    }
+    if (i <= x.z) {
+        return mix(a.y, a.z, (i - x.y) / max(x.z - x.y, 0.001));
+    }
+    if (i <= x.w) {
+        return mix(a.z, a.w, (i - x.z) / max(x.w - x.z, 0.001));
+    }
+    return a.w;
+}
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
 // Rg8Unorm: R = value index (0 where empty), G = 1.0 where a real value exists. Filtering both at
@@ -192,6 +215,10 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
             // With a ceiling the ramp spans the kept band, so a narrow window still reads solid.
             let head = max(f32(ceil_idx) - f32(floor_idx), 1.0);
             alpha = clamp((f32(max_idx) - f32(floor_idx)) / head * 1.6 + 0.15, 0.0, 1.0) * u.ctl.y;
+        }
+        // A drawn transfer function replaces either ramp above.
+        if (u.tf_a.x >= 0.0) {
+            alpha = tf_alpha(f32(max_idx)) * u.ctl.y;
         }
         if (alpha > 0.0) {
             out_rgb = color.rgb * alpha + out_rgb * (1.0 - alpha);

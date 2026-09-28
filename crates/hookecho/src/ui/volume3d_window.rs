@@ -160,6 +160,175 @@ fn axis_slice(ui: &mut egui::Ui, label: &str, lo: &mut f32, hi: &mut f32) {
     }
 }
 
+/// A transfer function's four `[value, opacity]` points, in a moment's own units.
+pub(crate) type Curve = [[f32; 2]; 4];
+
+/// A starting curve over `lo..hi`: clear at the bottom, rising to solid at the top.
+pub(crate) fn default_curve((lo, hi): (f32, f32)) -> Curve {
+    let at = |t: f32| lo + (hi - lo) * t;
+    [
+        [at(0.0), 0.0],
+        [at(0.35), 0.08],
+        [at(0.65), 0.55],
+        [at(1.0), 1.0],
+    ]
+}
+
+/// Phase H2's opacity curve: a checkbox, and when on a small plot of four points (value across,
+/// opacity up) to drag. Each point stays between its neighbours, so the curve never folds.
+pub(crate) fn opacity_curve(
+    ui: &mut egui::Ui,
+    curve: &mut Option<Curve>,
+    (lo, hi): (f32, f32),
+    suffix: &str,
+) {
+    let mut on = curve.is_some();
+    if ui
+        .checkbox(&mut on, "Opacity curve")
+        .on_hover_text(
+            "Draw how see-through each value is: drag the four points. Replaces the fixed \
+             ramp from the floor",
+        )
+        .changed()
+    {
+        *curve = on.then(|| default_curve((lo, hi)));
+    }
+    let Some(pts) = curve else {
+        return;
+    };
+    let w = ui.available_width().clamp(160.0, 300.0);
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(w, 84.0), egui::Sense::hover());
+    let plot = rect.shrink(6.0);
+    let painter = ui.painter_at(rect);
+    painter.rect_filled(rect, 3.0, ui.visuals().extreme_bg_color);
+    for f in [0.25, 0.5, 0.75] {
+        let y = plot.bottom() - plot.height() * f;
+        painter.hline(
+            plot.x_range(),
+            y,
+            egui::Stroke::new(0.5, ui.visuals().weak_text_color().gamma_multiply(0.4)),
+        );
+    }
+    let span = (hi - lo).max(f32::EPSILON);
+    let to_screen = |p: [f32; 2]| {
+        egui::pos2(
+            plot.left() + (p[0] - lo) / span * plot.width(),
+            plot.bottom() - p[1] * plot.height(),
+        )
+    };
+    let id = ui.id().with("opacity_curve");
+    for i in 0..4 {
+        let handle = egui::Rect::from_center_size(to_screen(pts[i]), egui::vec2(14.0, 14.0));
+        let resp = ui.interact(handle, id.with(i), egui::Sense::drag());
+        if resp.dragged() {
+            if let Some(p) = resp.interact_pointer_pos() {
+                let v = lo + ((p.x - plot.left()) / plot.width()).clamp(0.0, 1.0) * span;
+                let left = if i > 0 { pts[i - 1][0] } else { lo };
+                let right = if i < 3 { pts[i + 1][0] } else { hi };
+                pts[i][0] = v.clamp(left, right);
+                pts[i][1] = ((plot.bottom() - p.y) / plot.height()).clamp(0.0, 1.0);
+            }
+        }
+        resp.on_hover_text(format!(
+            "{:.1}{suffix} \u{2192} {:.0}% opaque",
+            pts[i][0],
+            pts[i][1] * 100.0
+        ));
+    }
+    let accent = ui.visuals().selection.bg_fill;
+    let line: Vec<egui::Pos2> = std::iter::once(egui::pos2(plot.left(), to_screen(pts[0]).y))
+        .chain(pts.iter().map(|p| to_screen(*p)))
+        .chain(std::iter::once(egui::pos2(
+            plot.right(),
+            to_screen(pts[3]).y,
+        )))
+        .collect();
+    painter.add(egui::Shape::line(line, egui::Stroke::new(2.0, accent)));
+    for p in pts.iter() {
+        painter.circle(
+            to_screen(*p),
+            4.5,
+            accent,
+            egui::Stroke::new(1.0, egui::Color32::WHITE),
+        );
+    }
+    ui.weak(format!(
+        "{lo:.0}{suffix} \u{2192} {hi:.0}{suffix} across, clear to solid up"
+    ));
+}
+
+/// Saved 3D looks (Phase H2's presets): pick one for this representation to set its floor,
+/// ceiling and curve; or save what is set now under a name.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn presets_row(
+    ui: &mut egui::Ui,
+    presets: &mut Vec<crate::settings::Volume3dPreset>,
+    representation: &str,
+    floor: &mut f32,
+    denoise: &mut bool,
+    ceiling: &mut Option<f32>,
+    curve: &mut Option<Curve>,
+    name_buf: &mut String,
+) -> bool {
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        let mine: Vec<usize> = (0..presets.len())
+            .filter(|i| presets[*i].representation == representation)
+            .collect();
+        egui::ComboBox::from_id_salt(("volume3d_preset", representation))
+            .selected_text("Presets")
+            .width(90.0)
+            .show_ui(ui, |ui| {
+                if mine.is_empty() {
+                    ui.weak("None saved yet");
+                }
+                for i in &mine {
+                    let p = &presets[*i];
+                    if ui.selectable_label(false, &p.name).clicked() {
+                        *floor = p.floor;
+                        *denoise = true;
+                        *ceiling = p.ceiling;
+                        *curve = p.curve;
+                        changed = true;
+                    }
+                }
+                if let Some(i) = mine.last() {
+                    ui.separator();
+                    if ui
+                        .button(format!("Delete \u{201c}{}\u{201d}", presets[*i].name))
+                        .clicked()
+                    {
+                        presets.remove(*i);
+                        changed = true;
+                    }
+                }
+            });
+        ui.add(
+            egui::TextEdit::singleline(name_buf)
+                .hint_text("name")
+                .desired_width(80.0),
+        );
+        if ui
+            .add_enabled(!name_buf.trim().is_empty(), egui::Button::new("Save"))
+            .on_hover_text("Save this floor, ceiling and curve for this 3D product")
+            .clicked()
+        {
+            let name = name_buf.trim().to_string();
+            presets.retain(|p| !(p.representation == representation && p.name == name));
+            presets.push(crate::settings::Volume3dPreset {
+                name,
+                representation: representation.to_string(),
+                floor: *floor,
+                ceiling: *ceiling,
+                curve: *curve,
+            });
+            name_buf.clear();
+            changed = true;
+        }
+    });
+    changed
+}
+
 /// Phase H4: an extra vertical clip plane at any bearing, on top of the axis-aligned slab above —
 /// the one way to cut into a storm along the angle it actually leans or approaches from rather
 /// than only the box's own east-west/north-south faces. Shared with the main map's own "3D map"
@@ -392,6 +561,7 @@ pub fn body(
         // The threshold is a uniform, not a re-upload: dragging the slider never rebuilds the
         // texture.
         let view = View3d {
+            tf: None,
             threshold_idx: if st.threshold_dbz.is_finite() {
                 threshold_index(st.threshold_dbz, range)
             } else {

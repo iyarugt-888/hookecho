@@ -1023,6 +1023,76 @@ pub fn bin_scan(scan: &Scan, moment: Moment, tilt: usize) -> anyhow::Result<Binn
     bin_scan_opts(scan, moment, tilt, false)
 }
 
+/// A copy of `scan` light enough to keep hundreds of in a loop: every sweep keeps its elevation
+/// and its place in the volume (one representative radial, no data), so tilt numbering and
+/// [`elevation_angles`] are unchanged, and only the sweeps at `elevation_deg` (within 0.15°, the
+/// tilt tolerance [`elevation_angles`] merges at) keep their radials with `moment`'s data. What a
+/// loop frame displays, at a few percent of the decoded volume.
+pub fn trim_scan(scan: &Scan, moment: Moment, elevation_deg: f32) -> Scan {
+    use nexrad_model::data::{Radial, Sweep};
+    let keep = |r: &Radial, slot: Moment| -> Option<MomentData> {
+        (moment.select(r).is_some() && slot.select(r).is_some() && same_slot(moment, slot))
+            .then(|| slot.select(r).cloned())
+            .flatten()
+    };
+    let bare = |r: &Radial, with_data: bool| {
+        let m = |slot: Moment| if with_data { keep(r, slot) } else { None };
+        Radial::new(
+            r.collection_timestamp(),
+            r.azimuth_number(),
+            r.azimuth_angle_degrees(),
+            r.azimuth_spacing_degrees(),
+            r.radial_status(),
+            r.elevation_number(),
+            r.elevation_angle_degrees(),
+            m(Moment::Reflectivity),
+            m(Moment::Velocity),
+            m(Moment::SpectrumWidth),
+            m(Moment::DifferentialReflectivity),
+            m(Moment::DifferentialPhase),
+            m(Moment::CorrelationCoefficient),
+            None,
+        )
+    };
+    let sweeps = scan
+        .sweeps()
+        .iter()
+        .map(|s| {
+            let at_tilt = s
+                .elevation_angle_degrees()
+                .is_some_and(|e| (e - elevation_deg).abs() < 0.15);
+            let radials: Vec<Radial> = if at_tilt && sweep_carries_moment(s, moment) {
+                s.radials().iter().map(|r| bare(r, true)).collect()
+            } else {
+                // The median-elevation radial, so the sweep's own angle comes out the same.
+                let mut rs: Vec<&Radial> = s.radials().iter().collect();
+                rs.sort_by(|a, b| {
+                    a.elevation_angle_degrees()
+                        .total_cmp(&b.elevation_angle_degrees())
+                });
+                rs.get(rs.len() / 2)
+                    .map(|r| bare(r, false))
+                    .into_iter()
+                    .collect()
+            };
+            Sweep::new(s.elevation_number(), radials)
+        })
+        .collect();
+    match scan.site() {
+        Some(site) => Scan::with_site(site.clone(), scan.coverage_pattern().clone(), sweeps),
+        None => Scan::new(scan.coverage_pattern().clone(), sweeps),
+    }
+}
+
+/// Whether two moments read the same radial field (KDP is derived from ΦDP).
+fn same_slot(a: Moment, b: Moment) -> bool {
+    let slot = |m: Moment| match m {
+        Moment::SpecificDifferentialPhase => Moment::DifferentialPhase,
+        m => m,
+    };
+    slot(a) == slot(b)
+}
+
 /// Correlation coefficient below which a weak echo is taken for non-weather (birds, insects,
 /// ground clutter, chaff, smoke): rain and snow hold CC near 0.95-1, the melting layer rarely
 /// dips under 0.85, and biological and clutter returns sit around 0.3-0.8.
@@ -1581,6 +1651,46 @@ mod tests {
 
     /// A completed archive sweep is one pass end to end. Marking any of it stale would dim
     /// data that is not stale, so the mask has to stay silent.
+    /// A real volume, trimmed to one tilt of one moment: the same tilts, the same binned sweep,
+    /// and a small share of the gates.
+    /// `cargo test -p wxdata trim_scan_live -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn trim_scan_live() {
+        use nexrad_model::data::DataMoment;
+        let scan = download_latest_scan("KTLX", chrono::Utc::now().date_naive())
+            .await
+            .unwrap();
+        let elevs = elevation_angles(&scan);
+        let gates = |s: &Scan| -> usize {
+            s.sweeps()
+                .iter()
+                .flat_map(|w| w.radials())
+                .map(|r| {
+                    Moment::ALL
+                        .iter()
+                        .filter(|m| **m != Moment::SpecificDifferentialPhase)
+                        .filter_map(|m| m.select(r))
+                        .map(|d| d.gate_count() as usize)
+                        .sum::<usize>()
+                })
+                .sum()
+        };
+        for (moment, tilt) in [(Moment::Reflectivity, 0), (Moment::Velocity, 1)] {
+            let light = trim_scan(&scan, moment, elevs[tilt]);
+            assert_eq!(elevation_angles(&light), elevs, "tilts unchanged");
+            let a = bin_scan_opts(&scan, moment, tilt, false).unwrap();
+            let b = bin_scan_opts(&light, moment, tilt, false).unwrap();
+            assert_eq!(a.data, b.data, "{moment:?} tilt {tilt} bins the same");
+            println!(
+                "{moment:?} tilt {tilt}: {} of {} gates kept ({:.1}%)",
+                gates(&light),
+                gates(&scan),
+                100.0 * gates(&light) as f64 / gates(&scan) as f64
+            );
+        }
+    }
+
     #[test]
     fn clean_reflectivity_drops_non_weather_and_keeps_strong_cores() {
         let (zl, zh) = Moment::Reflectivity.value_range();

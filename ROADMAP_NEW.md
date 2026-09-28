@@ -2802,12 +2802,17 @@ reflectivity volume built on the same grid (`volume3d::mask_by`, below 20 dBZ), 
 "quality mask". Checked in the browser on KTLX: unmasked, the whole disk; masked, one real
 high-ZDR region southwest of Oklahoma City.
 
-## H2. Transfer-function editor — partly done
+## H2. Transfer-function editor — done
 
 Add analyst controls:
 
-- [ ] opacity vs value curve — one global opacity slider, not a curve
-- [ ] color transfer function — the product's own palette (user palettes apply), not editable here
+- [x] opacity vs value curve — "Opacity curve": four points to drag, value across and opacity
+  up (`volume3d_window::opacity_curve`), per 3D product in its own units; the raymarch draws it
+  piecewise linear (`raymarch.wgsl` `tf_alpha`, two uniform vec4s), replacing the fixed ramp. GPU
+  test: a curve at zero opacity drew 0 of the ramp's 64,836 pixels, at full opacity all of them.
+  Checked in the browser on the 2013 Moore storm
+- [x] color transfer function — the product's own palette, which the palette editor edits (and
+  user palettes apply)
 - [x] threshold clipping — the Denoise floor, per moment, in the moment's own units
 - [x] value window — a "Ceiling" under Denoise: with the floor, keeps one band of values (a
   45-55 dBZ shell, say), stored per representation in that moment's own units
@@ -2818,7 +2823,8 @@ Add analyst controls:
 - [x] vertical exaggeration — the "Vertical" 1-8x slider
 - [x] quality mask — reflectivity below 20 dBZ masks the ZDR and KDP volumes (H1)
 
-Save presets per product. — not done; the floors are per moment but not saved as presets.
+Save presets per product. — done: the Presets row saves the floor, ceiling and curve under a
+name for the 3D product shown, and applies or deletes them (`Settings::volume3d_presets`).
 
 ## H3. Isosurfaces — done
 
@@ -4457,7 +4463,16 @@ Plus:
   grid shader, over cells that hold a value; categorical layers (precipitation type, HCA) and the
   GOES RGB palette stay nearest-cell. A naga test now validates every shader (a reserved word in
   the first version blanked the map in the browser)
-- [ ] Playback up to 100 radar scans, 50 composite/satellite frames — live loops stop at 30
+- [x] Playback up to 100 radar scans — loops run to 200 scans on desktop and 100 on Android
+  and the web (was 30, and 6 and 4). Past the scan cache a playing loop shows light frames
+  (`level2::trim_scan`: every tilt's place kept, only the tilt and moment on screen with data;
+  2.6-6.7% of a KTLX volume's gates, binning identically), kept per frame as it downloads
+  (`app::long_loop`); pausing, the 3D map, Max and Clean load the whole volume. Prefetch looks 16
+  frames ahead along the loop. Checked in the browser: a 100-frame KTLX loop playing from 8:36 PM,
+  its first pass filling about 12 frames a minute; the second pass's speed was not measured (the
+  test browser throttles a hidden page). Satellite and MRMS layers follow the radar loop frame by
+  frame, so they loop as long as it does; their files come from the object cache (disk, or
+  IndexedDB on the web) after the first pass, decoded again each time
 - [x] Up to 12 runs per model — see 24 below
 - [x] RenderStream — progressive radial rendering (B2)
 - [ ] Enhanced lightning — to verify
@@ -4506,7 +4521,7 @@ Pro:
   Bureau's TIGERweb (`wxdata::census`), one request per area, kept for the session. Checked in
   the browser on a Lake County, IL flood warning: about 20,860 people, 8,052 homes, Waukegan,
   Gurnee, Zion
-- [ ] Play up to 200 radar scans, 100 satellite/composite frames — see playback above
+- [x] Play up to 200 radar scans — desktop; see playback above (100 on Android and the web)
 - [x] Up to 24 runs per model — every model lists 24 (a day of hourly runs, six days of
   six-hourly ones); ECMWF runs past its portal's three days come from ECMWF's AWS mirror. GDPS
   lists 2: Environment Canada's Datamart serves only today
@@ -4519,9 +4534,8 @@ Pro:
 - [ ] Historical model runs by date and time — to verify
 
 GR2Analyst 3D (see Phase H): isosurfaces, nested shells, slicing planes, clip box, CAPPI plane,
-beam guides, loops (H8) and velocity (H1) are done; still open are an opacity-curve and colour
-transfer-function editor with saved presets (H2), terrain (H5), storm-relative velocity and
-user-defined products in 3D (H1).
+beam guides, loops (H8) and velocity (H1) are done; the opacity-curve editor and presets (H2) are done
+too; still open are terrain (H5), storm-relative velocity and user-defined products in 3D (H1).
 
 ## WSV3-class gaps
 

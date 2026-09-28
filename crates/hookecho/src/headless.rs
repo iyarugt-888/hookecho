@@ -4685,6 +4685,59 @@ mod golden_tests {
     /// Run with `HOOKECHO_GPU_FALLBACK=1 cargo test -p hookecho -- --ignored gpu`.
     #[test]
     #[ignore = "gpu"]
+    fn the_opacity_curve_decides_what_draws() {
+        // A solid block of 50 dBZ in the middle of the box.
+        let (lo, hi) = Moment::Reflectivity.value_range();
+        let idx = 2 + (((50.0 - lo) / (hi - lo)) * 253.0) as u8;
+        let (n, nz) = (24usize, 12usize);
+        let mut data = vec![0u8; n * n * nz];
+        for k in 3..9 {
+            for j in 8..16 {
+                for i in 8..16 {
+                    data[i + n * j + n * n * k] = idx;
+                }
+            }
+        }
+        let upload = crate::render3d::Volume3dUpload {
+            data: crate::render3d::pack_rg8(&data),
+            n: n as u32,
+            nz: nz as u32,
+            lut: crate::colormap::bake_lut(
+                crate::colormap::default_table(Moment::Reflectivity),
+                (lo, hi),
+                None,
+            )
+            .to_vec(),
+            half_km: 20.0,
+            top_km: 10.0,
+            outside: 0.0,
+        };
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let curve = |a: f32| crate::render3d::View3d {
+            tf: Some([[2.0, a], [100.0, a], [200.0, a], [255.0, a]]),
+            ..Default::default()
+        };
+        let Ok(ramp) = render_volume_once(&rt, &upload, crate::render3d::View3d::default()) else {
+            println!("SKIP: no wgpu adapter");
+            return;
+        };
+        let clear = render_volume_once(&rt, &upload, curve(0.0)).unwrap();
+        let solid = render_volume_once(&rt, &upload, curve(1.0)).unwrap();
+        let (r, c, s) = (echo_pixels(&ramp), echo_pixels(&clear), echo_pixels(&solid));
+        println!("ramp {r}, curve at 0: {c}, curve at 1: {s} px");
+        assert!(r > 0, "the fixed ramp draws the block");
+        assert_eq!(c, 0, "a curve at zero opacity hides everything");
+        assert!(
+            s >= r,
+            "a curve at full opacity draws at least what the ramp did"
+        );
+    }
+
+    #[test]
+    #[ignore = "gpu"]
     fn speed_ordered_velocity_shows_the_inbound_core_a_plain_maximum_hides() {
         // A couplet-like volume: a -35 m/s inbound core wrapped in a +20 m/s outbound shell, so
         // every ray through the core crosses the shell. A plain maximum keeps +20 along those

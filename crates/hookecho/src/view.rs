@@ -242,6 +242,11 @@ pub struct Map3dState {
     /// own units, indexed by `Map3dRepresentation as usize`; `None` = no ceiling. Kept per
     /// representation for the same reason the floors are: a dBZ number means nothing in dB.
     pub ceilings: [Option<f32>; 7],
+    /// An opacity curve per representation (same indexing as `ceilings`), four `[value,
+    /// opacity]` points in that representation's own units (Phase H2); `None` keeps the ramp.
+    pub tf_curves: [Option<[[f32; 2]; 4]>; 7],
+    /// The name being typed for a new 3D preset.
+    pub preset_name: String,
     /// Phase H5: draw the radar's beam geometry over the 3D map — each tilt's cone as range
     /// rings, the lowest and highest beams' centrelines and beamwidth edges, and the mast.
     pub beam_guides: bool,
@@ -328,6 +333,8 @@ impl Default for Map3dState {
             kdp_floor_deg_km: 0.5,
             velocity_floor_ms: 15.0,
             ceilings: [None; 7],
+            tf_curves: [None; 7],
+            preset_name: String::new(),
             beam_guides: false,
             height_ruler: true,
             cell_columns: true,
@@ -432,6 +439,9 @@ pub struct Volume {
     /// tilts may not have arrived — so it must never be kept and shown again later in place of
     /// the complete archived volume of the same name.
     live: bool,
+    /// A loop frame kept light (`level2::trim_scan`): only the displayed tilt of the displayed
+    /// moment has data. Shown while a long loop plays; the full volume replaces it on pause.
+    pub light: bool,
     /// Live merges applied to this volume, so a build keyed by it goes stale when it grows and
     /// only then (the pane's own revision also moves when a *newer* volume grows).
     revision: u64,
@@ -451,6 +461,7 @@ impl Volume {
             moments,
             binned: LruCache::new(NonZeroUsize::new(BINNED_CACHE).unwrap()),
             live: false,
+            light: false,
             revision: 0,
         }
     }
@@ -888,12 +899,28 @@ impl MapView {
     /// `scan` is only used when this pane has never binned that volume; it is an `Arc` from the
     /// app's decoded-volume cache either way, so the two paths hold the same allocation.
     pub fn show_volume(&mut self, scan: Arc<Scan>, name: String, time: DateTime<Utc>) {
+        // A light copy of this frame kept from a loop is replaced by the full volume.
         let vol = self
             .recent
             .pop(&name)
+            .filter(|v| !v.light)
             .unwrap_or_else(|| Volume::new(scan, name, time));
         if let Some(old) = self.volume.replace(vol) {
             // Not a volume still being written, and not a stale copy of the one just shown.
+            if !old.live && old.name != self.volume.as_ref().expect("just set").name {
+                self.recent.put(old.name.clone(), old);
+            }
+        }
+    }
+
+    /// Show a light loop frame (`level2::trim_scan`); a full copy already held is used instead.
+    pub fn show_light_volume(&mut self, scan: Arc<Scan>, name: String, time: DateTime<Utc>) {
+        let vol = self.recent.pop(&name).unwrap_or_else(|| {
+            let mut v = Volume::new(scan, name, time);
+            v.light = true;
+            v
+        });
+        if let Some(old) = self.volume.replace(vol) {
             if !old.live && old.name != self.volume.as_ref().expect("just set").name {
                 self.recent.put(old.name.clone(), old);
             }

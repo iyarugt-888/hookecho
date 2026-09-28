@@ -197,6 +197,19 @@ impl Default for ImportedGisStyle {
     }
 }
 
+/// A saved 3D map look for one 3D product: its floor, ceiling and opacity curve, in that
+/// product's own units (ROADMAP_NEW H2).
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Volume3dPreset {
+    pub name: String,
+    /// The 3D product it is for, by its label ("Smooth reflectivity").
+    pub representation: String,
+    pub floor: f32,
+    pub ceiling: Option<f32>,
+    /// Four `[value, opacity]` points.
+    pub curve: Option<[[f32; 2]; 4]>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -317,6 +330,9 @@ pub struct Settings {
     /// Dim the map outside an alert's polygon while its card is open.
     #[serde(default = "default_true")]
     pub alert_spotlight: bool,
+    /// Saved 3D map looks: a floor, ceiling and opacity curve per 3D product (ROADMAP_NEW H2).
+    #[serde(default)]
+    pub volume3d_presets: Vec<Volume3dPreset>,
     /// ROADMAP_NEW B6: base URL of a self-hosted `radar-ingest` relay (e.g.
     /// `https://relay.example.com`), the second independently-acquired live Level II path. Empty
     /// (default) means no relay is configured — live radar then runs Unidata-only with a NOAA
@@ -1658,6 +1674,7 @@ impl Default for Settings {
             precip_tint: false,
             dealias_velocity: false,
             alert_spotlight: true,
+            volume3d_presets: Vec::new(),
             radar_relay_url: String::new(),
             radar_provider_override: RadarProviderOverride::default(),
             mapbox_key: String::new(),
@@ -2504,6 +2521,13 @@ mod tests {
             }],
             dealias_velocity: true,
             alert_spotlight: false,
+            volume3d_presets: vec![Volume3dPreset {
+                name: "Hail core".into(),
+                representation: "Smooth reflectivity".into(),
+                floor: 45.0,
+                ceiling: Some(70.0),
+                curve: Some([[45.0, 0.1], [55.0, 0.4], [62.0, 0.8], [70.0, 1.0]]),
+            }],
             radar_relay_url: "http://relay.local:8080".to_string(),
             radar_provider_override: RadarProviderOverride::Backup,
             mapbox_key: "pk.test".to_string(),

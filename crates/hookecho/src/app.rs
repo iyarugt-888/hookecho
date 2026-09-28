@@ -14,6 +14,7 @@ mod goes_timeline;
 pub(crate) mod impact;
 #[cfg(not(target_arch = "wasm32"))]
 mod local_api;
+pub(crate) mod long_loop;
 mod overlay_health;
 mod pane_time;
 mod radar_wind;
@@ -3013,6 +3014,9 @@ const MAX_PREFETCH_INFLIGHT: usize = if cfg!(target_os = "android") || cfg!(targ
     4
 };
 
+/// How far along a playing loop's own order prefetch looks for frames it has not kept yet.
+const LONG_LOOP_LOOKAHEAD: usize = 16;
+
 /// Which frames to pull in around the playhead, nearest first.
 ///
 /// Playing only ever moves forward, so it looks ahead. Scrubbing can go either way and usually
@@ -3666,6 +3670,8 @@ pub struct HookEchoApp {
     /// Decoded-volume LRU keyed by AWS object name, so scrubbing back and forth on the
     /// timeline doesn't re-download. ~10 volumes; each ~a few MB.
     scan_cache: LruCache<String, Arc<Scan>>,
+    /// Loop frames trimmed to the tilt on screen, so a loop can run past the scan cache.
+    light_frames: long_loop::LightFrames,
     /// Loop frames being fetched ahead of the playhead, with when they were kicked off.
     ///
     /// Shared with the fetch tasks so each one gives its slot back when it ends, however it ends.
@@ -5361,6 +5367,7 @@ impl HookEchoApp {
             autoplay_pending: cfg!(target_arch = "wasm32"),
             boot_at: Instant::now(),
             scan_cache: LruCache::new(NonZeroUsize::new(scan_cache_cap).unwrap()),
+            light_frames: Default::default(),
             http,
             overlay_rx,
             overlay_tx,
@@ -9793,7 +9800,10 @@ impl HookEchoApp {
         (
             idx,
             v.map(|v| v.name.clone()).unwrap_or_default(),
-            v.map(|v| v.scan.sweeps().len()).unwrap_or(0),
+            // A light loop frame is a different volume to every detector cache: it has only the
+            // displayed tilt, and what it finds must not stand in for the full one on pause.
+            v.map(|v| v.scan.sweeps().len() + if v.light { 1 << 20 } else { 0 })
+                .unwrap_or(0),
         )
     }
 
@@ -14661,7 +14671,12 @@ impl HookEchoApp {
                     self.scan_chime(view, time);
                 }
                 DataMsg::UpToDate { view, .. } => self.views[view].loading = false,
-                DataMsg::Prefetched { name, scan, .. } => {
+                DataMsg::Prefetched {
+                    view, name, scan, ..
+                } => {
+                    if view < self.views.len() {
+                        self.remember_light(view, &name, &scan);
+                    }
                     self.scan_cache.put(name, Arc::new(scan));
                 }
                 DataMsg::Error { view, err, .. } => {
@@ -15203,13 +15218,12 @@ impl HookEchoApp {
         }
 
         // Advance playback (if playing) then reconcile the displayed volume with the timeline.
-        self.views[idx].timeline.live_window = if cfg!(target_os = "android") {
-            self.settings.live_loop_frames.clamp(1, ANDROID_LOOP_WINDOW)
-        } else if cfg!(target_arch = "wasm32") {
-            self.settings.live_loop_frames.clamp(1, WEB_LOOP_WINDOW)
-        } else {
-            self.settings.live_loop_frames.max(1)
-        };
+        // Past the scan cache a loop plays light frames (`app::long_loop`), a few percent of a
+        // volume each, so the phone and the browser loop as long as the desktop's memory allows.
+        self.views[idx].timeline.live_window = self
+            .settings
+            .live_loop_frames
+            .clamp(1, long_loop::MAX_LOOP_FRAMES);
 
         // The browser demo opens playing. A single frozen frame is indistinguishable from a broken
         // map to someone who has never seen this app, and the last fifteen minutes is what makes
@@ -15249,6 +15263,7 @@ impl HookEchoApp {
                     .map(|id| id.name().to_string())
                     .is_some_and(|n| {
                         !self.scan_cache.contains(&n)
+                            && !(self.light_ok(idx) && self.light_frame(idx, &n).is_some())
                             && book(&self.prefetching).get(&n).is_some_and(|at| {
                                 // Bounded: a fetch that never answers must not park the loop.
                                 at.elapsed() < std::time::Duration::from_secs(8)
@@ -15339,16 +15354,29 @@ impl HookEchoApp {
                 )
             });
             if let Some((name, time, id)) = target {
-                let shown = self.views[idx].volume.as_ref().map(|v| v.name.clone());
-                if shown.as_deref() != Some(name.as_str()) {
+                let light_ok = self.light_ok(idx);
+                // A light loop frame on screen stands until the loop stops (or needs the whole
+                // volume for 3D, Max or Clean); then the full volume replaces it.
+                let need = match self.views[idx].volume.as_ref() {
+                    Some(v) if v.name == name => v.light && !light_ok,
+                    _ => true,
+                };
+                if need {
                     if let Some(scan) = self.scan_cache.get(&name).map(Arc::clone) {
                         wxdata::stats::bump(wxdata::stats::Counter::ScanCacheHits);
+                        self.remember_light(idx, &name, &scan);
                         let v = &mut self.views[idx];
                         v.show_volume(scan, name, time);
                         v.loading = false;
                         v.error = None;
                         v.clamp_tilt();
                         v.clamp_moment();
+                        self.pane_shown.remove(&idx);
+                    } else if let Some(light) = self.light_frame(idx, &name).filter(|_| light_ok) {
+                        let v = &mut self.views[idx];
+                        v.show_light_volume(light, name, time);
+                        v.loading = false;
+                        v.error = None;
                         self.pane_shown.remove(&idx);
                     } else if !self.views[idx].loading {
                         wxdata::stats::bump(wxdata::stats::Counter::ScanCacheMisses);
@@ -15412,11 +15440,23 @@ impl HookEchoApp {
             return;
         };
         let tl = &self.views[idx].timeline;
-        let wanted: Vec<Identifier> = prefetch_offsets(tl.playing)
-            .iter()
-            .filter_map(|d| tl.frames.get(tl.playhead.checked_add_signed(*d)?))
-            .cloned()
-            .collect();
+        let light_ok = self.light_ok(idx);
+        let wanted: Vec<Identifier> = if light_ok {
+            // A long loop: the frames playback reaches next, in its own order and well ahead,
+            // skipping those already kept light, so the first pass fills while it plays.
+            crate::loop3d::upcoming(tl, LONG_LOOP_LOOKAHEAD)
+                .into_iter()
+                .filter_map(|i| tl.frames.get(i))
+                .filter(|id| self.light_frame(idx, id.name()).is_none())
+                .cloned()
+                .collect()
+        } else {
+            prefetch_offsets(tl.playing)
+                .iter()
+                .filter_map(|d| tl.frames.get(tl.playhead.checked_add_signed(*d)?))
+                .cloned()
+                .collect()
+        };
         for id in wanted {
             if book(&self.prefetching).len() >= MAX_PREFETCH_INFLIGHT {
                 break;
@@ -16292,14 +16332,17 @@ impl HookEchoApp {
         // the ceiling the inbound one, so both directions are kept alike.
         let speed_scale =
             (resample_moment == Moment::Velocity).then(|| resample_moment.value_range().1);
+        // Velocity's values are speeds, either direction; every other moment's are signed values
+        // (a -10 dBZ floor, a negative ZDR) and go in as they are.
         let value_index = |v: f32, top: bool| match speed_scale {
             Some(vmax) => {
+                let v = v.abs();
                 (wxdata::volume3d::speed_index(v, vmax) + u8::from(top && v < vmax)) as f32
             }
             None => crate::render3d::threshold_index(v, resample_moment.value_range()),
         };
         let threshold_idx = match denoise_floor {
-            Some(floor) if state.denoise_enabled => value_index(floor.abs(), false),
+            Some(floor) if state.denoise_enabled => value_index(floor, false),
             _ => 2.0,
         };
         // Debris is the CC representation, so it gets the anomaly ramp. `inverted: true` because
@@ -16314,12 +16357,15 @@ impl HookEchoApp {
             _ => [0.0; 4],
         };
         let ceiling_idx = match state.ceilings[state.representation as usize] {
-            Some(top) if denoise_floor.is_some() && state.denoise_enabled => {
-                value_index(top.abs(), true)
-            }
+            Some(top) if denoise_floor.is_some() && state.denoise_enabled => value_index(top, true),
             _ => 0.0,
         };
+        // The opacity curve, its values into this volume's index space as the floor's are.
+        let tf = state.tf_curves[state.representation as usize]
+            .filter(|_| denoise_floor.is_some())
+            .map(|pts| pts.map(|[v, a]| [value_index(v, false), a]));
         let view = crate::render3d::View3d {
+            tf,
             threshold_idx,
             ceiling_idx,
             clip: state.clip,
@@ -16798,6 +16844,25 @@ impl HookEchoApp {
                             ui.add(egui::Slider::new(top, floor_now..=hi).suffix(suffix));
                         }
                     });
+                }
+                ui::volume3d_window::opacity_curve(
+                    ui,
+                    &mut view.map_3d.tf_curves[rep],
+                    (lo, hi),
+                    suffix,
+                );
+                let label = view.map_3d.representation.label();
+                if ui::volume3d_window::presets_row(
+                    ui,
+                    &mut self.settings.volume3d_presets,
+                    label,
+                    floor,
+                    &mut view.map_3d.denoise_enabled,
+                    &mut view.map_3d.ceilings[rep],
+                    &mut view.map_3d.tf_curves[rep],
+                    &mut view.map_3d.preset_name,
+                ) {
+                    self.settings.save();
                 }
             }
             ui.horizontal(|ui| {
