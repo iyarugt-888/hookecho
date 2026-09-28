@@ -4495,8 +4495,24 @@ Plus:
 - [x] Historical composite frames by date and time — MRMS layers follow an archive radar frame
   from NOAA's MRMS archive on AWS (from October 2020), nearest valid time within tolerance
 - [x] Enhanced search — "Search all" across products, stations and places
-- [ ] Y'all mode (watches, Y'all-O-Meter, tracks, outlooks) — watches, tracks and outlooks
-  exist separately; no meter and no mode
+- [x] Y'all mode (watches, Y'all-O-Meter, tracks, outlooks) — a "Y'all mode" toggle (Severe
+  layers, and Settings > Alerts) reads one spot, your GPS fix or else the map's middle
+  (`crate::yall`, rules tested; `app/yall_mode.rs`):
+  - Y'all-O-Meter: a six-step dial from "All quiet, y'all" (0) to "Y'ALL TAKE COVER NOW" (5),
+    with the reasons behind it, most serious first. Tornado warnings, flash flood emergencies
+    and destructive severe warnings make 5; other severe and flash flood warnings 4; a watch 3
+    (PDS 4); the Day 1 category 1-3; a storm headed there 2-4 (rotating, close and within half
+    an hour is 4)
+  - Y'all Watches: each tornado or severe thunderstorm watch over the spot, with what it means
+    and when it ends
+  - Y'all Outlook: today, tomorrow and Day 3's SPC category at the spot, in words (its own
+    categorical fetch, every 30 min, while the mode is on)
+  - Y'all Tracks: SCIT storms whose forecast motion brings them within 16 km in the next hour,
+    listed ("Storm W5 gets to y'all in about 18 min, right over y'all") and drawn on the map as
+    dashed lines to where each passes closest, labelled with the minutes
+  Checked in the browser live: a Flood Advisory in Carter County, OK read 1; storms east of
+  McAlester read 2 with three tracks drawn; western Colorado's outlook rows read general
+  thunder tomorrow and Day 3 (the spot sits in a hole of today's thunder area)
 - [x] Popup spotlight: dim the map around an alert — while an alert's card is open the map
   outside its polygon is darkened (`spotlight::dim_outside`, an even-odd mask under the
   legends); Settings > Alerts turns it off. Checked in the browser on a live flood warning

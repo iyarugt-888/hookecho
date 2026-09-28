@@ -155,6 +155,7 @@ pub mod webcache;
 pub mod wind_draw;
 pub mod wind_gpu;
 pub mod workspace;
+pub mod yall;
 pub mod zipwrite;
 
 pub use app::HookEchoApp;

@@ -8,6 +8,14 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: Y'all mode
+
+Turn on Y'all mode (Severe layers, or Settings > Alerts) for the Y'all-O-Meter: one dial from
+"All quiet, y'all" to "Y'all take cover now" for your location or the middle of the map, with
+the reasons. Open it up for Y'all Watches (what each watch over you means), the Y'all Outlook
+(today through Day 3 in plain words) and Y'all Tracks (storms headed your way, when they get
+there and how close they pass), which are also drawn on the map.
+
 ### Added: terrain and storm-relative velocity in 3D
 
 The 3D map has a Terrain checkbox: the ground drawn as a shaded surface at its real height, green

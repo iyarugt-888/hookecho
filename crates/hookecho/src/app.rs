@@ -21,6 +21,7 @@ mod radar_wind;
 mod region_stats;
 mod report;
 mod terrain3d;
+mod yall_mode;
 pub(crate) use field_state::FieldState;
 use goes_timeline::nearest_goes;
 mod mobile;
@@ -2272,6 +2273,8 @@ pub(crate) enum OverlayToggle {
     Couplets,
     /// Tornado ID (`wxdata::tornado_id`).
     TornadoId,
+    /// Y'all mode (`crate::yall`): the Y'all-O-Meter card and Y'all Tracks.
+    YallMode,
     Tbss,
     ZdrColumns,
     Alerts,
@@ -2355,7 +2358,7 @@ pub(crate) struct CoverageCompareKey {
 impl OverlayToggle {
     /// Every toggle, for the persistence sweep. A new variant belongs here too, or it silently
     /// stops being remembered across restarts.
-    pub(crate) const ALL: [OverlayToggle; 55] = [
+    pub(crate) const ALL: [OverlayToggle; 56] = [
         Self::AlertPanel,
         Self::StormReports,
         Self::Spotters,
@@ -2386,6 +2389,7 @@ impl OverlayToggle {
         Self::Tds,
         Self::Couplets,
         Self::TornadoId,
+        Self::YallMode,
         Self::Tbss,
         Self::ZdrColumns,
         Self::Alerts,
@@ -4515,6 +4519,8 @@ pub struct HookEchoApp {
     radar_wind: radar_wind::RadarWindState,
     /// The ground under the 3D map (ROADMAP_NEW H5).
     terrain3d: terrain3d::Terrain3d,
+    /// Y'all mode's own outlooks and card state.
+    yall: yall_mode::YallState,
     wind_last_fetch: Option<Instant>,
     /// When the in-flight fetch started, or `None` if none is. One at a time: 10 m u+v is 4.5 MB
     /// an hour, and a fast scrub across the forecast tail would otherwise queue ~82 MB of GRIB
@@ -5799,6 +5805,7 @@ impl HookEchoApp {
             wind_fetched: None,
             radar_wind: Default::default(),
             terrain3d: Default::default(),
+            yall: Default::default(),
             wind_last_fetch: None,
             wind_inflight: None,
             wind_last_frame: None,
@@ -11676,6 +11683,7 @@ impl HookEchoApp {
             T::ZdrColumns => &mut self.filters.show_zdr_columns,
             T::Couplets => &mut self.filters.show_couplets,
             T::TornadoId => &mut self.filters.show_tornado_id,
+            T::YallMode => &mut self.settings.yall_mode,
             T::Alerts => &mut self.filters.show_alerts,
             T::Mds => &mut self.filters.show_mds,
             T::Watches => &mut self.filters.show_watches,
@@ -21887,6 +21895,16 @@ impl HookEchoApp {
             }
         }
 
+        // Y'all Tracks: storms headed for the Y'all spot, on the active pane.
+        if self.settings.yall_mode && idx == self.active {
+            let screen = |p: &[f64; 2]| {
+                let w = crate::render::mercator::lonlat_to_world(p[0], p[1]);
+                let (sx, sy) = cam.world_to_screen(w, vp);
+                egui::pos2(prect.left() + sx, prect.top() + sy)
+            };
+            self.draw_yall_tracks(&painter, &screen);
+        }
+
         // The boxed legend is desktop-only; Android draws a full-width color scale in the mobile
         // chrome (see `app::mobile`), so drawing both would be redundant.
         // The phone keeps the thin strip along the top edge in every design; Storm and Carbon add a
@@ -27084,6 +27102,7 @@ impl eframe::App for HookEchoApp {
         self.follow_badge(ctx);
         if !self.obs_mode {
             self.chase_hud(ctx);
+            self.yall_card(ctx);
         }
         // The workstation reads the bulletin in its Alerts window (`chrome/dock/alerts.rs`).
         let workstation = self.workstation_chrome();
@@ -27216,6 +27235,7 @@ impl eframe::App for HookEchoApp {
         self.sync_impacts(ctx);
         self.sync_radar_wind(ctx);
         self.sync_terrain3d(ctx);
+        self.sync_yall(ctx);
         // One Smoothing toggle for radar and every gridded layer.
         crate::render::set_field_smoothing(self.settings.smooth_radar);
         self.sync_model_isotherms();

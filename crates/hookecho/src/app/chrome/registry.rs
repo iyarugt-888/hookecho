@@ -1030,6 +1030,13 @@ impl HookEchoApp {
                 false,
             ),
             (
+                T::YallMode,
+                "Severe",
+                "Y'all mode",
+                "The Y'all-O-Meter for your location or the map's middle: warnings, watches, the                  SPC outlook and storms headed your way, said plainly, with Y'all Tracks drawn",
+                false,
+            ),
+            (
                 T::TornadoId,
                 "Severe",
                 "Tornado ID",
