@@ -4484,7 +4484,9 @@ Plus:
 - [x] Popup spotlight: dim the map around an alert — while an alert's card is open the map
   outside its polygon is darkened (`spotlight::dim_outside`, an even-odd mask under the
   legends); Settings > Alerts turns it off. Checked in the browser on a live flood warning
-- [ ] Popup drag handle — to verify
+- [x] Popup drag handle — map cards (alerts, cells, markers, forecasts) opened at the click
+  used to be fixed there; they now settle at the click and then move by their title bar,
+  staying inside the map (`ui::popover`). Checked in the browser on an alert card
 
 Pro:
 

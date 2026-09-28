@@ -72,14 +72,22 @@ impl Popovers {
         };
         // A card that appears at full size looks like it was already there; one that rises the
         // last few pixels into place looks like it came from the click. Two frames of work.
+        //
+        // The card is placed only while it settles. After that it is the user's: its title bar
+        // is a drag handle, so a card over the storm can be moved aside, and it stays wherever
+        // it was put until it closes (a reopened card starts at its new click again).
         let t = ((now - born) / crate::ui::m3::DUR_SHORT as f64) as f32;
-        let anchor = if crate::ui::motion::reduced() || t >= 1.0 {
+        let w = w.constrain_to(field).movable(true);
+        if t >= 1.0 {
+            return w;
+        }
+        ctx.request_repaint();
+        let pos = if crate::ui::motion::reduced() {
             anchor
         } else {
-            ctx.request_repaint();
             anchor + egui::vec2(0.0, (1.0 - crate::ui::motion::ease_out_cubic(t)) * RISE)
         };
-        w.fixed_pos(anchor).constrain_to(field)
+        w.current_pos(pos)
     }
 }
 

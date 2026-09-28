@@ -8,6 +8,11 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Changed: move cards aside
+
+Cards that open where you click (an alert, a storm cell, a marker) can now be dragged by their
+title bar, so one covering the storm can be moved out of the way.
+
 ### Added: 3D opacity curve and presets
 
 The 3D map's Smooth volumes have an **Opacity curve**: drag four points to say how see-through
