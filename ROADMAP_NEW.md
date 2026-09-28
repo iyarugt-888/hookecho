@@ -4452,7 +4452,11 @@ Plus:
 - [ ] Globe projection 3D map — the map is Web Mercator with a pitched 3D camera; no globe
 - [x] Settings sync across devices — Google Drive sync (`docs/sync.md`)
 - [x] Split view — 1, 2, 3, 4, 6 and 9 panes
-- [ ] Radar, composite, model and satellite smoothing — radar yes; others to verify
+- [x] Radar, composite, model and satellite smoothing — the one Smoothing toggle now also
+  interpolates every continuous gridded layer (MRMS, model, satellite bands) between cells in the
+  grid shader, over cells that hold a value; categorical layers (precipitation type, HCA) and the
+  GOES RGB palette stay nearest-cell. A naga test now validates every shader (a reserved word in
+  the first version blanked the map in the browser)
 - [ ] Playback up to 100 radar scans, 50 composite/satellite frames — live loops stop at 30
 - [x] Up to 12 runs per model — see 24 below
 - [x] RenderStream — progressive radial rendering (B2)

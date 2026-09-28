@@ -1984,6 +1984,7 @@ impl RenderResources {
             if let Some(f) = self.fields.get_mut(layer) {
                 let mut uniform = f.uniform;
                 uniform[6] = *opacity;
+                uniform[7] = if smooth_field(*layer) { 1.0 } else { 0.0 };
                 let draw = f.pane_draws.entry(cb.pane).or_insert_with(|| {
                     let uni = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                         label: Some("mrms_pane_uniform"),
@@ -2010,7 +2011,7 @@ impl RenderResources {
                     });
                     MrmsPaneGpu { uni, bind_group }
                 });
-                queue.write_buffer(&draw.uni, 24, &opacity.to_le_bytes());
+                queue.write_buffer(&draw.uni, 24, bytemuck::cast_slice(&uniform[6..8]));
                 field_draws.push(*layer);
             }
         }
@@ -2828,4 +2829,75 @@ fn write_observed_lut(queue: &wgpu::Queue, tex: &wgpu::Texture, lut: &[u8]) {
             depth_or_array_layers: 1,
         },
     );
+}
+
+/// Smoothing for gridded layers (MRMS, model, satellite), set from the app's Smoothing toggle.
+static FIELD_SMOOTHING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// Turn interpolation between grid cells on or off for every continuous gridded layer.
+pub fn set_field_smoothing(on: bool) {
+    FIELD_SMOOTHING.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether `layer` is drawn interpolated: smoothing is on, and its scale is continuous. A
+/// categorical layer (precipitation type, hydrometeor class) never is, nor the GOES RGB composite.
+fn smooth_field(layer: FieldLayer) -> bool {
+    FIELD_SMOOTHING.load(std::sync::atomic::Ordering::Relaxed)
+        // The RGB composite's index points into its own adaptive palette, not along a ramp.
+        && layer != FieldLayer::GoesRgb
+        && !field_ramps::ramp_for(layer)
+            .is_some_and(|r| matches!(r.scale, field_ramps::FieldScale::Categorical(_)))
+}
+
+#[cfg(test)]
+mod field_smoothing_tests {
+    use super::*;
+
+    #[test]
+    fn only_continuous_layers_are_smoothed() {
+        set_field_smoothing(true);
+        assert!(smooth_field(FieldLayer::Cape));
+        assert!(smooth_field(FieldLayer::GoesIr));
+        assert!(!smooth_field(FieldLayer::Hca), "categories never blend");
+        assert!(
+            !smooth_field(FieldLayer::GoesRgb),
+            "palette indices never blend"
+        );
+        set_field_smoothing(false);
+        assert!(!smooth_field(FieldLayer::Cape));
+        set_field_smoothing(true);
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod shader_tests {
+    /// Every WGSL file the app ships parses and validates. A shader is compiled only when the GPU
+    /// device builds its pipeline, so a mistake (a reserved word used as a field name, say)
+    /// passes `cargo check` and every non-GPU test, then blanks the map at runtime.
+    #[test]
+    fn every_shader_parses_and_validates() {
+        use wgpu::naga;
+        let shaders = [
+            ("tiles", include_str!("../shaders/tiles.wgsl")),
+            ("radar", include_str!("../shaders/radar.wgsl")),
+            (
+                "radar_observed",
+                include_str!("../shaders/radar_observed.wgsl"),
+            ),
+            ("overlay", include_str!("../shaders/overlay.wgsl")),
+            ("mrms", include_str!("../shaders/mrms.wgsl")),
+            ("raymarch", include_str!("../shaders/raymarch.wgsl")),
+            ("wind", include_str!("../shaders/wind.wgsl")),
+        ];
+        for (name, src) in shaders {
+            let module = naga::front::wgsl::parse_str(src)
+                .unwrap_or_else(|e| panic!("{name}.wgsl: {}", e.emit_to_string(src)));
+            naga::valid::Validator::new(
+                naga::valid::ValidationFlags::all(),
+                naga::valid::Capabilities::all(),
+            )
+            .validate(&module)
+            .unwrap_or_else(|e| panic!("{name}.wgsl: {e:?}"));
+        }
+    }
 }

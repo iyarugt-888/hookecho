@@ -26933,6 +26933,8 @@ impl eframe::App for HookEchoApp {
         }
         self.sync_cloud_top();
         self.sync_boundaries(ctx);
+        // One Smoothing toggle for radar and every gridded layer.
+        crate::render::set_field_smoothing(self.settings.smooth_radar);
         self.sync_model_isotherms();
         self.sync_overlay();
 

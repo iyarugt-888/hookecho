@@ -219,9 +219,14 @@ pub fn hit(features: &[GeoFeature], lon: f64, lat: f64) -> Option<&GeoFeature> {
     hit_all(features, lon, lat).into_iter().next()
 }
 
-/// All features containing `(lon, lat)`, highest click-priority first.
+/// All features containing `(lon, lat)`, highest click-priority first. Reference boundaries
+/// (zone outlines, CWA lines) are never hits: they cover the whole map, so every click on it
+/// would open one.
 pub fn hit_all(features: &[GeoFeature], lon: f64, lat: f64) -> Vec<&GeoFeature> {
-    let mut hits: Vec<&GeoFeature> = features.iter().filter(|f| f.contains(lon, lat)).collect();
+    let mut hits: Vec<&GeoFeature> = features
+        .iter()
+        .filter(|f| f.kind != FeatureKind::Boundary && f.contains(lon, lat))
+        .collect();
     hits.sort_by_key(|f| std::cmp::Reverse(f.kind.z()));
     hits
 }
@@ -420,6 +425,15 @@ mod tests {
             detail: String::new(),
             alert: None,
         }
+    }
+
+    #[test]
+    fn a_boundary_is_never_a_click_target() {
+        let features = [square(FeatureKind::Boundary), square(FeatureKind::Outlook)];
+        let hits = hit_all(&features, 1.0, 1.0);
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].kind, FeatureKind::Outlook);
+        assert!(hit(&features[..1], 1.0, 1.0).is_none());
     }
 
     #[test]

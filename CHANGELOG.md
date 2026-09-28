@@ -8,6 +8,15 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: smoothing for gridded layers
+
+The Smoothing toggle now smooths MRMS, model and satellite layers too, not only radar. Layers
+made of categories (precipitation type, hydrometeor class) are never blended.
+
+### Fixed: zone outlines took every map click
+
+With forecast zones shown, clicking anywhere on the map opened that zone's card.
+
 ### Added: forecast zones, CWA boundaries, alert spotlight
 
 Two reference layers: **Forecast zones** outlines the NWS public forecast zones, and **CWA
