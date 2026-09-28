@@ -209,8 +209,8 @@ impl RouteWindow {
             if readout.exposure.is_empty() {
                 ui.label("No active warning or watch polygon crosses it right now.");
                 ui.weak(
-                    "Heavy echo is checked when an MRMS reflectivity layer is on; lightning, when \
-                     satellite lightning is.",
+                    "Heavy echo, hail, heavy rain and rare rainfall are checked when their MRMS \
+                     layers are on; lightning, when satellite lightning is.",
                 );
             }
             for (what, km, s, polygon) in readout.exposure {
