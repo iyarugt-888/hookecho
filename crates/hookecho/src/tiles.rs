@@ -921,6 +921,9 @@ pub fn tile_cover(
     let z = (cam.zoom + zoom_bias).round().clamp(2.0, max_z as f64) as u8;
     let n = 1u32 << z;
     let nf = n as f64;
+    if cam.globe_blend() > 0.0 {
+        return globe_cover(cam, viewport_px, z);
+    }
     let wpp = cam.world_per_pixel();
     let half_w = viewport_px.0 as f64 / 2.0 * wpp;
     let half_h = viewport_px.1 as f64 / 2.0 * wpp;
@@ -994,6 +997,47 @@ pub fn tile_cover(
         }
     }
     out
+}
+
+/// The tiles on the visible face of the globe: a grid of screen points picked onto the planet
+/// (finer than a tile), each hit tile and its neighbours, since the limb squeezes tiles thinner
+/// than the grid's spacing.
+fn globe_cover(cam: &Camera, viewport_px: (f32, f32), z: u8) -> Vec<VisibleTile> {
+    let n = 1i64 << z;
+    let nf = n as f64;
+    const STEPS: usize = 24;
+    let mut hit = std::collections::BTreeSet::new();
+    for j in 0..=STEPS {
+        for i in 0..=STEPS {
+            let px = (
+                viewport_px.0 * i as f32 / STEPS as f32,
+                viewport_px.1 * j as f32 / STEPS as f32,
+            );
+            let Some((dx, dy)) = cam.ground_delta(px, viewport_px) else {
+                continue;
+            };
+            let tx = ((cam.center.0 + dx) * nf).floor() as i64;
+            let ty = ((cam.center.1 + dy) * nf).floor() as i64;
+            for (ox, oy) in [(0, 0), (-1, 0), (1, 0), (0, -1), (0, 1)] {
+                let (x, y) = (tx + ox, ty + oy);
+                if (0..n).contains(&y) {
+                    hit.insert((x.rem_euclid(n), y));
+                }
+            }
+        }
+    }
+    hit.into_iter()
+        .map(|(x, y)| {
+            // Unwrapped next to the centre, like the flat cover: the shaders wrap the delta.
+            let cx = (cam.center.0 * nf).floor() as i64;
+            let ux = x + ((cx - x) as f64 / nf).round() as i64 * n;
+            VisibleTile {
+                id: (z, x as u32, y as u32),
+                world_min: [ux as f32 / nf as f32, y as f32 / nf as f32],
+                world_max: [(ux + 1) as f32 / nf as f32, (y + 1) as f32 / nf as f32],
+            }
+        })
+        .collect()
 }
 
 /// Parse the `<Domain>` time list from a GIBS DescribeDomains XML into sorted instants. The
@@ -2101,6 +2145,22 @@ pub fn start_pack_download(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_globe_asks_for_the_tiles_on_its_visible_face() {
+        use crate::render::mercator::{set_globe_for_test, Camera};
+        set_globe_for_test(Some(true));
+        let cam = Camera::at_lonlat(-95.0, 38.0, 3.0);
+        let tiles = tile_cover(&cam, (1200.0, 800.0), 18, 0.0);
+        set_globe_for_test(None);
+        let ids: std::collections::HashSet<_> = tiles.iter().map(|t| t.id).collect();
+        assert_eq!(ids.len(), tiles.len(), "no tile twice");
+        // Zoom 3 is 8 x 8 tiles. North America's tiles are there; the far side's are not.
+        assert!(ids.contains(&(3, 1, 3)), "the central US tile");
+        assert!(ids.contains(&(3, 2, 2)), "eastern Canada");
+        assert!(!ids.contains(&(3, 6, 3)), "Asia is round the back");
+        assert!(tiles.len() < 40, "about half the world: {}", tiles.len());
+    }
+
     use super::*;
 
     /// A pitched camera's ground footprint reaches further toward the horizon than a flat

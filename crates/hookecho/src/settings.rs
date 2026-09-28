@@ -333,6 +333,9 @@ pub struct Settings {
     /// Y'all mode: the Y'all-O-Meter card and Y'all Tracks for your spot (`crate::yall`).
     #[serde(default)]
     pub yall_mode: bool,
+    /// Draw the zoomed-out map as a globe (`render::mercator::set_globe`).
+    #[serde(default)]
+    pub globe: bool,
     /// Saved 3D map looks: a floor, ceiling and opacity curve per 3D product (ROADMAP_NEW H2).
     #[serde(default)]
     pub volume3d_presets: Vec<Volume3dPreset>,
@@ -1678,6 +1681,7 @@ impl Default for Settings {
             dealias_velocity: false,
             alert_spotlight: true,
             yall_mode: false,
+            globe: false,
             volume3d_presets: Vec::new(),
             radar_relay_url: String::new(),
             radar_provider_override: RadarProviderOverride::default(),
@@ -2526,6 +2530,7 @@ mod tests {
             dealias_velocity: true,
             alert_spotlight: false,
             yall_mode: false,
+            globe: false,
             volume3d_presets: vec![Volume3dPreset {
                 name: "Hail core".into(),
                 representation: "Smooth reflectivity".into(),

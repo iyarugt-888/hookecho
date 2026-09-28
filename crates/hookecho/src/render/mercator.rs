@@ -30,6 +30,52 @@ fn far_cull() -> f32 {
     f32::from_bits(FAR_CULL.load(std::sync::atomic::Ordering::Relaxed))
 }
 
+/// Globe projection (the user's setting, process-wide like [`FAR_CULL`]): zoomed out, the map
+/// is drawn on a sphere instead of the flat mercator plane.
+static GLOBE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Turn the globe projection on or off.
+pub fn set_globe(on: bool) {
+    GLOBE.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[cfg(test)]
+thread_local! {
+    /// A test's own globe switch: tests run in parallel, and the process-wide one would leak.
+    static GLOBE_TEST: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
+}
+
+/// This thread's globe switch for a test (`None` falls back to the process-wide one).
+#[cfg(test)]
+pub(crate) fn set_globe_for_test(on: Option<bool>) {
+    GLOBE_TEST.with(|g| g.set(on));
+}
+
+fn globe_on() -> bool {
+    #[cfg(test)]
+    if let Some(on) = GLOBE_TEST.with(|g| g.get()) {
+        return on;
+    }
+    GLOBE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Fully a globe at or below this zoom...
+pub const GLOBE_FULL_ZOOM: f64 = 4.0;
+/// ...and fully flat at or above this one, blending between: near the centre the two agree
+/// (same scale, same place), so the sphere unrolls into the flat map as you zoom in.
+pub const GLOBE_FLAT_ZOOM: f64 = 5.5;
+
+/// How far a camera at `zoom` is toward the globe, 0 (flat) to 1, when the globe is on.
+pub fn globe_blend_at(zoom: f64) -> f32 {
+    let t = ((GLOBE_FLAT_ZOOM - zoom) / (GLOBE_FLAT_ZOOM - GLOBE_FULL_ZOOM)).clamp(0.0, 1.0);
+    (t * t * (3.0 - 2.0 * t)) as f32
+}
+
+/// Latitude (radians) of a mercator world y.
+fn world_lat(y: f64) -> f64 {
+    (PI * (1.0 - 2.0 * y)).sinh().atan()
+}
+
 /// Whether a point at view depth `depth` is too far to draw, for a camera `distance` from the map
 /// centre and a cull `factor` (0 = off).
 fn is_too_far(depth: f32, distance: f32, factor: f32) -> bool {
@@ -93,7 +139,120 @@ impl Camera {
 
     /// Whether this camera needs the geographic perspective transform.
     pub fn is_3d(&self) -> bool {
-        self.pitch.abs() > 0.01 || self.bearing.abs() > 0.01
+        self.pitch.abs() > 0.01 || self.bearing.abs() > 0.01 || self.globe_blend() > 0.0
+    }
+
+    /// 0 for the flat map, 1 for the full globe, between while zooming across the change.
+    pub fn globe_blend(&self) -> f32 {
+        if globe_on() {
+            globe_blend_at(self.zoom)
+        } else {
+            0.0
+        }
+    }
+
+    /// The shaders' globe uniform: `[blend, eye.x, eye.y, eye.z]`, the eye in the local pixel
+    /// frame [`Self::view_projection`] uses.
+    pub fn globe_uniform(&self, viewport_px: (f32, f32)) -> [f32; 4] {
+        let eye = self.eye_position(viewport_px);
+        [self.globe_blend(), eye.x, eye.y, eye.z]
+    }
+
+    /// The globe's radius in local pixels: the sphere's scale at the centre matches the flat
+    /// map's there (mercator stretches by `1/cos(lat)`, so a high-latitude view gets a bigger
+    /// globe, as it must for the two to line up).
+    fn globe_radius(&self) -> f64 {
+        let lat0 = world_lat(self.center.1);
+        1.0 / (2.0 * PI * self.world_per_pixel() * lat0.cos().max(0.01))
+    }
+
+    /// Where a ground point is in the local pixel frame (+X east, +Y north, +Z up), with the
+    /// globe blended in, and whether it faces the camera (always, on the flat map). The CPU
+    /// mirror of `map_clip` in `shaders/globe.wgsl`.
+    pub fn ground_local(&self, world: (f64, f64), viewport_px: (f32, f32)) -> (Vec3, bool) {
+        let wpp = self.world_per_pixel();
+        let dxw = wrapped_delta(world.0, self.center.0);
+        let flat = Vec3::new(
+            (dxw / wpp) as f32,
+            ((self.center.1 - world.1) / wpp) as f32,
+            0.0,
+        );
+        let t = self.globe_blend();
+        if t <= 0.0 {
+            return (flat, true);
+        }
+        let (lat0, lat) = (world_lat(self.center.1), world_lat(world.1));
+        let dl = dxw * 2.0 * PI;
+        let n = glam::DVec3::new(
+            lat.cos() * dl.sin(),
+            lat.sin() * lat0.cos() - lat.cos() * lat0.sin() * dl.cos(),
+            lat.sin() * lat0.sin() + lat.cos() * lat0.cos() * dl.cos(),
+        );
+        let r = self.globe_radius();
+        let on_sphere = n * r - glam::DVec3::new(0.0, 0.0, r);
+        let eye = self.eye_position(viewport_px).as_dvec3();
+        let facing = n.dot(eye - on_sphere) > 0.0;
+        (flat.lerp(on_sphere.as_vec3(), t), facing)
+    }
+
+    /// The world point under a screen pixel on the globe (or the blend toward it), found by
+    /// Newton's method on the projection from where the ray meets the sphere. `None` off the
+    /// edge of the globe.
+    fn globe_pick(&self, px: (f32, f32), viewport_px: (f32, f32)) -> Option<(f64, f64)> {
+        let (near, ray) = self.screen_ray(px, viewport_px)?;
+        // A first guess from the pure sphere: centre (0, 0, -r) in the local frame.
+        let r = self.globe_radius();
+        let (o, d) = (near.as_dvec3(), ray.as_dvec3().normalize());
+        let oc = o + glam::DVec3::new(0.0, 0.0, r);
+        let b = oc.dot(d);
+        let disc = b * b - (oc.length_squared() - r * r);
+        let mut w = if disc >= 0.0 {
+            let hit = oc + d * (-b - disc.sqrt());
+            let n = hit / r;
+            let lat0 = world_lat(self.center.1);
+            let lat = (n.y * lat0.cos() + n.z * lat0.sin())
+                .clamp(-1.0, 1.0)
+                .asin();
+            let dl = n.x.atan2(n.z * lat0.cos() - n.y * lat0.sin());
+            let (_, y) = lonlat_to_world(0.0, lat.to_degrees());
+            (self.center.0 + dl / (2.0 * PI), y)
+        } else if self.globe_blend() >= 1.0 {
+            return None;
+        } else {
+            self.center
+        };
+        let vp = self.view_projection(viewport_px);
+        let screen = |w: (f64, f64)| -> Option<(f64, f64)> {
+            let (p, facing) = self.ground_local(w, viewport_px);
+            let c = vp * p.extend(1.0);
+            if c.w <= f32::EPSILON || !facing {
+                return None;
+            }
+            Some((
+                ((c.x / c.w + 1.0) * viewport_px.0 * 0.5) as f64,
+                ((1.0 - c.y / c.w) * viewport_px.1 * 0.5) as f64,
+            ))
+        };
+        let h = self.world_per_pixel() * 0.5;
+        for _ in 0..24 {
+            let s = screen(w)?;
+            let (ex, ey) = (px.0 as f64 - s.0, px.1 as f64 - s.1);
+            if ex * ex + ey * ey < 0.01 {
+                return Some((w.0, w.1.clamp(0.0, 1.0)));
+            }
+            let sx = screen((w.0 + h, w.1))?;
+            let sy = screen((w.0, w.1 + h))?;
+            let (a, c) = ((sx.0 - s.0) / h, (sx.1 - s.1) / h);
+            let (b, d) = ((sy.0 - s.0) / h, (sy.1 - s.1) / h);
+            let det = a * d - b * c;
+            if det.abs() < 1e-12 {
+                return None;
+            }
+            let dx = (d * ex - b * ey) / det;
+            let dy = (a * ey - c * ex) / det;
+            w = (w.0 + dx, (w.1 + dy).clamp(0.0, 1.0));
+        }
+        None
     }
 
     /// One physical metre expressed in normalized Web-Mercator world units at `lat_deg`.
@@ -168,6 +327,12 @@ impl Camera {
     /// legal range left and the world is simply centered.
     fn settle(&mut self, viewport_px: (f32, f32)) {
         self.center.0 = self.center.0.rem_euclid(1.0);
+        if self.globe_blend() > 0.0 {
+            // A globe has no edge to keep on screen: turn it to any latitude short of the pole.
+            let (_, north) = lonlat_to_world(0.0, 80.0);
+            self.center.1 = self.center.1.clamp(north, 1.0 - north);
+            return;
+        }
         let half = viewport_px.1 as f64 / 2.0 * self.world_per_pixel();
         self.center.1 = if half >= 0.5 {
             0.5
@@ -208,10 +373,11 @@ impl Camera {
     /// World coord -> screen pixel (origin top-left); inverse of [`Self::screen_to_world`].
     pub fn world_to_screen(&self, world: (f64, f64), viewport_px: (f32, f32)) -> (f32, f32) {
         if self.is_3d() {
-            let wpp = self.world_per_pixel();
-            let dx = wrapped_delta(world.0, self.center.0) / wpp;
-            let dy = (self.center.1 - world.1) / wpp;
-            let p = self.view_projection(viewport_px) * Vec4::new(dx as f32, dy as f32, 0.0, 1.0);
+            let (local, facing) = self.ground_local(world, viewport_px);
+            if !facing {
+                return (-1.0e6, -1.0e6); // round the back of the globe
+            }
+            let p = self.view_projection(viewport_px) * local.extend(1.0);
             // `w <= 0` means the point is on or behind the camera plane — genuinely off screen.
             // Push it far outside the viewport so `rect.contains` culls it; dividing by a
             // non-positive `w` (the old `w.abs()` test) mirrored those points back onto the map,
@@ -282,6 +448,10 @@ impl Camera {
     /// `None` when the ray doesn't hit the ground ahead of the camera (looking above the
     /// horizon — only reachable at a steep pitch).
     pub fn ground_delta(&self, px: (f32, f32), viewport_px: (f32, f32)) -> Option<(f64, f64)> {
+        if self.globe_blend() > 0.0 {
+            let w = self.globe_pick(px, viewport_px)?;
+            return Some((wrapped_delta(w.0, self.center.0), w.1 - self.center.1));
+        }
         let (near, ray) = self.screen_ray(px, viewport_px)?;
         if ray.z.abs() <= 1e-6 {
             return None;
@@ -433,6 +603,75 @@ mod tests {
             assert!((got.0 - px.0).abs() < 0.05, "x: {px:?} -> {got:?}");
             assert!((got.1 - px.1).abs() < 0.05, "y: {px:?} -> {got:?}");
         }
+    }
+
+    fn with_globe<R>(on: bool, f: impl FnOnce() -> R) -> R {
+        GLOBE_TEST.with(|g| g.set(Some(on)));
+        let r = f();
+        GLOBE_TEST.with(|g| g.set(None));
+        r
+    }
+
+    #[test]
+    fn the_globe_roundtrips_points_and_hides_its_far_side() {
+        with_globe(true, || {
+            let cam = Camera::at_lonlat(-95.0, 38.0, 3.0);
+            assert_eq!(cam.globe_blend(), 1.0);
+            let vp = (1200.0, 800.0);
+            let c = cam.world_to_screen(cam.center, vp);
+            assert!(
+                (c.0 - 600.0).abs() < 0.5 && (c.1 - 400.0).abs() < 0.5,
+                "{c:?}"
+            );
+            for (lon, lat) in [(-120.0, 45.0), (-75.0, 20.0), (-60.0, 60.0), (-140.0, 10.0)] {
+                let w = lonlat_to_world(lon, lat);
+                let s = cam.world_to_screen(w, vp);
+                assert!(s.0 > 0.0 && s.0 < 1200.0, "{lon},{lat} on screen: {s:?}");
+                let back = cam.screen_to_world(s, vp);
+                let (lon2, lat2) = world_to_lonlat(back.0, back.1);
+                assert!(
+                    (lon2 - lon).abs() < 0.05 && (lat2 - lat).abs() < 0.05,
+                    "{lon},{lat} -> {s:?} -> {lon2},{lat2}"
+                );
+            }
+            // The far side of the planet is round the back.
+            let s = cam.world_to_screen(lonlat_to_world(85.0, -38.0), vp);
+            assert_eq!(s, (-1.0e6, -1.0e6));
+            // And a pixel in the space beside the globe is nowhere.
+            assert!(cam.ground_delta((2.0, 2.0), vp).is_none());
+        });
+    }
+
+    #[test]
+    fn the_globe_matches_the_flat_map_near_the_centre_and_goes_flat_zoomed_in() {
+        let vp = (1200.0, 800.0);
+        let cam = Camera::at_lonlat(-97.0, 35.0, 4.0);
+        let near = lonlat_to_world(-96.5, 35.3);
+        let flat = with_globe(false, || cam.world_to_screen(near, vp));
+        let globe = with_globe(true, || cam.world_to_screen(near, vp));
+        assert!(
+            (flat.0 - globe.0).abs() < 1.0 && (flat.1 - globe.1).abs() < 1.0,
+            "flat {flat:?} globe {globe:?}"
+        );
+        with_globe(true, || {
+            assert_eq!(Camera::at_lonlat(-97.0, 35.0, 6.0).globe_blend(), 0.0);
+            assert!(!Camera::at_lonlat(-97.0, 35.0, 6.0).is_3d());
+            let mid = Camera::at_lonlat(-97.0, 35.0, 4.75).globe_blend();
+            assert!(mid > 0.0 && mid < 1.0);
+        });
+    }
+
+    #[test]
+    fn the_globe_turns_to_high_latitudes() {
+        with_globe(true, || {
+            let mut cam = Camera::at_lonlat(0.0, 0.0, 3.0);
+            // A drag arrives as many small moves.
+            for _ in 0..100 {
+                cam.pan_pixels(0.0, 20.0, (1200.0, 800.0));
+            }
+            let (_, lat) = world_to_lonlat(cam.center.0, cam.center.1);
+            assert!(lat > 30.0, "dragged north to {lat}");
+        });
     }
 
     #[test]

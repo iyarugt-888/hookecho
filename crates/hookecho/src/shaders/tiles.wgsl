@@ -9,6 +9,8 @@ struct Camera {
     mode_3d: f32,
     _pad: f32,
     view_proj: mat4x4<f32>,
+    // Globe: x the blend toward it (0 flat), yzw the eye in the local pixel frame.
+    globe: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> camera: Camera;
@@ -28,15 +30,7 @@ struct VsOut {
 @vertex
 fn vs_main(in: VsIn) -> VsOut {
     var out: VsOut;
-    let p = (in.world - camera.center) * camera.scale;
-    if (camera.mode_3d > 0.5) {
-        var delta = in.world - camera.center;
-        delta.x = delta.x - floor(delta.x + 0.5);
-        let local = vec3<f32>(delta.x, -delta.y, 0.0) / camera.world_per_pixel;
-        out.clip = camera.view_proj * vec4<f32>(local, 1.0);
-    } else {
-        out.clip = vec4<f32>(p, 0.0, 1.0);
-    }
+    out.clip = map_clip(in.world);
     out.uv = in.uv;
     return out;
 }

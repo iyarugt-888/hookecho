@@ -2275,6 +2275,8 @@ pub(crate) enum OverlayToggle {
     TornadoId,
     /// Y'all mode (`crate::yall`): the Y'all-O-Meter card and Y'all Tracks.
     YallMode,
+    /// The zoomed-out map as a globe (`render::mercator::set_globe`).
+    Globe,
     Tbss,
     ZdrColumns,
     Alerts,
@@ -2358,7 +2360,7 @@ pub(crate) struct CoverageCompareKey {
 impl OverlayToggle {
     /// Every toggle, for the persistence sweep. A new variant belongs here too, or it silently
     /// stops being remembered across restarts.
-    pub(crate) const ALL: [OverlayToggle; 56] = [
+    pub(crate) const ALL: [OverlayToggle; 57] = [
         Self::AlertPanel,
         Self::StormReports,
         Self::Spotters,
@@ -2390,6 +2392,7 @@ impl OverlayToggle {
         Self::Couplets,
         Self::TornadoId,
         Self::YallMode,
+        Self::Globe,
         Self::Tbss,
         Self::ZdrColumns,
         Self::Alerts,
@@ -3770,6 +3773,8 @@ pub struct HookEchoApp {
     /// Whether the imported GIS layer was above its minimum zoom at the last tessellation (I4).
     built_imported_visible: bool,
     built_theme: crate::settings::Theme,
+    /// Whether the overlay geometry was split for the globe.
+    built_globe: bool,
     pending_overlay: Option<OverlayUpload>,
     overlay_ready: bool,
     overlay_last_fetch: Option<Instant>,
@@ -5441,6 +5446,7 @@ impl HookEchoApp {
             built_zoom_bucket: i32::MIN,
             built_imported_visible: true,
             built_theme: crate::settings::Theme::Dark,
+            built_globe: false,
             pending_overlay: None,
             overlay_ready: false,
             overlay_last_fetch: None,
@@ -11684,6 +11690,7 @@ impl HookEchoApp {
             T::Couplets => &mut self.filters.show_couplets,
             T::TornadoId => &mut self.filters.show_tornado_id,
             T::YallMode => &mut self.settings.yall_mode,
+            T::Globe => &mut self.settings.globe,
             T::Alerts => &mut self.filters.show_alerts,
             T::Mds => &mut self.filters.show_mds,
             T::Watches => &mut self.filters.show_watches,
@@ -14431,7 +14438,9 @@ impl HookEchoApp {
         //
         // A geometry change (`overlay_gen`) is not deferred — that is new data arriving, not the
         // camera moving, and it should appear when it lands.
-        let theme_changed = self.settings.theme != self.built_theme;
+        // Turning the globe on or off re-tessellates: its overlays are split to bend with it.
+        let theme_changed =
+            self.settings.theme != self.built_theme || self.settings.globe != self.built_globe;
         let imported_visible = self.settings.imported_gis_style.visible_at(zoom);
         let imported_flipped = imported_visible != self.built_imported_visible;
         if should_retess(
@@ -14452,6 +14461,16 @@ impl HookEchoApp {
                 .map(|(it, op, _)| (it, op))
                 .collect();
             overlay_build::append_placefiles_with_theme(&mut geom, &pf, zoom, self.settings.theme);
+            // Outlook-sized fills bend with the globe instead of cutting chords through it.
+            if self.settings.globe {
+                crate::render::subdivide_long_triangles(
+                    &mut geom.vertices,
+                    &mut geom.indices,
+                    crate::render::GLOBE_MAX_SPAN,
+                    5,
+                );
+            }
+            self.built_globe = self.settings.globe;
             self.overlay_ready = !geom.indices.is_empty();
             self.pending_overlay = Some(OverlayUpload {
                 vertices: geom.vertices,
@@ -18284,6 +18303,7 @@ impl HookEchoApp {
             world_per_pixel: cam.world_per_pixel() as f32,
             camera_view_proj: cam.view_projection_uniform(vp),
             camera_3d: if cam.is_3d() { 1.0 } else { 0.0 },
+            camera_globe: cam.globe_uniform(vp),
             new_tiles,
             visible,
             basemap_key: pane_style.key(),
@@ -26089,6 +26109,7 @@ impl eframe::App for HookEchoApp {
         // Before any chrome: everything below asks `motion::reduced()`, and the answer has to be
         // the same for every surface in a frame.
         ui::motion::frame(ctx, self.settings.reduce_motion);
+        crate::render::mercator::set_globe(self.settings.globe);
         crate::render::mercator::set_far_cull(
             self.settings
                 .hide_far_3d

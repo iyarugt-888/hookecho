@@ -4463,7 +4463,23 @@ the bar; a partial match says what is missing.
 
 Plus:
 
-- [ ] Globe projection 3D map — the map is Web Mercator with a pitched 3D camera; no globe
+- [x] Globe projection 3D map — a "Globe" toggle (Reference layers) draws the zoomed-out map
+  on a sphere you turn by dragging, to any latitude short of the poles, and unrolls it into the
+  flat map as you zoom in (a full globe at zoom 4 and below, flat from 5.5, blended between;
+  the sphere's scale at the centre matches the flat map's, so the two agree there). One WGSL
+  prelude (`shaders/globe.wgsl`, `map_clip`) places every basemap tile, radar sweep, gridded
+  field and overlay, and `Camera::ground_local` mirrors it for everything drawn on the CPU;
+  clicks and drags land by Newton's method on that projection (`Camera::globe_pick`). The far
+  side is pushed past the far plane per vertex, since the map has no depth buffer. Geometry
+  bends with the sphere: tiles are 8×8 grids, the radar and field quads are grids, and long
+  overlay and low-zoom vector triangles are split (`render::subdivide_long_triangles`, sized so
+  a chord sags about two pixels). Tiles are the ones under a grid of screen picks
+  (`tiles::globe_cover`). Tested: round trips on the globe, the far side hidden, agreement with
+  the flat map near the centre, turning north, the tiles asked for. Checked in the browser:
+  North America and Europe on the light basemap at zoom 3, a drag turning it over the Atlantic,
+  the half-blended map at 4.75. Stated limits: the 3D radar volumes, beam guides and terrain
+  stay flat (they are for zoomed-in views, where the globe is flat anyway), and mercator tiles
+  stop at 85°, so the poles are bare
 - [x] Settings sync across devices — Google Drive sync (`docs/sync.md`)
 - [x] Split view — 1, 2, 3, 4, 6 and 9 panes
 - [x] Radar, composite, model and satellite smoothing — the one Smoothing toggle now also

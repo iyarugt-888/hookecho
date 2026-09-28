@@ -1030,6 +1030,14 @@ impl HookEchoApp {
                 false,
             ),
             (
+                T::Globe,
+                "Reference",
+                "Globe",
+                "Zoomed out, the map is a globe you can turn, unrolling into the flat map as you \
+                 zoom in (from about zoom 5)",
+                false,
+            ),
+            (
                 T::YallMode,
                 "Severe",
                 "Y'all mode",

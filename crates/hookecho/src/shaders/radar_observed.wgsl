@@ -17,6 +17,8 @@ struct Camera {
     mode_3d: f32,
     _pad: f32,
     view_proj: mat4x4<f32>,
+    // Globe: x the blend toward it (0 flat), yzw the eye in the local pixel frame.
+    globe: vec4<f32>,
 };
 
 struct Radar3d {

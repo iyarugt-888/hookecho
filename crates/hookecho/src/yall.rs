@@ -408,13 +408,14 @@ mod tests {
     }
 
     fn cell(id: &str, lon: f64, lat: f64, toward: f32, kt: f32) -> wxdata::level3::Cell {
-        let mut c = wxdata::level3::Cell::default();
-        c.id = id.to_string();
-        c.lon = lon;
-        c.lat = lat;
-        c.mvt_deg = Some(toward);
-        c.mvt_kt = Some(kt);
-        c
+        wxdata::level3::Cell {
+            id: id.to_string(),
+            lon,
+            lat,
+            mvt_deg: Some(toward),
+            mvt_kt: Some(kt),
+            ..Default::default()
+        }
     }
 
     #[test]

@@ -17,7 +17,11 @@ pub type TileId = (u8, u32, u32);
 /// apart in the GPU cache.
 pub type TileKey = (u8, TileId);
 
-const MAX_TILE_VERTS: u64 = 512 * 6; // up to 512 visible tiles per frame
+// Up to 512 visible tiles per frame, flat; on the globe each tile is a bent grid of
+// `GLOBE_TILE_GRID`² quads, and zoomed out there are far fewer tiles.
+const MAX_TILE_VERTS: u64 = 512 * 6 * 16;
+/// Quads per side of a basemap tile on the globe.
+const GLOBE_TILE_GRID: usize = 8;
 
 /// A decoded RGBA tile the app wants uploaded this frame.
 pub struct PendingTile {
@@ -811,6 +815,8 @@ pub struct MapCallback {
     pub camera_view_proj: [[f32; 4]; 4],
     /// Zero keeps the original orthographic shader path bit-for-bit; one enables perspective.
     pub camera_3d: f32,
+    /// `Camera::globe_uniform`: the blend toward the globe and the eye; zeros for the flat map.
+    pub camera_globe: [f32; 4],
     pub new_tiles: Vec<PendingTile>,
     pub visible: Vec<VisibleTile>,
     /// Which basemap style this pane draws ([`crate::tiles::BasemapStyle::key`]).
@@ -876,6 +882,130 @@ struct CameraUniform {
     mode_3d: f32,
     _pad: f32,
     view_proj: [[f32; 4]; 4],
+    /// `[blend, eye.x, eye.y, eye.z]` (`Camera::globe_uniform`, `shaders/globe.wgsl`).
+    globe: [f32; 4],
+}
+
+/// The map shaders that place ground geometry, each with the shared `globe.wgsl` prelude
+/// (`map_clip`) in front of it.
+const TILES_WGSL: &str = concat!(
+    include_str!("../shaders/globe.wgsl"),
+    include_str!("../shaders/tiles.wgsl")
+);
+const RADAR_WGSL: &str = concat!(
+    include_str!("../shaders/globe.wgsl"),
+    include_str!("../shaders/radar.wgsl")
+);
+const OVERLAY_WGSL: &str = concat!(
+    include_str!("../shaders/globe.wgsl"),
+    include_str!("../shaders/overlay.wgsl")
+);
+const MRMS_WGSL: &str = concat!(
+    include_str!("../shaders/globe.wgsl"),
+    include_str!("../shaders/mrms.wgsl")
+);
+
+fn map_shader(device: &wgpu::Device, label: &str, src: &'static str) -> wgpu::ShaderModule {
+    device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some(label),
+        source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(src)),
+    })
+}
+
+/// Cells per side of the radar and gridded-field quads. One flat quad was exact on the flat map;
+/// on the globe a quad is a chord through the planet, so the quads are a grid that bends with it.
+const QUAD_GRID: usize = 16;
+
+/// A `grid × grid` mesh over the world rectangle, as triangles.
+fn grid_quad(min: [f32; 2], max: [f32; 2], grid: usize) -> Vec<RadarVertex> {
+    let at = |i: usize, j: usize| RadarVertex {
+        world: [
+            min[0] + (max[0] - min[0]) * i as f32 / grid as f32,
+            min[1] + (max[1] - min[1]) * j as f32 / grid as f32,
+        ],
+    };
+    let mut out = Vec::with_capacity(grid * grid * 6);
+    for j in 0..grid {
+        for i in 0..grid {
+            out.extend([
+                at(i, j),
+                at(i + 1, j),
+                at(i + 1, j + 1),
+                at(i, j),
+                at(i + 1, j + 1),
+                at(i, j + 1),
+            ]);
+        }
+    }
+    out
+}
+
+/// The longest triangle edge (world units, about 5.6 degrees of longitude) an overlay keeps on
+/// the globe; [`subdivide_long_triangles`] splits anything longer. A chord that long sags under
+/// two pixels below the sphere at the zooms the globe shows (it is flat from zoom 5.5).
+pub const GLOBE_MAX_SPAN: f32 = 1.0 / 64.0;
+
+/// The longest triangle edge a basemap tile at zoom `z` keeps so its chords sag at most about two
+/// pixels on the globe at that zoom (a chord of `s` world units sags `s² · 2^z · 64π` pixels), or
+/// `None` for tiles only ever shown on the flat map. Sized by the tile's own zoom, not the
+/// overlays' fixed span: a zoom 3 tile's coastlines are thousands of long triangles, and
+/// splitting every one of them to overlay precision stalled the tile worker for minutes.
+pub fn globe_tile_span(z: u8) -> Option<f32> {
+    (z <= 6).then(|| (2.0 / (64.0 * std::f32::consts::PI * (1u32 << z) as f32)).sqrt())
+}
+
+/// Split every triangle with an edge longer than `max_span` world units, in place, so filled
+/// shapes bend with the globe instead of cutting chords through it. Midpoint subdivision, at most
+/// `depth` times; interpolates every vertex attribute.
+pub fn subdivide_long_triangles(
+    vertices: &mut Vec<OverlayVertex>,
+    indices: &mut Vec<u32>,
+    max_span: f32,
+    depth: u32,
+) {
+    let span = |a: &OverlayVertex, b: &OverlayVertex| {
+        (a.world[0] - b.world[0])
+            .abs()
+            .max((a.world[1] - b.world[1]).abs())
+    };
+    if !indices.chunks_exact(3).any(|t| {
+        let [a, b, c] = [t[0], t[1], t[2]].map(|i| &vertices[i as usize]);
+        span(a, b) > max_span || span(b, c) > max_span || span(c, a) > max_span
+    }) {
+        return;
+    }
+    let mid = |a: &OverlayVertex, b: &OverlayVertex| OverlayVertex {
+        world: [
+            (a.world[0] + b.world[0]) * 0.5,
+            (a.world[1] + b.world[1]) * 0.5,
+        ],
+        color: std::array::from_fn(|k| (a.color[k] + b.color[k]) * 0.5),
+        offset: std::array::from_fn(|k| (a.offset[k] + b.offset[k]) * 0.5),
+    };
+    let mut todo: Vec<([u32; 3], u32)> = indices
+        .chunks_exact(3)
+        .map(|t| ([t[0], t[1], t[2]], 0))
+        .collect();
+    let mut out = Vec::with_capacity(indices.len());
+    while let Some((t, d)) = todo.pop() {
+        let [a, b, c] = t.map(|i| vertices[i as usize]);
+        if d >= depth
+            || (span(&a, &b) <= max_span && span(&b, &c) <= max_span && span(&c, &a) <= max_span)
+        {
+            out.extend(t);
+            continue;
+        }
+        let base = vertices.len() as u32;
+        vertices.extend([mid(&a, &b), mid(&b, &c), mid(&c, &a)]);
+        let (ab, bc, ca) = (base, base + 1, base + 2);
+        todo.extend([
+            ([t[0], ab, ca], d + 1),
+            ([ab, t[1], bc], d + 1),
+            ([ca, bc, t[2]], d + 1),
+            ([ab, bc, ca], d + 1),
+        ]);
+    }
+    *indices = out;
 }
 
 struct TileGpu {
@@ -1001,14 +1131,12 @@ pub struct RenderResources {
 
 impl RenderResources {
     pub fn new(device: &wgpu::Device, target_format: wgpu::TextureFormat) -> Self {
-        let tile_shader = device.create_shader_module(wgpu::include_wgsl!("../shaders/tiles.wgsl"));
-        let radar_shader =
-            device.create_shader_module(wgpu::include_wgsl!("../shaders/radar.wgsl"));
+        let tile_shader = map_shader(device, "tiles", TILES_WGSL);
+        let radar_shader = map_shader(device, "radar", RADAR_WGSL);
         let observed_shader =
             device.create_shader_module(wgpu::include_wgsl!("../shaders/radar_observed.wgsl"));
-        let overlay_shader =
-            device.create_shader_module(wgpu::include_wgsl!("../shaders/overlay.wgsl"));
-        let mrms_shader = device.create_shader_module(wgpu::include_wgsl!("../shaders/mrms.wgsl"));
+        let overlay_shader = map_shader(device, "overlay", OVERLAY_WGSL);
+        let mrms_shader = map_shader(device, "mrms", MRMS_WGSL);
 
         // group 0: camera uniform (shared).
         let camera_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -1415,7 +1543,7 @@ impl RenderResources {
             });
             let radar_vbuf = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("radar_vbuf"),
-                size: 6 * std::mem::size_of::<RadarVertex>() as u64,
+                size: (QUAD_GRID * QUAD_GRID * 6 * std::mem::size_of::<RadarVertex>()) as u64,
                 usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
@@ -1896,10 +2024,36 @@ impl RenderResources {
         wxdata::stats::bump(wxdata::stats::Counter::TileQuadsBuilt);
         let mut tverts: Vec<TileVertex> = Vec::new();
         let mut visible: Vec<TileKey> = Vec::new();
+        let grid = if cb.camera_globe[0] > 0.0 {
+            GLOBE_TILE_GRID
+        } else {
+            1
+        };
         for v in &cb.visible {
             for (id, wmin, wmax, uvmin, uvmax) in self.tile_quads(cb.basemap_key, v) {
-                if tverts.len() as u64 + 6 > MAX_TILE_VERTS {
+                if tverts.len() as u64 + (6 * grid * grid) as u64 > MAX_TILE_VERTS {
                     break;
+                }
+                if grid > 1 {
+                    let lerp = |a: f32, b: f32, i: usize| a + (b - a) * i as f32 / grid as f32;
+                    let at = |i: usize, j: usize| TileVertex {
+                        world: [lerp(wmin[0], wmax[0], i), lerp(wmin[1], wmax[1], j)],
+                        uv: [lerp(uvmin[0], uvmax[0], i), lerp(uvmin[1], uvmax[1], j)],
+                    };
+                    for j in 0..grid {
+                        for i in 0..grid {
+                            tverts.extend_from_slice(&[
+                                at(i, j),
+                                at(i + 1, j),
+                                at(i + 1, j + 1),
+                                at(i, j),
+                                at(i + 1, j + 1),
+                                at(i, j + 1),
+                            ]);
+                        }
+                    }
+                    visible.push(id);
+                    continue;
                 }
                 let ([x0, y0], [x1, y1]) = (wmin, wmax);
                 let ([u0, t0], [u1, t1]) = (uvmin, uvmax);
@@ -2042,7 +2196,8 @@ impl RenderResources {
             cb.camera_center[1].to_bits(),
             cb.camera_scale[0].to_bits(),
             cb.camera_scale[1].to_bits(),
-            cb.visible.len(),
+            // The tile count, and whether the tiles are bent onto the globe.
+            cb.visible.len() * 2 + (cb.camera_globe[0] > 0.0) as usize,
         );
         let quads = (self.panes.get(&cb.pane).map(|p| p.quads_key) != Some(Some(quads_key)))
             .then(|| self.tile_verts(cb));
@@ -2064,19 +2219,11 @@ impl RenderResources {
                 mode_3d: cb.camera_3d,
                 _pad: 0.0,
                 view_proj: cb.camera_view_proj,
+                globe: cb.camera_globe,
             }),
         );
         if let Some(r) = &cb.radar_upload {
-            let [x0, y0] = r.world_min;
-            let [x1, y1] = r.world_max;
-            let verts = [
-                RadarVertex { world: [x0, y0] },
-                RadarVertex { world: [x1, y0] },
-                RadarVertex { world: [x1, y1] },
-                RadarVertex { world: [x0, y0] },
-                RadarVertex { world: [x1, y1] },
-                RadarVertex { world: [x0, y1] },
-            ];
+            let verts = grid_quad(r.world_min, r.world_max, QUAD_GRID);
             queue.write_buffer(&pane.radar_vbuf, 0, bytemuck::cast_slice(&verts));
         }
         if let Some(radar) = new_radar {
@@ -2199,16 +2346,7 @@ impl RenderResources {
         );
         let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
         let lut_view = lut_tex.create_view(&wgpu::TextureViewDescriptor::default());
-        let [x0, y0] = m.world_min;
-        let [x1, y1] = m.world_max;
-        let verts = [
-            RadarVertex { world: [x0, y0] },
-            RadarVertex { world: [x1, y0] },
-            RadarVertex { world: [x1, y1] },
-            RadarVertex { world: [x0, y0] },
-            RadarVertex { world: [x1, y1] },
-            RadarVertex { world: [x0, y1] },
-        ];
+        let verts = grid_quad(m.world_min, m.world_max, QUAD_GRID * 2);
         let vbuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("mrms_vbuf"),
             contents: bytemuck::cast_slice(&verts),
@@ -2266,7 +2404,7 @@ impl RenderResources {
             pass.set_bind_group(0, cam, &[]);
             pass.set_bind_group(1, &draw.bind_group, &[]);
             pass.set_vertex_buffer(0, f.vbuf.slice(..));
-            pass.draw(0..6, 0..1);
+            pass.draw(0..(4 * QUAD_GRID * QUAD_GRID * 6) as u32, 0..1);
         }
     }
 
@@ -2360,7 +2498,7 @@ impl RenderResources {
                 pass.set_bind_group(0, cam, &[]);
                 pass.set_bind_group(1, &radar.bind_group, &[]);
                 pass.set_vertex_buffer(0, pane.radar_vbuf.slice(..));
-                pass.draw(0..6, 0..1);
+                pass.draw(0..(QUAD_GRID * QUAD_GRID * 6) as u32, 0..1);
             }
         }
         // Painter-order translucency is deliberate: the map has no depth attachment, and sharing
@@ -2869,6 +3007,62 @@ mod field_smoothing_tests {
     }
 }
 
+#[cfg(test)]
+mod globe_mesh_tests {
+    use super::*;
+
+    #[test]
+    fn long_triangles_split_until_short_and_keep_their_area() {
+        let v = |x: f32, y: f32| OverlayVertex {
+            world: [x, y],
+            color: [x, y, 0.0, 1.0],
+            offset: [0.0; 3],
+        };
+        let mut verts = vec![v(0.0, 0.0), v(0.1, 0.0), v(0.0, 0.1)];
+        let mut idx = vec![0, 1, 2];
+        subdivide_long_triangles(&mut verts, &mut idx, GLOBE_MAX_SPAN, 6);
+        assert!(idx.len() >= 3 * 64, "split: {} triangles", idx.len() / 3);
+        let area = |t: &[u32]| {
+            let [a, b, c] = [t[0], t[1], t[2]].map(|i| verts[i as usize].world);
+            ((b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1])).abs() * 0.5
+        };
+        let total: f32 = idx.chunks_exact(3).map(area).sum();
+        assert!((total - 0.005).abs() < 1e-6, "area kept: {total}");
+        // Colours are interpolated with the positions.
+        assert!(verts.iter().all(|p| (p.color[0] - p.world[0]).abs() < 1e-6));
+        // Short triangles are left alone.
+        let mut small = vec![v(0.0, 0.0), v(0.001, 0.0), v(0.0, 0.001)];
+        let mut sidx = vec![0, 1, 2];
+        subdivide_long_triangles(&mut small, &mut sidx, GLOBE_MAX_SPAN, 6);
+        assert_eq!((small.len(), sidx.len()), (3, 3));
+    }
+
+    #[test]
+    fn a_zoomed_out_tile_splits_a_little_and_a_zoomed_in_one_not_at_all() {
+        assert_eq!(globe_tile_span(7), None, "z7 tiles are only drawn flat");
+        // A z3 tile's background quad: two triangles an eighth of the world across.
+        let v = |x: f32, y: f32| OverlayVertex {
+            world: [x, y],
+            color: [0.0; 4],
+            offset: [0.0; 3],
+        };
+        let mut verts = vec![v(0.0, 0.0), v(0.125, 0.0), v(0.125, 0.125), v(0.0, 0.125)];
+        let mut idx = vec![0, 1, 2, 0, 2, 3];
+        subdivide_long_triangles(&mut verts, &mut idx, globe_tile_span(3).unwrap(), 4);
+        let n = idx.len() / 3;
+        assert!((8..=128).contains(&n), "{n} triangles");
+    }
+
+    #[test]
+    fn a_grid_quad_covers_its_rectangle() {
+        let g = grid_quad([0.2, 0.3], [0.4, 0.5], 4);
+        assert_eq!(g.len(), 4 * 4 * 6);
+        assert!(g
+            .iter()
+            .all(|v| (0.2..=0.4).contains(&v.world[0]) && (0.3..=0.5).contains(&v.world[1])));
+    }
+}
+
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod shader_tests {
     /// Every WGSL file the app ships parses and validates. A shader is compiled only when the GPU
@@ -2878,14 +3072,14 @@ mod shader_tests {
     fn every_shader_parses_and_validates() {
         use wgpu::naga;
         let shaders = [
-            ("tiles", include_str!("../shaders/tiles.wgsl")),
-            ("radar", include_str!("../shaders/radar.wgsl")),
+            ("tiles", super::TILES_WGSL),
+            ("radar", super::RADAR_WGSL),
             (
                 "radar_observed",
                 include_str!("../shaders/radar_observed.wgsl"),
             ),
-            ("overlay", include_str!("../shaders/overlay.wgsl")),
-            ("mrms", include_str!("../shaders/mrms.wgsl")),
+            ("overlay", super::OVERLAY_WGSL),
+            ("mrms", super::MRMS_WGSL),
             ("raymarch", include_str!("../shaders/raymarch.wgsl")),
             ("wind", include_str!("../shaders/wind.wgsl")),
         ];

@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: globe
+
+Turn on Globe (Reference layers) and the zoomed-out map becomes a planet you spin by dragging,
+with the basemap, radar, fields and overlays all on it. Zoom in and it unrolls smoothly into the
+usual flat map by zoom 5.5.
+
 ### Added: Y'all mode
 
 Turn on Y'all mode (Severe layers, or Settings > Alerts) for the Y'all-O-Meter: one dial from

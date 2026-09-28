@@ -397,6 +397,11 @@ pub fn build_tile_with_theme(
     }
 
     let labels = extract_labels(&reader, &names, n, txf, tyf);
+    // A zoomed-out tile's land and water are a few huge triangles: split them so they bend
+    // with the globe.
+    if let Some(span) = crate::render::globe_tile_span(id.0) {
+        crate::render::subdivide_long_triangles(&mut verts, &mut indices, span, 4);
+    }
     (verts, indices, labels)
 }
 
@@ -1240,6 +1245,7 @@ impl VectorTileManager {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
 
     fn test_manager() -> VectorTileManager {
