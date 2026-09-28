@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: discussions in radar history, any past model run
+
+Scrub back or open an archive case and the SPC mesoscale discussions in effect then are drawn,
+text included, as warnings already were. The model run menu takes any past date ("Archive run"),
+snapped to that model's cycle, from the NOAA and ECMWF archives.
+
 ### Changed: move cards aside
 
 Cards that open where you click (an alert, a storm cell, a marker) can now be dragged by their

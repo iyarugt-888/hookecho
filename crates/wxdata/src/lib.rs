@@ -3,6 +3,7 @@
 pub mod afd;
 pub mod airnow;
 pub mod alerts;
+pub mod archive_mds;
 pub mod archive_warnings;
 pub mod atcf;
 pub mod aviation;

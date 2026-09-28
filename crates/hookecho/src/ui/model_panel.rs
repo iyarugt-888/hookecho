@@ -146,9 +146,31 @@ pub(crate) fn show(
                         actions.palette = Some(PaletteAction::SetModelRun(Some(r.timestamp())));
                     }
                 }
+                // Any past run, by date: the model's cycle at or before it.
+                ui.separator();
+                let id = egui::Id::new("model_run_date");
+                let mut text: String = ui.data(|d| d.get_temp(id)).unwrap_or_default();
+                ui.horizontal(|ui| {
+                    ui.label("Archive run");
+                    let edit = ui.add(
+                        egui::TextEdit::singleline(&mut text)
+                            .hint_text("2024-05-06 21Z")
+                            .desired_width(110.0),
+                    );
+                    let parsed = parse_run_date(&text)
+                        .and_then(|t| sel.model.run_at_or_before(t, chrono::Utc::now()));
+                    let go = ui.add_enabled(parsed.is_some(), egui::Button::new("Go"));
+                    let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    if let Some(r) = parsed.filter(|_| go.clicked() || enter) {
+                        actions.palette = Some(PaletteAction::SetModelRun(Some(r.timestamp())));
+                    }
+                });
+                ui.data_mut(|d| d.insert_temp(id, text));
             })
             .response
-            .on_hover_text("Older runs stay available for a day or two");
+            .on_hover_text(
+                "Recent runs, or any past run by date (from the NOAA and ECMWF archives)",
+            );
     });
 
     if sel.model.has_lead() {
@@ -332,5 +354,53 @@ mod tests {
         assert!(!text.contains("analysis"), "{text}");
         // Lead zero is an analysis, and says so.
         assert!(status_line(&s, 0, None, now).contains("analysis"));
+    }
+}
+
+/// A typed run date, UTC: "2024-05-06 21Z", "2024-05-06 21", "2024-05-06T21" or "2024-05-06"
+/// (00Z).
+fn parse_run_date(s: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+    let s = s.trim().trim_end_matches(['Z', 'z']).replace('T', " ");
+    let mut parts = s.split_whitespace();
+    let date = chrono::NaiveDate::parse_from_str(parts.next()?, "%Y-%m-%d").ok()?;
+    let hour: u32 = match parts.next() {
+        Some(h) => h
+            .trim_end_matches(['Z', 'z'])
+            .parse()
+            .ok()
+            .filter(|h| *h < 24)?,
+        None => 0,
+    };
+    Some(date.and_hms_opt(hour, 0, 0)?.and_utc())
+}
+
+#[cfg(test)]
+mod run_date_tests {
+    use super::parse_run_date;
+
+    #[test]
+    fn run_dates_read_the_usual_ways() {
+        let want = chrono::NaiveDate::from_ymd_opt(2024, 5, 6)
+            .unwrap()
+            .and_hms_opt(21, 0, 0)
+            .unwrap()
+            .and_utc();
+        for s in [
+            "2024-05-06 21Z",
+            "2024-05-06 21",
+            "2024-05-06T21",
+            " 2024-05-06 21z ",
+        ] {
+            assert_eq!(parse_run_date(s), Some(want), "{s}");
+        }
+        assert_eq!(
+            parse_run_date("2024-05-06")
+                .unwrap()
+                .format("%H")
+                .to_string(),
+            "00"
+        );
+        assert_eq!(parse_run_date("2024-05-06 25"), None);
+        assert_eq!(parse_run_date("yesterday"), None);
     }
 }

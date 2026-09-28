@@ -469,6 +469,8 @@ enum OverlayMsg {
     Vwp(String, Vec<wxdata::level3::VwpLevel>),
     /// Archived storm-based warnings for a 5-min UTC bucket (feature W).
     ArchiveWarnings(i64, Vec<GeoFeature>),
+    /// Mesoscale discussions in effect at a 5-minute bucket's time.
+    ArchiveMds(i64, Vec<GeoFeature>),
     /// Surface observations (METAR station plots) for the requested bbox (feature U).
     Metar(
         Vec<wxdata::metar::SurfaceOb>,
@@ -659,6 +661,7 @@ enum OverlaySource {
     Vwp(String),
     /// Archived storm-based warnings valid at a 5-min UTC bucket (Unix seconds, feature W).
     ArchiveWarnings(i64),
+    ArchiveMds(i64),
     /// Aviation SIGMET/AIRMET polygons (feature GG).
     Aviation,
     /// FAA Temporary Flight Restrictions; carries the NOTAM ids already held, so a refresh only
@@ -1119,6 +1122,9 @@ impl OverlaySource {
             Self::Obs { .. } => RequestLane::Feed(FeedSource::RadarObservations),
             Self::Vwp(..) => RequestLane::Feed(FeedSource::VadProfile),
             Self::ArchiveWarnings(..) => RequestLane::Feed(FeedSource::ArchivedWarnings),
+            // Its own lane: a lane keeps only its newest request's answer, and a warnings fetch
+            // for the same frame would otherwise throw this one away.
+            Self::ArchiveMds(..) => RequestLane::Feed(FeedSource::ArchivedDiscussions),
             Self::Aviation => RequestLane::Feed(FeedSource::AviationAdvisories),
             Self::Tfr(..) => RequestLane::Feed(FeedSource::TemporaryFlightRestrictions),
             Self::Metar(..) => RequestLane::Feed(FeedSource::SurfaceObservations),
@@ -1715,6 +1721,17 @@ impl OverlaySource {
                     }
                 };
                 OverlayMsg::ArchiveWarnings(bucket, feats)
+            }
+            OverlaySource::ArchiveMds(bucket) => {
+                let at = chrono::DateTime::from_timestamp(bucket * 300, 0).unwrap_or_default();
+                let feats = match wxdata::archive_mds::fetch(http, at).await {
+                    Ok(f) => f,
+                    Err(e) => {
+                        log::warn!("archive discussions fetch {at}: {e} (bucket shown empty)");
+                        Vec::new()
+                    }
+                };
+                OverlayMsg::ArchiveMds(bucket, feats)
             }
             OverlaySource::Metar(lat0, lon0, lat1, lon1) => {
                 let mut obs = wxdata::metar::fetch_bbox(http, lat0, lon0, lat1, lon1).await?;
@@ -3696,6 +3713,10 @@ pub struct HookEchoApp {
     /// Archived storm-based warnings (feature W) keyed by 5-min UTC bucket (ts/300); shown while
     /// the active pane is scrubbed off-live.
     arch_warns: LruCache<i64, Vec<GeoFeature>>,
+    /// Archived mesoscale discussions by 5-minute bucket, and the bucket being fetched and shown.
+    arch_mds: LruCache<i64, Vec<GeoFeature>>,
+    arch_md_inflight: Option<i64>,
+    arch_md_shown: Option<i64>,
     /// The 5-min bucket currently being fetched (dedupes in-flight requests).
     arch_warn_inflight: Option<i64>,
     /// The bucket whose warnings are currently substituted into the overlay set (None = live).
@@ -5377,6 +5398,9 @@ impl HookEchoApp {
             // already on the ground, and doesn't re-banner them as new (see `alert_snapshot`).
             alert_features: seeded_alerts,
             arch_warns: LruCache::new(NonZeroUsize::new(50).unwrap()),
+            arch_mds: LruCache::new(NonZeroUsize::new(50).unwrap()),
+            arch_md_inflight: None,
+            arch_md_shown: None,
             arch_warn_inflight: None,
             arch_warn_shown: None,
             arch_lsr: LruCache::new(NonZeroUsize::new(50).unwrap()),
@@ -7585,7 +7609,7 @@ impl HookEchoApp {
                 .get(&self.model_sel.layer())
                 .and_then(|state| state.stamp.clone()),
             run: self.model_run,
-            runs: model.run_choices(now, model.run_list_len()),
+            runs: model.runs_around(self.model_run, now, model.run_list_len()),
             range: model.leads_for(self.model_run, now),
         }
     }
@@ -11765,7 +11789,7 @@ impl HookEchoApp {
             // An analysis has no lead: its steps are hours, through the Hour menu's own list.
             PaletteAction::StepModelLead(steps) if !self.model_sel.model.has_lead() => {
                 let model = self.model_sel.model;
-                let runs = model.run_choices(Utc::now(), model.run_list_len());
+                let runs = model.runs_around(self.model_run, Utc::now(), model.run_list_len());
                 self.model_run = crate::model_browser::step_run(&runs, self.model_run, steps);
             }
             PaletteAction::StepModelLead(steps) => {
@@ -12537,6 +12561,12 @@ impl HookEchoApp {
                         self.arch_warn_inflight = None;
                     }
                 }
+                OverlayMsg::ArchiveMds(bucket, feats) => {
+                    self.arch_mds.put(bucket, feats);
+                    if self.arch_md_inflight == Some(bucket) {
+                        self.arch_md_inflight = None;
+                    }
+                }
                 OverlayMsg::Metar(obs, tafs) => {
                     self.metars = obs;
                     self.tafs = tafs;
@@ -12631,6 +12661,26 @@ impl HookEchoApp {
     /// Drive the archived-warning overlay from the active pane's playhead: fetch the bucket the
     /// scrubbed frame falls in, and swap it in for the live alerts (or back to live at the head).
     fn sync_archive_warnings(&mut self, ctx: &egui::Context) {
+        // Discussions follow the same bucket, when their layer is on.
+        let md_bucket = self.archive_bucket().filter(|_| self.filters.show_mds);
+        match md_bucket {
+            None => {
+                if self.arch_md_shown.take().is_some() {
+                    self.rebuild_overlays();
+                }
+            }
+            Some(b) => {
+                let cached = self.arch_mds.contains(&b);
+                if !cached && self.arch_md_inflight != Some(b) {
+                    self.arch_md_inflight = Some(b);
+                    self.spawn_overlay(ctx, OverlaySource::ArchiveMds(b));
+                }
+                if cached && self.arch_md_shown != Some(b) {
+                    self.arch_md_shown = Some(b);
+                    self.rebuild_overlays();
+                }
+            }
+        }
         match self.archive_bucket() {
             None => {
                 if self.arch_warn_shown.is_some() {
@@ -13643,7 +13693,9 @@ impl HookEchoApp {
             );
         }
         if self.filters.show_mds {
-            v.extend(self.md_features.iter().cloned());
+            // The discussions in effect at a scrubbed frame's time, or today's.
+            let archived = self.arch_md_shown.and_then(|b| self.arch_mds.peek(&b));
+            v.extend(archived.unwrap_or(&self.md_features).iter().cloned());
         }
         if self.filters.show_watches {
             v.extend(self.watch_features.iter().cloned());

@@ -50,7 +50,9 @@ impl OverlayMsg {
                     .iter()
                     .filter_map(|observation| observation.time),
             ),
-            Self::ArchiveWarnings(bucket, _) => Utc.timestamp_opt(bucket * 300, 0).single(),
+            Self::ArchiveWarnings(bucket, _) | Self::ArchiveMds(bucket, _) => {
+                Utc.timestamp_opt(bucket * 300, 0).single()
+            }
             Self::Metar(observations, _) => latest(
                 observations
                     .iter()

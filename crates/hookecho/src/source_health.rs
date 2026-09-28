@@ -103,6 +103,8 @@ pub(crate) enum FeedSource {
     RadarObservations,
     VadProfile,
     ArchivedWarnings,
+    /// SPC mesoscale discussions in effect at a scrubbed frame's time (IEM).
+    ArchivedDiscussions,
     AviationAdvisories,
     TemporaryFlightRestrictions,
     SurfaceObservations,
@@ -150,6 +152,7 @@ impl FeedSource {
             Self::RadarObservations => "Radar observations",
             Self::VadProfile => "VAD profile",
             Self::ArchivedWarnings => "Archived warnings",
+            Self::ArchivedDiscussions => "Archived discussions",
             Self::AviationAdvisories => "Aviation advisories",
             Self::TemporaryFlightRestrictions => "Temporary flight restrictions",
             Self::SurfaceObservations => "Surface observations",
@@ -186,7 +189,8 @@ impl FeedSource {
             | Self::RiverGauges
             | Self::ElectricField
             | Self::VadProfile
-            | Self::ArchivedWarnings => 300,
+            | Self::ArchivedWarnings
+            | Self::ArchivedDiscussions => 300,
             Self::Webcams => 480,
             Self::HurricaneReconnaissance | Self::AviationAdvisories | Self::RadarObservations => {
                 600
@@ -216,9 +220,10 @@ impl FeedSource {
             Self::SpcOutlook | Self::HurricaneReconnaissance | Self::TropicalCyclones => {
                 EndpointFamily::NoaaOperationalFiles
             }
-            Self::StormReports | Self::ArchivedStormReports | Self::ArchivedWarnings => {
-                EndpointFamily::IowaMesonet
-            }
+            Self::StormReports
+            | Self::ArchivedStormReports
+            | Self::ArchivedWarnings
+            | Self::ArchivedDiscussions => EndpointFamily::IowaMesonet,
             Self::PilotReports | Self::AviationAdvisories | Self::SurfaceObservations => {
                 EndpointFamily::AviationWeather
             }

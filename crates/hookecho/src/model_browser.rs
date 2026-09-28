@@ -350,6 +350,33 @@ impl BModel {
         }
     }
 
+    /// The runs to list around `pinned` when it is older than the newest `count` (a run picked
+    /// by date from the archive), so the list steps around it; otherwise the newest `count`.
+    pub fn runs_around(
+        self,
+        pinned: Option<DateTime<Utc>>,
+        now: DateTime<Utc>,
+        count: usize,
+    ) -> Vec<DateTime<Utc>> {
+        let newest = self.run_choices(now, count);
+        let Some(p) = pinned.filter(|p| newest.last().is_some_and(|oldest| p < oldest)) else {
+            return newest;
+        };
+        let cycle = match newest.as_slice() {
+            [a, b, ..] => *a - *b,
+            _ => chrono::Duration::hours(1),
+        };
+        // Centred on the pick, never past the newest run.
+        let anchor = (p + cycle * (count / 2) as i32).min(now);
+        self.run_choices(anchor + (now - newest[0]), count)
+    }
+
+    /// The run a typed date means: the newest cycle of this model at or before `t`.
+    pub fn run_at_or_before(self, t: DateTime<Utc>, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
+        let lag = now - *self.run_choices(now, 1).first()?;
+        self.run_choices(t + lag, 4).into_iter().find(|r| *r <= t)
+    }
+
     /// How many runs the picker lists for this model: 24, a day of hourly runs or six days of
     /// six-hourly ones, from NOAA's AWS archives and ECMWF's AWS mirror. GDPS is the exception:
     /// Environment Canada's Datamart serves only today, its two runs.
@@ -1007,6 +1034,26 @@ mod tests {
         assert_eq!(BModel::Hrrr.leads_for(None, now).max / 60, 18);
         // Pinning the 18Z run opens up the long leads.
         assert_eq!(BModel::Hrrr.leads_for(Some(at(18)), now).max / 60, 48);
+    }
+
+    #[test]
+    fn an_archive_run_is_snapped_to_the_cycle_and_listed_around() {
+        use chrono::TimeZone;
+        let now = at(18);
+        let t = Utc.with_ymd_and_hms(2024, 5, 6, 21, 30, 0).unwrap();
+        let gfs = BModel::Gfs.run_at_or_before(t, now).unwrap();
+        assert_eq!(gfs, Utc.with_ymd_and_hms(2024, 5, 6, 18, 0, 0).unwrap());
+        let hrrr = BModel::Hrrr.run_at_or_before(t, now).unwrap();
+        assert_eq!(hrrr, Utc.with_ymd_and_hms(2024, 5, 6, 21, 0, 0).unwrap());
+        // The list steps around the pick, on the model's cycles.
+        let runs = BModel::Gfs.runs_around(Some(gfs), now, 24);
+        assert!(runs.contains(&gfs), "{runs:?}");
+        assert!(runs.iter().any(|r| *r > gfs) && runs.iter().any(|r| *r < gfs));
+        // A recent pick leaves the newest list alone.
+        assert_eq!(
+            BModel::Gfs.runs_around(None, now, 24),
+            BModel::Gfs.run_choices(now, 24)
+        );
     }
 
     #[test]

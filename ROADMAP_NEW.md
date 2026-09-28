@@ -4476,7 +4476,11 @@ Plus:
 - [x] Up to 12 runs per model — see 24 below
 - [x] RenderStream — progressive radial rendering (B2)
 - [ ] Enhanced lightning — to verify
-- [ ] Alerts, discussions and storm tracks in radar history — to verify
+- [x] Alerts, discussions and storm tracks in radar history — archived warnings (IEM sbw, as
+  before); SPC mesoscale discussions in effect at the frame's time, with their text
+  (`wxdata::archive_mds`, IEM `spc_mcd` + `nwstext`, own request lane); storm tracks from the
+  Local tracks layer, built from the archive frames themselves (Level 3 SCIT is not archived).
+  Checked in the browser on 20 May 2013: MDs 727 and 728 drawn over Texas and Oklahoma
 - [ ] Historical composite frames by date and time — to verify
 - [x] Enhanced search — "Search all" across products, stations and places
 - [ ] Y'all mode (watches, Y'all-O-Meter, tracks, outlooks) — watches, tracks and outlooks
@@ -4533,7 +4537,10 @@ Pro:
   area dissolved from its counties (`wxdata::ugc::cwa_outlines`: on Oklahoma, 1,847 of 7,975
   county edges kept, in 8 polylines). Checked in the browser
 - [ ] Historical satellite imagery by date and time — to verify
-- [ ] Historical model runs by date and time — to verify
+- [x] Historical model runs by date and time — "Archive run" in the run menu takes a date and
+  hour, snaps it to the model's cycle (`BModel::run_at_or_before`) and lists the runs around it
+  (`runs_around`); the NOAA and ECMWF AWS archives hold them (HRRR, GFS and ECMWF 6 May 2024 all
+  present)
 
 GR2Analyst 3D (see Phase H): isosurfaces, nested shells, slicing planes, clip box, CAPPI plane,
 beam guides, loops (H8) and velocity (H1) are done; the opacity-curve editor and presets (H2) are done
