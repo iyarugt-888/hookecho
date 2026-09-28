@@ -416,6 +416,9 @@ pub struct Volume {
     /// tilts may not have arrived — so it must never be kept and shown again later in place of
     /// the complete archived volume of the same name.
     live: bool,
+    /// Live merges applied to this volume, so a build keyed by it goes stale when it grows and
+    /// only then (the pane's own revision also moves when a *newer* volume grows).
+    revision: u64,
 }
 
 impl Volume {
@@ -432,7 +435,13 @@ impl Volume {
             moments,
             binned: LruCache::new(NonZeroUsize::new(BINNED_CACHE).unwrap()),
             live: false,
+            revision: 0,
         }
+    }
+
+    /// How many live merges this volume has taken: 0 for a volume loaded whole.
+    pub fn revision(&self) -> u64 {
+        self.revision
     }
 
     /// Apply a live merged volume: swap in the new scan, recompute tilts, and evict only the
@@ -494,6 +503,7 @@ impl Volume {
         self.name = name;
         self.time = time;
         self.live = true;
+        self.revision += 1;
     }
 
     /// Whether `changed` — the elevation angles a live merge just updated, straight from

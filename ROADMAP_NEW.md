@@ -2964,6 +2964,39 @@ Reading aids in the 3D map, beyond GR2Analyst's volume view:
 Fixed along the way: `volume3d::build` and `cappi` decoded every tilt with the first tilt's
 value range; each now decodes with its own (velocity's Nyquist differs by tilt).
 
+## H8. 3D loop animation — done
+
+GR2Analyst's volume explorer steps through volumes one at a time; a loop there redraws each 3D
+frame as it arrives. HookEcho plays the 3D map as a loop:
+
+- [x] per-pane cache of built frames (`loop3d::Loop3dCache`), bounded by bytes rather than count
+  (a loop-grid Smooth volume is megabytes, an isosurface a few hundred kilobytes): 480 MB of
+  Smooth frames and 256 MB of surfaces per pane on desktop, 96/32 MB on Android, 40/32 MB on the
+  web. Keyed by volume name, moment and settings, and by live revision only while a volume is
+  still arriving, so a frame built ahead is found again when the playhead reaches it
+- [x] build ahead: while the loop plays, the frames playback reaches next (`loop3d::upcoming`,
+  following the timeline's own wrap rules for live, archive and replay loops) are built from
+  volumes already in the download cache, two at a time per pane on desktop, one on Android and
+  the web (`app::prebuild_loop3d`)
+- [x] one build queue (`loop3d::Loop3dJobs`) for the displayed frame and the frames ahead, so a
+  displayed frame's build is never thrown away when the playhead moves on before it lands, and
+  a volume with nothing to draw draws nothing rather than the last one
+- [x] playback waits for the next frame's 3D, as it already waits for its download, for at most
+  10 s (`loop3d::HOLD_FOR_BUILD`), so the volume shown always belongs to the time shown
+- [x] loop grid: playing frames are built on a smaller grid (6 M voxels desktop, 2 M
+  Android/web) so a loop's worth fits in the cache; pausing rebuilds the paused frame at full
+  resolution
+- [x] honesty: the 3D controls say "Loop 3D: k of N frames built" while it fills, and "3D is
+  still the previous scan's; building this one" whenever the volume on screen is not the
+  displayed scan's
+
+Checked in the browser (web build, KTLX live loop, Smooth, loop grid 2.22 km cells): each of
+the loop's frames built once, in about a second each on the web build, then replayed from the
+cache. Two playback faults turned up on the way and are fixed: a head poll that returned the
+newest scan already listed painted it over the loop frame on screen, and at a live loop's newest
+frame the pane never loaded that scan, since live chunks are not merged while a loop plays. With
+both fixed, the pane's volume matches the timeline frame by frame (traced over several passes).
+
 ## H7. 3D performance targets
 
 - desktop target: interactive 60 fps on a representative mid-range GPU for default volume resolution

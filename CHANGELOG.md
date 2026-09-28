@@ -8,6 +8,22 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: 3D loops that play frame for frame
+
+Playing a loop with the 3D map's Smooth volume or an isosurface on now builds each frame's 3D in
+the background, a couple of frames at a time, ahead of the playhead, and keeps what it built, so
+the second time round the loop is a lookup. Playback waits briefly for a frame's 3D (as it already
+waits for a frame's download), so the volume on screen always belongs to the time shown. Loop
+frames use a smaller grid; pause, and the paused frame is rebuilt at full resolution. The 3D
+controls say how many of the loop's frames are built, and when the 3D shown is still the previous
+scan's.
+
+### Fixed: a playing live loop jumped to the newest scan
+
+While a live loop played, each check for a new scan put the newest scan on screen over whatever
+frame the loop was on, and the loop's newest frame kept showing the scan before it. Each frame
+now shows its own scan, in 2D and 3D.
+
 ### Added: nested and velocity isosurfaces, height ruler and storm columns in 3D
 
 The 3D map's isosurface can draw **nested shells**: two more surfaces inside the first, one and

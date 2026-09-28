@@ -1598,7 +1598,8 @@ impl MapVolume3dResources {
 /// frame's camera/radar uniforms (built by [`map_uniform`]).
 pub struct MapVolume3dCallback {
     pub pane: u32,
-    pub upload: Option<Volume3dUpload>,
+    /// Shared with the pane's loop cache, so replaying a built frame costs no copy.
+    pub upload: Option<std::sync::Arc<Volume3dUpload>>,
     pub uniform: Uniforms,
 }
 
