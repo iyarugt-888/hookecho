@@ -4475,13 +4475,17 @@ Plus:
   IndexedDB on the web) after the first pass, decoded again each time
 - [x] Up to 12 runs per model — see 24 below
 - [x] RenderStream — progressive radial rendering (B2)
-- [ ] Enhanced lightning — to verify
+- [x] Enhanced lightning — GLM total lightning (flashes and flash-extent density, East or West)
+  and ground strikes (Blitzortung, through the user's own `strikes-relay` onto their MQTT
+  broker), with density and rate-of-rise alert rules. Ground strikes need that relay: there is
+  no free national ground-strike feed the app can read directly
 - [x] Alerts, discussions and storm tracks in radar history — archived warnings (IEM sbw, as
   before); SPC mesoscale discussions in effect at the frame's time, with their text
   (`wxdata::archive_mds`, IEM `spc_mcd` + `nwstext`, own request lane); storm tracks from the
   Local tracks layer, built from the archive frames themselves (Level 3 SCIT is not archived).
   Checked in the browser on 20 May 2013: MDs 727 and 728 drawn over Texas and Oklahoma
-- [ ] Historical composite frames by date and time — to verify
+- [x] Historical composite frames by date and time — MRMS layers follow an archive radar frame
+  from NOAA's MRMS archive on AWS (from October 2020), nearest valid time within tolerance
 - [x] Enhanced search — "Search all" across products, stations and places
 - [ ] Y'all mode (watches, Y'all-O-Meter, tracks, outlooks) — watches, tracks and outlooks
   exist separately; no meter and no mode
@@ -4508,7 +4512,9 @@ Pro:
   sweep's VAD, fitted per 1 km range ring; gaps in the data stay empty. Tested on a synthetic
   uniform wind; checked in the browser on KTLX
 - [x] Realtime radar cross section — X-section tool and window
-- [ ] Expert mode — to verify (per-product expert knobs exist)
+- [x] Expert mode — HookEcho is expert-first: every Level II moment and tilt, dealiasing, SRV,
+  thresholds, dual-pol detectors, the gate inspector and the product settings are always
+  available rather than behind a mode
 - [x] Reflectivity X and max reflectivity — Reflectivity X: "Clean" in the tilt row removes
   non-weather echo with the same tilt's CC (`level2::clean_reflectivity`: gone where CC < 0.85
   and reflectivity < 35 dBZ, then speckle with fewer than two echo neighbours), never a strong
@@ -4536,7 +4542,10 @@ Pro:
   reaches them (up to 8 states a view, kept on disk 30 days), and each office's county warning
   area dissolved from its counties (`wxdata::ugc::cwa_outlines`: on Oklahoma, 1,847 of 7,975
   county edges kept, in 8 polylines). Checked in the browser
-- [ ] Historical satellite imagery by date and time — to verify
+- [x] Historical satellite imagery by date and time — GOES layers follow an archive frame, read
+  from the satellite that held the position then (GOES-16 East before April 2025, GOES-17 West
+  before 2023; mode-3 file names before 2019 matched too). Live test: 11 Dec 2021 03:32 UTC from
+  GOES-16
 - [x] Historical model runs by date and time — "Archive run" in the run menu takes a date and
   hour, snaps it to the model's cycle (`BModel::run_at_or_before`) and lists the runs around it
   (`runs_around`); the NOAA and ECMWF AWS archives hold them (HRRR, GFS and ECMWF 6 May 2024 all

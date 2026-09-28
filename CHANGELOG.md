@@ -8,6 +8,11 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: satellite imagery for older archive cases
+
+Satellite layers on an archive case from before 2025 (East) or 2023 (West) showed nothing: they
+always read the newest satellites. They now read the satellite that was in place at the time.
+
 ### Added: discussions in radar history, any past model run
 
 Scrub back or open an archive case and the SPC mesoscale discussions in effect then are drawn,

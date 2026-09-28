@@ -19,9 +19,23 @@ pub enum Satellite {
 }
 
 impl Satellite {
-    fn bucket(self) -> &'static str {
+    /// The bucket of the satellite that held this position at time `t`: GOES-19 has been East
+    /// since 7 April 2025 (GOES-16 before), GOES-18 West since 4 January 2023 (GOES-17 before), so
+    /// an archive case from 2021 reads the satellite that actually took it.
+    fn bucket_at(self, t: chrono::DateTime<chrono::Utc>) -> &'static str {
+        let since = |y, m, d| {
+            chrono::NaiveDate::from_ymd_opt(y, m, d)
+                .and_then(|d| d.and_hms_opt(0, 0, 0))
+                .map(|d| d.and_utc())
+        };
         match self {
+            Satellite::East if since(2025, 4, 7).is_some_and(|s| t < s) => {
+                "https://noaa-goes16.s3.amazonaws.com"
+            }
             Satellite::East => "https://noaa-goes19.s3.amazonaws.com",
+            Satellite::West if since(2023, 1, 4).is_some_and(|s| t < s) => {
+                "https://noaa-goes17.s3.amazonaws.com"
+            }
             Satellite::West => "https://noaa-goes18.s3.amazonaws.com",
         }
     }
@@ -349,18 +363,20 @@ async fn keys_in_hour(
     t: chrono::DateTime<chrono::Utc>,
 ) -> Vec<String> {
     use chrono::{Datelike, Timelike};
+    // Through the scan mode letter only: scans before April 2019 are mode 3 (`-M3C13_`), later
+    // ones mode 6, so the band is picked out of the listing rather than the prefix.
     let prefix = format!(
-        "{}/{:04}/{:03}/{:02}/OR_{}-M6C{band:02}_",
+        "{}/{:04}/{:03}/{:02}/OR_{}-M",
         sector.product(),
         t.year(),
         t.ordinal(),
         t.hour(),
         sector.file_product(),
     );
-    // A mesoscale sector files 60 scans a band an hour (CONUS 12): room for all of them.
+    // Every band's scans for the hour: 16 x 60 for a mesoscale sector (CONUS 16 x 12).
     let url = format!(
-        "{}/?list-type=2&prefix={prefix}&max-keys=100",
-        satellite.bucket()
+        "{}/?list-type=2&prefix={prefix}&max-keys=1000",
+        satellite.bucket_at(t)
     );
     let Ok(resp) = client.get(crate::net::fetch_url(&url)).send().await else {
         return Vec::new();
@@ -368,7 +384,11 @@ async fn keys_in_hour(
     let Ok(xml) = resp.text().await else {
         return Vec::new();
     };
+    let band_tag = format!("C{band:02}_G");
     all_keys(&xml)
+        .into_iter()
+        .filter(|k| k.contains(&band_tag))
+        .collect()
 }
 
 /// The newest CONUS CMIP key for `band` on `satellite`, checking this UTC hour and falling back to
@@ -424,7 +444,8 @@ async fn fetch_key(
     out_nx: usize,
     out_ny: usize,
 ) -> anyhow::Result<MrmsField> {
-    let url = format!("{}/{key}", satellite.bucket());
+    let when = key_time(key).unwrap_or_else(chrono::Utc::now);
+    let url = format!("{}/{key}", satellite.bucket_at(when));
     // A scan's key carries its start time, so the file never changes: keep it (`objcache`).
     let bytes = crate::objcache::cached(
         &crate::objcache::GOES,
@@ -468,14 +489,14 @@ pub async fn fetch_cloud_top_height(
             continue;
         };
         let prefix = format!(
-            "ABI-L2-ACHAC/{:04}/{:03}/{:02}/OR_ABI-L2-ACHAC-M6_",
+            "ABI-L2-ACHAC/{:04}/{:03}/{:02}/OR_ABI-L2-ACHAC-M",
             t.year(),
             t.ordinal(),
             t.hour()
         );
         let url = format!(
             "{}/?list-type=2&prefix={prefix}&max-keys=100",
-            satellite.bucket()
+            satellite.bucket_at(t)
         );
         if let Ok(resp) = client.get(crate::net::fetch_url(&url)).send().await {
             if let Ok(xml) = resp.text().await {
@@ -489,7 +510,8 @@ pub async fn fetch_cloud_top_height(
         .min_by_key(|(d, _)| *d)
         .map(|(_, k)| k)
         .ok_or_else(|| anyhow::anyhow!("no ABI cloud-top-height granule near {target}"))?;
-    let url = format!("{}/{key}", satellite.bucket());
+    let when = key_time(&key).unwrap_or(target);
+    let url = format!("{}/{key}", satellite.bucket_at(when));
     let bytes = crate::objcache::cached(
         &crate::objcache::GOES,
         &url,
@@ -713,6 +735,42 @@ fn diff_fields(a: &MrmsField, b: &MrmsField) -> anyhow::Result<MrmsField> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    #[test]
+    fn the_satellite_is_the_one_in_place_at_the_time() {
+        use chrono::TimeZone;
+        let t = |y, m, d| chrono::Utc.with_ymd_and_hms(y, m, d, 12, 0, 0).unwrap();
+        assert!(Satellite::East.bucket_at(t(2021, 6, 1)).contains("goes16"));
+        assert!(Satellite::East.bucket_at(t(2026, 9, 1)).contains("goes19"));
+        assert!(Satellite::West.bucket_at(t(2022, 6, 1)).contains("goes17"));
+        assert!(Satellite::West.bucket_at(t(2024, 6, 1)).contains("goes18"));
+    }
+
+    /// An archive case from 2021 (GOES-16, and a pre-2019-style listing check), live.
+    /// `cargo test -p wxdata goes_archive_live -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn goes_archive_live() {
+        use chrono::TimeZone;
+        let at = chrono::Utc
+            .with_ymd_and_hms(2021, 12, 11, 3, 30, 0)
+            .unwrap();
+        let f = fetch_at(
+            &reqwest::Client::new(),
+            Satellite::East,
+            Sector::Conus,
+            13,
+            Some(at),
+            300,
+            200,
+        )
+        .await
+        .unwrap();
+        println!("{} ({}x{})", f.time, f.nx, f.ny);
+        assert!((f.time - at).num_minutes().abs() <= 10);
+    }
+
     use super::*;
 
     fn goes_east_projection() -> Projection {
