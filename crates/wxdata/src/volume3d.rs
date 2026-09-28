@@ -288,7 +288,8 @@ pub fn build(
                     continue;
                 }
                 let h = beam_height_km(slant, e);
-                let v = value_min + (idx as f32 - 2.0) / 253.0 * span;
+                // Each sweep decodes with its own range: velocity's Nyquist differs by tilt.
+                let v = s.value_min + (idx as f32 - 2.0) / 253.0 * (s.value_max - s.value_min);
                 samples.push((h, v));
             }
             if samples.is_empty() {
@@ -389,9 +390,7 @@ pub struct Cappi {
 /// Re-slice the stacked tilts at a single altitude `alt_km` into an `n × n` CAPPI out to
 /// `half_km`. Mirrors [`build`]'s inner column loop but samples one height. `None` if no sweeps.
 pub fn cappi(sweeps: &[BinnedSweep], alt_km: f32, n: usize, half_km: f32) -> Option<Cappi> {
-    let s0 = sweeps.first()?;
-    let (value_min, value_max) = (s0.value_min, s0.value_max);
-    let span = (value_max - value_min).max(f32::EPSILON);
+    sweeps.first()?;
     let n = n.max(2);
     let mut dbz = vec![None; n * n];
 
@@ -421,7 +420,8 @@ pub fn cappi(sweeps: &[BinnedSweep], alt_km: f32, n: usize, half_km: f32) -> Opt
                     continue;
                 }
                 let h = beam_height_km(slant, e);
-                let v = value_min + (idx as f32 - 2.0) / 253.0 * span;
+                // Each sweep decodes with its own range: velocity's Nyquist differs by tilt.
+                let v = s.value_min + (idx as f32 - 2.0) / 253.0 * (s.value_max - s.value_min);
                 samples.push((h, v));
             }
             if samples.is_empty() {

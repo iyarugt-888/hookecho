@@ -4569,9 +4569,9 @@ pub struct HookEchoApp {
     /// kept separately from the (heavy) upload so the frames between rebuilds don't need the
     /// tens-of-MB volume held twice just to recompute the camera uniform.
     smooth_vol_key: [Option<(String, u64, Moment, bool)>; crate::view::MAX_PANES],
-    /// Per pane: the isosurface built for (volume, live revision, moment, threshold bits, smooth)
-    /// and the build in flight (ROADMAP_NEW H3).
-    iso_mesh: [Option<(IsoKey, wxdata::isosurface::IsoMesh)>; crate::view::MAX_PANES],
+    /// Per pane: the isosurface shells built for an [`IsoKey`] and the build in flight
+    /// (ROADMAP_NEW H3).
+    iso_mesh: [Option<(IsoKey, Vec<IsoShell>)>; crate::view::MAX_PANES],
     /// GOES cloud top height for the 3D map's satellite surface (ROADMAP_NEW H6), keyed by
     /// (five-minute slot of the view's time, West satellite), and the fetch in flight.
     cloud_top: Option<((i64, bool), wxdata::mrms::MrmsField)>,
@@ -4583,10 +4583,7 @@ pub struct HookEchoApp {
         (i64, bool),
         std::sync::mpsc::Receiver<wxdata::mrms::MrmsField>,
     )>,
-    iso_rx: [Option<(
-        IsoKey,
-        std::sync::mpsc::Receiver<wxdata::isosurface::IsoMesh>,
-    )>; crate::view::MAX_PANES],
+    iso_rx: [Option<(IsoKey, std::sync::mpsc::Receiver<Vec<IsoShell>>)>; crate::view::MAX_PANES],
     /// `(horizontal cell km, share of echo outside the box)` of each pane's resident Smooth volume,
     /// for the readout under the representation buttons.
     smooth_vol_info: [Option<(f32, f32)>; crate::view::MAX_PANES],
@@ -13845,23 +13842,36 @@ impl HookEchoApp {
         }
         let v = &self.views[idx];
         let state = &v.map_3d;
-        if !state.enabled || !state.iso_enabled || v.moment == Moment::Velocity {
+        if !state.enabled || !state.iso_enabled {
             return;
         }
         let moment = v.moment;
         let mi = Moment::ALL.iter().position(|m| *m == moment).unwrap_or(0);
         let value = state.iso_values[mi];
+        let step = state.iso_nested.then_some(state.iso_steps[mi]);
         let smooth = state.iso_smooth;
         let rev = v.live_scan_revision;
         let max_dim = self.vol3d_max_dim;
         let Some(vol) = self.views[idx].volume.as_mut() else {
             return;
         };
-        let key: IsoKey = (vol.name.clone(), rev, moment, value.to_bits(), smooth);
+        let key: IsoKey = (
+            vol.name.clone(),
+            rev,
+            moment,
+            value.to_bits(),
+            smooth,
+            step.map(f32::to_bits),
+        );
         if self.iso_mesh[idx].as_ref().is_some_and(|(k, _)| *k == key) {
             return;
         }
-        let sweeps = vol.moment_tilts(moment);
+        // Velocity dealiased, so a folded couplet does not grow false inbound/outbound shells.
+        let sweeps = if moment == Moment::Velocity {
+            vol.velocity_tilts_dealiased()
+        } else {
+            vol.moment_tilts(moment)
+        };
         if sweeps.is_empty() {
             return;
         }
@@ -13879,14 +13889,22 @@ impl HookEchoApp {
                     max_dim,
                 );
                 let v3 = wxdata::volume3d::build(&sweeps, n, nz, half, VOL3D_TOP_KM)?;
-                // Low CC is the interesting side (debris); every other moment is high-inside.
-                let high_inside = moment != Moment::CorrelationCoefficient;
-                let mut mesh =
-                    wxdata::isosurface::isosurface(&v3, value, high_inside, ISO_MAX_TRIS);
-                if smooth {
-                    wxdata::isosurface::smooth(&mut mesh, 2);
-                }
-                Some(mesh)
+                let shells = iso_shells(moment, value, step);
+                // One triangle budget shared by every shell: the painter draws them all each frame.
+                let budget = ISO_MAX_TRIS / shells.len().max(1);
+                let built = shells
+                    .into_iter()
+                    .map(|(value, depth, high_inside)| {
+                        let mut mesh =
+                            wxdata::isosurface::isosurface(&v3, value, high_inside, budget);
+                        if smooth {
+                            wxdata::isosurface::smooth(&mut mesh, 2);
+                        }
+                        (value, depth, mesh)
+                    })
+                    .filter(|(_, _, m)| !m.tris.is_empty())
+                    .collect::<Vec<_>>();
+                Some(built)
             })
             .await
             .ok()
@@ -16321,23 +16339,48 @@ impl HookEchoApp {
         );
         ui.add(egui::Slider::new(&mut view.map_3d.opacity, 0.1..=1.0).text("Opacity"));
         // Isosurface (Phase H3): the pane's moment at one threshold, per-moment.
-        ui.horizontal(|ui| {
-            ui.add_enabled_ui(moment != Moment::Velocity, |ui| {
-                ui.checkbox(&mut view.map_3d.iso_enabled, "Isosurface")
-                    .on_hover_text(
-                        "A surface where this product crosses a threshold: a 50 dBZ core, a 3 dB \
-                         ZDR column, a low-CC debris pocket (low CC is inside). Not for velocity.",
-                    )
-            });
-        });
-        if view.map_3d.iso_enabled && moment != Moment::Velocity {
+        ui.checkbox(&mut view.map_3d.iso_enabled, "Isosurface")
+            .on_hover_text(
+                "A surface where this product crosses a threshold: a 50 dBZ core, a 3 dB ZDR \
+                 column, a low-CC debris pocket (low CC is inside). Velocity draws a pair: \
+                 outbound at +threshold and inbound at -threshold, each in its palette colour.",
+            );
+        if view.map_3d.iso_enabled {
             let mi = Moment::ALL.iter().position(|m| *m == moment).unwrap_or(0);
             let (lo, hi) = moment.value_range();
+            let lo = if moment == Moment::Velocity { 0.0 } else { lo };
             ui.add(
                 egui::Slider::new(&mut view.map_3d.iso_values[mi], lo..=hi)
-                    .text("Threshold")
+                    .text(if moment == Moment::Velocity {
+                        "± threshold"
+                    } else {
+                        "Threshold"
+                    })
+                    // Velocity is stored in m/s whatever the display units are.
+                    .suffix(if moment == Moment::Velocity {
+                        " m/s"
+                    } else {
+                        ""
+                    })
                     .max_decimals(2),
             );
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut view.map_3d.iso_nested, "Nested shells")
+                    .on_hover_text(
+                        "Two more surfaces inside the first, one and two steps further in, the \
+                         outer ones fainter: a 40/50/60 dBZ envelope around its core",
+                    );
+                if view.map_3d.iso_nested {
+                    let span = (hi - lo).abs();
+                    ui.add(
+                        egui::DragValue::new(&mut view.map_3d.iso_steps[mi])
+                            .range(span / 100.0..=span / 3.0)
+                            .speed(span / 500.0)
+                            .max_decimals(2)
+                            .prefix("step "),
+                    );
+                }
+            });
             ui.add(
                 egui::Slider::new(&mut view.map_3d.iso_opacity, 0.1..=1.0).text("Surface opacity"),
             );
@@ -16373,6 +16416,13 @@ impl HookEchoApp {
             "The HRRR's latest analysis of the 0, -10 and -20 °C heights (the hail-growth zone) \
                  as model surfaces: one colour per level with a dashed grid, the forecast look",
         );
+        ui.checkbox(&mut view.map_3d.cell_columns, "Storm cells as columns")
+            .on_hover_text(
+                "Each SCIT storm cell from base to top, a dot at the height of its strongest echo, \
+                 TVS red and meso yellow, with its past track on the ground (needs storm cells on)",
+            );
+        ui.checkbox(&mut view.map_3d.height_ruler, "Height ruler")
+            .on_hover_text("A km MSL ruler standing at the view's centre, labelled every 4 km");
         ui.checkbox(&mut view.map_3d.beam_guides, "Beam guides")
             .on_hover_text(
                 "Draw the radar's beam geometry: each tilt's cone as rings at 50-200 km (low tilts cyan, high magenta), the lowest and highest beams toward the view with their 0.95° beamwidth edges, and the antenna mast",
@@ -20552,29 +20602,35 @@ impl HookEchoApp {
         if self.views[idx].map_3d.enabled && self.views[idx].map_3d.iso_enabled {
             let v = &self.views[idx];
             let moment = v.moment;
-            if let (Some(site), Some((_, mesh))) = (
+            if let (Some(site), Some((_, shells))) = (
                 v.site.as_deref().and_then(wxdata::sites::site_by_id),
                 self.iso_mesh[idx].as_ref(),
             ) {
-                let mi = Moment::ALL.iter().position(|m| *m == moment).unwrap_or(0);
-                let value = v.map_3d.iso_values[mi];
                 let table =
                     crate::colormap::effective_table(&self.palettes, moment, self.settings.theme);
-                let c = table.sample(value).unwrap_or([200, 200, 200, 255]);
-                let shape = crate::render3d::iso_mesh_screen(
-                    &cam,
-                    vp,
-                    prect.min,
-                    site.longitude as f64,
-                    site.latitude as f64,
-                    site.elevation_meters as f64 + wxdata::towers::tower_m(site.id),
-                    v.map_3d.vertical_exaggeration as f64,
-                    mesh,
-                    [c[0], c[1], c[2]],
-                    v.map_3d.iso_opacity,
-                    v.map_3d.iso_lit,
-                );
-                painter.add(egui::Shape::mesh(shape));
+                let deepest = shells.iter().map(|s| s.1).max().unwrap_or(0);
+                // Innermost first, so each fainter outer shell is painted over what it wraps.
+                let mut order: Vec<&IsoShell> = shells.iter().collect();
+                order.sort_by_key(|s| std::cmp::Reverse(s.1));
+                for (value, depth, mesh) in order {
+                    let c = table.sample(*value).unwrap_or([200, 200, 200, 255]);
+                    // Outer shells fainter: the core reads through its envelope.
+                    let fade = [1.0, 0.6, 0.35][(deepest - depth).min(2)];
+                    let shape = crate::render3d::iso_mesh_screen(
+                        &cam,
+                        vp,
+                        prect.min,
+                        site.longitude as f64,
+                        site.latitude as f64,
+                        site.elevation_meters as f64 + wxdata::towers::tower_m(site.id),
+                        v.map_3d.vertical_exaggeration as f64,
+                        mesh,
+                        [c[0], c[1], c[2]],
+                        v.map_3d.iso_opacity * fade,
+                        v.map_3d.iso_lit,
+                    );
+                    painter.add(egui::Shape::mesh(shape));
+                }
             }
         }
 
@@ -20765,6 +20821,120 @@ impl HookEchoApp {
                         );
                     }
                 }
+            }
+        }
+
+        // A height ruler at the view's centre: km MSL ticks, labelled, so every surface, shell and
+        // sweep in the scene can be read against a height.
+        if self.views[idx].map_3d.enabled && self.views[idx].map_3d.height_ruler {
+            let v = &self.views[idx];
+            let (clon, clat) = crate::render::mercator::world_to_lonlat(cam.center.0, cam.center.1);
+            let vex = v.map_3d.vertical_exaggeration as f64;
+            // Finer ticks as exaggeration spreads them out.
+            let step = if vex >= 4.0 { 1.0 } else { 2.0 };
+            let ticks = crate::render3d::height_ruler(&cam, vp, clon, clat, vex, 18.0, step);
+            let at = |p: (f32, f32)| egui::pos2(prect.left() + p.0, prect.top() + p.1);
+            if ticks.len() >= 2 {
+                let halo = egui::Stroke::new(3.0, egui::Color32::from_black_alpha(120));
+                let stroke = egui::Stroke::new(1.2, egui::Color32::from_white_alpha(200));
+                let pts: Vec<egui::Pos2> = ticks.iter().map(|t| at(t.1)).collect();
+                painter.add(egui::Shape::line(pts.clone(), halo));
+                painter.add(egui::Shape::line(pts, stroke));
+                for (km, p) in &ticks {
+                    let p = at(*p);
+                    let major = (*km as i64) % 4 == 0;
+                    let w = if major { 7.0 } else { 4.0 };
+                    painter.line_segment([p - egui::vec2(w, 0.0), p + egui::vec2(w, 0.0)], stroke);
+                    if major && *km > 0.0 {
+                        painter.text(
+                            p + egui::vec2(9.0, 0.0),
+                            egui::Align2::LEFT_CENTER,
+                            format!("{km:.0} km"),
+                            egui::FontId::proportional(11.0),
+                            egui::Color32::from_white_alpha(220),
+                        );
+                    }
+                }
+            }
+        }
+
+        // SCIT storm cells as 3D columns: the cell's base to its top, a mark at the height of its
+        // strongest echo, the id and top, TVS red and meso yellow, and the past track on the ground.
+        if self.views[idx].map_3d.enabled && self.views[idx].map_3d.cell_columns {
+            let v = &self.views[idx];
+            let vex = v.map_3d.vertical_exaggeration as f64;
+            let at = |p: (f32, f32)| egui::pos2(prect.left() + p.0, prect.top() + p.1);
+            let scr = |lon: f64, lat: f64, km: f64| {
+                crate::render3d::lonlat_alt_screen(&cam, vp, lon, lat, km, vex).map(at)
+            };
+            const KM_PER_KFT: f64 = 0.3048;
+            for c in self.active_storm_cells() {
+                let Some(top) = c.top_kft.map(|t| t as f64 * KM_PER_KFT) else {
+                    continue;
+                };
+                let base = c
+                    .base_kft
+                    .filter(|_| !c.base_below)
+                    .map_or(0.0, |b| b as f64 * KM_PER_KFT);
+                let color = if c.tvs.is_some() {
+                    egui::Color32::from_rgb(255, 70, 70)
+                } else if c.meso.is_some() {
+                    egui::Color32::from_rgb(255, 220, 60)
+                } else {
+                    egui::Color32::from_rgb(235, 235, 235)
+                };
+                let track: Vec<egui::Pos2> = c
+                    .past_track
+                    .iter()
+                    .filter_map(|&(lon, lat)| scr(lon, lat, 0.0))
+                    .collect();
+                if track.len() >= 2 {
+                    painter.add(egui::Shape::line(
+                        track,
+                        egui::Stroke::new(1.5, color.gamma_multiply(0.6)),
+                    ));
+                }
+                let (Some(g), Some(b), Some(t)) = (
+                    scr(c.lon, c.lat, 0.0),
+                    scr(c.lon, c.lat, base),
+                    scr(c.lon, c.lat, top),
+                ) else {
+                    continue;
+                };
+                // Ground to base dashed (below the cell), base to top solid.
+                painter.extend(egui::Shape::dashed_line(
+                    &[g, b],
+                    egui::Stroke::new(1.0, color.gamma_multiply(0.5)),
+                    3.0,
+                    3.0,
+                ));
+                painter.line_segment(
+                    [b, t],
+                    egui::Stroke::new(4.0, egui::Color32::from_black_alpha(110)),
+                );
+                painter.line_segment([b, t], egui::Stroke::new(2.0, color));
+                if let Some(m) = c
+                    .max_dbz_hgt_kft
+                    .and_then(|h| scr(c.lon, c.lat, h as f64 * KM_PER_KFT))
+                {
+                    painter.circle(m, 4.0, color, egui::Stroke::new(1.0, egui::Color32::BLACK));
+                }
+                let mut label = format!("{} {:.0} kft", c.title, c.top_kft.unwrap_or(0.0));
+                if let Some(dbz) = c.max_dbz {
+                    label.push_str(&format!(" · {dbz:.0} dBZ"));
+                }
+                if c.tvs.is_some() {
+                    label.push_str(" · TVS");
+                } else if c.meso.is_some() {
+                    label.push_str(" · meso");
+                }
+                painter.text(
+                    t + egui::vec2(0.0, -4.0),
+                    egui::Align2::CENTER_BOTTOM,
+                    label,
+                    egui::FontId::proportional(11.0),
+                    color,
+                );
             }
         }
 
@@ -23486,8 +23656,36 @@ const MODEL_ISOTHERMS: [(&str, &str, [u8; 3]); 3] = [
     ("253 K level", "HRRR -20 °C", [230, 90, 220]),
 ];
 
-/// What an isosurface was built from: volume name, live revision, moment, threshold bits, smooth.
-type IsoKey = (String, u64, Moment, u32, bool);
+/// What an isosurface was built from: volume name, live revision, moment, threshold bits, smooth,
+/// and the nested-shell spacing bits (`None` = a single shell).
+type IsoKey = (String, u64, Moment, u32, bool, Option<u32>);
+
+/// One isosurface shell: its value, how deep it is nested (0 = outermost), and its mesh.
+type IsoShell = (f32, usize, wxdata::isosurface::IsoMesh);
+
+/// The shells to draw for `moment` at `value`: `(value, nesting depth, high inside)`, outermost
+/// first. Velocity is always a pair — outbound at `+value` and inbound at `-value` — since a
+/// single velocity threshold would show only one side of a couplet. With `step`, two more shells
+/// sit inside each one, `step` and `2·step` further in (lower for CC, whose low side is inside).
+fn iso_shells(moment: Moment, value: f32, step: Option<f32>) -> Vec<(f32, usize, bool)> {
+    let depths = if step.is_some() { 3 } else { 1 };
+    let step = step.unwrap_or(0.0).abs();
+    let mut out = Vec::new();
+    for d in 0..depths {
+        let off = step * d as f32;
+        match moment {
+            Moment::Velocity => {
+                let v = value.abs() + off;
+                out.push((v, d, true));
+                out.push((-v, d, false));
+            }
+            // Low CC is the interesting side (debris); every other moment is high-inside.
+            Moment::CorrelationCoefficient => out.push((value - off, d, false)),
+            _ => out.push((value + off, d, true)),
+        }
+    }
+    out
+}
 
 /// Isosurface grid: coarser than the smooth volume (a surface is read at a glance, and every
 /// triangle is drawn by the painter each frame), capped in voxels and triangles.
@@ -28477,5 +28675,29 @@ mod two_finger_slide_tests {
             split_two_finger_slide(egui::Vec2::ZERO, true),
             (egui::Vec2::ZERO, 0.0)
         );
+    }
+
+    #[test]
+    fn iso_shells_pair_velocity_and_nest_inward() {
+        use super::iso_shells;
+        use wxdata::level2::Moment;
+        assert_eq!(
+            iso_shells(Moment::Reflectivity, 50.0, None),
+            vec![(50.0, 0, true)]
+        );
+        assert_eq!(
+            iso_shells(Moment::Reflectivity, 40.0, Some(10.0)),
+            vec![(40.0, 0, true), (50.0, 1, true), (60.0, 2, true)]
+        );
+        // Velocity: outbound and inbound, whichever sign the threshold was given.
+        assert_eq!(
+            iso_shells(Moment::Velocity, -20.0, None),
+            vec![(20.0, 0, true), (-20.0, 0, false)]
+        );
+        // CC nests toward lower values, low inside.
+        let cc = iso_shells(Moment::CorrelationCoefficient, 0.8, Some(0.1));
+        assert_eq!(cc.len(), 3);
+        assert!(cc.iter().all(|s| !s.2));
+        assert!((cc[2].0 - 0.6).abs() < 1e-6);
     }
 }

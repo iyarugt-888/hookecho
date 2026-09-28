@@ -236,6 +236,12 @@ pub struct Map3dState {
     /// Phase H5: draw the radar's beam geometry over the 3D map — each tilt's cone as range
     /// rings, the lowest and highest beams' centrelines and beamwidth edges, and the mast.
     pub beam_guides: bool,
+    /// A height ruler (km MSL) standing at the view's centre, so heights in the 3D map can be
+    /// read off — GR2Analyst's altitude axis.
+    pub height_ruler: bool,
+    /// SCIT storm cells as columns in the 3D map: base to top at the cell, the height of its
+    /// strongest echo marked, meso/TVS called out, and the past track on the ground.
+    pub cell_columns: bool,
     /// Phase H3: draw an isosurface of the pane's moment at `iso_values[moment]`.
     pub iso_enabled: bool,
     /// The isosurface threshold per moment, in `Moment::ALL` order and each moment's own units:
@@ -246,6 +252,11 @@ pub struct Map3dState {
     pub iso_lit: bool,
     /// Explicit display smoothing of the surface's vertices; the radar values are never smoothed.
     pub iso_smooth: bool,
+    /// Nested shells: two more surfaces inside the first, `iso_steps[moment]` and twice that
+    /// further in (higher, or lower for CC), outer ones fainter — the stacked 40/50/60 dBZ look.
+    pub iso_nested: bool,
+    /// The spacing between nested shells per moment, in `Moment::ALL` order.
+    pub iso_steps: [f32; 7],
     /// Phase H6: draw a displayed MRMS echo-top layer as a height surface in the 3D map.
     pub mrms_surface: bool,
     /// Phase H6: draw GOES cloud top height (ABI ACHA) as a surface in the 3D map.
@@ -308,11 +319,15 @@ impl Default for Map3dState {
             kdp_floor_deg_km: 0.5,
             ceilings: [None; 6],
             beam_guides: false,
+            height_ruler: true,
+            cell_columns: true,
             iso_enabled: false,
             iso_values: [50.0, 20.0, 8.0, 3.0, 90.0, 2.0, 0.8],
             iso_opacity: 0.55,
             iso_lit: true,
             iso_smooth: false,
+            iso_nested: false,
+            iso_steps: [10.0, 10.0, 2.0, 1.0, 30.0, 1.0, 0.05],
             mrms_surface: false,
             cloud_top_surface: false,
             model_isotherms: false,

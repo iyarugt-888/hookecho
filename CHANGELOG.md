@@ -8,6 +8,21 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: nested and velocity isosurfaces, height ruler and storm columns in 3D
+
+The 3D map's isosurface can draw **nested shells**: two more surfaces inside the first, one and
+two steps further in, the outer ones fainter, so a 40 dBZ envelope shows its 50 and 60 dBZ core.
+Velocity now has isosurfaces too: a pair, outbound at +threshold and inbound at −threshold, from
+the dealiased tilts.
+A **height ruler** (km above sea level) stands at the centre of the 3D view, and **storm cells**
+are drawn as columns from base to top, with a dot at the height of the strongest echo and TVS or
+meso called out in colour.
+
+### Fixed: 3D volumes mixed up velocity tilts
+
+The 3D volume and CAPPI read every tilt with the first tilt's value range; velocity, whose range
+changes from tilt to tilt, came out wrong above the lowest tilts.
+
 ### Added: GOES one-minute rapid scan
 
 The satellite layers can read a GOES mesoscale sector instead of the whole country: a box about

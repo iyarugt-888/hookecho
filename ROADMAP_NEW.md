@@ -2829,8 +2829,12 @@ Examples:
 
 - [x] 40/50/60 dBZ surfaces — reflectivity, default 50 dBZ
 - [x] low-CC debris region — CC with low values inside, default 0.8
-- [x] ZDR column threshold — ZDR, default 3 dB (KDP 2 °/km, SW 8 m/s, ΦDP too; not velocity,
-  whose threshold is half a couplet)
+- [x] ZDR column threshold — ZDR, default 3 dB (KDP 2 °/km, SW 8 m/s, ΦDP too)
+- [x] velocity — a pair of shells, outbound at +threshold and inbound at −threshold (default
+  20 m/s), each in its palette colour, built from the dealiased tilts (`app::iso_shells`)
+- [x] nested shells — "Nested shells": two more surfaces one and two steps inside the first
+  (step per moment, default 10 dBZ), outer ones fainter, sharing one triangle budget — the
+  GR2Analyst-style 40/50/60 dBZ envelope around a core
 
 Controls:
 
@@ -2948,6 +2952,17 @@ with no grid; the model surfaces are one colour per level with a dashed grid; th
 has none of these. Tested (a synthetic grid covers only its tops and rises with them) and checked in
 the browser: blue 18 dBZ echo-top shading and grid lines over the storms near Dallas, Oklahoma City
 and Denver, gone with the toggle off.
+
+Reading aids in the 3D map, beyond GR2Analyst's volume view:
+
+- [x] height ruler — a km MSL ruler at the view's centre, labelled every 4 km, 1 km ticks from 4×
+  exaggeration (`render3d::height_ruler`), on by default
+- [x] storm cells as columns — each SCIT cell from base to top at its position, a dot at the
+  height of its strongest echo, id/top/max dBZ labelled, TVS red and meso yellow, the past track
+  on the ground
+
+Fixed along the way: `volume3d::build` and `cappi` decoded every tilt with the first tilt's
+value range; each now decodes with its own (velocity's Nyquist differs by tilt).
 
 ## H7. 3D performance targets
 

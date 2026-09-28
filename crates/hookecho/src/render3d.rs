@@ -449,6 +449,52 @@ pub fn project_local(
     ))
 }
 
+/// The screen position of `(lon, lat)` at `km` MSL in the 3D map, or `None` behind the camera.
+pub fn lonlat_alt_screen(
+    camera: &crate::render::mercator::Camera,
+    viewport_px: (f32, f32),
+    lon: f64,
+    lat: f64,
+    km: f64,
+    vertical_exaggeration: f64,
+) -> Option<(f32, f32)> {
+    let world = crate::render::mercator::lonlat_to_world(lon, lat);
+    let wpp = camera.world_per_pixel();
+    let mut dx = world.0 - camera.center.0;
+    dx -= (dx + 0.5).floor();
+    let dy = world.1 - camera.center.1;
+    let mpp = crate::render::mercator::Camera::world_units_per_metre(lat) / wpp;
+    let p = Vec3::new(
+        (dx / wpp) as f32,
+        (-dy / wpp) as f32,
+        (km * 1_000.0 * mpp * vertical_exaggeration) as f32,
+    );
+    project_local(camera, viewport_px, p)
+}
+
+/// A height ruler standing on the ground at `(lon, lat)`: the screen position of each tick from
+/// sea level up to `top_km` every `step_km`, as `(km MSL, point)`, lowest first. Ticks behind
+/// the camera are left out. Heights are MSL, the same frame as the 3D map's height surfaces.
+pub fn height_ruler(
+    camera: &crate::render::mercator::Camera,
+    viewport_px: (f32, f32),
+    lon: f64,
+    lat: f64,
+    vertical_exaggeration: f64,
+    top_km: f64,
+    step_km: f64,
+) -> Vec<(f64, (f32, f32))> {
+    let step = step_km.max(0.1);
+    let ticks = (top_km / step).floor() as usize;
+    (0..=ticks)
+        .filter_map(|i| {
+            let km = i as f64 * step;
+            lonlat_alt_screen(camera, viewport_px, lon, lat, km, vertical_exaggeration)
+                .map(|s| (km, s))
+        })
+        .collect()
+}
+
 /// Phase H5's beam guides, as screen polylines: each tilt's cone drawn as rings at a few ranges,
 /// the lowest and highest tilts' centrelines with their half-beamwidth edges along `bearing_deg`,
 /// and the antenna mast. A polyline breaks where a point falls behind the camera.
@@ -2144,6 +2190,20 @@ mod pick_tests {
             m.vertices.iter().map(|v| v.pos.y).sum::<f32>() / m.vertices.len() as f32
         };
         assert!(mean_y(&taller) < mean_y(&mesh));
+    }
+
+    #[test]
+    fn height_ruler_rises_up_the_screen_and_grows_with_exaggeration() {
+        let mut cam = Camera::at_lonlat(-97.5, 35.3, 8.0);
+        cam.pitch = 50.0;
+        let vp = (1200.0, 800.0);
+        let r1 = super::height_ruler(&cam, vp, -97.5, 35.3, 1.0, 16.0, 2.0);
+        assert_eq!(r1.len(), 9);
+        assert_eq!(r1[0].0, 0.0);
+        assert!(r1.windows(2).all(|w| w[1].1 .1 < w[0].1 .1), "{r1:?}");
+        let r3 = super::height_ruler(&cam, vp, -97.5, 35.3, 3.0, 16.0, 2.0);
+        let len = |r: &[(f64, (f32, f32))]| r[0].1 .1 - r.last().unwrap().1 .1;
+        assert!(len(&r3) > len(&r1) * 2.0);
     }
 
     #[test]
