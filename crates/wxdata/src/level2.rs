@@ -316,6 +316,32 @@ pub struct ObservedLayer {
     pub scan_end: Option<chrono::DateTime<chrono::Utc>>,
 }
 
+/// A tilt's summary from its binned sweep — the same figures [`observed_volume`] reports per
+/// layer, without extracting the native radials: bins as radials, gates, how many carried a
+/// value, the strongest value, and the span of the bins' acquisition times when known.
+pub fn layer_summary(s: &BinnedSweep) -> ObservedLayer {
+    let span = (s.value_max - s.value_min).max(f32::EPSILON);
+    let (mut coverage, mut max_idx) = (0usize, 0u8);
+    for &b in &s.data {
+        if b >= 2 {
+            coverage += 1;
+            max_idx = max_idx.max(b);
+        }
+    }
+    let times = s.bin_time_ms.iter().copied().filter(|&t| t > 0);
+    let (lo, hi) = times.fold((i64::MAX, i64::MIN), |(lo, hi), t| (lo.min(t), hi.max(t)));
+    let at = |ms: i64| chrono::DateTime::from_timestamp_millis(ms);
+    ObservedLayer {
+        elevation_deg: s.elevation_deg,
+        radial_count: s.az_bins,
+        gate_count: s.gate_count,
+        coverage_gates: coverage,
+        max_value: (max_idx >= 2).then(|| s.value_min + (max_idx as f32 - 2.0) / 253.0 * span),
+        scan_start: (lo != i64::MAX).then(|| at(lo)).flatten(),
+        scan_end: (hi != i64::MIN).then(|| at(hi)).flatten(),
+    }
+}
+
 /// Extract `moment` from every sweep that carries it, keeping each radial's real azimuth, spacing,
 /// elevation, first-gate range and gate spacing. No gate is dropped, decimated, interpolated or
 /// copied to a synthetic elevation. The one exception is a sweep wider than `max_gates` (the

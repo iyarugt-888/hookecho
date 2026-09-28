@@ -4548,7 +4548,9 @@ pub struct HookEchoApp {
     /// Which volume the built grid belongs to, so reopening the window doesn't rebuild it.
     /// `(volume name, grid size, tilt count)` — the tilt count so a volume that is still
     /// streaming its higher sweeps rebuilds the 3D grid as each one lands.
-    vol3d_key: Option<(String, usize, usize)>,
+    /// What the 3D Reflectivity window's volume was built from: volume, grid size, tilt count,
+    /// and the tilts pulled out (elevation bits; empty = the whole interpolated volume).
+    vol3d_key: Option<(String, usize, usize, Vec<u32>)>,
     /// In-flight build (the resample runs off the UI thread).
     #[allow(clippy::type_complexity)]
     vol3d_rx: Option<std::sync::mpsc::Receiver<(crate::render3d::Volume3dUpload, (f32, f32))>>,
@@ -7694,15 +7696,27 @@ impl HookEchoApp {
         // Rebuild once per (volume, tilt count), not once per open: resampling 192x192x48 is a
         // second of CPU, but a live volume gains sweeps for a minute after the first chunk and the
         // 3D grid has to grow with it or the storm stays decapitated.
-        let key = (vol.name.clone(), VOL3D_N, vol.elevations.len());
+        let chosen = self.vol3d.selected_elevs.clone();
+        let key = (
+            vol.name.clone(),
+            VOL3D_N,
+            vol.elevations.len(),
+            chosen.iter().map(|e| e.to_bits()).collect::<Vec<_>>(),
+        );
         if self.vol3d_key.as_ref() == Some(&key) || self.vol3d_rx.is_some() {
             return;
         }
-        let sweeps = vol.reflectivity_tilts();
+        let mut sweeps = vol.reflectivity_tilts();
         if sweeps.is_empty() {
             return;
         }
         self.vol3d_key = Some(key);
+        // The layer-by-layer list, and with tilts pulled out, only those tilts' beams.
+        self.vol3d.layers = sweeps.iter().map(wxdata::level2::layer_summary).collect();
+        let full_km = wxdata::volume3d::max_sample_range_km(&sweeps).max(50.0);
+        if !chosen.is_empty() {
+            sweeps.retain(|s| chosen.iter().any(|&e| (e - s.elevation_deg).abs() < 0.05));
+        }
         let table = crate::colormap::effective_table(
             &self.palettes,
             Moment::Reflectivity,
@@ -7717,9 +7731,20 @@ impl HookEchoApp {
                 // radius — an old hardcoded 150 km half-width was clipping every storm beyond
                 // it out of the 3D volume entirely, which no clipping-plane slice can recover
                 // since a slice can only cut into range the volume already contains.
-                let half_km = wxdata::volume3d::max_sample_range_km(&sweeps).max(50.0);
-                let v3 =
-                    wxdata::volume3d::build(&sweeps, VOL3D_N, VOL3D_NZ, half_km, VOL3D_TOP_KM)?;
+                // The whole volume's extent either way, so pulling tilts out never moves the box.
+                let half_km = full_km;
+                let v3 = if chosen.is_empty() {
+                    wxdata::volume3d::build(&sweeps, VOL3D_N, VOL3D_NZ, half_km, VOL3D_TOP_KM)?
+                } else {
+                    wxdata::volume3d::build_shells(
+                        &sweeps,
+                        VOL3D_N,
+                        VOL3D_NZ,
+                        half_km,
+                        VOL3D_TOP_KM,
+                        crate::render3d::BEAMWIDTH_DEG,
+                    )?
+                };
                 let lut =
                     crate::colormap::bake_lut(&table, (v3.value_min, v3.value_max), None).to_vec();
                 Some((
@@ -16207,7 +16232,7 @@ impl HookEchoApp {
             );
         ui.checkbox(&mut view.map_3d.beam_guides, "Beam guides")
             .on_hover_text(
-                "Draw the radar's beam geometry: each tilt's cone as rings at 50-200 km (low tilts                  cyan, high magenta), the lowest and highest beams toward the view with their                  0.95° beamwidth edges, and the antenna mast",
+                "Draw the radar's beam geometry: each tilt's cone as rings at 50-200 km (low tilts cyan, high magenta), the lowest and highest beams toward the view with their 0.95° beamwidth edges, and the antenna mast",
             );
         if view.map_3d.representation == Map3dRepresentation::ObservedSweeps {
             ui.add(
@@ -16261,103 +16286,14 @@ impl HookEchoApp {
             }
             if !view.map_3d.observed_layers.is_empty() {
                 let layers = view.map_3d.observed_layers.clone();
-                egui::CollapsingHeader::new(format!("Layers ({})", layers.len()))
-                    .id_salt(("map_3d_layers", idx))
-                    .default_open(false)
-                    .show(ui, |ui| {
-                        ui.weak(
-                            "Click a tilt to pull it out and see its stats — \
-                                 click more to compare several at once.",
-                        );
-                        // A fixed cap (rather than a scroll area sized to fit
-                        // every tilt) so a 19-tilt VCP with MESO-SAILS cuts still
-                        // fits the floating panel instead of pushing Denoise and
-                        // everything below it off-screen with no way back to it.
-                        egui::ScrollArea::vertical()
-                            .id_salt(("map_3d_layers_scroll", idx))
-                            .max_height(180.0)
-                            .show(ui, |ui| {
-                                // Highest first: reads top-to-bottom like the
-                                // real stack.
-                                for layer in layers.iter().rev() {
-                                    let selected = view
-                                        .map_3d
-                                        .selected_layer_elevs
-                                        .iter()
-                                        .any(|&e| (e - layer.elevation_deg).abs() < 0.05);
-                                    let label = format!(
-                                        "{:.1}°  ·  {} radials",
-                                        layer.elevation_deg, layer.radial_count
-                                    );
-                                    let at_cap = !selected
-                                        && view.map_3d.selected_layer_elevs.len()
-                                            >= MAX_HIGHLIGHTED_LAYERS;
-                                    let mut resp = ui.selectable_label(selected, label);
-                                    if at_cap {
-                                        resp = resp.on_hover_text(format!(
-                                            "Up to {MAX_HIGHLIGHTED_LAYERS} \
-                                                 tilts can be pulled out at once — \
-                                                 deselect one first"
-                                        ));
-                                    }
-                                    if resp.clicked() {
-                                        let elevs = &mut view.map_3d.selected_layer_elevs;
-                                        if let Some(i) = elevs
-                                            .iter()
-                                            .position(|&e| (e - layer.elevation_deg).abs() < 0.05)
-                                        {
-                                            elevs.remove(i);
-                                        } else if !at_cap {
-                                            elevs.push(layer.elevation_deg);
-                                        }
-                                    }
-                                }
-                            });
-                        if view.map_3d.selected_layer_elevs.is_empty() {
-                            return;
-                        }
-                        ui.separator();
-                        let mut selected_elevs = view.map_3d.selected_layer_elevs.clone();
-                        selected_elevs.sort_by(|a, b| b.total_cmp(a));
-                        for sel in selected_elevs {
-                            let Some(layer) =
-                                layers.iter().find(|l| (l.elevation_deg - sel).abs() < 0.05)
-                            else {
-                                continue;
-                            };
-                            let total = (layer.radial_count * layer.gate_count).max(1) as f32;
-                            let coverage_pct = 100.0 * layer.coverage_gates as f32 / total;
-                            ui.label(format!(
-                                "{:.1}°  ·  {} radials × {} gates · \
-                                     {coverage_pct:.0}% coverage",
-                                layer.elevation_deg, layer.radial_count, layer.gate_count
-                            ));
-                            if let Some(v) = layer.max_value {
-                                ui.label(format!(
-                                    "   strongest reading: {v:.1} {}",
-                                    moment.units()
-                                ));
-                            }
-                            match (layer.scan_start, layer.scan_end) {
-                                (Some(a), Some(b)) if a != b => {
-                                    ui.label(format!(
-                                        "   scanned {} – {} UTC",
-                                        a.format("%H:%M:%S"),
-                                        b.format("%H:%M:%S")
-                                    ));
-                                }
-                                (Some(a), _) => {
-                                    ui.label(format!("   scanned {} UTC", a.format("%H:%M:%S")));
-                                }
-                                _ => {
-                                    ui.weak("   no per-radial timestamps");
-                                }
-                            }
-                        }
-                        if ui.small_button("Clear selection").clicked() {
-                            view.map_3d.selected_layer_elevs.clear();
-                        }
-                    });
+                ui::volume3d_window::layers_section(
+                    ui,
+                    ("map_3d_layers", idx),
+                    &layers,
+                    &mut view.map_3d.selected_layer_elevs,
+                    moment.units(),
+                    "Click a tilt to pull it out and see its stats — click more to compare several at once.",
+                );
             }
         } else {
             ui.weak("Vertical and Opacity above shape the resampled volume.");
@@ -26268,6 +26204,10 @@ impl eframe::App for HookEchoApp {
         }
         // The workstation shows the volume in its 3D volume tool window (`chrome/dock/volume.rs`).
         if self.show_3d {
+            // Rebuilds only when the volume, its tilt count or the tilts pulled out change.
+            if self.volume3d_supported {
+                self.build_volume3d();
+            }
             self.drain_volume3d(ctx);
         }
         if self.show_3d && !self.workstation_chrome() {

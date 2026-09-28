@@ -4,8 +4,9 @@
 
 use crate::render3d::{orbit_uniform, threshold_index, View3d, Volume3dCallback, Volume3dUpload};
 
-/// Everything the window keeps between frames: the orbit camera, the dBZ floor, and the slab.
-#[derive(Clone, Copy, Debug)]
+/// Everything the window keeps between frames: the orbit camera, the dBZ floor, the slab, and the
+/// layer-by-layer tilt selection.
+#[derive(Clone, Debug)]
 pub struct Volume3dState {
     pub az: f32,
     pub el: f32,
@@ -23,6 +24,11 @@ pub struct Volume3dState {
     /// Raymarch samples per pixel. The cost of the window is almost entirely this number, so it
     /// is the one knob worth exposing on a phone or an integrated GPU.
     pub steps: u32,
+    /// The volume's tilts, for the layer-by-layer list (set by the app with each build).
+    pub layers: Vec<wxdata::level2::ObservedLayer>,
+    /// Tilts pulled out, by elevation: when any are, the window shows just those tilts' beams
+    /// (`volume3d::build_shells`) instead of the interpolated volume.
+    pub selected_elevs: Vec<f32>,
 }
 
 /// The three quality rungs, coarsest first. 256 is what the window shipped with.
@@ -42,8 +48,103 @@ impl Default for Volume3dState {
             // ponytail: a phone is the one place the full march reliably misses frame budget, so
             // pick by platform rather than benchmarking the GPU.
             steps: if cfg!(target_os = "android") { 96 } else { 256 },
+            layers: Vec::new(),
+            selected_elevs: Vec::new(),
         }
     }
+}
+
+/// The layer-by-layer tilt list, shared by the 3D map's Observed mode and the 3D Reflectivity
+/// window: every tilt (highest first, as the stack reads), click to pull one out, click more to
+/// compare, with each selected tilt's coverage, strongest value and scan time below. At most
+/// [`crate::view::MAX_HIGHLIGHTED_LAYERS`] at once.
+pub(crate) fn layers_section(
+    ui: &mut egui::Ui,
+    id_salt: impl std::hash::Hash + Copy + std::fmt::Debug,
+    layers: &[wxdata::level2::ObservedLayer],
+    selected: &mut Vec<f32>,
+    units: &str,
+    hint: &str,
+) {
+    use crate::view::MAX_HIGHLIGHTED_LAYERS as CAP;
+    let same = |a: f32, b: f32| (a - b).abs() < 0.05;
+    egui::CollapsingHeader::new(format!("Layers ({})", layers.len()))
+        .id_salt(("layers_section", id_salt))
+        .default_open(false)
+        .show(ui, |ui| {
+            ui.weak(hint);
+            // A fixed cap rather than a scroll area sized to every tilt, so a 19-tilt VCP with
+            // MESO-SAILS cuts still fits a floating panel without pushing the controls below it
+            // off-screen.
+            egui::ScrollArea::vertical()
+                .id_salt(("layers_section_scroll", id_salt))
+                .max_height(180.0)
+                .show(ui, |ui| {
+                    for layer in layers.iter().rev() {
+                        let on = selected.iter().any(|&e| same(e, layer.elevation_deg));
+                        let at_cap = !on && selected.len() >= CAP;
+                        let mut resp = ui.selectable_label(
+                            on,
+                            format!(
+                                "{:.1}°  ·  {} radials",
+                                layer.elevation_deg, layer.radial_count
+                            ),
+                        );
+                        if at_cap {
+                            resp = resp.on_hover_text(format!(
+                                "Up to {CAP} tilts can be pulled out at once — deselect one first"
+                            ));
+                        }
+                        if resp.clicked() {
+                            if let Some(i) =
+                                selected.iter().position(|&e| same(e, layer.elevation_deg))
+                            {
+                                selected.remove(i);
+                            } else if !at_cap {
+                                selected.push(layer.elevation_deg);
+                            }
+                        }
+                    }
+                });
+            if selected.is_empty() {
+                return;
+            }
+            ui.separator();
+            let mut chosen = selected.clone();
+            chosen.sort_by(|a, b| b.total_cmp(a));
+            for sel in chosen {
+                let Some(layer) = layers.iter().find(|l| same(l.elevation_deg, sel)) else {
+                    continue;
+                };
+                let total = (layer.radial_count * layer.gate_count).max(1) as f32;
+                let coverage_pct = 100.0 * layer.coverage_gates as f32 / total;
+                ui.label(format!(
+                    "{:.1}°  ·  {} radials × {} gates · {coverage_pct:.0}% coverage",
+                    layer.elevation_deg, layer.radial_count, layer.gate_count
+                ));
+                if let Some(v) = layer.max_value {
+                    ui.label(format!("   strongest reading: {v:.1} {units}"));
+                }
+                match (layer.scan_start, layer.scan_end) {
+                    (Some(a), Some(b)) if a != b => {
+                        ui.label(format!(
+                            "   scanned {} – {} UTC",
+                            a.format("%H:%M:%S"),
+                            b.format("%H:%M:%S")
+                        ));
+                    }
+                    (Some(a), _) => {
+                        ui.label(format!("   scanned {} UTC", a.format("%H:%M:%S")));
+                    }
+                    _ => {
+                        ui.weak("   no per-radial timestamps");
+                    }
+                }
+            }
+            if ui.small_button("Clear selection").clicked() {
+                selected.clear();
+            }
+        });
 }
 
 /// One `min..max` pair of sliders for an axis of the slab.
@@ -229,6 +330,29 @@ pub fn body(
                     .on_hover_text(format!("{steps} samples per pixel"));
             }
         });
+        // Layer by layer, as on the 3D map: pick tilts and the view shows just their beams.
+        if !st.layers.is_empty() {
+            let layers = st.layers.clone();
+            layers_section(
+                ui,
+                "volume3d_window_layers",
+                &layers,
+                &mut st.selected_elevs,
+                "dBZ",
+                "Click a tilt to show just its beam, as scanned — click more to compare several. None selected shows the whole interpolated volume.",
+            );
+            if !st.selected_elevs.is_empty() {
+                ui.weak(format!(
+                    "Showing {} tilt{}' beams (0.95° thick), not the interpolated volume.",
+                    st.selected_elevs.len(),
+                    if st.selected_elevs.len() == 1 {
+                        ""
+                    } else {
+                        "s"
+                    }
+                ));
+            }
+        }
         egui::CollapsingHeader::new("Slice")
             .default_open(false)
             .show(ui, |ui| {

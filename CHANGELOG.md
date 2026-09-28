@@ -67,6 +67,8 @@ satellite lightning within 5 miles of it, and (when those MRMS layers are on) la
 hourly rain and rare short-duration rainfall on the road.
 The 3D map can draw an MRMS echo-top layer as a translucent surface at its height, gridded so it
 reads as analysis rather than radar.
+The 3D Reflectivity window has the 3D map's layer-by-layer tilt list: pick tilts to see just their
+beams as scanned, with each tilt's coverage, strongest reading and scan time.
 
 ### Added: GOES RGB composites
 

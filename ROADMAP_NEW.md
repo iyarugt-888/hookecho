@@ -2886,6 +2886,19 @@ with the observed sweeps.
   radar site at bearing 0/offset 0, rotated in place when Bearing moved to 310°, and shifted
   sideways when Offset moved, all matching the 3D view's own cut.
 
+### Layer by layer in the 3D Reflectivity window
+
+The orbitable 3D Reflectivity window now has the same "Layers (N)" list as the 3D map's Observed
+mode — one shared component (`volume3d_window::layers_section`): every tilt, highest first; click
+to pull one out, click more to compare (up to the same cap), with each selected tilt's coverage,
+strongest reading and scan span. With tilts pulled out, the window shows just those tilts as they
+were scanned (`volume3d::build_shells`): each beam at its true height at every range, 0.95° thick
+(never thinner than a grid cell), nothing interpolated between tilts, so a VCP's gaps stay gaps;
+none selected shows the whole interpolated volume as before. The summaries come from the binned
+sweeps (`level2::layer_summary`), and the window's build key includes the selection. Checked in
+the browser on KTLX: 6.5° and 2.5° pulled out, their stats listed, and the view redrawn as the
+two cones.
+
 ## H5. Beam visualization in 3D — done, apart from terrain
 
 A "Beam guides" checkbox in the 3D map controls (`Map3dState::beam_guides`,

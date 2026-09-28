@@ -175,6 +175,75 @@ pub fn plan_grid(
 
 /// Build an `n × n × nz` reflectivity volume out to `half_km` horizontally and `top_km` up.
 /// Returns `None` if there are no sweeps.
+/// The chosen tilts as they were actually scanned: each one's beam, at its true height at every
+/// range and `beam_deg` thick (the half-power beamwidth, 0.95° for a WSR-88D), on the same grid as
+/// [`build`]. Nothing is interpolated between tilts, so the gaps a VCP leaves between its cones
+/// stay gaps — the layer-by-layer view the 3D map's Observed mode gives, in the orbit window.
+/// Where two cones overlap, the stronger value shows. A shell is never thinner than one grid
+/// cell, so a narrow beam near the radar does not vanish between voxel centres.
+pub fn build_shells(
+    sweeps: &[BinnedSweep],
+    n: usize,
+    nz: usize,
+    half_km: f32,
+    top_km: f32,
+    beam_deg: f32,
+) -> Option<Volume3d> {
+    let s0 = sweeps.first()?;
+    let (value_min, value_max) = (s0.value_min, s0.value_max);
+    let span = (value_max - value_min).max(f32::EPSILON);
+    let (n, nz) = (n.max(2), nz.max(2));
+    let dz = top_km as f64 / (nz - 1) as f64;
+    let half_beam = (beam_deg as f64 / 2.0).to_radians();
+    let mut data = vec![0u8; n * n * nz];
+    for j in 0..n {
+        let y = -half_km as f64 + 2.0 * half_km as f64 * j as f64 / (n - 1) as f64;
+        for i in 0..n {
+            let x = -half_km as f64 + 2.0 * half_km as f64 * i as f64 / (n - 1) as f64;
+            let ground = (x * x + y * y).sqrt();
+            if ground < 0.5 {
+                continue;
+            }
+            let az = x.atan2(y).to_degrees().rem_euclid(360.0);
+            for s in sweeps {
+                let e = s.elevation_deg as f64;
+                let slant = crate::xsection::slant_from_ground_km(ground, e);
+                let gate = ((slant - s.first_gate_km as f64)
+                    / s.gate_interval_km.max(f32::EPSILON) as f64)
+                    .round();
+                if gate < 0.0 || gate as usize >= s.gate_count {
+                    continue;
+                }
+                let bin = ((az / 360.0 * s.az_bins as f64) as usize) % s.az_bins;
+                let idx = s.data[bin * s.gate_count + gate as usize];
+                if idx < 2 {
+                    continue;
+                }
+                // Re-normalise to this grid's range (every sweep of one moment shares it).
+                let v = s.value_min + (idx as f32 - 2.0) / 253.0 * (s.value_max - s.value_min);
+                let out = 2 + (((v - value_min) / span).clamp(0.0, 1.0) * 253.0) as u8;
+                let h = beam_height_km(slant, e);
+                let thick = (slant * half_beam.tan()).max(dz * 0.6);
+                let k0 = ((h - thick) / dz).ceil().max(0.0) as usize;
+                let k1 = (((h + thick) / dz).floor() as usize).min(nz - 1);
+                for k in k0..=k1 {
+                    let cell = &mut data[i + n * j + n * n * k];
+                    *cell = (*cell).max(out);
+                }
+            }
+        }
+    }
+    Some(Volume3d {
+        data,
+        n,
+        nz,
+        half_km,
+        top_km,
+        value_min,
+        value_max,
+    })
+}
+
 pub fn build(
     sweeps: &[BinnedSweep],
     n: usize,
@@ -662,5 +731,38 @@ mod clip_tests {
             !mask_by(&mut other, &refl, 20.0),
             "different grids are refused"
         );
+    }
+
+    #[test]
+    fn a_single_tilt_is_a_cone_shell_at_its_beam_height() {
+        use super::build_shells;
+        use crate::level2::{BinnedSweep, Moment};
+        // One 2.0° tilt, every gate 40-ish dBZ, 1 km gates out to 150 km.
+        let sweep = BinnedSweep {
+            moment: Moment::Reflectivity,
+            az_bins: 360,
+            gate_count: 150,
+            data: vec![150; 360 * 150],
+            first_gate_km: 0.0,
+            gate_interval_km: 1.0,
+            radar_lat: 35.0,
+            radar_lon: -97.0,
+            elevation_deg: 2.0,
+            value_min: -32.0,
+            value_max: 95.0,
+            ..Default::default()
+        };
+        let (n, nz) = (61, 41);
+        let v = build_shells(&[sweep], n, nz, 120.0, 10.0, 0.95).unwrap();
+        // At 100 km east the beam centre is ~4.1 km up (2° plus earth curvature); the shell there
+        // covers that height and not the ground or 9 km.
+        let i = ((100.0 + 120.0) / 240.0 * (n - 1) as f64).round() as usize;
+        let j = (n - 1) / 2;
+        let at = |z_km: f64| {
+            v.data[i + n * j + n * n * (z_km / 10.0 * (nz - 1) as f64).round() as usize]
+        };
+        assert!(at(4.25) >= 2, "shell at the beam height");
+        assert_eq!(at(0.0), 0, "nothing on the ground");
+        assert_eq!(at(9.0), 0, "nothing above the beam");
     }
 }
