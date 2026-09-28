@@ -427,7 +427,7 @@ fn bulletin(
                     ws::kv(ui, t, "Homes", &impact::thousands(i.housing_units), None);
                     if !i.places.is_empty() {
                         ui.add(
-                            egui::Label::new(ws::text(&impact::towns(i), 11.0, t.text_dim)).wrap(),
+                            egui::Label::new(ws::text(impact::towns(i), 11.0, t.text_dim)).wrap(),
                         )
                         .on_hover_text(
                             "Each town's whole population, whether all of it or part lies inside",
