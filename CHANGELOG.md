@@ -53,6 +53,8 @@ The 3D map can show smooth ZDR and KDP volumes (ZDR columns, heavy-rain and hail
 to real echo so noise in weak returns does not fill the view.
 A "Ceiling" beside the 3D Denoise floor keeps just one band of values, such as the 45-55 dBZ
 shell around a hail core.
+"Beam guides" in the 3D map draws the radar's beam geometry: each tilt's cone as range rings, the
+lowest and highest beams with their beamwidth, and the antenna mast.
 
 ### Added: GOES RGB composites
 

@@ -15824,6 +15824,10 @@ impl HookEchoApp {
                 .suffix("×"),
         );
         ui.add(egui::Slider::new(&mut view.map_3d.opacity, 0.1..=1.0).text("Opacity"));
+        ui.checkbox(&mut view.map_3d.beam_guides, "Beam guides")
+            .on_hover_text(
+                "Draw the radar's beam geometry: each tilt's cone as rings at 50-200 km (low tilts                  cyan, high magenta), the lowest and highest beams toward the view with their                  0.95° beamwidth edges, and the antenna mast",
+            );
         if view.map_3d.representation == Map3dRepresentation::ObservedSweeps {
             ui.add(
                 egui::Slider::new(&mut view.map_3d.beam_rise, 0.0..=1.0)
@@ -20077,6 +20081,73 @@ impl HookEchoApp {
                 egui::FontId::proportional(12.0),
                 col,
             );
+        }
+
+        // Beam guides over the 3D map (ROADMAP_NEW H5): the geometry every observed gate sits on.
+        if self.views[idx].map_3d.enabled && self.views[idx].map_3d.beam_guides {
+            let v = &self.views[idx];
+            if let (Some(site), Some(vol)) = (
+                v.site.as_deref().and_then(wxdata::sites::site_by_id),
+                v.volume.as_ref(),
+            ) {
+                let (rlon, rlat) = (site.longitude as f64, site.latitude as f64);
+                let ground_m = site.elevation_meters as f64;
+                let antenna_m = ground_m + wxdata::towers::tower_m(site.id);
+                // Beams point toward whatever the view is looking at.
+                let (clon, clat) =
+                    crate::render::mercator::world_to_lonlat(cam.center.0, cam.center.1);
+                let bearing = crate::geo::bearing_deg([rlon, rlat], [clon, clat]);
+                let g = crate::render3d::beam_guides(
+                    &cam,
+                    vp,
+                    rlon,
+                    rlat,
+                    ground_m,
+                    antenna_m,
+                    v.map_3d.vertical_exaggeration as f64,
+                    v.map_3d.beam_rise as f64,
+                    &vol.elevations,
+                    bearing,
+                    230.0,
+                );
+                let at = |p: &(f32, f32)| egui::pos2(prect.left() + p.0, prect.top() + p.1);
+                let n = vol.elevations.len().max(2) as f32 - 1.0;
+                for (tilt, ring) in &g.rings {
+                    // Low tilts cyan, high tilts magenta.
+                    let t = (*tilt as f32 / n).clamp(0.0, 1.0);
+                    let c = egui::Color32::from_rgba_unmultiplied(
+                        (80.0 + 170.0 * t) as u8,
+                        (220.0 - 150.0 * t) as u8,
+                        240,
+                        110,
+                    );
+                    let pts: Vec<egui::Pos2> = ring.iter().map(at).collect();
+                    painter.add(egui::Shape::line(pts, egui::Stroke::new(1.0, c)));
+                }
+                for (edge, line) in &g.beams {
+                    let pts: Vec<egui::Pos2> = line.iter().map(at).collect();
+                    if *edge {
+                        painter.extend(egui::Shape::dashed_line(
+                            &pts,
+                            egui::Stroke::new(1.0, egui::Color32::from_white_alpha(150)),
+                            4.0,
+                            4.0,
+                        ));
+                    } else {
+                        painter.add(egui::Shape::line(
+                            pts,
+                            egui::Stroke::new(1.8, egui::Color32::WHITE),
+                        ));
+                    }
+                }
+                if let Some([a, b]) = g.mast {
+                    painter.line_segment(
+                        [at(&a), at(&b)],
+                        egui::Stroke::new(2.0, egui::Color32::WHITE),
+                    );
+                    painter.circle_filled(at(&b), 3.5, egui::Color32::WHITE);
+                }
+            }
         }
 
         // Freehand annotation strokes. Painted with the rest of the tool graphics so they sit

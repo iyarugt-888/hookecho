@@ -396,6 +396,184 @@ fn tilt_altitude_m(
     (angle_height_m + curvature_height_m * vertical_exaggeration) * beam_rise
 }
 
+/// A NEXRAD WSR-88D's half-power beamwidth (degrees). The beam guides draw its edges at half this
+/// either side of each tilt's centreline.
+pub const BEAMWIDTH_DEG: f32 = 0.95;
+
+/// Where a beam at `bearing_deg`, `ground_km` out, on a tilt of `elevation_deg`, sits in the map
+/// camera's local 3D frame — the CPU mirror of `radar_observed.wgsl`'s `beam_world`, so a guide
+/// drawn from it lines up with the observed sweeps drawn by the shader.
+#[allow(clippy::too_many_arguments)]
+pub fn beam_local(
+    camera: &crate::render::mercator::Camera,
+    radar_lon: f64,
+    radar_lat: f64,
+    antenna_altitude_m: f64,
+    vertical_exaggeration: f64,
+    beam_rise: f64,
+    bearing_deg: f64,
+    ground_km: f64,
+    elevation_deg: f32,
+) -> Vec3 {
+    let [lon, lat] = crate::geo::destination_point([radar_lon, radar_lat], bearing_deg, ground_km);
+    let world = crate::render::mercator::lonlat_to_world(lon, lat);
+    let wpp = camera.world_per_pixel();
+    let mut dx = world.0 - camera.center.0;
+    dx -= (dx + 0.5).floor(); // wrap to (-0.5, 0.5], matching `beam_world`'s own wrap
+    let dy = world.1 - camera.center.1;
+    let metres_to_px = crate::render::mercator::Camera::world_units_per_metre(radar_lat) / wpp;
+    let altitude_m = antenna_altitude_m
+        + tilt_altitude_m(ground_km, elevation_deg, vertical_exaggeration, beam_rise);
+    Vec3::new(
+        (dx / wpp) as f32,
+        (-dy / wpp) as f32,
+        (altitude_m * metres_to_px) as f32,
+    )
+}
+
+/// A point in the camera's local 3D frame on screen, or `None` behind the camera.
+pub fn project_local(
+    camera: &crate::render::mercator::Camera,
+    viewport_px: (f32, f32),
+    point: Vec3,
+) -> Option<(f32, f32)> {
+    let clip =
+        camera.view_projection(viewport_px) * glam::Vec4::new(point.x, point.y, point.z, 1.0);
+    if clip.w <= f32::EPSILON {
+        return None;
+    }
+    let ndc = clip.truncate() / clip.w;
+    Some((
+        (ndc.x + 1.0) * viewport_px.0 * 0.5,
+        (1.0 - ndc.y) * viewport_px.1 * 0.5,
+    ))
+}
+
+/// Phase H5's beam guides, as screen polylines: each tilt's cone drawn as rings at a few ranges,
+/// the lowest and highest tilts' centrelines with their half-beamwidth edges along `bearing_deg`,
+/// and the antenna mast. A polyline breaks where a point falls behind the camera.
+pub struct BeamGuides {
+    /// `(tilt index, ring)` — lowest tilt first.
+    pub rings: Vec<(usize, Vec<(f32, f32)>)>,
+    /// `(is_edge, line)`: centrelines, then the edges either side of them.
+    pub beams: Vec<(bool, Vec<(f32, f32)>)>,
+    /// Ground point under the radar, and the antenna above it.
+    pub mast: Option<[(f32, f32); 2]>,
+}
+
+/// The ranges (km) the cone rings are drawn at.
+pub const BEAM_RING_KM: [f64; 4] = [50.0, 100.0, 150.0, 200.0];
+
+/// Build [`BeamGuides`] for a radar and its distinct tilt angles (repeats such as SAILS
+/// re-scans of 0.5° drawn once).
+#[allow(clippy::too_many_arguments)]
+pub fn beam_guides(
+    camera: &crate::render::mercator::Camera,
+    viewport_px: (f32, f32),
+    radar_lon: f64,
+    radar_lat: f64,
+    ground_m: f64,
+    antenna_altitude_m: f64,
+    vertical_exaggeration: f64,
+    beam_rise: f64,
+    elevations_deg: &[f32],
+    bearing_deg: f64,
+    max_km: f64,
+) -> BeamGuides {
+    let at = |bearing: f64, km: f64, elev: f32| {
+        project_local(
+            camera,
+            viewport_px,
+            beam_local(
+                camera,
+                radar_lon,
+                radar_lat,
+                antenna_altitude_m,
+                vertical_exaggeration,
+                beam_rise,
+                bearing,
+                km,
+                elev,
+            ),
+        )
+    };
+    let mut tilts: Vec<(usize, f32)> = Vec::new();
+    for (i, &e) in elevations_deg.iter().enumerate() {
+        if !tilts.iter().any(|&(_, t)| (t - e).abs() < 0.05) {
+            tilts.push((i, e));
+        }
+    }
+    tilts.sort_by(|a, b| a.1.total_cmp(&b.1));
+    // Split a run of projected points wherever one is behind the camera.
+    let lines = |pts: Vec<Option<(f32, f32)>>| -> Vec<Vec<(f32, f32)>> {
+        let mut out = vec![Vec::new()];
+        for p in pts {
+            match p {
+                Some(p) => out.last_mut().unwrap().push(p),
+                None if !out.last().unwrap().is_empty() => out.push(Vec::new()),
+                None => {}
+            }
+        }
+        out.retain(|l| l.len() >= 2);
+        out
+    };
+    let mut rings = Vec::new();
+    for &(i, e) in &tilts {
+        for km in BEAM_RING_KM.iter().copied().filter(|&km| km <= max_km) {
+            let pts = (0..=72).map(|k| at(k as f64 * 5.0, km, e)).collect();
+            rings.extend(lines(pts).into_iter().map(|l| (i, l)));
+        }
+    }
+    let mut beams = Vec::new();
+    let ends: Vec<f32> = match (tilts.first(), tilts.last()) {
+        (Some(lo), Some(hi)) if hi.0 != lo.0 => vec![lo.1, hi.1],
+        (Some(lo), _) => vec![lo.1],
+        _ => Vec::new(),
+    };
+    for e in ends {
+        for (edge, off) in [
+            (false, 0.0),
+            (true, -BEAMWIDTH_DEG / 2.0),
+            (true, BEAMWIDTH_DEG / 2.0),
+        ] {
+            let pts = (0..=60)
+                .map(|k| at(bearing_deg, max_km * k as f64 / 60.0, e + off))
+                .collect();
+            beams.extend(lines(pts).into_iter().map(|l| (edge, l)));
+        }
+    }
+    let ground = beam_local(
+        camera,
+        radar_lon,
+        radar_lat,
+        ground_m,
+        vertical_exaggeration,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+    );
+    let antenna = beam_local(
+        camera,
+        radar_lon,
+        radar_lat,
+        antenna_altitude_m,
+        vertical_exaggeration,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+    );
+    let mast = match (
+        project_local(camera, viewport_px, ground),
+        project_local(camera, viewport_px, antenna),
+    ) {
+        (Some(a), Some(b)) => Some([a, b]),
+        _ => None,
+    };
+    BeamGuides { rings, beams, mast }
+}
+
 /// How many `t` samples to scan for a sign change before bisecting.
 const PICK_SAMPLES: usize = 400;
 /// Bisection refinements once a crossing is bracketed — 24 halvings of even the widest bracket
@@ -1654,6 +1832,40 @@ mod pick_tests {
         cam.pitch = 45.0;
         cam.bearing = 0.0;
         cam
+    }
+
+    #[test]
+    fn beam_guides_draw_each_distinct_tilt_once_and_the_beam_between_its_edges() {
+        let mut cam = Camera::at_lonlat(-97.5, 35.3, 7.0);
+        cam.pitch = 45.0;
+        let vp = (1200.0, 800.0);
+        // A SAILS re-scan repeats 0.5°: three angles, two distinct.
+        let g = super::beam_guides(
+            &cam,
+            vp,
+            -97.28,
+            35.33,
+            370.0,
+            400.0,
+            1.0,
+            1.0,
+            &[0.5, 1.5, 0.48],
+            0.0,
+            230.0,
+        );
+        let tilts: std::collections::BTreeSet<usize> = g.rings.iter().map(|(t, _)| *t).collect();
+        assert_eq!(tilts.len(), 2, "{tilts:?}");
+        assert!(g.mast.is_some());
+        // Lowest and highest: a centreline and two edges each.
+        assert_eq!(g.beams.iter().filter(|(edge, _)| !edge).count(), 2);
+        assert_eq!(g.beams.iter().filter(|(edge, _)| *edge).count(), 4);
+        // At the far end, a beam that rises sits higher on screen (smaller y) than the one below.
+        let tip = |i: usize| *g.beams[i].1.last().unwrap();
+        let (lower_edge, upper_edge) = (tip(1), tip(2));
+        assert!(
+            upper_edge.1 < lower_edge.1,
+            "{upper_edge:?} above {lower_edge:?}"
+        );
     }
 
     /// `beam_rise` exists to stop distant gates flaring upward, so what it has to do is take more

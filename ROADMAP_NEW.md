@@ -2871,15 +2871,24 @@ Never smooth the source values silently; smoothing must be explicit display proc
   radar site at bearing 0/offset 0, rotated in place when Bearing moved to 310°, and shifted
   sideways when Offset moved, all matching the 3D view's own cut.
 
-## H5. Beam visualization in 3D
+## H5. Beam visualization in 3D — done, apart from terrain
 
-Show:
+A "Beam guides" checkbox in the 3D map controls (`Map3dState::beam_guides`,
+`render3d::beam_guides`) draws, over the pitched map, the geometry every observed gate sits on,
+from the same beam model the observed-sweep shader uses (`render3d::beam_local`, promoted from a
+test helper), so the guides line up with the sweeps at any vertical exaggeration or beam rise:
 
-- individual elevation cones
-- beam centerline
-- approximate beamwidth
-- radar location/elevation
-- terrain surface option
+- [x] individual elevation cones — each distinct tilt as rings at 50/100/150/200 km, low tilts
+  cyan through high tilts magenta (a SAILS re-scan of 0.5° drawn once)
+- [x] beam centerline — the lowest and highest tilts, toward the view's centre
+  (`geo::bearing_deg`, new)
+- [x] approximate beamwidth — dashed edges at ±0.475° (`render3d::BEAMWIDTH_DEG` = 0.95°)
+- [x] radar location/elevation — the mast from the site's ground elevation to the antenna
+  (ground plus the tower height)
+- [ ] terrain surface option — no terrain elevation data is loaded in 3D
+
+Checked in the browser on KTLX: rings, beams and edges drawn over the observed sweeps, separating
+as the vertical exaggeration goes up.
 
 ## H6. 3D overlay fusion
 

@@ -233,6 +233,9 @@ pub struct Map3dState {
     /// own units, indexed by `Map3dRepresentation as usize`; `None` = no ceiling. Kept per
     /// representation for the same reason the floors are: a dBZ number means nothing in dB.
     pub ceilings: [Option<f32>; 6],
+    /// Phase H5: draw the radar's beam geometry over the 3D map — each tilt's cone as range
+    /// rings, the lowest and highest beams' centrelines and beamwidth edges, and the mast.
+    pub beam_guides: bool,
     /// CC-anomaly opacity, used by `SmoothDebris` and by `ObservedSweeps` while the pane's moment
     /// is correlation coefficient. See [`CcAnomaly`]. Separate from `denoise_enabled` because it
     /// is not a floor at all — the two are alternative ways of deciding what a voxel is worth
@@ -288,6 +291,7 @@ impl Default for Map3dState {
             zdr_floor_db: 1.0,
             kdp_floor_deg_km: 0.5,
             ceilings: [None; 6],
+            beam_guides: false,
             cc_anomaly: CcAnomaly::default(),
             clip: [0.0, 1.0, 0.0, 1.0, 0.0, 1.0],
             plane: None,

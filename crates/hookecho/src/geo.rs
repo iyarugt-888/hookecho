@@ -49,6 +49,17 @@ pub fn destination_point(start: [f64; 2], bearing_deg: f64, km: f64) -> [f64; 2]
     [lon2.to_degrees(), lat2.to_degrees()]
 }
 
+/// Initial great-circle bearing (° from north, 0..360) from `from` to `to`, both `[lon, lat]` —
+/// the inverse of [`destination_point`]'s heading.
+pub fn bearing_deg(from: [f64; 2], to: [f64; 2]) -> f64 {
+    let (lon1, lat1) = (from[0].to_radians(), from[1].to_radians());
+    let (lon2, lat2) = (to[0].to_radians(), to[1].to_radians());
+    let dlon = lon2 - lon1;
+    let y = dlon.sin() * lat2.cos();
+    let x = lat1.cos() * lat2.sin() - lat1.sin() * lat2.cos() * dlon.cos();
+    y.atan2(x).to_degrees().rem_euclid(360.0)
+}
+
 /// Estimated minutes for a storm at `cell` [lon,lat] moving toward `mvt_deg` (° from north) at
 /// `mvt_kt` knots to reach `target` [lon,lat], if the target lies within `half_angle_deg` of the
 /// motion vector and no more than `max_min` ahead. `None` = not on the path (behind, off-angle,
@@ -145,6 +156,19 @@ pub fn compass(deg: f32) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_bearing_points_back_to_where_destination_point_went() {
+        let start = [-97.28, 35.33];
+        for brg in [0.0, 45.0, 135.0, 270.0] {
+            let end = super::destination_point(start, brg, 120.0);
+            let back = super::bearing_deg(start, end);
+            assert!(
+                (back - brg).abs() < 1e-6 || (back - brg).abs() > 359.999,
+                "{brg} {back}"
+            );
+        }
+    }
+
     use super::*;
 
     #[test]
