@@ -103,6 +103,28 @@ pub fn bake_lut(table: &ColorTable, range: (f32, f32), threshold: Option<f32>) -
     lut
 }
 
+/// Bake the LUT for a speed-ordered velocity volume ([`wxdata::volume3d::fold_by_speed`]): entry
+/// `raw` is the colour of the signed velocity [`wxdata::volume3d::speed_value`] gives it, so a
+/// voxel re-indexed by speed is still painted inbound or outbound.
+pub fn speed_lut(table: &ColorTable, vmax: f32) -> [u8; 1024] {
+    let mut lut = [0u8; 1024];
+    lut[4..8].copy_from_slice(&[table.rf[0], table.rf[1], table.rf[2], FOLD_ALPHA]);
+    for raw in 2u32..=255 {
+        let value = wxdata::volume3d::speed_value(raw as u8, vmax);
+        let Some(rgba) = table.sample(value) else {
+            continue;
+        };
+        let base = (raw * 4) as usize;
+        lut[base..base + 4].copy_from_slice(&[
+            rgba[0],
+            rgba[1],
+            rgba[2],
+            (rgba[3] as u16 * VALUE_ALPHA as u16 / 255) as u8,
+        ]);
+    }
+    lut
+}
+
 /// Permute an already-baked LUT to match [`wxdata::volume3d::invert_in_place`]'s index flip:
 /// entry `raw` moves to `257 - raw` (for `raw` in `2..=255`), so `lut[flipped_index]` still holds
 /// the color for the voxel's true physical value after the volume's own index has been flipped.

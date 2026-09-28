@@ -2774,16 +2774,23 @@ This is useful for model bias and boundary evolution.
 
 Current `wxdata::volume3d` resamples reflectivity into a Cartesian 3D grid and `render3d.rs` displays it. Build on this rather than replacing it blindly.
 
-## H1. Multi-moment 3D — done, apart from velocity and user-defined products
+## H1. Multi-moment 3D — done, apart from SRV and user-defined products
 
 Support 3D for (the map's 3D view, `view::Map3dRepresentation`, one resampled volume per
 moment through `smooth_moment()`):
 
 - [x] reflectivity — "Smooth"
-- [ ] velocity/SRV where scientifically interpretable — not offered: the raymarch is a
-  maximum-intensity projection, and the maximum of a signed field along a ray hides the inbound
-  half of every couplet. Needs a different compositing rule (max |V|, or a split in/outbound
-  pair) before it means anything; the Observed-sweeps mode already shows real velocity tilts.
+- [x] velocity — "VEL" (`SmoothVelocity`): the dealiased tilts resampled, then re-indexed by
+  speed (`volume3d::fold_by_speed`: index `2 + 2·step + inbound`, about 1 m/s a step), so the
+  raymarch's maximum finds the fastest wind along a ray in either direction, and a permuted
+  palette (`colormap::speed_lut`) still paints it inbound or outbound. The Denoise floor and
+  ceiling are speeds. A plain maximum of a signed field hid the inbound half of every couplet:
+  on a synthetic couplet (a -35 m/s core in a +20 m/s shell) the plain maximum drew 0 inbound
+  pixels and the speed-ordered volume 43,401, with the outbound shell still drawn (GPU test
+  `speed_ordered_velocity_shows_the_inbound_core_a_plain_maximum_hides`). Stated limit: the
+  GPU's trilinear filtering can land either sign at the thin boundary where strong inbound meets
+  strong outbound. `--headless-3d SITE out.png --moment VEL [--threshold M/S]` renders it.
+- [ ] storm-relative velocity in 3D — the volume is ground-relative
 - [x] ZDR — "ZDR" (`SmoothZdr`): ZDR columns above the melting level, with a 1 dB denoise floor
 - [x] CC — "Debris" (inverted, low CC wins the maximum; built earlier)
 - [x] KDP — "KDP" (`SmoothKdp`): heavy-rain and melting-hail cores, 0.5 °/km floor
@@ -4434,6 +4441,53 @@ This is the explicit “what are we still missing?” list for agents.
 - [ ] explicit beam-rise visualization
 - [ ] more polished 3D cross-section workflow
 - [ ] impact/analysis report workflow
+
+## WeatherWise Plus / Pro feature parity (checklist, 2026-09-27)
+
+Every item on WeatherWise's Plus and Pro lists, with HookEcho's standing. "Same or better" is
+the bar; a partial match says what is missing.
+
+Plus:
+
+- [ ] Globe projection 3D map — the map is Web Mercator with a pitched 3D camera; no globe
+- [x] Settings sync across devices — Google Drive sync (`docs/sync.md`)
+- [x] Split view — 1, 2, 3, 4, 6 and 9 panes
+- [ ] Radar, composite, model and satellite smoothing — radar yes; others to verify
+- [ ] Playback up to 100 radar scans, 50 composite/satellite frames — live loops stop at 30
+- [x] Up to 12 runs per model — hourly models list 24, six-hourly 8 (two days)
+- [x] RenderStream — progressive radial rendering (B2)
+- [ ] Enhanced lightning — to verify
+- [ ] Alerts, discussions and storm tracks in radar history — to verify
+- [ ] Historical composite frames by date and time — to verify
+- [x] Enhanced search — "Search all" across products, stations and places
+- [ ] Y'all mode (watches, Y'all-O-Meter, tracks, outlooks) — watches, tracks and outlooks
+  exist separately; no meter and no mode
+- [ ] Popup spotlight: dim the map around an alert — not built
+- [ ] Popup drag handle — to verify
+
+Pro:
+
+- [x] Triple / quad view — see split view
+- [x] FastScan ultra-low-latency scans — live chunk streaming (B1/B6)
+- [ ] Tornado ID (AI tornado detection) — Level III TVS and warning tags only; no detector
+- [ ] Radar wind particles from Doppler winds — particles use model winds
+- [x] Realtime radar cross section — X-section tool and window
+- [ ] Expert mode — to verify (per-product expert knobs exist)
+- [ ] Reflectivity X and max reflectivity — max reflectivity done: "Max" in the tilt row
+  shows the column maximum over every tilt (`level2::column_max`, on the lowest tilt's grid
+  at ground range, each tilt read at its own slant range). Reflectivity X not built
+- [ ] Flash a custom reflectivity range — not built
+- [ ] Population and impact reports for alerts and discussions — not built
+- [ ] Play up to 200 radar scans, 100 satellite/composite frames — see playback above
+- [ ] Up to 24 runs per model — six-hourly models list 8
+- [ ] US CWA boundaries and forecast zones layers — zone shapes are fetched for alerts only
+- [ ] Historical satellite imagery by date and time — to verify
+- [ ] Historical model runs by date and time — to verify
+
+GR2Analyst 3D (see Phase H): isosurfaces, nested shells, slicing planes, clip box, CAPPI plane,
+beam guides, loops (H8) and velocity (H1) are done; still open are an opacity-curve and colour
+transfer-function editor with saved presets (H2), terrain (H5), storm-relative velocity and
+user-defined products in 3D (H1).
 
 ## WSV3-class gaps
 

@@ -37,6 +37,10 @@ pub enum Map3dRepresentation {
     /// A resampled specific-differential-phase volume (Phase H1): high KDP marks heavy rain and
     /// melting hail, and its core's height and depth say where the heaviest precipitation is.
     SmoothKdp,
+    /// A resampled, dealiased radial-velocity volume re-indexed by speed
+    /// (`wxdata::volume3d::fold_by_speed`), so the raymarch finds the fastest wind along each ray
+    /// in either direction and both halves of a couplet show, each in its own colour.
+    SmoothVelocity,
 }
 
 impl Map3dRepresentation {
@@ -51,6 +55,7 @@ impl Map3dRepresentation {
             Self::SmoothSpectrumWidth => Some((M::SpectrumWidth, false)),
             Self::SmoothZdr => Some((M::DifferentialReflectivity, false)),
             Self::SmoothKdp => Some((M::SpecificDifferentialPhase, false)),
+            Self::SmoothVelocity => Some((M::Velocity, false)),
         }
     }
 
@@ -63,6 +68,7 @@ impl Map3dRepresentation {
             Self::SmoothSpectrumWidth => "Smooth spectrum width",
             Self::SmoothZdr => "Smooth ZDR",
             Self::SmoothKdp => "Smooth KDP",
+            Self::SmoothVelocity => "Smooth velocity",
         }
     }
 }
@@ -229,10 +235,13 @@ pub struct Map3dState {
     pub zdr_floor_db: f32,
     /// KDP floor (°/km) for `SmoothKdp`: 0.5 °/km clears noise and light rain.
     pub kdp_floor_deg_km: f32,
+    /// Speed floor (m/s, either direction) for `SmoothVelocity`: 15 m/s clears the broad
+    /// light winds and keeps couplets, jets and strong outflow.
+    pub velocity_floor_ms: f32,
     /// An upper bound per representation (Phase H2's value window), in that representation's
     /// own units, indexed by `Map3dRepresentation as usize`; `None` = no ceiling. Kept per
     /// representation for the same reason the floors are: a dBZ number means nothing in dB.
-    pub ceilings: [Option<f32>; 6],
+    pub ceilings: [Option<f32>; 7],
     /// Phase H5: draw the radar's beam geometry over the 3D map — each tilt's cone as range
     /// rings, the lowest and highest beams' centrelines and beamwidth edges, and the mast.
     pub beam_guides: bool,
@@ -317,7 +326,8 @@ impl Default for Map3dState {
             sw_floor_ms: 8.0,
             zdr_floor_db: 1.0,
             kdp_floor_deg_km: 0.5,
-            ceilings: [None; 6],
+            velocity_floor_ms: 15.0,
+            ceilings: [None; 7],
             beam_guides: false,
             height_ruler: true,
             cell_columns: true,
@@ -397,6 +407,9 @@ const RECENT_VOLUMES: usize = if cfg!(target_os = "android") {
     12
 };
 
+/// The binned-sweep cache's tilt slot for a column maximum ([`Volume::column_max`]).
+const COLUMN_MAX_TILT: usize = usize::MAX;
+
 /// A decoded volume plus lazily-binned sweeps for the moments/tilts the user has viewed.
 pub struct Volume {
     /// Shared with the app's decoded-volume LRU: the cache and every pane showing this volume
@@ -462,6 +475,10 @@ impl Volume {
             return;
         }
         self.scan = scan;
+        // Any changed tilt changes the column maximum above it.
+        for m in Moment::ALL {
+            self.binned.pop(&(m, COLUMN_MAX_TILT, false));
+        }
         if !tilts_only_grew(&self.elevations, &new_elev) {
             self.binned.clear(); // tilt indices may have shifted
         } else {
@@ -537,6 +554,19 @@ impl Volume {
         })
     }
 
+    /// The column maximum of `moment` over every tilt (`level2::column_max`: for reflectivity,
+    /// the radar's composite "max reflectivity"), cached with the binned sweeps.
+    pub fn column_max(&mut self, moment: Moment) -> anyhow::Result<&BinnedSweep> {
+        let key = (moment, COLUMN_MAX_TILT, false);
+        if !self.binned.contains(&key) {
+            let tilts = self.moment_tilts(moment);
+            let cm = level2::column_max(&tilts)
+                .ok_or_else(|| anyhow::anyhow!("no {moment:?} tilts for a column maximum"))?;
+            self.binned.put(key, cm);
+        }
+        Ok(self.binned.get(&key).expect("just inserted"))
+    }
+
     /// All reflectivity tilts as owned sweeps (lowest→highest), for vertical cross-sections.
     pub fn reflectivity_tilts(&mut self) -> Vec<BinnedSweep> {
         self.moment_tilts(Moment::Reflectivity)
@@ -576,6 +606,9 @@ pub struct MapView {
     /// whole to complete. Off by default: it overrides the user's own tilt choice, so it should
     /// be something they turn on, not a standing behavior sprung on them.
     pub follow_lowest_cut: bool,
+    /// Show the column maximum over every tilt ("max reflectivity") instead of one tilt.
+    /// Reflectivity only; other moments ignore it.
+    pub column_max: bool,
     /// While following live, show each sweep as the radar starts it: the tilt changes to the
     /// elevation being scanned when that sweep's first chunk lands. The broader sibling of
     /// `follow_lowest_cut` (which only ever jumps to the lowest tilt); the controls keep at most
@@ -736,6 +769,7 @@ impl MapView {
             moment: Moment::Reflectivity,
             tilt: 0,
             follow_lowest_cut: false,
+            column_max: false,
             follow_live_sweep: false,
             followed_sweep: None,
             thresholds: [None; Moment::ALL.len()],
@@ -929,6 +963,12 @@ mod tests {
             R::SmoothDebris.smooth_moment(),
             Some((M::CorrelationCoefficient, true))
         );
+        assert_eq!(
+            R::SmoothVelocity.smooth_moment(),
+            Some((M::Velocity, false))
+        );
+        // Every representation has a ceiling slot.
+        assert!((R::SmoothVelocity as usize) < super::Map3dState::default().ceilings.len());
         // The two new floors sit inside their moment's value range, so the slider can reach them.
         let s = super::Map3dState::default();
         let (lo, hi) = M::DifferentialReflectivity.value_range();

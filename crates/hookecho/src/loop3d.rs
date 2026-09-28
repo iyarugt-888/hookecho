@@ -293,7 +293,7 @@ pub struct SmoothSpec {
 /// Resample `sweeps` into the Smooth volume the map raymarches.
 pub fn build_smooth(sweeps: Sweeps, spec: &SmoothSpec) -> Option<Volume3dUpload> {
     let masked = masked_by_reflectivity(spec.moment);
-    let (sweeps, mask) = sweeps.resolve(spec.moment, false, masked);
+    let (sweeps, mask) = sweeps.resolve(spec.moment, true, masked);
     if sweeps.is_empty() {
         return None;
     }
@@ -326,10 +326,18 @@ pub fn build_smooth(sweeps: Sweeps, spec: &SmoothSpec) -> Option<Volume3dUpload>
     if spec.invert {
         wxdata::volume3d::invert_in_place(&mut v3);
     }
-    let mut lut = crate::colormap::bake_lut(&spec.table, (v3.value_min, v3.value_max), None);
-    if spec.invert {
-        lut = crate::colormap::invert_lut(lut);
-    }
+    let lut = if spec.moment == Moment::Velocity {
+        // Indexed by speed so the maximum along a ray finds the fastest wind either way.
+        wxdata::volume3d::fold_by_speed(&mut v3);
+        crate::colormap::speed_lut(&spec.table, v3.value_max)
+    } else {
+        let lut = crate::colormap::bake_lut(&spec.table, (v3.value_min, v3.value_max), None);
+        if spec.invert {
+            crate::colormap::invert_lut(lut)
+        } else {
+            lut
+        }
+    };
     Some(Volume3dUpload {
         data: crate::render3d::pack_rg8(&v3.data),
         n: v3.n as u32,

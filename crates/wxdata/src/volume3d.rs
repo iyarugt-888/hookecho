@@ -377,6 +377,52 @@ pub fn invert_in_place(v3: &mut Volume3d) {
     }
 }
 
+/// Speed steps in a speed-ordered index: `2 + 2·step + inbound` fills `2..=255` exactly.
+pub const SPEED_STEPS: u16 = 126;
+
+/// The speed-ordered index of radial velocity `v` (m/s) on a `±vmax` scale: twice the speed step,
+/// plus one for inbound (negative), so a larger index always means a faster wind and a maximum
+/// over indices finds the fastest wind either way.
+pub fn speed_index(v: f32, vmax: f32) -> u8 {
+    let step = ((v.abs() / vmax.max(f32::EPSILON)).clamp(0.0, 1.0) * SPEED_STEPS as f32).round();
+    (2 + 2 * step as u16 + u16::from(v < 0.0)) as u8
+}
+
+/// The radial velocity (m/s) a speed-ordered index stands for; the inverse of [`speed_index`].
+pub fn speed_value(idx: u8, vmax: f32) -> f32 {
+    let i = idx.max(2) as u16 - 2;
+    let speed = (i / 2) as f32 / SPEED_STEPS as f32 * vmax;
+    if i % 2 == 1 {
+        -speed
+    } else {
+        speed
+    }
+}
+
+/// Re-index a velocity volume built by [`build`] (index linear in `value_min..value_max`) by
+/// speed, keeping the sign ([`speed_index`], on a `±max(|value_min|, |value_max|)` scale).
+///
+/// The raymarch keeps the largest index along each ray. On a plain velocity volume that is the
+/// fastest *outbound* wind, and the inbound half of every couplet disappears; ordered by speed,
+/// a ray finds the fastest wind in either direction, and the colour table (permuted to match)
+/// still paints it inbound or outbound. `value_min`/`value_max` become `-vmax`/`+vmax`.
+///
+/// The GPU's trilinear filtering blends neighbouring indices. Where strong inbound meets strong
+/// outbound (a couplet's gate-to-gate shear) a blended sample can land on either sign, so the
+/// boundary is drawn one colour or the other there, never a false weak value in between.
+pub fn fold_by_speed(v3: &mut Volume3d) {
+    let vmax = v3.value_min.abs().max(v3.value_max.abs());
+    let span = (v3.value_max - v3.value_min).max(f32::EPSILON);
+    for b in v3.data.iter_mut() {
+        if *b >= 2 {
+            let v = v3.value_min + (*b as f32 - 2.0) / 253.0 * span;
+            *b = speed_index(v, vmax);
+        }
+    }
+    v3.value_min = -vmax;
+    v3.value_max = vmax;
+}
+
 /// A constant-altitude PPI (CAPPI): an `n × n` horizontal slice of reflectivity (dBZ) at a fixed
 /// altitude, radar-centered. `dbz[x + n*y]` with row 0 = north (y inverted for image display).
 pub struct Cappi {
@@ -469,6 +515,43 @@ pub fn clip_around(half_km: f32, dx_km: f32, dy_km: f32, pad_km: f32) -> [f32; 6
 mod tests {
     use super::*;
     use crate::level2::{BinnedSweep, Moment};
+
+    #[test]
+    fn speed_index_orders_by_speed_and_keeps_the_sign() {
+        let vmax = 127.0;
+        // Faster wins either way, and the sign survives the round trip.
+        assert!(speed_index(-40.0, vmax) > speed_index(30.0, vmax));
+        assert!(speed_index(40.0, vmax) > speed_index(-30.0, vmax));
+        for v in [-127.0, -40.0, -0.6, 0.0, 12.0, 127.0] {
+            let back = speed_value(speed_index(v, vmax), vmax);
+            assert!((back - v).abs() <= 0.51, "{v} -> {back}");
+            assert_eq!(back < 0.0, v < -0.51, "{v}");
+        }
+        // The full scale fills the index space and never reaches the empty/folded sentinels.
+        assert_eq!(speed_index(127.0, vmax), 254);
+        assert_eq!(speed_index(-127.0, vmax), 255);
+        assert_eq!(speed_index(0.0, vmax), 2);
+    }
+
+    #[test]
+    fn fold_by_speed_lets_a_maximum_find_the_inbound_half() {
+        let (lo, hi) = Moment::Velocity.value_range();
+        let enc = |v: f32| 2 + (((v - lo) / (hi - lo)) * 253.0) as u8;
+        let mut v3 = Volume3d {
+            data: vec![0, enc(20.0), enc(-35.0)],
+            n: 1,
+            nz: 3,
+            half_km: 1.0,
+            top_km: 1.0,
+            value_min: lo,
+            value_max: hi,
+        };
+        fold_by_speed(&mut v3);
+        assert_eq!(v3.data[0], 0, "empty stays empty");
+        let strongest = *v3.data.iter().max().unwrap();
+        let v = speed_value(strongest, v3.value_max);
+        assert!((v + 35.0).abs() < 1.5, "the inbound 35 m/s wins, got {v}");
+    }
 
     #[test]
     fn extent_ignores_a_thin_far_speckle_and_reports_it() {

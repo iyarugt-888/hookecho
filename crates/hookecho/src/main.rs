@@ -643,7 +643,12 @@ fn main() -> eframe::Result<()> {
             .position(|a| a == "--cappi")
             .and_then(|i| args.get(i + 1))
             .and_then(|v| v.trim().parse().ok());
-        if let Err(e) = headless::run_3d(site, out, threshold, plane, cappi) {
+        // `--moment VEL`: the speed-ordered velocity volume (ROADMAP_NEW H1), built as the
+        // app builds it, with the threshold read as a speed in m/s.
+        let moment = flag_value(&args, "--moment")
+            .and_then(Moment::from_code)
+            .unwrap_or(Moment::Reflectivity);
+        if let Err(e) = headless::run_3d(site, out, threshold, plane, cappi, moment) {
             eprintln!("headless 3d render failed: {e}");
             std::process::exit(1);
         }

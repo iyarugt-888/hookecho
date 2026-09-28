@@ -219,6 +219,8 @@ impl HookEchoApp {
         // Toggled this frame — several kinds can be active, so this isn't an exclusive pick.
         let mut pick_contour: Vec<crate::app::ContourKind> = Vec::new();
         let mut all_tilts = false;
+        let column_max_on = self.views[self.active].column_max;
+        let mut toggle_column_max = false;
         let mut open_command_search = false;
         let env_model = self.env_model;
 
@@ -358,7 +360,13 @@ impl HookEchoApp {
                                         format!("{a:.1}\u{b0}")
                                     };
                                     let resp =
-                                        wsv3::pill_sized(ui, &label, i == tilt, accent, 42.0);
+                                        wsv3::pill_sized(
+                                            ui,
+                                            &label,
+                                            i == tilt && !column_max_on,
+                                            accent,
+                                            42.0,
+                                        );
                                     // The live chunk stream keeps scanning through the VCP
                                     // regardless of which tilt is on screen (`i == tilt`, the
                                     // pill's own highlight above) — this is a second, independent
@@ -407,6 +415,16 @@ impl HookEchoApp {
                                     .clicked()
                                 {
                                     all_tilts = true;
+                                }
+                                if moment == wxdata::level2::Moment::Reflectivity
+                                    && wsv3::pill(ui, "Max", column_max_on, accent)
+                                        .on_hover_text(
+                                            "Max reflectivity: the strongest echo any tilt sees \
+                                             above each point, the radar's own composite",
+                                        )
+                                        .clicked()
+                                {
+                                    toggle_column_max = true;
                                 }
                                 if wsv3::pill(ui, "Follow low", follow_lowest_cut, accent)
                                     .on_hover_text(
@@ -763,6 +781,11 @@ impl HookEchoApp {
         }
         if let Some(i) = pick_tilt {
             self.views[self.active].tilt = i;
+            self.views[self.active].column_max = false;
+        }
+        if toggle_column_max {
+            let v = &mut self.views[self.active];
+            v.column_max = !v.column_max;
         }
         if let Some(n) = pick_panes {
             self.apply_palette(PaletteAction::SetPanes(n), ctx);

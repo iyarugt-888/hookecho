@@ -8,6 +8,18 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: max reflectivity
+
+"Max" in the tilt row shows reflectivity's column maximum: the strongest echo any tilt
+sees above each point, so a core aloft shows even where the lowest tilt passes under it.
+
+### Added: velocity in the 3D map
+
+The 3D map's Smooth volume can show velocity ("VEL", with the velocity product selected): the
+fastest wind along each line of sight in either direction, so both halves of a couplet show,
+inbound and outbound in their own colours. Denoise hides wind below a speed you choose. Where
+strong inbound meets strong outbound, the boundary is drawn in one colour or the other.
+
 ### Added: 3D loops that play frame for frame
 
 Playing a loop with the 3D map's Smooth volume or an isosurface on now builds each frame's 3D in

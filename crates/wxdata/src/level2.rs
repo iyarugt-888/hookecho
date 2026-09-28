@@ -1023,6 +1023,79 @@ pub fn bin_scan(scan: &Scan, moment: Moment, tilt: usize) -> anyhow::Result<Binn
     bin_scan_opts(scan, moment, tilt, false)
 }
 
+/// The column maximum of a volume: at every azimuth and ground range, the largest value any tilt
+/// reports above that point (for reflectivity, the radar's own composite reflectivity, "max
+/// reflectivity"). `sweeps` are one moment's tilts, lowest first.
+///
+/// The result sits on the lowest tilt's polar grid, with gates at *ground* range: each tilt is
+/// read at the slant range that reaches the same ground range (`ground / cos(elevation)`), and
+/// its value decoded with its own range and re-encoded on the lowest tilt's. Range-folded gates
+/// count only where no tilt has a real value. `None` without sweeps.
+pub fn column_max(sweeps: &[BinnedSweep]) -> Option<BinnedSweep> {
+    let base = sweeps.first()?;
+    let (az_bins, gates) = (base.az_bins, base.gate_count);
+    let span = (base.value_max - base.value_min).max(f32::EPSILON);
+    let mut best = vec![f32::NEG_INFINITY; az_bins * gates];
+    let mut folded = vec![false; az_bins * gates];
+    for s in sweeps {
+        if s.az_bins == 0 || s.gate_count == 0 {
+            continue;
+        }
+        let cos_e = (s.elevation_deg as f64).to_radians().cos().max(0.05);
+        let s_span = s.value_max - s.value_min;
+        for g in 0..gates {
+            let ground = base.first_gate_km as f64 + g as f64 * base.gate_interval_km as f64;
+            let slant = ground / cos_e;
+            let sg = ((slant - s.first_gate_km as f64)
+                / s.gate_interval_km.max(f32::EPSILON) as f64)
+                .round();
+            if sg < 0.0 || sg as usize >= s.gate_count {
+                continue;
+            }
+            let sg = sg as usize;
+            for a in 0..az_bins {
+                // Same azimuth, whatever each tilt's own azimuth resolution.
+                let sa = (2 * a + 1) * s.az_bins / (2 * az_bins);
+                let idx = s.data[(sa % s.az_bins) * s.gate_count + sg];
+                let cell = a * gates + g;
+                if idx >= 2 {
+                    let v = s.value_min + (idx as f32 - 2.0) / 253.0 * s_span;
+                    if v > best[cell] {
+                        best[cell] = v;
+                    }
+                } else if idx == 1 {
+                    folded[cell] = true;
+                }
+            }
+        }
+    }
+    let data = best
+        .iter()
+        .zip(&folded)
+        .map(|(&v, &f)| {
+            if v.is_finite() {
+                2 + (((v - base.value_min) / span).clamp(0.0, 1.0) * 253.0) as u8
+            } else {
+                u8::from(f)
+            }
+        })
+        .collect();
+    Some(BinnedSweep {
+        moment: base.moment,
+        az_bins,
+        gate_count: gates,
+        data,
+        first_gate_km: base.first_gate_km,
+        gate_interval_km: base.gate_interval_km,
+        radar_lat: base.radar_lat,
+        radar_lon: base.radar_lon,
+        elevation_deg: base.elevation_deg,
+        value_min: base.value_min,
+        value_max: base.value_max,
+        ..Default::default()
+    })
+}
+
 /// Like [`bin_scan`] but `dealias` unfolds aliased Doppler velocity (ignored for other moments).
 pub fn bin_scan_opts(
     scan: &Scan,
@@ -1430,6 +1503,50 @@ mod tests {
 
     /// A completed archive sweep is one pass end to end. Marking any of it stale would dim
     /// data that is not stale, so the mask has to stay silent.
+    #[test]
+    fn column_max_takes_the_strongest_tilt_above_each_point() {
+        let (lo, hi) = Moment::Reflectivity.value_range();
+        let enc = |v: f32| 2 + (((v - lo) / (hi - lo)) * 253.0) as u8;
+        let sweep = |elev: f32, data: Vec<u8>| BinnedSweep {
+            moment: Moment::Reflectivity,
+            az_bins: 4,
+            gate_count: 4,
+            data,
+            first_gate_km: 10.0,
+            gate_interval_km: 10.0,
+            elevation_deg: elev,
+            value_min: lo,
+            value_max: hi,
+            ..Default::default()
+        };
+        // Low tilt: 20 dBZ everywhere, one range-folded gate. High tilt: a 55 dBZ core aloft
+        // at azimuth bin 1, gate 1 — which, at 10°, is the slant range above ground gate 1.
+        let mut low = vec![enc(20.0); 16];
+        low[2 * 4 + 3] = 1;
+        let mut high = vec![0u8; 16];
+        high[4 + 1] = enc(55.0);
+        let cm = column_max(&[sweep(0.5, low), sweep(10.0, high)]).unwrap();
+        let at = |a: usize, g: usize| lo + (cm.data[a * 4 + g] as f32 - 2.0) / 253.0 * (hi - lo);
+        assert!(
+            (at(1, 1) - 55.0).abs() < 0.6,
+            "the core aloft wins: {}",
+            at(1, 1)
+        );
+        assert!(
+            (at(0, 0) - 20.0).abs() < 0.6,
+            "elsewhere the low tilt's value"
+        );
+        assert_eq!(cm.data[2 * 4 + 3], 1, "folded where no tilt has a value");
+        // Each tilt decodes with its own range: a tilt on a different scale still compares.
+        let mut other = sweep(10.0, vec![0u8; 16]);
+        other.value_min = 0.0;
+        other.value_max = 100.0;
+        other.data[4 + 1] = 2 + (60.0 / 100.0 * 253.0) as u8;
+        let cm = column_max(&[sweep(0.5, vec![enc(20.0); 16]), other]).unwrap();
+        let v = lo + (cm.data[4 + 1] as f32 - 2.0) / 253.0 * (hi - lo);
+        assert!((v - 60.0).abs() < 0.8, "{v}");
+    }
+
     #[test]
     fn a_sweep_from_a_single_pass_has_no_stale_arc() {
         let times: Vec<i64> = (0..720).map(|i| 1_000_000 + i as i64 * 20).collect();

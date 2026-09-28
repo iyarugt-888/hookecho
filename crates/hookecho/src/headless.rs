@@ -3421,9 +3421,10 @@ pub fn run_cappi(site: &str, alt_km: f32, out_path: &str) -> anyhow::Result<()> 
 pub fn run_3d(
     site: &str,
     out_path: &str,
-    threshold_dbz: Option<f32>,
+    threshold: Option<f32>,
     plane: Option<crate::render3d::VerticalPlane>,
     cappi_km: Option<f32>,
+    moment: Moment,
 ) -> anyhow::Result<()> {
     const N: usize = 192;
     const NZ: usize = 48;
@@ -3440,6 +3441,10 @@ pub fn run_3d(
         }
         anyhow::bail!("no volume for {site}")
     })?;
+
+    if moment == Moment::Velocity {
+        return run_3d_velocity(&rt, scan, out_path, threshold);
+    }
 
     let elevs = level2::elevation_angles(&scan);
     let sweeps: Vec<_> = (0..elevs.len())
@@ -3474,7 +3479,7 @@ pub fn run_3d(
         outside: 0.0,
     };
     let view = crate::render3d::View3d {
-        threshold_idx: match threshold_dbz {
+        threshold_idx: match threshold {
             Some(dbz) => crate::render3d::threshold_index(dbz, (v3_min, v3_max)),
             None => 2.0,
         },
@@ -3482,11 +3487,126 @@ pub fn run_3d(
         cappi_km,
         ..Default::default()
     };
-    let uniform = crate::render3d::orbit_uniform(
-        30.0, 25.0, 3.0, 1.0, N as u32, NZ as u32, v3.top_km, 256, view,
-    );
+    let rgba = render_volume_once(&rt, &upload, view)?;
+    image::save_buffer(out_path, &rgba, size(), size(), image::ColorType::Rgba8)?;
+    let echo = echo_pixels(&rgba);
+    println!("wrote {out_path}  ({echo} echo pixels over background)");
+    // With no threshold set, an empty image means a broken pipeline rather than a quiet day: the
+    // volume above already reported filled voxels. With one set, empty is a legitimate answer —
+    // there may simply be no 45 dBZ core out there.
+    if echo == 0 && threshold.is_none() {
+        anyhow::bail!("raymarch produced no echo pixels");
+    }
+    Ok(())
+}
 
-    let (device, queue, adapter) = init_gpu(&rt)?;
+/// The velocity half of `--headless-3d`: the speed-ordered volume exactly as the app's Smooth
+/// velocity builds it (`loop3d::build_smooth`), and for comparison the same voxels re-indexed
+/// linearly (a plain maximum), each rendered with its inbound- and outbound-coloured pixels
+/// counted. A plain maximum should find little inbound wind; the speed-ordered one both.
+fn run_3d_velocity(
+    rt: &tokio::runtime::Runtime,
+    scan: wxdata::level2::Scan,
+    out_path: &str,
+    speed_floor: Option<f32>,
+) -> anyhow::Result<()> {
+    let table = crate::colormap::default_table(Moment::Velocity).clone();
+    let spec = crate::loop3d::SmoothSpec {
+        moment: Moment::Velocity,
+        invert: false,
+        full_range: false,
+        table: table.clone(),
+        max_dim: 2048,
+        max_voxels: crate::loop3d::SMOOTH_LOOP_MAX_VOXELS,
+        top_km: 18.0,
+    };
+    let folded = crate::loop3d::build_smooth(
+        crate::loop3d::Sweeps::Scan(std::sync::Arc::new(scan)),
+        &spec,
+    )
+    .ok_or_else(|| anyhow::anyhow!("no velocity sweeps"))?;
+    let vmax = Moment::Velocity.value_range().1;
+    let floor = speed_floor.unwrap_or(0.0).abs();
+    let folded_view = crate::render3d::View3d {
+        threshold_idx: wxdata::volume3d::speed_index(floor, vmax) as f32,
+        ..Default::default()
+    };
+
+    // The plain maximum: the same voxels with the index linear in velocity again.
+    let (lo, hi) = Moment::Velocity.value_range();
+    let mut data = folded.data.clone();
+    for px in data.chunks_mut(2) {
+        if px[1] > 0 && px[0] >= 2 {
+            let v = wxdata::volume3d::speed_value(px[0], vmax);
+            px[0] = 2 + (((v - lo) / (hi - lo)).clamp(0.0, 1.0) * 253.0) as u8;
+        }
+    }
+    let plain = crate::render3d::Volume3dUpload {
+        data,
+        n: folded.n,
+        nz: folded.nz,
+        lut: crate::colormap::bake_lut(&table, (lo, hi), None).to_vec(),
+        half_km: folded.half_km,
+        top_km: folded.top_km,
+        outside: folded.outside,
+    };
+
+    // Inbound is drawn green and outbound red in the stock velocity palette.
+    let count = |rgba: &[u8]| {
+        let (mut inbound, mut outbound) = (0usize, 0usize);
+        for p in rgba.as_chunks::<4>().0 {
+            let (r, g) = (p[0] as i16, p[1] as i16);
+            if (r - 48).abs() + (g - 48).abs() + (p[2] as i16 - 63).abs() <= 30 {
+                continue;
+            }
+            if g > r + 20 {
+                inbound += 1;
+            } else if r > g + 20 {
+                outbound += 1;
+            }
+        }
+        (inbound, outbound)
+    };
+    let rgba = render_volume_once(rt, &folded, folded_view)?;
+    image::save_buffer(out_path, &rgba, size(), size(), image::ColorType::Rgba8)?;
+    let (fi, fo) = count(&rgba);
+    // Unfloored: a floor on a linear velocity index is a signed value and would cut the inbound
+    // side away by construction.
+    let plain_rgba = render_volume_once(rt, &plain, crate::render3d::View3d::default())?;
+    let (pi, po) = count(&plain_rgba);
+    println!(
+        "velocity volume {}x{}x{} ({:.2} km cells)",
+        folded.n,
+        folded.n,
+        folded.nz,
+        folded.cell_km()
+    );
+    println!("  speed-ordered, floor {floor} m/s: {fi} inbound, {fo} outbound px -> {out_path}");
+    println!("  plain maximum:                    {pi} inbound, {po} outbound px");
+    if fi + fo == 0 {
+        anyhow::bail!("velocity raymarch produced no pixels");
+    }
+    Ok(())
+}
+
+/// Render one volume with the headless orbit camera and read the frame back as RGBA.
+fn render_volume_once(
+    rt: &tokio::runtime::Runtime,
+    upload: &crate::render3d::Volume3dUpload,
+    view: crate::render3d::View3d,
+) -> anyhow::Result<Vec<u8>> {
+    let uniform = crate::render3d::orbit_uniform(
+        30.0,
+        25.0,
+        3.0,
+        1.0,
+        upload.n,
+        upload.nz,
+        upload.top_km,
+        256,
+        view,
+    );
+    let (device, queue, adapter) = init_gpu(rt)?;
     println!("adapter: {}", adapter.get_info().name);
     let format = wgpu::TextureFormat::Rgba8UnormSrgb;
     let mut res = crate::render3d::Volume3dResources::new(&device, format);
@@ -3504,12 +3624,12 @@ pub fn run_3d(
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
         view_formats: &[],
     });
-    let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+    let target_view = target.create_view(&wgpu::TextureViewDescriptor::default());
     res.render_once(
         &device,
         &queue,
-        &view,
-        &upload,
+        &target_view,
+        upload,
         uniform,
         wgpu::Color {
             r: 0.03,
@@ -3518,26 +3638,18 @@ pub fn run_3d(
             a: 1.0,
         },
     );
+    Ok(read_target(&device, &queue, &target, size()))
+}
 
-    let rgba = read_target(&device, &queue, &target, size());
-    image::save_buffer(out_path, &rgba, size(), size(), image::ColorType::Rgba8)?;
-    // Echo pixels = those differing from the uniform sRGB background clear (~48,48,63).
-    let echo = rgba
-        .as_chunks::<4>()
+/// Pixels that differ from the uniform sRGB background clear (~48,48,63).
+fn echo_pixels(rgba: &[u8]) -> usize {
+    rgba.as_chunks::<4>()
         .0
         .iter()
         .filter(|p| {
             (p[0] as i16 - 48).abs() + (p[1] as i16 - 48).abs() + (p[2] as i16 - 63).abs() > 30
         })
-        .count();
-    println!("wrote {out_path}  ({echo} echo pixels over background)");
-    // With no threshold set, an empty image means a broken pipeline rather than a quiet day: the
-    // volume above already reported filled voxels. With one set, empty is a legitimate answer —
-    // there may simply be no 45 dBZ core out there.
-    if echo == 0 && threshold_dbz.is_none() {
-        anyhow::bail!("raymarch produced no echo pixels");
-    }
-    Ok(())
+        .count()
 }
 
 /// Fetch + print today's SPC storm reports (textual gate; markers are painter-drawn).
@@ -4571,6 +4683,102 @@ mod golden_tests {
     /// the debris. Both are invisible to every CPU-side test and obvious in a rendered frame.
     ///
     /// Run with `HOOKECHO_GPU_FALLBACK=1 cargo test -p hookecho -- --ignored gpu`.
+    #[test]
+    #[ignore = "gpu"]
+    fn speed_ordered_velocity_shows_the_inbound_core_a_plain_maximum_hides() {
+        // A couplet-like volume: a -35 m/s inbound core wrapped in a +20 m/s outbound shell, so
+        // every ray through the core crosses the shell. A plain maximum keeps +20 along those
+        // rays and the core never shows; ordered by speed, the core's 35 m/s wins.
+        let (lo, hi) = Moment::Velocity.value_range();
+        let enc = |v: f32| 2 + (((v - lo) / (hi - lo)) * 253.0) as u8;
+        let (n, nz) = (32usize, 16usize);
+        let mut data = vec![0u8; n * n * nz];
+        for k in 0..nz {
+            for j in 0..n {
+                for i in 0..n {
+                    let d = ((i as f32 - 15.5).powi(2)
+                        + (j as f32 - 15.5).powi(2)
+                        + ((k as f32 - 7.5) * 2.0).powi(2))
+                    .sqrt();
+                    let v = if d < 6.0 {
+                        Some(-35.0)
+                    } else if d < 12.0 {
+                        Some(20.0)
+                    } else {
+                        None
+                    };
+                    if let Some(v) = v {
+                        data[i + n * j + n * n * k] = enc(v);
+                    }
+                }
+            }
+        }
+        let plain_v3 = wxdata::volume3d::Volume3d {
+            data,
+            n,
+            nz,
+            half_km: 20.0,
+            top_km: 10.0,
+            value_min: lo,
+            value_max: hi,
+        };
+        let table = crate::colormap::default_table(Moment::Velocity);
+        let upload =
+            |v3: &wxdata::volume3d::Volume3d, lut: [u8; 1024]| crate::render3d::Volume3dUpload {
+                data: crate::render3d::pack_rg8(&v3.data),
+                n: v3.n as u32,
+                nz: v3.nz as u32,
+                lut: lut.to_vec(),
+                half_km: v3.half_km,
+                top_km: v3.top_km,
+                outside: 0.0,
+            };
+        let plain = upload(&plain_v3, crate::colormap::bake_lut(table, (lo, hi), None));
+        let mut folded_v3 = wxdata::volume3d::Volume3d {
+            data: plain_v3.data.clone(),
+            ..plain_v3
+        };
+        wxdata::volume3d::fold_by_speed(&mut folded_v3);
+        let folded = upload(
+            &folded_v3,
+            crate::colormap::speed_lut(table, folded_v3.value_max),
+        );
+
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        // Inbound is green and outbound red in the stock velocity palette.
+        let count = |rgba: &[u8]| {
+            let (mut inbound, mut outbound) = (0usize, 0usize);
+            for p in rgba.as_chunks::<4>().0 {
+                let (r, g) = (p[0] as i16, p[1] as i16);
+                if g > r + 20 {
+                    inbound += 1;
+                } else if r > g + 20 {
+                    outbound += 1;
+                }
+            }
+            (inbound, outbound)
+        };
+        let Ok(plain_px) = render_volume_once(&rt, &plain, crate::render3d::View3d::default())
+        else {
+            println!("SKIP: no wgpu adapter");
+            return;
+        };
+        let folded_px =
+            render_volume_once(&rt, &folded, crate::render3d::View3d::default()).unwrap();
+        let (pi, po) = count(&plain_px);
+        let (fi, fo) = count(&folded_px);
+        println!("plain: {pi} inbound / {po} outbound; by speed: {fi} inbound / {fo} outbound");
+        assert!(po > 0, "the outbound shell draws either way");
+        assert!(
+            fi > pi * 4 + 100,
+            "ordered by speed the inbound core shows ({fi} vs {pi} px)"
+        );
+        assert!(fo > 0, "outbound wind outside the core still shows");
+    }
+
     #[test]
     #[ignore = "gpu"]
     fn cc_anomaly_fades_high_correlation_and_keeps_low() {

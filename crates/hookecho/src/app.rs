@@ -15782,6 +15782,13 @@ impl HookEchoApp {
             Some(tag) => format!("{name}\u{1}{tag}"),
             None => name,
         };
+        // Max reflectivity: the column maximum over every tilt stands in for the one tilt.
+        let column_max = self.views[idx].column_max && moment == Moment::Reflectivity;
+        let name = if column_max {
+            format!("{name}\u{2}max")
+        } else {
+            name
+        };
         let uv_key = storm_uv.map(|(e, n)| (e.to_bits(), n.to_bits()));
         // Dealiasing only applies to Doppler velocity, and only where it is actually folded:
         // a TDWR's Level 3 velocity is already unfolded before it leaves the radar.
@@ -15856,7 +15863,12 @@ impl HookEchoApp {
             if vol.elevations.is_empty() {
                 return (None, true);
             }
-            vol.binned(moment, tilt, dealias).map(|s| {
+            let sweep = if column_max {
+                vol.column_max(moment)
+            } else {
+                vol.binned(moment, tilt, dealias)
+            };
+            sweep.map(|s| {
                 if want_age {
                     ring = ScanAgeRing::from_sweep(s);
                 }
@@ -16155,7 +16167,12 @@ impl HookEchoApp {
                             self.smooth_spec(idx, loop_quality),
                             self.views[data].volume.as_mut(),
                         ) {
-                            let sweeps = vol.moment_tilts(resample_moment);
+                            // Velocity dealiased, so folded gates do not read as false couplets.
+                            let sweeps = if resample_moment == Moment::Velocity {
+                                vol.velocity_tilts_dealiased()
+                            } else {
+                                vol.moment_tilts(resample_moment)
+                            };
                             let mask = crate::loop3d::masked_by_reflectivity(resample_moment)
                                 .then(|| vol.moment_tilts(Moment::Reflectivity));
                             if !sweeps.is_empty() {
@@ -16197,12 +16214,22 @@ impl HookEchoApp {
             Map3dRepresentation::SmoothSpectrumWidth => Some(state.sw_floor_ms),
             Map3dRepresentation::SmoothZdr => Some(state.zdr_floor_db),
             Map3dRepresentation::SmoothKdp => Some(state.kdp_floor_deg_km),
+            Map3dRepresentation::SmoothVelocity => Some(state.velocity_floor_ms),
             Map3dRepresentation::SmoothDebris | Map3dRepresentation::ObservedSweeps => None,
         };
-        let threshold_idx = match denoise_floor {
-            Some(floor) if state.denoise_enabled => {
-                crate::render3d::threshold_index(floor, resample_moment.value_range())
+        // Velocity's volume is indexed by speed (`fold_by_speed`), so its floor and ceiling are
+        // speeds: the floor is the outbound index at that speed (inbound sits one above it) and
+        // the ceiling the inbound one, so both directions are kept alike.
+        let speed_scale =
+            (resample_moment == Moment::Velocity).then(|| resample_moment.value_range().1);
+        let value_index = |v: f32, top: bool| match speed_scale {
+            Some(vmax) => {
+                (wxdata::volume3d::speed_index(v, vmax) + u8::from(top && v < vmax)) as f32
             }
+            None => crate::render3d::threshold_index(v, resample_moment.value_range()),
+        };
+        let threshold_idx = match denoise_floor {
+            Some(floor) if state.denoise_enabled => value_index(floor.abs(), false),
             _ => 2.0,
         };
         // Debris is the CC representation, so it gets the anomaly ramp. `inverted: true` because
@@ -16218,7 +16245,7 @@ impl HookEchoApp {
         };
         let ceiling_idx = match state.ceilings[state.representation as usize] {
             Some(top) if denoise_floor.is_some() && state.denoise_enabled => {
-                crate::render3d::threshold_index(top, resample_moment.value_range())
+                value_index(top.abs(), true)
             }
             _ => 0.0,
         };
@@ -16411,6 +16438,17 @@ impl HookEchoApp {
             )
             .response
             .on_hover_text("Regularized KDP volume — heavy rain and melting-hail cores");
+            ui.add_enabled_ui(volume_supported && moment == Moment::Velocity, |ui| {
+                ui.selectable_value(
+                    &mut view.map_3d.representation,
+                    Map3dRepresentation::SmoothVelocity,
+                    "VEL",
+                )
+            })
+            .response
+            .on_hover_text(
+                "Dealiased velocity volume, strongest wind along each line of sight in                  either direction: both halves of a couplet show, inbound and outbound in                  their own colours. Where strong inbound meets strong outbound the boundary                  takes one colour or the other.",
+            );
         });
         ui.add(
             egui::Slider::new(
@@ -16590,6 +16628,7 @@ impl HookEchoApp {
                     | Map3dRepresentation::SmoothSpectrumWidth
                     | Map3dRepresentation::SmoothZdr
                     | Map3dRepresentation::SmoothKdp
+                    | Map3dRepresentation::SmoothVelocity
             ) {
                 ui.checkbox(&mut view.map_3d.smooth_full_range, "Full range")
                     .on_hover_text(
@@ -16614,7 +16653,9 @@ impl HookEchoApp {
             if let Some((built, total)) = loop_progress.filter(|(b, t)| b < t) {
                 ui.weak(format!("Loop 3D: {built} of {total} frames built"))
                     .on_hover_text(
-                        "Playback waits briefly for each frame's 3D, so the volume                          always matches the time shown. Loop frames use a smaller grid;                          pause to see the frame at full resolution.",
+                        "Playback waits briefly for each frame's 3D, so the volume always matches \
+                         the time shown. Loop frames use a smaller grid; pause to see \
+                         the frame at full resolution.",
                     );
             }
             if view.map_3d.representation == Map3dRepresentation::SmoothDebris {
@@ -16645,6 +16686,12 @@ impl HookEchoApp {
                     &mut view.map_3d.kdp_floor_deg_km,
                     Moment::SpecificDifferentialPhase.value_range(),
                     " °/km",
+                )),
+                // A speed, either direction.
+                Map3dRepresentation::SmoothVelocity => Some((
+                    &mut view.map_3d.velocity_floor_ms,
+                    (0.0, Moment::Velocity.value_range().1),
+                    " m/s",
                 )),
                 Map3dRepresentation::SmoothDebris | Map3dRepresentation::ObservedSweeps => None,
             };
