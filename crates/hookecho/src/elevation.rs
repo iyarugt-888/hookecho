@@ -65,7 +65,7 @@ pub fn decode_height(rgb: [u8; 3]) -> f32 {
 
 pub fn tile_url(x: u32, y: u32) -> String {
     let z = zoom();
-    format!("https://s3.amazonaws.com/elevation-tiles-prod/{DEM_PROVIDER}/{z}/{x}/{y}.png")
+    format!("https://elevation-tiles-prod.s3.amazonaws.com/{DEM_PROVIDER}/{z}/{x}/{y}.png")
 }
 
 /// Disk path a DEM tile caches at. Mirrors the basemap layout (`<root>/<provider>/default/z/x/y`)
@@ -155,6 +155,89 @@ pub async fn elevation_m(client: &reqwest::Client, lat: f64, lon: f64) -> Option
         c.put((tx, ty), decoded.clone());
     }
     sample(&decoded)
+}
+
+/// Heights (metres MSL; `NaN` where no tile could be had) for an `nx x ny` grid over `[west,
+/// south, east, north]`, row 0 north, read at DEM zoom `z`: each tile the grid touches is fetched
+/// once (through the same disk cache) and every point interpolated in it. For the 3D map's
+/// terrain, which samples every few kilometres: at z7 (~1.2 km a pixel) a view needs a handful
+/// of tiles where z10 would need hundreds.
+pub async fn elevation_grid(
+    client: &reqwest::Client,
+    bounds: [f64; 4],
+    nx: usize,
+    ny: usize,
+    z: u8,
+) -> Vec<f32> {
+    use std::collections::HashMap;
+    let [west, south, east, north] = bounds;
+    let n = (1u32 << z) as f64;
+    let locate = |lon: f64, lat: f64| -> Option<(u32, u32, f64, f64)> {
+        if !(-85.05..=85.05).contains(&lat) {
+            return None;
+        }
+        let fx = (lon + 180.0) / 360.0 * n;
+        let fy = (1.0 - lat.to_radians().tan().asinh() / std::f64::consts::PI) / 2.0 * n;
+        if !fx.is_finite() || !fy.is_finite() || fy < 0.0 || fy >= n {
+            return None;
+        }
+        let (tx, ty) = (fx.floor(), fy.floor());
+        Some((
+            (tx as i64).rem_euclid(1i64 << z) as u32,
+            ty as u32,
+            ((fx - tx) * 256.0).clamp(0.0, 255.0),
+            ((fy - ty) * 256.0).clamp(0.0, 255.0),
+        ))
+    };
+    let points: Vec<Option<(u32, u32, f64, f64)>> = (0..ny)
+        .flat_map(|j| {
+            let lat = north - (north - south) * j as f64 / (ny.max(2) - 1) as f64;
+            (0..nx).map(move |i| (i, lat))
+        })
+        .map(|(i, lat)| {
+            locate(
+                west + (east - west) * i as f64 / (nx.max(2) - 1) as f64,
+                lat,
+            )
+        })
+        .collect();
+    let mut tiles: HashMap<(u32, u32), Option<Vec<f32>>> = HashMap::new();
+    for (tx, ty, ..) in points.iter().flatten() {
+        if tiles.contains_key(&(*tx, *ty)) {
+            continue;
+        }
+        let url = format!(
+            "https://elevation-tiles-prod.s3.amazonaws.com/{DEM_PROVIDER}/{z}/{tx}/{ty}.png"
+        );
+        let path = crate::paths::cache_dir().map(|d| {
+            d.join("tiles")
+                .join(DEM_PROVIDER)
+                .join("default")
+                .join(format!("{z}/{tx}/{ty}"))
+        });
+        let heights = crate::tiles::load_tile_bytes(client, &url, path.as_deref())
+            .await
+            .ok()
+            .and_then(|b| image::load_from_memory(&b).ok())
+            .map(|img| img.to_rgb8())
+            .filter(|rgb| rgb.dimensions() == (256, 256))
+            .map(|rgb| {
+                rgb.pixels()
+                    .map(|p| decode_height([p[0], p[1], p[2]]))
+                    .collect::<Vec<f32>>()
+            });
+        tiles.insert((*tx, *ty), heights);
+    }
+    points
+        .into_iter()
+        .map(|p| {
+            p.and_then(|(tx, ty, px, py)| {
+                let t = tiles.get(&(tx, ty))?.as_ref()?;
+                Some(bilinear(t, px, py))
+            })
+            .unwrap_or(f32::NAN)
+        })
+        .collect()
 }
 
 /// Half-power half-beamwidth of the WSR-88D (0.95° full width).

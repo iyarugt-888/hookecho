@@ -1093,6 +1093,27 @@ fn same_slot(a: Moment, b: Moment) -> bool {
     slot(a) == slot(b)
 }
 
+/// Make a velocity sweep storm-relative: subtract, from every gate, the part of the storm motion
+/// `(u, v)` (m/s, toward east and north) that lies along its beam, `(u·sin az + v·cos az)·cos e`.
+/// What the 2D storm-relative view does in its shader, done to the data, for the 3D volume.
+/// Range-folded and empty gates are left alone; values are re-encoded on the sweep's own range.
+pub fn storm_relative(sweep: &mut BinnedSweep, u: f32, v: f32) {
+    let (az_bins, gates) = (sweep.az_bins, sweep.gate_count);
+    let span = (sweep.value_max - sweep.value_min).max(f32::EPSILON);
+    let cos_e = (sweep.elevation_deg as f64).to_radians().cos() as f32;
+    for a in 0..az_bins {
+        let az = ((a as f64 + 0.5) / az_bins as f64 * std::f64::consts::TAU) as f32;
+        let along = (u * az.sin() + v * az.cos()) * cos_e;
+        for idx in &mut sweep.data[a * gates..(a + 1) * gates] {
+            if *idx < 2 {
+                continue;
+            }
+            let value = sweep.value_min + (*idx as f32 - 2.0) / 253.0 * span - along;
+            *idx = 2 + (((value - sweep.value_min) / span).clamp(0.0, 1.0) * 253.0).round() as u8;
+        }
+    }
+}
+
 /// Correlation coefficient below which a weak echo is taken for non-weather (birds, insects,
 /// ground clutter, chaff, smoke): rain and snow hold CC near 0.95-1, the melting layer rarely
 /// dips under 0.85, and biological and clutter returns sit around 0.3-0.8.
@@ -1689,6 +1710,45 @@ mod tests {
                 100.0 * gates(&light) as f64 / gates(&scan) as f64
             );
         }
+    }
+
+    #[test]
+    fn storm_relative_takes_the_storm_motion_off_each_beam() {
+        let (lo, hi) = Moment::Velocity.value_range();
+        let enc = |v: f32| 2 + (((v - lo) / (hi - lo)) * 253.0).round() as u8;
+        let dec = |i: u8| lo + (i as f32 - 2.0) / 253.0 * (hi - lo);
+        // Four azimuths (N, E, S, W centres at 45° steps is fine: 8 bins), all reading the
+        // storm's own motion of 20 m/s toward the east: storm-relative, nothing is left.
+        let az_bins = 8;
+        let mut data = Vec::new();
+        for a in 0..az_bins {
+            let az = ((a as f32 + 0.5) / az_bins as f32) * std::f32::consts::TAU;
+            data.push(enc(20.0 * az.sin()));
+        }
+        data.push(0); // an empty gate stays empty
+        let mut s = BinnedSweep {
+            moment: Moment::Velocity,
+            az_bins,
+            gate_count: 1,
+            data: data[..az_bins].to_vec(),
+            value_min: lo,
+            value_max: hi,
+            ..Default::default()
+        };
+        storm_relative(&mut s, 20.0, 0.0);
+        for (a, i) in s.data.iter().enumerate() {
+            assert!(dec(*i).abs() < 1.1, "bin {a}: {}", dec(*i));
+        }
+        let mut empty = BinnedSweep {
+            data: vec![0, 1],
+            az_bins: 1,
+            gate_count: 2,
+            value_min: lo,
+            value_max: hi,
+            ..Default::default()
+        };
+        storm_relative(&mut empty, 20.0, 0.0);
+        assert_eq!(empty.data, vec![0, 1]);
     }
 
     #[test]

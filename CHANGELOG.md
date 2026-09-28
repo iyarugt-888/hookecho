@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: terrain and storm-relative velocity in 3D
+
+The 3D map has a Terrain checkbox: the ground drawn as a shaded surface at its real height, green
+lowland through brown to grey rock, at the same vertical exaggeration as the radar, so beams and
+cores read against the ridges under them. The VEL volume in 3D is now storm-relative when SRV is
+on, with the storm motion it took off shown under the 3D controls.
+
 ### Fixed: satellite imagery for older archive cases
 
 Satellite layers on an archive case from before 2025 (East) or 2023 (West) showed nothing: they

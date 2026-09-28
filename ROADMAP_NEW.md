@@ -2774,7 +2774,7 @@ This is useful for model bias and boundary evolution.
 
 Current `wxdata::volume3d` resamples reflectivity into a Cartesian 3D grid and `render3d.rs` displays it. Build on this rather than replacing it blindly.
 
-## H1. Multi-moment 3D — done, apart from SRV and user-defined products
+## H1. Multi-moment 3D — done, apart from user-defined products
 
 Support 3D for (the map's 3D view, `view::Map3dRepresentation`, one resampled volume per
 moment through `smooth_moment()`):
@@ -2790,7 +2790,11 @@ moment through `smooth_moment()`):
   `speed_ordered_velocity_shows_the_inbound_core_a_plain_maximum_hides`). Stated limit: the
   GPU's trilinear filtering can land either sign at the thin boundary where strong inbound meets
   strong outbound. `--headless-3d SITE out.png --moment VEL [--threshold M/S]` renders it.
-- [ ] storm-relative velocity in 3D — the volume is ground-relative
+- [x] storm-relative velocity in 3D — with SRV on, the pane's storm motion is taken off every
+  dealiased sweep before resampling (`level2::storm_relative`: `u·sin(az) + v·cos(az)` per beam,
+  tested), in both the Smooth and the isosurface builds; the motion is part of the cache keys, so
+  changing it rebuilds. The 3D controls say which it is ("Storm-relative: 25 kt from 240° taken
+  off" or "Ground-relative")
 - [x] ZDR — "ZDR" (`SmoothZdr`): ZDR columns above the melting level, with a 1 dB denoise floor
 - [x] CC — "Debris" (inverted, low CC wins the maximum; built earlier)
 - [x] KDP — "KDP" (`SmoothKdp`): heavy-rain and melting-hail cores, 0.5 °/km floor
@@ -2916,7 +2920,7 @@ sweeps (`level2::layer_summary`), and the window's build key includes the select
 the browser on KTLX: 6.5° and 2.5° pulled out, their stats listed, and the view redrawn as the
 two cones.
 
-## H5. Beam visualization in 3D — done, apart from terrain
+## H5. Beam visualization in 3D — done
 
 A "Beam guides" checkbox in the 3D map controls (`Map3dState::beam_guides`,
 `render3d::beam_guides`) draws, over the pitched map, the geometry every observed gate sits on,
@@ -2930,7 +2934,11 @@ test helper), so the guides line up with the sweeps at any vertical exaggeration
 - [x] approximate beamwidth — dashed edges at ±0.475° (`render3d::BEAMWIDTH_DEG` = 0.95°)
 - [x] radar location/elevation — the mast from the site's ground elevation to the antenna
   (ground plus the tower height)
-- [ ] terrain surface option — no terrain elevation data is loaded in 3D
+- [x] terrain surface option — a "Terrain" checkbox (`Map3dState::terrain`, `app/terrain3d.rs`)
+  samples the AWS terrarium DEM (`elevation::elevation_grid`, z7, 150×150) over up to ±3° around
+  the camera, in the background, and draws it as a hypsometric surface (green lowland, tan, brown,
+  grey rock) at the 3D map's vertical exaggeration, under every other surface. Checked in the
+  browser on KFTG: the Front Range and Rockies stand up west of the radar, the plains lie flat east
 
 Checked in the browser on KTLX: rings, beams and edges drawn over the observed sweeps, separating
 as the vertical exaggeration goes up.
@@ -4553,7 +4561,8 @@ Pro:
 
 GR2Analyst 3D (see Phase H): isosurfaces, nested shells, slicing planes, clip box, CAPPI plane,
 beam guides, loops (H8) and velocity (H1) are done; the opacity-curve editor and presets (H2) are done
-too; still open are terrain (H5), storm-relative velocity and user-defined products in 3D (H1).
+too, and so are terrain (H5) and storm-relative velocity (H1); still open are user-defined
+products in 3D (H1).
 
 ## WSV3-class gaps
 

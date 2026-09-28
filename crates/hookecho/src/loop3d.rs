@@ -20,11 +20,22 @@ use crate::render3d::Volume3dUpload;
 
 /// What a Smooth volume was built from: volume name, live revision (0 for a complete archived
 /// volume), resampled moment, full range, and loop quality (the smaller grid used for playback).
-pub type SmoothKey = (String, u64, Moment, bool, bool);
+/// The last element is the storm motion taken off a storm-relative velocity volume (`f32` bits of
+/// east and north m/s), `None` when it is ground-relative.
+pub type SmoothKey = (String, u64, Moment, bool, bool, Option<(u32, u32)>);
 
 /// What an isosurface was built from: volume name, live revision (0 for a complete volume),
 /// moment, threshold bits, smooth, and the nested-shell spacing bits (`None` = a single shell).
-pub type IsoKey = (String, u64, Moment, u32, bool, Option<u32>);
+/// The last element is the storm motion, as in [`SmoothKey`].
+pub type IsoKey = (
+    String,
+    u64,
+    Moment,
+    u32,
+    bool,
+    Option<u32>,
+    Option<(u32, u32)>,
+);
 
 /// One isosurface shell: its value, how deep it is nested (0 = outermost), and its mesh.
 pub type IsoShell = (f32, usize, wxdata::isosurface::IsoMesh);
@@ -288,15 +299,27 @@ pub struct SmoothSpec {
     pub max_dim: usize,
     pub max_voxels: usize,
     pub top_km: f32,
+    /// Storm motion `(east, north)` m/s to take off a velocity volume (storm-relative).
+    pub storm_uv: Option<(f32, f32)>,
+}
+
+/// Take the storm motion off each velocity sweep, when there is one.
+fn apply_storm_motion(sweeps: &mut [BinnedSweep], moment: Moment, uv: Option<(f32, f32)>) {
+    if let (Moment::Velocity, Some((u, v))) = (moment, uv) {
+        for s in sweeps {
+            wxdata::level2::storm_relative(s, u, v);
+        }
+    }
 }
 
 /// Resample `sweeps` into the Smooth volume the map raymarches.
 pub fn build_smooth(sweeps: Sweeps, spec: &SmoothSpec) -> Option<Volume3dUpload> {
     let masked = masked_by_reflectivity(spec.moment);
-    let (sweeps, mask) = sweeps.resolve(spec.moment, true, masked);
+    let (mut sweeps, mask) = sweeps.resolve(spec.moment, true, masked);
     if sweeps.is_empty() {
         return None;
     }
+    apply_storm_motion(&mut sweeps, spec.moment, spec.storm_uv);
     // Derive the volume's horizontal extent from what this scan actually sampled instead of a
     // fixed radius that clipped far storms out of the volume.
     let full_km = wxdata::volume3d::max_sample_range_km(&sweeps).max(50.0);
@@ -358,15 +381,18 @@ pub struct IsoSpec {
     pub smooth: bool,
     pub max_dim: usize,
     pub top_km: f32,
+    /// Storm motion to take off a velocity volume, as in [`SmoothSpec`].
+    pub storm_uv: Option<(f32, f32)>,
 }
 
 /// Build the isosurface shells of `sweeps`. Velocity is dealiased first, so a folded couplet does
 /// not grow false inbound/outbound shells.
 pub fn build_iso(sweeps: Sweeps, spec: &IsoSpec) -> Option<Vec<IsoShell>> {
-    let (sweeps, _) = sweeps.resolve(spec.moment, true, false);
+    let (mut sweeps, _) = sweeps.resolve(spec.moment, true, false);
     if sweeps.is_empty() {
         return None;
     }
+    apply_storm_motion(&mut sweeps, spec.moment, spec.storm_uv);
     let full = wxdata::volume3d::max_sample_range_km(&sweeps).max(50.0);
     let half = wxdata::volume3d::echo_extent_km(&sweeps, full).half_km;
     let (n, nz) =

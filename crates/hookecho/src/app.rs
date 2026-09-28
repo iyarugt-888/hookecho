@@ -20,6 +20,7 @@ mod pane_time;
 mod radar_wind;
 mod region_stats;
 mod report;
+mod terrain3d;
 pub(crate) use field_state::FieldState;
 use goes_timeline::nearest_goes;
 mod mobile;
@@ -4512,6 +4513,8 @@ pub struct HookEchoApp {
     wind_fetched: Option<(wxdata::hrrr::WindLevel, u8)>,
     /// Wind particles from the radar's Doppler velocity instead of the HRRR.
     radar_wind: radar_wind::RadarWindState,
+    /// The ground under the 3D map (ROADMAP_NEW H5).
+    terrain3d: terrain3d::Terrain3d,
     wind_last_fetch: Option<Instant>,
     /// When the in-flight fetch started, or `None` if none is. One at a time: 10 m u+v is 4.5 MB
     /// an hour, and a fast scrub across the forecast tail would otherwise queue ~82 MB of GRIB
@@ -5795,6 +5798,7 @@ impl HookEchoApp {
             wind_uploaded: None,
             wind_fetched: None,
             radar_wind: Default::default(),
+            terrain3d: Default::default(),
             wind_last_fetch: None,
             wind_inflight: None,
             wind_last_frame: None,
@@ -14010,6 +14014,7 @@ impl HookEchoApp {
             moment,
             state.smooth_full_range,
             loop_quality,
+            v.storm_motion_uv().map(|(u, n)| (u.to_bits(), n.to_bits())),
         ))
     }
 
@@ -14028,6 +14033,7 @@ impl HookEchoApp {
             spec.value.to_bits(),
             spec.smooth,
             spec.step.map(f32::to_bits),
+            spec.storm_uv.map(|(u, n)| (u.to_bits(), n.to_bits())),
         ))
     }
 
@@ -14042,6 +14048,7 @@ impl HookEchoApp {
             smooth: state.iso_smooth,
             max_dim: self.vol3d_max_dim,
             top_km: VOL3D_TOP_KM,
+            storm_uv: v.storm_motion_uv(),
         }
     }
 
@@ -14060,6 +14067,7 @@ impl HookEchoApp {
                 crate::loop3d::SMOOTH_MAX_VOXELS
             },
             top_km: VOL3D_TOP_KM,
+            storm_uv: self.views[idx].storm_motion_uv(),
         })
     }
 
@@ -16722,6 +16730,11 @@ impl HookEchoApp {
             );
         ui.checkbox(&mut view.map_3d.height_ruler, "Height ruler")
             .on_hover_text("A km MSL ruler standing at the view's centre, labelled every 4 km");
+        ui.checkbox(&mut view.map_3d.terrain, "Terrain")
+            .on_hover_text(
+                "The ground as a shaded surface at its height (AWS terrain tiles), at the same \
+                 vertical exaggeration as everything else",
+            );
         ui.checkbox(&mut view.map_3d.beam_guides, "Beam guides")
             .on_hover_text(
                 "Draw the radar's beam geometry: each tilt's cone as rings at 50-200 km (low tilts cyan, high magenta), the lowest and highest beams toward the view with their 0.95° beamwidth edges, and the antenna mast",
@@ -16817,6 +16830,17 @@ impl HookEchoApp {
             }
             if behind {
                 ui.weak("3D is still the previous scan's; building this one");
+            }
+            if view.map_3d.representation == Map3dRepresentation::SmoothVelocity {
+                ui.weak(if view.srv {
+                    format!(
+                        "Storm-relative: {:.0} kt from {:.0}\u{b0} taken off (SRV)",
+                        view.storm_speed_kt,
+                        (view.storm_dir_deg + 180.0).rem_euclid(360.0)
+                    )
+                } else {
+                    "Ground-relative (turn on SRV for storm-relative)".to_string()
+                });
             }
             if let Some((built, total)) = loop_progress.filter(|(b, t)| b < t) {
                 ui.weak(format!("Loop 3D: {built} of {total} frames built"))
@@ -21119,6 +21143,31 @@ impl HookEchoApp {
                         ));
                     }
                 }
+            }
+        }
+
+        // The ground itself (ROADMAP_NEW H5), first so every other surface and shell draws over it.
+        if self.views[idx].map_3d.enabled && self.views[idx].map_3d.terrain {
+            if let Some(field) = self.terrain3d.grid.as_ref() {
+                let v = &self.views[idx];
+                let b = [
+                    field.lon_west,
+                    field.lat_south,
+                    field.lon_east,
+                    field.lat_north,
+                ];
+                let (mesh, _) = crate::render3d::height_surface_screen(
+                    &cam,
+                    vp,
+                    prect.min,
+                    field,
+                    b,
+                    150,
+                    v.map_3d.vertical_exaggeration as f64,
+                    0.55,
+                    |km| Some(terrain3d::terrain_color(km)),
+                );
+                painter.add(egui::Shape::mesh(mesh));
             }
         }
 
@@ -27166,6 +27215,7 @@ impl eframe::App for HookEchoApp {
         self.sync_boundaries(ctx);
         self.sync_impacts(ctx);
         self.sync_radar_wind(ctx);
+        self.sync_terrain3d(ctx);
         // One Smoothing toggle for radar and every gridded layer.
         crate::render::set_field_smoothing(self.settings.smooth_radar);
         self.sync_model_isotherms();

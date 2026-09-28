@@ -33,6 +33,12 @@ pub const CORS_OK: &[&str] = &[
     // build asks ORNL directly and the proxy allowlist stays untouched.
     "ornl.opendatasoft.com",
     "unidata-nexrad-level2-chunks.s3.amazonaws.com",
+    // Terrain tiles, the older GOES satellites' archives and ECMWF's AWS mirror all send
+    // `Access-Control-Allow-Origin: *`: asked directly, they need no proxy allowlist entry.
+    "elevation-tiles-prod.s3.amazonaws.com",
+    "noaa-goes16.s3.amazonaws.com",
+    "noaa-goes17.s3.amazonaws.com",
+    "ecmwf-forecasts.s3.eu-central-1.amazonaws.com",
 ];
 
 /// How long any one feed request may take.

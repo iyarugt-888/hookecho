@@ -3519,6 +3519,7 @@ fn run_3d_velocity(
         max_dim: 2048,
         max_voxels: crate::loop3d::SMOOTH_LOOP_MAX_VOXELS,
         top_km: 18.0,
+        storm_uv: None,
     };
     let folded = crate::loop3d::build_smooth(
         crate::loop3d::Sweeps::Scan(std::sync::Arc::new(scan)),
