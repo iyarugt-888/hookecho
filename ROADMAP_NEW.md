@@ -2812,7 +2812,9 @@ moment through `smooth_moment()`):
   inputs are and nowhere else, quantization, the auto range, split-cut pairing; end to end on a
   live KTLX scan (`--headless-3d --product "REF - 5 * max(ZDR, 0)"`, GPU test
   `a_user_product_draws_in_3d_from_a_live_scan`): a 912×912×48 volume, 175k product pixels,
-  83k with a floor of 0
+  83k with a floor of 0. Checked in the browser on live KTLX: a "Hail core" product added in the
+  User products window, drawn from "User" in the 3D controls (-46.9 to 9.65), and a Denoise floor
+  of -15 leaving only its cores
 
 ZDR and KDP are noise in weak echo, and a maximum-intensity raymarch finds the noise first: the
 first live look at ZDR was one colour across the whole volume. Both are now masked by a
