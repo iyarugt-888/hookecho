@@ -2918,7 +2918,7 @@ test helper), so the guides line up with the sweeps at any vertical exaggeration
 Checked in the browser on KTLX: rings, beams and edges drawn over the observed sweeps, separating
 as the vertical exaggeration goes up.
 
-## H6. 3D overlay fusion — partly done: MRMS and satellite surfaces
+## H6. 3D overlay fusion — done
 
 After radar 3D is mature, add optional:
 
@@ -2934,11 +2934,18 @@ After radar 3D is mature, add optional:
   height, fainter than the MRMS surface and without its grid; it follows the view's time in
   five-minute slots. Checked live (89,097 cloudy cells, highest 17.2 km) and in the browser (the
   plains cloud deck as a translucent sheet over the map).
-- [ ] model isosurfaces for selected scalar fields
+- [x] model isosurfaces for selected scalar fields — the HRRR's latest analysis of the 0, -10 and
+  -20 °C heights (`HGT` at `0C isotherm`, `263 K level`, `253 K level`: temperature isosurfaces,
+  the hail-growth zone), fetched hourly while shown. "HRRR 0/-10/-20 °C surfaces" draws each as a
+  faint sheet with a dashed grid in its own colour (teal, amber, magenta), named with its run at
+  the point nearest the middle of the view. Checked in the browser: the three dashed grids stacked
+  at their heights over the southern plains at 8x vertical. Other model fields (simulated
+  reflectivity, winds) are not offered yet.
 
 Keep observed radar, analyzed MRMS and forecast model geometry visually distinct. — the MRMS
-surface is translucent with a sparse white analysis grid drawn over it, which the observed radar
-volume never has. Tested (a synthetic grid covers only its tops and rises with them) and checked in
+surface is translucent with a solid white analysis grid over it; the satellite sheet is pale grey
+with no grid; the model surfaces are one colour per level with a dashed grid; the observed radar
+has none of these. Tested (a synthetic grid covers only its tops and rises with them) and checked in
 the browser: blue 18 dBZ echo-top shading and grid lines over the storms near Dallas, Oklahoma City
 and Denver, gone with the toggle off.
 

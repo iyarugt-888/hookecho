@@ -4575,6 +4575,10 @@ pub struct HookEchoApp {
     /// GOES cloud top height for the 3D map's satellite surface (ROADMAP_NEW H6), keyed by
     /// (five-minute slot of the view's time, West satellite), and the fetch in flight.
     cloud_top: Option<((i64, bool), wxdata::mrms::MrmsField)>,
+    /// The HRRR's isotherm heights (0, -10, -20 °C, km MSL) for the 3D map's model surfaces
+    /// (ROADMAP_NEW H6), for the hour they were fetched in, with the run they came from.
+    model_isotherms: Option<(i64, ModelIsotherms)>,
+    model_isotherms_rx: Option<(i64, std::sync::mpsc::Receiver<ModelIsotherms>)>,
     cloud_top_rx: Option<(
         (i64, bool),
         std::sync::mpsc::Receiver<wxdata::mrms::MrmsField>,
@@ -5776,6 +5780,8 @@ impl HookEchoApp {
             smooth_vol_key: std::array::from_fn(|_| None),
             iso_mesh: std::array::from_fn(|_| None),
             cloud_top: None,
+            model_isotherms: None,
+            model_isotherms_rx: None,
             cloud_top_rx: None,
             iso_rx: std::array::from_fn(|_| None),
             smooth_vol_info: std::array::from_fn(|_| None),
@@ -13712,6 +13718,69 @@ impl HookEchoApp {
             .is_none_or(|m| src.and_then(|&s| m.get(s)).copied().unwrap_or(true))
     }
 
+    /// Keep the HRRR isotherm heights for the 3D map's model surfaces current: the latest analysis,
+    /// fetched only while some pane shows them and again each hour.
+    fn sync_model_isotherms(&mut self) {
+        if let Some((key, rx)) = &self.model_isotherms_rx {
+            match rx.try_recv() {
+                Ok(fields) => {
+                    self.model_isotherms = Some((*key, fields));
+                    self.model_isotherms_rx = None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => self.model_isotherms_rx = None,
+                Err(std::sync::mpsc::TryRecvError::Empty) => return,
+            }
+        }
+        let wanted = self
+            .views
+            .iter()
+            .any(|v| v.map_3d.enabled && v.map_3d.model_isotherms);
+        if !wanted {
+            return;
+        }
+        let hour = Utc::now().timestamp().div_euclid(3600);
+        if self
+            .model_isotherms
+            .as_ref()
+            .is_some_and(|(k, _)| *k == hour)
+        {
+            return;
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.model_isotherms_rx = Some((hour, rx));
+        let http = self.http.clone();
+        self.spawner.spawn(async move {
+            let mut out = Vec::new();
+            let mut run = None;
+            for (level, label, color) in MODEL_ISOTHERMS {
+                match wxdata::hrrr::fetch_field(
+                    &http,
+                    wxdata::hrrr::Model::Hrrr,
+                    "HGT",
+                    level,
+                    0,
+                    f64::NEG_INFINITY,
+                )
+                .await
+                {
+                    Ok(fc) => {
+                        let mut field = fc.field;
+                        // Geopotential metres; km like every other height layer here.
+                        for v in &mut field.values {
+                            *v /= 1000.0;
+                        }
+                        run = Some(fc.run);
+                        out.push((label, color, field));
+                    }
+                    Err(e) => log::warn!("HRRR {level}: {e:#}"),
+                }
+            }
+            if let Some(run) = run {
+                let _ = tx.send((out, run));
+            }
+        });
+    }
+
     /// Keep the GOES cloud-top-height field for the 3D map's satellite surface current: fetched
     /// only while some pane shows it, for the five-minute slot of the view's time (so it follows
     /// a scrubbed view, and refreshes live as the slot turns over).
@@ -16295,6 +16364,14 @@ impl HookEchoApp {
             "GOES cloud top height (NOAA's ACHA product, 10 km, every 5 minutes) drawn at its \
                  height: pale grey to white, higher is whiter, fainter than the MRMS surface and \
                  without its grid",
+        );
+        ui.checkbox(
+            &mut view.map_3d.model_isotherms,
+            "HRRR 0/-10/-20 °C surfaces",
+        )
+        .on_hover_text(
+            "The HRRR's latest analysis of the 0, -10 and -20 °C heights (the hail-growth zone) \
+                 as model surfaces: one colour per level with a dashed grid, the forecast look",
         );
         ui.checkbox(&mut view.map_3d.beam_guides, "Beam guides")
             .on_hover_text(
@@ -20620,6 +20697,77 @@ impl HookEchoApp {
             }
         }
 
+        // The HRRR's 0, -10 and -20 °C heights as surfaces (ROADMAP_NEW H6): one colour per level,
+        // with a *dashed* grid, the forecast's own look — apart from the observed radar, the
+        // solid-gridded MRMS analysis and the ungridded satellite sheet.
+        if self.views[idx].map_3d.enabled && self.views[idx].map_3d.model_isotherms {
+            if let Some((_, (fields, run))) = self.model_isotherms.as_ref() {
+                let v = &self.views[idx];
+                let corners = [
+                    (0.0, 0.0),
+                    (vp.0, 0.0),
+                    (0.0, vp.1),
+                    (vp.0, vp.1),
+                    (vp.0 * 0.5, vp.1 * 0.5),
+                ]
+                .map(|p| {
+                    let w = cam.screen_to_world(p, vp);
+                    crate::render::mercator::world_to_lonlat(w.0, w.1)
+                });
+                let (clon, clat) = corners[4];
+                let mut b = [f64::MAX, f64::MAX, f64::MIN, f64::MIN];
+                for (lon, lat) in corners {
+                    b = [b[0].min(lon), b[1].min(lat), b[2].max(lon), b[3].max(lat)];
+                }
+                let b = [
+                    b[0].max(clon - 8.0),
+                    b[1].max(clat - 6.0),
+                    b[2].min(clon + 8.0),
+                    b[3].min(clat + 6.0),
+                ];
+                // Highest first, so the lower, nearer surfaces paint over the ones above them.
+                for (label, color, field) in fields.iter().rev() {
+                    let (mesh, lines) = crate::render3d::height_surface_screen(
+                        &cam,
+                        vp,
+                        prect.min,
+                        field,
+                        b,
+                        // Smooth model fields: a coarse sheet reads the same and costs a third.
+                        40,
+                        v.map_3d.vertical_exaggeration as f64,
+                        0.12,
+                        |_| Some(*color),
+                    );
+                    // Where to name it: the surface point nearest the middle of the pane.
+                    let centre = prect.center();
+                    let anchor = mesh
+                        .vertices
+                        .iter()
+                        .map(|v| v.pos)
+                        .min_by(|a, b| a.distance(centre).total_cmp(&b.distance(centre)));
+                    painter.add(egui::Shape::mesh(mesh));
+                    let stroke = egui::Stroke::new(
+                        1.2,
+                        egui::Color32::from_rgba_unmultiplied(color[0], color[1], color[2], 220),
+                    );
+                    for l in &lines {
+                        painter.extend(egui::Shape::dashed_line(l, stroke, 4.0, 4.0));
+                    }
+                    // Its name, so each sheet says what it is.
+                    if let Some(p) = anchor {
+                        painter.text(
+                            p,
+                            egui::Align2::CENTER_BOTTOM,
+                            format!("{label} · {}Z run", run.format("%H")),
+                            egui::FontId::proportional(11.0),
+                            egui::Color32::from_rgb(color[0], color[1], color[2]),
+                        );
+                    }
+                }
+            }
+        }
+
         // Beam guides over the 3D map (ROADMAP_NEW H5): the geometry every observed gate sits on.
         if self.views[idx].map_3d.enabled && self.views[idx].map_3d.beam_guides {
             let v = &self.views[idx];
@@ -23324,6 +23472,19 @@ type ImportedTime = (
     (Option<String>, Option<String>),
     crate::gis_import::TimeBounds,
 );
+
+/// The HRRR isotherm-height surfaces: `(label, colour, heights in km MSL)` per level, and the run.
+type ModelIsotherms = (
+    Vec<(&'static str, [u8; 3], wxdata::mrms::MrmsField)>,
+    DateTime<Utc>,
+);
+
+/// The model isotherms drawn in 3D: HRRR level name, label, colour.
+const MODEL_ISOTHERMS: [(&str, &str, [u8; 3]); 3] = [
+    ("0C isotherm", "HRRR 0 °C", [60, 210, 190]),
+    ("263 K level", "HRRR -10 °C", [245, 185, 70]),
+    ("253 K level", "HRRR -20 °C", [230, 90, 220]),
+];
 
 /// What an isosurface was built from: volume name, live revision, moment, threshold bits, smooth.
 type IsoKey = (String, u64, Moment, u32, bool);
@@ -26394,6 +26555,7 @@ impl eframe::App for HookEchoApp {
             self.sync_isosurface(idx);
         }
         self.sync_cloud_top();
+        self.sync_model_isotherms();
         self.sync_overlay();
 
         // Streaming mode's broadcast dressing: clock, caption, crawl, logo.

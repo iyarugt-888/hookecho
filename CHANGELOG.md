@@ -71,6 +71,8 @@ The 3D Reflectivity window has the 3D map's layer-by-layer tilt list: pick tilts
 beams as scanned, with each tilt's coverage, strongest reading and scan time.
 The 3D map can also draw GOES cloud top height as a translucent sheet at its height, whiter where
 the tops are higher.
+And the HRRR's 0, -10 and -20 °C heights as dashed, coloured model surfaces: the hail-growth zone
+in 3D above the storms.
 
 ### Added: GOES RGB composites
 
