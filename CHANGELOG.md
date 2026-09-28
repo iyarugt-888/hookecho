@@ -8,6 +8,13 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: user-defined products in 3D
+
+Any user product you've written (Tools > User products) can now be drawn as a 3D volume: pick
+"User" in the 3D controls, then the product. It's worked out at every gate of the scan and drawn
+like reflectivity or ZDR, with the same Denoise floor, ceiling, opacity curve and presets in the
+product's own units. Products can also carry a value range for their palette.
+
 ### Added: globe
 
 Turn on Globe (Reference layers) and the zoomed-out map becomes a planet you spin by dragging,

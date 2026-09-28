@@ -1524,8 +1524,10 @@ Use TOML/JSON/YAML-like portable definitions containing:
 - [ ] input moments — not stored explicitly; a product implicitly reads whatever inputs its
   expression references, discovered at evaluation time rather than declared up front
 - [x] expression
-- [ ] default palette — meaningless without a render path to apply one to
-- [ ] min/max
+- [x]/[ ] default palette — the 3D volume draws a product with a fixed perceptual ramp
+  (`colormap::ramp_table`) across its range; a product cannot name its own palette yet
+- [x] min/max — `ProductDef::range` (optional; without it the 2nd–98th percentile of what the
+  product produced, `udp_volume::auto_range`)
 - [ ] missing value — `None`/"—" always means missing; there is no way to configure a different
   sentinel
 - [ ] optional environmental requirements
@@ -2774,7 +2776,7 @@ This is useful for model bias and boundary evolution.
 
 Current `wxdata::volume3d` resamples reflectivity into a Cartesian 3D grid and `render3d.rs` displays it. Build on this rather than replacing it blindly.
 
-## H1. Multi-moment 3D — done, apart from user-defined products
+## H1. Multi-moment 3D — done
 
 Support 3D for (the map's 3D view, `view::Map3dRepresentation`, one resampled volume per
 moment through `smooth_moment()`):
@@ -2798,7 +2800,19 @@ moment through `smooth_moment()`):
 - [x] ZDR — "ZDR" (`SmoothZdr`): ZDR columns above the melting level, with a 1 dB denoise floor
 - [x] CC — "Debris" (inverted, low CC wins the maximum; built earlier)
 - [x] KDP — "KDP" (`SmoothKdp`): heavy-rain and melting-hail cores, 0.5 °/km floor
-- [ ] user-defined products — C1's expressions have no binned-sweep output to resample yet
+- [x] user-defined products — "User" in the 3D controls (`Map3dRepresentation::SmoothProduct`,
+  with a product picker) draws any C1 formula as a volume: `wxdata::udp_volume` evaluates it at
+  every gate of every tilt on the grid of one moment it reads, looks the other moments up at the
+  same azimuth and slant range (a split cut lends a moment from the other rotation at the same
+  elevation), skips gates where nothing it reads was recorded, and quantizes the values over one
+  range for the volume; `loop3d::build_smooth` then resamples them like any moment, off the UI
+  thread and in loops too. A Denoise floor, ceiling, opacity curve and presets work in the
+  product's own units, and the controls say the range drawn. Formulas using a vertical/layer
+  function are greyed out (they have no value at a single gate). Tested: evaluation where the
+  inputs are and nowhere else, quantization, the auto range, split-cut pairing; end to end on a
+  live KTLX scan (`--headless-3d --product "REF - 5 * max(ZDR, 0)"`, GPU test
+  `a_user_product_draws_in_3d_from_a_live_scan`): a 912×912×48 volume, 175k product pixels,
+  83k with a floor of 0
 
 ZDR and KDP are noise in weak echo, and a maximum-intensity raymarch finds the noise first: the
 first live look at ZDR was one colour across the whole volume. Both are now masked by a
@@ -4593,8 +4607,8 @@ Pro:
 
 GR2Analyst 3D (see Phase H): isosurfaces, nested shells, slicing planes, clip box, CAPPI plane,
 beam guides, loops (H8) and velocity (H1) are done; the opacity-curve editor and presets (H2) are done
-too, and so are terrain (H5) and storm-relative velocity (H1); still open are user-defined
-products in 3D (H1).
+too, and so are terrain (H5), storm-relative velocity (H1) and user-defined products in 3D
+(H1).
 
 ## WSV3-class gaps
 

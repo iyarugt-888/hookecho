@@ -648,7 +648,10 @@ fn main() -> eframe::Result<()> {
         let moment = flag_value(&args, "--moment")
             .and_then(Moment::from_code)
             .unwrap_or(Moment::Reflectivity);
-        if let Err(e) = headless::run_3d(site, out, threshold, plane, cappi, moment) {
+        // `--product "FORMULA"`: a user-defined product's volume (ROADMAP_NEW H1), built as the
+        // app builds it from the whole scan, e.g. `--product "REF > 40 ? ZDR : 0"`.
+        let product = flag_value(&args, "--product");
+        if let Err(e) = headless::run_3d(site, out, threshold, plane, cappi, moment, product) {
             eprintln!("headless 3d render failed: {e}");
             std::process::exit(1);
         }

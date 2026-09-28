@@ -4648,6 +4648,8 @@ pub struct HookEchoApp {
     /// `(horizontal cell km, share of echo outside the box)` of each pane's resident Smooth volume,
     /// for the readout under the representation buttons.
     smooth_vol_info: [Option<(f32, f32)>; crate::view::MAX_PANES],
+    /// The value range a pane's user-defined-product volume was drawn over.
+    smooth_vol_range: [Option<(f32, f32)>; crate::view::MAX_PANES],
     /// The device's 3D texture edge limit, which caps the Smooth grid.
     vol3d_max_dim: usize,
     smooth_vol_pending: [Option<Arc<crate::render3d::Volume3dUpload>>; crate::view::MAX_PANES],
@@ -5864,6 +5866,7 @@ impl HookEchoApp {
             model_isotherms_rx: None,
             cloud_top_rx: None,
             smooth_vol_info: std::array::from_fn(|_| None),
+            smooth_vol_range: std::array::from_fn(|_| None),
             vol3d_max_dim,
             smooth_vol_pending: std::array::from_fn(|_| None),
             smooth_vol_dims: std::array::from_fn(|_| None),
@@ -7849,6 +7852,7 @@ impl HookEchoApp {
                         half_km: v3.half_km,
                         top_km: v3.top_km,
                         outside: 0.0,
+                        value_range: None,
                     },
                     (v3.value_min, v3.value_max),
                 ))
@@ -14030,7 +14034,64 @@ impl HookEchoApp {
             state.smooth_full_range,
             loop_quality,
             v.storm_motion_uv().map(|(u, n)| (u.to_bits(), n.to_bits())),
+            match state.representation {
+                Map3dRepresentation::SmoothProduct => Some(self.product_spec_key(idx)?),
+                _ => None,
+            },
         ))
+    }
+
+    /// The user-defined product pane `idx`'s 3D draws, when it draws one (ROADMAP_NEW H1). `None`
+    /// when none is picked, it no longer exists, it does not parse, or it reduces a whole column
+    /// (a vertical/layer function has no value at a single gate).
+    fn product_spec(&self, idx: usize) -> Option<crate::loop3d::ProductSpec> {
+        let v = &self.views[idx];
+        if v.map_3d.representation != Map3dRepresentation::SmoothProduct {
+            return None;
+        }
+        let name = v.map_3d.product.as_ref()?;
+        let def = self
+            .settings
+            .udp_products
+            .iter()
+            .find(|p| &p.name == name)?;
+        let expr = def.compile().ok().filter(|e| !e.uses_column())?;
+        let antenna_altitude_m = v
+            .site
+            .as_deref()
+            .and_then(wxdata::sites::site_by_id)
+            .map(|s| s.elevation_meters as f32 + wxdata::towers::tower_m(s.id) as f32);
+        Some(crate::loop3d::ProductSpec {
+            expr,
+            range: def.range,
+            env: wxdata::udp_volume::Env {
+                antenna_altitude_m,
+                freezing: self.freezing_for(idx).map(|(a, b)| (a as f32, b as f32)),
+            },
+        })
+    }
+
+    /// What identifies pane `idx`'s product build: the formula, its range and the freezing levels
+    /// it can read.
+    fn product_spec_key(&self, idx: usize) -> Option<u64> {
+        use std::hash::{Hash, Hasher};
+        let spec = self.product_spec(idx)?;
+        let name = self.views[idx].map_3d.product.as_ref()?;
+        let def = self
+            .settings
+            .udp_products
+            .iter()
+            .find(|p| &p.name == name)?;
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        def.expression.hash(&mut h);
+        spec.range
+            .map(|(a, b)| (a.to_bits(), b.to_bits()))
+            .hash(&mut h);
+        spec.env
+            .freezing
+            .map(|(a, b)| (a.to_bits(), b.to_bits()))
+            .hash(&mut h);
+        Some(h.finish())
     }
 
     /// What pane `idx`'s isosurface of volume `name` is built from, when it shows one.
@@ -14083,6 +14144,10 @@ impl HookEchoApp {
             },
             top_km: VOL3D_TOP_KM,
             storm_uv: self.views[idx].storm_motion_uv(),
+            product: match state.representation {
+                Map3dRepresentation::SmoothProduct => Some(self.product_spec(idx)?),
+                _ => None,
+            },
         })
     }
 
@@ -16351,6 +16416,7 @@ impl HookEchoApp {
                     if let Some(up) = self.loop3d[idx].smooth.get(&key) {
                         self.smooth_vol_dims[idx] = Some((up.n, up.nz, up.half_km, up.top_km));
                         self.smooth_vol_info[idx] = Some((up.cell_km(), up.outside));
+                        self.smooth_vol_range[idx] = up.value_range;
                         self.smooth_vol_pending[idx] = Some(Arc::clone(up));
                         self.smooth_vol_key[idx] = Some(key);
                         ctx.request_repaint();
@@ -16358,27 +16424,41 @@ impl HookEchoApp {
                         // No sweeps survived the resample: draw nothing rather than the last one.
                         self.smooth_vol_dims[idx] = None;
                         self.smooth_vol_info[idx] = None;
+                        self.smooth_vol_range[idx] = None;
                         self.smooth_vol_key[idx] = Some(key);
                     } else if self.loop3d_jobs.wants(&job) {
                         if let (Some(spec), Some(vol)) = (
                             self.smooth_spec(idx, loop_quality),
                             self.views[data].volume.as_mut(),
                         ) {
-                            // Velocity dealiased, so folded gates do not read as false couplets.
-                            let sweeps = if resample_moment == Moment::Velocity {
-                                vol.velocity_tilts_dealiased()
-                            } else {
-                                vol.moment_tilts(resample_moment)
-                            };
-                            let mask = crate::loop3d::masked_by_reflectivity(resample_moment)
-                                .then(|| vol.moment_tilts(Moment::Reflectivity));
-                            if !sweeps.is_empty() {
+                            if spec.product.is_some() {
+                                // A product reads every moment: build it from the whole scan,
+                                // off the UI thread.
+                                let scan = Arc::clone(&vol.scan);
                                 self.loop3d_jobs.start(job, &self.spawner, ctx, move || {
                                     crate::loop3d::Built::Smooth(crate::loop3d::build_smooth(
-                                        crate::loop3d::Sweeps::Binned { sweeps, mask },
+                                        crate::loop3d::Sweeps::Scan(scan),
                                         &spec,
                                     ))
                                 });
+                            } else {
+                                // Velocity dealiased, so folded gates do not read as false
+                                // couplets.
+                                let sweeps = if resample_moment == Moment::Velocity {
+                                    vol.velocity_tilts_dealiased()
+                                } else {
+                                    vol.moment_tilts(resample_moment)
+                                };
+                                let mask = crate::loop3d::masked_by_reflectivity(resample_moment)
+                                    .then(|| vol.moment_tilts(Moment::Reflectivity));
+                                if !sweeps.is_empty() {
+                                    self.loop3d_jobs.start(job, &self.spawner, ctx, move || {
+                                        crate::loop3d::Built::Smooth(crate::loop3d::build_smooth(
+                                            crate::loop3d::Sweeps::Binned { sweeps, mask },
+                                            &spec,
+                                        ))
+                                    });
+                                }
                             }
                         }
                     }
@@ -16402,6 +16482,7 @@ impl HookEchoApp {
             half_km,
             top_km,
             outside: 0.0,
+            value_range: None,
         };
         // Denoising a plain "high is interesting" field makes sense for reflectivity and spectrum
         // width; `SmoothDebris`'s inverted-CC volume is the opposite sense (low is interesting)
@@ -16412,8 +16493,18 @@ impl HookEchoApp {
             Map3dRepresentation::SmoothZdr => Some(state.zdr_floor_db),
             Map3dRepresentation::SmoothKdp => Some(state.kdp_floor_deg_km),
             Map3dRepresentation::SmoothVelocity => Some(state.velocity_floor_ms),
+            // A product's floor is in its own units, inside the range its volume was drawn over.
+            Map3dRepresentation::SmoothProduct => {
+                self.smooth_vol_range[idx].map(|(lo, hi)| state.product_floor.clamp(lo, hi))
+            }
             Map3dRepresentation::SmoothDebris | Map3dRepresentation::ObservedSweeps => None,
         };
+        // The values the volume's indices span: a product's own range, else the moment's.
+        let index_range = match state.representation {
+            Map3dRepresentation::SmoothProduct => self.smooth_vol_range[idx],
+            _ => None,
+        }
+        .unwrap_or(resample_moment.value_range());
         // Velocity's volume is indexed by speed (`fold_by_speed`), so its floor and ceiling are
         // speeds: the floor is the outbound index at that speed (inbound sits one above it) and
         // the ceiling the inbound one, so both directions are kept alike.
@@ -16426,7 +16517,7 @@ impl HookEchoApp {
                 let v = v.abs();
                 (wxdata::volume3d::speed_index(v, vmax) + u8::from(top && v < vmax)) as f32
             }
-            None => crate::render3d::threshold_index(v, resample_moment.value_range()),
+            None => crate::render3d::threshold_index(v, index_range),
         };
         let threshold_idx = match denoise_floor {
             Some(floor) if state.denoise_enabled => value_index(floor, false),
@@ -16536,6 +16627,17 @@ impl HookEchoApp {
     pub(crate) fn map_3d_controls_body(&mut self, idx: usize, ui: &mut egui::Ui) {
         let volume_supported = self.volume3d_supported;
         let smooth_info = self.smooth_vol_info[idx];
+        let product_range = self.smooth_vol_range[idx];
+        // Products usable in 3D: those that parse and give a value at a single gate.
+        let products: Vec<(String, bool)> = self
+            .settings
+            .udp_products
+            .iter()
+            .map(|p| {
+                let ok = p.compile().is_ok_and(|e| !e.uses_column());
+                (p.name.clone(), ok)
+            })
+            .collect();
         let loop_progress = self.loop3d_progress(idx);
         // The 3D shown belongs to another scan while this one's build runs.
         let shown = self.shown_volume_key(idx).map(|(n, _)| n);
@@ -16651,6 +16753,22 @@ impl HookEchoApp {
             .response
             .on_hover_text(
                 "Dealiased velocity volume, strongest wind along each line of sight in                  either direction: both halves of a couplet show, inbound and outbound in                  their own colours. Where strong inbound meets strong outbound the boundary                  takes one colour or the other.",
+            );
+            ui.add_enabled_ui(
+                volume_supported && moment == Moment::Reflectivity && !products.is_empty(),
+                |ui| {
+                    ui.selectable_value(
+                        &mut view.map_3d.representation,
+                        Map3dRepresentation::SmoothProduct,
+                        "User",
+                    )
+                },
+            )
+            .response
+            .on_hover_text(
+                "A user-defined product (Tools > User products) worked out at every gate of the \
+                 scan and drawn as a volume, like any moment. Shown while the map is on \
+                 reflectivity.",
             );
         });
         ui.add(
@@ -16837,6 +16955,7 @@ impl HookEchoApp {
                     | Map3dRepresentation::SmoothZdr
                     | Map3dRepresentation::SmoothKdp
                     | Map3dRepresentation::SmoothVelocity
+                    | Map3dRepresentation::SmoothProduct
             ) {
                 ui.checkbox(&mut view.map_3d.smooth_full_range, "Full range")
                     .on_hover_text(
@@ -16853,6 +16972,42 @@ impl HookEchoApp {
                         ));
                     }
                     ui.weak(line);
+                }
+            }
+            if view.map_3d.representation == Map3dRepresentation::SmoothProduct {
+                if view.map_3d.product.is_none() {
+                    view.map_3d.product = products.iter().find(|p| p.1).map(|p| p.0.clone());
+                }
+                let shown = view
+                    .map_3d
+                    .product
+                    .clone()
+                    .unwrap_or_else(|| "(none)".into());
+                egui::ComboBox::from_label("Product")
+                    .selected_text(shown)
+                    .show_ui(ui, |ui| {
+                        for (name, ok) in &products {
+                            ui.add_enabled_ui(*ok, |ui| {
+                                ui.selectable_value(
+                                    &mut view.map_3d.product,
+                                    Some(name.clone()),
+                                    name,
+                                )
+                            })
+                            .response
+                            .on_disabled_hover_text(
+                                "A vertical/layer function has no value at a single gate, \
+                                 so this product has no volume",
+                            );
+                        }
+                    });
+                match product_range {
+                    Some((lo, hi)) => {
+                        ui.weak(format!("Drawn from {lo:.2} (blue) to {hi:.2} (magenta)"));
+                    }
+                    None => {
+                        ui.weak("Building the product volume");
+                    }
                 }
             }
             if behind {
@@ -16912,6 +17067,11 @@ impl HookEchoApp {
                     (0.0, Moment::Velocity.value_range().1),
                     " m/s",
                 )),
+                Map3dRepresentation::SmoothProduct => product_range.map(|(lo, hi)| {
+                    let floor = &mut view.map_3d.product_floor;
+                    *floor = floor.clamp(lo, hi);
+                    (floor, (lo, hi), "")
+                }),
                 Map3dRepresentation::SmoothDebris | Map3dRepresentation::ObservedSweeps => None,
             };
             let rep = view.map_3d.representation as usize;

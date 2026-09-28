@@ -22,7 +22,18 @@ use crate::render3d::Volume3dUpload;
 /// volume), resampled moment, full range, and loop quality (the smaller grid used for playback).
 /// The last element is the storm motion taken off a storm-relative velocity volume (`f32` bits of
 /// east and north m/s), `None` when it is ground-relative.
-pub type SmoothKey = (String, u64, Moment, bool, bool, Option<(u32, u32)>);
+///
+/// After it, a hash of the user-defined product drawn instead of the moment (formula and range),
+/// `None` for a moment.
+pub type SmoothKey = (
+    String,
+    u64,
+    Moment,
+    bool,
+    bool,
+    Option<(u32, u32)>,
+    Option<u64>,
+);
 
 /// What an isosurface was built from: volume name, live revision (0 for a complete volume),
 /// moment, threshold bits, smooth, and the nested-shell spacing bits (`None` = a single shell).
@@ -301,6 +312,55 @@ pub struct SmoothSpec {
     pub top_km: f32,
     /// Storm motion `(east, north)` m/s to take off a velocity volume (storm-relative).
     pub storm_uv: Option<(f32, f32)>,
+    /// A user-defined product to build instead of `moment` (ROADMAP_NEW H1).
+    pub product: Option<ProductSpec>,
+}
+
+/// A user-defined product (`wxdata::udp`) to resample in 3D: its formula, the range its palette
+/// spans (`None` fits it to what the product produced) and the site facts the formula can read.
+#[derive(Clone)]
+pub struct ProductSpec {
+    pub expr: wxdata::udp::Expr,
+    pub range: Option<(f32, f32)>,
+    pub env: wxdata::udp_volume::Env,
+}
+
+/// The product evaluated at every gate of every tilt, quantized over one range
+/// (`wxdata::udp_volume`). Only a whole scan has every moment to read.
+fn product_sweeps(sweeps: Sweeps, p: &ProductSpec) -> Option<Vec<BinnedSweep>> {
+    let Sweeps::Scan(scan) = sweeps else {
+        return None;
+    };
+    let mut v = crate::view::Volume::new(scan, String::new(), chrono::Utc::now());
+    let n = v.elevations.len();
+    let reads = p.expr.inputs();
+    let moments = wxdata::udp_volume::MOMENTS;
+    let input_of = |m: Moment| match m {
+        Moment::Velocity => wxdata::udp::Input::Velocity,
+        Moment::SpectrumWidth => wxdata::udp::Input::SpectrumWidth,
+        Moment::DifferentialReflectivity => wxdata::udp::Input::DifferentialReflectivity,
+        Moment::SpecificDifferentialPhase => wxdata::udp::Input::SpecificDifferentialPhase,
+        Moment::CorrelationCoefficient => wxdata::udp::Input::CorrelationCoefficient,
+        _ => wxdata::udp::Input::Reflectivity,
+    };
+    let reads_any = moments.iter().any(|m| reads.contains(&input_of(*m)));
+    // Bin only the moments the formula reads (reflectivity for a geometry-only one); velocity
+    // dealiased, so a fold is not a false value.
+    let per: [Vec<Option<BinnedSweep>>; 6] = std::array::from_fn(|i| {
+        let m = moments[i];
+        let wanted = reads.contains(&input_of(m)) || (!reads_any && i == 0);
+        if !wanted {
+            return Vec::new();
+        }
+        (0..n)
+            .map(|t| v.binned(m, t, m == Moment::Velocity).ok().cloned())
+            .collect()
+    });
+    let evaluated: Vec<_> = wxdata::udp_volume::pair_tilts(&per)
+        .iter()
+        .filter_map(|tilt| wxdata::udp_volume::evaluate_tilt(&p.expr, tilt, p.env))
+        .collect();
+    wxdata::udp_volume::quantize(evaluated, p.range).map(|(s, _)| s)
 }
 
 /// Take the storm motion off each velocity sweep, when there is one.
@@ -314,12 +374,17 @@ fn apply_storm_motion(sweeps: &mut [BinnedSweep], moment: Moment, uv: Option<(f3
 
 /// Resample `sweeps` into the Smooth volume the map raymarches.
 pub fn build_smooth(sweeps: Sweeps, spec: &SmoothSpec) -> Option<Volume3dUpload> {
-    let masked = masked_by_reflectivity(spec.moment);
-    let (mut sweeps, mask) = sweeps.resolve(spec.moment, true, masked);
+    let masked = masked_by_reflectivity(spec.moment) && spec.product.is_none();
+    let (mut sweeps, mask) = match &spec.product {
+        Some(p) => (product_sweeps(sweeps, p)?, None),
+        None => sweeps.resolve(spec.moment, true, masked),
+    };
     if sweeps.is_empty() {
         return None;
     }
-    apply_storm_motion(&mut sweeps, spec.moment, spec.storm_uv);
+    if spec.product.is_none() {
+        apply_storm_motion(&mut sweeps, spec.moment, spec.storm_uv);
+    }
     // Derive the volume's horizontal extent from what this scan actually sampled instead of a
     // fixed radius that clipped far storms out of the volume.
     let full_km = wxdata::volume3d::max_sample_range_km(&sweeps).max(50.0);
@@ -349,7 +414,14 @@ pub fn build_smooth(sweeps: Sweeps, spec: &SmoothSpec) -> Option<Volume3dUpload>
     if spec.invert {
         wxdata::volume3d::invert_in_place(&mut v3);
     }
-    let lut = if spec.moment == Moment::Velocity {
+    let product_range = spec
+        .product
+        .is_some()
+        .then_some((v3.value_min, v3.value_max));
+    let lut = if let Some(range) = product_range {
+        // A product has no palette of its own: a ramp across the range it was drawn over.
+        crate::colormap::bake_lut(&crate::colormap::ramp_table(range.0, range.1), range, None)
+    } else if spec.moment == Moment::Velocity {
         // Indexed by speed so the maximum along a ray finds the fastest wind either way.
         wxdata::volume3d::fold_by_speed(&mut v3);
         crate::colormap::speed_lut(&spec.table, v3.value_max)
@@ -369,6 +441,7 @@ pub fn build_smooth(sweeps: Sweeps, spec: &SmoothSpec) -> Option<Volume3dUpload>
         half_km: v3.half_km,
         top_km: v3.top_km,
         outside,
+        value_range: product_range,
     })
 }
 

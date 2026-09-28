@@ -104,6 +104,7 @@ impl UdpWindow {
                     name,
                     units: self.new_units.trim().to_string(),
                     expression: expr,
+                    range: None,
                 });
                 self.new_name.clear();
                 self.new_units.clear();

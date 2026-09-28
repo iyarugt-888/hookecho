@@ -41,6 +41,10 @@ pub enum Map3dRepresentation {
     /// (`wxdata::volume3d::fold_by_speed`), so the raymarch finds the fastest wind along each ray
     /// in either direction and both halves of a couplet show, each in its own colour.
     SmoothVelocity,
+    /// A user-defined product (`wxdata::udp`, named by `Map3dState::product`) evaluated at every
+    /// gate and resampled like a moment (ROADMAP_NEW H1). Built from the whole scan, shown while
+    /// the pane displays reflectivity.
+    SmoothProduct,
 }
 
 impl Map3dRepresentation {
@@ -56,6 +60,7 @@ impl Map3dRepresentation {
             Self::SmoothZdr => Some((M::DifferentialReflectivity, false)),
             Self::SmoothKdp => Some((M::SpecificDifferentialPhase, false)),
             Self::SmoothVelocity => Some((M::Velocity, false)),
+            Self::SmoothProduct => Some((M::Reflectivity, false)),
         }
     }
 
@@ -69,6 +74,7 @@ impl Map3dRepresentation {
             Self::SmoothZdr => "Smooth ZDR",
             Self::SmoothKdp => "Smooth KDP",
             Self::SmoothVelocity => "Smooth velocity",
+            Self::SmoothProduct => "User product",
         }
     }
 }
@@ -241,12 +247,17 @@ pub struct Map3dState {
     /// An upper bound per representation (Phase H2's value window), in that representation's
     /// own units, indexed by `Map3dRepresentation as usize`; `None` = no ceiling. Kept per
     /// representation for the same reason the floors are: a dBZ number means nothing in dB.
-    pub ceilings: [Option<f32>; 7],
+    pub ceilings: [Option<f32>; 8],
     /// An opacity curve per representation (same indexing as `ceilings`), four `[value,
     /// opacity]` points in that representation's own units (Phase H2); `None` keeps the ramp.
-    pub tf_curves: [Option<[[f32; 2]; 4]>; 7],
+    pub tf_curves: [Option<[[f32; 2]; 4]>; 8],
     /// The name being typed for a new 3D preset.
     pub preset_name: String,
+    /// The user-defined product `SmoothProduct` draws, by name.
+    pub product: Option<String>,
+    /// The Denoise floor for `SmoothProduct`, in the product's own units (clamped into the range
+    /// its volume was drawn over).
+    pub product_floor: f32,
     /// Phase H5: draw the radar's beam geometry over the 3D map — each tilt's cone as range
     /// rings, the lowest and highest beams' centrelines and beamwidth edges, and the mast.
     pub beam_guides: bool,
@@ -334,9 +345,11 @@ impl Default for Map3dState {
             zdr_floor_db: 1.0,
             kdp_floor_deg_km: 0.5,
             velocity_floor_ms: 15.0,
-            ceilings: [None; 7],
-            tf_curves: [None; 7],
+            ceilings: [None; 8],
+            tf_curves: [None; 8],
             preset_name: String::new(),
+            product: None,
+            product_floor: f32::MIN,
             beam_guides: false,
             height_ruler: true,
             cell_columns: true,

@@ -61,6 +61,9 @@ pub struct Volume3dUpload {
     /// Share (0..=1) of the scan's echo that lies beyond `half_km` and is therefore not in the
     /// volume. Shown in the UI so a cropped box is never mistaken for the whole scan.
     pub outside: f32,
+    /// For a user-defined product, the value range its palette was drawn over; `None` for a
+    /// moment, whose range is fixed.
+    pub value_range: Option<(f32, f32)>,
 }
 
 impl Volume3dUpload {

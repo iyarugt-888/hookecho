@@ -3441,6 +3441,7 @@ pub fn run_3d(
     plane: Option<crate::render3d::VerticalPlane>,
     cappi_km: Option<f32>,
     moment: Moment,
+    product: Option<&str>,
 ) -> anyhow::Result<()> {
     const N: usize = 192;
     const NZ: usize = 48;
@@ -3460,6 +3461,9 @@ pub fn run_3d(
 
     if moment == Moment::Velocity {
         return run_3d_velocity(&rt, scan, out_path, threshold);
+    }
+    if let Some(formula) = product {
+        return run_3d_product(&rt, scan, out_path, formula, threshold);
     }
 
     let elevs = level2::elevation_angles(&scan);
@@ -3493,6 +3497,7 @@ pub fn run_3d(
         half_km: v3.half_km,
         top_km: v3.top_km,
         outside: 0.0,
+        value_range: None,
     };
     let view = crate::render3d::View3d {
         threshold_idx: match threshold {
@@ -3516,6 +3521,64 @@ pub fn run_3d(
     Ok(())
 }
 
+/// `--headless-3d --product FORMULA`: a user-defined product's volume exactly as the app builds
+/// it (`loop3d::build_smooth` with a `ProductSpec`, from the whole scan), rendered.
+fn run_3d_product(
+    rt: &tokio::runtime::Runtime,
+    scan: wxdata::level2::Scan,
+    out_path: &str,
+    formula: &str,
+    floor: Option<f32>,
+) -> anyhow::Result<()> {
+    let expr = wxdata::udp::parse(formula).map_err(|e| anyhow::anyhow!("{e}"))?;
+    let spec = crate::loop3d::SmoothSpec {
+        product: Some(crate::loop3d::ProductSpec {
+            expr,
+            range: None,
+            env: Default::default(),
+        }),
+        moment: Moment::Reflectivity,
+        invert: false,
+        full_range: false,
+        table: crate::colormap::default_table(Moment::Reflectivity).clone(),
+        max_dim: 2048,
+        max_voxels: crate::loop3d::SMOOTH_MAX_VOXELS,
+        top_km: 18.0,
+        storm_uv: None,
+    };
+    let t0 = std::time::Instant::now();
+    let upload = crate::loop3d::build_smooth(
+        crate::loop3d::Sweeps::Scan(std::sync::Arc::new(scan)),
+        &spec,
+    )
+    .ok_or_else(|| anyhow::anyhow!("the product has no value anywhere in this scan"))?;
+    let filled = upload.data.chunks(2).filter(|p| p[1] > 0).count();
+    println!(
+        "product volume {}x{}x{} in {:?}, range {:?}, filled voxels {filled}",
+        upload.n,
+        upload.n,
+        upload.nz,
+        t0.elapsed(),
+        upload.value_range
+    );
+    // `--threshold` is a floor in the product's own units, as the app's Denoise is.
+    let view = crate::render3d::View3d {
+        threshold_idx: match (floor, upload.value_range) {
+            (Some(f), Some(range)) => crate::render3d::threshold_index(f, range),
+            _ => 2.0,
+        },
+        ..Default::default()
+    };
+    let rgba = render_volume_once(rt, &upload, view)?;
+    image::save_buffer(out_path, &rgba, size(), size(), image::ColorType::Rgba8)?;
+    let echo = echo_pixels(&rgba);
+    println!("wrote {out_path}  ({echo} echo pixels over background)");
+    if echo == 0 && floor.is_none() {
+        anyhow::bail!("raymarch produced no product pixels");
+    }
+    Ok(())
+}
+
 /// The velocity half of `--headless-3d`: the speed-ordered volume exactly as the app's Smooth
 /// velocity builds it (`loop3d::build_smooth`), and for comparison the same voxels re-indexed
 /// linearly (a plain maximum), each rendered with its inbound- and outbound-coloured pixels
@@ -3528,6 +3591,7 @@ fn run_3d_velocity(
 ) -> anyhow::Result<()> {
     let table = crate::colormap::default_table(Moment::Velocity).clone();
     let spec = crate::loop3d::SmoothSpec {
+        product: None,
         moment: Moment::Velocity,
         invert: false,
         full_range: false,
@@ -3566,6 +3630,7 @@ fn run_3d_velocity(
         half_km: folded.half_km,
         top_km: folded.top_km,
         outside: folded.outside,
+        value_range: None,
     };
 
     // Inbound is drawn green and outbound red in the stock velocity palette.
@@ -4663,6 +4728,7 @@ mod golden_tests {
                 half_km: half,
                 top_km: 18.0,
                 outside: 0.0,
+                value_range: None,
             };
             let view3 = crate::render3d::View3d {
                 threshold_idx: crate::render3d::threshold_index(18.0, (v3.value_min, v3.value_max)),
@@ -4731,6 +4797,7 @@ mod golden_tests {
             half_km: 20.0,
             top_km: 10.0,
             outside: 0.0,
+            value_range: None,
         };
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
@@ -4754,6 +4821,28 @@ mod golden_tests {
             s >= r,
             "a curve at full opacity draws at least what the ramp did"
         );
+    }
+
+    /// A user-defined product built and rendered in 3D from a real, live scan, end to end.
+    #[test]
+    #[ignore = "gpu, network"]
+    fn a_user_product_draws_in_3d_from_a_live_scan() {
+        for (name, floor) in [
+            ("hookecho_product3d.png", None),
+            ("hookecho_product3d_floor.png", Some(0.0)),
+        ] {
+            let out = std::env::temp_dir().join(name);
+            super::run_3d(
+                "KTLX",
+                out.to_str().unwrap(),
+                floor,
+                None,
+                None,
+                Moment::Reflectivity,
+                Some("REF - 5 * max(ZDR, 0)"),
+            )
+            .unwrap();
+        }
     }
 
     #[test]
@@ -4805,6 +4894,7 @@ mod golden_tests {
                 half_km: v3.half_km,
                 top_km: v3.top_km,
                 outside: 0.0,
+                value_range: None,
             };
         let plain = upload(&plain_v3, crate::colormap::bake_lut(table, (lo, hi), None));
         let mut folded_v3 = wxdata::volume3d::Volume3d {

@@ -4,11 +4,9 @@
 //!
 //! This is deliberately the *evaluator* half only. It answers "what does this formula compute at
 //! one gate" (or, for the vertical/layer functions below, "at one point's whole tilt column"),
-//! which is enough to drive a live readout (the gate inspector) against real data. It does not
-//! yet render a user-defined product as its own map layer — plugging a new value into the polar
-//! per-tilt rendering pipeline (palettes, 3D, thresholds, all keyed by the fixed
-//! [`crate::level2::Moment`] enum) is a separate, larger piece of work, called out as such in
-//! `ROADMAP_NEW.md` rather than attempted here.
+//! which drives a live readout (the gate inspector) against real data. Evaluated over every gate
+//! of a volume ([`crate::udp_volume`]), a product is also drawn in the 3D map; it is not yet a 2D
+//! map layer of its own.
 //!
 //! Still out of scope for this pass, and noted for the same reason: environmental-height inputs
 //! (freezing level, -10C/-20C heights) — these need external model data, not just a decoded
@@ -275,6 +273,51 @@ impl Func {
 /// already knows how to interpret.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Expr(ExprNode);
+
+impl Expr {
+    /// Every input this formula reads, each once.
+    pub fn inputs(&self) -> Vec<Input> {
+        fn walk(n: &ExprNode, out: &mut Vec<Input>) {
+            match n {
+                ExprNode::Number(_) => {}
+                ExprNode::Var(i) => {
+                    if !out.contains(i) {
+                        out.push(*i);
+                    }
+                }
+                ExprNode::Neg(a) | ExprNode::Not(a) => walk(a, out),
+                ExprNode::Bin(_, a, b) => {
+                    walk(a, out);
+                    walk(b, out);
+                }
+                ExprNode::Call(_, args) => args.iter().for_each(|a| walk(a, out)),
+                ExprNode::Ternary(c, a, b) => {
+                    walk(c, out);
+                    walk(a, out);
+                    walk(b, out);
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(&self.0, &mut out);
+        out
+    }
+
+    /// Whether the formula uses a vertical/layer function, which reduces a whole column to one
+    /// number and so has no value at a single gate of a volume.
+    pub fn uses_column(&self) -> bool {
+        fn walk(n: &ExprNode) -> bool {
+            match n {
+                ExprNode::Number(_) | ExprNode::Var(_) => false,
+                ExprNode::Neg(a) | ExprNode::Not(a) => walk(a),
+                ExprNode::Bin(_, a, b) => walk(a) || walk(b),
+                ExprNode::Call(f, args) => f.is_column_aware() || args.iter().any(walk),
+                ExprNode::Ternary(c, a, b) => walk(c) || walk(a) || walk(b),
+            }
+        }
+        walk(&self.0)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 enum ExprNode {
@@ -885,6 +928,10 @@ pub struct ProductDef {
     pub name: String,
     pub units: String,
     pub expression: String,
+    /// The value range a map draws it over (its palette's ends); `None` fits the range to what
+    /// the product produced (`crate::udp_volume::auto_range`).
+    #[serde(default)]
+    pub range: Option<(f32, f32)>,
 }
 
 impl ProductDef {
@@ -1080,6 +1127,7 @@ mod tests {
             name: "Hail signature".into(),
             units: "dBZ".into(),
             expression: "REF > 55 && ZDR < 1 ? REF : 0".into(),
+            range: None,
         };
         let expr = def.compile().unwrap();
         assert_eq!(
@@ -1095,6 +1143,7 @@ mod tests {
             name: "broken".into(),
             units: "".into(),
             expression: "REF +".into(),
+            range: None,
         };
         assert!(def.compile().is_err());
     }

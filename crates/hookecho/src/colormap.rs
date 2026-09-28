@@ -73,6 +73,37 @@ impl ColorTable {
     }
 }
 
+/// A plain perceptual ramp from `lo` to `hi` (dark blue, cyan, green, yellow, orange, red,
+/// magenta), for values with no palette of their own: a user-defined product.
+pub fn ramp_table(lo: f32, hi: f32) -> ColorTable {
+    const COLORS: [[u8; 3]; 7] = [
+        [40, 60, 170],
+        [40, 170, 220],
+        [60, 190, 90],
+        [235, 225, 60],
+        [245, 145, 40],
+        [215, 40, 40],
+        [210, 70, 210],
+    ];
+    let span = (hi - lo).max(f32::EPSILON);
+    ColorTable {
+        product: None,
+        units: None,
+        step: None,
+        rf: DEFAULT_RF,
+        stops: COLORS
+            .iter()
+            .enumerate()
+            .map(|(i, c)| PalStop {
+                value: lo + span * i as f32 / (COLORS.len() - 1) as f32,
+                rgba: [c[0], c[1], c[2], 255],
+                end: None,
+                solid: false,
+            })
+            .collect(),
+    }
+}
+
 /// Bake a 256×1 RGBA LUT (row-major, 4 bytes/entry) for `table` over the data `range`.
 ///
 /// `range` is the moment's fixed `value_range` (data quantization is set at bin time); each

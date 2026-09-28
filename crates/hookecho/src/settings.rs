@@ -2516,6 +2516,7 @@ mod tests {
                 name: "Test product".to_string(),
                 units: "dBZ".to_string(),
                 expression: "REF + 1".to_string(),
+                range: None,
             }],
             markers: vec![Marker {
                 id: new_marker_id(),

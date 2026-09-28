@@ -773,6 +773,7 @@ mod tests {
             name: "Boosted REF".into(),
             units: "dBZ".into(),
             expression: "REF + 10".into(),
+            range: None,
         }];
         let with = labels_for(&popup, &products);
         assert!(with.iter().any(|s| s == "USER-DEFINED"), "{with:?}");
@@ -789,6 +790,7 @@ mod tests {
             name: "Broken".into(),
             units: "".into(),
             expression: "REF +".into(),
+            range: None,
         }];
         let labels = labels_for(&popup, &products);
         assert!(labels.iter().any(|s| s.starts_with("Error:")), "{labels:?}");
@@ -805,6 +807,7 @@ mod tests {
             name: "Needs velocity".into(),
             units: "m/s".into(),
             expression: "VEL".into(),
+            range: None,
         }];
         let labels = labels_for(&popup, &products);
         assert!(labels.iter().any(|s| s == "Needs velocity"), "{labels:?}");
