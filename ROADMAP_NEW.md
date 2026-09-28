@@ -4468,7 +4468,7 @@ Plus:
   exist separately; no meter and no mode
 - [x] Popup spotlight: dim the map around an alert — while an alert's card is open the map
   outside its polygon is darkened (`spotlight::dim_outside`, an even-odd mask under the
-  legends); Settings > Alerts turns it off. Tested; not yet seen on screen with a live alert
+  legends); Settings > Alerts turns it off. Checked in the browser on a live flood warning
 - [ ] Popup drag handle — to verify
 
 Pro:
@@ -4487,7 +4487,12 @@ Pro:
   product, per pane (`MapView::flash_ranges`, `colormap::highlight`); a beat rewrites only the
   3 KB colour table. Checked in the browser. The vertical legend of the other layouts does not
   take the drag yet
-- [ ] Population and impact reports for alerts and discussions — not built
+- [x] Population and impact reports for alerts and discussions — an alert card (floating and
+  workstation), a discussion's or a watch's details show the people and homes inside the polygon
+  and its largest towns: 2020 Census blocks the area touches, summed server-side by the Census
+  Bureau's TIGERweb (`wxdata::census`), one request per area, kept for the session. Checked in
+  the browser on a Lake County, IL flood warning: about 20,860 people, 8,052 homes, Waukegan,
+  Gurnee, Zion
 - [ ] Play up to 200 radar scans, 100 satellite/composite frames — see playback above
 - [x] Up to 24 runs per model — every model lists 24 (a day of hourly runs, six days of
   six-hourly ones); ECMWF runs past its portal's three days come from ECMWF's AWS mirror. GDPS

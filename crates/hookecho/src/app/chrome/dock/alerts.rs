@@ -166,6 +166,7 @@ impl HookEchoApp {
         let mut header = ws::HeaderAction::None;
         let mut hit = None;
         let mut popup = self.warning_popup.take();
+        let impacts = self.impacts.by_id.clone();
         let mut close_bulletin = false;
         tool_window(
             host,
@@ -203,7 +204,7 @@ impl HookEchoApp {
                         egui::Frame::NONE
                             .inner_margin(egui::Margin::symmetric(10, 8))
                             .show(ui, |ui| {
-                                close_bulletin = bulletin(ui, &t, p, at, tz);
+                                close_bulletin = bulletin(ui, &t, p, at, tz, &impacts);
                             });
                     });
                     return;
@@ -301,6 +302,7 @@ fn bulletin(
     p: &mut crate::ui::warning_window::WarningPopup,
     at: DateTime<Utc>,
     tz: Option<wxdata::tz::Tz>,
+    impacts: &std::collections::HashMap<String, crate::app::impact::ImpactState>,
 ) -> bool {
     let many = p.cards.len() > 1;
     let Some(i) = p.selected.filter(|i| *i < p.cards.len()) else {
@@ -406,6 +408,42 @@ fn bulletin(
             |ui| {
                 for (k, v) in &expect {
                     ws::kv(ui, t, k, v, None);
+                }
+            },
+        );
+    }
+    {
+        use crate::app::impact::{self, ImpactState};
+        ws::fold_section(
+            ui,
+            t,
+            "bulletin_people",
+            "People in the area",
+            None,
+            true,
+            |ui| match impacts.get(&a.id) {
+                Some(ImpactState::Ready(i)) => {
+                    ws::kv(ui, t, "People", &impact::thousands(i.population), None);
+                    ws::kv(ui, t, "Homes", &impact::thousands(i.housing_units), None);
+                    if !i.places.is_empty() {
+                        ui.add(
+                            egui::Label::new(ws::text(&impact::towns(i), 11.0, t.text_dim)).wrap(),
+                        )
+                        .on_hover_text(
+                            "Each town's whole population, whether all of it or part lies inside",
+                        );
+                    }
+                    ui.label(ws::text(
+                        "2020 Census blocks touching the area",
+                        10.0,
+                        t.text_faint,
+                    ));
+                }
+                Some(ImpactState::Failed) => {
+                    ui.label(ws::text("Not available", 11.0, t.text_faint));
+                }
+                _ => {
+                    ui.label(ws::text("Counting\u{2026}", 11.0, t.text_faint));
                 }
             },
         );

@@ -8,6 +8,11 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: people in the area
+
+An alert's card now says about how many people and homes are inside it and names its largest
+towns, from the 2020 Census. Mesoscale discussions and watches show the same in their details.
+
 ### Added: smoothing for gridded layers
 
 The Smoothing toggle now smooths MRMS, model and satellite layers too, not only radar. Layers

@@ -1,7 +1,9 @@
 //! Warning window: a click on a warning/watch polygon opens a stack of alert cards; clicking a
 //! card drills into the full NWS bulletin (WHAT TO EXPECT chips + raw text).
 
+use crate::app::impact::{self, ImpactState};
 use crate::theme::{self, stat_card};
+use std::collections::HashMap;
 use wxdata::overlay::AlertInfo;
 
 /// One card in the stack: the alert plus its polygon stroke color.
@@ -20,10 +22,11 @@ pub struct WarningPopup {
 }
 
 /// Show the warning window. Returns `false` when it should close.
-pub fn show(
+pub(crate) fn show(
     ctx: &egui::Context,
     popup: &mut WarningPopup,
     popovers: &mut crate::ui::popover::Popovers,
+    impacts: &HashMap<String, ImpactState>,
 ) -> bool {
     let mut open = true;
     popovers
@@ -32,9 +35,16 @@ pub fn show(
         .default_size([460.0, 560.0])
         .show(ctx, |ui| match popup.selected {
             Some(i) if i < popup.cards.len() => {
-                detail_view(ui, &popup.cards[i], &mut popup.selected, popup.at)
+                let card = &popup.cards[i];
+                detail_view(
+                    ui,
+                    card,
+                    &mut popup.selected,
+                    popup.at,
+                    impacts.get(&card.info.id),
+                )
             }
-            _ => stack_view(ui, &popup.cards, &mut popup.selected, popup.at),
+            _ => stack_view(ui, &popup.cards, &mut popup.selected, popup.at, impacts),
         });
     open
 }
@@ -44,6 +54,7 @@ fn stack_view(
     cards: &[WarnCard],
     selected: &mut Option<usize>,
     at: Option<chrono::DateTime<chrono::Utc>>,
+    impacts: &HashMap<String, ImpactState>,
 ) {
     egui::ScrollArea::vertical().show(ui, |ui| {
         for (i, card) in cards.iter().enumerate() {
@@ -70,6 +81,9 @@ fn stack_view(
                         bits.push(w.clone());
                     }
                     bits.push(countdown(a, at));
+                    if let Some(ImpactState::Ready(i)) = impacts.get(&a.id) {
+                        bits.push(format!("~{} people", impact::thousands(i.population)));
+                    }
                     ui.label(bits.join("  ·  "));
                     if !a.area.is_empty() {
                         ui.add(
@@ -92,6 +106,7 @@ fn detail_view(
     card: &WarnCard,
     selected: &mut Option<usize>,
     at: Option<chrono::DateTime<chrono::Utc>>,
+    impact_state: Option<&ImpactState>,
 ) {
     let a = &card.info;
     ui.horizontal(|ui| {
@@ -118,6 +133,29 @@ fn detail_view(
                 stat_card(ui, "Source", s);
             }
         });
+    });
+
+    theme::section(ui, "People in the Area", |ui| match impact_state {
+        Some(ImpactState::Ready(i)) => {
+            ui.label(impact::summary(i));
+            if !i.places.is_empty() {
+                ui.label(egui::RichText::new(format!("Towns: {}", impact::towns(i))).small())
+                    .on_hover_text(
+                        "Each town's whole population, whether all of it or part lies inside",
+                    );
+            }
+            ui.label(
+                egui::RichText::new("2020 Census blocks touching the area (Census TIGERweb)")
+                    .weak()
+                    .small(),
+            );
+        }
+        Some(ImpactState::Pending) | None => {
+            ui.weak("Counting…");
+        }
+        Some(ImpactState::Failed) => {
+            ui.weak("Not available");
+        }
     });
 
     if a.damage_threat.is_some() || a.tornado_detection.is_some() {

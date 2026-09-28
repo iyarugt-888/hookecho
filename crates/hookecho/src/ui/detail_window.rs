@@ -15,11 +15,12 @@ pub struct Detail {
 
 /// Show the detail window. Returns `false` when it should close. `image` is the resolved texture
 /// for `detail.image`, if it has finished loading.
-pub fn show(
+pub(crate) fn show(
     ctx: &egui::Context,
     detail: &Detail,
     image: Option<&egui::TextureHandle>,
     popovers: &mut crate::ui::popover::Popovers,
+    impact: Option<&crate::app::impact::ImpactState>,
 ) -> bool {
     let mut open = true;
     popovers
@@ -57,6 +58,28 @@ pub fn show(
                     None => {
                         ui.weak("loading image\u{2026}");
                     }
+                }
+                ui.separator();
+            }
+            if let Some(state) = impact {
+                use crate::app::impact::{self, ImpactState};
+                match state {
+                    ImpactState::Ready(i) => {
+                        ui.label(impact::summary(i));
+                        if !i.places.is_empty() {
+                            ui.label(
+                                egui::RichText::new(format!("Towns: {}", impact::towns(i))).small(),
+                            )
+                            .on_hover_text(
+                                "Each town's whole population, whether all of it or part lies \
+                                 inside; 2020 Census blocks touching the area",
+                            );
+                        }
+                    }
+                    ImpactState::Pending => {
+                        ui.weak("Counting people in the area\u{2026}");
+                    }
+                    ImpactState::Failed => {}
                 }
                 ui.separator();
             }

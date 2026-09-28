@@ -11,6 +11,7 @@ mod case;
 mod chrome;
 mod field_state;
 mod goes_timeline;
+pub(crate) mod impact;
 #[cfg(not(target_arch = "wasm32"))]
 mod local_api;
 mod overlay_health;
@@ -3870,6 +3871,11 @@ pub struct HookEchoApp {
     follow_notice: Option<(String, Instant)>,
     /// Open "Active Warnings" window (clicked warning/watch polygons).
     warning_popup: Option<ui::warning_window::WarningPopup>,
+    /// People, homes and towns inside open alerts (Census), by alert id.
+    impacts: impact::ImpactBook,
+    /// The impact the open feature details show (a discussion's or a watch's), by its key in
+    /// `impacts`; `None` for features that have no people count.
+    detail_impact: Option<String>,
     /// Newest pane error and the time it appeared, for the auto-hiding bottom-center chip.
     error_chip: Option<(String, f64)>,
     /// Search text in the mobile navigation drawer's registry list.
@@ -5443,6 +5449,8 @@ impl HookEchoApp {
             follow_cell: None,
             follow_notice: None,
             warning_popup: None,
+            impacts: Default::default(),
+            detail_impact: None,
             error_chip: None,
             hrrr_layer_hour: std::collections::HashMap::new(),
             storm_cells: Vec::new(),
@@ -17810,9 +17818,24 @@ impl HookEchoApp {
                                                 selected: Some(0),
                                                 at: self.alerts_at(),
                                             });
-                                    } else if let Some(f) = hits.first() {
+                                    } else if let Some(f) = hits.first().map(|f| (*f).clone()) {
                                         self.warning_popup = None;
                                         self.gate_popup = None;
+                                        // Discussions and watches get the same people count as
+                                        // an alert card.
+                                        self.detail_impact = matches!(
+                                            f.kind,
+                                            overlay::FeatureKind::MesoDiscussion
+                                                | overlay::FeatureKind::Watch
+                                                | overlay::FeatureKind::WatchBox
+                                        )
+                                        .then(|| format!("feature:{}", f.title));
+                                        if let Some(key) = self.detail_impact.clone() {
+                                            if !self.impacts.by_id.contains_key(&key) {
+                                                let rings = f.rings.clone();
+                                                self.request_impact(key, rings, &ctx);
+                                            }
+                                        }
                                         self.detail = Some(Detail {
                                             title: f.title.clone(),
                                             body: f.detail.clone(),
@@ -26574,8 +26597,13 @@ impl eframe::App for HookEchoApp {
                 .as_ref()
                 .and_then(|k| self.pf_icon_tex.get(k))
                 .and_then(|t| t.as_ref());
-            if !ui::detail_window::show(ctx, detail, tex, &mut self.popovers) {
+            let impact = self
+                .detail_impact
+                .as_ref()
+                .and_then(|k| self.impacts.by_id.get(k));
+            if !ui::detail_window::show(ctx, detail, tex, &mut self.popovers, impact) {
                 self.detail = None;
+                self.detail_impact = None;
             }
         }
         // Storm attributes table: clicking a row flies there and opens that cell's popup, the
@@ -26808,7 +26836,7 @@ impl eframe::App for HookEchoApp {
         // The workstation reads the bulletin in its Alerts window (`chrome/dock/alerts.rs`).
         let workstation = self.workstation_chrome();
         if let Some(popup) = self.warning_popup.as_mut().filter(|_| !workstation) {
-            if !ui::warning_window::show(ctx, popup, &mut self.popovers) {
+            if !ui::warning_window::show(ctx, popup, &mut self.popovers, &self.impacts.by_id) {
                 self.warning_popup = None;
             }
         }
@@ -26933,6 +26961,7 @@ impl eframe::App for HookEchoApp {
         }
         self.sync_cloud_top();
         self.sync_boundaries(ctx);
+        self.sync_impacts(ctx);
         // One Smoothing toggle for radar and every gridded layer.
         crate::render::set_field_smoothing(self.settings.smooth_radar);
         self.sync_model_isotherms();

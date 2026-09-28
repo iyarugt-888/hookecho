@@ -11,6 +11,7 @@ pub mod beam_geometry;
 pub mod cellscore;
 pub mod celltrack;
 pub mod cfradial;
+pub mod census;
 pub mod clock;
 pub mod confirm;
 pub mod continuation;
