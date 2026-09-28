@@ -129,7 +129,7 @@ impl RouteWindow {
                     ui.strong(tag);
                     ui.weak(format!("{:.3}, {:.3}", p[1], p[0]));
                     if ui
-                        .small_button("✕")
+                        .small_button(egui_phosphor::regular::X)
                         .on_hover_text("Remove this point")
                         .clicked()
                     {
