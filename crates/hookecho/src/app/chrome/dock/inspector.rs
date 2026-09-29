@@ -8,7 +8,7 @@ use crate::ui::a11y::Named as _;
 use egui_phosphor::regular as ph;
 
 /// The card's width.
-pub(super) const CARD_W: f32 = 276.0;
+pub(super) const CARD_W: f32 = 304.0;
 /// Room the card leaves at the map's right edge for the colour scale drawn there.
 const SCALE_CLEAR: f32 = 64.0;
 

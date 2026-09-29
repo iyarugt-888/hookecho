@@ -213,7 +213,10 @@ impl HookEchoApp {
                             ui,
                             &t,
                             ph::CALENDAR_BLANK,
-                            &format!("{}", tl.date.format("%b %-d, %Y")),
+                            // The archive's day is a UTC one (so is the jump field beside it);
+                            // saying so keeps it from reading as wrong next to a local clock
+                            // that is still on the evening before.
+                            &format!("{} UTC", tl.date.format("%b %-d, %Y")),
                             false,
                         )
                         .named("Archive: pick a day");

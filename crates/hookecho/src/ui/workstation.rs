@@ -863,7 +863,9 @@ pub fn kv_text(ui: &mut egui::Ui, t: &Tokens, key: &str, value: &str) {
 
 fn kv_row(ui: &mut egui::Ui, t: &Tokens, key: &str, value: egui::RichText) {
     ui.horizontal(|ui| {
-        let (rect, _) = ui.allocate_exact_size(egui::vec2(92.0, 18.0), Sense::hover());
+        // Wide enough for the longest key ("Beam height", "Track error"), no wider: the value
+        // beside it is what gets cut short when the column is too generous.
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(76.0, 18.0), Sense::hover());
         ui.painter().text(
             rect.left_center(),
             egui::Align2::LEFT_CENTER,
