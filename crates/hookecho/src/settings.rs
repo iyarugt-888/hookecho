@@ -229,6 +229,10 @@ pub struct Settings {
     /// see [`Settings::adopt_tablet_default`].
     #[serde(default)]
     pub tablet_layout_adopted: bool,
+    /// Whether the one-time move from the ribbon to the dock, when the dock became the default
+    /// layout, has happened; see [`Settings::adopt_dock_default`].
+    #[serde(default)]
+    pub dock_adopted: bool,
     /// Whether the one-time move of a phone from the old default design to Station has happened;
     /// see [`Settings::adopt_station_default`].
     #[serde(default)]
@@ -907,6 +911,24 @@ impl Settings {
         true
     }
 
+    /// Move anyone still on the ribbon, the old default, to the dock, now the default, once —
+    /// with the dock's own look. A ribbon picked again afterwards stays picked, and any other
+    /// layout is kept. Returns whether it changed anything.
+    pub fn adopt_dock_default(&mut self) -> bool {
+        if self.dock_adopted {
+            return false;
+        }
+        self.dock_adopted = true;
+        if self.layout != Layout::CommandRibbon {
+            return false;
+        }
+        self.layout = Layout::Dock;
+        let (theme, density) = Layout::Dock.recommended_theme_and_density();
+        self.theme = theme;
+        self.density = density;
+        true
+    }
+
     /// Move a phone still on the old default design (Aurora) to Station, the workstation's
     /// windows in a bottom sheet, once. A design picked on purpose is kept, and one changed back
     /// later stays changed. Returns whether it changed anything.
@@ -1367,7 +1389,6 @@ pub fn default_alert_radius_mi() -> f64 {
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default,
 )]
 pub enum Layout {
-    #[default]
     #[serde(alias = "Wsv3")]
     CommandRibbon,
     /// Serialized as `"Wsv3Theme"`, not `"Wsv3"` — that string is `CommandRibbon`'s alias above
@@ -1382,16 +1403,18 @@ pub enum Layout {
     Minimal,
     /// The analyst workstation with its tool windows showing: Layers docked left, the Inspector
     /// over the map, the timeline under it. For a tablet or a desktop that wants every control
-    /// visible at once.
+    /// visible at once. The default layout.
+    #[default]
     Dock,
 }
 
 impl Layout {
+    /// The default first.
     pub const ALL: [Layout; 4] = [
+        Layout::Dock,
         Layout::CommandRibbon,
         Layout::Wsv3,
         Layout::Minimal,
-        Layout::Dock,
     ];
 
     pub fn label(self) -> &'static str {
@@ -1657,15 +1680,17 @@ impl Default for Settings {
             mping_key: String::new(),
             etop_dbz: default_etop_dbz(),
             poll_interval_secs: 30,
-            theme: Theme::Dark,
+            // The dock's own look: it is the default layout.
+            theme: Theme::DearImGui,
             layout: Layout::default(),
             workstation: Default::default(),
             tablet_layout_adopted: false,
+            dock_adopted: true,
             station_adopted: false,
             local_api: false,
             local_api_port: default_local_api_port(),
             phone_design: PhoneDesign::default(),
-            density: Density::default(),
+            density: Density::Compact,
             accent: None,
             reduce_motion: false,
             hide_far_3d: true,
@@ -1935,6 +1960,7 @@ impl Settings {
             loaded.ui_scale = 1.0;
         }
         loaded.adopt_tablet_default(cfg!(target_os = "android"));
+        loaded.adopt_dock_default();
         loaded.adopt_detector_floors();
         // Saved key tables gain the plain-key alternatives, so a tablet keyboard without an F row
         // or Page keys can reach every action (see `hotkeys::fill_plain_keys`).
@@ -2497,6 +2523,7 @@ mod tests {
             layout: Layout::Minimal,
             workstation: Default::default(),
             tablet_layout_adopted: false,
+            dock_adopted: false,
             station_adopted: true,
             local_api: true,
             local_api_port: 50_000,
@@ -2827,8 +2854,8 @@ mod tests {
         assert_eq!(s.mapbox_key, "kept", "a good key was thrown away");
         assert!((s.ui_scale - 1.25).abs() < 1e-6);
         assert!(s.smooth_radar);
-        // Only the unreadable field falls back.
-        assert_eq!(s.theme, Theme::default());
+        // Only the unreadable field falls back, to the default settings' own.
+        assert_eq!(s.theme, Settings::default().theme);
     }
 
     #[test]
@@ -2908,8 +2935,10 @@ mod tests {
 
     #[test]
     fn a_tablet_on_the_shipped_ribbon_moves_to_the_dock_once() {
-        let mut s = Settings::default();
-        assert_eq!(s.layout, Layout::CommandRibbon);
+        let mut s = Settings {
+            layout: Layout::CommandRibbon,
+            ..Settings::default()
+        };
         // Not a tablet: untouched, and not marked, so it can still happen if it ever is one.
         assert!(!s.adopt_tablet_default(false));
         assert_eq!(s.layout, Layout::CommandRibbon);
@@ -2920,6 +2949,27 @@ mod tests {
         s.layout = Layout::CommandRibbon;
         assert!(!s.adopt_tablet_default(true));
         assert_eq!(s.layout, Layout::CommandRibbon);
+    }
+
+    #[test]
+    fn the_dock_is_the_default_and_the_old_default_ribbon_moves_to_it_once() {
+        let fresh = Settings::default();
+        assert_eq!(fresh.layout, Layout::Dock);
+        assert_eq!(fresh.theme, Theme::DearImGui, "with its own look");
+        // A file from before the dock was the default, still on the ribbon.
+        let mut old: Settings = serde_json::from_str(r#"{"layout":"CommandRibbon"}"#).unwrap();
+        assert!(!old.dock_adopted);
+        assert!(old.adopt_dock_default());
+        assert_eq!(old.layout, Layout::Dock);
+        assert_eq!(old.theme, Theme::DearImGui);
+        // The ribbon picked again afterwards stays picked.
+        old.layout = Layout::CommandRibbon;
+        assert!(!old.adopt_dock_default());
+        assert_eq!(old.layout, Layout::CommandRibbon);
+        // Any other layout is kept.
+        let mut minimal: Settings = serde_json::from_str(r#"{"layout":"Minimal"}"#).unwrap();
+        assert!(!minimal.adopt_dock_default());
+        assert_eq!(minimal.layout, Layout::Minimal);
     }
 
     #[test]
