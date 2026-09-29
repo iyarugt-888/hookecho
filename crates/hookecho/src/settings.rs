@@ -333,6 +333,9 @@ pub struct Settings {
     /// Y'all mode: the Y'all-O-Meter card and Y'all Tracks for your spot (`crate::yall`).
     #[serde(default)]
     pub yall_mode: bool,
+    /// Show every visible layer's reading under the pointer (`app::layer_probe`).
+    #[serde(default)]
+    pub layer_probe: bool,
     /// Draw the zoomed-out map as a globe (`render::mercator::set_globe`).
     #[serde(default)]
     pub globe: bool,
@@ -1681,6 +1684,7 @@ impl Default for Settings {
             dealias_velocity: false,
             alert_spotlight: true,
             yall_mode: false,
+            layer_probe: false,
             globe: false,
             volume3d_presets: Vec::new(),
             radar_relay_url: String::new(),
@@ -2531,6 +2535,7 @@ mod tests {
             dealias_velocity: true,
             alert_spotlight: false,
             yall_mode: false,
+            layer_probe: false,
             globe: false,
             volume3d_presets: vec![Volume3dPreset {
                 name: "Hail core".into(),

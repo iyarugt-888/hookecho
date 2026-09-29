@@ -8,12 +8,23 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
-### Added: user-defined products in 3D
+### Added: layer probe
 
-Any user product you've written (Tools > User products) can now be drawn as a 3D volume: pick
+Turn on Layer probe (Tools) and a card beside the pointer reads out every layer on the map at that
+spot at once: the radar value and beam height, each field on the map (rotation tracks, composites,
+model and satellite layers), each model contour such as STP or CAPE, the nearest storm cell and
+detection tracks, and the alerts, watches, discussions and outlook over it. Click the map to pin
+it there.
+
+### Added: user-defined products on the map, in 2D and 3D
+
+Any user product you've written (Tools > User products) can now go on the map: "Show on map"
+draws it in place of the moment on the shown tilt, with its own colour scale and units, and picking
+another moment takes it off. It can also be drawn as a 3D volume: pick
 "User" in the 3D controls, then the product. It's worked out at every gate of the scan and drawn
 like reflectivity or ZDR, with the same Denoise floor, ceiling, opacity curve and presets in the
-product's own units. Products can also carry a value range for their palette.
+product's own units. "Fixed range" sets the values a product's colours span; otherwise they fit
+what it produced.
 
 ### Added: globe
 

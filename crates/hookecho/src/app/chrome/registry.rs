@@ -1038,6 +1038,14 @@ impl HookEchoApp {
                 false,
             ),
             (
+                T::LayerProbe,
+                "Tools",
+                "Layer probe",
+                "Every layer on the map read out under the pointer: radar, fields, rotation tracks, \
+                 model contours such as STP and CAPE, storm cells, alerts. Click the map to pin it",
+                false,
+            ),
+            (
                 T::YallMode,
                 "Severe",
                 "Y'all mode",

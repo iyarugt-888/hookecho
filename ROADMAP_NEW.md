@@ -1405,7 +1405,7 @@ completed-volume continuity mode when both live paths are unavailable.
 
 **Priority: P0/P1. This is what moves HookEcho from viewer to analyst workstation.**
 
-## C1. User-defined radar product engine — partly done
+## C1. User-defined radar product engine — done, apart from a -10C input and product palettes
 
 Implement a safe expression/DSL system inspired by the flexibility of GR2Analyst user-defined products, but designed around HookEcho’s Rust/WGPU architecture.
 
@@ -1414,10 +1414,19 @@ freezing-level/-20C environmental height inputs: `wxdata::udp` parses and evalua
 against one gate or, for the column functions, one point's whole tilt column, and
 `ui::udp_window`/the gate inspector's "USER-DEFINED" section let a user define one and see it live
 against real data. New this pass: the freezing-level fetch is now proactive on any gate inspection
-(see the inputs checklist item below), closing this section's own previously-named follow-up. What
-remains is rendering a product as its own map layer — a separate, larger piece of work (see below)
-— plus a -10C environmental height input (HRRR's own isotherm-height
-field doesn't publish that level via the mechanism 0C/-20C already reuse).
+(see the inputs checklist item below), closing this section's own previously-named follow-up.
+
+**A product is now a map layer, in 2D and 3D.** "Show on map" in the User products window puts one
+on the active pane in place of the moment: `Volume::product_sweep` works it out at every gate of the
+shown tilt (`wxdata::udp_volume`, the other moments looked up at the same azimuth and slant range,
+a split cut's other rotation lending what the tilt lacks), caches it per product, tilt and live
+revision, and the pane uploads it like any sweep with a ramp palette across its range; the colour
+bar and legend switch to that range and the product's units, and picking another moment takes it
+off. A product can carry a fixed range ("Fixed range"), else it is coloured over its own 2nd–98th
+percentile. In 3D it is "User" in the 3D controls (H1). Formulas using a vertical/layer function
+have one value per column, not per gate, so they are not offered for either. Still open: a -10C
+environmental height input (HRRR's own isotherm-height field doesn't publish that level via the
+mechanism 0C/-20C already reuse), and a palette of a product's own choosing.
 
 ### First version capabilities
 
@@ -3376,7 +3385,7 @@ Each pane should independently join link groups for:
 
 This enables, for example, four products locked in location/time but not product.
 
-## J3. Synchronized crosshair/probe — partly done
+## J3. Synchronized crosshair/probe — done
 
 Moving cursor in one pane should optionally show corresponding point in linked panes and a compact table:
 
@@ -3401,6 +3410,18 @@ Moving cursor in one pane should optionally show corresponding point in linked p
   grids, signed or absolute model differences, and each compare-pane side; categorical codes use
   their legend labels and Kelvin-backed fields honor the user's temperature unit. With no grid on
   top it still reuses `inspect_gate` for radar, so one table now truthfully spans both paths.
+- [x] every layer at the point, not only the top one — the "Layer probe" toggle (Tools;
+  `app/layer_probe.rs`): a card beside the pointer lists each visible layer's reading there, in
+  its own units — the radar moment on the shown tilt with the beam height (or the user product in
+  its place), every gridded field on the pane (MRMS rotation tracks, composites, model and
+  satellite fields, via the same `grid_probe_row` the table uses), every model contour (STP,
+  SCP, CAPE, SRH...: contours now keep the grid they were drawn from), the rotation and debris
+  tracks and the storm cell within 10 km (dBZ, top, hail, TVS/meso, motion), and the warnings,
+  watches, discussions and outlook over the point. A click on the map pins the card there; Unpin
+  lets go. The card sits on whichever side of the point has room. Asked for by a user who could
+  not read reflectivity, rotation tracks and STP/CAPE contours at one spot together. Checked in
+  the browser on live KTLX: reflectivity 30.7 dBZ, SB-CAPE 2169 J/kg and storm E1 (54 dBZ, top
+  23 kft, 0.50 in hail) in one card, then pinned
 
 ## J4. Compare modes — done
 

@@ -24,7 +24,8 @@ pub const MOMENTS: [Moment; 6] = [
     Moment::CorrelationCoefficient,
 ];
 
-fn moment_input(m: Moment) -> Input {
+/// The formula input a moment is read as.
+pub fn moment_input(m: Moment) -> Input {
     match m {
         Moment::Velocity => Input::Velocity,
         Moment::SpectrumWidth => Input::SpectrumWidth,

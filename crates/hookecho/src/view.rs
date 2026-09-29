@@ -461,6 +461,9 @@ pub struct Volume {
     /// Live merges applied to this volume, so a build keyed by it goes stale when it grows and
     /// only then (the pane's own revision also moves when a *newer* volume grows).
     revision: u64,
+    /// User-defined products evaluated on a tilt, keyed by the product's identity, the tilt and
+    /// the revision they were worked out at (so a live merge makes them stale).
+    products: LruCache<(u64, usize, u64), BinnedSweep>,
 }
 
 impl Volume {
@@ -479,7 +482,55 @@ impl Volume {
             live: false,
             light: false,
             revision: 0,
+            products: LruCache::new(NonZeroUsize::new(6).unwrap()),
         }
+    }
+
+    /// A user-defined product worked out at every gate of tilt `tilt` (`wxdata::udp_volume`),
+    /// quantized over `range` (or its own 2nd-98th percentile), cached. `key` identifies the
+    /// product (formula, range and environment). A moment this tilt lacks is taken from another
+    /// tilt within 0.25° of it: a split cut records reflectivity and velocity on separate
+    /// rotations at the same elevation.
+    pub fn product_sweep(
+        &mut self,
+        key: u64,
+        expr: &wxdata::udp::Expr,
+        range: Option<(f32, f32)>,
+        env: wxdata::udp_volume::Env,
+        tilt: usize,
+    ) -> anyhow::Result<&BinnedSweep> {
+        use wxdata::udp_volume::{moment_input, MOMENTS};
+        let cache_key = (key, tilt, self.revision);
+        if !self.products.contains(&cache_key) {
+            let elev = *self
+                .elevations
+                .get(tilt)
+                .ok_or_else(|| anyhow::anyhow!("tilt {tilt} out of range"))?;
+            let reads = expr.inputs();
+            let reads_any = MOMENTS.iter().any(|m| reads.contains(&moment_input(*m)));
+            let near: Vec<usize> = std::iter::once(tilt)
+                .chain(
+                    (0..self.elevations.len())
+                        .filter(|&t| t != tilt && (self.elevations[t] - elev).abs() < 0.25),
+                )
+                .collect();
+            let mut owned: [Option<BinnedSweep>; 6] = Default::default();
+            for (i, m) in MOMENTS.iter().enumerate() {
+                if !reads.contains(&moment_input(*m)) && (reads_any || i != 0) {
+                    continue;
+                }
+                owned[i] = near
+                    .iter()
+                    .find_map(|&t| self.binned(*m, t, *m == Moment::Velocity).ok().cloned());
+            }
+            let tilt_sweeps: [Option<&BinnedSweep>; 6] = std::array::from_fn(|i| owned[i].as_ref());
+            let sweep = wxdata::udp_volume::evaluate_tilt(expr, &tilt_sweeps, env)
+                .and_then(|t| wxdata::udp_volume::quantize(vec![t], range))
+                .and_then(|(s, _)| s.into_iter().next())
+                .ok_or_else(|| anyhow::anyhow!("the product has no value on this tilt"))?;
+            self.products.put(cache_key, sweep);
+        }
+        Ok(self.products.get(&cache_key).expect("just inserted"))
     }
 
     /// How many live merges this volume has taken: 0 for a volume loaded whole.
@@ -677,6 +728,14 @@ pub struct MapView {
     /// clean_reflectivity`). Reflectivity only; with `column_max`, the maximum of the cleaned
     /// tilts.
     pub clean_reflectivity: bool,
+    /// A user-defined product (`Settings::udp_products`, by name) shown on the map in place of
+    /// the moment, worked out at every gate of the shown tilt.
+    pub user_product: Option<String>,
+    /// The range the shown user product's colours span, for its legend.
+    pub product_range: Option<(f32, f32)>,
+    /// The moment the pane was on when the product was put on the map: picking another moment
+    /// takes the product off.
+    pub product_moment: Moment,
     /// Per product (indexed by [`Moment::index`]): a value band, internal units, that flashes on
     /// the map so every echo in it stands out ("flash a range"). Set by dragging across the
     /// colour scale; a click on the scale clears it.
@@ -843,6 +902,9 @@ impl MapView {
             follow_lowest_cut: false,
             column_max: false,
             clean_reflectivity: false,
+            user_product: None,
+            product_range: None,
+            product_moment: Moment::Reflectivity,
             flash_ranges: [None; Moment::ALL.len()],
             follow_live_sweep: false,
             followed_sweep: None,
@@ -1222,8 +1284,13 @@ mod tests {
 
     /// A lap of a loop must not re-bin what it binned last lap. This is the whole wave: before it,
     /// `Volume::new` on every playhead move meant the binned cache started empty every frame.
+    /// Held by tests that bin sweeps while one of them counts binning through the process-wide
+    /// stats counter, which a test binning at the same time would throw off.
+    static BINNING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn coming_back_to_a_volume_reuses_its_binned_sweeps() {
+        let _serial = BINNING.lock().unwrap_or_else(|e| e.into_inner());
         let now = chrono::Utc::now();
         let mut view = MapView::new(
             Some("KTLX".into()),
@@ -1332,6 +1399,25 @@ mod tests {
 
     /// A live volume that has only just started has no tilts in it yet. Applying it emptied the
     /// tilt list and made the next bin fail with "tilt 0 out of range".
+    #[test]
+    fn a_user_product_is_worked_out_on_a_tilt_and_kept() {
+        let _serial = BINNING.lock().unwrap_or_else(|e| e.into_inner());
+        let mut vol = Volume::new(scan_at(&[0.5, 1.5]), "a".into(), chrono::Utc::now());
+        let env = wxdata::udp_volume::Env::default();
+        // The fixture's one gate reads 20 dBZ.
+        let doubled = wxdata::udp::parse("REF * 2").unwrap();
+        let s = vol
+            .product_sweep(1, &doubled, Some((0.0, 100.0)), env, 0)
+            .unwrap();
+        let code = s.data.iter().copied().find(|&c| c >= 2).expect("a value");
+        let v = s.value_min + (code - 2) as f32 / 253.0 * (s.value_max - s.value_min);
+        assert!((v - 40.0).abs() < 0.5, "20 dBZ doubled is 40, got {v}");
+        assert!(vol.products.contains(&(1, 0, 0)), "kept for the next frame");
+        // The fixture carries no velocity: nothing to draw, and it says so.
+        let vel = wxdata::udp::parse("VEL").unwrap();
+        assert!(vol.product_sweep(2, &vel, None, env, 0).is_err());
+    }
+
     #[test]
     fn a_tiltless_live_update_does_not_replace_the_volume_on_screen() {
         let now = chrono::Utc::now();

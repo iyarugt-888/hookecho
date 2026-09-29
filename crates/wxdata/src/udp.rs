@@ -5,8 +5,8 @@
 //! This is deliberately the *evaluator* half only. It answers "what does this formula compute at
 //! one gate" (or, for the vertical/layer functions below, "at one point's whole tilt column"),
 //! which drives a live readout (the gate inspector) against real data. Evaluated over every gate
-//! of a volume ([`crate::udp_volume`]), a product is also drawn in the 3D map; it is not yet a 2D
-//! map layer of its own.
+//! of a tilt or a volume ([`crate::udp_volume`]), a product is also drawn on the map, in 2D in
+//! place of a moment and in 3D as a volume.
 //!
 //! Still out of scope for this pass, and noted for the same reason: environmental-height inputs
 //! (freezing level, -10C/-20C heights) — these need external model data, not just a decoded

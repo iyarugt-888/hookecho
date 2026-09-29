@@ -1,8 +1,9 @@
 //! User-defined products (Phase C1): add/edit/remove GR2Analyst-style formula products.
 //!
-//! This window only manages the saved list (`Settings::udp_products`); it does not evaluate
-//! anything itself. A saved product's live value at whatever point is clicked shows up in the
-//! gate inspector (`ui::gate_inspector`), which reads this same list.
+//! This window manages the saved list (`Settings::udp_products`) and which product the active pane
+//! shows on the map (`MapView::user_product`); it does not evaluate anything itself. A saved
+//! product's live value at whatever point is clicked shows up in the gate inspector
+//! (`ui::gate_inspector`), which reads this same list.
 
 use crate::settings::Settings;
 use wxdata::udp::{Input, ProductDef};
@@ -22,6 +23,8 @@ impl UdpWindow {
         ctx: &egui::Context,
         settings: &mut Settings,
         drawer: &mut crate::ui::drawer::Drawer,
+        // The active pane's product shown on the map, by name.
+        on_map: &mut Option<String>,
     ) {
         let mut open = self.open;
         let Some(window) = drawer.page_sized(
@@ -38,8 +41,8 @@ impl UdpWindow {
         window.show(ctx, |ui| {
             ui.label(
                 "Combine a gate's own moments and geometry into a custom value — GR2Analyst's \
-                 user-defined products. See its live result by clicking the radar map (gate \
-                 inspector).",
+                 user-defined products. Show one on the map in place of the moment, draw it in 3D \
+                 (\"User\" in the 3D controls), or click the map to read it at a gate.",
             );
             ui.add_space(4.0);
             if ui
@@ -60,13 +63,16 @@ impl UdpWindow {
                 .show(ui, |ui| {
                     for i in 0..settings.udp_products.len() {
                         ui.push_id(i, |ui| {
-                            row(ui, settings, i, &mut remove);
+                            row(ui, settings, i, &mut remove, on_map);
                         });
                         ui.separator();
                     }
                 });
             if let Some(i) = remove {
-                settings.udp_products.remove(i);
+                let gone = settings.udp_products.remove(i);
+                if on_map.as_deref() == Some(gone.name.as_str()) {
+                    *on_map = None;
+                }
             }
 
             ui.add_space(6.0);
@@ -117,8 +123,15 @@ impl UdpWindow {
 
 /// One saved product's editable row: name/units/expression fields plus a live compile-error
 /// readout, so a typo shows up here rather than only as a silent "—" in the gate inspector later.
-fn row(ui: &mut egui::Ui, settings: &mut Settings, i: usize, remove: &mut Option<usize>) {
+fn row(
+    ui: &mut egui::Ui,
+    settings: &mut Settings,
+    i: usize,
+    remove: &mut Option<usize>,
+    on_map: &mut Option<String>,
+) {
     let def = &mut settings.udp_products[i];
+    let old_name = def.name.clone();
     ui.horizontal(|ui| {
         if ui.button("\u{2716}").on_hover_text("Remove").clicked() {
             *remove = Some(i);
@@ -127,10 +140,47 @@ fn row(ui: &mut egui::Ui, settings: &mut Settings, i: usize, remove: &mut Option
         ui.label("units:");
         ui.add(egui::TextEdit::singleline(&mut def.units).desired_width(50.0));
     });
+    // A rename keeps it on the map.
+    if def.name != old_name && on_map.as_deref() == Some(old_name.as_str()) {
+        *on_map = Some(def.name.clone());
+    }
     ui.add(egui::TextEdit::singleline(&mut def.expression).desired_width(f32::INFINITY));
-    if let Err(e) = def.compile() {
+    let compiled = def.compile();
+    if let Err(e) = &compiled {
         ui.colored_label(egui::Color32::from_rgb(230, 130, 130), e.to_string());
     }
+    let per_gate = compiled.as_ref().is_ok_and(|e| !e.uses_column());
+    ui.horizontal(|ui| {
+        let shown = on_map.as_deref() == Some(def.name.as_str());
+        let r = ui
+            .add_enabled(per_gate, egui::Button::selectable(shown, "Show on map"))
+            .on_hover_text("Draw it on the map in place of the moment, on the shown tilt")
+            .on_disabled_hover_text(
+                "A vertical/layer function has one value per column, not per gate, so there is \
+                 no sweep of it to draw",
+            );
+        if r.clicked() {
+            *on_map = (!shown).then(|| def.name.clone());
+        }
+        let mut fixed = def.range.is_some();
+        if ui
+            .checkbox(&mut fixed, "Fixed range")
+            .on_hover_text(
+                "Colour it over a range you set. Off: over the range it comes out in (its 2nd to \
+                 98th percentile)",
+            )
+            .changed()
+        {
+            def.range = fixed.then_some((0.0, 100.0));
+        }
+        if let Some((lo, hi)) = &mut def.range {
+            ui.add(egui::DragValue::new(lo).speed(0.5).prefix("from "));
+            ui.add(egui::DragValue::new(hi).speed(0.5).prefix("to "));
+            if *hi <= *lo {
+                *hi = *lo + 1.0;
+            }
+        }
+    });
 }
 
 fn reference(ui: &mut egui::Ui) {

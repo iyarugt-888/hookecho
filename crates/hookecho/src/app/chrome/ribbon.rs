@@ -209,8 +209,16 @@ impl HookEchoApp {
         let mode = self.ribbon_mode;
         let active_contours = self.active_contours.clone();
 
-        let (disp_f, disp_l) = display_units(moment, &self.settings);
-        let table = self.palettes.table(moment).clone();
+        // A user product shown on the map brings its own scale and units.
+        let product_legend = self.product_legend(self.active);
+        let (disp_f, disp_l) = match &product_legend {
+            Some((_, _, units)) => (1.0, units.as_str()),
+            None => display_units(moment, &self.settings),
+        };
+        let table = match &product_legend {
+            Some((t, _, _)) => t.clone(),
+            None => self.palettes.table(moment).clone(),
+        };
 
         let mut pick_tilt: Option<usize> = None;
         let mut pick_panes: Option<usize> = None;

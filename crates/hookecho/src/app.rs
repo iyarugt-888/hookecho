@@ -12,6 +12,7 @@ mod chrome;
 mod field_state;
 mod goes_timeline;
 pub(crate) mod impact;
+mod layer_probe;
 #[cfg(not(target_arch = "wasm32"))]
 mod local_api;
 pub(crate) mod long_loop;
@@ -514,6 +515,8 @@ enum OverlayMsg {
         ContourKind,
         Vec<wxdata::contour::ContourLine>,
         DateTime<Utc>,
+        // The grid the lines were drawn from, in display units, for the layer probe.
+        Arc<wxdata::mrms::MrmsField>,
     ),
     /// NHC tropical cyclones: cones + per-storm tracks (feature V).
     Tropical(wxdata::tropical::TropicalData),
@@ -1854,7 +1857,7 @@ impl OverlaySource {
                     let fc = wxdata::severe::fetch_grid(http, model, sk).await?;
                     let valid = fc.valid();
                     let lines = wxdata::contour::contour_lines(&fc.field, kind.severe_interval());
-                    return Ok(OverlayMsg::Contours(kind, lines, valid));
+                    return Ok(OverlayMsg::Contours(kind, lines, valid, Arc::new(fc.field)));
                 }
                 let (var, level, _) = kind
                     .params()
@@ -1874,6 +1877,7 @@ impl OverlaySource {
                     kind,
                     wxdata::contour::contour_lines(&fc.field, interval),
                     valid,
+                    Arc::new(fc.field),
                 )
             }
             OverlaySource::Outages => OverlayMsg::Outages(wxdata::outages::fetch(http).await?),
@@ -2229,6 +2233,8 @@ pub(crate) fn summarize_contours(active: &std::collections::BTreeSet<ContourKind
 pub(crate) struct ContourEntry {
     pub lines: Vec<wxdata::contour::ContourLine>,
     pub valid: Option<DateTime<Utc>>,
+    /// The grid the lines were drawn from (display units), which the layer probe reads.
+    pub grid: Option<Arc<wxdata::mrms::MrmsField>>,
     pub last_fetch: Option<Instant>,
     pub fetched_key: Option<(wxdata::hrrr::Model, crate::settings::TempUnit)>,
 }
@@ -2275,6 +2281,8 @@ pub(crate) enum OverlayToggle {
     TornadoId,
     /// Y'all mode (`crate::yall`): the Y'all-O-Meter card and Y'all Tracks.
     YallMode,
+    /// The layer probe (`app::layer_probe`): every visible layer's reading under the pointer.
+    LayerProbe,
     /// The zoomed-out map as a globe (`render::mercator::set_globe`).
     Globe,
     Tbss,
@@ -2360,7 +2368,7 @@ pub(crate) struct CoverageCompareKey {
 impl OverlayToggle {
     /// Every toggle, for the persistence sweep. A new variant belongs here too, or it silently
     /// stops being remembered across restarts.
-    pub(crate) const ALL: [OverlayToggle; 57] = [
+    pub(crate) const ALL: [OverlayToggle; 58] = [
         Self::AlertPanel,
         Self::StormReports,
         Self::Spotters,
@@ -2392,6 +2400,7 @@ impl OverlayToggle {
         Self::Couplets,
         Self::TornadoId,
         Self::YallMode,
+        Self::LayerProbe,
         Self::Globe,
         Self::Tbss,
         Self::ZdrColumns,
@@ -4526,6 +4535,8 @@ pub struct HookEchoApp {
     terrain3d: terrain3d::Terrain3d,
     /// Y'all mode's own outlooks and card state.
     yall: yall_mode::YallState,
+    /// Where the layer probe is pinned: `(pane, lon, lat)`.
+    layer_probe_pin: Option<(usize, f64, f64)>,
     wind_last_fetch: Option<Instant>,
     /// When the in-flight fetch started, or `None` if none is. One at a time: 10 m u+v is 4.5 MB
     /// an hour, and a fast scrub across the forecast tail would otherwise queue ~82 MB of GRIB
@@ -5814,6 +5825,7 @@ impl HookEchoApp {
             radar_wind: Default::default(),
             terrain3d: Default::default(),
             yall: Default::default(),
+            layer_probe_pin: None,
             wind_last_fetch: None,
             wind_inflight: None,
             wind_last_frame: None,
@@ -11694,6 +11706,7 @@ impl HookEchoApp {
             T::Couplets => &mut self.filters.show_couplets,
             T::TornadoId => &mut self.filters.show_tornado_id,
             T::YallMode => &mut self.settings.yall_mode,
+            T::LayerProbe => &mut self.settings.layer_probe,
             T::Globe => &mut self.settings.globe,
             T::Alerts => &mut self.filters.show_alerts,
             T::Mds => &mut self.filters.show_mds,
@@ -12632,13 +12645,14 @@ impl HookEchoApp {
                     }
                 }
                 OverlayMsg::Gauges(g) => self.gauges = g,
-                OverlayMsg::Contours(kind, lines, valid) => {
+                OverlayMsg::Contours(kind, lines, valid, grid) => {
                     // Keep only if this kind is still active — it may have been turned off while
                     // the fetch was in flight.
                     if self.active_contours.contains(&kind) {
                         let entry = self.contours.entry(kind).or_default();
                         entry.lines = lines;
                         entry.valid = Some(valid);
+                        entry.grid = Some(grid);
                     }
                 }
                 OverlayMsg::Tropical(data) => self.tropical = Some(data),
@@ -14041,47 +14055,28 @@ impl HookEchoApp {
         ))
     }
 
-    /// The user-defined product pane `idx`'s 3D draws, when it draws one (ROADMAP_NEW H1). `None`
-    /// when none is picked, it no longer exists, it does not parse, or it reduces a whole column
-    /// (a vertical/layer function has no value at a single gate).
-    fn product_spec(&self, idx: usize) -> Option<crate::loop3d::ProductSpec> {
+    /// User product `name` as pane `idx` would evaluate it: its formula, range and the site
+    /// facts it can read, plus a key identifying all of that. `None` when it no longer exists, it
+    /// does not parse, or it reduces a whole column (a vertical/layer function has no value at a
+    /// single gate, so there is nothing to draw per gate).
+    fn product_named(&self, idx: usize, name: &str) -> Option<(crate::loop3d::ProductSpec, u64)> {
+        use std::hash::{Hash, Hasher};
         let v = &self.views[idx];
-        if v.map_3d.representation != Map3dRepresentation::SmoothProduct {
-            return None;
-        }
-        let name = v.map_3d.product.as_ref()?;
-        let def = self
-            .settings
-            .udp_products
-            .iter()
-            .find(|p| &p.name == name)?;
+        let def = self.settings.udp_products.iter().find(|p| p.name == name)?;
         let expr = def.compile().ok().filter(|e| !e.uses_column())?;
         let antenna_altitude_m = v
             .site
             .as_deref()
             .and_then(wxdata::sites::site_by_id)
             .map(|s| s.elevation_meters as f32 + wxdata::towers::tower_m(s.id) as f32);
-        Some(crate::loop3d::ProductSpec {
+        let spec = crate::loop3d::ProductSpec {
             expr,
             range: def.range,
             env: wxdata::udp_volume::Env {
                 antenna_altitude_m,
                 freezing: self.freezing_for(idx).map(|(a, b)| (a as f32, b as f32)),
             },
-        })
-    }
-
-    /// What identifies pane `idx`'s product build: the formula, its range and the freezing levels
-    /// it can read.
-    fn product_spec_key(&self, idx: usize) -> Option<u64> {
-        use std::hash::{Hash, Hasher};
-        let spec = self.product_spec(idx)?;
-        let name = self.views[idx].map_3d.product.as_ref()?;
-        let def = self
-            .settings
-            .udp_products
-            .iter()
-            .find(|p| &p.name == name)?;
+        };
         let mut h = std::collections::hash_map::DefaultHasher::new();
         def.expression.hash(&mut h);
         spec.range
@@ -14091,7 +14086,48 @@ impl HookEchoApp {
             .freezing
             .map(|(a, b)| (a.to_bits(), b.to_bits()))
             .hash(&mut h);
-        Some(h.finish())
+        spec.env.antenna_altitude_m.map(f32::to_bits).hash(&mut h);
+        Some((spec, h.finish()))
+    }
+
+    /// The user-defined product pane `idx`'s 3D draws, when it draws one (ROADMAP_NEW H1).
+    fn product_spec(&self, idx: usize) -> Option<crate::loop3d::ProductSpec> {
+        let v = &self.views[idx];
+        if v.map_3d.representation != Map3dRepresentation::SmoothProduct {
+            return None;
+        }
+        self.product_named(idx, v.map_3d.product.as_ref()?)
+            .map(|(s, _)| s)
+    }
+
+    /// What identifies pane `idx`'s 3D product build.
+    fn product_spec_key(&self, idx: usize) -> Option<u64> {
+        let v = &self.views[idx];
+        if v.map_3d.representation != Map3dRepresentation::SmoothProduct {
+            return None;
+        }
+        self.product_named(idx, v.map_3d.product.as_ref()?)
+            .map(|(_, k)| k)
+    }
+
+    /// The user product pane `idx` shows on the map in place of its moment, when it shows one.
+    fn map_product(&self, idx: usize) -> Option<(crate::loop3d::ProductSpec, u64)> {
+        self.product_named(idx, self.views[idx].user_product.as_ref()?)
+    }
+
+    /// The colour scale and units a pane's legend shows for its user product, when it shows one.
+    pub(crate) fn product_legend(&self, idx: usize) -> Option<(ColorTable, String, String)> {
+        let v = &self.views[idx];
+        let name = v.user_product.as_ref()?;
+        let (lo, hi) = v.product_range?;
+        let units = self
+            .settings
+            .udp_products
+            .iter()
+            .find(|p| &p.name == name)
+            .map(|p| p.units.clone())
+            .unwrap_or_default();
+        Some((crate::colormap::ramp_table(lo, hi), name.clone(), units))
     }
 
     /// What pane `idx`'s isosurface of volume `name` is built from, when it shows one.
@@ -16038,6 +16074,24 @@ impl HookEchoApp {
             (false, true) => format!("{name}\u{2}clean"),
             (false, false) => name,
         };
+        // A user product stands in for the moment, worked out on the shown tilt. Picking another
+        // moment takes it off.
+        if self.views[idx].user_product.is_some()
+            && self.views[idx].moment != self.views[idx].product_moment
+        {
+            self.views[idx].user_product = None;
+            self.views[idx].product_range = None;
+        }
+        let product = self.map_product(idx);
+        let name = match &product {
+            Some((_, key)) => format!("{name}\u{2}udp{key:x}"),
+            None => name,
+        };
+        let (threshold, storm_uv) = if product.is_some() {
+            (None, None) // both are in the moment's units, which a product does not share
+        } else {
+            (threshold, storm_uv)
+        };
         let uv_key = storm_uv.map(|(e, n)| (e.to_bits(), n.to_bits()));
         // Dealiasing only applies to Doppler velocity, and only where it is actually folded:
         // a TDWR's Level 3 velocity is already unfolded before it leaves the radar.
@@ -16059,7 +16113,8 @@ impl HookEchoApp {
         );
         // Flash a range: on its bright half-beats the band is painted white. Only the colour table
         // changes, so the beat costs a 3 KB table write, not a sweep upload.
-        let flash = self.views[idx].flash_ranges[moment.index()].filter(|_| flash_beat_on());
+        let flash = self.views[idx].flash_ranges[moment.index()]
+            .filter(|_| flash_beat_on() && product.is_none());
         let flash_tag = flash.map_or(0u64, |(lo, hi)| {
             (u64::from(lo.to_bits()) << 32 | u64::from(hi.to_bits())) | 1
         });
@@ -16100,6 +16155,7 @@ impl HookEchoApp {
         // borrow of the volume, and binning needs a mutable one.
         let want_age = self.show_scan_age;
         let mut ring: Option<ScanAgeRing> = None;
+        let mut product_range: Option<(f32, f32)> = None;
         let upload = if let Some(acc) = trail_acc {
             Ok::<_, anyhow::Error>(to_upload(
                 acc,
@@ -16123,7 +16179,9 @@ impl HookEchoApp {
             if vol.elevations.is_empty() {
                 return (None, true);
             }
-            let sweep = if column_max {
+            let sweep = if let Some((spec, key)) = &product {
+                vol.product_sweep(*key, &spec.expr, spec.range, spec.env, tilt)
+            } else if column_max {
                 vol.column_max(moment, clean)
             } else if clean {
                 vol.clean_reflectivity(tilt)
@@ -16134,9 +16192,14 @@ impl HookEchoApp {
                 if want_age {
                     ring = ScanAgeRing::from_sweep(s);
                 }
+                // A product has no palette of its own: a ramp across the range it came out in.
+                let ramp = product.is_some().then(|| {
+                    product_range = Some((s.value_min, s.value_max));
+                    crate::colormap::ramp_table(s.value_min, s.value_max)
+                });
                 to_upload(
                     s,
-                    table,
+                    ramp.as_ref().unwrap_or(table),
                     threshold,
                     smooth,
                     storm_uv,
@@ -16149,6 +16212,9 @@ impl HookEchoApp {
         match upload {
             Ok(up) => {
                 self.views[data].live_render_started = None;
+                if product_range.is_some() || product.is_none() {
+                    self.views[idx].product_range = product_range;
+                }
                 self.pane_shown.insert(idx, key);
                 self.pane_lut.insert(idx, lut_gen);
                 // Recorded even when `None` (a trail has no single rotation to age, and some
@@ -18521,6 +18587,7 @@ impl HookEchoApp {
             let cur = self.views[idx].moment;
             // Same union as the sidebar uses, so this picker doesn't blink either.
             let have = self.views[idx].moments();
+            let product = self.views[idx].user_product.clone();
             egui::Area::new(egui::Id::new(("pane_product", idx)))
                 .order(egui::Order::Foreground)
                 .fixed_pos(prect.left_top() + egui::vec2(6.0, 6.0))
@@ -18530,10 +18597,18 @@ impl HookEchoApp {
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
                                 for m in Moment::ALL.into_iter().filter(|m| have[m.index()]) {
-                                    if ui.selectable_label(m == cur, m.short_name()).clicked() {
+                                    let on = m == cur && product.is_none();
+                                    if ui.selectable_label(on, m.short_name()).clicked() {
                                         self.views[idx].moment = m;
+                                        self.views[idx].user_product = None;
+                                        self.views[idx].product_range = None;
                                         self.active = idx;
                                     }
+                                }
+                                if let Some(name) = &product {
+                                    ui.selectable_label(true, name.as_str()).on_hover_text(
+                                        "A user product, shown in place of the moment",
+                                    );
                                 }
                             });
                         });
@@ -22145,16 +22220,28 @@ impl HookEchoApp {
             let wsv3_colorbar =
                 self.settings.layout.is_ribbon() && !crate::platform::phone_layout();
             if view.volume.is_some() && !wsv3_colorbar {
-                let (df, dl) = display_units(view.moment, &self.settings);
-                ui::legend::draw_vertical(
-                    &painter,
-                    prect,
-                    view.moment,
-                    self.palettes.table(view.moment),
-                    view.active_threshold(),
-                    df,
-                    dl,
-                );
+                if let Some((table, _, units)) = self.product_legend(idx) {
+                    ui::legend::draw_vertical(
+                        &painter,
+                        prect,
+                        view.moment,
+                        &table,
+                        None,
+                        1.0,
+                        &units,
+                    );
+                } else {
+                    let (df, dl) = display_units(view.moment, &self.settings);
+                    ui::legend::draw_vertical(
+                        &painter,
+                        prect,
+                        view.moment,
+                        self.palettes.table(view.moment),
+                        view.active_threshold(),
+                        df,
+                        dl,
+                    );
+                }
             }
             // The field cards stack down the pane's top-left corner, which in the full-overlay
             // chrome is where the search pill floats — the first card was drawn half under it.
@@ -26474,8 +26561,20 @@ impl eframe::App for HookEchoApp {
             .collect();
         self.placefile_window
             .show(ctx, &mut self.settings, &pf_status, &mut self.drawer);
-        self.udp_window
-            .show(ctx, &mut self.settings, &mut self.drawer);
+        let active = self.active;
+        let before = self.views[active].user_product.clone();
+        self.udp_window.show(
+            ctx,
+            &mut self.settings,
+            &mut self.drawer,
+            &mut self.views[active].user_product,
+        );
+        if self.views[active].user_product != before {
+            let v = &mut self.views[active];
+            v.product_range = None;
+            v.product_moment = v.moment;
+            self.pane_shown.remove(&active);
+        }
         // Names come from the action registry, so a layer reads the same here as in the layers
         // panel — the enum's Debug spelling ("Mrms") is not a label.
         let names: std::collections::HashMap<crate::render::FieldLayer, String> =
@@ -27588,6 +27687,7 @@ impl eframe::App for HookEchoApp {
 
             self.paint_linked_time_badges(ui, &rects, solo);
             self.paint_linked_cursor(ui, &rects, solo);
+            self.paint_layer_probe(ui, &rects);
             self.paint_selected_storm(ui, &rects, solo);
 
             // Pane borders; the active pane gets an accent outline. Nothing to outline under
