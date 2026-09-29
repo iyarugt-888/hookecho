@@ -774,6 +774,7 @@ mod tests {
             units: "dBZ".into(),
             expression: "REF + 10".into(),
             range: None,
+            palette: None,
         }];
         let with = labels_for(&popup, &products);
         assert!(with.iter().any(|s| s == "USER-DEFINED"), "{with:?}");
@@ -791,6 +792,7 @@ mod tests {
             units: "".into(),
             expression: "REF +".into(),
             range: None,
+            palette: None,
         }];
         let labels = labels_for(&popup, &products);
         assert!(labels.iter().any(|s| s.starts_with("Error:")), "{labels:?}");
@@ -808,6 +810,7 @@ mod tests {
             units: "m/s".into(),
             expression: "VEL".into(),
             range: None,
+            palette: None,
         }];
         let labels = labels_for(&popup, &products);
         assert!(labels.iter().any(|s| s == "Needs velocity"), "{labels:?}");

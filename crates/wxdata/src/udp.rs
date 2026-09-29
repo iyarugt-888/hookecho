@@ -932,6 +932,10 @@ pub struct ProductDef {
     /// the product produced (`crate::udp_volume::auto_range`).
     #[serde(default)]
     pub range: Option<(f32, f32)>,
+    /// A radar moment's colour table to draw it in, by code ("REF", "ZDR"...), read in that
+    /// moment's units; `None` draws it on a plain ramp across its range.
+    #[serde(default)]
+    pub palette: Option<String>,
 }
 
 impl ProductDef {
@@ -1128,6 +1132,7 @@ mod tests {
             units: "dBZ".into(),
             expression: "REF > 55 && ZDR < 1 ? REF : 0".into(),
             range: None,
+            palette: None,
         };
         let expr = def.compile().unwrap();
         assert_eq!(
@@ -1144,6 +1149,7 @@ mod tests {
             units: "".into(),
             expression: "REF +".into(),
             range: None,
+            palette: None,
         };
         assert!(def.compile().is_err());
     }

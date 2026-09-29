@@ -14097,9 +14097,21 @@ impl HookEchoApp {
             .as_deref()
             .and_then(wxdata::sites::site_by_id)
             .map(|s| s.elevation_meters as f32 + wxdata::towers::tower_m(s.id) as f32);
+        // A moment's colour table, when the product names one: drawn over that table's own span
+        // unless it sets a range of its own.
+        let table = def
+            .palette
+            .as_deref()
+            .and_then(Moment::from_code)
+            .map(|m| crate::colormap::effective_table(&self.palettes, m, self.settings.theme));
+        let table_span = table.as_ref().and_then(|t| {
+            let (lo, hi) = (t.stops.first()?.value, t.stops.last()?.value);
+            (hi > lo).then_some((lo, hi))
+        });
         let spec = crate::loop3d::ProductSpec {
             expr,
-            range: def.range,
+            range: def.range.or(table_span),
+            table,
             env: wxdata::udp_volume::Env {
                 antenna_altitude_m,
                 freezing: self.freezing_for(idx).map(|(a, b)| (a as f32, b as f32)),
@@ -14115,6 +14127,7 @@ impl HookEchoApp {
             .map(|(a, b)| (a.to_bits(), b.to_bits()))
             .hash(&mut h);
         spec.env.antenna_altitude_m.map(f32::to_bits).hash(&mut h);
+        def.palette.hash(&mut h);
         Some((spec, h.finish()))
     }
 
@@ -14148,14 +14161,14 @@ impl HookEchoApp {
         let v = &self.views[idx];
         let name = v.user_product.as_ref()?;
         let (lo, hi) = v.product_range?;
-        let units = self
-            .settings
-            .udp_products
-            .iter()
-            .find(|p| &p.name == name)
-            .map(|p| p.units.clone())
-            .unwrap_or_default();
-        Some((crate::colormap::ramp_table(lo, hi), name.clone(), units))
+        let def = self.settings.udp_products.iter().find(|p| &p.name == name);
+        let units = def.map(|p| p.units.clone()).unwrap_or_default();
+        let table = def
+            .and_then(|p| p.palette.as_deref())
+            .and_then(Moment::from_code)
+            .map(|m| crate::colormap::effective_table(&self.palettes, m, self.settings.theme))
+            .unwrap_or_else(|| crate::colormap::ramp_table(lo, hi));
+        Some((table, name.clone(), units))
     }
 
     /// What pane `idx`'s isosurface of volume `name` is built from, when it shows one.
@@ -16220,10 +16233,12 @@ impl HookEchoApp {
                 if want_age {
                     ring = ScanAgeRing::from_sweep(s);
                 }
-                // A product has no palette of its own: a ramp across the range it came out in.
-                let ramp = product.is_some().then(|| {
+                // A product's own colour table, else a ramp across the range it came out in.
+                let ramp = product.as_ref().map(|(spec, _)| {
                     product_range = Some((s.value_min, s.value_max));
-                    crate::colormap::ramp_table(s.value_min, s.value_max)
+                    spec.table
+                        .clone()
+                        .unwrap_or_else(|| crate::colormap::ramp_table(s.value_min, s.value_max))
                 });
                 to_upload(
                     s,

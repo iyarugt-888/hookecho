@@ -111,6 +111,7 @@ impl UdpWindow {
                     units: self.new_units.trim().to_string(),
                     expression: expr,
                     range: None,
+                    palette: None,
                 });
                 self.new_name.clear();
                 self.new_units.clear();
@@ -180,6 +181,32 @@ fn row(
                 *hi = *lo + 1.0;
             }
         }
+    });
+    ui.horizontal(|ui| {
+        ui.label("Colours:");
+        let shown = def.palette.clone().unwrap_or_else(|| "Ramp".into());
+        egui::ComboBox::from_id_salt(("udp_palette", i))
+            .selected_text(match def.palette.as_deref() {
+                Some(code) => format!("{code} colour table"),
+                None => shown,
+            })
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut def.palette, None, "Ramp")
+                    .on_hover_text("A plain ramp, blue to magenta, across its range");
+                for m in wxdata::level2::Moment::ALL {
+                    let code = m.short_name().to_string();
+                    ui.selectable_value(
+                        &mut def.palette,
+                        Some(code.clone()),
+                        format!("{code} colour table"),
+                    )
+                    .on_hover_text(format!(
+                        "Read in {code}'s colours and units ({}): drawn over that table's range \
+                         unless a fixed range is set",
+                        m.units()
+                    ));
+                }
+            });
     });
 }
 

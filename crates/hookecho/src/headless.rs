@@ -3536,6 +3536,7 @@ fn run_3d_product(
             expr,
             range: None,
             env: Default::default(),
+            table: None,
         }),
         moment: Moment::Reflectivity,
         invert: false,

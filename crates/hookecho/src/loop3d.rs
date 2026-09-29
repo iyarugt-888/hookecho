@@ -323,6 +323,8 @@ pub struct ProductSpec {
     pub expr: wxdata::udp::Expr,
     pub range: Option<(f32, f32)>,
     pub env: wxdata::udp_volume::Env,
+    /// The colour table it is drawn in; `None` is a plain ramp across its range.
+    pub table: Option<crate::colormap::ColorTable>,
 }
 
 /// The product evaluated at every gate of every tilt, quantized over one range
@@ -419,8 +421,16 @@ pub fn build_smooth(sweeps: Sweeps, spec: &SmoothSpec) -> Option<Volume3dUpload>
         .is_some()
         .then_some((v3.value_min, v3.value_max));
     let lut = if let Some(range) = product_range {
-        // A product has no palette of its own: a ramp across the range it was drawn over.
-        crate::colormap::bake_lut(&crate::colormap::ramp_table(range.0, range.1), range, None)
+        // A product's own colour table, else a ramp across the range it was drawn over.
+        let ramp;
+        let table = match spec.product.as_ref().and_then(|p| p.table.as_ref()) {
+            Some(t) => t,
+            None => {
+                ramp = crate::colormap::ramp_table(range.0, range.1);
+                &ramp
+            }
+        };
+        crate::colormap::bake_lut(table, range, None)
     } else if spec.moment == Moment::Velocity {
         // Indexed by speed so the maximum along a ray finds the fastest wind either way.
         wxdata::volume3d::fold_by_speed(&mut v3);

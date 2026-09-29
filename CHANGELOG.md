@@ -32,6 +32,9 @@ like reflectivity or ZDR, with the same Denoise floor, ceiling, opacity curve an
 product's own units. "Fixed range" sets the values a product's colours span; otherwise they fit
 what it produced.
 
+A product can also be drawn in any radar moment's colour table ("Colours" in the User products
+window), read in that moment's units, instead of the plain ramp.
+
 ### Added: globe
 
 Turn on Globe (Reference layers) and the zoomed-out map becomes a planet you spin by dragging,
