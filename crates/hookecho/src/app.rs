@@ -26396,6 +26396,12 @@ impl eframe::App for HookEchoApp {
         }
 
         self.chrome_rect = root.available_rect_before_wrap();
+        // In the dock, a drawer page opens inside the map, clear of the dock's own bars, rail and
+        // windows; elsewhere it keeps its lane along the screen's left edge.
+        ui::drawer::set_area(
+            ctx,
+            (dock_layout && !phone_station).then_some(self.chrome_rect),
+        );
         // Before any chrome: everything below asks `motion::reduced()`, and the answer has to be
         // the same for every surface in a frame.
         ui::motion::frame(ctx, self.settings.reduce_motion);

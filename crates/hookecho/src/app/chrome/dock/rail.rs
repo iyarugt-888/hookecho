@@ -1,5 +1,6 @@
-//! The tool rail against the map's left edge: the Layers window and "center on the radar" first,
-//! then every map tool as a square button in groups, with the 3D volume explorer at its foot.
+//! The tool rail against the map's left edge: the Layers window, "center on the radar" and the
+//! layer probe first, then every map tool as a square button in groups, with the 3D volume
+//! explorer at its foot.
 //! Each tool arms through the palette action, so it is the same tool the ribbon and the phone
 //! rail arm. Only one tool is armed at a time.
 
@@ -76,6 +77,8 @@ impl HookEchoApp {
         let mut pick = None;
         let mut toggle_layers = false;
         let mut center = false;
+        let probe_on = self.settings.layer_probe;
+        let mut toggle_probe = false;
         egui::Panel::left("dock_rail")
             .exact_size(RAIL_W)
             .resizable(false)
@@ -102,6 +105,14 @@ impl HookEchoApp {
                         });
                         if r.inner.named("Center on the radar").clicked() {
                             center = true;
+                        }
+                        // Not a tool (it arms nothing and leaves the armed one alone): every
+                        // layer read out under the pointer, beside whatever tool is in hand.
+                        if ws::rail_button(ui, &t, ph::EYEDROPPER_SAMPLE, probe_on)
+                            .named_toggle("Layer probe: every layer under the pointer", probe_on)
+                            .clicked()
+                        {
+                            toggle_probe = true;
                         }
                         for (gi, group) in GROUPS.iter().enumerate() {
                             separator(ui, &t);
@@ -131,6 +142,9 @@ impl HookEchoApp {
         }
         if center {
             self.dock_center_on_radar();
+        }
+        if toggle_probe {
+            self.settings.layer_probe = !self.settings.layer_probe;
         }
         if let Some(a) = pick {
             self.apply_palette(a, ctx);

@@ -245,10 +245,32 @@ impl Drawer {
 }
 
 /// Header and body rectangles for the current screen.
+/// Where pages open this frame: inside `area` (the dock's map, clear of its bars, rail and
+/// windows), or `None` for the screen-edge lane the floating layouts leave free for them.
+pub fn set_area(ctx: &egui::Context, area: Option<Rect>) {
+    ctx.data_mut(|d| d.insert_temp(area_id(), area));
+}
+
+fn area_id() -> egui::Id {
+    egui::Id::new("drawer_area")
+}
+
 fn rects(ctx: &egui::Context, width: f32) -> (Rect, Rect) {
     let full = ctx.content_rect();
+    let area = ctx
+        .data(|d| d.get_temp::<Option<Rect>>(area_id()))
+        .flatten();
     let (x, w, top, bottom) = if crate::platform::phone_layout() {
         (full.left(), full.width(), full.top(), full.bottom())
+    } else if let Some(a) = area {
+        // Inside the dock's map: a small inset from its top-left, down to its foot.
+        const INSET: f32 = 8.0;
+        (
+            a.left() + INSET,
+            width.min(a.width() - 2.0 * INSET),
+            a.top() + INSET,
+            (a.bottom() - INSET).max(a.top() + INSET + HEADER_H + 120.0),
+        )
     } else {
         (
             full.left() + X,
@@ -265,6 +287,28 @@ fn rects(ctx: &egui::Context, width: f32) -> (Rect, Rect) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn in_the_dock_a_page_opens_inside_the_map_not_over_its_chrome() {
+        let ctx = egui::Context::default();
+        ctx.begin_pass(egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(1600.0, 900.0))),
+            ..Default::default()
+        });
+        // The dock's map: right of its Layers column and rail, under its bars, over its timeline.
+        let map = Rect::from_min_max(pos2(330.0, 90.0), pos2(1270.0, 780.0));
+        set_area(&ctx, Some(map));
+        let (head, body) = rects(&ctx, 380.0);
+        assert!(
+            map.contains_rect(head.union(body)),
+            "{head:?} {body:?} in {map:?}"
+        );
+        // Without one, the screen-edge lane the floating layouts leave free.
+        set_area(&ctx, None);
+        let (head, _) = rects(&ctx, 380.0);
+        assert_eq!(head.left(), X);
+        let _ = ctx.end_pass();
+    }
 
     /// Run one simulated frame: `f` gets a fresh pass to make whatever `page_sized` calls it
     /// wants, then `end_frame` runs, matching the app's own unconditional per-frame call.
