@@ -8,6 +8,12 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: model contours and the Layers window
+
+Model contours (STP, CAPE, MSLP and the rest) are remembered across restarts like every other
+layer; they used to switch off each time the app opened. The Layers window no longer creeps
+wider while search results show until it covers the map.
+
 ### Added: layer probe
 
 Turn on Layer probe (Tools) and a card beside the pointer reads out every layer on the map at that

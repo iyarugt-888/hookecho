@@ -2116,6 +2116,26 @@ impl ContourKind {
         }
     }
 
+    /// The token [`Self::from_token`] reads, also the name a kind is saved under; `None` for Off.
+    pub(crate) fn token(self) -> Option<&'static str> {
+        Some(match self {
+            ContourKind::Off => return None,
+            ContourKind::Mslp => "mslp",
+            ContourKind::T2m => "t2m",
+            ContourKind::Td2m => "td2m",
+            ContourKind::Cape => "cape",
+            ContourKind::Srh => "srh",
+            ContourKind::Stp => "stp",
+            ContourKind::Scp => "scp",
+            ContourKind::Ehi => "ehi",
+            ContourKind::Lapse700500 => "lapse700",
+            ContourKind::Lapse850500 => "lapse850",
+            ContourKind::EffShear => "ebwd",
+            ContourKind::EffSrh => "esrh",
+            ContourKind::StpEff => "stpeff",
+        })
+    }
+
     /// Parse a headless CLI token (`mslp|t2m|td2m|cape|srh`) into a kind.
     pub(crate) fn from_token(s: &str) -> Option<ContourKind> {
         Some(match s {
@@ -5907,6 +5927,14 @@ impl HookEchoApp {
             // so the derived features have to be rebuilt from it once.
             app.rebuild_overlays();
         }
+        // The model contours that were on (by token; an unknown one from a newer build is
+        // skipped). They fetch on the first frame like any newly picked contour.
+        app.active_contours = app
+            .settings
+            .contours_on
+            .iter()
+            .filter_map(|t| ContourKind::from_token(t))
+            .collect();
         if let Some(sel) = crate::model_browser::Selection::from_slug(&app.settings.model_pick) {
             app.model_sel = sel;
             app.apply_model_engine(sel);
@@ -27726,6 +27754,13 @@ impl eframe::App for HookEchoApp {
                 .map(|t| t.slug())
                 .collect();
             self.settings.overlays_on = Some(on);
+            // And the model contours: they were the one kind of layer a restart forgot.
+            self.settings.contours_on = self
+                .active_contours
+                .iter()
+                .filter_map(|k| k.token())
+                .map(str::to_string)
+                .collect();
             // Same trick for the window: fold the live size in, and the ordinary diff-and-save
             // below persists it.
             //
@@ -28471,6 +28506,16 @@ mod tests {
         slugs.dedup();
         assert_eq!(slugs.len(), OverlayToggle::ALL.len());
         assert_eq!(OverlayToggle::from_slug("Teleportation"), None);
+    }
+
+    #[test]
+    fn every_contour_kind_is_saved_and_read_back_by_its_token() {
+        for k in ContourKind::ALL {
+            match k.token() {
+                Some(t) => assert_eq!(ContourKind::from_token(t), Some(k), "{k:?}"),
+                None => assert_eq!(k, ContourKind::Off),
+            }
+        }
     }
 
     #[test]

@@ -714,6 +714,9 @@ pub struct Settings {
     /// statement: someone turned everything off, and it has to survive a restart.
     #[serde(default)]
     pub overlays_on: Option<Vec<String>>,
+    /// Model contour kinds that were on (`ContourKind::token`), restored at startup.
+    #[serde(default)]
+    pub contours_on: Vec<String>,
     /// Desktop window size in logical points, and whether it was maximized, as of the last run.
     /// `None` on a first run, where the built-in 1280x800 stands.
     ///
@@ -1778,6 +1781,7 @@ impl Default for Settings {
             analyst_mode: false,
             basemap: String::new(),
             overlays_on: None,
+            contours_on: Vec::new(),
             window: None,
             workspaces: Vec::new(),
             seeded_workspaces: false,
@@ -2638,6 +2642,7 @@ mod tests {
             analyst_mode: true,
             basemap: "carto-dark".to_string(),
             overlays_on: Some(vec!["Alerts".to_string(), "Wind".to_string()]),
+            contours_on: vec!["stp".to_string()],
             window: None,
             last_view: Some(StartView {
                 site: "KOUN".to_string(),
