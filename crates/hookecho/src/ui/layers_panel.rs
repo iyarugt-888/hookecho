@@ -547,24 +547,34 @@ fn row(
             ui.spacing_mut().item_spacing.x = 4.0;
             // The icon doubles as the grip: a separate handle column costs width the label needs,
             // and dragging from the label itself would fight the click that toggles the layer.
+            // A fixed slot, not the glyph's own fractional width: with that rounded up as it was
+            // laid out, every row came out a pixel wider than the room it measured.
+            const ICON_W: f32 = 18.0;
             if draggable {
                 ui.dnd_drag_source(
                     egui::Id::new(("layer_drag", &e.label)),
                     e.label.clone(),
-                    |ui| ui.label(icon),
+                    |ui| ui.add_sized(vec2(ICON_W, ROW_H), egui::Label::new(icon)),
                 )
                 .response
                 .on_hover_cursor(egui::CursorIcon::Grab)
                 .named(&format!("Drag {} to reorder", e.label));
             } else {
-                ui.label(icon);
+                ui.add_sized(vec2(ICON_W, ROW_H), egui::Label::new(icon));
             }
             // A real trailing column for the star, not a painter overlay like the explain/health
             // marks below: those are informational and can afford to sit over long label text,
             // but a clickable control needs its own reserved space so it never fights the row's
             // own click for the same pixels.
             const STAR_W: f32 = 22.0;
-            let star_w = if favorite_slug.is_some() { STAR_W } else { 0.0 };
+            // The star's width and the gap before it: leaving the gap out made every row a few
+            // pixels wider than its room, and the auto-sized Layers window grew by that much each
+            // frame the results were showing, until it covered the map.
+            let star_w = if favorite_slug.is_some() {
+                STAR_W + ui.spacing().item_spacing.x
+            } else {
+                0.0
+            };
             let w = (ui.available_width() - star_w).max(0.0);
             // A justified child layout, not a plain `add`: inside a horizontal row egui centers a
             // button's text, and a column of centered labels is unreadable.
@@ -579,7 +589,10 @@ fn row(
                             e.label.clone()
                         };
                         ui.add(
+                            // Truncated to the row: a long search label ("Weather layer ·
+                            // Compare (pane A)") must not push the row, and the window, wider.
                             egui::Button::new(RichText::new(label).size(13.0).color(fg))
+                                .truncate()
                                 .min_size(vec2(w, ROW_H))
                                 .fill(bg)
                                 .corner_radius(7.0)
@@ -600,9 +613,14 @@ fn row(
             clicked = resp.clicked();
             if let Some(slug) = favorite_slug {
                 let is_fav = favorites.iter().any(|s| s == slug);
+                // A clickable label in exactly the width reserved above, not a button: the glyph
+                // plus a button's padding came to 22.8 px in a 22 px slot, and that fraction of a
+                // pixel on every row is what made the auto-sized Layers window grow frame after
+                // frame while search results showed, until it covered the map.
                 let star = ui
-                    .add(
-                        egui::Button::new(
+                    .add_sized(
+                        vec2(STAR_W, ROW_H),
+                        egui::Label::new(
                             RichText::new(egui_phosphor::regular::STAR)
                                 .size(14.0)
                                 .color(if is_fav {
@@ -611,10 +629,9 @@ fn row(
                                     ui.visuals().weak_text_color()
                                 }),
                         )
-                        .min_size(vec2(STAR_W, ROW_H))
-                        .fill(Color32::TRANSPARENT)
-                        .stroke(Stroke::NONE),
+                        .sense(egui::Sense::click()),
                     )
+                    .on_hover_cursor(egui::CursorIcon::PointingHand)
                     .named(&if is_fav {
                         format!("Remove {} from Favorites", e.label)
                     } else {
@@ -963,9 +980,14 @@ pub(crate) fn body(
             return Some(entries[*i].action);
         }
     }
+    // The list's content is held to the width outside it, so no row can widen the auto-sized
+    // Layers window: one a fraction of a pixel too wide (the favourite star once was) became the
+    // window's new width each frame the list showed, until the window covered the map.
+    let list_w = ui.available_width();
     let out = egui::ScrollArea::vertical()
         .max_height(max_height)
         .show(ui, |ui| {
+            ui.set_max_width(list_w);
             if order.is_empty() && command.is_none() {
                 ui.add_space(8.0);
                 ui.weak(if active_only && query.is_empty() {
@@ -1459,6 +1481,73 @@ mod tests {
         assert!(render(false, Some("Radar"), "National")
             .iter()
             .any(|s| s.contains("National layer")));
+    }
+
+    /// The Layers window sizes itself to its content; a result row a few pixels wider than its
+    /// room made it grow every frame the results showed, until it covered the map.
+    #[test]
+    fn search_results_do_not_widen_the_window_frame_after_frame() {
+        let entries: Vec<_> = ["Compare (pane A)", "Compare (pane B)", "Storm fuel (CAPE)"]
+            .iter()
+            .map(|label| PaletteEntry {
+                label: format!("{label} with a long enough name to crowd its row"),
+                category: "Models",
+                action: PaletteAction::ToggleField(crate::render::FieldLayer::Mosaic),
+                on: Some(false),
+                desc: "",
+                common: true,
+                key: None,
+                health: None,
+            })
+            .collect();
+        let ctx = egui::Context::default();
+        let mut query = "compare".to_string();
+        let mut pref = Vec::new();
+        let mut favorites = Vec::new();
+        let mut widths = Vec::new();
+        for frame in 0..30 {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1600.0, 900.0),
+                )),
+                time: Some(frame as f64 / 60.0),
+                ..Default::default()
+            };
+            let _ = ctx.run_ui(input, |ui| {
+                let r = egui::Window::new("Layers")
+                    .resizable(true)
+                    .default_size(egui::vec2(300.0, 600.0))
+                    .show(ui.ctx(), |ui| {
+                        egui::ScrollArea::vertical()
+                            .max_height(600.0)
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                body(
+                                    ui,
+                                    &entries,
+                                    &mut query,
+                                    Color32::WHITE,
+                                    400.0,
+                                    chrono::Utc::now().date_naive(),
+                                    false,
+                                    &mut pref,
+                                    &[],
+                                    &mut favorites,
+                                    |_| {},
+                                );
+                            });
+                    });
+                if let Some(r) = r {
+                    widths.push(r.response.rect.width());
+                }
+            });
+        }
+        let (settled, last) = (widths[5], *widths.last().unwrap());
+        assert!(
+            (last - settled).abs() < 1.0,
+            "the window crept from {settled} to {last} wide"
+        );
     }
 
     #[test]
