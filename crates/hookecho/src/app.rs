@@ -28,6 +28,7 @@ pub(crate) use overlay_fetch::{OverlayDelivery, OverlayMsg, OverlaySource};
 mod account_sync;
 mod alerts_watch;
 mod beam_tools;
+pub(crate) mod camera_flight;
 mod chase;
 mod detectors;
 mod models;
@@ -2853,29 +2854,6 @@ const FLASH_RGBA: [u8; 4] = [255, 255, 255, 255];
 fn flash_beat_on() -> bool {
     crate::ui::motion::reduced()
         || (chrono::Utc::now().timestamp_millis() as u64 / FLASH_BEAT_MS).is_multiple_of(2)
-}
-
-/// Split `r` into `n` pane rects: 1 full; 2 and 3 as an adaptive row/column strip (columns in
-/// landscape, rows in portrait); 4 as a 2x2 grid; 6 as an adaptive 3x2/2x3 grid; 9 as 3x3.
-/// The model run to read for a view scrubbed back to `target`: the newest cycle at or before it,
-/// so a historical radar event is never shown under today's model. `None` within the few hours a
-/// run takes to post, where the newest run is the right one anyway and the target's own may not
-/// exist yet.
-fn archive_run(
-    target: DateTime<Utc>,
-    now: DateTime<Utc>,
-    cycle_hours: u32,
-) -> Option<DateTime<Utc>> {
-    use chrono::Timelike;
-    const POSTING: chrono::Duration = chrono::Duration::hours(3);
-    if now - target < POSTING || cycle_hours == 0 {
-        return None;
-    }
-    let hour = target.hour() - target.hour() % cycle_hours;
-    target
-        .date_naive()
-        .and_hms_opt(hour, 0, 0)
-        .map(|t| t.and_utc())
 }
 
 impl HookEchoApp {
@@ -20962,7 +20940,8 @@ impl HookEchoApp {
                 arranged_pane_rects(full, n, self.pane_layout)
             };
 
-            // If cameras are linked, mirror the active pane's camera to the others.
+            self.step_camera_flights(&rects, ctx); // jumps fly there (ROADMAP_2 §4.4)
+                                                   // If cameras are linked, mirror the active pane's camera to the others.
             if self.link_cameras {
                 let cam = self.views[self.active.min(n - 1)].camera;
                 for v in &mut self.views {
@@ -21542,7 +21521,7 @@ mod tests {
     /// `app/`; when an extraction lands, lower the ceiling to the new length so it stays down.
     #[test]
     fn app_rs_only_gets_smaller() {
-        const CEILING: usize = 22740;
+        const CEILING: usize = 22694;
         let lines = include_str!("app.rs").lines().count();
         assert!(
             lines <= CEILING,
@@ -21572,31 +21551,6 @@ mod tests {
         assert!(r.contains("Retried every 2m"), "{r}");
         assert!(r.contains("stale after 4m"), "{r}");
         assert!(r.contains("Severity: critical"), "{r}");
-    }
-
-    #[test]
-    fn a_past_event_reads_the_model_run_of_its_time() {
-        use chrono::TimeZone;
-        let now = chrono::Utc.with_ymd_and_hms(2026, 9, 29, 18, 0, 0).unwrap();
-        let may = chrono::Utc
-            .with_ymd_and_hms(2013, 5, 20, 20, 47, 0)
-            .unwrap();
-        assert_eq!(
-            super::archive_run(may, now, 1),
-            Some(chrono::Utc.with_ymd_and_hms(2013, 5, 20, 20, 0, 0).unwrap()),
-            "the hourly HRRR's own hour"
-        );
-        assert_eq!(
-            super::archive_run(may, now, 6),
-            Some(chrono::Utc.with_ymd_and_hms(2013, 5, 20, 18, 0, 0).unwrap()),
-            "a six-hourly model's last cycle before it"
-        );
-        let recent = now - chrono::Duration::minutes(90);
-        assert_eq!(
-            super::archive_run(recent, now, 1),
-            None,
-            "recent: the newest run"
-        );
     }
 
     #[test]

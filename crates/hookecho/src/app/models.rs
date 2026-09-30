@@ -283,3 +283,52 @@ impl HookEchoApp {
         });
     }
 }
+
+/// The model run to read for a view scrubbed back to `target`: the newest cycle at or before it,
+/// so a historical radar event is never shown under today's model. `None` within the few hours a
+/// run takes to post, where the newest run is the right one anyway and the target's own may not
+/// exist yet.
+pub(crate) fn archive_run(
+    target: DateTime<Utc>,
+    now: DateTime<Utc>,
+    cycle_hours: u32,
+) -> Option<DateTime<Utc>> {
+    use chrono::Timelike;
+    const POSTING: chrono::Duration = chrono::Duration::hours(3);
+    if now - target < POSTING || cycle_hours == 0 {
+        return None;
+    }
+    let hour = target.hour() - target.hour() % cycle_hours;
+    target
+        .date_naive()
+        .and_hms_opt(hour, 0, 0)
+        .map(|t| t.and_utc())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_past_event_reads_the_model_run_of_its_time() {
+        use chrono::TimeZone;
+        let now = chrono::Utc.with_ymd_and_hms(2026, 9, 29, 18, 0, 0).unwrap();
+        let may = chrono::Utc
+            .with_ymd_and_hms(2013, 5, 20, 20, 47, 0)
+            .unwrap();
+        assert_eq!(
+            super::archive_run(may, now, 1),
+            Some(chrono::Utc.with_ymd_and_hms(2013, 5, 20, 20, 0, 0).unwrap()),
+            "the hourly HRRR's own hour"
+        );
+        assert_eq!(
+            super::archive_run(may, now, 6),
+            Some(chrono::Utc.with_ymd_and_hms(2013, 5, 20, 18, 0, 0).unwrap()),
+            "a six-hourly model's last cycle before it"
+        );
+        let recent = now - chrono::Duration::minutes(90);
+        assert_eq!(
+            super::archive_run(recent, now, 1),
+            None,
+            "recent: the newest run"
+        );
+    }
+}

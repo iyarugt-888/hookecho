@@ -772,6 +772,9 @@ pub struct MapView {
     /// rather than by panning. Switching site normally recenters on the radar, which would throw
     /// away the framing the deep link just asked for; this survives exactly one such recenter.
     pub camera_placed: bool,
+    /// The camera this pane last drew with, and a fly-to in progress (`app::camera_flight`).
+    pub shown_camera: Option<crate::render::mercator::Camera>,
+    pub(crate) flight: Option<crate::app::camera_flight::Flight>,
     /// Archive/live playback state; `timeline.following` is the live auto-update flag.
     pub timeline: crate::timeline::Timeline,
     pub smooth: bool,
@@ -931,6 +934,8 @@ impl MapView {
             recent: LruCache::new(NonZeroUsize::new(RECENT_VOLUMES).unwrap()),
             loaded_site: None,
             camera_placed: false,
+            shown_camera: None,
+            flight: None,
             timeline: crate::timeline::Timeline::default(),
             smooth: true,
             srv: false,

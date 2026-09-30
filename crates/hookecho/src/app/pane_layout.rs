@@ -1,6 +1,8 @@
 //! Where each pane goes: the grid for a pane count, and the arranged layouts (focus, rows,
 //! columns). Moved out of `app.rs` unchanged (ROADMAP_2 §7).
 
+/// Split `r` into `n` pane rects: 1 full; 2 and 3 as an adaptive row/column strip (columns in
+/// landscape, rows in portrait); 4 as a 2x2 grid; 6 as an adaptive 3x2/2x3 grid; 9 as 3x3.
 pub(crate) fn pane_rects(r: egui::Rect, n: usize) -> Vec<egui::Rect> {
     let gap = 2.0;
     match n {
