@@ -31,6 +31,7 @@ pub(super) struct LiveStats {
     panes: usize,
     /// Radar volumes held across every pane, the one on screen included.
     volumes: usize,
+    tiles: crate::tiles::TileStats,
 }
 
 impl HookEchoApp {
@@ -66,6 +67,7 @@ impl HookEchoApp {
                 .filter(|(k, _)| *k == key)
                 .map(|(_, hits)| hits.len()),
             frames: self.frame_times.summary(),
+            tiles: self.tiles.stats(),
             panes: self.views.len(),
             volumes: self
                 .views
@@ -247,6 +249,26 @@ fn live_stats(ui: &mut egui::Ui, t: &ws::Tokens, s: &LiveStats) {
             if s.volumes == 1 { "" } else { "s" }
         ),
         None,
+    );
+    // Basemap coverage (ROADMAP_2 §4.5): a missing tile is drawn from a coarser one until it
+    // arrives, so gaps here show as blur on the map rather than holes.
+    let tl = s.tiles;
+    ws::kv(
+        ui,
+        t,
+        "Map tiles",
+        &format!(
+            "{} loaded · {} loading · {} failed{}",
+            tl.resident,
+            tl.loading,
+            tl.failed,
+            if tl.stubborn > 0 {
+                format!(" ({} backing off)", tl.stubborn)
+            } else {
+                String::new()
+            }
+        ),
+        (tl.failed > 0).then_some(t.warn),
     );
     // The detectors run only while their layers are on; "off" says that, not "none found".
     let det = |n: Option<usize>| n.map_or_else(|| "off".to_string(), |n| n.to_string());

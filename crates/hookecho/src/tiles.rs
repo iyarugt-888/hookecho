@@ -1243,8 +1243,29 @@ const TILE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 /// before the abort ever fires, so the abort is given a head start and this is the margin.
 pub(crate) const BACKSTOP: std::time::Duration = std::time::Duration::from_secs(10);
 
-/// How long a failed tile is left alone before the next visibility pass retries it.
-const RETRY_AFTER: std::time::Duration = std::time::Duration::from_secs(5);
+/// How long a failed tile is left alone before the next visibility pass retries it: 5 s after the
+/// first failure, doubling with each one after, to at most five minutes (ROADMAP_2 §4.5's
+/// "bounded retry"). A tile that is simply missing upstream stops costing a request every few
+/// seconds; one lost to a blip comes back within seconds.
+fn retry_after(failures: u32) -> std::time::Duration {
+    const FIRST_S: u64 = 5;
+    const MAX_S: u64 = 300;
+    let s = FIRST_S.saturating_mul(1u64 << failures.saturating_sub(1).min(16));
+    std::time::Duration::from_secs(s.min(MAX_S))
+}
+
+/// The basemap's tile coverage right now, for Analyst Mode.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TileStats {
+    /// On the GPU.
+    pub resident: usize,
+    /// Asked for and not back yet.
+    pub loading: usize,
+    /// Failed and waiting out their retry.
+    pub failed: usize,
+    /// Of those, failed more than twice in a row.
+    pub stubborn: usize,
+}
 
 pub struct TileManager {
     spawner: crate::rt::Spawner,
@@ -1257,8 +1278,9 @@ pub struct TileManager {
     ctx: Option<egui::Context>,
     /// Fetches currently in flight, shared with the tasks so they can decrement on the way out.
     inflight: std::sync::Arc<std::sync::atomic::AtomicUsize>,
-    /// Tiles whose fetch failed, and when. Retried after [`RETRY_AFTER`].
-    failed: std::collections::HashMap<crate::render::TileKey, wxdata::clock::Instant>,
+    /// Tiles whose fetch failed: when last, and how many times in a row. Retried after
+    /// [`retry_after`] of that count.
+    failed: std::collections::HashMap<crate::render::TileKey, (wxdata::clock::Instant, u32)>,
     requested: HashSet<crate::render::TileKey>,
     /// Tiles believed to be live on the GPU, newest-touched first. This mirrors the renderer's
     /// tile map exactly: the CPU side decides what gets evicted and tells the renderer, so the
@@ -1500,7 +1522,7 @@ impl TileManager {
             if self
                 .failed
                 .get(&(skey, v.id))
-                .is_some_and(|t| t.elapsed() < RETRY_AFTER)
+                .is_some_and(|(t, n)| t.elapsed() < retry_after(*n))
             {
                 continue;
             }
@@ -1677,6 +1699,16 @@ impl TileManager {
             .collect()
     }
 
+    /// Coverage for Analyst Mode: resident, loading and failed tiles.
+    pub fn stats(&self) -> TileStats {
+        TileStats {
+            resident: self.uploaded.len(),
+            loading: self.requested.len(),
+            failed: self.failed.len(),
+            stubborn: self.failed.values().filter(|(_, n)| *n > 2).count(),
+        }
+    }
+
     /// Drain finished fetches into upload-ready tiles (each returned exactly once).
     pub fn drain_ready(&mut self) -> Vec<PendingTile> {
         let mut ready = Vec::new();
@@ -1687,7 +1719,8 @@ impl TileManager {
                     // Out of `requested` so the next visibility pass is the retry, and into
                     // `failed` so that pass isn't the very next frame.
                     self.requested.remove(&id);
-                    self.failed.insert(id, wxdata::clock::Instant::now());
+                    let n = self.failed.get(&id).map_or(0, |(_, n)| *n) + 1;
+                    self.failed.insert(id, (wxdata::clock::Instant::now(), n));
                     continue;
                 }
             };
@@ -2145,6 +2178,15 @@ pub fn start_pack_download(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_failing_tile_backs_off_to_a_bound() {
+        use super::retry_after;
+        let s = |n| retry_after(n).as_secs();
+        assert_eq!((s(1), s(2), s(3), s(4)), (5, 10, 20, 40));
+        assert_eq!(s(7), 300, "capped at five minutes");
+        assert_eq!(s(u32::MAX), 300, "and never overflows");
+    }
+
     #[test]
     fn the_globe_asks_for_the_tiles_on_its_visible_face() {
         use crate::render::mercator::{set_globe_for_test, Camera};

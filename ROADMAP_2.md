@@ -56,6 +56,8 @@ Storm selection (§2.5): the Cell window, which already held the SCIT attributes
 
 Telemetry (§14.1, local only): the Analyst log now gives this app's own cost: how long each frame takes to build (p50/p95/max over the last 600 frames, `app::telemetry`), how many of those ran over a 60 Hz refresh, and stalls over 50 ms since launch, beside the panes open and the radar volumes held. It times `HookEchoApp::ui` from outside, so early returns count; it is CPU build time, not the gap between frames (the app repaints on demand). Still open: GPU upload and presentation time, cache hit rates, HTTP latency and memory.
 
+Basemap robustness (§4.5): ancestor fallback was already in place (a missing tile is stood in for by resident children or the nearest ancestor), but a failed tile was retried every 5 s forever. Retries now back off from 5 s, doubling to a 5-minute cap (`tiles::retry_after`), and the Analyst log shows coverage: tiles loaded, loading, failed, and how many are backing off.
+
 ---
 
 # 0. Program goals and release gates
