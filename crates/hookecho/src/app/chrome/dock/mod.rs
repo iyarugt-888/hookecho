@@ -2505,6 +2505,9 @@ mod tilt_bar_tests {
 
     fn progress(n: usize) -> wxdata::live::ScanProgress {
         wxdata::live::ScanProgress {
+            volume_start_ms: None,
+            vcp_number: None,
+            cut_kind: wxdata::live::CutKind::Standard,
             elevation_number: n,
             total_elevations: 14,
             elevation_angle_deg: 0.9,

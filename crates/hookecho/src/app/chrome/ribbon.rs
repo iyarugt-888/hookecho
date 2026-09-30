@@ -190,6 +190,7 @@ impl HookEchoApp {
         let mut smooth = self.settings.smooth_radar;
         let mut follow_lowest_cut = self.views[self.active].follow_lowest_cut;
         let mut follow_live_sweep = self.views[self.active].follow_live_sweep;
+        let mut live_sweep_mode = self.settings.live_sweep_mode;
         let mut legend_on = self.views[self.active].show_legend;
         let layers_on = self.panel_open && !self.show_alert_panel;
         let alerts_on = self.panel_open && self.show_alert_panel;
@@ -473,6 +474,23 @@ impl HookEchoApp {
                                 {
                                     follow_live_sweep = !follow_live_sweep;
                                     follow_lowest_cut &= !follow_live_sweep;
+                                }
+                                let strict = live_sweep_mode
+                                    == crate::settings::LiveSweepMode::StrictCurrentSweep;
+                                if wsv3::pill(ui, "Current only", strict, accent)
+                                    .on_hover_text(
+                                        "While following a live partial volume, hide azimuths \
+                                         still carrying the previous pass. Smoothing is disabled \
+                                         in this mode so old values cannot bleed across the edge. \
+                                         Turn off to keep old coverage dimmed.",
+                                    )
+                                    .clicked()
+                                {
+                                    live_sweep_mode = if strict {
+                                        crate::settings::LiveSweepMode::ContinuousComposite
+                                    } else {
+                                        crate::settings::LiveSweepMode::StrictCurrentSweep
+                                    };
                                 }
                             });
                         }
@@ -862,6 +880,10 @@ impl HookEchoApp {
             self.settings.smooth_radar = smooth;
             self.settings.save();
         }
+        if self.settings.live_sweep_mode != live_sweep_mode {
+            self.settings.live_sweep_mode = live_sweep_mode;
+            self.settings.save();
+        }
         self.views[self.active].show_legend = legend_on;
         self.views[self.active].follow_lowest_cut = follow_lowest_cut;
         self.views[self.active].follow_live_sweep = follow_live_sweep;
@@ -1042,6 +1064,9 @@ mod tests {
 
     fn sample_progress(chunk_index: usize, chunks_in_sweep: usize) -> wxdata::live::ScanProgress {
         wxdata::live::ScanProgress {
+            volume_start_ms: None,
+            vcp_number: None,
+            cut_kind: wxdata::live::CutKind::Standard,
             elevation_number: 1,
             total_elevations: 14,
             elevation_angle_deg: 0.5,

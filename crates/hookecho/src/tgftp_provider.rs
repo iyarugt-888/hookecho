@@ -185,6 +185,8 @@ impl Level2LiveProvider for NoaaTgftpLevel2Provider {
                         on_update(Update {
                             name,
                             time,
+                            received_at: None,
+                            radial_coverage: None,
                             scan: merged.clone(),
                             changed,
                             retries: 0,

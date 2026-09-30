@@ -18,7 +18,7 @@ use crate::volume::{LatestVolume, Level2LiveProvider};
 use futures_util::StreamExt;
 use std::sync::Arc;
 use wxdata::level2::Scan;
-use wxdata::live::{ScanProgress, Update};
+use wxdata::live::{CutKind, RadialCoverage, ScanProgress, Update};
 use wxdata::live_block::{assemble_scan, LiveLevel2Block, ProviderCapabilities, VolumeKey};
 use wxdata::relay_wire::BlockDto;
 
@@ -81,6 +81,17 @@ fn relay_scan_progress(block: &LiveLevel2Block, scan: &Scan) -> Option<ScanProgr
             .clamp(1.0, chunks_in_sweep as f64) as usize
     };
     Some(ScanProgress {
+        volume_start_ms: Some(block.volume.volume_start.timestamp_millis()),
+        vcp_number: Some(scan.coverage_pattern_number().number()),
+        cut_kind: if vcp_cut.is_sails_cut() {
+            CutKind::Sails
+        } else if vcp_cut.is_mrle_cut() {
+            CutKind::Mrle
+        } else if vcp_cut.is_mpda_cut() {
+            CutKind::Mpda
+        } else {
+            CutKind::Standard
+        },
         elevation_number: cut.elevation_number as usize,
         total_elevations: cuts.len(),
         elevation_angle_deg: block
@@ -128,6 +139,7 @@ impl Level2LiveProvider for HookEchoRelayLevel2Provider {
             let Some(msg) = read.next().await else {
                 break; // relay closed the connection
             };
+            let received_at = wxdata::clock::Instant::now();
             let msg = msg.map_err(|e| anyhow::anyhow!("relay websocket error: {e}"))?;
             let text = match msg {
                 tokio_tungstenite::tungstenite::Message::Text(t) => t,
@@ -172,6 +184,26 @@ impl Level2LiveProvider for HookEchoRelayLevel2Provider {
             let progress = pending_blocks
                 .last()
                 .and_then(|block| relay_scan_progress(block, &partial));
+            let radial_coverage = progress.map(|progress| {
+                let block = pending_blocks.last().expect("the current block was appended");
+                let start = block.radar_start.timestamp_millis();
+                let end = block.radar_end.timestamp_millis();
+                RadialCoverage {
+                    progress,
+                    radials: partial
+                        .sweeps()
+                        .iter()
+                        .filter(|sweep| {
+                            sweep.elevation_number() as usize == progress.elevation_number
+                        })
+                        .flat_map(|sweep| sweep.radials())
+                        .filter(|radial| {
+                            (start..=end).contains(&radial.collection_timestamp())
+                        })
+                        .map(|radial| (radial.azimuth_number(), radial.collection_timestamp()))
+                        .collect(),
+                }
+            });
             let (new_scan, changed) = wxdata::live::merge_scan(&merged, partial);
             if changed.is_empty() {
                 continue;
@@ -181,9 +213,31 @@ impl Level2LiveProvider for HookEchoRelayLevel2Provider {
             }
             merged = Arc::new(new_scan);
             update_count += 1;
+            // Use the newest radar acquisition time, never the client's wall clock. A relay
+            // catching up after failover can deliver a valid but older block; stamping it "now"
+            // would defeat the app's time-reversal guard and source-age display.
+            let newest_radial_time = pending_blocks
+                .iter()
+                .filter(|block| block.first_azimuth_number.is_some())
+                .map(|block| block.radar_end)
+                .max()
+                .unwrap_or_else(|| {
+                    pending_blocks
+                        .iter()
+                        .map(|block| block.radar_end)
+                        .max()
+                        .expect("a successfully assembled volume has at least one block")
+                });
+            let volume_start_ms = current_volume
+                .as_ref()
+                .expect("the current block established a volume")
+                .volume_start
+                .timestamp_millis();
             on_update(Update {
-                name: format!("relay-{site}-{update_count}"),
-                time: chrono::Utc::now(),
+                name: format!("relay-{site}-{volume_start_ms}-{update_count}"),
+                time: newest_radial_time,
+                received_at: Some(received_at),
+                radial_coverage,
                 scan: merged.clone(),
                 changed,
                 retries: 0,
@@ -380,8 +434,7 @@ mod integration_tests {
         frame
     }
 
-    fn a_completed_volume(site: &str) -> Vec<u8> {
-        let t = chrono::Utc::now();
+    fn a_completed_volume_at(site: &str, t: chrono::DateTime<chrono::Utc>) -> Vec<u8> {
         [
             synthetic_vcp(t),
             synthetic_radial(site, 1, 0, VOLUME_START, t),
@@ -398,9 +451,10 @@ mod integration_tests {
             BlockStoreLimits::default(),
             "relay",
         );
+        let source_time = chrono::Utc::now() - chrono::Duration::minutes(2);
         pipeline.ingest(&RawProduct {
             site: "KTLX".into(),
-            bytes: a_completed_volume("KTLX"),
+            bytes: a_completed_volume_at("KTLX", source_time),
             received_at: chrono::Utc::now(),
         });
         let app = radar_ingest::server::router(Arc::new(Mutex::new(pipeline)));
@@ -412,8 +466,9 @@ mod integration_tests {
 
         let provider = HookEchoRelayLevel2Provider::new(format!("http://{addr}"));
         match provider.latest_complete_volume("KTLX", None).await.unwrap() {
-            LatestVolume::New { scan, .. } => {
+            LatestVolume::New { scan, time, .. } => {
                 assert_eq!(scan.sweeps().len(), 2, "two elevation cuts were ingested");
+                assert_eq!(time.timestamp(), source_time.timestamp());
             }
             LatestVolume::UpToDate => panic!("a real completed volume was ingested"),
         }
@@ -496,9 +551,10 @@ mod integration_tests {
         // — a short, generous sleep rather than a synchronization primitive threaded through
         // production code purely for test determinism.
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let source_time = chrono::Utc::now() - chrono::Duration::minutes(2);
         pipeline.lock().unwrap().ingest(&RawProduct {
             site: "KTLX".into(),
-            bytes: a_completed_volume("KTLX"),
+            bytes: a_completed_volume_at("KTLX", source_time),
             received_at: chrono::Utc::now(),
         });
 
@@ -508,6 +564,13 @@ mod integration_tests {
             .expect("update channel closed unexpectedly");
         assert!(!update.changed.is_empty());
         assert!(!update.scan.sweeps().is_empty());
+        assert_eq!(
+            update.time.timestamp_millis(),
+            source_time.timestamp_millis()
+        );
+        assert!(update
+            .name
+            .contains(&(source_time.timestamp() * 1_000).to_string()));
         let progress = tokio::time::timeout(std::time::Duration::from_secs(5), progress_rx.recv())
             .await
             .expect("no live progress arrived over the websocket in time")

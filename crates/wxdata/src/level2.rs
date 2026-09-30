@@ -187,6 +187,46 @@ impl Default for BinnedSweep {
 /// the largest within-pass gap can still be seconds, from being split into two generations.
 const PASS_GAP_FLOOR_MS: i64 = 30_000;
 
+/// Last acquisition timestamp belonging to the older pass, if two passes are distinguishable.
+/// Shared by the dimmed composite and strict-current display so both classify the same bins.
+fn previous_pass_cutoff(bin_time_ms: &[i64], az_bins: usize) -> Option<i64> {
+    if az_bins == 0 || bin_time_ms.len() != az_bins {
+        return None;
+    }
+    let mut times: Vec<i64> = bin_time_ms.iter().copied().filter(|&t| t > 0).collect();
+    if times.len() < 2 {
+        return None;
+    }
+    times.sort_unstable();
+    times.dedup();
+    let (gap, old_side) = times
+        .windows(2)
+        .map(|w| (w[1] - w[0], w[0]))
+        .max_by_key(|&(gap, _)| gap)?;
+    (gap >= PASS_GAP_FLOOR_MS).then_some(old_side)
+}
+
+/// Clear every older-pass azimuth row in a temporary GPU upload. The cached binned sweep and
+/// its per-bin timestamps remain intact for inspection and for switching back to the composite.
+/// Returns the number of rows hidden; malformed or unavailable timing leaves data untouched.
+pub fn mask_previous_pass_rows(s: &BinnedSweep, upload_data: &mut [u8]) -> usize {
+    if s.gate_count == 0 || upload_data.len() != s.az_bins.saturating_mul(s.gate_count) {
+        return 0;
+    }
+    let Some(cutoff) = previous_pass_cutoff(&s.bin_time_ms, s.az_bins) else {
+        return 0;
+    };
+    let mut hidden = 0;
+    for (az, row) in upload_data.chunks_exact_mut(s.gate_count).enumerate() {
+        let time = s.bin_time_ms[az];
+        if time <= cutoff {
+            row.fill(0);
+            hidden += 1;
+        }
+    }
+    hidden
+}
+
 /// The wedge still showing the previous rotation, derived from per-bin acquisition times.
 ///
 /// The split point is found from the data rather than fixed: sort the distinct bin times and
@@ -199,23 +239,7 @@ const PASS_GAP_FLOOR_MS: i64 = 30_000;
 /// dimming data that is in fact current, which is the right way round for a display: an
 /// unmarked-but-old sliver is a missed warning, an over-dimmed current sector is a wrong one.
 pub fn previous_pass_arc(bin_time_ms: &[i64], az_bins: usize) -> Option<(f32, f32)> {
-    if az_bins == 0 || bin_time_ms.len() != az_bins {
-        return None;
-    }
-    let mut times: Vec<i64> = bin_time_ms.iter().copied().filter(|&t| t > 0).collect();
-    if times.len() < 2 {
-        return None;
-    }
-    times.sort_unstable();
-    times.dedup();
-    // Largest gap between consecutive distinct times, and the value on its old side.
-    let (gap, old_side) = times
-        .windows(2)
-        .map(|w| (w[1] - w[0], w[0]))
-        .max_by_key(|&(gap, _)| gap)?;
-    if gap < PASS_GAP_FLOOR_MS {
-        return None;
-    }
+    let old_side = previous_pass_cutoff(bin_time_ms, az_bins)?;
 
     let stale = |i: usize| {
         let t = bin_time_ms[i % az_bins];
@@ -1668,6 +1692,42 @@ mod tests {
         let (start, end) = previous_pass_arc(&times, 720).expect("two passes present");
         // Bins 120..720 are the old pass: 60 degrees through 0 degrees.
         assert_eq!((start, end), (60.0, 0.0));
+    }
+
+    #[test]
+    fn strict_current_masks_all_old_rows_without_mutating_the_sweep() {
+        let times = two_pass_times(720, 120, 300_000);
+        let sweep = BinnedSweep {
+            az_bins: 720,
+            gate_count: 2,
+            data: vec![7; 720 * 2],
+            bin_time_ms: times,
+            ..Default::default()
+        };
+        let mut upload = sweep.data.clone();
+        assert_eq!(mask_previous_pass_rows(&sweep, &mut upload), 600);
+        assert_eq!(&upload[..120 * 2], &sweep.data[..120 * 2]);
+        assert!(upload[120 * 2..].iter().all(|&value| value == 0));
+        assert!(sweep.data.iter().all(|&value| value == 7));
+    }
+
+    #[test]
+    fn strict_current_clears_disjoint_old_sectors_the_arc_cannot_describe() {
+        let mut times = two_pass_times(12, 3, 300_000);
+        times[6] = 0; // an acquisition gap splits the older pass into two arcs
+        let sweep = BinnedSweep {
+            az_bins: 12,
+            gate_count: 1,
+            data: vec![7; 12],
+            bin_time_ms: times,
+            ..Default::default()
+        };
+        let mut upload = sweep.data.clone();
+        assert_eq!(mask_previous_pass_rows(&sweep, &mut upload), 9);
+        assert_eq!(&upload[..3], &[7, 7, 7]);
+        assert_eq!(upload[4], 0);
+        assert_eq!(upload[10], 0);
+        assert_eq!(upload[6], 0); // unknown timing cannot be shown as current
     }
 
     /// A completed archive sweep is one pass end to end. Marking any of it stale would dim

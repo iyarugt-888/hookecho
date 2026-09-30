@@ -28,6 +28,10 @@ use std::time::Duration;
 /// its own) never produces one of these.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ScanProgress {
+    /// Start of this source volume, independent of the latest radial's time.
+    pub volume_start_ms: Option<i64>,
+    pub vcp_number: Option<u16>,
+    pub cut_kind: CutKind,
     /// 1-based position of the current sweep within the VCP.
     pub elevation_number: usize,
     /// How many sweeps this VCP has in total.
@@ -42,6 +46,26 @@ pub struct ScanProgress {
     pub chunk_index: usize,
     /// How many chunks this sweep has in total (3 standard, 6 super-resolution).
     pub chunks_in_sweep: usize,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum CutKind {
+    #[default]
+    Standard,
+    Sails,
+    Mrle,
+    Mpda,
+}
+
+impl CutKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Standard => "standard",
+            Self::Sails => "SAILS",
+            Self::Mrle => "MRLE",
+            Self::Mpda => "MPDA",
+        }
+    }
 }
 
 impl ScanProgress {
@@ -80,6 +104,14 @@ impl ScanProgress {
     }
 }
 
+/// Radials decoded from the arriving progressive update, before older-pass sweep stitching.
+#[derive(Debug, Clone)]
+pub struct RadialCoverage {
+    pub progress: ScanProgress,
+    /// (one-based azimuth number, source acquisition timestamp in milliseconds).
+    pub radials: Vec<(u16, i64)>,
+}
+
 /// The oldest a joined live volume may be and still be the one being scanned: a volume lasts four
 /// to ten minutes, so twenty allows a slow upload and a clear-air VCP.
 const MAX_LIVE_VOLUME_AGE_MIN: i64 = 20;
@@ -98,6 +130,10 @@ pub struct Update {
     /// A synthetic name identifying this update (volume prefix + sequence).
     pub name: String,
     pub time: chrono::DateTime<chrono::Utc>,
+    /// Client transport receipt before assembly. Completed-volume paths may not expose this.
+    pub received_at: Option<crate::clock::Instant>,
+    /// Current update's raw radial positions; completed-volume sources cannot provide this.
+    pub radial_coverage: Option<RadialCoverage>,
     /// Shared with the streaming task's running volume — the app puts this straight into its
     /// volume cache, so a live sweep arrival copies a refcount rather than a whole scan.
     pub scan: Arc<Scan>,
@@ -208,7 +244,16 @@ where
     // metadata assembly needs). Re-decoding every accumulated chunk at every boundary was O(n^2)
     // over a volume, and the chunk count grows to ~55.
     let mut total_retries = 0u32;
-    emit(&it, &chunks, &mut merged, total_retries, &mut on_update).await;
+    emit(
+        &it,
+        &chunks,
+        &mut merged,
+        total_retries,
+        crate::clock::Instant::now(),
+        None,
+        &mut on_update,
+    )
+    .await;
     let mut window_start = chunks.len();
 
     let mut fails = 0u32;
@@ -230,6 +275,7 @@ where
 
         match it.try_next().await {
             Ok(Some(dc)) => {
+                let received_at = crate::clock::Instant::now();
                 fails = 0;
                 let seq = dc.identifier.sequence();
                 let ctype = dc.identifier.chunk_type();
@@ -244,10 +290,34 @@ where
                 volume = vol;
                 chunks.push(dc.chunk);
                 let meta = it.chunk_metadata(seq).copied();
+                let mut current_progress = None;
                 if let Some(meta) = meta {
                     // The Start chunk has no elevation of its own; nothing to report yet.
                     if let Some(elevation_number) = meta.elevation_number() {
-                        on_progress(ScanProgress {
+                        let progress = ScanProgress {
+                            volume_start_ms: Some(
+                                dc.identifier
+                                    .date_time_prefix()
+                                    .and_utc()
+                                    .timestamp_millis(),
+                            ),
+                            vcp_number: it.vcp().map(|vcp| vcp.header().pattern_number()),
+                            cut_kind: it
+                                .vcp()
+                                .and_then(|vcp| {
+                                    vcp.elevations().get(elevation_number.saturating_sub(1))
+                                })
+                                .map_or(CutKind::Standard, |cut| {
+                                    if cut.is_sails_cut() {
+                                        CutKind::Sails
+                                    } else if cut.is_mrle_cut() {
+                                        CutKind::Mrle
+                                    } else if cut.is_mpda_cut() {
+                                        CutKind::Mpda
+                                    } else {
+                                        CutKind::Standard
+                                    }
+                                }),
                             elevation_number,
                             total_elevations: it
                                 .elevation_mapper()
@@ -260,7 +330,9 @@ where
                                 / meta.chunks_in_sweep() as f64,
                             azimuth_end_deg: (meta.chunk_index_in_sweep() + 1) as f64 * 360.0
                                 / meta.chunks_in_sweep() as f64,
-                        });
+                        };
+                        on_progress(progress);
+                        current_progress = Some(progress);
                     }
                 }
                 // Phase B2 / suggestions.md §21: every chunk is a rendering unit, not just the
@@ -280,7 +352,16 @@ where
                         .chain(chunks[window_start..].iter())
                         .cloned()
                         .collect();
-                    emit(&it, &window, &mut merged, total_retries, &mut on_update).await;
+                    emit(
+                        &it,
+                        &window,
+                        &mut merged,
+                        total_retries,
+                        received_at,
+                        current_progress,
+                        &mut on_update,
+                    )
+                    .await;
                     // Advance every emit, not only at sweep boundaries: each window is then the
                     // start chunk plus the one new chunk, so per-chunk emitting costs about the
                     // same total assembly work as the old per-sweep one rather than re-decoding
@@ -374,6 +455,8 @@ async fn emit<F: FnMut(Update)>(
     chunks: &[Chunk<'static>],
     merged: &mut Arc<Scan>,
     retries: u32,
+    received_at: crate::clock::Instant,
+    progress: Option<ScanProgress>,
     on_update: &mut F,
 ) {
     // Wall clock around assembly + merge — on native that's real CPU time (off the async worker,
@@ -408,6 +491,20 @@ async fn emit<F: FnMut(Update)>(
             return;
         }
     };
+    let radial_coverage = progress.map(|progress| RadialCoverage {
+        progress,
+        radials: partial
+            .sweeps()
+            .iter()
+            .filter(|sweep| sweep.elevation_number() as usize == progress.elevation_number)
+            .flat_map(|sweep| {
+                sweep
+                    .radials()
+                    .iter()
+                    .map(|radial| (radial.azimuth_number(), radial.collection_timestamp()))
+            })
+            .collect(),
+    });
     let (new_scan, changed) = merge_scan(merged, partial);
     if changed.is_empty() {
         return; // nothing new since the last emit; `merged` already holds this content
@@ -425,6 +522,8 @@ async fn emit<F: FnMut(Update)>(
     on_update(Update {
         name,
         time,
+        received_at: Some(received_at),
+        radial_coverage,
         scan: Arc::clone(merged),
         changed,
         retries,
@@ -466,12 +565,23 @@ fn stitch(base: &Sweep, partial: &Sweep) -> Sweep {
         .iter()
         .map(|r| (r.azimuth_number(), r.clone()))
         .collect();
-    by_az.extend(
-        partial
-            .radials()
-            .iter()
-            .map(|r| (r.azimuth_number(), r.clone())),
-    );
+    for radial in partial.radials() {
+        // Chunk order is transport order, not radar time order. A delayed chunk from an
+        // earlier pass must not replace a radial we already displayed from a newer pass.
+        // On equal timestamps the arriving radial wins, preserving the existing correction
+        // behavior for a provider that republishes a gate in the same acquisition instant.
+        let entry = by_az.entry(radial.azimuth_number());
+        match entry {
+            std::collections::btree_map::Entry::Vacant(v) => {
+                v.insert(radial.clone());
+            }
+            std::collections::btree_map::Entry::Occupied(mut o) => {
+                if radial.collection_timestamp() >= o.get().collection_timestamp() {
+                    o.insert(radial.clone());
+                }
+            }
+        }
+    }
     let newest = by_az
         .values()
         .map(|r| r.collection_timestamp())
@@ -481,12 +591,12 @@ fn stitch(base: &Sweep, partial: &Sweep) -> Sweep {
     Sweep::new(base.elevation_number(), by_az.into_values().collect())
 }
 
-/// Merge `partial` into `base`, newest-wins by elevation number.
+/// Merge `partial` into `base` by elevation number, newest radial wins at each azimuth.
 ///
 /// A VCP change replaces the volume wholesale (tilt set changed). Otherwise each partial
-/// sweep replaces the base sweep with the same elevation number only when it actually differs
-/// (`Sweep: PartialEq`), keeping split cuts and the tilt list stable mid-stream. Returns the
-/// merged scan and the angles of the sweeps that changed.
+/// sweep is stitched into the base sweep with the same elevation number. Only a real change to
+/// the displayed radials is reported, keeping split cuts and the tilt list stable mid-stream.
+/// Returns the merged scan and the angles of the sweeps that changed.
 /// ponytail: `base`'s sweeps are cloned into the merged scan because `nexrad_model::Scan` has no
 /// `into_sweeps` to move them out of. Vendoring that crate for one accessor isn't worth it while
 /// this runs off the UI thread.
@@ -503,8 +613,11 @@ pub fn merge_scan(base: &Scan, partial: Scan) -> (Scan, Vec<f32>) {
         match sweeps.iter().position(|s| s.elevation_number() == en) {
             Some(i) => {
                 if &sweeps[i] != ps {
-                    sweeps[i] = stitch(&sweeps[i], ps);
-                    changed_nums.push(en);
+                    let stitched = stitch(&sweeps[i], ps);
+                    if stitched != sweeps[i] {
+                        sweeps[i] = stitched;
+                        changed_nums.push(en);
+                    }
                 }
             }
             None => {
@@ -558,6 +671,9 @@ mod tests {
     #[test]
     fn scan_progress_uses_the_vcp_timing_model_with_documented_fallback() {
         let progress = ScanProgress {
+            volume_start_ms: None,
+            vcp_number: None,
+            cut_kind: CutKind::Standard,
             elevation_number: 1,
             total_elevations: 14,
             elevation_angle_deg: 0.5,
@@ -722,6 +838,47 @@ mod tests {
         let r = merged.sweeps()[0].radials();
         assert_eq!(r.len(), 180, "overlap must dedupe, not duplicate");
         assert_eq!(r[60].collection_timestamp(), 9_000);
+    }
+
+    #[test]
+    fn reordered_chunk_fills_a_gap_without_replacing_newer_radials() {
+        let base = Scan::new(vcp(212), vec![wedge(1, 0..120, 9_000)]);
+        let late = Scan::new(vcp(212), vec![wedge(1, 60..180, 1_000)]);
+        let (merged, changed) = merge_scan(&base, late);
+        assert_eq!(changed.len(), 1);
+        let radials = merged.sweeps()[0].radials();
+        assert_eq!(radials.len(), 180);
+        assert_eq!(radials[60].collection_timestamp(), 9_000);
+        assert_eq!(radials[119].collection_timestamp(), 9_000);
+        assert_eq!(radials[120].collection_timestamp(), 1_000);
+    }
+
+    #[test]
+    fn repeated_or_older_chunk_does_not_emit_a_false_update() {
+        let base = Scan::new(vcp(212), vec![wedge(1, 0..120, 9_000)]);
+        for time in [9_000, 1_000] {
+            let partial = Scan::new(vcp(212), vec![wedge(1, 0..120, time)]);
+            let (merged, changed) = merge_scan(&base, partial);
+            assert!(changed.is_empty(), "time {time} produced a false update");
+            assert_eq!(merged.sweeps()[0].radials(), base.sweeps()[0].radials());
+        }
+    }
+
+    #[test]
+    fn merged_partial_volume_marks_the_previous_pass_for_rendering() {
+        let base = Scan::new(vcp(212), vec![wedge(1, 0..720, 1_000_000)]);
+        let partial = Scan::new(vcp(212), vec![wedge(1, 0..120, 1_300_000)]);
+        let (merged, changed) = merge_scan(&base, partial);
+        assert_eq!(changed.len(), 1);
+        let binned = crate::level2::bin_sweep_opts(
+            &merged.sweeps()[0],
+            crate::level2::Moment::Reflectivity,
+            35.0,
+            -97.0,
+            false,
+        )
+        .expect("synthetic reflectivity sweep should bin");
+        assert_eq!(binned.stale_arc_deg, Some((60.0, 0.0)));
     }
 }
 

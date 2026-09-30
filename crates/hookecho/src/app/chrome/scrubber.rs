@@ -1066,6 +1066,9 @@ mod ring_tests {
     fn live_progress_ring_paints_the_track_and_the_progress_arc() {
         let ctx = egui::Context::default();
         let progress = wxdata::live::ScanProgress {
+            volume_start_ms: None,
+            vcp_number: None,
+            cut_kind: wxdata::live::CutKind::Standard,
             elevation_number: 3,
             total_elevations: 14,
             elevation_angle_deg: 0.9,
@@ -1110,6 +1113,9 @@ mod ring_tests {
     fn a_zero_total_elevations_does_not_panic_or_produce_nan() {
         let ctx = egui::Context::default();
         let progress = wxdata::live::ScanProgress {
+            volume_start_ms: None,
+            vcp_number: None,
+            cut_kind: wxdata::live::CutKind::Standard,
             elevation_number: 0,
             total_elevations: 0,
             elevation_angle_deg: 0.0,

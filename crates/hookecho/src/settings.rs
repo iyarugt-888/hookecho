@@ -59,6 +59,17 @@ impl Theme {
     }
 }
 
+/// How an in-progress Level II sweep displays radial rows from the previous pass.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum LiveSweepMode {
+    /// Keep earlier-pass coverage dimmed until the antenna replaces it.
+    #[default]
+    ContinuousComposite,
+    /// Show only rows proven to belong to the newest pass.
+    StrictCurrentSweep,
+}
+
 /// Alert sound choice. Built-ins are synthesized in `audio.rs` (no asset files); `Custom` plays a
 /// user file (wav/mp3/ogg/flac). Serializes as `"Chime"` or `{"Custom":"/path/f.wav"}`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -477,6 +488,9 @@ pub struct Settings {
     /// chunk stream is actively updating the active pane.
     #[serde(default = "default_true")]
     pub live_scan_indicator: bool,
+    /// Display policy while following an in-progress Level II sweep.
+    #[serde(default)]
+    pub live_sweep_mode: LiveSweepMode,
     /// ntfy.sh topic for push notifications when a warning covers a saved location (empty = off).
     #[serde(default)]
     pub ntfy_topic: String,
@@ -1749,6 +1763,7 @@ impl Default for Settings {
             alert_sound: true,
             smooth_radar: true,
             live_scan_indicator: true,
+            live_sweep_mode: LiveSweepMode::default(),
             ntfy_topic: String::new(),
             discord_webhook: String::new(),
             slack_webhook: String::new(),
@@ -2446,6 +2461,17 @@ mod tests {
     }
 
     #[test]
+    fn older_settings_keep_composite_live_sweeps() {
+        let old: Settings = serde_json::from_str(r#"{"live_scan_indicator":true}"#).unwrap();
+        assert_eq!(old.live_sweep_mode, LiveSweepMode::ContinuousComposite);
+        let mut strict = old;
+        strict.live_sweep_mode = LiveSweepMode::StrictCurrentSweep;
+        let restored: Settings =
+            serde_json::from_str(&serde_json::to_string(&strict).unwrap()).unwrap();
+        assert_eq!(restored.live_sweep_mode, LiveSweepMode::StrictCurrentSweep);
+    }
+
+    #[test]
     fn analyst_mode_defaults_off_and_round_trips() {
         let s: Settings = serde_json::from_str("{}").unwrap();
         assert!(!s.analyst_mode);
@@ -2511,6 +2537,7 @@ mod tests {
             model_pick: String::new(),
             smooth_radar: false,
             live_scan_indicator: false,
+            live_sweep_mode: LiveSweepMode::StrictCurrentSweep,
             share_card: true,
             loop_real_timing: true,
             broadcast: Default::default(),

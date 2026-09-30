@@ -9,6 +9,46 @@ use std::collections::HashMap;
 use std::num::NonZeroU64;
 use wgpu::util::DeviceExt;
 
+/// Recent client transport receipt-to-GPU-queue timings for one pane/source subscription.
+/// Queue writes are observable here; GPU completion and presentation are separate events.
+#[derive(Default)]
+pub struct LiveQueueTimings {
+    latest_micros: std::sync::atomic::AtomicU64,
+    samples_micros: std::sync::Mutex<std::collections::VecDeque<u64>>,
+}
+
+impl LiveQueueTimings {
+    const CAPACITY: usize = 128;
+
+    pub fn latest_micros(&self) -> u64 {
+        self.latest_micros
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn samples_micros(&self) -> Vec<u64> {
+        self.samples_micros
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .copied()
+            .collect()
+    }
+
+    fn record_elapsed(&self, elapsed: std::time::Duration) {
+        let micros = elapsed.as_micros().max(1).min(u64::MAX as u128) as u64;
+        self.latest_micros
+            .store(micros, std::sync::atomic::Ordering::Relaxed);
+        let mut samples = self
+            .samples_micros
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        samples.push_back(micros);
+        if samples.len() > Self::CAPACITY {
+            samples.pop_front();
+        }
+    }
+}
+
 /// XYZ tile id.
 pub type TileId = (u8, u32, u32);
 
@@ -65,13 +105,10 @@ pub struct RadarUpload {
     /// textures keep their contents. A palette drag writes 3 KB instead of re-uploading the
     /// ~1.3 MB gate texture it was already showing.
     pub lut_only: bool,
-    /// One-shot live-update timing: receipt on the UI thread to GPU queue writes completed.
+    /// One-shot live-update timing: client transport receipt to GPU queue writes completed.
     /// `wxdata::clock::Instant`, not `std::time::Instant` — the latter can't measure elapsed time
     /// on wasm32, and every caller already carries the former (`View::live_render_started`).
-    pub telemetry: Option<(
-        wxdata::clock::Instant,
-        std::sync::Arc<std::sync::atomic::AtomicU64>,
-    )>,
+    pub telemetry: Option<(wxdata::clock::Instant, std::sync::Arc<LiveQueueTimings>)>,
 }
 
 #[repr(C)]
@@ -2770,9 +2807,8 @@ fn ancestor_uv(x: u32, y: u32, up: u8) -> ([f32; 2], [f32; 2]) {
 }
 
 fn record_radar_queue_time(upload: &RadarUpload) {
-    if let Some((started, metric)) = &upload.telemetry {
-        let micros = started.elapsed().as_micros().max(1).min(u64::MAX as u128) as u64;
-        metric.store(micros, std::sync::atomic::Ordering::Relaxed);
+    if let Some((started, timings)) = &upload.telemetry {
+        timings.record_elapsed(started.elapsed());
     }
 }
 

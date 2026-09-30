@@ -226,6 +226,8 @@ mod tests {
                 on_update(wxdata::live::Update {
                     name: format!("scripted-{n}"),
                     time: Utc::now(),
+                    received_at: None,
+                    radial_coverage: None,
                     scan: base.clone(),
                     changed: vec![0.5],
                     retries: 0,
@@ -367,6 +369,8 @@ mod tests {
             on_update(wxdata::live::Update {
                 name: "recovered".to_string(),
                 time: Utc::now(),
+                received_at: None,
+                radial_coverage: None,
                 scan: base,
                 changed: vec![0.5],
                 retries: 0,

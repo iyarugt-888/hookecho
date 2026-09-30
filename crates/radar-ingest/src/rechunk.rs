@@ -223,7 +223,8 @@ impl Rechunker {
                     self.ingest_radial(product, radar_message, raw_bytes, now, &mut flushed);
                 }
                 _ => {
-                    flushed.push(self.pass_through(product, raw_bytes, now));
+                    let radar_time = message.header().date_time().unwrap_or(product.received_at);
+                    flushed.push(self.pass_through(product, raw_bytes, radar_time, now));
                 }
             }
         }
@@ -322,13 +323,14 @@ impl Rechunker {
         &mut self,
         product: &RawProduct,
         raw_bytes: &[u8],
+        radar_time: DateTime<Utc>,
         now: DateTime<Utc>,
     ) -> LiveLevel2Block {
         let state = self.sites.entry(product.site.clone()).or_default();
         let volume = state
             .current_volume
             .clone()
-            .unwrap_or_else(|| VolumeKey::new(&product.site, product.received_at));
+            .unwrap_or_else(|| VolumeKey::new(&product.site, radar_time));
         let cut = state.current_cut;
         let sequence = state.next_sequence();
         LiveLevel2Block {
@@ -338,8 +340,8 @@ impl Rechunker {
             elevation_angle_deg: None,
             first_azimuth_number: None,
             last_azimuth_number: None,
-            radar_start: product.received_at,
-            radar_end: product.received_at,
+            radar_start: radar_time,
+            radar_end: radar_time,
             received_at: product.received_at,
             emitted_at: now,
             sequence,
@@ -628,12 +630,24 @@ mod tests {
         header[24..26].copy_from_slice(&0u16.to_be_bytes());
         header[26..28].copy_from_slice(&28u16.to_be_bytes());
 
+        let source_time = t(0);
+        let received_at = t(120);
+        let epoch = chrono::NaiveDate::from_ymd_opt(1970, 1, 1).unwrap();
+        let date_field = ((source_time.date_naive() - epoch).num_days() + 1) as u16;
+        let midnight = source_time.date_naive().and_hms_opt(0, 0, 0).unwrap();
+        let millis = (source_time.naive_utc() - midnight).num_milliseconds() as u32;
+        header[18..20].copy_from_slice(&date_field.to_be_bytes());
+        header[20..24].copy_from_slice(&millis.to_be_bytes());
+
         let mut rc = Rechunker::new(RechunkConfig::default(), "relay");
-        let blocks = rc.ingest(&product("KTLX", &[header.clone()], t(0)));
+        let blocks = rc.ingest(&product("KTLX", &[header.clone()], received_at));
         // Even though the content can't be decoded as RDA Status Data (too short), the message
         // frame itself decodes and is forwarded rather than silently discarded.
         assert_eq!(blocks.len(), 1);
         assert_eq!(blocks[0].cut, None);
+        assert_eq!(blocks[0].volume.volume_start, source_time);
+        assert_eq!(blocks[0].radar_end, source_time);
+        assert_eq!(blocks[0].received_at, received_at);
     }
 
     #[test]

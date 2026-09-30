@@ -89,7 +89,7 @@ fn decode_time_detail(last: Option<std::time::Duration>) -> Option<(&'static str
 fn render_queue_detail(micros: u64) -> Option<(&'static str, String)> {
     (micros > 0).then(|| {
         (
-            "Render queue",
+            "Receipt → GPU queue",
             format_millis(std::time::Duration::from_micros(micros)),
         )
     })
@@ -207,10 +207,7 @@ impl HookEchoApp {
         let base_details: Vec<(&'static str, String)> = [
             ingest_lag_detail(v.last_live_arrival),
             decode_time_detail(v.last_decode_time),
-            render_queue_detail(
-                v.live_gpu_queue_micros
-                    .load(std::sync::atomic::Ordering::Relaxed),
-            ),
+            render_queue_detail(v.live_queue_timings.latest_micros()),
             retry_detail(v.live_retries),
         ]
         .into_iter()
@@ -1849,7 +1846,7 @@ mod tests {
     fn render_queue_detail_is_hidden_until_a_live_upload_commits() {
         assert!(render_queue_detail(0).is_none());
         let (label, value) = render_queue_detail(18_250).unwrap();
-        assert_eq!(label, "Render queue");
+        assert_eq!(label, "Receipt → GPU queue");
         assert_eq!(value, "18ms");
     }
 }

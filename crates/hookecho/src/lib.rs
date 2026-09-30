@@ -61,6 +61,7 @@ pub mod headless;
 pub mod hotkeys;
 pub mod icon;
 pub mod labelplace;
+pub mod live_scan;
 /// The running app's local HTTP API (ROADMAP_NEW M4); not in a browser, which has no sockets.
 #[cfg(not(target_arch = "wasm32"))]
 pub mod local_api;

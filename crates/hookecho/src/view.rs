@@ -467,6 +467,17 @@ pub struct Volume {
 }
 
 impl Volume {
+    /// Whether this volume has received a progressive chunk merge.
+    pub(crate) fn is_live_partial(&self) -> bool {
+        self.live
+    }
+
+    pub(crate) fn from_live(scan: Arc<Scan>, name: String, time: DateTime<Utc>) -> Self {
+        let mut volume = Self::new(scan, name, time);
+        volume.live = true;
+        volume
+    }
+
     pub fn new(scan: Arc<Scan>, name: String, time: DateTime<Utc>) -> Self {
         let vcp = scan.coverage_pattern_number().to_string();
         let elevations = level2::elevation_angles(&scan);
@@ -782,6 +793,8 @@ pub struct MapView {
     /// behind wall clock the data already was by the time this client got it, independent of
     /// whatever a rolling loop happens to be showing on screen right now.
     pub last_live_arrival: Option<(DateTime<Utc>, DateTime<Utc>)>,
+    /// Explicit acquisition state for the feed associated with this pane.
+    pub live_scan: crate::live_scan::LiveScan,
     /// How far the live chunk stream has scanned into the current sweep, right now — cleared
     /// whenever the stream isn't actively feeding this pane (stream end, site change) so a stale
     /// in-progress reading never lingers on screen.
@@ -805,10 +818,9 @@ pub struct MapView {
     /// Recent live arrivals for the Analyst log's graph, oldest first: `(arrived, ingest lag in
     /// seconds, decode milliseconds)`. Capped at [`LIVE_HISTORY`].
     pub live_history: std::collections::VecDeque<(DateTime<Utc>, f32, f32)>,
-    /// One-shot start for the next 2D upload after a live update, and its last measured
-    /// receipt-to-GPU-queue duration in microseconds (0 means no live upload measured yet).
+    /// One-shot client transport receipt for the next 2D upload and bounded queue timings.
     pub live_render_started: Option<Instant>,
-    pub live_gpu_queue_micros: Arc<std::sync::atomic::AtomicU64>,
+    pub live_queue_timings: Arc<crate::render::LiveQueueTimings>,
     /// National field layers drawn in this pane. Per-pane rather than app-wide: two panes is how
     /// you compare two fields, and the model-difference layer would rather be a pair of panes
     /// than a subtraction. The grids themselves stay in one shared cache — only the choice of
@@ -926,6 +938,7 @@ impl MapView {
             last_poll: None,
             error: None,
             last_live_arrival: None,
+            live_scan: Default::default(),
             live_progress: None,
             live_progress_at: None,
             live_scan_revision: 0,
@@ -933,7 +946,7 @@ impl MapView {
             live_history: Default::default(),
             last_decode_time: None,
             live_render_started: None,
-            live_gpu_queue_micros: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            live_queue_timings: Arc::new(crate::render::LiveQueueTimings::default()),
             fields_on: Default::default(),
             blink_compare: false,
             overlay_compare: false,
@@ -1230,6 +1243,16 @@ mod tests {
         assert!(!tilts_only_grew(&[0.5, 0.9, 1.3], &[0.5, 0.9]));
     }
 
+    #[test]
+    fn first_streamed_volume_is_partial_from_its_first_chunk() {
+        let now = Utc::now();
+        let scan = scan_at(&[0.5]);
+        let live = Volume::from_live(scan.clone(), "live".into(), now);
+        let archived = Volume::new(scan, "archive".into(), now);
+        assert!(live.is_live_partial());
+        assert!(!archived.is_live_partial());
+    }
+
     use super::*;
     use crate::render::mercator::Camera;
 
@@ -1448,6 +1471,9 @@ mod tests {
     #[test]
     fn following_the_sweep_moves_once_per_sweep_and_by_angle() {
         let progress = |n: usize, angle: f64| wxdata::live::ScanProgress {
+            volume_start_ms: None,
+            vcp_number: None,
+            cut_kind: wxdata::live::CutKind::Standard,
             elevation_number: n,
             total_elevations: 16,
             elevation_angle_deg: angle,

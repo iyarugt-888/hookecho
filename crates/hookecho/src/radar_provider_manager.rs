@@ -70,6 +70,16 @@ pub fn label_for_tier(tier: SelectedTier) -> &'static str {
     }
 }
 
+pub fn label_for_reason(reason: ProviderSwitchReason) -> &'static str {
+    match reason {
+        ProviderSwitchReason::TransportError => "transport error",
+        ProviderSwitchReason::StaleData => "stale source data",
+        ProviderSwitchReason::SequenceGap => "source sequence gap",
+        ProviderSwitchReason::ManualOverride => "manual provider selection",
+        ProviderSwitchReason::Recovery => "preferred source recovered",
+    }
+}
+
 /// A snapshot of the manager's current decision — cheap to compute on demand for the health popup
 /// and the diagnostics bundle, so nothing needs to cache or invalidate one.
 #[derive(Debug, Clone)]
@@ -185,7 +195,10 @@ impl SiteProviders {
     }
 
     pub fn clear_manual_override(&mut self) {
-        self.manual_override = None;
+        if self.manual_override.take().is_some() {
+            let tier = self.selected_tier();
+            self.last_transition = Some((Utc::now(), ProviderSwitchReason::ManualOverride, tier));
+        }
     }
 
     pub fn is_manually_overridden(&self) -> bool {
@@ -445,6 +458,12 @@ mod tests {
             sp.selected_tier(),
             SelectedTier::Primary,
             "clearing the override resumes automatic evaluation against healthy data"
+        );
+        assert_eq!(
+            sp.snapshot()
+                .last_transition
+                .map(|(_, reason, tier)| (reason, tier)),
+            Some((ProviderSwitchReason::ManualOverride, SelectedTier::Primary)),
         );
     }
 

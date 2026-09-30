@@ -89,7 +89,36 @@ impl HookEchoApp {
         let health = self.radar_health();
         let (state_word, state_color) = crate::ui::layers_panel::health_look(health.state());
         let following = self.views[self.active].timeline.following;
+        let scan_phase = self.views[self.active]
+            .live_scan
+            .phase(now, super::super::super::RADAR_FRESH_SECS);
         let delay_text = radar_delay_label(state_word, health.latest_valid_time, following, now);
+        let delay_text = if following {
+            match scan_phase {
+                crate::live_scan::Phase::Aging => format!("Aging · {delay_text}"),
+                crate::live_scan::Phase::FallbackSource => format!("Fallback · {delay_text}"),
+                crate::live_scan::Phase::Recovering => format!("Recovering · {delay_text}"),
+                crate::live_scan::Phase::Offline => format!("Offline · {delay_text}"),
+                _ => delay_text,
+            }
+        } else {
+            delay_text
+        };
+        let state_color = if following
+            && matches!(
+                scan_phase,
+                crate::live_scan::Phase::Aging
+                    | crate::live_scan::Phase::Recovering
+                    | crate::live_scan::Phase::FallbackSource
+                    | crate::live_scan::Phase::Offline
+            ) {
+            t.warn
+        } else {
+            state_color
+        };
+        let scan_state = self.views[self.active]
+            .live_scan
+            .description(now, super::super::super::RADAR_FRESH_SECS);
         let delay_tip = if following {
             match self.views[self.active].last_live_arrival {
                 Some((arrived, valid)) => format!(
@@ -100,6 +129,10 @@ impl HookEchoApp {
             }
         } else {
             "Viewing the archive. Return to Live to see current feed delay.".to_string()
+        };
+        let delay_tip = match health.error.as_deref() {
+            Some(error) => format!("{error}\n{delay_tip}\nLive scan: {scan_state}"),
+            None => format!("{delay_tip}\nLive scan: {scan_state}"),
         };
         let keepout = if crate::os_decorated() {
             0.0
@@ -196,7 +229,7 @@ impl HookEchoApp {
                                 .named("Show the health of every active source")
                                 .on_hover_text(format!(
                                     "{}\nClick for every active source's health",
-                                    health.error.as_deref().unwrap_or(&delay_tip)
+                                    delay_tip
                                 ))
                                 .clicked()
                             {

@@ -3112,8 +3112,12 @@ enum DataMsg {
     Live {
         view: usize,
         site: String,
+        gen: u64,
         name: String,
         time: DateTime<Utc>,
+        /// Client transport receipt before decode, when the provider exposes it.
+        received_at: Option<wxdata::clock::Instant>,
+        radial_coverage: Option<wxdata::live::RadialCoverage>,
         /// Already shared with the streaming task's running volume (see `wxdata::live::Update`).
         scan: Arc<Scan>,
         changed: Vec<f32>,
@@ -3136,6 +3140,7 @@ enum DataMsg {
     LiveProgress {
         view: usize,
         site: String,
+        gen: u64,
         progress: wxdata::live::ScanProgress,
     },
     /// The archive volume listing for a site+date (timeline frames).
@@ -3281,6 +3286,8 @@ type ShownKey = (
     // Precipitation-tint generation: `None` when the tint is off, else the grid revision, so a
     // new precipitation-type grid or toggling the tint rebuilds the image.
     Option<u32>,
+    // A mode switch must upload the newly masked/unmasked sweep, not only its palette.
+    bool,
 );
 
 /// An in-progress offline chase-pack download: the worker outcome channel, a cancel flag the
@@ -11161,6 +11168,21 @@ impl HookEchoApp {
             "Show an animated ring and tilt-progress bar next to the scrubber's Live badge \
                  while a live chunk stream is actively updating this pane.",
         );
+        ui.horizontal(|ui| {
+            ui.label("Live sweep display:");
+            ui.selectable_value(
+                &mut self.settings.live_sweep_mode,
+                crate::settings::LiveSweepMode::ContinuousComposite,
+                "Continuous composite",
+            )
+            .on_hover_text("Keep the previous pass dimmed until each azimuth is rescanned.");
+            ui.selectable_value(
+                &mut self.settings.live_sweep_mode,
+                crate::settings::LiveSweepMode::StrictCurrentSweep,
+                "Current sweep only",
+            )
+            .on_hover_text("Hide all radial rows identified as the previous pass.");
+        });
         let (view, settings) = (&mut self.views[self.active], &mut self.settings);
 
         // A download in flight stays above the disclosure — progress you can't find reads as a hang.
@@ -14728,25 +14750,34 @@ impl HookEchoApp {
             // LiveEnded must be handled even after a site change (to drop the stream handle).
             if matches!(msg, DataMsg::LiveEnded { .. }) {
                 if let DataMsg::LiveEnded { view, gen, .. } = msg {
-                    if self
+                    let current = self
                         .live_stream
                         .as_ref()
-                        .is_some_and(|(v, _, g, _)| *v == view && *g == gen)
-                    {
+                        .is_some_and(|(v, _, g, _)| *v == view && *g == gen);
+                    if current {
                         self.live_stream = None; // interval polling resumes automatically
-                    }
-                    // A stale reading from a stream that's no longer feeding this pane is worse
-                    // than none — the chunk it described may be minutes old by the next glance.
-                    if view < self.views.len() {
-                        self.views[view].live_progress = None;
-                        self.views[view].live_progress_at = None;
-                        self.views[view].live_retries = 0;
+                        if view < self.views.len() {
+                            // Only the current stream may clear the pane's acquisition state.
+                            self.views[view].live_progress = None;
+                            self.views[view].live_progress_at = None;
+                            self.views[view].live_retries = 0;
+                            self.views[view].live_scan.stream_ended();
+                        }
                     }
                 }
                 continue;
             }
             if idx >= self.views.len() || self.views[idx].site.as_deref() != Some(msg.site()) {
                 continue; // view gone or its site changed since the fetch spawned
+            }
+            if let DataMsg::Live { gen, .. } | DataMsg::LiveProgress { gen, .. } = &msg {
+                if !self
+                    .live_stream
+                    .as_ref()
+                    .is_some_and(|(v, _, g, _)| *v == idx && g == gen)
+                {
+                    continue; // a superseded provider must never rewind this pane
+                }
             }
             match msg {
                 DataMsg::Volume {
@@ -14766,6 +14797,30 @@ impl HookEchoApp {
                     if !v.timeline.accepts_fetched_volume(&name, live_poll) {
                         v.loading = false;
                         continue;
+                    }
+                    let previous_provider = v.live_scan.provider.clone();
+                    if live_poll
+                        && v.timeline.following
+                        && !v.live_scan.accept_volume(&name, time, Utc::now())
+                    {
+                        v.loading = false;
+                        continue;
+                    }
+                    if live_poll && v.timeline.following {
+                        if let Some(from) = previous_provider.filter(|from| {
+                            v.live_scan.provider.as_deref() != Some(from.as_str())
+                        }) {
+                            let reason = "live stream unavailable; completed-volume polling";
+                            log::info!(
+                                target: "hookecho::radar_provider_manager",
+                                "{}: provider switch {from} -> Completed-volume poll: {reason}; completed volumes only",
+                                v.site.as_deref().unwrap_or("?"),
+                            );
+                            v.live_scan.set_switch_reason(reason);
+                            v.live_render_started = None;
+                            v.live_queue_timings =
+                                Arc::new(crate::render::LiveQueueTimings::default());
+                        }
                     }
                     let looping = v.timeline.live_looping();
                     // A newly-arrived live head (following): roll the day at UTC midnight, or grow
@@ -14839,6 +14894,8 @@ impl HookEchoApp {
                     view,
                     name,
                     time,
+                    received_at,
+                    radial_coverage,
                     scan,
                     changed,
                     retries,
@@ -14849,7 +14906,13 @@ impl HookEchoApp {
                     if v.timeline.playing {
                         continue; // looping pane owns its displayed frame (cf. Volume above)
                     }
-                    v.live_render_started = Some(Instant::now());
+                    if !v.live_scan.accept_volume(&name, time, Utc::now()) {
+                        continue; // late chunk from an older volume cannot reverse display time
+                    }
+                    if let Some(coverage) = radial_coverage {
+                        v.live_scan.observe_radials(coverage, Utc::now());
+                    }
+                    v.live_render_started = received_at;
                     log::debug!(
                         target: "hookecho::live_sweep",
                         "{}: live chunk merged into {name} ({time}), {} tilt(s) changed, \
@@ -14861,7 +14924,7 @@ impl HookEchoApp {
                     );
                     match &mut v.volume {
                         Some(vol) => vol.apply_live(scan, name, time, &changed),
-                        None => v.volume = Some(Volume::new(scan, name, time)),
+                        None => v.volume = Some(Volume::from_live(scan, name, time)),
                     }
                     v.live_scan_revision = v.live_scan_revision.wrapping_add(1);
                     // Phase B5's "follow newest low-level cut": jump to the lowest tilt the
@@ -14929,6 +14992,7 @@ impl HookEchoApp {
                 DataMsg::LiveProgress { view, progress, .. } => {
                     self.views[view].live_progress = Some(progress);
                     self.views[view].live_progress_at = Some(Instant::now());
+                    self.views[view].live_scan.progress(progress, Utc::now());
                 }
                 DataMsg::LiveEnded { .. } => unreachable!("handled above"),
             }
@@ -14981,12 +15045,16 @@ impl HookEchoApp {
         // or isn't wanted.
         if let Some((sv, ss, _, sl)) = &self.live_stream {
             if !want || *sv != idx || Some(ss.as_str()) != site.as_deref() || *sl != desired_label {
+                let ended_view = *sv;
                 // ponytail: the cancelled stream notices within a second (its wait is sliced),
                 // so a fast site switch overlaps two streams for about that long and at most
                 // one in-flight chunk fetch. An abort channel if even that shows up.
                 self.live_gen
                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 self.live_stream = None;
+                if ended_view < self.views.len() {
+                    self.views[ended_view].live_scan.stream_ended();
+                }
                 // A new site (or a failover switch) shouldn't inherit the old one's 60 s retry
                 // gate — a switch away from a stalled/failing provider should reconnect promptly.
                 self.last_stream_attempt = None;
@@ -15000,9 +15068,65 @@ impl HookEchoApp {
             // `want` already implies both, but the two are computed a screen away from here.
             if let (true, Some(site), Some(base)) = (due, site, base) {
                 self.last_stream_attempt = Some(Instant::now());
+                let provider = desired_label.unwrap_or("Unidata Level II (AWS S3)");
+                let same_scan_site =
+                    self.views[idx].live_scan.site.as_deref() == Some(site.as_str());
+                if self.views[idx].live_scan.site.is_none() {
+                    self.views[idx].live_scan.site = Some(site.clone());
+                } else if !same_scan_site {
+                    self.views[idx].live_scan.reset(Some(site.clone()));
+                }
+                #[cfg(not(target_arch = "wasm32"))]
+                if same_scan_site {
+                    if let Some(from) = self.views[idx].live_scan.provider.clone() {
+                        if from != provider {
+                            let reason = self.views[idx]
+                                .radar_providers
+                                .as_ref()
+                                .map(|p| p.snapshot())
+                                .and_then(|snapshot| {
+                                    snapshot.last_transition.and_then(|(_, reason, tier)| {
+                                        (tier == snapshot.selected).then_some(
+                                            crate::radar_provider_manager::label_for_reason(reason),
+                                        )
+                                    })
+                                })
+                                .unwrap_or("provider configuration changed");
+                            let mode = if provider == crate::radar_provider_manager::DEGRADED_LABEL {
+                                "completed volumes only"
+                            } else {
+                                "progressive radials"
+                            };
+                            log::info!(
+                                target: "hookecho::radar_provider_manager",
+                                "{site}: provider switch {from} -> {provider}: {reason}; {mode}"
+                            );
+                            self.views[idx].live_scan.set_switch_reason(reason);
+                            // Keep latency distributions tied to one source. In-flight uploads
+                            // retain their old Arc and cannot enter the replacement's samples.
+                            self.views[idx].live_render_started = None;
+                            self.views[idx].live_queue_timings =
+                                Arc::new(crate::render::LiveQueueTimings::default());
+                        }
+                    }
+                }
                 let gen = self.live_gen.load(std::sync::atomic::Ordering::Relaxed);
                 self.spawn_stream(idx, site.clone(), base, ctx.clone(), gen);
                 self.live_stream = Some((idx, site, gen, desired_label));
+                self.views[idx].live_scan.stream_started(
+                    provider,
+                    desired_label.is_some_and(|label| label != "Unidata Level II (AWS S3)"),
+                );
+                #[cfg(not(target_arch = "wasm32"))]
+                let completed_only =
+                    desired_label == Some(crate::radar_provider_manager::DEGRADED_LABEL);
+                #[cfg(target_arch = "wasm32")]
+                let completed_only = false;
+                self.views[idx].live_scan.set_source_mode(if completed_only {
+                    crate::live_scan::SourceMode::CompletedVolumes
+                } else {
+                    crate::live_scan::SourceMode::ProgressiveRadials
+                });
             }
         }
     }
@@ -15110,8 +15234,11 @@ impl HookEchoApp {
                 let _ = cb_tx.send(DataMsg::Live {
                     view: view_idx,
                     site: cb_site.clone(),
+                    gen,
                     name: u.name,
                     time: u.time,
+                    received_at: u.received_at,
+                    radial_coverage: u.radial_coverage,
                     scan: u.scan,
                     changed: u.changed,
                     retries: u.retries,
@@ -15124,6 +15251,7 @@ impl HookEchoApp {
                     let _ = progress_tx.send(DataMsg::LiveProgress {
                         view: view_idx,
                         site: progress_site.clone(),
+                        gen,
                         progress,
                     });
                     progress_ctx.request_repaint();
@@ -15411,6 +15539,9 @@ impl HookEchoApp {
             v.moments_seen = [false; Moment::ALL.len()];
             v.live_progress = None;
             v.live_progress_at = None;
+            v.live_scan.reset(v.site.clone());
+            v.live_render_started = None;
+            v.live_queue_timings = Arc::new(crate::render::LiveQueueTimings::default());
             v.error = None;
             // Clear a stuck in-flight flag: if the previous site's fetch is still running when the
             // site changes, its result is dropped on arrival (site mismatch) without clearing
@@ -16138,6 +16269,20 @@ impl HookEchoApp {
         } else {
             (threshold, storm_uv)
         };
+        let strict_current = self.settings.live_sweep_mode
+            == crate::settings::LiveSweepMode::StrictCurrentSweep
+            && self.views[data].timeline.following
+            && !self.views[data].timeline.playing
+            && self.views[data]
+                .volume
+                .as_ref()
+                .is_some_and(Volume::is_live_partial)
+            && trail_tag.is_none()
+            && !column_max
+            && product.is_none();
+        // Bilinear sampling can pull a valid current-pass gate across an azimuth whose old
+        // row was cleared. Strict mode uses nearest sampling so the masked sector stays empty.
+        let smooth = smooth && !strict_current;
         let uv_key = storm_uv.map(|(e, n)| (e.to_bits(), n.to_bits()));
         // Dealiasing only applies to Doppler velocity, and only where it is actually folded:
         // a TDWR's Level 3 velocity is already unfolded before it leaves the radar.
@@ -16156,6 +16301,7 @@ impl HookEchoApp {
             uv_key,
             dealias,
             self.settings.precip_tint.then_some(self.precip_flag_gen),
+            strict_current,
         );
         // Flash a range: on its bright half-beats the band is painted white. Only the colour table
         // changes, so the beat costs a 3 KB table write, not a sweep upload.
@@ -16216,7 +16362,7 @@ impl HookEchoApp {
         } else {
             let telemetry = self.views[data]
                 .live_render_started
-                .map(|started| (started, Arc::clone(&self.views[data].live_gpu_queue_micros)));
+                .map(|started| (started, Arc::clone(&self.views[data].live_queue_timings)));
             let Some(vol) = self.views[data].volume.as_mut() else {
                 return (None, true);
             };
@@ -16245,7 +16391,7 @@ impl HookEchoApp {
                         .clone()
                         .unwrap_or_else(|| crate::colormap::ramp_table(s.value_min, s.value_max))
                 });
-                to_upload(
+                let mut upload = to_upload(
                     s,
                     ramp.as_ref().unwrap_or(table),
                     threshold,
@@ -16254,7 +16400,13 @@ impl HookEchoApp {
                     precip.as_deref(),
                     lut_only,
                     telemetry,
-                )
+                );
+                if strict_current && !upload.data.is_empty() {
+                    wxdata::level2::mask_previous_pass_rows(s, &mut upload.data);
+                    // The old rows are transparent now; no dimming pass is needed.
+                    upload.uniform[19] = 0.0;
+                }
+                upload
             })
         };
         match upload {
@@ -24019,7 +24171,7 @@ pub(crate) fn to_upload(
     // Only the color table changed, so the sweep and precipitation-flag bytes the GPU already
     // holds are still correct and are not copied.
     lut_only: bool,
-    telemetry: Option<(Instant, Arc<std::sync::atomic::AtomicU64>)>,
+    telemetry: Option<(Instant, Arc<crate::render::LiveQueueTimings>)>,
 ) -> RadarUpload {
     use crate::render::mercator::lonlat_to_world;
     let max_range_km = s.first_gate_km + s.gate_count as f32 * s.gate_interval_km;
@@ -28414,6 +28566,9 @@ mod tests {
 
     fn scan_progress(chunk_index: usize, chunks_in_sweep: usize) -> wxdata::live::ScanProgress {
         wxdata::live::ScanProgress {
+            volume_start_ms: None,
+            vcp_number: None,
+            cut_kind: wxdata::live::CutKind::Standard,
             elevation_number: 2,
             total_elevations: 12,
             elevation_angle_deg: 0.9,

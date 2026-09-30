@@ -14,12 +14,13 @@ pub(super) const LOG_W: f32 = 300.0;
 /// found in its current volume.
 pub(super) struct LiveStats {
     site: String,
-    provider: Option<&'static str>,
     streaming: bool,
-    progress: Option<wxdata::live::ScanProgress>,
+    scan: crate::live_scan::LiveScan,
     /// Seconds behind the radar at the last arrival.
     lag_s: Option<f32>,
     decode_ms: Option<f32>,
+    /// Client transport receipt to completed GPU queue writes, p50/p95 and sample count.
+    queue_ms: Option<(f32, f32, usize)>,
     retries: u32,
     frame_age_s: Option<i64>,
     /// `(ingest lag s, decode ms)` of recent arrivals, oldest first.
@@ -38,11 +39,11 @@ impl HookEchoApp {
         let key = self.volume_key(self.active);
         LiveStats {
             site: v.site.clone().unwrap_or_default(),
-            provider: self.live_stream.as_ref().and_then(|s| s.3),
             streaming,
-            progress: v.live_progress,
+            scan: v.live_scan.clone(),
             lag_s: v.live_history.back().map(|h| h.1),
             decode_ms: v.last_decode_time.map(|d| d.as_secs_f32() * 1000.0),
+            queue_ms: queue_percentiles(&v.live_queue_timings.samples_micros()),
             retries: v.live_retries,
             frame_age_s: v
                 .timeline
@@ -131,11 +132,17 @@ fn live_stats(ui: &mut egui::Ui, t: &ws::Tokens, s: &LiveStats) {
     ui.horizontal(|ui| {
         ws::badge(ui, t, word, color);
         ui.label(ws::mono(&s.site, 12.0, egui::Color32::WHITE));
-        if let Some(p) = s.provider {
+        if let Some(p) = &s.scan.provider {
             ui.label(ws::text(p, 11.0, t.text_dim));
         }
     });
-    if let Some(p) = s.progress {
+    if let Some(mode) = s.scan.source_mode {
+        ws::kv(ui, t, "Source mode", mode.label(), None);
+    }
+    if let Some(reason) = &s.scan.switch_reason {
+        ws::kv(ui, t, "Last switch", reason, Some(t.warn));
+    }
+    if let Some(p) = s.scan.progress {
         ws::kv(
             ui,
             t,
@@ -151,6 +158,7 @@ fn live_stats(ui: &mut egui::Ui, t: &ws::Tokens, s: &LiveStats) {
             None,
         );
     }
+    scan_progression(ui, t, &s.scan);
     // While streaming, the timeline's frame is the last archived volume, not what is on screen.
     if let Some(a) = s.frame_age_s.filter(|_| !s.streaming) {
         let stale = a > 20 * 60;
@@ -174,6 +182,20 @@ fn live_stats(ui: &mut egui::Ui, t: &ws::Tokens, s: &LiveStats) {
     if let Some(d) = s.decode_ms {
         ws::kv(ui, t, "Decode", &format!("{d:.0} ms"), None);
     }
+    if let Some((p50, p95, count)) = s.queue_ms {
+        ws::kv(
+            ui,
+            t,
+            "To GPU queue",
+            &format!("p50 {p50:.0} / p95 {p95:.0} ms · {count}"),
+            (p50 >= 100.0 || p95 >= 250.0).then_some(t.warn),
+        );
+        ui.label(ws::text(
+            "Client receipt → GPU queue writes",
+            10.0,
+            t.text_dim,
+        ));
+    }
     if s.retries > 0 {
         ws::kv(ui, t, "Retries", &s.retries.to_string(), Some(t.warn));
     }
@@ -192,6 +214,78 @@ fn live_stats(ui: &mut egui::Ui, t: &ws::Tokens, s: &LiveStats) {
     );
     lag_graph(ui, t, &s.history);
     ui.add_space(4.0);
+}
+
+fn scan_progression(ui: &mut egui::Ui, t: &ws::Tokens, scan: &crate::live_scan::LiveScan) {
+    use crate::live_scan::CutCoverage;
+
+    let Some(state) = scan.progression(chrono::Utc::now()) else {
+        return;
+    };
+    ui.add_space(4.0);
+    ui.label(ws::text("SCAN PROGRESSION", 10.0, t.text_dim));
+    ws::kv(
+        ui,
+        t,
+        "VCP",
+        &state
+            .vcp_number
+            .map_or_else(|| "unknown".to_owned(), |n| n.to_string()),
+        None,
+    );
+    ws::kv(
+        ui,
+        t,
+        "Cuts",
+        &format!(
+            "{} observed / {} expected · {} complete",
+            state.observed_cuts, state.expected_cuts, state.completed_cuts
+        ),
+        None,
+    );
+    ws::kv(
+        ui,
+        t,
+        "Next",
+        &state.expected_next_cut.map_or_else(
+            || {
+                if state.volume_complete {
+                    "volume complete".to_owned()
+                } else {
+                    "awaiting missing cuts".to_owned()
+                }
+            },
+            |n| format!("cut {n}"),
+        ),
+        None,
+    );
+    if let Some(elapsed) = state.elapsed_secs {
+        ws::kv(ui, t, "Elapsed", &humanize(elapsed), None);
+    }
+    if let Some(remaining) = state
+        .projected_remaining_secs
+        .filter(|_| !state.volume_complete)
+    {
+        ws::kv(
+            ui,
+            t,
+            "Estimate",
+            &format!("~{} at current cut rate", humanize(remaining.ceil() as i64)),
+            None,
+        );
+    }
+    ui.horizontal_wrapped(|ui| {
+        for number in 1..=state.expected_cuts.min(64) {
+            let (color, status) = match scan.cut_coverage(number) {
+                CutCoverage::Unobserved => (t.text_faint, "unobserved"),
+                CutCoverage::Partial => (t.warn, "partial"),
+                CutCoverage::Complete => (t.live, "complete"),
+            };
+            let kind = scan.cut_kind(number).map_or("", |kind| kind.label());
+            ws::badge(ui, t, &number.to_string(), color)
+                .on_hover_text(format!("Cut {number}: {status} {kind}"));
+        }
+    });
 }
 
 /// Ingest lag of recent arrivals as a line (accent), decode time as bars (dim), on their own
@@ -266,6 +360,19 @@ fn robust_max(values: impl Iterator<Item = f32>) -> f32 {
     (p90 * 1.25).max(1.0)
 }
 
+fn queue_percentiles(samples_micros: &[u64]) -> Option<(f32, f32, usize)> {
+    if samples_micros.is_empty() {
+        return None;
+    }
+    let mut sorted = samples_micros.to_vec();
+    sorted.sort_unstable();
+    let at = |percent: usize| {
+        let rank = (sorted.len() * percent).div_ceil(100).saturating_sub(1);
+        sorted[rank] as f32 / 1000.0
+    };
+    Some((at(50), at(95), sorted.len()))
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -275,5 +382,12 @@ mod tests {
         let top = super::robust_max(v.into_iter());
         assert!((120.0..200.0).contains(&top), "{top}");
         assert_eq!(super::robust_max(std::iter::empty()), 1.0);
+    }
+
+    #[test]
+    fn queue_percentiles_use_nearest_rank_and_keep_tail_latency_visible() {
+        let samples: Vec<u64> = (1..=20).map(|ms| ms * 1000).collect();
+        assert_eq!(super::queue_percentiles(&samples), Some((10.0, 19.0, 20)));
+        assert_eq!(super::queue_percentiles(&[]), None);
     }
 }
