@@ -376,3 +376,191 @@ impl RequestBook {
         }
     }
 }
+
+#[cfg(test)]
+mod request_book_tests {
+    use super::{CacheState, HealthState, RequestBook, RequestLane, SourceHealth};
+    use crate::render::FieldLayer;
+
+    #[test]
+    fn only_the_latest_request_in_each_lane_is_current() {
+        let mut book = RequestBook::default();
+        let cape = RequestLane::Field(FieldLayer::Cape);
+        let srh = RequestLane::Field(FieldLayer::Srh);
+        let old_cape = book.start(cape.clone());
+        let current_srh = book.start(srh.clone());
+        let current_cape = book.start(cape.clone());
+
+        // A late success or failure has the same identity check: neither may mutate state.
+        assert!(!book.is_current(&cape, old_cape));
+        assert!(book.is_current(&cape, current_cape));
+        assert!(book.is_current(&srh, current_srh));
+        assert!(book.finish(&cape, current_cape, None, None));
+        assert!(!book.finish(&cape, old_cape, Some("old failure"), None));
+        let health = book.health(&cape);
+        assert_eq!(health.state(), HealthState::Fresh);
+        assert!(health.error.is_none());
+        // The rejected late failure must not count — only the one request that actually mutated
+        // state does.
+        assert_eq!(health.recent_outcomes, Some((1, 0)));
+        assert_eq!(book.health(&srh).state(), HealthState::Fetching);
+    }
+
+    #[test]
+    fn recent_outcomes_is_none_until_a_request_has_finished() {
+        let mut book = RequestBook::default();
+        let lane = RequestLane::Field(FieldLayer::Cape);
+        assert_eq!(
+            book.health(&lane).recent_outcomes,
+            None,
+            "no lane started yet"
+        );
+        let gen = book.start(lane.clone());
+        assert_eq!(
+            book.health(&lane).recent_outcomes,
+            None,
+            "started but not finished"
+        );
+        book.finish(&lane, gen, None, None);
+        assert_eq!(book.health(&lane).recent_outcomes, Some((1, 0)));
+    }
+
+    #[test]
+    fn recent_outcomes_rolls_off_the_oldest_result_past_the_window() {
+        let mut book = RequestBook::default();
+        let lane = RequestLane::Field(FieldLayer::Cape);
+        // Fill the window with failures, then succeed enough times to push every failure out.
+        for _ in 0..RequestBook::OUTCOME_WINDOW {
+            let gen = book.start(lane.clone());
+            book.finish(&lane, gen, Some("down"), None);
+        }
+        assert_eq!(
+            book.health(&lane).recent_outcomes,
+            Some((0, RequestBook::OUTCOME_WINDOW as u32)),
+            "window full of failures"
+        );
+        for _ in 0..RequestBook::OUTCOME_WINDOW {
+            let gen = book.start(lane.clone());
+            book.finish(&lane, gen, None, None);
+        }
+        assert_eq!(
+            book.health(&lane).recent_outcomes,
+            Some((RequestBook::OUTCOME_WINDOW as u32, 0)),
+            "every failure has aged out of the window, not just been outnumbered"
+        );
+    }
+
+    #[test]
+    fn latest_valid_time_never_regresses_and_survives_a_failure() {
+        use chrono::{TimeZone, Utc};
+
+        let mut book = RequestBook::default();
+        let lane = RequestLane::Field(FieldLayer::Cape);
+        let older = Utc.with_ymd_and_hms(2026, 9, 19, 11, 0, 0).unwrap();
+        let newer = Utc.with_ymd_and_hms(2026, 9, 19, 12, 0, 0).unwrap();
+        for valid in [newer, older] {
+            let generation = book.start(lane.clone());
+            assert!(book.finish(&lane, generation, None, Some(valid)));
+        }
+        let generation = book.start(lane.clone());
+        assert!(book.finish(&lane, generation, Some("temporary outage"), None));
+        assert_eq!(book.health(&lane).latest_valid_time, Some(newer));
+    }
+
+    #[test]
+    fn failed_refresh_is_cached_only_while_the_prior_value_is_resident() {
+        let mut book = RequestBook::default();
+        let lane = RequestLane::Field(FieldLayer::Cape);
+
+        let first = book.start(lane.clone());
+        assert!(book.finish(&lane, first, Some("offline"), None));
+        assert_eq!(book.health(&lane).state(), HealthState::Failed);
+        assert_eq!(book.health(&lane).cache_state, CacheState::Empty);
+
+        let success = book.start(lane.clone());
+        assert!(book.finish(&lane, success, None, None));
+        assert_eq!(book.health(&lane).cache_state, CacheState::Memory);
+
+        let refresh = book.start(lane.clone());
+        assert!(book.finish(&lane, refresh, Some("temporary outage"), None));
+        assert_eq!(book.health(&lane).state(), HealthState::Cached);
+
+        book.set_cache_resident(&lane, false);
+        assert_eq!(book.health(&lane).cache_state, CacheState::Empty);
+        assert_eq!(book.health(&lane).state(), HealthState::Failed);
+    }
+
+    #[test]
+    fn health_classifies_every_visible_state() {
+        let cadence = std::time::Duration::from_secs(60);
+        let health = |fetching: bool,
+                      success: Option<u64>,
+                      failure: Option<u64>,
+                      error: Option<String>,
+                      cache_state: CacheState| SourceHealth {
+            source: "test".into(),
+            endpoint_family: crate::source_health::EndpointFamily::LocalProcessing,
+            latest_valid_time: None,
+            fallback_providers: Vec::new(),
+            cache_state,
+            fetching,
+            last_attempt: Some(std::time::Duration::from_secs(1)),
+            last_success: success.map(std::time::Duration::from_secs),
+            last_failure: failure.map(std::time::Duration::from_secs),
+            error,
+            cadence,
+            recent_outcomes: None,
+            details: Vec::new(),
+            severity: Default::default(),
+        };
+        assert_eq!(
+            health(true, None, None, None, CacheState::Empty).state(),
+            HealthState::Fetching
+        );
+        assert_eq!(
+            health(false, Some(5), None, None, CacheState::Memory).state(),
+            HealthState::Fresh
+        );
+        // Past the 60 s cadence but within the 2x-cadence grace window: Delayed, not yet Stale.
+        assert_eq!(
+            health(false, Some(61), None, None, CacheState::Memory).state(),
+            HealthState::Delayed
+        );
+        assert_eq!(
+            health(false, Some(120), None, None, CacheState::Memory).state(),
+            HealthState::Delayed,
+            "exactly at the 2x boundary is still Delayed, not Stale"
+        );
+        assert_eq!(
+            health(false, Some(121), None, None, CacheState::Memory).state(),
+            HealthState::Stale,
+            "past 2x cadence is genuinely stale"
+        );
+        assert_eq!(
+            health(
+                false,
+                Some(20),
+                Some(5),
+                Some("offline".into()),
+                CacheState::Empty,
+            )
+            .state(),
+            HealthState::Failed
+        );
+        assert_eq!(
+            health(
+                false,
+                Some(20),
+                Some(5),
+                Some("offline".into()),
+                CacheState::Memory,
+            )
+            .state(),
+            HealthState::Cached
+        );
+        assert_eq!(
+            health(false, None, None, None, CacheState::Empty).state(),
+            HealthState::Waiting
+        );
+    }
+}
