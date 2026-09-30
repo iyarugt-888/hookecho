@@ -111,6 +111,8 @@ impl HookEchoApp {
             Vec::new()
         };
         let (disp_factor, disp_unit) = display_units(moment, &self.settings);
+        let source_rows =
+            radar_source_rows(moment, v.srv, disp_unit, self.settings.dealias_velocity);
         let table = self.palettes.table(moment);
         let value_line = probe.as_ref().map(|p| match p.value {
             Some(x) => {
@@ -308,6 +310,9 @@ impl HookEchoApp {
             if volume_name.is_some() || provider.is_some() {
                 ui.add_space(6.0);
                 ws::section_rule(ui, &t, "Source");
+                for (k, val) in &source_rows {
+                    ws::kv_text(ui, &t, k, val);
+                }
                 if let Some(n) = &volume_name {
                     ws::kv(ui, &t, "Volume", n, None);
                 }
@@ -422,6 +427,47 @@ impl HookEchoApp {
             _ => {}
         }
     }
+}
+
+/// The radar product's provenance beyond where it came from (ROADMAP_2 §9.1): whether it is
+/// observed or derived, its units (and the native ones when the display converts), and what this
+/// app did to it on the way to the screen.
+pub(super) fn radar_source_rows(
+    moment: Moment,
+    srv: bool,
+    disp_unit: &str,
+    dealias: bool,
+) -> Vec<(&'static str, String)> {
+    let native = moment.units();
+    // The SRV switch stays set while another moment is shown; it only means anything on velocity.
+    let srv = srv && moment == Moment::Velocity;
+    let derived = srv || moment == Moment::SpecificDifferentialPhase;
+    let mut rows = vec![(
+        "Class",
+        if derived { "Derived" } else { "Observed" }.to_string(),
+    )];
+    rows.push((
+        "Units",
+        match (disp_unit, native) {
+            ("", _) => "unitless (ratio)".to_string(),
+            (d, n) if d == n => d.to_string(),
+            (d, n) => format!("{d} (native {n})"),
+        },
+    ));
+    let mut steps = Vec::new();
+    if moment == Moment::SpecificDifferentialPhase {
+        steps.push("computed from differential phase");
+    }
+    if moment == Moment::Velocity && dealias {
+        steps.push("dealiased");
+    }
+    if srv {
+        steps.push("storm motion subtracted");
+    }
+    if !steps.is_empty() {
+        rows.push(("Processing", format!("By HookEcho: {}", steps.join(", "))));
+    }
+    rows
 }
 
 /// What the Inspector's storm section asked for.
@@ -677,6 +723,48 @@ mod tests {
             "clock skew is not negative age"
         );
         assert_eq!(super::radial_age(192_000), "3m 12s old");
+    }
+
+    #[test]
+    fn the_source_rows_say_what_was_measured_and_what_was_made() {
+        let rows = |m, srv, unit, dealias| {
+            radar_source_rows(m, srv, unit, dealias)
+                .into_iter()
+                .map(|(k, v)| format!("{k}: {v}"))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            rows(Moment::Reflectivity, false, "dBZ", true),
+            ["Class: Observed", "Units: dBZ"]
+        );
+        assert_eq!(
+            rows(Moment::Velocity, false, "kt", true),
+            [
+                "Class: Observed",
+                "Units: kt (native m/s)",
+                "Processing: By HookEcho: dealiased"
+            ]
+        );
+        assert_eq!(
+            rows(Moment::Velocity, true, "m/s", false),
+            [
+                "Class: Derived",
+                "Units: m/s",
+                "Processing: By HookEcho: storm motion subtracted"
+            ]
+        );
+        assert_eq!(
+            rows(Moment::Reflectivity, true, "dBZ", false),
+            ["Class: Observed", "Units: dBZ"]
+        );
+        assert_eq!(
+            rows(Moment::SpecificDifferentialPhase, false, "deg/km", false)[0],
+            "Class: Derived"
+        );
+        assert_eq!(
+            rows(Moment::CorrelationCoefficient, false, "", false)[1],
+            "Units: unitless (ratio)"
+        );
     }
 
     #[test]
