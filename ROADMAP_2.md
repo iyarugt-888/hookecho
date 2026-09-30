@@ -62,6 +62,8 @@ Soak runner (§3.1): `hookecho --soak SITE [MINUTES] [--inject]` runs the Level 
 
 Recovery rules (§3.4): each health row now says how it recovers, read from the same numbers the state machine uses (`SourceHealth::recovery`): retried every cadence with no backoff, delayed after one cadence and stale after two, the last good data kept on the map, marked Cached, until a refresh succeeds. Each feed also declares a severity (`FeedSource::severity`): warnings, watches, discussions, storm cells, storm reports, ProbSevere, tropical cyclones, the derived radar fields and the radar itself are critical; the rest routine. Only a critical source needing attention lights the Sources tab's red dot; a routine one is still listed. Not yet: per-feed backoff, and withdrawing data past a hard age limit.
 
+app.rs decomposition (§7) has started, behaviour-preserving: the request book and source health (`app/request_book.rs`), the overlay toggles (`app/overlay_toggle.rs`) and the action vocabulary, `AppWindow` and `PaletteAction` (`app/actions.rs`), moved out unchanged, with serialized names untouched. This session's new features also went in modules of their own (`storm_track`, `scale_bar`, `telemetry`, `soak`, `ui::changelog`) rather than into `app.rs`. A ratchet test (`app_rs_only_gets_smaller`) fails if `app.rs` grows past its ceiling, now 29,478 lines (from 30,199); each extraction lowers it.
+
 ---
 
 # 0. Program goals and release gates
