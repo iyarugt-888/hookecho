@@ -306,3 +306,110 @@ async fn moore_2013_warnings_reports_and_verification() {
     );
     assert!(s[0].found >= 1, "the Moore tornado was not found: {s:?}");
 }
+
+/// A corpus event, checked against the tornado reports themselves (ROADMAP_2 §8.1): the reported
+/// positions are the truth, so no location is typed in by hand.
+struct Case {
+    site: &'static str,
+    /// When a tornado was on the ground (a few minutes after the corpus line's time).
+    when: (i32, u32, u32, u32, u32),
+}
+
+/// The tornado reports within 20 minutes and 150 km of the case's scan, and what the app found.
+async fn corpus_case(c: &Case) -> (Vec<(f64, f64)>, Vec<wxdata::tornado_id::Circulation>) {
+    let (y, mo, d, h, mi) = c.when;
+    let when = Utc.with_ymd_and_hms(y, mo, d, h, mi, 0).unwrap();
+    let scan = volume(c.site, when).await;
+    let f = detect(&scan);
+    let site = wxdata::sites::site_by_id(c.site).expect("a known radar");
+    let radar = (f64::from(site.longitude), f64::from(site.latitude));
+    let fmt = |t: chrono::DateTime<Utc>| t.format("%Y-%m-%dT%H:%MZ").to_string();
+    let (sts, ets) = (
+        fmt(when - chrono::Duration::minutes(20)),
+        fmt(when + chrono::Duration::minutes(20)),
+    );
+    let reports = wxdata::lsr::fetch(&reqwest::Client::new(), Some((&sts, &ets)))
+        .await
+        .expect("reports");
+    let tornadoes: Vec<(f64, f64)> = reports
+        .iter()
+        .filter(|r| r.kind == wxdata::spc::ReportKind::Tornado)
+        .map(|r| (r.lon, r.lat))
+        .filter(|p| km(*p, radar) <= 150.0)
+        .collect();
+    (tornadoes, circulations(&f.couplets, &f.debris))
+}
+
+const CORPUS: [Case; 4] = [
+    Case {
+        site: "KTLX",
+        when: (2013, 5, 31, 23, 10),
+    }, // El Reno
+    Case {
+        site: "KILX",
+        when: (2013, 11, 17, 17, 5),
+    }, // Washington, IL
+    Case {
+        site: "KLZK",
+        when: (2014, 4, 28, 0, 35),
+    }, // Mayflower and Vilonia
+    Case {
+        site: "KOHX",
+        when: (2020, 3, 3, 6, 45),
+    }, // Nashville
+];
+
+#[tokio::test]
+#[ignore = "network"]
+async fn record_corpus() {
+    for c in &CORPUS {
+        let (tornadoes, circs) = corpus_case(c).await;
+        eprintln!(
+            "== {} {:?}: {} tornado reports",
+            c.site,
+            c.when,
+            tornadoes.len()
+        );
+        for z in &circs {
+            let near = tornadoes
+                .iter()
+                .map(|t| km(*t, (z.id.lon, z.id.lat)))
+                .fold(f64::INFINITY, f64::min);
+            eprintln!(
+                "   {:?} {:.2} ({} members) nearest report {:.1} km",
+                z.id.tier,
+                z.id.score,
+                z.members.len(),
+                near
+            );
+        }
+    }
+}
+
+/// Each corpus tornado is found where it was reported, at Likely or higher, as one detection.
+/// Recorded 2026-09-30: El Reno Debris 0.91 at 1.4 km, Washington Likely 0.70 at 1.7 km,
+/// Vilonia Debris 0.64 at 1.1 km, Nashville Debris 0.66 at 5.3 km from a report.
+#[tokio::test]
+#[ignore = "network"]
+async fn corpus_tornadoes_are_found_once_where_reported() {
+    for c in &CORPUS {
+        let (tornadoes, circs) = corpus_case(c).await;
+        assert!(!tornadoes.is_empty(), "{}: no tornado reports", c.site);
+        let found = tornadoes.iter().find(|t| {
+            circs
+                .iter()
+                .any(|z| z.id.tier >= Tier::Likely && km(**t, (z.id.lon, z.id.lat)) <= 8.0)
+        });
+        let Some(t) = found else {
+            panic!(
+                "{} {:?}: no Likely detection within 8 km of a report",
+                c.site, c.when
+            );
+        };
+        let here = circs
+            .iter()
+            .filter(|z| km(*t, (z.id.lon, z.id.lat)) <= 8.0)
+            .count();
+        assert_eq!(here, 1, "{}: one tornado, one detection", c.site);
+    }
+}

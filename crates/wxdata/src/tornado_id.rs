@@ -528,7 +528,11 @@ mod tests {
         let tiers = [Tier::Possible, Tier::Likely, Tier::Debris, Tier::Confirmed];
         let mut glyphs: Vec<_> = tiers.iter().map(|t| t.glyph()).collect();
         glyphs.dedup();
-        assert_eq!(glyphs.len(), tiers.len(), "tiers must differ without colour");
+        assert_eq!(
+            glyphs.len(),
+            tiers.len(),
+            "tiers must differ without colour"
+        );
     }
 
     #[test]
