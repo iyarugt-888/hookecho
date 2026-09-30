@@ -160,6 +160,33 @@ impl ManualTrack {
         out
     }
 
+    /// The ground the next hour covers, as one ring: a storm's swath, or the area a line sweeps
+    /// (its edge now out, its edge in an hour back).
+    pub fn footprint(&self) -> Vec<[f64; 2]> {
+        if self.is_line() {
+            let mut ring = self.edge.clone();
+            ring.extend(self.edge_at(HORIZON_MIN).into_iter().rev());
+            ring
+        } else {
+            self.swath()
+        }
+    }
+
+    /// The key a population lookup of this footprint is filed under: the geometry, rounded, so
+    /// an edit asks again and an unchanged track does not.
+    pub fn impact_id(&self) -> String {
+        format!(
+            "track:{:.3},{:.3}:{:.0}:{:.1}:{:.1}:{:.0}:{}",
+            self.origin[0],
+            self.origin[1],
+            self.bearing_deg,
+            self.speed_kmh,
+            self.half_width_km,
+            self.cone_deg,
+            self.edge.len()
+        )
+    }
+
     /// When the storm reaches `point`'s closest approach, and how close that is. `None` when
     /// the point is behind the storm or further ahead than the motion can speak to.
     pub fn eta(&self, point: [f64; 2]) -> Option<Eta> {
@@ -666,6 +693,17 @@ impl HookEchoApp {
             .iter()
             .map(|z| (z.name.clone(), z.ring.clone()))
             .collect();
+        // The selected track's population lookup, if one was asked for this geometry.
+        let impact = self
+            .storm_tracks
+            .selected
+            .and_then(|i| self.storm_tracks.tracks.get(i))
+            .map(|t| {
+                let id = t.impact_id();
+                let state = self.impacts.by_id.get(&id).cloned();
+                (id, state)
+            });
+        let mut ask_impact = false;
         let st = &mut self.storm_tracks;
         let mut remove = None;
         let mut clear = false;
@@ -790,6 +828,40 @@ impl HookEchoApp {
                             }
                             ui.weak(format!("from {}", track.t0.format("%H:%MZ")));
                         });
+                        // Who lives in the hour's path (2020 Census), asked for on demand: a
+                        // lookup per drag frame would hammer the service.
+                        use super::impact::{summary, towns, ImpactState};
+                        match impact.as_ref().and_then(|(_, s)| s.as_ref()) {
+                            None => {
+                                if ui
+                                    .small_button("People in path")
+                                    .on_hover_text(
+                                        "Population and towns inside the next hour's swath \
+                                         (2020 Census)",
+                                    )
+                                    .clicked()
+                                {
+                                    ask_impact = true;
+                                }
+                            }
+                            Some(ImpactState::Pending) => {
+                                ui.weak("Counting people in the path…");
+                            }
+                            Some(ImpactState::Failed) => {
+                                if ui
+                                    .small_button("Population lookup failed · retry")
+                                    .clicked()
+                                {
+                                    ask_impact = true;
+                                }
+                            }
+                            Some(ImpactState::Ready(i)) => {
+                                ui.label(egui::RichText::new(summary(i)).strong());
+                                if !i.places.is_empty() {
+                                    ui.weak(towns(i));
+                                }
+                            }
+                        }
                         let mut etas: Vec<(&str, Eta)> = markers
                             .iter()
                             .filter_map(|(n, p)| track.eta(*p).map(|e| (n.as_str(), e)))
@@ -876,6 +948,13 @@ impl HookEchoApp {
                     ui.weak("Drag either end to edit · Ctrl+D duplicates · Delete removes");
                 });
             });
+        if ask_impact {
+            if let (Some((id, _)), Some(t)) = (impact, st.selected.and_then(|i| st.tracks.get(i))) {
+                let ring = t.footprint();
+                self.request_impact(id, vec![ring], ctx);
+            }
+        }
+        let st = &mut self.storm_tracks;
         if clear {
             st.tracks.clear();
             st.selected = None;
@@ -1041,6 +1120,21 @@ mod tests {
         let t = line();
         let e = t.zone_eta(&zone(t.origin, 30.0, 8.0)).unwrap();
         assert!(!e.grazes && (e.minutes - 31.0).abs() <= 1.0, "{e:?}");
+    }
+
+    #[test]
+    fn the_footprint_covers_the_hour_and_its_key_follows_edits() {
+        let t = line();
+        let ring = t.footprint();
+        assert_eq!(ring.len(), 6, "the edge out and its hour-later copy back");
+        let inside = |p: [f64; 2]| wxdata::overlay::point_in_ring(&ring, p[0], p[1]);
+        assert!(inside(destination_point(t.origin, 90.0, 30.0)));
+        assert!(!inside(destination_point(t.origin, 90.0, 70.0)));
+        let mut u = t.clone();
+        assert_eq!(u.impact_id(), t.impact_id());
+        u.speed_kmh += 5.0;
+        assert_ne!(u.impact_id(), t.impact_id(), "an edit asks again");
+        assert!(track().footprint().len() > 4);
     }
 
     #[test]
