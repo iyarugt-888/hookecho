@@ -1038,6 +1038,13 @@ impl HookEchoApp {
                 false,
             ),
             (
+                T::ScaleBar,
+                "Reference",
+                "Scale bar",
+                "A distance ruler in the lower left of the flat map, in miles over a NEXRAD or                  TDWR and kilometres elsewhere",
+                true,
+            ),
+            (
                 T::LayerProbe,
                 "Tools",
                 "Layer probe",

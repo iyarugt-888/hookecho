@@ -13,6 +13,7 @@ mod field_state;
 mod goes_timeline;
 pub(crate) mod impact;
 mod layer_probe;
+mod scale_bar;
 #[cfg(not(target_arch = "wasm32"))]
 mod local_api;
 pub(crate) mod long_loop;
@@ -2305,6 +2306,8 @@ pub(crate) enum OverlayToggle {
     LayerProbe,
     /// The zoomed-out map as a globe (`render::mercator::set_globe`).
     Globe,
+    /// A distance ruler in the corner of each flat pane (`app::scale_bar`).
+    ScaleBar,
     Tbss,
     ZdrColumns,
     Alerts,
@@ -2388,7 +2391,7 @@ pub(crate) struct CoverageCompareKey {
 impl OverlayToggle {
     /// Every toggle, for the persistence sweep. A new variant belongs here too, or it silently
     /// stops being remembered across restarts.
-    pub(crate) const ALL: [OverlayToggle; 58] = [
+    pub(crate) const ALL: [OverlayToggle; 59] = [
         Self::AlertPanel,
         Self::StormReports,
         Self::Spotters,
@@ -2422,6 +2425,7 @@ impl OverlayToggle {
         Self::YallMode,
         Self::LayerProbe,
         Self::Globe,
+        Self::ScaleBar,
         Self::Tbss,
         Self::ZdrColumns,
         Self::Alerts,
@@ -11736,6 +11740,7 @@ impl HookEchoApp {
             T::YallMode => &mut self.settings.yall_mode,
             T::LayerProbe => &mut self.settings.layer_probe,
             T::Globe => &mut self.settings.globe,
+            T::ScaleBar => &mut self.settings.scale_bar,
             T::Alerts => &mut self.filters.show_alerts,
             T::Mds => &mut self.filters.show_mds,
             T::Watches => &mut self.filters.show_watches,
@@ -27736,6 +27741,7 @@ impl eframe::App for HookEchoApp {
                 );
             }
 
+            self.paint_scale_bar(ui, &rects);
             self.paint_linked_time_badges(ui, &rects, solo);
             self.paint_linked_cursor(ui, &rects, solo);
             self.paint_layer_probe(ui, &rects);
