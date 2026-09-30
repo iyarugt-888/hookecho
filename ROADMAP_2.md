@@ -48,6 +48,8 @@ Failure injection (§3.2) has a deterministic suite, `crates/wxdata/tests/failur
 
 Workspaces (§12): a **Tropical** starter (reflectivity, storm-relative velocity and reflectivity over infrared satellite from the active radar, linked, with the NHC track and cone, recon, surface obs, alerts and watches) joins the existing Tornado, Hail, National, Chase and analysis presets. Starters used to be seeded once, on first run, so a preset shipped later never reached anyone; each starter a settings file has never been offered is now added once (`Settings::offered_starters`), and one someone deleted stays deleted. Applying a workspace names what this build cannot restore (unknown layers, fields, radar sites, map styles, too many panes) in the error chip and the log instead of skipping it silently, and `Workspace`/`PaneSnap` keep fields a newer build wrote, so opening and saving here does not drop them.
 
+Timeline (§10): the layer probe's field and model-contour lines now give each source's signed offset from the time it is read against, with the reference named so the sign means something ("(Δ-42s vs radar)", "(Δ+1m 15s vs analysis)"): the linked analysis time when panes share one, else the pane's radar scan (§10.2). With no run pinned, model layers (forecast reflectivity, CAPE/SRH, the other regional fields, the global models) used to read the newest run even under a replayed historical event; scrubbed back more than three hours they now read the newest cycle at or before the view's time from the NOAA archive (§10.3). Before the archive's start (HRRR: 2014) the fetch fails visibly rather than substituting today's run.
+
 ---
 
 # 0. Program goals and release gates
