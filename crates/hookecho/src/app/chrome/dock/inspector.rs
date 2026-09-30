@@ -192,13 +192,14 @@ impl HookEchoApp {
                     ws::kv(ui, &t, "Beam height", &fmt_beam(p.beam_ft, metric), None);
                     if let Some(ms) = p.collected_ms {
                         if let Some(d) = chrono::DateTime::from_timestamp_millis(ms) {
-                            ws::kv(
-                                ui,
-                                &t,
-                                "Sampled",
-                                &crate::timefmt::fmt_clock(d, tz, true),
-                                None,
-                            );
+                            let mut when = crate::timefmt::fmt_clock(d, tz, true);
+                            // Live, how old this very radial is, to the tenth of a second
+                            // (ROADMAP_2 §1.2): a mixed sweep's beams are not all one age.
+                            if live {
+                                let now = chrono::Utc::now().timestamp_millis();
+                                when.push_str(&format!("  \u{b7}  {}", radial_age(now - ms)));
+                            }
+                            ws::kv(ui, &t, "Sampled", &when, None);
                         }
                     }
                     if let Some(n) = &nyquist {
@@ -501,6 +502,18 @@ fn compass(deg: f32) -> &'static str {
     NAMES[((deg.rem_euclid(360.0) / 22.5).round() as usize) % 16]
 }
 
+/// A radial's age from its millisecond timestamp: tenths of a second under a hundred seconds,
+/// where the difference between beams of one sweep lives, then minutes and seconds.
+fn radial_age(age_ms: i64) -> String {
+    let ms = age_ms.max(0);
+    if ms < 100_000 {
+        format!("{:.1} s old", ms as f64 / 1000.0)
+    } else {
+        let s = ms / 1000;
+        format!("{}m {:02}s old", s / 60, s % 60)
+    }
+}
+
 /// What a reading's quality notes say: the gate is range folded, or its velocity was dealiased
 /// (unfolded past the Nyquist interval) before it was read.
 pub(super) fn probe_flags(p: &Probe) -> Vec<&'static str> {
@@ -653,6 +666,17 @@ mod tests {
         // Without a radar there is nothing to measure from, so only the position is left.
         let rows = probe_rows(cursor_readout((-97.47, 35.40), None, true));
         assert_eq!(rows, [("Lat / Lon", "35.40, -97.47".to_string())]);
+    }
+
+    #[test]
+    fn a_radial_is_aged_to_the_tenth_of_a_second() {
+        assert_eq!(super::radial_age(42_345), "42.3 s old");
+        assert_eq!(
+            super::radial_age(-5),
+            "0.0 s old",
+            "clock skew is not negative age"
+        );
+        assert_eq!(super::radial_age(192_000), "3m 12s old");
     }
 
     #[test]
