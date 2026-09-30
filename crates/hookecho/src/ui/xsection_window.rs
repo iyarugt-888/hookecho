@@ -257,3 +257,95 @@ pub fn show(
     }
     open
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wxdata::level2::BinnedSweep;
+
+    /// A synthetic storm at eight tilts of a standard VCP: a 60 dBZ core 60 km east of the radar,
+    /// falling off 1 dBZ per km from it and 4 dBZ per km of height above 8 km, so the section has
+    /// a core, an anvil-shaped top and the beam gaps between the upper tilts.
+    fn storm_volume() -> Vec<BinnedSweep> {
+        let (az_bins, gate_count) = (360usize, 600usize);
+        let (first_gate_km, gate_interval_km) = (2.125f32, 0.25f32);
+        let (vmin, vmax) = (-32.0f32, 95.0f32);
+        [0.5f32, 1.5, 2.4, 3.4, 4.3, 6.0, 9.9, 14.6]
+            .into_iter()
+            .map(|elevation_deg| {
+                let mut data = vec![0u8; az_bins * gate_count];
+                for az in 0..az_bins {
+                    let th = (az as f32 + 0.5).to_radians();
+                    for g in 0..gate_count {
+                        let r = first_gate_km + g as f32 * gate_interval_km;
+                        let (x, y) = (r * th.sin(), r * th.cos());
+                        let h =
+                            r * elevation_deg.to_radians().sin() + r * r / (2.0 * 1.21 * 6371.0);
+                        let d = ((x - 60.0).powi(2) + y.powi(2)).sqrt();
+                        let dbz = 60.0 - d - (h - 8.0).max(0.0) * 4.0;
+                        if dbz >= 5.0 {
+                            data[az * gate_count + g] =
+                                (2.0 + (dbz - vmin) / (vmax - vmin) * 253.0).round() as u8;
+                        }
+                    }
+                }
+                BinnedSweep {
+                    moment: Moment::Reflectivity,
+                    az_bins,
+                    gate_count,
+                    data,
+                    first_gate_km,
+                    gate_interval_km,
+                    radar_lat: 35.0,
+                    radar_lon: -97.0,
+                    elevation_deg,
+                    value_min: vmin,
+                    value_max: vmax,
+                    ..Default::default()
+                }
+            })
+            .collect()
+    }
+
+    /// Golden check of the cross-section panel (ROADMAP_2 §8.3): the reconstruction and its
+    /// colouring, west to east through the storm core. CPU-only, so it runs everywhere; per-channel
+    /// delta ≤ 8 on ≤ 0.5% of pixels absorbs floating-point differences between platforms. A
+    /// missing golden is written in place and the test fails, so a new one is looked at before it
+    /// is checked in.
+    #[test]
+    fn cross_section_matches_its_golden() {
+        let sweeps = storm_volume();
+        // 1° of longitude at 35°N is ~91 km: from 20 km west of the radar to ~110 km east.
+        let xs = wxdata::xsection::build(&sweeps, (-97.22, 35.0), (-95.8, 35.0), 300, 120, 18.0)
+            .expect("sweeps");
+        let img = to_image(&xs, crate::colormap::default_table(Moment::Reflectivity));
+        let actual: Vec<u8> = img.pixels.iter().flat_map(|p| p.to_array()).collect();
+        let (w, h) = (xs.cols as u32, xs.rows as u32);
+
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let golden = dir.join("tests/golden/xsection_storm.png");
+        if !golden.exists() {
+            image::save_buffer(&golden, &actual, w, h, image::ColorType::Rgba8).unwrap();
+            panic!(
+                "wrote a new golden to {}; look at it, then check it in",
+                golden.display()
+            );
+        }
+        let expected = image::open(&golden).expect("decode golden").to_rgba8();
+        assert_eq!((expected.width(), expected.height()), (w, h));
+        let bad = expected
+            .as_raw()
+            .chunks_exact(4)
+            .zip(actual.chunks_exact(4))
+            .filter(|(e, a)| e.iter().zip(a.iter()).any(|(x, y)| x.abs_diff(*y) > 8))
+            .count();
+        if bad * 200 > (w * h) as usize {
+            let dump = dir.join("../../target/xsection_storm_actual.png");
+            let _ = image::save_buffer(&dump, &actual, w, h, image::ColorType::Rgba8);
+            panic!(
+                "cross-section golden: {bad} pixels off; actual at {}",
+                dump.display()
+            );
+        }
+    }
+}
