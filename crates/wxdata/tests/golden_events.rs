@@ -225,3 +225,84 @@ async fn mayfield_2021() {
         },
     );
 }
+
+/// Historical warning verification (ROADMAP_2 §8.4) on the Moore case: the archived warning is
+/// there at the instant it was in effect and not before it was issued, the tornado report is where
+/// the tornado was, and the verification scorer credits the merged detection with it.
+#[tokio::test]
+#[ignore = "network"]
+async fn moore_2013_warnings_reports_and_verification() {
+    use wxdata::detverify::{score, Detection, Truth};
+    use wxdata::overlay::point_in_ring;
+    let http = reqwest::Client::new();
+    let covers = |feats: &[wxdata::overlay::GeoFeature]| {
+        feats.iter().any(|f| {
+            f.alert
+                .as_ref()
+                .is_some_and(|a| a.event == "Tornado Warning")
+                && f.rings.iter().any(|r| point_in_ring(r, MOORE.0, MOORE.1))
+        })
+    };
+    // In effect over Moore at the golden volume's time.
+    let during = wxdata::archive_warnings::fetch(&http, "2013-05-20T20:12:00Z")
+        .await
+        .expect("archived warnings");
+    assert!(covers(&during), "no tornado warning over Moore at 20:12Z");
+    // Not yet issued two hours earlier, before the storm formed.
+    let before = wxdata::archive_warnings::fetch(&http, "2013-05-20T18:00:00Z")
+        .await
+        .expect("archived warnings");
+    assert!(
+        !covers(&before),
+        "a tornado warning over Moore before it was issued"
+    );
+
+    // The tornado reports in the hour around the volume, near Moore.
+    let reports = wxdata::lsr::fetch(&http, Some(("2013-05-20T19:40Z", "2013-05-20T20:40Z")))
+        .await
+        .expect("reports");
+    let tornadoes: Vec<_> = reports
+        .iter()
+        .filter(|r| r.kind == wxdata::spc::ReportKind::Tornado)
+        .filter(|r| km((r.lon, r.lat), MOORE) <= 15.0)
+        .collect();
+    assert!(!tornadoes.is_empty(), "no tornado report near Moore");
+
+    // The merged detection at 20:12Z verifies against them.
+    let scan = volume(
+        "KTLX",
+        Utc.with_ymd_and_hms(2013, 5, 20, 20, 16, 0).unwrap(),
+    )
+    .await;
+    let f = detect(&scan);
+    let minute = |hhmm: &str| {
+        let h: i64 = hhmm.get(..2).and_then(|h| h.parse().ok()).unwrap_or(0);
+        let m: i64 = hhmm.get(2..4).and_then(|m| m.parse().ok()).unwrap_or(0);
+        h * 60 + m
+    };
+    let detections: Vec<Detection> = circulations(&f.couplets, &f.debris)
+        .iter()
+        .map(|z| Detection {
+            lon: z.id.lon,
+            lat: z.id.lat,
+            confidence: z.id.score,
+            minute: 20 * 60 + 12,
+            range_km: 0.0,
+        })
+        .collect();
+    let truths: Vec<Truth> = tornadoes
+        .iter()
+        .map(|r| Truth {
+            lon: r.lon,
+            lat: r.lat,
+            minute: minute(&r.time),
+        })
+        .collect();
+    let s = score(&detections, &truths, 15.0, 30, &[0.9]);
+    eprintln!("{s:?} from {} reports", truths.len());
+    assert!(
+        s[0].verified >= 1,
+        "the Moore detection did not verify: {s:?}"
+    );
+    assert!(s[0].found >= 1, "the Moore tornado was not found: {s:?}");
+}
