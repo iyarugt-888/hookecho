@@ -23,6 +23,7 @@ mod region_stats;
 mod report;
 mod scale_bar;
 pub(crate) mod storm_track;
+pub(crate) mod telemetry;
 mod terrain3d;
 mod yall_mode;
 pub(crate) use field_state::FieldState;
@@ -4018,6 +4019,8 @@ pub struct HookEchoApp {
     measure: Vec<[f64; 2]>,
     /// Manual storm-motion tracks (`app::storm_track`); session-only.
     storm_tracks: storm_track::StormTracks,
+    /// How long recent frames took to build (`app::telemetry`), for Analyst Mode.
+    frame_times: telemetry::FrameTimes,
     /// Freehand annotation strokes, in lon/lat so they stick to the ground through pan and zoom.
     /// Session-only by design: this is for pointing at a storm on a stream, not a saved document.
     strokes: Vec<Stroke2d>,
@@ -5613,6 +5616,7 @@ impl HookEchoApp {
             ribbon_mode: RibbonMode::default(),
             measure: Vec::new(),
             storm_tracks: Default::default(),
+            frame_times: Default::default(),
             strokes: Vec::new(),
             draw_color: DRAW_COLORS[0],
             marker_window: Default::default(),
@@ -25785,7 +25789,17 @@ impl eframe::App for HookEchoApp {
         crate::platform::guard_font_atlas(raw_input);
     }
 
-    fn ui(&mut self, root: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, root: &mut egui::Ui, frame: &mut eframe::Frame) {
+        // Timed from outside so every early return inside is counted too.
+        let start = wxdata::clock::Instant::now();
+        self.ui_frame(root, frame);
+        self.frame_times
+            .push(start.elapsed().as_secs_f32() * 1000.0);
+    }
+}
+
+impl HookEchoApp {
+    fn ui_frame(&mut self, root: &mut egui::Ui, _frame: &mut eframe::Frame) {
         crate::profiling::new_frame();
         crate::prof_scope!("ui");
         let ctx = root.ctx().clone();

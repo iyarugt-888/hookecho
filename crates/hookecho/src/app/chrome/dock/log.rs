@@ -27,6 +27,10 @@ pub(super) struct LiveStats {
     history: Vec<(f32, f32)>,
     couplets: Option<usize>,
     debris: Option<usize>,
+    frames: Option<crate::app::telemetry::FrameSummary>,
+    panes: usize,
+    /// Radar volumes held across every pane, the one on screen included.
+    volumes: usize,
 }
 
 impl HookEchoApp {
@@ -61,6 +65,13 @@ impl HookEchoApp {
                 .as_ref()
                 .filter(|(k, _)| *k == key)
                 .map(|(_, hits)| hits.len()),
+            frames: self.frame_times.summary(),
+            panes: self.views.len(),
+            volumes: self
+                .views
+                .iter()
+                .map(|v| usize::from(v.volume.is_some()) + v.recent_len())
+                .sum(),
         }
     }
 
@@ -199,6 +210,44 @@ fn live_stats(ui: &mut egui::Ui, t: &ws::Tokens, s: &LiveStats) {
     if s.retries > 0 {
         ws::kv(ui, t, "Retries", &s.retries.to_string(), Some(t.warn));
     }
+    // This app's own cost, measured here and kept here (ROADMAP_2 §14.1).
+    if let Some(f) = s.frames {
+        use crate::app::telemetry::{BUDGET_MS, STALL_MS};
+        ws::kv(
+            ui,
+            t,
+            "Frame build",
+            &format!("p50 {:.1} / p95 {:.1} / max {:.0} ms", f.p50, f.p95, f.max),
+            (f.p95 > BUDGET_MS).then_some(t.warn),
+        );
+        ws::kv(
+            ui,
+            t,
+            "Over budget",
+            &format!(
+                "{} of the last {} over {BUDGET_MS:.1} ms · {} stall{} over {STALL_MS:.0} ms of {}",
+                f.over_budget,
+                f.kept,
+                f.stalls,
+                if f.stalls == 1 { "" } else { "s" },
+                f.total
+            ),
+            (f.stalls > 0).then_some(t.warn),
+        );
+    }
+    ws::kv(
+        ui,
+        t,
+        "Held",
+        &format!(
+            "{} pane{} · {} radar volume{}",
+            s.panes,
+            if s.panes == 1 { "" } else { "s" },
+            s.volumes,
+            if s.volumes == 1 { "" } else { "s" }
+        ),
+        None,
+    );
     // The detectors run only while their layers are on; "off" says that, not "none found".
     let det = |n: Option<usize>| n.map_or_else(|| "off".to_string(), |n| n.to_string());
     ws::kv(

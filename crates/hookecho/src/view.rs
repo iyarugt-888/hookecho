@@ -860,6 +860,11 @@ pub struct MapView {
 }
 
 impl MapView {
+    /// Volumes held off-screen for the playhead to come back to.
+    pub fn recent_len(&self) -> usize {
+        self.recent.len()
+    }
+
     /// Turn the map-pitch 3D view on or off, moving the camera to the pose that mode rests at:
     /// pitched over for 3D, flat and north-up for 2D. One place on purpose — the 3D options panel
     /// and `PaletteAction::ToggleMap3d` both come through here, so a pane cannot end up in 3D

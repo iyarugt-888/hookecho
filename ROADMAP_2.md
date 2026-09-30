@@ -54,6 +54,8 @@ Unified tornado detection (a first part of §2.1): rotation couplets, debris sig
 
 Storm selection (§2.5): the Cell window, which already held the SCIT attributes, severity and its reasons, core statistics, the forecast track and trends, gains a **Threat** section: the merged tornado detection at the storm (tier, score, signals, where from the core, or that the detectors are off), each warning whose polygon holds it with its tornado tag, and when SCIT's motion brings it to each saved place, in-path first, with the motion it came from. A **Track manually** button seeds the manual motion tool from it.
 
+Telemetry (§14.1, local only): the Analyst log now gives this app's own cost: how long each frame takes to build (p50/p95/max over the last 600 frames, `app::telemetry`), how many of those ran over a 60 Hz refresh, and stalls over 50 ms since launch, beside the panes open and the radar volumes held. It times `HookEchoApp::ui` from outside, so early returns count; it is CPU build time, not the gap between frames (the app repaints on demand). Still open: GPU upload and presentation time, cache hit rates, HTTP latency and memory.
+
 ---
 
 # 0. Program goals and release gates
