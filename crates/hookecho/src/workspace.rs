@@ -101,6 +101,10 @@ pub struct Workspace {
     /// saved point would be yesterday's storm.
     #[serde(default)]
     pub sound_center: bool,
+    /// Fields this build does not know, written by a newer one: kept, so opening and saving a
+    /// workspace here does not silently drop what a later version put in it.
+    #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 /// The floating chrome's state, as far as it is worth restoring: which surface was showing, not
@@ -280,6 +284,10 @@ pub struct PaneSnap {
     /// stored: a threshold that was set but switched off is not part of the arrangement.
     #[serde(default)]
     pub thresholds: Vec<(wxdata::level2::Moment, f32)>,
+    /// Fields this build does not know, written by a newer one: kept, so opening and saving a
+    /// workspace here does not silently drop what a later version put in it.
+    #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 impl PaneSnap {
@@ -309,6 +317,7 @@ impl PaneSnap {
                 .filter(|&(i, _)| v.threshold_enabled[i])
                 .filter_map(|(i, m)| v.thresholds[i].map(|t| (*m, t)))
                 .collect(),
+            extra: Default::default(),
         }
     }
 
@@ -353,6 +362,7 @@ fn pane(moment: wxdata::level2::Moment, tilt: usize, srv: bool) -> PaneSnap {
         // workspace-wide layers rather than asserting that every pane is bare.
         fields_on: None,
         thresholds: Vec::new(),
+        extra: Default::default(),
     }
 }
 
@@ -394,6 +404,71 @@ pub fn offer_new_starters(
         changed = true;
     }
     changed
+}
+
+/// What in `ws` this build cannot restore, said plainly: layers and fields it does not have, radar
+/// sites it does not know, map styles it cannot draw, more panes than it shows. Applying skips
+/// each of these (a file from a newer build still opens); this is so it does not do so silently.
+pub fn problems(ws: &Workspace) -> Vec<String> {
+    let mut out = Vec::new();
+    let unknown_overlays: Vec<&str> = ws
+        .overlays_on
+        .iter()
+        .filter(|s| crate::app::OverlayToggle::from_slug(s).is_none())
+        .map(String::as_str)
+        .collect();
+    if !unknown_overlays.is_empty() {
+        out.push(format!(
+            "layers this version does not have: {}",
+            unknown_overlays.join(", ")
+        ));
+    }
+    let mut fields: Vec<&str> = ws
+        .fields_on
+        .iter()
+        .chain(ws.panes.iter().flat_map(|p| p.fields_on.iter().flatten()))
+        .filter(|s| crate::render::FieldLayer::from_slug(s).is_none())
+        .map(String::as_str)
+        .collect();
+    fields.sort_unstable();
+    fields.dedup();
+    if !fields.is_empty() {
+        out.push(format!(
+            "fields this version does not have: {}",
+            fields.join(", ")
+        ));
+    }
+    let mut sites: Vec<&str> = ws
+        .panes
+        .iter()
+        .filter_map(|p| p.site.as_deref())
+        .filter(|s| wxdata::sites::site_by_id(s).is_none())
+        .collect();
+    sites.dedup();
+    if !sites.is_empty() {
+        out.push(format!("unknown radar sites: {}", sites.join(", ")));
+    }
+    let mut styles: Vec<&str> = ws
+        .panes
+        .iter()
+        .map(|p| p.basemap.as_str())
+        .filter(|b| crate::tiles::BasemapStyle::from_slug(b).slug() != *b)
+        .collect();
+    styles.dedup();
+    if !styles.is_empty() {
+        out.push(format!(
+            "map styles this version does not have (shown dark): {}",
+            styles.join(", ")
+        ));
+    }
+    if ws.panes.len() > crate::view::MAX_PANES {
+        out.push(format!(
+            "{} panes; this version shows the first {}",
+            ws.panes.len(),
+            crate::view::MAX_PANES
+        ));
+    }
+    out
 }
 
 /// Bring seeded starters up to date with what the starters ask for now. Starters are copied into
@@ -448,6 +523,7 @@ pub fn starters() -> Vec<Workspace> {
             fields_on: Vec::new(),
             chrome: None,
             sound_center: false,
+            extra: Default::default(),
         },
         Workspace {
             name: "National overview".into(),
@@ -464,6 +540,7 @@ pub fn starters() -> Vec<Workspace> {
                 zoom: 4.0,
                 fields_on: Some(vec!["mrms".into()]),
                 thresholds: Vec::new(),
+                extra: Default::default(),
             }],
             active: 0,
             link_cameras: false,
@@ -477,6 +554,7 @@ pub fn starters() -> Vec<Workspace> {
             fields_on: vec!["mrms".into()],
             chrome: None,
             sound_center: false,
+            extra: Default::default(),
         },
         Workspace {
             name: "Analysis".into(),
@@ -498,6 +576,7 @@ pub fn starters() -> Vec<Workspace> {
             fields_on: Vec::new(),
             chrome: None,
             sound_center: false,
+            extra: Default::default(),
         },
         // ROADMAP_NEW J5's first three analyst presets. Each reuses exactly the same
         // pane/link/overlay mechanism as the three starters above — a preset is a description of
@@ -535,6 +614,7 @@ pub fn starters() -> Vec<Workspace> {
             fields_on: Vec::new(),
             chrome: None,
             sound_center: false,
+            extra: Default::default(),
         },
         Workspace {
             name: "Hail analysis".into(),
@@ -561,6 +641,7 @@ pub fn starters() -> Vec<Workspace> {
             fields_on: vec!["mesh".into()],
             chrome: None,
             sound_center: true,
+            extra: Default::default(),
         },
         Workspace {
             name: "Mesoscale analysis".into(),
@@ -584,6 +665,7 @@ pub fn starters() -> Vec<Workspace> {
                     "global-dewpoint2m".into(),
                 ]),
                 thresholds: Vec::new(),
+                extra: Default::default(),
             }],
             active: 0,
             link_cameras: false,
@@ -602,6 +684,7 @@ pub fn starters() -> Vec<Workspace> {
             ],
             chrome: None,
             sound_center: false,
+            extra: Default::default(),
         },
         Workspace {
             name: "Radar + satellite".into(),
@@ -640,6 +723,7 @@ pub fn starters() -> Vec<Workspace> {
             fields_on: vec!["goes-ir".into(), "goes-water-vapor".into()],
             chrome: None,
             sound_center: false,
+            extra: Default::default(),
         },
         Workspace {
             name: "Forecast comparison".into(),
@@ -661,6 +745,7 @@ pub fn starters() -> Vec<Workspace> {
                     zoom: 4.5,
                     fields_on: Some(vec!["mrms".into()]),
                     thresholds: Vec::new(),
+                    extra: Default::default(),
                 },
                 PaneSnap {
                     site: None,
@@ -673,6 +758,7 @@ pub fn starters() -> Vec<Workspace> {
                     zoom: 4.5,
                     fields_on: Some(vec!["hrrr".into()]),
                     thresholds: Vec::new(),
+                    extra: Default::default(),
                 },
             ],
             active: 0,
@@ -687,6 +773,7 @@ pub fn starters() -> Vec<Workspace> {
             fields_on: vec!["mrms".into(), "hrrr".into()],
             chrome: None,
             sound_center: false,
+            extra: Default::default(),
         },
         // ROADMAP_2 §12.1's Tropical preset: a landfalling storm's radar beside the satellite
         // picture of the whole system, with the NHC track and cone, recon, surface obs and the
@@ -722,6 +809,7 @@ pub fn starters() -> Vec<Workspace> {
             fields_on: vec!["goes-ir".into()],
             chrome: None,
             sound_center: false,
+            extra: Default::default(),
         },
     ]
 }
@@ -837,6 +925,7 @@ mod tests {
                 zoom: 7.25,
                 fields_on: None,
                 thresholds: Vec::new(),
+                extra: Default::default(),
             }],
             active: 0,
             link_cameras: true,
@@ -849,6 +938,7 @@ mod tests {
             adopt_site: false,
             fields_on: vec!["mrms".into()],
             sound_center: true,
+            extra: Default::default(),
             chrome: Some(Chrome {
                 panel_open: true,
                 alerts_tab: false,
@@ -934,6 +1024,34 @@ mod tests {
         assert!(!ws.link_site);
         assert!(!ws.link_cursor);
         assert_eq!(ws.pane_layout, PaneLayout::Balanced);
+    }
+
+    #[test]
+    fn a_newer_files_unknown_fields_survive_a_round_trip_here() {
+        let mut json: serde_json::Value = serde_json::to_value(&starters()[0]).unwrap();
+        json["future_setting"] = serde_json::json!({ "on": true });
+        json["panes"][0]["future_pane_thing"] = serde_json::json!(3);
+        let ws: Workspace = serde_json::from_value(json).unwrap();
+        let back = serde_json::to_value(&ws).unwrap();
+        assert_eq!(back["future_setting"]["on"], true);
+        assert_eq!(back["panes"][0]["future_pane_thing"], 3);
+        // And a file with none writes none.
+        let plain = serde_json::to_value(&starters()[0]).unwrap();
+        assert!(plain.get("extra").is_none());
+    }
+
+    #[test]
+    fn what_this_build_cannot_restore_is_named() {
+        let mut ws = starters().remove(0);
+        assert!(problems(&ws).is_empty(), "{:?}", problems(&ws));
+        ws.overlays_on.push("HoloDeck".into());
+        ws.fields_on.push("future-field".into());
+        ws.panes[0].site = Some("KXYZ".into());
+        ws.panes[0].basemap = "neon".into();
+        let p = problems(&ws);
+        assert_eq!(p.len(), 4, "{p:?}");
+        assert!(p[0].contains("HoloDeck") && p[1].contains("future-field"));
+        assert!(p[2].contains("KXYZ") && p[3].contains("neon"));
     }
 
     #[test]

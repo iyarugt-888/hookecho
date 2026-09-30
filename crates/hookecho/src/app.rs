@@ -22699,6 +22699,7 @@ impl HookEchoApp {
             chrome: Some(self.capture_chrome()),
             // A sounding open when the snapshot is taken is part of how this analyst works here.
             sound_center: self.sounding_window.open,
+            extra: Default::default(),
         }
     }
 
@@ -22707,6 +22708,17 @@ impl HookEchoApp {
     fn apply_workspace(&mut self, ws: &crate::workspace::Workspace, ctx: &egui::Context) {
         if ws.panes.is_empty() {
             return;
+        }
+        // What this build skips from the file is said, not silently dropped (ROADMAP_2 §12.2).
+        let problems = crate::workspace::problems(ws);
+        if !problems.is_empty() {
+            let msg = format!(
+                "Workspace \u{201c}{}\u{201d}: {}",
+                ws.name,
+                problems.join("; ")
+            );
+            log::warn!("{msg}");
+            self.error_chip = Some((msg, ctx.input(|i| i.time)));
         }
         // Where the analyst was looking, before the panes move: what `sound_center` sounds.
         let looking_at = {
