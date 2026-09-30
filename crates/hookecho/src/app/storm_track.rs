@@ -38,6 +38,9 @@ pub(crate) struct ManualTrack {
     pub half_width_km: f64,
     /// Half-angle of the cone the swath widens by; zero keeps it a straight band.
     pub cone_deg: f64,
+    /// A line track's storm edge at `t0` (a QLCS, a gust front), moving as one with the
+    /// motion; empty for a single storm. The origin is its middle.
+    pub edge: Vec<[f64; 2]>,
 }
 
 impl ManualTrack {
@@ -49,7 +52,57 @@ impl ManualTrack {
             t0,
             half_width_km: 3.0,
             cone_deg: 10.0,
+            edge: Vec::new(),
         }
+    }
+
+    /// A line track along `edge`, its origin at the edge's middle.
+    fn line(edge: Vec<[f64; 2]>, t0: DateTime<Utc>) -> Self {
+        let n = edge.len();
+        let origin = if n % 2 == 1 {
+            edge[n / 2]
+        } else {
+            let (a, b) = (edge[n / 2 - 1], edge[n / 2]);
+            [(a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0]
+        };
+        Self {
+            edge,
+            ..Self::new(origin, t0)
+        }
+    }
+
+    pub fn is_line(&self) -> bool {
+        self.edge.len() >= 2
+    }
+
+    /// The edge `min` minutes after `t0`.
+    pub fn edge_at(&self, min: f64) -> Vec<[f64; 2]> {
+        let km = self.speed_kmh * min / 60.0;
+        self.edge
+            .iter()
+            .map(|v| destination_point(*v, self.bearing_deg, km))
+            .collect()
+    }
+
+    /// Move the track (and its edge) so its origin sits at `to`; the motion stays as it was.
+    pub fn move_to(&mut self, to: [f64; 2]) {
+        let d = [to[0] - self.origin[0], to[1] - self.origin[1]];
+        for v in &mut self.edge {
+            v[0] += d[0];
+            v[1] += d[1];
+        }
+        self.origin = to;
+    }
+
+    /// `point` in a local plane at the origin, in km: along the motion, and across it (positive
+    /// to the right). Good to well past the hour's reach.
+    fn plane(&self, point: [f64; 2]) -> (f64, f64) {
+        let lat0 = self.origin[1].to_radians();
+        let dx = (point[0] - self.origin[0]) * 111.32 * lat0.cos();
+        let dy = (point[1] - self.origin[1]) * 110.57;
+        let b = self.bearing_deg.to_radians();
+        let (ux, uy) = (b.sin(), b.cos());
+        (dx * ux + dy * uy, dx * uy - dy * ux)
     }
 
     /// A track seeded from a SCIT cell's automatic motion, to adjust by hand. `None` without
@@ -72,7 +125,13 @@ impl ManualTrack {
 
     /// Point the hour's end at `head`. `snap` holds the heading to 5° steps.
     pub fn aim(&mut self, head: [f64; 2], snap: bool) {
-        let (km, bearing) = great_circle(self.origin, head);
+        self.aim_from(self.origin, head, snap);
+    }
+
+    /// Set the motion to an hour's travel from `from` to `to`, wherever the drag began (a
+    /// line's motion can be dragged from any point along it).
+    pub fn aim_from(&mut self, from: [f64; 2], to: [f64; 2], snap: bool) {
+        let (km, bearing) = great_circle(from, to);
         self.speed_kmh = km * 60.0 / HORIZON_MIN;
         self.bearing_deg = if snap {
             (bearing / 5.0).round() * 5.0
@@ -107,15 +166,43 @@ impl ManualTrack {
         if self.speed_kmh < 1.0 {
             return None;
         }
-        // A local tangent plane at the origin: good to well past the hour's reach.
-        let lat0 = self.origin[1].to_radians();
-        let dx = (point[0] - self.origin[0]) * 111.32 * lat0.cos();
-        let dy = (point[1] - self.origin[1]) * 110.57;
-        let b = self.bearing_deg.to_radians();
-        let (ux, uy) = (b.sin(), b.cos());
-        let along = dx * ux + dy * uy;
-        // Positive: the point lies to the right of the motion.
-        let cross = dx * uy - dy * ux;
+        let (pa, pc) = self.plane(point);
+        let (mut along, mut cross) = (pa, pc);
+        if self.is_line() {
+            let v: Vec<(f64, f64)> = self.edge.iter().map(|p| self.plane(*p)).collect();
+            // Where the moving line crosses the point: the soonest segment spanning it.
+            let hit = v
+                .windows(2)
+                .filter_map(|w| {
+                    let ((a0, c0), (a1, c1)) = (w[0], w[1]);
+                    if pc < c0.min(c1) || pc > c0.max(c1) || (c1 - c0).abs() < 1e-9 {
+                        return None;
+                    }
+                    Some(pa - (a0 + (a1 - a0) * (pc - c0) / (c1 - c0)))
+                })
+                .filter(|d| *d > 0.0)
+                .min_by(f64::total_cmp);
+            if let Some(d) = hit {
+                let minutes = d / self.speed_kmh * 60.0;
+                return (minutes <= ETA_MAX_MIN).then_some(Eta {
+                    minutes,
+                    closest_km: 0.0,
+                    right: false,
+                    in_path: true,
+                });
+            }
+            // Past the line's ends: measured from the nearer end, whose swath widens as a
+            // single storm's does.
+            let (first, last) = (v[0], v[v.len() - 1]);
+            let end = if (pc - first.1).abs() <= (pc - last.1).abs() {
+                first
+            } else {
+                last
+            };
+            along = pa - end.0;
+            cross = pc - end.1;
+        }
+        // Positive `cross`: the point lies to the right of the motion.
         if along <= 0.0 {
             return None;
         }
@@ -143,6 +230,8 @@ pub(crate) struct Eta {
 enum Grab {
     Origin(usize),
     Head(usize),
+    /// A new line's motion, dragged from this point.
+    Motion(usize, [f64; 2]),
 }
 
 #[derive(Default)]
@@ -150,6 +239,8 @@ pub(crate) struct StormTracks {
     pub tracks: Vec<ManualTrack>,
     pub selected: Option<usize>,
     drag: Option<Grab>,
+    /// A line being clicked out, point by point, before its motion is dragged.
+    pub pending: Vec<[f64; 2]>,
 }
 
 impl StormTracks {
@@ -229,10 +320,16 @@ impl HookEchoApp {
                         .volume
                         .as_ref()
                         .map_or_else(Utc::now, |v| v.time);
-                    self.storm_tracks
-                        .tracks
-                        .push(ManualTrack::new(to_ll(p), t0));
-                    Grab::Head(self.storm_tracks.tracks.len() - 1)
+                    let st = &mut self.storm_tracks;
+                    let pending = std::mem::take(&mut st.pending);
+                    if pending.len() >= 2 {
+                        // A clicked-out line: this drag is its motion, from wherever it began.
+                        st.tracks.push(ManualTrack::line(pending, t0));
+                        Grab::Motion(st.tracks.len() - 1, to_ll(p))
+                    } else {
+                        st.tracks.push(ManualTrack::new(to_ll(p), t0));
+                        Grab::Head(st.tracks.len() - 1)
+                    }
                 });
                 self.storm_tracks.drag = Some(grab);
             }
@@ -250,7 +347,13 @@ impl HookEchoApp {
                 Grab::Origin(i) => {
                     if let Some(t) = st.tracks.get_mut(i) {
                         // The origin moves the whole track; the motion stays as it was.
-                        t.origin = ll;
+                        t.move_to(ll);
+                    }
+                    st.selected = Some(i);
+                }
+                Grab::Motion(i, from) => {
+                    if let Some(t) = st.tracks.get_mut(i) {
+                        t.aim_from(from, ll, shift);
                     }
                     st.selected = Some(i);
                 }
@@ -264,13 +367,28 @@ impl HookEchoApp {
                     st.remove(i);
                 }
             }
+            // A line whose motion drag barely moved goes back to being clicked out.
+            if let Some(Grab::Motion(i, _)) = st.drag {
+                if st.tracks.get(i).is_some_and(|t| t.speed_kmh < 2.0) {
+                    let edge = st.tracks[i].edge.clone();
+                    st.remove(i);
+                    st.pending = edge;
+                }
+            }
             st.drag = None;
         }
         if response.clicked() {
             if let Some(p) = response.interact_pointer_pos() {
-                self.storm_tracks.selected = grab_at(p, &self.storm_tracks).map(|g| match g {
-                    Grab::Head(i) | Grab::Origin(i) => i,
-                });
+                // A click on a track picks it; on open map it adds a point to a line.
+                match grab_at(p, &self.storm_tracks) {
+                    Some(Grab::Head(i) | Grab::Origin(i) | Grab::Motion(i, _)) => {
+                        self.storm_tracks.selected = Some(i);
+                    }
+                    None => {
+                        self.storm_tracks.selected = None;
+                        self.storm_tracks.pending.push(to_ll(p));
+                    }
+                }
             }
         }
         response.dragged() || self.storm_tracks.drag.is_some()
@@ -278,7 +396,7 @@ impl HookEchoApp {
 
     /// Every manual track on every pane: swath, centre line, time marks and handles.
     pub(crate) fn paint_storm_tracks(&self, ui: &egui::Ui, rects: &[egui::Rect]) {
-        if self.storm_tracks.tracks.is_empty() {
+        if self.storm_tracks.tracks.is_empty() && self.storm_tracks.pending.is_empty() {
             return;
         }
         let col = color();
@@ -292,18 +410,66 @@ impl HookEchoApp {
                 egui::pos2(rect.left() + x, rect.top() + y)
             };
             let painter = ui.painter_at(*rect);
+            // A line being clicked out: dashed, with its points.
+            let pending: Vec<egui::Pos2> = self
+                .storm_tracks
+                .pending
+                .iter()
+                .map(|p| to_px(*p))
+                .collect();
+            if pending.len() >= 2 {
+                painter.extend(egui::Shape::dashed_line(
+                    &pending,
+                    egui::Stroke::new(2.0, col),
+                    6.0,
+                    4.0,
+                ));
+            }
+            for p in &pending {
+                painter.circle(*p, 4.0, col, egui::Stroke::new(1.5, halo));
+            }
             for (i, t) in self.storm_tracks.tracks.iter().enumerate() {
                 let selected = self.storm_tracks.selected == Some(i);
-                let swath: Vec<egui::Pos2> = t.swath().into_iter().map(to_px).collect();
-                painter.add(egui::Shape::convex_polygon(
-                    swath.clone(),
-                    col.gamma_multiply(if selected { 0.16 } else { 0.09 }),
-                    egui::Stroke::NONE,
-                ));
-                painter.add(egui::Shape::closed_line(
-                    swath,
-                    egui::Stroke::new(1.0, col.gamma_multiply(0.7)),
-                ));
+                let fill = col.gamma_multiply(if selected { 0.16 } else { 0.09 });
+                if t.is_line() {
+                    // The swept area, a quad per segment (the whole is not convex); then the
+                    // edge every 15 minutes, thin, and now, solid.
+                    let now: Vec<egui::Pos2> = t.edge.iter().map(|p| to_px(*p)).collect();
+                    let end: Vec<egui::Pos2> =
+                        t.edge_at(HORIZON_MIN).into_iter().map(to_px).collect();
+                    for k in 0..now.len() - 1 {
+                        painter.add(egui::Shape::convex_polygon(
+                            vec![now[k], now[k + 1], end[k + 1], end[k]],
+                            fill,
+                            egui::Stroke::NONE,
+                        ));
+                    }
+                    let mut m = MARK_EVERY_MIN;
+                    while m <= HORIZON_MIN {
+                        let at: Vec<egui::Pos2> = t.edge_at(m).into_iter().map(to_px).collect();
+                        painter.add(egui::Shape::line(
+                            at,
+                            egui::Stroke::new(1.0, col.gamma_multiply(0.8)),
+                        ));
+                        m += MARK_EVERY_MIN;
+                    }
+                    painter.add(egui::Shape::line(now.clone(), egui::Stroke::new(5.0, halo)));
+                    painter.add(egui::Shape::line(
+                        now,
+                        egui::Stroke::new(if selected { 3.0 } else { 2.2 }, col),
+                    ));
+                } else {
+                    let swath: Vec<egui::Pos2> = t.swath().into_iter().map(to_px).collect();
+                    painter.add(egui::Shape::convex_polygon(
+                        swath.clone(),
+                        fill,
+                        egui::Stroke::NONE,
+                    ));
+                    painter.add(egui::Shape::closed_line(
+                        swath,
+                        egui::Stroke::new(1.0, col.gamma_multiply(0.7)),
+                    ));
+                }
                 let (a, b) = (to_px(t.origin), to_px(t.head()));
                 painter.line_segment([a, b], egui::Stroke::new(4.0, halo));
                 painter.line_segment(
@@ -354,7 +520,11 @@ impl HookEchoApp {
                 painter.circle(a, r, col, egui::Stroke::new(1.5, halo));
                 painter.circle(b, r, halo, egui::Stroke::new(2.0, col));
                 let kt = t.speed_kmh / KMH_PER_KT;
-                let tag = format!("MANUAL {:03.0}° {kt:.0} kt", t.bearing_deg);
+                let tag = format!(
+                    "MANUAL{} {:03.0}° {kt:.0} kt",
+                    if t.is_line() { " LINE" } else { "" },
+                    t.bearing_deg
+                );
                 let at = a + egui::vec2(8.0, 6.0);
                 painter.text(
                     at + egui::vec2(1.0, 1.0),
@@ -373,8 +543,19 @@ impl HookEchoApp {
     /// selected track, Ctrl+D duplicates it, [ and ] narrow and widen its cone.
     pub(crate) fn storm_track_card(&mut self, ctx: &egui::Context) {
         let armed = self.tool == MapTool::StormTrack;
-        if !armed && self.storm_tracks.selected.is_none() {
-            return;
+        if !armed {
+            // A line half clicked out is dropped with the tool.
+            self.storm_tracks.pending.clear();
+            if self.storm_tracks.selected.is_none() {
+                return;
+            }
+        }
+        let typing = ctx.memory(|m| m.focused().is_some());
+        if !self.storm_tracks.pending.is_empty()
+            && !typing
+            && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Backspace))
+        {
+            self.storm_tracks.pending.pop();
         }
         if self
             .storm_tracks
@@ -383,7 +564,6 @@ impl HookEchoApp {
         {
             self.storm_tracks.selected = None;
         }
-        let typing = ctx.memory(|m| m.focused().is_some());
         if let (Some(i), false) = (self.storm_tracks.selected, typing) {
             let (del, dup, narrow, widen) = ctx.input_mut(|inp| {
                 (
@@ -434,19 +614,43 @@ impl HookEchoApp {
                             }
                         });
                     });
+                    match st.pending.len() {
+                        0 => {}
+                        1 => {
+                            ui.label(
+                                egui::RichText::new(
+                                    "Line: click more points along it (Backspace undoes one)",
+                                )
+                                .color(color()),
+                            );
+                        }
+                        n => {
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "Line of {n} points: now drag its motion from anywhere \
+                                     (Backspace undoes a point)"
+                                ))
+                                .color(color()),
+                            );
+                        }
+                    }
                     if st.tracks.is_empty() {
-                        ui.weak(
-                            "Drag from a storm to where it will be in an hour. \
-                             Shift snaps the heading to 5°.",
-                        );
+                        if st.pending.is_empty() {
+                            ui.weak(
+                                "Drag from a storm to where it will be in an hour. Shift \
+                                 snaps the heading to 5°. For a line of storms, click points \
+                                 along it first, then drag.",
+                            );
+                        }
                         return;
                     }
                     for (i, track) in st.tracks.iter_mut().enumerate() {
                         let sel = st.selected == Some(i);
                         ui.horizontal(|ui| {
                             let name = format!(
-                                "#{} {:03.0}° {}",
+                                "#{}{} {:03.0}° {}",
                                 i + 1,
+                                if track.is_line() { " line" } else { "" },
                                 track.bearing_deg,
                                 compass(track.bearing_deg)
                             );
@@ -530,7 +734,9 @@ impl HookEchoApp {
                         for (name, e) in etas.iter().take(6) {
                             let when =
                                 track.t0 + chrono::Duration::seconds((e.minutes * 60.0) as i64);
-                            let pass = if e.closest_km < 0.5 {
+                            let pass = if track.is_line() && e.closest_km == 0.0 {
+                                "line arrives".to_string()
+                            } else if e.closest_km < 0.5 {
                                 "direct hit".to_string()
                             } else {
                                 format!(
@@ -634,6 +840,66 @@ mod tests {
         t.cone_deg = 0.0;
         assert!((width(&t) - 6.0).abs() < 0.1, "{}", width(&t));
         assert!(wide > 6.0 + 2.0 * 60.0 * 0.17);
+    }
+
+    /// A north-south line moving east at 60 km/h, 20 km long.
+    fn line() -> ManualTrack {
+        let o = [-97.0, 35.0];
+        let edge = vec![
+            destination_point(o, 0.0, 10.0),
+            o,
+            destination_point(o, 180.0, 10.0),
+        ];
+        let mut t = ManualTrack::line(edge, Utc::now());
+        t.aim_from(o, destination_point(o, 90.0, 60.0), false);
+        t
+    }
+
+    #[test]
+    fn a_line_arrives_where_it_crosses_a_point() {
+        let t = line();
+        assert_eq!(t.origin, [-97.0, 35.0], "the middle point");
+        // 30 km east, 5 km north: within the line's span, crossed in 30 minutes.
+        let p = destination_point(destination_point(t.origin, 90.0, 30.0), 0.0, 5.0);
+        let e = t.eta(p).unwrap();
+        assert!((e.minutes - 30.0).abs() < 0.6 && e.in_path, "{e:?}");
+        assert_eq!(e.closest_km, 0.0);
+        // 30 km east, 20 km north: 10 km past the north end, outside its widening swath.
+        let q = destination_point(destination_point(t.origin, 90.0, 30.0), 0.0, 20.0);
+        let e = t.eta(q).unwrap();
+        assert!(
+            !e.in_path && (e.closest_km - 10.0).abs() < 0.3 && !e.right,
+            "{e:?}"
+        );
+        // Behind the line: nothing.
+        assert!(t.eta(destination_point(t.origin, 270.0, 5.0)).is_none());
+    }
+
+    #[test]
+    fn a_slanted_line_reaches_its_near_end_first() {
+        // The north end sits 10 km further east: a point due east of it is reached sooner.
+        let o = [-97.0, 35.0];
+        let north = destination_point(destination_point(o, 0.0, 10.0), 90.0, 10.0);
+        let mut t = ManualTrack::line(vec![north, destination_point(o, 180.0, 10.0)], Utc::now());
+        t.aim_from(o, destination_point(o, 90.0, 60.0), false);
+        let east_of = |km_north: f64| {
+            let p = destination_point(destination_point(o, 0.0, km_north), 90.0, 40.0);
+            t.eta(p).unwrap().minutes
+        };
+        assert!(east_of(8.0) < east_of(-8.0));
+    }
+
+    #[test]
+    fn moving_a_line_takes_its_edge_along() {
+        let mut t = line();
+        let before = t.edge_at(30.0);
+        t.move_to([-96.0, 35.0]);
+        assert!(
+            (t.edge[1][0] + 96.0).abs() < 1e-9,
+            "the middle is the origin"
+        );
+        let after = t.edge_at(30.0);
+        assert!((after[1][0] - before[1][0] - 1.0).abs() < 1e-6);
     }
 
     #[test]
