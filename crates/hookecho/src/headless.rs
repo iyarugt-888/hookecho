@@ -5370,7 +5370,65 @@ mod golden_tests {
         check_golden("snapshot_cc", Moment::CorrelationCoefficient);
     }
 
+    /// Warnings over radar: a tornado warning and a severe thunderstorm warning, styled as the
+    /// alerts feed styles them, tessellated by the app's own overlay builder over the
+    /// reflectivity sweep. It pins polygon fill, outline and their blend over the radar.
+    #[test]
+    #[ignore = "gpu"]
+    fn gpu_golden_warnings_snapshot() {
+        let sweep = synthetic_sweep_of(Moment::Reflectivity);
+        let (lon, lat) = (sweep.radar_lon as f64, sweep.radar_lat as f64);
+        let warning =
+            |title: &str, rgb: [u8; 3], ring: Vec<[f64; 2]>| wxdata::overlay::GeoFeature {
+                rings: vec![ring],
+                fill: [rgb[0], rgb[1], rgb[2], 45],
+                stroke: [rgb[0], rgb[1], rgb[2], 235],
+                kind: wxdata::overlay::FeatureKind::Warning,
+                title: title.to_string(),
+                detail: String::new(),
+                alert: None,
+            };
+        let features = [
+            warning(
+                "Severe Thunderstorm Warning",
+                [255, 165, 0],
+                vec![
+                    [lon - 0.30, lat - 0.25],
+                    [lon + 0.05, lat - 0.28],
+                    [lon + 0.10, lat + 0.05],
+                    [lon - 0.25, lat + 0.02],
+                    [lon - 0.30, lat - 0.25],
+                ],
+            ),
+            warning(
+                "Tornado Warning",
+                [255, 0, 0],
+                vec![
+                    [lon - 0.05, lat - 0.02],
+                    [lon + 0.22, lat + 0.03],
+                    [lon + 0.18, lat + 0.20],
+                    [lon - 0.08, lat + 0.14],
+                    [lon - 0.05, lat - 0.02],
+                ],
+            ),
+        ];
+        let geom = crate::overlay_build::build(&features, 8.5);
+        check_golden_with(
+            "snapshot_warnings",
+            Moment::Reflectivity,
+            Some(OverlayUpload {
+                vertices: geom.vertices,
+                indices: geom.indices,
+            }),
+        );
+    }
+
     fn check_golden(name: &str, moment: Moment) {
+        check_golden_with(name, moment, None);
+    }
+
+    fn check_golden_with(name: &str, moment: Moment, overlay: Option<OverlayUpload>) {
+        let draw_overlay = overlay.is_some();
         let sweep = synthetic_sweep_of(moment);
         let table = crate::colormap::default_table(moment).clone();
         let camera = Camera::at_lonlat(sweep.radar_lon as f64, sweep.radar_lat as f64, 8.5);
@@ -5395,8 +5453,8 @@ mod golden_tests {
             draw_radar: true,
             observed_upload: None,
             draw_observed: false,
-            overlay_upload: None,
-            draw_overlay: false,
+            overlay_upload: overlay,
+            draw_overlay,
             field_uploads: Vec::new(),
             field_draws: Vec::new(),
             field_swipe: None,
