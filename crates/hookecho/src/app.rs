@@ -21318,7 +21318,7 @@ mod tests {
         let lines = include_str!("app.rs").lines().count();
         assert!(
             lines <= CEILING,
-            "app.rs grew to {lines} lines (ceiling {CEILING}): put the new code in a module              under app/ instead"
+            "app.rs grew to {lines} lines (ceiling {CEILING}): put the new code in a module under app/ instead"
         );
     }
 

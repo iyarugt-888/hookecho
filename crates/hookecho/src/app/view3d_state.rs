@@ -405,7 +405,7 @@ impl HookEchoApp {
             })
             .response
             .on_hover_text(
-                "Dealiased velocity volume, strongest wind along each line of sight in                  either direction: both halves of a couplet show, inbound and outbound in                  their own colours. Where strong inbound meets strong outbound the boundary                  takes one colour or the other.",
+                "Dealiased velocity volume, strongest wind along each line of sight in either direction: both halves of a couplet show, inbound and outbound in their own colours. Where strong inbound meets strong outbound the boundary takes one colour or the other.",
             );
             ui.add_enabled_ui(
                 volume_supported && moment == Moment::Reflectivity && !products.is_empty(),

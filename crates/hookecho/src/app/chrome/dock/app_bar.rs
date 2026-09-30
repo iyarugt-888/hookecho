@@ -632,7 +632,7 @@ impl HookEchoApp {
                                 ws::check(ui, &t, &mut smoothing, "Smoothing");
                                 if velocity {
                                     ws::check(ui, &t, &mut dealias, "Dealias").on_hover_text(
-                                        "Unfold aliased velocity (region-based). TDWR sites are                                          never dealiased",
+                                        "Unfold aliased velocity (region-based). TDWR sites are never dealiased",
                                     );
                                 }
                                 ws::check(ui, &t, &mut legend, "Legend")

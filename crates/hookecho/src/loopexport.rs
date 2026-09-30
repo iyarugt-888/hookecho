@@ -115,6 +115,30 @@ pub fn frame_list(
         .collect()
 }
 
+/// The frame rate every exported MP4 is written at.
+pub const MP4_FPS: u32 = 30;
+
+/// How many output frames at `fps` each weather frame is shown for, given its hold `delays_ms`
+/// (ROADMAP_2 §6.2/§6.6: a deterministic, fixed-rate schedule). Counted from the loop's running
+/// time, not frame by frame, so rounding never accumulates: each frame starts within half an
+/// output frame of its true start however long the loop runs. Every weather frame gets at least
+/// one output frame — a hold shorter than a frame period is shown, not dropped — and that minimum
+/// is the only thing that can push later frames late, by at most the frames it lengthened.
+pub fn cfr_counts(delays_ms: &[u32], fps: u32) -> Vec<u32> {
+    let fps = u64::from(fps.max(1));
+    let mut out = Vec::with_capacity(delays_ms.len());
+    let (mut elapsed_ms, mut shown) = (0u64, 0u64);
+    for &d in delays_ms {
+        elapsed_ms += u64::from(d);
+        // Output frames that should have been shown by the end of this weather frame.
+        let due = (elapsed_ms * fps + 500) / 1000;
+        let n = due.saturating_sub(shown).max(1);
+        shown += n;
+        out.push(n as u32);
+    }
+    out
+}
+
 /// The words a loop's sidecar uses for its timing: `("real" | "fixed", fps)`.
 pub fn timing_words(timing: Timing) -> (&'static str, f32) {
     match timing {
@@ -172,9 +196,15 @@ pub fn encode_mp4_files(
 ) -> anyhow::Result<()> {
     anyhow::ensure!(!files.is_empty(), "no frames captured");
     anyhow::ensure!(files.len() == delays_ms.len(), "one delay per frame");
+    // Whole output frames per weather frame (`cfr_counts`), so ffmpeg's constant-rate output
+    // repeats frames to fill each hold and never has to drop one shorter than a frame period.
     let mut list = String::new();
-    for (file, ms) in files.iter().zip(delays_ms) {
-        list.push_str(&concat_entry(&concat_path(file), *ms));
+    for (file, n) in files.iter().zip(cfr_counts(delays_ms, MP4_FPS)) {
+        // Exact seconds (n / fps), not whole ms: 33 ms a frame would drift over a long loop.
+        list.push_str(&concat_entry(
+            &concat_path(file),
+            f64::from(n) / f64::from(MP4_FPS),
+        ));
     }
     // The concat demuxer ignores the last entry's duration unless the file is listed again.
     if let Some(last) = files.last() {
@@ -194,9 +224,10 @@ fn concat_path(p: &Path) -> String {
         .replace('\'', r"'\''")
 }
 
-/// One concat-demuxer entry: the file and how long it is shown, in seconds.
-fn concat_entry(name: &str, ms: u32) -> String {
-    format!("file '{name}'\nduration {:.3}\n", f64::from(ms) / 1000.0)
+/// One concat-demuxer entry: the file and how long it is shown, in seconds (to the microsecond,
+/// so a whole number of output frames stays whole).
+fn concat_entry(name: &str, secs: f64) -> String {
+    format!("file '{name}'\nduration {secs:.6}\n")
 }
 
 fn run_ffmpeg(list: &Path, out: &Path) -> anyhow::Result<()> {
@@ -210,7 +241,7 @@ fn run_ffmpeg(list: &Path, out: &Path) -> anyhow::Result<()> {
             "-vf",
             "pad=ceil(iw/2)*2:ceil(ih/2)*2",
             "-r",
-            "30",
+            &MP4_FPS.to_string(),
             "-c:v",
             "libx264",
             "-pix_fmt",
@@ -338,6 +369,35 @@ pub fn crop_center(img: &RgbaImage, w: u32, h: u32) -> RgbaImage {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_fixed_rate_export_drops_no_frame_and_does_not_drift() {
+        use super::cfr_counts;
+        // Four-minute scans at 8 fps real time (a 30-minute loop's worth), and one SAILS
+        // re-scan held only 20 ms: every weather frame is shown, at least once.
+        let mut delays = vec![500u32; 60];
+        delays[10] = 20;
+        let counts = cfr_counts(&delays, 30);
+        assert_eq!(counts.len(), delays.len());
+        assert!(counts.iter().all(|n| *n >= 1), "no weather frame dropped");
+        // No drift: after every frame the output is within one frame of the true running time.
+        let mut true_ms = 0u64;
+        let mut shown = 0u64;
+        for (d, n) in delays.iter().zip(&counts) {
+            true_ms += u64::from(*d);
+            shown += u64::from(*n);
+            let true_frames = true_ms as f64 * 30.0 / 1000.0;
+            assert!(
+                (shown as f64 - true_frames).abs() <= 1.0,
+                "{shown} frames at {true_ms} ms"
+            );
+        }
+        // A 30-minute run of 4-minute scans at real time lands on the exact frame count.
+        let long = vec![240_000u32; 8];
+        assert_eq!(cfr_counts(&long, 30).iter().sum::<u32>(), 8 * 240 * 30);
+        // Same input, same schedule: deterministic.
+        assert_eq!(cfr_counts(&delays, 30), counts);
+    }
+
     use super::*;
 
     #[test]
@@ -444,8 +504,8 @@ mod tests {
     #[test]
     fn the_mp4_frame_list_times_each_frame() {
         assert_eq!(
-            concat_entry("f00000.png", 267),
-            "file 'f00000.png'\nduration 0.267\n"
+            concat_entry("f00000.png", 8.0 / 30.0),
+            "file 'f00000.png'\nduration 0.266667\n"
         );
         assert_eq!(
             concat_path(Path::new(r"C:\tmp\it's\f1.png")),

@@ -1040,7 +1040,7 @@ impl HookEchoApp {
                 T::ScaleBar,
                 "Reference",
                 "Scale bar",
-                "A distance ruler in the lower left of the flat map, in miles over a NEXRAD or                  TDWR and kilometres elsewhere",
+                "A distance ruler in the lower left of the flat map, in miles over a NEXRAD or TDWR and kilometres elsewhere",
                 true,
             ),
             (
@@ -1055,14 +1055,14 @@ impl HookEchoApp {
                 T::YallMode,
                 "Severe",
                 "Y'all mode",
-                "The Y'all-O-Meter for your location or the map's middle: warnings, watches, the                  SPC outlook and storms headed your way, said plainly, with Y'all Tracks drawn",
+                "The Y'all-O-Meter for your location or the map's middle: warnings, watches, the SPC outlook and storms headed your way, said plainly, with Y'all Tracks drawn",
                 false,
             ),
             (
                 T::MergeTornado,
                 "Severe",
                 "One detection per tornado",
-                "Rotation couplets, debris signatures and Tornado ID as one marker per tornado,                  centred on the most likely rotation; click it to open the web of detections it                  ties together and their factors. Off: a marker per detection",
+                "Rotation couplets, debris signatures and Tornado ID as one marker per tornado, centred on the most likely rotation; click it to open the web of detections it ties together and their factors. Off: a marker per detection",
                 true,
             ),
             (
@@ -1407,7 +1407,7 @@ impl HookEchoApp {
             (
                 MapTool::StormTrack,
                 "Tool: Storm motion",
-                "Drag a storm's motion for the next hour: 15-minute marks, an uncertainty swath                  and arrival times at your saved markers",
+                "Drag a storm's motion for the next hour: 15-minute marks, an uncertainty swath and arrival times at your saved markers",
                 true,
             ),
             (

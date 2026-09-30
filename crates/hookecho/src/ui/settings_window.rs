@@ -1202,7 +1202,7 @@ pub fn sound_picker(ui: &mut egui::Ui, settings: &mut Settings) {
     .on_hover_text("While an alert's card is open, the map outside its area is darkened");
     ui.checkbox(&mut settings.yall_mode, "Y'all mode")
         .on_hover_text(
-            "The Y'all-O-Meter: how worried to be at your location (or the map's middle), with the              watches, outlook and storms headed your way, said plainly",
+            "The Y'all-O-Meter: how worried to be at your location (or the map's middle), with the watches, outlook and storms headed your way, said plainly",
         );
     ui.checkbox(&mut settings.mute_alerts, "Mute all alert audio")
         .on_hover_text("Silences chimes and spoken warnings without changing the choices below");
