@@ -27,10 +27,26 @@ const TIPS: &[&str] = &[
     "A hook in reflectivity is a reason to look at velocity, not a tornado by itself.",
 ];
 
+/// Which half of the page is up.
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
+enum Tab {
+    #[default]
+    Help,
+    Changelog,
+}
+
 #[derive(Default)]
 pub(crate) struct HelpHub {
     pub open: bool,
     query: String,
+    tab: Tab,
+    changelog: crate::ui::changelog::View,
+}
+
+/// The changelog, parsed once.
+fn releases() -> &'static [crate::ui::changelog::Release] {
+    static R: std::sync::OnceLock<Vec<crate::ui::changelog::Release>> = std::sync::OnceLock::new();
+    R.get_or_init(|| crate::ui::changelog::parse(CHANGELOG))
 }
 
 impl HelpHub {
@@ -45,6 +61,7 @@ impl HelpHub {
     /// the layer rows.
     pub(crate) fn explain(&mut self, entry: usize) {
         self.open = true;
+        self.tab = Tab::Help;
         self.query = crate::ui::glossary::ENTRIES
             .get(entry)
             .map(|e| {
@@ -67,21 +84,46 @@ impl HelpHub {
         entries: &[PaletteEntry],
     ) -> bool {
         let mut open = self.open;
-        let Some(window) = drawer.page(ctx, "Help", &mut open, false, egui::Window::new("Help"))
-        else {
+        // The changelog reads better wider; the drawer still clamps it to the screen.
+        let width = if self.tab == Tab::Changelog {
+            560.0
+        } else {
+            380.0
+        };
+        let Some(window) = drawer.page_sized(
+            ctx,
+            "Help",
+            &mut open,
+            false,
+            width,
+            egui::Window::new("Help"),
+        ) else {
             self.open = open;
             return false;
         };
         let mut tour = false;
         window.show(ctx, |ui| {
             ui.horizontal(|ui| {
+                ui.selectable_value(&mut self.tab, Tab::Help, "Help");
+                ui.selectable_value(&mut self.tab, Tab::Changelog, "Changelog");
+            });
+            ui.horizontal(|ui| {
                 ui.add(
                     egui::TextEdit::singleline(&mut self.query)
-                        .hint_text("Search help\u{2026}")
+                        .hint_text(if self.tab == Tab::Changelog {
+                            "Search every release\u{2026}"
+                        } else {
+                            "Search help\u{2026}"
+                        })
                         .desired_width(f32::INFINITY),
                 );
             });
             let q = self.query.trim().to_ascii_lowercase();
+            if self.tab == Tab::Changelog {
+                ui.add_space(4.0);
+                self.changelog.show(ui, releases(), &q);
+                return;
+            }
 
             if q.is_empty() {
                 ui.add_space(6.0);
@@ -138,14 +180,42 @@ impl HelpHub {
                 });
             }
 
-            let news = whats_new(CHANGELOG);
-            if q.is_empty() || news.to_ascii_lowercase().contains(&q) {
+            // What's new: the newest few entry titles, each opening the changelog; the full text
+            // lives on the Changelog tab rather than as a wall here.
+            let newest = releases().first();
+            let news: Vec<&crate::ui::changelog::Item> = newest
+                .map(|r| {
+                    r.items
+                        .iter()
+                        .filter(|i| {
+                            q.is_empty()
+                                || i.title.to_ascii_lowercase().contains(&q)
+                                || i.body.to_ascii_lowercase().contains(&q)
+                        })
+                        .take(if q.is_empty() { 6 } else { 20 })
+                        .collect()
+                })
+                .unwrap_or_default();
+            if let (Some(r), false) = (newest, news.is_empty()) {
                 crate::theme::section(ui, "What's new", |ui| {
-                    ui.label(&news);
+                    ui.weak(&r.name);
+                    for i in &news {
+                        let title = crate::ui::changelog::plain(&i.title);
+                        if ui
+                            .link(format!("\u{2022} {title}"))
+                            .on_hover_text("Open in the changelog")
+                            .clicked()
+                        {
+                            self.tab = Tab::Changelog;
+                        }
+                    }
+                    if ui.button("Open the full changelog").clicked() {
+                        self.tab = Tab::Changelog;
+                    }
                 });
             }
 
-            if !q.is_empty() && keys.is_empty() && terms_empty(&q) && !news.to_ascii_lowercase().contains(&q) {
+            if !q.is_empty() && keys.is_empty() && terms_empty(&q) && news.is_empty() {
                 ui.weak("Nothing matches that.");
             }
         });
@@ -180,40 +250,14 @@ fn shortcut_rows(bindings: &[Binding], entries: &[PaletteEntry], q: &str) -> Vec
         .collect()
 }
 
-/// The newest changelog section, heading and all. The release job already treats these sections
-/// as the release body, so whatever is good enough to publish is good enough to show here.
-fn whats_new(md: &str) -> String {
-    let mut out = String::new();
-    for line in md.lines().skip_while(|l| !l.starts_with("## ")) {
-        if line.starts_with("## ") {
-            if !out.is_empty() {
-                break;
-            }
-            out.push_str(line.strip_prefix("## ").unwrap_or(line));
-            out.push('\n');
-            continue;
-        }
-        out.push_str(line);
-        out.push('\n');
-    }
-    out.trim_end().to_string()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn whats_new_is_the_newest_section_only() {
-        let s = whats_new("# Changelog\n\nblurb\n\n## 1.1 - x\n- new thing\n\n## 1.0 - y\n- old\n");
-        assert!(s.starts_with("1.1 - x"), "{s}");
-        assert!(s.contains("new thing"));
-        assert!(!s.contains("old"));
-    }
-
-    #[test]
-    fn the_shipped_changelog_has_a_section_to_show() {
-        assert!(whats_new(CHANGELOG).contains('-'), "no release section");
+    fn the_shipped_changelog_has_a_release_to_show() {
+        assert!(!releases().is_empty(), "no release section");
+        assert!(!releases()[0].items.is_empty());
     }
 
     #[test]

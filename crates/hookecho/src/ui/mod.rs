@@ -96,6 +96,7 @@ pub mod basemap_picker;
 pub mod cappi_window;
 pub mod cell_window;
 pub mod cells_window;
+pub mod changelog;
 pub mod chase_replay;
 pub mod cheatsheet;
 pub mod cursor_probe;
