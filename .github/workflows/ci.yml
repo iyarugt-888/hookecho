@@ -179,8 +179,10 @@ jobs:
           HOOKECHO_GPU_FALLBACK: "1"
         run: cargo test -p hookecho -- --ignored gpu --nocapture
 
+      # Always: a new golden (velocity, CC, ...) skips until its lavapipe render is checked in,
+      # and this artifact is where that render comes from.
       - name: Upload actual render
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: gpu-golden-actual

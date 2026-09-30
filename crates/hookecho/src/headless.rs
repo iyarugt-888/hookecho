@@ -4306,9 +4306,24 @@ mod golden_tests {
 
     /// Small so the checked-in golden stays tens of KB.
     const GOLDEN_SIZE: u32 = 200;
-    const GOLDEN: &str = "tests/golden/snapshot_base.png";
 
     /// A deterministic synthetic sweep: a 90° wedge plus three range rings.
+    /// [`synthetic_sweep`] as `moment`, spanning that moment's own values, so each colour table
+    /// is exercised end to end across the wedge's ramp.
+    fn synthetic_sweep_of(moment: Moment) -> BinnedSweep {
+        let (value_min, value_max) = match moment {
+            Moment::Velocity => (-64.0, 64.0),
+            Moment::CorrelationCoefficient => (0.2, 1.05),
+            _ => (-32.0, 95.0),
+        };
+        BinnedSweep {
+            moment,
+            value_min,
+            value_max,
+            ..synthetic_sweep()
+        }
+    }
+
     fn synthetic_sweep() -> BinnedSweep {
         let (az_bins, gate_count) = (360usize, 200usize);
         let mut data = vec![0u8; az_bins * gate_count];
@@ -5331,14 +5346,33 @@ mod golden_tests {
         );
     }
 
-    /// Golden-image test for the radar render pipeline. Run with
-    /// `HOOKECHO_GPU_FALLBACK=1 cargo test -p hookecho -- --ignored gpu` so the
-    /// software (lavapipe) adapter is used — the golden is authored under lavapipe.
+    /// Golden-image tests for the radar render pipeline (ROADMAP_2 §8.3), one per moment's
+    /// colour table over the same synthetic sweep. Run with
+    /// `HOOKECHO_GPU_FALLBACK=1 cargo test -p hookecho -- --ignored gpu` so the software
+    /// (lavapipe) adapter is used: the goldens are authored under lavapipe. A missing golden skips
+    /// and writes the render to `target/<name>_actual.png` for CI to publish and someone to check
+    /// in, rather than inventing a reference on whatever GPU happens to run it first.
     #[test]
     #[ignore = "gpu"]
     fn gpu_golden_radar_snapshot() {
-        let sweep = synthetic_sweep();
-        let table = crate::colormap::default_table(Moment::Reflectivity).clone();
+        check_golden("snapshot_base", Moment::Reflectivity);
+    }
+
+    #[test]
+    #[ignore = "gpu"]
+    fn gpu_golden_velocity_snapshot() {
+        check_golden("snapshot_velocity", Moment::Velocity);
+    }
+
+    #[test]
+    #[ignore = "gpu"]
+    fn gpu_golden_cc_snapshot() {
+        check_golden("snapshot_cc", Moment::CorrelationCoefficient);
+    }
+
+    fn check_golden(name: &str, moment: Moment) {
+        let sweep = synthetic_sweep_of(moment);
+        let table = crate::colormap::default_table(moment).clone();
         let camera = Camera::at_lonlat(sweep.radar_lon as f64, sweep.radar_lat as f64, 8.5);
         let (center, scale) =
             camera.world_to_clip_uniform((GOLDEN_SIZE as f32, GOLDEN_SIZE as f32));
@@ -5402,8 +5436,8 @@ mod golden_tests {
         let actual = read_target(&device, &queue, &target, GOLDEN_SIZE);
 
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-        let golden = dir.join(GOLDEN);
-        let dump = dir.join("../../target/snapshot_base_actual.png");
+        let golden = dir.join(format!("tests/golden/{name}.png"));
+        let dump = dir.join(format!("../../target/{name}_actual.png"));
         let write_actual = || {
             if let Some(p) = dump.parent() {
                 let _ = std::fs::create_dir_all(p);
