@@ -70,6 +70,8 @@ pub(crate) enum PaletteAction {
     AllTilts,
     /// Remove every manual storm-motion track (`app::storm_track`).
     ClearStormTracks,
+    /// Open or close the clean output window (`app::output_window`).
+    ToggleOutputWindow,
     /// Two panes, one model's own field in each (`app.diff_field`), cameras linked — the
     /// side-by-side alternative to the `ModelDiff` subtraction layer.
     CompareInPanes,

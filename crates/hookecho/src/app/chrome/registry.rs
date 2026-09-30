@@ -1614,6 +1614,17 @@ impl HookEchoApp {
             PaletteAction::AllTilts,
             None,
         );
+        if !cfg!(target_arch = "wasm32") {
+            push(
+                "Output window",
+                "Tools",
+                "The active pane, clean, in a window of its own for OBS or a second screen \
+                 (capture “HookEcho Output”)",
+                false,
+                PaletteAction::ToggleOutputWindow,
+                Some(self.output.open),
+            );
+        }
         if !self.storm_tracks.tracks.is_empty() {
             push(
                 "Clear manual storm tracks",

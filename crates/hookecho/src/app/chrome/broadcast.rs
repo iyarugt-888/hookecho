@@ -18,13 +18,24 @@ impl HookEchoApp {
         if !self.obs_mode {
             return;
         }
-        let style = self.settings.broadcast.clone();
-        let rect = self.chrome_rect;
-        let inner = rect.shrink(style.margin_px(rect.width(), rect.height()).max(12.0));
         let painter = ctx.layer_painter(egui::LayerId::new(
             egui::Order::Foreground,
             egui::Id::new("broadcast_dressing"),
         ));
+        let rect = self.chrome_rect;
+        self.paint_broadcast(ctx, &painter, rect);
+    }
+
+    /// The dressing over `rect`, with `painter`: streaming mode's over the main map, the output
+    /// window's over its own (`app::output_window`).
+    pub(crate) fn paint_broadcast(
+        &mut self,
+        ctx: &egui::Context,
+        painter: &egui::Painter,
+        rect: Rect,
+    ) {
+        let style = self.settings.broadcast.clone();
+        let inner = rect.shrink(style.margin_px(rect.width(), rect.height()).max(12.0));
         let v = &self.views[self.active];
         let valid = v.timeline.current().and_then(|id| id.date_time());
         let site = v.site.clone().unwrap_or_default();
@@ -37,7 +48,7 @@ impl HookEchoApp {
                     Pos2::new(inner.left(), inner.bottom() - BAND_H),
                     inner.right_bottom(),
                 );
-                crawl_band(&painter, band, &line);
+                crawl_band(painter, band, &line);
                 bottom = band.top() - 6.0;
             }
         }
@@ -56,7 +67,7 @@ impl HookEchoApp {
                 v.moment.short_name()
             );
             shadowed(
-                &painter,
+                painter,
                 Pos2::new(inner.left(), bottom),
                 Align2::LEFT_BOTTOM,
                 &caption,
@@ -76,7 +87,7 @@ impl HookEchoApp {
             if let Some(t) = valid {
                 let (time, sub) = crate::broadcast::clock_lines(&site, t);
                 let big = shadowed(
-                    &painter,
+                    painter,
                     Pos2::new(clock_right, inner.top()),
                     Align2::RIGHT_TOP,
                     &time,
@@ -84,7 +95,7 @@ impl HookEchoApp {
                     Color32::WHITE,
                 );
                 shadowed(
-                    &painter,
+                    painter,
                     Pos2::new(clock_right, big.bottom() + 2.0),
                     Align2::RIGHT_TOP,
                     &sub,

@@ -32,6 +32,7 @@ pub(crate) mod camera_flight;
 mod chase;
 mod detectors;
 mod models;
+mod output_window;
 mod overlay_toggle;
 mod packs_soundings;
 mod pane_layout;
@@ -2142,6 +2143,7 @@ pub struct HookEchoApp {
     measure: Vec<[f64; 2]>,
     /// Manual storm-motion tracks (`app::storm_track`); session-only.
     storm_tracks: storm_track::StormTracks,
+    output: output_window::OutputWindow,
     /// How long recent frames took to build (`app::telemetry`), for Analyst Mode.
     frame_times: telemetry::FrameTimes,
     /// Freehand annotation strokes, in lon/lat so they stick to the ground through pan and zoom.
@@ -3309,6 +3311,7 @@ impl HookEchoApp {
             ribbon_mode: RibbonMode::default(),
             measure: Vec::new(),
             storm_tracks: Default::default(),
+            output: Default::default(),
             frame_times: Default::default(),
             strokes: Vec::new(),
             draw_color: DRAW_COLORS[0],
@@ -7066,6 +7069,7 @@ impl HookEchoApp {
                 self.pane_layout = layout;
             }
             PaletteAction::AllTilts => self.apply_all_tilts(),
+            PaletteAction::ToggleOutputWindow => self.output.open = !self.output.open,
             PaletteAction::ClearStormTracks => {
                 self.storm_tracks.tracks.clear();
                 self.storm_tracks.pending.clear();
@@ -16198,42 +16202,7 @@ impl HookEchoApp {
                         self.obs_mode = true;
                     }
                 }
-                ui.collapsing("Streaming overlay", |ui| {
-                    let b = &mut self.settings.broadcast;
-                    ui.add(
-                        egui::Slider::new(&mut b.safe_margin_pct, 0.0..=15.0)
-                            .suffix(" %")
-                            .text("Safe margin"),
-                    )
-                    .on_hover_text(
-                        "Keep the clock, caption, crawl and logo this far in from the edge — \
-                         5 % is the broadcast convention",
-                    );
-                    toggle(ui, &mut b.clock, "Clock");
-                    toggle(ui, &mut b.caption, "Source caption");
-                    toggle(ui, &mut b.crawl, "Warning crawl");
-                    toggle(ui, &mut b.legend, "Colour scale");
-                    let mut logo = b.logo.clone().unwrap_or_default();
-                    ui.horizontal(|ui| {
-                        ui.label("Logo");
-                        if ui
-                            .add(
-                                egui::TextEdit::singleline(&mut logo)
-                                    .hint_text("path to a PNG")
-                                    .desired_width(160.0),
-                            )
-                            .changed()
-                        {
-                            b.logo = (!logo.trim().is_empty()).then(|| logo.trim().to_string());
-                        }
-                    });
-                    if b.logo
-                        .as_deref()
-                        .is_some_and(|p| !std::path::Path::new(p).is_file())
-                    {
-                        ui.weak("No image at that path");
-                    }
-                });
+                self.streaming_rows(ui);
 
                 if ui
                     .add_enabled(
@@ -21193,6 +21162,7 @@ impl HookEchoApp {
 
         #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
         self.mini_loop_viewport(ctx);
+        self.output_window(ctx);
 
         self.crash_report_window(ctx);
 
@@ -21521,7 +21491,7 @@ mod tests {
     /// `app/`; when an extraction lands, lower the ceiling to the new length so it stays down.
     #[test]
     fn app_rs_only_gets_smaller() {
-        const CEILING: usize = 22694;
+        const CEILING: usize = 22664;
         let lines = include_str!("app.rs").lines().count();
         assert!(
             lines <= CEILING,
