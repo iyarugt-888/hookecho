@@ -223,6 +223,10 @@ impl HookEchoApp {
 
         if cells_here {
             let label_tracks = self.filters.show_tracks && cam.zoom >= 7.0;
+            // Forecast-time labels already drawn. Neighbouring cells' tracks run side by side, and
+            // their times stacked into one unreadable pile. A label that would land on another, or
+            // run off the pane's edge, is left off; its tick still marks the time.
+            let mut eta_rects: Vec<egui::Rect> = Vec::new();
             for c in self.active_storm_cells() {
                 let p = to_screen(c.lon, c.lat);
                 // Past track (packet 23): faint gray polyline leading up to the current position.
@@ -259,6 +263,23 @@ impl HookEchoApp {
                                 self.settings.tz_for(view.site.as_deref()),
                             );
                             let lp = tpp + egui::vec2(6.0, -16.0);
+                            let size = painter
+                                .layout_no_wrap(
+                                    txt.clone(),
+                                    egui::FontId::proportional(14.0),
+                                    white,
+                                )
+                                .size();
+                            let rect =
+                                egui::Rect::from_min_size(lp - egui::vec2(0.0, size.y), size)
+                                    .expand(2.0);
+                            if !prect.contains_rect(rect)
+                                || eta_rects.iter().any(|r| r.intersects(rect))
+                            {
+                                prev = tpp;
+                                continue;
+                            }
+                            eta_rects.push(rect);
                             for off in [egui::vec2(1.0, 1.0), egui::vec2(-1.0, -1.0)] {
                                 painter.text(
                                     lp + off,

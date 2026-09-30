@@ -40,8 +40,11 @@ pub(crate) use goto::{goto_link, parse_goto, Goto};
 mod cell_markers;
 mod detector_markers;
 mod map_click;
+mod pane_3d_overlays;
 mod pane_layout;
 mod pane_overlays;
+mod pane_points;
+mod pane_stations;
 mod radar_feed;
 mod rules;
 mod scenes;
@@ -12090,58 +12093,7 @@ impl HookEchoApp {
         // Spotter Network positions, filtered to within Level-II range of this pane's site.
         // FAA camera sites: a small camera-blue dot per airport, named once you're close enough
         // to tell them apart. Clicking one opens its newest frame (see `open_webcam`).
-        if self.show_webcams {
-            let show_labels = cam.zoom >= 8.0;
-            let col = egui::Color32::from_rgb(110, 180, 240);
-            // A camera under a tornado or severe-thunderstorm warning is the one worth opening,
-            // and it looks exactly like the other forty until you click them all. Ring it.
-            // Polygons the alert layer already holds; no extra fetch and no extra geometry.
-            let threat: Vec<&GeoFeature> = self
-                .alert_features
-                .iter()
-                .filter(|f| {
-                    f.kind == overlay::FeatureKind::Warning
-                        && f.alert.as_ref().is_some_and(|a| {
-                            let e = a.event.to_ascii_lowercase();
-                            e.contains("tornado") || e.contains("severe thunderstorm")
-                        })
-                })
-                .collect();
-            for site in &self.webcams {
-                let w = crate::render::mercator::lonlat_to_world(site.lon, site.lat);
-                let (sx, sy) = cam.world_to_screen(w, vp);
-                let p = egui::pos2(prect.left() + sx, prect.top() + sy);
-                if !prect.contains(p) {
-                    continue;
-                }
-                painter.circle_filled(p, 4.0, col);
-                painter.circle_stroke(
-                    p,
-                    4.0,
-                    egui::Stroke::new(1.0, egui::Color32::from_black_alpha(170)),
-                );
-                // `distance_km` is 0 inside the polygon, which is the test we want here.
-                if threat
-                    .iter()
-                    .any(|f| f.distance_km(site.lon, site.lat) == 0.0)
-                {
-                    painter.circle_stroke(
-                        p,
-                        7.0,
-                        egui::Stroke::new(1.5, egui::Color32::from_rgb(255, 120, 60)),
-                    );
-                }
-                if show_labels {
-                    painter.text(
-                        p + egui::vec2(6.0, -5.0),
-                        egui::Align2::LEFT_BOTTOM,
-                        &site.name,
-                        egui::FontId::proportional(10.0),
-                        col,
-                    );
-                }
-            }
-        }
+        self.paint_webcams(&painter, prect, cam, vp);
 
         // Live stations: a dot per station, warm where it is hot and cool where it is not, so a
         // boundary reads off the map before any card is open. Clicking one opens its card.
@@ -12280,95 +12232,10 @@ impl HookEchoApp {
             }
         }
 
-        if self.show_spotters {
-            if let Some(site_pos) = self.views[idx]
-                .site
-                .as_deref()
-                .and_then(wxdata::sites::site_by_id)
-                .map(|s| [s.longitude as f64, s.latitude as f64])
-            {
-                let now = Utc::now();
-                let show_labels = cam.zoom >= 9.0;
-                // The range limit is at most `range/110` degrees of latitude and, at CONUS
-                // latitudes, ~1.4x that in longitude — a cheap box rejects almost every spotter
-                // before the haversine runs. 0 means the user asked for the whole feed.
-                let range_km = self.settings.spotter_range_km.max(0.0);
-                let (max_dlat, max_dlon) = if range_km <= 0.0 {
-                    (f64::INFINITY, f64::INFINITY)
-                } else {
-                    let dlat = range_km / 110.0;
-                    (dlat, dlat * 1.45)
-                };
-                let mut spotter_click: Option<wxdata::spotters::Spotter> = None;
-                for sp in &self.spotters {
-                    if (sp.lon - site_pos[0]).abs() > max_dlon
-                        || (sp.lat - site_pos[1]).abs() > max_dlat
-                    {
-                        continue;
-                    }
-                    if range_km > 0.0
-                        && crate::geo::great_circle(site_pos, [sp.lon, sp.lat]).0 > range_km
-                    {
-                        continue;
-                    }
-                    let w = crate::render::mercator::lonlat_to_world(sp.lon, sp.lat);
-                    let (sx, sy) = cam.world_to_screen(w, vp);
-                    let p = egui::pos2(prect.left() + sx, prect.top() + sy);
-                    if !prect.contains(p) {
-                        continue;
-                    }
-                    // Spotter Network green; faded when the report is stale (>30 min old).
-                    let stale = (now - sp.time).num_minutes() > 30;
-                    let color = {
-                        let g = egui::Color32::from_rgb(0, 200, 80);
-                        if stale {
-                            g.gamma_multiply(0.35)
-                        } else {
-                            g
-                        }
-                    };
-                    painter.circle_filled(p, 3.0, color);
-                    painter.circle_stroke(
-                        p,
-                        3.0,
-                        egui::Stroke::new(1.0, egui::Color32::from_black_alpha(160)),
-                    );
-                    // Movement arrow tick, heading clockwise from north.
-                    if let Some(h) = sp.heading {
-                        let r = h.to_radians();
-                        let dir = egui::vec2(r.sin(), -r.cos());
-                        painter.line_segment([p, p + dir * 8.0], egui::Stroke::new(1.5, color));
-                    }
-                    if show_labels {
-                        painter.text(
-                            p + egui::vec2(5.0, -5.0),
-                            egui::Align2::LEFT_BOTTOM,
-                            &sp.name,
-                            egui::FontId::proportional(10.0),
-                            color,
-                        );
-                    }
-                    let hit = egui::Rect::from_center_size(p, egui::vec2(14.0, 14.0));
-                    if response.hover_pos().is_some_and(|hp| hit.contains(hp)) {
-                        let hover = format!(
-                            "{}\n{}\n{}",
-                            sp.name,
-                            crate::timefmt::fmt_date_clock(sp.time, self.active_tz()),
-                            sp.status
-                        );
-                        response.clone().show_tooltip_text(hover);
-                    }
-                    if response.clicked()
-                        && response
-                            .interact_pointer_pos()
-                            .is_some_and(|hp| hit.contains(hp))
-                    {
-                        spotter_click = Some(sp.clone());
-                    }
-                }
-                // Deferred: the surrounding pane borrow is still live here.
-                self.pending_spotter = spotter_click;
-            }
+        // Only a click is stored. Every pane draws before the click is read (`ui_frame`), so
+        // storing "no click" too would let the next pane erase this one's.
+        if let Some(sp) = self.paint_spotters(&painter, prect, cam, vp, idx, &response) {
+            self.pending_spotter = Some(sp);
         }
 
         // ProbSevere per-storm probability badges (polygons draw via the overlay pipeline).
@@ -12423,81 +12290,9 @@ impl HookEchoApp {
         // An interrogate click opens the gauge's card (`ui::gauge_card`): hydrograph, flood
         // stages, crests. A gauge forecast to reach a worse category than it is in now wears a
         // ring in that category's color, and a gauge with its card open a white one.
-        if self.show_gauges && cam.zoom >= 6.0 {
-            let gcolor = crate::ui::gauge_card::cat_color;
-            let glabel = crate::ui::gauge_card::cat_label;
-            // Already-drawn gauges get their slot back before a newcomer takes it, the same way
-            // the METAR and place-name layers already do. Without it a gauge at the edge of a
-            // collision wins and loses on alternate frames, which reads as flicker while panning.
-            //
-            // Two passes — returning labels, then the rest — rather than sorting into a vector
-            // that would be allocated and thrown away on every frame.
-            for returning in [true, false] {
-                crate::prof_scope!("river_gauges");
-                for g in &self.gauges {
-                    if self.labels.was_shown(crate::labelplace::key(&g.lid)) != returning {
-                        continue;
-                    }
-                    let w = crate::render::mercator::lonlat_to_world(g.lon, g.lat);
-                    let (sx, sy) = cam.world_to_screen(w, vp);
-                    let p = egui::pos2(prect.left() + sx, prect.top() + sy);
-                    if !prect.contains(p) {
-                        continue;
-                    }
-                    // Shared declutter: gauges are the lowest tier, so they fill what is left.
-                    let cell = egui::Rect::from_center_size(p, egui::vec2(15.0, 15.0));
-                    if !self.labels.place(
-                        crate::labelplace::key(&g.lid),
-                        cell,
-                        crate::labelplace::Priority::Minor,
-                    ) {
-                        continue;
-                    }
-                    let s = 6.0;
-                    painter.add(egui::Shape::convex_polygon(
-                        vec![
-                            p + egui::vec2(-s * 0.85, -s * 0.6),
-                            p + egui::vec2(s * 0.85, -s * 0.6),
-                            p + egui::vec2(0.0, s),
-                        ],
-                        gcolor(g.cat).gamma_multiply(0.85),
-                        egui::Stroke::new(1.2, egui::Color32::from_gray(20)),
-                    ));
-                    if g.forecast_ft.is_some() && g.forecast_cat.severity() < g.cat.severity() {
-                        painter.circle_stroke(
-                            p + egui::vec2(0.0, -0.5),
-                            s + 3.0,
-                            egui::Stroke::new(1.8, gcolor(g.forecast_cat)),
-                        );
-                    }
-                    if self.gauge_cards.is_open(&g.lid) {
-                        painter.circle_stroke(
-                            p + egui::vec2(0.0, -0.5),
-                            s + 5.5,
-                            egui::Stroke::new(1.5, egui::Color32::WHITE),
-                        );
-                    }
-                    let hit = egui::Rect::from_center_size(p, egui::vec2(16.0, 16.0));
-                    if response.hover_pos().is_some_and(|hp| hit.contains(hp)) {
-                        let stage = g
-                            .stage_ft
-                            .map_or_else(|| "n/a".to_string(), |v| format!("{v:.1} ft"));
-                        let mut tip =
-                            format!("{} ({})\n{stage} — {}", g.name, g.lid, glabel(g.cat));
-                        if let Some(f) = g.forecast_ft {
-                            tip.push_str(&format!(
-                                "\nFcst: {f:.1} ft ({})",
-                                glabel(g.forecast_cat)
-                            ));
-                        }
-                        if self.tool == MapTool::Interrogate {
-                            tip.push_str("\nClick for the hydrograph and crests");
-                        }
-                        response.clone().show_tooltip_text(tip);
-                    }
-                }
-            }
-        }
+        let mut labels = std::mem::take(&mut self.labels);
+        self.paint_gauges(&painter, prect, cam, vp, &response, &mut labels);
+        self.labels = labels;
 
         // Day/night shading, the terminator line, and the lat/lon graticule — a plain reference
         // layer over the map, not a data source, so it needs no site/moment/pane gate beyond the
@@ -12851,120 +12646,14 @@ impl HookEchoApp {
         // Scan age: a ring at the edge of the sweep, coloured by how long before the newest data
         // each azimuth was collected. The antenna takes minutes to turn, so the two edges of a
         // picture can be a rotation apart; this is where.
-        if self.show_scan_age {
-            if let Some(Some(ring)) = self.scan_age_rings.get(&idx) {
-                let to_screen = |p: [f64; 2]| {
-                    let w = crate::render::mercator::lonlat_to_world(p[0], p[1]);
-                    let (sx, sy) = cam.world_to_screen(w, vp);
-                    egui::pos2(prect.left() + sx, prect.top() + sy)
-                };
-                let n = ring.wedges.len();
-                for (i, age) in ring.wedges.iter().enumerate() {
-                    let Some(age) = age else { continue };
-                    let a0 = i as f64 / n as f64 * 360.0;
-                    let a1 = (i + 1) as f64 / n as f64 * 360.0;
-                    let pts: Vec<egui::Pos2> = [a0, (a0 + a1) / 2.0, a1]
-                        .into_iter()
-                        .map(|az| {
-                            to_screen(crate::geo::destination_point(
-                                ring.origin,
-                                az,
-                                ring.radius_km,
-                            ))
-                        })
-                        .collect();
-                    painter.add(egui::Shape::line(
-                        pts,
-                        egui::Stroke::new(5.0, scan_age_color(*age)),
-                    ));
-                }
-                if cam.zoom >= 4.0 {
-                    let top = to_screen(crate::geo::destination_point(
-                        ring.origin,
-                        0.0,
-                        ring.radius_km,
-                    ));
-                    let mut text = format!(
-                        "Sweep spans {}",
-                        wxdata::scan_age::format_span(ring.summary.span_ms())
-                    );
-                    // Only meaningful on a live volume; on an archive replay the wall-clock age
-                    // is years and says nothing about the picture.
-                    let since = Utc::now().timestamp_millis() - ring.summary.newest_ms;
-                    if (0..6 * 3_600_000).contains(&since) {
-                        text.push_str(&format!(
-                            " · newest {} ago",
-                            wxdata::scan_age::format_span(since)
-                        ));
-                    }
-                    if ring.summary.is_partial() {
-                        text.push_str(" · partial");
-                    }
-                    painter.text(
-                        top + egui::vec2(0.0, -8.0),
-                        egui::Align2::CENTER_BOTTOM,
-                        text,
-                        egui::FontId::proportional(11.0),
-                        egui::Color32::from_gray(225),
-                    );
-                }
-            }
-        }
+        self.paint_scan_age(&painter, prect, cam, vp, idx);
 
         // Radar sites: a ring per site — both networks, so a TDWR you can select is a TDWR you can
         // see. The active site in accent, others muted. IDs only when zoomed in so the CONUS view
         // isn't cluttered. Click handled in the Interrogate tool.
-        if self.show_radar_sites {
-            let accent = crate::theme::accent(self.settings.theme);
-            let current = self.views[idx].site.as_deref();
-            // Sticky, for the same reason as the gauges above: a site id that wins and loses the
-            // same collision on alternate frames is the flicker, not the collision.
-            for returning in [true, false] {
-                let show_labels = cam.zoom >= 5.0;
-                for (s, w) in sites_in_world() {
-                    if self.labels.was_shown(crate::labelplace::key(s.id)) != returning {
-                        continue;
-                    }
-                    let (sx, sy) = cam.world_to_screen(*w, vp);
-                    let p = egui::pos2(prect.left() + sx, prect.top() + sy);
-                    if !prect.contains(p) {
-                        continue;
-                    }
-                    let is_current = current == Some(s.id);
-                    let col = if is_current {
-                        accent
-                    } else {
-                        egui::Color32::from_rgb(120, 190, 255)
-                    };
-                    let r = if is_current { 5.0 } else { 3.5 };
-                    painter.circle_stroke(p, r, egui::Stroke::new(1.5, col));
-                    painter.circle_filled(p, 1.5, col);
-                    // The dot always draws — it is the click target, and it is small enough not to
-                    // matter. Only the four-letter id competes for space, and it loses to city names:
-                    // "TDAL" sitting across "Grapevine" is the exact overlap this pass exists for.
-                    let id_rect = egui::Rect::from_min_size(
-                        p + egui::vec2(6.0, -6.0),
-                        egui::vec2(s.id.len() as f32 * 6.5, 12.0),
-                    )
-                    .expand(1.0);
-                    if show_labels
-                        && self.labels.place(
-                            crate::labelplace::key(s.id),
-                            id_rect,
-                            crate::labelplace::Priority::Minor,
-                        )
-                    {
-                        painter.text(
-                            p + egui::vec2(6.0, 0.0),
-                            egui::Align2::LEFT_CENTER,
-                            s.id,
-                            egui::FontId::monospace(10.0),
-                            col,
-                        );
-                    }
-                }
-            }
-        }
+        let mut labels = std::mem::take(&mut self.labels);
+        self.paint_radar_sites(&painter, prect, cam, vp, idx, &mut labels);
+        self.labels = labels;
 
         // Location markers.
         for m in &self.settings.markers {
@@ -13131,75 +12820,7 @@ impl HookEchoApp {
 
         // An MRMS echo-top layer as a height surface (ROADMAP_NEW H6): translucent, with an analysis
         // grid over it, so it never reads as the observed radar volume.
-        if self.views[idx].map_3d.enabled && self.views[idx].map_3d.mrms_surface {
-            use crate::render::FieldLayer as FL;
-            let v = &self.views[idx];
-            let layer = [
-                FL::MrmsEchoTop18,
-                FL::MrmsEchoTop30,
-                FL::MrmsEchoTop50,
-                FL::MrmsEchoTop60,
-            ]
-            .into_iter()
-            .find(|l| v.fields_on.contains(l) && self.mrms_ready(*l));
-            if let (Some(layer), Some(ramp)) =
-                (layer, layer.and_then(crate::render::field_ramps::ramp_for))
-            {
-                if let Some(grid) = self.fields.get(&layer).and_then(|f| f.grid.as_ref()) {
-                    // The lon/lat box the view covers, from its corners, capped at a regional size.
-                    let corners = [
-                        (0.0, 0.0),
-                        (vp.0, 0.0),
-                        (0.0, vp.1),
-                        (vp.0, vp.1),
-                        (vp.0 * 0.5, vp.1 * 0.5),
-                    ]
-                    .map(|p| {
-                        let w = cam.screen_to_world(p, vp);
-                        crate::render::mercator::world_to_lonlat(w.0, w.1)
-                    });
-                    let (clon, clat) = corners[4];
-                    let mut b = [f64::MAX, f64::MAX, f64::MIN, f64::MIN];
-                    for (lon, lat) in corners {
-                        b = [b[0].min(lon), b[1].min(lat), b[2].max(lon), b[3].max(lat)];
-                    }
-                    let b = [
-                        b[0].max(clon - 6.0),
-                        b[1].max(clat - 4.0),
-                        b[2].min(clon + 6.0),
-                        b[3].min(clat + 4.0),
-                    ];
-                    let lut = match &ramp.scale {
-                        crate::render::field_ramps::FieldScale::Ramp { stops, .. } => {
-                            crate::render::field_ramps::bake_ramp_lut(stops, 255)
-                        }
-                        _ => Vec::new(),
-                    };
-                    let (mesh, lines) = crate::render3d::height_surface_screen(
-                        &cam,
-                        vp,
-                        prect.min,
-                        grid,
-                        b,
-                        160,
-                        v.map_3d.vertical_exaggeration as f64,
-                        0.5,
-                        |km| {
-                            let i = ramp.index(km) as usize;
-                            (i > 0 && lut.len() >= (i + 1) * 4)
-                                .then(|| [lut[i * 4], lut[i * 4 + 1], lut[i * 4 + 2]])
-                        },
-                    );
-                    painter.add(egui::Shape::mesh(mesh));
-                    for l in lines {
-                        painter.add(egui::Shape::line(
-                            l,
-                            egui::Stroke::new(0.6, egui::Color32::from_white_alpha(70)),
-                        ));
-                    }
-                }
-            }
-        }
+        self.paint_3d_mrms_surface(&painter, prect, cam, vp, idx);
 
         // The ground itself (ROADMAP_NEW H5), first so every other surface and shell draws over it.
         if self.views[idx].map_3d.enabled && self.views[idx].map_3d.terrain {
@@ -13276,73 +12897,7 @@ impl HookEchoApp {
         // The HRRR's 0, -10 and -20 °C heights as surfaces (ROADMAP_NEW H6): one colour per level,
         // with a *dashed* grid, the forecast's own look — apart from the observed radar, the
         // solid-gridded MRMS analysis and the ungridded satellite sheet.
-        if self.views[idx].map_3d.enabled && self.views[idx].map_3d.model_isotherms {
-            if let Some((_, (fields, run))) = self.model_isotherms.as_ref() {
-                let v = &self.views[idx];
-                let corners = [
-                    (0.0, 0.0),
-                    (vp.0, 0.0),
-                    (0.0, vp.1),
-                    (vp.0, vp.1),
-                    (vp.0 * 0.5, vp.1 * 0.5),
-                ]
-                .map(|p| {
-                    let w = cam.screen_to_world(p, vp);
-                    crate::render::mercator::world_to_lonlat(w.0, w.1)
-                });
-                let (clon, clat) = corners[4];
-                let mut b = [f64::MAX, f64::MAX, f64::MIN, f64::MIN];
-                for (lon, lat) in corners {
-                    b = [b[0].min(lon), b[1].min(lat), b[2].max(lon), b[3].max(lat)];
-                }
-                let b = [
-                    b[0].max(clon - 8.0),
-                    b[1].max(clat - 6.0),
-                    b[2].min(clon + 8.0),
-                    b[3].min(clat + 6.0),
-                ];
-                // Highest first, so the lower, nearer surfaces paint over the ones above them.
-                for (label, color, field) in fields.iter().rev() {
-                    let (mesh, lines) = crate::render3d::height_surface_screen(
-                        &cam,
-                        vp,
-                        prect.min,
-                        field,
-                        b,
-                        // Smooth model fields: a coarse sheet reads the same and costs a third.
-                        40,
-                        v.map_3d.vertical_exaggeration as f64,
-                        0.12,
-                        |_| Some(*color),
-                    );
-                    // Where to name it: the surface point nearest the middle of the pane.
-                    let centre = prect.center();
-                    let anchor = mesh
-                        .vertices
-                        .iter()
-                        .map(|v| v.pos)
-                        .min_by(|a, b| a.distance(centre).total_cmp(&b.distance(centre)));
-                    painter.add(egui::Shape::mesh(mesh));
-                    let stroke = egui::Stroke::new(
-                        1.2,
-                        egui::Color32::from_rgba_unmultiplied(color[0], color[1], color[2], 220),
-                    );
-                    for l in &lines {
-                        painter.extend(egui::Shape::dashed_line(l, stroke, 4.0, 4.0));
-                    }
-                    // Its name, so each sheet says what it is.
-                    if let Some(p) = anchor {
-                        painter.text(
-                            p,
-                            egui::Align2::CENTER_BOTTOM,
-                            format!("{label} · {}Z run", run.format("%H")),
-                            egui::FontId::proportional(11.0),
-                            egui::Color32::from_rgb(color[0], color[1], color[2]),
-                        );
-                    }
-                }
-            }
-        }
+        self.paint_3d_isotherms(&painter, prect, cam, vp, idx);
 
         // A height ruler at the view's centre: km MSL ticks, labelled, so every surface, shell and
         // sweep in the scene can be read against a height.
@@ -13380,150 +12935,10 @@ impl HookEchoApp {
 
         // SCIT storm cells as 3D columns: the cell's base to its top, a mark at the height of its
         // strongest echo, the id and top, TVS red and meso yellow, and the past track on the ground.
-        if self.views[idx].map_3d.enabled && self.views[idx].map_3d.cell_columns {
-            let v = &self.views[idx];
-            let vex = v.map_3d.vertical_exaggeration as f64;
-            let at = |p: (f32, f32)| egui::pos2(prect.left() + p.0, prect.top() + p.1);
-            let scr = |lon: f64, lat: f64, km: f64| {
-                crate::render3d::lonlat_alt_screen(&cam, vp, lon, lat, km, vex).map(at)
-            };
-            const KM_PER_KFT: f64 = 0.3048;
-            for c in self.active_storm_cells() {
-                let Some(top) = c.top_kft.map(|t| t as f64 * KM_PER_KFT) else {
-                    continue;
-                };
-                let base = c
-                    .base_kft
-                    .filter(|_| !c.base_below)
-                    .map_or(0.0, |b| b as f64 * KM_PER_KFT);
-                let color = if c.tvs.is_some() {
-                    egui::Color32::from_rgb(255, 70, 70)
-                } else if c.meso.is_some() {
-                    egui::Color32::from_rgb(255, 220, 60)
-                } else {
-                    egui::Color32::from_rgb(235, 235, 235)
-                };
-                let track: Vec<egui::Pos2> = c
-                    .past_track
-                    .iter()
-                    .filter_map(|&(lon, lat)| scr(lon, lat, 0.0))
-                    .collect();
-                if track.len() >= 2 {
-                    painter.add(egui::Shape::line(
-                        track,
-                        egui::Stroke::new(1.5, color.gamma_multiply(0.6)),
-                    ));
-                }
-                let (Some(g), Some(b), Some(t)) = (
-                    scr(c.lon, c.lat, 0.0),
-                    scr(c.lon, c.lat, base),
-                    scr(c.lon, c.lat, top),
-                ) else {
-                    continue;
-                };
-                // Ground to base dashed (below the cell), base to top solid.
-                painter.extend(egui::Shape::dashed_line(
-                    &[g, b],
-                    egui::Stroke::new(1.0, color.gamma_multiply(0.5)),
-                    3.0,
-                    3.0,
-                ));
-                painter.line_segment(
-                    [b, t],
-                    egui::Stroke::new(4.0, egui::Color32::from_black_alpha(110)),
-                );
-                painter.line_segment([b, t], egui::Stroke::new(2.0, color));
-                if let Some(m) = c
-                    .max_dbz_hgt_kft
-                    .and_then(|h| scr(c.lon, c.lat, h as f64 * KM_PER_KFT))
-                {
-                    painter.circle(m, 4.0, color, egui::Stroke::new(1.0, egui::Color32::BLACK));
-                }
-                let mut label = format!("{} {:.0} kft", c.title, c.top_kft.unwrap_or(0.0));
-                if let Some(dbz) = c.max_dbz {
-                    label.push_str(&format!(" · {dbz:.0} dBZ"));
-                }
-                if c.tvs.is_some() {
-                    label.push_str(" · TVS");
-                } else if c.meso.is_some() {
-                    label.push_str(" · meso");
-                }
-                painter.text(
-                    t + egui::vec2(0.0, -4.0),
-                    egui::Align2::CENTER_BOTTOM,
-                    label,
-                    egui::FontId::proportional(11.0),
-                    color,
-                );
-            }
-        }
+        self.paint_3d_cell_columns(&painter, prect, cam, vp, idx);
 
         // Beam guides over the 3D map (ROADMAP_NEW H5): the geometry every observed gate sits on.
-        if self.views[idx].map_3d.enabled && self.views[idx].map_3d.beam_guides {
-            let v = &self.views[idx];
-            if let (Some(site), Some(vol)) = (
-                v.site.as_deref().and_then(wxdata::sites::site_by_id),
-                v.volume.as_ref(),
-            ) {
-                let (rlon, rlat) = (site.longitude as f64, site.latitude as f64);
-                let ground_m = site.elevation_meters as f64;
-                let antenna_m = ground_m + wxdata::towers::tower_m(site.id);
-                // Beams point toward whatever the view is looking at.
-                let (clon, clat) =
-                    crate::render::mercator::world_to_lonlat(cam.center.0, cam.center.1);
-                let bearing = crate::geo::bearing_deg([rlon, rlat], [clon, clat]);
-                let g = crate::render3d::beam_guides(
-                    &cam,
-                    vp,
-                    rlon,
-                    rlat,
-                    ground_m,
-                    antenna_m,
-                    v.map_3d.vertical_exaggeration as f64,
-                    v.map_3d.beam_rise as f64,
-                    &vol.elevations,
-                    bearing,
-                    230.0,
-                );
-                let at = |p: &(f32, f32)| egui::pos2(prect.left() + p.0, prect.top() + p.1);
-                let n = vol.elevations.len().max(2) as f32 - 1.0;
-                for (tilt, ring) in &g.rings {
-                    // Low tilts cyan, high tilts magenta.
-                    let t = (*tilt as f32 / n).clamp(0.0, 1.0);
-                    let c = egui::Color32::from_rgba_unmultiplied(
-                        (80.0 + 170.0 * t) as u8,
-                        (220.0 - 150.0 * t) as u8,
-                        240,
-                        110,
-                    );
-                    let pts: Vec<egui::Pos2> = ring.iter().map(at).collect();
-                    painter.add(egui::Shape::line(pts, egui::Stroke::new(1.0, c)));
-                }
-                for (edge, line) in &g.beams {
-                    let pts: Vec<egui::Pos2> = line.iter().map(at).collect();
-                    if *edge {
-                        painter.extend(egui::Shape::dashed_line(
-                            &pts,
-                            egui::Stroke::new(1.0, egui::Color32::from_white_alpha(150)),
-                            4.0,
-                            4.0,
-                        ));
-                    } else {
-                        painter.add(egui::Shape::line(
-                            pts,
-                            egui::Stroke::new(1.8, egui::Color32::WHITE),
-                        ));
-                    }
-                }
-                if let Some([a, b]) = g.mast {
-                    painter.line_segment(
-                        [at(&a), at(&b)],
-                        egui::Stroke::new(2.0, egui::Color32::WHITE),
-                    );
-                    painter.circle_filled(at(&b), 3.5, egui::Color32::WHITE);
-                }
-            }
-        }
+        self.paint_3d_beam_guides(&painter, prect, cam, vp, idx);
 
         // Routes (ROADMAP_NEW L2): alternatives thin and grey, the chosen one wide and blue over a
         // dark casing so it reads over radar, and the waypoints lettered.
@@ -19625,7 +19040,7 @@ mod tests {
     /// `app/`; when an extraction lands, lower the ceiling to the new length so it stays down.
     #[test]
     fn app_rs_only_gets_smaller() {
-        const CEILING: usize = 20798;
+        const CEILING: usize = 20213;
         let lines = include_str!("app.rs").lines().count();
         assert!(
             lines <= CEILING,
