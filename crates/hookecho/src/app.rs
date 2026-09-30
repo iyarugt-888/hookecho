@@ -5240,7 +5240,13 @@ impl HookEchoApp {
             settings.seeded_workspaces = true;
             settings.save();
         }
-        if crate::workspace::upgrade_starters(&mut settings.workspaces) {
+        let seeded = settings.seeded_workspaces;
+        let offered = crate::workspace::offer_new_starters(
+            &mut settings.workspaces,
+            &mut settings.offered_starters,
+            seeded,
+        );
+        if crate::workspace::upgrade_starters(&mut settings.workspaces) || offered {
             settings.save();
         }
         // Sample terrain at the resolution this user packs at, so a hi-res pack is actually read.

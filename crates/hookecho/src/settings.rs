@@ -755,6 +755,10 @@ pub struct Settings {
     /// what deleting the last one means.
     #[serde(default)]
     pub seeded_workspaces: bool,
+    /// Every starter workspace name offered so far (`workspace::offer_new_starters`), so one
+    /// shipped later reaches this file once and a deleted one is not offered again.
+    #[serde(default)]
+    pub offered_starters: Vec<String>,
     /// The model browser's last choice, as `model/product` (see `model_browser::Selection`).
     /// Empty means the default. An unknown value from a newer build falls back to the default.
     #[serde(default)]
@@ -1829,6 +1833,7 @@ impl Default for Settings {
             window: None,
             workspaces: Vec::new(),
             seeded_workspaces: false,
+            offered_starters: Vec::new(),
             model_pick: String::new(),
             last_view: None,
             nwr_streams: Vec::new(),
@@ -2534,6 +2539,7 @@ mod tests {
             tile_disk_cache_mb: 0,
             workspaces: Vec::new(),
             seeded_workspaces: false,
+            offered_starters: Vec::new(),
             model_pick: String::new(),
             smooth_radar: false,
             live_scan_indicator: false,

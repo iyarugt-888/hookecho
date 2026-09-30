@@ -356,6 +356,46 @@ fn pane(moment: wxdata::level2::Moment, tilt: usize, srv: bool) -> PaneSnap {
     }
 }
 
+/// The starters shipped in the first seeding. A settings file seeded before
+/// `Settings::offered_starters` existed was offered exactly these, so only the ones after them are
+/// new to it.
+const FIRST_STARTERS: [&str; 8] = [
+    "Chase",
+    "National overview",
+    "Analysis",
+    "Tornado analysis",
+    "Hail analysis",
+    "Mesoscale analysis",
+    "Radar + satellite",
+    "Forecast comparison",
+];
+
+/// Add each starter this settings file has never been offered, once: a preset shipped later
+/// (Tropical) reaches people seeded before it, and a starter someone deleted stays deleted.
+/// `offered` records every starter name offered so far. Returns whether anything changed.
+pub fn offer_new_starters(
+    saved: &mut Vec<Workspace>,
+    offered: &mut Vec<String>,
+    seeded: bool,
+) -> bool {
+    let mut changed = false;
+    if offered.is_empty() && seeded {
+        *offered = FIRST_STARTERS.iter().map(|s| s.to_string()).collect();
+        changed = true;
+    }
+    for start in starters() {
+        if offered.contains(&start.name) {
+            continue;
+        }
+        offered.push(start.name.clone());
+        if !saved.iter().any(|w| w.name == start.name) {
+            saved.push(start);
+        }
+        changed = true;
+    }
+    changed
+}
+
 /// Bring seeded starters up to date with what the starters ask for now. Starters are copied into
 /// the settings once, on first run, so a capability added later (the hail preset's sounding)
 /// never reached them. Only a stored workspace that is still the starter — same name, same panes
@@ -648,6 +688,41 @@ pub fn starters() -> Vec<Workspace> {
             chrome: None,
             sound_center: false,
         },
+        // ROADMAP_2 §12.1's Tropical preset: a landfalling storm's radar beside the satellite
+        // picture of the whole system, with the NHC track and cone, recon, surface obs and the
+        // warnings. Reflectivity for the eyewall and bands, storm-relative velocity for the
+        // embedded tornadoes landfalling bands spin up, and reflectivity over infrared satellite
+        // for the structure radar cannot reach offshore. Each pane adopts the active radar.
+        Workspace {
+            name: "Tropical".into(),
+            pane_layout: PaneLayout::Balanced,
+            panes: vec![
+                pane(Moment::Reflectivity, 0, false),
+                pane(Moment::Velocity, 0, true),
+                PaneSnap {
+                    fields_on: Some(vec!["goes-ir".into()]),
+                    ..pane(Moment::Reflectivity, 0, false)
+                },
+            ],
+            active: 0,
+            link_cameras: true,
+            link_times: true,
+            lock_source_time: false,
+            link_site: true,
+            link_cursor: true,
+            link_storm: false,
+            overlays_on: vec![
+                "Alerts".into(),
+                "Tropical".into(),
+                "Recon".into(),
+                "Metar".into(),
+                "Watches".into(),
+            ],
+            adopt_site: true,
+            fields_on: vec!["goes-ir".into()],
+            chrome: None,
+            sound_center: false,
+        },
     ]
 }
 
@@ -862,10 +937,54 @@ mod tests {
     }
 
     #[test]
+    fn a_later_starter_reaches_an_old_seeding_once_and_a_deleted_one_stays_deleted() {
+        // Seeded before `offered_starters` existed, then "Chase" deleted.
+        let mut saved: Vec<Workspace> = starters()
+            .into_iter()
+            .filter(|w| FIRST_STARTERS.contains(&w.name.as_str()) && w.name != "Chase")
+            .collect();
+        let mut offered = Vec::new();
+        assert!(offer_new_starters(&mut saved, &mut offered, true));
+        assert!(
+            saved.iter().any(|w| w.name == "Tropical"),
+            "the new one arrives"
+        );
+        assert!(
+            !saved.iter().any(|w| w.name == "Chase"),
+            "the deleted one stays gone"
+        );
+        // Deleting the new one sticks too.
+        saved.retain(|w| w.name != "Tropical");
+        assert!(!offer_new_starters(&mut saved, &mut offered, true));
+        assert!(!saved.iter().any(|w| w.name == "Tropical"));
+        // A first seeding offers everything and adds nothing twice.
+        let mut fresh = starters();
+        let mut offered = Vec::new();
+        offer_new_starters(&mut fresh, &mut offered, false);
+        assert_eq!(fresh.len(), starters().len());
+        assert_eq!(offered.len(), starters().len());
+    }
+
+    #[test]
+    fn the_first_seeding_list_names_real_starters() {
+        let names: Vec<String> = starters().into_iter().map(|w| w.name).collect();
+        for n in FIRST_STARTERS {
+            assert!(names.iter().any(|m| m == n), "{n}");
+        }
+    }
+
+    #[test]
     fn every_starter_names_things_this_build_has() {
         for ws in starters() {
             assert!(!ws.panes.is_empty(), "{} has no panes", ws.name);
             assert!(ws.active < ws.panes.len());
+            for t in &ws.overlays_on {
+                assert!(
+                    crate::app::OverlayToggle::from_slug(t).is_some(),
+                    "{}: unknown overlay {t}",
+                    ws.name
+                );
+            }
             for slug in &ws.fields_on {
                 assert!(
                     crate::render::FieldLayer::from_slug(slug).is_some(),
