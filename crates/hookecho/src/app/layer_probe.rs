@@ -79,12 +79,31 @@ fn nearest_track_point(
         .min_by(|a, b| a.0.total_cmp(&b.0))
 }
 
+/// A source's signed offset from the time it is read against: " (Δ-42s vs radar)". Positive is
+/// after the reference; the reference is named so the sign means something.
+pub(crate) fn offset_note(
+    t: chrono::DateTime<chrono::Utc>,
+    reference: (chrono::DateTime<chrono::Utc>, &str),
+) -> String {
+    format!(
+        " (\u{394}{} vs {})",
+        crate::ui::data_inspector::offset_label(t - reference.0),
+        reference.1
+    )
+}
+
 impl HookEchoApp {
     /// Every visible layer's reading on pane `idx` at `(lon, lat)`, radar first.
     pub(crate) fn layer_probe_lines(&mut self, idx: usize, lon: f64, lat: f64) -> Vec<ProbeLine> {
         let mut out = Vec::new();
         let tz = self.active_tz();
         let clock = |t: chrono::DateTime<chrono::Utc>| crate::timefmt::fmt_clock(t, tz, false);
+        // What each source's time is measured against (ROADMAP_2 §10.2): the linked analysis
+        // time when panes share one, else this pane's radar scan.
+        let linked = self.linked_analysis_time();
+        let reference = linked
+            .map(|t| (t, "analysis"))
+            .or_else(|| self.views[idx].volume.as_ref().map(|v| (v.time, "radar")));
 
         // The radar: the user product in the moment's place, else the moment on the shown tilt.
         let product = self.map_product(idx);
@@ -98,6 +117,7 @@ impl HookEchoApp {
             && !site.as_deref().is_some_and(wxdata::tdwr::is_tdwr);
         if let Some(vol) = v.volume.as_mut().filter(|vol| !vol.elevations.is_empty()) {
             let elev = vol.elevations.get(tilt).copied().unwrap_or(0.0);
+            let scan_time = vol.time;
             let (label, sweep) = match &product {
                 Some((spec, key)) => (
                     format!(
@@ -134,11 +154,15 @@ impl HookEchoApp {
                         .unwrap_or_else(|| "\u{2014}".into()),
                     None => "Outside the sweep".into(),
                 };
-                let detail = match (&site, beam_kft) {
+                let mut detail = match (&site, beam_kft) {
                     (Some(site), Some(kft)) => Some(format!("{site}, beam {kft:.1} kft")),
                     (Some(site), None) => Some(site.clone()),
                     _ => None,
                 };
+                // Against a linked analysis time only: against its own scan it is always zero.
+                if let (Some(d), Some(analysis)) = (detail.as_mut(), linked) {
+                    d.push_str(&offset_note(scan_time, (analysis, "analysis")));
+                }
                 out.push(ProbeLine::new(label, value, detail));
             }
         }
@@ -152,9 +176,10 @@ impl HookEchoApp {
             .collect();
         for layer in fields {
             let row = self.grid_probe_row(idx, layer, lon, lat);
-            let detail = match row.time {
-                Some(t) => format!("{}, {}", row.source, clock(t)),
-                None => row.source.clone(),
+            let detail = match (row.time, reference) {
+                (Some(t), Some(r)) => format!("{}, {}{}", row.source, clock(t), offset_note(t, r)),
+                (Some(t), None) => format!("{}, {}", row.source, clock(t)),
+                (None, _) => row.source.clone(),
             };
             out.push(ProbeLine::new(
                 row.product,
@@ -177,9 +202,10 @@ impl HookEchoApp {
             out.push(ProbeLine::new(
                 format!("{} (contours)", kind.label()),
                 value.trim_end().to_string(),
-                entry
-                    .valid
-                    .map(|t| format!("{}, valid {}", self.env_model.label(), clock(t))),
+                entry.valid.map(|t| {
+                    let note = reference.map(|r| offset_note(t, r)).unwrap_or_default();
+                    format!("{}, valid {}{note}", self.env_model.label(), clock(t))
+                }),
             ));
         }
 
@@ -429,6 +455,22 @@ impl HookEchoApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_source_offset_is_signed_against_a_named_reference() {
+        use chrono::TimeZone;
+        let radar = chrono::Utc.with_ymd_and_hms(2026, 5, 6, 21, 0, 0).unwrap();
+        let goes = radar - chrono::Duration::seconds(42);
+        let mrms = radar + chrono::Duration::seconds(75);
+        assert_eq!(
+            offset_note(goes, (radar, "radar")),
+            " (\u{394}-42s vs radar)"
+        );
+        assert_eq!(
+            offset_note(mrms, (radar, "radar")),
+            " (\u{394}+1m 15s vs radar)"
+        );
+    }
 
     #[test]
     fn values_keep_the_decimals_their_size_deserves() {
