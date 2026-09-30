@@ -4723,6 +4723,27 @@ fn flash_beat_on() -> bool {
 
 /// Split `r` into `n` pane rects: 1 full; 2 and 3 as an adaptive row/column strip (columns in
 /// landscape, rows in portrait); 4 as a 2x2 grid; 6 as an adaptive 3x2/2x3 grid; 9 as 3x3.
+/// The model run to read for a view scrubbed back to `target`: the newest cycle at or before it,
+/// so a historical radar event is never shown under today's model. `None` within the few hours a
+/// run takes to post, where the newest run is the right one anyway and the target's own may not
+/// exist yet.
+fn archive_run(
+    target: DateTime<Utc>,
+    now: DateTime<Utc>,
+    cycle_hours: u32,
+) -> Option<DateTime<Utc>> {
+    use chrono::Timelike;
+    const POSTING: chrono::Duration = chrono::Duration::hours(3);
+    if now - target < POSTING || cycle_hours == 0 {
+        return None;
+    }
+    let hour = target.hour() - target.hour() % cycle_hours;
+    target
+        .date_naive()
+        .and_hms_opt(hour, 0, 0)
+        .map(|t| t.and_utc())
+}
+
 fn pane_rects(r: egui::Rect, n: usize) -> Vec<egui::Rect> {
     let gap = 2.0;
     match n {
@@ -7701,16 +7722,24 @@ impl HookEchoApp {
     /// The run pinned in the browser, if it is one this regional model actually publishes. Runs
     /// are named by hour, so a 17Z pick means something to the hourly HRRR and nothing to the
     /// six-hourly NAM, which then simply reads its newest run.
+    ///
+    /// With nothing pinned, a view scrubbed back to a past event reads the run of that time
+    /// ([`archive_run`]) rather than today's (ROADMAP_2 §10.3).
     fn pinned_regional_run(&self, model: wxdata::hrrr::Model) -> Option<DateTime<Utc>> {
         use chrono::Timelike;
+        let cycle = model.def().cycle_hours;
         self.model_run
-            .filter(|run| run.hour() % model.def().cycle_hours == 0)
+            .filter(|run| run.hour() % cycle == 0)
+            .or_else(|| archive_run(self.view_target_time()?, Utc::now(), cycle))
     }
 
-    /// The pinned run, if it lies on the global models' six-hourly cycles.
+    /// The pinned run, if it lies on the global models' six-hourly cycles; else, scrubbed back,
+    /// the run of that time.
     fn pinned_global_run(&self) -> Option<DateTime<Utc>> {
         use chrono::Timelike;
-        self.model_run.filter(|run| run.hour() % 6 == 0)
+        self.model_run
+            .filter(|run| run.hour() % 6 == 0)
+            .or_else(|| archive_run(self.view_target_time()?, Utc::now(), 6))
     }
 
     /// The forecast lead the model browser is scrubbed to, in minutes. Which clock that reads
@@ -28378,6 +28407,31 @@ mod tests {
         // The buffer is zero-padded; a 4-character id must not decode with the 4 trailing zero
         // bytes read back as anything other than "the string ends here".
         assert_eq!(decode_site_id(encode_site_id("KTLX")).len(), 4);
+    }
+
+    #[test]
+    fn a_past_event_reads_the_model_run_of_its_time() {
+        use chrono::TimeZone;
+        let now = chrono::Utc.with_ymd_and_hms(2026, 9, 29, 18, 0, 0).unwrap();
+        let may = chrono::Utc
+            .with_ymd_and_hms(2013, 5, 20, 20, 47, 0)
+            .unwrap();
+        assert_eq!(
+            super::archive_run(may, now, 1),
+            Some(chrono::Utc.with_ymd_and_hms(2013, 5, 20, 20, 0, 0).unwrap()),
+            "the hourly HRRR's own hour"
+        );
+        assert_eq!(
+            super::archive_run(may, now, 6),
+            Some(chrono::Utc.with_ymd_and_hms(2013, 5, 20, 18, 0, 0).unwrap()),
+            "a six-hourly model's last cycle before it"
+        );
+        let recent = now - chrono::Duration::minutes(90);
+        assert_eq!(
+            super::archive_run(recent, now, 1),
+            None,
+            "recent: the newest run"
+        );
     }
 
     #[test]
