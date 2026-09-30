@@ -56,12 +56,34 @@ pub const CORS_OK: &[&str] = &[
 /// reading the same.
 pub const FEED_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(45);
 
+/// Where every feed goes instead of its real host while failure injection is on (ROADMAP_2 §3.2);
+/// `None`, always, in normal running.
+#[cfg(not(target_arch = "wasm32"))]
+static REDIRECT: std::sync::RwLock<Option<String>> = std::sync::RwLock::new(None);
+
+/// Failure injection: send every feed through [`fetch_url`] to `base` (`http://127.0.0.1:PORT`,
+/// as `{base}/{host}/{path}`) instead of its real host, so a test server can answer with the
+/// failures a real one has — errors, garbage, cut-off bodies — or a closed port can stand in for
+/// being offline. `None` puts things back. Native only; nothing in the app turns it on.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn redirect_feeds(base: Option<String>) {
+    if let Ok(mut r) = REDIRECT.write() {
+        *r = base;
+    }
+}
+
 // ponytail: string surgery over a URL crate, and a short known-good list rather than a preflight
 // probe; the ceiling is "the app's own feeds", and any host it cannot parse just goes unproxied.
 pub fn fetch_url(url: &str) -> String {
     #[cfg(not(target_arch = "wasm32"))]
     {
-        url.to_string()
+        match REDIRECT.read().ok().and_then(|r| r.clone()) {
+            Some(base) => match url.split_once("://") {
+                Some((_, rest)) => format!("{}/{rest}", base.trim_end_matches('/')),
+                None => url.to_string(),
+            },
+            None => url.to_string(),
+        }
     }
     #[cfg(target_arch = "wasm32")]
     {

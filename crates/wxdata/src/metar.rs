@@ -95,16 +95,24 @@ pub async fn fetch_bbox(
     lon1: f64,
 ) -> anyhow::Result<Vec<SurfaceOb>> {
     let bbox = format!("{lat0},{lon0},{lat1},{lon1}");
-    let body = client
+    let resp = client
         .get(crate::net::fetch_url(METAR_URL))
         .timeout(crate::net::FEED_TIMEOUT)
         .query(&[("bbox", bbox.as_str()), ("format", "json")])
         .header("User-Agent", USER_AGENT)
         .send()
         .await?
-        .error_for_status()?
-        .text()
-        .await?;
+        .error_for_status()?;
+    // The API answers a box with no stations 204 No Content: an honest nothing.
+    if resp.status() == reqwest::StatusCode::NO_CONTENT {
+        return Ok(Vec::new());
+    }
+    let body = resp.text().await?;
+    // Anything but a JSON array (an error page, an empty 200) is a failed fetch, not "no
+    // observations" — read as empty it would pass for a healthy feed (tests/network_injection.rs).
+    if !serde_json::from_str::<serde_json::Value>(&body).is_ok_and(|v| v.is_array()) {
+        anyhow::bail!("METARs: the reply is not a JSON array");
+    }
     let mut obs = parse(&body);
     obs.truncate(200);
     Ok(obs)

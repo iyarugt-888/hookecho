@@ -90,6 +90,13 @@ pub async fn fetch(
         None => req.query(&[("hours", "6")]),
     };
     let body = req.send().await?.error_for_status()?.text().await?;
+    // Anything but a feature collection (an error page, an empty reply) is a failed fetch, not "no
+    // reports" — read as empty it would pass for a healthy feed (tests/network_injection.rs).
+    let collection = serde_json::from_str::<serde_json::Value>(&body)
+        .is_ok_and(|v| v.get("features").is_some_and(|f| f.is_array()));
+    if !collection {
+        anyhow::bail!("storm reports: the reply is not a GeoJSON feature collection");
+    }
     Ok(parse(&body))
 }
 
