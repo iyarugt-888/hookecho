@@ -803,6 +803,9 @@ pub struct Settings {
     /// whether the colour scale shows (`crate::broadcast`).
     #[serde(default)]
     pub broadcast: crate::broadcast::Broadcast,
+    /// Saved broadcast scenes, switched with Alt+1..9 (`app::scenes`, ROADMAP_2 §6.3).
+    #[serde(default)]
+    pub scenes: Vec<crate::broadcast::Scene>,
     /// Registry labels in the order the user dragged them, across every category. Labels not in
     /// here keep their registry order behind the ones that are — so a reorder never hides a row,
     /// and a renamed action just falls back to its default place.
@@ -1699,6 +1702,7 @@ impl Default for Settings {
             share_card: true,
             loop_real_timing: true,
             broadcast: Default::default(),
+            scenes: Vec::new(),
             layer_order: Vec::new(),
             recent_layers: Vec::new(),
             favorite_layers: Vec::new(),
@@ -2552,6 +2556,7 @@ mod tests {
             share_card: true,
             loop_real_timing: true,
             broadcast: Default::default(),
+            scenes: Vec::new(),
             layer_order: Vec::new(),
             recent_layers: Vec::new(),
             favorite_layers: Vec::new(),

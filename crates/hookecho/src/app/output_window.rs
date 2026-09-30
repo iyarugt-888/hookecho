@@ -24,7 +24,7 @@ pub(crate) enum OutputSize {
 impl OutputSize {
     const ALL: [OutputSize; 4] = [Self::Hd1080, Self::Qhd1440, Self::Uhd2160, Self::Free];
 
-    fn label(self) -> &'static str {
+    pub(crate) fn label(self) -> &'static str {
         match self {
             Self::Hd1080 => "1920 × 1080",
             Self::Qhd1440 => "2560 × 1440",
@@ -69,6 +69,7 @@ pub(crate) fn points_for(px: [f32; 2], ppp: f32) -> [f32; 2] {
 impl HookEchoApp {
     /// Draw the output window, while it is open.
     pub(crate) fn output_window(&mut self, ctx: &egui::Context) {
+        self.scene_hotkeys(ctx);
         if !self.output.open || cfg!(target_arch = "wasm32") {
             return;
         }
@@ -165,6 +166,8 @@ impl HookEchoApp {
                 ui.weak("No image at that path");
             }
         });
+        // Scenes drive streaming mode on the main map too, so they are on every target.
+        self.scene_rows(ui);
         if cfg!(target_arch = "wasm32") {
             return;
         }

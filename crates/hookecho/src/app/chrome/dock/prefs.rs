@@ -91,7 +91,13 @@ impl HookEchoApp {
                             scroll
                         };
                         scroll.show(ui, |ui| match self.dock.prefs_page {
-                            PrefsPage::Map => self.map_rows(ui, &mut opts),
+                            PrefsPage::Map => {
+                                self.map_rows(ui, &mut opts);
+                                // Streaming overlay, scenes and the output window: the floating
+                                // chrome's panel had them, and the dock had nowhere to set them.
+                                ui.separator();
+                                self.streaming_rows(ui);
+                            }
                             PrefsPage::App => self.app_rows(ui),
                         });
                     });

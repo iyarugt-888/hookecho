@@ -111,6 +111,36 @@ pub fn crawl_applies(valid: DateTime<Utc>, now: DateTime<Utc>) -> bool {
     (now - valid).num_minutes().abs() <= CRAWL_MAX_AGE_MIN
 }
 
+/// A saved broadcast scene (ROADMAP_2 §6.3): where the map looks, what is on it, how it is
+/// dressed, and the output window's title strap and size. Switched with Alt+1..9 in the order
+/// saved; applying one flies the camera there.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Scene {
+    pub name: String,
+    /// The radar the scene looks through; `None` keeps whatever is selected.
+    #[serde(default)]
+    pub site: Option<String>,
+    pub lon: f64,
+    pub lat: f64,
+    pub zoom: f64,
+    #[serde(default)]
+    pub pitch: f32,
+    #[serde(default)]
+    pub bearing: f32,
+    /// Overlay layers on, by name (`OverlayToggle` slugs); a name this build lacks is skipped.
+    #[serde(default)]
+    pub overlays_on: Vec<String>,
+    #[serde(default)]
+    pub legend: bool,
+    #[serde(default)]
+    pub style: Broadcast,
+    #[serde(default)]
+    pub strap: String,
+    /// The output window's size, by its label ("1920 × 1080", "Free size"); unknown keeps it.
+    #[serde(default)]
+    pub size: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
