@@ -216,6 +216,73 @@ impl ManualTrack {
     }
 }
 
+impl ManualTrack {
+    /// When the storm first enters `ring` (a watch zone), checked minute by minute to two hours
+    /// ahead: its centre, or for a line any point along it. Failing that, when the swath's edge
+    /// first touches it (`grazes`). `None` when neither happens.
+    pub fn zone_eta(&self, ring: &[[f64; 2]]) -> Option<ZoneEta> {
+        if ring.len() < 3 {
+            return None;
+        }
+        let inside = |p: [f64; 2]| wxdata::overlay::point_in_ring(ring, p[0], p[1]);
+        let core = |m: f64| -> Vec<[f64; 2]> {
+            if self.is_line() {
+                // The vertices and each segment's midpoint.
+                let e = self.edge_at(m);
+                let mids = e
+                    .windows(2)
+                    .map(|w| [(w[0][0] + w[1][0]) / 2.0, (w[0][1] + w[1][1]) / 2.0]);
+                e.iter().copied().chain(mids).collect()
+            } else {
+                vec![self.at(m)]
+            }
+        };
+        let flanks = |m: f64| -> [[f64; 2]; 2] {
+            let km = self.speed_kmh * m / 60.0;
+            let ends = if self.is_line() {
+                let e = self.edge_at(m);
+                [e[0], e[e.len() - 1]]
+            } else {
+                let c = self.at(m);
+                [c, c]
+            };
+            let w = self.half_width_at(km);
+            [
+                destination_point(ends[0], self.bearing_deg - 90.0, w),
+                destination_point(ends[1], self.bearing_deg + 90.0, w),
+            ]
+        };
+        let mut graze = None;
+        for m in 0..=ETA_MAX_MIN as usize {
+            let m = m as f64;
+            if core(m).into_iter().any(inside) {
+                return Some(ZoneEta {
+                    minutes: m,
+                    grazes: false,
+                });
+            }
+            if graze.is_none() && flanks(m).into_iter().any(inside) {
+                graze = Some(m);
+            }
+            if self.speed_kmh < 1.0 {
+                break;
+            }
+        }
+        graze.map(|minutes| ZoneEta {
+            minutes,
+            grazes: true,
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct ZoneEta {
+    /// Zero when it is already inside.
+    pub minutes: f64,
+    /// Only the swath's edge reaches the zone, not the storm itself.
+    pub grazes: bool,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Eta {
     pub minutes: f64,
@@ -593,6 +660,12 @@ impl HookEchoApp {
             .iter()
             .map(|m| (m.name.clone(), [m.lon, m.lat]))
             .collect();
+        let zones: Vec<(String, Vec<[f64; 2]>)> = self
+            .settings
+            .alert_polygons
+            .iter()
+            .map(|z| (z.name.clone(), z.ring.clone()))
+            .collect();
         let st = &mut self.storm_tracks;
         let mut remove = None;
         let mut clear = false;
@@ -762,6 +835,43 @@ impl HookEchoApp {
                                 ui.weak(pass);
                             });
                         }
+                        // Watch zones: when the storm (or line) gets in, soonest first.
+                        let mut zone_etas: Vec<(&str, ZoneEta)> = zones
+                            .iter()
+                            .filter_map(|(n, r)| track.zone_eta(r).map(|e| (n.as_str(), e)))
+                            .collect();
+                        zone_etas.sort_by(|a, b| {
+                            a.1.grazes
+                                .cmp(&b.1.grazes)
+                                .then(a.1.minutes.total_cmp(&b.1.minutes))
+                        });
+                        for (name, e) in zone_etas.iter().take(4) {
+                            let when =
+                                track.t0 + chrono::Duration::seconds((e.minutes * 60.0) as i64);
+                            let what = match (e.minutes == 0.0, e.grazes) {
+                                (true, false) => "inside now".to_string(),
+                                (true, true) => "swath edge inside now".to_string(),
+                                (false, false) => format!(
+                                    "enters ~{} (+{:.0} min)",
+                                    when.format("%H:%MZ"),
+                                    e.minutes
+                                ),
+                                (false, true) => format!(
+                                    "swath edge ~{} (+{:.0} min)",
+                                    when.format("%H:%MZ"),
+                                    e.minutes
+                                ),
+                            };
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new("▰").color(if e.grazes {
+                                    t.text_dim
+                                } else {
+                                    t.warn
+                                }));
+                                ui.label(egui::RichText::new(*name).strong());
+                                ui.label(egui::RichText::new(what).monospace());
+                            });
+                        }
                     }
                     ui.weak("Drag either end to edit · Ctrl+D duplicates · Delete removes");
                 });
@@ -900,6 +1010,37 @@ mod tests {
         );
         let after = t.edge_at(30.0);
         assert!((after[1][0] - before[1][0] - 1.0).abs() < 1e-6);
+    }
+
+    /// A 10 km box whose west side is `km_east` east of the origin and whose middle is
+    /// `km_north` north of it.
+    fn zone(o: [f64; 2], km_east: f64, km_north: f64) -> Vec<[f64; 2]> {
+        let sw = destination_point(destination_point(o, 90.0, km_east), 180.0, 5.0 - km_north);
+        let se = destination_point(sw, 90.0, 10.0);
+        let ne = destination_point(se, 0.0, 10.0);
+        let nw = destination_point(sw, 0.0, 10.0);
+        vec![sw, se, ne, nw]
+    }
+
+    #[test]
+    fn a_zone_ahead_is_entered_on_time_and_one_beside_is_grazed() {
+        let t = track();
+        let e = t.zone_eta(&zone(t.origin, 30.0, 0.0)).unwrap();
+        assert!((e.minutes - 31.0).abs() <= 1.0 && !e.grazes, "{e:?}");
+        // 12 km north of the path: the storm misses, the widening swath reaches it.
+        let e = t.zone_eta(&zone(t.origin, 30.0, 12.0)).unwrap();
+        assert!(e.grazes, "{e:?}");
+        assert!(t.zone_eta(&zone(t.origin, 30.0, 60.0)).is_none(), "far off");
+        let e = t.zone_eta(&zone(t.origin, -5.0, 0.0)).unwrap();
+        assert_eq!(e.minutes, 0.0, "already inside");
+    }
+
+    #[test]
+    fn a_line_enters_a_zone_with_any_part_of_it() {
+        // The box is 8 km north of the line's middle: only the line's north half reaches it.
+        let t = line();
+        let e = t.zone_eta(&zone(t.origin, 30.0, 8.0)).unwrap();
+        assert!(!e.grazes && (e.minutes - 31.0).abs() <= 1.0, "{e:?}");
     }
 
     #[test]
