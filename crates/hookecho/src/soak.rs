@@ -236,7 +236,7 @@ pub fn run(site: &str, minutes: u64, inject: bool) -> anyhow::Result<bool> {
                 Err(e) => return Outcome::Failed(format!("download {name}: {e:#}")),
             };
             // Every fourth new volume, also hand over half of it, as a dropped connection would.
-            if inject && judge.volumes % 4 == 0 {
+            if inject && judge.volumes.is_multiple_of(4) {
                 let cut = bytes[..bytes.len() / 2].to_vec();
                 // Refused, or decoded but known to be short of the end: either way it cannot pass
                 // for the whole volume.
