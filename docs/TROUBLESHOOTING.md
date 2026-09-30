@@ -12,7 +12,7 @@ Two places answer most questions:
   fallen back to a **Fallback** source, is **Recovering** after losing the stream, or is
   **Offline**. Hover it for the live-scan state (provider, cut, chunk, gaps); click it for the
   health of every active source.
-- **Analyst Mode's log** (Tools → Log). It shows, for the active radar, the provider and whether it
+- **The Analyst log** (a dock window while Analyst Mode is on). It shows, for the active radar, the provider and whether it
   delivers radials as they are scanned or only completed volumes, the last provider switch and
   why, and the scan's progression: VCP, which cuts have been seen, which are complete, missing
   chunks and radials, and how long the rest of the volume should take.
@@ -47,15 +47,15 @@ gives each source's time offset from the radar scan or the linked analysis time,
 - **The VCP changed.** A new VCP has a different set of angles. The cut inventory resets and the
   tilt list follows the new volume.
 - **A chunk is missing.** The log names unobserved chunks and missing radials. The sweep is not
-  called complete until they arrive. With **strict current sweep** chosen (the radar ribbon's
-  live display mode), azimuths the current pass has not reached are hidden rather than shown from
-  the previous pass. In **continuous composite** they stay, dimmed.
+  called complete until they arrive. With **Current sweep only** chosen (Settings → Map settings →
+  Live sweep display), azimuths the current pass has not reached are hidden rather than shown from
+  the previous pass. In **Continuous composite** they stay, dimmed.
 
 ## Velocity looks folded
 
 - Folding is aliasing: motion faster than the radar's Nyquist velocity wraps to the opposite
   colour. The Inspector shows the tilt's Nyquist velocity.
-- **Dealias** is on by default (Display → the velocity options). It unfolds regions, so a small
+- **Dealias** is on by default (the toolbar's Dealias check, shown while velocity is up). It unfolds regions, so a small
   isolated patch can still be left folded.
 - TDWR sites are not dealiased; their Nyquist is low and their velocity folds often.
 - Purple (**Range folded** in the probe) is not aliasing. It marks gates where a second-trip echo

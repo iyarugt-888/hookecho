@@ -143,6 +143,9 @@ warned for.
 - **Disk filling up.** Settings → Storage lists every cache against its cap,
   with clear and open buttons. Nothing cached is irreplaceable.
 
+For scenario-by-scenario help (radar stopped, a tilt missing, folded velocity, time
+mismatches, missing warnings, 3D gaps, missing tiles) see [Troubleshooting](TROUBLESHOOTING.md).
+
 Still stuck, or something's wrong that isn't here — open an
 [issue](../../../issues). Include the site, the product and the time you were
 looking at; that's usually enough to replay it.
