@@ -1057,6 +1057,13 @@ impl HookEchoApp {
                 false,
             ),
             (
+                T::MergeTornado,
+                "Severe",
+                "One detection per tornado",
+                "Rotation couplets, debris signatures and Tornado ID as one marker per tornado,                  centred on the most likely rotation; click it to open the web of detections it                  ties together and their factors. Off: a marker per detection",
+                true,
+            ),
+            (
                 T::TornadoId,
                 "Severe",
                 "Tornado ID",

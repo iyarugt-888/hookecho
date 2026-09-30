@@ -351,6 +351,10 @@ pub struct Settings {
     /// Show every visible layer's reading under the pointer (`app::layer_probe`).
     #[serde(default)]
     pub layer_probe: bool,
+    /// Draw rotation, debris and Tornado ID as one detection per tornado, centred on the most
+    /// likely rotation, instead of a marker per detection (`wxdata::tornado_id::circulations`).
+    #[serde(default = "default_true")]
+    pub merge_tornado_signals: bool,
     /// Draw the zoomed-out map as a globe (`render::mercator::set_globe`).
     #[serde(default)]
     pub globe: bool,
@@ -1734,6 +1738,7 @@ impl Default for Settings {
             alert_spotlight: true,
             yall_mode: false,
             layer_probe: false,
+            merge_tornado_signals: true,
             globe: false,
             scale_bar: true,
             volume3d_presets: Vec::new(),
@@ -2605,6 +2610,7 @@ mod tests {
             alert_spotlight: false,
             yall_mode: false,
             layer_probe: false,
+            merge_tornado_signals: true,
             globe: false,
             scale_bar: true,
             volume3d_presets: vec![Volume3dPreset {

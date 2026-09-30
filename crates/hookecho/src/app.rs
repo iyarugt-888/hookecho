@@ -2308,6 +2308,9 @@ pub(crate) enum OverlayToggle {
     YallMode,
     /// The layer probe (`app::layer_probe`): every visible layer's reading under the pointer.
     LayerProbe,
+    /// Rotation, debris and Tornado ID drawn as one detection per tornado, expandable into the
+    /// web of what it ties together (`wxdata::tornado_id::circulations`).
+    MergeTornado,
     /// The zoomed-out map as a globe (`render::mercator::set_globe`).
     Globe,
     /// A distance ruler in the corner of each flat pane (`app::scale_bar`).
@@ -2395,7 +2398,7 @@ pub(crate) struct CoverageCompareKey {
 impl OverlayToggle {
     /// Every toggle, for the persistence sweep. A new variant belongs here too, or it silently
     /// stops being remembered across restarts.
-    pub(crate) const ALL: [OverlayToggle; 59] = [
+    pub(crate) const ALL: [OverlayToggle; 60] = [
         Self::AlertPanel,
         Self::StormReports,
         Self::Spotters,
@@ -2428,6 +2431,7 @@ impl OverlayToggle {
         Self::TornadoId,
         Self::YallMode,
         Self::LayerProbe,
+        Self::MergeTornado,
         Self::Globe,
         Self::ScaleBar,
         Self::Tbss,
@@ -2483,6 +2487,9 @@ impl OverlayToggle {
                 | Self::LinkStorm
                 | Self::MiniLoop
                 | Self::ImportedGis
+                // A display preference kept in its own setting: a workspace that does not name
+                // it must not switch it off.
+                | Self::MergeTornado
         )
     }
 
@@ -11805,6 +11812,7 @@ impl HookEchoApp {
             T::TornadoId => &mut self.filters.show_tornado_id,
             T::YallMode => &mut self.settings.yall_mode,
             T::LayerProbe => &mut self.settings.layer_probe,
+            T::MergeTornado => &mut self.settings.merge_tornado_signals,
             T::Globe => &mut self.settings.globe,
             T::ScaleBar => &mut self.settings.scale_bar,
             T::Alerts => &mut self.filters.show_alerts,
@@ -17969,7 +17977,16 @@ impl HookEchoApp {
             // Before anything is drawn: the buzz is what says the press was heard.
             crate::platform::haptic(crate::platform::Haptic::Press);
         }
-        if (response.clicked() || long_press) && quiet {
+        // A click on a tornado marker opens or closes its web (drawn below); it is not also a
+        // click on the storm cell or map under it. Where the markers sat is last frame's.
+        let on_circulation = response.interact_pointer_pos().is_some_and(|p| {
+            ui.ctx()
+                .data(|d| d.get_temp::<Vec<egui::Rect>>(egui::Id::new(("circulation_hits", idx))))
+                .unwrap_or_default()
+                .iter()
+                .any(|r| r.contains(p))
+        });
+        if (response.clicked() || long_press) && quiet && !on_circulation {
             self.active = idx;
             // What this press means. A long press is always an interrogation; anything else is
             // whatever the toolbar says.
@@ -18888,15 +18905,23 @@ impl HookEchoApp {
                 .iter()
                 .any(|r| r.enabled && &r.trigger == t)
         };
+        // One detection per tornado (`wxdata::tornado_id::circulations`), when any of the three
+        // tornado layers is on: it reads both detectors, as Tornado ID does.
+        let merge = self.settings.merge_tornado_signals
+            && (self.filters.show_tornado_id
+                || self.filters.show_tds
+                || self.filters.show_couplets);
         // Tornado ID reads both detectors, whether or not their own layers are shown.
         let want_tds = self.filters.show_tds
             || self.filters.show_tornado_id
+            || merge
             || armed(&crate::settings::RuleTrigger::Tds);
         let want_tbss = self.filters.show_tbss || armed(&crate::settings::RuleTrigger::Tbss);
         let want_zdr =
             self.filters.show_zdr_columns || armed(&crate::settings::RuleTrigger::ZdrColumn);
         let want_couplets = self.filters.show_couplets
             || self.filters.show_tornado_id
+            || merge
             || armed(&crate::settings::RuleTrigger::Rotation);
         let tds_hits = if want_tds && idx == self.active {
             self.compute_tds(idx)
@@ -18940,11 +18965,29 @@ impl HookEchoApp {
             self.check_rain_arrival();
             self.evaluate_scan_rules(idx, &tds_hits, &tbss_hits, &zdr_hits, &couplets);
         }
-        let tornado_ids = if self.filters.show_tornado_id && idx == self.active {
+        let tornado_ids = if self.filters.show_tornado_id && idx == self.active && !merge {
             wxdata::tornado_id::identify(&couplets, &tds_hits)
         } else {
             Vec::new()
         };
+        // Merged: every rotation and debris detection near a tornado is drawn as part of that
+        // tornado's one marker, not on its own; the full lists stay for the web it opens into.
+        let circulations = if merge && idx == self.active {
+            wxdata::tornado_id::circulations(&couplets, &tds_hits)
+        } else {
+            Vec::new()
+        };
+        let mut tied_couplet = vec![false; couplets.len()];
+        let mut tied_tds = vec![false; tds_hits.len()];
+        for c in &circulations {
+            for m in &c.members {
+                match m.evidence {
+                    wxdata::tornado_id::Evidence::Rotation(i) => tied_couplet[i] = true,
+                    wxdata::tornado_id::Evidence::Debris(i) => tied_tds[i] = true,
+                }
+            }
+        }
+        let (all_couplets, all_tds) = (couplets.clone(), tds_hits.clone());
         // Hidden layers computed only for a rule must not also be drawn.
         let tds_hits = if self.filters.show_tds {
             tds_hits
@@ -19611,6 +19654,9 @@ impl HookEchoApp {
             }
         }
 
+        // The tornado markers' click targets are this frame's, or none (set again below).
+        ui.ctx()
+            .data_mut(|d| d.remove::<Vec<egui::Rect>>(egui::Id::new(("circulation_hits", idx))));
         // Storm-cell dots + SCIT forecast tracks.
         if self.filters.show_cells && self.cells_site.as_deref() == view.site.as_deref() {
             let to_screen = |lon: f64, lat: f64| {
@@ -19747,9 +19793,9 @@ impl HookEchoApp {
             }
 
             // TDS markers: a magenta inverted triangle + label at each debris-signature cluster.
-            for h in &tds_hits {
+            for (i, h) in tds_hits.iter().enumerate() {
                 let p = to_screen(h.lon, h.lat);
-                if !prect.contains(p) {
+                if !prect.contains(p) || tied_tds.get(i).copied().unwrap_or(false) {
                     continue;
                 }
                 let m = egui::Color32::from_rgb(240, 40, 210);
@@ -19893,9 +19939,9 @@ impl HookEchoApp {
 
             // Rotation couplets: a ring at each cluster — solid red at strong-TVS strength
             // (≥36 m/s rotational velocity), hollow orange below it.
-            for h in &couplets {
+            for (i, h) in couplets.iter().enumerate() {
                 let p = to_screen(h.lon, h.lat);
-                if !prect.contains(p) {
+                if !prect.contains(p) || tied_couplet.get(i).copied().unwrap_or(false) {
                     continue;
                 }
                 let strong = h.vrot_ms >= 36.0;
@@ -20011,6 +20057,206 @@ impl HookEchoApp {
                         ui.weak("From this radar's rotation and debris detectors, and reports");
                     });
                 }
+            }
+
+            // One detection per tornado: the verdict at the most likely rotation. A click opens
+            // it into a web — a spoke to every rotation and debris detection it ties together,
+            // each with its own factors on hover — and closes it again.
+            if !circulations.is_empty() {
+                use wxdata::tornado_id::{Evidence, Tier, MERGE_KM};
+                let open_id = egui::Id::new(("circulation_open", idx));
+                let open: Option<(f64, f64)> = ui.ctx().data(|d| d.get_temp(open_id)).flatten();
+                let mut toggle: Option<Option<(f64, f64)>> = None;
+                let mut hits = Vec::new();
+                let kt = |ms: f32| ms * 1.943_844;
+                for c in &circulations {
+                    let t = &c.id;
+                    let p = to_screen(t.lon, t.lat);
+                    if !prect.contains(p) {
+                        continue;
+                    }
+                    let col = match t.tier {
+                        Tier::Possible => egui::Color32::from_rgb(245, 210, 60),
+                        Tier::Likely => egui::Color32::from_rgb(245, 110, 40),
+                        Tier::Debris => egui::Color32::from_rgb(225, 70, 225),
+                        Tier::Confirmed => CONFIRMED_GOLD,
+                    };
+                    // Open survives the next scan, whose centre sits a little further along.
+                    let is_open = open.is_some_and(|(lon, lat)| {
+                        crate::geo::great_circle([lon, lat], [t.lon, t.lat]).0 <= MERGE_KM
+                    });
+                    let hit = egui::Rect::from_center_size(p, egui::vec2(30.0, 30.0));
+                    hits.push(hit);
+                    let hovered = response.hover_pos().is_some_and(|hp| hit.contains(hp));
+                    if hovered && response.clicked() {
+                        toggle = Some((!is_open).then_some((t.lon, t.lat)));
+                    }
+                    let seed = c.members.first().map(|m| m.evidence);
+                    if is_open || hovered {
+                        // How far it reached for what it tied in.
+                        let edge = {
+                            let e = crate::geo::destination_point([t.lon, t.lat], 90.0, MERGE_KM);
+                            to_screen(e[0], e[1])
+                        };
+                        painter.circle_stroke(
+                            p,
+                            (edge - p).length(),
+                            egui::Stroke::new(1.0, col.gamma_multiply(0.35)),
+                        );
+                    }
+                    if is_open {
+                        for m in &c.members {
+                            let q = to_screen(m.lon, m.lat);
+                            let centre = Some(m.evidence) == seed;
+                            if !centre {
+                                painter.line_segment(
+                                    [p, q],
+                                    egui::Stroke::new(1.5, col.gamma_multiply(0.75)),
+                                );
+                            }
+                            // The centre's own detection sits under the verdict; its glyph and
+                            // factors go just below it so they can be reached.
+                            let q = if centre { p + egui::vec2(0.0, 34.0) } else { q };
+                            let (glyph_col, label, lines, track) = match m.evidence {
+                                Evidence::Rotation(i) => {
+                                    let h = &all_couplets[i];
+                                    let rc = if h.vrot_ms >= 36.0 {
+                                        egui::Color32::from_rgb(240, 60, 60)
+                                    } else {
+                                        egui::Color32::from_rgb(245, 160, 50)
+                                    };
+                                    painter.circle_stroke(q, 7.0, egui::Stroke::new(2.0, rc));
+                                    (
+                                        rc,
+                                        format!(
+                                            "ROT {:.0} kt \u{b7} {:.0}%",
+                                            kt(h.vrot_ms),
+                                            h.confidence * 100.0
+                                        ),
+                                        h.explain().lines(h),
+                                        nearest_score_track(&rot_score_tracks, h.lon, h.lat),
+                                    )
+                                }
+                                Evidence::Debris(i) => {
+                                    let h = &all_tds[i];
+                                    let dc = egui::Color32::from_rgb(240, 40, 210);
+                                    let s = 6.0;
+                                    painter.add(egui::Shape::convex_polygon(
+                                        vec![
+                                            q + egui::vec2(-s, -s),
+                                            q + egui::vec2(s, -s),
+                                            q + egui::vec2(0.0, s),
+                                        ],
+                                        dc.gamma_multiply(0.3),
+                                        egui::Stroke::new(1.5, dc),
+                                    ));
+                                    (
+                                        dc,
+                                        format!(
+                                            "TDS \u{3c1}{:.2} \u{b7} {:.0}%",
+                                            h.min_cc,
+                                            h.confidence * 100.0
+                                        ),
+                                        h.explain().lines(h),
+                                        nearest_score_track(&tds_score_tracks, h.lon, h.lat),
+                                    )
+                                }
+                            };
+                            painter.text(
+                                q + egui::vec2(9.0, 0.0),
+                                egui::Align2::LEFT_CENTER,
+                                if centre {
+                                    format!("{label} (centre)")
+                                } else {
+                                    format!("{label} \u{b7} {:.1} km", m.km)
+                                },
+                                egui::FontId::proportional(10.5),
+                                glyph_col,
+                            );
+                            let mhit = egui::Rect::from_center_size(q, egui::vec2(20.0, 20.0));
+                            if !hovered && response.hover_pos().is_some_and(|hp| mhit.contains(hp))
+                            {
+                                response.clone().show_tooltip_ui(|ui| {
+                                    score_tooltip(ui, lines, track, glyph_col)
+                                });
+                            }
+                        }
+                    }
+                    let tri = vec![
+                        p + egui::vec2(0.0, -14.0),
+                        p + egui::vec2(12.5, 7.5),
+                        p + egui::vec2(-12.5, 7.5),
+                    ];
+                    painter.add(egui::Shape::convex_polygon(
+                        tri,
+                        col,
+                        egui::Stroke::new(1.5, egui::Color32::BLACK),
+                    ));
+                    painter.text(
+                        p + egui::vec2(0.0, 1.0),
+                        egui::Align2::CENTER_CENTER,
+                        "!",
+                        egui::FontId::proportional(12.0),
+                        egui::Color32::BLACK,
+                    );
+                    // One line: the verdict, then the strongest numbers behind it.
+                    let mut label = format!("{} \u{b7} {:.0}%", t.tier.label(), t.score * 100.0);
+                    if let Some(v) = t.vrot_ms {
+                        label.push_str(&format!(" \u{b7} ROT {:.0} kt", kt(v)));
+                    }
+                    if let Some(cc) = t.min_cc {
+                        label.push_str(&format!(" \u{b7} \u{3c1}{cc:.2}"));
+                    }
+                    if c.members.len() > 1 && !is_open {
+                        label.push_str(&format!(" \u{b7} {} signals", c.members.len()));
+                    }
+                    painter.text(
+                        p + egui::vec2(0.0, 10.0),
+                        egui::Align2::CENTER_TOP,
+                        label,
+                        egui::FontId::proportional(11.5),
+                        col,
+                    );
+                    if hovered {
+                        response.clone().show_tooltip_ui(|ui| {
+                            ui.strong(format!("{} \u{b7} {:.0}%", t.tier.label(), t.score * 100.0));
+                            for r in &t.reasons {
+                                ui.label(r);
+                            }
+                            ui.add_space(4.0);
+                            ui.weak("Tied together:");
+                            for m in &c.members {
+                                let what = match m.evidence {
+                                    Evidence::Rotation(i) => format!(
+                                        "Rotation {:.0} kt, {:.0}%",
+                                        kt(all_couplets[i].vrot_ms),
+                                        m.confidence * 100.0
+                                    ),
+                                    Evidence::Debris(i) => format!(
+                                        "Debris \u{3c1}{:.2}, {:.0}%",
+                                        all_tds[i].min_cc,
+                                        m.confidence * 100.0
+                                    ),
+                                };
+                                if Some(m.evidence) == seed {
+                                    ui.label(format!("\u{25cf} {what} \u{2014} the centre"));
+                                } else {
+                                    ui.label(format!("\u{25cb} {what}, {:.1} km off", m.km));
+                                }
+                            }
+                            ui.weak(if is_open {
+                                "Click to close. Hover a point for its factors."
+                            } else {
+                                "Click to open the web of detections and their factors."
+                            });
+                        });
+                    }
+                }
+                if let Some(v) = toggle {
+                    ui.ctx().data_mut(|d| d.insert_temp(open_id, v));
+                }
+                ui.ctx()
+                    .data_mut(|d| d.insert_temp(egui::Id::new(("circulation_hits", idx)), hits));
             }
 
             // Locally-computed cell tracks, in cyan so they never read as the Level 3 storm-cell

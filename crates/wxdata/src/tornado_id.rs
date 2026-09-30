@@ -203,9 +203,230 @@ pub fn identify(couplets: &[CoupletHit], debris: &[TdsHit]) -> Vec<TornadoId> {
     out
 }
 
+/// Detections this close (km) to a circulation's centre are the same tornado: a couplet seen
+/// again a few km off at another tilt or pass, the debris ball it lofted, the rotation beside it.
+/// Two tornadoes from one storm (a cyclic supercell's old and new circulations) sit further apart.
+pub const MERGE_KM: f64 = 10.0;
+
+/// One of the detections a [`Circulation`] ties together.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Evidence {
+    /// `couplets[i]`.
+    Rotation(usize),
+    /// `debris[i]`.
+    Debris(usize),
+}
+
+/// A detection tied into a circulation, and where it sits.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Member {
+    pub evidence: Evidence,
+    pub lon: f64,
+    pub lat: f64,
+    pub confidence: f32,
+    /// From the circulation's centre.
+    pub km: f64,
+}
+
+/// One tornado, as one detection: the verdict for the most likely area of rotation, and every
+/// rotation and debris detection around it that it was made from.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Circulation {
+    /// The verdict, at the centre: the strongest rotation (or, with none, the strongest debris).
+    pub id: TornadoId,
+    /// Everything tied in, the centre's own detection first, then nearest first.
+    pub members: Vec<Member>,
+}
+
+impl Circulation {
+    pub fn rotations(&self) -> usize {
+        self.members
+            .iter()
+            .filter(|m| matches!(m.evidence, Evidence::Rotation(_)))
+            .count()
+    }
+
+    pub fn debris(&self) -> usize {
+        self.members.len() - self.rotations()
+    }
+}
+
+/// Everything the detectors found, as one detection per tornado rather than one marker per
+/// couplet, per debris ball and per identification.
+///
+/// Seeds are taken strongest first, rotation before debris: the strongest couplet not yet tied to
+/// a circulation is the centre of a new one, and every untied couplet and debris signature within
+/// [`MERGE_KM`] of it joins it. Debris with no rotation near it then seeds its own, the same way.
+/// Each circulation's verdict is [`identify`] run over its own members, the strongest result
+/// kept, so the tiers and reasons are exactly the ones Tornado ID gives; the score is that
+/// verdict's, not a sum over members that all see the same tornado.
+///
+/// A circulation must have radar evidence of its own: a couplet of at least [`MIN_COUPLET`], a
+/// debris signature of at least [`MIN_DEBRIS`], or a tornado report near a detection. An observed
+/// tornado warning raises the tier of one that has, but cannot make one — its polygon is a county
+/// wide, and every weak blob inside it would otherwise read as a confirmed tornado.
+pub fn circulations(couplets: &[CoupletHit], debris: &[TdsHit]) -> Vec<Circulation> {
+    let mut seeds: Vec<Evidence> = (0..couplets.len()).map(Evidence::Rotation).collect();
+    seeds.sort_by(|a, b| {
+        let (Evidence::Rotation(a), Evidence::Rotation(b)) = (*a, *b) else {
+            unreachable!()
+        };
+        let (a, b) = (&couplets[a], &couplets[b]);
+        b.confidence
+            .total_cmp(&a.confidence)
+            .then(b.vrot_ms.total_cmp(&a.vrot_ms))
+    });
+    let mut by_debris: Vec<usize> = (0..debris.len()).collect();
+    by_debris.sort_by(|a, b| debris[*b].confidence.total_cmp(&debris[*a].confidence));
+    seeds.extend(by_debris.into_iter().map(Evidence::Debris));
+
+    let at = |e: Evidence| match e {
+        Evidence::Rotation(i) => (couplets[i].lon, couplets[i].lat, couplets[i].confidence),
+        Evidence::Debris(i) => (debris[i].lon, debris[i].lat, debris[i].confidence),
+    };
+    let mut tied_c = vec![false; couplets.len()];
+    let mut tied_d = vec![false; debris.len()];
+    let tied = |e: Evidence, c: &[bool], d: &[bool]| match e {
+        Evidence::Rotation(i) => c[i],
+        Evidence::Debris(i) => d[i],
+    };
+    let mut out = Vec::new();
+    for seed in seeds {
+        if tied(seed, &tied_c, &tied_d) {
+            continue;
+        }
+        let (lon, lat, _) = at(seed);
+        let mut members = Vec::new();
+        let all = (0..couplets.len())
+            .map(Evidence::Rotation)
+            .chain((0..debris.len()).map(Evidence::Debris));
+        for e in all {
+            if tied(e, &tied_c, &tied_d) {
+                continue;
+            }
+            let (mlon, mlat, confidence) = at(e);
+            let d = km((lon, lat), (mlon, mlat));
+            if e == seed || d <= MERGE_KM {
+                members.push(Member {
+                    evidence: e,
+                    lon: mlon,
+                    lat: mlat,
+                    confidence,
+                    km: if e == seed { 0.0 } else { d },
+                });
+            }
+        }
+        for m in &members {
+            match m.evidence {
+                Evidence::Rotation(i) => tied_c[i] = true,
+                Evidence::Debris(i) => tied_d[i] = true,
+            }
+        }
+        members.sort_by(|a, b| a.km.total_cmp(&b.km));
+        // The verdict over this circulation's own detections.
+        let cs: Vec<CoupletHit> = members
+            .iter()
+            .filter_map(|m| match m.evidence {
+                Evidence::Rotation(i) => Some(couplets[i]),
+                Evidence::Debris(_) => None,
+            })
+            .collect();
+        let ds: Vec<TdsHit> = members
+            .iter()
+            .filter_map(|m| match m.evidence {
+                Evidence::Debris(i) => Some(debris[i]),
+                Evidence::Rotation(_) => None,
+            })
+            .collect();
+        let own_radar = cs.iter().any(|c| c.confidence >= MIN_COUPLET)
+            || ds.iter().any(|d| d.confidence >= MIN_DEBRIS)
+            || cs.iter().any(|c| c.confirmation.report.is_some())
+            || ds.iter().any(|d| d.confirmation.report.is_some());
+        if !own_radar {
+            continue;
+        }
+        let Some(mut id) = identify(&cs, &ds).into_iter().next() else {
+            continue;
+        };
+        // The verdict sits at the most likely area of rotation, whichever pairing produced it.
+        id.lon = lon;
+        id.lat = lat;
+        let (r, d) = (cs.len(), ds.len());
+        if r + d > 1 {
+            id.reasons.push(format!(
+                "Ties together {r} rotation and {d} debris detection{} within {:.0} km",
+                if d == 1 { "" } else { "s" },
+                MERGE_KM
+            ));
+        }
+        out.push(Circulation { id, members });
+    }
+    out.sort_by(|a, b| b.id.tier.cmp(&a.id.tier).then(b.id.score.total_cmp(&a.id.score)));
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn one_tornado_seen_many_ways_is_one_circulation() {
+        // A strong couplet, two weaker ones within a few km (other passes, other tilts), and two
+        // debris balls beside it: five markers before, one detection now.
+        let cs = [
+            couplet(-97.02, 0.4, 18.0, 1),
+            couplet(-97.0, 0.8, 35.0, 4),
+            couplet(-96.97, 0.36, 15.0, 1),
+        ];
+        let ds = [debris(-97.01, 0.7), debris(-96.99, 0.55)];
+        let out = circulations(&cs, &ds);
+        assert_eq!(out.len(), 1, "{out:?}");
+        let c = &out[0];
+        assert_eq!((c.rotations(), c.debris()), (3, 2));
+        assert_eq!(
+            (c.id.lon, c.id.lat),
+            (-97.0, 35.0),
+            "centred on the strongest rotation"
+        );
+        assert_eq!(c.members[0].evidence, Evidence::Rotation(1));
+        assert_eq!(c.id.tier, Tier::Debris);
+        assert!(c.id.reasons.last().unwrap().contains("3 rotation and 2 debris"));
+    }
+
+    #[test]
+    fn two_tornadoes_far_apart_stay_two() {
+        // 30 km apart: a cyclic storm's old and new circulations.
+        let out = circulations(
+            &[couplet(-97.0, 0.8, 35.0, 3), couplet(-96.67, 0.6, 28.0, 3)],
+            &[],
+        );
+        assert_eq!(out.len(), 2);
+        assert!(out.iter().all(|c| c.members.len() == 1));
+    }
+
+    #[test]
+    fn a_warning_alone_does_not_make_a_weak_blob_a_tornado() {
+        // Weak rotation inside an observed tornado warning, far from the real one.
+        let mut weak = couplet(-96.5, 0.2, 10.0, 1);
+        weak.confirmation.observed_warning = true;
+        let mut strong = couplet(-97.0, 0.8, 35.0, 3);
+        strong.confirmation.observed_warning = true;
+        let out = circulations(&[weak, strong], &[]);
+        assert_eq!(out.len(), 1, "{out:?}");
+        assert_eq!(out[0].id.tier, Tier::Confirmed);
+        // A report beside the weak one does make it one.
+        weak.confirmation.report = Some((2.0, 3));
+        assert_eq!(circulations(&[weak], &[]).len(), 1);
+    }
+
+    #[test]
+    fn debris_with_no_rotation_near_it_centres_its_own() {
+        let out = circulations(&[couplet(-97.0, 0.5, 20.0, 2)], &[debris(-96.5, 0.7)]);
+        assert_eq!(out.len(), 2);
+        let lone = out.iter().find(|c| c.rotations() == 0).unwrap();
+        assert_eq!((lone.id.lon, lone.id.lat), (-96.5, 35.0));
+        assert_eq!(lone.id.tier, Tier::Debris);
+    }
 
     fn couplet(lon: f64, conf: f32, vrot: f32, tilts: usize) -> CoupletHit {
         CoupletHit {
