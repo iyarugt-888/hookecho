@@ -359,7 +359,7 @@ const EDR_MIN_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5 *
 #[cfg(not(target_arch = "wasm32"))]
 #[allow(clippy::type_complexity)]
 static LAST_EDR: std::sync::Mutex<
-    Option<((f64, f64, f64, f64), std::time::Instant, Vec<GeoFeature>)>,
+    Option<((f64, f64, f64, f64), crate::clock::Instant, Vec<GeoFeature>)>,
 > = std::sync::Mutex::new(None);
 
 /// Whether `bounds` is inside what the cached answer covers.
@@ -383,13 +383,13 @@ const MAX_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(25 * 60
 /// When the EDR path may be used again. Set on a 429; until then `fetch_in_view` falls back to
 /// the open feeds, so Europe keeps whatever warnings it can still draw.
 #[cfg(not(target_arch = "wasm32"))]
-static COOLDOWN_UNTIL: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+static COOLDOWN_UNTIL: std::sync::Mutex<Option<crate::clock::Instant>> = std::sync::Mutex::new(None);
 
 /// Whether the EDR path is allowed right now.
 #[cfg(not(target_arch = "wasm32"))]
 fn edr_ready() -> bool {
     match COOLDOWN_UNTIL.lock() {
-        Ok(g) => g.is_none_or(|t| std::time::Instant::now() >= t),
+        Ok(g) => g.is_none_or(|t| crate::clock::Instant::now() >= t),
         // A poisoned lock is not a reason to stop drawing warnings.
         Err(_) => true,
     }
@@ -420,7 +420,7 @@ fn back_off(reset_header: Option<&str>) {
     if let Ok(mut g) = COOLDOWN_UNTIL.lock() {
         // Never shorten a cooldown already in force: several requests fly at once, and the last
         // one to land must not talk the others back into trying.
-        let until = std::time::Instant::now() + wait;
+        let until = crate::clock::Instant::now() + wait;
         if g.is_none_or(|t| until > t) {
             *g = Some(until);
         }
@@ -749,7 +749,7 @@ async fn fetch_edr(
         out.extend(parse(&cap_envelope(&cap)));
     }
     if let Ok(mut c) = LAST_EDR.lock() {
-        *c = Some((bounds, std::time::Instant::now(), out.clone()));
+        *c = Some((bounds, crate::clock::Instant::now(), out.clone()));
     }
     Ok(out)
 }

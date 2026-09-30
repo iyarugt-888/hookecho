@@ -549,7 +549,7 @@ impl HookEchoApp {
                                     if let Some(key) = self.detail_impact.clone() {
                                         if !self.impacts.by_id.contains_key(&key) {
                                             let rings = f.rings.clone();
-                                            self.request_impact(key, rings, &ctx);
+                                            self.request_impact(key, rings, ctx);
                                         }
                                     }
                                     self.detail = Some(Detail {
