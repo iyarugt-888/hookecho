@@ -41,7 +41,9 @@ mod cell_markers;
 mod detector_markers;
 mod map_click;
 mod pane_3d_overlays;
+mod pane_feeds;
 mod pane_layout;
+mod pane_legends;
 mod pane_marks;
 mod pane_overlays;
 mod pane_places;
@@ -11822,44 +11824,7 @@ impl HookEchoApp {
 
         // Pilot reports: a small triangle per report, filled when it carries a hazard so a
         // turbulence report stands out from a routine sky observation.
-        if self.show_pireps {
-            for r in &self.pireps {
-                let w = crate::render::mercator::lonlat_to_world(r.lon, r.lat);
-                let (sx, sy) = cam.world_to_screen(w, vp);
-                let p = egui::pos2(prect.left() + sx, prect.top() + sy);
-                if !prect.contains(p) {
-                    continue;
-                }
-                let col = if r.urgent {
-                    egui::Color32::from_rgb(235, 70, 70)
-                } else if r.hazard.is_empty() {
-                    egui::Color32::from_rgb(150, 165, 185)
-                } else {
-                    egui::Color32::from_rgb(240, 190, 50)
-                };
-                let d = 5.0;
-                painter.add(egui::Shape::convex_polygon(
-                    vec![
-                        p + egui::vec2(0.0, -d),
-                        p + egui::vec2(d, d * 0.8),
-                        p + egui::vec2(-d, d * 0.8),
-                    ],
-                    col,
-                    egui::Stroke::new(1.0, egui::Color32::from_black_alpha(160)),
-                ));
-                // Hover → altitude, aircraft and the raw report, which is what pilots read.
-                let hit = egui::Rect::from_center_size(p, egui::vec2(16.0, 16.0));
-                if response.hover_pos().is_some_and(|hp| hit.contains(hp)) {
-                    let alt = r
-                        .alt_ft
-                        .map_or_else(|| "—".to_string(), |a| format!("{a} ft"));
-                    response.clone().show_tooltip_text(format!(
-                        "{alt}  {}\n{}\n{}",
-                        r.ac_type, r.hazard, r.raw
-                    ));
-                }
-            }
-        }
+        self.paint_pireps(&painter, prect, cam, vp, &response);
 
         // Crowd precipitation-type reports: a lettered dot per report, so the rain/snow line
         // reads straight off the map.
@@ -11993,43 +11958,7 @@ impl HookEchoApp {
         }
 
         // ProbSevere per-storm probability badges (polygons draw via the overlay pipeline).
-        if self.show_probsevere {
-            for f in &self.probsevere {
-                let Some(ring) = f.rings.first() else {
-                    continue;
-                };
-                if ring.is_empty() {
-                    continue;
-                }
-                let (mut clon, mut clat) = (0.0, 0.0);
-                for p in ring {
-                    clon += p[0];
-                    clat += p[1];
-                }
-                let cw = crate::render::mercator::lonlat_to_world(
-                    clon / ring.len() as f64,
-                    clat / ring.len() as f64,
-                );
-                let (sx, sy) = cam.world_to_screen(cw, vp);
-                let c = egui::pos2(prect.left() + sx, prect.top() + sy);
-                if !prect.contains(c) {
-                    continue;
-                }
-                let color = egui::Color32::from_rgb(f.stroke[0], f.stroke[1], f.stroke[2]);
-                let font = egui::FontId::proportional(11.0);
-                let galley =
-                    painter.layout_no_wrap(f.title.clone(), font.clone(), egui::Color32::BLACK);
-                let rect = egui::Rect::from_center_size(c, galley.size() + egui::vec2(8.0, 4.0));
-                painter.rect_filled(rect, 3.0, color);
-                painter.text(
-                    c,
-                    egui::Align2::CENTER_CENTER,
-                    &f.title,
-                    font,
-                    egui::Color32::BLACK,
-                );
-            }
-        }
+        self.paint_probsevere(&painter, prect, cam, vp);
 
         // Warning intelligence: warned-storm motion vector + projected path + ETA to markers, and
         // a pulsing outline on escalated (Tornado Emergency / PDS / destructive) warnings.
@@ -12102,53 +12031,7 @@ impl HookEchoApp {
         }
 
         // Forecast-reflectivity banner — unmistakable that this is model forecast, not observation.
-        if idx == self.active && view.fields_on.contains(&crate::render::FieldLayer::Hrrr) {
-            let valid = self
-                .hrrr_valid
-                .map(|v| crate::timefmt::fmt_date_clock(v, self.active_tz()))
-                .unwrap_or_else(|| "loading…".to_string());
-            let lead_min = if self.hrrr_subhourly {
-                self.hrrr_fcst_min
-            } else {
-                u16::from(self.hrrr_fcst_hour) * 60
-            };
-            let lead = crate::model_browser::format_lead(lead_min);
-            let lead = lead.trim_start_matches('F');
-            let model = self.refl_source_label().to_uppercase();
-            let text = format!("⚠ FORECAST {lead} — {model} MODEL, NOT OBSERVED — valid {valid}");
-            let font = egui::FontId::proportional(13.0);
-            let pad = egui::vec2(10.0, 4.0);
-            // On a phone the sentence is wider than the screen ("...valid Sep 20, 6:" ran off the
-            // right edge), so it wraps, and it sits in the lane under the search pill and clear of
-            // the control column instead of over the status bar. Desktop keeps the one-line strip
-            // along the top.
-            let phone = crate::platform::phone_layout();
-            let (wrap, center_x, phone_y) = if phone {
-                let (gutter_l, gutter_r) = self.phone_gutters();
-                let left = prect.left() + crate::ui::m3::SP_3 + gutter_l;
-                let right = prect.right() - crate::ui::m3::SP_3 - gutter_r;
-                (
-                    (right - left - pad.x * 2.0).max(120.0),
-                    (left + right) / 2.0,
-                    prect.top() + chrome::phone_top(ui.ctx()) + 56.0 + chrome::MODE_BAR_H + 8.0,
-                )
-            } else {
-                (f32::INFINITY, prect.center().x, 0.0)
-            };
-            let galley = painter.layout(text, font, egui::Color32::BLACK, wrap);
-            // Desktop: centred 16 pt down, exactly where the one-line strip always sat.
-            let top = if phone {
-                phone_y
-            } else {
-                prect.top() + 16.0 - (galley.size().y / 2.0 + pad.y)
-            };
-            let rect = egui::Rect::from_min_size(
-                egui::pos2(center_x - (galley.size().x + pad.x * 2.0) / 2.0, top),
-                galley.size() + pad * 2.0,
-            );
-            painter.rect_filled(rect, 4.0, egui::Color32::from_rgb(255, 170, 60));
-            painter.galley(rect.min + pad, galley, egui::Color32::BLACK);
-        }
+        self.paint_hrrr_key(ui, &painter, prect, idx);
 
         ui::comparison_status::paint_for_view(
             &painter,
@@ -12162,52 +12045,7 @@ impl HookEchoApp {
         );
 
         // Placefile labels/icons.
-        for label in placefile_labels {
-            // An anchored label is placed by projecting its object's anchor and then stepping the
-            // stated pixels from it (y up), so it holds its offset as the map zooms.
-            let (base, off) = match label.anchor {
-                Some(a) => (a, egui::vec2(label.pos[0] as f32, -label.pos[1] as f32)),
-                None => (label.pos, egui::Vec2::ZERO),
-            };
-            let w = crate::render::mercator::lonlat_to_world(base[0], base[1]);
-            let (sx, sy) = cam.world_to_screen(w, vp);
-            let p = egui::pos2(prect.left() + sx, prect.top() + sy) + off;
-            if !prect.contains(p) {
-                continue;
-            }
-            let mut hit_size = egui::vec2(16.0, 16.0);
-            match &label.kind {
-                PlaceLabelKind::Text(text) => {
-                    painter.text(
-                        p,
-                        egui::Align2::CENTER_CENTER,
-                        text,
-                        egui::FontId::proportional(12.0),
-                        label.color,
-                    );
-                }
-                PlaceLabelKind::Marker => {
-                    painter.circle_stroke(p, 5.0, egui::Stroke::new(1.5, label.color));
-                    painter.circle_filled(p, 1.5, label.color);
-                }
-                PlaceLabelKind::Sprite {
-                    tex,
-                    uv,
-                    size,
-                    hot,
-                    angle,
-                } => {
-                    draw_sprite(&painter, *tex, *uv, p, *size, *hot, *angle, label.color);
-                    hit_size = *size;
-                }
-            }
-            if !label.hover.is_empty() {
-                let hit = egui::Rect::from_center_size(p, hit_size);
-                if response.hover_pos().is_some_and(|hp| hit.contains(hp)) {
-                    response.clone().show_tooltip_text(&label.hover);
-                }
-            }
-        }
+        self.paint_placefile_labels(&painter, prect, cam, vp, &response, placefile_labels);
 
         // The difference layer reads as "they disagree here" and nothing more without a number,
         // so the cursor samples the grid it was drawn from.
@@ -12487,49 +12325,7 @@ impl HookEchoApp {
         // GOES cloud top height as a surface (ROADMAP_NEW H6): pale grey to white by height, no
         // grid, fainter than the MRMS surface — satellite geometry, kept apart from both radar
         // and the MRMS analysis by look.
-        if self.views[idx].map_3d.enabled && self.views[idx].map_3d.cloud_top_surface {
-            if let Some((_, field)) = self.cloud_top.as_ref() {
-                let v = &self.views[idx];
-                let corners = [
-                    (0.0, 0.0),
-                    (vp.0, 0.0),
-                    (0.0, vp.1),
-                    (vp.0, vp.1),
-                    (vp.0 * 0.5, vp.1 * 0.5),
-                ]
-                .map(|p| {
-                    let w = cam.screen_to_world(p, vp);
-                    crate::render::mercator::world_to_lonlat(w.0, w.1)
-                });
-                let (clon, clat) = corners[4];
-                let mut b = [f64::MAX, f64::MAX, f64::MIN, f64::MIN];
-                for (lon, lat) in corners {
-                    b = [b[0].min(lon), b[1].min(lat), b[2].max(lon), b[3].max(lat)];
-                }
-                let b = [
-                    b[0].max(clon - 8.0),
-                    b[1].max(clat - 6.0),
-                    b[2].min(clon + 8.0),
-                    b[3].min(clat + 6.0),
-                ];
-                let (mesh, _) = crate::render3d::height_surface_screen(
-                    &cam,
-                    vp,
-                    prect.min,
-                    field,
-                    b,
-                    120,
-                    v.map_3d.vertical_exaggeration as f64,
-                    0.35,
-                    |km| {
-                        let t = (km / 15.0).clamp(0.0, 1.0);
-                        let lerp = |a: f32, b: f32| (a + t * (b - a)) as u8;
-                        Some([lerp(120.0, 250.0), lerp(130.0, 252.0), lerp(150.0, 255.0)])
-                    },
-                );
-                painter.add(egui::Shape::mesh(mesh));
-            }
-        }
+        self.paint_3d_cloud_tops(&painter, prect, cam, vp, idx);
 
         // The HRRR's 0, -10 and -20 °C heights as surfaces (ROADMAP_NEW H6): one colour per level,
         // with a *dashed* grid, the forecast's own look — apart from the observed radar, the
@@ -12579,54 +12375,7 @@ impl HookEchoApp {
 
         // Routes (ROADMAP_NEW L2): alternatives thin and grey, the chosen one wide and blue over a
         // dark casing so it reads over radar, and the waypoints lettered.
-        if !self.route_window.routes.is_empty() || !self.route_window.waypoints.is_empty() {
-            let screen = |p: &[f64; 2]| {
-                let w = crate::render::mercator::lonlat_to_world(p[0], p[1]);
-                let (sx, sy) = cam.world_to_screen(w, vp);
-                egui::pos2(prect.left() + sx, prect.top() + sy)
-            };
-            let chosen = self.route_window.selected;
-            for (i, r) in self.route_window.routes.iter().enumerate() {
-                if i == chosen {
-                    continue;
-                }
-                let pts: Vec<egui::Pos2> = r.coords.iter().map(screen).collect();
-                painter.add(egui::Shape::line(
-                    pts,
-                    egui::Stroke::new(
-                        3.0,
-                        egui::Color32::from_rgba_unmultiplied(170, 170, 185, 170),
-                    ),
-                ));
-            }
-            if let Some(r) = self.route_window.routes.get(chosen) {
-                let pts: Vec<egui::Pos2> = r.coords.iter().map(screen).collect();
-                painter.add(egui::Shape::line(
-                    pts.clone(),
-                    egui::Stroke::new(7.0, egui::Color32::from_black_alpha(170)),
-                ));
-                painter.add(egui::Shape::line(
-                    pts,
-                    egui::Stroke::new(4.0, egui::Color32::from_rgb(70, 150, 255)),
-                ));
-            }
-            for (i, p) in self.route_window.waypoints.iter().enumerate() {
-                let at = screen(p);
-                painter.circle(
-                    at,
-                    8.0,
-                    egui::Color32::from_rgb(70, 150, 255),
-                    egui::Stroke::new(1.5, egui::Color32::WHITE),
-                );
-                painter.text(
-                    at,
-                    egui::Align2::CENTER_CENTER,
-                    ((b'A' + (i as u8).min(25)) as char).to_string(),
-                    egui::FontId::proportional(10.0),
-                    egui::Color32::WHITE,
-                );
-            }
-        }
+        self.paint_routes(&painter, prect, cam, vp);
 
         // Freehand annotation strokes. Painted with the rest of the tool graphics so they sit
         // above every overlay, and drawn in OBS mode too — circling a storm on a stream is the
@@ -12899,148 +12648,10 @@ impl HookEchoApp {
         // chrome (see `app::mobile`), so drawing both would be redundant.
         // The phone keeps the thin strip along the top edge in every design; Storm and Carbon add a
         // tall scale down the edge opposite their rail, and Atlas a small boxed one in the corner.
-        if crate::platform::phone_layout() && view.show_legend && view.volume.is_some() {
-            use crate::ui::phone_design::Legend;
-            let (df, dl) = display_units(view.moment, &self.settings);
-            let table = self.palettes.table(view.moment);
-            // Clear of the pill, mode bar and rail above, and the timeline below. Station's bars
-            // and sheet are docked around the map, so its scale only keeps off the edges.
-            let (top, clear_bottom) = if self.phone_station() {
-                // Full screen, the way back (the eye) sits in the top-right corner.
-                (
-                    if self.mobile_chrome_hidden {
-                        76.0
-                    } else {
-                        10.0
-                    },
-                    10.0,
-                )
-            } else {
-                (
-                    chrome::phone_top(ui.ctx()) + 56.0 + chrome::MODE_BAR_H + 8.0,
-                    132.0 + self.phone_nav_h(),
-                )
-            };
-            match self.settings.phone_design.spec().legend {
-                Legend::StripOnly => {}
-                Legend::Vertical => ui::legend::draw_vertical(
-                    &painter,
-                    egui::Rect::from_min_max(
-                        egui::pos2(prect.left(), prect.top() + top),
-                        egui::pos2(prect.right(), prect.bottom() - clear_bottom),
-                    ),
-                    view.moment,
-                    table,
-                    view.active_threshold(),
-                    df,
-                    dl,
-                ),
-                Legend::Box => ui::legend::draw_box(
-                    &painter,
-                    prect,
-                    prect.bottom() - clear_bottom + 12.0,
-                    &format!("{} ({dl})", crate::products::name(view.moment, false)),
-                    table,
-                    view.moment,
-                    df,
-                ),
-            }
-        }
+        self.paint_phone_legend(ui, &painter, prect, idx);
         // Streaming mode can take the scale off the picture (`Broadcast::legend`).
         let legend_allowed = !(self.obs_mode && !self.settings.broadcast.legend);
-        if view.show_legend && legend_allowed && !crate::platform::phone_layout() {
-            // The moment's scale floats over this pane's right edge (no panel, no card) so the map
-            // keeps the pixels; the field/wind ramps still need their cards. The WSV3 layout docks
-            // this same scale under the ribbon, so drawing it here too would be the third copy.
-            let wsv3_colorbar =
-                self.settings.layout.is_ribbon() && !crate::platform::phone_layout();
-            if view.volume.is_some() && !wsv3_colorbar {
-                if let Some((table, _, units)) = self.product_legend(idx) {
-                    ui::legend::draw_vertical(
-                        &painter,
-                        prect,
-                        view.moment,
-                        &table,
-                        None,
-                        1.0,
-                        &units,
-                    );
-                } else {
-                    let (df, dl) = display_units(view.moment, &self.settings);
-                    ui::legend::draw_vertical(
-                        &painter,
-                        prect,
-                        view.moment,
-                        self.palettes.table(view.moment),
-                        view.active_threshold(),
-                        df,
-                        dl,
-                    );
-                }
-            }
-            // The field cards stack down the pane's top-left corner, which in the full-overlay
-            // chrome is where the search pill floats — the first card was drawn half under it.
-            // Every pane ducks by the same amount rather than only the top row: in a 2x2 grid the
-            // lower cards then sit a little further from their pane's edge, which nobody notices,
-            // and the alternative is a rect comparison that has to know about window insets.
-            let mut y = 48.0;
-            // Whichever gridded layer the user actually sees on top — the last enabled one in
-            // paint order — gets its scale keyed underneath. Without this, MESH/QPE/VIL and the
-            // categorical classifications were unlabeled color.
-            if let Some(top) = crate::render::FieldLayer::paint_order(&self.settings.field_order)
-                .iter()
-                .rev()
-                .find(|l| {
-                    view.fields_on.contains(l)
-                        && crate::fielddiff::layer_ready(**l, self.diff_valid, self.compare_valid)
-                })
-            {
-                use crate::render::FieldLayer as FL;
-                if *top == FL::ModelDiff {
-                    y += ui::legend::draw_diff(&painter, prect, self.diff_field, self.diff_mode, y);
-                } else if *top == FL::Ensemble {
-                    y += ui::legend::draw_ensemble(
-                        &painter,
-                        prect,
-                        &self.ensemble,
-                        y,
-                        self.settings.temp_unit,
-                    );
-                } else if matches!(*top, FL::CompareA | FL::CompareB) {
-                    let (label_a, label_b) = self.diff_field.pair();
-                    let model = if view.swipe_compare {
-                        format!("{label_a} A | B {label_b}")
-                    } else if view.overlay_compare {
-                        format!("{label_a} + 50% {label_b}")
-                    } else if *top == FL::CompareA {
-                        label_a.into()
-                    } else {
-                        label_b.into()
-                    };
-                    y += ui::legend::draw_compare_label(&painter, prect, y, &model);
-                    y += ui::legend::draw_field(
-                        &painter,
-                        prect,
-                        self.diff_field.source_layer(),
-                        y,
-                        self.settings.temp_unit,
-                    );
-                } else {
-                    y += ui::legend::draw_field(&painter, prect, *top, y, self.settings.temp_unit);
-                }
-            }
-            // Wind particles carry their own scale — it isn't a FieldLayer, so it needs its own
-            // call rather than a slot in DRAW_ORDER.
-            if self.show_wind && self.wind.is_some() {
-                ui::legend::draw_ramp(
-                    &painter,
-                    prect,
-                    &crate::render::field_ramps::WIND,
-                    y,
-                    self.settings.temp_unit,
-                );
-            }
-        }
+        self.paint_legend(&painter, prect, idx, legend_allowed);
     }
 
     /// Resize the pane grid to `n` (1/2/4). New panes copy the active pane's site/camera but
@@ -18568,7 +18179,7 @@ mod tests {
     /// `app/`; when an extraction lands, lower the ceiling to the new length so it stays down.
     #[test]
     fn app_rs_only_gets_smaller() {
-        const CEILING: usize = 19741;
+        const CEILING: usize = 19352;
         let lines = include_str!("app.rs").lines().count();
         assert!(
             lines <= CEILING,

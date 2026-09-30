@@ -326,4 +326,58 @@ impl HookEchoApp {
             }
         }
     }
+
+    /// The satellite cloud-top surface, lifted to its height.
+    pub(crate) fn paint_3d_cloud_tops(
+        &self,
+        painter: &egui::Painter,
+        prect: egui::Rect,
+        cam: crate::render::mercator::Camera,
+        vp: (f32, f32),
+        idx: usize,
+    ) {
+        if self.views[idx].map_3d.enabled && self.views[idx].map_3d.cloud_top_surface {
+            if let Some((_, field)) = self.cloud_top.as_ref() {
+                let v = &self.views[idx];
+                let corners = [
+                    (0.0, 0.0),
+                    (vp.0, 0.0),
+                    (0.0, vp.1),
+                    (vp.0, vp.1),
+                    (vp.0 * 0.5, vp.1 * 0.5),
+                ]
+                .map(|p| {
+                    let w = cam.screen_to_world(p, vp);
+                    crate::render::mercator::world_to_lonlat(w.0, w.1)
+                });
+                let (clon, clat) = corners[4];
+                let mut b = [f64::MAX, f64::MAX, f64::MIN, f64::MIN];
+                for (lon, lat) in corners {
+                    b = [b[0].min(lon), b[1].min(lat), b[2].max(lon), b[3].max(lat)];
+                }
+                let b = [
+                    b[0].max(clon - 8.0),
+                    b[1].max(clat - 6.0),
+                    b[2].min(clon + 8.0),
+                    b[3].min(clat + 6.0),
+                ];
+                let (mesh, _) = crate::render3d::height_surface_screen(
+                    &cam,
+                    vp,
+                    prect.min,
+                    field,
+                    b,
+                    120,
+                    v.map_3d.vertical_exaggeration as f64,
+                    0.35,
+                    |km| {
+                        let t = (km / 15.0).clamp(0.0, 1.0);
+                        let lerp = |a: f32, b: f32| (a + t * (b - a)) as u8;
+                        Some([lerp(120.0, 250.0), lerp(130.0, 252.0), lerp(150.0, 255.0)])
+                    },
+                );
+                painter.add(egui::Shape::mesh(mesh));
+            }
+        }
+    }
 }
