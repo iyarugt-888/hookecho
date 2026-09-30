@@ -2562,6 +2562,8 @@ pub(crate) enum PaletteAction {
     SeekTime(i64),
     /// Four panes, one product, four distinct tilts, cameras linked.
     AllTilts,
+    /// Remove every manual storm-motion track (`app::storm_track`).
+    ClearStormTracks,
     /// Two panes, one model's own field in each (`app.diff_field`), cameras linked — the
     /// side-by-side alternative to the `ModelDiff` subtraction layer.
     CompareInPanes,
@@ -12033,6 +12035,11 @@ impl HookEchoApp {
                 self.pane_layout = layout;
             }
             PaletteAction::AllTilts => self.apply_all_tilts(),
+            PaletteAction::ClearStormTracks => {
+                self.storm_tracks.tracks.clear();
+                self.storm_tracks.pending.clear();
+                self.storm_tracks.selected = None;
+            }
             PaletteAction::CompareInPanes => self.apply_compare_panes(),
             PaletteAction::ToggleBlinkCompare => {
                 if !self.diff_field.supports_side_by_side() {

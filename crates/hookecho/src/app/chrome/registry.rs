@@ -1605,6 +1605,16 @@ impl HookEchoApp {
             PaletteAction::AllTilts,
             None,
         );
+        if !self.storm_tracks.tracks.is_empty() {
+            push(
+                "Clear manual storm tracks",
+                "Tools",
+                "Remove every storm-motion track drawn by hand; SCIT's own tracks stay",
+                false,
+                PaletteAction::ClearStormTracks,
+                None,
+            );
+        }
         if self.diff_field.supports_side_by_side() {
             push(
                 "Compare models in 2 panes",
