@@ -734,7 +734,7 @@ All six are done.
 ### 13.8 Out of scope
 
 A light variant of the workstation look; per-layer settings pages (which the row gear would open);
-a scale bar on the map; a network round-trip measurement for the app bar; a natural-language
+a network round-trip measurement for the app bar; a natural-language
 "Jump to" beyond the time and date-time forms `parse_utc_time` accepts.
 
 ### 13.9 Done
@@ -1047,3 +1047,9 @@ a scale bar on the map; a network round-trip measurement for the app bar; a natu
   strip swaps places; dragged onto the map it floats; the floating window dropped on the right
   target docks back in front; Ctrl+Tab over the dock switches tabs; Reset returns a bottom-docked
   Inspector to floating.
+- A scale bar (`app::scale_bar`), once out of scope: a ruler in the lower left of each flat pane,
+  the longest round length that fits in 120 pt, in the pane's units; not drawn on a tilted or
+  globe camera, where no one length holds. A Reference layer toggle, on by default.
+- A dock's contents draw in a child its panel does not grow around (`dock::contained`): egui
+  re-sizes a right panel from its screen edge when its content overflows, so the 3D view's
+  representation row had been narrowing the right dock and sliding the map under it.
