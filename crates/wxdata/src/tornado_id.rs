@@ -43,6 +43,17 @@ pub enum Tier {
 }
 
 impl Tier {
+    /// A letter for the marker, so the tier reads without its colour (ROADMAP_2 §13.4: state is
+    /// never shown by colour alone): Possible, Likely, Debris, Confirmed.
+    pub fn glyph(self) -> &'static str {
+        match self {
+            Tier::Possible => "P",
+            Tier::Likely => "L",
+            Tier::Debris => "D",
+            Tier::Confirmed => "C",
+        }
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             Tier::Possible => "Tornado possible",
@@ -510,6 +521,14 @@ mod tests {
         let out = circulations(&[anti, couplet(-96.9, 0.5, 26.0, 3)], &[]);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].id.lon, -96.9);
+    }
+
+    #[test]
+    fn every_tier_has_its_own_letter() {
+        let tiers = [Tier::Possible, Tier::Likely, Tier::Debris, Tier::Confirmed];
+        let mut glyphs: Vec<_> = tiers.iter().map(|t| t.glyph()).collect();
+        glyphs.dedup();
+        assert_eq!(glyphs.len(), tiers.len(), "tiers must differ without colour");
     }
 
     #[test]

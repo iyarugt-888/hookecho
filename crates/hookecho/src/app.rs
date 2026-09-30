@@ -12905,7 +12905,7 @@ impl HookEchoApp {
                 painter.text(
                     p + egui::vec2(0.0, 1.0),
                     egui::Align2::CENTER_CENTER,
-                    "!",
+                    t.tier.glyph(),
                     egui::FontId::proportional(12.0),
                     egui::Color32::BLACK,
                 );
@@ -13101,7 +13101,7 @@ impl HookEchoApp {
                     painter.text(
                         p + egui::vec2(0.0, 1.0),
                         egui::Align2::CENTER_CENTER,
-                        "!",
+                        t.tier.glyph(),
                         egui::FontId::proportional(12.0),
                         egui::Color32::BLACK,
                     );
