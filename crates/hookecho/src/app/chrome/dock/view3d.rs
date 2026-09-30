@@ -44,13 +44,19 @@ impl HookEchoApp {
                 if collapsed {
                     return;
                 }
-                let scroll = egui::ScrollArea::vertical().auto_shrink([false, floating]);
+                // Both ways: a control wider than the column scrolls inside it rather than
+                // widening the docked column under the map.
+                let scroll = egui::ScrollArea::both().auto_shrink([false, floating]);
                 let scroll = if floating {
                     scroll.max_height(body_h)
                 } else {
                     scroll
                 };
+                let column_w = ui.available_width();
                 scroll.show(ui, |ui| {
+                    ui.set_max_width(column_w);
+                    // Sliders sized to the column, leaving room for their value and label.
+                    ui.spacing_mut().slider_width = (column_w - 150.0).clamp(80.0, 180.0);
                     egui::Frame::NONE
                         .inner_margin(egui::Margin::symmetric(10, 8))
                         .show(ui, |ui| self.map_3d_controls_body(idx, ui));

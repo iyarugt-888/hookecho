@@ -16782,7 +16782,9 @@ impl HookEchoApp {
         if stale {
             view.map_3d.representation = Map3dRepresentation::ObservedSweeps;
         }
-        ui.horizontal(|ui| {
+        // Wrapped: eight choices do not fit a docked column's width on one line, and an
+        // unwrapped row pushed the column wider than its room, under the map.
+        ui.horizontal_wrapped(|ui| {
             ui.selectable_value(
                 &mut view.map_3d.representation,
                 Map3dRepresentation::ObservedSweeps,

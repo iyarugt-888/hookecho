@@ -272,6 +272,21 @@ fn tab_order_from(names: &[String]) -> Vec<DockWin> {
 
 /// The widest a dock may be dragged in a window this wide: [`DOCK_MAX_W`], and never more than
 /// 45% of the window.
+/// Runs a dock's contents in a child its panel does not grow around. A right panel whose
+/// content runs wider than it is re-sized from its outer (screen) edge, so one over-wide row
+/// would move its inner edge inward and hand the column to the map; contained, the row is
+/// clipped at the column instead.
+fn contained<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    let inner = ui.max_rect();
+    let mut child = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(inner)
+            .layout(egui::Layout::top_down(egui::Align::Min)),
+    );
+    child.set_clip_rect(inner.intersect(ui.clip_rect()));
+    add(&mut child)
+}
+
 fn dock_max_width(window_w: f32) -> f32 {
     DOCK_MAX_W.min(window_w * 0.45)
 }
@@ -1451,7 +1466,7 @@ impl HookEchoApp {
                 if grouped {
                     ws::set_header_tabs(ctx, Some(tabs));
                 }
-                self.dock_window(front, Host::Docked(ui), ctx);
+                contained(ui, |ui| self.dock_window(front, Host::Docked(ui), ctx));
                 ws::set_header_tabs(ctx, None);
             })
             .response
@@ -2311,6 +2326,44 @@ mod tests {
         assert_eq!(dock_max_width(900.0), 405.0);
         // Tinier than the minimum: the minimum yields rather than the map.
         assert!(dock_max_width(400.0) < DOCK_MIN_W);
+    }
+
+    /// The 3D view's representation row once ran wider than the right dock, and egui re-sized
+    /// that panel from its screen edge: the column shrank and the map slid in under it.
+    #[test]
+    fn an_over_wide_row_does_not_narrow_the_right_dock() {
+        let ctx = egui::Context::default();
+        let raw = || egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1000.0, 600.0),
+            )),
+            ..Default::default()
+        };
+        let map = |contain: bool| {
+            let mut map = egui::Rect::NOTHING;
+            for _ in 0..2 {
+                let _ = ctx.run_ui(raw(), |root| {
+                    egui::Panel::right(egui::Id::new(("right", contain)))
+                        .exact_size(300.0)
+                        .resizable(false)
+                        .show(root, |ui| {
+                            let row = |ui: &mut egui::Ui| {
+                                ui.horizontal(|ui| ui.add_space(500.0));
+                            };
+                            if contain {
+                                contained(ui, row);
+                            } else {
+                                row(ui);
+                            }
+                        });
+                    map = root.available_rect_before_wrap();
+                });
+            }
+            map
+        };
+        assert!(map(false).right() > 700.0, "egui still does this uncontained");
+        assert_eq!(map(true).right(), 700.0);
     }
 
     #[test]
