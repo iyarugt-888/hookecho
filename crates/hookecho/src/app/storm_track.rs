@@ -52,6 +52,15 @@ impl ManualTrack {
         }
     }
 
+    /// A track seeded from a SCIT cell's automatic motion, to adjust by hand. `None` without
+    /// one.
+    pub fn from_cell(cell: &wxdata::level3::Cell, t0: DateTime<Utc>) -> Option<Self> {
+        let mut t = Self::new([cell.lon, cell.lat], t0);
+        t.bearing_deg = f64::from(cell.mvt_deg?).rem_euclid(360.0);
+        t.speed_kmh = f64::from(cell.mvt_kt?) * KMH_PER_KT;
+        Some(t)
+    }
+
     /// Where the storm is projected `min` minutes after `t0`.
     pub fn at(&self, min: f64) -> [f64; 2] {
         destination_point(self.origin, self.bearing_deg, self.speed_kmh * min / 60.0)
@@ -625,6 +634,21 @@ mod tests {
         t.cone_deg = 0.0;
         assert!((width(&t) - 6.0).abs() < 0.1, "{}", width(&t));
         assert!(wide > 6.0 + 2.0 * 60.0 * 0.17);
+    }
+
+    #[test]
+    fn a_scit_cell_seeds_a_track_with_its_motion() {
+        let cell = wxdata::level3::Cell {
+            lon: -97.0,
+            lat: 35.0,
+            mvt_deg: Some(245.0),
+            mvt_kt: Some(30.0),
+            ..Default::default()
+        };
+        let t = ManualTrack::from_cell(&cell, Utc::now()).unwrap();
+        assert_eq!(t.bearing_deg, 245.0);
+        assert!((t.speed_kmh - 55.56).abs() < 0.01);
+        assert!(ManualTrack::from_cell(&wxdata::level3::Cell::default(), Utc::now()).is_none());
     }
 
     #[test]

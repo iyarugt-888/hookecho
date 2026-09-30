@@ -22,7 +22,7 @@ mod radar_wind;
 mod region_stats;
 mod report;
 mod scale_bar;
-mod storm_track;
+pub(crate) mod storm_track;
 mod terrain3d;
 mod yall_mode;
 pub(crate) use field_state::FieldState;

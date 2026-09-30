@@ -44,6 +44,8 @@ enum CellAct {
     Follow,
     View3d,
     Center,
+    /// Start a manual storm-motion track from SCIT's motion, to adjust by hand.
+    TrackManually,
     /// Show this open storm (select it on the map).
     Focus(String),
     Compare,
@@ -531,6 +533,14 @@ impl HookEchoApp {
                                 if ws::button(ui, &t, "Center", 0.0).clicked() {
                                     act = Some(CellAct::Center);
                                 }
+                                if c.mvt_deg.is_some()
+                                    && c.mvt_kt.is_some()
+                                    && ws::button(ui, &t, "Track manually", 0.0)
+                                        .named("Start a manual motion track from SCIT's, to adjust by hand")
+                                        .clicked()
+                                {
+                                    act = Some(CellAct::TrackManually);
+                                }
                                 if ws::button(ui, &t, "View in 3D", 0.0)
                                     .named("Open the 3D volume cropped to this cell")
                                     .clicked()
@@ -560,6 +570,17 @@ impl HookEchoApp {
         match act {
             Some(CellAct::Follow) => self.cell_follow_toggle = true,
             Some(CellAct::View3d) => self.cell_view3d = true,
+            Some(CellAct::TrackManually) => {
+                let t0 = c
+                    .time
+                    .or_else(|| self.views[self.active].volume.as_ref().map(|v| v.time))
+                    .unwrap_or_else(chrono::Utc::now);
+                if let Some(track) = crate::app::storm_track::ManualTrack::from_cell(&c, t0) {
+                    self.storm_tracks.tracks.push(track);
+                    self.storm_tracks.selected = Some(self.storm_tracks.tracks.len() - 1);
+                    self.tool = crate::app::MapTool::StormTrack;
+                }
+            }
             Some(CellAct::Center) => {
                 let cam = &mut self.views[self.active].camera;
                 cam.center = crate::render::mercator::lonlat_to_world(c.lon, c.lat);
