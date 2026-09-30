@@ -465,9 +465,8 @@ impl LiveScan {
             if !gaps.is_empty() {
                 s.push_str(&format!(" · unobserved chunks {gaps:?}"));
             }
-            let radial_gaps = self.radial_gaps();
-            if !radial_gaps.is_empty() {
-                s.push_str(&format!(" · radial gaps {radial_gaps:?}"));
+            if let Some(gaps) = gap_summary(&self.radial_gaps()) {
+                s.push_str(&format!(" · {gaps}"));
             }
         }
         if let Some(time) = self.volume_time {
@@ -479,6 +478,39 @@ impl LiveScan {
         }
         s
     }
+}
+
+/// Radial gaps said plainly: how many radials are missing and the first few spans by radial
+/// number. `None` when there are none.
+pub fn gap_summary(gaps: &[(u16, u16)]) -> Option<String> {
+    if gaps.is_empty() {
+        return None;
+    }
+    let missing: u32 = gaps
+        .iter()
+        .map(|(a, b)| u32::from(b.saturating_sub(*a)) + 1)
+        .sum();
+    let spans: Vec<String> = gaps
+        .iter()
+        .take(3)
+        .map(|(a, b)| {
+            if a == b {
+                format!("#{a}")
+            } else {
+                format!("#{a}\u{2013}{b}")
+            }
+        })
+        .collect();
+    let more = if gaps.len() > 3 {
+        format!(" +{} more", gaps.len() - 3)
+    } else {
+        String::new()
+    };
+    let radials = if missing == 1 { "radial" } else { "radials" };
+    Some(format!(
+        "{missing} {radials} missing ({}{more})",
+        spans.join(", ")
+    ))
 }
 
 fn chunk_sequence(name: &str) -> Option<(&str, u16)> {
@@ -506,6 +538,19 @@ mod tests {
             chunk_index: chunk,
             chunks_in_sweep: 3,
         }
+    }
+
+    #[test]
+    fn radial_gaps_read_as_a_count_and_their_first_spans() {
+        assert_eq!(gap_summary(&[]), None);
+        assert_eq!(
+            gap_summary(&[(7, 7)]).as_deref(),
+            Some("1 radial missing (#7)")
+        );
+        assert_eq!(
+            gap_summary(&[(1, 4), (10, 10), (20, 21), (30, 30)]).as_deref(),
+            Some("8 radials missing (#1\u{2013}4, #10, #20\u{2013}21 +1 more)")
+        );
     }
 
     #[test]

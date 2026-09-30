@@ -274,6 +274,10 @@ fn scan_progression(ui: &mut egui::Ui, t: &ws::Tokens, scan: &crate::live_scan::
             None,
         );
     }
+    // Radials missing inside the chunks received for the current cut.
+    if let Some(gaps) = crate::live_scan::gap_summary(&scan.radial_gaps()) {
+        ws::kv(ui, t, "Gaps", &gaps, Some(t.warn));
+    }
     ui.horizontal_wrapped(|ui| {
         for number in 1..=state.expected_cuts.min(64) {
             let (color, status) = match scan.cut_coverage(number) {
