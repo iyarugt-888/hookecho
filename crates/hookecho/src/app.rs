@@ -42,7 +42,9 @@ mod detector_markers;
 mod map_click;
 mod pane_3d_overlays;
 mod pane_layout;
+mod pane_marks;
 mod pane_overlays;
+mod pane_places;
 mod pane_points;
 mod pane_stations;
 mod radar_feed;
@@ -11459,216 +11461,18 @@ impl HookEchoApp {
         // City/town labels, overlaid on every basemap. On raster (satellite) the baked-in labels
         // are faint over imagery + echoes, so we draw crisp white text with a solid black halo;
         // vector basemaps use their palette's label colors. Bigger fonts + an 8-way halo read well.
-        if !vlabels.is_empty() {
-            let (text_col, halo_col, big) = if is_vector {
-                let st = crate::basemap_style::style(basemap.vector_palette().unwrap_or_default());
-                (
-                    egui::Color32::from_rgb(st.label[0], st.label[1], st.label[2]),
-                    egui::Color32::from_rgb(st.label_halo[0], st.label_halo[1], st.label_halo[2]),
-                    13.0,
-                )
-            } else {
-                (
-                    egui::Color32::WHITE,
-                    egui::Color32::from_black_alpha(235),
-                    14.5,
-                )
-            };
-            let z = cam.zoom;
-            // Repeat route shields from regional zoom; collision placement still prevents overlap.
-            let repeat_shields = z >= 5.0;
-            let mut labels: Vec<&crate::vector_tiles::PlaceLabel> =
-                vlabels.iter().filter(|l| l.visible_at(z)).collect();
-            let label_key = |l: &crate::vector_tiles::PlaceLabel| {
-                let key = crate::labelplace::key(&l.name);
-                if repeat_shields && l.shield != crate::vector_tiles::RoadShield::None {
-                    key ^ ((l.world[0].to_bits() as u64) << 32) ^ l.world[1].to_bits() as u64
-                } else {
-                    key
-                }
-            };
-            // Labels already on screen are offered their slot before newcomers of the same
-            // importance; without that a name at the edge of a collision wins and loses on
-            // alternate frames, which is exactly the flicker you see while panning.
-            labels.sort_by_key(|l| (l.priority(), !self.labels.was_shown(label_key(l)), l.rank));
-            let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
-            // 8-way halo (cardinals + diagonals) for a solid, readable outline.
-            const HALO: [egui::Vec2; 8] = [
-                egui::vec2(1.2, 0.0),
-                egui::vec2(-1.2, 0.0),
-                egui::vec2(0.0, 1.2),
-                egui::vec2(0.0, -1.2),
-                egui::vec2(1.0, 1.0),
-                egui::vec2(1.0, -1.0),
-                egui::vec2(-1.0, 1.0),
-                egui::vec2(-1.0, -1.0),
-            ];
-            let mut placed_shields: Vec<(&str, crate::vector_tiles::RoadShield, egui::Pos2)> =
-                Vec::new();
-            for l in labels {
-                if (l.shield == crate::vector_tiles::RoadShield::None || !repeat_shields)
-                    && !seen.insert(l.name.as_str())
-                {
-                    continue;
-                }
-                let (sx, sy) = cam.world_to_screen((l.world[0] as f64, l.world[1] as f64), vp);
-                let p = egui::pos2(prect.left() + sx, prect.top() + sy);
-                if !prect.contains(p) {
-                    continue;
-                }
-                if l.shield != crate::vector_tiles::RoadShield::None {
-                    use crate::vector_tiles::RoadShield;
-                    let (height, pad, text_color) = match l.shield {
-                        RoadShield::Interstate => (25.0, 10.0, egui::Color32::WHITE),
-                        RoadShield::Us => (22.0, 11.0, egui::Color32::BLACK),
-                        RoadShield::State => (19.0, 9.0, egui::Color32::BLACK),
-                        RoadShield::Other => (17.0, 7.0, egui::Color32::BLACK),
-                        RoadShield::None => unreachable!(),
-                    };
-                    let galley = painter.layout_no_wrap(
-                        l.name.clone(),
-                        egui::FontId::proportional(big - 2.5),
-                        text_color,
-                    );
-                    let r = egui::Rect::from_center_size(
-                        p,
-                        egui::vec2((galley.size().x + pad).max(height), height),
-                    );
-                    if placed_shields.iter().any(|(name, shield, position)| {
-                        *name == l.name
-                            && *shield == l.shield
-                            && position.distance(p) < if z < 8.0 { 160.0 } else { 220.0 }
-                    }) {
-                        continue;
-                    }
-                    if !self.labels.place(
-                        label_key(l),
-                        r.expand(3.0),
-                        crate::labelplace::Priority::Place,
-                    ) {
-                        continue;
-                    }
-                    placed_shields.push((&l.name, l.shield, p));
-                    match l.shield {
-                        RoadShield::Interstate => {
-                            let shield = |rect: egui::Rect| {
-                                vec![
-                                    egui::pos2(rect.left() + 3.0, rect.top() + 2.0),
-                                    egui::pos2(rect.center().x, rect.top()),
-                                    egui::pos2(rect.right() - 3.0, rect.top() + 2.0),
-                                    egui::pos2(rect.right(), rect.top() + 7.0),
-                                    egui::pos2(rect.right() - 1.0, rect.bottom() - 7.0),
-                                    egui::pos2(rect.right() - 4.0, rect.bottom() - 3.0),
-                                    egui::pos2(rect.center().x, rect.bottom()),
-                                    egui::pos2(rect.left() + 4.0, rect.bottom() - 3.0),
-                                    egui::pos2(rect.left() + 1.0, rect.bottom() - 7.0),
-                                    egui::pos2(rect.left(), rect.top() + 7.0),
-                                ]
-                            };
-                            painter.add(egui::Shape::convex_polygon(
-                                shield(r),
-                                egui::Color32::WHITE,
-                                egui::Stroke::NONE,
-                            ));
-                            let inner = r.shrink(1.2);
-                            painter.add(egui::Shape::convex_polygon(
-                                shield(inner),
-                                egui::Color32::from_rgb(38, 67, 145),
-                                egui::Stroke::NONE,
-                            ));
-                            painter.add(egui::Shape::convex_polygon(
-                                vec![
-                                    egui::pos2(inner.left() + 1.0, inner.top() + 6.5),
-                                    egui::pos2(inner.left() + 3.0, inner.top() + 2.0),
-                                    egui::pos2(inner.center().x, inner.top()),
-                                    egui::pos2(inner.right() - 3.0, inner.top() + 2.0),
-                                    egui::pos2(inner.right() - 1.0, inner.top() + 6.5),
-                                ],
-                                egui::Color32::from_rgb(190, 37, 48),
-                                egui::Stroke::NONE,
-                            ));
-                            painter.line_segment(
-                                [
-                                    egui::pos2(inner.left() + 1.0, inner.top() + 7.0),
-                                    egui::pos2(inner.right() - 1.0, inner.top() + 7.0),
-                                ],
-                                egui::Stroke::new(1.2, egui::Color32::WHITE),
-                            );
-                        }
-                        RoadShield::Us => {
-                            let badge = |rect: egui::Rect| {
-                                vec![
-                                    egui::pos2(rect.left() + 4.0, rect.top()),
-                                    egui::pos2(rect.right() - 4.0, rect.top()),
-                                    egui::pos2(rect.right(), rect.top() + 5.0),
-                                    egui::pos2(rect.right() - 2.0, rect.bottom() - 4.0),
-                                    egui::pos2(rect.center().x, rect.bottom()),
-                                    egui::pos2(rect.left() + 2.0, rect.bottom() - 4.0),
-                                    egui::pos2(rect.left(), rect.top() + 5.0),
-                                ]
-                            };
-                            painter.add(egui::Shape::convex_polygon(
-                                badge(r),
-                                egui::Color32::BLACK,
-                                egui::Stroke::NONE,
-                            ));
-                            painter.add(egui::Shape::convex_polygon(
-                                badge(r.shrink(1.3)),
-                                egui::Color32::WHITE,
-                                egui::Stroke::NONE,
-                            ));
-                        }
-                        RoadShield::State => {
-                            painter.rect_filled(r, height * 0.5, egui::Color32::BLACK);
-                            painter.rect_filled(r.shrink(1.2), height * 0.5, egui::Color32::WHITE);
-                        }
-                        RoadShield::Other => {
-                            painter.rect_filled(r, 2.0, egui::Color32::BLACK);
-                            painter.rect_filled(r.shrink(1.0), 1.5, egui::Color32::WHITE);
-                        }
-                        RoadShield::None => unreachable!(),
-                    }
-                    painter.galley_with_override_text_color(
-                        egui::pos2(
-                            r.center().x - galley.size().x * 0.5,
-                            r.center().y - galley.size().y * 0.5
-                                + if l.shield == RoadShield::Interstate {
-                                    2.8
-                                } else {
-                                    0.0
-                                },
-                        ),
-                        galley,
-                        text_color,
-                    );
-                    continue;
-                }
-                let font = egui::FontId::proportional(if l.city { big } else { big - 2.5 });
-                let galley = painter.layout_no_wrap(l.name.clone(), font, text_col);
-                let r = egui::Rect::from_min_size(p, galley.size()).expand(4.0);
-                if !self
-                    .labels
-                    .place(label_key(l), r, crate::labelplace::Priority::Place)
-                {
-                    continue;
-                }
-                // One layout per label, reused for all nine draws. `painter.text` would lay the
-                // string out again every time, which at eight halo offsets meant ten text
-                // layouts per visible place name, every frame.
-                for off in HALO {
-                    painter.galley_with_override_text_color(p + off, galley.clone(), halo_col);
-                }
-                painter.galley_with_override_text_color(p, galley, text_col);
-            }
-            // OpenMapTiles/OpenStreetMap credit for the label data (raster imagery is credited below).
-            painter.text(
-                egui::pos2(prect.left() + 6.0, prect.bottom() - 18.0),
-                egui::Align2::LEFT_BOTTOM,
-                "© OpenMapTiles © OpenStreetMap",
-                egui::FontId::proportional(10.0),
-                egui::Color32::from_gray(200).gamma_multiply(0.55),
-            );
-        }
+        let mut labels = std::mem::take(&mut self.labels);
+        self.paint_place_labels(
+            &painter,
+            prect,
+            cam,
+            vp,
+            is_vector,
+            basemap,
+            &vlabels,
+            &mut labels,
+        );
+        self.labels = labels;
 
         // Raster basemap attribution (provider styles + USGS satellite).
         if pane_style.is_raster() {
@@ -12097,57 +11901,7 @@ impl HookEchoApp {
 
         // Live stations: a dot per station, warm where it is hot and cool where it is not, so a
         // boundary reads off the map before any card is open. Clicking one opens its card.
-        if self.show_stations {
-            let show_labels = cam.zoom >= 8.0;
-            let temp_unit = self.settings.temp_unit;
-            for ob in &self.stations.obs {
-                let w = crate::render::mercator::lonlat_to_world(ob.lon, ob.lat);
-                let (sx, sy) = cam.world_to_screen(w, vp);
-                let p = egui::pos2(prect.left() + sx, prect.top() + sy);
-                if !prect.contains(p) {
-                    continue;
-                }
-                let col = match ob.temp_c {
-                    // Blue at freezing through red at 38 C, the span US surface weather lives in.
-                    Some(t) => {
-                        let f = ((t / 38.0).clamp(0.0, 1.0) * 255.0) as u8;
-                        egui::Color32::from_rgb(f, 90, 255 - f)
-                    }
-                    None => egui::Color32::from_gray(150),
-                };
-                // A personal station usually sits within a mile of the airport METAR that already
-                // has a dot here, so the networks get different shapes and opposite label sides —
-                // otherwise the PWS is drawn, invisible, underneath the METAR.
-                let stroke = egui::Stroke::new(1.0, egui::Color32::from_black_alpha(180));
-                let metar = ob.network == wxdata::stations::Network::Metar;
-                if metar {
-                    painter.circle_filled(p, 5.0, col);
-                    painter.circle_stroke(p, 5.0, stroke);
-                } else {
-                    let r = egui::Rect::from_center_size(p, egui::vec2(9.0, 9.0));
-                    painter.rect_filled(r, 1.0, col);
-                    painter.rect_stroke(r, 1.0, stroke, egui::StrokeKind::Middle);
-                }
-                if show_labels {
-                    let label = match ob.temp_c {
-                        Some(t) => format!("{:.0}{}", temp_unit.from_c(t), temp_unit.label()),
-                        None => ob.id.clone(),
-                    };
-                    let (off, align) = if metar {
-                        (7.0, egui::Align2::LEFT_CENTER)
-                    } else {
-                        (-7.0, egui::Align2::RIGHT_CENTER)
-                    };
-                    painter.text(
-                        p + egui::vec2(off, 0.0),
-                        align,
-                        label,
-                        egui::FontId::proportional(10.0),
-                        egui::Color32::from_gray(230),
-                    );
-                }
-            }
-        }
+        self.paint_live_stations(&painter, prect, cam, vp);
 
         // Damage surveys: the fitted path first, then a dot per surveyed indicator coloured by its
         // EF rating, so the rating gradient along the track reads at a glance.
@@ -12592,56 +12346,7 @@ impl HookEchoApp {
         // NEXRAD/TDWR site reads in miles, everything else in kilometers. The four ring radii are
         // picked to be round numbers in whichever unit is showing; the geodesic math underneath
         // (`destination_point`) always takes kilometers regardless.
-        if self.show_range_rings {
-            if let Some(site) = view.site.as_deref().and_then(wxdata::sites::site_by_id) {
-                let origin = [site.longitude as f64, site.latitude as f64];
-                let col = egui::Color32::from_gray(150).gamma_multiply(0.55);
-                let to_screen = |lon: f64, lat: f64| {
-                    let w = crate::render::mercator::lonlat_to_world(lon, lat);
-                    let (sx, sy) = cam.world_to_screen(w, vp);
-                    egui::pos2(prect.left() + sx, prect.top() + sy)
-                };
-                let metric = self.metric_in(idx);
-                let ring_values: [f64; 4] = if metric {
-                    [50.0, 100.0, 150.0, 200.0]
-                } else {
-                    [25.0, 50.0, 75.0, 100.0]
-                };
-                let mut max_ring_km = 0.0f64;
-                for value in ring_values {
-                    let km = if metric {
-                        value
-                    } else {
-                        value * crate::geo::KM_PER_MILE
-                    };
-                    max_ring_km = max_ring_km.max(km);
-                    let pts: Vec<egui::Pos2> = (0..=72)
-                        .map(|i| {
-                            let p = crate::geo::destination_point(origin, i as f64 * 5.0, km);
-                            to_screen(p[0], p[1])
-                        })
-                        .collect();
-                    painter.add(egui::Shape::line(pts, egui::Stroke::new(1.0, col)));
-                    if cam.zoom >= 6.0 {
-                        let top = crate::geo::destination_point(origin, 0.0, km);
-                        painter.text(
-                            to_screen(top[0], top[1]),
-                            egui::Align2::CENTER_BOTTOM,
-                            crate::geo::fmt_distance(km, metric, 0),
-                            egui::FontId::proportional(10.0),
-                            col,
-                        );
-                    }
-                }
-                for az in (0..360).step_by(45) {
-                    let far = crate::geo::destination_point(origin, az as f64, max_ring_km);
-                    painter.line_segment(
-                        [to_screen(origin[0], origin[1]), to_screen(far[0], far[1])],
-                        egui::Stroke::new(0.6, col.gamma_multiply(0.7)),
-                    );
-                }
-            }
-        }
+        self.paint_range_rings(&painter, prect, cam, vp, idx);
 
         // Scan age: a ring at the edge of the sweep, coloured by how long before the newest data
         // each azimuth was collected. The antenna takes minutes to turn, so the two edges of a
@@ -12656,75 +12361,7 @@ impl HookEchoApp {
         self.labels = labels;
 
         // Location markers.
-        for m in &self.settings.markers {
-            let w = crate::render::mercator::lonlat_to_world(m.lon, m.lat);
-            let (sx, sy) = cam.world_to_screen(w, vp);
-            let p = egui::pos2(prect.left() + sx, prect.top() + sy);
-            if !prect.contains(p) {
-                continue;
-            }
-            let col = crate::theme::accent(self.settings.theme);
-            // Home wears its watch radius: the ring is the ground truth for "within 20 miles",
-            // and a circle you can see beats a number you have to trust.
-            if m.home && m.alert_radius_mi > 0.0 {
-                let km = m.alert_radius_mi * crate::geo::KM_PER_MILE;
-                let edge = crate::geo::destination_point([m.lon, m.lat], 90.0, km);
-                let ew = crate::render::mercator::lonlat_to_world(edge[0], edge[1]);
-                let (ex, _) = cam.world_to_screen(ew, vp);
-                let r = (prect.left() + ex - p.x).abs();
-                if r > 4.0 && r < 4000.0 {
-                    painter.circle_stroke(
-                        p,
-                        r,
-                        egui::Stroke::new(
-                            1.0,
-                            egui::Color32::from_rgba_unmultiplied(col.r(), col.g(), col.b(), 70),
-                        ),
-                    );
-                }
-            }
-            // Uploaded icon if one is loaded; otherwise the default accent dot.
-            let tex = m
-                .icon
-                .as_ref()
-                .and_then(|n| self.marker_icon_tex.get(n))
-                .and_then(|t| t.as_ref());
-            let label_dx = if let Some(tex) = tex {
-                // Round the icon into a disc with a white ring, so a marker reads as a map pin
-                // rather than a photo pasted on the map. A corner radius of half the size is a
-                // circle; the ring also separates a dark photo from a dark basemap.
-                let d = crate::ui::marker_window::ICON_D;
-                let r = egui::Rect::from_center_size(p, egui::vec2(d, d));
-                painter.add(
-                    egui::epaint::RectShape::filled(
-                        r,
-                        egui::CornerRadius::same((d / 2.0) as u8),
-                        egui::Color32::WHITE,
-                    )
-                    .with_texture(
-                        tex.id(),
-                        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                    ),
-                );
-                painter.circle_stroke(
-                    p,
-                    d / 2.0,
-                    egui::Stroke::new(1.5, egui::Color32::from_white_alpha(230)),
-                );
-                d / 2.0 + 2.0
-            } else {
-                painter.circle_filled(p, 4.0, col);
-                painter.circle_stroke(p, 4.0, egui::Stroke::new(1.5, egui::Color32::WHITE));
-                7.0
-            };
-            painter.text(
-                p + egui::vec2(label_dx, 0.0),
-                egui::Align2::LEFT_CENTER,
-                &m.name,
-                egui::FontId::proportional(12.0),
-                col,
-            );
-        }
+        self.paint_location_markers(&painter, prect, cam, vp);
 
         // You, and anyone sharing their position with you. Drawn after the saved markers so a
         // moving dot is never hidden under a static one.
@@ -13015,121 +12652,12 @@ impl HookEchoApp {
         // there, so they paint here through the same lon/lat projection as the strokes above.
         let imported_shown =
             self.show_imported_gis && self.settings.imported_gis_style.visible_at(cam.zoom);
-        if imported_shown && !self.imported_marks.is_empty() {
-            let style = self.settings.imported_gis_style;
-            let c = style.stroke_rgba();
-            let layer_color = egui::Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
-            // A mark coloured by attribute keeps the layer's opacity.
-            let colors = self.imported_colors.as_ref().map(|(_, c, _)| c);
-            let color_of = |src: Option<&usize>| {
-                colors
-                    .and_then(|c| *c.get(*src?)?)
-                    .map_or(layer_color, |[r, g, b]| {
-                        egui::Color32::from_rgba_unmultiplied(r, g, b, c[3])
-                    })
-            };
-            let width = style.rendered_stroke_width();
-            let screen = |ll: &[f64; 2]| {
-                let w = crate::render::mercator::lonlat_to_world(ll[0], ll[1]);
-                let (sx, sy) = cam.world_to_screen(w, vp);
-                egui::pos2(prect.left() + sx, prect.top() + sy)
-            };
-            let marks = &self.imported_marks;
-            for (i, line) in marks.lines.iter().enumerate() {
-                if !self.imported_valid(marks.line_src.get(i)) {
-                    continue;
-                }
-                let pts: Vec<egui::Pos2> = line.iter().map(screen).collect();
-                let color = color_of(marks.line_src.get(i));
-                painter.add(egui::Shape::line(pts, egui::Stroke::new(width, color)));
-            }
-            for (i, point) in marks.points.iter().enumerate() {
-                if !self.imported_valid(marks.point_src.get(i)) {
-                    continue;
-                }
-                let p = screen(point);
-                if !prect.contains(p) {
-                    continue;
-                }
-                let color = color_of(marks.point_src.get(i));
-                // Outlined rather than a plain dot: an imported site has to stay visible over both
-                // a bright radar core and a dark basemap, which one flat color cannot manage.
-                // The outline-width control also scales point symbols so a mixed-geometry file
-                // keeps one coherent visual weight. The default 1.6 px remains the old 3.5 px dot.
-                let radius = 2.5 + width * 0.625;
-                painter.circle_filled(p, radius, color);
-                painter.circle_stroke(
-                    p,
-                    radius,
-                    egui::Stroke::new(1.0, egui::Color32::from_black_alpha(180)),
-                );
-            }
-        }
+        self.paint_imported_marks(&painter, prect, cam, vp, imported_shown);
         // Labels from the chosen attribute (I4), for every geometry family. Decluttered on a
         // coarse screen grid in file order: a label whose cell is taken is skipped, so a dense
         // file reads as a scatter of names rather than an unreadable smear, and more appear as
         // the map zooms in.
-        if let Some(key) = self
-            .settings
-            .imported_gis_label
-            .as_deref()
-            .filter(|_| imported_shown)
-        {
-            let c = self.settings.imported_gis_style.stroke_rgba();
-            let text_color = egui::Color32::from_rgb(
-                c[0].saturating_add(90),
-                c[1].saturating_add(90),
-                c[2].saturating_add(90),
-            );
-            let font = egui::FontId::proportional(11.5);
-            let (cell_w, cell_h) = (90.0_f32, 18.0_f32);
-            let mut taken = std::collections::HashSet::new();
-            let mut drawn = 0;
-            for &(at, src) in &self.imported_marks.anchors {
-                if !self.imported_valid(Some(&src)) {
-                    continue;
-                }
-                if drawn >= 600 {
-                    break;
-                }
-                let w = crate::render::mercator::lonlat_to_world(at[0], at[1]);
-                let (sx, sy) = cam.world_to_screen(w, vp);
-                let p = egui::pos2(prect.left() + sx, prect.top() + sy);
-                if !prect.shrink(4.0).contains(p) {
-                    continue;
-                }
-                let cell = ((p.x / cell_w) as i32, (p.y / cell_h) as i32);
-                if !taken.insert(cell) {
-                    continue;
-                }
-                let Some(text) = self
-                    .imported_marks
-                    .props
-                    .get(src)
-                    .and_then(|props| crate::gis_import::label_text(props, key))
-                else {
-                    continue;
-                };
-                let galley = painter.layout_no_wrap(text, font.clone(), text_color);
-                // Beside a point's dot, centred on a line or polygon's anchor; a dark halo keeps
-                // it legible over radar and basemap alike.
-                let pos = p + egui::vec2(6.0, -galley.size().y * 0.5);
-                for d in [
-                    egui::vec2(-1.0, 0.0),
-                    egui::vec2(1.0, 0.0),
-                    egui::vec2(0.0, -1.0),
-                    egui::vec2(0.0, 1.0),
-                ] {
-                    painter.galley_with_override_text_color(
-                        pos + d,
-                        galley.clone(),
-                        egui::Color32::from_black_alpha(200),
-                    );
-                }
-                painter.galley(pos, galley, text_color);
-                drawn += 1;
-            }
-        }
+        self.paint_imported_labels(&painter, prect, cam, vp, imported_shown);
 
         // Saved watch zones, plus the one being clicked out right now.
         {
@@ -19040,7 +18568,7 @@ mod tests {
     /// `app/`; when an extraction lands, lower the ceiling to the new length so it stays down.
     #[test]
     fn app_rs_only_gets_smaller() {
-        const CEILING: usize = 20213;
+        const CEILING: usize = 19741;
         let lines = include_str!("app.rs").lines().count();
         assert!(
             lines <= CEILING,
