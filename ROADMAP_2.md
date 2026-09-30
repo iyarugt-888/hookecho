@@ -58,6 +58,8 @@ Telemetry (§14.1, local only): the Analyst log now gives this app's own cost: h
 
 Basemap robustness (§4.5): ancestor fallback was already in place (a missing tile is stood in for by resident children or the nearest ancestor), but a failed tile was retried every 5 s forever. Retries now back off from 5 s, doubling to a 5-minute cap (`tiles::retry_after`), and the Analyst log shows coverage: tiles loaded, loading, failed, and how many are backing off.
 
+Soak runner (§3.1): `hookecho --soak SITE [MINUTES] [--inject]` runs the Level II path (list the newest volume, download, decode, bin every tilt of reflectivity and velocity) every 30 s for as long as asked (120 minutes by default; 720 and 1440 for the 12- and 24-hour profiles), printing a line per cycle and a JSON summary, and exits non-zero on a stalled feed (no new volume for 20 min), an unrecovered failure streak (5 cycles, not recovered by the end), accepted corruption, or memory growth after warm-up (over 1.5× and 200 MB; resident memory read on Linux and Windows). `--inject` hands every fourth new volume over cut in half. Its first run found that a Level II download cut short decodes without error, as the first part of the volume: `level2::scan_complete` now checks for the radar's end-of-volume radial, the archive cache keeps only whole volumes (a truncated download is refetched rather than cached as the real thing), and the soak fails a volume that is not whole. It soaks the data path headless; the renderer's long-run behaviour is what the Analyst log's telemetry watches in a real window. Still open: the 12- and 24-hour runs themselves, and HTTP-layer failure injection.
+
 ---
 
 # 0. Program goals and release gates

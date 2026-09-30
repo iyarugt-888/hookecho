@@ -118,6 +118,9 @@ pub(crate) mod secret;
 pub mod serve;
 pub mod settings;
 pub mod share;
+/// The `--soak` runner (ROADMAP_2 §3.1); native only — it builds its own runtime.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod soak;
 /// Stable upstream-service families shown by ROADMAP_NEW N1 source health.
 pub(crate) mod source_health;
 /// Tropical model guidance (spaghetti), best tracks and invests on the map.

@@ -925,7 +925,9 @@ pub async fn download_scan(id: Identifier, cache_dir: Option<PathBuf>) -> anyhow
         Err(crate::wasm_worker::Error::Unavailable) => decode_file(file)?,
         Err(e) => anyhow::bail!("{e}"),
     };
-    if let (Some(p), Some(bytes)) = (&cache_file, fresh_bytes) {
+    // Only a whole volume is kept: a truncated download is shown for what it has, and fetched
+    // again next time rather than cached as if it were the real thing.
+    if let (Some(p), Some(bytes), true) = (&cache_file, fresh_bytes, scan_complete(&scan)) {
         if let Some(dir) = p.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
@@ -936,6 +938,22 @@ pub async fn download_scan(id: Identifier, cache_dir: Option<PathBuf>) -> anyhow
     Ok(match scan.site() {
         Some(_) => scan,
         None => with_registry_site(scan, &name[..4.min(name.len())]),
+    })
+}
+
+/// Whether the scan reached the radar's own end-of-volume marker (a radial flagged `ScanEnd`).
+///
+/// Archive II is a run of compressed records, and the decoder stops cleanly at a broken one: a
+/// download cut short by a dropped connection decodes without error, as the first part of the
+/// volume with its upper tilts missing (the soak runner's injection found this). Whether it ran to
+/// the end is the only way to tell that from the whole. Any radial, not the last: the decoder may
+/// order a sweep's radials by azimuth.
+pub fn scan_complete(scan: &Scan) -> bool {
+    use nexrad_model::data::RadialStatus;
+    scan.sweeps().iter().rev().any(|s| {
+        s.radials()
+            .iter()
+            .any(|r| r.radial_status() == RadialStatus::ScanEnd)
     })
 }
 

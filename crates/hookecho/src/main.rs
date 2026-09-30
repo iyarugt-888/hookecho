@@ -81,6 +81,29 @@ fn main() -> eframe::Result<()> {
         return Ok(());
     }
 
+    // Soak: `hookecho --soak SITE [MINUTES] [--inject]` — the Level II path on a cycle for hours,
+    // failing on a stall, an unrecovered failure, accepted corruption or memory growth.
+    if let Some(pos) = args.iter().position(|a| a == "--soak") {
+        let rest: Vec<&String> = args[pos + 1..]
+            .iter()
+            .filter(|a| !a.starts_with("--"))
+            .collect();
+        let Some(site) = rest.first() else {
+            eprintln!("usage: hookecho --soak SITE [MINUTES] [--inject]");
+            std::process::exit(2);
+        };
+        let minutes = rest.get(1).and_then(|m| m.parse().ok()).unwrap_or(120);
+        let inject = args.iter().any(|a| a == "--inject");
+        match hookecho::soak::run(site, minutes, inject) {
+            Ok(true) => return Ok(()),
+            Ok(false) => std::process::exit(1),
+            Err(e) => {
+                eprintln!("soak failed to run: {e:#}");
+                std::process::exit(2);
+            }
+        }
+    }
+
     // HTTP mode: `hookecho --serve [PORT] [--bind ADDR]` — the same report over the network, plus
     // a radar snapshot. Loopback by default; `--bind 0.0.0.0` is a deliberate act.
     if let Some(pos) = args.iter().position(|a| a == "--serve") {
