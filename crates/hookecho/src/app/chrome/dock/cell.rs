@@ -316,6 +316,49 @@ impl HookEchoApp {
             .as_ref()
             .is_some_and(|(_, f, _)| f.id == c.id);
         let rows = super::inspector::storm_rows(&c, metric);
+        // Whether the tornado detectors ran on this volume at all: "no detection" means nothing
+        // only if they did.
+        let detectors_ran = {
+            let name = self.views[self.active]
+                .volume
+                .as_ref()
+                .map(|v| v.name.clone())
+                .unwrap_or_default();
+            self.rot_shown_cache.peek(&name).is_some() || self.tds_shown_cache.peek(&name).is_some()
+        };
+        let threat = {
+            let vol = self.views[self.active].volume.as_ref();
+            let name = vol.map(|v| v.name.clone()).unwrap_or_default();
+            let t0 = c
+                .time
+                .or_else(|| vol.map(|v| v.time))
+                .unwrap_or_else(chrono::Utc::now);
+            let rot = self
+                .rot_shown_cache
+                .peek(&name)
+                .cloned()
+                .unwrap_or_default();
+            let tds = self
+                .tds_shown_cache
+                .peek(&name)
+                .cloned()
+                .unwrap_or_default();
+            let circulations = wxdata::tornado_id::circulations(&rot, &tds);
+            let markers: Vec<(String, [f64; 2])> = self
+                .settings
+                .markers
+                .iter()
+                .map(|m| (m.name.clone(), [m.lon, m.lat]))
+                .collect();
+            threat_for(
+                &c,
+                &circulations,
+                self.active_alert_features(),
+                &markers,
+                t0,
+                metric,
+            )
+        };
         let mut header = ws::HeaderAction::None;
         let mut act = None;
         let mut hl = None;
@@ -419,6 +462,34 @@ impl HookEchoApp {
                                 if let Some(b) = c.base_kft {
                                     let lt = if c.base_below { "<" } else { "" };
                                     ws::kv(ui, &t, "Base", &format!("{lt}{b:.1} kft"), None);
+                                }
+                            });
+                            // What threatens where: the tornado detection at this storm, the
+                            // warnings over it, and when its motion brings it to your places.
+                            let n = threat.count();
+                            let badge = (n > 0).then(|| n.to_string());
+                            ws::fold_section(ui, &t, "cell_threat", "Threat", badge.as_deref(), true, |ui| {
+                                match &threat.tornado {
+                                    Some(line) => ws::kv(ui, &t, "Tornado", line, Some(t.warn)),
+                                    None if detectors_ran => ws::kv(ui, &t, "Tornado", "no detection at this storm", None),
+                                    None => ws::kv(ui, &t, "Tornado", "detectors off (a tornado layer runs them)", None),
+                                }
+                                if threat.warnings.is_empty() {
+                                    ws::kv(ui, &t, "Warnings", "none over it", None);
+                                }
+                                for w in &threat.warnings {
+                                    ws::kv(ui, &t, "Warning", w, Some(t.warn));
+                                }
+                                if threat.motion.is_none() {
+                                    ws::kv(ui, &t, "Arrivals", "no SCIT motion to project", None);
+                                } else if threat.etas.is_empty() {
+                                    ws::kv(ui, &t, "Arrivals", "no saved place ahead within 2 h", None);
+                                }
+                                for (name, when, hot) in &threat.etas {
+                                    ws::kv(ui, &t, name, when, hot.then_some(t.warn));
+                                }
+                                if let Some(m) = &threat.motion {
+                                    ui.label(ws::text(m, 10.5, t.text_faint));
                                 }
                             });
                             if let Some(e) = &explained {
@@ -747,6 +818,220 @@ fn compare_body(
             })
             .collect();
         ws::series_chart(ui, t, ("cmp", key), name, unit, &series, fmt_x);
+    }
+}
+
+/// What threatens where, for one storm (ROADMAP_2 §2.5): the merged tornado detection at it, the
+/// warnings whose polygon holds it, and when SCIT's motion brings it to each saved place.
+#[derive(Debug, Default, PartialEq)]
+struct Threat {
+    tornado: Option<String>,
+    warnings: Vec<String>,
+    /// `(place, "~21:15Z (+23 min) · passes 2 mi N", in the path)`, soonest first.
+    etas: Vec<(String, String, bool)>,
+    /// Where the arrival times come from, said plainly; `None` without a motion.
+    motion: Option<String>,
+}
+
+impl Threat {
+    fn count(&self) -> usize {
+        usize::from(self.tornado.is_some()) + self.warnings.len()
+    }
+}
+
+/// A tornado detection this close (km) to a storm's centroid, or with any detection of it this
+/// close, is that storm's.
+const TORNADO_KM: f64 = 10.0;
+
+fn threat_for(
+    c: &Cell,
+    circulations: &[wxdata::tornado_id::Circulation],
+    alerts: &[wxdata::overlay::GeoFeature],
+    markers: &[(String, [f64; 2])],
+    t0: chrono::DateTime<chrono::Utc>,
+    metric: bool,
+) -> Threat {
+    use crate::app::storm_track::{compass, distance, ManualTrack};
+    let at = [c.lon, c.lat];
+    let km = |lon: f64, lat: f64| crate::geo::great_circle(at, [lon, lat]);
+    let tornado = circulations
+        .iter()
+        .filter(|z| {
+            km(z.id.lon, z.id.lat).0 <= TORNADO_KM
+                || z.members.iter().any(|m| km(m.lon, m.lat).0 <= TORNADO_KM)
+        })
+        .min_by(|a, b| {
+            km(a.id.lon, a.id.lat)
+                .0
+                .total_cmp(&km(b.id.lon, b.id.lat).0)
+        })
+        .map(|z| {
+            let (d, bearing) = km(z.id.lon, z.id.lat);
+            let place = if d < 1.0 {
+                "at the core".to_string()
+            } else {
+                format!("{} {} of it", distance(d, metric), compass(bearing))
+            };
+            format!(
+                "{} \u{b7} {:.0}% \u{b7} {} signal{}, {place}",
+                z.id.tier.label(),
+                z.id.score * 100.0,
+                z.members.len(),
+                if z.members.len() == 1 { "" } else { "s" }
+            )
+        });
+    let mut warnings: Vec<String> = alerts
+        .iter()
+        .filter_map(|f| {
+            let a = f.alert.as_ref()?;
+            f.rings
+                .iter()
+                .any(|r| wxdata::overlay::point_in_ring(r, c.lon, c.lat))
+                .then(|| match &a.tornado_detection {
+                    Some(t) => format!("{} (tornado {})", a.event, t.to_lowercase()),
+                    None => a.event.clone(),
+                })
+        })
+        .collect();
+    warnings.dedup();
+    let track = ManualTrack::from_cell(c, t0);
+    let motion = track.as_ref().map(|t| {
+        format!(
+            "Arrivals from SCIT's motion, {:03.0}\u{b0} at {:.0} kt, rounded to the minute",
+            t.bearing_deg,
+            t.speed_kmh / 1.852
+        )
+    });
+    let mut etas: Vec<(f64, String, String, bool)> = track
+        .map(|t| {
+            markers
+                .iter()
+                .filter_map(|(name, p)| {
+                    let e = t.eta(*p)?;
+                    let when = t0 + chrono::Duration::seconds((e.minutes * 60.0) as i64);
+                    let pass = if e.closest_km < 0.5 {
+                        "direct hit".to_string()
+                    } else {
+                        format!(
+                            "passes {} {}",
+                            distance(e.closest_km, metric),
+                            compass(t.bearing_deg + if e.right { -90.0 } else { 90.0 })
+                        )
+                    };
+                    Some((
+                        e.minutes,
+                        name.clone(),
+                        format!(
+                            "~{} (+{:.0} min) \u{b7} {pass}",
+                            when.format("%H:%MZ"),
+                            e.minutes
+                        ),
+                        e.in_path,
+                    ))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    etas.sort_by(|a, b| b.3.cmp(&a.3).then(a.0.total_cmp(&b.0)));
+    Threat {
+        tornado,
+        warnings,
+        etas: etas
+            .into_iter()
+            .take(5)
+            .map(|(_, n, w, h)| (n, w, h))
+            .collect(),
+        motion,
+    }
+}
+
+#[cfg(test)]
+mod threat_tests {
+    use super::*;
+
+    fn cell() -> Cell {
+        Cell {
+            lon: -97.0,
+            lat: 35.0,
+            id: "K4".into(),
+            mvt_deg: Some(90.0),
+            mvt_kt: Some(30.0),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_storm_names_its_tornado_its_warning_and_its_arrivals() {
+        use chrono::TimeZone;
+        let t0 = chrono::Utc.with_ymd_and_hms(2026, 5, 6, 21, 0, 0).unwrap();
+        let c = cell();
+        // A warning box around it.
+        let warning = wxdata::overlay::GeoFeature {
+            rings: vec![vec![
+                [-97.2, 34.8],
+                [-96.8, 34.8],
+                [-96.8, 35.2],
+                [-97.2, 35.2],
+            ]],
+            fill: [0; 4],
+            stroke: [0; 4],
+            kind: wxdata::overlay::FeatureKind::Warning,
+            title: "Tornado Warning".into(),
+            detail: String::new(),
+            alert: Some(wxdata::overlay::AlertInfo {
+                id: "tor".into(),
+                event: "Tornado Warning".into(),
+                headline: String::new(),
+                area: String::new(),
+                description: String::new(),
+                instruction: String::new(),
+                expires: None,
+                max_hail_in: None,
+                max_wind: None,
+                tornado_detection: Some("OBSERVED".into()),
+                damage_threat: None,
+                source: None,
+                motion: None,
+                vtec: None,
+            }),
+        };
+        // A place 28 km east (about 30 min at 30 kt), and one behind it.
+        let ahead = crate::geo::destination_point([-97.0, 35.0], 90.0, 28.0);
+        let behind = crate::geo::destination_point([-97.0, 35.0], 270.0, 20.0);
+        let th = threat_for(
+            &c,
+            &[],
+            &[warning],
+            &[("Home".into(), ahead), ("Work".into(), behind)],
+            t0,
+            false,
+        );
+        assert_eq!(th.tornado, None);
+        assert_eq!(th.warnings, ["Tornado Warning (tornado observed)"]);
+        assert_eq!(th.etas.len(), 1, "{:?}", th.etas);
+        assert_eq!(th.etas[0].0, "Home");
+        assert!(
+            th.etas[0].1.starts_with("~21:30Z (+30 min)"),
+            "{}",
+            th.etas[0].1
+        );
+        assert!(th.etas[0].2, "in the path");
+        assert_eq!(th.count(), 1);
+    }
+
+    #[test]
+    fn without_motion_it_says_so_rather_than_guessing() {
+        let mut c = cell();
+        c.mvt_kt = None;
+        let th = threat_for(
+            &c,
+            &[],
+            &[],
+            &[("Home".into(), [-96.8, 35.0])],
+            chrono::Utc::now(),
+            true,
+        );
+        assert!(th.motion.is_none() && th.etas.is_empty());
     }
 }
 

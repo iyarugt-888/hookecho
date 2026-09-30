@@ -348,7 +348,7 @@ impl StormTracks {
 }
 
 /// Compass point for a heading.
-fn compass(deg: f64) -> &'static str {
+pub(crate) fn compass(deg: f64) -> &'static str {
     const P: [&str; 16] = [
         "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW",
         "NW", "NNW",
@@ -356,7 +356,7 @@ fn compass(deg: f64) -> &'static str {
     P[((deg.rem_euclid(360.0) + 11.25) / 22.5) as usize % 16]
 }
 
-fn distance(km: f64, metric: bool) -> String {
+pub(crate) fn distance(km: f64, metric: bool) -> String {
     if metric {
         format!("{km:.0} km")
     } else {
