@@ -60,7 +60,8 @@ impl HookEchoApp {
                 continue;
             };
             let painter = ui.painter_at(*rect);
-            let y = rect.bottom() - 14.0;
+            // Above the basemap attribution along the bottom edge.
+            let y = rect.bottom() - 34.0;
             let x0 = rect.left() + 14.0;
             let x1 = x0 + w;
             let path = [

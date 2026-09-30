@@ -19657,8 +19657,20 @@ impl HookEchoApp {
         // The tornado markers' click targets are this frame's, or none (set again below).
         ui.ctx()
             .data_mut(|d| d.remove::<Vec<egui::Rect>>(egui::Id::new(("circulation_hits", idx))));
-        // Storm-cell dots + SCIT forecast tracks.
-        if self.filters.show_cells && self.cells_site.as_deref() == view.site.as_deref() {
+        // Storm-cell dots + SCIT forecast tracks, and the detector markers. The detectors are
+        // drawn whether or not the storm cells are: Tornado ID on its own showed nothing.
+        let cells_here =
+            self.filters.show_cells && self.cells_site.as_deref() == view.site.as_deref();
+        let detectors = !tds_hits.is_empty()
+            || !tbss_hits.is_empty()
+            || !zdr_hits.is_empty()
+            || !couplets.is_empty()
+            || !tornado_ids.is_empty()
+            || !circulations.is_empty()
+            || !nowcast_pts.is_empty()
+            || !local_tracks.is_empty()
+            || (self.filters.show_zdr_columns && idx == self.active);
+        if cells_here || detectors {
             let to_screen = |lon: f64, lat: f64| {
                 let w = crate::render::mercator::lonlat_to_world(lon, lat);
                 let (sx, sy) = cam.world_to_screen(w, vp);
@@ -19666,7 +19678,7 @@ impl HookEchoApp {
             };
             // Arrival-time cones: project each moving cell forward, shade the swept path, and
             // list ETAs to any watched marker the cone covers.
-            if self.filters.show_arrival_cones {
+            if cells_here && self.filters.show_arrival_cones {
                 const LEAD_MIN: f64 = 60.0;
                 const HALF_ANGLE: f64 = 18.0;
                 // Indices, not strings: every marker inside every cone used to be formatted and
@@ -20059,17 +20071,66 @@ impl HookEchoApp {
                 }
             }
 
-            // One detection per tornado: the verdict at the most likely rotation. A click opens
-            // it into a web — a spoke to every rotation and debris detection it ties together,
-            // each with its own factors on hover — and closes it again.
+            // One detection per tornado: the verdict at the most likely rotation. A click or tap
+            // opens it into a web — a spoke to every rotation and debris detection it ties
+            // together — with a pinned card of the verdict, what it tied in and, for the point
+            // picked (on the map or in the card), that detection's factors. Nothing here needs a
+            // hover: a finger has none. A mouse still gets the same readings as tooltips.
             if !circulations.is_empty() {
                 use wxdata::tornado_id::{Evidence, Tier, MERGE_KM};
+                let ctx = ui.ctx().clone();
                 let open_id = egui::Id::new(("circulation_open", idx));
-                let open: Option<(f64, f64)> = ui.ctx().data(|d| d.get_temp(open_id)).flatten();
-                let mut toggle: Option<Option<(f64, f64)>> = None;
+                let pick_id = egui::Id::new(("circulation_pick", idx));
+                let open: Option<(f64, f64)> = ctx.data(|d| d.get_temp(open_id)).flatten();
+                // The picked detection, by where it is: indices change every scan.
+                let picked: Option<(f64, f64)> = ctx.data(|d| d.get_temp(pick_id)).flatten();
+                let mut set_open: Option<Option<(f64, f64)>> = None;
+                let mut set_pick: Option<Option<(f64, f64)>> = None;
                 let mut hits = Vec::new();
+                let tap = response
+                    .clicked()
+                    .then(|| response.interact_pointer_pos())
+                    .flatten();
+                let hover = response.hover_pos();
                 let kt = |ms: f32| ms * 1.943_844;
-                for c in &circulations {
+                let near = |a: (f64, f64), b: (f64, f64)| {
+                    crate::geo::great_circle([a.0, a.1], [b.0, b.1]).0 <= 0.5
+                };
+                // A detection's glyph colour, one-line label, factor lines and score history.
+                let describe = |e: Evidence| match e {
+                    Evidence::Rotation(i) => {
+                        let h = &all_couplets[i];
+                        let rc = if h.vrot_ms >= 36.0 {
+                            egui::Color32::from_rgb(240, 60, 60)
+                        } else {
+                            egui::Color32::from_rgb(245, 160, 50)
+                        };
+                        (
+                            rc,
+                            format!(
+                                "Rotation {:.0} kt \u{b7} {:.0}%",
+                                kt(h.vrot_ms),
+                                h.confidence * 100.0
+                            ),
+                            h.explain().lines(h),
+                            nearest_score_track(&rot_score_tracks, h.lon, h.lat),
+                        )
+                    }
+                    Evidence::Debris(i) => {
+                        let h = &all_tds[i];
+                        (
+                            egui::Color32::from_rgb(240, 40, 210),
+                            format!(
+                                "Debris \u{3c1}{:.2} \u{b7} {:.0}%",
+                                h.min_cc,
+                                h.confidence * 100.0
+                            ),
+                            h.explain().lines(h),
+                            nearest_score_track(&tds_score_tracks, h.lon, h.lat),
+                        )
+                    }
+                };
+                for (ci, c) in circulations.iter().enumerate() {
                     let t = &c.id;
                     let p = to_screen(t.lon, t.lat);
                     if !prect.contains(p) {
@@ -20085,11 +20146,13 @@ impl HookEchoApp {
                     let is_open = open.is_some_and(|(lon, lat)| {
                         crate::geo::great_circle([lon, lat], [t.lon, t.lat]).0 <= MERGE_KM
                     });
-                    let hit = egui::Rect::from_center_size(p, egui::vec2(30.0, 30.0));
+                    // A finger is wider than a cursor: the target is too.
+                    let hit = egui::Rect::from_center_size(p, egui::vec2(36.0, 36.0));
                     hits.push(hit);
-                    let hovered = response.hover_pos().is_some_and(|hp| hit.contains(hp));
-                    if hovered && response.clicked() {
-                        toggle = Some((!is_open).then_some((t.lon, t.lat)));
+                    let hovered = hover.is_some_and(|hp| hit.contains(hp));
+                    if tap.is_some_and(|tp| hit.contains(tp)) {
+                        set_open = Some((!is_open).then_some((t.lon, t.lat)));
+                        set_pick = Some(None);
                     }
                     let seed = c.members.first().map(|m| m.evidence);
                     if is_open || hovered {
@@ -20104,42 +20167,35 @@ impl HookEchoApp {
                             egui::Stroke::new(1.0, col.gamma_multiply(0.35)),
                         );
                     }
+                    let mut picked_member = None;
                     if is_open {
                         for m in &c.members {
-                            let q = to_screen(m.lon, m.lat);
                             let centre = Some(m.evidence) == seed;
+                            let q = to_screen(m.lon, m.lat);
                             if !centre {
                                 painter.line_segment(
                                     [p, q],
                                     egui::Stroke::new(1.5, col.gamma_multiply(0.75)),
                                 );
                             }
-                            // The centre's own detection sits under the verdict; its glyph and
-                            // factors go just below it so they can be reached.
-                            let q = if centre { p + egui::vec2(0.0, 34.0) } else { q };
-                            let (glyph_col, label, lines, track) = match m.evidence {
-                                Evidence::Rotation(i) => {
-                                    let h = &all_couplets[i];
-                                    let rc = if h.vrot_ms >= 36.0 {
-                                        egui::Color32::from_rgb(240, 60, 60)
-                                    } else {
-                                        egui::Color32::from_rgb(245, 160, 50)
-                                    };
-                                    painter.circle_stroke(q, 7.0, egui::Stroke::new(2.0, rc));
-                                    (
-                                        rc,
-                                        format!(
-                                            "ROT {:.0} kt \u{b7} {:.0}%",
-                                            kt(h.vrot_ms),
-                                            h.confidence * 100.0
-                                        ),
-                                        h.explain().lines(h),
-                                        nearest_score_track(&rot_score_tracks, h.lon, h.lat),
-                                    )
+                            // The centre's own detection sits under the verdict; its glyph goes
+                            // just below it so it can be reached.
+                            let q = if centre { p + egui::vec2(0.0, 38.0) } else { q };
+                            let (glyph_col, label, lines, track) = describe(m.evidence);
+                            let is_picked = picked.is_some_and(|at| near(at, (m.lon, m.lat)));
+                            if is_picked {
+                                picked_member = Some(*m);
+                                painter.circle_filled(q, 11.0, glyph_col.gamma_multiply(0.35));
+                            }
+                            match m.evidence {
+                                Evidence::Rotation(_) => {
+                                    painter.circle_stroke(
+                                        q,
+                                        7.0,
+                                        egui::Stroke::new(2.0, glyph_col),
+                                    );
                                 }
-                                Evidence::Debris(i) => {
-                                    let h = &all_tds[i];
-                                    let dc = egui::Color32::from_rgb(240, 40, 210);
+                                Evidence::Debris(_) => {
                                     let s = 6.0;
                                     painter.add(egui::Shape::convex_polygon(
                                         vec![
@@ -20147,23 +20203,13 @@ impl HookEchoApp {
                                             q + egui::vec2(s, -s),
                                             q + egui::vec2(0.0, s),
                                         ],
-                                        dc.gamma_multiply(0.3),
-                                        egui::Stroke::new(1.5, dc),
+                                        glyph_col.gamma_multiply(0.3),
+                                        egui::Stroke::new(1.5, glyph_col),
                                     ));
-                                    (
-                                        dc,
-                                        format!(
-                                            "TDS \u{3c1}{:.2} \u{b7} {:.0}%",
-                                            h.min_cc,
-                                            h.confidence * 100.0
-                                        ),
-                                        h.explain().lines(h),
-                                        nearest_score_track(&tds_score_tracks, h.lon, h.lat),
-                                    )
                                 }
-                            };
+                            }
                             painter.text(
-                                q + egui::vec2(9.0, 0.0),
+                                q + egui::vec2(10.0, 0.0),
                                 egui::Align2::LEFT_CENTER,
                                 if centre {
                                     format!("{label} (centre)")
@@ -20173,9 +20219,12 @@ impl HookEchoApp {
                                 egui::FontId::proportional(10.5),
                                 glyph_col,
                             );
-                            let mhit = egui::Rect::from_center_size(q, egui::vec2(20.0, 20.0));
-                            if !hovered && response.hover_pos().is_some_and(|hp| mhit.contains(hp))
-                            {
+                            let mhit = egui::Rect::from_center_size(q, egui::vec2(28.0, 28.0));
+                            hits.push(mhit);
+                            if tap.is_some_and(|tp| mhit.contains(tp)) {
+                                set_pick = Some((!is_picked).then_some((m.lon, m.lat)));
+                            }
+                            if !hovered && hover.is_some_and(|hp| mhit.contains(hp)) {
                                 response.clone().show_tooltip_ui(|ui| {
                                     score_tooltip(ui, lines, track, glyph_col)
                                 });
@@ -20217,46 +20266,115 @@ impl HookEchoApp {
                         egui::FontId::proportional(11.5),
                         col,
                     );
-                    if hovered {
+                    if hovered && !is_open {
                         response.clone().show_tooltip_ui(|ui| {
                             ui.strong(format!("{} \u{b7} {:.0}%", t.tier.label(), t.score * 100.0));
                             for r in &t.reasons {
                                 ui.label(r);
                             }
-                            ui.add_space(4.0);
-                            ui.weak("Tied together:");
-                            for m in &c.members {
-                                let what = match m.evidence {
-                                    Evidence::Rotation(i) => format!(
-                                        "Rotation {:.0} kt, {:.0}%",
-                                        kt(all_couplets[i].vrot_ms),
-                                        m.confidence * 100.0
-                                    ),
-                                    Evidence::Debris(i) => format!(
-                                        "Debris \u{3c1}{:.2}, {:.0}%",
-                                        all_tds[i].min_cc,
-                                        m.confidence * 100.0
-                                    ),
-                                };
-                                if Some(m.evidence) == seed {
-                                    ui.label(format!("\u{25cf} {what} \u{2014} the centre"));
-                                } else {
-                                    ui.label(format!("\u{25cb} {what}, {:.1} km off", m.km));
-                                }
-                            }
-                            ui.weak(if is_open {
-                                "Click to close. Hover a point for its factors."
-                            } else {
-                                "Click to open the web of detections and their factors."
-                            });
+                            ui.weak(format!(
+                                "{} detections tied together. Click to open the web.",
+                                c.members.len()
+                            ));
                         });
                     }
+                    if !is_open {
+                        continue;
+                    }
+                    // The pinned card: beside the marker, on whichever side has room.
+                    let right = p.x + 330.0 < prect.right();
+                    egui::Area::new(egui::Id::new(("circulation_card", idx, ci)))
+                        .order(egui::Order::Foreground)
+                        .pivot(if right {
+                            egui::Align2::LEFT_TOP
+                        } else {
+                            egui::Align2::RIGHT_TOP
+                        })
+                        .fixed_pos(p + egui::vec2(if right { 24.0 } else { -24.0 }, -16.0))
+                        .constrain_to(prect)
+                        .show(&ctx, |ui| {
+                            crate::ui::style::glass(ui, 240).show(ui, |ui| {
+                                // Tall with a factor breakdown open: it scrolls inside the map.
+                                egui::ScrollArea::vertical()
+                                    .max_height((prect.height() - 32.0).max(120.0))
+                                    .show(ui, |ui| {
+                                        ui.set_max_width(300.0);
+                                        ui.horizontal(|ui| {
+                                            ui.label(
+                                                egui::RichText::new(format!(
+                                                    "{} \u{b7} {:.0}%",
+                                                    t.tier.label(),
+                                                    t.score * 100.0
+                                                ))
+                                                .strong()
+                                                .color(col),
+                                            );
+                                            ui.with_layout(
+                                                egui::Layout::right_to_left(egui::Align::Center),
+                                                |ui| {
+                                                    if ui.small_button("\u{d7}").clicked() {
+                                                        set_open = Some(None);
+                                                        set_pick = Some(None);
+                                                    }
+                                                },
+                                            );
+                                        });
+                                        for r in &t.reasons {
+                                            ui.label(egui::RichText::new(r).size(11.5));
+                                        }
+                                        ui.add_space(4.0);
+                                        ui.label(
+                                            egui::RichText::new("Tied together").weak().size(11.0),
+                                        );
+                                        for m in &c.members {
+                                            let (mc, what, _, _) = describe(m.evidence);
+                                            let where_ = if Some(m.evidence) == seed {
+                                                "centre".to_string()
+                                            } else {
+                                                format!("{:.1} km off", m.km)
+                                            };
+                                            let sel = picked_member
+                                                .is_some_and(|pm| pm.evidence == m.evidence);
+                                            let row = ui.selectable_label(
+                                                sel,
+                                                egui::RichText::new(format!(
+                                                    "{what} \u{b7} {where_}"
+                                                ))
+                                                .color(mc)
+                                                .size(11.5),
+                                            );
+                                            if row.clicked() {
+                                                set_pick = Some((!sel).then_some((m.lon, m.lat)));
+                                            }
+                                        }
+                                        match picked_member {
+                                            Some(m) => {
+                                                let (mc, _, lines, track) = describe(m.evidence);
+                                                ui.separator();
+                                                score_tooltip(ui, lines, track, mc);
+                                            }
+                                            None => {
+                                                ui.label(
+                                            egui::RichText::new(
+                                                "Pick a detection, here or on the map, for the \
+                                                 factors behind it.",
+                                            )
+                                            .weak()
+                                            .size(10.5),
+                                        );
+                                            }
+                                        }
+                                    });
+                            });
+                        });
                 }
-                if let Some(v) = toggle {
-                    ui.ctx().data_mut(|d| d.insert_temp(open_id, v));
+                if let Some(v) = set_open {
+                    ctx.data_mut(|d| d.insert_temp(open_id, v));
                 }
-                ui.ctx()
-                    .data_mut(|d| d.insert_temp(egui::Id::new(("circulation_hits", idx)), hits));
+                if let Some(v) = set_pick {
+                    ctx.data_mut(|d| d.insert_temp(pick_id, v));
+                }
+                ctx.data_mut(|d| d.insert_temp(egui::Id::new(("circulation_hits", idx)), hits));
             }
 
             // Locally-computed cell tracks, in cyan so they never read as the Level 3 storm-cell
@@ -20322,84 +20440,86 @@ impl HookEchoApp {
                 }
             }
 
-            let label_tracks = self.filters.show_tracks && cam.zoom >= 7.0;
-            for c in self.active_storm_cells() {
-                let p = to_screen(c.lon, c.lat);
-                // Past track (packet 23): faint gray polyline leading up to the current position.
-                if self.filters.show_tracks && c.past_track.len() >= 2 {
-                    let gray = egui::Color32::from_gray(150).gamma_multiply(0.7);
-                    let pts: Vec<egui::Pos2> = c
-                        .past_track
-                        .iter()
-                        .map(|&(lon, lat)| to_screen(lon, lat))
-                        .collect();
-                    painter.add(egui::Shape::line(pts, egui::Stroke::new(1.5, gray)));
-                }
-                // SCIT positions retain their geometry; cross-ticks mark each forecast time.
-                if self.filters.show_tracks && !c.track.is_empty() {
-                    let white = egui::Color32::WHITE;
-                    let mut prev = p;
-                    for tp in &c.track {
-                        let tpp = to_screen(tp.lon, tp.lat);
-                        let direction = (tpp - prev).normalized();
-                        let tick = egui::vec2(-direction.y, direction.x) * 12.0;
-                        for (width, color) in [(4.0, egui::Color32::BLACK), (2.0, white)] {
-                            painter.line_segment([prev, tpp], egui::Stroke::new(width, color));
-                            if direction.length_sq() > 0.0 {
-                                painter.line_segment(
-                                    [tpp - tick, tpp + tick],
-                                    egui::Stroke::new(width, color),
-                                );
+            if cells_here {
+                let label_tracks = self.filters.show_tracks && cam.zoom >= 7.0;
+                for c in self.active_storm_cells() {
+                    let p = to_screen(c.lon, c.lat);
+                    // Past track (packet 23): faint gray polyline leading up to the current position.
+                    if self.filters.show_tracks && c.past_track.len() >= 2 {
+                        let gray = egui::Color32::from_gray(150).gamma_multiply(0.7);
+                        let pts: Vec<egui::Pos2> = c
+                            .past_track
+                            .iter()
+                            .map(|&(lon, lat)| to_screen(lon, lat))
+                            .collect();
+                        painter.add(egui::Shape::line(pts, egui::Stroke::new(1.5, gray)));
+                    }
+                    // SCIT positions retain their geometry; cross-ticks mark each forecast time.
+                    if self.filters.show_tracks && !c.track.is_empty() {
+                        let white = egui::Color32::WHITE;
+                        let mut prev = p;
+                        for tp in &c.track {
+                            let tpp = to_screen(tp.lon, tp.lat);
+                            let direction = (tpp - prev).normalized();
+                            let tick = egui::vec2(-direction.y, direction.x) * 12.0;
+                            for (width, color) in [(4.0, egui::Color32::BLACK), (2.0, white)] {
+                                painter.line_segment([prev, tpp], egui::Stroke::new(width, color));
+                                if direction.length_sq() > 0.0 {
+                                    painter.line_segment(
+                                        [tpp - tick, tpp + tick],
+                                        egui::Stroke::new(width, color),
+                                    );
+                                }
                             }
-                        }
-                        if label_tracks {
-                            let txt = ui::cell_window::track_time(
-                                c.time,
-                                tp.minutes,
-                                self.settings.tz_for(view.site.as_deref()),
-                            );
-                            let lp = tpp + egui::vec2(6.0, -16.0);
-                            for off in [egui::vec2(1.0, 1.0), egui::vec2(-1.0, -1.0)] {
+                            if label_tracks {
+                                let txt = ui::cell_window::track_time(
+                                    c.time,
+                                    tp.minutes,
+                                    self.settings.tz_for(view.site.as_deref()),
+                                );
+                                let lp = tpp + egui::vec2(6.0, -16.0);
+                                for off in [egui::vec2(1.0, 1.0), egui::vec2(-1.0, -1.0)] {
+                                    painter.text(
+                                        lp + off,
+                                        egui::Align2::LEFT_BOTTOM,
+                                        &txt,
+                                        egui::FontId::proportional(14.0),
+                                        egui::Color32::BLACK,
+                                    );
+                                }
                                 painter.text(
-                                    lp + off,
+                                    lp,
                                     egui::Align2::LEFT_BOTTOM,
                                     &txt,
                                     egui::FontId::proportional(14.0),
-                                    egui::Color32::BLACK,
+                                    white,
                                 );
                             }
-                            painter.text(
-                                lp,
-                                egui::Align2::LEFT_BOTTOM,
-                                &txt,
-                                egui::FontId::proportional(14.0),
-                                white,
-                            );
+                            prev = tpp;
                         }
-                        prev = tpp;
                     }
-                }
-                if !prect.contains(p) {
-                    continue;
-                }
-                let col = cell_color(c.kind);
-                let color = egui::Color32::from_rgba_unmultiplied(col[0], col[1], col[2], 255);
-                let marker_color = if c.kind == CellKind::Storm {
-                    egui::Color32::WHITE
-                } else {
-                    color
-                };
-                painter.circle_filled(p, 7.0, egui::Color32::BLACK);
-                painter.circle_stroke(p, 6.0, egui::Stroke::new(2.0, marker_color));
-                painter.circle_filled(p, 2.0, marker_color);
-                if c.kind == CellKind::Storm && cell_labels_shown.contains(&c.id) {
-                    painter.text(
-                        p + egui::vec2(8.0, -8.0),
-                        egui::Align2::LEFT_BOTTOM,
-                        &c.id,
-                        egui::FontId::proportional(11.0),
-                        color,
-                    );
+                    if !prect.contains(p) {
+                        continue;
+                    }
+                    let col = cell_color(c.kind);
+                    let color = egui::Color32::from_rgba_unmultiplied(col[0], col[1], col[2], 255);
+                    let marker_color = if c.kind == CellKind::Storm {
+                        egui::Color32::WHITE
+                    } else {
+                        color
+                    };
+                    painter.circle_filled(p, 7.0, egui::Color32::BLACK);
+                    painter.circle_stroke(p, 6.0, egui::Stroke::new(2.0, marker_color));
+                    painter.circle_filled(p, 2.0, marker_color);
+                    if c.kind == CellKind::Storm && cell_labels_shown.contains(&c.id) {
+                        painter.text(
+                            p + egui::vec2(8.0, -8.0),
+                            egui::Align2::LEFT_BOTTOM,
+                            &c.id,
+                            egui::FontId::proportional(11.0),
+                            color,
+                        );
+                    }
                 }
             }
         }

@@ -21,6 +21,8 @@ use crate::tds::TdsHit;
 
 /// A couplet and a debris signature this close (km) are one identification.
 pub const ASSOCIATE_KM: f64 = 4.0;
+const NO_ROTATION: &str = "No rotation found beside it";
+
 /// Below this confidence a couplet alone is not shown.
 pub const MIN_COUPLET: f32 = 0.35;
 /// Below this confidence a debris signature does not make the Debris tier (it still adds its
@@ -180,7 +182,7 @@ pub fn identify(couplets: &[CoupletHit], debris: &[TdsHit]) -> Vec<TornadoId> {
             if d.tilts == 1 { "" } else { "s" }
         ));
         if d.unrotated {
-            reasons.push("No rotation found beside it".into());
+            reasons.push(NO_ROTATION.into());
         }
         let tier = if d.confirmation.level().is_some() {
             Tier::Confirmed
@@ -204,9 +206,12 @@ pub fn identify(couplets: &[CoupletHit], debris: &[TdsHit]) -> Vec<TornadoId> {
 }
 
 /// Detections this close (km) to a circulation's centre are the same tornado: a couplet seen
-/// again a few km off at another tilt or pass, the debris ball it lofted, the rotation beside it.
-/// Two tornadoes from one storm (a cyclic supercell's old and new circulations) sit further apart.
-pub const MERGE_KM: f64 = 10.0;
+/// again a few km off at another tilt or pass, the debris ball it lofted, the parent
+/// mesocyclone's rotation beside it. On the 10 December 2021 Quad-State storm the debris ball and
+/// the two couplets around it sat 11–12 km apart; separate storms in a line sit further.
+pub const MERGE_KM: f64 = 15.0;
+/// Detections this close (km) corroborate each other when choosing a centre.
+const SUPPORT_KM: f64 = 4.0;
 
 /// One of the detections a [`Circulation`] ties together.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -254,8 +259,9 @@ impl Circulation {
 /// Everything the detectors found, as one detection per tornado rather than one marker per
 /// couplet, per debris ball and per identification.
 ///
-/// Seeds are taken strongest first, rotation before debris: the strongest couplet not yet tied to
-/// a circulation is the centre of a new one, and every untied couplet and debris signature within
+/// Seeds are taken best supported first, rotation before debris: the couplet with the most
+/// corroboration (its score plus the detections within 4 km of it) not yet tied to a circulation
+/// is the centre of a new one, and every untied couplet and debris signature within
 /// [`MERGE_KM`] of it joins it. Debris with no rotation near it then seeds its own, the same way.
 /// Each circulation's verdict is [`identify`] run over its own members, the strongest result
 /// kept, so the tiers and reasons are exactly the ones Tornado ID gives; the score is that
@@ -266,15 +272,47 @@ impl Circulation {
 /// tornado warning raises the tier of one that has, but cannot make one — its polygon is a county
 /// wide, and every weak blob inside it would otherwise read as a confirmed tornado.
 pub fn circulations(couplets: &[CoupletHit], debris: &[TdsHit]) -> Vec<Circulation> {
+    // The most likely area of rotation is the couplet with the most behind it: its own score
+    // plus every other detection (rotation or debris) close beside it. A strong couplet alone
+    // loses to one with the debris ball on top of it.
+    let support = |lon: f64, lat: f64, own: f32| {
+        let near = |o: (f64, f64)| {
+            let d = km((lon, lat), o);
+            d > 1e-6 && d <= SUPPORT_KM
+        };
+        own + couplets
+            .iter()
+            .filter(|c| near((c.lon, c.lat)))
+            .map(|c| c.confidence)
+            .sum::<f32>()
+            + debris
+                .iter()
+                .filter(|d| near((d.lon, d.lat)))
+                .map(|d| d.confidence)
+                .sum::<f32>()
+    };
     let mut seeds: Vec<Evidence> = (0..couplets.len()).map(Evidence::Rotation).collect();
+    // A tornado's own rotation is cyclonic all but rarely; an anticyclonic couplet (the
+    // rear-flank shear beside it) is still tied in, but is a poor centre.
+    let rot_support: Vec<f32> = couplets
+        .iter()
+        .map(|c| {
+            let s = support(c.lon, c.lat, c.confidence);
+            if c.sense == crate::rotation::Sense::Anticyclonic {
+                s * 0.5
+            } else {
+                s
+            }
+        })
+        .collect();
     seeds.sort_by(|a, b| {
         let (Evidence::Rotation(a), Evidence::Rotation(b)) = (*a, *b) else {
             unreachable!()
         };
-        let (a, b) = (&couplets[a], &couplets[b]);
-        b.confidence
-            .total_cmp(&a.confidence)
-            .then(b.vrot_ms.total_cmp(&a.vrot_ms))
+        rot_support[b]
+            .total_cmp(&rot_support[a])
+            .then(couplets[b].confidence.total_cmp(&couplets[a].confidence))
+            .then(couplets[b].vrot_ms.total_cmp(&couplets[a].vrot_ms))
     });
     let mut by_debris: Vec<usize> = (0..debris.len()).collect();
     by_debris.sort_by(|a, b| debris[*b].confidence.total_cmp(&debris[*a].confidence));
@@ -345,12 +383,35 @@ pub fn circulations(couplets: &[CoupletHit], debris: &[TdsHit]) -> Vec<Circulati
         if !own_radar {
             continue;
         }
-        let Some(mut id) = identify(&cs, &ds).into_iter().next() else {
+        let ids = identify(&cs, &ds);
+        let Some(mut id) = ids.first().cloned() else {
             continue;
         };
         // The verdict sits at the most likely area of rotation, whichever pairing produced it.
         id.lon = lon;
         id.lat = lat;
+        // Its reasons are the circulation's, not one pairing's: what the other identifications
+        // inside it found is added (said once), and a debris signature's "no rotation beside it"
+        // is dropped when the circulation ties rotation in.
+        for other in ids.iter().skip(1) {
+            for r in &other.reasons {
+                if !id.reasons.contains(r) {
+                    id.reasons.push(r.clone());
+                }
+            }
+        }
+        if !cs.is_empty() {
+            id.reasons.retain(|r| r != NO_ROTATION);
+        }
+        // And its numbers are the strongest found in it.
+        id.vrot_ms = cs
+            .iter()
+            .map(|c| c.vrot_ms)
+            .fold(id.vrot_ms, |a, v| Some(a.map_or(v, |a: f32| a.max(v))));
+        id.min_cc = ds
+            .iter()
+            .map(|d| d.min_cc)
+            .fold(id.min_cc, |a, v| Some(a.map_or(v, |a: f32| a.min(v))));
         let (r, d) = (cs.len(), ds.len());
         if r + d > 1 {
             id.reasons.push(format!(
@@ -361,7 +422,11 @@ pub fn circulations(couplets: &[CoupletHit], debris: &[TdsHit]) -> Vec<Circulati
         }
         out.push(Circulation { id, members });
     }
-    out.sort_by(|a, b| b.id.tier.cmp(&a.id.tier).then(b.id.score.total_cmp(&a.id.score)));
+    out.sort_by(|a, b| {
+        b.id.tier
+            .cmp(&a.id.tier)
+            .then(b.id.score.total_cmp(&a.id.score))
+    });
     out
 }
 
@@ -390,7 +455,61 @@ mod tests {
         );
         assert_eq!(c.members[0].evidence, Evidence::Rotation(1));
         assert_eq!(c.id.tier, Tier::Debris);
-        assert!(c.id.reasons.last().unwrap().contains("3 rotation and 2 debris"));
+        assert!(c
+            .id
+            .reasons
+            .last()
+            .unwrap()
+            .contains("3 rotation and 2 debris"));
+    }
+
+    #[test]
+    fn debris_and_rotation_a_dozen_km_apart_are_one_tornado() {
+        // The 10 December 2021 case: a debris ball and two couplets 11-12 km from each other.
+        let out = circulations(
+            &[couplet(-97.0, 0.5, 27.0, 3), couplet(-96.87, 0.45, 26.0, 2)],
+            &[debris(-96.935, 0.73)],
+        );
+        assert_eq!(out.len(), 1, "{out:?}");
+        assert_eq!(out[0].members.len(), 3);
+    }
+
+    #[test]
+    fn the_centre_is_the_rotation_with_the_debris_on_it() {
+        // A stronger couplet alone, and a weaker one with the debris ball beside it: the centre
+        // is where the evidence agrees.
+        let out = circulations(
+            &[couplet(-97.0, 0.7, 30.0, 3), couplet(-96.9, 0.5, 25.0, 2)],
+            &[debris(-96.905, 0.7)],
+        );
+        assert_eq!(out.len(), 1);
+        assert_eq!((out[0].id.lon, out[0].id.lat), (-96.9, 35.0));
+    }
+
+    #[test]
+    fn the_merged_verdict_speaks_for_everything_in_it() {
+        let mut lone = debris(-96.95, 0.8);
+        lone.unrotated = true;
+        let out = circulations(&[couplet(-97.0, 0.5, 27.0, 3)], &[lone]);
+        assert_eq!(out.len(), 1);
+        let id = &out[0].id;
+        assert!(
+            !id.reasons.iter().any(|r| r == NO_ROTATION),
+            "it ties rotation in: {:?}",
+            id.reasons
+        );
+        assert!(id.reasons.iter().any(|r| r.starts_with("Rotation")));
+        assert_eq!(id.vrot_ms, Some(27.0));
+        assert_eq!(id.min_cc, Some(0.6));
+    }
+
+    #[test]
+    fn an_anticyclonic_couplet_is_a_poor_centre() {
+        let mut anti = couplet(-97.0, 0.64, 28.0, 4);
+        anti.sense = crate::rotation::Sense::Anticyclonic;
+        let out = circulations(&[anti, couplet(-96.9, 0.5, 26.0, 3)], &[]);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].id.lon, -96.9);
     }
 
     #[test]
