@@ -210,6 +210,7 @@ mod tests {
                 cadence: std::time::Duration::from_secs(120),
                 recent_outcomes: None,
                 details: Vec::new(),
+                severity: Default::default(),
             }),
         }
     }

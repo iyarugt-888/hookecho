@@ -49,7 +49,11 @@ impl HookEchoApp {
         let entries = self.palette_entries();
         crate::ui::source_health_window::active_health_rows(&entries)
             .iter()
-            .filter(|h| needs_attention(h.state()))
+            // The red dot is for what misleads when missing; a routine feed failing is listed,
+            // amber, in the window without it.
+            .filter(|h| {
+                needs_attention(h.state()) && h.severity == crate::source_health::Severity::Critical
+            })
             .count()
     }
 
@@ -197,6 +201,8 @@ fn source_row(
     if let Some((ok, bad)) = h.recent_outcomes {
         detail.push_str(&format!("\nRecent: {ok}/{} succeeded", ok + bad));
     }
+    detail.push('\n');
+    detail.push_str(&h.recovery());
     if let Some(e) = &h.error {
         detail.push_str(&format!("\nLast error: {e}"));
     }

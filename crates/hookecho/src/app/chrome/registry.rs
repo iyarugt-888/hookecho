@@ -256,6 +256,8 @@ impl HookEchoApp {
             // doc comment.
             recent_outcomes: None,
             details,
+            // The radar itself: what everything else on the map is read against.
+            severity: crate::source_health::Severity::Critical,
         }
     }
 

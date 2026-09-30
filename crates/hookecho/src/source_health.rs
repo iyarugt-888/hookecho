@@ -129,7 +129,41 @@ pub(crate) enum FeedSource {
     GlmArchive,
 }
 
+/// How much a feed's failure matters to someone watching a storm (ROADMAP_2 §3.4's "user-facing
+/// error severity"). Only a critical feed failing lights the Sources tab's red dot; a routine one
+/// is still listed, amber, in the window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum Severity {
+    /// Warnings, watches and the radar's own storm analysis: missing them misleads.
+    Critical,
+    #[default]
+    Routine,
+}
+
+impl Severity {
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::Critical => "critical",
+            Self::Routine => "routine",
+        }
+    }
+}
+
 impl FeedSource {
+    pub(crate) const fn severity(self) -> Severity {
+        match self {
+            Self::WeatherAlerts
+            | Self::WatchBoxes
+            | Self::MesoscaleDiscussions
+            | Self::StormCells
+            | Self::StormReports
+            | Self::ProbSevere
+            | Self::TropicalCyclones
+            | Self::DerivedRadarFields => Severity::Critical,
+            _ => Severity::Routine,
+        }
+    }
+
     pub(crate) const fn label(self) -> &'static str {
         match self {
             Self::WeatherAlerts => "Weather alerts",
@@ -318,6 +352,14 @@ mod tests {
             field_endpoint_family(FieldLayer::GlobalMslp),
             EndpointFamily::GlobalModels
         );
+    }
+
+    #[test]
+    fn warnings_and_storm_analysis_are_critical_and_cameras_are_not() {
+        assert_eq!(FeedSource::WeatherAlerts.severity(), Severity::Critical);
+        assert_eq!(FeedSource::StormCells.severity(), Severity::Critical);
+        assert_eq!(FeedSource::Webcams.severity(), Severity::Routine);
+        assert_eq!(FeedSource::AirQuality.severity(), Severity::Routine);
     }
 
     #[test]

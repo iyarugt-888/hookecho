@@ -753,6 +753,13 @@ impl RequestLane {
         std::time::Duration::from_secs(secs)
     }
 
+    fn severity(&self) -> crate::source_health::Severity {
+        match self {
+            Self::Feed(source) => source.severity(),
+            Self::Field(_) | Self::Placefile(_) => crate::source_health::Severity::Routine,
+        }
+    }
+
     fn endpoint_family(&self) -> crate::source_health::EndpointFamily {
         match self {
             Self::Field(layer) => crate::source_health::field_endpoint_family(*layer),
@@ -837,6 +844,8 @@ pub(crate) struct SourceHealth {
     /// line of their own rather than a hover aside — radar's provider ingest lag and live-stream
     /// retry count are the only ones that currently set this. Empty for every other source.
     pub details: Vec<(&'static str, String)>,
+    /// Whether this source failing is worth the red dot (`source_health::Severity`).
+    pub severity: crate::source_health::Severity,
 }
 
 impl SourceHealth {
@@ -870,6 +879,20 @@ impl SourceHealth {
         } else {
             HealthState::Waiting
         }
+    }
+
+    /// How this source recovers, as the code does it (ROADMAP_2 §3.4): the retry interval, when
+    /// it reads as delayed and stale, and what happens to its last good data meanwhile.
+    pub(crate) fn recovery(&self) -> String {
+        use crate::ui::layers_panel::compact_age;
+        format!(
+            "Retried every {} (no backoff); delayed after {}, stale after {}. The last good data \
+             stays on the map, marked Cached, until a refresh succeeds. Severity: {}.",
+            compact_age(self.cadence),
+            compact_age(self.cadence),
+            compact_age(self.cadence * Self::DELAYED_CADENCE_MULTIPLIER),
+            self.severity.label()
+        )
     }
 
     pub(crate) fn next_retry(&self) -> Option<std::time::Duration> {
@@ -1039,6 +1062,7 @@ impl RequestBook {
                 cadence: lane.cadence(),
                 recent_outcomes: None,
                 details: Vec::new(),
+                severity: lane.severity(),
             };
         };
         let recent_outcomes = (!s.outcomes.is_empty()).then(|| {
@@ -1066,6 +1090,7 @@ impl RequestBook {
             cadence: s.cadence,
             recent_outcomes,
             details: Vec::new(),
+            severity: lane.severity(),
         }
     }
 }
@@ -28797,6 +28822,30 @@ mod tests {
     }
 
     #[test]
+    fn a_source_says_how_it_recovers() {
+        let h = super::SourceHealth {
+            source: "Weather alerts".into(),
+            endpoint_family: crate::source_health::EndpointFamily::NwsApi,
+            latest_valid_time: None,
+            fallback_providers: Vec::new(),
+            cache_state: super::CacheState::Memory,
+            fetching: false,
+            last_attempt: None,
+            last_success: None,
+            last_failure: None,
+            error: None,
+            cadence: std::time::Duration::from_secs(120),
+            recent_outcomes: None,
+            details: Vec::new(),
+            severity: crate::source_health::FeedSource::WeatherAlerts.severity(),
+        };
+        let r = h.recovery();
+        assert!(r.contains("Retried every 2m"), "{r}");
+        assert!(r.contains("stale after 4m"), "{r}");
+        assert!(r.contains("Severity: critical"), "{r}");
+    }
+
+    #[test]
     fn a_past_event_reads_the_model_run_of_its_time() {
         use chrono::TimeZone;
         let now = chrono::Utc.with_ymd_and_hms(2026, 9, 29, 18, 0, 0).unwrap();
@@ -29741,6 +29790,7 @@ mod request_book_tests {
             cadence,
             recent_outcomes: None,
             details: Vec::new(),
+            severity: Default::default(),
         };
         assert_eq!(
             health(true, None, None, None, CacheState::Empty).state(),
