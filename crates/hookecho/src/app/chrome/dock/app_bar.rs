@@ -437,6 +437,9 @@ impl HookEchoApp {
             .map(|v| table_label(v))
             .unwrap_or_else(|| "Default".to_string());
         let mut smoothing = self.views[self.active].smooth;
+        // Velocity only: unfolding does nothing to the other moments.
+        let velocity = moment == wxdata::level2::Moment::Velocity;
+        let mut dealias = self.settings.dealias_velocity;
         let mut legend = self.views[self.active].show_legend;
         let mut toggle_basemap = false;
         let mut action = None;
@@ -627,6 +630,11 @@ impl HookEchoApp {
                             widths.core = take(ui);
                             if !fold(ToolGroup::View) {
                                 ws::check(ui, &t, &mut smoothing, "Smoothing");
+                                if velocity {
+                                    ws::check(ui, &t, &mut dealias, "Dealias").on_hover_text(
+                                        "Unfold aliased velocity (region-based). TDWR sites are                                          never dealiased",
+                                    );
+                                }
                                 ws::check(ui, &t, &mut legend, "Legend")
                                     .on_hover_text("The product's colour scale beside the map");
                                 ws::divider(ui, &t, ws::TOOLBAR_H);
@@ -713,6 +721,9 @@ impl HookEchoApp {
                                         ws::menu_scope(ui, &t);
                                         if fold(ToolGroup::View) {
                                             ws::check(ui, &t, &mut smoothing, "Smoothing");
+                                            if velocity {
+                                                ws::check(ui, &t, &mut dealias, "Dealias");
+                                            }
                                             ws::check(ui, &t, &mut legend, "Legend");
                                             ui.separator();
                                         }
@@ -769,6 +780,7 @@ impl HookEchoApp {
             });
         ctx.data_mut(|d| d.insert_temp(widths_id, widths));
         self.views[self.active].smooth = smoothing;
+        self.settings.dealias_velocity = dealias;
         self.views[self.active].show_legend = legend;
         if toggle_basemap {
             self.basemap_open = !basemap_open;
