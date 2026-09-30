@@ -822,7 +822,14 @@ fn decode_file(file: nexrad_data::volume::File) -> anyhow::Result<Scan> {
     } else {
         file
     };
-    file.scan().map_err(|e| anyhow::anyhow!("scan: {e}"))
+    let scan = file.scan().map_err(|e| anyhow::anyhow!("scan: {e}"))?;
+    // The decoder reads a zero-filled buffer, a JSON error body or a bare header as a volume with
+    // no sweeps (tests/failure_injection.rs). That is a failed fetch, not an empty radar: said
+    // here, a caller retries it instead of caching it or showing nothing as current.
+    if scan.sweeps().is_empty() {
+        anyhow::bail!("volume has no sweeps");
+    }
+    Ok(scan)
 }
 
 /// Decode raw Archive II bytes and re-encode the [`Scan`] as postcard, for the Web Worker.
