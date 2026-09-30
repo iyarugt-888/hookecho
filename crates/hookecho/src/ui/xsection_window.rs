@@ -335,8 +335,10 @@ mod tests {
         assert_eq!((expected.width(), expected.height()), (w, h));
         let bad = expected
             .as_raw()
-            .chunks_exact(4)
-            .zip(actual.chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(actual.as_chunks::<4>().0)
             .filter(|(e, a)| e.iter().zip(a.iter()).any(|(x, y)| x.abs_diff(*y) > 8))
             .count();
         if bad * 200 > (w * h) as usize {
