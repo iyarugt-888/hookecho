@@ -54,7 +54,8 @@ impl HookEchoApp {
                 continue;
             }
             let (_, lat) = mercator::world_to_lonlat(cam.center.0, cam.center.1);
-            let metres_per_pt = cam.world_per_pixel() / mercator::Camera::world_units_per_metre(lat);
+            let metres_per_pt =
+                cam.world_per_pixel() / mercator::Camera::world_units_per_metre(lat);
             let Some((w, label)) = ruler(metres_per_pt, MAX_W, self.metric_in(idx)) else {
                 continue;
             };

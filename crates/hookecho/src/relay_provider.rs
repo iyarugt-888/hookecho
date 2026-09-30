@@ -185,7 +185,9 @@ impl Level2LiveProvider for HookEchoRelayLevel2Provider {
                 .last()
                 .and_then(|block| relay_scan_progress(block, &partial));
             let radial_coverage = progress.map(|progress| {
-                let block = pending_blocks.last().expect("the current block was appended");
+                let block = pending_blocks
+                    .last()
+                    .expect("the current block was appended");
                 let start = block.radar_start.timestamp_millis();
                 let end = block.radar_end.timestamp_millis();
                 RadialCoverage {
@@ -197,9 +199,7 @@ impl Level2LiveProvider for HookEchoRelayLevel2Provider {
                             sweep.elevation_number() as usize == progress.elevation_number
                         })
                         .flat_map(|sweep| sweep.radials())
-                        .filter(|radial| {
-                            (start..=end).contains(&radial.collection_timestamp())
-                        })
+                        .filter(|radial| (start..=end).contains(&radial.collection_timestamp()))
                         .map(|radial| (radial.azimuth_number(), radial.collection_timestamp()))
                         .collect(),
                 }

@@ -13,7 +13,6 @@ mod field_state;
 mod goes_timeline;
 pub(crate) mod impact;
 mod layer_probe;
-mod scale_bar;
 #[cfg(not(target_arch = "wasm32"))]
 mod local_api;
 pub(crate) mod long_loop;
@@ -22,6 +21,8 @@ mod pane_time;
 mod radar_wind;
 mod region_stats;
 mod report;
+mod scale_bar;
+mod storm_track;
 mod terrain3d;
 mod yall_mode;
 pub(crate) use field_state::FieldState;
@@ -1984,6 +1985,9 @@ pub(crate) enum MapTool {
     /// Click route points (start, stops, destination) for a driving route and what it runs into
     /// (ROADMAP_NEW L1-L3).
     Route,
+    /// Drag a storm's motion for the next hour: time marks, a swath and ETAs at the saved
+    /// markers (`app::storm_track`, ROADMAP_2 §2.2).
+    StormTrack,
 }
 
 /// Which set of controls the WSV3 ribbon shows. WSV3 swaps its whole toolbar by data type; this
@@ -4003,6 +4007,8 @@ pub struct HookEchoApp {
     ribbon_mode: RibbonMode,
     /// Measure-tool clicked endpoints in `[lon, lat]` (max 2).
     measure: Vec<[f64; 2]>,
+    /// Manual storm-motion tracks (`app::storm_track`); session-only.
+    storm_tracks: storm_track::StormTracks,
     /// Freehand annotation strokes, in lon/lat so they stick to the ground through pan and zoom.
     /// Session-only by design: this is for pointing at a storm on a stream, not a saved document.
     strokes: Vec<Stroke2d>,
@@ -5570,6 +5576,7 @@ impl HookEchoApp {
             tool: MapTool::default(),
             ribbon_mode: RibbonMode::default(),
             measure: Vec::new(),
+            storm_tracks: Default::default(),
             strokes: Vec::new(),
             draw_color: DRAW_COLORS[0],
             marker_window: Default::default(),
@@ -14807,9 +14814,9 @@ impl HookEchoApp {
                         continue;
                     }
                     if live_poll && v.timeline.following {
-                        if let Some(from) = previous_provider.filter(|from| {
-                            v.live_scan.provider.as_deref() != Some(from.as_str())
-                        }) {
+                        if let Some(from) = previous_provider
+                            .filter(|from| v.live_scan.provider.as_deref() != Some(from.as_str()))
+                        {
                             let reason = "live stream unavailable; completed-volume polling";
                             log::info!(
                                 target: "hookecho::radar_provider_manager",
@@ -15092,7 +15099,8 @@ impl HookEchoApp {
                                     })
                                 })
                                 .unwrap_or("provider configuration changed");
-                            let mode = if provider == crate::radar_provider_manager::DEGRADED_LABEL {
+                            let mode = if provider == crate::radar_provider_manager::DEGRADED_LABEL
+                            {
                                 "completed volumes only"
                             } else {
                                 "progressive radials"
@@ -15122,11 +15130,13 @@ impl HookEchoApp {
                     desired_label == Some(crate::radar_provider_manager::DEGRADED_LABEL);
                 #[cfg(target_arch = "wasm32")]
                 let completed_only = false;
-                self.views[idx].live_scan.set_source_mode(if completed_only {
-                    crate::live_scan::SourceMode::CompletedVolumes
-                } else {
-                    crate::live_scan::SourceMode::ProgressiveRadials
-                });
+                self.views[idx]
+                    .live_scan
+                    .set_source_mode(if completed_only {
+                        crate::live_scan::SourceMode::CompletedVolumes
+                    } else {
+                        crate::live_scan::SourceMode::ProgressiveRadials
+                    });
             }
         }
     }
@@ -17729,7 +17739,11 @@ impl HookEchoApp {
         }
         // The draw tool takes the drag away from the pan, the same deal the measure tool makes
         // with the click: while it's armed, a drag draws. Disarm it (Esc / another tool) to pan.
-        if self.tool == MapTool::Draw && quiet && !swipe_dragging {
+        let tracking =
+            quiet && !swipe_dragging && self.storm_track_input(idx, prect, &response, ui);
+        if tracking {
+            // The storm-motion tool took the drag (or holds a handle): no pan under it.
+        } else if self.tool == MapTool::Draw && quiet && !swipe_dragging {
             if response.dragged() {
                 self.active = idx;
                 if let Some(pos) = response.interact_pointer_pos() {
@@ -18154,7 +18168,7 @@ impl HookEchoApp {
                     }
                     MapTool::Climatology => self.query_climatology(lon, lat),
                     // Drawing happens on drag, not on click; a bare click leaves no mark.
-                    MapTool::Draw => {}
+                    MapTool::Draw | MapTool::StormTrack => {}
                     MapTool::AlertZone => self.zone_pts.push([lon, lat]),
                     MapTool::Route => {
                         self.route_window.open = true;
@@ -26622,6 +26636,7 @@ impl eframe::App for HookEchoApp {
                     self.panel(ctx);
                 }
                 self.basemap_panel(ctx);
+                self.storm_track_card(ctx);
                 self.info_chip(ctx);
                 self.error_chip(ctx);
                 self.update_chip(ctx);
@@ -27893,6 +27908,7 @@ impl eframe::App for HookEchoApp {
                 );
             }
 
+            self.paint_storm_tracks(ui, &rects);
             self.paint_scale_bar(ui, &rects);
             self.paint_linked_time_badges(ui, &rects, solo);
             self.paint_linked_cursor(ui, &rects, solo);

@@ -720,6 +720,7 @@ impl HookEchoApp {
                                 (MapTool::Marker, "Marker"),
                                 (MapTool::CrossSection, "X-section"),
                                 (MapTool::RegionStats, "Region stats"),
+                                (MapTool::StormTrack, "Storm motion"),
                                 (MapTool::Sounding, "Sounding"),
                                 (MapTool::Forecast, "Forecast"),
                             ] {

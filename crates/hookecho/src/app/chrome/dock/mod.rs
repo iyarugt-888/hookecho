@@ -2362,7 +2362,10 @@ mod tests {
             }
             map
         };
-        assert!(map(false).right() > 700.0, "egui still does this uncontained");
+        assert!(
+            map(false).right() > 700.0,
+            "egui still does this uncontained"
+        );
         assert_eq!(map(true).right(), 700.0);
     }
 

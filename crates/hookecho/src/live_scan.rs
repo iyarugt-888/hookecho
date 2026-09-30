@@ -260,10 +260,19 @@ impl LiveScan {
         {
             return;
         }
-        let Some(cut) = self.observed_cuts.get_mut(p.elevation_number.saturating_sub(1)).and_then(Option::as_mut) else {
+        let Some(cut) = self
+            .observed_cuts
+            .get_mut(p.elevation_number.saturating_sub(1))
+            .and_then(Option::as_mut)
+        else {
             return;
         };
-        let newest_arrival = coverage.radials.iter().map(|(_, time)| *time).max().unwrap_or(0);
+        let newest_arrival = coverage
+            .radials
+            .iter()
+            .map(|(_, time)| *time)
+            .max()
+            .unwrap_or(0);
         let newest_prior = cut.radial_times_ms.iter().copied().max().unwrap_or(0);
         let rotation_ms = (p.chunk_duration_secs() * p.chunks_in_sweep as f32 * 1000.0) as i64;
         let new_pass = p.chunk_index == 1

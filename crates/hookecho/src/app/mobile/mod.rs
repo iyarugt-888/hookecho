@@ -337,6 +337,7 @@ impl super::HookEchoApp {
             crate::app::MapTool::Sounding => "Tap a point for a sounding",
             crate::app::MapTool::Climatology => "Tap a point for tornado climatology",
             crate::app::MapTool::Route => "Tap route points: start, stops, then the destination",
+            crate::app::MapTool::StormTrack => "Drag from a storm to where it will be in an hour",
             _ => return,
         };
         let accent = crate::theme::accent(self.settings.theme);

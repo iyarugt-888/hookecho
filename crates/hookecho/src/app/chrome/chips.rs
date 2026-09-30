@@ -200,6 +200,11 @@ impl HookEchoApp {
             MapTool::Route => (ph::PATH, "Route", "click start, stops, destination"),
             MapTool::Climatology => (ph::TORNADO, "Climatology", "click a point"),
             MapTool::Draw => (ph::PENCIL_SIMPLE, "Draw", "drag to scribble"),
+            MapTool::StormTrack => (
+                ph::ARROW_UP_RIGHT,
+                "Storm motion",
+                "drag from a storm to where it will be in an hour",
+            ),
             MapTool::AlertZone => (
                 ph::POLYGON,
                 "Watch zone",

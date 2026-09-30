@@ -1396,6 +1396,12 @@ impl HookEchoApp {
                 false,
             ),
             (
+                MapTool::StormTrack,
+                "Tool: Storm motion",
+                "Drag a storm's motion for the next hour: 15-minute marks, an uncertainty swath                  and arrival times at your saved markers",
+                true,
+            ),
+            (
                 MapTool::Route,
                 "Tool: Route",
                 "Plan a driving route and see which warnings it runs into",
