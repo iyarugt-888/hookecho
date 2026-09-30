@@ -31,7 +31,16 @@ async fn volume(site: &str, when: chrono::DateTime<Utc>) -> level2::Scan {
         .max_by_key(|id| id.date_time())
         .expect("a volume before the time");
     eprintln!("{site} {when}: {}", id.name());
-    level2::download_scan(id, None).await.expect("download")
+    // The archive drops the odd download when several of these run at once; a network blip is
+    // not a regression.
+    let mut last = None;
+    for _ in 0..3 {
+        match level2::download_scan(id.clone(), None).await {
+            Ok(scan) => return scan,
+            Err(e) => last = Some(e),
+        }
+    }
+    panic!("download {}: {:#}", id.name(), last.expect("three tries"));
 }
 
 struct Found {
@@ -411,5 +420,88 @@ async fn corpus_tornadoes_are_found_once_where_reported() {
             .filter(|z| km(*t, (z.id.lon, z.id.lat)) <= 8.0)
             .count();
         assert_eq!(here, 1, "{}: one tornado, one detection", c.site);
+    }
+}
+
+/// The corpus's false-alarm cases (ROADMAP_2 §8.1): what the detectors must not claim.
+const QUIET: [Case; 3] = [
+    // Joplin, 22 May 2011: KSGF was not yet dual-pol, so a debris signature is impossible.
+    Case {
+        site: "KSGF",
+        when: (2011, 5, 22, 22, 40),
+    },
+    // The Iowa derecho, 10 August 2020: a wind storm, not a tornado day.
+    Case {
+        site: "KDVN",
+        when: (2020, 8, 10, 17, 45),
+    },
+    // The Denver hailstorm, 8 May 2017: large hail lowers CC too.
+    Case {
+        site: "KFTG",
+        when: (2017, 5, 8, 20, 35),
+    },
+];
+
+/// The false-alarm cases claim no debris they cannot have: none at all on Joplin's pre-dual-pol
+/// radar, and no Debris-tier detection in the derecho or the hailstorm (the hailstorm's low-CC
+/// hail core, with no rotation near it, read as a tornado until unrotated debris was capped at
+/// Possible).
+#[tokio::test]
+#[ignore = "network"]
+async fn quiet_cases_claim_no_debris_tornado() {
+    for c in &QUIET {
+        let (y, mo, d, h, mi) = c.when;
+        let scan = volume(c.site, Utc.with_ymd_and_hms(y, mo, d, h, mi, 0).unwrap()).await;
+        let f = detect(&scan);
+        let circs = circulations(&f.couplets, &f.debris);
+        eprintln!(
+            "== {}: {} debris, {} couplets, circulations {:?}",
+            c.site,
+            f.debris.len(),
+            f.couplets.len(),
+            circs
+                .iter()
+                .map(|z| (z.id.tier, (z.id.score * 100.0).round()))
+                .collect::<Vec<_>>()
+        );
+        if c.site == "KSGF" {
+            assert!(f.debris.is_empty(), "debris on a radar with no CC");
+        }
+        assert!(
+            circs.iter().all(|z| z.id.tier < Tier::Debris),
+            "{}: a debris-tier tornado claimed",
+            c.site
+        );
+    }
+}
+
+#[tokio::test]
+#[ignore = "network"]
+async fn record_denver_hail_detail() {
+    let scan = volume("KFTG", Utc.with_ymd_and_hms(2017, 5, 8, 20, 35, 0).unwrap()).await;
+    let f = detect(&scan);
+    for z in circulations(&f.couplets, &f.debris) {
+        eprintln!(
+            "{:?} {:.2} reasons {:?}",
+            z.id.tier, z.id.score, z.id.reasons
+        );
+        for m in &z.members {
+            match m.evidence {
+                wxdata::tornado_id::Evidence::Debris(i) => {
+                    let d = &f.debris[i];
+                    eprintln!(
+                        "  debris conf {:.2} cc {:.2} z {:.0} zdr {:?} tilts {} unrotated {} rot {:?}",
+                        d.confidence, d.min_cc, d.max_z, d.zdr_db, d.tilts, d.unrotated, d.rotation_ms
+                    );
+                }
+                wxdata::tornado_id::Evidence::Rotation(i) => {
+                    let c = &f.couplets[i];
+                    eprintln!(
+                        "  couplet conf {:.2} vrot {:.0} {:.1} km",
+                        c.confidence, c.vrot_ms, m.km
+                    );
+                }
+            }
+        }
     }
 }

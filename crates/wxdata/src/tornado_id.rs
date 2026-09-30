@@ -22,6 +22,9 @@ use crate::tds::TdsHit;
 /// A couplet and a debris signature this close (km) are one identification.
 pub const ASSOCIATE_KM: f64 = 4.0;
 const NO_ROTATION: &str = "No rotation found beside it";
+/// Why unrotated, unconfirmed debris reads as Possible in a circulation.
+const HAIL_CAVEAT: &str =
+    "Possible only: no rotation near it, and large hail lowers CC in strong echo too";
 
 /// Below this confidence a couplet alone is not shown.
 pub const MIN_COUPLET: f32 = 0.35;
@@ -423,6 +426,19 @@ pub fn circulations(couplets: &[CoupletHit], debris: &[TdsHit]) -> Vec<Circulati
             .iter()
             .map(|d| d.min_cc)
             .fold(id.min_cc, |a, v| Some(a.map_or(v, |a: f32| a.min(v))));
+        // Debris with no rotation anywhere near it, and nothing confirming it: low CC in strong
+        // echo is also what large hail and other non-meteorological scatter look like (the
+        // Denver hailstorm, KFTG 8 May 2017, read as a Debris-tier tornado). Kept, but at Possible.
+        let unconfirmed = cs.iter().all(|c| c.confirmation.level().is_none())
+            && ds.iter().all(|d| d.confirmation.level().is_none());
+        if cs.is_empty()
+            && ds.iter().all(|d| d.unrotated)
+            && unconfirmed
+            && id.tier > Tier::Possible
+        {
+            id.tier = Tier::Possible;
+            id.reasons.push(HAIL_CAVEAT.into());
+        }
         let (r, d) = (cs.len(), ds.len());
         if r + d > 1 {
             id.reasons.push(format!(
@@ -533,6 +549,21 @@ mod tests {
             tiers.len(),
             "tiers must differ without colour"
         );
+    }
+
+    #[test]
+    fn debris_with_no_rotation_near_it_is_only_possible_unless_confirmed() {
+        let mut hail = debris(-97.0, 0.52);
+        hail.unrotated = true;
+        let out = circulations(&[], &[hail]);
+        assert_eq!(out[0].id.tier, Tier::Possible, "{:?}", out[0].id);
+        assert!(out[0].id.reasons.iter().any(|r| r == HAIL_CAVEAT));
+        // A report makes it a tornado whatever the radar says.
+        hail.confirmation.report = Some((2.0, 3));
+        assert_eq!(circulations(&[], &[hail])[0].id.tier, Tier::Confirmed);
+        // And debris with rotation beside it is not touched.
+        let out = circulations(&[couplet(-97.0, 0.5, 25.0, 2)], &[debris(-97.01, 0.7)]);
+        assert_eq!(out[0].id.tier, Tier::Debris);
     }
 
     #[test]
