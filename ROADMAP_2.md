@@ -183,7 +183,7 @@ Track:
 - [ ] current sweep and completed sweep are distinguishable in the state model.
 - [ ] SAILS/MESO-SAILS supplemental scans are represented explicitly.
 - [ ] out-of-order chunks cannot regress displayed time.
-- [ ] stale live data is visibly marked before it reaches a configurable threshold.
+- [x] stale live data is visibly marked before it reaches a configurable threshold.
 
 ## 1.2 Partial-volume rendering rules
 
