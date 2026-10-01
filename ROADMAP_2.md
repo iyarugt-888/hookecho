@@ -134,7 +134,7 @@ Before declaring the application "professional-station ready", all of the follow
 - [ ] all displayed forecast/derived/observed layers expose provenance through a common inspector.
 - [x] live Level II partial-volume behavior is covered by deterministic tests.
 - [x] VCP transitions, SAILS/MESO-SAILS, missing chunk, late chunk, duplicate chunk, and out-of-order chunk cases are tested.
-- [ ] all critical storm-analysis actions are reachable by command palette and direct pointer interaction.
+- [x] all critical storm-analysis actions are reachable by command palette and direct pointer interaction.
 - [x] archive replay is deterministic across repeated runs for the same volume/time.
 - [x] export/capture output is frame-stable and does not depend on UI repaint timing.
 - [ ] no single application source module remains responsible for an unreasonable number of unrelated domains.
