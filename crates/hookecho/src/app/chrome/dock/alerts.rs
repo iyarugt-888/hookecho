@@ -622,6 +622,8 @@ mod tests {
             source: None,
             motion: None,
             vtec: Some("/O.NEW.KOUN.TO.W.0023.130520T1940Z-130520T2015Z/".into()),
+            issued: None,
+            effective: None,
         };
         assert_eq!(issued(&a), Some(at(19, 40)));
         a.vtec = None;

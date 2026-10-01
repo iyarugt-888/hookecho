@@ -993,6 +993,8 @@ mod threat_tests {
                 source: None,
                 motion: None,
                 vtec: None,
+                issued: None,
+                effective: None,
             }),
         };
         // A place 28 km east (about 30 min at 30 kt), and one behind it.

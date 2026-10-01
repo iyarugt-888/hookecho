@@ -83,6 +83,12 @@ pub struct AlertInfo {
     pub description: String,
     pub instruction: String,
     pub expires: Option<chrono::DateTime<chrono::Utc>>,
+    /// When the product was sent (NWS `sent`): its issue time, for provenance.
+    #[serde(default)]
+    pub issued: Option<chrono::DateTime<chrono::Utc>>,
+    /// When it takes effect (NWS `effective`): the time it is valid from.
+    #[serde(default)]
+    pub effective: Option<chrono::DateTime<chrono::Utc>>,
     pub max_hail_in: Option<f32>,
     /// Raw wind string as issued, e.g. "60 MPH".
     pub max_wind: Option<String>,
@@ -554,6 +560,8 @@ mod dedupe_tests {
             source: None,
             motion: None,
             vtec: Some(vtec.into()),
+            issued: None,
+            effective: None,
         }
     }
 

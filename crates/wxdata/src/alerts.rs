@@ -231,8 +231,17 @@ fn build_alert(
         motion: param(props, "eventMotionDescription")
             .as_deref()
             .and_then(parse_motion),
+        issued: rfc3339(get("sent")),
+        effective: rfc3339(get("effective")),
     };
     Some((kind, rgb, detail, alert))
+}
+
+/// An RFC 3339 time in UTC, or `None` when absent or malformed.
+fn rfc3339(s: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+    chrono::DateTime::parse_from_rfc3339(s)
+        .ok()
+        .map(|d| d.with_timezone(&chrono::Utc))
 }
 
 /// Parse an api.weather.gov alerts GeoJSON payload into features (each carries [`AlertInfo`]).
@@ -594,6 +603,8 @@ mod tests {
             source: None,
             vtec: None,
             motion: None,
+            issued: None,
+            effective: None,
         };
         assert_eq!(escalation(&mk("plain warning", None, None)), 0);
         assert_eq!(escalation(&mk("", Some("CONSIDERABLE"), None)), 1);
@@ -639,6 +650,8 @@ mod tests {
             source: None,
             motion: None,
             vtec: None,
+            issued: None,
+            effective: None,
         };
         assert_eq!(
             escalation(&a),

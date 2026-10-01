@@ -204,7 +204,23 @@ impl HookEchoApp {
                 if let (Some(d), Some(analysis)) = (detail.as_mut(), linked) {
                     d.push_str(&offset_note(scan_time, (analysis, "analysis")));
                 }
-                out.push(ProbeLine::new(label, value, detail));
+                // A stamp only for the live head, whose receipt the live scan recorded.
+                let live_head = v.timeline.following && !v.timeline.playing;
+                let stamp = site.as_deref().filter(|_| live_head).and_then(|site| {
+                    super::radar_probe::radar_stamp(
+                        site,
+                        &label,
+                        v.live_scan.provider.as_deref(),
+                        scan_time,
+                        v.live_scan.last_received,
+                        product.is_some()
+                            || srv && moment == Moment::Velocity
+                            || moment == Moment::SpecificDifferentialPhase,
+                    )
+                });
+                let mut line = ProbeLine::new(label, value, detail);
+                line.stamp = stamp;
+                out.push(line);
             }
         }
 
@@ -320,6 +336,20 @@ impl HookEchoApp {
         }
 
         // Alerts, watches, discussions and the outlook over the point.
+        // The live alert feed's receipt, for the alerts' stamps; archived warnings shown on a
+        // replay have none recorded, so they keep the "stamp unavailable" line.
+        let alert_feed = (self.arch_warn_shown.is_none()).then(|| {
+            let h = self.request_health(crate::app::RequestLane::Feed(
+                crate::source_health::FeedSource::WeatherAlerts,
+            ));
+            let source = format!("{} ({})", h.source, h.endpoint_family.label());
+            let received = h.last_success.and_then(|age| {
+                chrono::Duration::from_std(age)
+                    .ok()
+                    .map(|age| chrono::Utc::now() - age)
+            });
+            (source, received)
+        });
         let mut seen: Vec<String> = Vec::new();
         let mut areas: Vec<ProbeLine> = Vec::new();
         {
@@ -341,7 +371,12 @@ impl HookEchoApp {
                     .as_ref()
                     .and_then(|a| a.expires)
                     .map(|t| format!("until {}", clock(t)));
-                areas.push(ProbeLine::new(what, f.title.clone(), until));
+                let mut line = ProbeLine::new(what, f.title.clone(), until);
+                line.stamp = match (&alert_feed, &f.alert) {
+                    (Some((source, received)), Some(a)) => alert_stamp(a, source, *received),
+                    _ => None,
+                };
+                areas.push(line);
             };
             if self.filters.show_alerts {
                 for f in self.active_alert_features() {
@@ -484,9 +519,68 @@ impl HookEchoApp {
     }
 }
 
+/// An alert's stamp for the probe's source inspector (ROADMAP_2 §9.1): the product, when it
+/// was sent and takes effect, and when this app received it. Hazard products are forecasts.
+/// `None` without a known receipt or any time to call it valid from.
+fn alert_stamp(
+    a: &wxdata::overlay::AlertInfo,
+    source: &str,
+    received: Option<chrono::DateTime<chrono::Utc>>,
+) -> Option<wxdata::field::DataStamp> {
+    Some(wxdata::field::DataStamp {
+        source_id: source.to_string(),
+        product_id: a.event.clone(),
+        issue_time: a.issued,
+        run_time: None,
+        valid_time: a.effective.or(a.issued)?,
+        received_time: received?,
+        source_latency: None,
+        is_forecast: true,
+        is_derived: false,
+        quality: wxdata::field::QualitySummary::Unknown,
+        grid: None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_alert_is_stamped_from_its_own_times_and_the_feed_receipt() {
+        let t = |m: i64| chrono::DateTime::from_timestamp(m * 60, 0).unwrap();
+        let a = wxdata::spoken::demo_alert();
+        let a = wxdata::overlay::AlertInfo {
+            issued: Some(t(100)),
+            effective: Some(t(101)),
+            ..a
+        };
+        let s = alert_stamp(&a, "Weather alerts (NWS)", Some(t(102))).unwrap();
+        assert_eq!(
+            (s.issue_time, s.valid_time, s.received_time),
+            (Some(t(100)), t(101), t(102))
+        );
+        assert!(s.is_forecast && !s.is_derived);
+        // No effective time: valid from when it was sent.
+        let sent_only = wxdata::overlay::AlertInfo {
+            effective: None,
+            ..a.clone()
+        };
+        assert_eq!(
+            alert_stamp(&sent_only, "x", Some(t(102)))
+                .unwrap()
+                .valid_time,
+            t(100)
+        );
+        // No receipt known, or no time at all: no stamp, not a guessed one.
+        assert!(alert_stamp(&a, "x", None).is_none());
+        let timeless = wxdata::overlay::AlertInfo {
+            issued: None,
+            effective: None,
+            ..a
+        };
+        assert!(alert_stamp(&timeless, "x", Some(t(102))).is_none());
+    }
 
     #[test]
     fn a_source_offset_is_signed_against_a_named_reference() {

@@ -403,6 +403,8 @@ mod tests {
             source: None,
             motion: None,
             vtec: None,
+            issued: None,
+            effective: None,
         });
         f
     }

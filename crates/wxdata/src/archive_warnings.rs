@@ -103,6 +103,8 @@ pub fn parse(json: &str) -> anyhow::Result<Vec<GeoFeature>> {
             damage_threat,
             source: Some("IEM archive".into()),
             motion: None,
+            issued: None,
+            effective: None,
         };
         for poly in polygons_of(geom) {
             out.push(GeoFeature {

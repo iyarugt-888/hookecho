@@ -467,6 +467,8 @@ pub fn demo_alert() -> AlertInfo {
             points: vec![],
         }),
         vtec: None,
+        issued: None,
+        effective: None,
     }
 }
 

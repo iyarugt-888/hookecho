@@ -231,7 +231,7 @@ const NAV_ROWS: [(crate::app::NavStep, &str, &str, bool); 9] = {
 };
 
 impl HookEchoApp {
-    fn request_health(&self, lane: RequestLane) -> SourceHealth {
+    pub(crate) fn request_health(&self, lane: RequestLane) -> SourceHealth {
         self.overlay_requests
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)

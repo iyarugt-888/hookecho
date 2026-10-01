@@ -165,6 +165,8 @@ pub fn parse(body: &str) -> Vec<GeoFeature> {
                     // Canada issues no VTEC, so `dedupe_key` falls back to this id. ECCC keeps it
                     // stable across an alert's updates, so a continued alert does not re-announce.
                     vtec: None,
+                    issued: None,
+                    effective: None,
                 }),
             });
         }

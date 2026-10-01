@@ -111,9 +111,58 @@ pub(super) fn format_value(
     Some(format!("{number} {units}").trim_end().to_string())
 }
 
+/// The displayed radar product's stamp for the probe's source inspector (ROADMAP_2 §9.1):
+/// who served it, what it is, when the tilt was acquired and when this app received it.
+/// `None` when the receipt is not known: the live scan records it for the newest volume only,
+/// so an archive or loop frame keeps the probe's "stamp unavailable" line rather than a guess.
+pub(crate) fn radar_stamp(
+    site: &str,
+    product: &str,
+    provider: Option<&str>,
+    acquired: chrono::DateTime<chrono::Utc>,
+    received: Option<chrono::DateTime<chrono::Utc>>,
+    derived: bool,
+) -> Option<wxdata::field::DataStamp> {
+    Some(wxdata::field::DataStamp {
+        source_id: match provider {
+            Some(p) => format!("NEXRAD {site} via {p}"),
+            None => format!("NEXRAD {site}"),
+        },
+        product_id: product.to_string(),
+        issue_time: None,
+        run_time: None,
+        valid_time: acquired,
+        received_time: received?,
+        source_latency: None,
+        is_forecast: false,
+        is_derived: derived,
+        quality: wxdata::field::QualitySummary::Unknown,
+        grid: None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_radar_stamp_needs_a_known_receipt_and_says_what_was_made() {
+        let at = chrono::DateTime::from_timestamp(1_000_000, 0).unwrap();
+        let got = at + chrono::Duration::seconds(40);
+        let s = radar_stamp(
+            "KTLX",
+            "SRV 0.5\u{b0}",
+            Some("Unidata"),
+            at,
+            Some(got),
+            true,
+        )
+        .unwrap();
+        assert_eq!(s.source_id, "NEXRAD KTLX via Unidata");
+        assert_eq!((s.valid_time, s.received_time), (at, got));
+        assert!(s.is_derived && !s.is_forecast);
+        assert!(radar_stamp("KTLX", "REF", None, at, None, false).is_none());
+    }
 
     #[test]
     fn relative_velocity_subtracts_the_radial_motion_component() {

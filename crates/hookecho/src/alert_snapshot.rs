@@ -92,6 +92,8 @@ mod tests {
                 source: None,
                 vtec: None,
                 motion: None,
+                issued: None,
+                effective: None,
             }),
         }
     }

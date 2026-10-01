@@ -296,6 +296,8 @@ pub fn parse(body: &str) -> Vec<GeoFeature> {
                         // extended warning announces again — the same behaviour every non-VTEC US
                         // product already has.
                         vtec: None,
+                        issued: None,
+                        effective: None,
                     }),
                 });
             }
