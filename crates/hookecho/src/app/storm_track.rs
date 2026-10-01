@@ -20,6 +20,18 @@ const ETA_MAX_MIN: f64 = 120.0;
 const KMH_PER_KT: f64 = 1.852;
 /// A pointer this close (points) to a handle grabs it rather than starting a new track.
 const GRAB_PT: f32 = 12.0;
+/// A fingertip covers far more than a cursor tip: on a touch screen a handle is grabbed from twice
+/// as far (§2.6, storm tools by mouse, pen and touch).
+const GRAB_PT_TOUCH: f32 = 24.0;
+
+/// How near a handle a press must land to grab it.
+fn grab_radius(touch: bool) -> f32 {
+    if touch {
+        GRAB_PT_TOUCH
+    } else {
+        GRAB_PT
+    }
+}
 
 pub(crate) fn color() -> egui::Color32 {
     egui::Color32::from_rgb(255, 92, 214)
@@ -390,6 +402,7 @@ impl HookEchoApp {
             let (x, y) = cam.world_to_screen(w, vp);
             egui::pos2(prect.left() + x, prect.top() + y)
         };
+        let radius = grab_radius(ui.input(|i| i.any_touches() || i.has_touch_screen()));
         let grab_at = |p: egui::Pos2, st: &StormTracks| {
             st.tracks
                 .iter()
@@ -401,7 +414,7 @@ impl HookEchoApp {
                     ]
                 })
                 .map(|(g, at)| (g, at.distance(p)))
-                .filter(|(_, d)| *d <= GRAB_PT)
+                .filter(|(_, d)| *d <= radius)
                 .min_by(|a, b| a.1.total_cmp(&b.1))
                 .map(|(g, _)| g)
         };
@@ -706,6 +719,8 @@ impl HookEchoApp {
         let mut ask_impact = false;
         let st = &mut self.storm_tracks;
         let mut remove = None;
+        let mut duplicate = None;
+        let mut undo_point = false;
         let mut clear = false;
         egui::Area::new(egui::Id::new("storm_track_card"))
             .order(egui::Order::Foreground)
@@ -725,6 +740,14 @@ impl HookEchoApp {
                             }
                         });
                     });
+                    if !st.pending.is_empty()
+                        && ui
+                            .small_button("Undo point")
+                            .on_hover_text("Remove the last point of the line (Backspace)")
+                            .clicked()
+                    {
+                        undo_point = true;
+                    }
                     match st.pending.len() {
                         0 => {}
                         1 => {
@@ -774,6 +797,7 @@ impl HookEchoApp {
                                     egui::DragValue::new(&mut kt)
                                         .range(0.0..=150.0)
                                         .speed(0.5)
+                                        .max_decimals(0)
                                         .suffix(" kt"),
                                 )
                                 .on_hover_text("Speed")
@@ -785,6 +809,7 @@ impl HookEchoApp {
                                 egui::DragValue::new(&mut track.bearing_deg)
                                     .range(0.0..=359.9)
                                     .speed(1.0)
+                                    .max_decimals(0)
                                     .suffix("°"),
                             )
                             .on_hover_text("Heading, toward");
@@ -794,6 +819,14 @@ impl HookEchoApp {
                                 .clicked()
                             {
                                 remove = Some(i);
+                            }
+                            // The keyboard's Ctrl+D, for pen and touch.
+                            if ui
+                                .small_button(egui_phosphor::regular::COPY)
+                                .on_hover_text("Duplicate (Ctrl+D)")
+                                .clicked()
+                            {
+                                duplicate = Some(i);
                             }
                         });
                         if !sel {
@@ -819,6 +852,7 @@ impl HookEchoApp {
                                     egui::DragValue::new(&mut w)
                                         .range(0.0..=50.0)
                                         .speed(0.2)
+                                        .max_decimals(1)
                                         .suffix(if metric { " km" } else { " mi" }),
                                 )
                                 .on_hover_text("Half-width of the swath at the storm")
@@ -955,11 +989,18 @@ impl HookEchoApp {
             }
         }
         let st = &mut self.storm_tracks;
+        if undo_point {
+            st.pending.pop();
+        }
         if clear {
             st.tracks.clear();
             st.selected = None;
         } else if let Some(i) = remove {
             st.remove(i);
+        } else if let Some(i) = duplicate.filter(|&i| i < st.tracks.len()) {
+            let copy = st.tracks[i].clone();
+            st.tracks.push(copy);
+            st.selected = Some(st.tracks.len() - 1);
         }
     }
 }
@@ -1150,6 +1191,12 @@ mod tests {
         assert_eq!(t.bearing_deg, 245.0);
         assert!((t.speed_kmh - 55.56).abs() < 0.01);
         assert!(ManualTrack::from_cell(&wxdata::level3::Cell::default(), Utc::now()).is_none());
+    }
+
+    #[test]
+    fn a_fingertip_grabs_from_further_than_a_cursor() {
+        assert!(grab_radius(true) >= 2.0 * grab_radius(false));
+        assert_eq!(grab_radius(false), GRAB_PT);
     }
 
     #[test]

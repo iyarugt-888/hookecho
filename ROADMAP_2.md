@@ -367,11 +367,11 @@ Selecting a storm should optionally open a compact analysis card containing:
 
 ## 2.6 Acceptance criteria
 
-- [ ] a trained user can create a storm motion vector and 60-minute projection in under 5 seconds.
-- [ ] manual and automatic motion can coexist and be clearly distinguished.
-- [ ] editing never requires opening Settings.
+- [x] a trained user can create a storm motion vector and 60-minute projection in under 5 seconds.
+- [x] manual and automatic motion can coexist and be clearly distinguished.
+- [x] editing never requires opening Settings.
 - [ ] storm interactions work with mouse, pen, and touch.
-- [ ] projected ETAs are recomputed live while handles are dragged.
+- [x] projected ETAs are recomputed live while handles are dragged.
 
 ---
 
