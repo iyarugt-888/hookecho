@@ -31,6 +31,8 @@ const HANDLE_H: f32 = 18.0;
 const RAIL_BTN: f32 = 46.0;
 /// The map keeps at least this much height however far the sheet is pulled up.
 const MAP_MIN_H: f32 = 96.0;
+/// The least body a sheet needs above its tabs to draw its window rather than fold.
+const UNFOLD_MIN: f32 = 80.0;
 
 /// What a rail button does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,6 +71,26 @@ fn sheet_heights(room: f32, peek: f32) -> [f32; 3] {
     let full = (room - MAP_MIN_H).max(peek);
     let half = (room * 0.42).clamp(peek, full);
     [peek, half, full]
+}
+
+/// The sheet's height and whether it is folded to its tabs, given the height its snap and drag
+/// ask for. Below `peek + UNFOLD_MIN` there is no room for a window's body, so it folds, and a
+/// folded sheet does not draw the window. While a text field has focus that would be fatal: the
+/// soft keyboard takes a third of a phone's height, the room shrinks, the half-height sheet drops
+/// under the line and folds, the field it held stops being drawn, egui drops its focus, and the
+/// app (which shows the keyboard for exactly as long as a field is focused) hides the keyboard
+/// again the instant it opened. So while typing the sheet keeps at least an unfolded height,
+/// even past the room it was given: with the keyboard up a phone can have almost no room left,
+/// and a field kept focused but drawn a few points tall cannot be read. The sheet then rides
+/// over the map and the control row until the keyboard goes. A tablet's room never got that
+/// small.
+fn sheet_fit(h: f32, peek: f32, typing: bool) -> (f32, bool) {
+    let unfolded = peek + UNFOLD_MIN;
+    if typing {
+        (h.max(unfolded), false)
+    } else {
+        (h, h < unfolded)
+    }
 }
 
 /// The snap nearest a dragged height.
@@ -752,7 +774,11 @@ impl HookEchoApp {
         let base = heights[self.dock.sheet as usize];
         let drag_id = egui::Id::new("phone_sheet_drag");
         let drag: f32 = ctx.data(|d| d.get_temp(drag_id)).unwrap_or(0.0);
-        let h = (base + drag).clamp(peek, heights[2]);
+        let (h, folded) = sheet_fit(
+            (base + drag).clamp(peek, heights[2]),
+            peek,
+            ctx.text_edit_focused(),
+        );
         let stack = self.dock.phone_stack();
         let Some(front) = self.dock.phone_front.or(stack.first().copied()) else {
             return;
@@ -772,7 +798,7 @@ impl HookEchoApp {
         let mut snap = None;
         let mut new_drag = drag;
         // Too short for a window's body (folded, or being pulled up from folded): the tabs alone.
-        let folded = h < peek + 80.0;
+        // Never while a field in it has the keyboard (`sheet_fit`).
         let mut header = ws::HeaderAction::None;
         egui::Panel::bottom("phone_sheet")
             .exact_size(h)
@@ -867,6 +893,23 @@ mod tests {
         // A tiny room still has a sheet that shows its tabs.
         let tiny = sheet_heights(100.0, 60.0);
         assert!(tiny.iter().all(|x| *x >= 60.0));
+    }
+
+    #[test]
+    fn the_keyboard_cannot_fold_the_sheet_out_from_under_its_field() {
+        // A portrait phone with the keyboard up: ~320 pt between the control row and the
+        // timeline. The half sheet is 42% of that, under the unfold line.
+        let (room, peek) = (320.0, 58.0);
+        let half = sheet_heights(room, peek)[1];
+        assert!(half < peek + UNFOLD_MIN, "the case this guards: {half}");
+        // Not typing, it folds as before.
+        assert_eq!(sheet_fit(half, peek, false), (half, true));
+        // Typing, it stays open, tall enough for its body.
+        assert_eq!(sheet_fit(half, peek, true), (peek + UNFOLD_MIN, false));
+        // A taller sheet is left alone.
+        assert_eq!(sheet_fit(250.0, peek, true), (250.0, false));
+        // Even folded to its tabs with almost no room, a field being typed in keeps its body.
+        assert_eq!(sheet_fit(peek, peek, true), (peek + UNFOLD_MIN, false));
     }
 
     #[test]
