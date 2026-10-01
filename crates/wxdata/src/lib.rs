@@ -117,6 +117,7 @@ pub mod webcams;
 pub mod wfigs;
 pub mod wssi;
 pub mod xsection;
+pub mod zip;
 
 /// Radar site registry (id, city, state, lat/lon, elevation).
 ///

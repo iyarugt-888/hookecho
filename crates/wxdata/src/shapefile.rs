@@ -27,8 +27,19 @@
 //!
 //! `Z` and `M` values are skipped (the map is 2-D); `MultiPatch` (3-D surfaces) is an error; memo
 //! (`M`) attribute columns come back null; `.shx` is not needed, since the `.shp` records can be
-//! walked in order. Text attributes are decoded as UTF-8, falling back to Latin-1 for bytes that
-//! are not valid UTF-8 — which is what most DBF files written by desktop GIS actually contain.
+//! walked in order.
+//!
+//! ## Text encoding
+//!
+//! A `.cpg` beside the `.dbf` names its code page; UTF-8, Windows-1252 and Latin-1 are honoured
+//! ([`Codepage`]). Without one, text is decoded as UTF-8, falling back to Windows-1252 for bytes
+//! that are not valid UTF-8 — which is what most DBF files written by desktop GIS actually
+//! contain. A code page this cannot decode is reported, and the text read the same fallback way.
+//!
+//! ## Zipped bundles
+//!
+//! [`parse_zip`] reads the way shapefiles are usually shared: one `.zip` with the `.shp` and its
+//! `.dbf`, `.prj` and `.cpg` matched by name (case-insensitively), several datasets allowed.
 
 use crate::gis::{Geometry, GisFeature};
 use anyhow::{anyhow, bail, Context, Result};
@@ -99,15 +110,57 @@ fn wkt_name(wkt: &str) -> String {
         .map_or_else(|| "unnamed".to_string(), |s| format!("\"{s}\""))
 }
 
+/// How a `.dbf`'s text bytes are decoded, from its `.cpg`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Codepage {
+    /// No `.cpg`: UTF-8 where the bytes are valid UTF-8, otherwise Windows-1252.
+    #[default]
+    Auto,
+    /// UTF-8; an invalid sequence becomes U+FFFD rather than an error.
+    Utf8,
+    /// Windows-1252 ("ANSI" on a U.S. or western-European Windows).
+    Windows1252,
+    /// ISO-8859-1: every byte is the code point of the same number.
+    Latin1,
+}
+
+/// The code page a `.cpg` names, or `None` for one this cannot decode (the caller says so and
+/// falls back to [`Codepage::Auto`]). Spelling varies by writer: "UTF-8", "65001", "ANSI 1252",
+/// "1252", "ISO-8859-1", "88591" and so on.
+pub fn codepage_from_cpg(cpg: &str) -> Option<Codepage> {
+    let key: String = cpg
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .collect::<String>()
+        .to_ascii_uppercase();
+    match key.as_str() {
+        "" => Some(Codepage::Auto),
+        "UTF8" | "65001" => Some(Codepage::Utf8),
+        "1252" | "ANSI1252" | "CP1252" | "WINDOWS1252" | "WIN1252" => Some(Codepage::Windows1252),
+        "ISO88591" | "88591" | "28591" | "LATIN1" | "ISOLATIN1" | "CP819" => Some(Codepage::Latin1),
+        _ => None,
+    }
+}
+
 /// Read a shapefile into features.
 ///
 /// `dbf` supplies each feature's attributes when present; `prj` decides the coordinate system.
 /// The `.dbf` must have exactly one row per `.shp` record — anything else means the files are not
 /// a pair, and matching them up anyway would attach the wrong attributes to shapes.
 pub fn parse(shp: &[u8], dbf: Option<&[u8]>, prj: Option<&str>) -> Result<Vec<GisFeature>> {
+    parse_with(shp, dbf, prj, Codepage::Auto)
+}
+
+/// [`parse`], decoding the `.dbf`'s text in the code page its `.cpg` named.
+pub fn parse_with(
+    shp: &[u8],
+    dbf: Option<&[u8]>,
+    prj: Option<&str>,
+    codepage: Codepage,
+) -> Result<Vec<GisFeature>> {
     let crs = prj.map(crs_from_prj).transpose()?;
     let shapes = read_shp(shp)?;
-    let rows = dbf.map(read_dbf).transpose()?;
+    let rows = dbf.map(|d| read_dbf(d, codepage)).transpose()?;
     if let Some(rows) = &rows {
         if rows.len() != shapes.len() {
             bail!(
@@ -403,7 +456,7 @@ struct Field {
     decimals: u8,
 }
 
-fn read_dbf(dbf: &[u8]) -> Result<Vec<Row>> {
+fn read_dbf(dbf: &[u8], cp: Codepage) -> Result<Vec<Row>> {
     if dbf.len() < DBF_FIELD_DESC_LEN {
         bail!("the .dbf is too short to hold a header");
     }
@@ -420,7 +473,7 @@ fn read_dbf(dbf: &[u8]) -> Result<Vec<Row>> {
         let d = &dbf[at..at + DBF_FIELD_DESC_LEN];
         let name_end = d[..11].iter().position(|&b| b == 0).unwrap_or(11);
         fields.push(Field {
-            name: decode_text(&d[..name_end]).trim().to_string(),
+            name: decode_text(&d[..name_end], cp).trim().to_string(),
             kind: d[11],
             len: d[16] as usize,
             decimals: d[17],
@@ -455,7 +508,7 @@ fn read_dbf(dbf: &[u8]) -> Result<Vec<Row>> {
         for f in &fields {
             let raw = &rec[off..off + f.len];
             off += f.len;
-            props.insert(f.name.clone(), field_value(f, raw));
+            props.insert(f.name.clone(), field_value(f, raw, cp));
         }
         rows.push(Row {
             deleted: rec[0] == 0x2A,
@@ -465,8 +518,8 @@ fn read_dbf(dbf: &[u8]) -> Result<Vec<Row>> {
     Ok(rows)
 }
 
-fn field_value(f: &Field, raw: &[u8]) -> Value {
-    let text = decode_text(raw);
+fn field_value(f: &Field, raw: &[u8], cp: Codepage) -> Value {
+    let text = decode_text(raw, cp);
     let t = text.trim();
     match f.kind {
         b'C' => Value::String(text.trim_end().to_string()),
@@ -495,12 +548,134 @@ fn field_value(f: &Field, raw: &[u8]) -> Value {
     }
 }
 
-/// UTF-8 where the bytes are valid UTF-8, otherwise Latin-1 (every byte a code point).
-fn decode_text(b: &[u8]) -> String {
-    match std::str::from_utf8(b) {
-        Ok(s) => s.to_string(),
-        Err(_) => b.iter().map(|&c| c as char).collect(),
+/// A `.dbf` cell's text in code page `cp`.
+fn decode_text(b: &[u8], cp: Codepage) -> String {
+    match cp {
+        Codepage::Auto => match std::str::from_utf8(b) {
+            Ok(s) => s.to_string(),
+            Err(_) => b.iter().map(|&c| windows_1252(c)).collect(),
+        },
+        Codepage::Utf8 => String::from_utf8_lossy(b).into_owned(),
+        Codepage::Windows1252 => b.iter().map(|&c| windows_1252(c)).collect(),
+        Codepage::Latin1 => b.iter().map(|&c| c as char).collect(),
     }
+}
+
+/// One Windows-1252 byte as a character. It is Latin-1 except for 0x80–0x9F, where Latin-1 has
+/// invisible control codes and Windows-1252 has curly quotes, dashes, the euro sign and so on;
+/// the five bytes it leaves undefined stay their Latin-1 control code.
+fn windows_1252(b: u8) -> char {
+    const HIGH: [char; 32] = [
+        '€', '\u{81}', '‚', 'ƒ', '„', '…', '†', '‡', 'ˆ', '‰', 'Š', '‹', 'Œ', '\u{8D}', 'Ž',
+        '\u{8F}', '\u{90}', '‘', '’', '“', '”', '•', '–', '—', '˜', '™', 'š', '›', 'œ', '\u{9D}',
+        'ž', 'Ÿ',
+    ];
+    match b {
+        0x80..=0x9F => HIGH[(b - 0x80) as usize],
+        _ => b as char,
+    }
+}
+
+// ---- zipped bundles ----------------------------------------------------------------------------
+
+/// The most any one file in a zipped bundle may inflate to.
+const MAX_BUNDLE_FILE_BYTES: u64 = 512 * 1024 * 1024;
+/// The most a bundle may hold in datasets, so a zip of thousands of tiny `.shp` stays bounded.
+const MAX_BUNDLE_DATASETS: usize = 256;
+
+/// One shapefile read from a zipped bundle.
+#[derive(Debug)]
+pub struct Dataset {
+    /// The `.shp`'s path inside the zip.
+    pub name: String,
+    pub features: Vec<GisFeature>,
+    /// What the person should know about how complete it is: a missing `.dbf` or `.prj`, a code
+    /// page that could not be honoured.
+    pub notes: Vec<String>,
+}
+
+/// Every shapefile in a zip, each with the `.dbf`, `.prj` and `.cpg` that share its path and
+/// name, matched case-insensitively (`Counties.SHP` with `counties.dbf`). macOS resource-fork
+/// entries are ignored. Two sidecars that differ only by case are ambiguous and refused, as is a
+/// bundle with no `.shp`; a dataset that fails to read fails the import, named.
+pub fn parse_zip(zip: &[u8]) -> Result<Vec<Dataset>> {
+    let entries: Vec<crate::zip::Entry> = crate::zip::entries(zip)?
+        .into_iter()
+        .filter(|e| {
+            let file = e.name.rsplit('/').next().unwrap_or(&e.name);
+            !e.is_dir() && !e.name.starts_with("__MACOSX/") && !file.starts_with("._")
+        })
+        .collect();
+    let lower: Vec<String> = entries.iter().map(|e| e.name.to_ascii_lowercase()).collect();
+    let find = |stem: &str, ext: &str| -> Result<Option<&crate::zip::Entry>> {
+        let want = format!("{stem}.{ext}");
+        let mut hits = entries.iter().zip(&lower).filter(|(_, l)| **l == want);
+        let first = hits.next().map(|(e, _)| e);
+        if let Some((other, _)) = hits.next() {
+            bail!(
+                "{} and {} differ only by case, so it is not clear which belongs to the shapes",
+                first.expect("a first hit").name,
+                other.name
+            );
+        }
+        Ok(first)
+    };
+    let read = |e: &crate::zip::Entry| crate::zip::read(zip, e, MAX_BUNDLE_FILE_BYTES);
+
+    let shps: Vec<&String> = lower.iter().filter(|l| l.ends_with(".shp")).collect();
+    if shps.is_empty() {
+        bail!("the zip holds no .shp file");
+    }
+    if shps.len() > MAX_BUNDLE_DATASETS {
+        bail!(
+            "the zip holds {} shapefiles; at most {MAX_BUNDLE_DATASETS} can be imported at once",
+            shps.len()
+        );
+    }
+    let mut out = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    for l in shps {
+        let stem = &l[..l.len() - 4];
+        if !seen.insert(stem.to_string()) {
+            continue;
+        }
+        let shp = find(stem, "shp")?.expect("found by its own name");
+        let name = shp.name.clone();
+        let dbf = find(stem, "dbf")?.map(read).transpose()?;
+        let prj = find(stem, "prj")?
+            .map(read)
+            .transpose()?
+            .map(|b| String::from_utf8_lossy(&b).into_owned());
+        let cpg = find(stem, "cpg")?
+            .map(read)
+            .transpose()?
+            .map(|b| String::from_utf8_lossy(&b).trim().to_string());
+        let mut notes = Vec::new();
+        let codepage = match cpg.as_deref() {
+            None => Codepage::Auto,
+            Some(c) => codepage_from_cpg(c).unwrap_or_else(|| {
+                notes.push(format!(
+                    "its .cpg names code page \"{c}\", which is not supported, so text was read as \
+                     UTF-8 or Windows-1252"
+                ));
+                Codepage::Auto
+            }),
+        };
+        let features = parse_with(&read(shp)?, dbf.as_deref(), prj.as_deref(), codepage)
+            .with_context(|| name.clone())?;
+        if dbf.is_none() {
+            notes.push("no .dbf, so no attributes".to_string());
+        }
+        if prj.is_none() {
+            notes.push("no .prj, so coordinates were taken as longitude/latitude".to_string());
+        }
+        out.push(Dataset {
+            name,
+            features,
+            notes,
+        });
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -733,6 +908,89 @@ mod tests {
         dbf[at + 1] = 0xE9;
         let p = &parse(&shp, Some(&dbf), Some(WGS84)).expect("parses")[0].properties;
         assert_eq!(p["N"], "R\u{e9}");
+    }
+
+    #[test]
+    fn a_cpg_chooses_how_text_is_decoded() {
+        assert_eq!(codepage_from_cpg("UTF-8\r\n"), Some(Codepage::Utf8));
+        assert_eq!(codepage_from_cpg("ANSI 1252"), Some(Codepage::Windows1252));
+        assert_eq!(codepage_from_cpg("ISO-8859-1"), Some(Codepage::Latin1));
+        assert_eq!(codepage_from_cpg("88591"), Some(Codepage::Latin1));
+        assert_eq!(codepage_from_cpg("950"), None, "Big5 is not decoded");
+        // 0x93/0x94 are curly quotes in Windows-1252 and control codes in Latin-1.
+        let quoted = [0x93, b'H', b'i', 0x94];
+        assert_eq!(decode_text(&quoted, Codepage::Windows1252), "\u{201C}Hi\u{201D}");
+        assert_eq!(decode_text(&quoted, Codepage::Auto), "\u{201C}Hi\u{201D}");
+        assert_eq!(decode_text(&quoted, Codepage::Latin1), "\u{93}Hi\u{94}");
+        assert_eq!(decode_text(&quoted, Codepage::Utf8), "\u{FFFD}Hi\u{FFFD}");
+        assert_eq!(decode_text("Zoë".as_bytes(), Codepage::Auto), "Zoë");
+    }
+
+    fn bundle_parts() -> (Vec<u8>, Vec<u8>) {
+        let shp = shp_file(&[point(-97.5, 35.25), point(-98.0, 36.0)]);
+        let dbf = dbf_file(
+            &[("NAME", b'C', 10, 0)],
+            &[(false, vec!["Norman"]), (false, vec!["Enid"])],
+        );
+        (shp, dbf)
+    }
+
+    #[test]
+    fn a_zipped_shapefile_reads_its_sidecars_whatever_their_case() {
+        let (shp, dbf) = bundle_parts();
+        let z = crate::zip::build(&[
+            ("data/Towns.SHP", &shp, true),
+            ("data/towns.dbf", &dbf, true),
+            ("data/TOWNS.prj", WGS84.as_bytes(), false),
+            ("__MACOSX/data/._Towns.SHP", b"junk", false),
+        ]);
+        let sets = parse_zip(&z).expect("parses");
+        assert_eq!(sets.len(), 1);
+        assert_eq!(sets[0].name, "data/Towns.SHP");
+        assert!(sets[0].notes.is_empty(), "{:?}", sets[0].notes);
+        assert_eq!(sets[0].features.len(), 2);
+        assert_eq!(sets[0].features[1].properties["NAME"], "Enid");
+    }
+
+    #[test]
+    fn several_datasets_in_one_zip_each_come_back_with_their_own_notes() {
+        let (shp, dbf) = bundle_parts();
+        let z = crate::zip::build(&[
+            ("a.shp", &shp, false),
+            ("a.dbf", &dbf, false),
+            ("a.prj", WGS84.as_bytes(), false),
+            ("a.cpg", b"OEM", false),
+            ("b.shp", &shp, false),
+        ]);
+        let sets = parse_zip(&z).expect("parses");
+        assert_eq!(sets.len(), 2);
+        assert!(sets[0].notes[0].contains("\"OEM\""), "{:?}", sets[0].notes);
+        assert_eq!(sets[1].notes.len(), 2, "no .dbf and no .prj: {:?}", sets[1].notes);
+        assert!(sets[1].features[0].properties.is_empty());
+    }
+
+    #[test]
+    fn a_bundle_without_shapes_or_with_ambiguous_sidecars_is_refused() {
+        let (shp, dbf) = bundle_parts();
+        let none = crate::zip::build(&[("readme.txt", b"hi", false)]);
+        assert!(parse_zip(&none).unwrap_err().to_string().contains("no .shp"));
+        let twins = crate::zip::build(&[
+            ("a.shp", &shp, false),
+            ("a.dbf", &dbf, false),
+            ("A.DBF", &dbf, false),
+        ]);
+        let err = parse_zip(&twins).unwrap_err().to_string();
+        assert!(err.contains("differ only by case"), "{err}");
+    }
+
+    #[test]
+    fn a_broken_dataset_in_a_bundle_is_named() {
+        let (shp, _) = bundle_parts();
+        let short = dbf_file(&[("NAME", b'C', 10, 0)], &[(false, vec!["Norman"])]);
+        let z = crate::zip::build(&[("roads/x.shp", &shp, false), ("roads/x.dbf", &short, false)]);
+        let err = format!("{:#}", parse_zip(&z).unwrap_err());
+        assert!(err.starts_with("roads/x.shp"), "{err}");
+        assert!(err.contains("not a matching pair"), "{err}");
     }
 
     #[test]

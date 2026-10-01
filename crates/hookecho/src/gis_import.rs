@@ -475,10 +475,15 @@ pub(crate) fn is_kmz(name: &str) -> bool {
     name.to_ascii_lowercase().ends_with(".kmz")
 }
 
+/// Is this file name a zip — a zipped shapefile bundle?
+pub(crate) fn is_zip(name: &str) -> bool {
+    name.to_ascii_lowercase().ends_with(".zip")
+}
+
 /// Is this a binary format, which a browser has to remember as the GeoJSON it reads back as
 /// rather than as its own text?
 pub(crate) fn is_binary(name: &str) -> bool {
-    is_shapefile(name) || is_kmz(name)
+    is_shapefile(name) || is_kmz(name) || is_zip(name)
 }
 
 pub(crate) fn load_kml(text: &str) -> Result<Loaded, String> {
@@ -508,6 +513,35 @@ pub(crate) fn load_geojson(text: &str) -> Result<Loaded, String> {
         .map_err(|e| e.to_string())
 }
 
+/// A zipped shapefile bundle: every dataset in it, with the `.dbf`, `.prj` and `.cpg` that came
+/// alongside each — the way a phone or a browser can bring a shapefile in with its attributes,
+/// since their pickers hand over one file. Several datasets come in together as one layer, and
+/// the note names them.
+pub(crate) fn load_shapefile_zip(bytes: &[u8]) -> Result<Loaded, String> {
+    let sets = wxdata::shapefile::parse_zip(bytes).map_err(|e| format!("{e:#}"))?;
+    let several = sets.len() > 1;
+    let mut notes = Vec::new();
+    if several {
+        let names: Vec<&str> = sets.iter().map(|d| d.name.as_str()).collect();
+        notes.push(format!("{} shapefiles: {}", sets.len(), names.join(", ")));
+    }
+    let mut features = Vec::new();
+    for d in sets {
+        if !d.notes.is_empty() {
+            notes.push(if several {
+                format!("{}: {}", d.name, d.notes.join("; "))
+            } else {
+                d.notes.join("; ")
+            });
+        }
+        features.extend(d.features);
+    }
+    Ok(Loaded {
+        features,
+        note: (!notes.is_empty()).then(|| notes.join(". ")),
+    })
+}
+
 /// A shapefile handed over as one file's bytes — what a browser or a phone's picker gives. Its
 /// `.dbf` and `.prj` are separate files that were not picked, so the shapes come without
 /// attributes; the note says so instead of leaving the click popup mysteriously empty.
@@ -515,7 +549,11 @@ pub(crate) fn load_shapefile_bytes(shp: &[u8]) -> Result<Loaded, String> {
     let features = wxdata::shapefile::parse(shp, None, None).map_err(|e| format!("{e:#}"))?;
     Ok(Loaded {
         features,
-        note: Some("picked one file, so its .dbf attributes and .prj were not read".to_string()),
+        note: Some(
+            "picked one file, so its .dbf attributes and .prj were not read (zip the shapefile's \
+             files together and import the .zip to bring them in)"
+                .to_string(),
+        ),
     })
 }
 
@@ -536,8 +574,18 @@ pub(crate) fn load_shapefile_path(path: &std::path::Path) -> Result<Loaded, Stri
     let prj = sibling("prj")
         .map(|p| std::fs::read_to_string(p).map_err(|e| e.to_string()))
         .transpose()?;
-    let features = wxdata::shapefile::parse(&shp, dbf.as_deref(), prj.as_deref())
-        .map_err(|e| format!("{e:#}"))?;
+    let cpg = sibling("cpg").and_then(|p| std::fs::read_to_string(p).ok());
+    let codepage = match cpg.as_deref().map(str::trim) {
+        None => Some(wxdata::shapefile::Codepage::Auto),
+        Some(c) => wxdata::shapefile::codepage_from_cpg(c),
+    };
+    let features = wxdata::shapefile::parse_with(
+        &shp,
+        dbf.as_deref(),
+        prj.as_deref(),
+        codepage.unwrap_or_default(),
+    )
+    .map_err(|e| format!("{e:#}"))?;
     let mut missing = Vec::new();
     if dbf.is_none() {
         missing.push("a .dbf (so no attributes)");
@@ -545,7 +593,18 @@ pub(crate) fn load_shapefile_path(path: &std::path::Path) -> Result<Loaded, Stri
     if prj.is_none() {
         missing.push("a .prj (so coordinates were assumed longitude/latitude)");
     }
-    let note = (!missing.is_empty()).then(|| format!("no {} beside it", missing.join(" or ")));
+    let mut notes = Vec::new();
+    if !missing.is_empty() {
+        notes.push(format!("no {} beside it", missing.join(" or ")));
+    }
+    if codepage.is_none() {
+        notes.push(format!(
+            "its .cpg names code page \"{}\", which is not supported, so text was read as UTF-8 \
+             or Windows-1252",
+            cpg.as_deref().unwrap_or_default().trim()
+        ));
+    }
+    let note = (!notes.is_empty()).then(|| notes.join(". "));
     Ok(Loaded { features, note })
 }
 
@@ -558,6 +617,9 @@ pub(crate) fn load_path(path: &str) -> Result<Loaded, String> {
         }
         if is_kmz(path) {
             return load_kmz(&std::fs::read(path).map_err(|e| e.to_string())?);
+        }
+        if is_zip(path) {
+            return load_shapefile_zip(&std::fs::read(path).map_err(|e| e.to_string())?);
         }
         if is_kml(path) {
             return load_kml(&std::fs::read_to_string(path).map_err(|e| e.to_string())?);
@@ -577,6 +639,12 @@ pub(crate) fn load_import(import: &crate::dialog::Import) -> Result<Loaded, Stri
         return match &import.bytes {
             Some(bytes) => load_kmz(bytes),
             None => load_kmz(&std::fs::read(&import.path).map_err(|e| e.to_string())?),
+        };
+    }
+    if is_zip(&name) {
+        return match &import.bytes {
+            Some(bytes) => load_shapefile_zip(bytes),
+            None => load_shapefile_zip(&std::fs::read(&import.path).map_err(|e| e.to_string())?),
         };
     }
     if is_kml(&name) {

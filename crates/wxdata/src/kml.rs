@@ -13,12 +13,11 @@
 //! definition, so there is nothing to reproject.
 //!
 //! A KMZ is a zip archive holding a KML (conventionally `doc.kml`) and its icons. [`parse_kmz`]
-//! reads just enough of the zip format to find that KML and inflate it: stored and deflated
-//! entries, with every offset and length checked against the archive, and the inflated size
-//! capped so a hostile archive cannot drive an unbounded allocation.
+//! finds that KML with the crate's small [`crate::zip`] reader, which checks every offset and
+//! length against the archive and caps the inflated size so a hostile archive cannot drive an
+//! unbounded allocation.
 
 use crate::gis::{Geometry, GisFeature};
-use std::io::Read;
 
 /// Every placemark shape in a KML document.
 pub fn parse(kml: &str) -> anyhow::Result<Vec<GisFeature>> {
@@ -312,93 +311,20 @@ fn geometries(placemark: &str) -> Vec<Geometry> {
 /// The largest KML a KMZ may inflate to.
 const MAX_KML_BYTES: u64 = 256 * 1024 * 1024;
 
-fn u16_at(b: &[u8], at: usize) -> anyhow::Result<u16> {
-    let s = b
-        .get(at..at + 2)
-        .ok_or_else(|| anyhow::anyhow!("the zip is cut short"))?;
-    Ok(u16::from_le_bytes([s[0], s[1]]))
-}
-
-fn u32_at(b: &[u8], at: usize) -> anyhow::Result<u32> {
-    let s = b
-        .get(at..at + 4)
-        .ok_or_else(|| anyhow::anyhow!("the zip is cut short"))?;
-    Ok(u32::from_le_bytes([s[0], s[1], s[2], s[3]]))
-}
-
 /// The KML inside a KMZ: `doc.kml` at the top level if there is one, else the first `.kml`
 /// entry, as KMZ readers do.
 pub fn kml_of_kmz(zip: &[u8]) -> anyhow::Result<String> {
-    // The end-of-central-directory record: 22 bytes plus a comment of up to 64 KiB, at the end.
-    let floor = zip.len().saturating_sub(22 + 0xFFFF);
-    let eocd = (floor..zip.len().saturating_sub(21))
-        .rev()
-        .find(|&i| zip[i..].starts_with(b"PK\x05\x06"))
-        .ok_or_else(|| anyhow::anyhow!("not a zip archive (no central directory)"))?;
-    let entries = u16_at(zip, eocd + 10)? as usize;
-    let mut at = u32_at(zip, eocd + 16)? as usize;
-    anyhow::ensure!(
-        at != 0xFFFF_FFFF,
-        "a zip64 archive is not supported; re-save the KMZ"
-    );
-    let mut chosen: Option<(String, u16, u16, usize, u64, u64)> = None;
-    for _ in 0..entries {
-        anyhow::ensure!(
-            zip.get(at..at + 4) == Some(b"PK\x01\x02"),
-            "a damaged zip central directory"
-        );
-        let flags = u16_at(zip, at + 8)?;
-        let method = u16_at(zip, at + 10)?;
-        let comp = u32_at(zip, at + 20)? as u64;
-        let size = u32_at(zip, at + 24)? as u64;
-        let name_len = u16_at(zip, at + 28)? as usize;
-        let extra = u16_at(zip, at + 30)? as usize;
-        let comment = u16_at(zip, at + 32)? as usize;
-        let local = u32_at(zip, at + 42)? as usize;
-        let name = zip
-            .get(at + 46..at + 46 + name_len)
-            .ok_or_else(|| anyhow::anyhow!("the zip is cut short"))?;
-        let name = String::from_utf8_lossy(name).into_owned();
-        at += 46 + name_len + extra + comment;
-        if !name.to_ascii_lowercase().ends_with(".kml") {
-            continue;
-        }
-        let is_doc = name.eq_ignore_ascii_case("doc.kml");
-        if chosen.is_none() || is_doc {
-            chosen = Some((name, flags, method, local, comp, size));
-        }
-        if is_doc {
-            break;
-        }
-    }
-    let (name, flags, method, local, comp, size) =
-        chosen.ok_or_else(|| anyhow::anyhow!("the KMZ holds no .kml file"))?;
-    anyhow::ensure!(flags & 1 == 0, "{name} is encrypted");
-    anyhow::ensure!(size <= MAX_KML_BYTES, "{name} is too large ({size} bytes)");
-    anyhow::ensure!(
-        zip.get(local..local + 4) == Some(b"PK\x03\x04"),
-        "a damaged zip entry for {name}"
-    );
-    let start = local + 30 + u16_at(zip, local + 26)? as usize + u16_at(zip, local + 28)? as usize;
-    let data = zip
-        .get(start..start.saturating_add(comp as usize))
-        .ok_or_else(|| anyhow::anyhow!("{name} runs past the end of the zip"))?;
-    let bytes = match method {
-        0 => data.to_vec(),
-        8 => {
-            // Grown as it inflates: the declared size is the archive's word, not a fact.
-            let mut out = Vec::new();
-            flate2::read::DeflateDecoder::new(data)
-                .take(MAX_KML_BYTES + 1)
-                .read_to_end(&mut out)?;
-            anyhow::ensure!(
-                out.len() as u64 <= MAX_KML_BYTES,
-                "{name} inflates past {MAX_KML_BYTES} bytes"
-            );
-            out
-        }
-        m => anyhow::bail!("{name} uses zip compression method {m}, which is not supported"),
-    };
+    let entries = crate::zip::entries(zip)?;
+    let kml = entries
+        .iter()
+        .find(|e| e.name.eq_ignore_ascii_case("doc.kml"))
+        .or_else(|| {
+            entries
+                .iter()
+                .find(|e| e.name.to_ascii_lowercase().ends_with(".kml"))
+        })
+        .ok_or_else(|| anyhow::anyhow!("the KMZ holds no .kml file"))?;
+    let bytes = crate::zip::read(zip, kml, MAX_KML_BYTES)?;
     Ok(String::from_utf8(bytes)
         .unwrap_or_else(|e| e.into_bytes().iter().map(|&b| b as char).collect()))
 }

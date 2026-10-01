@@ -96,7 +96,7 @@ impl ImportKind {
             ImportKind::MarkerIcon => "Marker icon",
             ImportKind::AlertSound => "Alert sound",
             ImportKind::ChaseGpx => "GPX track",
-            ImportKind::GisFile => "GIS file (GeoJSON, Shapefile, KML or KMZ)",
+            ImportKind::GisFile => "GIS file (GeoJSON, Shapefile or zipped Shapefile, KML or KMZ)",
             ImportKind::Case => "HookEcho case",
         }
     }
@@ -108,7 +108,7 @@ impl ImportKind {
             ImportKind::MarkerIcon => &["png"],
             ImportKind::AlertSound => &["wav", "mp3", "ogg", "flac"],
             ImportKind::ChaseGpx => &["gpx"],
-            ImportKind::GisFile => &["json", "geojson", "shp", "kml", "kmz"],
+            ImportKind::GisFile => &["json", "geojson", "shp", "zip", "kml", "kmz"],
             ImportKind::Case => &["json"],
         }
     }
