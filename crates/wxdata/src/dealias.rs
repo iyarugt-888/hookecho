@@ -30,11 +30,12 @@
 //! ponytail: one previous sweep of continuity, not a 4D UNRAVEL-style solve.
 
 /// The fold with the most votes. Ties break toward the smaller unfold: with no evidence either
-/// way, the answer that moves the data least is the safer one.
+/// way, the answer that moves the data least is the safer one. A tie between +n and -n breaks
+/// toward +n, by rule rather than by the hash map's iteration order, which differs per run.
 fn winning_fold(votes: std::collections::HashMap<i32, u32>) -> i32 {
     votes
         .into_iter()
-        .max_by_key(|&(fold, n)| (n, -fold.abs()))
+        .max_by_key(|&(fold, n)| (n, -fold.abs(), fold))
         .map(|(fold, _)| fold)
         .unwrap_or(0)
 }
@@ -438,6 +439,11 @@ mod tests {
         assert_eq!(winning_fold(std::collections::HashMap::new()), 0);
         let tied = std::collections::HashMap::from([(0, 4), (3, 4)]);
         assert_eq!(winning_fold(tied), 0);
+        // Equal and opposite: the same answer every run, not whichever the map yields last.
+        for _ in 0..32 {
+            let mirror = std::collections::HashMap::from([(-1, 5), (1, 5)]);
+            assert_eq!(winning_fold(mirror), 1);
+        }
         let tied_both_folded = std::collections::HashMap::from([(-1, 2), (4, 2)]);
         assert_eq!(winning_fold(tied_both_folded), -1);
     }

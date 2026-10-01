@@ -529,7 +529,7 @@ pub fn detect(
         return Vec::new();
     }
     const CELL: f64 = 0.04; // ~4 km cluster cells, matching the TDS detector
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
     /// One grid cell's running totals, named so the map's own type stays readable.
     struct Cell {
         /// Candidate gate pairs.
@@ -562,7 +562,10 @@ pub fn detect(
             }
         }
     }
-    let mut cells: HashMap<(i64, i64), Cell> = HashMap::new();
+    // Ordered, not hashed: hits leave in this map's order, and the sort below keeps that order
+    // among equal speeds (velocities are quantized, so ties are common). A hash map's order
+    // changes from run to run, and with it what the volume pass grouped first.
+    let mut cells: BTreeMap<(i64, i64), Cell> = BTreeMap::new();
     let (rlon, rlat) = (vel.radar_lon as f64, vel.radar_lat as f64);
 
     for az in 0..vel.az_bins {

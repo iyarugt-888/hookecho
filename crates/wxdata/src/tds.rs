@@ -664,7 +664,9 @@ pub fn detect(
 fn surroundings_contrast(cc: &BinnedSweep, members: &[usize], mean_cc: f32) -> Option<f32> {
     let (nb, ng) = (cc.az_bins, cc.gate_count);
     let inside: HashSet<usize> = members.iter().copied().collect();
-    let mut ring: HashSet<usize> = HashSet::new();
+    // Ordered, not hashed: the mean below is a float sum, and a hash set's order changes from one
+    // run to the next, so the same volume gave a contrast that differed in its last bits.
+    let mut ring: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
     for &i in members {
         let (az, gate) = (i / ng, i % ng);
         for da in -RING..=RING {

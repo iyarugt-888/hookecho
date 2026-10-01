@@ -21,9 +21,19 @@ use wxdata::tornado_id::{circulations, Tier};
 
 /// The volume that started at or just before `when` on `site`.
 async fn volume(site: &str, when: chrono::DateTime<Utc>) -> level2::Scan {
-    let ids = level2::list_volumes(site, when.date_naive())
-        .await
-        .expect("archive listing");
+    // Eight of these at once against the archive: a listing fails now and then too, and a
+    // network blip is not a regression.
+    let mut listing = None;
+    for _ in 0..3 {
+        match level2::list_volumes(site, when.date_naive()).await {
+            Ok(ids) => {
+                listing = Some(Ok(ids));
+                break;
+            }
+            Err(e) => listing = Some(Err(e)),
+        }
+    }
+    let ids = listing.expect("three tries").expect("archive listing");
     let id = ids
         .into_iter()
         .filter(|id| id.date_time().is_some_and(|t| t <= when))
@@ -213,6 +223,45 @@ async fn moore_2013() {
             vrot_ms: 45.0,
         },
     );
+}
+
+/// Archive replay is deterministic (ROADMAP_2 §0.2): the same volume, downloaded and decoded
+/// twice, gives byte-identical tilts (reflectivity and dealiased velocity, every tilt) and exactly
+/// the same detections, scores and merged circulations. Two independent runs rather than one scan
+/// run twice, so state carried in the decoder, the dealiaser or a cache would show up as a
+/// difference.
+#[tokio::test]
+#[ignore = "network"]
+async fn archive_replay_is_deterministic() {
+    let when = Utc.with_ymd_and_hms(2013, 5, 20, 20, 16, 0).unwrap();
+    let run = |scan: &level2::Scan| {
+        let tilts = level2::elevation_angles(scan).len();
+        let mut sweeps = Vec::new();
+        for tilt in 0..tilts {
+            for (moment, dealias) in [(Moment::Reflectivity, false), (Moment::Velocity, true)] {
+                if let Ok(s) = level2::bin_scan_opts(scan, moment, tilt, dealias) {
+                    sweeps.push((tilt, moment, s.data, s.az_bins, s.gate_count));
+                }
+            }
+        }
+        let f = detect(scan);
+        let merged = format!("{:?}", circulations(&f.couplets, &f.debris));
+        (sweeps, format!("{:?} {:?}", f.debris, f.couplets), merged)
+    };
+    let a = run(&volume("KTLX", when).await);
+    let b = run(&volume("KTLX", when).await);
+    assert!(!a.0.is_empty(), "no tilts binned");
+    assert_eq!(a.0.len(), b.0.len(), "a different number of tilts binned");
+    for (x, y) in a.0.iter().zip(&b.0) {
+        assert_eq!(
+            (x.0, x.1, x.3, x.4),
+            (y.0, y.1, y.3, y.4),
+            "tilt inventory differs"
+        );
+        assert!(x.2 == y.2, "tilt {} {:?} differs between runs", x.0, x.1);
+    }
+    assert_eq!(a.1, b.1, "detections differ between runs");
+    assert_eq!(a.2, b.2, "merged circulations differ between runs");
 }
 
 /// KPAH 03:23:49Z, 11 December 2021: the Quad-State tornado approaching downtown Mayfield.
