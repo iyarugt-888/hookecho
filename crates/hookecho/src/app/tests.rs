@@ -18,7 +18,7 @@ fn an_id_shorter_than_the_buffer_does_not_carry_trailing_junk() {
 /// `app/`; when an extraction lands, lower the ceiling to the new length so it stays down.
 #[test]
 fn app_rs_only_gets_smaller() {
-    const CEILING: usize = 10134;
+    const CEILING: usize = 9623;
     let lines = include_str!("../app.rs").lines().count();
     assert!(
         lines <= CEILING,

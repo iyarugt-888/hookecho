@@ -550,7 +550,12 @@ impl HookEchoApp {
                 .filter(|value| value.is_finite())
                 .map(|value| self.diff_display_value(value))
                 .map(|value| {
-                    super::format_diff_readout(self.diff_mode, value, deadband, self.diff_field.units())
+                    super::format_diff_readout(
+                        self.diff_mode,
+                        value,
+                        deadband,
+                        self.diff_field.units(),
+                    )
                 });
             return crate::ui::cursor_probe::ProbeRow {
                 pane: idx,
