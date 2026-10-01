@@ -7087,7 +7087,7 @@ impl HookEchoApp {
                         self.site_dialog = Some(Default::default());
                     }
                 }
-                W::Settings => self.settings_window.open = true,
+                W::Settings => self.open_settings(),
                 W::Markers => self.marker_window.open = true,
                 W::Placefiles => self.placefile_window.open = true,
                 W::UdpProducts => self.udp_window.open = true,
@@ -16350,40 +16350,7 @@ impl HookEchoApp {
                 self.site_dialog = None;
             }
         }
-        // Only the open settings window reads these; building the registry for a closed window
-        // was a few hundred String allocations every frame.
-        let entries = if self.settings_window.open {
-            self.palette_entries()
-        } else {
-            std::sync::Arc::from(Vec::new())
-        };
-        let sync_view = ui::settings_window::SyncView {
-            signed_in: self.sync_tokens.is_some(),
-            status: &self.sync_status,
-            login_url: self.sync_login.as_ref().map(|p| p.url.as_str()),
-            last_sync: self.sync_state.last_sync,
-        };
-        let sync_action = self.settings_window.show(
-            ctx,
-            &mut self.settings,
-            &self.palettes,
-            sync_view,
-            &entries,
-            &mut self.drawer,
-        );
-        self.capture_key = self.settings_window.capturing;
-        if std::mem::take(&mut self.settings_window.run_setup) {
-            self.firstrun.start();
-        }
-        if std::mem::take(&mut self.settings_window.run_tour) {
-            self.tour.start();
-        }
-        match sync_action {
-            Some(ui::settings_window::SyncAction::SignIn) => self.sync_sign_in(),
-            Some(ui::settings_window::SyncAction::SignOut) => self.sync_sign_out(),
-            Some(ui::settings_window::SyncAction::SyncNow) => self.sync_now(),
-            None => {}
-        }
+        self.settings_frame(ctx, dock_layout);
         let pf_status: Vec<ui::placefile_window::PlacefileStatus> = self
             .placefiles
             .iter()

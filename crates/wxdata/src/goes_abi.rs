@@ -771,8 +771,6 @@ mod tests {
         assert!((f.time - at).num_minutes().abs() <= 10);
     }
 
-    use super::*;
-
     fn goes_east_projection() -> Projection {
         // GOES-19's real goes_imager_projection values (WGS84-flavoured GRS80 ellipsoid).
         Projection {

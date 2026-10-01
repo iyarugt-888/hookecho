@@ -641,8 +641,10 @@ pub fn sweep_time_range(
     moment: Moment,
 ) -> Option<(chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>)> {
     scan.sweeps_at_elevation(elevation_deg)
-        .filter(|s| s.radials().iter().any(|r| moment.select(r).is_some()))
-        .filter_map(|s| s.time_range())
+        .flat_map(|s| s.radials())
+        .filter(|r| moment.select(r).is_some() && r.collection_timestamp() > 0)
+        .filter_map(|r| chrono::DateTime::from_timestamp_millis(r.collection_timestamp()))
+        .map(|t| (t, t))
         .reduce(|(a_start, a_end), (b_start, b_end)| (a_start.min(b_start), a_end.max(b_end)))
 }
 
@@ -1326,20 +1328,12 @@ pub fn bin_scan_opts(
         .get(tilt)
         .ok_or_else(|| anyhow::anyhow!("tilt {tilt} out of range"))?;
 
-    let sweep = scan
-        .sweeps()
-        .iter()
-        .filter(|s| {
-            s.elevation_angle_degrees()
-                .is_some_and(|e| (e - target).abs() < 0.15)
-        })
-        .find(|s| s.radials().iter().any(|r| moment.select(r).is_some()))
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "no sweep at tilt {tilt} ({target:.2}deg) carries {}",
-                moment.short_name()
-            )
-        })?;
+    let sweep = newest_moment_sweep(scan, target, moment).ok_or_else(|| {
+        anyhow::anyhow!(
+            "no sweep at tilt {tilt} ({target:.2}deg) carries {}",
+            moment.short_name()
+        )
+    })?;
 
     let (lat, lon) = scan
         .site()
@@ -1347,6 +1341,31 @@ pub fn bin_scan_opts(
         .ok_or_else(|| anyhow::anyhow!("scan has no site metadata"))?;
 
     bin_sweep_opts(sweep, moment, lat, lon, dealias)
+}
+
+/// Select a repeated cut by acquisition time, preserving the first match for sources without
+/// timestamps. Both full binning and progressive cache updates must select the same cut.
+pub fn newest_moment_sweep(scan: &Scan, elevation_deg: f32, moment: Moment) -> Option<&Sweep> {
+    scan.sweeps()
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| {
+            s.elevation_angle_degrees()
+                .is_some_and(|e| (e - elevation_deg).abs() < 0.15)
+                && sweep_carries_moment(s, moment)
+        })
+        .max_by_key(|(i, s)| {
+            (
+                s.radials()
+                    .iter()
+                    .filter(|r| moment.select(r).is_some())
+                    .map(|r| r.collection_timestamp())
+                    .max()
+                    .unwrap_or(0),
+                std::cmp::Reverse(*i),
+            )
+        })
+        .map(|(_, s)| s)
 }
 
 /// Bin the lowest-elevation sweep of `scan` for `moment`.
@@ -2315,8 +2334,24 @@ mod tests {
                 None,
             )
         };
-        let first_cut = Sweep::new(1, vec![refl_at(1_000), refl_at(1_010)]);
-        let sails_cut = Sweep::new(1, vec![refl_at(2_000), refl_at(2_010)]);
+        let first_cut = Sweep::new(1, vec![refl_at(0), refl_at(1_000), refl_at(1_010)]);
+        let without_moment = Radial::new(
+            9_000,
+            0,
+            0.0,
+            0.5,
+            nexrad_model::data::RadialStatus::ScanStart,
+            1,
+            0.5,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        let sails_cut = Sweep::new(1, vec![refl_at(2_000), refl_at(2_010), without_moment]);
         let site = nexrad_model::meta::Site::new(*b"KTLX", 35.33, -97.28, 380, 0);
         let scan = Scan::with_site(site, minimal_vcp(), vec![first_cut, sails_cut]);
 

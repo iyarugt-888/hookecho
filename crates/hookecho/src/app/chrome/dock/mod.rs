@@ -30,8 +30,10 @@ mod phone;
 mod prefs;
 mod rail;
 mod region;
+mod settings;
 mod sounding;
 mod sources;
+mod storm_associations;
 mod storms;
 mod timeline;
 mod view3d;
@@ -149,6 +151,7 @@ pub(crate) enum DockWin {
     Inspector,
     Alerts,
     Prefs,
+    Settings,
     /// The active pane's 3D controls (only while it is in 3D).
     View3d,
     /// Every active feed's health, compactly.
@@ -170,7 +173,7 @@ pub(crate) enum DockWin {
 }
 
 impl DockWin {
-    pub(crate) const ALL: [DockWin; 13] = [
+    pub(crate) const ALL: [DockWin; 14] = [
         DockWin::Layers,
         DockWin::Inspector,
         DockWin::View3d,
@@ -184,6 +187,7 @@ impl DockWin {
         DockWin::Sources,
         DockWin::Log,
         DockWin::Prefs,
+        DockWin::Settings,
     ];
 
     /// The glyph and plain title a dock's tab shows (the window's own header may add a count).
@@ -194,6 +198,7 @@ impl DockWin {
             DockWin::Inspector => (ph::INFO, "Inspector"),
             DockWin::Alerts => (ph::BELL, "Alerts"),
             DockWin::Prefs => (ph::SLIDERS_HORIZONTAL, "Preferences"),
+            DockWin::Settings => (ph::GEAR, "Settings"),
             DockWin::View3d => (ph::CUBE, "3D view"),
             DockWin::Sources => (ph::PULSE, "Sources"),
             DockWin::Log => (ph::TERMINAL_WINDOW, "Analyst log"),
@@ -218,6 +223,7 @@ impl DockWin {
             DockWin::Inspector => "Inspector",
             DockWin::Alerts => "Alerts",
             DockWin::Prefs => "Prefs",
+            DockWin::Settings => "Settings",
             DockWin::View3d => "View3d",
             DockWin::Sources => "Sources",
             DockWin::Log => "Log",
@@ -241,6 +247,7 @@ impl DockWin {
             DockWin::Inspector => inspector::CARD_W,
             DockWin::Alerts => alerts::ALERTS_W,
             DockWin::Prefs => prefs::PREFS_W,
+            DockWin::Settings => settings::SETTINGS_W,
             DockWin::View3d => view3d::VIEW3D_W,
             DockWin::Sources => sources::SOURCES_W,
             DockWin::Log => log::LOG_W,
@@ -338,7 +345,7 @@ pub(crate) enum Sheet {
 }
 
 /// The windows a phone's bottom sheet lists, in its tab order: the everyday ones first.
-pub(crate) const PHONE_ORDER: [DockWin; 13] = [
+pub(crate) const PHONE_ORDER: [DockWin; 14] = [
     DockWin::Inspector,
     DockWin::Layers,
     DockWin::Storms,
@@ -352,6 +359,7 @@ pub(crate) const PHONE_ORDER: [DockWin; 13] = [
     DockWin::Sources,
     DockWin::Log,
     DockWin::Prefs,
+    DockWin::Settings,
 ];
 
 /// The sheet's standing tabs on a phone: always there, so closing one folds the sheet instead.
@@ -383,6 +391,8 @@ pub(crate) struct DockState {
     pub inspector: WindowChrome,
     pub alerts: WindowChrome,
     pub prefs: WindowChrome,
+    pub settings: WindowChrome,
+    pub settings_action: Option<crate::ui::settings_window::SyncAction>,
     pub view3d: WindowChrome,
     pub sources: WindowChrome,
     pub log: WindowChrome,
@@ -401,6 +411,8 @@ pub(crate) struct DockState {
     /// The Storms table's sort column and direction.
     pub storm_sort: crate::ui::cells_window::SortCol,
     pub storm_desc: bool,
+    /// Session-only filter for the Storms table, independent of the Layers search.
+    pub storm_query: String,
     /// Whether a point has been sounded (the sounding window's own `open`). Set each frame.
     pub sounding_available: bool,
     /// Whether the Analyst log has anything to show: Analyst Mode is on. Set each frame.
@@ -430,7 +442,7 @@ pub(crate) struct DockState {
     pub front: [Option<DockWin>; 3],
     /// Each window's `(open, place)` last frame, to bring a window that has just opened or just
     /// moved into a dock to the front of it.
-    seen: [(bool, Place); 13],
+    seen: [(bool, Place); DockWin::ALL.len()],
     /// The window is too narrow for docks on both sides ([`ONE_DOCK_BELOW`]). Set each frame.
     pub narrow: bool,
     /// The side used most recently (0 left, 1 right): the one that stays while `narrow`.
@@ -475,6 +487,8 @@ impl Default for DockState {
             inspector: WindowChrome::default(),
             alerts: WindowChrome::default(),
             prefs: WindowChrome::default(),
+            settings: WindowChrome::at(false, Place::Float),
+            settings_action: None,
             view3d: WindowChrome::default(),
             sources: WindowChrome::default(),
             log: WindowChrome::default(),
@@ -491,6 +505,7 @@ impl Default for DockState {
             volume_available: false,
             storm_sort: Default::default(),
             storm_desc: true,
+            storm_query: String::new(),
             view3d_available: false,
             prefs_page: PrefsPage::Map,
             timeline_open: true,
@@ -502,7 +517,7 @@ impl Default for DockState {
             jump: String::new(),
             arranged_for: None,
             front: [None; 3],
-            seen: [(false, Place::Float); 13],
+            seen: [(false, Place::Float); DockWin::ALL.len()],
             narrow: false,
             last_side: 0,
             dock_widths: [None; 2],
@@ -543,6 +558,7 @@ impl DockState {
             ),
             alerts: WindowChrome::at(false, Place::Right),
             prefs: WindowChrome::at(false, Place::Right),
+            settings: WindowChrome::at(false, Place::Float),
             view3d: WindowChrome::at(true, Place::Right),
             sources: WindowChrome::at(false, Place::Right),
             log: WindowChrome::at(true, Place::Right),
@@ -568,6 +584,7 @@ impl DockState {
             inspector: self.inspector,
             alerts: self.alerts,
             prefs: self.prefs,
+            settings: self.settings,
             view3d: self.view3d,
             sources: self.sources,
             log: self.log,
@@ -599,6 +616,7 @@ impl DockState {
         self.inspector = w.inspector;
         self.alerts = w.alerts;
         self.prefs = w.prefs;
+        self.settings = w.settings;
         self.view3d = w.view3d;
         self.sources = w.sources;
         self.log = w.log;
@@ -621,6 +639,7 @@ impl DockState {
             DockWin::Inspector => &self.inspector,
             DockWin::Alerts => &self.alerts,
             DockWin::Prefs => &self.prefs,
+            DockWin::Settings => &self.settings,
             DockWin::View3d => &self.view3d,
             DockWin::Sources => &self.sources,
             DockWin::Log => &self.log,
@@ -639,6 +658,7 @@ impl DockState {
             DockWin::Inspector => &mut self.inspector,
             DockWin::Alerts => &mut self.alerts,
             DockWin::Prefs => &mut self.prefs,
+            DockWin::Settings => &mut self.settings,
             DockWin::View3d => &mut self.view3d,
             DockWin::Sources => &mut self.sources,
             DockWin::Log => &mut self.log,
@@ -984,8 +1004,7 @@ impl DockState {
     /// Open the Layers window with the keyboard in its search box, on every tab (Ctrl+K and the
     /// other "search everything" ways in).
     pub(crate) fn open_search(&mut self) {
-        self.layers.open = true;
-        self.layers.collapsed = false;
+        self.bring_forward(DockWin::Layers);
         self.filter = LayerFilter::All;
         self.focus_search = true;
     }
@@ -1539,6 +1558,7 @@ impl HookEchoApp {
             DockWin::Inspector => self.dock_inspector(host, ctx),
             DockWin::Alerts => self.dock_alerts(host),
             DockWin::Prefs => self.dock_prefs(host, ctx),
+            DockWin::Settings => self.dock_settings(host),
             DockWin::View3d => self.dock_view3d(host),
             DockWin::Sources => self.dock_sources(host),
             DockWin::Log => self.dock_log(host),
@@ -1928,6 +1948,7 @@ mod tests {
             inspector: WindowChrome::at(false, Place::Left),
             alerts: WindowChrome::at(true, Place::Float),
             prefs: WindowChrome::at(true, Place::Left),
+            settings: WindowChrome::at(true, Place::Bottom),
             view3d: WindowChrome::at(false, Place::Float),
             sources: WindowChrome::at(true, Place::Right),
             log: WindowChrome::at(false, Place::Left),
@@ -1974,12 +1995,29 @@ mod tests {
     }
 
     #[test]
+    fn search_reveals_layers_behind_another_dock_tab() {
+        let mut s = DockState {
+            layers: WindowChrome::at(true, Place::Right),
+            inspector: WindowChrome::at(true, Place::Right),
+            ..Default::default()
+        };
+        s.update_fronts();
+        s.bring_forward(DockWin::Inspector);
+        assert!(!s.shown(DockWin::Layers));
+        s.open_search();
+        assert!(s.shown(DockWin::Layers) && s.focus_search);
+        assert_eq!(s.front[1], Some(DockWin::Layers));
+    }
+
+    #[test]
     fn windows_docked_together_share_one_side_with_the_newest_in_front() {
-        let mut s = DockState::default();
-        s.layers = WindowChrome::at(true, Place::Left);
-        s.inspector = WindowChrome::at(true, Place::Right);
-        s.alerts = WindowChrome::at(false, Place::Right);
-        s.prefs = WindowChrome::at(false, Place::Right);
+        let mut s = DockState {
+            layers: WindowChrome::at(true, Place::Left),
+            inspector: WindowChrome::at(true, Place::Right),
+            alerts: WindowChrome::at(false, Place::Right),
+            prefs: WindowChrome::at(false, Place::Right),
+            ..Default::default()
+        };
         s.update_fronts();
         assert_eq!(
             s.front,
@@ -1999,9 +2037,11 @@ mod tests {
         s.update_fronts();
         assert_eq!(s.front[1], Some(DockWin::Alerts));
         // The 3D view joins the Inspector's dock while the pane is in 3D, and only then.
-        let mut three = DockState::default();
-        three.inspector = WindowChrome::at(true, Place::Right);
-        three.view3d = WindowChrome::at(false, Place::Right);
+        let mut three = DockState {
+            inspector: WindowChrome::at(true, Place::Right),
+            view3d: WindowChrome::at(false, Place::Right),
+            ..Default::default()
+        };
         three.update_fronts();
         assert_eq!(three.stack(Place::Right), [DockWin::Inspector]);
         three.set_view3d_available(true);
@@ -2035,9 +2075,11 @@ mod tests {
         three.update_fronts();
         assert!(three.shown(DockWin::Sounding));
         // Windows arriving together (a restored arrangement) open on the first in tab order.
-        let mut restored = DockState::default();
-        restored.inspector = WindowChrome::at(true, Place::Right);
-        restored.alerts = WindowChrome::at(true, Place::Right);
+        let mut restored = DockState {
+            inspector: WindowChrome::at(true, Place::Right),
+            alerts: WindowChrome::at(true, Place::Right),
+            ..Default::default()
+        };
         restored.update_fronts();
         assert_eq!(restored.front[1], Some(DockWin::Inspector));
         // A button for a window behind another tab brings it forward rather than closing it.
@@ -2098,9 +2140,11 @@ mod tests {
 
     #[test]
     fn a_narrow_window_shows_one_dock_the_last_one_used() {
-        let mut s = DockState::default();
-        s.layers = WindowChrome::at(true, Place::Left);
-        s.inspector = WindowChrome::at(true, Place::Right);
+        let mut s = DockState {
+            layers: WindowChrome::at(true, Place::Left),
+            inspector: WindowChrome::at(true, Place::Right),
+            ..Default::default()
+        };
         s.update_fronts();
         assert!(
             s.shown(DockWin::Layers) && s.shown(DockWin::Inspector),

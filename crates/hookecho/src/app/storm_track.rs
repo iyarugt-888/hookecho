@@ -1,5 +1,5 @@
 //! The manual storm-motion tool (ROADMAP_2 §2.2): drag from a storm to where it will be in an
-//! hour, and the projection follows the pointer — 15/30/45/60-minute marks, a swath that widens
+//! hour, and the projection follows the pointer — configurable time marks, a swath that widens
 //! with a cone of uncertainty, and the ETA and closest approach at every saved marker, recomputed
 //! while the handle moves. Either end drags to edit it afterwards; the card edits speed, heading,
 //! width and cone by number. Session-only, like the drawing tool: a motion estimate is stale an
@@ -12,9 +12,12 @@ use super::{HookEchoApp, MapTool};
 use crate::geo::{destination_point, great_circle, KM_PER_MILE};
 use chrono::{DateTime, Utc};
 
+#[path = "storm_track_geometry.rs"]
+mod geometry;
+
 /// How far ahead a track projects, and what the dragged vector stands for.
 pub(crate) const HORIZON_MIN: f64 = 60.0;
-const MARK_EVERY_MIN: f64 = 15.0;
+const DEFAULT_MARK_INTERVAL_MIN: u32 = 15;
 /// Beyond this, a marker is too far ahead for the motion to say anything about it.
 const ETA_MAX_MIN: f64 = 120.0;
 const KMH_PER_KT: f64 = 1.852;
@@ -46,10 +49,13 @@ pub(crate) struct ManualTrack {
     pub speed_kmh: f64,
     /// The analysis time the origin was placed at.
     pub t0: DateTime<Utc>,
-    /// Half-width of the swath at the origin.
-    pub half_width_km: f64,
+    /// Left and right uncertainty widths, facing along the motion, at the origin.
+    pub left_width_km: f64,
+    pub right_width_km: f64,
     /// Half-angle of the cone the swath widens by; zero keeps it a straight band.
     pub cone_deg: f64,
+    /// Display spacing only: editing it does not change the motion or the one-hour footprint.
+    mark_interval_min: u32,
     /// A line track's storm edge at `t0` (a QLCS, a gust front), moving as one with the
     /// motion; empty for a single storm. The origin is its middle.
     pub edge: Vec<[f64; 2]>,
@@ -62,8 +68,10 @@ impl ManualTrack {
             bearing_deg: 0.0,
             speed_kmh: 0.0,
             t0,
-            half_width_km: 3.0,
+            left_width_km: 3.0,
+            right_width_km: 3.0,
             cone_deg: 10.0,
+            mark_interval_min: DEFAULT_MARK_INTERVAL_MIN,
             edge: Vec::new(),
         }
     }
@@ -135,6 +143,15 @@ impl ManualTrack {
         self.at(HORIZON_MIN)
     }
 
+    /// Always include the hour's end, even when a chosen spacing does not divide the horizon.
+    fn projection_marks(&self) -> impl Iterator<Item = f64> {
+        let step = self.mark_interval_min.clamp(5, HORIZON_MIN as u32);
+        (step..HORIZON_MIN as u32)
+            .step_by(step as usize)
+            .chain(std::iter::once(HORIZON_MIN as u32))
+            .map(f64::from)
+    }
+
     /// Point the hour's end at `head`. `snap` holds the heading to 5° steps.
     pub fn aim(&mut self, head: [f64; 2], snap: bool) {
         self.aim_from(self.origin, head, snap);
@@ -153,9 +170,14 @@ impl ManualTrack {
         .rem_euclid(360.0);
     }
 
-    /// Half-width of the swath `km` along the track.
-    fn half_width_at(&self, km: f64) -> f64 {
-        self.half_width_km + km * self.cone_deg.to_radians().tan()
+    /// Uncertainty width on one side, `km` along the track.
+    fn width_at(&self, km: f64, right: bool) -> f64 {
+        let base = if right {
+            self.right_width_km
+        } else {
+            self.left_width_km
+        };
+        base + km * self.cone_deg.to_radians().tan()
     }
 
     /// The swath's outline to the horizon, left edge out and right edge back.
@@ -165,38 +187,124 @@ impl ManualTrack {
         let edge = |i: usize, side: f64| {
             let d = km * i as f64 / STEPS as f64;
             let c = destination_point(self.origin, self.bearing_deg, d);
-            destination_point(c, self.bearing_deg + 90.0 * side, self.half_width_at(d))
+            destination_point(
+                c,
+                self.bearing_deg + 90.0 * side,
+                self.width_at(d, side > 0.0),
+            )
         };
         let mut out: Vec<[f64; 2]> = (0..=STEPS).map(|i| edge(i, -1.0)).collect();
         out.extend((0..=STEPS).rev().map(|i| edge(i, 1.0)));
         out
     }
 
-    /// The ground the next hour covers, as one ring: a storm's swath, or the area a line sweeps
-    /// (its edge now out, its edge in an hour back).
-    pub fn footprint(&self) -> Vec<[f64; 2]> {
-        if self.is_line() {
-            let mut ring = self.edge.clone();
-            ring.extend(self.edge_at(HORIZON_MIN).into_iter().rev());
-            ring
-        } else {
-            self.swath()
-        }
-    }
-
-    /// The key a population lookup of this footprint is filed under: the geometry, rounded, so
-    /// an edit asks again and an unchanged track does not.
+    /// Cache identity includes every vertex and geometric control. Display spacing and source
+    /// time do not change population coverage.
     pub fn impact_id(&self) -> String {
-        format!(
-            "track:{:.3},{:.3}:{:.0}:{:.1}:{:.1}:{:.0}:{}",
+        use std::hash::{Hash, Hasher};
+        let mut key = std::collections::hash_map::DefaultHasher::new();
+        for value in [
             self.origin[0],
             self.origin[1],
             self.bearing_deg,
             self.speed_kmh,
-            self.half_width_km,
+            self.left_width_km,
+            self.right_width_km,
             self.cone_deg,
-            self.edge.len()
-        )
+        ] {
+            value.to_bits().hash(&mut key);
+        }
+        self.edge.len().hash(&mut key);
+        for point in &self.edge {
+            for value in point {
+                value.to_bits().hash(&mut key);
+            }
+        }
+        format!("track:{:016x}", key.finish())
+    }
+
+    /// A line's uncertainty at one instant, one convex part per segment. Degenerate parts stay
+    /// as segments for zone intersection when the line is perpendicular to its motion.
+    fn line_envelopes_at(&self, minutes: f64) -> Vec<Vec<[f64; 2]>> {
+        let edge = self.edge_at(minutes);
+        let km = self.speed_kmh * minutes / 60.0;
+        edge.windows(2)
+            .map(|w| {
+                geometry::hull(
+                    w.iter()
+                        .flat_map(|&p| {
+                            [
+                                destination_point(
+                                    p,
+                                    self.bearing_deg - 90.0,
+                                    self.width_at(km, false),
+                                ),
+                                destination_point(
+                                    p,
+                                    self.bearing_deg + 90.0,
+                                    self.width_at(km, true),
+                                ),
+                            ]
+                        })
+                        .collect(),
+                )
+            })
+            .collect()
+    }
+
+    /// The union of convex segment envelopes is the full swept area. Keeping the parts avoids
+    /// filling empty space inside a bent or folded line with a single global hull.
+    fn footprints(&self) -> Vec<Vec<[f64; 2]>> {
+        if !self.is_line() {
+            return vec![self.swath()];
+        }
+        self.edge
+            .windows(2)
+            .map(|segment| {
+                let points = (0..=12)
+                    .flat_map(|step| {
+                        let km = self.speed_kmh * HORIZON_MIN * f64::from(step) / (12.0 * 60.0);
+                        segment.iter().flat_map(move |&p| {
+                            let p = destination_point(p, self.bearing_deg, km);
+                            [
+                                destination_point(
+                                    p,
+                                    self.bearing_deg - 90.0,
+                                    self.width_at(km, false),
+                                ),
+                                destination_point(
+                                    p,
+                                    self.bearing_deg + 90.0,
+                                    self.width_at(km, true),
+                                ),
+                            ]
+                        })
+                    })
+                    .collect();
+                geometry::hull(points)
+            })
+            .filter(|ring| ring.len() >= 3)
+            .collect()
+    }
+
+    fn cached_footprints(
+        &self,
+        ctx: &egui::Context,
+        slot: usize,
+    ) -> std::sync::Arc<Vec<Vec<[f64; 2]>>> {
+        type Cached = (String, std::sync::Arc<Vec<Vec<[f64; 2]>>>);
+        let id = egui::Id::new(("storm_uncertainty_parts", slot));
+        let key = self.impact_id();
+        ctx.data_mut(|data| {
+            if let Some((cached, parts)) = data.get_temp::<Cached>(id) {
+                if cached == key {
+                    return parts;
+                }
+            }
+            let parts = std::sync::Arc::new(self.footprints());
+            data.insert_temp(id, (key, parts.clone()));
+            parts
+        })
     }
 
     /// When the storm reaches `point`'s closest approach, and how close that is. `None` when
@@ -230,14 +338,14 @@ impl ManualTrack {
                     in_path: true,
                 });
             }
-            // Past the line's ends: measured from the nearer end, whose swath widens as a
-            // single storm's does.
-            let (first, last) = (v[0], v[v.len() - 1]);
-            let end = if (pc - first.1).abs() <= (pc - last.1).abs() {
-                first
-            } else {
-                last
-            };
+            // Beyond its cross-track extent, uncertainty comes from the nearest eligible
+            // vertex, which may be an interior bend rather than either endpoint.
+            let end = v.iter().copied().filter(|p| pa > p.0).min_by(|a, b| {
+                (pc - a.1)
+                    .abs()
+                    .total_cmp(&(pc - b.1).abs())
+                    .then((pa - a.0).total_cmp(&(pa - b.0)))
+            })?;
             along = pa - end.0;
             cross = pc - end.1;
         }
@@ -250,7 +358,7 @@ impl ManualTrack {
             minutes,
             closest_km: cross.abs(),
             right: cross > 0.0,
-            in_path: cross.abs() <= self.half_width_at(along),
+            in_path: cross.abs() <= self.width_at(along, cross > 0.0),
         })
     }
 }
@@ -266,12 +374,7 @@ impl ManualTrack {
         let inside = |p: [f64; 2]| wxdata::overlay::point_in_ring(ring, p[0], p[1]);
         let core = |m: f64| -> Vec<[f64; 2]> {
             if self.is_line() {
-                // The vertices and each segment's midpoint.
-                let e = self.edge_at(m);
-                let mids = e
-                    .windows(2)
-                    .map(|w| [(w[0][0] + w[1][0]) / 2.0, (w[0][1] + w[1][1]) / 2.0]);
-                e.iter().copied().chain(mids).collect()
+                self.edge_at(m)
             } else {
                 vec![self.at(m)]
             }
@@ -285,23 +388,38 @@ impl ManualTrack {
                 let c = self.at(m);
                 [c, c]
             };
-            let w = self.half_width_at(km);
             [
-                destination_point(ends[0], self.bearing_deg - 90.0, w),
-                destination_point(ends[1], self.bearing_deg + 90.0, w),
+                destination_point(ends[0], self.bearing_deg - 90.0, self.width_at(km, false)),
+                destination_point(ends[1], self.bearing_deg + 90.0, self.width_at(km, true)),
             ]
         };
         let mut graze = None;
         for m in 0..=ETA_MAX_MIN as usize {
             let m = m as f64;
-            if core(m).into_iter().any(inside) {
+            let positions = core(m);
+            if positions.iter().copied().any(inside)
+                || positions
+                    .windows(2)
+                    .any(|w| wxdata::overlay::segment_intersects_ring(w[0], w[1], ring))
+            {
                 return Some(ZoneEta {
                     minutes: m,
                     grazes: false,
                 });
             }
-            if graze.is_none() && flanks(m).into_iter().any(inside) {
-                graze = Some(m);
+            if graze.is_none() {
+                let sides = flanks(m);
+                if sides.into_iter().any(inside)
+                    || (!self.is_line()
+                        && wxdata::overlay::segment_intersects_ring(sides[0], sides[1], ring))
+                    || (self.is_line()
+                        && self
+                            .line_envelopes_at(m)
+                            .iter()
+                            .any(|part| geometry::touches(part, ring)))
+                {
+                    graze = Some(m);
+                }
             }
             if self.speed_kmh < 1.0 {
                 break;
@@ -376,7 +494,43 @@ pub(crate) fn distance(km: f64, metric: bool) -> String {
     }
 }
 
+fn width_control(ui: &mut egui::Ui, label: &str, width_km: &mut f64, metric: bool) -> bool {
+    ui.weak(label);
+    let mut value = if metric {
+        *width_km
+    } else {
+        *width_km / KM_PER_MILE
+    };
+    let changed = ui
+        .add(
+            egui::DragValue::new(&mut value)
+                .range(0.0..=50.0)
+                .speed(0.2)
+                .max_decimals(1)
+                .suffix(if metric { " km" } else { " mi" }),
+        )
+        .on_hover_text("Uncertainty width, facing along the motion")
+        .changed();
+    if changed {
+        *width_km = if metric { value } else { value * KM_PER_MILE };
+    }
+    changed
+}
+
 impl HookEchoApp {
+    /// Seed the manual tool from the same SCIT motion and source time in every storm UI.
+    pub(crate) fn track_cell_manually(&mut self, c: &wxdata::level3::Cell) {
+        let t0 = c
+            .time
+            .or_else(|| self.views[self.active].volume.as_ref().map(|v| v.time))
+            .unwrap_or_else(Utc::now);
+        if let Some(track) = ManualTrack::from_cell(c, t0) {
+            self.storm_tracks.tracks.push(track);
+            self.storm_tracks.selected = Some(self.storm_tracks.tracks.len() - 1);
+            self.tool = super::MapTool::StormTrack;
+        }
+    }
+
     /// The tool's pointer handling on one pane: a drag from open map starts a track, a drag from
     /// a handle moves that end, a click picks the track under it. Returns whether it took the
     /// drag, so the map does not also pan.
@@ -540,25 +694,21 @@ impl HookEchoApp {
                 let fill = col.gamma_multiply(if selected { 0.16 } else { 0.09 });
                 if t.is_line() {
                     // The swept area, a quad per segment (the whole is not convex); then the
-                    // edge every 15 minutes, thin, and now, solid.
+                    // edge at the chosen interval, thin, and now, solid.
                     let now: Vec<egui::Pos2> = t.edge.iter().map(|p| to_px(*p)).collect();
-                    let end: Vec<egui::Pos2> =
-                        t.edge_at(HORIZON_MIN).into_iter().map(to_px).collect();
-                    for k in 0..now.len() - 1 {
+                    for part in t.cached_footprints(ui.ctx(), i).iter() {
                         painter.add(egui::Shape::convex_polygon(
-                            vec![now[k], now[k + 1], end[k + 1], end[k]],
+                            part.iter().copied().map(to_px).collect(),
                             fill,
                             egui::Stroke::NONE,
                         ));
                     }
-                    let mut m = MARK_EVERY_MIN;
-                    while m <= HORIZON_MIN {
+                    for m in t.projection_marks() {
                         let at: Vec<egui::Pos2> = t.edge_at(m).into_iter().map(to_px).collect();
                         painter.add(egui::Shape::line(
                             at,
                             egui::Stroke::new(1.0, col.gamma_multiply(0.8)),
                         ));
-                        m += MARK_EVERY_MIN;
                     }
                     painter.add(egui::Shape::line(now.clone(), egui::Stroke::new(5.0, halo)));
                     painter.add(egui::Shape::line(
@@ -598,8 +748,7 @@ impl HookEchoApp {
                     ));
                 }
                 let font = egui::FontId::monospace(10.5);
-                let mut m = MARK_EVERY_MIN;
-                while m <= HORIZON_MIN {
+                for m in t.projection_marks() {
                     let p = to_px(t.at(m));
                     painter.circle_filled(p, 3.5, halo);
                     painter.circle_filled(p, 2.5, col);
@@ -620,7 +769,6 @@ impl HookEchoApp {
                         font.clone(),
                         egui::Color32::WHITE,
                     );
-                    m += MARK_EVERY_MIN;
                 }
                 // Handles: the origin filled, the head ringed, both bigger when selected.
                 let r = if selected { 6.0 } else { 4.5 };
@@ -730,144 +878,159 @@ impl HookEchoApp {
             .show(ctx, |ui| {
                 crate::ui::workstation::card_frame(&t).show(ui, |ui| {
                     crate::ui::workstation::style_scope(ui, &t);
-                    ui.set_width(300.0);
-                    ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new("Storm motion").strong().color(color()));
-                        ui.label(egui::RichText::new("manual").small().weak());
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if !st.tracks.is_empty() && ui.small_button("Clear all").clicked() {
-                                clear = true;
+                    ui.set_width((area.width() - 48.0).clamp(120.0, 300.0));
+                    egui::ScrollArea::vertical()
+                        .id_salt("storm_motion_body")
+                        .max_height((area.height() - 96.0).max(80.0))
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    egui::RichText::new("Storm motion").strong().color(color()),
+                                );
+                                ui.label(egui::RichText::new("manual").small().weak());
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        if !st.tracks.is_empty()
+                                            && ui.small_button("Clear all").clicked()
+                                        {
+                                            clear = true;
+                                        }
+                                    },
+                                );
+                            });
+                            if !st.pending.is_empty()
+                                && ui
+                                    .small_button("Undo point")
+                                    .on_hover_text("Remove the last point of the line (Backspace)")
+                                    .clicked()
+                            {
+                                undo_point = true;
                             }
-                        });
-                    });
-                    if !st.pending.is_empty()
-                        && ui
-                            .small_button("Undo point")
-                            .on_hover_text("Remove the last point of the line (Backspace)")
-                            .clicked()
-                    {
-                        undo_point = true;
-                    }
-                    match st.pending.len() {
-                        0 => {}
-                        1 => {
-                            ui.label(
+                            match st.pending.len() {
+                                0 => {}
+                                1 => {
+                                    ui.label(
                                 egui::RichText::new(
                                     "Line: click more points along it (Backspace undoes one)",
                                 )
                                 .color(color()),
                             );
-                        }
-                        n => {
-                            ui.label(
-                                egui::RichText::new(format!(
+                                }
+                                n => {
+                                    ui.label(
+                                        egui::RichText::new(format!(
                                     "Line of {n} points: now drag its motion from anywhere \
                                      (Backspace undoes a point)"
                                 ))
-                                .color(color()),
-                            );
-                        }
-                    }
-                    if st.tracks.is_empty() {
-                        if st.pending.is_empty() {
-                            ui.weak(
-                                "Drag from a storm to where it will be in an hour. Shift \
+                                        .color(color()),
+                                    );
+                                }
+                            }
+                            if st.tracks.is_empty() {
+                                if st.pending.is_empty() {
+                                    ui.weak(
+                                        "Drag from a storm to where it will be in an hour. Shift \
                                  snaps the heading to 5°. For a line of storms, click points \
                                  along it first, then drag.",
-                            );
-                        }
-                        return;
-                    }
-                    for (i, track) in st.tracks.iter_mut().enumerate() {
-                        let sel = st.selected == Some(i);
-                        ui.horizontal(|ui| {
-                            let name = format!(
-                                "#{}{} {:03.0}° {}",
-                                i + 1,
-                                if track.is_line() { " line" } else { "" },
-                                track.bearing_deg,
-                                compass(track.bearing_deg)
-                            );
-                            if ui.selectable_label(sel, name).clicked() {
-                                st.selected = if sel { None } else { Some(i) };
+                                    );
+                                }
+                                return;
                             }
-                            let mut kt = track.speed_kmh / KMH_PER_KT;
-                            if ui
-                                .add(
-                                    egui::DragValue::new(&mut kt)
-                                        .range(0.0..=150.0)
-                                        .speed(0.5)
-                                        .max_decimals(0)
-                                        .suffix(" kt"),
-                                )
-                                .on_hover_text("Speed")
-                                .changed()
-                            {
-                                track.speed_kmh = kt * KMH_PER_KT;
-                            }
-                            ui.add(
-                                egui::DragValue::new(&mut track.bearing_deg)
-                                    .range(0.0..=359.9)
-                                    .speed(1.0)
-                                    .max_decimals(0)
-                                    .suffix("°"),
-                            )
-                            .on_hover_text("Heading, toward");
-                            if ui
-                                .small_button("×")
-                                .on_hover_text("Remove (Delete)")
-                                .clicked()
-                            {
-                                remove = Some(i);
-                            }
-                            // The keyboard's Ctrl+D, for pen and touch.
-                            if ui
-                                .small_button(egui_phosphor::regular::COPY)
-                                .on_hover_text("Duplicate (Ctrl+D)")
-                                .clicked()
-                            {
-                                duplicate = Some(i);
-                            }
-                        });
-                        if !sel {
-                            continue;
-                        }
-                        ui.horizontal(|ui| {
-                            ui.weak("Cone");
-                            ui.add(
-                                egui::DragValue::new(&mut track.cone_deg)
-                                    .range(0.0..=45.0)
-                                    .speed(0.5)
-                                    .suffix("°"),
-                            )
-                            .on_hover_text("Half-angle the swath widens by ([ and ])");
-                            ui.weak("Width");
-                            let mut w = if metric {
-                                track.half_width_km
-                            } else {
-                                track.half_width_km / KM_PER_MILE
-                            };
-                            if ui
-                                .add(
-                                    egui::DragValue::new(&mut w)
-                                        .range(0.0..=50.0)
-                                        .speed(0.2)
-                                        .max_decimals(1)
-                                        .suffix(if metric { " km" } else { " mi" }),
-                                )
-                                .on_hover_text("Half-width of the swath at the storm")
-                                .changed()
-                            {
-                                track.half_width_km = if metric { w } else { w * KM_PER_MILE };
-                            }
-                            ui.weak(format!("from {}", track.t0.format("%H:%MZ")));
-                        });
-                        // Who lives in the hour's path (2020 Census), asked for on demand: a
-                        // lookup per drag frame would hammer the service.
-                        use super::impact::{summary, towns, ImpactState};
-                        match impact.as_ref().and_then(|(_, s)| s.as_ref()) {
-                            None => {
-                                if ui
+                            for (i, track) in st.tracks.iter_mut().enumerate() {
+                                let sel = st.selected == Some(i);
+                                ui.horizontal_wrapped(|ui| {
+                                    let name = format!(
+                                        "#{}{} {:03.0}° {}",
+                                        i + 1,
+                                        if track.is_line() { " line" } else { "" },
+                                        track.bearing_deg,
+                                        compass(track.bearing_deg)
+                                    );
+                                    if ui.selectable_label(sel, name).clicked() {
+                                        st.selected = if sel { None } else { Some(i) };
+                                    }
+                                    let mut kt = track.speed_kmh / KMH_PER_KT;
+                                    if ui
+                                        .add(
+                                            egui::DragValue::new(&mut kt)
+                                                .range(0.0..=150.0)
+                                                .speed(0.5)
+                                                .max_decimals(0)
+                                                .suffix(" kt"),
+                                        )
+                                        .on_hover_text("Speed")
+                                        .changed()
+                                    {
+                                        track.speed_kmh = kt * KMH_PER_KT;
+                                    }
+                                    ui.add(
+                                        egui::DragValue::new(&mut track.bearing_deg)
+                                            .range(0.0..=359.9)
+                                            .speed(1.0)
+                                            .max_decimals(0)
+                                            .suffix("°"),
+                                    )
+                                    .on_hover_text("Heading, toward");
+                                    if ui
+                                        .small_button("×")
+                                        .on_hover_text("Remove (Delete)")
+                                        .clicked()
+                                    {
+                                        remove = Some(i);
+                                    }
+                                    // The keyboard's Ctrl+D, for pen and touch.
+                                    if ui
+                                        .small_button(egui_phosphor::regular::COPY)
+                                        .on_hover_text("Duplicate (Ctrl+D)")
+                                        .clicked()
+                                    {
+                                        duplicate = Some(i);
+                                    }
+                                });
+                                if !sel {
+                                    continue;
+                                }
+                                ui.horizontal_wrapped(|ui| {
+                                    ui.weak("Cone");
+                                    ui.add(
+                                        egui::DragValue::new(&mut track.cone_deg)
+                                            .range(0.0..=45.0)
+                                            .speed(0.5)
+                                            .suffix("°"),
+                                    )
+                                    .on_hover_text("Half-angle the swath widens by ([ and ])");
+                                    {
+                                        for (label, width) in [
+                                            ("Left width", &mut track.left_width_km),
+                                            ("Right width", &mut track.right_width_km),
+                                        ] {
+                                            width_control(ui, label, width, metric);
+                                        }
+                                    }
+                                    ui.weak(format!("from {}", track.t0.format("%H:%MZ")));
+                                });
+                                ui.horizontal(|ui| {
+                                    ui.weak("Projection marks");
+                                    egui::ComboBox::from_id_salt(("track_mark_interval", i))
+                                        .selected_text(format!("{} min", track.mark_interval_min))
+                                        .width(72.0)
+                                        .show_ui(ui, |ui| {
+                                            for minutes in [5, 10, 15, 20, 30, 60] {
+                                                ui.selectable_value(
+                                                    &mut track.mark_interval_min,
+                                                    minutes,
+                                                    format!("{minutes} min"),
+                                                );
+                                            }
+                                        });
+                                });
+                                // Who lives in the hour's path (2020 Census), asked for on demand: a
+                                // lookup per drag frame would hammer the service.
+                                use super::impact::{summary, towns, ImpactState};
+                                match impact.as_ref().and_then(|(_, s)| s.as_ref()) {
+                                    None => {
+                                        if ui
                                     .small_button("People in path")
                                     .on_hover_text(
                                         "Population and towns inside the next hour's swath \
@@ -877,115 +1040,123 @@ impl HookEchoApp {
                                 {
                                     ask_impact = true;
                                 }
-                            }
-                            Some(ImpactState::Pending) => {
-                                ui.weak("Counting people in the path…");
-                            }
-                            Some(ImpactState::Failed) => {
-                                if ui
-                                    .small_button("Population lookup failed · retry")
-                                    .clicked()
-                                {
-                                    ask_impact = true;
+                                    }
+                                    Some(ImpactState::Pending) => {
+                                        ui.weak("Counting people in the path…");
+                                    }
+                                    Some(ImpactState::Failed) => {
+                                        if ui
+                                            .small_button("Population lookup failed · retry")
+                                            .clicked()
+                                        {
+                                            ask_impact = true;
+                                        }
+                                    }
+                                    Some(ImpactState::Ready(i)) => {
+                                        ui.label(egui::RichText::new(summary(i)).strong());
+                                        if !i.places.is_empty() {
+                                            ui.weak(towns(i));
+                                        }
+                                    }
+                                }
+                                let mut etas: Vec<(&str, Eta)> = markers
+                                    .iter()
+                                    .filter_map(|(n, p)| track.eta(*p).map(|e| (n.as_str(), e)))
+                                    .collect();
+                                etas.sort_by(|a, b| {
+                                    b.1.in_path
+                                        .cmp(&a.1.in_path)
+                                        .then(a.1.minutes.total_cmp(&b.1.minutes))
+                                });
+                                if markers.is_empty() {
+                                    ui.weak("Save markers for arrival times at them.");
+                                } else if etas.is_empty() {
+                                    ui.weak("No saved marker ahead within two hours.");
+                                }
+                                for (name, e) in etas.iter().take(6) {
+                                    let when = track.t0
+                                        + chrono::Duration::seconds((e.minutes * 60.0) as i64);
+                                    let pass = if track.is_line() && e.closest_km == 0.0 {
+                                        "line arrives".to_string()
+                                    } else if e.closest_km < 0.5 {
+                                        "direct hit".to_string()
+                                    } else {
+                                        format!(
+                                            "passes {} {}",
+                                            distance(e.closest_km, metric),
+                                            compass(
+                                                track.bearing_deg
+                                                    + if e.right { -90.0 } else { 90.0 }
+                                            )
+                                        )
+                                    };
+                                    ui.horizontal(|ui| {
+                                        ui.label(
+                                            egui::RichText::new(if e.in_path {
+                                                "●"
+                                            } else {
+                                                "○"
+                                            })
+                                            .color(if e.in_path { t.warn } else { t.text_dim }),
+                                        );
+                                        ui.label(egui::RichText::new(*name).strong());
+                                        ui.label(
+                                            egui::RichText::new(format!(
+                                                "~{} (+{:.0} min)",
+                                                when.format("%H:%MZ"),
+                                                e.minutes
+                                            ))
+                                            .monospace(),
+                                        );
+                                        ui.weak(pass);
+                                    });
+                                }
+                                // Watch zones: when the storm (or line) gets in, soonest first.
+                                let mut zone_etas: Vec<(&str, ZoneEta)> = zones
+                                    .iter()
+                                    .filter_map(|(n, r)| track.zone_eta(r).map(|e| (n.as_str(), e)))
+                                    .collect();
+                                zone_etas.sort_by(|a, b| {
+                                    a.1.grazes
+                                        .cmp(&b.1.grazes)
+                                        .then(a.1.minutes.total_cmp(&b.1.minutes))
+                                });
+                                for (name, e) in zone_etas.iter().take(4) {
+                                    let when = track.t0
+                                        + chrono::Duration::seconds((e.minutes * 60.0) as i64);
+                                    let what = match (e.minutes == 0.0, e.grazes) {
+                                        (true, false) => "inside now".to_string(),
+                                        (true, true) => "swath edge inside now".to_string(),
+                                        (false, false) => format!(
+                                            "enters ~{} (+{:.0} min)",
+                                            when.format("%H:%MZ"),
+                                            e.minutes
+                                        ),
+                                        (false, true) => format!(
+                                            "swath edge ~{} (+{:.0} min)",
+                                            when.format("%H:%MZ"),
+                                            e.minutes
+                                        ),
+                                    };
+                                    ui.horizontal(|ui| {
+                                        ui.label(egui::RichText::new("▰").color(if e.grazes {
+                                            t.text_dim
+                                        } else {
+                                            t.warn
+                                        }));
+                                        ui.label(egui::RichText::new(*name).strong());
+                                        ui.label(egui::RichText::new(what).monospace());
+                                    });
                                 }
                             }
-                            Some(ImpactState::Ready(i)) => {
-                                ui.label(egui::RichText::new(summary(i)).strong());
-                                if !i.places.is_empty() {
-                                    ui.weak(towns(i));
-                                }
-                            }
-                        }
-                        let mut etas: Vec<(&str, Eta)> = markers
-                            .iter()
-                            .filter_map(|(n, p)| track.eta(*p).map(|e| (n.as_str(), e)))
-                            .collect();
-                        etas.sort_by(|a, b| {
-                            b.1.in_path
-                                .cmp(&a.1.in_path)
-                                .then(a.1.minutes.total_cmp(&b.1.minutes))
+                            ui.weak("Drag either end to edit · Ctrl+D duplicates · Delete removes");
                         });
-                        if markers.is_empty() {
-                            ui.weak("Save markers for arrival times at them.");
-                        } else if etas.is_empty() {
-                            ui.weak("No saved marker ahead within two hours.");
-                        }
-                        for (name, e) in etas.iter().take(6) {
-                            let when =
-                                track.t0 + chrono::Duration::seconds((e.minutes * 60.0) as i64);
-                            let pass = if track.is_line() && e.closest_km == 0.0 {
-                                "line arrives".to_string()
-                            } else if e.closest_km < 0.5 {
-                                "direct hit".to_string()
-                            } else {
-                                format!(
-                                    "passes {} {}",
-                                    distance(e.closest_km, metric),
-                                    compass(track.bearing_deg + if e.right { -90.0 } else { 90.0 })
-                                )
-                            };
-                            ui.horizontal(|ui| {
-                                ui.label(
-                                    egui::RichText::new(if e.in_path { "●" } else { "○" })
-                                        .color(if e.in_path { t.warn } else { t.text_dim }),
-                                );
-                                ui.label(egui::RichText::new(*name).strong());
-                                ui.label(
-                                    egui::RichText::new(format!(
-                                        "~{} (+{:.0} min)",
-                                        when.format("%H:%MZ"),
-                                        e.minutes
-                                    ))
-                                    .monospace(),
-                                );
-                                ui.weak(pass);
-                            });
-                        }
-                        // Watch zones: when the storm (or line) gets in, soonest first.
-                        let mut zone_etas: Vec<(&str, ZoneEta)> = zones
-                            .iter()
-                            .filter_map(|(n, r)| track.zone_eta(r).map(|e| (n.as_str(), e)))
-                            .collect();
-                        zone_etas.sort_by(|a, b| {
-                            a.1.grazes
-                                .cmp(&b.1.grazes)
-                                .then(a.1.minutes.total_cmp(&b.1.minutes))
-                        });
-                        for (name, e) in zone_etas.iter().take(4) {
-                            let when =
-                                track.t0 + chrono::Duration::seconds((e.minutes * 60.0) as i64);
-                            let what = match (e.minutes == 0.0, e.grazes) {
-                                (true, false) => "inside now".to_string(),
-                                (true, true) => "swath edge inside now".to_string(),
-                                (false, false) => format!(
-                                    "enters ~{} (+{:.0} min)",
-                                    when.format("%H:%MZ"),
-                                    e.minutes
-                                ),
-                                (false, true) => format!(
-                                    "swath edge ~{} (+{:.0} min)",
-                                    when.format("%H:%MZ"),
-                                    e.minutes
-                                ),
-                            };
-                            ui.horizontal(|ui| {
-                                ui.label(egui::RichText::new("▰").color(if e.grazes {
-                                    t.text_dim
-                                } else {
-                                    t.warn
-                                }));
-                                ui.label(egui::RichText::new(*name).strong());
-                                ui.label(egui::RichText::new(what).monospace());
-                            });
-                        }
-                    }
-                    ui.weak("Drag either end to edit · Ctrl+D duplicates · Delete removes");
                 });
             });
         if ask_impact {
             if let (Some((id, _)), Some(t)) = (impact, st.selected.and_then(|i| st.tracks.get(i))) {
-                let ring = t.footprint();
-                self.request_impact(id, vec![ring], ctx);
+                let parts = t.footprints();
+                self.request_impact(id, parts, ctx);
             }
         }
         let st = &mut self.storm_tracks;
@@ -1014,6 +1185,106 @@ mod tests {
         let mut t = ManualTrack::new([-97.0, 35.0], Utc::now());
         t.aim(destination_point([-97.0, 35.0], 90.0, 60.0), false);
         t
+    }
+
+    #[test]
+    fn independent_widths_match_the_drawn_footprint_and_point_arrivals() {
+        let mut t = track();
+        t.cone_deg = 0.0;
+        t.left_width_km = 9.0;
+        t.right_width_km = 2.0;
+        let center = t.at(30.0);
+        let left = destination_point(center, t.bearing_deg - 90.0, 6.0);
+        let right = destination_point(center, t.bearing_deg + 90.0, 6.0);
+        let ring = t.footprints().pop().unwrap();
+        for (point, expected) in [(left, true), (right, false)] {
+            assert_eq!(t.eta(point).unwrap().in_path, expected);
+            assert_eq!(
+                wxdata::overlay::point_in_ring(&ring, point[0], point[1]),
+                expected
+            );
+        }
+        let before = t.impact_id();
+        t.right_width_km = 9.0;
+        assert_ne!(t.impact_id(), before);
+        assert!(t.eta(right).unwrap().in_path);
+        let before = t.impact_id();
+        t.left_width_km = 2.0;
+        assert_ne!(t.impact_id(), before);
+        assert!(!t.eta(left).unwrap().in_path);
+    }
+
+    #[test]
+    fn cone_expansion_preserves_the_selected_side_widths() {
+        let mut t = track();
+        t.left_width_km = 2.0;
+        t.right_width_km = 8.0;
+        assert_eq!(t.width_at(0.0, false), 2.0);
+        assert_eq!(t.width_at(0.0, true), 8.0);
+        let expansion = 30.0 * t.cone_deg.to_radians().tan();
+        assert!((t.width_at(30.0, false) - 2.0 - expansion).abs() < 1e-9);
+        assert!((t.width_at(30.0, true) - 8.0 - expansion).abs() < 1e-9);
+    }
+
+    #[test]
+    fn zones_inside_the_uncertainty_band_are_found_between_center_and_flank() {
+        let mut t = track();
+        t.cone_deg = 0.0;
+        t.left_width_km = 9.0;
+        t.right_width_km = 2.0;
+        let center = t.at(30.0);
+        let small_zone = |p: [f64; 2]| {
+            vec![
+                [p[0] - 0.005, p[1] - 0.005],
+                [p[0] + 0.005, p[1] - 0.005],
+                [p[0] + 0.005, p[1] + 0.005],
+                [p[0] - 0.005, p[1] + 0.005],
+            ]
+        };
+        let left = small_zone(destination_point(center, t.bearing_deg - 90.0, 6.0));
+        let right = small_zone(destination_point(center, t.bearing_deg + 90.0, 6.0));
+        assert!(t.zone_eta(&left).unwrap().grazes);
+        assert!(t.zone_eta(&right).is_none());
+        t.left_width_km = 2.0;
+        t.right_width_km = 9.0;
+        assert!(t.zone_eta(&left).is_none());
+        assert!(t.zone_eta(&right).unwrap().grazes);
+    }
+
+    #[test]
+    fn configurable_projection_marks_keep_the_hour_endpoint() {
+        let mut t = track();
+        assert_eq!(
+            t.projection_marks().collect::<Vec<_>>(),
+            [15.0, 30.0, 45.0, 60.0]
+        );
+        t.mark_interval_min = 10;
+        assert_eq!(
+            t.projection_marks().collect::<Vec<_>>(),
+            [10.0, 20.0, 30.0, 40.0, 50.0, 60.0]
+        );
+        t.mark_interval_min = 17;
+        assert_eq!(
+            t.projection_marks().collect::<Vec<_>>(),
+            [17.0, 34.0, 51.0, 60.0]
+        );
+        t.mark_interval_min = 0;
+        assert_eq!(t.projection_marks().count(), 12);
+        t.mark_interval_min = u32::MAX;
+        assert_eq!(t.projection_marks().collect::<Vec<_>>(), [60.0]);
+    }
+
+    #[test]
+    fn changing_marker_spacing_preserves_motion_impacts_and_line_geometry() {
+        let mut t = line();
+        let point = destination_point(t.origin, t.bearing_deg, 30.0);
+        let before = (t.head(), t.footprints(), t.impact_id(), t.eta(point));
+        t.mark_interval_min = 5;
+        assert_eq!(
+            (t.head(), t.footprints(), t.impact_id(), t.eta(point)),
+            before
+        );
+        assert_eq!(t.projection_marks().last(), Some(HORIZON_MIN));
     }
 
     #[test]
@@ -1164,18 +1435,131 @@ mod tests {
     }
 
     #[test]
+    fn a_line_crosses_small_zones_between_its_old_sample_points() {
+        let t = line();
+        let p = destination_point(t.edge_at(30.0)[1], 0.0, 2.5);
+        let zone = [
+            [p[0] - 0.003, p[1] - 0.003],
+            [p[0] + 0.003, p[1] - 0.003],
+            [p[0] + 0.003, p[1] + 0.003],
+            [p[0] - 0.003, p[1] + 0.003],
+        ];
+        let e = t.zone_eta(&zone).expect("the segment crosses the zone");
+        assert!(!e.grazes && (e.minutes - 30.0).abs() <= 1.0, "{e:?}");
+    }
+
+    #[test]
+    fn line_uncertainty_is_in_drawn_parts_zone_checks_and_population_coverage() {
+        let mut t = line();
+        t.cone_deg = 0.0;
+        t.left_width_km = 9.0;
+        t.right_width_km = 2.0;
+        let center = t.at(30.0);
+        let left = destination_point(center, 0.0, 16.0);
+        let right = destination_point(center, 180.0, 16.0);
+        let covered = |t: &ManualTrack, p: [f64; 2]| {
+            t.footprints()
+                .iter()
+                .any(|r| wxdata::overlay::point_in_ring(r, p[0], p[1]))
+        };
+        assert!(covered(&t, left));
+        assert!(!covered(&t, right));
+        assert!(t.eta(left).unwrap().in_path);
+        assert!(!t.eta(right).unwrap().in_path);
+        let zone = [
+            [left[0] - 0.003, left[1] - 0.003],
+            [left[0] + 0.003, left[1] - 0.003],
+            [left[0] + 0.003, left[1] + 0.003],
+            [left[0] - 0.003, left[1] + 0.003],
+        ];
+        assert!(t.zone_eta(&zone).unwrap().grazes);
+        t.edge.reverse();
+        assert!(covered(&t, left));
+        assert!(t.zone_eta(&zone).unwrap().grazes);
+    }
+
+    #[test]
+    fn impact_identity_follows_vertex_edits_even_without_a_vertex_count_change() {
+        let t = line();
+        let mut u = t.clone();
+        u.edge[0][0] += 0.00001;
+        assert_ne!(t.impact_id(), u.impact_id());
+        u = t.clone();
+        u.bearing_deg += 0.01;
+        assert_ne!(t.impact_id(), u.impact_id());
+    }
+
+    #[test]
+    fn a_bent_line_uses_interior_vertices_for_uncertainty_arrivals() {
+        let mut t = line();
+        let middle = destination_point(t.origin, 0.0, 10.0);
+        t.edge = vec![
+            destination_point(t.origin, 180.0, 10.0),
+            middle,
+            destination_point(t.origin, 180.0, 8.0),
+        ];
+        t.cone_deg = 0.0;
+        t.left_width_km = 9.0;
+        let p = destination_point(destination_point(middle, 90.0, 30.0), 0.0, 6.0);
+        assert!(t.eta(p).unwrap().in_path);
+    }
+
+    #[test]
+    fn envelopes_preserve_empty_space_inside_a_bent_line() {
+        let mut t = line();
+        let point =
+            |east, north| destination_point(destination_point(t.origin, 90.0, east), 0.0, north);
+        let edge = vec![point(0.0, 0.0), point(10.0, 0.0), point(10.0, 10.0)];
+        let gap = point(8.0, 5.0);
+        let covered = point(10.0, 5.0);
+        t.edge = edge;
+        t.speed_kmh = 1.0;
+        t.bearing_deg = 0.0;
+        t.cone_deg = 0.0;
+        t.left_width_km = 0.2;
+        t.right_width_km = 0.2;
+        let parts = t.footprints();
+        assert!(!parts
+            .iter()
+            .any(|r| wxdata::overlay::point_in_ring(r, gap[0], gap[1])));
+        assert!(parts
+            .iter()
+            .any(|r| wxdata::overlay::point_in_ring(r, covered[0], covered[1])));
+    }
+
+    #[test]
+    fn drawing_reuses_envelopes_until_the_geometry_changes() {
+        let ctx = egui::Context::default();
+        let mut t = line();
+        let first = t.cached_footprints(&ctx, 0);
+        t.mark_interval_min = 5;
+        assert!(std::sync::Arc::ptr_eq(
+            &first,
+            &t.cached_footprints(&ctx, 0)
+        ));
+        t.left_width_km += 1.0;
+        let changed = t.cached_footprints(&ctx, 0);
+        assert!(!std::sync::Arc::ptr_eq(&first, &changed));
+        assert_eq!(*changed, t.footprints());
+    }
+
+    #[test]
     fn the_footprint_covers_the_hour_and_its_key_follows_edits() {
         let t = line();
-        let ring = t.footprint();
-        assert_eq!(ring.len(), 6, "the edge out and its hour-later copy back");
-        let inside = |p: [f64; 2]| wxdata::overlay::point_in_ring(&ring, p[0], p[1]);
+        let rings = t.footprints();
+        assert_eq!(rings.len(), t.edge.len() - 1, "one swept part per segment");
+        let inside = |p: [f64; 2]| {
+            rings
+                .iter()
+                .any(|ring| wxdata::overlay::point_in_ring(ring, p[0], p[1]))
+        };
         assert!(inside(destination_point(t.origin, 90.0, 30.0)));
         assert!(!inside(destination_point(t.origin, 90.0, 70.0)));
         let mut u = t.clone();
         assert_eq!(u.impact_id(), t.impact_id());
         u.speed_kmh += 5.0;
         assert_ne!(u.impact_id(), t.impact_id(), "an edit asks again");
-        assert!(track().footprint().len() > 4);
+        assert!(track().footprints()[0].len() > 4);
     }
 
     #[test]

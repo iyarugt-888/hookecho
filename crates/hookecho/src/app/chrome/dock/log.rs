@@ -51,9 +51,7 @@ impl HookEchoApp {
             queue_ms: queue_percentiles(&v.live_queue_timings.samples_micros()),
             retries: v.live_retries,
             frame_age_s: v
-                .timeline
-                .current()
-                .and_then(|id| id.date_time())
+                .displayed_radar_time()
                 .map(|d| (chrono::Utc::now() - d).num_seconds()),
             history: v.live_history.iter().map(|h| (h.1, h.2)).collect(),
             couplets: self

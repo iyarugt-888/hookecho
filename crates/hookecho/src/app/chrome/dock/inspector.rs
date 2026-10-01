@@ -98,7 +98,7 @@ impl HookEchoApp {
             .volume
             .as_ref()
             .and_then(|x| x.elevations.get(v.tilt).copied());
-        let valid = v.timeline.current().and_then(|id| id.date_time());
+        let valid = v.displayed_radar_time();
         let age = valid.map(|d| humanize((chrono::Utc::now() - d).num_seconds().max(0)));
         let live = v.timeline.following && v.timeline.forecast_hour().is_none();
         let view_3d = v
@@ -643,14 +643,16 @@ mod tests {
 
     #[test]
     fn a_storms_rows_flag_what_needs_a_look_and_skip_what_is_unknown() {
-        let mut c = wxdata::level3::Cell::default();
-        c.id = "O7".into();
-        c.max_dbz = Some(62.0);
-        c.max_dbz_hgt_kft = Some(18.0);
-        c.posh = Some(60);
-        c.mvt_deg = Some(45.0);
-        c.mvt_kt = Some(20.0);
-        c.tvs = Some("TVS".into());
+        let c = wxdata::level3::Cell {
+            id: "O7".into(),
+            max_dbz: Some(62.0),
+            max_dbz_hgt_kft: Some(18.0),
+            posh: Some(60),
+            mvt_deg: Some(45.0),
+            mvt_kt: Some(20.0),
+            tvs: Some("TVS".into()),
+            ..Default::default()
+        };
         let rows = storm_rows(&c, false);
         let keys: Vec<&str> = rows.iter().map(|r| r.0).collect();
         assert_eq!(keys, ["Max", "Hail", "TVS", "Moving"]);

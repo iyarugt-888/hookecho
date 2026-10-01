@@ -271,6 +271,31 @@ pub fn rings_intersect(a: &[[f64; 2]], b: &[[f64; 2]]) -> bool {
     false
 }
 
+/// Whether a segment enters or crosses a polygon ring, including its closing edge.
+pub fn segment_intersects_ring(a: [f64; 2], b: [f64; 2], ring: &[[f64; 2]]) -> bool {
+    if ring.len() < 3 {
+        return false;
+    }
+    point_in_ring(ring, a[0], a[1])
+        || point_in_ring(ring, b[0], b[1])
+        || (0..ring.len()).any(|i| segments_cross(a, b, ring[i], ring[(i + 1) % ring.len()]))
+}
+
+#[cfg(test)]
+mod segment_tests {
+    use super::*;
+
+    #[test]
+    fn segments_detect_crossings_containment_and_boundary_touches() {
+        let ring = [[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]];
+        assert!(segment_intersects_ring([-2.0, 0.0], [2.0, 0.0], &ring));
+        assert!(segment_intersects_ring([0.0, 0.0], [2.0, 0.0], &ring));
+        assert!(segment_intersects_ring([-2.0, 0.0], [-1.0, 0.0], &ring));
+        assert!(!segment_intersects_ring([-2.0, 2.0], [2.0, 2.0], &ring));
+        assert!(!segment_intersects_ring([0.0, 0.0], [2.0, 0.0], &[]));
+    }
+}
+
 /// Sign of the cross product of `(b-a) × (c-a)`: >0 left turn, <0 right turn, 0 collinear.
 fn orient(a: [f64; 2], b: [f64; 2], c: [f64; 2]) -> f64 {
     (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])

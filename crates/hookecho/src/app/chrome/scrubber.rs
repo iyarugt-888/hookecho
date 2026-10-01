@@ -100,6 +100,7 @@ impl HookEchoApp {
         // and rain arrival has its own chip lane.
         let (dvr, rain) = if narrow { (0, None) } else { (dvr, rain) };
         let live_window = self.views[self.active].timeline.live_window;
+        let displayed_time = self.views[self.active].displayed_radar_time();
         egui::Area::new(egui::Id::new("scrubber"))
             .constrain_to(self.chrome_rect)
             .anchor(
@@ -194,9 +195,7 @@ impl HookEchoApp {
                             // "5:10:35 PM CDT" ran off the edge and under the age readout. When
                             // the room is not there the seconds and the zone go first: a phone's
                             // zone is the one it is standing in.
-                            None => t
-                                .current()
-                                .and_then(|id| id.date_time())
+                            None => displayed_time
                                 .map(|d| match tz {
                                     Some(tz) if narrow || ui.available_width() < 190.0 => {
                                         d.with_timezone(&tz).format("%-I:%M %p").to_string()
@@ -560,6 +559,7 @@ impl HookEchoApp {
         use egui_phosphor::regular as ph;
         let accent = wsv3::WSV3_BLUE;
         let tz = self.active_tz();
+        let displayed_time = self.views[self.active].displayed_radar_time();
         let newest_time = self.views[self.active]
             .timeline
             .newest()
@@ -628,9 +628,7 @@ impl HookEchoApp {
                                 go_head = true;
                             }
                             ui.separator();
-                            let valid = t
-                                .current()
-                                .and_then(|id| id.date_time())
+                            let valid = displayed_time
                                 .map(|d| crate::timefmt::fmt_clock(d, tz, false))
                                 .unwrap_or_default();
                             ui.label(

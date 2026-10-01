@@ -1005,7 +1005,7 @@ pub fn subdivide_long_triangles(
             .abs()
             .max((a.world[1] - b.world[1]).abs())
     };
-    if !indices.chunks_exact(3).any(|t| {
+    if !indices.as_chunks::<3>().0.iter().any(|t| {
         let [a, b, c] = [t[0], t[1], t[2]].map(|i| &vertices[i as usize]);
         span(a, b) > max_span || span(b, c) > max_span || span(c, a) > max_span
     }) {
@@ -1020,7 +1020,9 @@ pub fn subdivide_long_triangles(
         offset: std::array::from_fn(|k| (a.offset[k] + b.offset[k]) * 0.5),
     };
     let mut todo: Vec<([u32; 3], u32)> = indices
-        .chunks_exact(3)
+        .as_chunks::<3>()
+        .0
+        .iter()
         .map(|t| ([t[0], t[1], t[2]], 0))
         .collect();
     let mut out = Vec::with_capacity(indices.len());
@@ -3058,11 +3060,11 @@ mod globe_mesh_tests {
         let mut idx = vec![0, 1, 2];
         subdivide_long_triangles(&mut verts, &mut idx, GLOBE_MAX_SPAN, 6);
         assert!(idx.len() >= 3 * 64, "split: {} triangles", idx.len() / 3);
-        let area = |t: &[u32]| {
+        let area = |t: &[u32; 3]| {
             let [a, b, c] = [t[0], t[1], t[2]].map(|i| verts[i as usize].world);
             ((b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1])).abs() * 0.5
         };
-        let total: f32 = idx.chunks_exact(3).map(area).sum();
+        let total: f32 = idx.as_chunks::<3>().0.iter().map(area).sum();
         assert!((total - 0.005).abs() < 1e-6, "area kept: {total}");
         // Colours are interpolated with the positions.
         assert!(verts.iter().all(|p| (p.color[0] - p.world[0]).abs() < 1e-6));

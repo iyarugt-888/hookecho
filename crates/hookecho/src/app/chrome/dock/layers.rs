@@ -789,6 +789,26 @@ mod search_tests {
         );
         assert_eq!(submit("  "), None);
     }
+
+    #[test]
+    fn enter_activates_an_exact_layer_match_ahead_of_looser_matches() {
+        let entries = [
+            entry("Satellite infrared", "Satellite", PaletteAction::Reload),
+            entry("Infrared", "Satellite", PaletteAction::GoLive),
+            entry("Infrared cloud tops", "Satellite", PaletteAction::Reload),
+        ];
+        assert_eq!(
+            submit_search(
+                &entries,
+                DockTab::Radar,
+                LayerFilter::All,
+                "infrared",
+                &[],
+                chrono::NaiveDate::from_ymd_opt(2026, 10, 1).unwrap()
+            ),
+            Some(SearchSubmit::Action(PaletteAction::GoLive))
+        );
+    }
 }
 
 #[cfg(test)]

@@ -37,7 +37,7 @@ impl HookEchoApp {
         let style = self.settings.broadcast.clone();
         let inner = rect.shrink(style.margin_px(rect.width(), rect.height()).max(12.0));
         let v = &self.views[self.active];
-        let valid = v.timeline.current().and_then(|id| id.date_time());
+        let valid = v.displayed_radar_time();
         let site = v.site.clone().unwrap_or_default();
         let tz = self.active_tz();
 

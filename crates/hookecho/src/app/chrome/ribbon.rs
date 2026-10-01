@@ -904,14 +904,11 @@ impl HookEchoApp {
             .site
             .clone()
             .unwrap_or_else(|| "\u{2014}".to_string());
-        let age = self.views[self.active].volume.as_ref().map(|v| {
-            let secs = (Utc::now() - v.time).num_seconds().max(0);
+        let age = self.views[self.active].displayed_radar_time().map(|time| {
+            let secs = (Utc::now() - time).num_seconds().max(0);
             humanize(secs)
         });
-        let valid_dt = self.views[self.active]
-            .timeline
-            .current()
-            .and_then(|id| id.date_time());
+        let valid_dt = self.views[self.active].displayed_radar_time();
         let time_warning = {
             let mismatches = self.field_time_mismatches();
             mismatches

@@ -8,6 +8,81 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Improved: Settings in narrow docks
+
+Settings forms stack labels and controls in narrow panels. Theme and unit choices wrap,
+sound selectors keep their preview buttons visible, and hotkey bindings remain accessible.
+Search fields and custom URL fields fit their host width. The editor scrolls vertically;
+its section selector stays within the dock. A GPU capture test renders all nine sections
+at narrow and wide widths using the app's fonts and workstation theme for visual review.
+
+### Improved: uncertainty envelopes for storm lines
+
+Manual line tracks now offer independent left/right widths and draw the expanding uncertainty
+of each line segment. Population queries use the same swept parts, preserving gaps around
+bent lines. Zone checks include the line envelope, and point-arrival checks consider interior
+bends. Impact cache keys include every vertex and geometric control, so reshaping a line
+refreshes its population lookup. Drawing reuses envelope geometry until it changes.
+
+### Improved: independent storm uncertainty widths
+
+Manual point tracks offer separate left and right uncertainty widths in the motion card.
+The swath, point arrival flags, zone flank checks, and population lookup key use both widths.
+Defaults remain symmetric. Zone checks now detect crossings between sample points, including
+small zones crossed by a storm line and zones between a point track's center and flank.
+
+### Improved: manual storm projection controls
+
+The manual-motion card offers projection intervals of 5, 10, 15, 20, 30, or 60 minutes.
+Point markers and projected line edges use the selected interval and always show the hour's
+endpoint. Changing marker spacing preserves motion, arrival estimates, and impact geometry.
+The card adapts its width to the map and scrolls long track lists vertically.
+
+### Improved: storm evidence in the Cell dock
+
+Cell analysis shows containing ProbSevere objects with their provider IDs and hazard
+probabilities. Polygon associations respect holes. Circulation associations compare every
+current SCIT core, use a 10 km limit, and remain ambiguous when competing cores are within
+1 km of equal separation. The card distinguishes detector scores from spatial associations
+and explicitly names missing ProbSevere source times.
+
+### Improved: Settings and search in the ImGui dock
+
+The main Settings editor now uses the workstation's themed tool window, including docking,
+floating, collapse, and saved placement. All nine sections share the existing settings controls;
+narrow docks use a section selector and scrollable content. Search shortcuts bring Layers to
+the front even when another dock tab is selected. Enter activates the top matching command,
+layer, or site, with place lookup available when no registry result matches.
+
+### Fixed: radar time and age follow the displayed tilt
+
+The timeline, Inspector, status footer, ribbon, and broadcast labels use the selected moment's
+latest radial acquisition time instead of the volume start time. Live merges refresh those
+times, including supplemental low-level rescans, while untouched tilts keep their own time.
+Repeated cuts select the newest sweep for both full binning and progressive cache updates.
+Sources without radial timestamps retain the volume-time fallback. The gate inspector's time
+range excludes radials that lack the selected moment or a valid timestamp.
+
+### Improved: storm analysis from the ImGui dock
+
+The Storms table can filter by cell ID and shows the matching count. Hover a row for its SCIT
+source timestamp and the evidence behind its severity score. Right-click for full details,
+centering, or a manual track seeded from SCIT motion; tracking is disabled when motion is absent.
+Arrow keys select adjacent rows while the table has focus, and Enter opens details. Table
+navigation keeps the radar timeline in place, and leaving the table restores global shortcuts.
+Text fields also retain their unmodified navigation keys while being edited.
+
+The severe-hail probability column is now labeled PSH (POSH on hover), replacing the incorrect
+SHI label. Values are clipped to their columns so long IDs and large estimates cannot run into
+neighboring values, and rotation flags have a labeled column.
+Narrow docks scroll the columns and headers together while keeping the table footer visible.
+
+### Fixed: Windows regression checks
+
+Plugin process tests now use native Windows commands to verify output, failures, and timeout
+recovery. Palette-bundle import tests restore files into a temporary directory instead of
+overwriting a user's REF palette. Existing renderer and test lint findings are also corrected.
+
 ### Fixed: model contours and the Layers window
 
 Model contours (STP, CAPE, MSLP and the rest) are remembered across restarts like every other

@@ -9,6 +9,10 @@ use crate::render::{mercator::Camera, MapCallback, OverlayUpload, RenderResource
 use crate::tiles::{BasemapStyle, TileManager};
 use wxdata::level2::{self, Moment};
 
+#[cfg(test)]
+#[path = "headless_ui.rs"]
+pub(crate) mod ui;
+
 /// Output edge length in pixels, and the zoom override, if either was asked for.
 ///
 /// Process-global rather than threaded through the dozen render entry points, because every
@@ -4533,7 +4537,7 @@ mod golden_tests {
                     polar: [az0 + k as f32, 1.2, 8.0, 1.0],
                     data: [0.5, 0.0, instances.len() as f32, 40.0],
                 });
-                values.extend(std::iter::repeat(value).take(40));
+                values.extend(std::iter::repeat_n(value, 40));
             }
         }
         let rows = instances.len() as u32;
@@ -4683,7 +4687,9 @@ mod golden_tests {
         res.render_once(&device, &queue, &view, &cb, wgpu::Color::BLACK);
         let px = read_target(&device, &queue, &target, size);
         let lit = px
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .filter(|p| p[0] as u32 + p[1] as u32 + p[2] as u32 > 30)
             .count();
         println!("lit pixels: {lit}");

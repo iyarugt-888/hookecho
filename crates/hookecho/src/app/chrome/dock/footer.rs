@@ -117,9 +117,7 @@ impl HookEchoApp {
             .as_ref()
             .and_then(|x| x.elevations.get(v.tilt).copied());
         let age = v
-            .timeline
-            .current()
-            .and_then(|id| id.date_time())
+            .displayed_radar_time()
             .map(|d| (chrono::Utc::now() - d).num_seconds());
         let text = footer_text(
             pointer,

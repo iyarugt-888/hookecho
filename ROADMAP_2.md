@@ -18,6 +18,102 @@ The target is a workstation that can be used continuously during a high-impact e
 
 ## Implementation progress (2026-09-29)
 
+Settings visual review (2026-10-01, §13.4): offscreen GPU renders of all nine shared Settings
+sections at 280 and 640 pixels exposed clipped controls in narrow docks. Responsive forms
+now stack their labels, choice rows wrap, hotkey bindings remain visible, and sound previews
+stay beside their selectors. Search/custom URL fields and section navigation respect the
+host width. The editor scrolls vertically. The ignored `gpu_settings_dock_snapshots` test
+uses the app's fonts and workstation theme and writes captures to `target/ui-review`.
+The three Settings dock tests pass when explicitly including the GPU capture test.
+This verifies the isolated editor; full application interaction and pen/touch gates remain open.
+Validation: workspace Clippy passes with warnings denied; the Windows workspace test run
+passes (1,930 passed, 105 intentionally ignored). The Settings GPU test also passes when
+run explicitly, producing all 18 narrow/wide captures.
+
+Line uncertainty envelope (2026-10-01, §2.2–§2.4): manual lines now share the independent
+left/right width controls. Each segment has a convex swept uncertainty part sampled through
+the hour; the union preserves gaps around bends, and drawing and population queries use those
+same parts. Zone checks evaluate the instantaneous envelope, including degenerate segments.
+Point-arrival uncertainty considers eligible interior vertices as well as endpoints. Geometry
+cache identity includes every line vertex and control, and drawing reuses the parts until
+that geometry changes. Regression cases cover asymmetric line coverage, reversed vertex order,
+bends, preserved gaps, hull degeneracy, vertex edits, and geometry reuse. These remain motion
+estimates; runtime visual and pen/touch validation are still open.
+Validation: workspace Clippy passes with warnings denied; the Windows workspace test run
+passes (1,930 passed, 104 intentionally ignored), including the line-envelope and geometry
+cache regressions described above.
+
+Independent uncertainty widths (2026-10-01, §2.2, §2.4): manual point tracks now have left and
+right base widths, editable in the motion card, with symmetric defaults. Swath drawing, point
+arrival flags, zone flank checks, and population lookup identity use the selected side.
+Zone intersections check the segment between the center's flanks, and storm-line segments
+crossing a polygon are detected even when no vertex or midpoint falls inside it. Width/cone
+tests check agreement between the footprint and point arrivals, asymmetric zone coverage,
+and refreshed impact identity. The line-envelope update above extends these controls to lines;
+pen/touch validation remains open.
+Validation: workspace Clippy passes with warnings denied; the Windows workspace test run
+passes (1,924 passed, 104 intentionally ignored), including asymmetric footprint/arrival,
+side-specific zone, cone expansion, small-zone line crossing, and segment intersection tests.
+
+Projection interval control (2026-10-01, §2.2, §2.3, §13.4): each manual point or line track
+has a display interval, selectable in the motion card (5/10/15/20/30/60 minutes, default 15).
+The same iterator draws point markers and future line edges and always includes the 60-minute
+endpoint. Display changes preserve motion, ETAs, footprints, and population lookup identity.
+The motion card sizes to the map and scrolls long track lists; cone/width controls wrap in a
+narrow host. Mouse/pen/touch runtime validation remains open; point-track uncertainty widths
+are covered by the subsequent update above.
+Validation: workspace Clippy passes with warnings denied; the Windows workspace test run
+passes (1,919 passed, 104 intentionally ignored). Regression tests cover endpoint retention,
+non-dividing and invalid intervals, and unchanged motion, impacts, and line geometry.
+
+Storm association foundation (2026-10-01, §2.1, §2.5): Cell analysis now uses shared spatial
+associations retaining indices into the original warning, ProbSevere, and circulation objects.
+Warning and ProbSevere coverage respects polygon holes. Circulations are assigned against all
+current SCIT cores, with a 10 km limit and explicit ambiguity when competing separations differ
+by at most 1 km. This prevents separate open cards from independently claiming a signature.
+The card includes ProbSevere provider IDs and probabilities, explains containment and nearest
+core associations, and names unavailable provider times. This is the spatial foundation;
+cross-source temporal confidence, manual annotations, and a persistent unified storm entity
+remain open, along with pen/touch validation.
+Validation: workspace Clippy passes with warnings denied; the Windows workspace test run
+passes (1,917 passed, 104 intentionally ignored), including competing-core, ambiguous-match,
+distance-limit, and polygon-hole association regressions.
+
+Dock Settings and freshness corrections (2026-10-01, §1, §13.4): main Settings now lives in
+the workstation window system with its theme, docking, collapse, and persisted placement.
+All nine sections use shared controls; narrow hosts keep navigation above scrolling content.
+Search brings Layers forward from another selected dock tab, and Enter uses the ranked visible
+match. Radar valid-time and age readouts use the displayed tilt and moment's newest acquired
+radial, cached with the volume and refreshed on progressive merges, including SAILS/MRLE.
+No-timestamp sources fall back to the volume time. Regression coverage checks tilt changes,
+repeat cuts, live merges, timestamp absence, and search behind another tab. Visual and
+pen/touch validation remain open.
+Validation: workspace Clippy passes with warnings denied; the final Windows workspace test
+run passes (1,913 passed, 104 intentionally ignored). The Settings editor's narrow and wide
+hosts, saved placement, old-arrangement defaults, and key-capture release are covered offline.
+
+Storms dock operator workflow (2026-10-01, §2.5, §13.4): the ImGui Storms table now filters cell
+IDs, reports the matching count, and shows each row's SCIT timestamp and severity evidence on
+hover. A row's context menu opens the full Cell analysis window, centers the map, or seeds the
+manual motion tool from SCIT through the same path as the Cell window. Arrow keys step through
+the filtered sort order; Enter opens details. Focused list navigation reserves its keys before
+global hotkeys run, preventing an arrow press from scrubbing radar history. The severe-hail
+probability header is corrected from SHI to PSH (POSH on hover); numeric text is clipped per
+column, rotation flags have a header, and the footer explains keyboard controls. Filtering and
+shortcut ownership have offline regression tests. This advances operator efficiency; pen/touch
+verification and the full unified storm model remain open.
+
+Windows regression gate (§3, §8, 2026-10-01): the offline workspace run exposed three plugin
+tests that assumed Unix commands and a bundle-import test that wrote into the user's palette
+directory. The plugin tests now use PowerShell on Windows (and retain the Unix path elsewhere),
+including the timeout case. Bundle import's test uses an explicit temporary destination and
+cleans it up, exercising the same import implementation without touching user palettes.
+Mechanical renderer/test lint findings were corrected as part of restoring the required gates.
+Validation: `cargo clippy --workspace --all-targets -- -D warnings` passes, and
+`cargo test --workspace` passes on Windows (1,906 passed, 104 intentionally ignored).
+The final run disabled incremental caching after generated build caches exhausted the disk.
+Visual, pen/touch and prolonged live-session verification remain open.
+
 Phase 1 has started with a per-pane live Level II acquisition state (`crates/hookecho/src/live_scan.rs`). It tracks the current provider, chunk/cut progress, accepted volume identifier and time, recovery, fallback, aging, and staleness. The top-bar radar status now exposes that state; queued updates from superseded streams and older volume/chunk updates are rejected. Deterministic unit tests cover sweep completion, supplemental cut positions, recovery, polling fallback, and time reversal.
 
 The partial-sweep stitcher now keeps the newest radial at each azimuth even when a delayed chunk arrives later. Repeated and older chunks no longer produce a false changed-sweep update. Synthetic tests cover reordered chunks, gap filling, retention of the previous pass, and the stale-sector mask passed to rendering.

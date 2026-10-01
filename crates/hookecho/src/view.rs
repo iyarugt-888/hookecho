@@ -450,6 +450,8 @@ pub struct Volume {
     pub elevations: Vec<f32>,
     /// Which moments *this* volume carries (the pane keeps the wider union for its UI rows).
     pub moments: [bool; Moment::ALL.len()],
+    /// Acquisition times, refreshed with the scan rather than rescanning radials each UI frame.
+    tilt_times: Vec<[Option<DateTime<Utc>>; Moment::ALL.len()]>,
     binned: LruCache<(Moment, usize, bool), BinnedSweep>,
     /// Set once a live chunk has been merged in. Such a volume is still being written — half its
     /// tilts may not have arrived — so it must never be kept and shown again later in place of
@@ -482,6 +484,7 @@ impl Volume {
         let vcp = scan.coverage_pattern_number().to_string();
         let elevations = level2::elevation_angles(&scan);
         let moments = level2::available_moments(&scan);
+        let tilt_times = Self::acquisition_times(&scan, &elevations);
         Self {
             scan,
             name,
@@ -489,12 +492,36 @@ impl Volume {
             vcp,
             elevations,
             moments,
+            tilt_times,
             binned: LruCache::new(NonZeroUsize::new(BINNED_CACHE).unwrap()),
             live: false,
             light: false,
             revision: 0,
             products: LruCache::new(NonZeroUsize::new(6).unwrap()),
         }
+    }
+
+    fn acquisition_times(
+        scan: &Scan,
+        elevations: &[f32],
+    ) -> Vec<[Option<DateTime<Utc>>; Moment::ALL.len()]> {
+        elevations
+            .iter()
+            .map(|&e| {
+                std::array::from_fn(|i| {
+                    level2::sweep_time_range(scan, e, Moment::ALL[i]).map(|(_, end)| end)
+                })
+            })
+            .collect()
+    }
+
+    /// The newest radial in the displayed moment and tilt, including mid-volume rescans.
+    /// Legacy sources without collection metadata retain their volume timestamp.
+    pub fn acquisition_time(&self, moment: Moment, tilt: usize) -> DateTime<Utc> {
+        self.tilt_times
+            .get(tilt)
+            .and_then(|times| times[moment.index()])
+            .unwrap_or(self.time)
     }
 
     /// A user-defined product worked out at every gate of tilt `tilt` (`wxdata::udp_volume`),
@@ -596,12 +623,7 @@ impl Volume {
                         let incremental = (!dealias && moment != Moment::SpecificDifferentialPhase)
                             .then(|| {
                                 let target = new_elev[tilt];
-                                self.scan.sweeps().iter().find(|sweep| {
-                                    sweep.elevation_angle_degrees().is_some_and(|e| {
-                                        (e - target).abs() < 0.15
-                                            && level2::sweep_carries_moment(sweep, moment)
-                                    })
-                                })
+                                level2::newest_moment_sweep(&self.scan, target, moment)
                             })
                             .flatten();
                         let updated = incremental.is_some_and(|sweep| {
@@ -617,6 +639,7 @@ impl Volume {
             }
         }
         self.elevations = new_elev;
+        self.tilt_times = Self::acquisition_times(&self.scan, &self.elevations);
         self.moments = level2::available_moments(&self.scan);
         self.vcp = self.scan.coverage_pattern_number().to_string();
         self.name = name;
@@ -863,6 +886,12 @@ pub struct MapView {
 }
 
 impl MapView {
+    /// Time of the radar data actually retained on screen, independent of a pending playhead move.
+    pub(crate) fn displayed_radar_time(&self) -> Option<DateTime<Utc>> {
+        self.volume
+            .as_ref()
+            .map(|v| v.acquisition_time(self.moment, self.tilt))
+    }
     /// Volumes held off-screen for the playhead to come back to.
     pub fn recent_len(&self) -> usize {
         self.recent.len()
@@ -1272,12 +1301,16 @@ mod tests {
 
     /// A scan with one radial per given elevation, carrying reflectivity only.
     fn scan_at(elevations: &[f32]) -> Arc<Scan> {
+        scan_at_times(&elevations.iter().map(|&e| (e, 0)).collect::<Vec<_>>())
+    }
+
+    fn scan_at_times(elevations: &[(f32, i64)]) -> Arc<Scan> {
         let sweeps: Vec<Sweep> = elevations
             .iter()
-            .map(|e| {
+            .map(|(e, timestamp)| {
                 let data = MomentData::from_fixed_point(1, 2125, 250, 8, 2.0, 66.0, vec![106u8]);
                 let radial = Radial::new(
-                    0,
+                    *timestamp,
                     0,
                     0.0,
                     0.5,
@@ -1313,6 +1346,63 @@ mod tests {
         );
         let site = nexrad_model::meta::Site::new(*b"KTLX", 35.33, -97.28, 380, 0);
         Arc::new(Scan::with_site(site, vcp, sweeps))
+    }
+
+    #[test]
+    fn displayed_time_follows_tilt_and_live_rescans_instead_of_volume_start() {
+        let _serial = BINNING.lock().unwrap_or_else(|e| e.into_inner());
+        let start = DateTime::from_timestamp_millis(1_000).unwrap();
+        let mut v = MapView::new(None, Camera::at_lonlat(-97.0, 35.0, 8.0));
+        v.volume = Some(Volume::new(
+            scan_at_times(&[(0.5, 2_000), (1.5, 3_000)]),
+            "a".into(),
+            start,
+        ));
+        assert_eq!(v.displayed_radar_time().unwrap().timestamp_millis(), 2_000);
+        assert_eq!(
+            v.volume
+                .as_mut()
+                .unwrap()
+                .binned(Moment::Reflectivity, 0, false)
+                .unwrap()
+                .bin_time_ms
+                .iter()
+                .copied()
+                .max(),
+            Some(2_000)
+        );
+        v.tilt = 1;
+        assert_eq!(v.displayed_radar_time().unwrap().timestamp_millis(), 3_000);
+        v.volume.as_mut().unwrap().apply_live(
+            scan_at_times(&[(0.5, 2_000), (0.5, 4_000), (1.5, 3_000)]),
+            "a".into(),
+            start,
+            &[0.5],
+        );
+        assert_eq!(v.displayed_radar_time().unwrap().timestamp_millis(), 3_000);
+        v.tilt = 0;
+        assert_eq!(v.displayed_radar_time().unwrap().timestamp_millis(), 4_000);
+        assert_eq!(
+            v.volume
+                .as_mut()
+                .unwrap()
+                .binned(Moment::Reflectivity, 0, false)
+                .unwrap()
+                .bin_time_ms
+                .iter()
+                .copied()
+                .max(),
+            Some(4_000)
+        );
+        v.moment = Moment::Velocity;
+        assert_eq!(v.displayed_radar_time(), Some(start));
+    }
+
+    #[test]
+    fn absent_radial_times_use_volume_time_without_claiming_epoch_data() {
+        let now = Utc::now();
+        let v = Volume::new(scan_at(&[0.5]), "a".into(), now);
+        assert_eq!(v.acquisition_time(Moment::Reflectivity, 0), now);
     }
 
     /// A lap of a loop must not re-bin what it binned last lap. This is the whole wave: before it,

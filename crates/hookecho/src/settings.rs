@@ -2046,10 +2046,17 @@ impl Settings {
     /// colortables dir and rewrites the palette paths to point there, so the imported palettes
     /// resolve locally. Returns the ready-to-use Settings (caller assigns + saves).
     pub fn import_bundle(json: &str) -> Result<Settings, String> {
+        Self::import_bundle_with_dir(json, Self::colortables_dir)
+    }
+
+    fn import_bundle_with_dir(
+        json: &str,
+        palette_dir: impl FnOnce() -> Option<PathBuf>,
+    ) -> Result<Settings, String> {
         let bundle: SettingsBundle = serde_json::from_str(json).map_err(|e| e.to_string())?;
         let mut settings = bundle.settings;
         if !bundle.palette_files.is_empty() {
-            let dir = Self::colortables_dir().ok_or("no colortables dir")?;
+            let dir = palette_dir().ok_or("no colortables dir")?;
             for (moment, text) in &bundle.palette_files {
                 let path = dir.join(format!("{moment}.pal"));
                 std::fs::write(&path, text).map_err(|e| e.to_string())?;
@@ -2359,9 +2366,11 @@ mod tests {
     #[test]
     fn the_comparison_view_and_paint_order_roundtrip() {
         use crate::fielddiff::{DiffField, DiffMode};
-        let mut s = Settings::default();
-        s.compare_view = Some((DiffField::RunToRunCape, DiffMode::Percent));
-        s.field_order = vec![crate::render::FieldLayer::Mrms];
+        let s = Settings {
+            compare_view: Some((DiffField::RunToRunCape, DiffMode::Percent)),
+            field_order: vec![crate::render::FieldLayer::Mrms],
+            ..Default::default()
+        };
         let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
         assert_eq!(back.compare_view, s.compare_view);
         assert_eq!(back.field_order, s.field_order);
@@ -2785,12 +2794,23 @@ mod tests {
             "settings": {"default_site":"KFWS","theme":"Magma","markers":[{"name":"H","lat":1.0,"lon":2.0}]},
             "palette_files": {"REF":"; test palette\nStep: 5\n"}
         }"#;
-        let s = Settings::import_bundle(json).expect("import");
+        let dir = std::env::temp_dir().join(format!(
+            "hookecho-bundle-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let s = Settings::import_bundle_with_dir(json, || Some(dir.clone())).expect("import");
         assert_eq!(s.default_site, "KFWS");
         assert_eq!(s.theme, Theme::Dark); // "Magma" is aliased onto Dark
         let ref_path = s.palettes.get("REF").expect("REF palette path set");
         let text = std::fs::read_to_string(ref_path).expect("palette file written");
         assert!(text.contains("test palette"));
+        std::fs::remove_file(ref_path).unwrap();
+        std::fs::remove_dir(dir).unwrap();
     }
 
     #[test]

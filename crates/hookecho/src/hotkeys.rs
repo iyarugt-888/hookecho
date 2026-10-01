@@ -223,6 +223,9 @@ pub(crate) fn poll(ctx: &egui::Context, bindings: &[Binding]) -> Vec<BindableAct
     // A text field, not merely any focused widget: tapping a checkbox or button focuses it too, and
     // treating that as typing left the single-key shortcuts dead until focus was cleared.
     let typing = ctx.text_edit_focused();
+    let navigation = ctx
+        .data(|data| data.get_temp::<egui::Id>(egui::Id::new("local_navigation")))
+        .is_some_and(|id| ctx.memory(|memory| memory.has_focus(id)));
     ctx.input_mut(|i| {
         let pressed: Vec<egui::Key> = i
             .events
@@ -261,7 +264,8 @@ pub(crate) fn poll(ctx: &egui::Context, bindings: &[Binding]) -> Vec<BindableAct
         }
         let mut out: Vec<BindableAction> = bindings
             .iter()
-            .filter(|b| !(typing && steals_typing(b.shortcut)))
+            .filter(|b| !(typing && (steals_typing(b.shortcut) || is_navigation_key(b.shortcut))))
+            .filter(|b| !(navigation && is_navigation_key(b.shortcut)))
             .filter(|b| i.consume_shortcut(&b.shortcut))
             .map(|b| b.action)
             .collect();
@@ -270,6 +274,20 @@ pub(crate) fn poll(ctx: &egui::Context, bindings: &[Binding]) -> Vec<BindableAct
         }
         out
     })
+}
+
+/// A focused list owns its unmodified navigation keys before the global shortcuts are polled.
+/// Focus comparison makes the reservation expire as soon as the operator leaves the list.
+pub(crate) fn reserve_navigation(ctx: &egui::Context, id: egui::Id) {
+    ctx.data_mut(|data| data.insert_temp(egui::Id::new("local_navigation"), id));
+}
+
+fn is_navigation_key(shortcut: egui::KeyboardShortcut) -> bool {
+    shortcut.modifiers.is_none()
+        && matches!(
+            shortcut.logical_key,
+            egui::Key::ArrowUp | egui::Key::ArrowDown | egui::Key::Enter | egui::Key::Space
+        )
 }
 
 /// Whether `key` is one an ordinary keyboard has without a function row or a Fn layer: a letter,
@@ -636,5 +654,38 @@ mod tests {
         assert!(text_fallback(&[], &["\u{e9}".into()], &b).is_empty());
         // Upper case (Caps Lock) names the same key.
         assert!(text_fallback(&[], &["N".into()], &b).contains(&BindableAction::ProductNext));
+    }
+
+    #[test]
+    fn list_navigation_does_not_scrub_radar_and_expires_on_focus_change() {
+        let ctx = egui::Context::default();
+        let row = egui::Id::new("storm_row");
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            ui.interact(egui::Rect::EVERYTHING, row, egui::Sense::click())
+                .request_focus();
+            reserve_navigation(&ctx, row);
+        });
+        let input = || egui::RawInput {
+            events: vec![egui::Event::Key {
+                key: egui::Key::ArrowDown,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+            ..Default::default()
+        };
+        let _ = ctx.run_ui(input(), |ui| {
+            assert!(poll(&ctx, &defaults()).is_empty());
+            assert!(
+                ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)),
+                "list still receives the arrow"
+            );
+            ui.interact(egui::Rect::EVERYTHING, row, egui::Sense::click())
+                .surrender_focus();
+        });
+        let _ = ctx.run_ui(input(), |_| {
+            assert!(poll(&ctx, &defaults()).contains(&BindableAction::StepHourBack));
+        });
     }
 }

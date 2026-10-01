@@ -7,7 +7,7 @@ use crate::settings::{Settings, Theme, TimeDisplay, VelocityUnit};
 use crate::ui::a11y::Named as _;
 use wxdata::level2::Moment;
 
-#[derive(Default, PartialEq, Clone, Copy)]
+#[derive(Debug, Default, PartialEq, Clone, Copy)]
 enum Tab {
     #[default]
     General,
@@ -21,6 +21,145 @@ enum Tab {
     Hotkeys,
     Sync,
     Storage,
+}
+
+#[cfg(test)]
+mod dock_tests {
+    use super::*;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "gpu: writes Settings captures for visual review"]
+    fn gpu_settings_dock_snapshots() {
+        let gpu = crate::headless::ui::Snapshot::new().expect("GPU adapter for UI review");
+        let destination =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/ui-review");
+        std::fs::create_dir_all(&destination).unwrap();
+        for width in [280, 640] {
+            for (tab, name) in [
+                (Tab::General, "general"),
+                (Tab::Appearance, "appearance"),
+                (Tab::Palettes, "palettes"),
+                (Tab::Units, "units"),
+                (Tab::Basemaps, "basemaps"),
+                (Tab::Alerts, "alerts"),
+                (Tab::Hotkeys, "hotkeys"),
+                (Tab::Sync, "sync"),
+                (Tab::Storage, "storage"),
+            ] {
+                let mut window = SettingsWindow {
+                    open: true,
+                    tab,
+                    scanned: true,
+                    storage_rows: Some(vec![]),
+                    ..Default::default()
+                };
+                let mut settings = Settings {
+                    layout: crate::settings::Layout::Dock,
+                    theme: Theme::DearImGui,
+                    ..Default::default()
+                };
+                let palettes = Palettes::default();
+                let tokens =
+                    crate::ui::workstation::Tokens::new(egui::Color32::from_rgb(72, 142, 226));
+                gpu.save(
+                    &destination.join(format!("settings-{name}-{width}.png")),
+                    width,
+                    720,
+                    |ui| {
+                        egui::Frame::NONE
+                            .fill(tokens.panel)
+                            .inner_margin(10)
+                            .show(ui, |ui| {
+                                crate::ui::workstation::style_scope(ui, &tokens);
+                                crate::ui::workstation::window_header(
+                                    ui,
+                                    &tokens,
+                                    egui_phosphor::regular::GEAR,
+                                    "Settings",
+                                    Some(crate::workspace::Place::Float),
+                                    Some(false),
+                                );
+                                window.show_body(
+                                    ui,
+                                    &mut settings,
+                                    &palettes,
+                                    SyncView {
+                                        signed_in: false,
+                                        status: "Offline",
+                                        login_url: None,
+                                        last_sync: 0,
+                                    },
+                                    &[],
+                                    true,
+                                );
+                            });
+                    },
+                )
+                .unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn closing_settings_releases_key_capture_and_rebinding() {
+        let mut window = SettingsWindow {
+            open: true,
+            rebinding: Some(BindableAction::CommandSearch),
+            capturing: true,
+            ..Default::default()
+        };
+        window.prepare();
+        window.open = false;
+        window.prepare();
+        assert!(!window.capturing && window.rebinding.is_none());
+    }
+
+    #[test]
+    fn narrow_and_wide_dock_hosts_render_shared_settings_sections() {
+        for width in [280.0, 620.0] {
+            for tab in [Tab::Appearance, Tab::Units, Tab::Hotkeys, Tab::Sync] {
+                let ctx = egui::Context::default();
+                let mut window = SettingsWindow {
+                    open: true,
+                    tab,
+                    ..Default::default()
+                };
+                let mut settings = Settings::default();
+                let palettes = Palettes::default();
+                let output = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(width, 420.0),
+                        )),
+                        ..Default::default()
+                    },
+                    |ui| {
+                        window.show_body(
+                            ui,
+                            &mut settings,
+                            &palettes,
+                            SyncView {
+                                signed_in: false,
+                                status: "Offline",
+                                login_url: None,
+                                last_sync: 0,
+                            },
+                            &[],
+                            true,
+                        );
+                        assert!(
+                            ui.min_rect().width() <= width,
+                            "settings {tab:?} widened {width} pt dock to {:?}",
+                            ui.min_rect()
+                        );
+                    },
+                );
+                assert!(!output.shapes.is_empty());
+            }
+        }
+    }
 }
 
 /// What the app knows about the sync session, handed in so this window stays state-free.
@@ -69,6 +208,23 @@ pub struct SettingsWindow {
 }
 
 impl SettingsWindow {
+    pub(crate) fn prepare(&mut self) {
+        if self.open && !self.prev_open {
+            self.scanned = false;
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                self.storage_rows = None;
+            }
+            #[cfg(target_arch = "wasm32")]
+            crate::webcache::spawn_refresh_auto_cache();
+        }
+        self.prev_open = self.open;
+        if !self.open {
+            self.rebinding = None;
+            self.capturing = false;
+        }
+    }
+
     /// `palettes` is read-only here (for parse-error badges); edits go through `settings` and
     /// the app reloads tables via the settings dirty-diff.
     pub(crate) fn show(
@@ -80,17 +236,7 @@ impl SettingsWindow {
         entries: &[PaletteEntry],
         drawer: &mut crate::ui::drawer::Drawer,
     ) -> Option<SyncAction> {
-        let mut action = None;
-        if self.open && !self.prev_open {
-            self.scanned = false; // rescan the folder each time the window opens
-            #[cfg(not(target_arch = "wasm32"))]
-            {
-                self.storage_rows = None; // and re-measure the caches, which move between visits
-            }
-            #[cfg(target_arch = "wasm32")]
-            crate::webcache::spawn_refresh_auto_cache();
-        }
-        self.prev_open = self.open;
+        self.prepare();
 
         let mut open = self.open;
         let Some(window) = drawer.page(
@@ -103,24 +249,59 @@ impl SettingsWindow {
             self.open = open;
             return None;
         };
+        let mut action = None;
         window.show(ctx, |ui| {
             // Keep the whole window inside a phone screen; tabs wrap instead of clipping.
             if cfg!(target_os = "android") {
                 ui.set_max_width(ui.ctx().content_rect().width() - 28.0);
             }
-            let imgui = crate::theme::is_imgui_style();
+            action = self.show_body(ui, settings, palettes, sync, entries, false);
+        });
+        self.open = open;
+        if !open {
+            self.prepare();
+        }
+        action
+    }
+
+    /// The same settings editor inside a workstation tool window or the legacy drawer.
+    /// Workstation section navigation stays above its independently scrolling content.
+    pub(crate) fn show_body(
+        &mut self,
+        ui: &mut egui::Ui,
+        settings: &mut Settings,
+        palettes: &Palettes,
+        sync: SyncView,
+        entries: &[PaletteEntry],
+        workstation: bool,
+    ) -> Option<SyncAction> {
+        let imgui = workstation || crate::theme::is_imgui_style();
+        let tabs = [
+            (Tab::General, "General"),
+            (Tab::Appearance, "Appearance"),
+            (Tab::Palettes, "Palettes"),
+            (Tab::Units, "Units"),
+            (Tab::Basemaps, "Basemaps"),
+            (Tab::Alerts, "Alerts"),
+            (Tab::Hotkeys, "Hotkeys"),
+            (Tab::Sync, "Sync"),
+            (Tab::Storage, "Storage"),
+        ];
+        if workstation && ui.available_width() < 540.0 {
             ui.horizontal_wrapped(|ui| {
-                for (tab, label) in [
-                    (Tab::General, "General"),
-                    (Tab::Appearance, "Appearance"),
-                    (Tab::Palettes, "Palettes"),
-                    (Tab::Units, "Units"),
-                    (Tab::Basemaps, "Basemaps"),
-                    (Tab::Alerts, "Alerts"),
-                    (Tab::Hotkeys, "Hotkeys"),
-                    (Tab::Sync, "Sync"),
-                    (Tab::Storage, "Storage"),
-                ] {
+                ui.label("Section");
+                egui::ComboBox::from_id_salt("settings_section")
+                    .selected_text(tabs.iter().find(|(tab, _)| *tab == self.tab).unwrap().1)
+                    .width((ui.available_width() - 64.0).clamp(100.0, 240.0))
+                    .show_ui(ui, |ui| {
+                        for (tab, label) in tabs {
+                            ui.selectable_value(&mut self.tab, tab, label);
+                        }
+                    });
+            });
+        } else {
+            ui.horizontal_wrapped(|ui| {
+                for (tab, label) in tabs {
                     // Chips on the phone: a `selectable_value` is a text-height target, and
                     // seven of them wrapped across a 360pt screen is a game of darts.
                     if cfg!(target_os = "android") {
@@ -146,25 +327,44 @@ impl SettingsWindow {
                     }
                 }
             });
-            ui.separator();
-            match self.tab {
-                Tab::General => general_tab(ui, settings, &mut self.run_setup, &mut self.run_tour),
-                Tab::Appearance => appearance_tab(ui, settings),
-                Tab::Palettes => self.palettes_tab(ui, settings, palettes),
-                Tab::Units => units_tab(ui, settings),
-                Tab::Basemaps => basemaps_tab(ui, settings),
-                Tab::Alerts => alerts_tab(ui, settings),
-                Tab::Hotkeys => self.hotkeys_tab(ui, settings, entries),
-                Tab::Sync => action = sync_tab(ui, settings, &sync),
-                Tab::Storage => self.storage_tab(ui, settings),
-            }
-        });
-        self.capturing = self.rebinding.is_some() && open;
-        if !open {
-            self.rebinding = None;
         }
-        self.open = open;
+        ui.separator();
+        let action = if workstation {
+            egui::ScrollArea::vertical()
+                .id_salt(("settings_body", self.tab as u8))
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    ui.set_max_width(ui.available_width());
+                    self.tab_contents(ui, settings, palettes, &sync, entries)
+                })
+                .inner
+        } else {
+            self.tab_contents(ui, settings, palettes, &sync, entries)
+        };
+        self.capturing = self.rebinding.is_some() && self.open && self.tab == Tab::Hotkeys;
         action
+    }
+
+    fn tab_contents(
+        &mut self,
+        ui: &mut egui::Ui,
+        settings: &mut Settings,
+        palettes: &Palettes,
+        sync: &SyncView,
+        entries: &[PaletteEntry],
+    ) -> Option<SyncAction> {
+        match self.tab {
+            Tab::General => general_tab(ui, settings, &mut self.run_setup, &mut self.run_tour),
+            Tab::Appearance => appearance_tab(ui, settings),
+            Tab::Palettes => self.palettes_tab(ui, settings, palettes),
+            Tab::Units => units_tab(ui, settings),
+            Tab::Basemaps => basemaps_tab(ui, settings),
+            Tab::Alerts => alerts_tab(ui, settings),
+            Tab::Hotkeys => self.hotkeys_tab(ui, settings, entries),
+            Tab::Sync => return sync_tab(ui, settings, sync),
+            Tab::Storage => self.storage_tab(ui, settings),
+        }
+        None
     }
 
     /// What the app has written to disk, and the buttons that take it back.
@@ -187,7 +387,7 @@ impl SettingsWindow {
         }
 
         let Some(rows) = &self.storage_rows else {
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 ui.spinner();
                 ui.weak("Measuring…");
             });
@@ -197,7 +397,7 @@ impl SettingsWindow {
 
         let total: u64 = rows.iter().map(|r| r.bytes).sum();
         let mut recheck = false;
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.strong(format!("{} in caches", crate::storage::human(total)));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 recheck |= ui.button("Refresh").clicked();
@@ -208,7 +408,7 @@ impl SettingsWindow {
 
         egui::ScrollArea::vertical().show(ui, |ui| {
             for row in rows {
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     ui.label(row.label);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         // Only the capped directories get a Clear: the loose-files row is a
@@ -257,7 +457,7 @@ impl SettingsWindow {
                 "Applies to the raster and vector tile caches separately. 0 = platform default.",
             ),
         ] {
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 ui.label(label);
                 ui.add(
                     egui::DragValue::new(mb)
@@ -285,7 +485,7 @@ impl SettingsWindow {
         let packs = crate::webcache::known_packs();
         let pack_bytes: u64 = packs.iter().map(|p| p.bytes as u64).sum();
 
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.strong(format!(
                 "{} in IndexedDB",
                 crate::storage::human(auto_bytes + obj_bytes + pack_bytes)
@@ -304,7 +504,7 @@ impl SettingsWindow {
         // than fighting the label for the same row's width — this window is narrow enough (see
         // the Layers panel's own width fights) that a long label plus a right-aligned readout on
         // one line draws the two on top of each other instead of wrapping.
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label("Model, MRMS and satellite data");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button("Clear").clicked() {
@@ -323,7 +523,7 @@ impl SettingsWindow {
             obj_count,
             if obj_count == 1 { "" } else { "s" }
         ));
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label("Auto-cache");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button("Clear").clicked() {
@@ -375,9 +575,12 @@ impl SettingsWindow {
             }
         };
 
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label("Filter");
-            ui.text_edit_singleline(&mut self.hotkey_query);
+            ui.add(
+                egui::TextEdit::singleline(&mut self.hotkey_query)
+                    .desired_width(ui.available_width().min(220.0)),
+            );
             if ui.button("Reset to defaults").clicked() {
                 settings.keybinds.clear();
                 self.rebinding = None;
@@ -473,10 +676,9 @@ impl SettingsWindow {
                 } else {
                     ui.ctx().format_shortcut(&settings.keybinds[i].shortcut)
                 };
-                ui.horizontal(|ui| {
-                    ui.set_min_width(ui.available_width());
+                ui.vertical(|ui| {
                     ui.label(label);
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.horizontal_wrapped(|ui| {
                         if ui.selectable_label(armed, text).clicked() {
                             self.rebinding = if armed {
                                 None
@@ -520,7 +722,7 @@ impl SettingsWindow {
             self.rescan();
         }
         let dir = Settings::colortables_dir();
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label("Color tables (GRLevelX .pal)");
             if ui.button("⟳ Rescan folder").clicked() {
                 self.scanned = false;
@@ -613,17 +815,18 @@ impl SettingsWindow {
 }
 
 fn units_tab(ui: &mut egui::Ui, settings: &mut Settings) {
-    egui::Grid::new("units_grid").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
-        ui.label("Velocity / spectrum width");
-        ui.horizontal(|ui| {
+    let stacked = ui.available_width() < 440.0;
+    settings_form(ui, "units_grid", |ui| {
+        grid_label(ui, stacked, "Velocity / spectrum width");
+        ui.horizontal_wrapped(|ui| {
             for u in VelocityUnit::ALL {
                 ui.selectable_value(&mut settings.velocity_unit, u, u.label());
             }
         });
         ui.end_row();
 
-        ui.label("Temperature");
-        ui.horizontal(|ui| {
+        grid_label(ui, stacked, "Temperature");
+        ui.horizontal_wrapped(|ui| {
             for u in crate::settings::TempUnit::ALL {
                 ui.selectable_value(&mut settings.temp_unit, u, u.label());
             }
@@ -632,22 +835,42 @@ fn units_tab(ui: &mut egui::Ui, settings: &mut Settings) {
         .on_hover_text("Surface station plots (observations arrive in Celsius)");
         ui.end_row();
 
-        ui.label("Time display");
-        ui.horizontal(|ui| {
+        grid_label(ui, stacked, "Time display");
+        ui.horizontal_wrapped(|ui| {
             for d in TimeDisplay::ALL {
                 ui.selectable_value(&mut settings.time_display, d, d.label());
             }
         })
         .response
-        .on_hover_text("Site local reads the clock the radar is standing in; UTC is the Zulu time on the wire");
+        .on_hover_text(
+            "Site local reads the clock the radar is standing in; UTC is the Zulu time on the wire",
+        );
         ui.end_row();
 
-        ui.label("Layer time warning (min)");
+        grid_label(ui, stacked, "Layer time warning (min)");
         ui.add(egui::DragValue::new(&mut settings.time_mismatch_minutes).range(0..=120))
             .on_hover_text("Warn when a layer's valid time differs from the radar scan on screen by more than this many minutes");
         ui.end_row();
     });
     ui.weak("Reflectivity stays dBZ; internal data is unchanged (display-only).");
+}
+
+fn grid_label(ui: &mut egui::Ui, stacked: bool, label: &str) {
+    ui.label(label);
+    if stacked {
+        ui.end_row();
+    }
+}
+
+fn settings_form(ui: &mut egui::Ui, id: &str, contents: impl FnOnce(&mut egui::Ui)) {
+    if ui.available_width() < 440.0 {
+        ui.vertical(contents);
+    } else {
+        egui::Grid::new(id)
+            .num_columns(2)
+            .spacing([12.0, 8.0])
+            .show(ui, contents);
+    }
 }
 
 /// The "Custom (XYZ URL)" basemap's template, zoom cap and attribution.
@@ -664,12 +887,12 @@ fn custom_tile_source(ui: &mut egui::Ui, settings: &mut Settings) {
         "An XYZ template adds a \"Custom\" entry to the basemap list. Desktop and Android only.",
     );
     ui.add_space(6.0);
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.label("URL template");
         ui.add(
             egui::TextEdit::singleline(&mut settings.custom_tile_url)
                 .hint_text("https://tiles.example.com/{z}/{x}/{y}.png")
-                .desired_width(340.0),
+                .desired_width(ui.available_width().clamp(80.0, 340.0)),
         );
     });
     if !settings.custom_tile_url.is_empty()
@@ -681,19 +904,19 @@ fn custom_tile_source(ui: &mut egui::Ui, settings: &mut Settings) {
             "Needs to be an https URL containing {z}, {x} and {y}.",
         );
     }
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.label("Max zoom");
         ui.add(egui::DragValue::new(&mut settings.custom_tile_max_z).range(1..=22))
             .on_hover_text(
                 "Deeper views stretch the deepest tile that loaded rather than blanking",
             );
     });
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.label("Attribution");
         ui.add(
             egui::TextEdit::singleline(&mut settings.custom_tile_attribution)
                 .hint_text("© Your data source")
-                .desired_width(340.0),
+                .desired_width(ui.available_width().clamp(80.0, 340.0)),
         );
     });
 }
@@ -711,16 +934,16 @@ fn radar_relay_section(ui: &mut egui::Ui, settings: &mut Settings) {
          \u{2014} you point this at infrastructure you or someone you trust runs.",
     );
     ui.add_space(6.0);
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.label("Relay URL");
         ui.add(
             egui::TextEdit::singleline(&mut settings.radar_relay_url)
                 .hint_text("https://relay.example.com")
-                .desired_width(300.0),
+                .desired_width(ui.available_width().clamp(80.0, 300.0)),
         );
     });
     ui.add_space(8.0);
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.label("Force data source (testing)");
         egui::ComboBox::from_id_salt("radar_provider_override")
             .selected_text(settings.radar_provider_override.label())
@@ -806,7 +1029,7 @@ fn basemaps_tab(ui: &mut egui::Ui, settings: &mut Settings) {
 /// quirks). Laid out responsively so it fits any width, phone included.
 pub(crate) fn key_field(ui: &mut egui::Ui, label: &str, value: &mut String) {
     ui.label(label);
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         // Reserve space for the trailing buttons; the field takes the rest.
         let paste_w = if cfg!(target_os = "android") {
             62.0
@@ -848,7 +1071,7 @@ fn sync_tab(ui: &mut egui::Ui, settings: &mut Settings, sync: &SyncView) -> Opti
     ui.label("Sign in with Google to keep your settings, saved locations, placefiles and API keys the same on every machine.");
     ui.add_space(6.0);
     if sync.signed_in {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label(egui::RichText::new("✓ Signed in").strong());
             if ui.button("Sign out").clicked() {
                 action = Some(SyncAction::SignOut);
@@ -873,7 +1096,7 @@ fn sync_tab(ui: &mut egui::Ui, settings: &mut Settings, sync: &SyncView) -> Opti
         // The browser has the user right now. Show the link anyway: on a phone (or a desktop with
         // no opener) launching it can fail, and then this is the only way through.
         ui.label("Waiting for you to finish in the browser…");
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             if ui.button("Open sign-in page").clicked() {
                 if let Err(e) = crate::platform::open_url(url) {
                     log::warn!("open_url failed: {e}");
@@ -914,116 +1137,113 @@ fn sync_tab(ui: &mut egui::Ui, settings: &mut Settings, sync: &SyncView) -> Opti
 /// Picking a Theme applies its `recommended_theme_and_density()` pair once, immediately; Color
 /// scheme and Density stay independently changeable right after (nothing re-forces them back).
 fn appearance_tab(ui: &mut egui::Ui, settings: &mut Settings) {
-    egui::Grid::new("appearance_grid")
-        .num_columns(2)
-        .spacing([12.0, 8.0])
-        .show(ui, |ui| {
-            // A phone picks its own design below; a tablet, being the desktop layout, picks a theme
-            // here like a desktop does.
-            if crate::platform::phone_layout() {
-                ui.label("Phone design");
-                ui.vertical(|ui| {
-                    for d in crate::settings::PhoneDesign::ALL {
-                        ui.selectable_value(&mut settings.phone_design, d, d.label())
-                            .on_hover_text(d.tagline());
-                    }
-                    ui.small(settings.phone_design.tagline());
-                });
-                ui.end_row();
-            } else {
-                ui.label("Theme");
-                ui.horizontal(|ui| {
-                    for l in crate::settings::Layout::ALL {
-                        if ui
-                            .selectable_value(&mut settings.layout, l, l.label())
-                            .clicked()
-                        {
-                            let (theme, density) = l.recommended_theme_and_density();
-                            settings.theme = theme;
-                            settings.density = density;
-                        }
-                    }
-                })
-                .response
-                .on_hover_text(
-                    "Command Ribbon: HookEcho's original docked toolbar. WSV3: the analyst \
-                     workstation, map-first \u{2014} a two-row top bar and a docked timeline, \
-                     with the Layers and Inspector windows opened when you want them. Minimal: \
-                     the original map-first search pill and control column. Dock (ImGui): the \
-                     workstation with its windows showing.",
-                );
-                ui.end_row();
-            }
-
-            ui.label("Color scheme");
-            ui.horizontal(|ui| {
-                egui::ComboBox::from_id_salt("theme")
-                    .selected_text(settings.theme.label())
-                    .show_ui(ui, |ui| {
-                        for t in Theme::ALL {
-                            ui.selectable_value(&mut settings.theme, t, t.label());
-                        }
-                    });
-                // Live swatch: accent over the theme background, so the choice previews at a glance.
-                let (rect, _) =
-                    ui.allocate_exact_size(egui::vec2(46.0, 18.0), egui::Sense::hover());
-                let p = ui.painter_at(rect);
-                p.rect_filled(rect, 3.0, crate::theme::preview_bg(settings.theme));
-                p.circle_filled(rect.center(), 6.0, crate::theme::accent(settings.theme));
-            })
-            .response
-            .on_hover_text("Just the colors — picking a Theme above already chose one of these.");
-            ui.end_row();
-
-            ui.label("Accent color");
-            ui.horizontal(|ui| {
-                let mut on = settings.accent.is_some();
-                let theme_accent = crate::theme::accent(settings.theme);
-                if ui.checkbox(&mut on, "Custom").changed() {
-                    settings.accent =
-                        on.then(|| [theme_accent.r(), theme_accent.g(), theme_accent.b()]);
+    let stacked = ui.available_width() < 440.0;
+    settings_form(ui, "appearance_grid", |ui| {
+        // A phone picks its own design below; a tablet, being the desktop layout, picks a theme
+        // here like a desktop does.
+        if crate::platform::phone_layout() {
+            grid_label(ui, stacked, "Phone design");
+            ui.vertical(|ui| {
+                for d in crate::settings::PhoneDesign::ALL {
+                    ui.selectable_value(&mut settings.phone_design, d, d.label())
+                        .on_hover_text(d.tagline());
                 }
-                if let Some(rgb) = settings.accent.as_mut() {
-                    ui.color_edit_button_srgb(rgb);
-                }
+                ui.small(settings.phone_design.tagline());
             });
             ui.end_row();
-
-            ui.label("Density");
-            ui.horizontal(|ui| {
-                for d in crate::ui::m3::Density::ALL {
-                    ui.selectable_value(&mut settings.density, d, d.label());
-                }
-            })
-            .response
-            .on_hover_text("Compact restores the denser spacing of earlier releases.");
-            ui.end_row();
-
-            ui.label("Timeline");
-            ui.horizontal(|ui| {
-                for s in crate::settings::TimelineStyle::ALL {
-                    ui.selectable_value(&mut settings.timeline_style, s, s.label());
+        } else {
+            grid_label(ui, stacked, "Theme");
+            ui.horizontal_wrapped(|ui| {
+                for l in crate::settings::Layout::ALL {
+                    if ui
+                        .selectable_value(&mut settings.layout, l, l.label())
+                        .clicked()
+                    {
+                        let (theme, density) = l.recommended_theme_and_density();
+                        settings.theme = theme;
+                        settings.density = density;
+                    }
                 }
             })
             .response
             .on_hover_text(
-                "Default: the floating scrub-track pill. WSV3: an explicit transport row, a \
-                 loop-length control, and a plain slider. Compact: a slim single-row strip.",
+                "Command Ribbon: HookEcho's original docked toolbar. WSV3: the analyst \
+                     workstation, map-first \u{2014} a two-row top bar and a docked timeline, \
+                     with the Layers and Inspector windows opened when you want them. Minimal: \
+                     the original map-first search pill and control column. Dock (ImGui): the \
+                     workstation with its windows showing.",
             );
             ui.end_row();
+        }
 
-            if !cfg!(target_os = "android") {
-                ui.label("Floating search");
-                ui.checkbox(&mut settings.floating_search_button, "Floating icon button")
-                    .on_hover_text(
-                        "Replace the ribbon's docked \"Search\" group with a small floating icon \
+        grid_label(ui, stacked, "Color scheme");
+        ui.horizontal_wrapped(|ui| {
+            egui::ComboBox::from_id_salt("theme")
+                .selected_text(settings.theme.label())
+                .show_ui(ui, |ui| {
+                    for t in Theme::ALL {
+                        ui.selectable_value(&mut settings.theme, t, t.label());
+                    }
+                });
+            // Live swatch: accent over the theme background, so the choice previews at a glance.
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(46.0, 18.0), egui::Sense::hover());
+            let p = ui.painter_at(rect);
+            p.rect_filled(rect, 3.0, crate::theme::preview_bg(settings.theme));
+            p.circle_filled(rect.center(), 6.0, crate::theme::accent(settings.theme));
+        })
+        .response
+        .on_hover_text("Just the colors — picking a Theme above already chose one of these.");
+        ui.end_row();
+
+        grid_label(ui, stacked, "Accent color");
+        ui.horizontal_wrapped(|ui| {
+            let mut on = settings.accent.is_some();
+            let theme_accent = crate::theme::accent(settings.theme);
+            if ui.checkbox(&mut on, "Custom").changed() {
+                settings.accent =
+                    on.then(|| [theme_accent.r(), theme_accent.g(), theme_accent.b()]);
+            }
+            if let Some(rgb) = settings.accent.as_mut() {
+                ui.color_edit_button_srgb(rgb);
+            }
+        });
+        ui.end_row();
+
+        grid_label(ui, stacked, "Density");
+        ui.horizontal_wrapped(|ui| {
+            for d in crate::ui::m3::Density::ALL {
+                ui.selectable_value(&mut settings.density, d, d.label());
+            }
+        })
+        .response
+        .on_hover_text("Compact restores the denser spacing of earlier releases.");
+        ui.end_row();
+
+        grid_label(ui, stacked, "Timeline");
+        ui.horizontal_wrapped(|ui| {
+            for s in crate::settings::TimelineStyle::ALL {
+                ui.selectable_value(&mut settings.timeline_style, s, s.label());
+            }
+        })
+        .response
+        .on_hover_text(
+            "Default: the floating scrub-track pill. WSV3: an explicit transport row, a \
+                 loop-length control, and a plain slider. Compact: a slim single-row strip.",
+        );
+        ui.end_row();
+
+        if !cfg!(target_os = "android") {
+            grid_label(ui, stacked, "Floating search");
+            ui.checkbox(&mut settings.floating_search_button, "Floating icon button")
+                .on_hover_text(
+                    "Replace the ribbon's docked \"Search\" group with a small floating icon \
                          button over the map instead. Only affects the ribbon themes (Command \
                          Ribbon / WSV3) — the Minimal layout's own search pill already goes \
                          icon-only on a narrow window.",
-                    );
-                ui.end_row();
-            }
-        });
+                );
+            ui.end_row();
+        }
+    });
 }
 
 fn general_tab(
@@ -1032,60 +1252,64 @@ fn general_tab(
     run_setup: &mut bool,
     run_tour: &mut bool,
 ) {
-    egui::Grid::new("general_grid")
-        .num_columns(2)
-        .spacing([12.0, 8.0])
-        .show(ui, |ui| {
-            ui.label("Default site");
-            let mut site = settings.default_site.clone();
-            if ui.text_edit_singleline(&mut site).changed() {
-                settings.default_site = site.to_ascii_uppercase();
-            }
-            ui.end_row();
+    let stacked = ui.available_width() < 440.0;
+    settings_form(ui, "general_grid", |ui| {
+        grid_label(ui, stacked, "Default site");
+        let mut site = settings.default_site.clone();
+        if ui
+            .add(
+                egui::TextEdit::singleline(&mut site)
+                    .desired_width(ui.available_width().min(240.0)),
+            )
+            .changed()
+        {
+            settings.default_site = site.to_ascii_uppercase();
+        }
+        ui.end_row();
 
-            ui.label("Poll interval (s)");
-            ui.add(egui::DragValue::new(&mut settings.poll_interval_secs).range(10..=600));
-            ui.end_row();
+        grid_label(ui, stacked, "Poll interval (s)");
+        ui.add(egui::DragValue::new(&mut settings.poll_interval_secs).range(10..=600));
+        ui.end_row();
 
-            ui.label("Motion");
-            ui.checkbox(&mut settings.reduce_motion, "Reduce motion")
-                .on_hover_text(
-                    "Panels and cards appear where they belong instead of sliding in. The app \
+        grid_label(ui, stacked, "Motion");
+        ui.checkbox(&mut settings.reduce_motion, "Reduce motion")
+            .on_hover_text(
+                "Panels and cards appear where they belong instead of sliding in. The app \
                      also turns this on for itself if frames get slow.",
-                );
-            ui.end_row();
+            );
+        ui.end_row();
 
-            ui.label("3D map");
-            ui.vertical(|ui| {
-                ui.checkbox(&mut settings.hide_far_3d, "Hide far-away items")
-                    .on_hover_text(
-                        "When the map is tilted, stop drawing storm reports, lightning, sites and \
+        grid_label(ui, stacked, "3D map");
+        ui.vertical(|ui| {
+            ui.checkbox(&mut settings.hide_far_3d, "Hide far-away items")
+                .on_hover_text(
+                    "When the map is tilted, stop drawing storm reports, lightning, sites and \
                          other markers far out toward the horizon, where they pile up and float \
                          above the map. The radar and map themselves are always drawn.",
-                    );
-                ui.add_enabled(
-                    settings.hide_far_3d,
-                    egui::Slider::new(&mut settings.far_3d_factor, 1.2..=6.0)
-                        .text("Distance")
-                        .custom_formatter(|v, _| format!("{v:.1}x")),
-                )
-                .on_hover_text(
-                    "How far past the centre of the map, as a multiple of the camera's distance \
-                     to it. Lower hides more.",
                 );
-            });
-            ui.end_row();
-
-            ui.label("UI scale");
-            // Phones start denser: 0.5 × a 4.0 density factor ≈ a desktop-density canvas.
-            let lo = if cfg!(target_os = "android") {
-                0.5
-            } else {
-                0.7
-            };
-            ui.add(egui::Slider::new(&mut settings.ui_scale, lo..=1.6).step_by(0.05));
-            ui.end_row();
+            ui.add_enabled(
+                settings.hide_far_3d,
+                egui::Slider::new(&mut settings.far_3d_factor, 1.2..=6.0)
+                    .text("Distance")
+                    .custom_formatter(|v, _| format!("{v:.1}x")),
+            )
+            .on_hover_text(
+                "How far past the centre of the map, as a multiple of the camera's distance \
+                     to it. Lower hides more.",
+            );
         });
+        ui.end_row();
+
+        grid_label(ui, stacked, "UI scale");
+        // Phones start denser: 0.5 × a 4.0 density factor ≈ a desktop-density canvas.
+        let lo = if cfg!(target_os = "android") {
+            0.5
+        } else {
+            0.7
+        };
+        ui.add(egui::Slider::new(&mut settings.ui_scale, lo..=1.6).step_by(0.05));
+        ui.end_row();
+    });
     ui.weak(
         "UI scale also responds to Ctrl+= / Ctrl+- / Ctrl+0. Colors, chrome, density and the \
              timeline live under the Appearance tab now.",
@@ -1099,7 +1323,7 @@ fn general_tab(
     ui.add_space(8.0);
     ui.separator();
     ui.strong("Getting started");
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         if ui
             .button("Set up again\u{2026}")
             .on_hover_text("Pick your home radar again")
@@ -1159,7 +1383,7 @@ fn general_tab(
     }
     let mut remove = None;
     for (i, ws) in settings.workspaces.iter_mut().enumerate() {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.add(egui::TextEdit::singleline(&mut ws.name).desired_width(220.0));
             ui.weak(format!(
                 "{} pane{}",
@@ -1178,7 +1402,7 @@ fn general_tab(
     ui.add_space(8.0);
     ui.separator();
     ui.strong("AI");
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.label("Anthropic key:");
         ui.add(
             egui::TextEdit::singleline(&mut settings.anthropic_key)
@@ -1212,7 +1436,7 @@ pub fn sound_picker(ui: &mut egui::Ui, settings: &mut Settings) {
         .on_hover_text(
             "A tap on the shoulder when a new volume lands on the live pane you're watching",
         );
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.label("Volume");
         ui.add(egui::Slider::new(&mut settings.alert_volume, 0.0..=1.0).step_by(0.05));
     });
@@ -1229,12 +1453,11 @@ pub fn sound_picker(ui: &mut egui::Ui, settings: &mut Settings) {
         ("Lightning", |s| &mut s.lightning_sound),
     ];
     let volume = settings.alert_volume;
-    egui::Grid::new("sound_grid")
-        .num_columns(3)
-        .spacing([10.0, 6.0])
-        .show(ui, |ui| {
-            for (label, field) in rows {
-                ui.label(label);
+    let stacked = ui.available_width() < 440.0;
+    settings_form(ui, "sound_grid", |ui| {
+        for (label, field) in rows {
+            grid_label(ui, stacked, label);
+            ui.horizontal_wrapped(|ui| {
                 let sound = field(settings);
                 egui::ComboBox::from_id_salt(label)
                     .selected_text(sound.label())
@@ -1265,9 +1488,10 @@ pub fn sound_picker(ui: &mut egui::Ui, settings: &mut Settings) {
                 {
                     crate::audio::play(&preview, volume);
                 }
-                ui.end_row();
-            }
-        });
+            });
+            ui.end_row();
+        }
+    });
 }
 
 /// Everything that fires when weather happens: sounds, push, proximity alarms.
@@ -1295,7 +1519,7 @@ fn alerts_tab(ui: &mut egui::Ui, settings: &mut Settings) {
             "While a GPS fix is coming in, your own position joins the saved locations the \
              lightning and rotation alerts watch. Nothing is saved or shared.",
         );
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.checkbox(&mut settings.quiet_hours, "Quiet hours");
         ui.add_enabled_ui(settings.quiet_hours, |ui| {
             ui.add(egui::DragValue::new(&mut settings.quiet_start_hour).range(0..=23));
@@ -1308,7 +1532,7 @@ fn alerts_tab(ui: &mut egui::Ui, settings: &mut Settings) {
         "Holds sounds and pushes between those hours. Tornado Emergency, PDS and destructive \
          warnings still come through — that tier is what quiet hours is for.",
     );
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.label("Push and sound only for:");
         for (tier, label) in [
             (0u8, "Every warning"),
@@ -1319,7 +1543,7 @@ fn alerts_tab(ui: &mut egui::Ui, settings: &mut Settings) {
         }
     });
     ui.weak("Quieter warnings still banner and still show in the alert list.");
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.label("Roll up after");
         ui.add(
             egui::DragValue::new(&mut settings.alert_rollup_threshold)
@@ -1340,7 +1564,7 @@ fn alerts_tab(ui: &mut egui::Ui, settings: &mut Settings) {
     ui.add_space(8.0);
     ui.separator();
     ui.strong("Push notifications (ntfy.sh)");
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.label("Topic:");
         ui.add(egui::TextEdit::singleline(&mut settings.ntfy_topic).hint_text("your-secret-topic"));
     });
@@ -1357,32 +1581,32 @@ fn alerts_tab(ui: &mut egui::Ui, settings: &mut Settings) {
     ui.add_space(8.0);
     ui.separator();
     ui.strong("Chat webhooks");
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.label("Discord:");
         ui.add(
             egui::TextEdit::singleline(&mut settings.discord_webhook)
                 .hint_text("https://discord.com/api/webhooks/…"),
         );
     });
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.label("Slack:");
         ui.add(
             egui::TextEdit::singleline(&mut settings.slack_webhook)
                 .hint_text("https://hooks.slack.com/services/…"),
         );
     });
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.label("Matrix server:");
         ui.add(
             egui::TextEdit::singleline(&mut settings.matrix_homeserver)
                 .hint_text("https://matrix.org"),
         );
     });
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.label("Matrix room:");
         ui.add(egui::TextEdit::singleline(&mut settings.matrix_room).hint_text("!room:matrix.org"));
     });
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.label("Matrix token:");
         ui.add(
             egui::TextEdit::singleline(&mut settings.matrix_token)
@@ -1398,7 +1622,7 @@ fn alerts_tab(ui: &mut egui::Ui, settings: &mut Settings) {
         ui.add_space(8.0);
         ui.separator();
         ui.strong("MQTT");
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label("Broker:");
             ui.add(
                 egui::TextEdit::singleline(&mut settings.mqtt_host)
@@ -1408,7 +1632,7 @@ fn alerts_tab(ui: &mut egui::Ui, settings: &mut Settings) {
             ui.add(egui::DragValue::new(&mut settings.mqtt_port).range(1..=65535));
             ui.checkbox(&mut settings.mqtt_tls, "TLS");
         });
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label("User:");
             ui.add(
                 egui::TextEdit::singleline(&mut settings.mqtt_user)
@@ -1422,11 +1646,11 @@ fn alerts_tab(ui: &mut egui::Ui, settings: &mut Settings) {
                     .password(true),
             );
         });
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label("Topic prefix:");
             ui.add(egui::TextEdit::singleline(&mut settings.mqtt_prefix).hint_text("home/weather"));
         });
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.checkbox(&mut settings.mqtt_discovery, "Home Assistant discovery")
                 .on_hover_text(
                     "Publish retained config topics so Home Assistant creates the device itself, \
@@ -1434,7 +1658,7 @@ fn alerts_tab(ui: &mut egui::Ui, settings: &mut Settings) {
                      this broker has no Home Assistant on it.",
                 );
         });
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label("Strikes topic:");
             ui.add(
                 egui::TextEdit::singleline(&mut settings.strikes_topic)
@@ -1501,7 +1725,7 @@ fn alerts_tab(ui: &mut egui::Ui, settings: &mut Settings) {
     );
     let mut remove = None;
     for (i, s) in settings.nwr_streams.iter_mut().enumerate() {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.add(
                 egui::TextEdit::singleline(&mut s.name)
                     .hint_text("KEC55 Norman")
@@ -1604,7 +1828,7 @@ fn speak_test(settings: &Settings) {
 fn piper_row(ui: &mut egui::Ui, settings: &mut Settings) {
     ui.add_space(4.0);
     let mut edited = false;
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.label("Piper binary:");
         edited |= ui
             .add(
@@ -1613,7 +1837,7 @@ fn piper_row(ui: &mut egui::Ui, settings: &mut Settings) {
             )
             .changed();
     });
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.label("Voice model:");
         edited |= ui
             .add(
@@ -1636,7 +1860,7 @@ fn piper_row(ui: &mut egui::Ui, settings: &mut Settings) {
     }
     // The picker downloads; the field above is what actually gets spoken with. Picking a voice
     // that is already on disk switches to it without touching the network.
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         let status = crate::speech::voice_status();
         let mut want = settings.piper_download_voice.clone();
         if want.is_empty() {
@@ -1708,7 +1932,7 @@ fn alert_health(ui: &mut egui::Ui) {
         None => "never".to_string(),
     };
     ui.add_space(4.0);
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.label("Last check:");
         ui.strong(ago(h.since_poll));
         ui.label("· next in");
@@ -1718,7 +1942,7 @@ fn alert_health(ui: &mut egui::Ui) {
         });
     });
     if !h.exact {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.colored_label(
                 egui::Color32::from_rgb(230, 160, 60),
                 "\u{26a0} Inexact alarms",
@@ -1730,7 +1954,7 @@ fn alert_health(ui: &mut egui::Ui) {
         ui.weak("Without this, checks arrive on Android's own schedule — minutes late, or later.");
     }
     if !h.exempt {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.colored_label(
                 egui::Color32::from_rgb(230, 160, 60),
                 "\u{26a0} Battery optimised",

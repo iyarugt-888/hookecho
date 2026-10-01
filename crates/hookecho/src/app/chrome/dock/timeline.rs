@@ -109,6 +109,7 @@ impl HookEchoApp {
         let mut go_head = false;
         let mut pick_tilt = None;
         let mut seek = None;
+        let valid = self.views[self.active].displayed_radar_time();
         egui::Panel::bottom("dock_timeline")
             .exact_size(if phone { PHONE_TIMELINE_H } else { TIMELINE_H })
             .resizable(false)
@@ -126,7 +127,7 @@ impl HookEchoApp {
                 let slots = tl.slot_count();
                 let observed = tl.frames.len();
                 if phone {
-                    phone_rows(ui, &t, tl, &site, tz, &mut go_head);
+                    phone_rows(ui, &t, tl, &site, tz, valid, &mut go_head);
                 }
                 // Row 1: transport, state, time, speed | archive, jump.
                 if !phone { ui.horizontal(|ui| {
@@ -170,9 +171,7 @@ impl HookEchoApp {
                     ui.add_space(10.0);
                     let label = match tl.forecast_hour() {
                         Some(h) => format!("Forecast +{h} h"),
-                        None => tl
-                            .current()
-                            .and_then(|id| id.date_time())
+                        None => valid
                             .map(|d| crate::timefmt::fmt_date_clock(d, tz))
                             .unwrap_or_else(|| "\u{2014}".to_string()),
                     };
@@ -484,6 +483,7 @@ fn phone_rows(
     tl: &mut crate::timeline::Timeline,
     site: &str,
     tz: Option<wxdata::tz::Tz>,
+    valid: Option<DateTime<Utc>>,
     go_head: &mut bool,
 ) {
     ui.horizontal(|ui| {
@@ -591,9 +591,7 @@ fn phone_rows(
     ui.horizontal(|ui| {
         let label = match tl.forecast_hour() {
             Some(h) => format!("Forecast +{h} h"),
-            None => tl
-                .current()
-                .and_then(|id| id.date_time())
+            None => valid
                 .map(|d| crate::timefmt::fmt_date_clock(d, tz))
                 .unwrap_or_else(|| "\u{2014}".to_string()),
         };

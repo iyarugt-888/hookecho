@@ -25,9 +25,26 @@ const COLS: [(&str, SortCol, f32); 8] = [
     ("dBZ", SortCol::MaxDbz, 32.0),
     ("Top", SortCol::Top, 30.0),
     ("VIL", SortCol::Vil, 30.0),
-    ("SHI", SortCol::Posh, 34.0),
+    ("PSH", SortCol::Posh, 34.0),
     ("Hail", SortCol::Hail, 34.0),
 ];
+
+#[derive(Clone, Copy)]
+enum StormAction {
+    Select,
+    Center,
+    Details,
+    Track,
+}
+
+/// Filter after sorting so the indices still address the source cells and their evidence.
+fn matching_order(cells: &[wxdata::level3::Cell], order: Vec<usize>, query: &str) -> Vec<usize> {
+    let query = query.trim().to_lowercase();
+    order
+        .into_iter()
+        .filter(|&i| cells[i].id.to_lowercase().contains(&query))
+        .collect()
+}
 
 /// One cell's row text, in `COLS` order, then the rotation flags. Unknown values are a dash.
 pub(super) fn row_cells(c: &wxdata::level3::Cell, score: Option<u8>) -> ([String; 8], String) {
@@ -71,22 +88,20 @@ impl HookEchoApp {
             Some((_, (hits, ..))) => hits,
             None => &[],
         };
-        let scores: Vec<u8> =
-            wxdata::cellscore::score_all_explained(&cells, &self.probsevere, couplets)
-                .iter()
-                .map(|e| e.score)
-                .collect();
+        let explanations =
+            wxdata::cellscore::score_all_explained(&cells, &self.probsevere, couplets);
+        let scores: Vec<u8> = explanations.iter().map(|e| e.score).collect();
         let (sort, desc) = (self.dock.storm_sort, self.dock.storm_desc);
-        let order = sorted_indices(&cells, &scores, sort, desc);
+        let mut query = self.dock.storm_query.clone();
         let selected = self.cell_popup.as_ref().map(|c| c.id.clone());
         let title = if cells.is_empty() {
             "Storms".to_string()
         } else {
             format!("Storms ({})", cells.len())
         };
-        let list_h = (map_rect.height() - 90.0).clamp(140.0, 560.0);
+        let list_h = (map_rect.height() - 170.0).clamp(90.0, 560.0);
         let mut header = ws::HeaderAction::None;
-        let mut pick: Option<(usize, bool)> = None;
+        let mut pick: Option<(usize, StormAction)> = None;
         let mut resort = None;
         tool_window(
             host,
@@ -127,138 +142,313 @@ impl HookEchoApp {
                     ui.add_space(8.0);
                     return;
                 }
-                // Header row: each column sorts.
-                let (hr, _) =
-                    ui.allocate_exact_size(egui::vec2(ui.available_width(), ROW_H), Sense::hover());
-                ui.painter().rect_filled(hr, 0.0, t.panel_hi);
-                let mut x = hr.left() + 8.0;
-                for (i, (label, key, w)) in COLS.iter().enumerate() {
-                    let r = Rect::from_min_size(egui::pos2(x, hr.top()), egui::vec2(*w, ROW_H));
-                    x += w;
-                    let resp = ui
-                        .interact(r, ui.id().with(("storm_col", i)), Sense::click())
-                        .on_hover_text(match key {
-                            SortCol::Rank => "Severity score, 0-100",
-                            SortCol::Range => "Range from the radar, NM",
-                            SortCol::Top => "Cell top, kft",
-                            SortCol::Vil => "Water aloft, kg/m\u{b2}",
-                            SortCol::Posh => "Probability of severe hail",
-                            SortCol::Hail => "Max expected hail size, in",
-                            _ => "",
-                        });
-                    let on = *key == sort;
-                    let text = if on {
-                        format!("{label}{}", if desc { "\u{25be}" } else { "\u{25b4}" })
-                    } else {
-                        label.to_string()
-                    };
-                    ui.painter().text(
-                        r.left_center(),
-                        egui::Align2::LEFT_CENTER,
-                        text,
-                        FontId::proportional(11.0),
-                        if on { t.accent } else { t.text_dim },
+                ui.horizontal(|ui| {
+                    ui.add_space(8.0);
+                    ui.add(
+                        egui::TextEdit::singleline(&mut query)
+                            .hint_text("Find cell ID…")
+                            .desired_width((ui.available_width() - 52.0).max(80.0)),
                     );
-                    if resp.clicked() {
-                        resort = Some(*key);
-                    }
-                }
-                let scroll = egui::ScrollArea::vertical()
-                    .id_salt("dock_storms_rows")
-                    .auto_shrink([false, floating]);
-                let scroll = if floating {
-                    scroll.max_height(list_h)
-                } else {
-                    scroll
-                };
-                scroll.show(ui, |ui| {
-                    ui.spacing_mut().item_spacing.y = 0.0;
-                    for (n, &i) in order.iter().enumerate() {
-                        let c = &cells[i];
-                        let (cols, flags) = row_cells(c, scores.get(i).copied());
-                        let (r, resp) = ui.allocate_exact_size(
-                            egui::vec2(ui.available_width(), ROW_H),
-                            Sense::click(),
-                        );
-                        let on = selected.as_deref() == Some(c.id.as_str());
-                        let p = ui.painter();
-                        if on {
-                            p.rect_filled(r, 0.0, t.accent_soft().gamma_multiply(0.6));
-                            p.rect_filled(
-                                Rect::from_min_size(r.min, egui::vec2(2.0, r.height())),
-                                0.0,
-                                t.accent,
-                            );
-                        } else if resp.hovered() {
-                            p.rect_filled(r, 0.0, t.panel_hi);
-                        } else if n % 2 == 1 {
-                            p.rect_filled(r, 0.0, t.panel_hi.gamma_multiply(0.45));
-                        }
-                        let mut x = r.left() + 8.0;
-                        for (k, text) in cols.iter().enumerate() {
-                            // Severity and the hail columns take the warning colour when high,
-                            // alongside the number itself.
-                            let hot = match k {
-                                0 => scores.get(i).is_some_and(|s| *s >= 60),
-                                6 => c.posh.is_some_and(|p| p >= 50),
-                                7 => c.hail_in.is_some_and(|h| h >= 1.0),
-                                _ => false,
-                            };
-                            p.text(
-                                egui::pos2(x, r.center().y),
-                                egui::Align2::LEFT_CENTER,
-                                text,
-                                FontId::monospace(11.0),
-                                if hot {
-                                    t.warn
-                                } else if k == 1 {
-                                    egui::Color32::WHITE
-                                } else {
-                                    t.text
-                                },
-                            );
-                            x += COLS[k].2;
-                        }
-                        if !flags.is_empty() {
-                            p.text(
-                                egui::pos2(r.right() - 8.0, r.center().y),
-                                egui::Align2::RIGHT_CENTER,
-                                &flags,
-                                FontId::monospace(11.0),
-                                t.danger,
-                            );
-                        }
-                        let resp = resp.named(&format!(
-                            "Storm {}: severity {}{}",
-                            c.id,
-                            cols[0],
-                            if flags.is_empty() {
-                                String::new()
-                            } else {
-                                format!(", rotation {flags}")
-                            }
-                        ));
-                        if resp.double_clicked() {
-                            pick = Some((i, true));
-                        } else if resp.clicked() {
-                            pick = Some((i, false));
-                        }
+                    if ui
+                        .add_enabled(!query.is_empty(), egui::Button::new("Clear"))
+                        .named("Clear the storm cell filter")
+                        .clicked()
+                    {
+                        query.clear();
                     }
                 });
+                let order =
+                    matching_order(&cells, sorted_indices(&cells, &scores, sort, desc), &query);
+                ui.label(ws::text(
+                    format!("{} of {} cells", order.len(), cells.len()),
+                    11.0,
+                    t.text_dim,
+                ));
+                // Keep columns readable even when the operator narrows a side dock to 240 pt.
+                // Horizontal scrolling carries the headers and rows together.
+                let table_h = (ui.available_height() - 48.0).max(ROW_H * 2.0);
+                let table_h = if floating {
+                    table_h.min(list_h)
+                } else {
+                    table_h
+                };
+                egui::ScrollArea::horizontal()
+                    .id_salt("dock_storms_columns")
+                    .auto_shrink([false, floating])
+                    .max_height(table_h)
+                    .show(ui, |ui| {
+                        ui.set_min_width(COLS.iter().map(|col| col.2).sum::<f32>() + 8.0 + 32.0);
+                        // Header row: each column sorts.
+                        let (hr, _) = ui.allocate_exact_size(
+                            egui::vec2(ui.available_width(), ROW_H),
+                            Sense::hover(),
+                        );
+                        ui.painter().rect_filled(hr, 0.0, t.panel_hi);
+                        let mut x = hr.left() + 8.0;
+                        for (i, (label, key, w)) in COLS.iter().enumerate() {
+                            let r =
+                                Rect::from_min_size(egui::pos2(x, hr.top()), egui::vec2(*w, ROW_H));
+                            x += w;
+                            let resp = ui
+                                .interact(r, ui.id().with(("storm_col", i)), Sense::click())
+                                .on_hover_text(match key {
+                                    SortCol::Rank => "Severity score, 0-100",
+                                    SortCol::Range => "Range from the radar, NM",
+                                    SortCol::Top => "Cell top, kft",
+                                    SortCol::Vil => "Water aloft, kg/m\u{b2}",
+                                    SortCol::Posh => "Probability of severe hail, % (POSH)",
+                                    SortCol::Hail => "Max expected hail size, in",
+                                    SortCol::Id => "Cell identifier",
+                                    SortCol::MaxDbz => "Maximum reflectivity, dBZ",
+                                    SortCol::Poh => "Probability of hail, %",
+                                })
+                                .named_toggle(&format!("Sort by {label}"), *key == sort);
+                            let on = *key == sort;
+                            let text = if on {
+                                format!("{label}{}", if desc { "\u{25be}" } else { "\u{25b4}" })
+                            } else {
+                                label.to_string()
+                            };
+                            ui.painter().text(
+                                r.left_center(),
+                                egui::Align2::LEFT_CENTER,
+                                text,
+                                FontId::proportional(11.0),
+                                if on { t.accent } else { t.text_dim },
+                            );
+                            if resp.clicked() {
+                                resort = Some(*key);
+                            }
+                        }
+                        ui.painter().text(
+                            egui::pos2(hr.right() - 8.0, hr.center().y),
+                            egui::Align2::RIGHT_CENTER,
+                            "Rot",
+                            FontId::proportional(11.0),
+                            t.text_dim,
+                        );
+                        if order.is_empty() {
+                            ui.label(ws::text(
+                                "No cells match this ID. Clear the filter to see all cells.",
+                                12.0,
+                                t.text_dim,
+                            ));
+                        }
+                        let scroll = egui::ScrollArea::vertical()
+                            .id_salt("dock_storms_rows")
+                            .auto_shrink([false, floating])
+                            .max_height((table_h - ROW_H - 14.0).max(ROW_H));
+                        scroll.show(ui, |ui| {
+                            ui.spacing_mut().item_spacing.y = 0.0;
+                            for (n, &i) in order.iter().enumerate() {
+                                let c = &cells[i];
+                                let (cols, flags) = row_cells(c, scores.get(i).copied());
+                                let (r, _) = ui.allocate_exact_size(
+                                    egui::vec2(ui.available_width(), ROW_H),
+                                    Sense::hover(),
+                                );
+                                let row_id = ui.id().with(("storm_row", &c.id));
+                                let focused = ui.memory(|memory| memory.has_focus(row_id));
+                                // Consume Enter before interact turns it into a generic click.
+                                let details = focused
+                                    && ui.input_mut(|input| {
+                                        input.consume_key(egui::Modifiers::NONE, egui::Key::Enter)
+                                    });
+                                let resp = ui.interact(r, row_id, Sense::click());
+                                if resp.has_focus() {
+                                    crate::hotkeys::reserve_navigation(ui.ctx(), row_id);
+                                }
+                                ui.memory_mut(|memory| {
+                                    memory.set_focus_lock_filter(
+                                        row_id,
+                                        egui::EventFilter {
+                                            vertical_arrows: true,
+                                            ..Default::default()
+                                        },
+                                    )
+                                });
+                                let on = selected.as_deref() == Some(c.id.as_str());
+                                let p = ui.painter();
+                                if on || resp.has_focus() {
+                                    p.rect_filled(r, 0.0, t.accent_soft().gamma_multiply(0.6));
+                                    p.rect_filled(
+                                        Rect::from_min_size(r.min, egui::vec2(2.0, r.height())),
+                                        0.0,
+                                        t.accent,
+                                    );
+                                } else if resp.hovered() {
+                                    p.rect_filled(r, 0.0, t.panel_hi);
+                                } else if n % 2 == 1 {
+                                    p.rect_filled(r, 0.0, t.panel_hi.gamma_multiply(0.45));
+                                }
+                                let mut x = r.left() + 8.0;
+                                for (k, text) in cols.iter().enumerate() {
+                                    // Severity and the hail columns take the warning colour when high,
+                                    // alongside the number itself.
+                                    let hot = match k {
+                                        0 => scores.get(i).is_some_and(|s| *s >= 60),
+                                        6 => c.posh.is_some_and(|p| p >= 50),
+                                        7 => c.hail_in.is_some_and(|h| h >= 1.0),
+                                        _ => false,
+                                    };
+                                    p.with_clip_rect(
+                                        Rect::from_min_size(
+                                            egui::pos2(x, r.top()),
+                                            egui::vec2(COLS[k].2 - 2.0, ROW_H),
+                                        )
+                                        .intersect(ui.clip_rect()),
+                                    )
+                                    .text(
+                                        egui::pos2(x, r.center().y),
+                                        egui::Align2::LEFT_CENTER,
+                                        text,
+                                        FontId::monospace(11.0),
+                                        if hot {
+                                            t.warn
+                                        } else if k == 1 {
+                                            egui::Color32::WHITE
+                                        } else {
+                                            t.text
+                                        },
+                                    );
+                                    x += COLS[k].2;
+                                }
+                                if !flags.is_empty() {
+                                    p.text(
+                                        egui::pos2(r.right() - 8.0, r.center().y),
+                                        egui::Align2::RIGHT_CENTER,
+                                        &flags,
+                                        FontId::monospace(11.0),
+                                        t.danger,
+                                    );
+                                }
+                                let resp = resp.named_toggle(
+                                    &format!(
+                                        "Storm {}: severity {}{}",
+                                        c.id,
+                                        cols[0],
+                                        if flags.is_empty() {
+                                            String::new()
+                                        } else {
+                                            format!(", rotation {flags}")
+                                        }
+                                    ),
+                                    on,
+                                );
+                                resp.clone().on_hover_ui(|ui| {
+                                    ui.label(format!("SCIT cell {}", c.id));
+                                    if let Some(time) = c.time {
+                                        ui.label(format!(
+                                            "Source time: {} UTC",
+                                            time.format("%Y-%m-%d %H:%M:%S")
+                                        ));
+                                    } else {
+                                        ui.weak("Source time unavailable");
+                                    }
+                                    for line in explanations[i].lines() {
+                                        ui.label(line);
+                                    }
+                                    ui.weak("Right-click for details, centering or manual motion.");
+                                });
+                                resp.context_menu(|ui| {
+                                    if ui.button("Details…").clicked() {
+                                        pick = Some((i, StormAction::Details));
+                                        ui.close();
+                                    }
+                                    if ui.button("Center on map").clicked() {
+                                        pick = Some((i, StormAction::Center));
+                                        ui.close();
+                                    }
+                                    let has_motion = c.mvt_deg.is_some() && c.mvt_kt.is_some();
+                                    if ui
+                                        .add_enabled(
+                                            has_motion,
+                                            egui::Button::new("Track manually"),
+                                        )
+                                        .on_disabled_hover_text(
+                                            "SCIT has not reported motion for this cell.",
+                                        )
+                                        .clicked()
+                                    {
+                                        pick = Some((i, StormAction::Track));
+                                        ui.close();
+                                    }
+                                });
+                                if resp.double_clicked() {
+                                    pick = Some((i, StormAction::Center));
+                                } else if resp.clicked() {
+                                    resp.request_focus();
+                                    crate::hotkeys::reserve_navigation(ui.ctx(), row_id);
+                                    pick = Some((i, StormAction::Select));
+                                }
+                                if focused {
+                                    let step = ui.input_mut(|input| {
+                                        if input.consume_key(
+                                            egui::Modifiers::NONE,
+                                            egui::Key::ArrowDown,
+                                        ) {
+                                            Some(1)
+                                        } else if input
+                                            .consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp)
+                                        {
+                                            Some(-1)
+                                        } else {
+                                            None
+                                        }
+                                    });
+                                    if let Some(step) = step {
+                                        let at = (n as isize + step)
+                                            .clamp(0, order.len() as isize - 1)
+                                            as usize;
+                                        let next = order[at];
+                                        ui.memory_mut(|memory| {
+                                            memory.request_focus(
+                                                ui.id().with(("storm_row", &cells[next].id)),
+                                            )
+                                        });
+                                        crate::hotkeys::reserve_navigation(
+                                            ui.ctx(),
+                                            ui.id().with(("storm_row", &cells[next].id)),
+                                        );
+                                        // The previous row was already drawn when stepping up;
+                                        // scroll its position now rather than waiting for focus.
+                                        ui.scroll_to_rect(
+                                            r.translate(egui::vec2(
+                                                0.0,
+                                                (at as f32 - n as f32) * ROW_H,
+                                            )),
+                                            Some(egui::Align::Center),
+                                        );
+                                        pick = Some((next, StormAction::Select));
+                                    }
+                                    if details {
+                                        pick = Some((i, StormAction::Details));
+                                    }
+                                }
+                                if resp.gained_focus() {
+                                    resp.scroll_to_me(Some(egui::Align::Center));
+                                }
+                            }
+                        });
+                    });
                 // A line under the table saying what the flags mean.
                 let (r, _) =
-                    ui.allocate_exact_size(egui::vec2(ui.available_width(), 20.0), Sense::hover());
+                    ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.0), Sense::hover());
                 ui.painter()
                     .line_segment([r.left_top(), r.right_top()], Stroke::new(1.0, t.line));
-                ui.painter().text(
-                    r.left_center() + egui::vec2(10.0, 1.0),
-                    egui::Align2::LEFT_CENTER,
-                    "T tornado vortex \u{b7} M mesocyclone \u{b7} double-click centers",
-                    FontId::proportional(10.5),
+                ui.label(ws::text(
+                    "T tornado vortex · M mesocyclone",
+                    10.5,
                     t.text_faint,
-                );
+                ));
+                ui.label(ws::text(
+                    "↑/↓ select · Enter details · double-click centers",
+                    10.5,
+                    t.text_faint,
+                ));
             },
         );
+        self.dock.storm_query = query;
         self.dock.apply_header(DockWin::Storms, header);
         if let Some(key) = resort {
             if key == self.dock.storm_sort {
@@ -269,12 +459,19 @@ impl HookEchoApp {
                 self.dock.storm_desc = !matches!(key, SortCol::Id | SortCol::Range);
             }
         }
-        if let Some((i, center)) = pick {
+        if let Some((i, action)) = pick {
             let c = cells[i].clone();
-            if center {
+            if matches!(action, StormAction::Center) {
                 let cam = &mut self.views[self.active].camera;
                 cam.center = crate::render::mercator::lonlat_to_world(c.lon, c.lat);
                 cam.zoom = cam.zoom.max(8.0);
+            }
+            if matches!(action, StormAction::Track) {
+                self.track_cell_manually(&c);
+            }
+            if matches!(action, StormAction::Details) {
+                self.cell_details = true;
+                self.dock.bring_forward(DockWin::Cell);
             }
             self.select_storm_from(c, false);
         }
@@ -284,6 +481,21 @@ impl HookEchoApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn filtering_preserves_severity_order_and_source_indices() {
+        let cells: Vec<_> = ["A1", "B2", "A3"]
+            .into_iter()
+            .map(|id| wxdata::level3::Cell {
+                id: id.into(),
+                ..Default::default()
+            })
+            .collect();
+        let order = sorted_indices(&cells, &[20, 90, 70], SortCol::Rank, true);
+        assert_eq!(matching_order(&cells, order.clone(), " a "), vec![2, 0]);
+        assert_eq!(matching_order(&cells, order.clone(), ""), order);
+        assert!(matching_order(&cells, order, "missing").is_empty());
+    }
 
     #[test]
     fn a_row_says_unknown_plainly_and_flags_rotation_in_letters() {

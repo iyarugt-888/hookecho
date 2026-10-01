@@ -26,45 +26,6 @@ pub(crate) fn poll_may_start(
 pub(crate) const POLL_STUCK_AFTER: std::time::Duration =
     std::time::Duration::from_secs(VOLUME_TIMEOUT.as_secs() + 15);
 
-#[cfg(test)]
-mod poll_tests {
-    use super::{poll_may_start, POLL_STUCK_AFTER};
-    use std::time::Duration;
-
-    #[test]
-    fn a_hung_poll_cannot_stop_polling_for_good() {
-        let every = Duration::from_secs(30);
-        // Idle and due: poll. Idle, not due: wait. Site changed: poll now.
-        assert!(poll_may_start(
-            false,
-            Some(Duration::from_secs(31)),
-            every,
-            false
-        ));
-        assert!(!poll_may_start(
-            false,
-            Some(Duration::from_secs(5)),
-            every,
-            false
-        ));
-        assert!(poll_may_start(
-            false,
-            Some(Duration::from_secs(5)),
-            every,
-            true
-        ));
-        assert!(poll_may_start(false, None, every, false));
-        // One in flight: wait, however due, until it has outlived every deadline.
-        assert!(!poll_may_start(
-            true,
-            Some(Duration::from_secs(60)),
-            every,
-            false
-        ));
-        assert!(poll_may_start(true, Some(POLL_STUCK_AFTER), every, false));
-    }
-}
-
 impl HookEchoApp {
     /// Reconstruct a vertical reflectivity cross-section along the two clicked endpoints from
     /// pane `idx`'s volume, upload it as a texture, and open the cross-section window.
@@ -610,5 +571,44 @@ impl HookEchoApp {
             });
             ctx.request_repaint();
         });
+    }
+}
+
+#[cfg(test)]
+mod poll_tests {
+    use super::{poll_may_start, POLL_STUCK_AFTER};
+    use std::time::Duration;
+
+    #[test]
+    fn a_hung_poll_cannot_stop_polling_for_good() {
+        let every = Duration::from_secs(30);
+        // Idle and due: poll. Idle, not due: wait. Site changed: poll now.
+        assert!(poll_may_start(
+            false,
+            Some(Duration::from_secs(31)),
+            every,
+            false
+        ));
+        assert!(!poll_may_start(
+            false,
+            Some(Duration::from_secs(5)),
+            every,
+            false
+        ));
+        assert!(poll_may_start(
+            false,
+            Some(Duration::from_secs(5)),
+            every,
+            true
+        ));
+        assert!(poll_may_start(false, None, every, false));
+        // One in flight: wait, however due, until it has outlived every deadline.
+        assert!(!poll_may_start(
+            true,
+            Some(Duration::from_secs(60)),
+            every,
+            false
+        ));
+        assert!(poll_may_start(true, Some(POLL_STUCK_AFTER), every, false));
     }
 }

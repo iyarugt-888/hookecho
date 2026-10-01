@@ -152,21 +152,37 @@ mod tests {
     }
 
     #[cfg(not(target_os = "android"))]
+    fn test_command(unix: &str, windows: &str) -> (&'static str, Vec<String>) {
+        #[cfg(windows)]
+        {
+            let _ = unix;
+            (
+                "powershell.exe",
+                vec![
+                    "-NoLogo".into(),
+                    "-NoProfile".into(),
+                    "-NonInteractive".into(),
+                    "-Command".into(),
+                    windows.into(),
+                ],
+            )
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = windows;
+            ("sh", vec!["-c".into(), unix.into()])
+        }
+    }
+
+    #[cfg(not(target_os = "android"))]
     #[tokio::test]
     async fn runs_a_plugin_and_reads_its_placefile() {
-        let pf = run(
-            "sh",
-            &[
-                "-c".into(),
-                // Echoes the site back, which also proves the environment arrived.
-                "printf 'Title: %s\\nColor: 255 0 0\\nLine: 2, 0\\n 35, -97\\n 36, -96\\nEnd:\\n' \
-                 \"$HOOKECHO_SITE\""
-                    .into(),
-            ],
-            &ctx(),
-        )
-        .await
-        .unwrap();
+        // Echoes the site back, which also proves the environment arrived.
+        let (command, args) = test_command(
+            "printf 'Title: %s\\nColor: 255 0 0\\nLine: 2, 0\\n 35, -97\\n 36, -96\\nEnd:\\n' \"$HOOKECHO_SITE\"",
+            r#"[Console]::WriteLine("Title: $env:HOOKECHO_SITE`nColor: 255 0 0`nLine: 2, 0`n 35, -97`n 36, -96`nEnd:")"#,
+        );
+        let pf = run(command, &args, &ctx()).await.unwrap();
         assert_eq!(pf.title, "KTLX");
         assert_eq!(pf.items.len(), 1);
     }
@@ -175,7 +191,8 @@ mod tests {
     #[tokio::test]
     async fn a_hung_plugin_is_killed_not_waited_on() {
         let started = std::time::Instant::now();
-        let err = run("sleep", &["600".into()], &ctx()).await.unwrap_err();
+        let (command, args) = test_command("exec sleep 600", "Start-Sleep -Seconds 600");
+        let err = run(command, &args, &ctx()).await.unwrap_err();
         assert!(err.to_string().contains("did not finish"), "{err}");
         assert!(started.elapsed() < TIMEOUT + Duration::from_secs(5));
     }
@@ -183,9 +200,11 @@ mod tests {
     #[cfg(not(target_os = "android"))]
     #[tokio::test]
     async fn a_failing_plugin_reports_its_stderr() {
-        let err = run("sh", &["-c".into(), "echo boom >&2; exit 3".into()], &ctx())
-            .await
-            .unwrap_err();
+        let (command, args) = test_command(
+            "echo boom >&2; exit 3",
+            "[Console]::Error.WriteLine('boom'); exit 3",
+        );
+        let err = run(command, &args, &ctx()).await.unwrap_err();
         assert!(err.to_string().contains("boom"), "{err}");
     }
 

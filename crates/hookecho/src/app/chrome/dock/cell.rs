@@ -352,8 +352,12 @@ impl HookEchoApp {
                 .collect();
             threat_for(
                 &c,
-                &circulations,
-                self.active_alert_features(),
+                &super::storm_associations::Evidence {
+                    cells: self.active_storm_cells(),
+                    circulations: &circulations,
+                    warnings: self.active_alert_features(),
+                    probsevere: &self.probsevere,
+                },
                 &markers,
                 t0,
                 metric,
@@ -471,8 +475,17 @@ impl HookEchoApp {
                             ws::fold_section(ui, &t, "cell_threat", "Threat", badge.as_deref(), true, |ui| {
                                 match &threat.tornado {
                                     Some(line) => ws::kv(ui, &t, "Tornado", line, Some(t.warn)),
-                                    None if detectors_ran => ws::kv(ui, &t, "Tornado", "no detection at this storm", None),
+                                    None if detectors_ran => ws::kv(ui, &t, "Tornado", "no uniquely associated detection", None),
                                     None => ws::kv(ui, &t, "Tornado", "detectors off (a tornado layer runs them)", None),
+                                }
+                                if threat.ambiguous > 0 {
+                                    ui.label(ws::text(format!("{} nearby circulation match(es) ambiguous between SCIT cores", threat.ambiguous), 11.0, t.warn));
+                                }
+                                for details in &threat.probsevere {
+                                    ui.label(ws::text(details, 11.0, t.text));
+                                }
+                                if threat.probsevere.is_empty() {
+                                    ws::kv(ui, &t, "ProbSevere", "no containing source polygon", None);
                                 }
                                 if threat.warnings.is_empty() {
                                     ws::kv(ui, &t, "Warnings", "none over it", None);
@@ -642,15 +655,7 @@ impl HookEchoApp {
             Some(CellAct::Follow) => self.cell_follow_toggle = true,
             Some(CellAct::View3d) => self.cell_view3d = true,
             Some(CellAct::TrackManually) => {
-                let t0 = c
-                    .time
-                    .or_else(|| self.views[self.active].volume.as_ref().map(|v| v.time))
-                    .unwrap_or_else(chrono::Utc::now);
-                if let Some(track) = crate::app::storm_track::ManualTrack::from_cell(&c, t0) {
-                    self.storm_tracks.tracks.push(track);
-                    self.storm_tracks.selected = Some(self.storm_tracks.tracks.len() - 1);
-                    self.tool = crate::app::MapTool::StormTrack;
-                }
+                self.track_cell_manually(&c);
             }
             Some(CellAct::Center) => {
                 let cam = &mut self.views[self.active].camera;
@@ -827,6 +832,8 @@ fn compare_body(
 struct Threat {
     tornado: Option<String>,
     warnings: Vec<String>,
+    probsevere: Vec<String>,
+    ambiguous: usize,
     /// `(place, "~21:15Z (+23 min) · passes 2 mi N", in the path)`, soonest first.
     etas: Vec<(String, String, bool)>,
     /// Where the arrival times come from, said plainly; `None` without a motion.
@@ -839,14 +846,9 @@ impl Threat {
     }
 }
 
-/// A tornado detection this close (km) to a storm's centroid, or with any detection of it this
-/// close, is that storm's.
-const TORNADO_KM: f64 = 10.0;
-
 fn threat_for(
     c: &Cell,
-    circulations: &[wxdata::tornado_id::Circulation],
-    alerts: &[wxdata::overlay::GeoFeature],
+    evidence: &super::storm_associations::Evidence<'_>,
     markers: &[(String, [f64; 2])],
     t0: chrono::DateTime<chrono::Utc>,
     metric: bool,
@@ -854,46 +856,42 @@ fn threat_for(
     use crate::app::storm_track::{compass, distance, ManualTrack};
     let at = [c.lon, c.lat];
     let km = |lon: f64, lat: f64| crate::geo::great_circle(at, [lon, lat]);
-    let tornado = circulations
+    let associations = super::storm_associations::associate(c, evidence);
+    let tornado = associations.circulations.first().map(|&(i, separation)| {
+        let z = &evidence.circulations[i];
+        let (d, bearing) = km(z.id.lon, z.id.lat);
+        let place = if d < 1.0 { "at the core".to_string() } else {
+            format!("{} {} of it", distance(d, metric), compass(bearing))
+        };
+        format!("{} · {:.0}% detection score · {} signal{}, {place}; nearest SCIT core ({} from nearest signal)",
+            z.id.tier.label(), z.id.score * 100.0, z.members.len(),
+            if z.members.len() == 1 { "" } else { "s" }, distance(separation, metric))
+    });
+    let mut warnings: Vec<String> = associations
+        .warnings
         .iter()
-        .filter(|z| {
-            km(z.id.lon, z.id.lat).0 <= TORNADO_KM
-                || z.members.iter().any(|m| km(m.lon, m.lat).0 <= TORNADO_KM)
-        })
-        .min_by(|a, b| {
-            km(a.id.lon, a.id.lat)
-                .0
-                .total_cmp(&km(b.id.lon, b.id.lat).0)
-        })
-        .map(|z| {
-            let (d, bearing) = km(z.id.lon, z.id.lat);
-            let place = if d < 1.0 {
-                "at the core".to_string()
-            } else {
-                format!("{} {} of it", distance(d, metric), compass(bearing))
-            };
-            format!(
-                "{} \u{b7} {:.0}% \u{b7} {} signal{}, {place}",
-                z.id.tier.label(),
-                z.id.score * 100.0,
-                z.members.len(),
-                if z.members.len() == 1 { "" } else { "s" }
-            )
-        });
-    let mut warnings: Vec<String> = alerts
-        .iter()
-        .filter_map(|f| {
-            let a = f.alert.as_ref()?;
-            f.rings
-                .iter()
-                .any(|r| wxdata::overlay::point_in_ring(r, c.lon, c.lat))
-                .then(|| match &a.tornado_detection {
-                    Some(t) => format!("{} (tornado {})", a.event, t.to_lowercase()),
-                    None => a.event.clone(),
-                })
+        .filter_map(|&i| {
+            let a = evidence.warnings[i].alert.as_ref()?;
+            Some(match &a.tornado_detection {
+                Some(t) => format!("{} (tornado {})", a.event, t.to_lowercase()),
+                None => a.event.clone(),
+            })
         })
         .collect();
+    warnings.sort();
     warnings.dedup();
+    let mut probsevere: Vec<String> = associations
+        .probsevere
+        .iter()
+        .map(|&i| {
+            format!(
+                "{}\nAssociation: SCIT core inside source polygon; source time unavailable",
+                evidence.probsevere[i].detail
+            )
+        })
+        .collect();
+    probsevere.sort();
+    probsevere.dedup();
     let track = ManualTrack::from_cell(c, t0);
     let motion = track.as_ref().map(|t| {
         format!(
@@ -934,6 +932,8 @@ fn threat_for(
         .unwrap_or_default();
     etas.sort_by(|a, b| b.3.cmp(&a.3).then(a.0.total_cmp(&b.0)));
     Threat {
+        probsevere,
+        ambiguous: associations.ambiguous,
         tornado,
         warnings,
         etas: etas
@@ -1000,8 +1000,12 @@ mod threat_tests {
         let behind = crate::geo::destination_point([-97.0, 35.0], 270.0, 20.0);
         let th = threat_for(
             &c,
-            &[],
-            &[warning],
+            &super::super::storm_associations::Evidence {
+                cells: std::slice::from_ref(&c),
+                circulations: &[],
+                warnings: &[warning],
+                probsevere: &[],
+            },
             &[("Home".into(), ahead), ("Work".into(), behind)],
             t0,
             false,
@@ -1025,8 +1029,12 @@ mod threat_tests {
         c.mvt_kt = None;
         let th = threat_for(
             &c,
-            &[],
-            &[],
+            &super::super::storm_associations::Evidence {
+                cells: std::slice::from_ref(&c),
+                circulations: &[],
+                warnings: &[],
+                probsevere: &[],
+            },
             &[("Home".into(), [-96.8, 35.0])],
             chrono::Utc::now(),
             true,

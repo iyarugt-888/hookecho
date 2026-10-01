@@ -182,6 +182,9 @@ pub struct WorkstationChrome {
     /// Map settings and the app preferences.
     #[serde(default)]
     pub prefs: WindowChrome,
+    /// The complete Settings editor, closed and floating until asked for.
+    #[serde(default = "settings_default")]
+    pub settings: WindowChrome,
     /// The active pane's 3D controls, shown while that pane is in 3D. Defaults to open and docked
     /// right, where it joins the Inspector as a tab.
     #[serde(default = "view3d_default")]
@@ -251,6 +254,21 @@ fn storms_default() -> WindowChrome {
 
 fn volume_default() -> WindowChrome {
     WindowChrome::at(true, Place::Float)
+}
+
+fn settings_default() -> WindowChrome {
+    WindowChrome::at(false, Place::Float)
+}
+
+#[cfg(test)]
+mod settings_chrome_tests {
+    use super::*;
+
+    #[test]
+    fn older_arrangements_keep_main_settings_closed_and_floating() {
+        let chrome: WorkstationChrome = serde_json::from_str("{}").unwrap();
+        assert_eq!(chrome.settings, WindowChrome::at(false, Place::Float));
+    }
 }
 
 fn sounding_default() -> WindowChrome {
@@ -954,6 +972,7 @@ mod tests {
                     },
                     alerts: WindowChrome::at(false, Place::Right),
                     prefs: WindowChrome::default(),
+                    settings: settings_default(),
                     view3d: WindowChrome::at(true, Place::Float),
                     sources: WindowChrome::at(true, Place::Left),
                     log: WindowChrome::at(true, Place::Right),
