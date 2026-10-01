@@ -142,6 +142,8 @@ pub(crate) enum OverlayMsg {
     Contours(
         ContourKind,
         Vec<wxdata::contour::ContourLine>,
+        // The model run, then the valid time.
+        DateTime<Utc>,
         DateTime<Utc>,
         // The grid the lines were drawn from, in display units, for the layer probe.
         Arc<wxdata::mrms::MrmsField>,
@@ -1135,9 +1137,15 @@ impl OverlaySource {
                 // Composite parameters (STP/SCP/EHI) combine several same-run HRRR fields.
                 if let Some(sk) = kind.severe() {
                     let fc = wxdata::severe::fetch_grid(http, model, sk).await?;
-                    let valid = fc.valid();
+                    let (run, valid) = (fc.run, fc.valid());
                     let lines = wxdata::contour::contour_lines(&fc.field, kind.severe_interval());
-                    return Ok(OverlayMsg::Contours(kind, lines, valid, Arc::new(fc.field)));
+                    return Ok(OverlayMsg::Contours(
+                        kind,
+                        lines,
+                        run,
+                        valid,
+                        Arc::new(fc.field),
+                    ));
                 }
                 let (var, level, _) = kind
                     .params()
@@ -1152,10 +1160,11 @@ impl OverlaySource {
                         *v = kind.to_display(*v, temp_unit);
                     }
                 }
-                let valid = fc.valid();
+                let (run, valid) = (fc.run, fc.valid());
                 OverlayMsg::Contours(
                     kind,
                     wxdata::contour::contour_lines(&fc.field, interval),
+                    run,
                     valid,
                     Arc::new(fc.field),
                 )

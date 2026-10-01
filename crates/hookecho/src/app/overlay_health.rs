@@ -68,7 +68,7 @@ impl OverlayMsg {
                     .chain(tracks.iter().filter_map(|track| track.storm)),
             ),
             Self::Mosaic(field, _, _) => Some(field.time),
-            Self::Contours(_, _, valid, _) => Some(*valid),
+            Self::Contours(_, _, _, valid, _) => Some(*valid),
 
             // These payloads either have no representative timestamp, carry only display text,
             // or expose an expiry/forecast-window end that must not be mislabeled as observation

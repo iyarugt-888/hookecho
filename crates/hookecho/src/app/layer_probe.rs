@@ -262,14 +262,16 @@ impl HookEchoApp {
                 .filter(|v| v.is_finite())
                 .map(|v| format!("{} {}", fmt_value(v), contour_units(*kind, temp_unit)))
                 .unwrap_or_else(|| "\u{2014}".into());
-            out.push(ProbeLine::new(
+            let mut line = ProbeLine::new(
                 format!("{} (contours)", kind.label()),
                 value.trim_end().to_string(),
                 entry.valid.map(|t| {
                     let note = reference.map(|r| offset_note(t, r)).unwrap_or_default();
                     format!("{}, valid {}{note}", self.env_model.label(), clock(t))
                 }),
-            ));
+            );
+            line.stamp = super::contours::contour_stamp(self.env_model.label(), *kind, entry);
+            out.push(line);
         }
 
         // Rotation and debris tracks near the point, when they are drawn.

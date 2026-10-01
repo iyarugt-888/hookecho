@@ -36,7 +36,9 @@ pub(super) fn show(
     egui::ScrollArea::vertical()
         .id_salt("layer_probe_body")
         .max_height((pane_height - 68.0).max(1.0))
-        .min_scrolled_height(0.0)
+        // Once an expanded inspector overflows, the region keeps a readable height (up to
+        // 220 pt, never more than the pane allows) instead of the few lines it had collapsed.
+        .min_scrolled_height((pane_height - 68.0).clamp(1.0, 220.0))
         .auto_shrink([false, true])
         .show(ui, |ui| {
             if lines.is_empty() {
