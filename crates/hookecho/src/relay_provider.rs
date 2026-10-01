@@ -83,15 +83,11 @@ fn relay_scan_progress(block: &LiveLevel2Block, scan: &Scan) -> Option<ScanProgr
     Some(ScanProgress {
         volume_start_ms: Some(block.volume.volume_start.timestamp_millis()),
         vcp_number: Some(scan.coverage_pattern_number().number()),
-        cut_kind: if vcp_cut.is_sails_cut() {
-            CutKind::Sails
-        } else if vcp_cut.is_mrle_cut() {
-            CutKind::Mrle
-        } else if vcp_cut.is_mpda_cut() {
-            CutKind::Mpda
-        } else {
-            CutKind::Standard
-        },
+        cut_kind: CutKind::from_flags(
+            vcp_cut.is_sails_cut(),
+            vcp_cut.is_mrle_cut(),
+            vcp_cut.is_mpda_cut(),
+        ),
         elevation_number: cut.elevation_number as usize,
         total_elevations: cuts.len(),
         elevation_angle_deg: block

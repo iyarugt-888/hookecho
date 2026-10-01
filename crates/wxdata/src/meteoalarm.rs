@@ -383,7 +383,8 @@ const MAX_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(25 * 60
 /// When the EDR path may be used again. Set on a 429; until then `fetch_in_view` falls back to
 /// the open feeds, so Europe keeps whatever warnings it can still draw.
 #[cfg(not(target_arch = "wasm32"))]
-static COOLDOWN_UNTIL: std::sync::Mutex<Option<crate::clock::Instant>> = std::sync::Mutex::new(None);
+static COOLDOWN_UNTIL: std::sync::Mutex<Option<crate::clock::Instant>> =
+    std::sync::Mutex::new(None);
 
 /// Whether the EDR path is allowed right now.
 #[cfg(not(target_arch = "wasm32"))]

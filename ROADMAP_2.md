@@ -180,9 +180,9 @@ Track:
 ### Acceptance criteria
 
 - [ ] UI never needs to infer live state from a generic loading boolean.
-- [ ] current sweep and completed sweep are distinguishable in the state model.
-- [ ] SAILS/MESO-SAILS supplemental scans are represented explicitly.
-- [ ] out-of-order chunks cannot regress displayed time.
+- [x] current sweep and completed sweep are distinguishable in the state model.
+- [x] SAILS/MESO-SAILS supplemental scans are represented explicitly.
+- [x] out-of-order chunks cannot regress displayed time.
 - [x] stale live data is visibly marked before it reaches a configurable threshold.
 
 ## 1.2 Partial-volume rendering rules

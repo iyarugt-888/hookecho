@@ -58,6 +58,22 @@ pub enum CutKind {
 }
 
 impl CutKind {
+    /// A VCP cut's kind from its supplemental flags. Both Level II providers (the decoder's
+    /// elevation blocks and the relay's model cuts) expose the same three flags, and both used to
+    /// spell this precedence out separately. A cut flagged as more than one reads as the first
+    /// of SAILS, MRLE, MPDA; the VCP never sets two.
+    pub fn from_flags(sails: bool, mrle: bool, mpda: bool) -> Self {
+        if sails {
+            Self::Sails
+        } else if mrle {
+            Self::Mrle
+        } else if mpda {
+            Self::Mpda
+        } else {
+            Self::Standard
+        }
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             Self::Standard => "standard",
@@ -308,15 +324,11 @@ where
                                     vcp.elevations().get(elevation_number.saturating_sub(1))
                                 })
                                 .map_or(CutKind::Standard, |cut| {
-                                    if cut.is_sails_cut() {
-                                        CutKind::Sails
-                                    } else if cut.is_mrle_cut() {
-                                        CutKind::Mrle
-                                    } else if cut.is_mpda_cut() {
-                                        CutKind::Mpda
-                                    } else {
-                                        CutKind::Standard
-                                    }
+                                    CutKind::from_flags(
+                                        cut.is_sails_cut(),
+                                        cut.is_mrle_cut(),
+                                        cut.is_mpda_cut(),
+                                    )
                                 }),
                             elevation_number,
                             total_elevations: it
@@ -647,6 +659,15 @@ pub fn merge_scan(base: &Scan, partial: Scan) -> (Scan, Vec<f32>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cut_kind_reads_the_supplemental_flags() {
+        assert_eq!(CutKind::from_flags(false, false, false), CutKind::Standard);
+        assert_eq!(CutKind::from_flags(true, false, false), CutKind::Sails);
+        assert_eq!(CutKind::from_flags(false, true, false), CutKind::Mrle);
+        assert_eq!(CutKind::from_flags(false, false, true), CutKind::Mpda);
+        assert_eq!(CutKind::from_flags(true, true, false), CutKind::Sails);
+    }
     use nexrad_model::data::{MomentData, PulseWidth, Radial, RadialStatus, VolumeCoveragePattern};
 
     fn vcp(n: u16) -> VolumeCoveragePattern {

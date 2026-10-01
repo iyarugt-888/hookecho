@@ -7,9 +7,9 @@
 //! Buoys decode into [`metar::SurfaceOb`], the same type the station plots already draw, so the
 //! wind barbs and decluttering work on them with no renderer changes at all.
 
+use crate::clock::Instant;
 use crate::metar::SurfaceOb;
 use std::sync::Mutex;
-use crate::clock::Instant;
 use std::time::Duration;
 
 const LATEST: &str = "https://www.ndbc.noaa.gov/data/latest_obs/latest_obs.txt";
