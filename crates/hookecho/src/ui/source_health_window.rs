@@ -20,8 +20,9 @@
 //! becomes `Cached` rather than the terminal `Failed` state.
 
 use crate::app::{HealthState, PaletteEntry, SourceHealth};
+use crate::ui::freshness::Freshness;
 use crate::ui::layers_panel::{active_layer, age_line, compact_age, health_look, valid_time_line};
-use egui::{Color32, RichText};
+use egui::RichText;
 
 /// Worse first. `HealthState`'s own declaration order isn't a severity ranking (`Fetching`
 /// happens to sort before `Fresh` there), so this is its own explicit scale rather than reusing
@@ -42,6 +43,26 @@ fn severity_rank(state: HealthState) -> u8 {
 /// [`show`], kept separate so the ordering is testable without an `egui::Context`. Also the source
 /// ROADMAP_NEW N4's diagnostics bundle reads, so the two features can never disagree about what
 /// counts as an active source.
+/// When the source is next asked again (ROADMAP_2 §9.2): in flight now, due, or in how long.
+pub(crate) fn retry_line(h: &SourceHealth) -> String {
+    if h.fetching {
+        return "In flight".into();
+    }
+    match h.next_retry() {
+        Some(d) if d.is_zero() => "Due now".into(),
+        Some(d) => format!("in {}", compact_age(d)),
+        None => "\u{2014}".into(),
+    }
+}
+
+/// The provider serving the source, when it reports one (radar's active Level II provider).
+pub(crate) fn provider(h: &SourceHealth) -> Option<&str> {
+    h.details
+        .iter()
+        .find(|(k, _)| *k == "Active provider")
+        .map(|(_, v)| v.as_str())
+}
+
 pub(crate) fn active_health_rows(entries: &[PaletteEntry]) -> Vec<&SourceHealth> {
     let mut rows: Vec<&SourceHealth> = entries
         .iter()
@@ -83,7 +104,7 @@ pub(crate) fn show(
         ui.separator();
         egui::ScrollArea::vertical().show(ui, |ui| {
             egui::Grid::new("source_health_grid")
-                .num_columns(7)
+                .num_columns(8)
                 .spacing([12.0, 6.0])
                 .striped(true)
                 .show(ui, |ui| {
@@ -91,6 +112,8 @@ pub(crate) fn show(
                     ui.weak("Source / family");
                     ui.weak("Latest valid data");
                     ui.weak("Fetch health");
+                    ui.weak("Retry")
+                        .on_hover_text("When this source is next asked again; hover a row for its rule");
                     ui.weak("Cache");
                     ui.weak("Recent")
                         .on_hover_text("Successes out of the last 20 finished requests");
@@ -103,6 +126,9 @@ pub(crate) fn show(
                         ui.vertical(|ui| {
                             ui.label(&h.source);
                             ui.weak(h.endpoint_family.label());
+                            if let Some(p) = provider(h) {
+                                ui.weak(format!("Provider: {p}"));
+                            }
                             if !h.fallback_providers.is_empty() {
                                 ui.weak(format!(
                                     "Alternates: {}",
@@ -118,6 +144,7 @@ pub(crate) fn show(
                             ui.label(age_line(h.last_success));
                             ui.weak(format!("{} cadence", compact_age(h.cadence)));
                         });
+                        ui.label(retry_line(h)).on_hover_text(h.recovery());
                         ui.label(h.cache_state.label());
                         match h.recent_outcomes {
                             Some((successes, failures)) => {
@@ -129,7 +156,7 @@ pub(crate) fn show(
                         }
                         match &h.error {
                             Some(e) => {
-                                ui.label(RichText::new(e).color(Color32::from_rgb(230, 120, 120)))
+                                ui.label(RichText::new(e).color(Freshness::Unavailable.color()))
                                     .on_hover_text(e);
                             }
                             None => {
@@ -149,6 +176,29 @@ mod tests {
     use super::*;
     use crate::app::PaletteAction;
     use crate::render::FieldLayer;
+
+    #[test]
+    fn the_retry_column_says_when_it_is_asked_again() {
+        let health = |state, attempt: Option<u64>| {
+            let mut h = entry("MRMS", state, true).health.unwrap();
+            h.last_attempt = attempt.map(std::time::Duration::from_secs);
+            h
+        };
+        assert_eq!(
+            retry_line(&health(HealthState::Fetching, Some(0))),
+            "In flight"
+        );
+        assert_eq!(retry_line(&health(HealthState::Fresh, Some(30))), "in 1m");
+        assert_eq!(
+            retry_line(&health(HealthState::Stale, Some(500))),
+            "Due now"
+        );
+        assert_eq!(retry_line(&health(HealthState::Waiting, None)), "\u{2014}");
+        let mut radar = health(HealthState::Fresh, None);
+        assert_eq!(provider(&radar), None);
+        radar.details.push(("Active provider", "AWS".into()));
+        assert_eq!(provider(&radar), Some("AWS"));
+    }
 
     fn entry(source: &str, state: HealthState, active: bool) -> PaletteEntry {
         let (last_success, last_failure, fetching, cache_state) = match state {

@@ -198,6 +198,13 @@ fn source_row(
         compact_age(h.cadence),
         h.cache_state.label(),
     );
+    if let Some(p) = crate::ui::source_health_window::provider(h) {
+        detail.push_str(&format!("\nProvider: {p}"));
+    }
+    detail.push_str(&format!(
+        "\nNext try: {}",
+        crate::ui::source_health_window::retry_line(h)
+    ));
     if let Some((ok, bad)) = h.recent_outcomes {
         detail.push_str(&format!("\nRecent: {ok}/{} succeeded", ok + bad));
     }
