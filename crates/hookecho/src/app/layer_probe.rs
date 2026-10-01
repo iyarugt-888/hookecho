@@ -532,6 +532,98 @@ impl HookEchoApp {
             self.layer_probe_pin = None;
         }
     }
+
+    pub(crate) fn grid_probe_row(
+        &self,
+        idx: usize,
+        layer: crate::render::FieldLayer,
+        lon: f64,
+        lat: f64,
+    ) -> crate::ui::cursor_probe::ProbeRow {
+        use crate::render::FieldLayer as FL;
+        if layer == FL::ModelDiff {
+            let (a, b) = self.diff_field.pair();
+            let (_, deadband) = self.diff_field.range();
+            let value = self
+                .diff_display_grid()
+                .and_then(|grid| grid.sample_bilinear(lon, lat))
+                .filter(|value| value.is_finite())
+                .map(|value| self.diff_display_value(value))
+                .map(|value| {
+                    super::format_diff_readout(self.diff_mode, value, deadband, self.diff_field.units())
+                });
+            return crate::ui::cursor_probe::ProbeRow {
+                pane: idx,
+                source: self.diff_mode.expression(a, b),
+                product: if self.diff_mode == crate::fielddiff::DiffMode::Disagreement {
+                    format!("{} disagreement mask", self.diff_field.label())
+                } else {
+                    format!("{} difference", self.diff_field.label())
+                },
+                time: self.diff_valid.map(|times| times.valid),
+                value,
+                folded: false,
+            };
+        }
+        if layer == FL::Ensemble {
+            let stamp = self
+                .fields
+                .get(&layer)
+                .and_then(|state| state.stamp.as_ref());
+            return crate::ui::cursor_probe::ProbeRow {
+                pane: idx,
+                source: stamp.map_or_else(|| "GEFS".into(), |stamp| stamp.source_id.clone()),
+                product: self.ensemble.title(self.settings.temp_unit),
+                time: stamp.map(|stamp| stamp.valid_time),
+                value: self
+                    .ensemble_grid
+                    .as_ref()
+                    .and_then(|grid| grid.sample_bilinear(lon, lat))
+                    .and_then(|raw| {
+                        crate::ensemble_layer::format_value(
+                            &self.ensemble,
+                            raw,
+                            self.settings.temp_unit,
+                        )
+                    }),
+                folded: false,
+            };
+        }
+        if matches!(layer, FL::CompareA | FL::CompareB) {
+            let side_b = layer == FL::CompareB;
+            let (a_name, b_name) = self.diff_field.pair();
+            let grid = self
+                .compare_grid
+                .as_ref()
+                .map(|(a, b)| if side_b { b } else { a });
+            let source_layer = self.diff_field.source_layer();
+            return crate::ui::cursor_probe::ProbeRow {
+                pane: idx,
+                source: if side_b { b_name } else { a_name }.into(),
+                product: self.diff_field.label().into(),
+                time: self.compare_valid.map(|times| times.valid),
+                value: grid
+                    .and_then(|grid| grid.sample_bilinear(lon, lat))
+                    .and_then(|raw| self.probe_field_value(source_layer, raw)),
+                folded: false,
+            };
+        }
+
+        let state = self.fields.get(&layer);
+        let grid = state.and_then(|field| field.grid.as_ref());
+        crate::ui::cursor_probe::ProbeRow {
+            pane: idx,
+            source: self.probe_field_source(layer, state),
+            product: Self::probe_field_product(layer),
+            time: state
+                .and_then(|field| field.stamp.as_ref().map(|stamp| stamp.valid_time))
+                .or_else(|| grid.map(|grid| grid.time)),
+            value: grid
+                .and_then(|grid| grid.sample_bilinear(lon, lat))
+                .and_then(|raw| self.probe_field_value(layer, raw)),
+            folded: false,
+        }
+    }
 }
 
 /// A SCIT storm cell's stamp (ROADMAP_2 §9.1): derived from the radar by the NWS's storm cell

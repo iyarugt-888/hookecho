@@ -470,4 +470,259 @@ impl HookEchoApp {
             },
         }
     }
+
+    pub(crate) fn apply_action(&mut self, action: BindableAction, ctx: &egui::Context) {
+        use BindableAction as A;
+        match action {
+            // Everything the registry already knows how to do runs through the one executor.
+            A::Palette(p) => self.apply_palette(p, ctx),
+            A::TiltUp => {
+                let v = &mut self.views[self.active];
+                if let Some(vol) = &v.volume {
+                    if v.tilt + 1 < vol.elevations.len() {
+                        v.tilt += 1;
+                    }
+                }
+            }
+            A::TiltDown => {
+                let v = &mut self.views[self.active];
+                v.tilt = v.tilt.saturating_sub(1);
+            }
+            A::Camera3dPitchUp
+            | A::Camera3dPitchDown
+            | A::Camera3dBearingLeft
+            | A::Camera3dBearingRight => {
+                let v = &mut self.views[self.active];
+                if v.map_3d.enabled {
+                    // One keypress, one visible step — big enough to see, small enough that
+                    // holding the key down still reads as a smooth nudge rather than a jump.
+                    const PITCH_STEP_DEG: f32 = 5.0;
+                    const BEARING_STEP_DEG: f32 = 10.0;
+                    match action {
+                        A::Camera3dPitchUp => {
+                            v.camera.pitch = (v.camera.pitch + PITCH_STEP_DEG)
+                                .clamp(0.0, crate::render::mercator::MAX_PITCH_DEG);
+                        }
+                        A::Camera3dPitchDown => {
+                            v.camera.pitch = (v.camera.pitch - PITCH_STEP_DEG)
+                                .clamp(0.0, crate::render::mercator::MAX_PITCH_DEG);
+                        }
+                        A::Camera3dBearingLeft => {
+                            v.camera.bearing = (v.camera.bearing - BEARING_STEP_DEG + 180.0)
+                                .rem_euclid(360.0)
+                                - 180.0;
+                        }
+                        A::Camera3dBearingRight => {
+                            v.camera.bearing = (v.camera.bearing + BEARING_STEP_DEG + 180.0)
+                                .rem_euclid(360.0)
+                                - 180.0;
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+            }
+            A::OpenSiteDialog => {
+                if self.site_dialog.is_none() {
+                    self.site_dialog = Some(Default::default());
+                }
+            }
+            A::ToggleAlertPanel if self.workstation_chrome() => {
+                self.dock.toggle(crate::app::chrome::DockWin::Alerts);
+            }
+            A::ToggleAlertPanel => {
+                // The bell tab and the panel are one surface now: the key opens the panel on
+                // Alerts, and closes it if that's already what's showing.
+                let showing = self.panel_open && self.show_alert_panel;
+                self.panel_open = !showing;
+                self.show_alert_panel = true;
+            }
+            A::ToggleObs => {
+                self.obs_mode = !self.obs_mode;
+                if !self.obs_mode {
+                    self.obs_tour = false;
+                }
+            }
+            A::ToggleObsTour => {
+                self.obs_tour = !self.obs_tour;
+                self.obs_tour_last = None; // step immediately on enable
+                if self.obs_tour {
+                    self.obs_mode = true;
+                }
+            }
+            // The workstation searches in its Layers window: open it with the keyboard there.
+            A::ToggleDrawer | A::CommandSearch if self.workstation_chrome() => {
+                self.dock.query.clear();
+                self.dock.open_search();
+            }
+            A::ToggleDrawer => {
+                // Hidden: bring it back and land in the search box. Visible: focus the search,
+                // which is what the key always did.
+                self.panel_open = true;
+                self.show_alert_panel = false;
+                self.sidebar_focus_search = true;
+            }
+            A::StepBack => self.views[self.active].timeline.step(-1),
+            A::StepForward => self.views[self.active].timeline.step(1),
+            A::StepHourBack => self.views[self.active].timeline.step_time(-60),
+            A::StepHourForward => self.views[self.active].timeline.step_time(60),
+            A::Fullscreen => {
+                // Desktop only; mobile is already fullscreen.
+                if !cfg!(target_os = "android") {
+                    let cur = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!cur));
+                }
+            }
+            A::CommandSearch => {
+                self.layers_query.clear();
+                self.panel_open = true;
+                self.show_alert_panel = false;
+                self.sidebar_focus_search = true;
+            }
+            A::CheatSheet => self.show_cheatsheet = !self.show_cheatsheet,
+            A::ToggleMute => {
+                self.settings.mute_alerts = !self.settings.mute_alerts;
+                let msg = if self.settings.mute_alerts {
+                    "Audio alerts muted"
+                } else {
+                    "Audio alerts unmuted"
+                };
+                self.toast(ToastKind::Info, msg);
+            }
+            A::ProductPrev | A::ProductNext => {
+                // Cycles `Moment::ALL` in its own declared order, which is the order the `1`-`7`
+                // keys already select in, so stepping and jumping agree about what "next" means.
+                // The pane's SRV choice is left alone: it is a way of reading velocity, not a
+                // product of its own, and stepping past velocity and back should not clear it.
+                let v = &mut self.views[self.active];
+                let n = Moment::ALL.len();
+                let at = Moment::ALL.iter().position(|m| *m == v.moment).unwrap_or(0);
+                let step = if action == A::ProductNext { 1 } else { n - 1 };
+                v.moment = Moment::ALL[(at + step) % n];
+            }
+            A::FocusPrevPane | A::FocusNextPane => {
+                let n = self.views.len();
+                if n > 1 {
+                    self.active = if action == A::FocusNextPane {
+                        (self.active + 1) % n
+                    } else {
+                        (self.active + n - 1) % n
+                    };
+                }
+            }
+        }
+    }
+
+    /// Act on the signals the chrome raised this frame (drawer sections, mobile sheets, pills).
+    pub(crate) fn apply_ui_actions(
+        &mut self,
+        actions: ui::layer_options::UiActions,
+        ctx: &egui::Context,
+    ) {
+        if let Some(a) = actions.palette {
+            self.apply_palette(a, ctx);
+        }
+        if let Some(layer) = actions.qpe_window {
+            if ui::layer_options::select_qpe_window(&mut self.views[self.active].fields_on, layer) {
+                ui::layers_panel::note_recent(&mut self.settings.recent_layers, layer.slug());
+            }
+        }
+        if let Some(layer) = actions.echo_top_threshold {
+            if ui::layer_options::select_echo_top_threshold(
+                &mut self.views[self.active].fields_on,
+                layer,
+            ) {
+                ui::layers_panel::note_recent(&mut self.settings.recent_layers, layer.slug());
+            }
+        }
+        if let Some(layer) = actions.isotherm_level {
+            if ui::layer_options::select_isotherm_level(
+                &mut self.views[self.active].fields_on,
+                layer,
+            ) {
+                ui::layers_panel::note_recent(&mut self.settings.recent_layers, layer.slug());
+            }
+        }
+        if let Some(layer) = actions.flash_ari_window {
+            if ui::layer_options::select_flash_ari_window(
+                &mut self.views[self.active].fields_on,
+                layer,
+            ) {
+                ui::layers_panel::note_recent(&mut self.settings.recent_layers, layer.slug());
+            }
+        }
+        if actions.open_site_dialog && self.site_dialog.is_none() {
+            self.site_dialog = Some(Default::default());
+        }
+        if actions.reload {
+            self.trigger_reload(ctx);
+        }
+        if actions.instant_replay {
+            self.instant_replay();
+        }
+        if let Some(raster) = actions.export_trail {
+            self.export_trail(raster);
+        }
+        if actions.reset_trail {
+            // `advance_trail` always chooses frames at or before the active playhead, so dropping
+            // this accumulator is a deterministic reset at the selected live/archive time. Also
+            // invalidate the uploaded image: a new accumulator starts its generation at zero and
+            // could otherwise collide with the previous trail's first cache key.
+            self.trail = None;
+            self.trail_more = true;
+            self.filters.trail_status = "Reset; rebuilding at the selected time…".into();
+            self.pane_shown.remove(&self.active);
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        if actions.download_chasepack {
+            self.start_chasepack();
+        }
+        if actions.cancel_chasepack {
+            if let Some(p) = &self.chasepack {
+                p.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+            self.chasepack = None;
+        }
+        if actions.outlook_kind_changed && self.filters.outlook_day == 1 {
+            // Hazard switched: drop the stale Day-1 features so the empty-check refetches it.
+            self.outlook_features[0].clear();
+        }
+        if actions.ero_day_changed {
+            self.ero_features.clear();
+            if (1..=3).contains(&self.filters.ero_day) {
+                self.spawn_overlay(ctx, OverlaySource::Ero(self.filters.ero_day));
+            }
+        }
+        if actions.fire_day_changed {
+            self.fire_features.clear();
+            if (1..=2).contains(&self.filters.fire_day) {
+                self.spawn_overlay(ctx, OverlaySource::FireWx(self.filters.fire_day));
+            }
+        }
+        if actions.wssi_day_changed {
+            // Day switched: the shown polygons belong to the old day until the new ones land.
+            self.wssi_features.clear();
+            if (1..=3).contains(&self.filters.wssi_day) {
+                self.spawn_overlay(ctx, OverlaySource::Wssi(self.filters.wssi_day));
+            }
+        }
+        if actions.overlays_changed {
+            // Selecting an outlook day/kind that hasn't been fetched yet pulls it on demand.
+            let day = self.filters.outlook_day;
+            if (1..=8).contains(&day) && self.outlook_features[(day - 1) as usize].is_empty() {
+                self.spawn_overlay(
+                    ctx,
+                    OverlaySource::Outlook(day, self.outlook_kind_for_day()),
+                );
+            }
+            self.rebuild_overlays();
+        }
+        if actions.srv_from_cells {
+            if let Some((dir, spd)) = self.scit_mean_motion() {
+                let v = &mut self.views[self.active];
+                v.storm_dir_deg = dir;
+                v.storm_speed_kt = spd;
+                v.srv = true;
+            }
+        }
+    }
 }
