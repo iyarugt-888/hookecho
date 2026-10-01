@@ -12620,9 +12620,8 @@ impl HookEchoApp {
         // The phone keeps the thin strip along the top edge in every design; Storm and Carbon add a
         // tall scale down the edge opposite their rail, and Atlas a small boxed one in the corner.
         self.paint_phone_legend(ui, &painter, prect, idx);
-        // Streaming mode can take the scale off the picture (`Broadcast::legend`).
-        let legend_allowed = !(self.obs_mode && !self.settings.broadcast.legend);
-        self.paint_legend(&painter, prect, idx, legend_allowed);
+        self.paint_legend(&painter, prect, idx);
+        self.paint_stale_badge(&painter, prect, idx);
     }
 
     /// Resize the pane grid to `n` (1/2/4). New panes copy the active pane's site/camera but
@@ -18155,7 +18154,7 @@ mod tests {
     /// `app/`; when an extraction lands, lower the ceiling to the new length so it stays down.
     #[test]
     fn app_rs_only_gets_smaller() {
-        const CEILING: usize = 19328;
+        const CEILING: usize = 19327;
         let lines = include_str!("app.rs").lines().count();
         assert!(
             lines <= CEILING,

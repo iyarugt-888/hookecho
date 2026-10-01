@@ -64,13 +64,9 @@ impl HookEchoApp {
     }
 
     /// The moment's scale, floating over the pane's right edge.
-    pub(crate) fn paint_legend(
-        &self,
-        painter: &egui::Painter,
-        prect: egui::Rect,
-        idx: usize,
-        legend_allowed: bool,
-    ) {
+    pub(crate) fn paint_legend(&self, painter: &egui::Painter, prect: egui::Rect, idx: usize) {
+        // Streaming mode can take the scale off the picture (`Broadcast::legend`).
+        let legend_allowed = !(self.obs_mode && !self.settings.broadcast.legend);
         let view = &self.views[idx];
         if view.show_legend && legend_allowed && !crate::platform::phone_layout() {
             // The moment's scale floats over this pane's right edge (no panel, no card) so the map

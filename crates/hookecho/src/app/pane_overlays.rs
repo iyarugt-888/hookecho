@@ -1,5 +1,5 @@
-//! Overlays drawn on a pane from `render_pane`: warning polygons, model contours and METAR
-//! station plots. Moved out of `render_pane` unchanged (ROADMAP_2 §7); each method takes the
+//! Overlays drawn on a pane from `render_pane`: warning polygons, model contours, METAR
+//! station plots, and the stale-scan badge. Moved out of `render_pane` unchanged (ROADMAP_2 §7); each method takes the
 //! locals its block read, under the same names.
 
 use super::*;
@@ -365,5 +365,84 @@ impl HookEchoApp {
                 }
             }
         }
+    }
+
+    /// A pane following live whose newest scan has gone old says so on the map itself (ROADMAP_2
+    /// §0.2: no stale scan displayed as current without a visible indication). The app bar and
+    /// timeline speak for the active pane only, and streaming mode and the output window hide
+    /// both; this covers every pane, in every mode. Fresh panes stay clean.
+    pub(crate) fn paint_stale_badge(&self, painter: &egui::Painter, prect: egui::Rect, idx: usize) {
+        let view = &self.views[idx];
+        let newest = view.timeline.newest().and_then(|id| id.date_time());
+        let age = newest.map(|t| (Utc::now() - t).num_seconds());
+        let Some((freshness, text)) =
+            stale_badge(view.timeline.following, age, self.radar_fresh_secs())
+        else {
+            return;
+        };
+        let font = egui::FontId::proportional(12.0);
+        let color = freshness.color();
+        let galley = painter.layout_no_wrap(text, font, color);
+        let at = prect.left_top() + egui::vec2(10.0, 10.0);
+        let back = egui::Rect::from_min_size(at, galley.size() + egui::vec2(14.0, 8.0));
+        painter.rect_filled(back, 4.0, egui::Color32::from_black_alpha(215));
+        painter.rect_stroke(
+            back,
+            4.0,
+            egui::Stroke::new(1.0, color),
+            egui::StrokeKind::Inside,
+        );
+        painter.galley(at + egui::vec2(7.0, 4.0), galley, color);
+    }
+}
+
+/// The badge a live pane shows for its newest scan's age: Aging from 80% of the stale threshold
+/// (as the live scan reads it), Stale past it. `None` when not following live (an archive frame
+/// is old by choice) or when the scan is fresh.
+pub(crate) fn stale_badge(
+    following: bool,
+    age_secs: Option<i64>,
+    fresh_secs: i64,
+) -> Option<(crate::ui::freshness::Freshness, String)> {
+    use crate::ui::freshness::Freshness;
+    let age = age_secs.filter(|_| following)?;
+    let class = if age >= fresh_secs {
+        Freshness::Stale
+    } else if age >= fresh_secs * 4 / 5 {
+        Freshness::Aging
+    } else {
+        return None;
+    };
+    let old = if age < 3600 {
+        format!("{}m", age / 60)
+    } else {
+        format!("{}h {:02}m", age / 3600, (age % 3600) / 60)
+    };
+    let word = if class == Freshness::Stale {
+        "Stale"
+    } else {
+        "Aging"
+    };
+    Some((class, format!("{word} \u{b7} newest scan {old} old")))
+}
+
+#[cfg(test)]
+mod stale_badge_tests {
+    use super::stale_badge;
+    use crate::ui::freshness::Freshness;
+
+    #[test]
+    fn a_live_pane_marks_an_old_scan_and_an_archive_frame_does_not() {
+        let fresh = 900;
+        assert_eq!(stale_badge(true, Some(300), fresh), None);
+        let (class, text) = stale_badge(true, Some(760), fresh).unwrap();
+        assert_eq!(class, Freshness::Aging);
+        assert_eq!(text, "Aging \u{b7} newest scan 12m old");
+        let (class, text) = stale_badge(true, Some(3_900), fresh).unwrap();
+        assert_eq!(class, Freshness::Stale);
+        assert_eq!(text, "Stale \u{b7} newest scan 1h 05m old");
+        // An archive frame is old on purpose; no scan at all is the loading caption's business.
+        assert_eq!(stale_badge(false, Some(3_900), fresh), None);
+        assert_eq!(stale_badge(true, None, fresh), None);
     }
 }
