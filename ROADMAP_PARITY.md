@@ -122,9 +122,11 @@ Unless marked otherwise, every card starts with **implementation: planned; verif
 
 **Agent prompt:** `Refresh M0.1 against the current branch head using section 6. Inspect changed code, correct only affected evidence, and preserve the distinction between implementation and certification.`
 
+**Evidence refresh — 2026-10-01:** implementation began at `ffa22a3`; the concurrent `365369f` change adds an optional Gemini digest provider. Self-updating builds and the additional digest provider do not close the competitive gates in the original matrix. That matrix retains its dated audit baseline; the increments below record subsequent delivery.
+
 #### M0.2 — Make domain ownership testable
 
-**Priority:** P0. **Depends on:** M0.1. **Original references:** ROADMAP_2 §7; ROADMAP_NEW §2.1.
+**Priority:** P0. **Depends on:** M0.1. **Status:** implementation: implemented (initial ownership seams); verification: partial. **Original references:** ROADMAP_2 §7; ROADMAP_NEW §2.1.
 
 - **Starting evidence:** app domain modules, `MapView`, `FieldState`, `RequestBook`, and the existing frame phases.
 - **Outcome/build:** establish narrow acquisition and field-request ownership first because later time groups and provenance depend on it. Controllers own domain state and expose explicit actions/results; per-pane state stays per pane. Further storm, GIS, rendering, and output extractions accompany their feature cards instead of becoming a prerequisite to all delivery.
@@ -134,6 +136,12 @@ Unless marked otherwise, every card starts with **implementation: planned; verif
 - **Proof:** domain ownership note, focused behavior tests, and before/after shell responsibilities rather than a lines-of-code claim alone.
 
 **Agent prompt:** `Implement M0.2 incrementally using section 6. Establish narrow acquisition and field-state seams first; preserve behavior and stop after a reviewable domain extraction.`
+
+**Evidence ledger — 2026-10-01, increment 1:** local commit `d0da38b` introduces [OverlayAcquisition](crates/hookecho/src/app/acquisition.rs), which owns request generations, health, timeout, background preparation, and delivery. [FieldState](crates/hookecho/src/app/field_state.rs) owns MRMS selection, cadence, readiness, and staging. The app delegates these responsibilities; [ARCHITECTURE.md](ARCHITECTURE.md) documents ownership and the remaining shared-context boundary. Regression tests cover live/archive selection changes, rejected previous-context uploads, refresh cadence, last-good data, and unknown stamps. Settings, workspaces, and command serialization are unchanged.
+
+**Adjacent Sources dock increment:** [Sources](crates/hookecho/src/app/chrome/dock/sources.rs) now supports search, attention filtering, stable row identity, tap/Enter/Space expansion, source/provider/recovery details, and explicit future valid-time labels. Session-only filters do not change acquisition or source enablement. Interaction and narrow-layout tests accompany six reproducible offscreen captures at 240/300/400 px in desktop/touch modes (`gpu_sources_dock_snapshots`; ignored by default because it requires a GPU). Reviewed captures include 240 px touch, 300 px desktop, and 400 px touch. This improves source inspection; retained provenance and lineage in M1.4 remain planned.
+
+**Verification:** fresh Windows `cargo test --workspace` passed **1,963 tests**, with zero failures and 107 explicitly ignored network/GPU tests; `cargo clippy --workspace --all-targets -- -D warnings` passed. The explicit Sources GPU capture test passed. `CARGO_INCREMENTAL=0 RUSTFLAGS='--cfg getrandom_backend="wasm_js"' cargo check --target wasm32-unknown-unknown -p hookecho --lib` passed with existing warnings (one in wxdata, ten in hookecho). Durable reproduction lives in the tracked tests; local review logs/captures are under `target/parity-review/`. Android build/device, Linux native, browser runtime smoke, and full application/soak certification remain open. No configured Android NDK/device tools were detected. Next ready card: M0.3, beginning with manifest integrity and pinned offline inputs.
 
 #### M0.3 — Pin the scientific and visual corpus
 

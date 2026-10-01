@@ -424,7 +424,7 @@ pub(crate) fn valid_time_line(time: Option<chrono::DateTime<chrono::Utc>>) -> St
     valid_time_line_at(time, chrono::Utc::now())
 }
 
-fn valid_time_line_at(
+pub(crate) fn valid_time_line_at(
     time: Option<chrono::DateTime<chrono::Utc>>,
     now: chrono::DateTime<chrono::Utc>,
 ) -> String {

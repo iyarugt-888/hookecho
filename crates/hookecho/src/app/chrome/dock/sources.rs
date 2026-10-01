@@ -9,12 +9,34 @@
 
 use super::*;
 use crate::ui::a11y::Named as _;
-use crate::ui::layers_panel::{age_line, compact_age, health_look, valid_time_line};
+use crate::ui::layers_panel::{age_line, compact_age, health_look, valid_time_line_at};
 use egui::{FontId, Rect, Sense};
 use egui_phosphor::regular as ph;
 
 /// The window's width, docked or floating.
 pub(super) const SOURCES_W: f32 = 300.0;
+
+/// Session-only presentation state, independent of layer enablement and saved workspaces.
+#[derive(Default)]
+pub(super) struct SourceListState {
+    query: String,
+    attention_only: bool,
+    expanded: Option<String>,
+}
+
+impl SourceListState {
+    fn matches(&self, h: &SourceHealth) -> bool {
+        if self.attention_only && !needs_attention(h.state()) {
+            return false;
+        }
+        let query = self.query.trim().to_lowercase();
+        query.is_empty()
+            || h.source.to_lowercase().contains(&query)
+            || h.endpoint_family.label().to_lowercase().contains(&query)
+            || crate::ui::source_health_window::provider(h)
+                .is_some_and(|p| p.to_lowercase().contains(&query))
+    }
+}
 
 /// A state that asks for the analyst's attention (the summary line counts these).
 fn needs_attention(state: HealthState) -> bool {
@@ -24,8 +46,7 @@ fn needs_attention(state: HealthState) -> bool {
     )
 }
 
-/// How old a source's newest data is, as a row's right-hand column: "4m", "now", or a dash when
-/// the feed does not report a valid time.
+/// Past data age, or a signed future valid-time offset. A forecast is never labeled "now".
 fn data_age(
     latest: Option<chrono::DateTime<chrono::Utc>>,
     now: chrono::DateTime<chrono::Utc>,
@@ -34,7 +55,12 @@ fn data_age(
         None => "\u{2014}".into(),
         Some(t) => {
             let secs = (now - t).num_seconds();
-            if secs < 5 {
+            if t > now {
+                format!(
+                    "+{}",
+                    compact_age(std::time::Duration::from_secs(secs.unsigned_abs().max(1)))
+                )
+            } else if secs < 5 {
                 "now".into()
             } else {
                 compact_age(std::time::Duration::from_secs(secs as u64))
@@ -78,6 +104,7 @@ impl HookEchoApp {
         };
         let mut header = ws::HeaderAction::None;
         let mut full_table = false;
+        let list_state = &mut self.dock.sources_list;
         tool_window(
             host,
             ToolWindow {
@@ -100,32 +127,7 @@ impl HookEchoApp {
                 if collapsed {
                     return;
                 }
-                egui::Frame::NONE
-                    .inner_margin(egui::Margin::symmetric(10, 8))
-                    .show(ui, |ui| {
-                        let summary = match (rows.len(), attention) {
-                            (0, _) => "No active source is being tracked.".to_string(),
-                            (n, 0) => format!("{n} active, all healthy"),
-                            (n, k) => format!("{n} active \u{b7} {k} need attention"),
-                        };
-                        ui.label(ws::text(
-                            summary,
-                            12.0,
-                            if attention > 0 { t.warn } else { t.text_dim },
-                        ));
-                    });
-                let scroll = egui::ScrollArea::vertical().auto_shrink([false, floating]);
-                let scroll = if floating {
-                    scroll.max_height(list_h)
-                } else {
-                    scroll.max_height((ui.available_height() - 44.0).max(80.0))
-                };
-                scroll.show(ui, |ui| {
-                    ui.spacing_mut().item_spacing.y = 0.0;
-                    for h in &rows {
-                        source_row(ui, &t, h, now);
-                    }
-                });
+                sources_list(ui, &t, &rows, now, list_state, floating.then_some(list_h));
                 ui.add_space(4.0);
                 ui.horizontal(|ui| {
                     ui.add_space(10.0);
@@ -146,21 +148,118 @@ impl HookEchoApp {
     }
 }
 
+fn sources_list(
+    ui: &mut egui::Ui,
+    t: &ws::Tokens,
+    rows: &[&SourceHealth],
+    now: chrono::DateTime<chrono::Utc>,
+    state: &mut SourceListState,
+    max_height: Option<f32>,
+) {
+    let attention = rows.iter().filter(|h| needs_attention(h.state())).count();
+    egui::Frame::NONE
+        .inner_margin(egui::Margin::symmetric(10, 8))
+        .show(ui, |ui| {
+            let summary = match (rows.len(), attention) {
+                (0, _) => "No active source is being tracked.".to_string(),
+                (n, 0) => format!("{n} active sources"),
+                (n, k) => format!("{n} active \u{b7} {k} need attention"),
+            };
+            ui.label(ws::text(
+                summary,
+                12.0,
+                if attention > 0 { t.warn } else { t.text_dim },
+            ));
+            ui.add(
+                egui::TextEdit::singleline(&mut state.query)
+                    .hint_text("Search sources or providers")
+                    .desired_width(f32::INFINITY),
+            )
+            .on_hover_text("Search active sources and providers");
+            if let Some(i) = ws::segmented(
+                ui,
+                t,
+                &["All", "Attention"],
+                usize::from(state.attention_only),
+            ) {
+                state.attention_only = i == 1;
+            }
+        });
+    let mut scroll = egui::ScrollArea::vertical().auto_shrink([false, max_height.is_some()]);
+    scroll =
+        scroll.max_height(max_height.unwrap_or_else(|| (ui.available_height() - 80.0).max(60.0)));
+    scroll.show(ui, |ui| {
+        ui.spacing_mut().item_spacing.y = 0.0;
+        let visible: Vec<_> = rows.iter().copied().filter(|h| state.matches(h)).collect();
+        for h in &visible {
+            // Stable source identity keeps expanded details/focus attached while severity reorders.
+            let id = ui.id().with(("source_health_row", &h.source));
+            let expanded = state.expanded.as_deref() == Some(h.source.as_str());
+            let response = source_row(ui, t, h, now, id, expanded);
+            if response.clicked() {
+                state.expanded = (!expanded).then(|| h.source.clone());
+            }
+        }
+        if visible.is_empty() && !rows.is_empty() {
+            egui::Frame::NONE
+                .inner_margin(egui::Margin::symmetric(10, 8))
+                .show(ui, |ui| {
+                    ui.label(ws::text(
+                        "No sources match these filters.",
+                        12.0,
+                        t.text_dim,
+                    ));
+                    if ws::button(ui, t, "Reset filters", 0.0).clicked() {
+                        state.query.clear();
+                        state.attention_only = false;
+                    }
+                });
+        }
+    });
+    ui.add_space(6.0);
+    egui::Frame::NONE
+        .inner_margin(egui::Margin::symmetric(10, 0))
+        .show(ui, |ui| {
+            ui.label(ws::text(
+                "Data age \u{b7} + means future valid time",
+                10.5,
+                t.text_faint,
+            ));
+            ui.label(ws::text(
+                "Tap a source or press Enter for details",
+                10.5,
+                t.text_faint,
+            ));
+        });
+}
+
 /// One source: glyph, name and data age on one line, and its last error under it when failing.
 fn source_row(
     ui: &mut egui::Ui,
     t: &ws::Tokens,
     h: &crate::app::SourceHealth,
     now: chrono::DateTime<chrono::Utc>,
-) {
+    id: egui::Id,
+    expanded: bool,
+) -> egui::Response {
     let state = h.state();
     let (word, color) = health_look(state);
     let error = h.error.as_deref().filter(|_| needs_attention(state));
-    let (rect, resp) =
-        ui.allocate_exact_size(egui::vec2(ui.available_width(), 26.0), Sense::hover());
+    let row_h = if ws::touch(ui.ctx()) { 44.0 } else { 28.0 };
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), row_h), Sense::hover());
+    let resp = ui.interact(rect, id, Sense::click());
+    if resp.has_focus() {
+        crate::hotkeys::reserve_navigation(ui.ctx(), id);
+    }
     let p = ui.painter();
-    if resp.hovered() {
+    if expanded || resp.hovered() || resp.has_focus() {
         p.rect_filled(rect, 0.0, t.panel_hi);
+    }
+    if resp.has_focus() {
+        p.line_segment(
+            [rect.left_bottom(), rect.right_bottom()],
+            egui::Stroke::new(2.0, t.accent),
+        );
     }
     let y = rect.center().y;
     p.text(
@@ -171,7 +270,7 @@ fn source_row(
         color,
     );
     let age = data_age(h.latest_valid_time, now);
-    let age_w = 44.0;
+    let age_w = 58.0;
     p.text(
         egui::pos2(rect.right() - 12.0, y),
         egui::Align2::RIGHT_CENTER,
@@ -193,13 +292,26 @@ fn source_row(
         "{}: {word}\n{}\nNewest data: {}\nLast success: {} ({} cadence)\nCache: {}",
         h.source,
         h.endpoint_family.label(),
-        valid_time_line(h.latest_valid_time),
+        valid_time_line_at(h.latest_valid_time, now),
         age_line(h.last_success),
         compact_age(h.cadence),
         h.cache_state.label(),
     );
     if let Some(p) = crate::ui::source_health_window::provider(h) {
         detail.push_str(&format!("\nProvider: {p}"));
+    }
+    if !h.fallback_providers.is_empty() {
+        detail.push_str(&format!(
+            "\nAlternates: {}",
+            h.fallback_providers.join(" → ")
+        ));
+    }
+    for (label, value) in h
+        .details
+        .iter()
+        .filter(|(label, _)| *label != "Active provider")
+    {
+        detail.push_str(&format!("\n{label}: {value}"));
     }
     detail.push_str(&format!(
         "\nNext try: {}",
@@ -213,18 +325,21 @@ fn source_row(
     if let Some(e) = &h.error {
         detail.push_str(&format!("\nLast error: {e}"));
     }
-    resp.on_hover_text(detail).widget_info(|| {
-        egui::WidgetInfo::labeled(
-            egui::WidgetType::Label,
-            true,
-            format!("{}: {word}", h.source),
-        )
-    });
-    if let Some(e) = error {
+    let resp = resp.named_toggle(
+        &format!("{}: {word}. Show source details", h.source),
+        expanded,
+    );
+    if expanded {
+        egui::Frame::NONE
+            .inner_margin(egui::Margin::symmetric(12, 8))
+            .show(ui, |ui| {
+                ui.add(egui::Label::new(ws::text(&detail, 11.5, t.text_dim)).wrap());
+            });
+    } else if let Some(e) = error {
         let mut job = egui::text::LayoutJob::simple(
             e.to_string(),
             FontId::proportional(11.0),
-            t.danger,
+            color,
             (ui.available_width() - 44.0).max(40.0),
         );
         job.wrap.max_rows = 2;
@@ -236,14 +351,27 @@ fn source_row(
         ui.painter().galley(
             Rect::from_min_size(r.min + egui::vec2(34.0, 0.0), galley.size()).min,
             galley,
-            t.danger,
+            color,
         );
     }
+    resp.on_hover_text(detail)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn health(name: &str, now: chrono::DateTime<chrono::Utc>) -> SourceHealth {
+        let book = crate::app::RequestBook::default();
+        let mut h = book.health(&crate::app::RequestLane::Field(
+            crate::render::FieldLayer::Cape,
+        ));
+        h.source = name.into();
+        h.last_success = Some(std::time::Duration::from_secs(30));
+        h.latest_valid_time = Some(now - chrono::Duration::minutes(4));
+        h.cache_state = crate::app::CacheState::Memory;
+        h
+    }
 
     #[test]
     fn a_rows_age_is_its_newest_datas_not_the_fetch_clock() {
@@ -252,6 +380,147 @@ mod tests {
         assert_eq!(data_age(Some(now), now), "now");
         let four_min = data_age(Some(now - chrono::Duration::minutes(4)), now);
         assert!(four_min.starts_with('4'), "{four_min}");
+        assert_eq!(data_age(Some(now + chrono::Duration::hours(3)), now), "+3h");
+        assert_ne!(
+            data_age(Some(now + chrono::Duration::milliseconds(500)), now),
+            "now"
+        );
         assert!(needs_attention(HealthState::Failed) && !needs_attention(HealthState::Fresh));
+    }
+
+    #[test]
+    fn attention_and_search_filters_keep_source_health_and_enablement_unchanged() {
+        let now = chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap();
+        let good = health("CAPE", now);
+        let mut cached = health("Low-level rotation", now);
+        cached.last_failure = Some(std::time::Duration::from_secs(5));
+        cached.error = Some("upstream timeout".into());
+        cached
+            .details
+            .push(("Active provider", "Radar relay".into()));
+        let mut filter = SourceListState {
+            attention_only: true,
+            ..Default::default()
+        };
+        assert!(!filter.matches(&good));
+        assert!(filter.matches(&cached));
+        filter.query = "  RELAY  ".into();
+        assert!(filter.matches(&cached));
+        filter.query = "cape".into();
+        assert!(!filter.matches(&good));
+        filter.attention_only = false;
+        assert!(filter.matches(&good));
+        assert_eq!(cached.state(), HealthState::Cached);
+        assert_eq!(good.state(), HealthState::Fresh);
+    }
+
+    #[test]
+    fn source_row_supports_keyboard_activation_and_touch_target_height() {
+        let ctx = egui::Context::default();
+        let now = chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap();
+        let h = health("MRMS rotation", now);
+        let t = ws::Tokens::new(egui::Color32::LIGHT_BLUE);
+        let id = egui::Id::new("keyboard_source_row");
+        ws::set_touch(&ctx, true);
+        let mut clicked = false;
+        let mut draw = |ui: &mut egui::Ui| {
+            let response = source_row(ui, &t, &h, now, id, false);
+            assert_eq!(response.rect.height(), 44.0);
+            clicked = response.clicked();
+        };
+        let raw = || egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(300.0, 300.0),
+            )),
+            ..Default::default()
+        };
+        let _ = ctx.run_ui(raw(), &mut draw);
+        ctx.memory_mut(|m| m.request_focus(id));
+        let mut input = raw();
+        input.events.push(egui::Event::Key {
+            key: egui::Key::Enter,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        let _ = ctx.run_ui(input, &mut draw);
+        assert!(
+            clicked,
+            "focused source details must open without hover or a pointer"
+        );
+    }
+
+    #[test]
+    fn long_source_errors_and_details_fit_a_narrow_host() {
+        let ctx = egui::Context::default();
+        let now = chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap();
+        let mut h = health("A provider with a very long display name", now);
+        h.error = Some(
+            "upstream connection timed out while requesting a missing archive scan ".repeat(6),
+        );
+        h.last_failure = Some(std::time::Duration::from_secs(5));
+        let t = ws::Tokens::new(egui::Color32::LIGHT_BLUE);
+        for width in [240.0, 300.0] {
+            let _ = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(width, 800.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| {
+                    source_row(ui, &t, &h, now, egui::Id::new("narrow_source"), true);
+                    assert!(
+                        ui.min_rect().width() <= width,
+                        "source details must wrap inside the dock"
+                    );
+                },
+            );
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "gpu: writes Sources dock captures for visual review"]
+    fn gpu_sources_dock_snapshots() {
+        let gpu = crate::headless::ui::Snapshot::new().expect("GPU adapter for Sources review");
+        let destination = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/parity-review/sources");
+        std::fs::create_dir_all(&destination).unwrap();
+        let now = chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap();
+        let mut cached = health("MRMS low-level rotation", now);
+        cached.endpoint_family = crate::source_health::field_endpoint_family(crate::render::FieldLayer::Rotation);
+        cached.cadence = std::time::Duration::from_secs(120);
+        cached.last_failure = Some(std::time::Duration::from_secs(5));
+        cached.error = Some("Upstream timeout. Retaining the previous scan.".into());
+        let mut forecast = health("HRRR mixed-layer CAPE", now);
+        forecast.latest_valid_time = Some(now + chrono::Duration::hours(3));
+        let rows = [&cached, &forecast];
+        let t = ws::Tokens::new(egui::Color32::from_rgb(72, 142, 226));
+        for width in [240, 300, 400] {
+            for touch in [false, true] {
+                let mut state = SourceListState {
+                    expanded: Some(cached.source.clone()),
+                    ..Default::default()
+                };
+                gpu.save(
+                    &destination.join(format!("sources-{width}-touch-{touch}.png")),
+                    width,
+                    700,
+                    |ui| {
+                        ws::set_touch(ui.ctx(), touch);
+                        ws::panel_frame(&t).show(ui, |ui| {
+                            ws::style_scope(ui, &t);
+                            ws::window_header(ui, &t, ph::PULSE, "Sources (1)", None, None);
+                            sources_list(ui, &t, &rows, now, &mut state, Some(520.0));
+                        });
+                    },
+                )
+                .unwrap();
+            }
+        }
     }
 }
