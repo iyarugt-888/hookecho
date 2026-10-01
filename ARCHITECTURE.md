@@ -50,9 +50,19 @@ instead of burning battery behind a dark screen.
 ## State
 
 - `view.rs` — one map pane: camera, product, tilt, loaded `Volume`, LRU of recent scans.
+- `app/acquisition.rs` — overlay acquisition owns the HTTP/runtime/channel handles and request book. The shell supplies a selected source and display cap; the controller starts work, bounds it by the existing timeout, prepares large grids off-frame, and delivers generation-tagged results. Source health, derived work, and texture eviction use its narrow methods.
+- `app/field_state.rs` — each field's request selection, cadence, display readiness, and staged grid/provenance/upload. MRMS request identity and archive tolerance live here; changing a selection invalidates the old queued upload and stamp, while a refresh of the same selection retains last-good data. This state can be tested without constructing the app or a GPU.
 - `workspace.rs` — a saved arrangement of panes, restored in one command.
 - `settings.rs` — JSON at the platform config dir, `#[serde(default)]` so old files stay loadable. Writes are coalesced into a one-second dirty-diff save, because the Android alert service reads the same file while the app runs.
 - `paths.rs` — every persistent path in the app. The desktop config/data/cache split and Android's single private dir differ here and nowhere else.
+
+Acquisition/field seams preserve the existing action → synchronization → delivery flow and
+the browser-safe `wxdata::clock::Instant`. `RequestBook`'s generation/status maps and MRMS's
+selected request are private to their owners. Delivery still rejects superseded generations
+before dispatch, and the selected MRMS product/time is checked again at acceptance. Field
+uploads, probes, and readiness read the same staged record. Field textures and non-MRMS source
+contexts remain shared by layer today; independent pane/time groups are the later M5.1 change,
+not a claim made by this extraction. Settings/workspace formats are unchanged.
 
 ## Rendering
 

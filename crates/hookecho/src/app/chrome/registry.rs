@@ -232,10 +232,7 @@ const NAV_ROWS: [(crate::app::NavStep, &str, &str, bool); 9] = {
 
 impl HookEchoApp {
     pub(crate) fn request_health(&self, lane: RequestLane) -> SourceHealth {
-        self.overlay_requests
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .health(&lane)
+        self.acquisition.health(&lane)
     }
 
     pub(in crate::app) fn radar_health(&self) -> SourceHealth {

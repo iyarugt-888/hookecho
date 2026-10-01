@@ -1,11 +1,33 @@
 //! Field delivery state, shared by pane rendering and the provenance inspector.
-use super::{HookEchoApp, Instant, MrmsRequest, PrecipGrid};
+use super::{HookEchoApp, PrecipGrid};
 use crate::render::{FieldLayer, MrmsUpload};
+use wxdata::clock::Instant;
 use wxdata::time_align::TimeOffset;
 use wxdata::{
     field::{DataStamp, QualitySummary, Stamped},
     mrms::MrmsField,
 };
+
+/// The selected cursor travels with an MRMS reply so late frames cannot replace a new choice.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct MrmsRequest {
+    pub(super) product: String,
+    pub(super) archive: Option<(chrono::DateTime<chrono::Utc>, u16)>,
+}
+
+impl MrmsRequest {
+    pub(super) fn accepts(&self, stamp: &wxdata::field::DataStamp) -> bool {
+        stamp.product_id == self.product
+            && self.archive.is_none_or(|(target, minutes)| {
+                !wxdata::time_align::TimeOffset::between(
+                    stamp.valid_time,
+                    target,
+                    chrono::Duration::minutes(minutes as i64),
+                )
+                .outside_tolerance
+            })
+    }
+}
 
 /// Attach the decoded model field's own valid time and source cycle before display decimation.
 /// The app sees the completed decode here, so `received_time` is local delivery time; provider
@@ -60,7 +82,57 @@ pub(crate) struct FieldState {
     /// Since when no pane has drawn this layer; drives GPU texture eviction.
     pub off_since: Option<Instant>,
     pub stamp: Option<DataStamp>,
-    pub(super) mrms_request: Option<MrmsRequest>,
+    mrms_request: Option<MrmsRequest>,
+}
+
+impl FieldState {
+    /// Selection changes bypass the cadence, but hidden layers never start a request.
+    pub(super) fn mrms_due(
+        &self,
+        request: &MrmsRequest,
+        wanted: bool,
+        cadence: std::time::Duration,
+        now: Instant,
+    ) -> bool {
+        wanted
+            && (self.mrms_request.as_ref() != Some(request)
+                || self
+                    .last_fetch
+                    .is_none_or(|last| now.saturating_duration_since(last) >= cadence))
+    }
+
+    /// Invalidate the old selection's pending upload/provenance before starting replacement work.
+    /// The retained grid/texture cannot draw until `mrms_ready` confirms the selected request.
+    pub(super) fn begin_mrms(&mut self, request: MrmsRequest, now: Instant) -> bool {
+        let changed = self.mrms_request.as_ref() != Some(&request);
+        if changed {
+            self.pending = None;
+            self.stamp = None;
+            self.mrms_request = Some(request);
+        }
+        self.last_fetch = Some(now);
+        changed
+    }
+
+    pub(super) fn mrms_ready(&self, request: &MrmsRequest) -> bool {
+        self.mrms_request.as_ref() == Some(request)
+            && self
+                .stamp
+                .as_ref()
+                .is_some_and(|stamp| request.accepts(stamp))
+    }
+
+    pub(super) fn mrms_delivered(&mut self, request: MrmsRequest, now: Instant) {
+        self.mrms_request = Some(request);
+        self.last_fetch = Some(now);
+    }
+
+    /// Commit a decoded grid, its optional provenance and matching upload as one delivery.
+    pub(super) fn stage(&mut self, field: MrmsField, stamp: Option<DataStamp>, upload: MrmsUpload) {
+        self.pending = Some(upload);
+        self.stamp = stamp;
+        self.grid = Some(field);
+    }
 }
 
 impl HookEchoApp {
@@ -108,9 +180,7 @@ impl HookEchoApp {
         }
         let upload = self.field_upload(layer, &field);
         if let Some(state) = self.fields.get_mut(&layer) {
-            state.pending = Some(upload);
-            state.stamp = stamp;
-            state.grid = Some(field);
+            state.stage(field, stamp, upload);
         }
     }
 }
@@ -118,6 +188,129 @@ impl HookEchoApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn fixture(time: chrono::DateTime<chrono::Utc>, value: f32) -> MrmsField {
+        MrmsField {
+            values: vec![value],
+            nx: 1,
+            ny: 1,
+            lon_west: -100.0,
+            lon_east: -100.0,
+            lat_north: 35.0,
+            lat_south: 35.0,
+            time,
+        }
+    }
+
+    fn upload(value: u8) -> MrmsUpload {
+        MrmsUpload {
+            data: vec![value],
+            nx: 1,
+            ny: 1,
+            world_min: [0.0; 2],
+            world_max: [1.0; 2],
+            uniform: [0.0; 12],
+            lut: vec![0; 256 * 4],
+        }
+    }
+
+    #[test]
+    fn changing_to_archive_cannot_upload_or_label_the_previous_live_grid() {
+        let live_time = chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap();
+        let live = MrmsRequest {
+            product: "CONUS/Test".into(),
+            archive: None,
+        };
+        let archive = MrmsRequest {
+            product: live.product.clone(),
+            archive: Some((live_time - chrono::Duration::hours(2), 2)),
+        };
+        let now = Instant::now();
+        let field = fixture(live_time, 30.0);
+        let stamp = model_stamp("MRMS", &live.product, &field, None, false);
+        let mut state = FieldState::default();
+        state.begin_mrms(live.clone(), now);
+        state.stage(field, Some(stamp), upload(30));
+        assert!(state.mrms_ready(&live));
+        assert!(state.begin_mrms(archive.clone(), now));
+        assert!(
+            state.pending.is_none(),
+            "a queued live upload must not reach the archive view"
+        );
+        assert!(
+            state.stamp.is_none(),
+            "no live timestamp on a pending archive selection"
+        );
+        assert!(!state.mrms_ready(&archive));
+        assert!(!state.mrms_ready(&live));
+        assert_eq!(state.grid.as_ref().unwrap().time, live_time);
+
+        let archive_time = archive.archive.unwrap().0;
+        let field = fixture(archive_time, 15.0);
+        let stamp = model_stamp("MRMS", &archive.product, &field, None, false);
+        state.stage(field, Some(stamp), upload(15));
+        state.mrms_delivered(archive.clone(), now);
+        assert!(state.mrms_ready(&archive));
+        assert!(!state.mrms_ready(&live));
+        assert_eq!(state.grid.as_ref().unwrap().values, [15.0]);
+    }
+
+    #[test]
+    fn scheduling_honors_hidden_state_cadence_and_immediate_selection_changes() {
+        let live = MrmsRequest {
+            product: "CONUS/Test".into(),
+            archive: None,
+        };
+        let other = MrmsRequest {
+            product: "CONUS/Other".into(),
+            archive: None,
+        };
+        let now = Instant::now();
+        let cadence = std::time::Duration::from_secs(120);
+        let mut state = FieldState::default();
+        assert!(!state.mrms_due(&live, false, cadence, now));
+        assert!(state.mrms_due(&live, true, cadence, now));
+        state.begin_mrms(live.clone(), now);
+        assert!(!state.mrms_due(
+            &live,
+            true,
+            cadence,
+            now + cadence - std::time::Duration::from_nanos(1)
+        ));
+        assert!(state.mrms_due(&live, true, cadence, now + cadence));
+        assert!(state.mrms_due(&other, true, cadence, now));
+        assert!(!state.mrms_due(&other, false, cadence, now + cadence));
+    }
+
+    #[test]
+    fn same_selection_refresh_keeps_last_good_data_and_unknown_delivery_clears_old_stamp() {
+        let valid = chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap();
+        let request = MrmsRequest {
+            product: "CONUS/Test".into(),
+            archive: None,
+        };
+        let now = Instant::now();
+        let mut state = FieldState::default();
+        state.begin_mrms(request.clone(), now);
+        let field = fixture(valid, 20.0);
+        let stamp = model_stamp("MRMS", &request.product, &field, None, false);
+        state.stage(field, Some(stamp), upload(20));
+        assert!(!state.begin_mrms(request.clone(), now + std::time::Duration::from_secs(120)));
+        assert!(state.mrms_ready(&request));
+        assert_eq!(state.pending.as_ref().unwrap().data, [20]);
+        state.stage(
+            fixture(valid + chrono::Duration::minutes(2), 35.0),
+            None,
+            upload(35),
+        );
+        assert!(state.stamp.is_none());
+        assert!(
+            !state.mrms_ready(&request),
+            "an untimed delivery cannot reuse old provenance"
+        );
+        assert_eq!(state.grid.as_ref().unwrap().values, [35.0]);
+        assert_eq!(state.pending.as_ref().unwrap().data, [35]);
+    }
 
     #[test]
     fn mrms_request_rejects_other_products_and_times_outside_archive_tolerance() {

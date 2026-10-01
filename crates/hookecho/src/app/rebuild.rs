@@ -72,11 +72,7 @@ impl HookEchoApp {
         self.derived_key = Some(key);
         let tx = self.overlay_tx.clone();
         let lane = RequestLane::Feed(FeedSource::DerivedRadarFields);
-        let generation = self
-            .overlay_requests
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .start(lane.clone());
+        let generation = self.acquisition.start(lane.clone());
         let cap = self.field_texture_cap();
         let ctx = ctx.clone();
         self.spawner.spawn_blocking(move || {

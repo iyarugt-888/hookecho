@@ -2,7 +2,9 @@
 //! reply is still the latest, and how each source is doing (the Layers rows, the Sources window
 //! and the diagnostics bundle all read this). Moved out of `app.rs` unchanged (ROADMAP_2 §7).
 
-use super::*;
+use super::{field_refresh_secs, FeedSource};
+use chrono::{DateTime, Utc};
+use wxdata::clock::Instant;
 
 /// One independently-refreshing result lane.
 ///
@@ -246,9 +248,9 @@ pub(crate) struct RequestStatus {
 /// Latest generation and fetch health in each result lane.
 #[derive(Default)]
 pub(crate) struct RequestBook {
-    pub(crate) next: u64,
-    pub(crate) latest: std::collections::HashMap<RequestLane, u64>,
-    pub(crate) status: std::collections::HashMap<RequestLane, RequestStatus>,
+    next: u64,
+    latest: std::collections::HashMap<RequestLane, u64>,
+    status: std::collections::HashMap<RequestLane, RequestStatus>,
 }
 
 impl RequestBook {

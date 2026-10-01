@@ -202,10 +202,7 @@ impl HookEchoApp {
         }
         if !drop_fields.is_empty() {
             use crate::render::FieldLayer as FL;
-            let mut requests = self
-                .overlay_requests
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let requests = &self.acquisition;
             for &layer in &drop_fields {
                 // CompareA/CompareB share one fetch and therefore one request-health lane.
                 let health_layer = if layer == FL::CompareB {

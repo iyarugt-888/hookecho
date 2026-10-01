@@ -22,11 +22,9 @@ impl HookEchoApp {
                     // residency lie.
                     let embedded_error = result.as_ref().ok().and_then(OverlayMsg::health_error);
                     let health_error = result.as_ref().err().map(String::as_str).or(embedded_error);
-                    let current = self
-                        .overlay_requests
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .finish(&lane, generation, health_error, valid_time);
+                    let current =
+                        self.acquisition
+                            .finish(&lane, generation, health_error, valid_time);
                     if !current {
                         log::debug!("discarding stale {} reply", lane.label());
                         continue;
@@ -45,10 +43,7 @@ impl HookEchoApp {
                                         state.pending = None;
                                         state.stamp = None;
                                     }
-                                    self.overlay_requests
-                                        .lock()
-                                        .unwrap_or_else(std::sync::PoisonError::into_inner)
-                                        .set_cache_resident(&lane, false);
+                                    self.acquisition.set_cache_resident(&lane, false);
                                 }
                                 RequestLane::Field(FL::Ensemble) => {
                                     self.ensemble_run = None;
@@ -59,10 +54,7 @@ impl HookEchoApp {
                                         state.pending = None;
                                         state.stamp = None;
                                     }
-                                    self.overlay_requests
-                                        .lock()
-                                        .unwrap_or_else(std::sync::PoisonError::into_inner)
-                                        .set_cache_resident(&lane, false);
+                                    self.acquisition.set_cache_resident(&lane, false);
                                 }
                                 RequestLane::Field(FL::CompareA) => {
                                     self.compare_valid = None;
@@ -74,10 +66,7 @@ impl HookEchoApp {
                                             state.stamp = None;
                                         }
                                     }
-                                    self.overlay_requests
-                                        .lock()
-                                        .unwrap_or_else(std::sync::PoisonError::into_inner)
-                                        .set_cache_resident(&lane, false);
+                                    self.acquisition.set_cache_resident(&lane, false);
                                 }
                                 _ => {}
                             }
@@ -228,8 +217,7 @@ impl HookEchoApp {
                     {
                         self.accept_field(layer, field.data, Some(field.stamp));
                         if let Some(state) = self.fields.get_mut(&layer) {
-                            state.mrms_request = Some(request);
-                            state.last_fetch = Some(Instant::now());
+                            state.mrms_delivered(request, Instant::now());
                         }
                     }
                 }

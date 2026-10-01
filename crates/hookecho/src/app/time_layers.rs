@@ -130,12 +130,8 @@ impl HookEchoApp {
         let Some(request) = self.mrms_request(layer) else {
             return true;
         };
-        self.fields.get(&layer).is_some_and(|state| {
-            state.mrms_request.as_ref() == Some(&request)
-                && state
-                    .stamp
-                    .as_ref()
-                    .is_some_and(|stamp| request.accepts(stamp))
-        })
+        self.fields
+            .get(&layer)
+            .is_some_and(|state| state.mrms_ready(&request))
     }
 }

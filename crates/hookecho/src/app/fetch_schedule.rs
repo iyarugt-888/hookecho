@@ -88,28 +88,19 @@ impl HookEchoApp {
             // layer is being drawn, so wanting the tint counts as wanting the layer's data.
             let wanted =
                 self.field_wanted(layer) || (layer == FL::PrecipType && self.settings.precip_tint);
-            let selection_changed = self
-                .fields
-                .get(&layer)
-                .is_none_or(|s| s.mrms_request.as_ref() != Some(&request));
-            let stale = wanted
-                && self.fields.get(&layer).is_none_or(|s| {
-                    selection_changed
-                        || s.last_fetch
-                            .is_none_or(|t| t.elapsed().as_secs() >= field_refresh_secs(layer))
-                });
-            if stale {
-                let state = self.fields.entry(layer).or_default();
-                if selection_changed {
-                    state.pending = None;
-                    state.stamp = None;
-                    state.mrms_request = Some(request.clone());
-                    if layer == FL::PrecipType {
-                        self.precip_flag_grid = None;
-                        self.precip_flag_gen = self.precip_flag_gen.wrapping_add(1);
-                    }
+            let now = Instant::now();
+            let state = self.fields.entry(layer).or_default();
+            if state.mrms_due(
+                &request,
+                wanted,
+                std::time::Duration::from_secs(field_refresh_secs(layer)),
+                now,
+            ) {
+                let selection_changed = state.begin_mrms(request.clone(), now);
+                if selection_changed && layer == FL::PrecipType {
+                    self.precip_flag_grid = None;
+                    self.precip_flag_gen = self.precip_flag_gen.wrapping_add(1);
                 }
-                state.last_fetch = Some(Instant::now());
                 self.spawn_overlay(ctx, OverlaySource::Field(layer, request));
             }
         }

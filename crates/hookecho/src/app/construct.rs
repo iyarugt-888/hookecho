@@ -220,6 +220,8 @@ impl HookEchoApp {
         let http = crate::platform::http_timeouts(reqwest::Client::builder())
             .build()
             .unwrap_or_default();
+        let acquisition =
+            OverlayAcquisition::new(http.clone(), spawner.clone(), overlay_tx.clone());
 
         // Open on the saved startup view if set (and its site still resolves), else where the app
         // was last looking, else the default site.
@@ -336,7 +338,7 @@ impl HookEchoApp {
             http,
             overlay_rx,
             overlay_tx,
-            overlay_requests: std::sync::Mutex::new(RequestBook::default()),
+            acquisition,
             filters: OverlayFilters::default(),
             // Seeded from the last run so a restart mid-outbreak draws the warnings that are
             // already on the ground, and doesn't re-banner them as new (see `alert_snapshot`).

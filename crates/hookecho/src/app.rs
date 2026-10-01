@@ -3,6 +3,7 @@
 //! UI code only mutates the active [`MapView`]; a single per-frame sync step turns those
 //! mutations into GPU uploads and background fetches, so buttons and hotkeys share one path.
 
+mod acquisition;
 mod actions;
 mod boundaries;
 mod case;
@@ -98,7 +99,8 @@ pub(crate) use request_book::{
 };
 mod terrain3d;
 mod yall_mode;
-pub(crate) use field_state::FieldState;
+use acquisition::OverlayAcquisition;
+pub(crate) use field_state::{FieldState, MrmsRequest};
 use goes_timeline::nearest_goes;
 mod mobile;
 
@@ -149,15 +151,6 @@ const IDLE_QUIET_MS: u64 = 500;
 /// River gauges are fetched only for a view narrower than this, in degrees of longitude: wider,
 /// there are too many to read.
 const GAUGE_MAX_SPAN_DEG: f64 = 12.0;
-
-/// How long any one overlay or field fetch may run before it is abandoned.
-///
-/// Shorter than the cadences that drive them (120 s for the alert/watch/MD burst, 60 s at the
-/// fastest for a gridded field), which is what keeps a stalled feed from stacking a second copy
-/// of itself on every tick. Deliberately *longer* than `wxdata::net::FEED_TIMEOUT`, which is the
-/// deadline that actually aborts the request: this one only drops our future, and dropping it
-/// first would leave the browser's `fetch` running with its connection held.
-const OVERLAY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(55);
 
 /// The same, for a Level 2 volume: bigger file, more patience, still finite. A volume fetch that
 /// never returns leaves its pane marked loading, and a pane marked loading never polls again.
@@ -337,27 +330,6 @@ impl Default for OverlayFilters {
 /// cannot be one request. Shapes never change once issued, so this only paces that first load: a
 /// few refresh cycles and the set is complete and stays complete.
 const TFR_BATCH: usize = 25;
-
-/// The selected cursor travels with an MRMS reply so late frames cannot replace a new choice.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct MrmsRequest {
-    product: String,
-    archive: Option<(chrono::DateTime<chrono::Utc>, u16)>,
-}
-
-impl MrmsRequest {
-    fn accepts(&self, stamp: &wxdata::field::DataStamp) -> bool {
-        stamp.product_id == self.product
-            && self.archive.is_none_or(|(target, minutes)| {
-                !wxdata::time_align::TimeOffset::between(
-                    stamp.valid_time,
-                    target,
-                    chrono::Duration::minutes(minutes as i64),
-                )
-                .outside_tolerance
-            })
-    }
-}
 
 /// Background overlay fetch results.
 /// Earlier scans' storm cells with each product's time, oldest first.
@@ -1361,7 +1333,7 @@ pub struct HookEchoApp {
     overlay_rx: Receiver<OverlayDelivery>,
     overlay_tx: Sender<OverlayDelivery>,
     /// Rejects a background reply once a newer request in its lane has started.
-    overlay_requests: std::sync::Mutex<RequestBook>,
+    acquisition: OverlayAcquisition,
     filters: OverlayFilters,
     alert_features: Vec<GeoFeature>,
     /// Archived storm-based warnings (feature W) keyed by 5-min UTC bucket (ts/300); shown while
@@ -2602,54 +2574,8 @@ impl HookEchoApp {
     }
 
     fn spawn_overlay(&self, ctx: &egui::Context, source: OverlaySource) {
-        let lane = source.lane();
-        let generation = self
-            .overlay_requests
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .start(lane.clone());
-        let http = self.http.clone();
-        let tx = self.overlay_tx.clone();
-        let ctx = ctx.clone();
-        let cap = self.field_texture_cap();
-        self.spawner.spawn(async move {
-            // Deliberately shorter than the 120 s refresh that drives this: a fetch that cannot
-            // outlive its own cadence cannot stack. Before, a feed the network swallowed left a
-            // task alive forever and the next tick started another one on top of it.
-            let result = match wxdata::task::timeout(OVERLAY_TIMEOUT, source.fetch(&http))
-                .await
-                .unwrap_or_else(Err)
-            {
-                Ok(msg) => {
-                    // Max-pool oversized grids here, on the fetch task: MRMS rotation tracks and
-                    // AzShear arrive 14000x7000, and doing this on the UI thread stalled a frame
-                    // for the whole pool.
-                    Ok(match msg {
-                        OverlayMsg::Field(layer, f) => OverlayMsg::Field(layer, f.decimated(cap)),
-                        OverlayMsg::StampedField(layer, f) => {
-                            let kind = layer
-                                .descriptor()
-                                .map_or(wxdata::field::ValueKind::Scalar, |d| d.value_kind);
-                            OverlayMsg::StampedField(layer, f.for_display(cap, kind))
-                        }
-                        OverlayMsg::MrmsField(layer, f, request) => {
-                            let kind = layer
-                                .descriptor()
-                                .map_or(wxdata::field::ValueKind::Scalar, |d| d.value_kind);
-                            OverlayMsg::MrmsField(layer, f.for_display(cap, kind), request)
-                        }
-                        other => other,
-                    })
-                }
-                Err(e) => Err(e.to_string()),
-            };
-            let _ = tx.send(OverlayDelivery::Fetched {
-                lane,
-                generation,
-                result,
-            });
-            ctx.request_repaint();
-        });
+        self.acquisition
+            .spawn(ctx, source, self.field_texture_cap());
     }
 
     /// Hazard kind for the current outlook day: probabilistic layers exist only for Day 1;
