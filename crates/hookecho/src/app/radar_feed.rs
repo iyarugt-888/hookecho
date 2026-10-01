@@ -226,11 +226,13 @@ impl HookEchoApp {
                 } else if !same_scan_site {
                     self.views[idx].live_scan.reset(Some(site.clone()));
                 }
-                #[cfg(not(target_arch = "wasm32"))]
+                // Every switch is logged (ROADMAP_2 §1.3), the web's too: there the only one is
+                // the stream coming back after completed-volume polling.
                 if same_scan_site {
                     if let Some(from) = self.views[idx].live_scan.provider.clone() {
                         if from != provider {
-                            let reason = self.views[idx]
+                            #[cfg(not(target_arch = "wasm32"))]
+                            let manager_reason = self.views[idx]
                                 .radar_providers
                                 .as_ref()
                                 .map(|p| p.snapshot())
@@ -240,10 +242,22 @@ impl HookEchoApp {
                                             crate::radar_provider_manager::label_for_reason(reason),
                                         )
                                     })
-                                })
-                                .unwrap_or("provider configuration changed");
-                            let mode = if provider == crate::radar_provider_manager::DEGRADED_LABEL
-                            {
+                                });
+                            #[cfg(target_arch = "wasm32")]
+                            let manager_reason: Option<&'static str> = None;
+                            let reason = manager_reason.unwrap_or(
+                                if from == crate::live_scan::COMPLETED_POLL_LABEL {
+                                    "live stream reconnected"
+                                } else {
+                                    "provider configuration changed"
+                                },
+                            );
+                            #[cfg(not(target_arch = "wasm32"))]
+                            let degraded =
+                                provider == crate::radar_provider_manager::DEGRADED_LABEL;
+                            #[cfg(target_arch = "wasm32")]
+                            let degraded = false;
+                            let mode = if degraded {
                                 "completed volumes only"
                             } else {
                                 "progressive radials"

@@ -123,6 +123,9 @@ impl Phase {
     }
 }
 
+/// The provider name a pane's scan carries while it follows completed volumes by polling.
+pub const COMPLETED_POLL_LABEL: &str = "Completed-volume poll";
+
 #[derive(Clone, Debug, Default)]
 pub struct LiveScan {
     pub site: Option<String>,
@@ -398,7 +401,7 @@ impl LiveScan {
         self.last_received = Some(received);
         self.recovering = false;
         if !self.streaming {
-            self.provider = Some("Completed-volume poll".to_owned());
+            self.provider = Some(COMPLETED_POLL_LABEL.to_owned());
             self.source_mode = Some(SourceMode::CompletedVolumes);
         }
         true
