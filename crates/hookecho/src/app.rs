@@ -40,6 +40,7 @@ mod packs_soundings;
 pub(crate) use goto::{goto_link, parse_goto, Goto};
 mod cell_markers;
 mod detector_markers;
+mod loop_capture;
 mod map_click;
 mod pane_3d_overlays;
 mod pane_feeds;
@@ -1168,8 +1169,10 @@ struct LoopExport {
     frames: Vec<image::RgbaImage>,
     /// Slots still to capture (counts down as frames are grabbed).
     remaining: usize,
-    /// Frames to let the newly-stepped radar settle/load before grabbing.
+    /// Frames to let the stepped radar paint once it is on screen, before grabbing.
     settle: u8,
+    /// When the timeline was stepped to the frame being waited for (`loop_capture`).
+    step_at: Instant,
     /// A screenshot has been requested; waiting for its event.
     capturing: bool,
     /// Playback speed the scrubber was set to when the export started — the exported clip plays
@@ -13656,154 +13659,6 @@ impl HookEchoApp {
         }
     }
 
-    /// Start a loop export (GIF or MP4): rewind the active timeline and capture every frame.
-    fn start_loop_export(&mut self, format: crate::loopexport::LoopFormat) {
-        use crate::loopexport::LoopFormat;
-        let (name, ext) = match format {
-            LoopFormat::Gif => ("hookecho-loop.gif", "gif"),
-            LoopFormat::Mp4 => ("hookecho-loop.mp4", "mp4"),
-        };
-        let Some(path) = crate::dialog::save_path(name, ext) else {
-            return;
-        };
-        let v = &mut self.views[self.active];
-        let slots = v.timeline.frames.len(); // observed frames only (skip forecast tail)
-        if slots == 0 {
-            log::warn!("loop export: no timeline frames");
-            self.toast(
-                ToastKind::Info,
-                "Nothing to export — no frames in the timeline yet",
-            );
-            return;
-        }
-        let speed = v.timeline.speed;
-        v.timeline.go_begin();
-        self.loop_export = Some(LoopExport {
-            dest: path,
-            format,
-            frames: Vec::with_capacity(slots),
-            remaining: slots,
-            settle: LOOP_SETTLE_FRAMES,
-            capturing: false,
-            fps: speed,
-            volumes: Vec::with_capacity(slots),
-            real_timing: self.settings.loop_real_timing,
-        });
-    }
-
-    /// Advance the loop export: wait for the stepped radar to settle, then request a screenshot.
-    fn drive_loop_export(&mut self, ctx: &egui::Context) {
-        let Some(le) = &mut self.loop_export else {
-            return;
-        };
-        if le.capturing {
-            return; // waiting for the screenshot event
-        }
-        if le.settle > 0 {
-            le.settle -= 1;
-            ctx.request_repaint();
-            return;
-        }
-        le.capturing = true;
-        self.screenshot_pending = Some(ShotDest::Loop);
-        ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
-    }
-
-    /// Record one captured loop frame; step to the next, or finish + encode the GIF.
-    fn record_loop_frame(&mut self, image: &egui::ColorImage) {
-        let Some(le) = &mut self.loop_export else {
-            return;
-        };
-        let (w, h) = (image.size[0] as u32, image.size[1] as u32);
-        let mut buf = Vec::with_capacity((w * h * 4) as usize);
-        for px in &image.pixels {
-            buf.extend_from_slice(&[px.r(), px.g(), px.b(), px.a()]);
-        }
-        if let Some(img) = image::RgbaImage::from_raw(w, h, buf) {
-            le.frames.push(img);
-            let id = self.views[self.active].timeline.current();
-            le.volumes
-                .push(id.and_then(|id| Some((id.name().to_string(), id.date_time()?))));
-        }
-        le.capturing = false;
-        le.remaining -= 1;
-        if le.remaining > 0 {
-            self.views[self.active].timeline.step(1);
-            if let Some(le) = &mut self.loop_export {
-                le.settle = LOOP_SETTLE_FRAMES;
-            }
-        } else {
-            let le = self.loop_export.take().unwrap();
-            use crate::loopexport::{LoopFormat, Timing};
-            // Real timing needs every frame's scan time; a frame without one (the forecast tail)
-            // puts the whole loop on the fixed rate rather than guessing.
-            let volumes: Option<Vec<(String, DateTime<Utc>)>> =
-                le.volumes.iter().cloned().collect();
-            let fps = le.fps.clamp(1.0, 15.0);
-            let timing = match (&volumes, le.real_timing) {
-                (Some(_), true) => Timing::Real { fps },
-                _ => Timing::Fixed { fps },
-            };
-            let frames = volumes
-                .as_deref()
-                .map(|v| crate::loopexport::frame_list(v, timing));
-            let delays: Vec<u32> = match &frames {
-                Some(f) => f.iter().map(|f| f.delay_ms).collect(),
-                None => vec![(1000.0 / fps) as u32; le.frames.len()],
-            };
-            let res = match le.format {
-                #[cfg(not(target_arch = "wasm32"))]
-                LoopFormat::Gif => crate::loopexport::encode_gif_timed(
-                    le.frames.iter().cloned().map(Ok),
-                    &delays,
-                    &le.dest,
-                ),
-                // Unreachable on the web: an export needs a destination path and there is none in
-                // a browser, so `start_loop_export` returns before a capture ever begins.
-                #[cfg(target_arch = "wasm32")]
-                LoopFormat::Gif => Err(anyhow::anyhow!("GIF export needs a filesystem")),
-                LoopFormat::Mp4 => {
-                    crate::loopexport::encode_mp4_timed(&le.frames, &delays, &le.dest)
-                }
-            };
-            // The sidecar: which scans the loop shows and how long each is held.
-            if res.is_ok() {
-                let v = &self.views[self.active];
-                let (interval, fps) = crate::loopexport::timing_words(timing);
-                let meta = serde_json::json!({
-                    "site": v.site,
-                    "product": v.moment.short_name(),
-                    "tilt_index": v.tilt,
-                    "format": match le.format { LoopFormat::Gif => "gif", LoopFormat::Mp4 => "mp4" },
-                    "frame_px": le.frames.first().map(|f| [f.width(), f.height()]),
-                    "interval": interval,
-                    "fps": fps,
-                    "duration_ms": delays.iter().map(|d| u64::from(*d)).sum::<u64>(),
-                    "frames": frames,
-                    "source": "NOAA NEXRAD Level II, rendered by HookEcho",
-                });
-                if let Ok(text) = serde_json::to_string_pretty(&meta) {
-                    let _ = std::fs::write(le.dest.with_extension("json"), text);
-                }
-            }
-            match res {
-                Ok(()) => {
-                    log::info!(
-                        "loop saved: {} ({} frames)",
-                        le.dest.display(),
-                        le.frames.len()
-                    );
-                    let msg = format!("Loop saved ({} frames)", le.frames.len());
-                    self.toast(ToastKind::Success, msg);
-                }
-                Err(e) => {
-                    log::warn!("loop encode failed: {e}");
-                    self.toast(ToastKind::Error, format!("Loop export failed: {e}"));
-                }
-            }
-        }
-    }
-
     /// Write the widget's picture, downscaled, and tell the widget about it.
     ///
     /// Downscaled because `RemoteViews.setImageViewBitmap` sends the bitmap over a Binder
@@ -18154,7 +18009,7 @@ mod tests {
     /// `app/`; when an extraction lands, lower the ceiling to the new length so it stays down.
     #[test]
     fn app_rs_only_gets_smaller() {
-        const CEILING: usize = 19327;
+        const CEILING: usize = 19182;
         let lines = include_str!("app.rs").lines().count();
         assert!(
             lines <= CEILING,
