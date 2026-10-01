@@ -467,6 +467,46 @@ impl HookEchoApp {
         }
 
         if section == Some("Help") {
+            // Self-update from the CI build (`crate::self_update`).
+            ui.horizontal(|ui| {
+                toggle(
+                    ui,
+                    &mut self.settings.check_builds,
+                    "Check for new builds at launch",
+                );
+            });
+            ui.horizontal(|ui| {
+                let state = crate::self_update::state();
+                let note = match &state {
+                    crate::self_update::State::DevBuild => {
+                        "This is a local build: it does not update itself.".to_string()
+                    }
+                    crate::self_update::State::Unsupported => {
+                        "This platform does not update itself.".to_string()
+                    }
+                    crate::self_update::State::Checking => "Checking…".to_string(),
+                    crate::self_update::State::UpToDate => format!(
+                        "Build #{} is the newest.",
+                        crate::self_update::local_build().unwrap_or(0)
+                    ),
+                    crate::self_update::State::Failed(e) => e.clone(),
+                    crate::self_update::State::Available(i)
+                    | crate::self_update::State::Ready { info: i, .. } => {
+                        format!("Build #{} is available.", i.build)
+                    }
+                    crate::self_update::State::Dismissed(b) => format!("Build #{b} is available."),
+                    _ => String::new(),
+                };
+                if ui.button("Check now").clicked() {
+                    self.check_for_build(ui.ctx());
+                }
+                if let crate::self_update::State::Dismissed(_) = state {
+                    if ui.button("Show").clicked() {
+                        self.check_for_build(ui.ctx());
+                    }
+                }
+                ui.weak(note);
+            });
             ui.scope(|ui| {
                 ui.hyperlink_to(
                     "HookEcho help & feedback",

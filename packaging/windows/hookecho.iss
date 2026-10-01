@@ -37,3 +37,13 @@ Name: "desktopicon"; Description: "Create a &desktop shortcut"; Flags: unchecked
 
 [Run]
 Filename: "{app}\hookecho.exe"; Description: "Launch HookEcho"; Flags: nowait postinstall skipifsilent
+; A self-update runs this installer silently with /RELAUNCH=1 (crates/hookecho/src/self_update.rs):
+; start the new build afterwards, which the silent install otherwise would not, as the user rather
+; than with the installer's elevation.
+Filename: "{app}\hookecho.exe"; Flags: nowait runasoriginaluser; Check: SelfUpdateRelaunch
+
+[Code]
+function SelfUpdateRelaunch: Boolean;
+begin
+  Result := WizardSilent and (ExpandConstant('{param:RELAUNCH|0}') = '1');
+end;

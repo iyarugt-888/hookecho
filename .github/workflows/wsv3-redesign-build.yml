@@ -8,6 +8,12 @@ on:
 permissions:
   contents: read
 
+env:
+  # Each build knows its own CI run number; the app compares it with the published build.json
+  # to offer updates (crates/hookecho/src/self_update.rs). A local build has none and never
+  # updates itself.
+  HOOKECHO_BUILD: ${{ github.run_number }}
+
 concurrency:
   group: wsv3-redesign-build-${{ github.ref }}
   cancel-in-progress: true
@@ -142,3 +148,59 @@ jobs:
           name: HookEcho-wsv3-Android-arm64-v8a
           if-no-files-found: error
           path: HookEcho-wsv3-arm64-v8a.apk
+
+  # Republish both builds on a rolling pre-release, so an installed app can find and download
+  # them: release assets need no token, Actions artifacts do. build.json names the run number,
+  # the commit and each file's SHA-256, which the app checks before running a download.
+  publish:
+    name: Publish rolling build
+    needs: [windows, android]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out (for the version)
+        uses: actions/checkout@v4
+
+      - name: Download the builds
+        uses: actions/download-artifact@v4
+        with:
+          path: dl
+          merge-multiple: true
+
+      - name: Write build.json
+        run: |
+          ver=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          cd dl
+          ls -l
+          {
+            echo "{"
+            echo "  \"build\": ${{ github.run_number }},"
+            echo "  \"sha\": \"${{ github.sha }}\","
+            echo "  \"version\": \"$ver\","
+            echo "  \"built_at\": \"$(date -u +%Y-%m-%dT%H:%MZ)\","
+            echo "  \"assets\": {"
+            first=1
+            for f in *.exe *.apk; do
+              [ $first -eq 1 ] || echo ","
+              first=0
+              printf '    "%s": "%s"' "$f" "$(sha256sum "$f" | cut -d' ' -f1)"
+            done
+            echo ""
+            echo "  }"
+            echo "}"
+          } > build.json
+          cat build.json
+          python3 -m json.tool build.json > /dev/null
+
+      - name: Replace the wsv3-latest pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release delete wsv3-latest --yes --cleanup-tag || true
+          gh release create wsv3-latest dl/*.exe dl/*.apk dl/build.json \
+            --prerelease \
+            --target "${{ github.sha }}" \
+            --title "WSV3 build #${{ github.run_number }}" \
+            --notes "Rolling build of feat/wsv3-redesign at ${{ github.sha }}. Installed builds update themselves from here."

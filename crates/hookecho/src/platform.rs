@@ -125,6 +125,33 @@ pub fn speak(_text: &str) -> Result<(), String> {
     Err("not android".into())
 }
 
+/// Where a self-update APK is downloaded: the app's cache directory that `Updater.kt`'s
+/// FileProvider shares with the system installer. `None` off Android, or if the call fails.
+pub fn update_dir() -> Option<String> {
+    #[cfg(target_os = "android")]
+    {
+        android_alerts::update_dir()
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        None
+    }
+}
+
+/// Hand a downloaded APK to the system installer (`Updater.install`), which asks the user to
+/// confirm. When the app may not yet install packages, Android's "install unknown apps" page
+/// for HookEcho opens instead, and this says so; installing again after allowing it proceeds.
+pub fn install_apk(_path: &str) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        android_alerts::install_apk(_path)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        Err("APK install is Android-only".into())
+    }
+}
+
 /// Start or stop the Android background alert service (`AlertService.kt`). No-op elsewhere —
 /// desktop already keeps watching because the window is still open.
 pub fn set_background_alerts(_enabled: bool) {
@@ -669,6 +696,54 @@ mod android_alerts {
             )?
             .l()?;
         f(&mut env, &JClass::from(class), &activity)
+    }
+
+    /// `Updater.updatesDir(Context)`: the cache directory for downloaded APKs.
+    pub(super) fn update_dir() -> Option<String> {
+        let out = with_class("io.hookecho.HookEcho.Updater", |env, class, activity| {
+            let s = env
+                .call_static_method(
+                    class,
+                    "updatesDir",
+                    "(Landroid/content/Context;)Ljava/lang/String;",
+                    &[JValue::Object(activity)],
+                )?
+                .l()?;
+            Ok(env.get_string(&JString::from(s))?.into())
+        });
+        match out {
+            Ok(s) => Some(s),
+            Err(e) => {
+                log::warn!("Updater.updatesDir failed: {e:?}");
+                None
+            }
+        }
+    }
+
+    /// `Updater.install(Context, String): Boolean`: true when the installer was started, false
+    /// when the user first has to allow HookEcho to install apps (that settings page is opened).
+    pub(super) fn install_apk(path: &str) -> Result<(), String> {
+        let out = with_class("io.hookecho.HookEcho.Updater", |env, class, activity| {
+            let jpath = env.new_string(path)?;
+            let res = env.call_static_method(
+                class,
+                "install",
+                "(Landroid/content/Context;Ljava/lang/String;)Z",
+                &[JValue::Object(activity), (&jpath).into()],
+            );
+            if res.is_err() {
+                let _ = env.exception_clear();
+            }
+            res?.z()
+        });
+        match out {
+            Ok(true) => Ok(()),
+            Ok(false) => Err(
+                "Allow HookEcho to install apps on the page that opened, then press Install again."
+                    .into(),
+            ),
+            Err(e) => Err(format!("the installer could not be started: {e:?}")),
+        }
     }
 
     pub(super) fn set_saver(on: bool) {

@@ -110,6 +110,7 @@ impl HookEchoApp {
 
         #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
         self.mini_loop_viewport(ctx);
+        self.self_update_frame(ctx);
         self.output_window(ctx);
 
         self.crash_report_window(ctx);

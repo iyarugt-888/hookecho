@@ -5,6 +5,7 @@ use super::*;
 
 impl HookEchoApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        crate::self_update::cleanup();
         // Inter in front, Phosphor's icon glyphs behind it (the mobile chrome draws line icons
         // egui's default face has none of), and on native egui's own faces behind both as the
         // fallback for anything Inter's subset dropped. The browser build starts without those

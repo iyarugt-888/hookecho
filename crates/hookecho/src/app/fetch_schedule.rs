@@ -917,3 +917,106 @@ impl HookEchoApp {
         self.sync_pf_icons(ctx);
     }
 }
+
+/// Refresh cadence (seconds) for a national field layer's product.
+pub(crate) fn field_refresh_secs(layer: crate::render::FieldLayer) -> u64 {
+    use crate::render::FieldLayer as FL;
+    match layer {
+        FL::Lightning | FL::AzShear => 60,
+        FL::Mrms | FL::Mesh | FL::Rotation | FL::RotationMidLevel | FL::Hrrr | FL::Mosaic => 120,
+        // Same MRMS product cadence as MESH/rotation above.
+        FL::Posh
+        | FL::Shi
+        | FL::MrmsVil
+        | FL::MrmsEchoTop18
+        | FL::MrmsEchoTop30
+        | FL::MrmsEchoTop50
+        | FL::MrmsEchoTop60
+        | FL::ReflLowestAlt
+        | FL::LowLevelReflectivity
+        | FL::MrmsRefl0c
+        | FL::MrmsReflM5c
+        | FL::MrmsReflM10c
+        | FL::MrmsReflM15c
+        | FL::MrmsReflM20c => 120,
+        // QPE accumulations update on a ~2-minute MRMS cadence.
+        // The rate product lands every 2 minutes; the accumulations move far more slowly.
+        FL::PrecipRate => 120,
+        FL::Qpe1h | FL::Qpe3h | FL::Qpe6h | FL::Qpe12h | FL::Qpe24h => 120,
+        // MRMS precip type / flash-flood ARI on the ~2-min cadence; L3 grids on the 120 s L3 cadence.
+        FL::PrecipType
+        | FL::FlashFlood
+        | FL::FlashFlood1h
+        | FL::FlashFlood3h
+        | FL::FlashFlood6h
+        | FL::FlashFlood12h
+        | FL::FlashFlood24h
+        | FL::FlashFloodMax
+        | FL::Vil
+        | FL::EchoTops
+        | FL::Hca => 120,
+        // Bands are cut from the ~2-min mosaic, so they are as fresh as it is.
+        FL::SnowBands => 120,
+        FL::UpdraftHelicity => 600,
+        // Snowfall accumulates over a whole model run; it moves as slowly as the run does.
+        FL::Snowfall => 600,
+        // The analysis is reissued four times a day; half an hour is plenty.
+        FL::SnowAnalysis => 1800,
+        // Global cycles are six hours apart and take hours to post. Half an hour is generous.
+        FL::GlobalMslp
+        | FL::GlobalHeight500
+        | FL::GlobalTemp2m
+        | FL::GlobalDewpoint2m
+        | FL::GlobalWind10m
+        | FL::GlobalPrecip
+        // Two global cycles behind it, so the same half hour.
+        | FL::ModelDiff
+        | FL::CompareA
+        | FL::CompareB
+        // GEFS also cycles every six hours; the 31-file fetch is worth doing no more often.
+        | FL::Ensemble => 1800,
+        FL::Smoke => 900,
+        // NBM posts hourly; the blend moves no faster than that.
+        FL::ThunderProb => 900,
+        // CONUS ABI CMIP lands on S3 about every 5 minutes, whichever band.
+        FL::GoesIr
+        | FL::GoesVisible
+        | FL::GoesWaterVapor
+        | FL::GoesShortwaveIr
+        | FL::GoesMidWaterVapor
+        | FL::GoesLowWaterVapor
+        | FL::GoesDirtyIr
+        | FL::GoesLongwaveIr
+        | FL::GoesDustDiff
+        | FL::GoesColdTop
+        | FL::GoesCoolingRate
+        | FL::GoesRgb => 300,
+        // NDFD elements update on a forecaster's schedule, not a fixed clock, and each fetch is
+        // a whole multi-day CONUS grid (tens of MB) with no way to ask for just the new part —
+        // half an hour balances staying current against re-downloading that for no reason.
+        FL::NdfdTemp2m | FL::NdfdWind10m | FL::NdfdGust10m | FL::NdfdSnow => 1800,
+        // A new analysis posts hourly, about 45 minutes after its hour; ten minutes catches it
+        // soon after it lands without asking constantly.
+        FL::RtmaTemp2m
+        | FL::RtmaDewpoint2m
+        | FL::RtmaWind10m
+        | FL::RtmaGust10m
+        | FL::RtmaVisibility
+        | FL::RtmaCeiling
+        | FL::RtmaMslp
+        | FL::RtmaPrecip1h => 600,
+        // An accumulation moves slower than the grid it accumulates, whatever the window.
+        FL::HailSwath => 300,
+        // Environment (HRRR CAPE/SRH) refreshes slowly — 15 min.
+        FL::Cape | FL::Srh => 900,
+        // Derived products cost no network: they recompute when the volume does, not on a clock.
+        FL::CompositeLocal
+        | FL::VilLocal
+        | FL::VilDensity
+        | FL::EtopLocal
+        | FL::HailMehs
+        | FL::HailPosh => 60,
+        // Gridded from the GLM feed the app already polls every 20 s; regridding is local work.
+        FL::GlmFed => 60,
+    }
+}

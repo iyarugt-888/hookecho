@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- What the `.updates` FileProvider may share with the system installer: only the downloaded
+     self-update APKs (Updater.kt), nothing else in the app's storage. -->
+<paths>
+    <cache-path name="updates" path="updates/" />
+</paths>

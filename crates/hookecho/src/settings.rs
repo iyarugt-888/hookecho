@@ -332,6 +332,9 @@ pub struct Settings {
     /// How old the newest radar scan can be before the radar reads Stale (`radar_fresh_secs`).
     #[serde(default = "default_radar_stale_minutes")]
     pub radar_stale_minutes: u16,
+    /// Check the CI build at launch and offer a newer one (`self_update`).
+    #[serde(default = "default_true")]
+    pub check_builds: bool,
     /// UI text/widget zoom factor (egui `zoom_factor`); also captures Ctrl+= / Ctrl+- / Ctrl+0.
     pub ui_scale: f32,
     /// User-added GRLevelX placefile overlays.
@@ -1738,6 +1741,7 @@ impl Default for Settings {
             time_display: TimeDisplay::default(),
             time_mismatch_minutes: default_time_mismatch_minutes(),
             radar_stale_minutes: default_radar_stale_minutes(),
+            check_builds: true,
             // 1.0 everywhere: this multiplies the native scale factor, and Android's display
             // density already sizes widgets for touch — an extra 1.3 shrank the S24's logical
             // canvas to ~277 pt wide (nothing fit).
@@ -2599,6 +2603,7 @@ mod tests {
             time_display: TimeDisplay::Utc,
             time_mismatch_minutes: 15,
             radar_stale_minutes: default_radar_stale_minutes(),
+            check_builds: true,
             ui_scale: 1.2,
             sync_client_id: String::new(),
             sync_client_secret: String::new(),

@@ -47,6 +47,11 @@
          arrive on a Samsung. Play-policy-sensitive; see the note in AlertAlarm.requestExemption. -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
+    <!-- Self-update (Updater.kt): hands a downloaded, checksummed CI build to the system installer,
+         which still asks the user to confirm each install. The user grants it per app, on the
+         settings page the first install attempt opens. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <!-- The wgpu backend is Vulkan; require Vulkan 1.1 (0x00400003). -->
     <uses-feature
         android:name="android.hardware.vulkan.version"
@@ -153,5 +158,16 @@
             android:name=".AlertService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+        <!-- Shares only the downloaded self-update APKs (res/xml/update_paths.xml) with the
+             package installer; Updater.kt builds the content URI with this authority. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.updates"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/update_paths" />
+        </provider>
     </application>
 </manifest>

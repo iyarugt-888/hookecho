@@ -113,6 +113,7 @@ pub mod rules;
 /// for Android), so it cannot live inside either.
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) mod secret;
+pub mod self_update;
 /// The `--serve` HTTP endpoint (desktop only — Android has no headless mode to render from).
 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 pub mod serve;
