@@ -77,7 +77,9 @@ jobs:
 
       # hookecho's own network-gated tests (Level II chunk/volume listing, NOAA TGFTP, chase
       # cache warming, elevation/status feeds) alongside three categories this job cannot run:
-      # GPU golden-image tests (need this job's own GPU deps installed to even build), two
+      # GPU render tests (need this job's own GPU deps installed to even build; every ignored test
+      # in `headless::golden_tests` needs a GPU, so the module is skipped by its path, which also
+      # covers the goldens and render checks added after this list was written), two
       # `nwr` tests explicitly tagged "network + audio device" (a headless runner has no audio
       # output), and `cam`'s test, which `.expect()`-panics without a manually-set
       # `HOOKECHO_CAM_URL` naming a specific camera to test against -- there is no one fixed
@@ -89,13 +91,32 @@ jobs:
       - name: hookecho provider contracts
         run: |
           cargo test -p hookecho --lib -- --ignored --nocapture --test-threads=1 \
-            --skip a_loop_and_a_palette_drag_rebuild_nothing \
-            --skip gpu_stroke_width_survives_zoom_without_reupload \
-            --skip cc_anomaly_fades_high_correlation_and_keeps_low \
-            --skip retained_observed_buffer_grows_and_shrinks_correctly_across_uploads \
-            --skip a_stale_wedge_renders_dimmer_and_only_where_it_should \
-            --skip gpu_golden_radar_snapshot \
+            --skip headless::golden_tests:: \
             --skip gpu_wind_advects_downwind \
             --skip plays_a_live_mp3_stream \
             --skip dead_relay_reports_offline \
             --skip live_stream_delivers_frames
+
+  # ROADMAP_2 0.2 "nightly/corpus regression suite runs against known historic storm cases".
+  # `crates/wxdata/tests/golden_events.rs` runs real archived volumes (Moore, Mayfield, El Reno,
+  # Washington IL, Mayflower-Vilonia, Nashville; the Joplin, Iowa derecho and Denver hail
+  # false-alarm cases; Moore's warnings and verification; deterministic replay) through the
+  # detector pipeline and pins what each must find. They are `#[ignore = "network"]` integration
+  # tests, which the `--lib` runs above never reach. A separate job, so a detector regression
+  # reads apart from a feed moving a path. The NOAA archive is static, so a red run here is the
+  # science changing, or (rarely) the archive being unreachable; the tests retry each listing and
+  # download three times.
+  storm-corpus:
+    name: Historic storm corpus
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Golden events
+        run: cargo test -p wxdata --test golden_events -- --ignored --nocapture

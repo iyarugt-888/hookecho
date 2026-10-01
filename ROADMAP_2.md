@@ -138,7 +138,7 @@ Before declaring the application "professional-station ready", all of the follow
 - [x] archive replay is deterministic across repeated runs for the same volume/time.
 - [ ] export/capture output is frame-stable and does not depend on UI repaint timing.
 - [ ] no single application source module remains responsible for an unreasonable number of unrelated domains.
-- [ ] nightly/corpus regression suite runs against known historic storm cases.
+- [x] nightly/corpus regression suite runs against known historic storm cases.
 - [ ] performance budgets are defined and measured for desktop, browser, and Android.
 
 ---
