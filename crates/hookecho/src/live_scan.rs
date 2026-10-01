@@ -407,6 +407,16 @@ impl LiveScan {
         true
     }
 
+    /// Why the pane is following completed volumes now, for the provider-switch log: the stream
+    /// was lost, or the app stopped it on purpose (a loop, a scrub).
+    pub fn poll_reason(&self) -> &'static str {
+        if self.recovering {
+            "live stream unavailable; completed-volume polling"
+        } else {
+            "live stream paused (loop or scrub); completed-volume polling"
+        }
+    }
+
     /// The stream died on its own: the feed is recovering until a volume arrives.
     pub fn stream_ended(&mut self) {
         self.streaming = false;
@@ -755,6 +765,17 @@ mod tests {
         assert_eq!(state.phase(now, 900), Phase::VolumeComplete);
         assert_eq!(state.provider.as_deref(), Some("Completed-volume poll"));
         assert_eq!(state.source_mode, Some(SourceMode::CompletedVolumes));
+    }
+
+    #[test]
+    fn the_poll_reason_tells_a_lost_stream_from_a_paused_one() {
+        let mut state = LiveScan::default();
+        state.stream_started("chunks", false);
+        state.stream_stopped();
+        assert!(state.poll_reason().starts_with("live stream paused"));
+        state.stream_started("chunks", false);
+        state.stream_ended();
+        assert!(state.poll_reason().starts_with("live stream unavailable"));
     }
 
     #[test]

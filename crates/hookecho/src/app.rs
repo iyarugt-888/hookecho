@@ -8853,6 +8853,7 @@ impl HookEchoApp {
                         continue;
                     }
                     let previous_provider = v.live_scan.provider.clone();
+                    let reason = v.live_scan.poll_reason();
                     if live_poll
                         && v.timeline.following
                         && !v.live_scan.accept_volume(&name, time, Utc::now())
@@ -8864,10 +8865,9 @@ impl HookEchoApp {
                         if let Some(from) = previous_provider
                             .filter(|from| v.live_scan.provider.as_deref() != Some(from.as_str()))
                         {
-                            let reason = "live stream unavailable; completed-volume polling";
                             log::info!(
                                 target: "hookecho::radar_provider_manager",
-                                "{}: provider switch {from} -> Completed-volume poll: {reason}; completed volumes only",
+                                "{}: provider switch {from} -> Completed-volume poll: {reason}",
                                 v.site.as_deref().unwrap_or("?"),
                             );
                             v.live_scan.set_switch_reason(reason);
