@@ -404,10 +404,19 @@ impl LiveScan {
         true
     }
 
+    /// The stream died on its own: the feed is recovering until a volume arrives.
     pub fn stream_ended(&mut self) {
         self.streaming = false;
         self.progress = None;
         self.recovering = true;
+    }
+
+    /// The app stopped the stream on purpose: a loop started playing, the view was scrubbed off
+    /// the live head, or the site or provider changed. Nothing failed, so nothing is recovering;
+    /// the volume already shown stays what it was.
+    pub fn stream_stopped(&mut self) {
+        self.streaming = false;
+        self.progress = None;
     }
 
     /// `stale_after` is shared with the visible radar-health threshold. Aging begins at 80%
@@ -743,6 +752,19 @@ mod tests {
         assert_eq!(state.phase(now, 900), Phase::VolumeComplete);
         assert_eq!(state.provider.as_deref(), Some("Completed-volume poll"));
         assert_eq!(state.source_mode, Some(SourceMode::CompletedVolumes));
+    }
+
+    #[test]
+    fn a_deliberate_stop_is_not_a_recovery() {
+        let now = Utc::now();
+        let mut state = LiveScan::default();
+        state.stream_started("chunks", false);
+        assert!(state.accept_volume("20260520-190000-005-I", now, now));
+        state.stream_stopped();
+        assert_eq!(state.phase(now, 900), Phase::VolumeComplete);
+        state.stream_started("chunks", false);
+        state.stream_ended();
+        assert_eq!(state.phase(now, 900), Phase::Recovering);
     }
 
     #[test]

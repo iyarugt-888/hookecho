@@ -200,8 +200,10 @@ impl HookEchoApp {
                 self.live_gen
                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 self.live_stream = None;
+                // Stopped on purpose (a loop, a scrub, a new site or provider), not lost: it must
+                // not read as Recovering. A stream that dies on its own ends in `LiveEnded`.
                 if ended_view < self.views.len() {
-                    self.views[ended_view].live_scan.stream_ended();
+                    self.views[ended_view].live_scan.stream_stopped();
                 }
                 // A new site (or a failover switch) shouldn't inherit the old one's 60 s retry
                 // gate — a switch away from a stalled/failing provider should reconnect promptly.
