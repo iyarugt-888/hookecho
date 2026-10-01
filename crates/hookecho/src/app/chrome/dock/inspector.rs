@@ -17,6 +17,7 @@ impl HookEchoApp {
     /// the moment's own units), and its geometry. `None` off the sweep or without a volume.
     pub(super) fn dock_probe(&mut self, lon: f64, lat: f64) -> Option<Probe> {
         let dealias = self.settings.dealias_velocity;
+        let storm_uv = self.views[self.active].storm_motion_uv();
         let v = &mut self.views[self.active];
         let (moment, tilt) = (v.moment, v.tilt);
         // Same rule as the renderer: velocity is dealiased where it can be folded, and a TDWR's
@@ -33,7 +34,12 @@ impl HookEchoApp {
         Some(Probe {
             lon,
             lat,
-            value: s.value,
+            value: crate::app::radar_probe::relative_value(
+                moment,
+                s.value,
+                s.azimuth_deg,
+                storm_uv,
+            ),
             folded: s.folded,
             azimuth_deg: s.azimuth_deg,
             range_km: s.range_km,

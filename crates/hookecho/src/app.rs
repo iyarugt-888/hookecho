@@ -52,6 +52,7 @@ mod pane_places;
 mod pane_points;
 mod pane_stations;
 mod radar_feed;
+mod radar_probe;
 mod rules;
 mod scenes;
 mod sharing;
@@ -5291,45 +5292,6 @@ impl HookEchoApp {
                 .and_then(|grid| grid.sample_bilinear(lon, lat))
                 .and_then(|raw| self.probe_field_value(layer, raw)),
             folded: false,
-        }
-    }
-
-    /// One row of the ROADMAP_NEW J3 cursor-probe table. The top visible grid wins; otherwise
-    /// sample this pane's radar moment through the exact Interrogate-tool path. A missing sample
-    /// leaves a visible row with `—` rather than silently dropping the pane.
-    fn probe_row(
-        &mut self,
-        ctx: &egui::Context,
-        idx: usize,
-        lon: f64,
-        lat: f64,
-        vp: (f32, f32),
-    ) -> ui::cursor_probe::ProbeRow {
-        if let Some(layer) = self.probe_field(idx, lon, lat, vp) {
-            return self.grid_probe_row(idx, layer, lon, lat);
-        }
-        let moment = self.views[idx].moment;
-        match self.inspect_gate(ctx, idx, lon, lat, None) {
-            Some(popup) => ui::cursor_probe::ProbeRow {
-                pane: idx,
-                source: popup.site.unwrap_or_else(|| "—".into()),
-                product: popup.moment.short_name().into(),
-                time: popup.time_range.map(|(_, end)| end),
-                value: popup
-                    .inspection
-                    .sample
-                    .value
-                    .map(|value| format!("{value:.1} {}", popup.moment.units())),
-                folded: popup.inspection.sample.folded,
-            },
-            None => ui::cursor_probe::ProbeRow {
-                pane: idx,
-                source: self.views[idx].site.clone().unwrap_or_else(|| "—".into()),
-                product: moment.short_name().into(),
-                time: None,
-                value: None,
-                folded: false,
-            },
         }
     }
 
@@ -10603,8 +10565,7 @@ impl HookEchoApp {
         }
         // The draw tool takes the drag away from the pan, the same deal the measure tool makes
         // with the click: while it's armed, a drag draws. Disarm it (Esc / another tool) to pan.
-        let tracking =
-            quiet && !swipe_dragging && self.storm_track_input(idx, prect, &response, ui);
+        let tracking = self.storm_track_input(idx, prect, &response, ui, quiet && !swipe_dragging);
         if tracking {
             // The storm-motion tool took the drag (or holds a handle): no pan under it.
         } else if self.tool == MapTool::Draw && quiet && !swipe_dragging {
@@ -14836,13 +14797,7 @@ fn report_color(kind: wxdata::spc::ReportKind) -> [u8; 4] {
 /// Display-unit factor and label for a moment: velocity/spectrum-width honor the Units
 /// setting (internal data stays m/s), everything else uses its native unit.
 pub(crate) fn display_units(moment: Moment, settings: &Settings) -> (f32, &'static str) {
-    match moment {
-        Moment::Velocity | Moment::SpectrumWidth => (
-            settings.velocity_unit.factor_from_ms(),
-            settings.velocity_unit.label(),
-        ),
-        _ => (1.0, moment.units()),
-    }
+    radar_probe::display_units(moment, settings.velocity_unit)
 }
 
 /// The track whose most recent point is nearest `(lon, lat)`, for pairing a marker being drawn
@@ -16108,6 +16063,7 @@ impl HookEchoApp {
         // with the drawer open. `capture_key` suppresses the table while the Hotkeys tab is
         // listening for the next keypress.
         if !self.capture_key {
+            self.storm_track_keys(ctx);
             let bindings = hotkeys::active(&self.settings).into_owned();
             for action in hotkeys::poll(ctx, &bindings) {
                 self.apply_action(action, ctx);

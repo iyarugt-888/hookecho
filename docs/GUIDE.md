@@ -22,6 +22,11 @@ page you came from.
 Anything you click *on the map* — a storm cell, a warning polygon, one of your
 own markers — answers in a card next to the click instead.
 
+With the **Dock (ImGui)** theme, tools and Settings use dockable windows. Open Settings
+to change its section, then use the window menu to dock or float it. Narrow Settings
+windows use a section selector above the scrolling controls. `Ctrl+K` brings the Layers
+search forward even when another dock tab is selected.
+
 **If you remember one thing, remember `Ctrl+K`.** It searches the panel, and
 Enter runs the top match. Every action in the app is in there, described in
 plain English — products, layers, windows, workspaces, and "Fly to" for any
@@ -55,7 +60,36 @@ tops and VIL, sorted; click a row to fly there.
 tilt: a velocity couplet, high reflectivity, and a *hole* in CC where debris is
 lofted. The app flags candidates, but the three panels are the reason.
 
+## Project a storm's motion
+
+Search `Ctrl+K` for **Storm motion** and enable the tool. Drag from the storm's current
+position to where you expect it to be in one hour. A magenta manual track shows its
+projection and uncertainty swath. For a line of storms, click along the edge first,
+then drag its motion. **Track manually** in a Cell analysis card starts with the cell's
+automatic motion, which you can then edit.
+
+Drag the origin to move the entire track or its hour-end handle to change motion.
+While editing, Ctrl-drag holds bearing and changes speed; Alt-drag holds speed and
+changes bearing. Shift snaps bearing to 5-degree steps. The motion card also edits
+speed, bearing, left/right widths, cone angle, and time-marker spacing directly.
+Ctrl+D duplicates the selected track, Delete removes it, and `[` / `]` adjust its cone.
+These keys apply while the tool is armed or its card has keyboard focus. Text fields
+and hotkey rebinding keep their input; otherwise, leaving the disarmed card returns
+the bracket keys to pane navigation.
+Use the primary pointer to edit. A two-finger gesture cancels a current edit before
+navigating the map; existing tracks return to their position and motion at drag start.
+Escape disarms the tool and cancels any unfinished edit.
+
+The card estimates arrivals and closest approaches for saved markers and zones.
+These are approximate projections from constant motion, not forecasts of storm
+growth or turns. Tracks last for the current session; refresh them as the storm evolves.
+
 ## Look at four things at once
+
+**Layer probe** reads the active layers at the pointer. Click the map to pin its card,
+then expand a layer row to read source and time details. Fields with a full source stamp
+include forecast/derived classification, run and receipt clocks, quality, and grid transforms.
+Incomplete metadata is identified explicitly. Long cards scroll; **Unpin** releases the point.
 
 Split into panes and give each its own product with cameras linked — Z, V, CC
 and ZDR on the same storm at the same second, or one product at four tilts. It's

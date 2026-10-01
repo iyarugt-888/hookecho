@@ -18,6 +18,60 @@ The target is a workstation that can be used continuously during a high-impact e
 
 ## Implementation progress (2026-09-29)
 
+Layer-probe provenance access (2026-10-01, §9.1, §10.2, §13.4): pinning the probe exposes
+expandable layer rows with readable source context. Retained field stamps use the common
+inspector for UTC clocks, signed offsets, receipt age, forecast/derived flags, quality, and
+grid transformations. Available catalog metadata adds native units and masked missing codes.
+Unstamped rows explicitly acknowledge incomplete provenance. Radar rows show selected-tilt
+and sampled-radial times; unlinked source offsets use the displayed tilt as their reference.
+The shared inspector calls its reference an analysis reference because a linked cursor may
+be independent of a radar scan. The probe uses workstation styling, responsive width, and
+a vertical scroll boundary. This improves access to existing stamps; complete stamping of
+all overlay, derived, and observed sources remains open.
+Validation: workspace Clippy passes with warnings denied; the Windows workspace test run
+passes (1,944 passed, 106 intentionally ignored). All seven focused layer-probe tests pass
+when including the GPU capture test. Four captures at 220/340 pixels cover the card and
+shared source details (`target/ui-review/layer-probe-*.png`); the narrow renders were reviewed
+for wrapped captions, padding, and source text. Complete application and device validation
+remain open.
+
+Storm keyboard ownership (2026-10-01, §2.2, §13.1, §13.4): manual-motion shortcuts run
+before the global binding table when the tool is armed or its card has keyboard focus.
+Bracket cone edits no longer change panes; companion Text events are consumed too so
+Android's text fallback cannot repeat a global action. Text-only brackets adjust the cone.
+Card buttons permit local shortcuts, while text editors and Settings key capture retain
+their events. When the tool is disarmed and focus leaves the card, global pane keys return.
+Regression coverage exercises real egui input frames, local/global ordering, companion and
+text-only events, duplication, key capture, card button focus, and text entry.
+Validation: workspace Clippy passes with warnings denied; the Windows workspace test run
+passes (1,941 passed, 105 intentionally ignored). Runtime device interaction remains open.
+
+Storm drag ownership and cancellation (2026-10-01, §2.6, §13.2–§13.3): each drag records
+its originating pane and original track. Another pane cannot edit or release its handle.
+Pointer handling runs its cancellation path even when pinch/swipe handling takes over;
+focus loss, touch cancellation, Escape, and tool changes restore an existing track or
+remove a new vector, retaining unfinished line points while the tool stays armed.
+Removed panes also release their drag. Primary-pointer editing leaves secondary drags
+to map navigation. Regression tests cover pane ownership, normal owner release, lost
+pointer/gesture rollback of point and line origins/motion, and interrupted new tracks.
+These are deterministic interaction-state checks; runtime mouse/pen/touch validation
+remains open.
+Validation: workspace Clippy passes with warnings denied; the Windows workspace test run
+passes (1,936 passed, 105 intentionally ignored).
+
+Constrained manual motion editing (2026-10-01, §2.2): Ctrl-drag holds the existing vector's
+bearing while its speed changes; Alt-drag holds its speed while its bearing changes.
+Shift snapping remains available. Constraints use drag-start motion, avoiding frame-to-frame
+drift, and new vectors can be created normally with lock modifiers held. Slow edits to
+existing point/line tracks no longer discard them; only tiny new drags are discarded, with
+unfinished line vertices restored. The card names these gestures. New tracks take their
+analysis time from the displayed tilt rather than the volume start. Regression tests cover
+repeated constrained edits, line geometry preservation, held modifiers on creation, and
+existing/new slow-drag behavior. Full runtime mouse/pen/touch validation remains open.
+The user guide documents these gestures and the dock Settings workflow. Validation:
+workspace Clippy passes with warnings denied; the Windows workspace test run passes
+(1,933 passed, 105 intentionally ignored).
+
 Settings visual review (2026-10-01, §13.4): offscreen GPU renders of all nine shared Settings
 sections at 280 and 640 pixels exposed clipped controls in narrow docks. Responsive forms
 now stack their labels, choice rows wrap, hotkey bindings remain visible, and sound previews

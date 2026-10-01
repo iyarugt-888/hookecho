@@ -56,7 +56,7 @@ pub(crate) fn show(
             "aligned"
         };
         ui.label(format!(
-            "{prefix}Radar scan: {analysis_time} · source offset {} ({relation})",
+            "{prefix}Analysis reference: {analysis_time} · source offset {} ({relation})",
             offset_label(comparison.offset)
         ));
         if comparison.outside_tolerance {

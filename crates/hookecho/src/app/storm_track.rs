@@ -153,6 +153,7 @@ impl ManualTrack {
     }
 
     /// Point the hour's end at `head`. `snap` holds the heading to 5° steps.
+    #[cfg(test)]
     pub fn aim(&mut self, head: [f64; 2], snap: bool) {
         self.aim_from(self.origin, head, snap);
     }
@@ -458,22 +459,159 @@ enum Grab {
     Motion(usize, [f64; 2]),
 }
 
+#[derive(Clone)]
+struct TrackDrag {
+    grab: Grab,
+    pane: usize,
+    created: bool,
+    before: ManualTrack,
+}
+
+impl TrackDrag {
+    fn aim(&self, track: &mut ManualTrack, from: [f64; 2], to: [f64; 2], keys: egui::Modifiers) {
+        track.aim_from(from, to, keys.shift);
+        // A new vector has no motion to hold. Existing vectors use the drag-start values,
+        // so a constraint stays stable even after several frames or a modifier change.
+        if !self.created {
+            if keys.ctrl || keys.command {
+                track.bearing_deg = self.before.bearing_deg;
+            }
+            if keys.alt {
+                track.speed_kmh = self.before.speed_kmh;
+            }
+        }
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct StormTracks {
     pub tracks: Vec<ManualTrack>,
     pub selected: Option<usize>,
-    drag: Option<Grab>,
+    drag: Option<TrackDrag>,
     /// A line being clicked out, point by point, before its motion is dragged.
     pub pending: Vec<[f64; 2]>,
 }
 
 impl StormTracks {
+    /// Local tool keys run before global bindings. A focused text editor or key-binding
+    /// capture keeps its events; a button in the card still permits track commands.
+    fn keys(&mut self, ctx: &egui::Context, armed: bool, capturing: bool) {
+        let card_focused = ctx
+            .memory(|m| m.focused())
+            .and_then(|id| ctx.read_response(id))
+            .is_some_and(|r| {
+                r.layer_id
+                    == egui::LayerId::new(
+                        egui::Order::Foreground,
+                        egui::Id::new("storm_track_card"),
+                    )
+            });
+        if capturing
+            || ctx.text_edit_focused()
+            || !ctx.input(|i| i.focused)
+            || !(armed || card_focused)
+        {
+            return;
+        }
+        if !self.pending.is_empty()
+            && ctx.input_mut(|i| consume_track_key(i, egui::Modifiers::NONE, egui::Key::Backspace))
+        {
+            self.pending.pop();
+        }
+        self.selected = self.selected.filter(|&i| i < self.tracks.len());
+        let Some(index) = self.selected else { return };
+        let (del, dup, narrow, widen) = ctx.input_mut(|i| {
+            (
+                consume_track_key(i, egui::Modifiers::NONE, egui::Key::Delete),
+                consume_track_key(i, egui::Modifiers::COMMAND, egui::Key::D),
+                consume_track_key(i, egui::Modifiers::NONE, egui::Key::OpenBracket),
+                consume_track_key(i, egui::Modifiers::NONE, egui::Key::CloseBracket),
+            )
+        });
+        if del {
+            self.remove(index);
+        } else if dup {
+            self.tracks.push(self.tracks[index].clone());
+            self.selected = Some(self.tracks.len() - 1);
+        } else if narrow || widen {
+            let track = &mut self.tracks[index];
+            track.cone_deg = (track.cone_deg + if widen { 2.0 } else { -2.0 }).clamp(0.0, 45.0);
+        }
+    }
+
+    fn owns_drag(&self, pane: usize) -> bool {
+        self.drag.as_ref().is_some_and(|drag| drag.pane == pane)
+    }
+
+    fn accepts_pointer(&mut self, pane: usize, allowed: bool, down: bool, released: bool) -> bool {
+        if self.drag.is_some() && !self.owns_drag(pane) {
+            return false;
+        }
+        if !allowed || (self.owns_drag(pane) && !down && !released) {
+            self.cancel_drag();
+            return false;
+        }
+        true
+    }
+
+    /// A gesture takeover or lost pointer cancels the transaction instead of leaving a handle
+    /// attached to the next press. Existing edits roll back; new lines return to construction.
+    fn cancel_drag(&mut self) {
+        let Some(drag) = self.drag.take() else { return };
+        let i = match drag.grab {
+            Grab::Head(i) | Grab::Origin(i) | Grab::Motion(i, _) => i,
+        };
+        if drag.created {
+            self.remove(i);
+            self.pending = drag.before.edge;
+        } else if let Some(track) = self.tracks.get_mut(i) {
+            *track = drag.before;
+            self.selected = Some(i);
+        }
+    }
+
+    fn finish_drag(&mut self) {
+        if let Some(drag) = self.drag.take().filter(|d| d.created) {
+            let i = match drag.grab {
+                Grab::Head(i) | Grab::Motion(i, _) => i,
+                Grab::Origin(_) => return,
+            };
+            if self.tracks.get(i).is_some_and(|t| t.speed_kmh < 2.0) {
+                let edge = self.tracks[i].edge.clone();
+                self.remove(i);
+                self.pending = edge;
+            }
+        }
+    }
+
     fn remove(&mut self, i: usize) {
         if i < self.tracks.len() {
             self.tracks.remove(i);
         }
         self.selected = None;
         self.drag = None;
+    }
+}
+
+/// A consumed key may also have a companion Text event. Remove that companion so the global
+/// Android text fallback cannot fire a second action; text-only plain keys work here too.
+fn consume_track_key(
+    input: &mut egui::InputState,
+    modifiers: egui::Modifiers,
+    key: egui::Key,
+) -> bool {
+    let matches_text = |event: &egui::Event| {
+        matches!(event,
+        egui::Event::Text(text) if text.chars().count() == 1
+            && text.eq_ignore_ascii_case(key.symbol_or_name()))
+    };
+    let text_only =
+        modifiers.is_none() && input.modifiers.is_none() && input.events.iter().any(matches_text);
+    if input.consume_key(modifiers, key) || text_only {
+        input.events.retain(|event| !matches_text(event));
+        true
+    } else {
+        false
     }
 }
 
@@ -518,6 +656,11 @@ fn width_control(ui: &mut egui::Ui, label: &str, width_km: &mut f64, metric: boo
 }
 
 impl HookEchoApp {
+    pub(crate) fn storm_track_keys(&mut self, ctx: &egui::Context) {
+        self.storm_tracks
+            .keys(ctx, self.tool == MapTool::StormTrack, self.capture_key);
+    }
+
     /// Seed the manual tool from the same SCIT motion and source time in every storm UI.
     pub(crate) fn track_cell_manually(&mut self, c: &wxdata::level3::Cell) {
         let t0 = c
@@ -540,8 +683,34 @@ impl HookEchoApp {
         prect: egui::Rect,
         response: &egui::Response,
         ui: &egui::Ui,
+        allow_pointer: bool,
     ) -> bool {
-        if self.tool != MapTool::StormTrack {
+        let interrupted = ui.input(|i| {
+            !i.focused
+                || i.key_pressed(egui::Key::Escape)
+                || i.events.iter().any(|event| {
+                    matches!(
+                        event,
+                        egui::Event::Touch {
+                            phase: egui::TouchPhase::Cancel,
+                            ..
+                        }
+                    )
+                })
+        });
+        if self.tool != MapTool::StormTrack || interrupted {
+            self.storm_tracks.cancel_drag();
+            if self.tool != MapTool::StormTrack || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                self.storm_tracks.pending.clear();
+            }
+            return false;
+        }
+        if !self.storm_tracks.accepts_pointer(
+            idx,
+            allow_pointer,
+            ui.input(|i| i.pointer.primary_down()),
+            response.drag_stopped_by(egui::PointerButton::Primary),
+        ) {
             return false;
         }
         let vp = (prect.width(), prect.height());
@@ -572,15 +741,16 @@ impl HookEchoApp {
                 .min_by(|a, b| a.1.total_cmp(&b.1))
                 .map(|(g, _)| g)
         };
-        let shift = ui.input(|i| i.modifiers.shift);
-        if response.drag_started() {
+        let keys = ui.input(|i| i.modifiers);
+        if response.drag_started_by(egui::PointerButton::Primary) {
             if let Some(p) = ui.input(|i| i.pointer.press_origin()) {
                 self.active = idx;
+                let mut created = false;
                 let grab = grab_at(p, &self.storm_tracks).unwrap_or_else(|| {
+                    created = true;
                     let t0 = self.views[idx]
-                        .volume
-                        .as_ref()
-                        .map_or_else(Utc::now, |v| v.time);
+                        .displayed_radar_time()
+                        .unwrap_or_else(Utc::now);
                     let st = &mut self.storm_tracks;
                     let pending = std::mem::take(&mut st.pending);
                     if pending.len() >= 2 {
@@ -592,16 +762,25 @@ impl HookEchoApp {
                         Grab::Head(st.tracks.len() - 1)
                     }
                 });
-                self.storm_tracks.drag = Some(grab);
+                let i = match grab {
+                    Grab::Head(i) | Grab::Origin(i) | Grab::Motion(i, _) => i,
+                };
+                let track = &self.storm_tracks.tracks[i];
+                self.storm_tracks.drag = Some(TrackDrag {
+                    grab,
+                    pane: idx,
+                    created,
+                    before: track.clone(),
+                });
             }
         }
-        if let (Some(grab), Some(p)) = (self.storm_tracks.drag, response.interact_pointer_pos()) {
+        let st = &mut self.storm_tracks;
+        if let (Some(drag), Some(p)) = (st.drag.as_ref(), response.interact_pointer_pos()) {
             let ll = to_ll(p);
-            let st = &mut self.storm_tracks;
-            match grab {
+            match drag.grab {
                 Grab::Head(i) => {
                     if let Some(t) = st.tracks.get_mut(i) {
-                        t.aim(ll, shift);
+                        drag.aim(t, t.origin, ll, keys);
                     }
                     st.selected = Some(i);
                 }
@@ -614,31 +793,16 @@ impl HookEchoApp {
                 }
                 Grab::Motion(i, from) => {
                     if let Some(t) = st.tracks.get_mut(i) {
-                        t.aim_from(from, ll, shift);
+                        drag.aim(t, from, ll, keys);
                     }
                     st.selected = Some(i);
                 }
             }
         }
-        if response.drag_stopped() {
-            let st = &mut self.storm_tracks;
-            // A press that barely moved is a click, not a track.
-            if let Some(Grab::Head(i)) = st.drag {
-                if st.tracks.get(i).is_some_and(|t| t.speed_kmh < 2.0) {
-                    st.remove(i);
-                }
-            }
-            // A line whose motion drag barely moved goes back to being clicked out.
-            if let Some(Grab::Motion(i, _)) = st.drag {
-                if st.tracks.get(i).is_some_and(|t| t.speed_kmh < 2.0) {
-                    let edge = st.tracks[i].edge.clone();
-                    st.remove(i);
-                    st.pending = edge;
-                }
-            }
-            st.drag = None;
+        if response.drag_stopped_by(egui::PointerButton::Primary) {
+            self.storm_tracks.finish_drag();
         }
-        if response.clicked() {
+        if response.clicked_by(egui::PointerButton::Primary) {
             if let Some(p) = response.interact_pointer_pos() {
                 // A click on a track picks it; on open map it adds a point to a line.
                 match grab_at(p, &self.storm_tracks) {
@@ -652,7 +816,7 @@ impl HookEchoApp {
                 }
             }
         }
-        response.dragged() || self.storm_tracks.drag.is_some()
+        response.dragged_by(egui::PointerButton::Primary) || self.storm_tracks.owns_drag(idx)
     }
 
     /// Every manual track on every pane: swath, centre line, time marks and handles.
@@ -798,45 +962,20 @@ impl HookEchoApp {
     /// selected track, Ctrl+D duplicates it, [ and ] narrow and widen its cone.
     pub(crate) fn storm_track_card(&mut self, ctx: &egui::Context) {
         let armed = self.tool == MapTool::StormTrack;
+        if !armed
+            || self
+                .storm_tracks
+                .drag
+                .as_ref()
+                .is_some_and(|drag| drag.pane >= self.views.len())
+        {
+            self.storm_tracks.cancel_drag();
+        }
         if !armed {
             // A line half clicked out is dropped with the tool.
             self.storm_tracks.pending.clear();
             if self.storm_tracks.selected.is_none() {
                 return;
-            }
-        }
-        let typing = ctx.memory(|m| m.focused().is_some());
-        if !self.storm_tracks.pending.is_empty()
-            && !typing
-            && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Backspace))
-        {
-            self.storm_tracks.pending.pop();
-        }
-        if self
-            .storm_tracks
-            .selected
-            .is_some_and(|i| i >= self.storm_tracks.tracks.len())
-        {
-            self.storm_tracks.selected = None;
-        }
-        if let (Some(i), false) = (self.storm_tracks.selected, typing) {
-            let (del, dup, narrow, widen) = ctx.input_mut(|inp| {
-                (
-                    inp.consume_key(egui::Modifiers::NONE, egui::Key::Delete),
-                    inp.consume_key(egui::Modifiers::COMMAND, egui::Key::D),
-                    inp.consume_key(egui::Modifiers::NONE, egui::Key::OpenBracket),
-                    inp.consume_key(egui::Modifiers::NONE, egui::Key::CloseBracket),
-                )
-            });
-            if del {
-                self.storm_tracks.remove(i);
-            } else if dup {
-                let copy = self.storm_tracks.tracks[i].clone();
-                self.storm_tracks.tracks.push(copy);
-                self.storm_tracks.selected = Some(self.storm_tracks.tracks.len() - 1);
-            } else if narrow || widen {
-                let t = &mut self.storm_tracks.tracks[i];
-                t.cone_deg = (t.cone_deg + if widen { 2.0 } else { -2.0 }).clamp(0.0, 45.0);
             }
         }
         let metric = self.metric_in(self.active);
@@ -1149,7 +1288,8 @@ impl HookEchoApp {
                                     });
                                 }
                             }
-                            ui.weak("Drag either end to edit · Ctrl+D duplicates · Delete removes");
+                            ui.weak("Drag either end to edit · Shift snaps heading · Ctrl-drag holds bearing · Alt-drag holds speed");
+                            ui.weak("Ctrl+D duplicates · Delete removes · [ / ] adjust cone");
                         });
                 });
             });
@@ -1179,6 +1319,349 @@ impl HookEchoApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn key_input(key: egui::Key, modifiers: egui::Modifiers, text: Option<&str>) -> egui::RawInput {
+        let mut events = vec![egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers,
+        }];
+        if let Some(text) = text {
+            events.push(egui::Event::Text(text.into()));
+        }
+        egui::RawInput {
+            modifiers,
+            events,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn cone_keys_run_before_pane_focus_including_companion_and_text_only_input() {
+        for text_only in [false, true] {
+            let ctx = egui::Context::default();
+            let mut st = StormTracks {
+                tracks: vec![track()],
+                selected: Some(0),
+                ..Default::default()
+            };
+            let before = st.tracks[0].cone_deg;
+            let input = if text_only {
+                egui::RawInput {
+                    events: vec![egui::Event::Text("]".into())],
+                    ..Default::default()
+                }
+            } else {
+                key_input(egui::Key::CloseBracket, egui::Modifiers::NONE, Some("]"))
+            };
+            let _ = ctx.run_ui(input, |_| {
+                st.keys(&ctx, true, false);
+                assert_eq!(st.tracks[0].cone_deg, before + 2.0);
+                assert!(
+                    crate::hotkeys::poll(&ctx, &crate::hotkeys::defaults()).is_empty(),
+                    "local cone adjustment must not also focus another pane"
+                );
+            });
+        }
+    }
+
+    #[test]
+    fn duplicate_owns_its_companion_text_without_toggling_3d() {
+        let ctx = egui::Context::default();
+        let original = track();
+        let mut st = StormTracks {
+            tracks: vec![original.clone()],
+            selected: Some(0),
+            ..Default::default()
+        };
+        let _ = ctx.run_ui(
+            key_input(egui::Key::D, egui::Modifiers::COMMAND, Some("d")),
+            |_| {
+                st.keys(&ctx, true, false);
+                assert_eq!(st.tracks, vec![original.clone(), original.clone()]);
+                assert_eq!(st.selected, Some(1));
+                assert!(crate::hotkeys::poll(&ctx, &crate::hotkeys::defaults()).is_empty());
+            },
+        );
+    }
+
+    #[test]
+    fn rebinding_keeps_track_edit_keys_unconsumed() {
+        for (key, modifiers, text) in [
+            (egui::Key::Delete, egui::Modifiers::NONE, None),
+            (egui::Key::D, egui::Modifiers::COMMAND, Some("d")),
+            (egui::Key::CloseBracket, egui::Modifiers::NONE, Some("]")),
+            (egui::Key::Backspace, egui::Modifiers::NONE, None),
+        ] {
+            let ctx = egui::Context::default();
+            let original = track();
+            let pending = vec![[-97.0, 35.0], [-96.9, 35.0]];
+            let mut st = StormTracks {
+                tracks: vec![original.clone()],
+                selected: Some(0),
+                pending: pending.clone(),
+                ..Default::default()
+            };
+            let _ = ctx.run_ui(key_input(key, modifiers, text), |_| {
+                st.keys(&ctx, true, true);
+                assert_eq!(st.tracks, vec![original.clone()]);
+                assert_eq!(st.pending, pending);
+                assert!(
+                    ctx.input_mut(|i| i.consume_key(modifiers, key)),
+                    "Settings key capture still receives {key:?}"
+                );
+            });
+        }
+    }
+
+    #[test]
+    fn focused_card_button_permits_shortcuts_after_tool_is_disarmed() {
+        let ctx = egui::Context::default();
+        let mut st = StormTracks {
+            tracks: vec![track()],
+            selected: Some(0),
+            ..Default::default()
+        };
+        let draw = |ctx: &egui::Context| {
+            egui::Area::new(egui::Id::new("storm_track_card"))
+                .order(egui::Order::Foreground)
+                .show(ctx, |ui| ui.button("Track control"))
+        };
+        let _ = ctx.run_ui(egui::RawInput::default(), |_| {
+            draw(&ctx).inner.request_focus();
+        });
+        let before = st.tracks[0].cone_deg;
+        let _ = ctx.run_ui(
+            key_input(egui::Key::CloseBracket, egui::Modifiers::NONE, Some("]")),
+            |_| {
+                st.keys(&ctx, false, false);
+                assert_eq!(st.tracks[0].cone_deg, before + 2.0);
+                assert!(crate::hotkeys::poll(&ctx, &crate::hotkeys::defaults()).is_empty());
+                draw(&ctx);
+            },
+        );
+    }
+
+    #[test]
+    fn text_editor_retains_brackets_and_disarmed_tool_restores_pane_keys() {
+        let ctx = egui::Context::default();
+        let original = track();
+        let mut st = StormTracks {
+            tracks: vec![original.clone()],
+            selected: Some(0),
+            ..Default::default()
+        };
+        let mut value = String::new();
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            ui.text_edit_singleline(&mut value).request_focus();
+        });
+        let _ = ctx.run_ui(
+            key_input(egui::Key::CloseBracket, egui::Modifiers::NONE, Some("]")),
+            |ui| {
+                assert!(ctx.text_edit_focused());
+                st.keys(&ctx, true, false);
+                assert_eq!(st.tracks, vec![original.clone()]);
+                assert!(crate::hotkeys::poll(&ctx, &crate::hotkeys::defaults()).is_empty());
+                ui.text_edit_singleline(&mut value).surrender_focus();
+            },
+        );
+        assert_eq!(value, "]");
+        let _ = ctx.run_ui(
+            key_input(egui::Key::CloseBracket, egui::Modifiers::NONE, Some("]")),
+            |_| {
+                st.keys(&ctx, false, false);
+                assert_eq!(st.tracks, vec![original.clone()]);
+                assert_eq!(
+                    crate::hotkeys::poll(&ctx, &crate::hotkeys::defaults()),
+                    vec![crate::hotkeys::BindableAction::FocusNextPane]
+                );
+            },
+        );
+    }
+
+    fn editing(line: bool, origin: bool, created: bool) -> StormTracks {
+        let mut before = track();
+        if line {
+            before.edge = vec![[-97.1, 35.0], [-96.9, 35.0], [-96.8, 35.1]];
+        }
+        let mut changed = before.clone();
+        if origin {
+            changed.move_to([-98.0, 36.0]);
+        } else {
+            changed.aim(destination_point(changed.origin, 180.0, 30.0), false);
+        }
+        StormTracks {
+            tracks: vec![changed],
+            selected: Some(0),
+            drag: Some(TrackDrag {
+                grab: if origin {
+                    Grab::Origin(0)
+                } else {
+                    Grab::Head(0)
+                },
+                pane: 1,
+                created,
+                before,
+            }),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn other_panes_cannot_take_over_or_release_an_active_drag() {
+        let mut st = editing(true, true, false);
+        let edited = st.tracks[0].clone();
+        assert!(!st.accepts_pointer(0, true, true, false));
+        assert!(!st.accepts_pointer(0, false, false, true));
+        assert!(st.owns_drag(1));
+        assert_eq!(st.tracks, vec![edited]);
+        assert!(st.accepts_pointer(1, true, false, true));
+        st.finish_drag();
+        assert!(st.drag.is_none());
+    }
+
+    #[test]
+    fn gesture_takeover_and_lost_pointer_restore_existing_edits() {
+        for line in [false, true] {
+            for origin in [false, true] {
+                for gesture in [false, true] {
+                    let mut st = editing(line, origin, false);
+                    let before = st.drag.as_ref().unwrap().before.clone();
+                    assert!(!st.accepts_pointer(1, !gesture, gesture, false));
+                    assert_eq!(st.tracks, vec![before]);
+                    assert_eq!(st.selected, Some(0));
+                    assert!(st.drag.is_none());
+                    assert!(
+                        st.accepts_pointer(0, true, true, false),
+                        "a fresh press is not claimed by an abandoned handle"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn interrupted_new_vectors_disappear_and_lines_return_to_construction() {
+        for line in [false, true] {
+            let mut st = editing(line, false, true);
+            let edge = st.drag.as_ref().unwrap().before.edge.clone();
+            st.cancel_drag();
+            assert!(st.tracks.is_empty() && st.drag.is_none());
+            assert_eq!(st.pending, edge);
+            assert!(st.selected.is_none());
+        }
+    }
+
+    #[test]
+    fn drag_constraints_preserve_initial_motion_across_frames() {
+        for line in [false, true] {
+            let mut t = track();
+            if line {
+                t.edge = vec![[-97.1, 35.0], [-96.9, 35.0]];
+            }
+            let from = if line { t.edge[0] } else { t.origin };
+            let drag = TrackDrag {
+                grab: Grab::Head(0),
+                pane: 0,
+                created: false,
+                before: t.clone(),
+            };
+            let original = t.clone();
+            for km in [30.0, 45.0] {
+                drag.aim(
+                    &mut t,
+                    from,
+                    destination_point(from, 170.0, km),
+                    egui::Modifiers::CTRL,
+                );
+                assert_eq!(t.bearing_deg, original.bearing_deg);
+                assert!((t.speed_kmh - km).abs() < 0.01);
+            }
+            drag.aim(
+                &mut t,
+                from,
+                destination_point(from, 173.0, 20.0),
+                egui::Modifiers {
+                    alt: true,
+                    shift: true,
+                    ..Default::default()
+                },
+            );
+            assert_eq!(t.speed_kmh, original.speed_kmh);
+            assert_eq!(t.bearing_deg, 175.0);
+            assert_eq!(t.origin, original.origin);
+            assert_eq!(t.edge, original.edge);
+            assert_eq!(t.t0, original.t0);
+            assert_eq!(t.left_width_km, original.left_width_km);
+            assert_eq!(t.right_width_km, original.right_width_km);
+        }
+    }
+
+    #[test]
+    fn slow_existing_edits_survive_but_empty_new_drags_are_discarded() {
+        for line in [false, true] {
+            for created in [false, true] {
+                let mut t = track();
+                t.speed_kmh = 1.0;
+                if line {
+                    t.edge = vec![[-97.1, 35.0], [-96.9, 35.0]];
+                }
+                let edge = t.edge.clone();
+                let mut st = StormTracks {
+                    tracks: vec![t.clone()],
+                    selected: Some(0),
+                    drag: Some(TrackDrag {
+                        grab: if line {
+                            Grab::Motion(0, t.origin)
+                        } else {
+                            Grab::Head(0)
+                        },
+                        pane: 0,
+                        created,
+                        before: t.clone(),
+                    }),
+                    ..Default::default()
+                };
+                st.finish_drag();
+                assert!(st.drag.is_none());
+                if created {
+                    assert!(st.tracks.is_empty() && st.selected.is_none());
+                    assert_eq!(st.pending, edge);
+                } else {
+                    assert_eq!(st.tracks, vec![t]);
+                    assert_eq!(st.selected, Some(0));
+                    assert!(st.pending.is_empty());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn new_vector_can_be_created_with_constraint_modifiers_held() {
+        let mut t = ManualTrack::new([-97.0, 35.0], Utc::now());
+        let from = t.origin;
+        let drag = TrackDrag {
+            grab: Grab::Head(0),
+            pane: 0,
+            created: true,
+            before: t.clone(),
+        };
+        drag.aim(
+            &mut t,
+            from,
+            destination_point(from, 93.0, 60.0),
+            egui::Modifiers {
+                ctrl: true,
+                alt: true,
+                shift: true,
+                ..Default::default()
+            },
+        );
+        assert_eq!(t.bearing_deg, 95.0);
+        assert!((t.speed_kmh - 60.0).abs() < 0.01);
+    }
 
     fn track() -> ManualTrack {
         // Due east at 60 km/h from 35N 97W.

@@ -8,6 +8,39 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Improved: readable layer-probe provenance
+
+Pin the layer probe and expand a layer to inspect its sources and times. Stamped fields
+share the data inspector's valid, run, issue and receipt clocks, forecast/derived flags,
+quality, and grid transforms; catalog fields also show native units and missing-data codes.
+Unstamped layers retain their available context and explicitly name missing full metadata.
+Radar context uses the displayed tilt's acquisition time and the sampled radial's own time.
+The card follows the workstation theme, fits narrow panes, and scrolls long lists.
+
+### Fixed: storm-tool keyboard ownership
+
+Storm shortcuts run before global bindings while the motion tool is armed or its card has
+keyboard focus. Brackets adjust the selected track's cone without changing panes, including
+text-only keyboard input. Clicking a card button no longer disables its shortcuts. Text
+editors and Settings hotkey rebinding retain their keys. Disarming the tool and leaving its
+card restores global pane navigation.
+
+### Fixed: storm edits interrupted by gestures or tool changes
+
+A manual-track drag belongs to the pane where it started. Pinch gestures, lost pointers,
+focus loss, Escape, and tool changes cancel the edit and restore an existing track's starting
+geometry and motion. An interrupted new vector is removed; unfinished line points return
+to construction unless the tool was disarmed. Motion editing uses the primary pointer,
+leaving right-button drags available for map navigation.
+
+### Improved: constrained storm-motion editing
+
+While editing a manual vector, Ctrl-drag holds its bearing and Alt-drag holds its speed.
+Shift still snaps the heading to 5-degree steps. Constraints use the motion at drag start
+for stable edits; new vectors can still be created with modifiers held. Existing point and
+line tracks survive edits to very slow or stationary motion. New tracks use the displayed
+tilt's acquisition time as their analysis time.
+
 ### Improved: Settings in narrow docks
 
 Settings forms stack labels and controls in narrow panels. Theme and unit choices wrap,

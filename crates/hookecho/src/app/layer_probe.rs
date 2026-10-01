@@ -13,6 +13,9 @@ use super::{ContourKind, HookEchoApp};
 use wxdata::level2::Moment;
 use wxdata::overlay::FeatureKind;
 
+#[path = "layer_probe_ui.rs"]
+mod presentation;
+
 /// Storm cells and detection tracks this close to the point are listed.
 const NEAR_KM: f64 = 10.0;
 
@@ -25,6 +28,8 @@ pub(crate) struct ProbeLine {
     pub value: String,
     /// Source, time or other context, when there is some.
     pub detail: Option<String>,
+    pub stamp: Option<wxdata::field::DataStamp>,
+    pub field: Option<crate::render::FieldLayer>,
 }
 
 impl ProbeLine {
@@ -33,6 +38,8 @@ impl ProbeLine {
             layer: layer.into(),
             value: value.into(),
             detail,
+            stamp: None,
+            field: None,
         }
     }
 }
@@ -103,12 +110,14 @@ impl HookEchoApp {
         let linked = self.linked_analysis_time();
         let reference = linked
             .map(|t| (t, "analysis"))
-            .or_else(|| self.views[idx].volume.as_ref().map(|v| (v.time, "radar")));
+            .or_else(|| self.views[idx].displayed_radar_time().map(|t| (t, "radar")));
 
         // The radar: the user product in the moment's place, else the moment on the shown tilt.
         let product = self.map_product(idx);
         let product_name = self.views[idx].user_product.clone();
         let dealias = self.settings.dealias_velocity;
+        let storm_uv = self.views[idx].storm_motion_uv();
+        let velocity_unit = self.settings.velocity_unit;
         let v = &mut self.views[idx];
         let (moment, tilt, srv) = (v.moment, v.tilt, v.srv);
         let site = v.site.clone();
@@ -117,7 +126,7 @@ impl HookEchoApp {
             && !site.as_deref().is_some_and(wxdata::tdwr::is_tdwr);
         if let Some(vol) = v.volume.as_mut().filter(|vol| !vol.elevations.is_empty()) {
             let elev = vol.elevations.get(tilt).copied().unwrap_or(0.0);
-            let scan_time = vol.time;
+            let scan_time = vol.acquisition_time(moment, tilt);
             let (label, sweep) = match &product {
                 Some((spec, key)) => (
                     format!(
@@ -148,17 +157,49 @@ impl HookEchoApp {
                     .map(|g| s.beam_height_ft(g.range_km) / 1000.0);
                 let value = match &sample {
                     Some(g) if g.folded => "Range folded".to_string(),
-                    Some(g) => g
-                        .value
-                        .map(|x| format!("{} {units}", fmt_value(x)))
-                        .unwrap_or_else(|| "\u{2014}".into()),
+                    Some(g) => if product.is_some() {
+                        g.value.map(|x| format!("{} {units}", fmt_value(x)))
+                    } else {
+                        super::radar_probe::format_value(
+                            moment,
+                            super::radar_probe::relative_value(
+                                moment,
+                                g.value,
+                                g.azimuth_deg,
+                                storm_uv,
+                            ),
+                            velocity_unit,
+                        )
+                    }
+                    .unwrap_or_else(|| "\u{2014}".into()),
                     None => "Outside the sweep".into(),
                 };
                 let mut detail = match (&site, beam_kft) {
                     (Some(site), Some(kft)) => Some(format!("{site}, beam {kft:.1} kft")),
                     (Some(site), None) => Some(site.clone()),
-                    _ => None,
+                    _ => Some("Radar".into()),
                 };
+                let d = detail.get_or_insert_with(String::new);
+                d.push_str(&format!(", tilt acquired {}", scan_time));
+                if product.is_none() {
+                    if dealias {
+                        d.push_str(", dealiased");
+                    }
+                    if storm_uv.is_some() {
+                        d.push_str(", storm motion subtracted");
+                    }
+                    let (_, displayed) = super::radar_probe::display_units(moment, velocity_unit);
+                    if displayed != moment.units() {
+                        d.push_str(&format!(", native {} → {displayed}", moment.units()));
+                    }
+                }
+                if let Some(time) = sample
+                    .as_ref()
+                    .and_then(|g| g.collected_ms)
+                    .and_then(chrono::DateTime::from_timestamp_millis)
+                {
+                    d.push_str(&format!(", sampled radial {time}"));
+                }
                 // Against a linked analysis time only: against its own scan it is always zero.
                 if let (Some(d), Some(analysis)) = (detail.as_mut(), linked) {
                     d.push_str(&offset_note(scan_time, (analysis, "analysis")));
@@ -181,11 +222,17 @@ impl HookEchoApp {
                 (Some(t), None) => format!("{}, {}", row.source, clock(t)),
                 (None, _) => row.source.clone(),
             };
-            out.push(ProbeLine::new(
+            let mut line = ProbeLine::new(
                 row.product,
                 row.value.unwrap_or_else(|| "\u{2014}".into()),
                 Some(detail),
-            ));
+            );
+            line.stamp = self
+                .fields
+                .get(&layer)
+                .and_then(|state| state.stamp.clone());
+            line.field = Some(layer);
+            out.push(line);
         }
 
         // Model contours: the grid each is drawn from.
@@ -383,7 +430,7 @@ impl HookEchoApp {
         let mut unpin = false;
         // Beside the point, on whichever side has room: left of it near the right edge, above it
         // in the lower half (where the timeline sits).
-        let card_w = 300.0;
+        let card_w = presentation::card_width(rect.width());
         let left = at.x + 18.0 + card_w > rect.right();
         let above = at.y > rect.center().y;
         let pivot = egui::Align2([
@@ -403,6 +450,11 @@ impl HookEchoApp {
                 if left { -18.0 } else { 18.0 },
                 if above { -14.0 } else { 14.0 },
             );
+        let tokens = self.ws_tokens();
+        let analysis_time = self
+            .linked_analysis_time()
+            .or_else(|| self.views[idx].displayed_radar_time());
+        let tolerance = chrono::Duration::minutes(i64::from(self.settings.time_mismatch_minutes));
         egui::Area::new(egui::Id::new("layer_probe"))
             .order(egui::Order::Foreground)
             .pivot(pivot)
@@ -410,41 +462,21 @@ impl HookEchoApp {
             .constrain_to(rect)
             .interactable(pinned)
             .show(&ctx, |ui| {
-                crate::ui::style::glass(ui, 235).show(ui, |ui| {
-                    ui.set_width(card_w);
-                    ui.horizontal(|ui| {
-                        ui.label(
-                            egui::RichText::new(format!("{lat:.3}, {lon:.3}"))
-                                .strong()
-                                .size(12.0),
+                crate::ui::workstation::card_frame(&tokens)
+                    .inner_margin(8)
+                    .show(ui, |ui| {
+                        crate::ui::workstation::style_scope(ui, &tokens);
+                        unpin = presentation::show(
+                            ui,
+                            &lines,
+                            pinned,
+                            [lon, lat],
+                            card_w,
+                            rect.height(),
+                            analysis_time,
+                            tolerance,
                         );
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if pinned {
-                                if ui.small_button("Unpin").clicked() {
-                                    unpin = true;
-                                }
-                            } else {
-                                ui.weak("click to pin");
-                            }
-                        });
                     });
-                    if lines.is_empty() {
-                        ui.weak("Nothing on the map here");
-                    }
-                    egui::Grid::new("layer_probe_grid")
-                        .num_columns(2)
-                        .spacing([10.0, 2.0])
-                        .show(ui, |ui| {
-                            for l in &lines {
-                                let r = ui.label(egui::RichText::new(&l.layer).size(11.5).weak());
-                                if let Some(d) = &l.detail {
-                                    r.on_hover_text(d);
-                                }
-                                ui.label(egui::RichText::new(&l.value).size(12.0).strong());
-                                ui.end_row();
-                            }
-                        });
-                });
             });
         if unpin {
             self.layer_probe_pin = None;
