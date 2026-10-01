@@ -179,7 +179,7 @@ Track:
 
 ### Acceptance criteria
 
-- [ ] UI never needs to infer live state from a generic loading boolean.
+- [x] UI never needs to infer live state from a generic loading boolean.
 - [x] current sweep and completed sweep are distinguishable in the state model.
 - [x] SAILS/MESO-SAILS supplemental scans are represented explicitly.
 - [x] out-of-order chunks cannot regress displayed time.

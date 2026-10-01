@@ -7,6 +7,30 @@ use egui_phosphor::regular as ph;
 
 /// Current feed delay is the age of the newest known radar frame, not the ingest lag measured
 /// when an earlier frame arrived. In archive mode that age is not a live-feed measurement.
+/// The app bar's word for the live radar (ROADMAP_2 §1.1: live state comes from the live-scan
+/// model, not a generic loading flag). A failure wins, since the error is what matters; then the
+/// scan phase says what the feed is doing; only before any live state exists does the request
+/// book's word ("Fetching", "Waiting") stand in.
+fn live_word(
+    phase: crate::live_scan::Phase,
+    health: crate::app::HealthState,
+    health_word: &'static str,
+) -> &'static str {
+    use crate::app::HealthState as H;
+    use crate::live_scan::Phase as P;
+    match (health, phase) {
+        (H::Failed | H::Cached, _) => health_word,
+        (_, P::AcquiringSweep | P::SweepComplete) => "Live",
+        (_, P::VolumeComplete) => "Fresh",
+        (_, P::Aging) => "Aging",
+        (_, P::Stale) => "Stale",
+        (_, P::Recovering) => "Recovering",
+        (_, P::FallbackSource) => "Fallback",
+        (_, P::Offline) => "Offline",
+        (_, P::AwaitingVolume) => health_word,
+    }
+}
+
 fn radar_delay_label(
     state: &str,
     newest: Option<chrono::DateTime<chrono::Utc>>,
@@ -30,7 +54,32 @@ fn radar_delay_label(
 
 #[cfg(test)]
 mod delay_tests {
-    use super::radar_delay_label;
+    use super::{live_word, radar_delay_label};
+    use crate::app::HealthState as H;
+    use crate::live_scan::Phase as P;
+
+    #[test]
+    fn the_live_word_comes_from_the_scan_not_the_loading_flag() {
+        // A volume download in flight no longer hides a sweep arriving.
+        assert_eq!(
+            live_word(P::AcquiringSweep, H::Fetching, "Fetching"),
+            "Live"
+        );
+        assert_eq!(
+            live_word(P::VolumeComplete, H::Fetching, "Fetching"),
+            "Fresh"
+        );
+        // One word, not "Recovering · Fresh".
+        assert_eq!(live_word(P::Recovering, H::Fresh, "Fresh"), "Recovering");
+        assert_eq!(live_word(P::Stale, H::Stale, "Stale"), "Stale");
+        // Nothing live yet: the request book is all there is.
+        assert_eq!(
+            live_word(P::AwaitingVolume, H::Fetching, "Fetching"),
+            "Fetching"
+        );
+        // A failure wins over a healthy-looking phase.
+        assert_eq!(live_word(P::SweepComplete, H::Failed, "Failed"), "Failed");
+    }
 
     #[test]
     fn live_delay_tracks_the_newest_frame_and_archive_does_not_claim_a_delay() {
@@ -92,23 +141,17 @@ impl HookEchoApp {
         let scan_phase = self.views[self.active]
             .live_scan
             .phase(now, self.radar_fresh_secs());
-        let delay_text = radar_delay_label(state_word, health.latest_valid_time, following, now);
-        let delay_text = if following {
-            match scan_phase {
-                crate::live_scan::Phase::Aging => format!("Aging · {delay_text}"),
-                crate::live_scan::Phase::FallbackSource => format!("Fallback · {delay_text}"),
-                crate::live_scan::Phase::Recovering => format!("Recovering · {delay_text}"),
-                crate::live_scan::Phase::Offline => format!("Offline · {delay_text}"),
-                _ => delay_text,
-            }
+        let word = live_word(scan_phase, health.state(), state_word);
+        let delay_text = radar_delay_label(word, health.latest_valid_time, following, now);
+        // The colour follows the word: the scan phase's freshness class (§9.3) whenever the word
+        // came from the scan, the source-health colour when it came from the request book.
+        let from_scan = following
+            && !matches!(health.state(), HealthState::Failed | HealthState::Cached)
+            && scan_phase != crate::live_scan::Phase::AwaitingVolume;
+        let state_color = if from_scan {
+            crate::ui::freshness::Freshness::of_scan(scan_phase).color()
         } else {
-            delay_text
-        };
-        // Following live, the scan phase decides, in the shared freshness colours (§9.3); a
-        // fresh phase leaves the source-health colour, which also covers fetching and waiting.
-        let state_color = match crate::ui::freshness::Freshness::of_scan(scan_phase) {
-            f if following && f != crate::ui::freshness::Freshness::Fresh => f.color(),
-            _ => state_color,
+            state_color
         };
         let scan_state = self.views[self.active]
             .live_scan
