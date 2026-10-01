@@ -201,7 +201,7 @@ impl HookEchoApp {
         }
         self.palette_editor
             .show(ctx, &mut self.settings, &self.palettes, &mut self.drawer);
-        // Storm digest: poll a pending Claude result, then render + handle Generate.
+        // Storm digest: poll a pending model result, then render + handle Generate.
         if let Some(rx) = &self.digest_rx {
             if let Ok(res) = rx.try_recv() {
                 self.digest_window.busy = false;
@@ -211,7 +211,12 @@ impl HookEchoApp {
                         self.digest_window.text = text;
                         self.digest_window.enhanced = true;
                     }
-                    Err(e) => log::warn!("digest enhancement failed: {e}"),
+                    Err(e) => {
+                        log::warn!("digest enhancement failed: {e}");
+                        // Shown, not only logged: a wrong key otherwise just looks like the
+                        // template every time.
+                        self.digest_window.error = Some(e);
+                    }
                 }
             }
         }

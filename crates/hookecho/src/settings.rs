@@ -593,10 +593,18 @@ pub struct Settings {
     /// User-saved view bookmarks (time-machine library, alongside the curated events).
     #[serde(default)]
     pub bookmarks: Vec<Bookmark>,
-    /// Anthropic API key for the optional plain-language storm digest (held locally only; empty
-    /// = digest uses the built-in templated summary instead of Claude).
+    /// Anthropic API key for the optional plain-language storm digest (held locally only). Used
+    /// when `ai_provider` is Anthropic; empty = the built-in templated summary.
     #[serde(default)]
     pub anthropic_key: String,
+    /// Google AI Studio API key: the alternative to `anthropic_key` for the storm digest (held
+    /// locally only). Used when `ai_provider` is Gemini.
+    #[serde(default)]
+    pub gemini_key: String,
+    /// Which model writes the storm digest's prose. Claude by default, so a saved Anthropic key
+    /// keeps working as before.
+    #[serde(default)]
+    pub ai_provider: crate::digest::Provider,
     /// Chime + push when cloud-to-ground lightning strikes within ~15 km of a saved location.
     #[serde(default)]
     pub lightning_alarm: bool,
@@ -1812,6 +1820,8 @@ impl Default for Settings {
             close_to_tray: false,
             bookmarks: Vec::new(),
             anthropic_key: String::new(),
+            gemini_key: String::new(),
+            ai_provider: Default::default(),
             lightning_alarm: false,
             speak_warnings: true,
             piper_path: String::new(),
@@ -2705,6 +2715,8 @@ mod tests {
                 span_min: 60,
             }],
             anthropic_key: "sk-test".to_string(),
+            gemini_key: String::new(),
+            ai_provider: Default::default(),
             lightning_alarm: true,
             speak_warnings: true,
             piper_path: String::new(),

@@ -1403,15 +1403,44 @@ fn general_tab(
     ui.separator();
     ui.strong("AI");
     ui.horizontal_wrapped(|ui| {
-        ui.label("Anthropic key:");
-        ui.add(
-            egui::TextEdit::singleline(&mut settings.anthropic_key)
-                .password(true)
-                .hint_text("sk-ant-…")
-                .desired_width(240.0),
-        );
+        ui.label("Storm Digest written by:");
+        egui::ComboBox::from_id_salt("ai_provider")
+            .selected_text(settings.ai_provider.label())
+            .show_ui(ui, |ui| {
+                for p in crate::digest::Provider::ALL {
+                    ui.selectable_value(&mut settings.ai_provider, p, p.label());
+                }
+            });
     });
-    ui.weak("Optional. Storm Digest (Ctrl+K) works offline; a key lets Claude write friendlier prose. Held locally only.");
+    match settings.ai_provider {
+        crate::digest::Provider::Anthropic => {
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Anthropic key:");
+                ui.add(
+                    egui::TextEdit::singleline(&mut settings.anthropic_key)
+                        .password(true)
+                        .hint_text("sk-ant-…")
+                        .desired_width(240.0),
+                );
+            });
+        }
+        crate::digest::Provider::Gemini => {
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Google AI Studio key:");
+                ui.add(
+                    egui::TextEdit::singleline(&mut settings.gemini_key)
+                        .password(true)
+                        .hint_text("AIza…")
+                        .desired_width(240.0),
+                );
+            });
+            ui.hyperlink_to(
+                "Get a key at aistudio.google.com",
+                "https://aistudio.google.com/apikey",
+            );
+        }
+    }
+    ui.weak("Optional. Storm Digest (Ctrl+K) works offline; a key lets the chosen model write friendlier prose. Keys are held locally only.");
 }
 
 /// Alert-sound controls: master toggle, volume, and a per-event sound picker with previews.

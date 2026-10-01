@@ -248,7 +248,7 @@ impl HookEchoApp {
     }
 
     /// Build a plain-language briefing of the in-view weather. The templated summary shows
-    /// instantly; if an Anthropic key is set, Claude rewrites it in the background.
+    /// instantly; if the chosen AI provider has a key, its model rewrites it in the background.
     pub(crate) fn generate_digest(&mut self) {
         let bounds = self.view_bounds();
         let overlaps = |f: &GeoFeature| {
@@ -280,18 +280,26 @@ impl HookEchoApp {
         let templated = crate::digest::templated(&alerts, reports);
         self.digest_window.text = templated.clone();
         self.digest_window.enhanced = false;
+        self.digest_window.error = None;
 
-        // Optional Claude enhancement.
-        let key = self.settings.anthropic_key.trim().to_string();
+        // Optional enhancement by the chosen model (Settings > General > AI).
+        let provider = self.settings.ai_provider;
+        let key = match provider {
+            crate::digest::Provider::Anthropic => &self.settings.anthropic_key,
+            crate::digest::Provider::Gemini => &self.settings.gemini_key,
+        }
+        .trim()
+        .to_string();
         if key.is_empty() {
             return;
         }
+        self.digest_window.provider = provider.model_name();
         let (tx, rx) = std::sync::mpsc::channel();
         self.digest_rx = Some(rx);
         self.digest_window.busy = true;
         let http = self.http.clone();
         self.spawner.spawn(async move {
-            let res = crate::digest::claude(&http, &key, &templated)
+            let res = crate::digest::enhance(&http, provider, &key, &templated)
                 .await
                 .map_err(|e| e.to_string());
             let _ = tx.send(res);

@@ -1,13 +1,18 @@
 //! Plain-language storm digest window: a "what does this mean for me" briefing of the in-view
-//! weather. The app fills `text` (templated instantly; Claude-enhanced if a key is set).
+//! weather. The app fills `text` (templated instantly; rewritten by Claude or Gemini if the
+//! chosen provider has a key).
 
 #[derive(Default)]
 pub struct DigestWindow {
     pub open: bool,
     pub text: String,
     pub busy: bool,
-    /// True once a Claude-enhanced version replaced the templated text.
+    /// True once a model-written version replaced the templated text.
     pub enhanced: bool,
+    /// The model asked for this digest ("Claude", "Gemini").
+    pub provider: &'static str,
+    /// Why the model's rewrite failed, when it did; the built-in summary stands meanwhile.
+    pub error: Option<String>,
 }
 
 pub enum DigestAction {
@@ -42,19 +47,25 @@ impl DigestWindow {
                     }
                     if self.busy {
                         ui.spinner();
-                        ui.weak("asking Claude…");
+                        ui.weak(format!("asking {}…", self.provider));
                     } else if self.enhanced {
-                        ui.weak("· enhanced by Claude");
+                        ui.weak(format!("· written by {}", self.provider));
                     }
                 });
                 ui.separator();
+                if let Some(e) = &self.error {
+                    ui.colored_label(
+                        ui.visuals().warn_fg_color,
+                        format!("{} could not write this one: {e}", self.provider),
+                    );
+                }
                 if self.text.is_empty() {
                     ui.weak("Click Generate for a plain-language briefing of the in-view weather.");
                 } else {
                     ui.label(egui::RichText::new(&self.text).size(14.0));
                 }
                 ui.add_space(6.0);
-                ui.weak("Set an Anthropic key in Settings ▸ Audio for friendlier prose; otherwise a built-in summary is used.");
+                ui.weak("Set an Anthropic or Google AI Studio key in Settings ▸ General ▸ AI for friendlier prose; otherwise a built-in summary is used.");
             });
         self.open = open;
         action
