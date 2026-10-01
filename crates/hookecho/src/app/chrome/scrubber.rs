@@ -37,8 +37,8 @@ impl HookEchoApp {
             .timeline
             .newest()
             .and_then(|id| id.date_time());
-        let fresh =
-            newest_time.is_some_and(|t| (chrono::Utc::now() - t).num_seconds() < RADAR_FRESH_SECS);
+        let fresh = newest_time
+            .is_some_and(|t| (chrono::Utc::now() - t).num_seconds() < self.radar_fresh_secs());
         // Site and data age used to live in the docked status bar; the clock belongs with the clock.
         let site = self.views[self.active]
             .site
@@ -564,8 +564,8 @@ impl HookEchoApp {
             .timeline
             .newest()
             .and_then(|id| id.date_time());
-        let fresh =
-            newest_time.is_some_and(|t| (chrono::Utc::now() - t).num_seconds() < RADAR_FRESH_SECS);
+        let fresh = newest_time
+            .is_some_and(|t| (chrono::Utc::now() - t).num_seconds() < self.radar_fresh_secs());
         let site = self.views[self.active]
             .site
             .clone()
@@ -724,8 +724,8 @@ impl HookEchoApp {
             .timeline
             .newest()
             .and_then(|id| id.date_time());
-        let fresh =
-            newest_time.is_some_and(|t| (chrono::Utc::now() - t).num_seconds() < RADAR_FRESH_SECS);
+        let fresh = newest_time
+            .is_some_and(|t| (chrono::Utc::now() - t).num_seconds() < self.radar_fresh_secs());
         let live_window = self.views[self.active].timeline.live_window;
         let width = (self.chrome_rect.width() - 160.0)
             .clamp(320.0, 640.0)

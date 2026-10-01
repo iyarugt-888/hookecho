@@ -91,7 +91,7 @@ impl HookEchoApp {
         let following = self.views[self.active].timeline.following;
         let scan_phase = self.views[self.active]
             .live_scan
-            .phase(now, super::super::super::RADAR_FRESH_SECS);
+            .phase(now, self.radar_fresh_secs());
         let delay_text = radar_delay_label(state_word, health.latest_valid_time, following, now);
         let delay_text = if following {
             match scan_phase {
@@ -112,7 +112,7 @@ impl HookEchoApp {
         };
         let scan_state = self.views[self.active]
             .live_scan
-            .description(now, super::super::super::RADAR_FRESH_SECS);
+            .description(now, self.radar_fresh_secs());
         let delay_tip = if following {
             match self.views[self.active].last_live_arrival {
                 Some((arrived, valid)) => format!(

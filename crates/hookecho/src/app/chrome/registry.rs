@@ -248,9 +248,9 @@ impl HookEchoApp {
             last_success: age,
             last_failure: v.error.as_ref().map(|_| std::time::Duration::ZERO),
             error: v.error.clone(),
-            // Shared with the scrubber's own Live/Stale badge (`RADAR_FRESH_SECS`) so the two
+            // Shared with the scrubber's own Live/Stale badge (`radar_fresh_secs`) so the two
             // can never disagree about what counts as fresh — see that constant's doc comment.
-            cadence: std::time::Duration::from_secs(RADAR_FRESH_SECS as u64),
+            cadence: std::time::Duration::from_secs(self.radar_fresh_secs() as u64),
             // Radar's health is built from `MapView` fields directly, not `RequestBook`, so
             // there is no rolling outcome history to report here — see `recent_outcomes`'s own
             // doc comment.

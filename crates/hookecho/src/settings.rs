@@ -115,6 +115,10 @@ fn default_custom_tile_max_z() -> u8 {
     19
 }
 
+fn default_radar_stale_minutes() -> u16 {
+    15
+}
+
 fn default_time_mismatch_minutes() -> u16 {
     10
 }
@@ -325,6 +329,9 @@ pub struct Settings {
     /// Maximum allowed difference between a displayed radar scan and another layer's valid time.
     #[serde(default = "default_time_mismatch_minutes")]
     pub time_mismatch_minutes: u16,
+    /// How old the newest radar scan can be before the radar reads Stale (`radar_fresh_secs`).
+    #[serde(default = "default_radar_stale_minutes")]
+    pub radar_stale_minutes: u16,
     /// UI text/widget zoom factor (egui `zoom_factor`); also captures Ctrl+= / Ctrl+- / Ctrl+0.
     pub ui_scale: f32,
     /// User-added GRLevelX placefile overlays.
@@ -1730,6 +1737,7 @@ impl Default for Settings {
             temp_unit: TempUnit::default(),
             time_display: TimeDisplay::default(),
             time_mismatch_minutes: default_time_mismatch_minutes(),
+            radar_stale_minutes: default_radar_stale_minutes(),
             // 1.0 everywhere: this multiplies the native scale factor, and Android's display
             // density already sizes widgets for touch — an extra 1.3 shrank the S24's logical
             // canvas to ~277 pt wide (nothing fit).
@@ -2581,6 +2589,7 @@ mod tests {
             temp_unit: TempUnit::Celsius,
             time_display: TimeDisplay::Utc,
             time_mismatch_minutes: 15,
+            radar_stale_minutes: default_radar_stale_minutes(),
             ui_scale: 1.2,
             sync_client_id: String::new(),
             sync_client_secret: String::new(),

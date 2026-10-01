@@ -30,6 +30,7 @@ mod alerts_watch;
 mod beam_tools;
 pub(crate) mod camera_flight;
 mod chase;
+mod data_age;
 mod detectors;
 mod goto;
 mod models;
@@ -135,15 +136,6 @@ const OVERLAY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(55);
 /// Again longer than the request's own 90 s deadline in the vendored S3 client, so the abort
 /// happens before we stop listening for it.
 const VOLUME_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(100);
-
-/// How old the newest known radar volume can be before the site counts as stale rather than
-/// "just between scans." The LIVE/Stale scrubber badge and the Radar row's source-health popup
-/// both key off this one constant so the two can never disagree — a live site reading Live at
-/// the scrubber and Stale in the health popup at the same instant was exactly that drift (two
-/// separately hand-picked numbers, 120 s and 900 s, for what is the same question). NEXRAD's
-/// slowest common VCP (clear-air, ~10 min between volumes) still reads fresh with room to spare;
-/// a genuinely dead feed clears this inside two cycles of even that slowest cadence.
-const RADAR_FRESH_SECS: i64 = 900;
 
 /// Loop frames in flight, keyed by volume name, with when each was kicked off.
 type PrefetchBook = std::collections::HashMap<String, Instant>;
@@ -12805,6 +12797,7 @@ impl HookEchoApp {
             for (title, description, icon) in [
                 ("Display", "Map visibility and streaming", ph::MONITOR),
                 ("Location", "GPS, route recording and sharing", ph::MAP_PIN),
+                ("Data age", "When radar and layers count as old", ph::CLOCK),
                 #[cfg(not(target_arch = "wasm32"))]
                 (
                     "Weather radio",
@@ -12902,6 +12895,10 @@ impl HookEchoApp {
                     self.measure.clear();
                 }
             });
+        }
+
+        if section == Some("Data age") {
+            self.data_age_rows(ui);
         }
 
         if section == Some("Location") {
@@ -18179,7 +18176,7 @@ mod tests {
     /// `app/`; when an extraction lands, lower the ceiling to the new length so it stays down.
     #[test]
     fn app_rs_only_gets_smaller() {
-        const CEILING: usize = 19352;
+        const CEILING: usize = 19349;
         let lines = include_str!("app.rs").lines().count();
         assert!(
             lines <= CEILING,
