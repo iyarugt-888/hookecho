@@ -183,6 +183,53 @@ fn format_millis(d: std::time::Duration) -> String {
     }
 }
 
+/// The analysis steps as palette rows: the keys' tilt, frame, hour and product steps, and
+/// play/pause (ROADMAP_2 §0.2: critical storm actions reachable by palette and by pointer).
+const NAV_ROWS: [(crate::app::NavStep, &str, &str, bool); 9] = {
+    use crate::app::NavStep as N;
+    [
+        (
+            N::PlayPause,
+            "Play / pause loop",
+            "Start or stop the radar loop",
+            true,
+        ),
+        (N::StepBack, "Previous frame", "Step back one scan", true),
+        (N::StepForward, "Next frame", "Step forward one scan", true),
+        (
+            N::StepHourBack,
+            "Back an hour",
+            "Jump back about an hour of scans",
+            false,
+        ),
+        (
+            N::StepHourForward,
+            "Forward an hour",
+            "Jump forward about an hour of scans",
+            false,
+        ),
+        (N::TiltUp, "Tilt up", "The next elevation angle up", true),
+        (
+            N::TiltDown,
+            "Tilt down",
+            "The next elevation angle down",
+            true,
+        ),
+        (
+            N::ProductNext,
+            "Next product",
+            "Step to the next radar product",
+            false,
+        ),
+        (
+            N::ProductPrev,
+            "Previous product",
+            "Step to the previous radar product",
+            false,
+        ),
+    ]
+};
+
 impl HookEchoApp {
     fn request_health(&self, lane: RequestLane) -> SourceHealth {
         self.overlay_requests
@@ -1701,6 +1748,9 @@ impl HookEchoApp {
             PaletteAction::Reload,
             None,
         );
+        for (step, label, desc, common) in NAV_ROWS {
+            push(label, "Tools", desc, common, PaletteAction::Nav(step), None);
+        }
         push(
             "Jump to live",
             "Tools",
@@ -1787,6 +1837,30 @@ mod tests {
     /// whole point of checking `descriptor().is_some()` first. A product added to the catalog
     /// with no matching entry in this test would still pass it, which is the intended shape: the
     /// catalog is the source of truth, not this list.
+    #[test]
+    fn every_analysis_step_is_a_palette_row_and_has_a_key() {
+        use crate::app::NavStep;
+        use crate::hotkeys::BindableAction as A;
+        let keys = crate::hotkeys::defaults();
+        for step in NavStep::ALL {
+            assert!(
+                super::NAV_ROWS.iter().any(|(s, ..)| *s == step),
+                "{step:?} has no palette row"
+            );
+            let action = step
+                .bindable()
+                .unwrap_or(A::Palette(crate::app::PaletteAction::Nav(step)));
+            assert!(
+                keys.iter().any(|b| b.action == action),
+                "{step:?} has no default key"
+            );
+        }
+        let play = A::Palette(crate::app::PaletteAction::Nav(NavStep::PlayPause));
+        assert!(keys
+            .iter()
+            .any(|b| b.action == play && b.shortcut.logical_key == egui::Key::Space));
+    }
+
     #[test]
     fn every_catalog_product_is_health_tracked() {
         for product in wxdata::mrms::catalog::PRODUCTS {

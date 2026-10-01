@@ -117,6 +117,59 @@ impl HookEchoApp {
         }
     }
 
+    /// Volume poll cadence, doubled on a metered link. A phone on mobile data pulls a multi-MB
+    /// volume every interval; halving that rate costs at most a couple of minutes of latency on
+    /// the live head, which the chunk stream covers anyway when it is running.
+    pub(crate) fn poll_interval_secs(&self) -> u64 {
+        let base = self.settings.poll_interval_secs;
+        let base = if crate::platform::is_metered() {
+            base * 2
+        } else {
+            base
+        };
+        // Battery saver stacks with metering: both are "spend less", and a chaser who has turned
+        // both on has said so twice.
+        if self.settings.battery_saver {
+            base * 2
+        } else {
+            base
+        }
+    }
+
+    /// A live stream ended. Only the current stream may clear the pane's acquisition state; a
+    /// stale end (an older generation) is ignored. `lost` says it ended while still wanted, which
+    /// reads as Recovering; one the app stopped (a new generation, a hidden tab, a backgrounded
+    /// app) does not.
+    pub(crate) fn live_ended(&mut self, view: usize, gen: u64, lost: bool) {
+        let current = self
+            .live_stream
+            .as_ref()
+            .is_some_and(|(v, _, g, _)| *v == view && *g == gen);
+        if !current {
+            return;
+        }
+        self.live_stream = None; // interval polling resumes automatically
+        if let Some(v) = self.views.get_mut(view) {
+            v.live_progress = None;
+            v.live_progress_at = None;
+            v.live_retries = 0;
+            if lost {
+                v.live_scan.stream_ended();
+            } else {
+                v.live_scan.stream_stopped();
+            }
+        }
+    }
+
+    /// A palette step (`NavStep`): the key action that already does it, or the loop's own
+    /// play/pause, which had no key.
+    pub(crate) fn apply_nav(&mut self, step: NavStep, ctx: &egui::Context) {
+        match step.bindable() {
+            Some(action) => self.apply_action(action, ctx),
+            None => self.views[self.active].timeline.toggle_play(),
+        }
+    }
+
     /// The pane follows the live head: poll for the newest volume when one may start
     /// ([`poll_may_start`]).
     pub(crate) fn poll_live_head(
@@ -472,6 +525,9 @@ impl HookEchoApp {
     ) {
         let tx = self.msg_tx.clone();
         let live_gen = Arc::clone(&self.live_gen);
+        // Read again when the stream ends, to tell a stream the app stopped (a new generation, a
+        // hidden tab or a backgrounded app) from one that was lost while still wanted.
+        let end_gen = Arc::clone(&self.live_gen);
         let active = move || {
             live_gen.load(std::sync::atomic::Ordering::Relaxed) == gen
                 && crate::platform::activity::is_active()
@@ -542,10 +598,15 @@ impl HookEchoApp {
             if let Err(e) = &res {
                 log::warn!("live stream for {end_site} ended: {e}");
             }
+            // Still wanted when it ended means lost (an error, or the relay closing on us);
+            // otherwise the app stopped it, which is not a recovery (`LiveScan::stream_stopped`).
+            let lost = end_gen.load(std::sync::atomic::Ordering::Relaxed) == gen
+                && crate::platform::activity::is_active();
             let _ = tx.send(DataMsg::LiveEnded {
                 view: view_idx,
                 site: end_site,
                 gen,
+                lost,
             });
             ctx.request_repaint();
         });

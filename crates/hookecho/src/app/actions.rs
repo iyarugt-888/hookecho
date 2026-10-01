@@ -49,6 +49,54 @@ pub(crate) enum AppWindow {
     Tropical,
 }
 
+/// A step through the analysis: tilt, frame, an hour, product, or play/pause the loop. The keys
+/// already did these (`hotkeys::BindableAction`); this is what makes them palette rows too, so a
+/// storm can be worked from Ctrl+K and pointer alone (ROADMAP_2 §0.2). Its own enum because
+/// `BindableAction` already holds a `PaletteAction` and cannot be held by one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) enum NavStep {
+    TiltUp,
+    TiltDown,
+    StepBack,
+    StepForward,
+    StepHourBack,
+    StepHourForward,
+    ProductPrev,
+    ProductNext,
+    PlayPause,
+}
+
+impl NavStep {
+    #[cfg(test)]
+    pub(crate) const ALL: [NavStep; 9] = [
+        NavStep::TiltUp,
+        NavStep::TiltDown,
+        NavStep::StepBack,
+        NavStep::StepForward,
+        NavStep::StepHourBack,
+        NavStep::StepHourForward,
+        NavStep::ProductPrev,
+        NavStep::ProductNext,
+        NavStep::PlayPause,
+    ];
+
+    /// The key action that already does this step, if one does (play/pause had no key).
+    pub(crate) fn bindable(self) -> Option<crate::hotkeys::BindableAction> {
+        use crate::hotkeys::BindableAction as A;
+        Some(match self {
+            NavStep::TiltUp => A::TiltUp,
+            NavStep::TiltDown => A::TiltDown,
+            NavStep::StepBack => A::StepBack,
+            NavStep::StepForward => A::StepForward,
+            NavStep::StepHourBack => A::StepHourBack,
+            NavStep::StepHourForward => A::StepHourForward,
+            NavStep::ProductPrev => A::ProductPrev,
+            NavStep::ProductNext => A::ProductNext,
+            NavStep::PlayPause => return None,
+        })
+    }
+}
+
 /// One thing the user can do, addressable from any surface (layers panel, command palette,
 /// mobile quick-layers sheet). The single registry keeps those surfaces in sync for free.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -117,6 +165,8 @@ pub(crate) enum PaletteAction {
     Reload,
     InstantReplay,
     GoLive,
+    /// Tilt, frame, hour, product or play/pause (`NavStep`).
+    Nav(NavStep),
     /// Hand the current view off to windy.com in the browser.
     OpenInWindy,
     /// Open the file picker to import a GeoJSON file (ROADMAP_NEW I1).

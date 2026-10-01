@@ -22,7 +22,7 @@ mod pane_time;
 mod radar_wind;
 mod region_stats;
 mod report;
-pub(crate) use actions::{decode_site_id, encode_site_id, AppWindow, PaletteAction};
+pub(crate) use actions::{decode_site_id, encode_site_id, AppWindow, NavStep, PaletteAction};
 mod overlay_fetch;
 pub(crate) use overlay_fetch::{OverlayDelivery, OverlayMsg, OverlaySource};
 mod account_sync;
@@ -1280,6 +1280,8 @@ enum DataMsg {
         site: String,
         /// Stream generation — a stale end must not clear a newer stream's handle.
         gen: u64,
+        /// Ended while still wanted (lost), not stopped by the app.
+        lost: bool,
     },
     /// How far the live stream has scanned into the current sweep — fires on every chunk, far
     /// more often than `Live`'s full merged-volume updates, so a UI can show scan-in-progress
@@ -3741,25 +3743,6 @@ impl HookEchoApp {
             .is_ok()
         {
             self.last_posted = Some(snap);
-        }
-    }
-
-    /// Volume poll cadence, doubled on a metered link. A phone on mobile data pulls a multi-MB
-    /// volume every interval; halving that rate costs at most a couple of minutes of latency on
-    /// the live head, which the chunk stream covers anyway when it is running.
-    fn poll_interval_secs(&self) -> u64 {
-        let base = self.settings.poll_interval_secs;
-        let base = if crate::platform::is_metered() {
-            base * 2
-        } else {
-            base
-        };
-        // Battery saver stacks with metering: both are "spend less", and a chaser who has turned
-        // both on has said so twice.
-        if self.settings.battery_saver {
-            base * 2
-        } else {
-            base
         }
     }
 
@@ -6986,6 +6969,7 @@ impl HookEchoApp {
             PaletteAction::Reload => self.trigger_reload(ctx),
             PaletteAction::InstantReplay => self.instant_replay(),
             PaletteAction::GoLive => self.views[self.active].timeline.go_head(),
+            PaletteAction::Nav(step) => self.apply_nav(step, ctx),
             PaletteAction::CopyViewLink => {
                 let v = &self.views[self.active];
                 let c = v.camera.center;
@@ -8805,23 +8789,11 @@ impl HookEchoApp {
         while let Ok(msg) = self.msg_rx.try_recv() {
             let idx = msg.view();
             // LiveEnded must be handled even after a site change (to drop the stream handle).
-            if matches!(msg, DataMsg::LiveEnded { .. }) {
-                if let DataMsg::LiveEnded { view, gen, .. } = msg {
-                    let current = self
-                        .live_stream
-                        .as_ref()
-                        .is_some_and(|(v, _, g, _)| *v == view && *g == gen);
-                    if current {
-                        self.live_stream = None; // interval polling resumes automatically
-                        if view < self.views.len() {
-                            // Only the current stream may clear the pane's acquisition state.
-                            self.views[view].live_progress = None;
-                            self.views[view].live_progress_at = None;
-                            self.views[view].live_retries = 0;
-                            self.views[view].live_scan.stream_ended();
-                        }
-                    }
-                }
+            if let DataMsg::LiveEnded {
+                view, gen, lost, ..
+            } = msg
+            {
+                self.live_ended(view, gen, lost);
                 continue;
             }
             if idx >= self.views.len() || self.views[idx].site.as_deref() != Some(msg.site()) {
@@ -18009,7 +17981,7 @@ mod tests {
     /// `app/`; when an extraction lands, lower the ceiling to the new length so it stays down.
     #[test]
     fn app_rs_only_gets_smaller() {
-        const CEILING: usize = 19182;
+        const CEILING: usize = 19154;
         let lines = include_str!("app.rs").lines().count();
         assert!(
             lines <= CEILING,

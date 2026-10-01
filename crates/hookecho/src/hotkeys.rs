@@ -118,6 +118,8 @@ pub(crate) fn defaults() -> Vec<Binding> {
         plain(K::ArrowRight, A::StepForward),
         plain(K::ArrowUp, A::StepHourForward),
         plain(K::ArrowDown, A::StepHourBack),
+        // Play/pause the loop had no key; Space is what every player uses.
+        plain(K::Space, A::Palette(P::Nav(crate::app::NavStep::PlayPause))),
         // The map-pitch 3D camera takes W/S (tilt) and Q/E (rotate) instead — a flight-sim-style
         // pairing that reads as "look up/down, turn left/right" without touching a single arrow
         // key or any letter another binding already owns.
@@ -271,13 +273,14 @@ pub(crate) fn poll(ctx: &egui::Context, bindings: &[Binding]) -> Vec<BindableAct
 }
 
 /// Whether `key` is one an ordinary keyboard has without a function row or a Fn layer: a letter,
-/// digit or punctuation key, the arrows, Home and End. Page Up/Down, Insert, Delete and the F keys
+/// digit or punctuation key, Space, the arrows, Home and End. Page Up/Down, Insert, Delete and the F keys
 /// are what a tablet's cover keyboard leaves out.
 pub(crate) fn on_a_plain_keyboard(key: egui::Key) -> bool {
     key.symbol_or_name().chars().count() == 1
         || matches!(
             key,
-            egui::Key::ArrowUp
+            egui::Key::Space
+                | egui::Key::ArrowUp
                 | egui::Key::ArrowDown
                 | egui::Key::ArrowLeft
                 | egui::Key::ArrowRight
