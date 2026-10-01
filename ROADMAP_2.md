@@ -35,6 +35,8 @@ shared source details (`target/ui-review/layer-probe-*.png`); the narrow renders
 for wrapped captions, padding, and source text. Complete application and device validation
 remain open.
 
+Probe stamps beyond fields (2026-10-01, §9.1): the radar row and the warning, watch and advisory rows now carry real stamps through the same shared inspector. Radar: the serving provider, the product as shown, the tilt's acquisition time as valid, and the live scan's receipt, derived for SRV, KDP and user products; only for the live head, since that is the only volume whose receipt is recorded. Alerts: the NWS sent time as issue, effective (else sent) as valid, the alerts feed's last success as receipt, marked forecast; `AlertInfo` gained `issued` and `effective`. SCIT storm cells: derived, valid at their NST scan, received when the cell feed last answered, while the pane follows live. No stamp is built from a time the app does not have: archive and loop frames, archived warnings, rotation and debris tracks and model contours (whose fetch clock is a request time, not a receipt) still show the unavailable line. Unit tests cover both constructors; the on-screen check waits on the preview server.
+
 Storm keyboard ownership (2026-10-01, §2.2, §13.1, §13.4): manual-motion shortcuts run
 before the global binding table when the tool is armed or its card has keyboard focus.
 Bracket cone edits no longer change panes; companion Text events are consumed too so

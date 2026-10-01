@@ -327,11 +327,24 @@ impl HookEchoApp {
                     (Some(d), Some(k)) => format!(", moving toward {d:.0}\u{b0} at {k:.0} kt"),
                     _ => String::new(),
                 };
-                out.push(ProbeLine::new(
+                let mut line = ProbeLine::new(
                     format!("Storm {}", c.id),
                     v.join(", "),
                     Some(format!("{km:.1} km away{motion}")),
-                ));
+                );
+                // Stamped only while following live: the feed's receipt is the live product's.
+                if self.views[idx].timeline.following {
+                    let h = self.request_health(crate::app::RequestLane::Feed(
+                        crate::source_health::FeedSource::StormCells,
+                    ));
+                    let received = h.last_success.and_then(|age| {
+                        chrono::Duration::from_std(age)
+                            .ok()
+                            .map(|age| chrono::Utc::now() - age)
+                    });
+                    line.stamp = cell_stamp(c, &h.source, received);
+                }
+                out.push(line);
             }
         }
 
@@ -519,6 +532,29 @@ impl HookEchoApp {
     }
 }
 
+/// A SCIT storm cell's stamp (ROADMAP_2 §9.1): derived from the radar by the NWS's storm cell
+/// algorithm, valid at its NST scan, received when the cell feed last answered. `None` without
+/// both times.
+fn cell_stamp(
+    c: &wxdata::level3::Cell,
+    source: &str,
+    received: Option<chrono::DateTime<chrono::Utc>>,
+) -> Option<wxdata::field::DataStamp> {
+    Some(wxdata::field::DataStamp {
+        source_id: format!("{source} (Level III SCIT)"),
+        product_id: format!("Storm cell {}", c.id),
+        issue_time: None,
+        run_time: None,
+        valid_time: c.time?,
+        received_time: received?,
+        source_latency: None,
+        is_forecast: false,
+        is_derived: true,
+        quality: wxdata::field::QualitySummary::Unknown,
+        grid: None,
+    })
+}
+
 /// An alert's stamp for the probe's source inspector (ROADMAP_2 §9.1): the product, when it
 /// was sent and takes effect, and when this app received it. Hazard products are forecasts.
 /// `None` without a known receipt or any time to call it valid from.
@@ -545,6 +581,23 @@ fn alert_stamp(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_storm_cell_is_a_derived_product_valid_at_its_scan() {
+        let t = |m: i64| chrono::DateTime::from_timestamp(m * 60, 0).unwrap();
+        let c = wxdata::level3::Cell {
+            time: Some(t(10)),
+            id: "O7".into(),
+            ..Default::default()
+        };
+        let s = cell_stamp(&c, "Storm cells", Some(t(11))).unwrap();
+        assert_eq!((s.valid_time, s.received_time), (t(10), t(11)));
+        assert!(s.is_derived && !s.is_forecast);
+        assert_eq!(s.product_id, "Storm cell O7");
+        assert!(cell_stamp(&c, "x", None).is_none());
+        let undated = wxdata::level3::Cell { time: None, ..c };
+        assert!(cell_stamp(&undated, "x", Some(t(11))).is_none());
+    }
 
     #[test]
     fn an_alert_is_stamped_from_its_own_times_and_the_feed_receipt() {
