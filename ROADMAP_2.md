@@ -132,8 +132,8 @@ Before declaring the application "professional-station ready", all of the follow
 - [ ] 24-hour idle/live mixed soak test passes on Windows.
 - [ ] no stale radar scan can be displayed as current without a visible stale-data indication.
 - [ ] all displayed forecast/derived/observed layers expose provenance through a common inspector.
-- [ ] live Level II partial-volume behavior is covered by deterministic tests.
-- [ ] VCP transitions, SAILS/MESO-SAILS, missing chunk, late chunk, duplicate chunk, and out-of-order chunk cases are tested.
+- [x] live Level II partial-volume behavior is covered by deterministic tests.
+- [x] VCP transitions, SAILS/MESO-SAILS, missing chunk, late chunk, duplicate chunk, and out-of-order chunk cases are tested.
 - [ ] all critical storm-analysis actions are reachable by command palette and direct pointer interaction.
 - [x] archive replay is deterministic across repeated runs for the same volume/time.
 - [ ] export/capture output is frame-stable and does not depend on UI repaint timing.
