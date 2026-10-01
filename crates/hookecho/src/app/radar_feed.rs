@@ -3,6 +3,68 @@
 
 use super::*;
 
+/// Whether a live-head poll may start now (ROADMAP_2 §1.3: provider loss must not freeze the
+/// display). Polling is the floor under the live stream, so it must never stop for good: one is
+/// started when none is in flight and the interval has passed (or the site changed), and also
+/// when the one in flight has outlived every deadline it could have. Nothing in the app bounds a
+/// poll as a whole, and a browser fetch has no timeout of its own, so a single hung request used
+/// to leave `loading` set and the pane frozen on its last volume. A late answer from the
+/// abandoned poll is harmless: `LiveScan::accept_volume` never lets an older volume back in.
+pub(crate) fn poll_may_start(
+    loading: bool,
+    since_poll: Option<std::time::Duration>,
+    interval: std::time::Duration,
+    site_changed: bool,
+) -> bool {
+    let stuck = loading && since_poll.is_some_and(|d| d >= POLL_STUCK_AFTER);
+    let due = site_changed || since_poll.is_none_or(|d| d >= interval);
+    (!loading || stuck) && due
+}
+
+/// How long a live poll may be in flight before it counts as hung: past the volume download's
+/// own deadline, with room for the listing before it.
+pub(crate) const POLL_STUCK_AFTER: std::time::Duration =
+    std::time::Duration::from_secs(VOLUME_TIMEOUT.as_secs() + 15);
+
+#[cfg(test)]
+mod poll_tests {
+    use super::{poll_may_start, POLL_STUCK_AFTER};
+    use std::time::Duration;
+
+    #[test]
+    fn a_hung_poll_cannot_stop_polling_for_good() {
+        let every = Duration::from_secs(30);
+        // Idle and due: poll. Idle, not due: wait. Site changed: poll now.
+        assert!(poll_may_start(
+            false,
+            Some(Duration::from_secs(31)),
+            every,
+            false
+        ));
+        assert!(!poll_may_start(
+            false,
+            Some(Duration::from_secs(5)),
+            every,
+            false
+        ));
+        assert!(poll_may_start(
+            false,
+            Some(Duration::from_secs(5)),
+            every,
+            true
+        ));
+        assert!(poll_may_start(false, None, every, false));
+        // One in flight: wait, however due, until it has outlived every deadline.
+        assert!(!poll_may_start(
+            true,
+            Some(Duration::from_secs(60)),
+            every,
+            false
+        ));
+        assert!(poll_may_start(true, Some(POLL_STUCK_AFTER), every, false));
+    }
+}
+
 impl HookEchoApp {
     /// Reconstruct a vertical reflectivity cross-section along the two clicked endpoints from
     /// pane `idx`'s volume, upload it as a texture, and open the cross-section window.
@@ -52,6 +114,45 @@ impl HookEchoApp {
                 true
             }
             _ => false,
+        }
+    }
+
+    /// The pane follows the live head: poll for the newest volume when one may start
+    /// ([`poll_may_start`]).
+    pub(crate) fn poll_live_head(
+        &mut self,
+        idx: usize,
+        looping: bool,
+        site_changed: bool,
+        ctx: &egui::Context,
+    ) {
+        // Live head: poll for the newest volume. While looping, the displayed volume is a
+        // middle loop frame, so compare against the newest *frame* (not the shown volume) to
+        // decide whether the head advanced — otherwise every poll re-downloads the head.
+        let (site, current_name, start) = {
+            let v = &self.views[idx];
+            let start = poll_may_start(
+                v.loading,
+                v.last_poll.map(|t| t.elapsed()),
+                std::time::Duration::from_secs(self.poll_interval_secs()),
+                site_changed,
+            );
+            let current_name = if looping {
+                v.timeline.frames.last().map(|id| id.name().to_string())
+            } else {
+                v.volume.as_ref().map(|vol| vol.name.clone())
+            };
+            (v.site.clone(), current_name, start)
+        };
+        if start {
+            if let Some(s) = site {
+                if self.views[idx].loading {
+                    log::warn!("{s}: live poll hung past its deadline; polling again");
+                }
+                self.views[idx].loading = true;
+                self.views[idx].last_poll = Some(Instant::now());
+                self.spawn_fetch(idx, s, current_name, ctx.clone());
+            }
         }
     }
 

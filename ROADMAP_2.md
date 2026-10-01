@@ -234,7 +234,7 @@ The UI should show:
 
 ### Acceptance criteria
 
-- [ ] provider loss does not freeze the display indefinitely.
+- [x] provider loss does not freeze the display indefinitely.
 - [x] fallback never silently changes from partial-scan live data to minutes-old completed data.
 - [x] recovery to the preferred source does not cause time reversal.
 - [x] all provider switches are logged in Analyst Mode.

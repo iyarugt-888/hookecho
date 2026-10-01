@@ -9406,28 +9406,7 @@ impl HookEchoApp {
 
         let looping = self.views[idx].timeline.live_looping();
         if following {
-            // Live head: poll for the newest volume. While looping, the displayed volume is a
-            // middle loop frame, so compare against the newest *frame* (not the shown volume) to
-            // decide whether the head advanced — otherwise every poll re-downloads the head.
-            let (site, current_name, due) = {
-                let v = &self.views[idx];
-                let due = v
-                    .last_poll
-                    .is_none_or(|t| t.elapsed().as_secs() >= self.poll_interval_secs());
-                let current_name = if looping {
-                    v.timeline.frames.last().map(|id| id.name().to_string())
-                } else {
-                    v.volume.as_ref().map(|vol| vol.name.clone())
-                };
-                (v.site.clone(), current_name, due)
-            };
-            if site.is_some() && !self.views[idx].loading && (site_changed || due) {
-                if let Some(s) = site {
-                    self.views[idx].loading = true;
-                    self.views[idx].last_poll = Some(Instant::now());
-                    self.spawn_fetch(idx, s, current_name, ctx.clone());
-                }
-            }
+            self.poll_live_head(idx, looping, site_changed, ctx);
         }
         // A playing live loop owns its display at the head frame too: live chunks are not
         // merged while it plays, so without this the newest frame kept showing the one before it.
@@ -18176,7 +18155,7 @@ mod tests {
     /// `app/`; when an extraction lands, lower the ceiling to the new length so it stays down.
     #[test]
     fn app_rs_only_gets_smaller() {
-        const CEILING: usize = 19349;
+        const CEILING: usize = 19328;
         let lines = include_str!("app.rs").lines().count();
         assert!(
             lines <= CEILING,
