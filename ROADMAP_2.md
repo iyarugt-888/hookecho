@@ -235,8 +235,8 @@ The UI should show:
 ### Acceptance criteria
 
 - [ ] provider loss does not freeze the display indefinitely.
-- [ ] fallback never silently changes from partial-scan live data to minutes-old completed data.
-- [ ] recovery to the preferred source does not cause time reversal.
+- [x] fallback never silently changes from partial-scan live data to minutes-old completed data.
+- [x] recovery to the preferred source does not cause time reversal.
 - [ ] all provider switches are logged in Analyst Mode.
 
 ## 1.4 VCP-aware scan progression

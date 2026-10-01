@@ -758,6 +758,25 @@ mod tests {
     }
 
     #[test]
+    fn returning_to_the_stream_cannot_reverse_time() {
+        // Live chunks, then the stream drops and polling delivers a newer completed volume.
+        let t0 = Utc::now();
+        let mut state = LiveScan::default();
+        state.stream_started("chunks", false);
+        assert!(state.accept_volume("20260520-190000-005-I", t0, t0));
+        state.stream_ended();
+        let t1 = t0 + Duration::seconds(300);
+        assert!(state.accept_volume("KTLX20260520_190500_V06", t1, t1));
+        assert_eq!(state.source_mode, Some(SourceMode::CompletedVolumes));
+        // The preferred source comes back with a backlog: its older chunk must not win.
+        state.stream_started("chunks", false);
+        assert!(!state.accept_volume("20260520-190000-006-I", t0, t1));
+        assert_eq!(state.volume_time, Some(t1));
+        // Its first chunk of the current volume or a later one is accepted.
+        assert!(state.accept_volume("20260520-191000-001-S", t1 + Duration::seconds(300), t1));
+    }
+
+    #[test]
     fn a_deliberate_stop_is_not_a_recovery() {
         let now = Utc::now();
         let mut state = LiveScan::default();
