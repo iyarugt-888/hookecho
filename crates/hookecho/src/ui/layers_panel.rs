@@ -395,18 +395,25 @@ pub(crate) fn compact_age(age: std::time::Duration) -> String {
     }
 }
 
+/// A source-health state's word and colour. The colour is its freshness class's
+/// ([`super::freshness`]), so every surface agrees on what stale looks like; the word stays
+/// specific ("Cached" says why the value is old, "Delayed" that it is merely late).
 pub(crate) fn health_look(state: HealthState) -> (&'static str, Color32) {
-    match state {
-        HealthState::Fresh => ("Fresh", Color32::from_rgb(70, 200, 120)),
-        HealthState::Fetching => ("Fetching", Color32::from_rgb(80, 160, 240)),
-        // A paler, less saturated amber than Stale's — behind schedule, not yet alarming.
-        HealthState::Delayed => ("Delayed", Color32::from_rgb(220, 200, 100)),
-        HealthState::Stale => ("Stale", Color32::from_rgb(235, 180, 70)),
-        // A refresh failed, but a real resident value still protects the display from going blank.
-        HealthState::Cached => ("Cached", Color32::from_rgb(230, 135, 80)),
-        HealthState::Failed => ("Failed", Color32::from_rgb(230, 90, 90)),
-        HealthState::Waiting => ("Waiting", Color32::from_gray(110)),
-    }
+    let word = match state {
+        HealthState::Fresh => "Fresh",
+        HealthState::Fetching => "Fetching",
+        HealthState::Delayed => "Delayed",
+        HealthState::Stale => "Stale",
+        HealthState::Cached => "Cached",
+        HealthState::Failed => "Failed",
+        HealthState::Waiting => "Waiting",
+    };
+    let color = match super::freshness::Freshness::of_health(state) {
+        Some(f) => f.color(),
+        None if state == HealthState::Fetching => Color32::from_rgb(80, 160, 240),
+        None => Color32::from_gray(110),
+    };
+    (word, color)
 }
 
 pub(crate) fn age_line(age: Option<std::time::Duration>) -> String {

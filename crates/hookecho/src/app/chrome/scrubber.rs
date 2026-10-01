@@ -248,7 +248,7 @@ impl HookEchoApp {
                         )
                     } else if t.following {
                         (
-                            egui::Color32::from_rgb(220, 180, 0),
+                            crate::ui::freshness::Freshness::Stale.color(),
                             "Stale".to_string(),
                             "Following the newest volume, but this site has not produced one \
                              recently — its feed has stopped. The age next to the clock is how \
@@ -647,7 +647,7 @@ impl HookEchoApp {
                                 let (col, text) = if t.following && fresh {
                                     (mobile::OMEGA_GREEN, "LIVE")
                                 } else if t.following {
-                                    (egui::Color32::from_rgb(220, 180, 0), "STALE")
+                                    (crate::ui::freshness::Freshness::Stale.color(), "STALE")
                                 } else {
                                     (egui::Color32::from_gray(150), "ARCHIVE")
                                 };
@@ -775,7 +775,7 @@ impl HookEchoApp {
                             let col = if t.following && fresh {
                                 mobile::OMEGA_GREEN
                             } else if t.following {
-                                egui::Color32::from_rgb(220, 180, 0)
+                                crate::ui::freshness::Freshness::Stale.color()
                             } else {
                                 egui::Color32::from_gray(150)
                             };

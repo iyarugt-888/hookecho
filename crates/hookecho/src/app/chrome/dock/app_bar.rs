@@ -104,17 +104,11 @@ impl HookEchoApp {
         } else {
             delay_text
         };
-        let state_color = if following
-            && matches!(
-                scan_phase,
-                crate::live_scan::Phase::Aging
-                    | crate::live_scan::Phase::Recovering
-                    | crate::live_scan::Phase::FallbackSource
-                    | crate::live_scan::Phase::Offline
-            ) {
-            t.warn
-        } else {
-            state_color
+        // Following live, the scan phase decides, in the shared freshness colours (§9.3); a
+        // fresh phase leaves the source-health colour, which also covers fetching and waiting.
+        let state_color = match crate::ui::freshness::Freshness::of_scan(scan_phase) {
+            f if following && f != crate::ui::freshness::Freshness::Fresh => f.color(),
+            _ => state_color,
         };
         let scan_state = self.views[self.active]
             .live_scan

@@ -106,6 +106,7 @@ pub mod drawer;
 pub mod event_window;
 pub mod firstrun;
 pub mod forecast_window;
+pub(crate) mod freshness;
 pub mod gate_inspector;
 /// River-gauge cards: hydrograph, flood stages, crests.
 pub mod gauge_card;
