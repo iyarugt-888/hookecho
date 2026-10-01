@@ -136,7 +136,7 @@ Before declaring the application "professional-station ready", all of the follow
 - [x] VCP transitions, SAILS/MESO-SAILS, missing chunk, late chunk, duplicate chunk, and out-of-order chunk cases are tested.
 - [ ] all critical storm-analysis actions are reachable by command palette and direct pointer interaction.
 - [x] archive replay is deterministic across repeated runs for the same volume/time.
-- [ ] export/capture output is frame-stable and does not depend on UI repaint timing.
+- [x] export/capture output is frame-stable and does not depend on UI repaint timing.
 - [ ] no single application source module remains responsible for an unreasonable number of unrelated domains.
 - [x] nightly/corpus regression suite runs against known historic storm cases.
 - [ ] performance budgets are defined and measured for desktop, browser, and Android.
