@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
 """Provision exact scientific inputs. Never discover scans or rewrite expected hashes."""
 import argparse
+import datetime as dt
 import hashlib
 import json
 from pathlib import Path
 import struct
 import sys
 import tempfile
+import urllib.parse
 import urllib.request
 
 REPO = Path(__file__).resolve().parents[2]
 MANIFEST = REPO / "crates/wxdata/tests/data/corpus/manifest.json"
 SOURCE_PREFIX = "https://unidata-nexrad-level2.s3.amazonaws.com/"
+MANIFEST_VERSION = 2
 
 
 def checksum(path):
@@ -43,9 +46,25 @@ def safe_path(root, name):
     return path
 
 
+def truth_request_url(request):
+    if request.get("kind") == "warning-at":
+        endpoint, params = "sbw.py", {"ts": request["at"]}
+    elif request.get("kind") == "reports":
+        endpoint, params = "lsr.geojson", {"sts": request["start"], "ets": request["end"]}
+    else:
+        raise ValueError("Unknown truth request kind")
+    times = [dt.datetime.fromisoformat(v.replace("Z", "+00:00")) for v in params.values()]
+    if any(t.tzinfo is None or t.utcoffset() != dt.timedelta(0) for t in times):
+        raise ValueError("Truth request must use UTC source times")
+    if len(times) == 2 and times[0] >= times[1]:
+        raise ValueError("Invalid truth window")
+    canonical = {k: t.strftime("%Y-%m-%dT%H:%M:%SZ") for k, t in zip(params, times)}
+    return "https://mesonet.agron.iastate.edu/geojson/" + endpoint + "?" + urllib.parse.urlencode(canonical)
+
+
 def load_manifest(path):
     manifest = json.loads(path.read_text(encoding="utf-8"))
-    if manifest.get("schema_version") != 1:
+    if manifest.get("schema_version") != MANIFEST_VERSION:
         raise ValueError("Unsupported corpus manifest version")
     fixtures = manifest["fixtures"]
     if not fixtures or len({f["id"] for f in fixtures}) != len(fixtures):
@@ -64,7 +83,21 @@ def load_manifest(path):
             raise ValueError("Cached input differs from its source")
         if f["tier"] == "offline" and f["transform"]["kind"] != "ldm-record-subset":
             raise ValueError("Unsupported offline derivation")
-    return fixtures
+    snapshots = manifest.get("truth_snapshots", [])
+    if not snapshots or len({f["id"] for f in fixtures + snapshots}) != len(fixtures) + len(snapshots):
+        raise ValueError("Missing or duplicate truth snapshots")
+    requests = set()
+    for f in snapshots:
+        safe_path(path.parent, f["path"])
+        if f["format"] != "geojson-feature-collection" or not 0 < f["bytes"] <= 2_000_000 or len(f["sha256"]) != 64 or any(c not in "0123456789abcdef" for c in f["sha256"]):
+            raise ValueError("Invalid truth snapshot integrity contract")
+        url = truth_request_url(f["request"])
+        if url != f["source"]["url"] or url in requests:
+            raise ValueError("Incorrect or duplicate truth source request")
+        requests.add(url)
+        if not isinstance(f["expected_features"], int) or f["expected_features"] < 0:
+            raise ValueError("Missing truth feature count")
+    return fixtures, snapshots
 
 
 def download(fixture, destination, opener=urllib.request.urlopen):
@@ -139,7 +172,7 @@ def main():
     args = parser.parse_args()
     if args.verify_only and args.rebuild_offline:
         parser.error("--verify-only cannot rebuild files")
-    fixtures = load_manifest(MANIFEST)
+    fixtures, snapshots = load_manifest(MANIFEST)
     # Required offline inputs always verify, even while provisioning the large suite.
     for f in fixtures:
         if f["tier"] == "cached":
@@ -156,6 +189,15 @@ def main():
             path = safe_path(MANIFEST.parent, f["path"])
             verify(path, f["bytes"], f["sha256"])
         print(f"Verified {f['id']}: {f['bytes']} bytes SHA-256 {f['sha256']}")
+    # Dynamic services include retrieval clocks and may revise historic records. Restore the
+    # committed snapshot bytes from Git; never fetch a replacement into the certified corpus.
+    for f in snapshots:
+        path = safe_path(MANIFEST.parent, f["path"])
+        verify(path, f["bytes"], f["sha256"])
+        collection = json.loads(path.read_bytes())
+        if collection.get("type") != "FeatureCollection" or not isinstance(collection.get("features"), list) or len(collection["features"]) != f["expected_features"]:
+            raise ValueError(f"Pinned truth collection shape/count changed: {f['id']}")
+        print(f"Verified truth {f['id']}: {f['bytes']} bytes SHA-256 {f['sha256']}")
 
 
 if __name__ == "__main__":

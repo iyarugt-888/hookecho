@@ -106,7 +106,8 @@ jobs:
   # tests, which the `--lib` runs above never reach. A separate job, so a detector regression
   # reads apart from a feed moving a path. The NOAA archive is static, so a red run here is the
   # science changing, an integrity failure, or an archive/report service outage. Radar objects
-  # are pinned and checksum-verified; warnings/reports still exercise separate live archives.
+  # are pinned and checksum-verified; warning/report truth snapshots are committed. Live IEM
+  # service checks remain in the provider job, separate from these reproducible science checks.
   storm-corpus:
     name: Historic storm corpus
     runs-on: ubuntu-latest
@@ -127,7 +128,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: target/scientific-corpus
-          key: scientific-corpus-v1-${{ hashFiles('crates/wxdata/tests/data/corpus/manifest.json') }}
+          key: scientific-corpus-v2-${{ hashFiles('crates/wxdata/tests/data/corpus/manifest.json') }}
+          restore-keys: |
+            scientific-corpus-v2-
+            scientific-corpus-v1-
 
       - name: Provision and verify exact corpus inputs
         run: |

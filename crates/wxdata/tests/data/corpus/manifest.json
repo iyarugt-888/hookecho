@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "baseline_commit": "0fe93dec1a7dd59c25affc422a5b49b0a76f5bd4",
   "fixtures": [
     {
@@ -460,6 +460,139 @@
         "populated_bins": 240,
         "max_dbz": 34.26087
       }
+    }
+  ],
+  "truth_snapshots": [
+    {
+      "id": "moore-warnings-during",
+      "path": "moore-warnings-during.geojson",
+      "format": "geojson-feature-collection",
+      "bytes": 95294,
+      "sha256": "8a87b3a4e86666d519e67ab58273152d8c32c56ad5c0d7a8c4c4b11cf380e153",
+      "request": {
+        "kind": "warning-at",
+        "at": "2013-05-20T20:12:00Z"
+      },
+      "source": {
+        "url": "https://mesonet.agron.iastate.edu/geojson/sbw.py?ts=2013-05-20T20%3A12%3A00Z",
+        "captured_at": "2026-10-02T00:17:19.597267Z",
+        "attribution": "NOAA NWS warning/local storm report archive; Iowa Environmental Mesonet, Iowa State University.",
+        "license_url": "https://mesonet.agron.iastate.edu/disclaimer.php"
+      },
+      "expected_features": 75
+    },
+    {
+      "id": "moore-warnings-before",
+      "path": "moore-warnings-before.geojson",
+      "format": "geojson-feature-collection",
+      "bytes": 63396,
+      "sha256": "b3dcacbd987bb9fe898b8c4851c4ef41db33461e841c43d34c09ab3d5ae6af44",
+      "request": {
+        "kind": "warning-at",
+        "at": "2013-05-20T18:00:00Z"
+      },
+      "source": {
+        "url": "https://mesonet.agron.iastate.edu/geojson/sbw.py?ts=2013-05-20T18%3A00%3A00Z",
+        "captured_at": "2026-10-02T00:17:20.196541Z",
+        "attribution": "NOAA NWS warning/local storm report archive; Iowa Environmental Mesonet, Iowa State University.",
+        "license_url": "https://mesonet.agron.iastate.edu/disclaimer.php"
+      },
+      "expected_features": 50
+    },
+    {
+      "id": "moore-reports",
+      "path": "moore-reports.geojson",
+      "format": "geojson-feature-collection",
+      "bytes": 21491,
+      "sha256": "a8026a4e12b0a9a81b26f4558d1048b6da9cd1905523b524fcf5035e361938a9",
+      "request": {
+        "kind": "reports",
+        "start": "2013-05-20T19:40:00Z",
+        "end": "2013-05-20T20:40:00Z"
+      },
+      "source": {
+        "url": "https://mesonet.agron.iastate.edu/geojson/lsr.geojson?sts=2013-05-20T19%3A40%3A00Z&ets=2013-05-20T20%3A40%3A00Z",
+        "captured_at": "2026-10-02T00:17:20.568350Z",
+        "attribution": "NOAA NWS warning/local storm report archive; Iowa Environmental Mesonet, Iowa State University.",
+        "license_url": "https://mesonet.agron.iastate.edu/disclaimer.php"
+      },
+      "expected_features": 43
+    },
+    {
+      "id": "el-reno-reports",
+      "path": "el-reno-reports.geojson",
+      "format": "geojson-feature-collection",
+      "bytes": 20221,
+      "sha256": "ec95198542058b8b488608ad316b090ff88a6facd925be7d322dab9f8b9ddd82",
+      "request": {
+        "kind": "reports",
+        "start": "2013-05-31T22:50:00Z",
+        "end": "2013-05-31T23:30:00Z"
+      },
+      "source": {
+        "url": "https://mesonet.agron.iastate.edu/geojson/lsr.geojson?sts=2013-05-31T22%3A50%3A00Z&ets=2013-05-31T23%3A30%3A00Z",
+        "captured_at": "2026-10-02T00:17:20.935878Z",
+        "attribution": "NOAA NWS warning/local storm report archive; Iowa Environmental Mesonet, Iowa State University.",
+        "license_url": "https://mesonet.agron.iastate.edu/disclaimer.php"
+      },
+      "expected_features": 41
+    },
+    {
+      "id": "washington-reports",
+      "path": "washington-reports.geojson",
+      "format": "geojson-feature-collection",
+      "bytes": 37507,
+      "sha256": "ff879a71611f82f10a995a49be81330ae0a03bb727cd132c6328ad5e3ad3bcf1",
+      "request": {
+        "kind": "reports",
+        "start": "2013-11-17T16:45:00Z",
+        "end": "2013-11-17T17:25:00Z"
+      },
+      "source": {
+        "url": "https://mesonet.agron.iastate.edu/geojson/lsr.geojson?sts=2013-11-17T16%3A45%3A00Z&ets=2013-11-17T17%3A25%3A00Z",
+        "captured_at": "2026-10-02T00:17:21.462955Z",
+        "attribution": "NOAA NWS warning/local storm report archive; Iowa Environmental Mesonet, Iowa State University.",
+        "license_url": "https://mesonet.agron.iastate.edu/disclaimer.php"
+      },
+      "expected_features": 77
+    },
+    {
+      "id": "vilonia-reports",
+      "path": "vilonia-reports.geojson",
+      "format": "geojson-feature-collection",
+      "bytes": 12172,
+      "sha256": "8f4a14e937f01978379311c902ade11e9bc76553541847340744562ee5b21ab4",
+      "request": {
+        "kind": "reports",
+        "start": "2014-04-28T00:15:00Z",
+        "end": "2014-04-28T00:55:00Z"
+      },
+      "source": {
+        "url": "https://mesonet.agron.iastate.edu/geojson/lsr.geojson?sts=2014-04-28T00%3A15%3A00Z&ets=2014-04-28T00%3A55%3A00Z",
+        "captured_at": "2026-10-02T00:17:21.787307Z",
+        "attribution": "NOAA NWS warning/local storm report archive; Iowa Environmental Mesonet, Iowa State University.",
+        "license_url": "https://mesonet.agron.iastate.edu/disclaimer.php"
+      },
+      "expected_features": 24
+    },
+    {
+      "id": "nashville-reports",
+      "path": "nashville-reports.geojson",
+      "format": "geojson-feature-collection",
+      "bytes": 11001,
+      "sha256": "b6334a90529a7ff0b549c5613c0e581cea72dd93deb02cb84e15ee779b7af88f",
+      "request": {
+        "kind": "reports",
+        "start": "2020-03-03T06:25:00Z",
+        "end": "2020-03-03T07:05:00Z"
+      },
+      "source": {
+        "url": "https://mesonet.agron.iastate.edu/geojson/lsr.geojson?sts=2020-03-03T06%3A25%3A00Z&ets=2020-03-03T07%3A05%3A00Z",
+        "captured_at": "2026-10-02T00:17:22.078599Z",
+        "attribution": "NOAA NWS warning/local storm report archive; Iowa Environmental Mesonet, Iowa State University.",
+        "license_url": "https://mesonet.agron.iastate.edu/disclaimer.php"
+      },
+      "expected_features": 19
     }
   ]
 }

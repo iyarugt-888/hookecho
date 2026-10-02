@@ -1,11 +1,14 @@
 import hashlib
+import contextlib
 import io
 import json
 from pathlib import Path
 import struct
 import tempfile
 import unittest
+from unittest import mock
 
+import capture_truth
 import provision
 
 
@@ -55,11 +58,24 @@ class ProvisionTests(unittest.TestCase):
             path.write_text(json.dumps(data))
             with self.assertRaises(ValueError):
                 provision.load_manifest(path)
-            data["schema_version"] = 1
+            data["schema_version"] = provision.MANIFEST_VERSION
             data["fixtures"].append(data["fixtures"][0])
             path.write_text(json.dumps(data))
             with self.assertRaises(ValueError):
                 provision.load_manifest(path)
+
+    def test_truth_requests_keep_exact_utc_windows(self):
+        self.assertEqual(provision.truth_request_url({"kind": "warning-at", "at": "2013-05-20T20:12:00Z"}),
+                         "https://mesonet.agron.iastate.edu/geojson/sbw.py?ts=2013-05-20T20%3A12%3A00Z")
+        for request in ({"kind": "unknown"}, {"kind": "reports", "start": "2013-05-20T20:00:00Z", "end": "2013-05-20T19:00:00Z"}, {"kind": "warning-at", "at": "2013-05-20T20:00:00"}):
+            with self.assertRaises(ValueError):
+                provision.truth_request_url(request)
+
+    def test_candidate_capture_refuses_to_overwrite_certified_inputs(self):
+        with mock.patch("sys.argv", ["capture_truth.py", "--output", str(provision.MANIFEST.parent)]), contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as error:
+                capture_truth.main()
+        self.assertEqual(error.exception.code, 2)
 
 
 if __name__ == "__main__":

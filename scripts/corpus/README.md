@@ -3,6 +3,7 @@
 [manifest.json](../../crates/wxdata/tests/data/corpus/manifest.json) is the versioned input
 contract for the radar corpus. It records exact archive objects, SHA-256 hashes, sizes,
 collection and retrieval times, attribution, transforms, and the checks that consume them.
+Version 2 adds required warning/report truth snapshots; version 1 readers reject it explicitly.
 The initial algorithm baseline is `0fe93de`. Updates to expected science require an explained
 review; provisioning never discovers a newer scan or updates a golden.
 
@@ -26,6 +27,14 @@ python -m unittest discover -s scripts/corpus -p test_provision.py
 python scripts/corpus/provision.py --offline-only --verify-only
 cargo test -p wxdata --test scientific_corpus
 ```
+
+Seven committed GeoJSON snapshots (261,082 bytes) preserve the original IEM HTTP response bytes
+for two Moore warning instants and five report windows. Exact request times, retrieval clocks,
+checksums, and collection counts accompany them. [IEM's published terms](https://mesonet.agron.iastate.edu/disclaimer.php)
+permit reuse of its public-domain materials; attribution to Iowa State University's Iowa
+Environmental Mesonet is retained. Snapshot files disable Git line-ending conversion so Windows
+and Linux verify the same bytes. Their generated-at clock describes response generation, not
+the historical observation time.
 
 No network, tokens, or GPU are needed. Missing required offline files, unsupported manifest
 versions, wrong lengths/checksums, and unknown azimuths being filled with data fail explicitly.
@@ -67,7 +76,9 @@ the existing ignored archive tests fetch the same pinned object directly and ver
 Transport errors may be retried; a checksum change is a failure. Downloads use unique temporary
 files and publish to the cache only after verification. A corrupt existing cache fails rather
 than being overwritten. The scheduled workflow provisions/cache-verifies inputs independently
-of provider contract tests.
+of provider contract tests. All eight historic checks use the committed truth snapshots and
+run without any network access when their radar inputs are cached. Existing live provider
+contracts continue exercising the IEM services separately.
 
 The derived-product repeatability check uses four original low tilts, with an explicit 240-gate
 (about 60 km) range crop to bound computation. It checks composite reflectivity, VIL, VIL density,
@@ -96,11 +107,26 @@ different output. Use a separate review to introduce new source objects or inten
 expectation changes, with old/new results and a scientific reason; do not regenerate values merely
 to make a failing test green.
 
+## Reviewing a truth snapshot update
+
+The IEM services can revise historic data and include response-generation metadata, so a fresh
+response is a new candidate even when the observation content is unchanged. Restore a missing
+certified snapshot from Git. Provisioning never refetches a replacement or blesses a new hash.
+
+```sh
+python scripts/corpus/capture_truth.py
+```
+
+This captures the same requests into `target/parity-review/truth-candidates` and writes a
+candidate report with old/new hashes and feature counts. It refuses the certified corpus as
+an output directory and leaves the manifest and goldens unchanged. Review source-object changes,
+geometry, individual report validity, and their effect on scientific results before updating
+the tracked response and manifest together. A hash difference alone is not a reason to update.
+
 ## Remaining M0.3 certification
 
 Warning/report archive responses used by the four report-association cases and the Moore warning
-verification still come from separate network requests. Pinning those truth inputs is the next
-increment. The clear-air file is a weak-echo control and a candidate for a ground-clutter case;
+verification are now pinned. The clear-air file is a weak-echo control and a candidate for a ground-clutter case;
 independent spatial clutter labeling and a verified QLCS tornado case remain open. This corpus
 does not certify all meteorological regimes or replace device, full application, visual/GPU,
 or sustained-load evidence. Existing GPU goldens and provider contracts remain separate suites.

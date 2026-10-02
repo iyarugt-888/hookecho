@@ -44,6 +44,59 @@ fn damaged_fixtures_and_unsafe_manifests_fail_explicitly() {
 }
 
 #[test]
+fn pinned_truth_preserves_archive_membership_and_shape() {
+    let m = corpus::manifest();
+    assert_eq!(
+        m.truth_snapshots.len(),
+        7,
+        "required truth subset must not shrink"
+    );
+    for f in &m.truth_snapshots {
+        let text = corpus::read_truth(f).unwrap();
+        let mut damaged = text.as_bytes().to_vec();
+        damaged[0] ^= 1;
+        assert!(corpus::verify_bytes(&f.id, f.bytes, &f.sha256, &damaged).is_err());
+        if let corpus::TruthRequest::Reports { start, end } = f.request {
+            let reports = corpus::reports_between(start, end);
+            assert_eq!(
+                reports.len(),
+                f.expected_features,
+                "every pinned report retains its coordinates"
+            );
+            assert!(
+                reports
+                    .iter()
+                    .any(|r| r.kind == wxdata::spc::ReportKind::Tornado),
+                "required tornado truth"
+            );
+        }
+    }
+    let point = (-97.491, 35.332);
+    let covers = |features: &[wxdata::overlay::GeoFeature]| {
+        features.iter().any(|f| {
+            f.alert
+                .as_ref()
+                .is_some_and(|a| a.event == "Tornado Warning")
+                && f.rings
+                    .iter()
+                    .any(|r| wxdata::overlay::point_in_ring(r, point.0, point.1))
+        })
+    };
+    use chrono::TimeZone;
+    let during = corpus::warnings_at(
+        chrono::Utc
+            .with_ymd_and_hms(2013, 5, 20, 20, 12, 0)
+            .unwrap(),
+    );
+    let before = corpus::warnings_at(chrono::Utc.with_ymd_and_hms(2013, 5, 20, 18, 0, 0).unwrap());
+    assert!(covers(&during));
+    assert!(
+        !covers(&before),
+        "warning must not exist before it was issued"
+    );
+}
+
+#[test]
 fn offline_radar_inputs_preserve_values_time_and_missing_coverage() {
     for f in corpus::manifest()
         .fixtures

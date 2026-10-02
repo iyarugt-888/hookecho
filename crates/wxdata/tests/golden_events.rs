@@ -10,7 +10,8 @@
 //!     cargo test -p wxdata --test golden_events -- --ignored
 //!
 //! Set HOOKECHO_CORPUS_CACHE after provisioning scripts/corpus/provision.py to read verified
-//! local radar inputs. The warning/report checks still exercise their separate live archives.
+//! local radar inputs. Warning/report truth snapshots are committed and checksum-verified,
+//! so every check in this file runs offline when its radar inputs are provisioned.
 //!
 //! What is pinned is what the science should give, with tolerances where the algorithm is
 //! continuous: the tilt inventory exactly, peak reflectivity within 1 dBZ, and the detections by
@@ -270,7 +271,6 @@ async fn mayfield_2021() {
 async fn moore_2013_warnings_reports_and_verification() {
     use wxdata::detverify::{score, Detection, Truth};
     use wxdata::overlay::point_in_ring;
-    let http = reqwest::Client::new();
     let covers = |feats: &[wxdata::overlay::GeoFeature]| {
         feats.iter().any(|f| {
             f.alert
@@ -280,23 +280,20 @@ async fn moore_2013_warnings_reports_and_verification() {
         })
     };
     // In effect over Moore at the golden volume's time.
-    let during = wxdata::archive_warnings::fetch(&http, "2013-05-20T20:12:00Z")
-        .await
-        .expect("archived warnings");
+    let during = corpus::warnings_at(Utc.with_ymd_and_hms(2013, 5, 20, 20, 12, 0).unwrap());
     assert!(covers(&during), "no tornado warning over Moore at 20:12Z");
     // Not yet issued two hours earlier, before the storm formed.
-    let before = wxdata::archive_warnings::fetch(&http, "2013-05-20T18:00:00Z")
-        .await
-        .expect("archived warnings");
+    let before = corpus::warnings_at(Utc.with_ymd_and_hms(2013, 5, 20, 18, 0, 0).unwrap());
     assert!(
         !covers(&before),
         "a tornado warning over Moore before it was issued"
     );
 
     // The tornado reports in the hour around the volume, near Moore.
-    let reports = wxdata::lsr::fetch(&http, Some(("2013-05-20T19:40Z", "2013-05-20T20:40Z")))
-        .await
-        .expect("reports");
+    let reports = corpus::reports_between(
+        Utc.with_ymd_and_hms(2013, 5, 20, 19, 40, 0).unwrap(),
+        Utc.with_ymd_and_hms(2013, 5, 20, 20, 40, 0).unwrap(),
+    );
     let tornadoes: Vec<_> = reports
         .iter()
         .filter(|r| r.kind == wxdata::spc::ReportKind::Tornado)
@@ -359,14 +356,10 @@ async fn corpus_case(c: &Case) -> (Vec<(f64, f64)>, Vec<wxdata::tornado_id::Circ
     let f = detect(&scan);
     let site = wxdata::sites::site_by_id(c.site).expect("a known radar");
     let radar = (f64::from(site.longitude), f64::from(site.latitude));
-    let fmt = |t: chrono::DateTime<Utc>| t.format("%Y-%m-%dT%H:%MZ").to_string();
-    let (sts, ets) = (
-        fmt(when - chrono::Duration::minutes(20)),
-        fmt(when + chrono::Duration::minutes(20)),
+    let reports = corpus::reports_between(
+        when - chrono::Duration::minutes(20),
+        when + chrono::Duration::minutes(20),
     );
-    let reports = wxdata::lsr::fetch(&reqwest::Client::new(), Some((&sts, &ets)))
-        .await
-        .expect("reports");
     let tornadoes: Vec<(f64, f64)> = reports
         .iter()
         .filter(|r| r.kind == wxdata::spc::ReportKind::Tornado)

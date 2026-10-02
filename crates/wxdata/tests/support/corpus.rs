@@ -12,6 +12,56 @@ pub struct Manifest {
     pub schema_version: u32,
     pub baseline_commit: String,
     pub fixtures: Vec<Fixture>,
+    pub truth_snapshots: Vec<TruthSnapshot>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TruthSnapshot {
+    pub id: String,
+    pub path: String,
+    pub format: String,
+    pub bytes: usize,
+    pub sha256: String,
+    pub request: TruthRequest,
+    pub source: TruthSource,
+    pub expected_features: usize,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TruthSource {
+    pub url: String,
+    pub captured_at: DateTime<Utc>,
+    pub attribution: String,
+    pub license_url: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+pub enum TruthRequest {
+    WarningAt {
+        at: DateTime<Utc>,
+    },
+    Reports {
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    },
+}
+
+pub fn truth_url(request: &TruthRequest) -> String {
+    let stamp = |t: DateTime<Utc>| t.format("%Y-%m-%dT%H%%3A%M%%3A%SZ").to_string();
+    match *request {
+        TruthRequest::WarningAt { at } => format!(
+            "https://mesonet.agron.iastate.edu/geojson/sbw.py?ts={}",
+            stamp(at)
+        ),
+        TruthRequest::Reports { start, end } => format!(
+            "https://mesonet.agron.iastate.edu/geojson/lsr.geojson?sts={}&ets={}",
+            stamp(start),
+            stamp(end)
+        ),
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -71,7 +121,7 @@ pub fn manifest() -> Manifest {
 }
 
 pub fn validate(m: &Manifest) -> Result<()> {
-    ensure!(m.schema_version == 1, "unsupported corpus schema");
+    ensure!(m.schema_version == 2, "unsupported corpus schema");
     ensure!(!m.baseline_commit.is_empty(), "missing algorithm baseline");
     ensure!(!m.fixtures.is_empty(), "empty corpus");
     let mut ids = HashSet::new();
@@ -189,6 +239,46 @@ pub fn validate(m: &Manifest) -> Result<()> {
             );
         }
     }
+    let mut requests = HashSet::new();
+    for f in &m.truth_snapshots {
+        ensure!(ids.insert(&f.id), "duplicate truth identity");
+        let parts: Vec<_> = Path::new(&f.path).components().collect();
+        ensure!(
+            parts.len() == 1
+                && matches!(parts[0], Component::Normal(_))
+                && !f.path.contains(['/', '\\', ':']),
+            "unsafe truth path"
+        );
+        ensure!(
+            f.format == "geojson-feature-collection"
+                && hash(&f.sha256)
+                && f.bytes > 0
+                && f.bytes <= 2_000_000,
+            "invalid truth snapshot"
+        );
+        let url = truth_url(&f.request);
+        ensure!(
+            requests.insert(url.clone()) && url == f.source.url,
+            "ambiguous or incorrect truth request"
+        );
+        let time = match f.request {
+            TruthRequest::WarningAt { at } => at,
+            TruthRequest::Reports { start, end } => {
+                ensure!(start < end, "invalid report window");
+                end
+            }
+        };
+        ensure!(
+            f.source.captured_at >= time
+                && !f.source.attribution.is_empty()
+                && f.source.license_url == "https://mesonet.agron.iastate.edu/disclaimer.php",
+            "truth attribution/time missing"
+        );
+    }
+    ensure!(
+        !m.truth_snapshots.is_empty(),
+        "required truth snapshots missing"
+    );
     Ok(())
 }
 
@@ -205,19 +295,65 @@ pub fn digest(bytes: &[u8]) -> String {
 }
 
 pub fn verify(f: &Fixture, bytes: &[u8]) -> Result<()> {
+    verify_bytes(&f.id, f.bytes, &f.sha256, bytes)
+}
+
+pub fn verify_bytes(id: &str, size: usize, sha256: &str, bytes: &[u8]) -> Result<()> {
     ensure!(
-        bytes.len() == f.bytes,
+        bytes.len() == size,
         "{}: size mismatch, got {} expected {}",
-        f.id,
+        id,
         bytes.len(),
-        f.bytes
+        size
     );
     ensure!(
-        digest(bytes) == f.sha256,
+        digest(bytes) == sha256,
         "{}: SHA-256 mismatch; refusing a replacement golden",
-        f.id
+        id
     );
     Ok(())
+}
+
+pub fn read_truth(f: &TruthSnapshot) -> Result<String> {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/data/corpus")
+        .join(&f.path);
+    let bytes = std::fs::read(&path).with_context(|| {
+        format!(
+            "{}: required truth snapshot missing at {}",
+            f.id,
+            path.display()
+        )
+    })?;
+    verify_bytes(&f.id, f.bytes, &f.sha256, &bytes)?;
+    let json = String::from_utf8(bytes)?;
+    let collection: serde_json::Value = serde_json::from_str(&json)?;
+    ensure!(
+        collection["type"] == "FeatureCollection"
+            && collection["features"]
+                .as_array()
+                .is_some_and(|v| v.len() == f.expected_features),
+        "{}: pinned truth collection shape/count changed",
+        f.id
+    );
+    Ok(json)
+}
+
+pub fn warnings_at(at: DateTime<Utc>) -> Vec<wxdata::overlay::GeoFeature> {
+    let m = manifest();
+    let f = m
+        .truth_snapshots
+        .iter()
+        .find(|f| matches!(f.request, TruthRequest::WarningAt { at: t } if t == at))
+        .expect("warning instant must name a pinned snapshot");
+    wxdata::archive_warnings::parse(&read_truth(f).expect("verified warning snapshot"))
+        .expect("warning snapshot must decode")
+}
+
+pub fn reports_between(start: DateTime<Utc>, end: DateTime<Utc>) -> Vec<wxdata::spc::StormReport> {
+    let m = manifest();
+    let f = m.truth_snapshots.iter().find(|f| matches!(f.request, TruthRequest::Reports { start: s, end: e } if s == start && e == end)).expect("report window must name a pinned snapshot");
+    wxdata::lsr::parse(&read_truth(f).expect("verified report snapshot"))
 }
 
 pub fn read(f: &Fixture, cache: &Path) -> Result<Vec<u8>> {
