@@ -21,6 +21,8 @@ pub(crate) struct PaneDetections {
     pub tied_tds: Vec<bool>,
     pub all_couplets: Vec<wxdata::rotation::CoupletHit>,
     pub all_tds: Vec<wxdata::tds::TdsHit>,
+    /// The experimental LLSD pipeline, analysed, when `detectors.llsd_preview` is on.
+    pub llsd: Vec<wxdata::llsd_analyst::Analysed>,
 }
 
 impl HookEchoApp {
@@ -139,6 +141,11 @@ impl HookEchoApp {
         } else {
             Vec::new()
         };
+        let llsd = if self.settings.detectors.llsd_preview && idx == self.active {
+            self.compute_llsd(idx)
+        } else {
+            Vec::new()
+        };
         let couplets = if self.filters.show_couplets {
             couplets
         } else {
@@ -159,6 +166,7 @@ impl HookEchoApp {
             tied_tds,
             all_couplets,
             all_tds,
+            llsd,
         }
     }
 }

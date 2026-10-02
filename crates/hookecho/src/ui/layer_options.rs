@@ -1208,6 +1208,18 @@ pub(crate) fn show(
     // back from is worse than no slider.
     if section == "Detectors" {
         detector_score_thresholds(ui, filters, detectors);
+        header(ui, "Experimental");
+        ui.checkbox(
+            &mut detectors.llsd_preview,
+            "LLSD rotation (analyst preview)",
+        )
+        .on_hover_text(
+            "Draws the redesigned rotation pipeline beside the regular detectors: azimuthal \
+                 shear objects, followed up through the tilts and from volume to volume, with the \
+                 debris beside them classified and every term of their evidence score on hover. \
+                 It is still being validated against the regular detectors, so it raises no alert \
+                 and changes nothing else.",
+        );
     }
     if section == "Detectors" && filters.show_tbss {
         header(ui, "Hail spike (TBSS)");

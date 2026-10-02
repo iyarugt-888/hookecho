@@ -5770,35 +5770,11 @@ fn backtest_event(
             // objects on each velocity tilt the couplets read, associated up through the tilts
             // (with objects found without the echo screen to root them in weak echo), based in
             // the same 15-150 km the couplets are looked for in.
-            let (llsd_tilts, llsd_support): (Vec<Vec<_>>, Vec<Vec<_>>) = vel_pairs
-                .iter()
-                .map(|(vel, z)| {
-                    use wxdata::rotation_objects::{objects, Artifact, ObjectParams};
-                    let field = wxdata::azshear::llsd(vel, &wxdata::azshear::LlsdParams::default());
-                    let credible = objects(&field, vel, z, &ObjectParams::default())
-                        .into_iter()
-                        .filter(|o| o.credible())
-                        .collect();
-                    let relaxed = ObjectParams {
-                        require_echo: false,
-                        ..ObjectParams::default()
-                    };
-                    let support = objects(&field, vel, z, &relaxed)
-                        .into_iter()
-                        .filter(|o| o.artifacts.iter().all(|a| *a == Artifact::NoEcho))
-                        .collect();
-                    (credible, support)
-                })
-                .unzip();
             // Tracked at every range, so a circulation crossing 150 km keeps its track; only the
             // export is limited to the couplets' range.
             let llsd_all: Vec<wxdata::rotation_tracks::Tracked> = llsd_tracker.update(
                 t.timestamp(),
-                wxdata::rotation_columns::columns_with_support(
-                    &llsd_tilts,
-                    &llsd_support,
-                    &wxdata::rotation_columns::ColumnParams::default(),
-                ),
+                wxdata::rotation_columns::from_sweeps(&vel_pairs),
             );
             let llsd_columns: Vec<&wxdata::rotation_tracks::Tracked> = llsd_all
                 .iter()
@@ -6010,7 +5986,23 @@ fn backtest_event(
                 for c in wxdata::tornado_id::circulations(&couplets, &hits) {
                     let id = &c.id;
                     let range = crate::geo::great_circle([rlon, rlat], [id.lon, id.lat]).0 as f32;
+                    // The beam heights its detections were seen between, so the verification
+                    // matrix can band it by height (detectionplan.md Phase 11).
+                    let heights: Vec<(f32, f32)> = c
+                        .members
+                        .iter()
+                        .map(|m| match m.evidence {
+                            wxdata::tornado_id::Evidence::Rotation(i) => {
+                                (couplets[i].base_km, couplets[i].top_km)
+                            }
+                            wxdata::tornado_id::Evidence::Debris(i) => {
+                                (hits[i].base_km, hits[i].top_km)
+                            }
+                        })
+                        .collect();
                     candidates.push(Candidate {
+                        beam_base_km: heights.iter().map(|h| h.0).reduce(f32::min),
+                        beam_top_km: heights.iter().map(|h| h.1).reduce(f32::max),
                         vrot_ms: id.vrot_ms,
                         min_cc: id.min_cc,
                         tier: Some(id.tier.label().to_string()),

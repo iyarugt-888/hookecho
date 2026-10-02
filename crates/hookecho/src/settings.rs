@@ -897,6 +897,11 @@ pub struct DetectorTuning {
     /// [`Settings::adopt_detector_floors`]. A settings file from before it reads `false`.
     #[serde(default)]
     pub floors_adopted: bool,
+    /// Draw the experimental LLSD rotation pipeline (`wxdata::llsd_analyst`) beside the regular
+    /// detectors, for analysts: columns, tracks, classified debris and their evidence terms. Off by
+    /// default; it raises no alert and feeds nothing else (detectionplan.md Phases 12-13).
+    #[serde(default)]
+    pub llsd_preview: bool,
 }
 
 /// The debris-signature floor a fresh install starts with. From the archived-event backtest
@@ -929,6 +934,7 @@ impl Default for DetectorTuning {
             tds_min_confidence: DEFAULT_TDS_MIN_CONFIDENCE,
             rotation_min_confidence: DEFAULT_ROTATION_MIN_CONFIDENCE,
             floors_adopted: true,
+            llsd_preview: false,
         }
     }
 }

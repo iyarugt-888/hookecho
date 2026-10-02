@@ -24,6 +24,8 @@ pub(crate) struct Markers<'a> {
     pub all_tds: &'a [wxdata::tds::TdsHit],
     pub tds_score_tracks: &'a [wxdata::scoretrack::ScoreTrack],
     pub rot_score_tracks: &'a [wxdata::scoretrack::ScoreTrack],
+    /// The experimental LLSD pipeline's columns (empty unless `detectors.llsd_preview`).
+    pub llsd: &'a [wxdata::llsd_analyst::Analysed],
 }
 
 impl HookEchoApp {
@@ -46,12 +48,48 @@ impl HookEchoApp {
             all_tds,
             tds_score_tracks,
             rot_score_tracks,
+            llsd,
         } = m;
         let to_screen = |lon: f64, lat: f64| {
             let w = crate::render::mercator::lonlat_to_world(lon, lat);
             let (sx, sy) = cam.world_to_screen(w, vp);
             egui::pos2(prect.left() + sx, prect.top() + sy)
         };
+
+        // The experimental LLSD columns (analyst preview): a cyan ring at each column's base, its
+        // headline under it, and on hover everything that made it. Drawn first, so the regular
+        // detectors' markers sit on top. The strongest dozen only: weak columns are many.
+        let cyan = egui::Color32::from_rgb(40, 210, 230);
+        for a in llsd.iter().take(12) {
+            let c = &a.tracked.column;
+            let p = to_screen(c.lon, c.lat);
+            if !prect.contains(p) {
+                continue;
+            }
+            let ring = if c.sense == wxdata::rotation::Sense::Cyclonic {
+                egui::Stroke::new(2.0, cyan)
+            } else {
+                egui::Stroke::new(1.0, cyan)
+            };
+            painter.circle_stroke(p, 10.0, ring);
+            painter.text(
+                p + egui::vec2(0.0, 12.0),
+                egui::Align2::CENTER_TOP,
+                a.headline(),
+                egui::FontId::proportional(10.5),
+                cyan,
+            );
+            let hit = egui::Rect::from_center_size(p, egui::vec2(24.0, 24.0));
+            if response.hover_pos().is_some_and(|hp| hit.contains(hp)) {
+                response.clone().show_tooltip_ui(|ui| {
+                    ui.set_max_width(520.0);
+                    ui.strong(a.headline());
+                    for line in a.lines() {
+                        ui.label(egui::RichText::new(line).small());
+                    }
+                });
+            }
+        }
 
         // TDS markers: a magenta inverted triangle + label at each debris-signature cluster.
         for (i, h) in tds_hits.iter().enumerate() {
@@ -304,7 +342,11 @@ impl HookEchoApp {
             painter.text(
                 p + egui::vec2(0.0, 10.0),
                 egui::Align2::CENTER_TOP,
-                format!("{} \u{b7} {}", t.tier.label(), wxdata::evidence::out_of_100(t.score)),
+                format!(
+                    "{} \u{b7} {}",
+                    t.tier.label(),
+                    wxdata::evidence::out_of_100(t.score)
+                ),
                 egui::FontId::proportional(11.5),
                 col,
             );
@@ -494,7 +536,11 @@ impl HookEchoApp {
                     egui::Color32::BLACK,
                 );
                 // One line: the verdict, then the strongest numbers behind it.
-                let mut label = format!("{} \u{b7} {}", t.tier.label(), wxdata::evidence::out_of_100(t.score));
+                let mut label = format!(
+                    "{} \u{b7} {}",
+                    t.tier.label(),
+                    wxdata::evidence::out_of_100(t.score)
+                );
                 if let Some(v) = t.vrot_ms {
                     label.push_str(&format!(" \u{b7} ROT {:.0} kt", kt(v)));
                 }
@@ -513,7 +559,11 @@ impl HookEchoApp {
                 );
                 if hovered && !is_open {
                     response.clone().show_tooltip_ui(|ui| {
-                        ui.strong(format!("{} \u{b7} {}", t.tier.label(), wxdata::evidence::out_of_100(t.score)));
+                        ui.strong(format!(
+                            "{} \u{b7} {}",
+                            t.tier.label(),
+                            wxdata::evidence::out_of_100(t.score)
+                        ));
                         for r in &t.reasons {
                             ui.label(r);
                         }
@@ -619,5 +669,65 @@ impl HookEchoApp {
             }
             ctx.data_mut(|d| d.insert_temp(egui::Id::new(("circulation_hits", idx)), hits));
         }
+    }
+}
+
+#[cfg(test)]
+mod llsd_preview_snapshots {
+    /// The analyst hover for the experimental LLSD layer, on the real Moore 2013 volume (the
+    /// scientific corpus's cached copy), rendered for visual review.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "gpu + cached corpus volume: writes the LLSD analyst hover for visual review"]
+    fn gpu_llsd_analyst_hover() {
+        use wxdata::level2::{self, Moment};
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
+        let bytes = std::fs::read(root.join("scientific-corpus/KTLX20130520_201229_V06.gz"))
+            .expect("cached Moore volume (provision the scientific corpus first)");
+        let scan = level2::decode_volume(bytes).unwrap();
+        let (mut vel_pairs, mut cc_pairs) = (Vec::new(), Vec::new());
+        for tilt in 0..level2::elevation_angles(&scan).len() {
+            let z = level2::bin_scan(&scan, Moment::Reflectivity, tilt);
+            if let (Ok(z), Ok(cc)) = (
+                &z,
+                level2::bin_scan(&scan, Moment::CorrelationCoefficient, tilt),
+            ) {
+                cc_pairs.push((z.clone(), cc));
+            }
+            if let (Ok(z), Ok(v)) = (
+                z,
+                level2::bin_scan_opts(&scan, Moment::Velocity, tilt, true),
+            ) {
+                vel_pairs.push((v, z));
+            }
+            if vel_pairs.len() == 4 {
+                break;
+            }
+        }
+        let columns = wxdata::rotation_columns::from_sweeps(&vel_pairs);
+        let mut tracker =
+            wxdata::rotation_tracks::Tracker::new(wxdata::rotation_tracks::TrackParams::default());
+        let tracked = tracker.update(0, columns);
+        let debris = wxdata::tds::detect_volume(&cc_pairs, 0.80, 40.0, 150.0, 4);
+        let analysed = wxdata::llsd_analyst::analyse(tracked, &debris, &[]);
+        let a = analysed.first().expect("a column");
+        let gpu = crate::headless::ui::Snapshot::new().expect("GPU adapter for UI review");
+        let destination = root.join("ui-review");
+        std::fs::create_dir_all(&destination).unwrap();
+        gpu.save(
+            &destination.join("llsd-analyst-hover.png"),
+            560,
+            520,
+            |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.set_max_width(520.0);
+                    ui.strong(a.headline());
+                    for line in a.lines() {
+                        ui.label(egui::RichText::new(line).small());
+                    }
+                });
+            },
+        )
+        .unwrap();
     }
 }

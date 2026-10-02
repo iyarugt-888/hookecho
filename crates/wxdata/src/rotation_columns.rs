@@ -9,16 +9,21 @@
 //! It must also turn the same way, and a column takes at most one object per tilt.
 //!
 //! A column is described by physical height, not by how many tilts it spans: four high tilts are
-//! not a circulation rooted below 1 km.
+//! not a circulation rooted below 1 km. Heights are beam-centre heights above the radar, taken as
+//! the height above ground; the radar's own tower and the terrain between are ignored.
 //!
 //! A tornado can clear the echo from its own core, and its lowest-tilt shear can sit over almost
 //! none (Mayfield's strongest lowest-tilt gate: 3–12 dBZ), so the object there never forms with
 //! echo required. [`columns_with_support`] takes, per tilt, objects found without that screen;
 //! after the columns are built from credible objects, each column may take one on a tilt it is
 //! missing, by the same rules. Support never starts a column, so shear in clear air with nothing
-//! above it is still nothing; a member that came from it is [`ColumnMember::weak_echo`]. Heights are beam-centre heights above the radar, taken as
-//! the height above ground; the radar's own tower and the terrain between are ignored.
+//! above it is still nothing; a member that came from it is [`ColumnMember::weak_echo`].
+//!
+//! [`from_sweeps`] runs the whole per-volume pipeline (field, objects with and without the echo
+//! screen, columns) with the default parameters, so the app and the backtest compute exactly the
+//! same columns.
 
+use crate::level2::BinnedSweep;
 use crate::rotation::Sense;
 use crate::rotation_objects::RotationObject;
 
@@ -129,6 +134,34 @@ fn compatible(o: &RotationObject, m: &RotationObject, p: &ColumnParams) -> bool 
 /// every member, so a column never chains away from where it started.
 pub fn columns(tilts: &[Vec<RotationObject>], p: &ColumnParams) -> Vec<RotationColumn> {
     columns_with_support(tilts, &[], p)
+}
+
+/// One volume's rotation columns from its `(velocity, reflectivity)` tilt pairs, lowest tilt first:
+/// the LLSD field of each velocity tilt, the credible objects on it, the objects found without the
+/// echo screen whose only artifact is having none (to root a column in weak echo), and the columns
+/// with that support, all with default parameters. Velocity should be dealiased.
+pub fn from_sweeps(pairs: &[(BinnedSweep, BinnedSweep)]) -> Vec<RotationColumn> {
+    use crate::rotation_objects::{objects, Artifact, ObjectParams};
+    let (tilts, support): (Vec<Vec<RotationObject>>, Vec<Vec<RotationObject>>) = pairs
+        .iter()
+        .map(|(vel, z)| {
+            let field = crate::azshear::llsd(vel, &crate::azshear::LlsdParams::default());
+            let credible = objects(&field, vel, z, &ObjectParams::default())
+                .into_iter()
+                .filter(|o| o.credible())
+                .collect();
+            let relaxed = ObjectParams {
+                require_echo: false,
+                ..ObjectParams::default()
+            };
+            let support = objects(&field, vel, z, &relaxed)
+                .into_iter()
+                .filter(|o| o.artifacts.iter().all(|a| *a == Artifact::NoEcho))
+                .collect();
+            (credible, support)
+        })
+        .unzip();
+    columns_with_support(&tilts, &support, &ColumnParams::default())
 }
 
 /// [`columns`], then each column (strongest first) may take one `support[t]` object on each tilt

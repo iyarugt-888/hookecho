@@ -1266,6 +1266,12 @@ pub struct HookEchoApp {
         (usize, String, usize),
         (Vec<wxdata::rotation::CoupletHit>, (f32, f32), usize),
     )>,
+    /// The experimental LLSD pipeline's analysed columns for one volume (the settings flag
+    /// `detectors.llsd_preview`), and the tracker that follows them from volume to volume on one
+    /// site. See `compute_llsd`.
+    #[allow(clippy::type_complexity)]
+    llsd_cache: Option<((usize, String, usize), Vec<wxdata::llsd_analyst::Analysed>)>,
+    llsd_tracker: Option<(String, wxdata::rotation_tracks::Tracker)>,
     /// Same role as `tds_shown_cache`, for rotation: the corroborated couplets, not `couplet_cache`'s
     /// raw ones. Filled once per volume, in `compute_couplets`.
     rot_shown_cache: LruCache<String, Vec<wxdata::rotation::CoupletHit>>,
@@ -5797,6 +5803,7 @@ impl HookEchoApp {
             tied_tds,
             all_couplets,
             all_tds,
+            llsd,
         } = self.pane_detections(ctx, idx);
 
         // --- Painter overlays (clipped to this pane) ---
@@ -6182,6 +6189,7 @@ impl HookEchoApp {
                     all_tds: &all_tds,
                     tds_score_tracks: &tds_score_tracks,
                     rot_score_tracks: &rot_score_tracks,
+                    llsd: &llsd,
                 },
                 idx,
             );

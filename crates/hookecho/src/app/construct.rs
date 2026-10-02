@@ -294,6 +294,8 @@ impl HookEchoApp {
             tbss_cache: None,
             zdr_cache: None,
             couplet_cache: None,
+            llsd_cache: None,
+            llsd_tracker: None,
             rot_shown_cache: LruCache::new(NonZeroUsize::new(48).unwrap()),
             celltrack_cache: LruCache::new(NonZeroUsize::new(48).unwrap()),
             tracks_cache: None,

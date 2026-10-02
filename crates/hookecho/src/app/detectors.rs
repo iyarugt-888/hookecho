@@ -276,6 +276,61 @@ impl HookEchoApp {
         self.tds_raw(idx)
     }
 
+    /// The experimental LLSD rotation pipeline for this volume, analysed (detectionplan.md Phases
+    /// 12-13): rotation columns from the same four lowest tilts the couplet detector reads, tracked
+    /// from the previous volume, with the volume's debris signatures classified beside them and
+    /// every column fused. Cached per volume. The tracker starts over when the site changes or the
+    /// volume is not newer than the last one it saw (stepping back through a loop), so a track is
+    /// only ever built forward in time. It raises no alert and feeds nothing else.
+    pub(crate) fn compute_llsd(&mut self, idx: usize) -> Vec<wxdata::llsd_analyst::Analysed> {
+        let key = self.volume_key(idx);
+        if let Some((k, v)) = &self.llsd_cache {
+            if *k == key {
+                return v.clone();
+            }
+        }
+        const TILTS: usize = 4;
+        let site = self.views[idx].site.clone().unwrap_or_default();
+        let Some(vol) = self.views[idx].volume.as_mut() else {
+            return Vec::new();
+        };
+        let time = vol.time.timestamp();
+        let pairs: Vec<_> = vol
+            .velocity_tilts_dealiased()
+            .into_iter()
+            .zip(vol.moment_tilts(Moment::Reflectivity))
+            .take(TILTS)
+            .collect();
+        let columns = wxdata::rotation_columns::from_sweeps(&pairs);
+        let fresh = match &self.llsd_tracker {
+            Some((s, t)) => {
+                *s != site
+                    || t.tracks
+                        .iter()
+                        .filter_map(|tr| tr.history.last())
+                        .any(|p| p.time >= time)
+            }
+            None => true,
+        };
+        if fresh {
+            self.llsd_tracker = Some((
+                site,
+                wxdata::rotation_tracks::Tracker::new(
+                    wxdata::rotation_tracks::TrackParams::default(),
+                ),
+            ));
+        }
+        let tracked = self
+            .llsd_tracker
+            .as_mut()
+            .map(|(_, t)| t.update(time, columns))
+            .unwrap_or_default();
+        let debris = self.tds_quiet(idx);
+        let out = wxdata::llsd_analyst::analyse(tracked, &debris, &[]);
+        self.llsd_cache = Some((key, out.clone()));
+        out
+    }
+
     /// The tornado reports and tornado warnings a detection can be confirmed by right now: the live
     /// ones, or the archived ones while the playhead is off live. See [`wxdata::confirm`].
     pub(crate) fn confirm_evidence(&self, idx: usize) -> wxdata::confirm::Evidence {
