@@ -145,7 +145,7 @@ Unless marked otherwise, every card starts with **implementation: planned; verif
 
 #### M0.3 — Pin the scientific and visual corpus
 
-**Priority:** P0. **Depends on:** M0.1. **Status:** implementation: in progress (increments 1–3 delivered); verification: partial. **Original references:** ROADMAP_2 §8; ROADMAP_NEW §§K2, K3, 25.
+**Priority:** P0. **Depends on:** M0.1. **Status:** implementation: in progress (increments 1–4 delivered); verification: partial. **Original references:** ROADMAP_2 §8; ROADMAP_NEW §§K2, K3, 25.
 
 - **Starting evidence:** `golden_events`, scheduled corpus jobs, GPU goldens, headless verifiers, and case manifests.
 - **Outcome/build:** add a fixture manifest with exact source object, acquisition time, checksum, format, attribution/license, expected scientific checks, and intended false-positive cases. Provision a small offline fixture subset for PR checks and larger cached inputs for scheduled certification. Keep real archive retrieval tests separate.
@@ -172,7 +172,13 @@ Unless marked otherwise, every card starts with **implementation: planned; verif
 
 **Increment 3 verification:** all nine historic checks passed offline with explicit cached radar inputs (56.12 seconds). Five offline corpus checks passed, and Python provisioning tests passed (8). Provisioning verified all 24 inputs; independent PowerShell SHA-256 checks verified all eight report/warning snapshots and both KMZ files. Windows workspace tests passed (1,986; zero failures; 111 ignored), and native Clippy passed. These checks exercised the shared working tree at `0ebbd54`, including concurrent detector-baseline edits; those edits are preserved outside this corpus commit. Logs live under `target/parity-review/m0.3/qlcs-*.log`. This increment changes fixtures/test tooling rather than the application library; platform runtime, device, and soak certification remain open.
 
-**Remaining/next increment:** add independently labeled clutter and visual reports before closing the parent card. The partial tornado/hail files are decoding controls; they do not establish full storm detection or column accuracy. Clear-air clutter tags remain candidates. Android/Linux/browser runtime and sustained application certification remain open.
+**Evidence ledger — 2026-10-01, increment 4:** [real radar visual regression](crates/hookecho/src/headless_corpus.rs) routes all three small reflectivity fixtures through the production upload and map renderer. Stable CPU inspector samples provide the color/coverage reference; rendering must preserve values and collection clocks, reproduce identical pixels without another upload, and replace the preceding fixture correctly. Explicit invocation requires the adapter and all inputs. The report starts as running and becomes passed only after all cases succeed; partial failures retain their metrics. CI invokes the test separately on lavapipe and uploads PNG/JSON evidence; live provider jobs omit it.
+
+**Visual evidence:** the Windows RTX 2060/Vulkan run passed (2.92 seconds after compilation), with 16,083 stable color samples, zero color mismatches, 160,292 checked missing-sector pixels, and zero incorrectly filled pixels. All three renders were inspected. [Compact reference captures and report](docs/certification/m0.3/README.md) preserve input/manifest/image hashes, source clocks, adapter/driver, exact method, sample counts, and limitations. These are backend-qualified references, not universal pixel goldens. Linux CI, Android, and browser results remain open.
+
+**Increment 4 verification:** fresh Windows workspace tests passed (1,986; zero failures; 112 ignored) and native Clippy passed. The GPU check was explicitly invoked and passed separately from those ignored defaults. Local logs are `target/parity-review/m0.3/visual-{corpus,workspace}-tests.log` and `visual-clippy.log`. This increment changes test harnesses and CI rather than production rendering; it preserves concurrent detector-backtest edits outside the commit. Full application interaction and sustained-load certification remain open.
+
+**Remaining/next increment:** add independently labeled clutter before closing the parent card. The partial tornado/hail files are decoding controls; they do not establish full storm detection or column accuracy. Clear-air clutter tags remain candidates. Android/Linux/browser runtime and sustained application certification remain open.
 
 ### M1 — Live-data trust
 

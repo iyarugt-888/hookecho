@@ -6,6 +6,7 @@ Cargo.lock
 !/Cargo.lock
 *.png
 !docs/shots/*.png
+!docs/certification/m0.3/*.png
 !android/app/src/main/res/**/*.png
 !crates/hookecho/tests/golden/*.png
 !web/icon-*.png

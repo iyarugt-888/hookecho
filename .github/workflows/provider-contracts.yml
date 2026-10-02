@@ -92,6 +92,7 @@ jobs:
         run: |
           cargo test -p hookecho --lib -- --ignored --nocapture --test-threads=1 \
             --skip headless::golden_tests:: \
+            --skip headless::corpus:: \
             --skip app::chrome::dock::sources::tests::gpu_sources_dock_snapshots \
             --skip gpu_wind_advects_downwind \
             --skip plays_a_live_mp3_stream \

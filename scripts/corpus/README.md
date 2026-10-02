@@ -126,6 +126,35 @@ an output directory and leaves the manifest and goldens unchanged. Review source
 geometry, individual report validity, and their effect on scientific results before updating
 the tracked response and manifest together. A hash difference alone is not a reason to update.
 
+## Real radar render checks
+
+Run the required GPU check separately from the offline CPU suite:
+
+```sh
+cargo test -p hookecho --lib headless::corpus::pinned_radar_values_and_missing_sectors_render_consistently -- --ignored --nocapture
+```
+
+The three small real reflectivity inputs pass through the application's upload and map-render
+pipeline at 384 × 384 pixels. This explicit check fails if the adapter, manifest, or any required
+input is missing or corrupt. It compares stable CPU inspector samples with the GPU's palette and
+sRGB alpha blending, allowing at most 0.5% of sampled colors to differ by more than eight channel
+levels. Each fixture must supply at least 100 colored samples and 1,000 missing-sector samples;
+every checked unobserved-sector pixel must match an empty render. Subpixel neighborhoods exclude
+gate boundaries where the shader's float precision can choose an adjacent gate.
+
+Rendering twice without another upload must reproduce identical pixels. Source values and
+collection clocks must remain unchanged. The test reuses GPU resources across cases, exercising
+replacement of the preceding fixture. PNGs and a JSON report (adapter/backend/driver, input hashes,
+collection times, counts, image hashes, and status) go to `target/parity-review/m0.3/visual-corpus/`.
+The report starts as `running` and becomes `passed` only after all checks succeed; partial failures
+retain their completed metrics and active fixture. PNG hashes describe the captured adapter,
+rather than acting as universal driver-independent goldens.
+
+PR CI invokes this check on Mesa lavapipe with `HOOKECHO_GPU_FALLBACK=1` and uploads its report and
+renders. The Linux CI result remains open until that job runs. Live provider jobs explicitly omit
+this GPU suite. These bare flat-map reflectivity checks do not certify full-volume 3D, smoothing,
+other products, overlays, desktop interaction, Android, or browser rendering.
+
 ## QLCS damage-track baseline
 
 The [NWS Des Moines event review](https://www.weather.gov/dmx/StormyandWindyWednesdayDecember152021)

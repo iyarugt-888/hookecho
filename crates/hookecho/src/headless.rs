@@ -13,6 +13,10 @@ use wxdata::level2::{self, Moment};
 #[path = "headless_ui.rs"]
 pub(crate) mod ui;
 
+#[cfg(test)]
+#[path = "headless_corpus.rs"]
+mod corpus;
+
 /// Output edge length in pixels, and the zoom override, if either was asked for.
 ///
 /// Process-global rather than threaded through the dozen render entry points, because every

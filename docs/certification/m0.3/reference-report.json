@@ -1,0 +1,61 @@
+{
+  "active_fixture": null,
+  "adapter": {
+    "backend": "Vulkan",
+    "device": 7944,
+    "device_type": "DiscreteGpu",
+    "driver": "NVIDIA",
+    "driver_info": "572.16",
+    "name": "NVIDIA GeForce RTX 2060",
+    "vendor": 4318
+  },
+  "captured_at": "2026-10-02T01:07:53.942582700+00:00",
+  "comparison": "CPU inspector samples in stable subpixel neighborhoods; sRGB alpha blend; channel tolerance 8; bad colors <=0.5%; no filled missing sectors",
+  "fixtures": [
+    {
+      "checks_passed": true,
+      "collection_time": "2021-12-11T03:23:49Z",
+      "color_mismatches": 0,
+      "filled_missing_pixels": 0,
+      "fixture": "mayfield-2021-partial",
+      "input_sha256": "7ff2afe7bb52dec13b14d68c75e7654c18536eb9c39da8615c3bd1583cdc7332",
+      "missing_sector_pixels": 52935,
+      "png": "mayfield-2021-partial.png",
+      "rgba_sha256": "18b9c53c11c1fdb712d0bbb3d1070eb7e452b6a02719c7427fef62b235cefd26",
+      "stable_colored_pixels": 11664
+    },
+    {
+      "checks_passed": true,
+      "collection_time": "2017-05-08T20:34:05Z",
+      "color_mismatches": 0,
+      "filled_missing_pixels": 0,
+      "fixture": "denver-hail-2017-partial",
+      "input_sha256": "ff66e16eade943e9d272aed38bcf0b231c5517fbde0e59953f0b207aec3c303c",
+      "missing_sector_pixels": 57002,
+      "png": "denver-hail-2017-partial.png",
+      "rgba_sha256": "490f399d725dbe51b175b8650394c99c2a068ef7a6e4850aad86912f884883a8",
+      "stable_colored_pixels": 4045
+    },
+    {
+      "checks_passed": true,
+      "collection_time": "2019-07-15T12:00:37Z",
+      "color_mismatches": 0,
+      "filled_missing_pixels": 0,
+      "fixture": "clear-air-2019-partial",
+      "input_sha256": "d0e6ac4b459b1c30e1687f749ab7d43e7aaf734c965b45cf734152e1410721d5",
+      "missing_sector_pixels": 50355,
+      "png": "clear-air-2019-partial.png",
+      "rgba_sha256": "7c68b43e90d9677faa56e62ddbe05570b43423069eb5992ce886844db83f61ef",
+      "stable_colored_pixels": 374
+    }
+  ],
+  "manifest_sha256": "5a4a9a101bb4cd39e20b76bac18c557347f8803d2dda7fca3688edc00cf55dfb",
+  "mode": "nearest reflectivity, flat map, no overlays",
+  "report_version": 1,
+  "size": [
+    384,
+    384
+  ],
+  "status": "passed",
+  "zoom": 8.5
+}
