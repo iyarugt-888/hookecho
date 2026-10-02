@@ -119,6 +119,10 @@ jobs:
           if [ -n "$KS_B64" ]; then
             echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/hookecho.p12"
             echo "HOOKECHO_KEYSTORE=$RUNNER_TEMP/hookecho.p12" >> "$GITHUB_ENV"
+          else
+            # Without a stable key the APK is signed with this runner's fresh debug key, which no
+            # installed copy shares: Android refuses it as an update ("App not installed").
+            echo "::warning title=Unstable APK signature::ANDROID_KEYSTORE_B64/ANDROID_KEYSTORE_PASS are not set, so this APK is signed with a one-off debug key and cannot update an installed HookEcho."
           fi
 
       - name: Assemble release APK

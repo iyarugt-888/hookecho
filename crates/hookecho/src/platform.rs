@@ -720,28 +720,39 @@ mod android_alerts {
         }
     }
 
-    /// `Updater.install(Context, String): Boolean`: true when the installer was started, false
-    /// when the user first has to allow HookEcho to install apps (that settings page is opened).
+    /// `Updater.install(Context, String): Int`: 0 when the installer was started; 1 when the user
+    /// first has to allow HookEcho to install apps (that settings page is opened); 2 or 3 when
+    /// Android would refuse the APK (another signing key, an older version) with only "App not
+    /// installed", so nothing was started and this says why.
     pub(super) fn install_apk(path: &str) -> Result<(), String> {
         let out = with_class("io.hookecho.HookEcho.Updater", |env, class, activity| {
             let jpath = env.new_string(path)?;
             let res = env.call_static_method(
                 class,
                 "install",
-                "(Landroid/content/Context;Ljava/lang/String;)Z",
+                "(Landroid/content/Context;Ljava/lang/String;)I",
                 &[JValue::Object(activity), (&jpath).into()],
             );
             if res.is_err() {
                 let _ = env.exception_clear();
             }
-            res?.z()
+            res?.i()
         });
         match out {
-            Ok(true) => Ok(()),
-            Ok(false) => Err(
+            Ok(0) => Ok(()),
+            Ok(1) => Err(
                 "Allow HookEcho to install apps on the page that opened, then press Install again."
                     .into(),
             ),
+            Ok(2) => Err(
+                "This build is signed with a different key than the installed HookEcho, so Android                  would refuse it (\"App not installed\"). Uninstall HookEcho and install the APK                  from the wsv3-latest release once; updates after that install in place."
+                    .into(),
+            ),
+            Ok(3) => Err(
+                "This build is older than the installed HookEcho, and Android does not install an                  older version over a newer one."
+                    .into(),
+            ),
+            Ok(n) => Err(format!("the installer answered {n}")),
             Err(e) => Err(format!("the installer could not be started: {e:?}")),
         }
     }
