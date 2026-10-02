@@ -72,6 +72,29 @@ Primary code areas:
 - **Phase 10, path truth done** (`detverify::PathTruth`). A surveyed track is matched along its path, not at its midpoint: a detection verifies within the radius of the stretch the tornado can have been on at that time, moving at 8–30 m/s from its surveyed start (the survey has no end time), widened by the window. A path is one event however long. The backtest console tables keep the midpoints; the export uses paths.
   - Effect on this corpus: Tornado ID ≥ 0.6 goes from 33 to 35 verified (POD 0.63 → 0.67, FAR 0.56 → 0.53). LLSD columns ≥ 0.5 go from 367 to 411 verified, and their 0–30 km FAR from 0.41 to 0.28. About 40 detections on surveyed paths, away from the midpoints, had been counted as false.
 
+- **Phases 12 and 13, analyst preview done** (`llsd_analyst.rs`, the Detectors setting "LLSD rotation (analyst preview)", off by default). `rotation_columns::from_sweeps` is the shared per-volume pipeline the app and the backtest both call. The app tracks columns forward in time, classifies the debris beside them and fuses each one. It draws a cyan ring with a headline, and the hover gives every member's measurements and QC, the track, the debris and every evidence term (checked in a GPU capture on Moore 2013). It raises no alert and feeds nothing else.
+- **Phase 9, corpus doubled to 16 events** (`docs/backtest-events.txt`, each checked against the IEM LSR archive). The new events are a night outbreak (Dayton 2019), a violent far-range tornado (Rolling Fork 2023), an outbreak (Easter 2020), two tropical cases (Ida 2021, Harvey 2017), a giant-hail supercell (Denton 2016) and a clear-air morning.
+  - **Detection on the new events.** The LLSD columns find tornadoes the legacy detectors miss entirely: Dayton 5 of 6 verified, Easter 5 of 9, both with nothing from legacy. Rolling Fork 15 of 16. Clear air: nothing from any detector.
+  - **Debris on 16 events.**
+
+    | Subset | Candidates | Verified | Precision | False per hour | Events |
+    |---|---|---|---|---|---|
+    | Tornado debris signature | 66 | 43 | 0.65 | 1.4 | 9 of 16 |
+    | Same, rooted | 49 | 35 | 0.71 | 0.9 | 9 of 16 |
+    | Legacy debris, display ≥ 0.5 | 102 | 41 | 0.40 | 3.8 | 8 of 16 |
+    | Tornado ID debris tier | 64 | 34 | 0.53 | 1.9 | 8 of 16 |
+
+  - **Hail.** The giant-hail supercells still promote 8 false signatures (Denton 6, Denver 2). Every one is marginal on both axes: a promoting column of 0.010–0.013 s⁻¹ against a verified median of 0.02, polarimetric evidence 0.53–0.59 against 0.74, and mostly one tilt. Promoting only at ≥ 0.015 s⁻¹ would leave 2 of them and keep 39 of 43 verified in the same 9 events. Measured but not adopted: two hail events are too few to set it by, and the fused score below already rejects them.
+  - **Fusion refit (fusion-2, step-shaped persistence).** Held out by event, its top 50, 100 and 200 rows hold 31, 72 and 125 verified, against 29, 49 and 93 for peak shear. The weights barely moved from the 9-event fit, and 3+ volumes now weighs more than 2.
+  - **Against Tornado ID at matched false alarms (in-sample).**
+
+    | Matched rate | Fusion | Tornado ID |
+    |---|---|---|
+    | ~2.7 per hour | ≥ 0.5: POD 0.48, FAR 0.27, CSI 0.33 | ≥ 0.6: POD 0.49, FAR 0.50, CSI 0.34 |
+    | ~1.1–1.4 per hour | ≥ 0.7: POD 0.36, FAR 0.24 | ≥ 0.7: POD 0.39, FAR 0.35 |
+
+    FAR at 0.5 beyond 60 km is 0.24 and 0.09 for the fusion, against 0.68 and 0.76 for Tornado ID. At ≥ 0.7 the fusion has no detection in any hard-negative event. Same POD with half the false-alarm ratio is the plan's goal. Promotion is a user-visible change and is left to a decision (Phase 13).
+
 ### Findings to carry into Phase 9 (from 10 and 11)
 
 - Lead times measure a median of only 3–5 minutes because every event starts a few minutes before its first report. Measuring real lead time needs events that start earlier.

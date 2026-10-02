@@ -139,36 +139,36 @@ pub struct Weights {
     pub w: [f32; 13],
 }
 
-/// The fitted weights (`scripts/fusion/fit.py`, first fit, on the 9-event backtest corpus of
-/// `docs/backtest-events.txt`).
+/// The fitted weights (`scripts/fusion/fit.py`, fusion-2, on the 16-event backtest corpus of
+/// `docs/backtest-events.txt`: nine original events plus a night outbreak, a violent far-range
+/// tornado, an outbreak, two tropical cases, a giant-hail supercell and a clear-air morning).
 ///
 /// Each weight is held to the sign physics expects, and range is left out. A free fit learned the
-/// corpus's quirks instead: range got the largest weight, negative, from where this corpus's
-/// reports happen to be (LLSD underestimates shear far out, so physically the same measured shear
-/// means more rotation there); hail beside debris counted *for* a tornado; and the two correlated
-/// shear features took opposite signs. Shear trend, hail and weak-echo rooting came out with the
-/// wrong sign under the constraint and are dropped (zero).
+/// corpus's quirks instead: range got the largest weight, negative, from where the reports happen
+/// to be (LLSD underestimates shear far out, so physically the same measured shear means more
+/// rotation there); hail beside debris counted *for* a tornado; and the two correlated shear
+/// features took opposite signs. Rooting, shear trend, hail and weak-echo rooting come out at zero
+/// or wrong-signed under the constraint and are dropped.
 ///
-/// Held out by whole event, the constrained fit ranks 29, 59 and 102 verified rows among its top
-/// 50, 100 and 200 of 7783, against 26, 46 and 85 for peak shear alone and 23, 50 and 99 for the
-/// free fit. Over every row its AUC is lower (0.68, against 0.70 and 0.73): it is better where
-/// the score is high, not at telling weak rows apart. Its top 50 rows reach 5 of the 8 tornadic
-/// events, against 7 for peak shear alone. Debris beside a column carries the most weight.
+/// Held out by whole event, the fit ranks 31, 72 and 125 verified rows among its top 50, 100 and
+/// 200 of 11 029, against 29, 49 and 93 for peak shear alone (AUC over every row 0.62 against
+/// 0.64: it is better where the score is high, not at telling weak rows apart). The weights barely
+/// moved from the 9-event fit (debris 2.43 to 2.49, peak shear 0.70 to 0.57), and persistence came
+/// out the step the plan describes: 3+ volumes weighs more than 2. Debris beside a column carries
+/// the most weight.
 pub const WEIGHTS: Weights = Weights {
-    bias: -4.1732,
+    bias: -3.5050,
     w: [
-        0.2139, // low_level_shear
-        0.6968, // max_shear
-        0.1165, // depth_km
-        0.1789, // tilts
-        0.0203, // rooted
-        0.0136, // cyclonic
-        // fusion-1 fitted one weight per volume of persistence (0.1249, capped at 3); until the
-        // step features are refitted, each step carries one of those.
-        0.1249, // persisted_2
-        0.1249, // persisted_3
+        0.2020, // low_level_shear
+        0.5686, // max_shear
+        0.0235, // depth_km
+        0.1821, // tilts
+        0.0,    // rooted
+        0.1785, // cyclonic
+        0.0799, // persisted_2
+        0.1976, // persisted_3
         0.0,    // shear_trend
-        2.4257, // debris
+        2.4937, // debris
         0.0,    // debris_hail
         0.0,    // range_100km
         0.0,    // weak_echo_root

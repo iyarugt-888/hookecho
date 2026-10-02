@@ -19,6 +19,13 @@ KILX 2013-11-17 16:50   # Washington, IL (dual-pol)
 KPAH 2021-12-11 03:25   # Mayfield, KY (dual-pol, night)
 KLZK 2014-04-28 00:20   # Mayflower and Vilonia, AR (dual-pol)
 KOHX 2020-03-03 06:30   # Nashville and Cookeville, TN (dual-pol, night)
+# Added for detectionplan.md Phase 9 (night, violent at far range, outbreak, tropical), each checked
+# against the IEM LSR archive within 150 km of the radar: the first report there is in brackets.
+KILN 2019-05-28 01:45   # Dayton, OH outbreak, night (01:48Z, Hollansburg, 103 km)
+KDGX 2023-03-25 00:55   # Rolling Fork, MS, violent, night, 109-116 km out (00:57Z, Mayersville)
+KDGX 2020-04-12 17:55   # Easter outbreak, MS (18:00Z, Cary, 102 km; 81 km by 18:22Z)
+KDIX 2021-09-01 21:30   # Ida remnants, tropical, NJ/PA (21:35Z, Whitemarsh Twp, 73 km)
+KHGX 2017-08-25 19:15   # Harvey, tropical, weak and short-lived (19:23Z, NE of Galveston, 35 km)
 # Deliberately a no-CC case, to see the tool call it out rather than silently score it as misses:
 KSGF 2011-05-22 22:30   # Joplin, MO - KSGF was not yet dual-pol; debris signatures are impossible
 # Not mainly a tornado day, to measure false alarms in a big hail and wind storm:
@@ -26,3 +33,6 @@ KDVN 2020-08-10 17:30   # Iowa derecho
 # A hail case, for the MEHS/POSH table (and a debris-signature false-alarm test: large hail
 # lowers CC too):
 KFTG 2017-05-08 20:20   # Denver, CO hailstorm
+# Hard negatives added for Phase 9, with no tornado report within 150 km of the radar in the window:
+KFWS 2016-04-11 22:10   # Denton/Wylie, TX giant-hail supercells (4 in at Denton 22:20Z; 20 >= 2 in)
+KTLX 2019-07-15 11:30   # Clear air, no storms (the scientific corpus's clear-air control day)
