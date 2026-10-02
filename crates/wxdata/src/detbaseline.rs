@@ -32,15 +32,20 @@ pub enum DetectorKind {
     /// yet (Phase 7): its score is a strength index, peak AzShear in units of 0.02 s⁻¹, capped at
     /// 1, so the threshold table reads 0.002 s⁻¹ steps.
     RotationLlsd,
+    /// Each debris signature classified (`debris_class`, detectionplan.md Phase 6): `tier` is
+    /// its class, the score its own polarimetric evidence, `members` how many hail signs it carries
+    /// and `azshear_s` the low-level shear of the column that promoted it, if one did.
+    DebrisClass,
 }
 
 impl DetectorKind {
-    pub const ALL: [DetectorKind; 5] = [
+    pub const ALL: [DetectorKind; 6] = [
         DetectorKind::Rotation,
         DetectorKind::Debris,
         DetectorKind::TornadoId,
         DetectorKind::Hail,
         DetectorKind::RotationLlsd,
+        DetectorKind::DebrisClass,
     ];
 
     pub fn name(self) -> &'static str {
@@ -50,6 +55,7 @@ impl DetectorKind {
             DetectorKind::TornadoId => "tornado_id",
             DetectorKind::Hail => "hail",
             DetectorKind::RotationLlsd => "rotation_llsd",
+            DetectorKind::DebrisClass => "debris_class",
         }
     }
 
@@ -402,6 +408,14 @@ pub fn summarize(runs: &[EventRun], radius_km: f64, window_min: i64) -> Summary 
     let mut versions = BTreeMap::new();
     versions.insert("rotation".into(), crate::rotation::ALGORITHM_VERSION.into());
     versions.insert("debris".into(), crate::tds::ALGORITHM_VERSION.into());
+    versions.insert(
+        "debris_class".into(),
+        format!(
+            "{} + {}",
+            crate::tds::ALGORITHM_VERSION,
+            crate::debris_class::ALGORITHM_VERSION
+        ),
+    );
     versions.insert(
         "rotation_llsd".into(),
         format!(

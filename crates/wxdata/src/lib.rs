@@ -20,6 +20,7 @@ pub mod continuation;
 pub mod contour;
 pub mod dat;
 pub mod dealias;
+pub mod debris_class;
 pub mod derived;
 pub mod detbaseline;
 pub mod detverify;

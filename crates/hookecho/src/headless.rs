@@ -5788,16 +5788,16 @@ fn backtest_event(
                 .unzip();
             // Tracked at every range, so a circulation crossing 150 km keeps its track; only the
             // export is limited to the couplets' range.
-            let llsd_columns: Vec<wxdata::rotation_tracks::Tracked> = llsd_tracker
-                .update(
-                    t.timestamp(),
-                    wxdata::rotation_columns::columns_with_support(
-                        &llsd_tilts,
-                        &llsd_support,
-                        &wxdata::rotation_columns::ColumnParams::default(),
-                    ),
-                )
-                .into_iter()
+            let llsd_all: Vec<wxdata::rotation_tracks::Tracked> = llsd_tracker.update(
+                t.timestamp(),
+                wxdata::rotation_columns::columns_with_support(
+                    &llsd_tilts,
+                    &llsd_support,
+                    &wxdata::rotation_columns::ColumnParams::default(),
+                ),
+            );
+            let llsd_columns: Vec<&wxdata::rotation_tracks::Tracked> = llsd_all
+                .iter()
                 .filter(|c| (15.0..=150.0).contains(&c.column.members[0].object.range_km))
                 .collect();
             // Each hit's own score before corroboration re-scores and re-sorts them, by position.
@@ -6050,6 +6050,47 @@ fn backtest_event(
                         o.range_km,
                         strength,
                         strength,
+                    )
+                });
+            }
+            // Each debris signature classified (detectionplan.md Phase 6) against every LLSD column
+            // in the volume and the volume's hail cores: anomaly, candidate, or debris signature.
+            let all_columns: Vec<wxdata::rotation_columns::RotationColumn> =
+                llsd_all.iter().map(|t| t.column.clone()).collect();
+            let cores: Vec<(f64, f64, f32)> = hail_cands
+                .iter()
+                .map(|&(lon, lat, posh, _)| (lon, lat, posh))
+                .collect();
+            for h in &hits {
+                let a = wxdata::debris_class::classify(
+                    h,
+                    &all_columns,
+                    &cores,
+                    &wxdata::debris_class::DebrisParams::default(),
+                );
+                candidates.push(Candidate {
+                    beam_base_km: Some(h.base_km),
+                    beam_top_km: Some(h.top_km),
+                    gates: Some(h.gates),
+                    tilts: Some(h.tilts),
+                    min_cc: Some(h.min_cc),
+                    mean_cc: Some(h.mean_cc),
+                    mean_z: Some(h.mean_z),
+                    max_z: Some(h.max_z),
+                    zdr_db: h.zdr_db,
+                    depth_km: Some(h.top_km - h.base_km),
+                    rooted: h.rooted,
+                    tier: Some(a.class.label().to_string()),
+                    // How many hail signs it carries.
+                    members: Some(a.hail_signs.len()),
+                    azshear_s: a.rotation.map(|r| r.low_level_azshear),
+                    ..base(
+                        K::DebrisClass,
+                        h.lon,
+                        h.lat,
+                        h.range_km,
+                        a.polarimetric,
+                        a.polarimetric,
                     )
                 });
             }

@@ -28,6 +28,29 @@ Primary code areas:
 - **Phase 5, tracking done** (`rotation_tracks.rs`). `Tracker::update` continues columns from volume to volume by gated nearest neighbour, greedy by cost. The cost is distance from the track's motion-predicted position, plus shear and depth dissimilarity. Sense must match. Reach is 3 km from the prediction, or 3 km plus 35 m/s of travel for a track with no motion yet. Bounded: 12 points per track, and a track ends after 12 minutes unmatched. Each tracked column reports track id, age in volumes and seconds, motion, position jump from the prediction, and least-squares trends per 10 minutes in peak shear, low-level shear and depth.
   - Backtest: median track speeds of 11–18 m/s per event, and the longest tracks span 6–8 of each event's 8 volumes. Cyclonic, rooted, ≥ 2 tilts, ≥ 0.018 s⁻¹: any age 192 / 71 verified / 12.3 false per hour / 7 of 9 events; seen in 2+ volumes 115 / 45 / 7.1 / 7 of 9; 3+ volumes 52 / 18 / 3.5 / 6 of 9. Persistence roughly halves false alarms per hour but barely moves precision (0.37 → 0.39), because many false alarms persist too (non-tornadic mesocyclones). The legacy score ≥ 0.6 tier is still the most precise (0.50, 2.2 per hour, 6 of 9). Persistence has to be fused with the other evidence (Phase 7), not used as a filter on its own.
 
+- **Phase 6, classification done** (`debris_class.rs`). Each `tds` signature is classified using its own polarimetric evidence (the existing fuzzy CC/Z/ZDR/size/contrast/range terms, `raw_confidence`), the volume's LLSD columns and hail cores:
+  - **Polarimetric anomaly:** evidence under 0.5, or hail-like with no rotation.
+  - **Debris candidate:** credible, but no rotation beside it.
+  - **Tornado debris signature:** credible, with a cyclonic column of ≥ 0.01 s⁻¹ low-level shear within 3 km plus two beam widths.
+
+  Hail signs are ZDR ≤ −0.5 dB and a POSH ≥ 50% core within 3 km. Very high reflectivity is deliberately not a hail sign, because verified debris had higher peak Z (median 61 dBZ) than the Denver hail anomalies (53).
+  - Backtest:
+
+    | Subset | Candidates | Verified | Precision | False per radar-hour | Events | Denver hail |
+    |---|---|---|---|---|---|---|
+    | Tornado debris signature | 52 | 28 | 0.54 | 2.4 | 6 of 9 | 2 |
+    | Same, rooted | 39 | 24 | 0.62 | 1.5 | 6 of 9 | 2 |
+    | Legacy debris, display ≥ 0.5 | 90 | 29 | 0.32 | 6.2 | 6 of 9 | 5 |
+    | App's Tornado ID "Tornado debris" tier | 55 | 27 | 0.49 | 2.8 | 6 of 9 | 0 |
+    | Debris candidates | 106 | 5 | 0.05 | — | — | — |
+
+    Unrotated low-CC signatures almost never verify.
+
+### Findings to carry into Phase 7
+
+- Denver's hail supercell still promotes 2 signatures, because it rotated within the radius. Telling it apart needs fused evidence (hail signs, depth, persistence), not a stricter debris rule fitted to one case.
+- Verified debris on this corpus has a median ZDR of +1.2 dB, not the ~0 dB often quoted. The mean is taken over a disk that includes the rain around the ball, so ZDR is a weak discriminant here except when strongly negative.
+
 ### Findings to carry into Phase 5
 
 - One tornado's low-level circulation can be several objects 3–4 km apart at one tilt (Mayfield), so one column per tornado per volume is not guaranteed. Tracking should associate columns, not assume one.
