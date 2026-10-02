@@ -109,7 +109,7 @@ Primary code areas:
 
 ### What stands between the fusion and promotion
 
-- **POD.** The fusion only knows LLSD columns. Tornado ID also finds tornadoes from legacy couplets the LLSD columns do not reach, so look at which reports Tornado ID finds and the fusion misses (`matched_truths` names them) before adding features.
+- **POD.** Looked at with `matched_truths`, the gap is a weighting trade-off, not a blind spot. At Tornado ID ≥ 0.6 and fusion ≥ 0.5 they find 46 and 45 reports: 38 in common, 8 only Tornado ID, 7 only the fusion. Every one of the 8 has an LLSD column on it: rotation-only tornadoes (0.025–0.034 s⁻¹, 3–4 tilts, persisting, no debris signature), fused at 0.17–0.41 because debris carries most of the weight. Five of the 8 are one Washington, IL circulation matched to five reports. Weighting rotation-only circulations as Tornado ID does would recover them, and with them the false alarms the hard negatives exposed. More rotation-only tornadoes and rotating non-tornadic storms in the corpus are what can settle that weight.
 - **Wind-farm clutter.** It fools every detector here (Tornado ID 14 false on one quiet night). Low CC and noisy velocity in clutter fixed in place are what a clutter or persistence-of-position feature would catch.
 - **Calibration (Phase 14).** It still waits on a much larger corpus: 21 events cannot calibrate a probability.
 
