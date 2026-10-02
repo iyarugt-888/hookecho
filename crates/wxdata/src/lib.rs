@@ -84,6 +84,7 @@ pub mod river;
 pub mod rotation;
 pub mod rotation_columns;
 pub mod rotation_objects;
+pub mod rotation_tracks;
 pub mod route;
 pub mod rtma;
 pub mod scan_age;

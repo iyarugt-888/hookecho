@@ -5720,6 +5720,9 @@ fn backtest_event(
         let mut rot_tracks: Vec<wxdata::scoretrack::ScoreTrack> = Vec::new();
         let mut hail = Vec::new();
         let mut candidates: Vec<wxdata::detbaseline::Candidate> = Vec::new();
+        // The LLSD columns tracked through the event's volumes (detectionplan.md Phase 5).
+        let mut llsd_tracker =
+            wxdata::rotation_tracks::Tracker::new(wxdata::rotation_tracks::TrackParams::default());
         // The minute of every volume actually decoded, for which reports could be matched at all.
         let mut scanned: Vec<i64> = Vec::new();
         let freezing = freezing_levels_for(site, first).await;
@@ -5783,14 +5786,19 @@ fn backtest_event(
                     (credible, support)
                 })
                 .unzip();
-            let llsd_columns: Vec<wxdata::rotation_columns::RotationColumn> =
-                wxdata::rotation_columns::columns_with_support(
-                    &llsd_tilts,
-                    &llsd_support,
-                    &wxdata::rotation_columns::ColumnParams::default(),
+            // Tracked at every range, so a circulation crossing 150 km keeps its track; only the
+            // export is limited to the couplets' range.
+            let llsd_columns: Vec<wxdata::rotation_tracks::Tracked> = llsd_tracker
+                .update(
+                    t.timestamp(),
+                    wxdata::rotation_columns::columns_with_support(
+                        &llsd_tilts,
+                        &llsd_support,
+                        &wxdata::rotation_columns::ColumnParams::default(),
+                    ),
                 )
                 .into_iter()
-                .filter(|c| (15.0..=150.0).contains(&c.members[0].object.range_km))
+                .filter(|c| (15.0..=150.0).contains(&c.column.members[0].object.range_km))
                 .collect();
             // Each hit's own score before corroboration re-scores and re-sorts them, by position.
             let key = |lon: f64, lat: f64| (lon.to_bits(), lat.to_bits());
@@ -5926,6 +5934,9 @@ fn backtest_event(
                 gates: None,
                 tilts: None,
                 azshear_s: None,
+                track_id: None,
+                track_age_volumes: None,
+                azshear_trend: None,
                 vrot_ms: None,
                 g2g_ms: None,
                 min_cc: None,
@@ -6003,7 +6014,8 @@ fn backtest_event(
                     });
                 }
             }
-            for c in &llsd_columns {
+            for tc in &llsd_columns {
+                let c = &tc.column;
                 // A strength index, not an evidence score: see `DetectorKind::RotationLlsd`.
                 let strength = (c.max_azshear / 0.02).min(1.0);
                 let o = &c.members[0].object;
@@ -6028,6 +6040,9 @@ fn backtest_event(
                         .into(),
                     ),
                     azshear_s: Some(c.max_azshear),
+                    track_id: Some(tc.track_id),
+                    track_age_volumes: Some(tc.age_volumes),
+                    azshear_trend: tc.azshear_trend,
                     ..base(
                         K::RotationLlsd,
                         o.lon,

@@ -101,6 +101,11 @@ pub struct Candidate {
     pub members: Option<usize>,
     /// Peak sense-adjusted LLSD azimuthal shear, s⁻¹ (LLSD rotation objects).
     pub azshear_s: Option<f32>,
+    /// The LLSD column's track (`rotation_tracks`), volumes it has been seen in (1 for a new
+    /// track), and its peak AzShear trend (s⁻¹ per 10 minutes, `None` for a new track).
+    pub track_id: Option<u64>,
+    pub track_age_volumes: Option<usize>,
+    pub azshear_trend: Option<f32>,
     /// Inside a tornado warning marked observed at its own volume. Recorded, never scored: an
     /// ordinary warning is issued from the same radar signatures.
     pub observed_warning: bool,
@@ -400,10 +405,11 @@ pub fn summarize(runs: &[EventRun], radius_km: f64, window_min: i64) -> Summary 
     versions.insert(
         "rotation_llsd".into(),
         format!(
-            "{} + {} + {}",
+            "{} + {} + {} + {}",
             crate::azshear::ALGORITHM_VERSION,
             crate::rotation_objects::ALGORITHM_VERSION,
-            crate::rotation_columns::ALGORITHM_VERSION
+            crate::rotation_columns::ALGORITHM_VERSION,
+            crate::rotation_tracks::ALGORITHM_VERSION
         ),
     );
     Summary {
@@ -435,7 +441,7 @@ pub fn to_csv(candidates: &[Candidate]) -> String {
     const HEADER: &str = "event,site,volume,minute,detector,lon,lat,range_km,beam_base_km,\
         beam_top_km,raw_score,final_score,gates,tilts,vrot_ms,g2g_ms,min_cc,mean_cc,mean_z,max_z,\
         zdr_db,depth_km,rooted,sense,tier,members,observed_warning,matched_report,matched_survey,\
-        azshear_s";
+        azshear_s,track_id,track_age_volumes,azshear_trend";
     fn cell(s: &str) -> String {
         if s.contains([',', '"', '\n']) {
             format!("\"{}\"", s.replace('"', "\"\""))
@@ -483,6 +489,9 @@ pub fn to_csv(candidates: &[Candidate]) -> String {
             c.matched_report.to_string(),
             c.matched_survey.to_string(),
             f(c.azshear_s),
+            o(c.track_id),
+            o(c.track_age_volumes),
+            f(c.azshear_trend),
         ];
         out.push_str(&row.join(","));
         out.push('\n');
@@ -526,6 +535,9 @@ mod tests {
             matched_report: false,
             matched_survey: false,
             azshear_s: None,
+            track_id: None,
+            track_age_volumes: None,
+            azshear_trend: None,
         }
     }
 
