@@ -24,6 +24,14 @@ ours, and both move around during busy weather.
 Archive coverage runs back to **June 1991** for Level 2, and every WSR-88D plus
 the 44 TDWRs are addressable.
 
+Level III gridded products and SCIT forecast origins use the Product Description Block's
+data-start clock. For supplemental elevation products this can be the surveillance elevation
+start rather than the volume start. The decoder separately retains RPG generation time, or
+volume end for DVL/EET (products 134/135), following [NOAA ICD 2620001, table III and notes 4–5](https://www.roc.noaa.gov/public-documents/icds/2620001AD.pdf).
+Invalid source clocks stay unknown; an undated Level III grid is unavailable. Download time
+and S3 naming do not replace observation time. Retaining all these clocks in shared grid
+provenance and exports remains part of M1.4.
+
 Direct MRMS field layers expose a **Data source** inspector in Layer options:
 the product path, provider, GRIB valid time, and complete-response receipt time
 are retained with the displayed grid. Valid-time age and receipt age are

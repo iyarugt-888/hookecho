@@ -82,6 +82,23 @@ pub struct RadialArray {
     pub radials: Vec<Radial>,
 }
 
+/// Source clocks from the Product Description Block, in UTC Unix seconds.
+///
+/// These are radar/RPG clocks, never receipt or download times. Invalid day/second encodings
+/// remain unavailable independently; the valid neighboring clock is still retained.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+pub struct ProductTimes {
+    /// Volume start, or surveillance elevation start for supplemental elevation products.
+    /// Multi-elevation products can use the lowest contributing surveillance elevation start.
+    /// Unavailable for product 75, whose first clock denotes generation instead of acquisition.
+    pub data_start_unix: Option<i64>,
+    /// RPG product generation. Products 134/135 use `volume_end_unix` instead.
+    pub generation_unix: Option<i64>,
+    /// End of the contributing volume, supplied in place of generation for DVL/EET (134/135).
+    pub volume_end_unix: Option<i64>,
+}
+
 /// A decoded Level 3 product.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
@@ -92,6 +109,7 @@ pub struct Level3Product {
     pub lat: f32,
     pub lon: f32,
     pub height_ft: i16,
+    pub times: ProductTimes,
     pub cells: Vec<StormCell>,
     pub hail: Vec<Hail>,
     pub meso: Vec<Meso>,
@@ -136,6 +154,22 @@ pub fn decode(raw: &[u8]) -> Result<Level3Product> {
     let lon = r.i32("lon")? as f32 / 1000.0;
     let height_ft = r.i16("height")?;
     let code = r.i16("prod_code")?;
+    // ICD 2620001, PDB global halfwords 21..26 (relative bytes 22..34). Day 1 is
+    // 1970-01-01; seconds are since UTC midnight. Notes 4/5 qualify the clock roles.
+    r.pos = pdb_start + 22;
+    let start_day = r.i16("data start day")?;
+    let start_seconds = r.u32("data start seconds")?;
+    let output_day = r.i16("product output day")?;
+    let output_seconds = r.u32("product output seconds")?;
+    let output = source_time(output_day, output_seconds);
+    let volume_product = matches!(code, 134 | 135);
+    let times = ProductTimes {
+        data_start_unix: (code != 75)
+            .then(|| source_time(start_day, start_seconds))
+            .flatten(),
+        generation_unix: (!volume_product).then_some(output).flatten(),
+        volume_end_unix: volume_product.then_some(output).flatten(),
+    };
     // Elevation angle (tenths of a degree) sits in the product-dependent halfword immediately
     // ahead of the threshold table; 0 means "not an elevation product".
     r.pos = pdb_start + 40;
@@ -213,6 +247,7 @@ pub fn decode(raw: &[u8]) -> Result<Level3Product> {
         lat,
         lon,
         height_ft,
+        times,
         cells,
         hail,
         meso,
@@ -224,6 +259,10 @@ pub fn decode(raw: &[u8]) -> Result<Level3Product> {
         thresholds,
         elevation_deg,
     })
+}
+
+fn source_time(day: i16, seconds: u32) -> Option<i64> {
+    (day >= 1 && seconds < 86_400).then(|| (i64::from(day) - 1) * 86_400 + i64::from(seconds))
 }
 
 /// Walk the Product Symbology Block's layers, decoding storm-cell packets (15/19/20) and

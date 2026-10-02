@@ -404,6 +404,7 @@ mod tests {
             lat: 35.276,
             lon: -97.51,
             height_ft: 1308,
+            times: nexrad_level3::ProductTimes::default(),
             cells: vec![],
             hail: vec![],
             meso: vec![],

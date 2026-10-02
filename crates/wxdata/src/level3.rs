@@ -277,7 +277,6 @@ pub async fn fetch_cell_history(
     }
     let skip = keys.len().saturating_sub(n);
     let fetches = keys.into_iter().skip(skip).map(|key| async move {
-        let time = key_time(&key)?;
         let resp = http
             .get(crate::net::fetch_url(&format!("{BUCKET}/{key}")))
             .timeout(crate::net::FEED_TIMEOUT)
@@ -287,7 +286,10 @@ pub async fn fetch_cell_history(
         let bytes = resp.bytes().await.ok()?;
         crate::stats::net(bytes.len());
         match decode(&bytes) {
-            Ok(p) => Some((time, nst_cells(&p, Some(time)))),
+            Ok(p) => {
+                let time = product_data_time(&p)?;
+                Some((time, nst_cells(&p, Some(time))))
+            }
             Err(e) => {
                 log::warn!("level3 history decode {key}: {e}");
                 None
@@ -727,9 +729,8 @@ pub async fn fetch_vwp(http: &reqwest::Client, site: &str) -> Vec<VwpLevel> {
 // --- Fetch helpers ----------------------------------------------------------------------------
 
 /// List the latest object for `SITE_PRODUCT` today (with a yesterday fallback) and decode it.
-/// The newest S3 object for `site`/`product`, decoded, with the scan time parsed out of the key
-/// (the decoded product carries no timestamp, and a mosaic has to be able to say how old each
-/// contributing scan is).
+/// Return the source data-start clock from the decoded PDB. Object names select products;
+/// they do not override observation clocks. A missing source clock remains unavailable.
 async fn fetch_latest(
     http: &reqwest::Client,
     site: &str,
@@ -760,7 +761,10 @@ async fn fetch_latest(
                 if let Ok(bytes) = resp.bytes().await {
                     crate::stats::net(bytes.len());
                     match decode(&bytes) {
-                        Ok(p) => return Some((p, key_time(&key))),
+                        Ok(p) => {
+                            let time = product_data_time(&p);
+                            return Some((p, time));
+                        }
                         Err(e) => log::warn!("level3 decode {key}: {e}"),
                     }
                 }
@@ -773,6 +777,8 @@ async fn fetch_latest(
 /// Project a Digital Radial Data Array (packet 16) product onto a regular lat/lon grid, decoding
 /// each level to a physical value via `decode`. `bin_km` is the product's range-bin size (1.0 for
 /// DVL/EET, 0.25 for HHC). Uses a flat-earth approximation on a 0.01° grid.
+/// The grid's valid time is the PDB data start. Without it the conversion is unavailable;
+/// download time and product generation must not make an old/undated scan look current.
 /// `// ponytail: flat-earth is fine at ≤460 km radar range; drop in a proper projection if a`
 /// `// site near the poles ever matters.`
 pub fn radial_to_field(
@@ -780,6 +786,7 @@ pub fn radial_to_field(
     bin_km: f64,
     decode_level: impl Fn(u8, &[i16; 16]) -> Option<f32>,
 ) -> Option<crate::mrms::MrmsField> {
+    let time = product_data_time(p)?;
     let ra = p.radial.as_ref()?;
     if ra.radials.is_empty() {
         return None;
@@ -845,7 +852,7 @@ pub fn radial_to_field(
         lon_east,
         lat_north,
         lat_south,
-        time: chrono::Utc::now(),
+        time,
     })
 }
 
@@ -869,20 +876,12 @@ pub async fn fetch_eet(http: &reqwest::Client, site: &str) -> Option<crate::mrms
 /// S3 rather than the tgftp `sn.last` feed the other grids use: tgftp only carries a handful of
 /// products per site, and the mosaic needs whichever radars the view covers, not a curated set.
 pub async fn fetch_n0b(http: &reqwest::Client, site: &str) -> Option<crate::mrms::MrmsField> {
-    let (p, time) = fetch_latest(http, &l3_site(site), "N0B").await?;
-    let mut f = radial_to_field(&p, 0.25, nexrad_level3::n0b_value)?;
-    if let Some(t) = time {
-        f.time = t;
-    }
-    Some(f)
+    let (p, _) = fetch_latest(http, &l3_site(site), "N0B").await?;
+    radial_to_field(&p, 0.25, nexrad_level3::n0b_value)
 }
 
-/// Scan time out of an S3 key like `TLX_N0B_2026_07_28_18_30_40`.
-fn key_time(key: &str) -> Option<chrono::DateTime<chrono::Utc>> {
-    let stamp = key.split('_').skip(2).take(6).collect::<Vec<_>>().join("_");
-    chrono::NaiveDateTime::parse_from_str(&stamp, "%Y_%m_%d_%H_%M_%S")
-        .ok()
-        .map(|t| t.and_utc())
+fn product_data_time(p: &Level3Product) -> Option<chrono::DateTime<chrono::Utc>> {
+    chrono::DateTime::from_timestamp(p.times.data_start_unix?, 0)
 }
 
 /// Fetch the latest Hybrid Hydrometeor Classification (HHC, product 177) grid for `site`.
@@ -948,13 +947,6 @@ mod tests {
     }
 
     #[test]
-    fn key_time_parses_the_s3_naming() {
-        let t = key_time("TLX_N0B_2026_07_28_18_30_40").unwrap();
-        assert_eq!(t.to_rfc3339(), "2026-07-28T18:30:40+00:00");
-        assert!(key_time("TLX_N0B_garbage").is_none());
-    }
-
-    #[test]
     fn site_id_strips_k() {
         assert_eq!(l3_site("KTLX"), "TLX");
         assert_eq!(l3_site("PACG"), "PACG");
@@ -975,11 +967,16 @@ mod tests {
                 levels,
             });
         }
-        let p = Level3Product {
+        let mut p = Level3Product {
             code: 134,
             lat: 35.0,
             lon: -97.0,
             height_ft: 0,
+            times: nexrad_level3::ProductTimes {
+                data_start_unix: Some(1_784_507_372),
+                volume_end_unix: Some(1_784_507_580),
+                generation_unix: None,
+            },
             cells: vec![],
             hail: vec![],
             meso: vec![],
@@ -997,6 +994,7 @@ mod tests {
         };
         // Decode: nonzero level → its value, else None.
         let f = radial_to_field(&p, 1.0, |lvl, _| (lvl >= 2).then_some(lvl as f32)).unwrap();
+        assert_eq!(f.time.to_rfc3339(), "2026-07-20T00:29:32+00:00");
         // A cell due east of the radar (~50 km) should be filled; due west should be empty.
         let east_lon = -97.0 + 0.4;
         let west_lon = -97.0 - 0.4;
@@ -1007,6 +1005,12 @@ mod tests {
         };
         assert!(sample(east_lon, 35.0) > 0.0, "east wedge filled");
         assert!(sample(west_lon, 35.0).is_nan(), "west empty");
+        // Neither a valid volume-end clock nor generation can substitute for observation.
+        p.times.data_start_unix = None;
+        p.times.generation_unix = Some(1_784_507_590);
+        assert!(radial_to_field(&p, 1.0, |lvl, _| Some(lvl as f32)).is_none());
+        p.times.data_start_unix = Some(i64::MAX);
+        assert!(radial_to_field(&p, 1.0, |lvl, _| Some(lvl as f32)).is_none());
     }
 
     #[test]

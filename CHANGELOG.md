@@ -8,6 +8,62 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: Level III grids retain their radar observation time
+
+Digital VIL, echo tops, hydrometeor classification, and N0B mosaic ingredients use the
+decoded radar data-start clock. Reopening or downloading an old product no longer makes
+its grid look newly observed. The decoder keeps generation and volume-end clocks separate;
+products with an invalid observation clock remain unavailable instead of receiving the
+current time. SCIT history and forecast origins also use the product's source clock.
+
+### Improved: search and inspection in the Sources dock
+
+Search active feeds by source, provider, or feed family, or show only those needing attention.
+Expand a row by tapping it or pressing Enter/Space to see its endpoint, provider, recovery
+details, and available clocks. Rows retain their identity while health changes, fit narrow
+docks, and offer touch-sized targets. Forecast valid times in the future show a positive
+offset instead of being labeled current.
+
+### Fixed: background data stays tied to the selected view
+
+Changing between live and archive views rejects deliveries from the previous request context.
+Overlay acquisition owns bounded request timeouts, background preparation, and source-health
+updates; field acquisition owns refresh cadence and grid staging. Failed refreshes retain
+the last accepted data and its original timestamps.
+
+### Improved: Storm Digest uses the app's radar evidence
+
+Storm Digest now summarizes radar rotation, debris, hail, storm-cell attributes, motion,
+and available trends for the storms in view. The Cell dock can open the briefing directly.
+Expand "Radar data used" to inspect the facts behind it. Archived scans identify unavailable
+live SCIT attributes, and missing analysis inputs are named in the briefing.
+
+Choose Claude or Gemini in Settings > General > AI with your own provider key. The built-in
+summary remains available without a key and after a provider error.
+
+### Added: zipped shapefile imports
+
+Import a ZIP containing one or more shapefiles with their matching attribute, projection,
+and encoding companions. Geometry and attributes use the existing GIS display and export
+path. Unsupported coordinate systems and malformed bundles produce a named error; archive
+size and expansion limits bound the import.
+
+### Added: Windows and Android build updates
+
+Packaged Windows and Android CI builds can check for a newer build, download it, verify its
+checksum, and start installation from the update card. Settings includes a build-check
+control. Android explains installation failures such as an incompatible signing certificate
+or a refused version instead of leaving only the generic system failure message.
+
+### Improved: reproducible radar and rendering regressions
+
+Historic checks now replay exact, checksum-pinned radar volumes, warning/report snapshots,
+and attributed Iowa QLCS damage paths. A small offline subset checks decoding, source times,
+and missing coverage; larger cached cases exercise scientific outputs. Required missing or
+changed inputs fail explicitly. The renderer also checks real pinned radar values and empty
+sectors, with reviewable images and reports. Platform and sustained-load certification remain
+separate from these offline and GPU checks.
+
 ### Improved: readable layer-probe provenance
 
 Pin the layer probe and expand a layer to inspect its sources and times. Stamped fields
