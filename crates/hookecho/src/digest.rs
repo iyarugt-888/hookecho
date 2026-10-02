@@ -78,7 +78,7 @@ impl Provider {
 }
 
 /// The Gemini model the digest asks. Flash: fast and inexpensive, which a few sentences need.
-pub const GEMINI_MODEL: &str = "gemini-2.5-flash";
+pub const GEMINI_MODEL: &str = "gemini-3.8-flash";
 
 /// The instruction both models get. `context` is the templated summary (the ground truth).
 fn prompt(context: &str) -> String {
@@ -131,15 +131,15 @@ pub async fn claude(http: &reqwest::Client, key: &str, context: &str) -> anyhow:
     Ok(out.to_string())
 }
 
-/// The same rewrite with Gemini, using a Google AI Studio API key. Thinking is turned off: a
-/// 2.5 model counts its reasoning against the output budget, and a few sentences of prose do
-/// not need any, so a budget sized for the answer could otherwise come back empty.
+/// The same rewrite with Gemini, using a Google AI Studio API key. The model's reasoning counts
+/// against the output budget, so the budget leaves room for it well beyond the few sentences
+/// of prose wanted; otherwise the answer could come back empty. No thinking setting is sent:
+/// its form differs between Gemini generations, and the model's default suits this.
 pub async fn gemini(http: &reqwest::Client, key: &str, context: &str) -> anyhow::Result<String> {
     let body = serde_json::json!({
         "contents": [{"role": "user", "parts": [{"text": prompt(context)}]}],
         "generationConfig": {
-            "maxOutputTokens": 400,
-            "thinkingConfig": {"thinkingBudget": 0},
+            "maxOutputTokens": 4096,
         },
     });
     let url = format!(
