@@ -344,9 +344,87 @@ fn cached_derived_products_repeat_with_source_clock() {
 
 /// The lowest tilt that carries velocity, dealiased.
 fn lowest_velocity(scan: &level2::Scan) -> level2::BinnedSweep {
+    lowest_velocity_tilt(scan).1
+}
+
+/// The lowest tilt that carries velocity, its index and its dealiased velocity.
+fn lowest_velocity_tilt(scan: &level2::Scan) -> (usize, level2::BinnedSweep) {
     (0..level2::elevation_angles(scan).len())
-        .find_map(|tilt| level2::bin_scan_opts(scan, Moment::Velocity, tilt, true).ok())
+        .find_map(|tilt| {
+            level2::bin_scan_opts(scan, Moment::Velocity, tilt, true)
+                .ok()
+                .map(|v| (tilt, v))
+        })
         .expect("a velocity tilt")
+}
+
+/// detectionplan.md Phase 3: rotation objects on the lowest tilt find each violent tornado as one
+/// credible cyclonic object, and the clear-air control as none.
+#[test]
+#[ignore = "large cached fixtures: provision explicitly before running"]
+fn cached_rotation_objects_find_tornadoes_not_clear_air() {
+    use wxdata::azshear::{llsd, LlsdParams};
+    use wxdata::rotation_objects::{objects, ObjectParams};
+    let m = corpus::manifest();
+    for (id, tornado) in [
+        ("moore-2013", Some((-97.491, 35.332))),
+        ("mayfield-2021", Some((-88.636, 36.742))),
+        ("clear-air-2019", None),
+    ] {
+        let f = m.fixtures.iter().find(|f| f.id == id).unwrap();
+        let scan = level2::decode_volume(corpus::read(f, &corpus::cache_dir()).unwrap()).unwrap();
+        let (tilt, vel) = lowest_velocity_tilt(&scan);
+        let z = level2::bin_scan(&scan, Moment::Reflectivity, tilt).unwrap();
+        let t0 = std::time::Instant::now();
+        let field = llsd(&vel, &LlsdParams::default());
+        let objs = objects(&field, &vel, &z, &ObjectParams::default());
+        let took = t0.elapsed();
+        let credible: Vec<_> = objs.iter().filter(|o| o.credible()).collect();
+        eprintln!(
+            "{id}: {} objects, {} credible, field + objects {took:?}",
+            objs.len(),
+            credible.len()
+        );
+        let mut ranges: Vec<i32> = credible.iter().map(|o| o.range_km.round() as i32).collect();
+        ranges.sort_unstable();
+        eprintln!("   credible ranges (km): {ranges:?}");
+        for o in credible.iter().take(6) {
+            let d = tornado.map_or(f64::NAN, |t| ground_km((o.lon, o.lat), t));
+            eprintln!(
+                "   {:?} max {:.4} sig {:.1} {:.1} km², {:.1}x{:.1} km, dV {:.0} m/s, {:.1} km range, {d:.1} km from the tornado",
+                o.sense, o.max_azshear, o.significance, o.area_km2, o.length_km, o.width_km,
+                o.max_delta_v_ms, o.range_km
+            );
+        }
+        if let Some(t) = tornado {
+            for o in objs.iter().filter(|o| ground_km((o.lon, o.lat), t) <= 10.0) {
+                eprintln!(
+                    "   near: {:?} max {:.4} sig {:.1} {:.1} km², {:.1}x{:.1} km, {} gates, fold {:.2} x{:.2}, rmse {:.1}, tex {:.1} {:?}",
+                    o.sense, o.max_azshear, o.significance, o.area_km2, o.length_km, o.width_km,
+                    o.gates, o.fold_share, o.fold_crossings, o.fit_rmse_ms, o.mean_texture_ms, o.artifacts
+                );
+            }
+        }
+        match tornado {
+            Some(t) => {
+                let here: Vec<_> = credible
+                    .iter()
+                    .filter(|o| ground_km((o.lon, o.lat), t) <= 8.0)
+                    .collect();
+                // Twice the 0.006 s⁻¹ TORP builds objects from. Mayfield's single strongest
+                // lowest-tilt gate (0.028 s⁻¹) is not in an object: it sits at the storm's edge
+                // over 3-12 dBZ, with none of its kernel at 20 dBZ, so the storm-context rule
+                // leaves it out. Its objects of 0.019 and 0.017 s⁻¹ beside it are found.
+                assert!(
+                    here.iter()
+                        .any(|o| o.sense == wxdata::rotation::Sense::Cyclonic
+                            && o.max_azshear >= 0.012),
+                    "{id}: no strong credible cyclonic object at the tornado: {here:#?}"
+                );
+            }
+            None => assert!(credible.is_empty(), "{id}: {credible:#?}"),
+        }
+    }
 }
 
 fn ground_km(a: (f64, f64), b: (f64, f64)) -> f64 {

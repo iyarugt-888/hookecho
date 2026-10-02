@@ -17,7 +17,19 @@ Primary code areas:
 - **Phase 1, done except the UI rename** (`d1ce635`). Tornado ID reads raw detector scores and fuses them once as named terms that sum exactly to the score. `COLLOCATION_SHARE = 1.0`: 0.5 cut false alarms scoring ≥ 0.9 from 7 to 1 but dropped the Washington, IL tornado (KILX 2013-11-17) out of Likely. Still to do: show "Evidence score" instead of "78%" in `detector_markers.rs` and `cell.rs`.
 - **Phase 2, field done** (`azshear.rs`). LLSD AzShear with a 2.5 km × 750 m physical kernel and a Tukey-biweighted fit started from the median plane. Huber weighting was tried and fails on a single bad radial once the kernel is three radials wide (beyond ~90 km): it read half the radial's step as 0.014 s⁻¹. Nothing consumes the field yet. Lowest-tilt results: Moore 2013 peak cyclonic 0.039 s⁻¹, Mayfield 2021 0.028 s⁻¹, 35–51 ms per tilt in release. The clear-air control has 0.19% of gates at |shear| ≥ 0.006 before any screening.
 
-### Findings to carry into Phase 3
+- **Phase 3, objects done** (`rotation_objects.rs`). Same-sense connected objects on the polar grid, with hysteresis (seed 0.006 s⁻¹, grow 0.004) and the plan's object properties. Every object is kept and its artifacts are named: too small (also under half the kernel's footprint), single radial, elongated, ragged (fills < 30% of its length × width), fold seam, poor fit, not significant, flank. Gates need storm context in their kernel: ≥ 25% of it at ≥ 20 dBZ.
+  - Lowest tilt, pinned corpus: Moore has a credible 0.039 s⁻¹ cyclonic object at the tornado (significance 39.5). Mayfield has credible 0.019 and 0.017 s⁻¹ objects beside it. The clear-air control has no credible object.
+  - Side by side in the backtest export (`rotation_llsd`, lowest tilt, 15–150 km, unscored): 2366 candidates vs the legacy detector's 663. At matched POD (~0.6) the false-alarm ratio is similar (0.68 vs 0.66), but there are 9.8 false alarms per radar-hour against 5.9. At the strongest end the LLSD objects keep POD 0.59 where the legacy score keeps 0.06. The existing detectors' output is unchanged, row for row.
+
+### Findings to carry into Phase 4
+
+- Velocity noise far out makes 0.01–0.017 s⁻¹ slopes in nine-sample kernels. What separates it is significance against noise estimated over a fixed window, not the object's own few gates (which select low texture). Pure ±12 m/s noise: 11 436 objects, none credible.
+- AzShear is not vorticity: a vortex's outer flow gives opposite-sense shear on both flanks, about half the core's peak. These flanks are flagged and must not become anticyclonic rotation.
+- A real couplet can sit right at the Nyquist limit. A fold is told apart by crossing most kernel rows (seam 1.0, still 0.66 where it ends; Moore 0.31), not by its velocities alone.
+- Mayfield's strongest lowest-tilt gate (0.028 s⁻¹) is over 3–12 dBZ at the storm's edge, with no 20 dBZ in its kernel, and is excluded. Vertical association (the same circulation over echo one tilt up) is where it could be recovered.
+- Line-shaped shear dominates the remaining false alarms (the KDVN derecho alone: 439 objects). Elongation flags long lines, but the fragments of a broken line are compact.
+
+### Findings carried into Phase 3
 
 - Real violent tornadoes have *high* fit RMSE (Moore 14 m/s) and texture (19 m/s) at their peak gate, and Moore's peak gate has a 17% leftover-fold share. Quality gates must therefore be relative to the shear's own size, and fold flags must count only alongside other evidence. Absolute RMSE or texture limits would reject the strongest tornadoes.
 - Clear air produces isolated gates past 0.006 s⁻¹. The reflectivity requirement and coherent-object area are needed, not optional.

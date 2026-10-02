@@ -26,14 +26,20 @@ pub enum DetectorKind {
     TornadoId,
     /// A MEHS/POSH hail core (`derived::hail_cores`).
     Hail,
+    /// A credible LLSD rotation object on the lowest velocity tilt (`rotation_objects`), run
+    /// beside the legacy couplets for comparison (detectionplan.md Phase 13). It has no evidence
+    /// score yet (Phase 7): its score is a strength index, peak AzShear in units of 0.02 s⁻¹,
+    /// capped at 1, so the threshold table reads 0.002 s⁻¹ steps.
+    RotationLlsd,
 }
 
 impl DetectorKind {
-    pub const ALL: [DetectorKind; 4] = [
+    pub const ALL: [DetectorKind; 5] = [
         DetectorKind::Rotation,
         DetectorKind::Debris,
         DetectorKind::TornadoId,
         DetectorKind::Hail,
+        DetectorKind::RotationLlsd,
     ];
 
     pub fn name(self) -> &'static str {
@@ -42,6 +48,7 @@ impl DetectorKind {
             DetectorKind::Debris => "debris",
             DetectorKind::TornadoId => "tornado_id",
             DetectorKind::Hail => "hail",
+            DetectorKind::RotationLlsd => "rotation_llsd",
         }
     }
 
@@ -91,6 +98,8 @@ pub struct Candidate {
     /// Tornado ID's tier, and how many rotation / debris detections it fused.
     pub tier: Option<String>,
     pub members: Option<usize>,
+    /// Peak sense-adjusted LLSD azimuthal shear, s⁻¹ (LLSD rotation objects).
+    pub azshear_s: Option<f32>,
     /// Inside a tornado warning marked observed at its own volume. Recorded, never scored: an
     /// ordinary warning is issued from the same radar signatures.
     pub observed_warning: bool,
@@ -326,7 +335,9 @@ pub fn summarize_detector(
             let (lo, hi) = (i as f32 / 10.0, (i + 1) as f32 / 10.0);
             let rows: Vec<&&Candidate> = refs
                 .iter()
-                .filter(|c| c.final_score >= lo && (c.final_score < hi || (i == 9 && c.final_score <= 1.0)))
+                .filter(|c| {
+                    c.final_score >= lo && (c.final_score < hi || (i == 9 && c.final_score <= 1.0))
+                })
                 .collect();
             let verified = rows.iter().filter(|c| c.verified()).count();
             ReliabilityBin {
@@ -385,6 +396,14 @@ pub fn summarize(runs: &[EventRun], radius_km: f64, window_min: i64) -> Summary 
     let mut versions = BTreeMap::new();
     versions.insert("rotation".into(), crate::rotation::ALGORITHM_VERSION.into());
     versions.insert("debris".into(), crate::tds::ALGORITHM_VERSION.into());
+    versions.insert(
+        "rotation_llsd".into(),
+        format!(
+            "{} + {}",
+            crate::azshear::ALGORITHM_VERSION,
+            crate::rotation_objects::ALGORITHM_VERSION
+        ),
+    );
     Summary {
         versions,
         events: runs.iter().map(|r| r.label.clone()).collect(),
@@ -413,7 +432,8 @@ pub fn summarize(runs: &[EventRun], radius_km: f64, window_min: i64) -> Summary 
 pub fn to_csv(candidates: &[Candidate]) -> String {
     const HEADER: &str = "event,site,volume,minute,detector,lon,lat,range_km,beam_base_km,\
         beam_top_km,raw_score,final_score,gates,tilts,vrot_ms,g2g_ms,min_cc,mean_cc,mean_z,max_z,\
-        zdr_db,depth_km,rooted,sense,tier,members,observed_warning,matched_report,matched_survey";
+        zdr_db,depth_km,rooted,sense,tier,members,observed_warning,matched_report,matched_survey,\
+        azshear_s";
     fn cell(s: &str) -> String {
         if s.contains([',', '"', '\n']) {
             format!("\"{}\"", s.replace('"', "\"\""))
@@ -460,6 +480,7 @@ pub fn to_csv(candidates: &[Candidate]) -> String {
             c.observed_warning.to_string(),
             c.matched_report.to_string(),
             c.matched_survey.to_string(),
+            f(c.azshear_s),
         ];
         out.push_str(&row.join(","));
         out.push('\n');
@@ -502,6 +523,7 @@ mod tests {
             observed_warning: false,
             matched_report: false,
             matched_survey: false,
+            azshear_s: None,
         }
     }
 
@@ -545,7 +567,10 @@ mod tests {
         assert_eq!(rot.candidates, 2);
         assert_eq!(rot.detections_per_volume, Some(1.0));
         let all = &rot.by_threshold[0];
-        assert_eq!((all.detections, all.verified, all.events, all.found), (2, 1, 1, 1));
+        assert_eq!(
+            (all.detections, all.verified, all.events, all.found),
+            (2, 1, 1, 1)
+        );
         assert_eq!(all.false_per_radar_hour, Some(2.0));
         let at_07 = &rot.by_threshold[7];
         assert_eq!((at_07.detections, at_07.verified), (1, 1));
@@ -578,6 +603,8 @@ mod tests {
         let csv = to_csv(&a);
         assert!(csv.starts_with("event,site,volume,minute,detector,"));
         assert_eq!(csv.lines().count(), 5);
-        assert!(csv.contains(",rotation,-97.49000,35.30000,30.00,0.6000,2.1000,0.8000,0.8000,12,3,"));
+        assert!(
+            csv.contains(",rotation,-97.49000,35.30000,30.00,0.6000,2.1000,0.8000,0.8000,12,3,")
+        );
     }
 }

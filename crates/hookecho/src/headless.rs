@@ -5759,10 +5759,30 @@ fn backtest_event(
             wxdata::tds::apply_zdr(&mut hits, &zdr_sweeps);
             let mut couplets =
                 wxdata::rotation::detect_volume(&vel_pairs, 25.0, 20.0, 15.0, 150.0, 3);
+            // The LLSD rotation objects beside them (detectionplan.md Phase 13), on the lowest
+            // velocity tilt for now (vertical association is Phase 4), over the same 15-150 km the
+            // couplets are looked for in.
+            let llsd_objects: Vec<wxdata::rotation_objects::RotationObject> = vel_pairs
+                .first()
+                .map(|(vel, z)| {
+                    let field = wxdata::azshear::llsd(vel, &wxdata::azshear::LlsdParams::default());
+                    wxdata::rotation_objects::objects(
+                        &field,
+                        vel,
+                        z,
+                        &wxdata::rotation_objects::ObjectParams::default(),
+                    )
+                })
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|o| o.credible() && (15.0..=150.0).contains(&o.range_km))
+                .collect();
             // Each hit's own score before corroboration re-scores and re-sorts them, by position.
             let key = |lon: f64, lat: f64| (lon.to_bits(), lat.to_bits());
-            let raw_tds: std::collections::BTreeMap<_, f32> =
-                hits.iter().map(|h| (key(h.lon, h.lat), h.confidence)).collect();
+            let raw_tds: std::collections::BTreeMap<_, f32> = hits
+                .iter()
+                .map(|h| (key(h.lon, h.lat), h.confidence))
+                .collect();
             let raw_rot: std::collections::BTreeMap<_, f32> = couplets
                 .iter()
                 .map(|c| (key(c.lon, c.lat), c.confidence))
@@ -5890,6 +5910,7 @@ fn backtest_event(
                 final_score: fin,
                 gates: None,
                 tilts: None,
+                azshear_s: None,
                 vrot_ms: None,
                 g2g_ms: None,
                 min_cc: None,
@@ -5908,7 +5929,10 @@ fn backtest_event(
             };
             use wxdata::detbaseline::{Candidate, DetectorKind as K};
             for c in &couplets {
-                let raw = raw_rot.get(&key(c.lon, c.lat)).copied().unwrap_or(c.confidence);
+                let raw = raw_rot
+                    .get(&key(c.lon, c.lat))
+                    .copied()
+                    .unwrap_or(c.confidence);
                 candidates.push(Candidate {
                     beam_base_km: Some(c.base_km),
                     beam_top_km: Some(c.top_km),
@@ -5929,7 +5953,10 @@ fn backtest_event(
                 });
             }
             for h in &hits {
-                let raw = raw_tds.get(&key(h.lon, h.lat)).copied().unwrap_or(h.confidence);
+                let raw = raw_tds
+                    .get(&key(h.lon, h.lat))
+                    .copied()
+                    .unwrap_or(h.confidence);
                 candidates.push(Candidate {
                     beam_base_km: Some(h.base_km),
                     beam_top_km: Some(h.top_km),
@@ -5960,6 +5987,34 @@ fn backtest_event(
                         ..base(K::TornadoId, id.lon, id.lat, range, id.score, id.score)
                     });
                 }
+            }
+            for o in &llsd_objects {
+                // A strength index, not an evidence score: see `DetectorKind::RotationLlsd`.
+                let strength = (o.max_azshear / 0.02).min(1.0);
+                candidates.push(Candidate {
+                    beam_base_km: Some(o.beam_height_km),
+                    beam_top_km: Some(o.beam_height_km),
+                    gates: Some(o.gates),
+                    tilts: Some(1),
+                    vrot_ms: Some(o.max_delta_v_ms / 2.0),
+                    depth_km: Some(0.0),
+                    sense: Some(
+                        match o.sense {
+                            wxdata::rotation::Sense::Cyclonic => "cyclonic",
+                            wxdata::rotation::Sense::Anticyclonic => "anticyclonic",
+                        }
+                        .into(),
+                    ),
+                    azshear_s: Some(o.max_azshear),
+                    ..base(
+                        K::RotationLlsd,
+                        o.lon,
+                        o.lat,
+                        o.range_km,
+                        strength,
+                        strength,
+                    )
+                });
             }
             for (lon, lat, posh, range_km) in hail_cands {
                 candidates.push(base(K::Hail, lon, lat, range_km, posh, posh));
