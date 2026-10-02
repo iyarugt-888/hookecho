@@ -1,5 +1,9 @@
 # M1.1 derived radar coverage increment
 
+The subsequent [standalone 3D increment](standalone-3d.md) has its own scientific controls,
+ownership tests, reviewed UI references and remaining-scope record. This page retains the
+original derived-grid evidence rather than replacing its historical counts.
+
 These are review references for the Inspector's local radar coverage section, captured on
 Windows on 2026-10-02. The renderer uses HookEcho's fonts, Dear ImGui theme and predictable
 offscreen egui GPU rendering at one pixel per point. Eight captures cover continuous/strict

@@ -787,8 +787,7 @@ impl HookEchoApp {
             marker_icon_tex: Default::default(),
             show_3d: false,
             vol3d: Default::default(),
-            vol3d_key: None,
-            vol3d_rx: None,
+            vol3d_build: Default::default(),
             vol3d_range: (-30.0, 80.0),
             vol3d_pending: None,
             // `[None; MAX_PANES]` needs `Option<T>: Copy`, which a

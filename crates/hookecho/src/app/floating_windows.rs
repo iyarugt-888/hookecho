@@ -914,7 +914,7 @@ impl HookEchoApp {
         }
         // The workstation shows the volume in its 3D volume tool window (`chrome/dock/volume.rs`).
         if self.show_3d {
-            // Rebuilds only when the volume, its tilt count or the tilts pulled out change.
+            // Source revisions, sweep policy, selected beams and palette all belong to the grid.
             if self.volume3d_supported {
                 self.build_volume3d();
             }

@@ -14,6 +14,9 @@ impl HookEchoApp {
         if !self.dock.volume.open || !self.dock.volume_available {
             return;
         }
+        // Dock panels paint before floating_windows polls workers. Validate at this paint
+        // boundary too, so a freshly accepted radar update cannot draw the prior grid once.
+        self.sync_volume3d_status();
         let t = self.ws_tokens();
         let map_rect = self.chrome_rect;
         let place = self.dock.volume.place;

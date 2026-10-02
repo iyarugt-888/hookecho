@@ -32,7 +32,13 @@ pub(super) struct DerivedKey {
 /// object names and local revision counters happen to agree. A weak reference keeps its address
 /// unique without retaining the scan's gate buffers after eviction. Never persisted as provenance.
 #[derive(Clone, Debug)]
-struct ScanIdentity(std::sync::Weak<Scan>);
+pub(super) struct ScanIdentity(std::sync::Weak<Scan>);
+
+impl ScanIdentity {
+    pub(super) fn new(scan: &Arc<Scan>) -> Self {
+        Self(Arc::downgrade(scan))
+    }
+}
 
 impl PartialEq for ScanIdentity {
     fn eq(&self, other: &Self) -> bool {
@@ -137,7 +143,7 @@ impl DerivedKey {
             site: view.site.clone(),
             volume: vol.name.clone(),
             revision: vol.revision(),
-            scan: ScanIdentity(Arc::downgrade(&vol.scan)),
+            scan: ScanIdentity::new(&vol.scan),
             policy: policy(view, settings),
             etop_bits: settings.etop_dbz.to_bits(),
             layers,

@@ -85,6 +85,7 @@ mod radar_products;
 mod rules;
 mod scenes;
 mod sharing;
+mod standalone_volume;
 mod surface_feeds;
 mod time_layers;
 mod view3d_state;
@@ -2235,15 +2236,8 @@ pub struct HookEchoApp {
     /// volume upload (taken by the first paint after a rebuild).
     show_3d: bool,
     vol3d: ui::volume3d_window::Volume3dState,
-    /// Which volume the built grid belongs to, so reopening the window doesn't rebuild it.
-    /// `(volume name, grid size, tilt count)` — the tilt count so a volume that is still
-    /// streaming its higher sweeps rebuilds the 3D grid as each one lands.
-    /// What the 3D Reflectivity window's volume was built from: volume, grid size, tilt count,
-    /// and the tilts pulled out (elevation bits; empty = the whole interpolated volume).
-    vol3d_key: Option<(String, usize, usize, Vec<u32>)>,
-    /// In-flight build (the resample runs off the UI thread).
-    #[allow(clippy::type_complexity)]
-    vol3d_rx: Option<std::sync::mpsc::Receiver<(crate::render3d::Volume3dUpload, (f32, f32))>>,
+    /// One bounded worker, its attempted context and the context of the accepted 3D grid.
+    vol3d_build: standalone_volume::VolumeBuildState,
     /// The built volume's dBZ span, which the window's threshold slider works in.
     vol3d_range: (f32, f32),
     vol3d_pending: Option<crate::render3d::Volume3dUpload>,

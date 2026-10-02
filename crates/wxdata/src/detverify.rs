@@ -599,7 +599,7 @@ mod path_tests {
         let dets: Vec<Detection> = (0..10)
             .map(|k| det(10.0 * k as f64, 0.0, 100 + 8 * k))
             .collect();
-        let s = score_with_paths(&dets, &[], &[p.clone()], 10.0, 15, &[0.0])[0];
+        let s = score_with_paths(&dets, &[], std::slice::from_ref(&p), 10.0, 15, &[0.0])[0];
         assert_eq!(
             (s.events, s.found, s.detections, s.verified),
             (1, 1, 10, 10)

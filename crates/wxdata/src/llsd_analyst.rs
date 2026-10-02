@@ -341,7 +341,7 @@ mod tests {
         // The listed terms are the score's own.
         let listed: f32 = lines
             .iter()
-            .filter_map(|l| l.trim().split_whitespace().next()?.parse::<f32>().ok())
+            .filter_map(|l| l.split_whitespace().next()?.parse::<f32>().ok())
             .sum();
         let z: f32 = with[0].fused.terms.iter().map(|t| t.logit).sum();
         assert!((listed - z).abs() < 0.02, "{listed} vs {z}");

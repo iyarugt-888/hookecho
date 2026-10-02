@@ -70,8 +70,14 @@ source acquisition spans, retained older rows, excluded rows, unobserved sectors
 clocks. Strict mode uses the same pass-boundary inference and mask as the 2D display; archive
 and playback keep continuous behavior. The Inspector reads the metadata retained with the
 displayed local grid. This is angular acquisition coverage, not proof of complete columns.
-Raw cut/pass identity, transport-gap inventory, per-contributor revision optimization and
-propagation into the 3D build paths remain M1.1 work.
+`app/standalone_volume.rs` uses the same weak scan identity and coverage preparation for the
+standalone reflectivity viewer. Its single worker owns a scan revision, policy, beam selection
+and palette; a superseded answer cannot publish grids, clocks or layers. Acceptance stages them
+together. Both floating and docked paint paths hide unmatched GPU content. Empty/failed builds
+remain idle until inputs change or the user retries, avoiding a full resample on every frame.
+The Layers list retains all source tilts for selection, with policy-adjusted summaries; grid
+coverage lists only the selected contributors. Raw cut/pass identity, transport-gap inventory,
+per-contributor revision optimization and observed/smooth/isosurface propagation remain M1.1 work.
 
 ## Rendering
 

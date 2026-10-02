@@ -42,7 +42,16 @@ not infer acquisition time from the volume label or claim a complete column from
 tilts. The grid retains its volume/frame label separately from those acquisition times. A grid
 from another scan revision or selection is unavailable until a matching result lands.
 Hail refreshes use both the 0°C and −20°C levels. The shared textures still support one source
-context per local product; independent pane contexts and 3D temporal propagation remain planned.
+context per local product; independent pane contexts remain planned.
+
+The standalone 3D reflectivity window carries the same policy and coverage through its
+interpolated grid and selected-beam shells. Source and coverage identifies the accepted scan
+revision and the source intervals of selected contributors. Layers retains the available tilts
+for selection, but summarizes only policy-retained values and acquisition clocks. Superseded
+workers cannot update either the grid or its metadata. A mismatched grid is hidden while the
+selected frame rebuilds; failed selections offer an explicit retry. Observed, smooth and
+isosurface map representations still need this temporal propagation. Source-time gap inference
+does not establish cut/pass inventory, proven transport gaps or complete columns.
 
 Direct MRMS field layers expose a **Data source** inspector in Layer options:
 the product path, provider, GRIB valid time, and complete-response receipt time

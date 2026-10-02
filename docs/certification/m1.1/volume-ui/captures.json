@@ -1,0 +1,57 @@
+{
+  "scenario": "Controlled standalone 3D source controls; expanded production disclosure; synthetic DEMO label; no 3D viewport",
+  "theme": "DearImGui",
+  "pixels_per_point": 1,
+  "adapter_driver": "Not retained by the UI snapshot helper",
+  "command": "cargo test -p hookecho --lib gpu_volume_coverage_snapshots --locked --offline -- --ignored --nocapture",
+  "captures": [
+    {
+      "file": "continuous-240-touch-true.png",
+      "bytes": 61005,
+      "sha256": "8fb88b14260e2b6218d5248cd8eadefebe9d527bfb0b705c99f4d0ba9bc4ce5e",
+      "capture_utc": "2026-10-02T14:17:17.546094+00:00"
+    },
+    {
+      "file": "continuous-300-touch-false.png",
+      "bytes": 61597,
+      "sha256": "4d13639f20f1ac79fff648e55ac297861cf45ff1ae9671c567b0f02ef67c413b",
+      "capture_utc": "2026-10-02T14:17:17.912579+00:00"
+    },
+    {
+      "file": "pending-240-touch-true.png",
+      "bytes": 63443,
+      "sha256": "5082128fbe8054f24b73296489fffded1b8e0693ebd0e85d60fc29896b25b212",
+      "capture_utc": "2026-10-02T14:17:18.794405+00:00"
+    },
+    {
+      "file": "pending-300-touch-false.png",
+      "bytes": 64064,
+      "sha256": "0a96b9e29e3fd0ecb8e16c9f39f5d924f82c533526e7ae2ddef7ad1a2ad70cbb",
+      "capture_utc": "2026-10-02T14:17:19.088509+00:00"
+    },
+    {
+      "file": "strict-240-touch-true.png",
+      "bytes": 61186,
+      "sha256": "760f50d3505c27597992415f4e7b1a6c88e3ce69d81b074f9c23a54c2d8c4fa4",
+      "capture_utc": "2026-10-02T14:17:18.196828+00:00"
+    },
+    {
+      "file": "strict-300-touch-false.png",
+      "bytes": 61753,
+      "sha256": "457991603f962752fac5a24b9589f5a11c69a8fa831ea0dd30424dab0840673c",
+      "capture_utc": "2026-10-02T14:17:18.523336+00:00"
+    },
+    {
+      "file": "unknown-error-240-touch-true.png",
+      "bytes": 67259,
+      "sha256": "28ee46d84f890c08cf83da3210f4cdfd2db3e5d2e3c6aba2a6e6cec0ec67bfa2",
+      "capture_utc": "2026-10-02T14:17:19.319021+00:00"
+    },
+    {
+      "file": "unknown-error-300-touch-false.png",
+      "bytes": 67845,
+      "sha256": "27c7a4320920ad6c05b9b7247a36f2d25649aa5f22dcb4e2f01cff9655904344",
+      "capture_utc": "2026-10-02T14:17:19.561085+00:00"
+    }
+  ]
+}

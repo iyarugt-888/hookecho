@@ -3,6 +3,15 @@
 //! you care about with a reflectivity floor and three axis slabs.
 
 use crate::render3d::{orbit_uniform, threshold_index, View3d, Volume3dCallback, Volume3dUpload};
+use wxdata::level2::temporal::{TemporalCoverage, TemporalPolicy};
+
+/// Frame labels describe the accepted grid, never the currently requested scan.
+#[derive(Clone, Debug)]
+pub struct VolumeFrameLabel {
+    pub site: Option<String>,
+    pub volume: String,
+    pub revision: u64,
+}
 
 /// Everything the window keeps between frames: the orbit camera, the dBZ floor, the slab, and the
 /// layer-by-layer tilt selection.
@@ -29,6 +38,12 @@ pub struct Volume3dState {
     /// Tilts pulled out, by elevation: when any are, the window shows just those tilts' beams
     /// (`volume3d::build_shells`) instead of the interpolated volume.
     pub selected_elevs: Vec<f32>,
+    pub frame: Option<(VolumeFrameLabel, TemporalCoverage)>,
+    /// Only draw a GPU grid whose accepted source and controls match the current request.
+    pub current: bool,
+    pub building: bool,
+    pub error: Option<String>,
+    pub retry: bool,
 }
 
 /// The three quality rungs, coarsest first. 256 is what the window shipped with.
@@ -50,6 +65,11 @@ impl Default for Volume3dState {
             steps: if cfg!(target_os = "android") { 96 } else { 256 },
             layers: Vec::new(),
             selected_elevs: Vec::new(),
+            frame: None,
+            current: false,
+            building: false,
+            error: None,
+            retry: false,
         }
     }
 }
@@ -464,7 +484,9 @@ pub fn body(
     view: egui::Vec2,
 ) {
     let ctx = ui.ctx().clone();
+    let previous_selection = st.selected_elevs.clone();
     {
+        let _ = source_status(ui, st);
         ui.weak("Drag to orbit · scroll to zoom · max-intensity projection");
         ui.horizontal(|ui| {
             let mut on = st.threshold_dbz.is_finite();
@@ -512,7 +534,7 @@ pub fn body(
             );
             if !st.selected_elevs.is_empty() {
                 ui.weak(format!(
-                    "Showing {} tilt{}' beams (0.95° thick), not the interpolated volume.",
+                    "Selected {} tilt{}' beams (0.95° thick).",
                     st.selected_elevs.len(),
                     if st.selected_elevs.len() == 1 {
                         ""
@@ -541,6 +563,24 @@ pub fn body(
             view.y.min(ui.available_height()).max(160.0),
         );
         let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::drag());
+        if !st.current || previous_selection != st.selected_elevs {
+            ui.painter()
+                .rect_filled(rect, 0.0, ui.visuals().extreme_bg_color);
+            // Do not issue a callback: the GPU may still contain an older source or policy.
+            // Preserve pending uploads until a matching grid has an actual paintable rectangle.
+            ui.painter().text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                if st.building {
+                    "Preparing 3D grid…"
+                } else {
+                    "3D grid unavailable"
+                },
+                egui::FontId::proportional(13.0),
+                ui.visuals().weak_text_color(),
+            );
+            return;
+        }
         if resp.dragged() {
             let d = resp.drag_delta();
             st.az -= d.x * 0.4;
@@ -598,6 +638,100 @@ pub fn body(
     }
 }
 
+/// Kept separate from the raymarch callback so source/coverage controls can be reviewed even
+/// on machines without a supported 3D texture device.
+fn source_status(ui: &mut egui::Ui, st: &mut Volume3dState) -> Option<egui::Id> {
+    let status = if st.building {
+        "Preparing the selected scan; the previous grid is hidden."
+    } else if !st.current {
+        if st.frame.is_some() {
+            "No matching 3D grid. Previous source details remain below."
+        } else {
+            "No matching 3D grid."
+        }
+    } else {
+        "3D grid matches the selected scan revision."
+    };
+    ui.add(egui::Label::new(status).wrap());
+    if let Some(error) = &st.error {
+        ui.add(egui::Label::new(format!("Unavailable: {error}")).wrap());
+        if ui.button("Retry 3D build").clicked() {
+            st.retry = true;
+        }
+    }
+    let Some((label, coverage)) = &st.frame else {
+        return None;
+    };
+    let disclosure = egui::CollapsingHeader::new(if st.current {
+        "Source and coverage"
+    } else {
+        "Previous source and coverage"
+    })
+    .id_salt("volume3d_source")
+    .show(ui, |ui| {
+        source_details(ui, label, coverage);
+    });
+    Some(disclosure.header_response.id)
+}
+
+fn source_details(ui: &mut egui::Ui, label: &VolumeFrameLabel, coverage: &TemporalCoverage) {
+    ui.add(
+        egui::Label::new(format!(
+            "{} · {} · revision {}",
+            label.site.as_deref().unwrap_or("Unknown site"),
+            label.volume,
+            label.revision
+        ))
+        .wrap(),
+    );
+    for line in coverage_lines(coverage) {
+        ui.add(egui::Label::new(line).wrap());
+    }
+}
+
+fn coverage_lines(coverage: &TemporalCoverage) -> Vec<String> {
+    let policy = match coverage.policy {
+        TemporalPolicy::Continuous => "Continuous: older input rows retained",
+        TemporalPolicy::StrictCurrent => "Strict current: older input rows excluded",
+    };
+    let interval = coverage.acquisition_range_ms().and_then(|(start, end)| {
+        Some((
+            chrono::DateTime::from_timestamp_millis(start)?,
+            chrono::DateTime::from_timestamp_millis(end)?,
+            end - start,
+        ))
+    });
+    let clock = match interval {
+        Some((start, end, span)) => format!(
+            "Input: {} – {} UTC ({:.1} s)",
+            start.format("%Y-%m-%d %H:%M:%S"),
+            end.format("%H:%M:%S"),
+            span as f64 / 1000.0
+        ),
+        None => "Input clocks unknown".into(),
+    };
+    vec![
+        policy.into(),
+        format!("{} contributing tilt(s)", coverage.contributors.len()),
+        clock,
+        format!(
+            "Retained older rows: {}; excluded rows: {}",
+            coverage.retained_older_rows(),
+            coverage.excluded_rows()
+        ),
+        format!(
+            "Unobserved rows: {} (not proven transport gaps)",
+            coverage.unobserved_rows()
+        ),
+        format!(
+            "Unknown input clocks: {} row(s)",
+            coverage.unknown_time_rows()
+        ),
+        "Pass boundaries use source-time gap inference.".into(),
+        "Complete columns are not established by the available tilts.".into(),
+    ]
+}
+
 fn effective_steps(chosen: u32, degraded: bool) -> u32 {
     if degraded {
         chosen.min(96)
@@ -608,7 +742,233 @@ fn effective_steps(chosen: u32, degraded: bool) -> u32 {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::render3d::threshold_index;
+
+    fn coverage(policy: TemporalPolicy) -> TemporalCoverage {
+        let mut sweeps = [wxdata::level2::BinnedSweep {
+            az_bins: 8,
+            gate_count: 1,
+            data: vec![120, 120, 120, 120, 120, 120, 0, 120],
+            bin_time_ms: vec![
+                1_700_000_120_000,
+                1_700_000_121_000,
+                1_700_000_122_000,
+                1_700_000_123_000,
+                1_700_000_000_000,
+                1_700_000_001_000,
+                0,
+                0,
+            ],
+            elevation_deg: 0.5,
+            ..Default::default()
+        }];
+        wxdata::level2::temporal::prepare(&mut sweeps, policy).unwrap()
+    }
+
+    fn frame() -> VolumeFrameLabel {
+        VolumeFrameLabel {
+            site: Some("DEMO".into()),
+            volume: "controlled-input-20231114_221320".into(),
+            revision: 7,
+        }
+    }
+
+    fn expand_source(ui: &mut egui::Ui, state: &mut Volume3dState) {
+        // The header creates an internal vertical scope; use its real response ID rather than
+        // predicting the parent's persistent ID. Later capture frames show the expanded body.
+        let id = source_status(ui, state).expect("source disclosure");
+        let mut disclosure =
+            egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, true);
+        disclosure.set_open(true);
+        disclosure.store(ui.ctx());
+        ui.ctx().animate_bool_with_time(id, true, 0.0);
+    }
+
+    #[test]
+    fn volume_coverage_identifies_mixed_rows_and_unknown_clocks_without_volume_time_fallback() {
+        let continuous = coverage_lines(&coverage(TemporalPolicy::Continuous));
+        assert!(continuous.iter().any(|line| line.contains("123.0 s")));
+        assert!(continuous.contains(&"Retained older rows: 2; excluded rows: 0".into()));
+        let strict = coverage_lines(&coverage(TemporalPolicy::StrictCurrent));
+        assert!(strict.iter().any(|line| line.contains("3.0 s")));
+        assert!(strict.contains(&"Retained older rows: 0; excluded rows: 4".into()));
+        assert!(strict
+            .iter()
+            .any(|line| line.contains("not proven transport gaps")));
+        assert!(strict.iter().any(|line| line.contains("not established")));
+        let mut unknown = coverage(TemporalPolicy::Continuous);
+        unknown.contributors[0].used_start_ms = None;
+        unknown.contributors[0].used_end_ms = None;
+        assert!(coverage_lines(&unknown).contains(&"Input clocks unknown".into()));
+    }
+
+    #[test]
+    fn unavailable_volume_omits_the_raymarch_callback_and_keeps_the_upload_pending() {
+        let ctx = egui::Context::default();
+        let mut state = Volume3dState::default();
+        let mut pending = Some(Volume3dUpload {
+            data: vec![0; 16],
+            n: 2,
+            nz: 2,
+            lut: vec![0; 1024],
+            half_km: 50.0,
+            top_km: 20.0,
+            outside: 0.0,
+            value_range: None,
+        });
+        let output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(500.0, 700.0),
+                )),
+                ..Default::default()
+            },
+            |ui| {
+                body(
+                    ui,
+                    &mut state,
+                    &mut pending,
+                    2,
+                    2,
+                    20.0,
+                    (-20.0, 80.0),
+                    1.0,
+                    false,
+                    egui::vec2(400.0, 300.0),
+                );
+            },
+        );
+        assert!(
+            pending.is_some(),
+            "no stale upload may be consumed by a hidden frame"
+        );
+        assert!(!output
+            .shapes
+            .iter()
+            .any(|shape| matches!(shape.shape, egui::epaint::Shape::Callback(_))));
+        state.current = true;
+        let output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(500.0, 700.0),
+                )),
+                ..Default::default()
+            },
+            |ui| {
+                body(
+                    ui,
+                    &mut state,
+                    &mut pending,
+                    2,
+                    2,
+                    20.0,
+                    (-20.0, 80.0),
+                    1.0,
+                    false,
+                    egui::vec2(400.0, 300.0),
+                );
+            },
+        );
+        assert!(pending.is_none());
+        assert!(output
+            .shapes
+            .iter()
+            .any(|shape| matches!(shape.shape, egui::epaint::Shape::Callback(_))));
+    }
+
+    #[test]
+    fn source_details_wrap_in_narrow_volume_panels() {
+        let ctx = egui::Context::default();
+        for width in [240.0, 300.0] {
+            for policy in [TemporalPolicy::Continuous, TemporalPolicy::StrictCurrent] {
+                for capture_frame in 0..3 {
+                    let _ = ctx.run_ui(
+                        egui::RawInput {
+                            screen_rect: Some(egui::Rect::from_min_size(
+                                egui::Pos2::ZERO,
+                                egui::vec2(width, 700.0),
+                            )),
+                            ..Default::default()
+                        },
+                        |ui| {
+                            let mut state = Volume3dState {
+                                current: true,
+                                frame: Some((frame(), coverage(policy))),
+                                ..Default::default()
+                            };
+                            expand_source(ui, &mut state);
+                            assert!(ui.min_rect().width() <= width);
+                            if capture_frame > 0 {
+                                assert!(
+                                    ui.min_rect().height() > 200.0,
+                                    "the production disclosure must actually be expanded"
+                                );
+                            }
+                        },
+                    );
+                }
+            }
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "gpu: writes standalone 3D source and coverage controls"]
+    fn gpu_volume_coverage_snapshots() {
+        use crate::ui::workstation as ws;
+        let gpu = crate::headless::ui::Snapshot::new().expect("GPU adapter for source controls");
+        let destination = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/parity-review/m1.1/volume-ui");
+        std::fs::create_dir_all(&destination).unwrap();
+        let tokens = ws::Tokens::new(egui::Color32::from_rgb(72, 142, 226));
+        for name in ["continuous", "strict", "pending", "unknown-error"] {
+            for (width, touch) in [(240, true), (300, false)] {
+                let policy = if name == "strict" || name == "pending" {
+                    TemporalPolicy::StrictCurrent
+                } else {
+                    TemporalPolicy::Continuous
+                };
+                let mut source = coverage(policy);
+                if name == "unknown-error" {
+                    source.contributors[0].used_start_ms = None;
+                    source.contributors[0].used_end_ms = None;
+                }
+                let mut state = Volume3dState {
+                    current: name == "continuous" || name == "strict",
+                    building: name == "pending",
+                    error: (name == "unknown-error")
+                        .then(|| "No reflectivity tilts match this selection".into()),
+                    frame: Some((frame(), source.clone())),
+                    ..Default::default()
+                };
+                gpu.save(
+                    &destination.join(format!("{name}-{width}-touch-{touch}.png")),
+                    width,
+                    600,
+                    |ui| {
+                        ws::set_touch(ui.ctx(), touch);
+                        ws::panel_frame(&tokens).show(ui, |ui| {
+                            ws::style_scope(ui, &tokens);
+                            ws::window_header(
+                                ui,
+                                &tokens,
+                                egui_phosphor::regular::CUBE,
+                                "3D volume",
+                                None,
+                                None,
+                            );
+                            // Review the actual disclosure body in its expanded state.
+                            expand_source(ui, &mut state);
+                        });
+                    },
+                )
+                .unwrap();
+            }
+        }
+    }
 
     #[test]
     fn the_default_quality_is_one_of_the_presets() {

@@ -8,6 +8,24 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: 3D reflectivity follows the accepted scan
+
+The standalone 3D window rebuilds for live scan revisions, including updates at the same
+elevation, and applies the selected continuous or strict-current sweep policy before resampling.
+Late workers cannot replace a newer scan, site, palette or tilt selection. While rebuilding,
+the previous grid is hidden; source details keep their accepted frame label and acquisition
+clocks. Expand Source and coverage to inspect mixed passes, excluded rows, unobserved sectors
+and unknown clocks. Empty or failed selections show an explicit retry control.
+
+### Added: LLSD rotation analyst preview and verification tables
+
+An optional analyst layer displays LLSD rotation objects, associated columns and track evidence
+alongside the existing operational detectors. Detector scores are shown as evidence out of 100
+with named contributions rather than percentages. Headless verification exports threshold and
+radar-range tables, matches detections against surveyed damage paths as well as point reports,
+and includes an expanded event corpus. Matching assumptions remain explicit; these checks do
+not establish calibrated tornado probabilities.
+
 ### Fixed: local radar grids follow progressive scan updates
 
 Local composite reflectivity, VIL, VIL density, echo tops, MEHS and POSH now rebuild when a live
