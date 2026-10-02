@@ -76,8 +76,18 @@ and palette; a superseded answer cannot publish grids, clocks or layers. Accepta
 together. Both floating and docked paint paths hide unmatched GPU content. Empty/failed builds
 remain idle until inputs change or the user retries, avoiding a full resample on every frame.
 The Layers list retains all source tilts for selection, with policy-adjusted summaries; grid
-coverage lists only the selected contributors. Raw cut/pass identity, transport-gap inventory,
-per-contributor revision optimization and observed/smooth/isosurface propagation remain M1.1 work.
+coverage lists only the selected contributors.
+
+Native observed map sweeps retain each radial's source clock and decoded sweep index/elevation
+number. `observed_volume_with_policy` preserves continuous gates and masks strict exclusions
+before gate normalization or GPU-limit pooling. It reuses 2D's newest moment-carrying cut selection
+and source-time gap rule on recorded radial clocks; it never reconstructs native geometry from
+bins. The accepted `ObservedKey` includes weak scan identity, actual volume revision, moment,
+policy, palette and render controls. Inspector and Layers summaries reject a different selected
+source before painting. Native coverage counts recorded radials separately from binned azimuth
+rows; absent radials have no inventory estimate. Decoded sweep indices are local to a scan, not
+persisted pass IDs. Full raw pass/transport inventory, finer contributor invalidation and
+smooth/isosurface propagation remain M1.1 work.
 
 ## Rendering
 

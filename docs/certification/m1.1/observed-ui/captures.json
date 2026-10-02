@@ -1,0 +1,73 @@
+{
+  "scenario": "Controlled native observed source coverage in production Inspector painter; two scan-local cuts, no full 3D viewport",
+  "theme": "DearImGui",
+  "pixels_per_point": 1,
+  "adapter_driver": "Not retained by the UI snapshot helper",
+  "command": "cargo test -p hookecho --lib gpu_observed_coverage_snapshots --locked --offline -- --ignored --nocapture",
+  "captures": [
+    {
+      "file": "continuous-240-touch-true.png",
+      "bytes": 62104,
+      "sha256": "b66690c4725ee3b9e47f06cc3f86f1cef44dd272c3a8787bc7c0e67458bb31e1",
+      "width": 240,
+      "height": 1000,
+      "capture_utc": "2026-10-02T22:57:01.340389+00:00"
+    },
+    {
+      "file": "continuous-300-touch-false.png",
+      "bytes": 63126,
+      "sha256": "e82ffea02f504414579eb49c46903e950bd408d78ae1ed63335bab478ecd3cbc",
+      "width": 300,
+      "height": 1000,
+      "capture_utc": "2026-10-02T22:57:01.690478+00:00"
+    },
+    {
+      "file": "pending-240-touch-true.png",
+      "bytes": 16884,
+      "sha256": "319e7ec52f59783f9360b0c5e67d4e4e004cf96d239fbd0eef2906eeeeeef34d",
+      "width": 240,
+      "height": 1000,
+      "capture_utc": "2026-10-02T22:57:02.563615+00:00"
+    },
+    {
+      "file": "pending-300-touch-false.png",
+      "bytes": 17925,
+      "sha256": "5c89319aad8f5b1578987619e6dcb972edf08da47eaf1b13a2222190d88bb932",
+      "width": 300,
+      "height": 1000,
+      "capture_utc": "2026-10-02T22:57:02.787160+00:00"
+    },
+    {
+      "file": "strict-240-touch-true.png",
+      "bytes": 60737,
+      "sha256": "f146b92a50717c6013c6f4af27496cc1be0b0411db190ca8b7c441f687967e68",
+      "width": 240,
+      "height": 1000,
+      "capture_utc": "2026-10-02T22:57:02.024200+00:00"
+    },
+    {
+      "file": "strict-300-touch-false.png",
+      "bytes": 61782,
+      "sha256": "76a81c6246853a652a70c5518af6cc00f876b58fb18702ac56d62ef4ecd4d987",
+      "width": 300,
+      "height": 1000,
+      "capture_utc": "2026-10-02T22:57:02.367378+00:00"
+    },
+    {
+      "file": "unknown-240-touch-true.png",
+      "bytes": 51176,
+      "sha256": "8eebd5a89b9e21e0d0b9dfa428d0c04bc85b003ac083e534e4428340a2d09bac",
+      "width": 240,
+      "height": 1000,
+      "capture_utc": "2026-10-02T22:57:03.078449+00:00"
+    },
+    {
+      "file": "unknown-300-touch-false.png",
+      "bytes": 52221,
+      "sha256": "2cd46170004a30dbe341bd322a8940ee76bda6976ba0b7f6edc0e0c97e70ab45",
+      "width": 300,
+      "height": 1000,
+      "capture_utc": "2026-10-02T22:57:03.388772+00:00"
+    }
+  ]
+}

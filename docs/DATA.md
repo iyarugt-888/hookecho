@@ -49,9 +49,20 @@ interpolated grid and selected-beam shells. Source and coverage identifies the a
 revision and the source intervals of selected contributors. Layers retains the available tilts
 for selection, but summarizes only policy-retained values and acquisition clocks. Superseded
 workers cannot update either the grid or its metadata. A mismatched grid is hidden while the
-selected frame rebuilds; failed selections offer an explicit retry. Observed, smooth and
-isosurface map representations still need this temporal propagation. Source-time gap inference
-does not establish cut/pass inventory, proven transport gaps or complete columns.
+selected frame rebuilds; failed selections offer an explicit retry.
+
+The map's native observed sweeps retain original radial clocks and geometry, plus each decoded
+cut's scan-local index and elevation number. Continuous mode keeps every recorded moment cut.
+While following a partial live volume, strict-current mode chooses the newest timed cut carrying
+the selected moment at each elevation and masks inferred older radial rows before normalization
+or texture-limit pooling. All-untimed cuts remain unknown rather than receiving a fabricated
+pass or frame-label clock. The Inspector's **Observed source coverage** reports retained/excluded
+recorded radials and unknown clocks per cut. It explicitly leaves absent-radial inventory and
+column completeness unestablished. Native radial counts are distinct from 2D angular bins; the
+same time-gap rule can classify occluded native rows differently from their binned replacement.
+Uploads and summaries follow actual scan identity, accepted revision and policy. Smooth and
+isosurface map paths remain open. Source-time gap inference does not establish persistent pass
+identity or proven transport gaps.
 
 Direct MRMS field layers expose a **Data source** inspector in Layer options:
 the product path, provider, GRIB valid time, and complete-response receipt time

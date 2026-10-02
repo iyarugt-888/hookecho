@@ -478,7 +478,14 @@ impl HookEchoApp {
             if moment == Moment::SpecificDifferentialPhase {
                 ui.weak("KDP is derived; shown on the map plane.");
             }
-            if !view.map_3d.observed_layers.is_empty() {
+            let observed_current = view.map_3d.observed_key.as_ref().is_some_and(|key| {
+                key.matches_source(
+                    view,
+                    moment,
+                    super::radar_products::policy(view, &self.settings),
+                )
+            });
+            if observed_current && !view.map_3d.observed_layers.is_empty() {
                 let layers = view.map_3d.observed_layers.clone();
                 ui::volume3d_window::layers_section(
                     ui,
@@ -486,8 +493,10 @@ impl HookEchoApp {
                     &layers,
                     &mut view.map_3d.selected_layer_elevs,
                     moment.units(),
-                    "Click a tilt to pull it out and see its stats — click more to compare several at once.",
+                    "Click a tilt to pull it out and see its stats — click more to compare several at once. Stats use the accepted sweep policy; excluded cuts can be empty. Inspect source coverage in the Inspector.",
                 );
+            } else if moment != Moment::SpecificDifferentialPhase {
+                ui.weak("Waiting for matching observed layers");
             }
         } else {
             ui.weak("Vertical and Opacity above shape the resampled volume.");

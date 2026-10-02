@@ -1,8 +1,8 @@
-//! Acquisition coverage for products built from binned radar sweeps.
+//! Acquisition coverage for binned integrations and native observed radar sweeps.
 //!
 //! This records angular acquisition, not valid-echo coverage or proof a volume is complete.
-//! Pass boundaries use the same source-time gap inference as the 2D sweep display. Raw cut
-//! identities and proven transport gaps remain the live inventory's responsibility.
+//! Pass boundaries use the same source-time gap inference as the 2D sweep display. Native cut
+//! indices are scan-local; persistent pass identities and proven transport gaps need live inventory.
 
 use super::{mask_previous_pass_rows, previous_pass_cutoff, BinnedSweep, Moment};
 
@@ -11,6 +11,55 @@ pub enum TemporalPolicy {
     #[default]
     Continuous,
     StrictCurrent,
+}
+
+/// Coverage of native observed radials. Absent radials cannot be counted without an acquisition
+/// inventory; these counts describe recorded input rows, not synthesized azimuth bins.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ObservedCutCoverage {
+    /// Index in this decoded scan's sweep vector, not a globally persisted pass identifier.
+    pub source_cut: usize,
+    pub elevation_number: u8,
+    pub elevation_deg: f32,
+    pub recorded_radials: usize,
+    pub excluded_radials: usize,
+    pub older_pass_radials: usize,
+    /// Another timed cut is selected for this moment/elevation by the 2D tilt-list selector.
+    pub unselected_cut: bool,
+    pub unknown_time_radials: usize,
+    pub used_start_ms: Option<i64>,
+    pub used_end_ms: Option<i64>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ObservedCoverage {
+    pub policy: TemporalPolicy,
+    pub cuts: Vec<ObservedCutCoverage>,
+}
+
+impl ObservedCoverage {
+    pub fn acquisition_range_ms(&self) -> Option<(i64, i64)> {
+        Some((
+            self.cuts.iter().filter_map(|cut| cut.used_start_ms).min()?,
+            self.cuts.iter().filter_map(|cut| cut.used_end_ms).max()?,
+        ))
+    }
+
+    pub fn excluded_radials(&self) -> usize {
+        self.cuts.iter().map(|cut| cut.excluded_radials).sum()
+    }
+
+    pub fn retained_older_radials(&self) -> usize {
+        if self.policy == TemporalPolicy::Continuous {
+            self.cuts.iter().map(|cut| cut.older_pass_radials).sum()
+        } else {
+            0
+        }
+    }
+
+    pub fn unknown_time_radials(&self) -> usize {
+        self.cuts.iter().map(|cut| cut.unknown_time_radials).sum()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

@@ -111,11 +111,31 @@ impl HookEchoApp {
             .map_3d
             .enabled
             .then_some((cam.pitch, cam.bearing, cam.zoom));
-        let rows_3d = if v.map_3d.enabled {
+        let observed_mode = v.map_3d.enabled
+            && v.map_3d.representation == crate::view::Map3dRepresentation::ObservedSweeps;
+        let observed_current = v.map_3d.observed_key.as_ref().is_some_and(|key| {
+            key.matches_source(v, moment, radar_products::policy(v, &self.settings))
+        });
+        let rows_3d = if observed_mode && !observed_current {
+            vec![("Mode", v.map_3d.representation.label().into())]
+        } else if v.map_3d.enabled {
             volume_3d_rows(&v.map_3d, tz)
         } else {
             Vec::new()
         };
+        let observed_rows = observed_mode.then(|| {
+            if moment == Moment::SpecificDifferentialPhase {
+                vec![("Status", "KDP is derived; displayed on map plane".into())]
+            } else {
+                observed_coverage_rows(
+                    v.map_3d
+                        .observed_coverage
+                        .as_ref()
+                        .filter(|_| observed_current),
+                    tz,
+                )
+            }
+        });
         let (disp_factor, disp_unit) = display_units(moment, &self.settings);
         let source_rows =
             radar_source_rows(moment, v.srv, disp_unit, self.settings.dealias_velocity);
@@ -251,6 +271,10 @@ impl HookEchoApp {
                 ws::kv(ui, &t, "Pitch", &format!("{pitch:.0}\u{b0}"), None);
                 ws::kv(ui, &t, "Bearing", &format!("{bearing:.0}\u{b0}"), None);
                 ws::kv(ui, &t, "Zoom", &format!("{zoom:.1}"), None);
+            }
+            if let Some(rows) = &observed_rows {
+                ui.add_space(6.0);
+                paint_coverage_rows(ui, &t, "Observed source coverage", rows);
             }
             if !local_radar_rows.is_empty() {
                 ui.add_space(6.0);
@@ -606,7 +630,10 @@ fn volume_3d_rows(
     use crate::view::Map3dRepresentation as R;
     let mut rows = vec![("Mode", m.representation.label().to_string())];
     if m.representation == R::ObservedSweeps {
-        if let Some(sum) = crate::view::observed_summary(&m.observed_layers) {
+        // Accepted native coverage below reports retained cuts and their clocks explicitly.
+        if let Some(sum) = crate::view::observed_summary(&m.observed_layers)
+            .filter(|_| m.observed_coverage.is_none())
+        {
             rows.push((
                 "Tilts",
                 format!(
@@ -635,7 +662,11 @@ fn volume_3d_rows(
 /// Source acquisition coverage of the inputs actually allowed into the local integration.
 /// Angular coverage is distinct from echo strength and does not certify a complete column.
 fn paint_radar_coverage(ui: &mut egui::Ui, t: &ws::Tokens, rows: &[(&str, String)]) {
-    ws::section_rule(ui, t, "Local radar coverage");
+    paint_coverage_rows(ui, t, "Local radar coverage", rows);
+}
+
+fn paint_coverage_rows(ui: &mut egui::Ui, t: &ws::Tokens, title: &str, rows: &[(&str, String)]) {
+    ws::section_rule(ui, t, title);
     for (key, value) in rows {
         // Both labels and values wrap. The usual Inspector rows deliberately truncate;
         // coverage qualifications must remain readable on a narrow touch dock.
@@ -660,6 +691,98 @@ fn paint_radar_coverage(ui: &mut egui::Ui, t: &ws::Tokens, rows: &[(&str, String
             );
         });
     }
+}
+
+/// Native recorded rows, never regular bins or a claim about absent sectors.
+fn observed_coverage_rows(
+    coverage: Option<&wxdata::level2::temporal::ObservedCoverage>,
+    tz: Option<wxdata::tz::Tz>,
+) -> Vec<(&'static str, String)> {
+    use wxdata::level2::temporal::TemporalPolicy as P;
+    let Some(c) = coverage else {
+        return vec![("Status", "Waiting for matching radar inputs".into())];
+    };
+    let recorded: usize = c.cuts.iter().map(|cut| cut.recorded_radials).sum();
+    let mut rows = vec![
+        (
+            "Policy",
+            match c.policy {
+                P::Continuous => "Continuous",
+                P::StrictCurrent => "Strict current sweep",
+            }
+            .into(),
+        ),
+        ("Input cuts", c.cuts.len().to_string()),
+        (
+            "Retained",
+            format!(
+                "{} of {recorded} recorded radials",
+                recorded - c.excluded_radials()
+            ),
+        ),
+    ];
+    if let Some((start, end)) = c.acquisition_range_ms().and_then(|(a, b)| {
+        Some((
+            chrono::DateTime::from_timestamp_millis(a)?,
+            chrono::DateTime::from_timestamp_millis(b)?,
+        ))
+    }) {
+        rows.push(("Input start", crate::timefmt::fmt_clock(start, tz, true)));
+        rows.push(("Input span", humanize((end - start).num_seconds())));
+    } else {
+        rows.push(("Input time", "Unknown".into()));
+    }
+    if c.retained_older_radials() > 0 {
+        rows.push((
+            "Mixed passes",
+            format!(
+                "{} older recorded radials retained",
+                c.retained_older_radials()
+            ),
+        ));
+    }
+    if c.excluded_radials() > 0 {
+        rows.push((
+            "Excluded",
+            format!("{} recorded radials", c.excluded_radials()),
+        ));
+    }
+    if c.unknown_time_radials() > 0 {
+        rows.push((
+            "Unknown clocks",
+            format!(
+                "{} input radial{}",
+                c.unknown_time_radials(),
+                if c.unknown_time_radials() == 1 {
+                    ""
+                } else {
+                    "s"
+                }
+            ),
+        ));
+    }
+    for cut in &c.cuts {
+        rows.push((
+            "Source cut",
+            format!(
+                "{} / elevation {} ({:.2}\u{b0}): {} retained, {} excluded, {} unknown clocks{}",
+                cut.source_cut + 1,
+                cut.elevation_number,
+                cut.elevation_deg,
+                cut.recorded_radials - cut.excluded_radials,
+                cut.excluded_radials,
+                cut.unknown_time_radials,
+                if cut.unselected_cut {
+                    "; another timed moment cut selected"
+                } else {
+                    ""
+                },
+            ),
+        ));
+    }
+    rows.push(("Coverage", "Absent radials not inventoried".into()));
+    rows.push(("Column", "Completeness not established".into()));
+    rows
 }
 
 fn radar_coverage_rows(
@@ -862,6 +985,162 @@ mod tests {
                     )
                     .unwrap();
                 }
+            }
+        }
+    }
+
+    fn observed_coverage(
+        policy: wxdata::level2::temporal::TemporalPolicy,
+    ) -> wxdata::level2::temporal::ObservedCoverage {
+        use wxdata::level2::temporal::{
+            ObservedCoverage, ObservedCutCoverage, TemporalPolicy as P,
+        };
+        let strict = policy == P::StrictCurrent;
+        ObservedCoverage {
+            policy,
+            cuts: vec![
+                ObservedCutCoverage {
+                    source_cut: 0,
+                    elevation_number: 1,
+                    elevation_deg: 0.5,
+                    recorded_radials: 2,
+                    excluded_radials: if strict { 2 } else { 0 },
+                    older_pass_radials: 2,
+                    unselected_cut: true,
+                    unknown_time_radials: 0,
+                    used_start_ms: (!strict).then_some(1_700_000_000_000),
+                    used_end_ms: (!strict).then_some(1_700_000_001_000),
+                },
+                ObservedCutCoverage {
+                    source_cut: 3,
+                    elevation_number: 4,
+                    elevation_deg: 0.5,
+                    recorded_radials: 6,
+                    excluded_radials: if strict { 2 } else { 0 },
+                    older_pass_radials: 1,
+                    unselected_cut: false,
+                    unknown_time_radials: 1,
+                    used_start_ms: Some(if strict {
+                        1_700_000_120_000
+                    } else {
+                        1_700_000_002_000
+                    }),
+                    used_end_ms: Some(1_700_000_123_000),
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn observed_source_card_distinguishes_recorded_native_rows_from_missing_inventory() {
+        use wxdata::level2::temporal::TemporalPolicy as P;
+        let rows = observed_coverage_rows(Some(&observed_coverage(P::Continuous)), None);
+        assert!(rows.contains(&("Retained", "8 of 8 recorded radials".into())));
+        assert!(rows.contains(&("Mixed passes", "3 older recorded radials retained".into())));
+        assert!(rows.contains(&("Unknown clocks", "1 input radial".into())));
+        let strict = observed_coverage_rows(Some(&observed_coverage(P::StrictCurrent)), None);
+        assert!(strict.contains(&("Retained", "4 of 8 recorded radials".into())));
+        assert!(strict.contains(&("Excluded", "4 recorded radials".into())));
+        assert!(!strict.iter().any(|(key, _)| *key == "Mixed passes"));
+        assert!(strict.contains(&("Coverage", "Absent radials not inventoried".into())));
+        assert!(strict.contains(&("Column", "Completeness not established".into())));
+        assert_eq!(
+            strict
+                .iter()
+                .filter(|(key, _)| *key == "Source cut")
+                .count(),
+            2
+        );
+        assert!(strict
+            .iter()
+            .any(|(key, value)| *key == "Source cut" && value.starts_with("4 / elevation 4")));
+        assert_eq!(
+            observed_coverage_rows(None, None),
+            [("Status", "Waiting for matching radar inputs".into())]
+        );
+        let mut untimed = observed_coverage(P::Continuous);
+        for cut in &mut untimed.cuts {
+            cut.used_start_ms = None;
+            cut.used_end_ms = None;
+        }
+        assert!(observed_coverage_rows(Some(&untimed), None)
+            .contains(&("Input time", "Unknown".into())));
+    }
+
+    #[test]
+    fn observed_source_details_wrap_in_narrow_docks() {
+        use wxdata::level2::temporal::TemporalPolicy as P;
+        let ctx = egui::Context::default();
+        let t = ws::Tokens::new(egui::Color32::LIGHT_BLUE);
+        for policy in [P::Continuous, P::StrictCurrent] {
+            let rows = observed_coverage_rows(Some(&observed_coverage(policy)), None);
+            for width in [240.0, 300.0] {
+                let _ = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(width, 1300.0),
+                        )),
+                        ..Default::default()
+                    },
+                    |ui| {
+                        paint_coverage_rows(ui, &t, "Observed source coverage", &rows);
+                        assert!(
+                            ui.min_rect().width() <= width,
+                            "source cut details must wrap"
+                        );
+                    },
+                );
+            }
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "gpu: writes native observed source Inspector captures"]
+    fn gpu_observed_coverage_snapshots() {
+        use wxdata::level2::temporal::TemporalPolicy as P;
+        let gpu =
+            crate::headless::ui::Snapshot::new().expect("GPU adapter for observed source review");
+        let destination = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/parity-review/m1.1/observed-ui");
+        std::fs::create_dir_all(&destination).unwrap();
+        let t = ws::Tokens::new(egui::Color32::from_rgb(72, 142, 226));
+        let mut unknown = observed_coverage(P::Continuous);
+        for cut in &mut unknown.cuts {
+            cut.used_start_ms = None;
+            cut.used_end_ms = None;
+            cut.older_pass_radials = 0;
+            cut.unselected_cut = false;
+            cut.unknown_time_radials = cut.recorded_radials;
+        }
+        for (name, rows) in [
+            (
+                "continuous",
+                observed_coverage_rows(Some(&observed_coverage(P::Continuous)), None),
+            ),
+            (
+                "strict",
+                observed_coverage_rows(Some(&observed_coverage(P::StrictCurrent)), None),
+            ),
+            ("pending", observed_coverage_rows(None, None)),
+            ("unknown", observed_coverage_rows(Some(&unknown), None)),
+        ] {
+            for (width, touch) in [(240, true), (300, false)] {
+                gpu.save(
+                    &destination.join(format!("{name}-{width}-touch-{touch}.png")),
+                    width,
+                    1000,
+                    |ui| {
+                        ws::set_touch(ui.ctx(), touch);
+                        ws::panel_frame(&t).show(ui, |ui| {
+                            ws::style_scope(ui, &t);
+                            ws::window_header(ui, &t, ph::INFO, "Inspector", None, None);
+                            paint_coverage_rows(ui, &t, "Observed source coverage", &rows);
+                        });
+                    },
+                )
+                .unwrap();
             }
         }
     }

@@ -119,6 +119,60 @@ pub fn observed_summary(layers: &[level2::ObservedLayer]) -> Option<ObservedSumm
     })
 }
 
+/// Accepted native observed upload context. Camera motion remains a uniform-only change.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ObservedKey {
+    site: Option<String>,
+    volume: String,
+    revision: u64,
+    scan: crate::volume::ScanIdentity,
+    moment: Moment,
+    policy: level2::temporal::TemporalPolicy,
+    palette: u64,
+    high_contrast: bool,
+    controls: [u32; 12 + MAX_HIGHLIGHTED_LAYERS],
+}
+
+impl ObservedKey {
+    pub(crate) fn new(
+        view: &MapView,
+        moment: Moment,
+        policy: level2::temporal::TemporalPolicy,
+        palette: u64,
+        high_contrast: bool,
+        controls: [u32; 12 + MAX_HIGHLIGHTED_LAYERS],
+    ) -> Option<Self> {
+        let volume = view.volume.as_ref()?;
+        Some(Self {
+            site: view.site.clone(),
+            volume: volume.name.clone(),
+            revision: volume.revision(),
+            scan: crate::volume::ScanIdentity::new(&volume.scan),
+            moment,
+            policy,
+            palette,
+            high_contrast,
+            controls,
+        })
+    }
+
+    pub(crate) fn matches_source(
+        &self,
+        view: &MapView,
+        moment: Moment,
+        policy: level2::temporal::TemporalPolicy,
+    ) -> bool {
+        self.site == view.site
+            && self.moment == moment
+            && self.policy == policy
+            && view.volume.as_ref().is_some_and(|volume| {
+                self.volume == volume.name
+                    && self.revision == volume.revision()
+                    && self.scan.matches(&volume.scan)
+            })
+    }
+}
+
 /// Which entry of a volume's sorted, deduplicated tilt angles a sweep at `angle_deg` is. Not the
 /// sweep's position in the VCP: SAILS and MRLE rescan low tilts mid-volume, so sweep 4 of VCP 12
 /// is a second 0.5° cut, not the fourth-lowest angle. Matched to the nearest angle within 0.3°
@@ -324,11 +378,13 @@ pub struct Map3dState {
     /// every frame.
     pub observed_layers: Vec<level2::ObservedLayer>,
     /// Upload identity. Camera state is intentionally absent: moving the camera updates uniforms,
-    /// never the millions-of-gates buffer. The live revision changes for every merged chunk, so a
+    /// never the millions-of-gates buffer. Actual scan identity and accepted revision track every
+    /// merged chunk independently of the pane counter. Moment, policy and palette participate; a
     /// still-streaming volume re-uploads within a tilt and for repeated SAILS/MRLE cuts; `beam_rise`,
     /// the four CC-anomaly ramp slots and the `MAX_HIGHLIGHTED_LAYERS` selected-elevation slots
     /// (all as bits) follow, so any of those changing rebuilds too.
-    pub observed_key: Option<(String, u64, Moment, u64, [u32; 12 + MAX_HIGHLIGHTED_LAYERS])>,
+    pub observed_key: Option<ObservedKey>,
+    pub observed_coverage: Option<level2::temporal::ObservedCoverage>,
 }
 
 impl Default for Map3dState {
@@ -373,6 +429,7 @@ impl Default for Map3dState {
             selected_layer_elevs: Vec::new(),
             observed_layers: Vec::new(),
             observed_key: None,
+            observed_coverage: None,
         }
     }
 }
@@ -1346,6 +1403,117 @@ mod tests {
         );
         let site = nexrad_model::meta::Site::new(*b"KTLX", 35.33, -97.28, 380, 0);
         Arc::new(Scan::with_site(site, vcp, sweeps))
+    }
+
+    #[test]
+    fn observed_keys_follow_actual_sources_revisions_and_policy_without_camera_rebuilds() {
+        use level2::temporal::TemporalPolicy as P;
+        let clock = DateTime::from_timestamp_millis(1_700_000_000_000).unwrap();
+        let mut view = MapView::new(Some("KTLX".into()), Camera::at_lonlat(-97.0, 35.0, 8.0));
+        view.volume = Some(Volume::from_live(
+            scan_at(&[0.5]),
+            "same-name".into(),
+            clock,
+        ));
+        let key_for = |v: &MapView, p| {
+            ObservedKey::new(
+                v,
+                Moment::Reflectivity,
+                p,
+                0,
+                false,
+                [0; 12 + MAX_HIGHLIGHTED_LAYERS],
+            )
+            .unwrap()
+        };
+        let key = key_for(&view, P::Continuous);
+        assert!(key.matches_source(&view, Moment::Reflectivity, P::Continuous));
+        view.camera.pitch = 45.0;
+        view.camera.bearing = 75.0;
+        view.live_scan_revision = 999;
+        assert_eq!(
+            key,
+            key_for(&view, P::Continuous),
+            "pane counter and camera are not data identity"
+        );
+        assert_ne!(key, key_for(&view, P::StrictCurrent));
+        assert!(!key.matches_source(&view, Moment::Reflectivity, P::StrictCurrent));
+        assert!(!key.matches_source(&view, Moment::Velocity, P::Continuous));
+        assert_ne!(
+            Some(key.clone()),
+            ObservedKey::new(
+                &view,
+                Moment::Reflectivity,
+                P::Continuous,
+                1,
+                false,
+                [0; 12 + MAX_HIGHLIGHTED_LAYERS]
+            )
+        );
+        assert_ne!(
+            Some(key.clone()),
+            ObservedKey::new(
+                &view,
+                Moment::Reflectivity,
+                P::Continuous,
+                0,
+                true,
+                [0; 12 + MAX_HIGHLIGHTED_LAYERS]
+            )
+        );
+        let mut controls = [0; 12 + MAX_HIGHLIGHTED_LAYERS];
+        controls[7] = 0.5f32.to_bits();
+        assert_ne!(
+            Some(key.clone()),
+            ObservedKey::new(
+                &view,
+                Moment::Reflectivity,
+                P::Continuous,
+                0,
+                false,
+                controls
+            )
+        );
+        let scan = Arc::clone(&view.volume.as_ref().unwrap().scan);
+        view.volume
+            .as_mut()
+            .unwrap()
+            .apply_live(scan, "same-name".into(), clock, &[0.5]);
+        assert_eq!(view.volume.as_ref().unwrap().elevations.len(), 1);
+        assert!(
+            !key.matches_source(&view, Moment::Reflectivity, P::Continuous),
+            "revision changes even if scan allocation and tilt count agree"
+        );
+        let updated = key_for(&view, P::Continuous);
+        view.volume = Some(Volume::from_live(
+            scan_at(&[0.5]),
+            "same-name".into(),
+            clock,
+        ));
+        view.volume.as_mut().unwrap().apply_live(
+            scan_at(&[0.5]),
+            "same-name".into(),
+            clock,
+            &[0.5],
+        );
+        assert_eq!(updated.revision, view.volume.as_ref().unwrap().revision());
+        assert!(
+            !updated.matches_source(&view, Moment::Reflectivity, P::Continuous),
+            "equal revision/name/tilts in an independent decoded scan"
+        );
+        let independent = key_for(&view, P::Continuous);
+        view.site = Some("KPAH".into());
+        assert!(!independent.matches_source(&view, Moment::Reflectivity, P::Continuous));
+        view.volume = None;
+        assert!(ObservedKey::new(
+            &view,
+            Moment::Reflectivity,
+            P::Continuous,
+            0,
+            false,
+            controls
+        )
+        .is_none());
     }
 
     #[test]

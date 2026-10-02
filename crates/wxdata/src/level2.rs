@@ -279,6 +279,8 @@ pub fn previous_pass_arc(bin_time_ms: &[i64], az_bins: usize) -> Option<(f32, f3
 /// elevation, and a radial can be shorter than its neighbours.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ObservedRadial {
+    /// Original source acquisition clock; missing/invalid clocks remain unknown.
+    pub collected_ms: Option<i64>,
     pub azimuth_deg: f32,
     /// Azimuth width this radial is drawn over (the sweep's reported radial spacing).
     pub spacing_deg: f32,
@@ -295,6 +297,9 @@ pub struct ObservedRadial {
 /// One sweep's measured values, one row per radial, at native gate resolution.
 #[derive(Debug, Clone)]
 pub struct ObservedSweep {
+    /// Original sweep index and elevation number within this decoded scan.
+    pub source_cut: usize,
+    pub elevation_number: u8,
     pub radials: Vec<ObservedRadial>,
     /// Row length of `values` (the widest radial).
     pub width: usize,
@@ -312,6 +317,7 @@ pub struct ObservedSweep {
 /// exactly one recorded gate.
 #[derive(Debug, Clone)]
 pub struct ObservedVolume {
+    pub coverage: temporal::ObservedCoverage,
     pub sweeps: Vec<ObservedSweep>,
     pub radar_lat: f32,
     pub radar_lon: f32,
@@ -378,6 +384,24 @@ pub fn observed_volume(
     moment: Moment,
     max_gates: usize,
 ) -> anyhow::Result<ObservedVolume> {
+    observed_volume_with_policy(
+        scan,
+        moment,
+        max_gates,
+        temporal::TemporalPolicy::Continuous,
+    )
+}
+
+/// Native observed extraction under the same live policy as 2D. Strict selection keeps the
+/// newest timed moment cut at an elevation, then excludes older rows at an inferred source-time
+/// boundary. Untimed cuts are not guessed to be old when no timed choice exists. No radial
+/// geometry or gate spacing is reconstructed from bins.
+pub fn observed_volume_with_policy(
+    scan: &Scan,
+    moment: Moment,
+    max_gates: usize,
+    policy: temporal::TemporalPolicy,
+) -> anyhow::Result<ObservedVolume> {
     if moment == Moment::SpecificDifferentialPhase {
         anyhow::bail!("KDP is derived during binning and has no exact observed gates");
     }
@@ -391,7 +415,30 @@ pub fn observed_volume(
     let mut sweeps = Vec::new();
     let mut layers: Vec<ObservedLayer> = Vec::new();
     let mut radial_count = 0usize;
-    for sweep in scan.sweeps() {
+    let mut coverage = temporal::ObservedCoverage {
+        policy,
+        cuts: Vec::new(),
+    };
+    let source_clock = |radial: &nexrad_model::data::Radial| {
+        let time = radial.collection_timestamp();
+        (time > 0 && chrono::DateTime::from_timestamp_millis(time).is_some()).then_some(time)
+    };
+    // Anchor cut selection to the same deduplicated tilt list as 2D. Querying each raw
+    // angle independently can discard a cut selected at a neighbouring displayed tilt.
+    let selected_cuts: Vec<_> = elevation_angles(scan)
+        .into_iter()
+        .filter_map(|angle| {
+            let cut = newest_moment_sweep(scan, angle, moment)?;
+            let clock = cut
+                .radials()
+                .iter()
+                .filter(|radial| moment.select(radial).is_some())
+                .filter_map(source_clock)
+                .max();
+            Some((angle, cut, clock))
+        })
+        .collect();
+    for (source_cut, sweep) in scan.sweeps().iter().enumerate() {
         let carrying: Vec<_> = sweep
             .radials()
             .iter()
@@ -408,6 +455,59 @@ pub fn observed_volume(
         if width == 0 {
             continue;
         }
+        let elevation_deg = carrying[0].0.elevation_angle_degrees();
+        let source_elevation = sweep.elevation_angle_degrees().unwrap_or(elevation_deg);
+        let latest_clock = selected_cuts
+            .iter()
+            .filter(|(angle, _, _)| (*angle - source_elevation).abs() < 0.15)
+            .filter_map(|(_, _, clock)| *clock)
+            .max();
+        let selected = selected_cuts
+            .iter()
+            .any(|(_, cut, _)| std::ptr::eq(*cut, sweep));
+        let unselected_cut = latest_clock.is_some() && !selected;
+        let times: Vec<_> = carrying
+            .iter()
+            .map(|(radial, _)| source_clock(radial).unwrap_or(0))
+            .collect();
+        let cutoff = previous_pass_cutoff(&times, times.len());
+        let strict = policy == temporal::TemporalPolicy::StrictCurrent;
+        let mut cut_coverage = temporal::ObservedCutCoverage {
+            source_cut,
+            elevation_number: sweep.elevation_number(),
+            elevation_deg,
+            recorded_radials: carrying.len(),
+            excluded_radials: 0,
+            older_pass_radials: 0,
+            unselected_cut,
+            unknown_time_radials: 0,
+            used_start_ms: None,
+            used_end_ms: None,
+        };
+        // Retain the original row geometry and clock even when its gate values are excluded.
+        // This leaves every missing/excluded gate transparent without synthesizing a radial.
+        let excluded: Vec<_> = times
+            .iter()
+            .map(|&time| {
+                cut_coverage.unknown_time_radials += usize::from(time == 0);
+                let older = time > 0
+                    && (cutoff.is_some_and(|old| time <= old)
+                        || (unselected_cut && latest_clock.is_some_and(|latest| time < latest)));
+                cut_coverage.older_pass_radials += usize::from(older);
+                let excluded = strict && (unselected_cut || cutoff.is_some_and(|old| time <= old));
+                cut_coverage.excluded_radials += usize::from(excluded);
+                if !excluded && time > 0 {
+                    cut_coverage.used_start_ms = Some(
+                        cut_coverage
+                            .used_start_ms
+                            .map_or(time, |start| start.min(time)),
+                    );
+                    cut_coverage.used_end_ms =
+                        Some(cut_coverage.used_end_ms.map_or(time, |end| end.max(time)));
+                }
+                excluded
+            })
+            .collect();
         let pool = width.div_ceil(max_gates.max(1)).max(1);
         let cells = width.div_ceil(pool);
         let mut values = vec![0u8; carrying.len() * cells];
@@ -416,25 +516,30 @@ pub fn observed_volume(
         let mut max_value: Option<f32> = None;
         for (row, (radial, data)) in carrying.iter().enumerate() {
             let out = &mut values[row * cells..(row + 1) * cells];
-            for (gate, value) in data.iter().enumerate() {
-                let idx = match value {
-                    MomentValue::BelowThreshold => 0,
-                    MomentValue::RangeFolded => 1,
-                    MomentValue::Value(v) => {
-                        coverage_gates += 1;
-                        max_value = Some(max_value.map_or(v, |m: f32| m.max(v)));
-                        normalize(v)
+            if !excluded[row] {
+                for (gate, value) in data.iter().enumerate() {
+                    let idx = match value {
+                        MomentValue::BelowThreshold => 0,
+                        MomentValue::RangeFolded => 1,
+                        MomentValue::Value(v) => {
+                            coverage_gates += 1;
+                            max_value = Some(max_value.map_or(v, |m: f32| m.max(v)));
+                            normalize(v)
+                        }
+                    };
+                    let cell = &mut out[gate / pool];
+                    // `pool == 1` is a plain store. Pooled cells keep the strongest real value, and a
+                    // fold only fills a cell that has nothing else.
+                    if pool == 1
+                        || (idx >= 2 && (*cell < 2 || idx > *cell))
+                        || (*cell == 0 && idx == 1)
+                    {
+                        *cell = idx;
                     }
-                };
-                let cell = &mut out[gate / pool];
-                // `pool == 1` is a plain store. Pooled cells keep the strongest real value, and a
-                // fold only fills a cell that has nothing else.
-                if pool == 1 || (idx >= 2 && (*cell < 2 || idx > *cell)) || (*cell == 0 && idx == 1)
-                {
-                    *cell = idx;
                 }
             }
             radials.push(ObservedRadial {
+                collected_ms: source_clock(radial),
                 azimuth_deg: radial.azimuth_angle_degrees().rem_euclid(360.0),
                 spacing_deg: radial.azimuth_spacing_degrees().max(0.01),
                 elevation_deg: radial.elevation_angle_degrees(),
@@ -443,9 +548,12 @@ pub fn observed_volume(
                 gate_count: (data.gate_count() as usize).div_ceil(pool) as u32,
             });
         }
-        let (scan_start, scan_end) = sweep
-            .time_range()
-            .map_or((None, None), |(a, b)| (Some(a), Some(b)));
+        let scan_start = cut_coverage
+            .used_start_ms
+            .and_then(chrono::DateTime::from_timestamp_millis);
+        let scan_end = cut_coverage
+            .used_end_ms
+            .and_then(chrono::DateTime::from_timestamp_millis);
         layers.push(ObservedLayer {
             elevation_deg: radials[0].elevation_deg,
             radial_count: radials.len(),
@@ -457,14 +565,18 @@ pub fn observed_volume(
         });
         radial_count += radials.len();
         sweeps.push(ObservedSweep {
+            source_cut,
+            elevation_number: sweep.elevation_number(),
             radials,
             width: cells,
             pool,
             values,
         });
+        coverage.cuts.push(cut_coverage);
     }
     layers.sort_by(|a, b| a.elevation_deg.total_cmp(&b.elevation_deg));
     Ok(ObservedVolume {
+        coverage,
         sweep_count: sweeps.len(),
         sweeps,
         radar_lat: site.latitude(),
@@ -2758,6 +2870,302 @@ mod tests {
         // The strongest value survives pooling.
         let max = |v: &[u8]| v.iter().copied().max().unwrap_or(0);
         assert_eq!(max(&s.values), max(&full.sweeps[0].values));
+    }
+
+    fn observed_radial(
+        time: i64,
+        azimuth: f32,
+        elevation: f32,
+        number: u8,
+        moment: Moment,
+        raw: Vec<u8>,
+    ) -> Radial {
+        let data = MomentData::from_fixed_point(raw.len() as u16, 500, 250, 8, 2.0, 66.0, raw);
+        let (reflectivity, velocity) = if moment == Moment::Reflectivity {
+            (Some(data), None)
+        } else {
+            (None, Some(data))
+        };
+        Radial::new(
+            time,
+            1,
+            azimuth,
+            0.5,
+            nexrad_model::data::RadialStatus::ScanStart,
+            number,
+            elevation,
+            reflectivity,
+            velocity,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+    }
+
+    fn observed_scan(sweeps: Vec<Sweep>) -> Scan {
+        Scan::with_site(
+            nexrad_model::meta::Site::new(*b"KTLX", 35.33, -97.28, 380, 0),
+            minimal_vcp(),
+            sweeps,
+        )
+    }
+
+    #[test]
+    fn observed_policy_masks_native_rows_without_replacing_geometry_or_source_clocks() {
+        use temporal::TemporalPolicy as P;
+        let old = 1_700_000_000_000;
+        let new = old + 120_000;
+        let radial = |time, az, elev, number, raw| {
+            observed_radial(time, az, elev, number, Moment::Reflectivity, raw)
+        };
+        let scan = observed_scan(vec![
+            Sweep::new(1, vec![radial(old, 7.0, 0.5, 1, vec![246, 1, 0, 106])]),
+            Sweep::new(
+                3,
+                vec![
+                    radial(new, 31.0, 0.5, 3, vec![106, 1, 0, 126]),
+                    radial(old + 1_000, 44.0, 0.5, 3, vec![246, 246]),
+                    radial(0, 55.0, 0.5, 3, vec![246]),
+                ],
+            ),
+            Sweep::new(2, vec![radial(old + 2_000, 70.0, 1.5, 2, vec![116])]),
+        ]);
+        let full = observed_volume(&scan, Moment::Reflectivity, 4096).unwrap();
+        let continuous =
+            observed_volume_with_policy(&scan, Moment::Reflectivity, 4096, P::Continuous).unwrap();
+        let strict =
+            observed_volume_with_policy(&scan, Moment::Reflectivity, 4096, P::StrictCurrent)
+                .unwrap();
+        for ((default, continuous), strict) in full
+            .sweeps
+            .iter()
+            .zip(&continuous.sweeps)
+            .zip(&strict.sweeps)
+        {
+            assert_eq!(
+                default.values, continuous.values,
+                "default byte-for-byte native gates"
+            );
+            assert_eq!(
+                continuous.radials, strict.radials,
+                "native clocks and geometry survive masking"
+            );
+            assert_eq!(
+                (continuous.source_cut, continuous.elevation_number),
+                (strict.source_cut, strict.elevation_number)
+            );
+        }
+        assert!(strict.sweeps[0].values.iter().all(|&v| v == 0));
+        let width = strict.sweeps[1].width;
+        assert_eq!(
+            &strict.sweeps[1].values[..width],
+            &continuous.sweeps[1].values[..width]
+        );
+        assert_eq!(strict.sweeps[1].values[1], 1, "fold stays a fold");
+        assert_eq!(strict.sweeps[1].values[2], 0, "missing stays missing");
+        assert!(strict.sweeps[1].values[width..].iter().all(|&v| v == 0));
+        assert_eq!(
+            strict.sweeps[2].values, continuous.sweeps[2].values,
+            "older upper cut is not a newer low cut"
+        );
+        assert_eq!(continuous.coverage.retained_older_radials(), 2);
+        assert_eq!(strict.coverage.excluded_radials(), 3);
+        assert_eq!(strict.coverage.unknown_time_radials(), 1);
+        assert_eq!(
+            strict.coverage.acquisition_range_ms(),
+            Some((old + 2_000, new))
+        );
+        assert_eq!(strict.coverage.cuts[0].used_start_ms, None);
+        assert_eq!(strict.coverage.cuts[1].used_start_ms, Some(new));
+        assert_eq!(strict.layers[0].coverage_gates, 0);
+        assert_eq!(
+            strict.layers[1].max_value,
+            Some(30.0),
+            "excluded stronger echoes do not enter summary"
+        );
+        let pooled =
+            observed_volume_with_policy(&scan, Moment::Reflectivity, 2, P::StrictCurrent).unwrap();
+        assert_eq!(pooled.sweeps[1].pool, 2);
+        assert!(
+            pooled.sweeps[1].values[2..].iter().all(|&v| v == 0),
+            "mask precedes pooling"
+        );
+        assert_eq!(pooled.layers[1].max_value, strict.layers[1].max_value);
+    }
+
+    #[test]
+    fn observed_policy_chooses_the_newest_cut_carrying_the_moment_not_scan_order() {
+        use temporal::TemporalPolicy as P;
+        let old = 1_700_000_000_000;
+        let radial = |time, number, moment| {
+            observed_radial(time, number as f32, 0.5, number, moment, vec![106])
+        };
+        let scan = observed_scan(vec![
+            Sweep::new(4, vec![radial(old + 120_000, 4, Moment::Reflectivity)]),
+            Sweep::new(5, vec![radial(old + 240_000, 5, Moment::Velocity)]),
+            Sweep::new(1, vec![radial(old, 1, Moment::Reflectivity)]),
+        ]);
+        let strict =
+            observed_volume_with_policy(&scan, Moment::Reflectivity, 4096, P::StrictCurrent)
+                .unwrap();
+        assert_eq!(strict.coverage.cuts.len(), 2);
+        assert!(!strict.coverage.cuts[0].unselected_cut);
+        assert!(strict.coverage.cuts[1].unselected_cut);
+        assert_eq!(
+            strict.sweeps[1].source_cut, 2,
+            "original cut index includes omitted Doppler cut"
+        );
+        assert_eq!(
+            strict.coverage.acquisition_range_ms(),
+            Some((old + 120_000, old + 120_000))
+        );
+        assert_eq!(strict.coverage.excluded_radials(), 1);
+        assert!(strict.sweeps[0].values[0] >= 2);
+        assert_eq!(strict.sweeps[1].values[0], 0);
+    }
+
+    #[test]
+    fn observed_policy_preserves_every_cut_selected_by_the_2d_tilt_list() {
+        use temporal::TemporalPolicy as P;
+        let clock = 1_700_000_000_000;
+        let scan = observed_scan(
+            [0.5, 0.64, 0.78]
+                .into_iter()
+                .enumerate()
+                .map(|(i, angle)| {
+                    Sweep::new(
+                        (i + 1) as u8,
+                        vec![observed_radial(
+                            clock + i as i64 * 120_000,
+                            1.0,
+                            angle,
+                            (i + 1) as u8,
+                            Moment::Reflectivity,
+                            vec![106],
+                        )],
+                    )
+                })
+                .collect(),
+        );
+        assert_eq!(elevation_angles(&scan), vec![0.5, 0.78]);
+        let strict =
+            observed_volume_with_policy(&scan, Moment::Reflectivity, 4096, P::StrictCurrent)
+                .unwrap();
+        assert_eq!(strict.sweeps[0].values, vec![0]);
+        assert!(
+            strict.sweeps[1].values[0] >= 2,
+            "2D's selected lower cut remains observed"
+        );
+        assert!(
+            strict.sweeps[2].values[0] >= 2,
+            "2D's selected upper cut remains observed"
+        );
+        assert_eq!(strict.coverage.excluded_radials(), 1);
+    }
+
+    #[test]
+    fn observed_policy_never_assigns_a_clock_or_pass_to_untimed_cuts() {
+        use temporal::TemporalPolicy as P;
+        let scan = observed_scan(vec![
+            Sweep::new(
+                1,
+                vec![observed_radial(
+                    0,
+                    1.0,
+                    0.5,
+                    1,
+                    Moment::Reflectivity,
+                    vec![106],
+                )],
+            ),
+            Sweep::new(
+                3,
+                vec![observed_radial(
+                    -1,
+                    2.0,
+                    0.5,
+                    3,
+                    Moment::Reflectivity,
+                    vec![126],
+                )],
+            ),
+        ]);
+        let strict =
+            observed_volume_with_policy(&scan, Moment::Reflectivity, 4096, P::StrictCurrent)
+                .unwrap();
+        assert_eq!(strict.coverage.unknown_time_radials(), 2);
+        assert_eq!(strict.coverage.excluded_radials(), 0);
+        assert_eq!(strict.coverage.acquisition_range_ms(), None);
+        assert!(strict.coverage.cuts.iter().all(|cut| !cut.unselected_cut));
+        assert!(strict
+            .sweeps
+            .iter()
+            .all(|s| s.values[0] >= 2 && s.radials[0].collected_ms.is_none()));
+        assert!(strict
+            .layers
+            .iter()
+            .all(|l| l.scan_start.is_none() && l.scan_end.is_none()));
+    }
+
+    #[test]
+    fn observed_policy_source_span_ignores_radials_without_the_selected_moment() {
+        use temporal::TemporalPolicy as P;
+        let clock = 1_700_000_000_000;
+        let scan = observed_scan(vec![Sweep::new(
+            1,
+            vec![
+                observed_radial(clock, 1.0, 0.5, 1, Moment::Reflectivity, vec![106]),
+                observed_radial(clock + 120_000, 2.0, 0.5, 1, Moment::Velocity, vec![126]),
+            ],
+        )]);
+        let volume =
+            observed_volume_with_policy(&scan, Moment::Reflectivity, 4096, P::Continuous).unwrap();
+        assert_eq!(volume.coverage.acquisition_range_ms(), Some((clock, clock)));
+        assert_eq!(volume.layers[0].scan_end.unwrap().timestamp_millis(), clock);
+        assert_eq!(volume.radial_count, 1);
+        assert!(observed_volume_with_policy(
+            &scan,
+            Moment::SpecificDifferentialPhase,
+            4096,
+            P::StrictCurrent
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn observed_policy_preserves_pinned_partial_scan_clocks_and_real_cut_inventory() {
+        use temporal::TemporalPolicy as P;
+        let scan = decode_volume(
+            include_bytes!("../tests/data/corpus/mayfield-2021-first-records.ar2").to_vec(),
+        )
+        .unwrap();
+        for policy in [P::Continuous, P::StrictCurrent] {
+            let volume =
+                observed_volume_with_policy(&scan, Moment::Reflectivity, 4096, policy).unwrap();
+            assert!(!volume.sweeps.is_empty());
+            for (sweep, coverage) in volume.sweeps.iter().zip(&volume.coverage.cuts) {
+                let source = &scan.sweeps()[sweep.source_cut];
+                let carrying: Vec<_> = source
+                    .radials()
+                    .iter()
+                    .filter(|r| Moment::Reflectivity.select(r).is_some())
+                    .collect();
+                assert_eq!(sweep.radials.len(), carrying.len());
+                assert_eq!(coverage.recorded_radials, carrying.len());
+                assert_eq!(sweep.elevation_number, source.elevation_number());
+                for (observed, original) in sweep.radials.iter().zip(carrying) {
+                    assert_eq!(observed.collected_ms, Some(original.collection_timestamp()));
+                    assert_eq!(observed.elevation_deg, original.elevation_angle_degrees());
+                    assert_eq!(
+                        observed.azimuth_deg,
+                        original.azimuth_angle_degrees().rem_euclid(360.0)
+                    );
+                }
+            }
+            assert!(volume.coverage.acquisition_range_ms().is_some());
+        }
     }
 
     /// The AWS archive reaches back to June 1991 — a decade earlier than the app used to claim.

@@ -1,6 +1,7 @@
 //! Local radar product identity and delivery. A worker answers a specific accepted scan revision;
 //! source timing travels with that answer rather than being reconstructed from its volume label.
 use super::*;
+pub(super) use crate::volume::ScanIdentity;
 use wxdata::level2::temporal::{TemporalCoverage, TemporalPolicy};
 
 pub(super) const LAYERS: [crate::render::FieldLayer; 6] = {
@@ -27,25 +28,6 @@ pub(super) struct DerivedKey {
     pub layers: u8,
     pub freezing_bits: Option<(u64, u64)>,
 }
-
-/// Runtime identity of the actual decoded scan, including independently acquired panes whose
-/// object names and local revision counters happen to agree. A weak reference keeps its address
-/// unique without retaining the scan's gate buffers after eviction. Never persisted as provenance.
-#[derive(Clone, Debug)]
-pub(super) struct ScanIdentity(std::sync::Weak<Scan>);
-
-impl ScanIdentity {
-    pub(super) fn new(scan: &Arc<Scan>) -> Self {
-        Self(Arc::downgrade(scan))
-    }
-}
-
-impl PartialEq for ScanIdentity {
-    fn eq(&self, other: &Self) -> bool {
-        self.0.ptr_eq(&other.0)
-    }
-}
-impl Eq for ScanIdentity {}
 
 pub(super) fn policy(view: &MapView, settings: &Settings) -> TemporalPolicy {
     if settings.live_sweep_mode == crate::settings::LiveSweepMode::StrictCurrentSweep
@@ -158,9 +140,7 @@ impl DerivedKey {
     fn matches_view(&self, view: &MapView, settings: &Settings) -> bool {
         self.site == view.site
             && view.volume.as_ref().is_some_and(|v| {
-                self.volume == v.name
-                    && self.revision == v.revision()
-                    && self.scan.0.as_ptr() == Arc::as_ptr(&v.scan)
+                self.volume == v.name && self.revision == v.revision() && self.scan.matches(&v.scan)
             })
             && self.policy == policy(view, settings)
             && self.etop_bits == settings.etop_dbz.to_bits()

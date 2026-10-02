@@ -8,6 +8,29 @@
 
 use wxdata::level2::{self, Identifier, Scan};
 
+/// Runtime scan allocation identity without retaining its gate buffers. This is never a
+/// persisted source identifier; equal volume names and local revisions can describe different
+/// independently decoded scans in separate panes.
+#[derive(Clone, Debug)]
+pub(crate) struct ScanIdentity(std::sync::Weak<Scan>);
+
+impl ScanIdentity {
+    pub(crate) fn new(scan: &std::sync::Arc<Scan>) -> Self {
+        Self(std::sync::Arc::downgrade(scan))
+    }
+
+    pub(crate) fn matches(&self, scan: &std::sync::Arc<Scan>) -> bool {
+        self.0.as_ptr() == std::sync::Arc::as_ptr(scan)
+    }
+}
+
+impl PartialEq for ScanIdentity {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.ptr_eq(&other.0)
+    }
+}
+impl Eq for ScanIdentity {}
+
 /// Fetch and decode one volume, using whatever cache this target has.
 ///
 /// `archived` is true for a volume this timeline already names — a published, immutable S3

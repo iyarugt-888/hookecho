@@ -500,7 +500,6 @@ impl HookEchoApp {
         if !vol.moments[moment.index()] {
             return (None, false);
         }
-        let name = vol.name.clone();
         let scan = Arc::clone(&vol.scan);
         let (value_min, value_max) = moment.value_range();
         // CC anomaly replaces the floor for correlation coefficient rather than stacking with it.
@@ -559,27 +558,28 @@ impl HookEchoApp {
         for (slot, elev) in controls[12..].iter_mut().zip(highlight_elevs.iter()) {
             *slot = elev.to_bits();
         }
-        let palette_gen = self.palettes.gen.wrapping_add(
-            if crate::theme::is_high_contrast(self.settings.theme) {
-                0x9e37_79b9_7f4a_7c15
-            } else {
-                0
-            },
-        );
-        let key = (
-            name,
-            self.views[data].live_scan_revision,
+        let policy = super::radar_products::policy(&self.views[data], &self.settings);
+        let key = crate::view::ObservedKey::new(
+            &self.views[data],
             moment,
-            palette_gen,
+            policy,
+            self.palettes.gen,
+            crate::theme::is_high_contrast(self.settings.theme),
             controls,
-        );
+        )
+        .expect("observed upload has a source volume");
         if self.views[idx].map_3d.observed_key.as_ref() == Some(&key) {
             return (None, true);
         }
         // Full native resolution: every gate of every radial goes to the GPU as a texel, and the
         // shader draws each radial as a strip on its own beam surface. `max_texture_dim` is only
         // a ceiling; a sweep wider than it is max-pooled and reported, never silently thinned.
-        let observed = match level2::observed_volume(&scan, moment, self.max_texture_dim as usize) {
+        let observed = match level2::observed_volume_with_policy(
+            &scan,
+            moment,
+            self.max_texture_dim as usize,
+            policy,
+        ) {
             Ok(volume) => volume,
             Err(err) => {
                 self.views[idx].error = Some(err.to_string());
@@ -587,6 +587,7 @@ impl HookEchoApp {
             }
         };
         self.views[idx].map_3d.observed_layers = observed.layers.clone();
+        self.views[idx].map_3d.observed_coverage = Some(observed.coverage.clone());
         // A selection surviving a moment switch or a tilt dropping out of the volume would dim
         // every gate (the shader has a selection but nothing left to match it), which reads as
         // the whole layer vanishing rather than as nothing being selected.

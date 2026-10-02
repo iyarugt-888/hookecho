@@ -8,6 +8,15 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: native 3D sweeps follow source revisions and sweep policy
+
+Observed 3D map sweeps now rebuild for the actual accepted scan, including another update at
+the same elevation, and respect strict-current mode while following a partial live scan.
+Excluded gates become transparent; continuous mode preserves native gates and geometry.
+The Inspector reports source times, retained/excluded recorded radials and unknown clocks
+for each decoded cut. Old Layers summaries are hidden until the selected source matches.
+Missing radial inventory and complete columns remain explicitly unestablished.
+
 ### Fixed: 3D reflectivity follows the accepted scan
 
 The standalone 3D window rebuilds for live scan revisions, including updates at the same

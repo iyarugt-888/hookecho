@@ -61,9 +61,9 @@ working GPU adapter; a default ignored entry does not certify the capture.
 
 ## Remaining scope
 
-Observed, smooth and isosurface map paths still need contributor identity, temporal policy and
-coverage. Observed gates must retain their actual radial geometry and source clocks; converting
-them to a binned volume to obtain policy metadata would lose their native measurement contract.
+The subsequent [native observed increment](observed-3d.md) retains radial geometry and source
+clocks, adds scan-local cut coverage and applies the live policy. Smooth and isosurface map paths
+still need contributor identity, temporal policy and accepted coverage.
 Raw cut/pass inventory, SAILS/MRLE and VCP/mid-volume joins, proven transport gaps, finer contributor
 invalidation, per-pane local products and platform/soak evidence remain separate work. Palette
 changes conservatively rebuild the standalone upload and grid together today; updating only the
