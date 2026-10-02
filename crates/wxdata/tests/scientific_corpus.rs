@@ -567,3 +567,50 @@ fn cached_rotation_columns_root_the_violent_tornadoes() {
         );
     }
 }
+
+/// What the fused Tornado ID costs per volume against the legacy detectors, on the Moore volume
+/// (release build for meaningful numbers): the app runs it on the UI thread for each new volume.
+#[test]
+#[ignore = "large cached fixtures: provision explicitly before running"]
+fn cached_fused_pipeline_cost_against_legacy() {
+    let m = corpus::manifest();
+    let f = m.fixtures.iter().find(|f| f.id == "moore-2013").unwrap();
+    let scan = level2::decode_volume(corpus::read(f, &corpus::cache_dir()).unwrap()).unwrap();
+    let (mut vel_pairs, mut cc_pairs) = (Vec::new(), Vec::new());
+    for tilt in 0..level2::elevation_angles(&scan).len() {
+        let z = level2::bin_scan(&scan, Moment::Reflectivity, tilt);
+        if let (Ok(z), Ok(cc)) = (&z, level2::bin_scan(&scan, Moment::CorrelationCoefficient, tilt)) {
+            cc_pairs.push((z.clone(), cc));
+        }
+        if let (Ok(z), Ok(v)) = (z, level2::bin_scan_opts(&scan, Moment::Velocity, tilt, true)) {
+            vel_pairs.push((v, z));
+        }
+        if vel_pairs.len() == 4 {
+            break;
+        }
+    }
+    let t0 = std::time::Instant::now();
+    let couplets = wxdata::rotation::detect_volume(&vel_pairs, 25.0, 20.0, 15.0, 150.0, 3);
+    let legacy_rot = t0.elapsed();
+    let t1 = std::time::Instant::now();
+    let debris = wxdata::tds::detect_volume(&cc_pairs, 0.80, 40.0, 150.0, 4);
+    let legacy_tds = t1.elapsed();
+    let t2 = std::time::Instant::now();
+    let columns = wxdata::rotation_columns::from_sweeps(&vel_pairs);
+    let fused_cols = t2.elapsed();
+    let t3 = std::time::Instant::now();
+    let mut tracker =
+        wxdata::rotation_tracks::Tracker::new(wxdata::rotation_tracks::TrackParams::default());
+    let analysed = wxdata::llsd_analyst::analyse(tracker.update(0, columns), &debris, &[]);
+    let fused_rest = t3.elapsed();
+    let t4 = std::time::Instant::now();
+    let one = wxdata::rotation_columns::from_sweeps(&vel_pairs[..1]);
+    let one_tilt = t4.elapsed();
+    eprintln!(
+        "legacy couplets {legacy_rot:?} ({} hits), legacy debris {legacy_tds:?}; fused columns {fused_cols:?} \
+         + track/classify/fuse {fused_rest:?} ({} analysed); one tilt alone {one_tilt:?} ({} columns)",
+        couplets.len(),
+        analysed.len(),
+        one.len()
+    );
+}

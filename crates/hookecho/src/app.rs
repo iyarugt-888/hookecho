@@ -1273,6 +1273,12 @@ pub struct HookEchoApp {
     #[allow(clippy::type_complexity)]
     llsd_cache: Option<((usize, String, usize), Vec<wxdata::llsd_analyst::Analysed>)>,
     llsd_tracker: Option<(String, wxdata::rotation_tracks::Tracker)>,
+    /// The background job computing one volume's columns (see `compute_llsd`).
+    #[allow(clippy::type_complexity)]
+    llsd_job: Option<(
+        (usize, String, usize),
+        std::sync::mpsc::Receiver<Vec<wxdata::rotation_columns::RotationColumn>>,
+    )>,
     /// Same role as `tds_shown_cache`, for rotation: the corroborated couplets, not `couplet_cache`'s
     /// raw ones. Filled once per volume, in `compute_couplets`.
     rot_shown_cache: LruCache<String, Vec<wxdata::rotation::CoupletHit>>,

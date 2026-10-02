@@ -1208,18 +1208,7 @@ pub(crate) fn show(
     // back from is worse than no slider.
     if section == "Detectors" {
         detector_score_thresholds(ui, filters, detectors);
-        header(ui, "Experimental");
-        ui.checkbox(
-            &mut detectors.llsd_preview,
-            "LLSD rotation (analyst preview)",
-        )
-        .on_hover_text(
-            "Draws the redesigned rotation pipeline beside the regular detectors: azimuthal \
-                 shear objects, followed up through the tilts and from volume to volume, with the \
-                 debris beside them classified and every term of their evidence score on hover. \
-                 It is still being validated against the regular detectors, so it raises no alert \
-                 and changes nothing else.",
-        );
+        tornado_id_controls(ui, detectors);
     }
     if section == "Detectors" && filters.show_tbss {
         header(ui, "Hail spike (TBSS)");
@@ -1279,6 +1268,37 @@ pub(crate) fn show(
     }
 
     actions.overlays_changed |= changed;
+}
+
+/// Which pipeline Tornado ID shows, and the analyst preview, in the Detectors section.
+pub(crate) fn tornado_id_controls(
+    ui: &mut egui::Ui,
+    detectors: &mut crate::settings::DetectorTuning,
+) {
+    let header = |ui: &mut egui::Ui, text: &str| {
+        ui.add_space(4.0);
+        ui.label(egui::RichText::new(text).small().strong());
+    };
+    header(ui, "Tornado ID");
+    ui.horizontal(|ui| {
+        use crate::settings::TornadoIdSource as S;
+        ui.radio_value(&mut detectors.tornado_id_source, S::Fusion, "Fused (default)")
+            .on_hover_text(
+                "Rotation found as azimuthal-shear columns, followed up through the tilts and                      from scan to scan, with the debris beside it, scored as one evidence score.                      On the archived-event backtest it raised far fewer false alarms than the                      original for as many tornadoes found.",
+            );
+        ui.radio_value(&mut detectors.tornado_id_source, S::Legacy, "Original")
+            .on_hover_text(
+                "The original Tornado ID, from the rotation-couplet and debris layers.",
+            );
+    });
+    header(ui, "Analyst");
+    ui.checkbox(
+        &mut detectors.llsd_preview,
+        "LLSD rotation (analyst preview)",
+    )
+    .on_hover_text(
+        "Draws every column of the fused pipeline, not only the ones Tornado ID shows:              azimuthal shear objects, followed up through the tilts and from volume to volume,              with the debris beside them classified and every term of their evidence score on              hover. It raises no alert of its own.",
+    );
 }
 
 /// The debris and rotation score thresholds in the Detectors section: each only with its own
@@ -1429,10 +1449,11 @@ mod detector_threshold_snapshots {
             gpu.save(
                 &destination.join(format!("detector-thresholds-{width}.png")),
                 width,
-                220,
+                340,
                 |ui| {
                     egui::Frame::NONE.inner_margin(10).show(ui, |ui| {
                         detector_score_thresholds(ui, &filters, &mut detectors);
+                        tornado_id_controls(ui, &mut detectors);
                     });
                 },
             )

@@ -102,18 +102,15 @@ impl HookEchoApp {
             self.check_rain_arrival();
             self.evaluate_scan_rules(idx, &tds_hits, &tbss_hits, &zdr_hits, &couplets);
         }
-        let tornado_ids = if self.filters.show_tornado_id && idx == self.active && !merge {
-            wxdata::tornado_id::identify(&couplets, &tds_hits)
-        } else {
-            Vec::new()
-        };
+        // Tornado ID, from the fusion or the legacy detectors (`detectors.tornado_id_source`).
         // Merged: every rotation and debris detection near a tornado is drawn as part of that
         // tornado's one marker, not on its own; the full lists stay for the web it opens into.
-        let circulations = if merge && idx == self.active {
-            wxdata::tornado_id::circulations(&couplets, &tds_hits)
-        } else {
-            Vec::new()
-        };
+        let (tornado_ids, circulations) =
+            if idx == self.active && (merge || self.filters.show_tornado_id) {
+                self.tornado_identifications(idx, ctx, &couplets, &tds_hits, merge)
+            } else {
+                (Vec::new(), Vec::new())
+            };
         let mut tied_couplet = vec![false; couplets.len()];
         let mut tied_tds = vec![false; tds_hits.len()];
         for c in &circulations {
@@ -142,7 +139,7 @@ impl HookEchoApp {
             Vec::new()
         };
         let llsd = if self.settings.detectors.llsd_preview && idx == self.active {
-            self.compute_llsd(idx)
+            self.compute_llsd(idx, ctx).unwrap_or_default()
         } else {
             Vec::new()
         };

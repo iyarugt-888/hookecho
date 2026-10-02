@@ -365,7 +365,7 @@ impl HookEchoApp {
                 .peek(&name)
                 .cloned()
                 .unwrap_or_default();
-            let circulations = wxdata::tornado_id::circulations(&rot, &tds);
+            let circulations = self.cached_circulations(&name, &rot, &tds);
             let markers: Vec<(String, [f64; 2])> = self
                 .settings
                 .markers

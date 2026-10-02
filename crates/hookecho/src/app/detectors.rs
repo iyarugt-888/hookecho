@@ -276,32 +276,147 @@ impl HookEchoApp {
         self.tds_raw(idx)
     }
 
-    /// The experimental LLSD rotation pipeline for this volume, analysed (detectionplan.md Phases
-    /// 12-13): rotation columns from the same four lowest tilts the couplet detector reads, tracked
-    /// from the previous volume, with the volume's debris signatures classified beside them and
-    /// every column fused. Cached per volume. The tracker starts over when the site changes or the
-    /// volume is not newer than the last one it saw (stepping back through a loop), so a track is
-    /// only ever built forward in time. It raises no alert and feeds nothing else.
-    pub(crate) fn compute_llsd(&mut self, idx: usize) -> Vec<wxdata::llsd_analyst::Analysed> {
+    /// Tornado ID for this volume, from the source the settings name: the fusion (default) or the
+    /// legacy couplets and debris. `merged` asks for one detection per tornado
+    /// ([`wxdata::tornado_id::Circulation`]s, with `couplets` and `tds` tied in) instead of the
+    /// separate verdicts.
+    pub(crate) fn tornado_identifications(
+        &mut self,
+        idx: usize,
+        ctx: &egui::Context,
+        couplets: &[wxdata::rotation::CoupletHit],
+        tds: &[wxdata::tds::TdsHit],
+        merged: bool,
+    ) -> (
+        Vec<wxdata::tornado_id::TornadoId>,
+        Vec<wxdata::tornado_id::Circulation>,
+    ) {
+        use crate::settings::TornadoIdSource;
+        // The fusion's verdict once this volume's columns are ready; until then, and for a light
+        // loop frame (one tilt), the original's, so the markers never blink out.
+        let analysed = match self.settings.detectors.tornado_id_source {
+            TornadoIdSource::Fusion => self.compute_llsd(idx, ctx),
+            TornadoIdSource::Legacy => None,
+        };
+        match analysed {
+            None => {
+                if merged {
+                    (Vec::new(), wxdata::tornado_id::circulations(couplets, tds))
+                } else {
+                    (wxdata::tornado_id::identify(couplets, tds), Vec::new())
+                }
+            }
+            Some(analysed) => {
+                let evidence = self.confirm_evidence(idx);
+                let minute = self.volume_minute(idx);
+                let confirm =
+                    |lon: f64, lat: f64| wxdata::confirm::confirm(lon, lat, minute, &evidence);
+                if merged {
+                    let c = wxdata::llsd_analyst::circulations(&analysed, couplets, tds, confirm);
+                    (Vec::new(), c)
+                } else {
+                    (
+                        wxdata::llsd_analyst::identify(&analysed, confirm),
+                        Vec::new(),
+                    )
+                }
+            }
+        }
+    }
+
+    /// The same circulations for a volume already computed, read-only (the Cell dock): the
+    /// fusion's from its cache when that holds this volume, else the legacy ones.
+    pub(crate) fn cached_circulations(
+        &self,
+        volume_name: &str,
+        couplets: &[wxdata::rotation::CoupletHit],
+        tds: &[wxdata::tds::TdsHit],
+    ) -> Vec<wxdata::tornado_id::Circulation> {
+        use crate::settings::TornadoIdSource;
+        if self.settings.detectors.tornado_id_source == TornadoIdSource::Fusion {
+            if let Some((key, analysed)) = &self.llsd_cache {
+                if key.1 == volume_name {
+                    let idx = key.0;
+                    let evidence = self.confirm_evidence(idx);
+                    let minute = self.volume_minute(idx);
+                    return wxdata::llsd_analyst::circulations(
+                        analysed,
+                        couplets,
+                        tds,
+                        |lon, lat| wxdata::confirm::confirm(lon, lat, minute, &evidence),
+                    );
+                }
+            }
+        }
+        wxdata::tornado_id::circulations(couplets, tds)
+    }
+
+    /// The fused pipeline for this volume, analysed (detectionplan.md Phases 12-13), or `None`
+    /// while it is still being computed or cannot be: rotation columns from the same four lowest
+    /// tilts the couplet detector reads, tracked from the previous volume, with the volume's debris
+    /// signatures classified beside them and every column fused. Cached per volume.
+    ///
+    /// The columns cost about a third of a second a volume (four LLSD fields and their objects;
+    /// the legacy couplets take about 12 ms), so off the browser build they are computed on a
+    /// background thread: the first call for a volume starts it and returns `None`, and when it
+    /// is done it asks `ctx` for a repaint and the next call tracks, classifies and fuses (well
+    /// under a millisecond). Only the newest volume's job is kept. A light loop frame carries one
+    /// tilt, and the fusion's evidence is a column through several, so it is not computed for one
+    /// (`None`). The tracker starts over when the site changes or the volume is not newer than the
+    /// last one it saw (stepping back through a loop), so a track is only built forward in time.
+    pub(crate) fn compute_llsd(
+        &mut self,
+        idx: usize,
+        ctx: &egui::Context,
+    ) -> Option<Vec<wxdata::llsd_analyst::Analysed>> {
         let key = self.volume_key(idx);
         if let Some((k, v)) = &self.llsd_cache {
             if *k == key {
-                return v.clone();
+                return Some(v.clone());
             }
         }
-        const TILTS: usize = 4;
-        let site = self.views[idx].site.clone().unwrap_or_default();
-        let Some(vol) = self.views[idx].volume.as_mut() else {
-            return Vec::new();
+        if self.views[idx].volume.as_ref().is_none_or(|v| v.light) {
+            return None;
+        }
+        let columns = match self.llsd_job.take() {
+            Some((k, rx)) if k == key => match rx.try_recv() {
+                Ok(columns) => columns,
+                Err(std::sync::mpsc::TryRecvError::Empty) => {
+                    self.llsd_job = Some((k, rx));
+                    return None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => return None,
+            },
+            // A job for another volume (or none): this one is what is wanted now.
+            _ => {
+                const TILTS: usize = 4;
+                let vol = self.views[idx].volume.as_mut()?;
+                let pairs: Vec<_> = vol
+                    .velocity_tilts_dealiased()
+                    .into_iter()
+                    .zip(vol.moment_tilts(Moment::Reflectivity))
+                    .take(TILTS)
+                    .collect();
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    let (tx, rx) = std::sync::mpsc::channel();
+                    let ctx = ctx.clone();
+                    std::thread::spawn(move || {
+                        let _ = tx.send(wxdata::rotation_columns::from_sweeps(&pairs));
+                        ctx.request_repaint();
+                    });
+                    self.llsd_job = Some((key, rx));
+                    return None;
+                }
+                #[cfg(target_arch = "wasm32")]
+                {
+                    let _ = ctx;
+                    wxdata::rotation_columns::from_sweeps(&pairs)
+                }
+            }
         };
-        let time = vol.time.timestamp();
-        let pairs: Vec<_> = vol
-            .velocity_tilts_dealiased()
-            .into_iter()
-            .zip(vol.moment_tilts(Moment::Reflectivity))
-            .take(TILTS)
-            .collect();
-        let columns = wxdata::rotation_columns::from_sweeps(&pairs);
+        let site = self.views[idx].site.clone().unwrap_or_default();
+        let time = self.views[idx].volume.as_ref()?.time.timestamp();
         let fresh = match &self.llsd_tracker {
             Some((s, t)) => {
                 *s != site
@@ -328,7 +443,7 @@ impl HookEchoApp {
         let debris = self.tds_quiet(idx);
         let out = wxdata::llsd_analyst::analyse(tracked, &debris, &[]);
         self.llsd_cache = Some((key, out.clone()));
-        out
+        Some(out)
     }
 
     /// The tornado reports and tornado warnings a detection can be confirmed by right now: the live

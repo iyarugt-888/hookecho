@@ -6,16 +6,30 @@
 //! one exists: every member tilt's measurements and quality, the track, the debris beside it, and
 //! every term of its evidence score. A false alarm can then be diagnosed rather than only seen.
 //!
-//! This pipeline runs beside the app's own rotation, debris and Tornado ID detectors and never
-//! replaces them: it raises no alert and feeds nothing else, until it is validated (Phase 13).
+//! [`identify`] and [`circulations`] turn analysed columns into Tornado ID's own
+//! [`crate::tornado_id::TornadoId`] and [`crate::tornado_id::Circulation`], so the app can show
+//! the fusion as its Tornado ID (detectionplan.md Phase 13: held out by event on 25 events, at
+//! about 1.5 false alarms per radar-hour it found more tornadoes than the legacy Tornado ID with a
+//! far lower false-alarm ratio). The legacy rotation and debris layers, and their alerts, are not
+//! touched.
 
+use crate::confirm::Confirmation;
 use crate::debris_class::{
-    association_radius_km, classify, DebrisAssessment, DebrisParams, HailSign,
+    association_radius_km, classify, DebrisAssessment, DebrisClass, DebrisParams, HailSign,
 };
+use crate::rotation::CoupletHit;
 use crate::rotation::Sense;
 use crate::rotation_tracks::Tracked;
 use crate::tds::TdsHit;
 use crate::tornado_fusion::{fuse, Features, Fused, WEIGHTS};
+use crate::tornado_id::{Circulation, Evidence, Member, Tier, TornadoId, MERGE_KM};
+
+/// Fused evidence at and above which a circulation is a Tornado ID detection at all: the
+/// looser operating point (about 3-4 false alarms per radar-hour on the backtest).
+pub const MIN_SCORE: f32 = 0.4;
+/// Fused evidence at and above which it reads as Likely, or as Debris with a tornado debris
+/// signature beside it: the strict operating point (about 1.5 false alarms per radar-hour).
+pub const LIKELY_SCORE: f32 = 0.6;
 
 /// One circulation, analysed.
 #[derive(Debug, Clone, PartialEq)]
@@ -74,6 +88,71 @@ pub fn analyse(
     out
 }
 
+/// Tornado ID verdicts from analysed columns, strongest tier first. `confirm` says what people
+/// said about a place (reports, observed warnings).
+pub fn identify(
+    analysed: &[Analysed],
+    confirm: impl Fn(f64, f64) -> Confirmation,
+) -> Vec<TornadoId> {
+    let mut out: Vec<TornadoId> = analysed
+        .iter()
+        .filter_map(|a| {
+            let c = &a.tracked.column;
+            a.tornado_id(&confirm(c.lon, c.lat))
+        })
+        .collect();
+    out.sort_by(|a, b| b.tier.cmp(&a.tier).then(b.score.total_cmp(&a.score)));
+    out
+}
+
+/// [`identify`], as one detection per tornado with the legacy couplets and debris signatures
+/// within [`MERGE_KM`] tied to it (indices into `couplets` and `debris`, as the app draws them),
+/// so merged mode still draws each tornado once. Each legacy detection is tied to at most one, the
+/// strongest first.
+pub fn circulations(
+    analysed: &[Analysed],
+    couplets: &[CoupletHit],
+    debris: &[TdsHit],
+    confirm: impl Fn(f64, f64) -> Confirmation,
+) -> Vec<Circulation> {
+    let ids = identify(analysed, confirm);
+    let (mut tied_c, mut tied_d) = (vec![false; couplets.len()], vec![false; debris.len()]);
+    ids.into_iter()
+        .map(|id| {
+            let here = (id.lon, id.lat);
+            let mut members: Vec<Member> = Vec::new();
+            for (i, c) in couplets.iter().enumerate() {
+                let km = crate::tds::ground_km(here, (c.lon, c.lat));
+                if !tied_c[i] && km <= MERGE_KM {
+                    tied_c[i] = true;
+                    members.push(Member {
+                        evidence: Evidence::Rotation(i),
+                        lon: c.lon,
+                        lat: c.lat,
+                        confidence: c.confidence,
+                        km,
+                    });
+                }
+            }
+            for (i, d) in debris.iter().enumerate() {
+                let km = crate::tds::ground_km(here, (d.lon, d.lat));
+                if !tied_d[i] && km <= MERGE_KM {
+                    tied_d[i] = true;
+                    members.push(Member {
+                        evidence: Evidence::Debris(i),
+                        lon: d.lon,
+                        lat: d.lat,
+                        confidence: d.confidence,
+                        km,
+                    });
+                }
+            }
+            members.sort_by(|a, b| a.km.total_cmp(&b.km));
+            Circulation { id, members }
+        })
+        .collect()
+}
+
 /// Compass bearing (degrees from north) of motion `(east, north)`.
 fn bearing(u: f32, v: f32) -> f32 {
     u.atan2(v).to_degrees().rem_euclid(360.0)
@@ -84,6 +163,54 @@ fn opt(v: Option<f32>, fmt: impl Fn(f32) -> String) -> String {
 }
 
 impl Analysed {
+    /// This circulation as a Tornado ID verdict, with what people said about it. `None` when its
+    /// evidence is under [`MIN_SCORE`] and no tornado report confirms it: an observed warning
+    /// raises the tier of a detection but cannot make one (its polygon is a county wide).
+    pub fn tornado_id(&self, confirmation: &Confirmation) -> Option<TornadoId> {
+        let score = self.fused.score;
+        if score < MIN_SCORE && confirmation.report.is_none() {
+            return None;
+        }
+        let c = &self.tracked.column;
+        let tds = self
+            .debris
+            .iter()
+            .filter(|(_, a, _)| a.class == DebrisClass::TornadoDebrisSignature)
+            .min_by(|a, b| a.2.total_cmp(&b.2));
+        let tier = if confirmation.level().is_some() {
+            Tier::Confirmed
+        } else if score >= LIKELY_SCORE && tds.is_some() {
+            Tier::Debris
+        } else if score >= LIKELY_SCORE {
+            Tier::Likely
+        } else {
+            Tier::Possible
+        };
+        let mut reasons = Vec::new();
+        if let Some(line) = confirmation.describe() {
+            reasons.push(line);
+        }
+        reasons.extend(self.lines());
+        Some(TornadoId {
+            lon: c.lon,
+            lat: c.lat,
+            tier,
+            score,
+            // The fused score is one logistic term; its log-odds parts are in the reasons.
+            terms: vec![crate::tornado_id::Term {
+                label: "fused evidence",
+                value: score,
+            }],
+            vrot_ms: c
+                .members
+                .iter()
+                .map(|m| m.object.max_delta_v_ms / 2.0)
+                .reduce(f32::max),
+            min_cc: tds.map(|(h, _, _)| h.min_cc),
+            reasons,
+        })
+    }
+
     /// One line for a marker label.
     pub fn headline(&self) -> String {
         let c = &self.tracked.column;
@@ -369,6 +496,73 @@ mod tests {
         let mut young = tracked(2);
         young.motion_ms = Some((0.5, 0.5));
         assert_eq!(analyse(vec![young], &[], &[])[0].features.stationary, 0.0);
+    }
+
+    fn couplet(lon: f64) -> CoupletHit {
+        CoupletHit {
+            lon,
+            lat: 35.0,
+            vrot_ms: 25.0,
+            g2g_ms: 50.0,
+            range_km: 40.0,
+            gates: 20,
+            tilts: 2,
+            top_km: 1.0,
+            base_km: 0.4,
+            rooted: Some(true),
+            sense: Sense::Cyclonic,
+            debris_confidence: None,
+            confidence: 0.6,
+            raw_confidence: 0.6,
+            confirmation: Confirmation::default(),
+        }
+    }
+
+    #[test]
+    fn a_fused_circulation_reads_as_a_tornado_id_tier() {
+        let none = |_: f64, _: f64| Confirmation::default();
+        // Strong rotation and debris beside it: the Debris tier, with the debris ball's CC.
+        let with = analyse(vec![tracked(3)], &[debris_ball(1.0, 0.5)], &[]);
+        assert!(
+            with[0].fused.score >= LIKELY_SCORE,
+            "{}",
+            with[0].fused.score
+        );
+        let id = &identify(&with, none)[0];
+        assert_eq!(id.tier, Tier::Debris);
+        assert_eq!(id.min_cc, Some(0.25));
+        assert_eq!(id.score, with[0].fused.score);
+        assert!(id
+            .reasons
+            .iter()
+            .any(|r| r.contains("tornado debris signature")));
+        // The same rotation alone is weaker; below the floor it is not a detection at all.
+        let alone = analyse(vec![tracked(1)], &[], &[]);
+        assert!(alone[0].fused.score < MIN_SCORE, "{}", alone[0].fused.score);
+        assert!(identify(&alone, none).is_empty());
+        // A report beside it makes it one, confirmed; an observed warning alone does not.
+        let report = |_: f64, _: f64| Confirmation {
+            observed_warning: false,
+            report: Some((2.0, 3)),
+        };
+        assert_eq!(identify(&alone, report)[0].tier, Tier::Confirmed);
+        let warned = |_: f64, _: f64| Confirmation {
+            observed_warning: true,
+            report: None,
+        };
+        assert!(identify(&alone, warned).is_empty());
+    }
+
+    #[test]
+    fn merged_circulations_tie_in_the_legacy_detections_once() {
+        let a = analyse(vec![tracked(3)], &[debris_ball(1.0, 0.5)], &[]);
+        let couplets = [couplet(east(0.5)), couplet(east(40.0))];
+        let debris = [debris_ball(1.0, 0.5)];
+        let circs = circulations(&a, &couplets, &debris, |_, _| Confirmation::default());
+        assert_eq!(circs.len(), 1);
+        let m = &circs[0].members;
+        assert_eq!((circs[0].rotations(), circs[0].debris()), (1, 1), "{m:?}");
+        assert_eq!(m[0].evidence, Evidence::Rotation(0), "nearest first");
     }
 
     #[test]

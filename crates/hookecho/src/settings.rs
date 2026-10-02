@@ -902,6 +902,25 @@ pub struct DetectorTuning {
     /// default; it raises no alert and feeds nothing else (detectionplan.md Phases 12-13).
     #[serde(default)]
     pub llsd_preview: bool,
+    /// Where Tornado ID's verdicts come from. The redesigned fusion by default (detectionplan.md
+    /// Phase 13); the legacy couplet-and-debris Tornado ID stays selectable for comparison. The
+    /// rotation and debris layers, and their alerts, are the same either way.
+    #[serde(default)]
+    pub tornado_id_source: TornadoIdSource,
+}
+
+/// Which pipeline Tornado ID shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TornadoIdSource {
+    /// LLSD rotation columns, tracked, with classified debris, fused into one evidence score
+    /// (`wxdata::llsd_analyst`). Held out by event on the 25-event backtest, at about 1.5 false
+    /// alarms per radar-hour it found more tornadoes than the legacy one (POD 0.32 against 0.28)
+    /// with a far lower false-alarm ratio (0.34 against 0.48).
+    #[default]
+    Fusion,
+    /// The original: legacy couplets and debris signatures (`wxdata::tornado_id`).
+    Legacy,
 }
 
 /// The debris-signature floor a fresh install starts with. From the archived-event backtest
@@ -935,6 +954,7 @@ impl Default for DetectorTuning {
             rotation_min_confidence: DEFAULT_ROTATION_MIN_CONFIDENCE,
             floors_adopted: true,
             llsd_preview: false,
+            tornado_id_source: TornadoIdSource::Fusion,
         }
     }
 }
@@ -2340,6 +2360,29 @@ mod tests {
         let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
         assert!((back.detectors.tds_min_confidence - 0.7).abs() < 1e-6);
         assert!((back.detectors.rotation_min_confidence - 0.4).abs() < 1e-6);
+    }
+
+    #[test]
+    fn tornado_id_defaults_to_the_fusion_and_the_original_stays_selectable() {
+        // A settings file from before the switch loads with the fusion, the analyst preview off.
+        let old: DetectorTuning = serde_json::from_str(
+            r#"{"tbss_core_dbz":60.0,"zdr_min_db":1.0,"zdr_min_depth_km":1.0,
+                "glm_fed_cell_deg":0.05,"glm_fed_window_min":15}"#,
+        )
+        .unwrap();
+        assert_eq!(old.tornado_id_source, TornadoIdSource::Fusion);
+        assert!(!old.llsd_preview);
+        assert_eq!(
+            DetectorTuning::default().tornado_id_source,
+            TornadoIdSource::Fusion
+        );
+        // Choosing the original survives a save and reload, under a readable name.
+        let mut s = Settings::default();
+        s.detectors.tornado_id_source = TornadoIdSource::Legacy;
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(json.contains(r#""tornado_id_source":"legacy""#), "{json}");
+        let back: Settings = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.detectors.tornado_id_source, TornadoIdSource::Legacy);
     }
 
     /// A file saved while 0% was the default carries that 0 explicitly; it moves once, and only
