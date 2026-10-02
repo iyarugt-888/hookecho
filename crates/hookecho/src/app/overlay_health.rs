@@ -19,6 +19,7 @@ impl OverlayMsg {
     pub(super) fn health_error(&self) -> Option<&str> {
         match self {
             Self::PlacefileError(_, error) => Some(error),
+            Self::DerivedFields(delivery) => delivery.fields.as_ref().err().map(String::as_str),
             _ => None,
         }
     }
@@ -32,6 +33,13 @@ impl OverlayMsg {
             Self::Recon(observations) => latest(observations.iter().map(|o| o.time)),
             Self::Cells(_, cells, _) => latest(cells.iter().filter_map(|c| c.time)),
             Self::Field(_, field) => Some(field.time),
+            Self::DerivedFields(delivery) => delivery
+                .fields
+                .as_ref()
+                .ok()?
+                .0
+                .acquisition_range_ms()
+                .and_then(|(_, end)| DateTime::from_timestamp_millis(end)),
             Self::GoesFootprint(_, fp) => Some(fp.time),
             Self::GlmWindow(end, _) => Some(*end),
             Self::StampedField(_, field) | Self::MrmsField(_, field, _) => {

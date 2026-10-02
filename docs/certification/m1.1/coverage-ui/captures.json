@@ -1,0 +1,50 @@
+[
+  {
+    "name": "continuous-240-touch-false.png",
+    "bytes": 31318,
+    "sha256": "585df7482fe3f43670328e01ff9da36744e3c42d521749b5e1971229b310663c",
+    "captured_at": "2026-10-02T06:15:40.0420267Z"
+  },
+  {
+    "name": "continuous-240-touch-true.png",
+    "bytes": 31479,
+    "sha256": "2ca7f534bb288041ff00577e736ef6ecda5d3bfbbd7cd53e1be79a74025defff",
+    "captured_at": "2026-10-02T06:15:40.2887062Z"
+  },
+  {
+    "name": "continuous-300-touch-false.png",
+    "bytes": 32003,
+    "sha256": "58095880d7177f774003a46b3e76acb23e808f8e80ebf145a1ea3904f32b1744",
+    "captured_at": "2026-10-02T06:15:40.5439812Z"
+  },
+  {
+    "name": "continuous-300-touch-true.png",
+    "bytes": 32166,
+    "sha256": "ef47ccbe141e2087aa451db9366277c45825e243011efa3133d58f66675e066b",
+    "captured_at": "2026-10-02T06:15:40.7937254Z"
+  },
+  {
+    "name": "strict-240-touch-false.png",
+    "bytes": 30200,
+    "sha256": "abb7aebaab7812e17bbb5f2191c18c64b2a225392360bd88376fabb4ab8198b9",
+    "captured_at": "2026-10-02T06:15:41.0281941Z"
+  },
+  {
+    "name": "strict-240-touch-true.png",
+    "bytes": 30360,
+    "sha256": "110c1d2f2de172b1dbfd74eebe87459a8cc53db34cd5af2f123b22f4fce698a2",
+    "captured_at": "2026-10-02T06:15:41.2611695Z"
+  },
+  {
+    "name": "strict-300-touch-false.png",
+    "bytes": 30910,
+    "sha256": "ac17791617927e3ba1639fb37c25a7dec128b0538936c069aab6bb134dcc666e",
+    "captured_at": "2026-10-02T06:15:41.5018974Z"
+  },
+  {
+    "name": "strict-300-touch-true.png",
+    "bytes": 31072,
+    "sha256": "182603727fc1350f0a36b932b81ccb65b1f2e7be7c1ac157e8712d6d321d2c56",
+    "captured_at": "2026-10-02T06:15:41.7470832Z"
+  }
+]

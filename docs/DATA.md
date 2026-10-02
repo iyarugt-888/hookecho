@@ -32,6 +32,18 @@ Invalid source clocks stay unknown; an undated Level III grid is unavailable. Do
 and S3 naming do not replace observation time. Retaining all these clocks in shared grid
 provenance and exports remains part of M1.4.
 
+Local composite reflectivity, VIL, VIL density, echo tops, MEHS and POSH recompute for each
+accepted live scan revision. While following a progressive scan, strict-current mode excludes
+older azimuth rows before integrating the column, using the same source-time pass boundary as
+the 2D display. Continuous mode remains the default; archived and playing frames keep all
+their contributions. The Inspector's **Local radar coverage** section reports input acquisition
+span, retained older rows, excluded rows, unobserved sectors and unknown input clocks. It does
+not infer acquisition time from the volume label or claim a complete column from the available
+tilts. The grid retains its volume/frame label separately from those acquisition times. A grid
+from another scan revision or selection is unavailable until a matching result lands.
+Hail refreshes use both the 0°C and −20°C levels. The shared textures still support one source
+context per local product; independent pane contexts and 3D temporal propagation remain planned.
+
 Direct MRMS field layers expose a **Data source** inspector in Layer options:
 the product path, provider, GRIB valid time, and complete-response receipt time
 are retained with the displayed grid. Valid-time age and receipt age are

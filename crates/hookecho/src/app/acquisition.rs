@@ -56,6 +56,10 @@ impl OverlayAcquisition {
         self.requests().health(lane)
     }
 
+    pub(super) fn discard(&self, lane: &RequestLane, generation: u64) {
+        self.requests().discard(lane, generation);
+    }
+
     pub(super) fn set_cache_resident(&self, lane: &RequestLane, resident: bool) {
         self.requests().set_cache_resident(lane, resident);
     }

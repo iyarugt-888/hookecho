@@ -8,6 +8,15 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: local radar grids follow progressive scan updates
+
+Local composite reflectivity, VIL, VIL density, echo tops, MEHS and POSH now rebuild when a live
+scan gains data, including another pass at the same elevation. Strict-current mode excludes older
+sweep rows before integration, and late builds cannot replace a newer selection. The Inspector
+shows contributing source times, retained older rows, excluded rows and unknown coverage. Hail
+grids refresh when either environmental temperature level changes; POSH requests those levels
+when enabled on its own.
+
 ### Improved: an independent clutter regression control
 
 The scientific corpus includes an original operational hydrometeor-classification product and
@@ -36,6 +45,11 @@ The headless historic backtest can export every rotation, debris, Tornado ID, an
 candidate with its physical measurements and summary statistics. Stable ordering and
 cached soundings make repeated baseline runs comparable. This provides evidence for
 detector tuning without changing detections through the export itself.
+
+The exported analysis also includes connected LLSD rotation objects, height-associated columns
+and volume-to-volume tracks. Low-correlation signatures are separated into polarimetric anomalies,
+debris candidates and rotation-supported debris signatures. These analysis foundations remain
+subject to scientific calibration.
 
 ### Fixed: Level III grids retain their radar observation time
 

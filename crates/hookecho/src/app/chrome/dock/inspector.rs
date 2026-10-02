@@ -144,6 +144,19 @@ impl HookEchoApp {
         } else {
             Vec::new()
         };
+        let local_radar_rows = if v
+            .fields_on
+            .iter()
+            .any(|l| radar_products::LAYERS.contains(l))
+        {
+            let metadata = radar_products::LAYERS
+                .iter()
+                .filter(|l| v.fields_on.contains(l) && self.radar_field_ready(self.active, **l))
+                .find_map(|l| self.fields.get(l)?.radar.as_ref());
+            radar_coverage_rows(metadata.map(|m| &m.coverage), tz)
+        } else {
+            Vec::new()
+        };
         let pinned = self.dock.pinned.is_some();
         let can_pin = pinned || self.dock.last.is_some();
         let place = self.dock.inspector.place;
@@ -238,6 +251,10 @@ impl HookEchoApp {
                 ws::kv(ui, &t, "Pitch", &format!("{pitch:.0}\u{b0}"), None);
                 ws::kv(ui, &t, "Bearing", &format!("{bearing:.0}\u{b0}"), None);
                 ws::kv(ui, &t, "Zoom", &format!("{zoom:.1}"), None);
+            }
+            if !local_radar_rows.is_empty() {
+                ui.add_space(6.0);
+                paint_radar_coverage(ui, &t, &local_radar_rows);
             }
             if !model_rows.is_empty() {
                 ui.add_space(6.0);
@@ -615,6 +632,99 @@ fn volume_3d_rows(
     rows
 }
 
+/// Source acquisition coverage of the inputs actually allowed into the local integration.
+/// Angular coverage is distinct from echo strength and does not certify a complete column.
+fn paint_radar_coverage(ui: &mut egui::Ui, t: &ws::Tokens, rows: &[(&str, String)]) {
+    ws::section_rule(ui, t, "Local radar coverage");
+    for (key, value) in rows {
+        // Both labels and values wrap. The usual Inspector rows deliberately truncate;
+        // coverage qualifications must remain readable on a narrow touch dock.
+        ui.horizontal_top(|ui| {
+            let key_width = 88.0f32.min(ui.available_width() * 0.4);
+            ui.allocate_ui_with_layout(
+                egui::vec2(key_width, 0.0),
+                egui::Layout::top_down(egui::Align::Min),
+                |ui| {
+                    ui.set_width(key_width);
+                    ui.add(egui::Label::new(ws::text(*key, 12.0, t.text_dim)).wrap());
+                },
+            );
+            let value_width = ui.available_width();
+            ui.allocate_ui_with_layout(
+                egui::vec2(value_width, 0.0),
+                egui::Layout::top_down(egui::Align::Min),
+                |ui| {
+                    ui.set_width(value_width);
+                    ui.add(egui::Label::new(ws::text(value, 12.5, t.text)).wrap());
+                },
+            );
+        });
+    }
+}
+
+fn radar_coverage_rows(
+    coverage: Option<&wxdata::level2::temporal::TemporalCoverage>,
+    tz: Option<wxdata::tz::Tz>,
+) -> Vec<(&'static str, String)> {
+    use wxdata::level2::temporal::TemporalPolicy;
+    let Some(c) = coverage else {
+        return vec![("Status", "Waiting for matching radar inputs".into())];
+    };
+    let mut rows = vec![
+        (
+            "Policy",
+            match c.policy {
+                TemporalPolicy::Continuous => "Continuous",
+                TemporalPolicy::StrictCurrent => "Strict current sweep",
+            }
+            .into(),
+        ),
+        ("Input tilts", c.contributors.len().to_string()),
+    ];
+    if let Some((start, end)) = c.acquisition_range_ms().and_then(|(a, b)| {
+        Some((
+            chrono::DateTime::from_timestamp_millis(a)?,
+            chrono::DateTime::from_timestamp_millis(b)?,
+        ))
+    }) {
+        rows.push(("Input start", crate::timefmt::fmt_clock(start, tz, true)));
+        rows.push(("Input span", humanize((end - start).num_seconds())));
+    } else {
+        rows.push(("Input time", "Unknown".into()));
+    }
+    if c.retained_older_rows() > 0 {
+        rows.push((
+            "Mixed passes",
+            format!("{} older azimuth rows retained", c.retained_older_rows()),
+        ));
+    }
+    if c.excluded_rows() > 0 {
+        rows.push(("Excluded", format!("{} azimuth rows", c.excluded_rows())));
+    }
+    if c.unobserved_rows() > 0 {
+        rows.push((
+            "Unobserved",
+            format!(
+                "{} azimuth row{}",
+                c.unobserved_rows(),
+                if c.unobserved_rows() == 1 { "" } else { "s" }
+            ),
+        ));
+    }
+    if c.unknown_time_rows() > 0 {
+        rows.push((
+            "Unknown clocks",
+            format!(
+                "{} input azimuth row{}",
+                c.unknown_time_rows(),
+                if c.unknown_time_rows() == 1 { "" } else { "s" }
+            ),
+        ));
+    }
+    rows.push(("Column", "Completeness not established".into()));
+    rows
+}
+
 /// The cursor readout folded into the card's pairs: the bearing and distance from the radar on
 /// one row, the position on another.
 pub(super) fn probe_rows(readout: Vec<(&'static str, String)>) -> Vec<(&'static str, String)> {
@@ -646,6 +756,115 @@ pub(super) fn fmt_beam(ft: f64, metric: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn coverage(
+        policy: wxdata::level2::temporal::TemporalPolicy,
+    ) -> wxdata::level2::temporal::TemporalCoverage {
+        let mut sweeps = vec![wxdata::level2::BinnedSweep {
+            az_bins: 8,
+            gate_count: 1,
+            data: vec![120, 120, 120, 120, 120, 120, 0, 120],
+            bin_time_ms: vec![
+                1_700_000_120_000,
+                1_700_000_121_000,
+                1_700_000_122_000,
+                1_700_000_123_000,
+                1_700_000_000_000,
+                1_700_000_001_000,
+                0,
+                0,
+            ],
+            elevation_deg: 0.5,
+            ..Default::default()
+        }];
+        wxdata::level2::temporal::prepare(&mut sweeps, policy).unwrap()
+    }
+
+    #[test]
+    fn radar_card_names_mixed_excluded_missing_and_unknown_inputs_without_claiming_completeness() {
+        use wxdata::level2::temporal::TemporalPolicy as P;
+        let continuous = radar_coverage_rows(Some(&coverage(P::Continuous)), None);
+        assert!(continuous.contains(&("Mixed passes", "2 older azimuth rows retained".into())));
+        assert!(continuous.contains(&("Unknown clocks", "1 input azimuth row".into())));
+        let strict = radar_coverage_rows(Some(&coverage(P::StrictCurrent)), None);
+        assert!(strict.contains(&("Excluded", "4 azimuth rows".into())));
+        assert!(strict.contains(&("Unobserved", "1 azimuth row".into())));
+        assert!(!strict.iter().any(|(k, _)| *k == "Mixed passes"));
+        assert!(strict.contains(&("Column", "Completeness not established".into())));
+        assert_eq!(
+            radar_coverage_rows(None, None),
+            [("Status", "Waiting for matching radar inputs".into())]
+        );
+        let mut unknown = coverage(P::Continuous);
+        unknown.contributors[0].used_start_ms = None;
+        unknown.contributors[0].used_end_ms = None;
+        let rows = radar_coverage_rows(Some(&unknown), None);
+        assert!(rows.contains(&("Input time", "Unknown".into())));
+        assert!(!rows.iter().any(|(k, _)| *k == "Input start"));
+    }
+
+    #[test]
+    fn radar_coverage_details_fit_narrow_docks() {
+        let ctx = egui::Context::default();
+        let t = ws::Tokens::new(egui::Color32::LIGHT_BLUE);
+        let rows = radar_coverage_rows(
+            Some(&coverage(
+                wxdata::level2::temporal::TemporalPolicy::Continuous,
+            )),
+            None,
+        );
+        for width in [240.0, 300.0] {
+            let _ = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(width, 700.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| {
+                    paint_radar_coverage(ui, &t, &rows);
+                    assert!(
+                        ui.min_rect().width() <= width,
+                        "coverage details must wrap inside the dock"
+                    );
+                },
+            );
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "gpu: writes local radar coverage Inspector captures"]
+    fn gpu_derived_coverage_snapshots() {
+        use wxdata::level2::temporal::TemporalPolicy as P;
+        let gpu = crate::headless::ui::Snapshot::new().expect("GPU adapter for coverage review");
+        let destination = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/parity-review/m1.1/coverage-ui");
+        std::fs::create_dir_all(&destination).unwrap();
+        let t = ws::Tokens::new(egui::Color32::from_rgb(72, 142, 226));
+        for (name, policy) in [("continuous", P::Continuous), ("strict", P::StrictCurrent)] {
+            let rows = radar_coverage_rows(Some(&coverage(policy)), None);
+            for width in [240, 300] {
+                for touch in [false, true] {
+                    gpu.save(
+                        &destination.join(format!("{name}-{width}-touch-{touch}.png")),
+                        width,
+                        600,
+                        |ui| {
+                            ws::set_touch(ui.ctx(), touch);
+                            ws::panel_frame(&t).show(ui, |ui| {
+                                ws::style_scope(ui, &t);
+                                ws::window_header(ui, &t, ph::INFO, "Inspector", None, None);
+                                paint_radar_coverage(ui, &t, &rows);
+                            });
+                        },
+                    )
+                    .unwrap();
+                }
+            }
+        }
+    }
 
     #[test]
     fn a_storms_rows_flag_what_needs_a_look_and_skip_what_is_unknown() {

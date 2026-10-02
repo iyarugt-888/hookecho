@@ -81,6 +81,7 @@ mod pane_points;
 mod pane_stations;
 mod radar_feed;
 mod radar_probe;
+mod radar_products;
 mod rules;
 mod scenes;
 mod sharing;
@@ -1755,9 +1756,8 @@ pub struct HookEchoApp {
     /// site change.
     l3grid_site: Option<String>,
     /// What the locally derived products (VIL/VILD/echo tops) were last computed from:
-    /// `(volume name, echo-top threshold, enabled-layer mask, melting level)`. Any of them moving
-    /// recomputes.
-    derived_key: Option<(String, u32, u8, i32)>,
+    /// The accepted volume revision, sweep policy, settings and both temperature levels.
+    derived_key: Option<radar_products::DerivedKey>,
     /// `(site, epoch, 0 °C height, −20 °C height)` above sea level in metres, for the hail grids
     /// and every other consumer of a melting level. `epoch` is `None` for the live HRRR analysis
     /// and the synoptic time of the observed sounding for an archived volume — read through

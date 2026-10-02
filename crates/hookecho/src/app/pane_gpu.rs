@@ -160,6 +160,7 @@ impl HookEchoApp {
                         // rather than trust its refresh cadence.
                         st.last_fetch = None;
                         st.grid = None;
+                        st.radar = None;
                         drop.push(*layer);
                     }
                 } else {
@@ -231,6 +232,7 @@ impl HookEchoApp {
             .filter(|layer| {
                 crate::fielddiff::layer_ready(**layer, self.diff_valid, self.compare_valid)
                     && self.mrms_ready(**layer)
+                    && self.radar_field_ready(idx, **layer)
             })
             .map(|k| {
                 let configured = self.settings.field_opacity.get(k).copied().unwrap_or(1.0);

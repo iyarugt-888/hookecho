@@ -82,6 +82,8 @@ pub(crate) struct FieldState {
     /// Since when no pane has drawn this layer; drives GPU texture eviction.
     pub off_since: Option<Instant>,
     pub stamp: Option<DataStamp>,
+    /// Exact local radar contributors represented by the resident texture.
+    pub radar: Option<std::sync::Arc<super::radar_products::RadarMetadata>>,
     mrms_request: Option<MrmsRequest>,
 }
 
@@ -131,6 +133,7 @@ impl FieldState {
     pub(super) fn stage(&mut self, field: MrmsField, stamp: Option<DataStamp>, upload: MrmsUpload) {
         self.pending = Some(upload);
         self.stamp = stamp;
+        self.radar = None;
         self.grid = Some(field);
     }
 }

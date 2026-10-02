@@ -15,6 +15,12 @@ impl HookEchoApp {
                     generation,
                     result,
                 } => {
+                    if let Ok(OverlayMsg::DerivedFields(delivery)) = &result {
+                        if !self.derived_key_current(&delivery.key) {
+                            self.acquisition.discard(&lane, generation);
+                            continue;
+                        }
+                    }
                     let valid_time = result.as_ref().ok().and_then(OverlayMsg::health_valid_time);
                     // Plugin failures deliberately arrive as a message so the placefile manager
                     // can show them, but they are still failures for source health. Treating the
@@ -211,6 +217,7 @@ impl HookEchoApp {
                 OverlayMsg::StampedField(layer, field) => {
                     self.accept_field(layer, field.data, Some(field.stamp));
                 }
+                OverlayMsg::DerivedFields(delivery) => self.accept_derived_fields(*delivery),
                 OverlayMsg::MrmsField(layer, field, request) => {
                     if self.mrms_request(layer).as_ref() == Some(&request)
                         && request.accepts(&field.stamp)

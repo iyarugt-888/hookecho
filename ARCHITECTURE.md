@@ -52,6 +52,7 @@ instead of burning battery behind a dark screen.
 - `view.rs` — one map pane: camera, product, tilt, loaded `Volume`, LRU of recent scans.
 - `app/acquisition.rs` — overlay acquisition owns the HTTP/runtime/channel handles and request book. The shell supplies a selected source and display cap; the controller starts work, bounds it by the existing timeout, prepares large grids off-frame, and delivers generation-tagged results. Source health, derived work, and texture eviction use its narrow methods.
 - `app/field_state.rs` — each field's request selection, cadence, display readiness, and staged grid/provenance/upload. MRMS request identity and archive tolerance live here; changing a selection invalidates the old queued upload and stamp, while a refresh of the same selection retains last-good data. This state can be tested without constructing the app or a GPU.
+- `app/radar_products.rs` — local radar build identity, contributor metadata and acceptance. The key includes the actual decoded scan, accepted revision, sweep policy, enabled layers, echo-top threshold and both hail temperature levels. A batch carries its source coverage alongside its grids; a late worker cannot replace a different selected revision. Shared local field textures draw only in panes matching that source context. Runtime scan identity uses a weak reference, preserving identity without retaining evicted gate buffers.
 - `workspace.rs` — a saved arrangement of panes, restored in one command.
 - `settings.rs` — JSON at the platform config dir, `#[serde(default)]` so old files stay loadable. Writes are coalesced into a one-second dirty-diff save, because the Android alert service reads the same file while the app runs.
 - `paths.rs` — every persistent path in the app. The desktop config/data/cache split and Android's single private dir differ here and nowhere else.
@@ -63,6 +64,14 @@ before dispatch, and the selected MRMS product/time is checked again at acceptan
 uploads, probes, and readiness read the same staged record. Field textures and non-MRMS source
 contexts remain shared by layer today; independent pane/time groups are the later M5.1 change,
 not a claim made by this extraction. Settings/workspace formats are unchanged.
+
+`wxdata::level2::temporal` prepares owned binned inputs for local integration and records their
+source acquisition spans, retained older rows, excluded rows, unobserved sectors and unknown
+clocks. Strict mode uses the same pass-boundary inference and mask as the 2D display; archive
+and playback keep continuous behavior. The Inspector reads the metadata retained with the
+displayed local grid. This is angular acquisition coverage, not proof of complete columns.
+Raw cut/pass identity, transport-gap inventory, per-contributor revision optimization and
+propagation into the 3D build paths remain M1.1 work.
 
 ## Rendering
 

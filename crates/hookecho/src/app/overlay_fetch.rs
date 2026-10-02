@@ -34,6 +34,8 @@ pub(crate) enum OverlayMsg {
     Placefile(String, wxdata::placefile::Placefile),
     /// The latest grid for a national field layer (mosaic, rotation, MESH, AzShear, lightning).
     Field(crate::render::FieldLayer, wxdata::mrms::MrmsField),
+    /// Atomic local build with its accepted frame identity and source coverage.
+    DerivedFields(Box<radar_products::DerivedDelivery>),
     StampedField(
         crate::render::FieldLayer,
         wxdata::field::Stamped<wxdata::mrms::MrmsField>,

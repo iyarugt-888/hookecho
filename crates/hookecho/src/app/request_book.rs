@@ -288,6 +288,17 @@ impl RequestBook {
         self.latest.get(lane) == Some(&generation)
     }
 
+    /// Retire an answer to a superseded selection without recording a source success/failure.
+    /// An older generation cannot cancel a newer request or alter its health.
+    pub(crate) fn discard(&mut self, lane: &RequestLane, generation: u64) {
+        if self.is_current(lane, generation) {
+            self.latest.remove(lane);
+            if let Some(status) = self.status.get_mut(lane) {
+                status.fetching = false;
+            }
+        }
+    }
+
     /// Finish only the newest generation. An old failure cannot poison a newer success.
     pub(crate) fn finish(
         &mut self,
@@ -383,6 +394,34 @@ impl RequestBook {
 mod request_book_tests {
     use super::{CacheState, HealthState, RequestBook, RequestLane, SourceHealth};
     use crate::render::FieldLayer;
+
+    #[test]
+    fn superseded_selection_does_not_count_as_a_source_success_or_failure() {
+        let mut book = RequestBook::default();
+        let lane = RequestLane::Feed(crate::source_health::FeedSource::DerivedRadarFields);
+        let first = book.start(lane.clone());
+        book.discard(&lane, first);
+        let health = book.health(&lane);
+        assert!(!health.fetching);
+        assert_eq!(health.recent_outcomes, None);
+        assert_eq!(health.last_success, None);
+        assert_eq!(health.last_failure, None);
+        assert!(!book.finish(&lane, first, None, None));
+        let old = book.start(lane.clone());
+        let next = book.start(lane.clone());
+        book.discard(&lane, old);
+        assert!(book.health(&lane).fetching);
+        assert!(book.finish(&lane, next, None, None));
+        let before = book.health(&lane);
+        let redundant = book.start(lane.clone());
+        book.discard(&lane, redundant);
+        let after = book.health(&lane);
+        assert_eq!(after.recent_outcomes, before.recent_outcomes);
+        assert_eq!(after.latest_valid_time, before.latest_valid_time);
+        assert_eq!(after.cache_state, before.cache_state);
+        assert!(after.last_success.is_some());
+        assert!(after.last_failure.is_none());
+    }
 
     #[test]
     fn only_the_latest_request_in_each_lane_is_current() {

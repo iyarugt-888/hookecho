@@ -12,25 +12,12 @@ impl HookEchoApp {
     /// work in archive replay and on each live tilt.
     pub(crate) fn recompute_derived(&mut self, ctx: &egui::Context) {
         use crate::render::FieldLayer as FL;
-        const LAYERS: [FL; 6] = [
-            FL::CompositeLocal,
-            FL::VilLocal,
-            FL::VilDensity,
-            FL::EtopLocal,
-            FL::HailMehs,
-            FL::HailPosh,
-        ];
-        /// Bit positions in the mask for the two hail grids.
-        const HAIL_BITS: u8 = 0b11000;
-        let mask = LAYERS
-            .iter()
-            .enumerate()
-            .fold(0u8, |m, (i, l)| m | u8::from(self.field_wanted(*l)) << i);
-        if mask == 0 {
+        use radar_products::{HAIL_BITS, LAYERS};
+        let Some(key) = self.current_derived_key() else {
             self.derived_key = None;
             return;
-        }
-        let site = self.views[self.active].site.clone();
+        };
+        let mask = key.layers;
         // The hail algorithm needs the melting level: the live HRRR analysis while following the
         // feed, the observed sounding from that day on an archived volume (`freezing_for` never
         // mixes the two). Only worth a request when a hail grid is actually on.
@@ -43,24 +30,19 @@ impl HookEchoApp {
             self.fetch_freezing_levels(ctx, self.active);
         }
         // Beam heights are above the radar; the model heights are above sea level.
-        let radar_m = site
+        let radar_m = key
+            .site
             .as_deref()
             .and_then(wxdata::sites::site_by_id)
             .map_or(0.0, |s| s.elevation_meters as f64);
-        let Some(vol) = self.views[self.active].volume.as_mut() else {
-            return;
-        };
-        let key = (
-            vol.name.clone(),
-            self.settings.etop_dbz.to_bits(),
-            mask,
-            levels.map_or(0, |(h0, _)| h0 as i32),
-        );
         if self.derived_key.as_ref() == Some(&key) {
             return;
         }
+        let Some(vol) = self.views[self.active].volume.as_mut() else {
+            return;
+        };
         // Binning is cached on the volume; the integral is the expensive half and runs off-thread.
-        let sweeps = vol.reflectivity_tilts();
+        let mut sweeps = vol.reflectivity_tilts();
         if sweeps.len() < 2 {
             return;
         }
@@ -69,40 +51,59 @@ impl HookEchoApp {
             time: vol.time,
             ..Default::default()
         };
-        self.derived_key = Some(key);
+        self.derived_key = Some(key.clone());
         let tx = self.overlay_tx.clone();
         let lane = RequestLane::Feed(FeedSource::DerivedRadarFields);
         let generation = self.acquisition.start(lane.clone());
         let cap = self.field_texture_cap();
         let ctx = ctx.clone();
         self.spawner.spawn_blocking(move || {
-            let mut out: Vec<(FL, wxdata::mrms::MrmsField)> = Vec::new();
-            if mask & !HAIL_BITS != 0 {
-                if let Some(d) = wxdata::derived::derive(&sweeps, &opts) {
-                    out.extend([
-                        (FL::CompositeLocal, d.composite),
-                        (FL::VilLocal, d.vil),
-                        (FL::VilDensity, d.vild),
-                        (FL::EtopLocal, d.etop),
-                    ]);
+            let result = (|| -> anyhow::Result<_> {
+                let coverage = wxdata::level2::temporal::prepare(&mut sweeps, key.policy)?;
+                let mut out: Vec<(FL, wxdata::mrms::MrmsField)> = Vec::new();
+                if mask & !HAIL_BITS != 0 {
+                    if let Some(d) = wxdata::derived::derive(&sweeps, &opts) {
+                        out.extend([
+                            (FL::CompositeLocal, d.composite),
+                            (FL::VilLocal, d.vil),
+                            (FL::VilDensity, d.vild),
+                            (FL::EtopLocal, d.etop),
+                        ]);
+                    }
                 }
-            }
-            if let Some((h0, hm20)) = levels.filter(|_| mask & HAIL_BITS != 0) {
-                if let Some(h) = wxdata::derived::hail(&sweeps, h0 - radar_m, hm20 - radar_m, &opts)
-                {
-                    out.extend([(FL::HailMehs, h.mehs), (FL::HailPosh, h.posh)]);
+                if let Some((h0, hm20)) = levels.filter(|_| mask & HAIL_BITS != 0) {
+                    if let Some(h) =
+                        wxdata::derived::hail(&sweeps, h0 - radar_m, hm20 - radar_m, &opts)
+                    {
+                        out.extend([(FL::HailMehs, h.mehs), (FL::HailPosh, h.posh)]);
+                    }
                 }
-            }
-            for (layer, f) in out {
-                let bit = LAYERS.iter().position(|l| *l == layer).unwrap_or(0);
-                if mask & (1 << bit) != 0 {
-                    let _ = tx.send(OverlayDelivery::Fetched {
-                        lane: lane.clone(),
-                        generation,
-                        result: Ok(OverlayMsg::Field(layer, f.decimated(cap))),
-                    });
-                }
-            }
+                out.retain(|(layer, _)| {
+                    let bit = LAYERS.iter().position(|l| l == layer).unwrap_or(0);
+                    mask & (1 << bit) != 0
+                });
+                anyhow::ensure!(
+                    !out.is_empty(),
+                    "no local radar fields available for this scan and environment"
+                );
+                Ok((
+                    coverage,
+                    out.into_iter()
+                        .map(|(layer, f)| (layer, f.decimated(cap)))
+                        .collect(),
+                ))
+            })()
+            .map_err(|error| error.to_string());
+            let _ = tx.send(OverlayDelivery::Fetched {
+                lane,
+                generation,
+                result: Ok(OverlayMsg::DerivedFields(Box::new(
+                    radar_products::DerivedDelivery {
+                        key,
+                        fields: result,
+                    },
+                ))),
+            });
             ctx.request_repaint();
         });
     }

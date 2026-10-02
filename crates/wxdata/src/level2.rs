@@ -8,6 +8,8 @@
 use nexrad_model::data::{DataMoment, MomentData, MomentValue, Sweep};
 use std::path::PathBuf;
 
+pub mod temporal;
+
 /// Re-exported so the app can name decoded volumes without depending on `nexrad-model`.
 pub use nexrad_model::data::Scan;
 
