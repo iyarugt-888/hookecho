@@ -106,6 +106,7 @@ pub mod tdwr;
 pub mod tfr;
 pub mod time_align;
 pub mod torclimo;
+pub mod tornado_fusion;
 pub mod tornado_id;
 pub mod towers;
 pub mod tropical;

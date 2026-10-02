@@ -36,16 +36,20 @@ pub enum DetectorKind {
     /// its class, the score its own polarimetric evidence, `members` how many hail signs it carries
     /// and `azshear_s` the low-level shear of the column that promoted it, if one did.
     DebrisClass,
+    /// Each LLSD column fused (`tornado_fusion`, detectionplan.md Phase 7): the score is its
+    /// fused evidence score from the current weights, and `features` the inputs, for fitting.
+    TornadoFusion,
 }
 
 impl DetectorKind {
-    pub const ALL: [DetectorKind; 6] = [
+    pub const ALL: [DetectorKind; 7] = [
         DetectorKind::Rotation,
         DetectorKind::Debris,
         DetectorKind::TornadoId,
         DetectorKind::Hail,
         DetectorKind::RotationLlsd,
         DetectorKind::DebrisClass,
+        DetectorKind::TornadoFusion,
     ];
 
     pub fn name(self) -> &'static str {
@@ -56,6 +60,7 @@ impl DetectorKind {
             DetectorKind::Hail => "hail",
             DetectorKind::RotationLlsd => "rotation_llsd",
             DetectorKind::DebrisClass => "debris_class",
+            DetectorKind::TornadoFusion => "tornado_fusion",
         }
     }
 
@@ -112,6 +117,8 @@ pub struct Candidate {
     pub track_id: Option<u64>,
     pub track_age_volumes: Option<usize>,
     pub azshear_trend: Option<f32>,
+    /// The fusion's features, in `tornado_fusion::FEATURE_NAMES` order (fused candidates only).
+    pub features: Option<Vec<f32>>,
     /// Inside a tornado warning marked observed at its own volume. Recorded, never scored: an
     /// ordinary warning is issued from the same radar signatures.
     pub observed_warning: bool,
@@ -409,6 +416,10 @@ pub fn summarize(runs: &[EventRun], radius_km: f64, window_min: i64) -> Summary 
     versions.insert("rotation".into(), crate::rotation::ALGORITHM_VERSION.into());
     versions.insert("debris".into(), crate::tds::ALGORITHM_VERSION.into());
     versions.insert(
+        "tornado_fusion".into(),
+        crate::tornado_fusion::ALGORITHM_VERSION.into(),
+    );
+    versions.insert(
         "debris_class".into(),
         format!(
             "{} + {}",
@@ -470,9 +481,13 @@ pub fn to_csv(candidates: &[Candidate]) -> String {
         v.map_or_else(String::new, |v| format!("{v:.4}"))
     }
     let mut out = String::from(HEADER);
+    for name in crate::tornado_fusion::FEATURE_NAMES {
+        out.push_str(",f_");
+        out.push_str(name);
+    }
     out.push('\n');
     for c in candidates {
-        let row = [
+        let mut row = vec![
             cell(&c.event),
             cell(&c.site),
             cell(&c.volume),
@@ -507,6 +522,10 @@ pub fn to_csv(candidates: &[Candidate]) -> String {
             o(c.track_age_volumes),
             f(c.azshear_trend),
         ];
+        let features = c.features.as_deref().unwrap_or(&[]);
+        row.extend(
+            (0..crate::tornado_fusion::FEATURE_NAMES.len()).map(|i| f(features.get(i).copied())),
+        );
         out.push_str(&row.join(","));
         out.push('\n');
     }
@@ -552,6 +571,7 @@ mod tests {
             track_id: None,
             track_age_volumes: None,
             azshear_trend: None,
+            features: None,
         }
     }
 

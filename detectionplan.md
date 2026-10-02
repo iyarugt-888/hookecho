@@ -46,6 +46,33 @@ Primary code areas:
 
     Unrotated low-CC signatures almost never verify.
 
+- **Phase 7 and Phase 8 stage A, the fusion layer exists; not promoted** (`tornado_fusion.rs`, `scripts/fusion/fit.py`).
+  - **Features.** 12 per tracked LLSD column, each counted once: low-level and peak shear, depth, tilts, rooted, cyclonic, persistence, shear trend, a collocated tornado debris signature's polarimetric evidence, its hail signs, range, and weak-echo rooting. Reports and warnings are not features.
+  - **Score.** The logistic of a sum of named log-odds terms, so the explanation reproduces it exactly. It is an evidence score, never a probability.
+  - **Fit.** L2 logistic regression held out by whole event (leave-one-event-out). A free fit learned corpus quirks: range negative and largest; hail beside debris *for* a tornado; correlated shear features with opposite signs. The shipped fit holds each weight to its physical sign and leaves range out. Shear trend, hail and weak-echo rooting were dropped for coming out wrong-signed; weak-echo rooting wanted a *positive* weight, worth revisiting with more events.
+  - **Held out by event.** Verified rows in the top 50, 100 and 200 (of 7783):
+
+    | Ranking | Top 50 | Top 100 | Top 200 | AUC |
+    |---|---|---|---|---|
+    | Constrained fusion | 29 | 59 | 102 | 0.68 |
+    | Peak shear alone | 26 | 46 | 85 | 0.70 |
+    | Free fit | 23 | 50 | 99 | 0.73 |
+
+    The fusion's top 50 reach 5 of 8 tornadic events, against 7 for peak shear.
+  - **In-sample against the app's Tornado ID, at matched false alarms per radar-hour.**
+
+    | Matched rate | Fusion | Tornado ID |
+    |---|---|---|
+    | ~1.6 per hour | POD 0.33, FAR 0.28, CSI 0.25 | POD 0.45, FAR 0.39, CSI 0.34 |
+    | ~4–5 per hour | POD 0.47–0.51, FAR 0.33–0.37 | POD 0.63, FAR 0.56 |
+
+    The fusion's detections are more often right, but they cover fewer distinct tornadoes and its CSI is worse. Per Phase 13 it is not promoted; the app keeps its Tornado ID.
+
+### Findings to carry into Phase 8 stage B / Phase 9
+
+- The corpus is the limit. Nine events (one hail and one derecho hard negative) cannot settle weights. On the KDVN derecho a free fit ranks *worse than random* (AUC 0.40). Phase 9's hard negatives and more tornadic cases come before any further tuning.
+- The fusion concentrates on the strongest circulations. To compete on POD it needs evidence for weaker tornadoes, or the plan's "1 volume neutral, 2 meaningful" persistence shape rather than a linear term.
+
 ### Findings to carry into Phase 7
 
 - Denver's hail supercell still promotes 2 signatures, because it rotated within the radius. Telling it apart needs fused evidence (hail signs, depth, persistence), not a stricter debris rule fitted to one case.

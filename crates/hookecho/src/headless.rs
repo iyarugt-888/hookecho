@@ -5937,6 +5937,7 @@ fn backtest_event(
                 track_id: None,
                 track_age_volumes: None,
                 azshear_trend: None,
+                features: None,
                 vrot_ms: None,
                 g2g_ms: None,
                 min_cc: None,
@@ -6061,13 +6062,19 @@ fn backtest_event(
                 .iter()
                 .map(|&(lon, lat, posh, _)| (lon, lat, posh))
                 .collect();
-            for h in &hits {
-                let a = wxdata::debris_class::classify(
-                    h,
-                    &all_columns,
-                    &cores,
-                    &wxdata::debris_class::DebrisParams::default(),
-                );
+            let assessed: Vec<(wxdata::tds::TdsHit, wxdata::debris_class::DebrisAssessment)> = hits
+                .iter()
+                .map(|h| {
+                    let a = wxdata::debris_class::classify(
+                        h,
+                        &all_columns,
+                        &cores,
+                        &wxdata::debris_class::DebrisParams::default(),
+                    );
+                    (*h, a)
+                })
+                .collect();
+            for (h, a) in &assessed {
                 candidates.push(Candidate {
                     beam_base_km: Some(h.base_km),
                     beam_top_km: Some(h.top_km),
@@ -6091,6 +6098,35 @@ fn backtest_event(
                         h.range_km,
                         a.polarimetric,
                         a.polarimetric,
+                    )
+                });
+            }
+            // Every tracked column fused (detectionplan.md Phase 7): its features, for fitting
+            // offline, and its evidence score from the current weights.
+            for tc in &llsd_columns {
+                let features = wxdata::tornado_fusion::Features::of(tc, &assessed);
+                let fused =
+                    wxdata::tornado_fusion::fuse(&features, &wxdata::tornado_fusion::WEIGHTS);
+                let c = &tc.column;
+                let o = &c.members[0].object;
+                candidates.push(Candidate {
+                    beam_base_km: Some(c.base_km),
+                    beam_top_km: Some(c.top_km),
+                    tilts: Some(c.tilts()),
+                    depth_km: Some(c.depth_km),
+                    rooted: Some(c.rooted),
+                    azshear_s: Some(c.max_azshear),
+                    track_id: Some(tc.track_id),
+                    track_age_volumes: Some(tc.age_volumes),
+                    azshear_trend: tc.azshear_trend,
+                    features: Some(features.values().to_vec()),
+                    ..base(
+                        K::TornadoFusion,
+                        o.lon,
+                        o.lat,
+                        o.range_km,
+                        fused.score,
+                        fused.score,
                     )
                 });
             }
