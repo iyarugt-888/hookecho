@@ -10,7 +10,7 @@
 //! calibrated probabilities; the reliability table is how far each score bin actually verified,
 //! which is the first thing a later calibration needs.
 
-use crate::detverify::{score, Detection, Truth};
+use crate::detverify::{score_with_paths, Detection, PathTruth, Truth};
 use serde::Serialize;
 use std::collections::BTreeMap;
 
@@ -145,14 +145,18 @@ impl Candidate {
     }
 }
 
+/// A detector's truth in one event: point reports, and surveyed paths.
+type TruthSet = (Vec<Truth>, Vec<PathTruth>);
+
 /// One event's candidates and truth, as the backtest gathered them.
 #[derive(Debug, Clone, Default)]
 pub struct EventRun {
     pub label: String,
     pub candidates: Vec<Candidate>,
-    /// Tornado truth: local storm reports and surveyed tracks, both.
+    /// Tornado truth: local storm reports, and surveyed paths (matched along the path, not at a
+    /// point; see `detverify::PathTruth`).
     pub tornado_reports: Vec<Truth>,
-    pub tornado_surveys: Vec<Truth>,
+    pub tornado_surveys: Vec<PathTruth>,
     pub hail_reports: Vec<Truth>,
     pub volumes: usize,
     /// Radar time covered: from the first volume to the last, plus one volume's gap.
@@ -165,16 +169,16 @@ pub struct EventRun {
 
 /// Mark each candidate matched or not against its event's truth.
 pub fn mark_matches(run: &mut EventRun, radius_km: f64, window_min: i64) {
-    let near = |c: &Candidate, truths: &[Truth]| {
+    let near = |c: &Candidate, truths: &[Truth], paths: &[PathTruth]| {
         let d = c.detection();
-        score(&[d], truths, radius_km, window_min, &[0.0])[0].verified > 0
+        score_with_paths(&[d], truths, paths, radius_km, window_min, &[0.0])[0].verified > 0
     };
     for c in &mut run.candidates {
         if c.detector.is_tornado() {
-            c.matched_report = near(c, &run.tornado_reports);
-            c.matched_survey = near(c, &run.tornado_surveys);
+            c.matched_report = near(c, &run.tornado_reports, &[]);
+            c.matched_survey = near(c, &[], &run.tornado_surveys);
         } else {
-            c.matched_report = near(c, &run.hail_reports);
+            c.matched_report = near(c, &run.hail_reports, &[]);
             c.matched_survey = false;
         }
     }
@@ -202,7 +206,18 @@ pub struct ThresholdRow {
     pub pod: Option<f32>,
     pub far: Option<f32>,
     pub csi: Option<f32>,
+    /// Verified detections over detections (1 - FAR).
+    pub precision: Option<f32>,
+    /// Found events over events (the POD).
+    pub recall: Option<f32>,
+    /// Harmonic mean of precision and recall.
+    pub f1: Option<f32>,
     pub false_per_radar_hour: Option<f64>,
+    pub false_per_volume: Option<f64>,
+    /// Median minutes from the earliest detection near each found event to the event (negative:
+    /// the detection came after the report), and how many found events it is over.
+    pub median_lead_min: Option<f32>,
+    pub leads: usize,
 }
 
 /// How often candidates in one score bin verified.
@@ -225,6 +240,13 @@ pub struct Band {
     /// The same, at or above an evidence score of 0.5.
     pub candidates_at_half: usize,
     pub verified_at_half: usize,
+    /// Events (all of them, unbanded) and how many this band's detections at or above 0.5 found:
+    /// would this band alone have caught them (`detverify::score_in_range`).
+    pub events: usize,
+    pub found_at_half: usize,
+    pub pod_at_half: Option<f32>,
+    pub far_at_half: Option<f32>,
+    pub csi_at_half: Option<f32>,
 }
 
 /// One detector's baseline.
@@ -255,8 +277,10 @@ pub struct Summary {
 }
 
 pub const THRESHOLDS: [f32; 10] = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9];
-const RANGE_BANDS: [(f32, f32, &str); 4] = [
-    (0.0, 60.0, "0-60 km"),
+/// The range bands detectionplan.md Phase 11 asks every revision to be broken down by.
+const RANGE_BANDS: [(f32, f32, &str); 5] = [
+    (0.0, 30.0, "0-30 km"),
+    (30.0, 60.0, "30-60 km"),
     (60.0, 100.0, "60-100 km"),
     (100.0, 150.0, "100-150 km"),
     (150.0, f32::INFINITY, "150+ km"),
@@ -272,16 +296,66 @@ fn ratio(n: usize, d: usize) -> Option<f32> {
     (d > 0).then(|| n as f32 / d as f32)
 }
 
-fn band(label: &str, rows: &[&Candidate]) -> Band {
-    let verified = rows.iter().filter(|c| c.verified()).count();
-    let half: Vec<&&Candidate> = rows.iter().filter(|c| c.final_score >= 0.5).collect();
+fn median(mut v: Vec<i64>) -> Option<f32> {
+    if v.is_empty() {
+        return None;
+    }
+    v.sort_unstable();
+    let n = v.len();
+    Some(if n % 2 == 1 {
+        v[n / 2] as f32
+    } else {
+        (v[n / 2 - 1] + v[n / 2]) as f32 / 2.0
+    })
+}
+
+/// One band: `keep` picks its candidates. Events stay whole: a band is scored on whether its own
+/// detections would have found them.
+fn band(
+    label: &str,
+    runs: &[EventRun],
+    mine: &dyn Fn(&EventRun) -> Vec<Candidate>,
+    truths: &dyn Fn(&EventRun) -> TruthSet,
+    keep: &dyn Fn(&Candidate) -> bool,
+    radius_km: f64,
+    window_min: i64,
+) -> Band {
+    let (mut candidates, mut verified, mut at_half, mut verified_at_half) = (0, 0, 0, 0);
+    let (mut events, mut found, mut detections, mut matched) = (0, 0, 0, 0);
+    for r in runs {
+        let rows: Vec<Candidate> = mine(r).into_iter().filter(|c| keep(c)).collect();
+        candidates += rows.len();
+        verified += rows.iter().filter(|c| c.verified()).count();
+        let half: Vec<&Candidate> = rows.iter().filter(|c| c.final_score >= 0.5).collect();
+        at_half += half.len();
+        verified_at_half += half.iter().filter(|c| c.verified()).count();
+        let d: Vec<Detection> = rows.iter().map(Candidate::detection).collect();
+        let (tr, paths) = truths(r);
+        let s = score_with_paths(&d, &tr, &paths, radius_km, window_min, &[0.5])[0];
+        events += s.events;
+        found += s.found;
+        detections += s.detections;
+        matched += s.verified;
+    }
+    let s = crate::detverify::Score {
+        threshold: 0.5,
+        detections,
+        verified: matched,
+        events,
+        found,
+    };
     Band {
         band: label.to_string(),
-        candidates: rows.len(),
+        candidates,
         verified,
-        verified_fraction: ratio(verified, rows.len()),
-        candidates_at_half: half.len(),
-        verified_at_half: half.iter().filter(|c| c.verified()).count(),
+        verified_fraction: ratio(verified, candidates),
+        candidates_at_half: at_half,
+        verified_at_half,
+        events,
+        found_at_half: found,
+        pod_at_half: s.pod(),
+        far_at_half: s.far(),
+        csi_at_half: s.csi(),
     }
 }
 
@@ -299,15 +373,11 @@ pub fn summarize_detector(
             .cloned()
             .collect()
     };
-    let truths = |r: &EventRun| -> Vec<Truth> {
+    let truths = |r: &EventRun| -> TruthSet {
         if kind.is_tornado() {
-            r.tornado_reports
-                .iter()
-                .chain(&r.tornado_surveys)
-                .copied()
-                .collect()
+            (r.tornado_reports.clone(), r.tornado_surveys.clone())
         } else {
-            r.hail_reports.clone()
+            (r.hail_reports.clone(), Vec::new())
         }
     };
     let volumes: usize = runs.iter().map(|r| r.volumes).sum();
@@ -317,13 +387,18 @@ pub fn summarize_detector(
         .iter()
         .map(|&t| {
             let mut row = (0usize, 0usize, 0usize, 0usize);
+            let mut leads = Vec::new();
             for r in runs {
                 let d: Vec<Detection> = mine(r).iter().map(Candidate::detection).collect();
-                let s = score(&d, &truths(r), radius_km, window_min, &[t])[0];
+                let (tr, paths) = truths(r);
+                let s = score_with_paths(&d, &tr, &paths, radius_km, window_min, &[t])[0];
                 row.0 += s.detections;
                 row.1 += s.verified;
                 row.2 += s.events;
                 row.3 += s.found;
+                leads.extend(crate::detverify::lead_minutes_with_paths(
+                    &d, &tr, &paths, radius_km, window_min, t,
+                ));
             }
             let (detections, verified, events, found) = row;
             let s = crate::detverify::Score {
@@ -332,6 +407,12 @@ pub fn summarize_detector(
                 verified,
                 events,
                 found,
+            };
+            let precision = ratio(verified, detections);
+            let recall = s.pod();
+            let f1 = match (precision, recall) {
+                (Some(p), Some(r)) if p + r > 0.0 => Some(2.0 * p * r / (p + r)),
+                _ => None,
             };
             ThresholdRow {
                 threshold: t,
@@ -342,8 +423,15 @@ pub fn summarize_detector(
                 pod: s.pod(),
                 far: s.far(),
                 csi: s.csi(),
+                precision,
+                recall,
+                f1,
                 false_per_radar_hour: (radar_hours > 0.0)
                     .then(|| (detections - verified) as f64 / radar_hours),
+                false_per_volume: (volumes > 0)
+                    .then(|| (detections - verified) as f64 / volumes as f64),
+                leads: leads.len(),
+                median_lead_min: median(leads),
             }
         })
         .collect();
@@ -371,32 +459,22 @@ pub fn summarize_detector(
     let by_range = RANGE_BANDS
         .iter()
         .map(|&(lo, hi, label)| {
-            let rows: Vec<&Candidate> = refs
-                .iter()
-                .copied()
-                .filter(|c| c.range_km >= lo && c.range_km < hi)
-                .collect();
-            band(label, &rows)
+            let keep = |c: &Candidate| c.range_km >= lo && c.range_km < hi;
+            band(label, runs, &mine, &truths, &keep, radius_km, window_min)
         })
         .collect();
     let mut by_beam_height: Vec<Band> = HEIGHT_BANDS
         .iter()
         .map(|&(lo, hi, label)| {
-            let rows: Vec<&Candidate> = refs
-                .iter()
-                .copied()
-                .filter(|c| c.beam_base_km.is_some_and(|h| h >= lo && h < hi))
-                .collect();
-            band(label, &rows)
+            let keep = |c: &Candidate| c.beam_base_km.is_some_and(|h| h >= lo && h < hi);
+            band(label, runs, &mine, &truths, &keep, radius_km, window_min)
         })
         .collect();
-    let unknown: Vec<&Candidate> = refs
-        .iter()
-        .copied()
-        .filter(|c| c.beam_base_km.is_none())
-        .collect();
-    if !unknown.is_empty() {
-        by_beam_height.push(band("unknown", &unknown));
+    if refs.iter().any(|c| c.beam_base_km.is_none()) {
+        let keep = |c: &Candidate| c.beam_base_km.is_none();
+        by_beam_height.push(band(
+            "unknown", runs, &mine, &truths, &keep, radius_km, window_min,
+        ));
     }
     DetectorSummary {
         candidates: all.len(),
@@ -626,7 +704,21 @@ mod tests {
         assert_eq!(rot.reliability[6].candidates, 1);
         assert_eq!(rot.reliability[6].verified, 0);
         assert_eq!(rot.reliability[8].verified_fraction, Some(1.0));
-        assert_eq!(rot.by_range[0].candidates, 2);
+        // 30 km is the start of the second band.
+        assert_eq!(rot.by_range[0].candidates, 0);
+        assert_eq!(rot.by_range[1].candidates, 2);
+        assert_eq!(
+            (rot.by_range[1].events, rot.by_range[1].found_at_half),
+            (1, 1)
+        );
+        assert_eq!(rot.by_range[1].pod_at_half, Some(1.0));
+        // Precision, recall and F1 at 0: one of two verified, the one event found.
+        let all = &rot.by_threshold[0];
+        assert_eq!((all.precision, all.recall), (Some(0.5), Some(1.0)));
+        assert!((all.f1.unwrap() - 2.0 / 3.0).abs() < 1e-6);
+        assert_eq!(all.false_per_volume, Some(0.5));
+        // The detection at minute 100 came 2 minutes before the report at 102.
+        assert_eq!((all.median_lead_min, all.leads), (Some(2.0), 1));
         assert_eq!(rot.by_beam_height[0].candidates, 2);
         assert_eq!(s.versions["rotation"], crate::rotation::ALGORITHM_VERSION);
         assert_eq!(s.soundings["KTLX test"], "Norman, OK 20 12Z");

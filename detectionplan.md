@@ -68,6 +68,16 @@ Primary code areas:
 
     The fusion's detections are more often right, but they cover fewer distinct tornadoes and its CSI is worse. Per Phase 13 it is not promoted; the app keeps its Tornado ID.
 
+- **Phase 11, verification matrix done** (`detbaseline.rs`, `detverify::lead_minutes`). Every threshold row now has POD, FAR, CSI, precision, recall, F1, false alarms per radar-hour and per volume, and median lead time with its count. The range bands are the plan's 0–30, 30–60, 60–100, 100–150 and 150+ km; with the beam-height bands they report POD, FAR and CSI at 0.5, each band's detections scored against the event's whole truth. Storm type is not broken down: the corpus has no storm-type labels.
+- **Phase 10, path truth done** (`detverify::PathTruth`). A surveyed track is matched along its path, not at its midpoint: a detection verifies within the radius of the stretch the tornado can have been on at that time, moving at 8–30 m/s from its surveyed start (the survey has no end time), widened by the window. A path is one event however long. The backtest console tables keep the midpoints; the export uses paths.
+  - Effect on this corpus: Tornado ID ≥ 0.6 goes from 33 to 35 verified (POD 0.63 → 0.67, FAR 0.56 → 0.53). LLSD columns ≥ 0.5 go from 367 to 411 verified, and their 0–30 km FAR from 0.41 to 0.28. About 40 detections on surveyed paths, away from the midpoints, had been counted as false.
+
+### Findings to carry into Phase 9 (from 10 and 11)
+
+- Lead times measure a median of only 3–5 minutes because every event starts a few minutes before its first report. Measuring real lead time needs events that start earlier.
+- Tornado ID candidates carry no beam height, so its beam-height bands are all "unknown". The 100–150 km band is weak for every detector (Tornado ID FAR 0.95 at 0.5).
+- Truth coverage is uneven. Events without a survey only have point reports, so an unmatched detection there is less certainly false than one near a surveyed path.
+
 ### Findings to carry into Phase 8 stage B / Phase 9
 
 - The corpus is the limit. Nine events (one hail and one derecho hard negative) cannot settle weights. On the KDVN derecho a free fit ranks *worse than random* (AUC 0.40). Phase 9's hard negatives and more tornadic cases come before any further tuning.

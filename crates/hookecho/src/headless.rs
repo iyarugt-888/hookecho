@@ -5578,6 +5578,10 @@ struct BacktestEvent {
     /// simply were never digitised, so an empty list means "no survey data available", not
     /// "no tornado".
     dat_truths: Vec<wxdata::detverify::Truth>,
+    /// The same surveys as whole paths, for the baseline export, which matches a detection to the
+    /// stretch of path the tornado can have been on (detectionplan.md Phase 10) rather than to
+    /// the midpoint `dat_truths` keeps for the console tables.
+    dat_paths: Vec<wxdata::detverify::PathTruth>,
     /// Raw `tds`/`rot` detections that fell inside a tornado warning marked observed (or a
     /// Tornado Emergency) valid over the exact volume that made them — a third, independent line
     /// of evidence alongside the LSR/DAT truth sets. Not scored as POD/FAR against a truth set:
@@ -6251,48 +6255,57 @@ fn backtest_event(
     // per-vertex time is not published, only one survey timestamp for the whole track) — a rough
     // placement for a long path, but the 15-minute match window already has to absorb the same
     // approximation LSR reports make about exactly when a tornado was where.
-    let dat_truths: Vec<Truth> = if let Some((rlon, rlat)) = radar_pos {
-        // Degrees, not km: DAT's bbox query wants a box, and 2.5 deg comfortably covers
-        // `TRUTH_MAX_RANGE_KM` at every CONUS latitude (160 km is under 1.6 deg of longitude even
-        // at 25 N, where a degree of longitude is shortest).
-        const BOX_DEG: f64 = 2.5;
-        let bbox = (
-            rlon - BOX_DEG,
-            rlat - BOX_DEG,
-            rlon + BOX_DEG,
-            rlat + BOX_DEG,
-        );
-        let tracks = rt
-            .block_on(async {
-                let http = reqwest::Client::new();
-                wxdata::dat::fetch(&http, bbox, first - pad, last + pad).await
-            })
-            .map(|(_points, tracks)| tracks)
-            .unwrap_or_else(|e| {
-                eprintln!("  {site}: DAT survey fetch failed, {e}");
-                Vec::new()
-            });
-        tracks
-            .iter()
-            // An EF rating only ever comes from a tornado survey (straight-line wind damage is
-            // rated separately), so this is the tornado filter `truths`' own `ReportKind::Tornado`
-            // is for LSRs.
-            .filter(|t| wxdata::dat::ef_number(&t.efscale).is_some())
-            .filter_map(|t| {
-                let storm = t.storm?;
-                let mid = t.path.get(t.path.len() / 2)?;
-                (crate::geo::great_circle([rlon, rlat], *mid).0 <= TRUTH_MAX_RANGE_KM).then_some(
-                    Truth {
-                        lon: mid[0],
-                        lat: mid[1],
-                        minute: storm.timestamp() / 60,
-                    },
-                )
-            })
-            .collect()
-    } else {
-        Vec::new()
-    };
+    let (dat_truths, dat_paths): (Vec<Truth>, Vec<wxdata::detverify::PathTruth>) =
+        if let Some((rlon, rlat)) = radar_pos {
+            // Degrees, not km: DAT's bbox query wants a box, and 2.5 deg comfortably covers
+            // `TRUTH_MAX_RANGE_KM` at every CONUS latitude (160 km is under 1.6 deg of longitude even
+            // at 25 N, where a degree of longitude is shortest).
+            const BOX_DEG: f64 = 2.5;
+            let bbox = (
+                rlon - BOX_DEG,
+                rlat - BOX_DEG,
+                rlon + BOX_DEG,
+                rlat + BOX_DEG,
+            );
+            let tracks = rt
+                .block_on(async {
+                    let http = reqwest::Client::new();
+                    wxdata::dat::fetch(&http, bbox, first - pad, last + pad).await
+                })
+                .map(|(_points, tracks)| tracks)
+                .unwrap_or_else(|e| {
+                    eprintln!("  {site}: DAT survey fetch failed, {e}");
+                    Vec::new()
+                });
+            tracks
+                .iter()
+                // An EF rating only ever comes from a tornado survey (straight-line wind damage is
+                // rated separately), so this is the tornado filter `truths`' own `ReportKind::Tornado`
+                // is for LSRs.
+                .filter(|t| wxdata::dat::ef_number(&t.efscale).is_some())
+                .filter_map(|t| {
+                    let storm = t.storm?;
+                    let mid = t.path.get(t.path.len() / 2)?;
+                    (crate::geo::great_circle([rlon, rlat], *mid).0 <= TRUTH_MAX_RANGE_KM).then(
+                        || {
+                            (
+                                Truth {
+                                    lon: mid[0],
+                                    lat: mid[1],
+                                    minute: storm.timestamp() / 60,
+                                },
+                                wxdata::detverify::PathTruth {
+                                    path: t.path.iter().map(|p| (p[0], p[1])).collect(),
+                                    start_minute: storm.timestamp() / 60,
+                                },
+                            )
+                        },
+                    )
+                })
+                .unzip()
+        } else {
+            (Vec::new(), Vec::new())
+        };
 
     let label = format!("{site} {} {}", day, first.format("%H:%M"));
     let mut candidates = candidates;
@@ -6317,6 +6330,7 @@ fn backtest_event(
         rot,
         truths,
         dat_truths,
+        dat_paths,
         tds_observed,
         rot_observed,
         tds_tracks,
@@ -6757,7 +6771,7 @@ fn export_baseline(events: &[BacktestEvent], dir: &str) -> anyhow::Result<()> {
             label: e.label.clone(),
             candidates: e.candidates.clone(),
             tornado_reports: e.truths.clone(),
-            tornado_surveys: e.dat_truths.clone(),
+            tornado_surveys: e.dat_paths.clone(),
             hail_reports: e.hail_truths.clone(),
             volumes: e.volumes,
             radar_hours: e.radar_hours,
