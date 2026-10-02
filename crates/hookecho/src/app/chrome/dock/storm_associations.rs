@@ -94,6 +94,7 @@ mod tests {
                 lat: 35.0,
                 tier: Tier::Possible,
                 score: 0.5,
+                terms: vec![],
                 vrot_ms: None,
                 min_cc: None,
                 reasons: vec![],

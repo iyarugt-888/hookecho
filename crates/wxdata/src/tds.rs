@@ -1842,6 +1842,24 @@ mod tests {
         assert_eq!(safe_couplets[0].debris_confidence, Some(debris_conf));
     }
 
+    /// detectionplan.md Phase 1: debris cannot raise a couplet's raw score, rotation cannot raise a
+    /// debris signature's, and the no-rotation deduction is display-only too. Only the display
+    /// `confidence` moves.
+    #[test]
+    fn corroboration_never_touches_either_raw_score() {
+        let mut debris = [hit_at(-97.5, 35.3, 0.60), hit_at(-96.5, 35.3, 0.70)];
+        let mut couplets = [couplet_at(-97.478, 35.3, 0.55)];
+        cross_corroborate(&mut debris, &mut couplets, true);
+        assert!(couplets[0].confidence > 0.55);
+        assert_eq!(couplets[0].raw_confidence, 0.55);
+        let boosted = debris.iter().find(|h| h.lon == -97.5).unwrap();
+        assert!(boosted.confidence > 0.60);
+        assert_eq!(boosted.raw_confidence, 0.60);
+        let lone = debris.iter().find(|h| h.lon == -96.5).unwrap();
+        assert!(lone.unrotated && lone.confidence < 0.70);
+        assert_eq!(lone.raw_confidence, 0.70);
+    }
+
     #[test]
     fn cross_corroborate_of_nothing_touches_nothing() {
         let mut debris: [TdsHit; 0] = [];

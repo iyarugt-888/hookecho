@@ -12,8 +12,12 @@
 //! * **Likely** — strong, deep or well-scored rotation;
 //! * **Possible** — rotation worth watching.
 //!
-//! It adds no radar evidence of its own and changes no score: the tiers are read off the
-//! detectors' numbers, and the reasons say which.
+//! It adds no radar evidence of its own. It reads each detector's *raw* score (its own
+//! measurements alone, [`CoupletHit::raw_confidence`] and [`TdsHit::raw_confidence`]), never the
+//! display score the other detector has already corroborated: that would count the same couplet
+//! or debris ball once in the boost and again here (detectionplan.md Phase 1). The fused score is
+//! a sum of named [`Term`]s, so every contribution can be shown and the explanation adds up to
+//! exactly the score. It is an evidence score, not a calibrated probability.
 
 use crate::confirm::Confirmation;
 use crate::rotation::CoupletHit;
@@ -35,6 +39,71 @@ pub const MIN_DEBRIS: f32 = 0.5;
 pub const STRONG_VROT_MS: f32 = 25.0;
 /// Combined score at and above which rotation alone reads as Likely.
 pub const LIKELY_SCORE: f32 = 0.6;
+/// How much of the gap the weaker of a collocated couplet and debris signature closes. Rotation
+/// and debris are different measurements (velocity, and correlation coefficient) of one tornado,
+/// so together they say more than either alone. 1.0 treats their raw scores as independent: with
+/// neither boosted by the other first, each is still counted once. 0.5 cut high-score false alarms
+/// further on the backtest corpus but dropped the reported Washington, IL tornado (KILX, 17 Nov
+/// 2013) out of the Likely tier, so the scale is left to the tuning in detectionplan.md Phase 8.
+pub const COLLOCATION_SHARE: f32 = 1.0;
+
+/// One signed contribution to a fused score. A [`TornadoId`]'s terms add up to its score.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Term {
+    pub label: &'static str,
+    pub value: f32,
+}
+
+/// A debris signature's evidence on its own: its raw score, less the deduction for having no
+/// rotation beside it when velocity was there to show one. That deduction comes from the velocity
+/// side's absence and is counted here once, never also through the display score.
+fn debris_terms(d: &TdsHit) -> Vec<Term> {
+    let raw = d.raw_confidence.clamp(0.0, 1.0);
+    let mut t = vec![Term {
+        label: "Debris signature",
+        value: raw,
+    }];
+    if d.unrotated {
+        t.push(Term {
+            label: "No rotation beside it",
+            value: -raw * (1.0 - crate::tds::NO_ROTATION_FACTOR),
+        });
+    }
+    t
+}
+
+fn total(terms: &[Term]) -> f32 {
+    terms.iter().map(|t| t.value).sum()
+}
+
+/// A debris signature's own evidence score, as Tornado ID counts it.
+pub fn debris_evidence(d: &TdsHit) -> f32 {
+    total(&debris_terms(d))
+}
+
+/// A couplet and, if one is beside it, a debris signature, fused: the stronger evidence in full,
+/// then [`COLLOCATION_SHARE`] of the weaker's share of what is left.
+fn fuse(c: &CoupletHit, d: Option<&TdsHit>) -> Vec<Term> {
+    let rot = vec![Term {
+        label: "Rotation",
+        value: c.raw_confidence.clamp(0.0, 1.0),
+    }];
+    let Some(d) = d else {
+        return rot;
+    };
+    let deb = debris_terms(d);
+    let (mut lead, other, label) = if total(&deb) > total(&rot) {
+        (deb, total(&rot), "Rotation beside it")
+    } else {
+        (rot, total(&deb), "Debris beside it")
+    };
+    let gap = 1.0 - total(&lead);
+    lead.push(Term {
+        label,
+        value: gap * other.max(0.0) * COLLOCATION_SHARE,
+    });
+    lead
+}
 
 /// How sure the identification is, lowest first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -73,8 +142,11 @@ pub struct TornadoId {
     pub lon: f64,
     pub lat: f64,
     pub tier: Tier,
-    /// 0..1, the stronger evidence combined with the other as independent: `1 - (1-a)(1-b)`.
+    /// 0..1 evidence score (not a probability): exactly the sum of `terms`.
     pub score: f32,
+    /// What the score is made of, in order: the leading evidence, then what adds to or takes
+    /// from it.
+    pub terms: Vec<Term>,
     /// Rotational velocity of the couplet, m/s.
     pub vrot_ms: Option<f32>,
     /// Lowest CC of the debris signature.
@@ -107,8 +179,9 @@ fn confirm_reasons(c: &Confirmation, out: &mut Vec<String>) {
     }
 }
 
-/// Identify tornadoes from corroborated couplets and debris signatures (as the app's rotation and
-/// debris layers compute them, confirmation included). Strongest first.
+/// Identify tornadoes from couplets and debris signatures (as the app's rotation and debris layers
+/// compute them, confirmation included). Only their raw scores are read, so it gives the same
+/// answer whether or not they were cross-corroborated first. Strongest first.
 pub fn identify(couplets: &[CoupletHit], debris: &[TdsHit]) -> Vec<TornadoId> {
     let mut used = vec![false; debris.len()];
     let mut out = Vec::new();
@@ -122,7 +195,7 @@ pub fn identify(couplets: &[CoupletHit], debris: &[TdsHit]) -> Vec<TornadoId> {
                 km((c.lon, c.lat), (a.lon, a.lat)).total_cmp(&km((c.lon, c.lat), (b.lon, b.lat)))
             })
             .map(|(i, d)| (i, *d));
-        if c.confidence < MIN_COUPLET && near.is_none() && c.confirmation.level().is_none() {
+        if c.raw_confidence < MIN_COUPLET && near.is_none() && c.confirmation.level().is_none() {
             continue;
         }
         let mut reasons = Vec::new();
@@ -132,7 +205,8 @@ pub fn identify(couplets: &[CoupletHit], debris: &[TdsHit]) -> Vec<TornadoId> {
         } else {
             Tier::Possible
         };
-        let mut score = c.confidence;
+        let terms = fuse(c, near.as_ref().map(|(_, d)| d));
+        let score = total(&terms);
         let mut min_cc = None;
         if let Some((i, d)) = near {
             used[i] = true;
@@ -140,10 +214,11 @@ pub fn identify(couplets: &[CoupletHit], debris: &[TdsHit]) -> Vec<TornadoId> {
             if d.confirmation.level().is_some() {
                 tier = Tier::Confirmed;
             }
-            if d.confidence >= MIN_DEBRIS {
+            // The debris signature must be credible on its own polarimetric evidence; the
+            // rotation beside it is already in the score and cannot also lift it into this tier.
+            if debris_evidence(&d) >= MIN_DEBRIS {
                 tier = tier.max(Tier::Debris);
             }
-            score = 1.0 - (1.0 - score) * (1.0 - d.confidence);
             min_cc = Some(d.min_cc);
             reasons.push(format!(
                 "Debris signature: CC down to {:.2} in {:.0} dBZ, {} tilt{}",
@@ -175,7 +250,8 @@ pub fn identify(couplets: &[CoupletHit], debris: &[TdsHit]) -> Vec<TornadoId> {
             lon: c.lon,
             lat: c.lat,
             tier,
-            score: score.clamp(0.0, 1.0),
+            score,
+            terms,
             vrot_ms: Some(c.vrot_ms),
             min_cc,
             reasons,
@@ -183,7 +259,9 @@ pub fn identify(couplets: &[CoupletHit], debris: &[TdsHit]) -> Vec<TornadoId> {
     }
     // Debris with no couplet beside it stands on its own, if it is credible or confirmed.
     for (i, d) in debris.iter().enumerate() {
-        if used[i] || (d.confidence < MIN_DEBRIS && d.confirmation.level().is_none()) {
+        let terms = debris_terms(d);
+        let score = total(&terms);
+        if used[i] || (score < MIN_DEBRIS && d.confirmation.level().is_none()) {
             continue;
         }
         let mut reasons = Vec::new();
@@ -200,7 +278,7 @@ pub fn identify(couplets: &[CoupletHit], debris: &[TdsHit]) -> Vec<TornadoId> {
         }
         let tier = if d.confirmation.level().is_some() {
             Tier::Confirmed
-        } else if d.confidence >= MIN_DEBRIS {
+        } else if score >= MIN_DEBRIS {
             Tier::Debris
         } else {
             Tier::Possible
@@ -209,7 +287,8 @@ pub fn identify(couplets: &[CoupletHit], debris: &[TdsHit]) -> Vec<TornadoId> {
             lon: d.lon,
             lat: d.lat,
             tier,
-            score: d.confidence.clamp(0.0, 1.0),
+            score,
+            terms,
             vrot_ms: d.rotation_ms,
             min_cc: Some(d.min_cc),
             reasons,
@@ -294,15 +373,17 @@ pub fn circulations(couplets: &[CoupletHit], debris: &[TdsHit]) -> Vec<Circulati
             let d = km((lon, lat), o);
             d > 1e-6 && d <= SUPPORT_KM
         };
+        // Raw scores: this only picks the centre, but it is still Tornado ID reading evidence,
+        // and a display score already carries the other detector.
         own + couplets
             .iter()
             .filter(|c| near((c.lon, c.lat)))
-            .map(|c| c.confidence)
+            .map(|c| c.raw_confidence)
             .sum::<f32>()
             + debris
                 .iter()
                 .filter(|d| near((d.lon, d.lat)))
-                .map(|d| d.confidence)
+                .map(debris_evidence)
                 .sum::<f32>()
     };
     let mut seeds: Vec<Evidence> = (0..couplets.len()).map(Evidence::Rotation).collect();
@@ -311,7 +392,7 @@ pub fn circulations(couplets: &[CoupletHit], debris: &[TdsHit]) -> Vec<Circulati
     let rot_support: Vec<f32> = couplets
         .iter()
         .map(|c| {
-            let s = support(c.lon, c.lat, c.confidence);
+            let s = support(c.lon, c.lat, c.raw_confidence);
             if c.sense == crate::rotation::Sense::Anticyclonic {
                 s * 0.5
             } else {
@@ -325,11 +406,15 @@ pub fn circulations(couplets: &[CoupletHit], debris: &[TdsHit]) -> Vec<Circulati
         };
         rot_support[b]
             .total_cmp(&rot_support[a])
-            .then(couplets[b].confidence.total_cmp(&couplets[a].confidence))
+            .then(
+                couplets[b]
+                    .raw_confidence
+                    .total_cmp(&couplets[a].raw_confidence),
+            )
             .then(couplets[b].vrot_ms.total_cmp(&couplets[a].vrot_ms))
     });
     let mut by_debris: Vec<usize> = (0..debris.len()).collect();
-    by_debris.sort_by(|a, b| debris[*b].confidence.total_cmp(&debris[*a].confidence));
+    by_debris.sort_by(|a, b| debris_evidence(&debris[*b]).total_cmp(&debris_evidence(&debris[*a])));
     seeds.extend(by_debris.into_iter().map(Evidence::Debris));
 
     let at = |e: Evidence| match e {
@@ -390,8 +475,8 @@ pub fn circulations(couplets: &[CoupletHit], debris: &[TdsHit]) -> Vec<Circulati
                 Evidence::Rotation(_) => None,
             })
             .collect();
-        let own_radar = cs.iter().any(|c| c.confidence >= MIN_COUPLET)
-            || ds.iter().any(|d| d.confidence >= MIN_DEBRIS)
+        let own_radar = cs.iter().any(|c| c.raw_confidence >= MIN_COUPLET)
+            || ds.iter().any(|d| debris_evidence(d) >= MIN_DEBRIS)
             || cs.iter().any(|c| c.confirmation.report.is_some())
             || ds.iter().any(|d| d.confirmation.report.is_some());
         if !own_radar {
@@ -553,7 +638,9 @@ mod tests {
 
     #[test]
     fn debris_with_no_rotation_near_it_is_only_possible_unless_confirmed() {
+        // Raw 0.65, which the missing rotation brings to 0.52: credible, but only just.
         let mut hail = debris(-97.0, 0.52);
+        hail.raw_confidence = 0.65;
         hail.unrotated = true;
         let out = circulations(&[], &[hail]);
         assert_eq!(out[0].id.tier, Tier::Possible, "{:?}", out[0].id);
@@ -651,8 +738,10 @@ mod tests {
         let ids = identify(&[couplet(-97.0, 0.5, 20.0, 2)], &[debris(-97.01, 0.7)]);
         assert_eq!(ids.len(), 1, "{ids:?}");
         assert_eq!(ids[0].tier, Tier::Debris);
+        // The debris leads; the rotation beside it closes its share of what is left.
+        let want = 0.7 + 0.3 * 0.5 * COLLOCATION_SHARE;
         assert!(
-            ids[0].score > 0.8,
+            (ids[0].score - want).abs() < 1e-6 && ids[0].score > 0.7,
             "combined, not the larger alone: {}",
             ids[0].score
         );
@@ -688,5 +777,92 @@ mod tests {
         let ids = identify(&[c], &[]);
         assert_eq!(ids[0].tier, Tier::Confirmed);
         assert!(ids[0].reasons[0].contains("reported"));
+    }
+
+    /// A couplet and debris ball 1 km apart, both credible alone.
+    fn pair() -> (CoupletHit, TdsHit) {
+        (couplet(-97.0, 0.6, 28.0, 3), debris(-97.011, 0.7))
+    }
+
+    #[test]
+    fn tornado_id_reads_raw_evidence_not_the_corroborated_display_scores() {
+        let (c, d) = pair();
+        let plain = identify(&[c], &[d]);
+        // The same two detections after the layers corroborate each other for display.
+        let (mut cs, mut ds) = ([c], [d]);
+        crate::tds::cross_corroborate(&mut ds, &mut cs, true);
+        assert!(cs[0].confidence > c.confidence && ds[0].confidence > d.confidence);
+        assert_eq!(identify(&cs, &ds), plain);
+        // The verdicts match; only the members keep their display scores, for the member list.
+        let ids = |z: Vec<Circulation>| z.into_iter().map(|z| z.id).collect::<Vec<_>>();
+        assert_eq!(ids(circulations(&cs, &ds)), ids(circulations(&[c], &[d])));
+    }
+
+    #[test]
+    fn the_same_evidence_through_two_paths_counts_once() {
+        let (c, d) = pair();
+        let once = identify(&[c], &[d])[0].score;
+        // However high the display scores were pushed, the fused score is unchanged.
+        let (mut c2, mut d2) = (c, d);
+        c2.confidence = 0.99;
+        d2.confidence = 0.99;
+        assert_eq!(identify(&[c2], &[d2])[0].score, once);
+    }
+
+    #[test]
+    fn duplicate_detections_of_one_object_add_nothing() {
+        let (c, d) = pair();
+        let one = circulations(&[c], &[d]);
+        let three = circulations(&[c, c, c], &[d, d]);
+        assert_eq!(three.len(), 1);
+        assert_eq!(three[0].id.score, one[0].id.score);
+        assert_eq!(three[0].id.terms, one[0].id.terms);
+    }
+
+    #[test]
+    fn collocated_rotation_and_debris_say_more_than_either_alone() {
+        let (c, d) = pair();
+        let both = identify(&[c], &[d])[0].score;
+        let rot = identify(&[c], &[])[0].score;
+        let deb = identify(&[], &[d])[0].score;
+        assert!(both > rot.max(deb), "{both} vs {rot} / {deb}");
+        assert!(both <= 1.0);
+    }
+
+    #[test]
+    fn the_terms_add_up_to_exactly_the_score() {
+        let (c, d) = pair();
+        let mut lone = debris(-96.0, 0.8);
+        lone.unrotated = true;
+        let weak = couplet(-95.0, 0.4, 15.0, 1);
+        let mut ids = identify(&[c, weak], &[d, lone]);
+        ids.extend(
+            circulations(&[c, weak], &[d, lone])
+                .into_iter()
+                .map(|z| z.id),
+        );
+        assert!(ids.len() >= 6, "{ids:?}");
+        for id in &ids {
+            assert!(!id.terms.is_empty());
+            assert_eq!(
+                id.terms.iter().map(|t| t.value).sum::<f32>(),
+                id.score,
+                "{id:?}"
+            );
+        }
+        // Debris with no rotation beside it carries the deduction as its own visible term.
+        let lone_id = ids.iter().find(|i| i.lon == -96.0).unwrap();
+        assert_eq!(lone_id.terms[1].label, "No rotation beside it");
+        assert!((lone_id.score - 0.8 * crate::tds::NO_ROTATION_FACTOR).abs() < 1e-6);
+    }
+
+    #[test]
+    fn rotation_cannot_lift_weak_debris_into_the_debris_tier() {
+        // Debris too weak to be credible alone, boosted for display by the couplet beside it.
+        let (c, mut d) = pair();
+        d.raw_confidence = 0.4;
+        d.confidence = 0.6;
+        let ids = identify(&[c], &[d]);
+        assert!(ids[0].tier < Tier::Debris, "{:?}", ids[0]);
     }
 }

@@ -176,7 +176,10 @@ fn check(f: &Found, tornado: (f64, f64), g: Golden) {
         .collect();
     assert_eq!(here.len(), 1, "one tornado, one detection");
     assert!(here[0].id.tier >= Tier::Debris, "{:?}", here[0].id.tier);
-    assert!(here[0].id.score >= 0.9, "score {}", here[0].id.score);
+    // 0.85, not 0.9: Mayfield's old 0.9+ came partly from counting the debris and the couplet
+    // twice (each boosted by the other, then combined). Fused once (detectionplan.md Phase 1) it
+    // scores 0.89; the Debris tier above is what says "tornado".
+    assert!(here[0].id.score >= 0.85, "score {}", here[0].id.score);
     assert!(here[0].rotations() >= 1 && here[0].debris() >= 1);
 }
 
