@@ -8755,7 +8755,7 @@ fn score_tooltip(
     ui.label(lines.join("\n"));
     if let Some(tr) = track.filter(|tr| tr.points.len() >= 2) {
         ui.separator();
-        ui.small(format!("Confidence, {} volumes", tr.points.len()));
+        ui.small(format!("Evidence score, {} volumes", tr.points.len()));
         let vals: Vec<f32> = tr.points.iter().map(|p| p.confidence * 100.0).collect();
         crate::theme::sparkline_sized(ui, &vals, color, egui::vec2(180.0, 28.0));
     }

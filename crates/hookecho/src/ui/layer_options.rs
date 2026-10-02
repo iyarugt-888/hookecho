@@ -1206,51 +1206,8 @@ pub(crate) fn show(
     // Detector thresholds. Each block only appears with its own detector on, and the defaults are
     // what the detectors shipped with — the reset button is there because a slider you can't get
     // back from is worse than no slider.
-    if section == "Detectors" && filters.show_tds {
-        header(ui, "Debris signature (TDS)");
-        let mut pct = (detectors.tds_min_confidence * 100.0).round();
-        if ui
-            .add(
-                egui::Slider::new(&mut pct, 0.0..=90.0)
-                    .text("Minimum confidence")
-                    .suffix("%"),
-            )
-            .on_hover_text(
-                "Hide debris signatures below this confidence, and keep them from raising an \
-                 alert. Confidence rises with a deep dip in correlation coefficient that stands \
-                 out from its surroundings, strong reflectivity, a compact size, and a signature \
-                 that repeats up through the tilts. A rotation couplet beside it raises it \
-                 further; none, where velocity was scanned, costs a fifth. One tilt alone never \
-                 exceeds 60%. Starts at 60%: on the archived-event backtest that caught as \
-                 many tornadoes as 50% with far fewer false alarms.",
-            )
-            .changed()
-        {
-            detectors.tds_min_confidence = pct / 100.0;
-        }
-        ui.weak("Each marker shows its confidence. Raise this to cut down on doubtful ones.");
-    }
-    if section == "Detectors" && filters.show_couplets {
-        header(ui, "Rotation couplets");
-        let mut pct = (detectors.rotation_min_confidence * 100.0).round();
-        if ui
-            .add(
-                egui::Slider::new(&mut pct, 0.0..=90.0)
-                    .text("Minimum confidence")
-                    .suffix("%"),
-            )
-            .on_hover_text(
-                "Hide rotation couplets below this confidence, and keep them from raising an \
-                 alert. Confidence rises with strong gate-to-gate shear, a sizeable cluster of \
-                 gates, and a couplet that repeats up through the tilts; it fades with range. \
-                 One tilt alone never exceeds 50%. Starts at 50%: rotation comes before \
-                 debris, so this errs toward catching more.",
-            )
-            .changed()
-        {
-            detectors.rotation_min_confidence = pct / 100.0;
-        }
-        ui.weak("Each marker shows its confidence; hover it for the working.");
+    if section == "Detectors" {
+        detector_score_thresholds(ui, filters, detectors);
     }
     if section == "Detectors" && filters.show_tbss {
         header(ui, "Hail spike (TBSS)");
@@ -1310,6 +1267,68 @@ pub(crate) fn show(
     }
 
     actions.overlays_changed |= changed;
+}
+
+/// The debris and rotation score thresholds in the Detectors section: each only with its own
+/// detector on. Scores read out of 100, not as percentages (detectionplan.md Phase 1): they are
+/// evidence scores, not probabilities.
+pub(crate) fn detector_score_thresholds(
+    ui: &mut egui::Ui,
+    filters: &OverlayFilters,
+    detectors: &mut crate::settings::DetectorTuning,
+) {
+    let header = |ui: &mut egui::Ui, text: &str| {
+        ui.add_space(4.0);
+        ui.label(egui::RichText::new(text).small().strong());
+    };
+    if filters.show_tds {
+        header(ui, "Debris signature (TDS)");
+        let mut pct = (detectors.tds_min_confidence * 100.0).round();
+        if ui
+            .add(
+                egui::Slider::new(&mut pct, 0.0..=90.0)
+                    .text("Minimum score")
+                    .suffix("/100"),
+            )
+            .on_hover_text(
+                "Hide debris signatures below this evidence score, and keep them from raising an \
+                 alert. The score is how much radar evidence there is, out of 100, not a \
+                 probability. It rises with a deep dip in correlation coefficient that stands \
+                 out from its surroundings, strong reflectivity, a compact size, and a signature \
+                 that repeats up through the tilts. A rotation couplet beside it raises it \
+                 further; none, where velocity was scanned, costs a fifth. One tilt alone never \
+                 exceeds 60. Starts at 60: on the archived-event backtest that caught as many \
+                 tornadoes as 50 with far fewer false alarms.",
+            )
+            .changed()
+        {
+            detectors.tds_min_confidence = pct / 100.0;
+        }
+        ui.weak("Each marker shows its evidence score. Raise this to cut down on doubtful ones.");
+    }
+    if filters.show_couplets {
+        header(ui, "Rotation couplets");
+        let mut pct = (detectors.rotation_min_confidence * 100.0).round();
+        if ui
+            .add(
+                egui::Slider::new(&mut pct, 0.0..=90.0)
+                    .text("Minimum score")
+                    .suffix("/100"),
+            )
+            .on_hover_text(
+                "Hide rotation couplets below this evidence score, and keep them from raising an \
+                 alert. The score is how much radar evidence there is, out of 100, not a \
+                 probability. It rises with strong gate-to-gate shear, a sizeable cluster of \
+                 gates, and a couplet that repeats up through the tilts; it fades with range. \
+                 One tilt alone never exceeds 50. Starts at 50: rotation comes before debris, \
+                 so this errs toward catching more.",
+            )
+            .changed()
+        {
+            detectors.rotation_min_confidence = pct / 100.0;
+        }
+        ui.weak("Each marker shows its evidence score; hover it for the working.");
+    }
 }
 
 #[cfg(test)]
@@ -1373,5 +1392,39 @@ mod catalog_choice_tests {
         assert!(on.contains(&FL::FlashFloodMax));
         assert!(!select_flash_ari_window(&mut on, FL::Qpe1h));
         assert_eq!(on.len(), 2);
+    }
+}
+
+#[cfg(test)]
+mod detector_threshold_snapshots {
+    use super::*;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "gpu: writes Detectors threshold captures for visual review"]
+    fn gpu_detector_threshold_snapshots() {
+        let gpu = crate::headless::ui::Snapshot::new().expect("GPU adapter for UI review");
+        let destination =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/ui-review");
+        std::fs::create_dir_all(&destination).unwrap();
+        let filters = OverlayFilters {
+            show_tds: true,
+            show_couplets: true,
+            ..Default::default()
+        };
+        for width in [280, 640] {
+            let mut detectors = crate::settings::DetectorTuning::default();
+            gpu.save(
+                &destination.join(format!("detector-thresholds-{width}.png")),
+                width,
+                220,
+                |ui| {
+                    egui::Frame::NONE.inner_margin(10).show(ui, |ui| {
+                        detector_score_thresholds(ui, &filters, &mut detectors);
+                    });
+                },
+            )
+            .unwrap();
+        }
     }
 }

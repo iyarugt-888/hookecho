@@ -195,8 +195,8 @@ impl HookEchoApp {
             };
             log::info!(
                 target: "wxdata::tds",
-                "{site}: TDS detected — {:.0}% confidence, {} tilt{}, {:.1}-{:.1} km{aloft}",
-                best.confidence * 100.0,
+                "{site}: TDS detected — evidence {}, {} tilt{}, {:.1}-{:.1} km{aloft}",
+                wxdata::evidence::out_of_100(best.confidence),
                 best.tilts,
                 if best.tilts == 1 { "" } else { "s" },
                 best.base_km,
@@ -205,10 +205,10 @@ impl HookEchoApp {
             self.banner(
                 "⚠ TDS detected".to_string(),
                 format!(
-                    "{} debris signature(s) — possible tornado ({:.0}% confidence, \
+                    "{} debris signature(s) — possible tornado (evidence {}, \
                      {} tilt{}, lofted to {:.1} km{aloft}{})",
                     alertable.len(),
-                    best.confidence * 100.0,
+                    wxdata::evidence::out_of_100(best.confidence),
                     best.tilts,
                     if best.tilts == 1 { "" } else { "s" },
                     best.top_km,
@@ -415,16 +415,16 @@ impl HookEchoApp {
             };
             log::info!(
                 target: "wxdata::rotation",
-                "{site}: rotation detected — {kt:.0} kt, {where_}, {:.0}% confidence, {} tilt{}{caveat}",
-                h.confidence * 100.0,
+                "{site}: rotation detected — {kt:.0} kt, {where_}, evidence {}, {} tilt{}{caveat}",
+                wxdata::evidence::out_of_100(h.confidence),
                 h.tilts,
                 if h.tilts == 1 { "" } else { "s" },
             );
             self.banner(
                 "⟳ Rotation detected".to_string(),
                 format!(
-                    "{kt:.0} kt couplet — {where_} ({:.0}% confidence, {} tilt{}{caveat})",
-                    h.confidence * 100.0,
+                    "{kt:.0} kt couplet — {where_} (evidence {}, {} tilt{}{caveat})",
+                    wxdata::evidence::out_of_100(h.confidence),
                     h.tilts,
                     if h.tilts == 1 { "" } else { "s" },
                 ),

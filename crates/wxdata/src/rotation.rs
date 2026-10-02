@@ -379,8 +379,8 @@ impl Explanation {
     /// The breakdown as plain lines for a tooltip or export.
     pub fn lines(&self, hit: &CoupletHit) -> Vec<String> {
         let mut out = vec![format!(
-            "Rotation couplet {:.0}%  ({})",
-            self.confidence * 100.0,
+            "Rotation couplet, evidence {}  ({})",
+            crate::evidence::out_of_100(self.confidence),
             self.version
         )];
         // Human evidence sits above the radar score, not in it.

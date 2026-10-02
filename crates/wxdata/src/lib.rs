@@ -26,6 +26,7 @@ pub mod detbaseline;
 pub mod detverify;
 pub mod doppler_wind;
 pub mod dotcams;
+pub mod evidence;
 pub mod dualpol;
 pub mod dwd;
 pub mod eccc;

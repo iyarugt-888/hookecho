@@ -885,8 +885,8 @@ fn threat_for(
         let place = if d < 1.0 { "at the core".to_string() } else {
             format!("{} {} of it", distance(d, metric), compass(bearing))
         };
-        format!("{} · {:.0}% detection score · {} signal{}, {place}; nearest SCIT core ({} from nearest signal)",
-            z.id.tier.label(), z.id.score * 100.0, z.members.len(),
+        format!("{} · evidence {} · {} signal{}, {place}; nearest SCIT core ({} from nearest signal)",
+            z.id.tier.label(), wxdata::evidence::out_of_100(z.id.score), z.members.len(),
             if z.members.len() == 1 { "" } else { "s" }, distance(separation, metric))
     });
     let mut warnings: Vec<String> = associations

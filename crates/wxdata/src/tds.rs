@@ -443,8 +443,8 @@ impl Explanation {
     /// The breakdown as plain lines for a tooltip or export.
     pub fn lines(&self, hit: &TdsHit) -> Vec<String> {
         let mut out = vec![format!(
-            "Debris signature {:.0}%  ({})",
-            self.confidence * 100.0,
+            "Debris signature, evidence {}  ({})",
+            crate::evidence::out_of_100(self.confidence),
             self.version
         )];
         // Human evidence sits above the radar score, not in it.

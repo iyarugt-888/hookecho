@@ -167,13 +167,17 @@ pub fn rotation(h: &wxdata::rotation::CoupletHit) -> String {
         _ => ", cyclonic",
     });
     if let Some(d) = h.debris_confidence {
-        let _ = write!(s, ", debris beside it ({:.0}%)", d * 100.0);
+        let _ = write!(
+            s,
+            ", debris beside it (evidence {})",
+            wxdata::evidence::out_of_100(d)
+        );
     }
     let _ = write!(
         s,
-        ", {:.0} km from radar, {:.0}% confidence",
+        ", {:.0} km from radar, evidence score {}",
         h.range_km,
-        h.confidence * 100.0
+        wxdata::evidence::out_of_100(h.confidence)
     );
     s
 }
@@ -204,7 +208,11 @@ pub fn debris(h: &wxdata::tds::TdsHit) -> String {
         None if h.unrotated => s.push_str(", no rotation beside it"),
         None => {}
     }
-    let _ = write!(s, ", {:.0}% confidence", h.confidence * 100.0);
+    let _ = write!(
+        s,
+        ", evidence score {}",
+        wxdata::evidence::out_of_100(h.confidence)
+    );
     s
 }
 

@@ -91,7 +91,7 @@ impl HookEchoApp {
                 // evidence of anything lofted.
                 if h.tilts > 1 {
                     format!(
-                        "TDS ρ{:.2} · {}t {:.1}km{} · {:.0}%{rot}{badge}",
+                        "TDS ρ{:.2} · {}t {:.1}km{} · {}{rot}{badge}",
                         h.min_cc,
                         h.tilts,
                         h.top_km,
@@ -101,13 +101,13 @@ impl HookEchoApp {
                         } else {
                             ""
                         },
-                        h.confidence * 100.0
+                        wxdata::evidence::out_of_100(h.confidence)
                     )
                 } else {
                     format!(
-                        "TDS ρ{:.2} · {:.0}%{rot}{badge}",
+                        "TDS ρ{:.2} · {}{rot}{badge}",
                         h.min_cc,
-                        h.confidence * 100.0
+                        wxdata::evidence::out_of_100(h.confidence)
                     )
                 },
                 egui::FontId::proportional(11.0),
@@ -237,7 +237,7 @@ impl HookEchoApp {
                     };
                     if h.tilts > 1 {
                         format!(
-                            "ROT {:.0} kt · {}t {:.1}km{} · {:.0}%{anti}{badge}",
+                            "ROT {:.0} kt · {}t {:.1}km{} · {}{anti}{badge}",
                             h.vrot_ms * 1.943_844,
                             h.tilts,
                             h.top_km,
@@ -246,13 +246,13 @@ impl HookEchoApp {
                             } else {
                                 ""
                             },
-                            h.confidence * 100.0
+                            wxdata::evidence::out_of_100(h.confidence)
                         )
                     } else {
                         format!(
-                            "ROT {:.0} kt · {:.0}%{anti}{badge}",
+                            "ROT {:.0} kt · {}{anti}{badge}",
                             h.vrot_ms * 1.943_844,
-                            h.confidence * 100.0
+                            wxdata::evidence::out_of_100(h.confidence)
                         )
                     }
                 },
@@ -304,7 +304,7 @@ impl HookEchoApp {
             painter.text(
                 p + egui::vec2(0.0, 10.0),
                 egui::Align2::CENTER_TOP,
-                format!("{} \u{b7} {:.0}%", t.tier.label(), t.score * 100.0),
+                format!("{} \u{b7} {}", t.tier.label(), wxdata::evidence::out_of_100(t.score)),
                 egui::FontId::proportional(11.5),
                 col,
             );
@@ -357,9 +357,9 @@ impl HookEchoApp {
                     (
                         rc,
                         format!(
-                            "Rotation {:.0} kt \u{b7} {:.0}%",
+                            "Rotation {:.0} kt \u{b7} {}",
                             kt(h.vrot_ms),
-                            h.confidence * 100.0
+                            wxdata::evidence::out_of_100(h.confidence)
                         ),
                         h.explain().lines(h),
                         nearest_score_track(rot_score_tracks, h.lon, h.lat),
@@ -370,9 +370,9 @@ impl HookEchoApp {
                     (
                         egui::Color32::from_rgb(240, 40, 210),
                         format!(
-                            "Debris \u{3c1}{:.2} \u{b7} {:.0}%",
+                            "Debris \u{3c1}{:.2} \u{b7} {}",
                             h.min_cc,
-                            h.confidence * 100.0
+                            wxdata::evidence::out_of_100(h.confidence)
                         ),
                         h.explain().lines(h),
                         nearest_score_track(tds_score_tracks, h.lon, h.lat),
@@ -494,7 +494,7 @@ impl HookEchoApp {
                     egui::Color32::BLACK,
                 );
                 // One line: the verdict, then the strongest numbers behind it.
-                let mut label = format!("{} \u{b7} {:.0}%", t.tier.label(), t.score * 100.0);
+                let mut label = format!("{} \u{b7} {}", t.tier.label(), wxdata::evidence::out_of_100(t.score));
                 if let Some(v) = t.vrot_ms {
                     label.push_str(&format!(" \u{b7} ROT {:.0} kt", kt(v)));
                 }
@@ -513,7 +513,7 @@ impl HookEchoApp {
                 );
                 if hovered && !is_open {
                     response.clone().show_tooltip_ui(|ui| {
-                        ui.strong(format!("{} \u{b7} {:.0}%", t.tier.label(), t.score * 100.0));
+                        ui.strong(format!("{} \u{b7} {}", t.tier.label(), wxdata::evidence::out_of_100(t.score)));
                         for r in &t.reasons {
                             ui.label(r);
                         }
@@ -547,9 +547,9 @@ impl HookEchoApp {
                                     ui.horizontal(|ui| {
                                         ui.label(
                                             egui::RichText::new(format!(
-                                                "{} \u{b7} {:.0}%",
+                                                "{} \u{b7} {}",
                                                 t.tier.label(),
-                                                t.score * 100.0
+                                                wxdata::evidence::out_of_100(t.score)
                                             ))
                                             .strong()
                                             .color(col),
