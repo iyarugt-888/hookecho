@@ -1,0 +1,1014 @@
+# Detection Improvement Roadmap
+
+Target branch: `feat/wsv3-redesign`
+
+Primary code areas:
+- `crates/wxdata/src/rotation.rs`
+- `crates/wxdata/src/tds.rs`
+- `crates/wxdata/src/tornado_id.rs`
+- `crates/wxdata/src/detverify.rs`
+- `crates/hookecho/src/app/detectors.rs`
+- `crates/hookecho/src/app.rs`
+- `crates/hookecho/src/settings.rs`
+
+## Purpose
+
+This roadmap is intended for Claude Code and Codex to implement a substantial reduction in high-confidence false tornado, rotation, and debris detections without simply raising thresholds until true events disappear.
+
+The current detectors contain useful safeguards, but the overall architecture still has three major weaknesses:
+
+1. Rotation is primarily derived from adjacent gate-to-gate peak velocity differences. This is sensitive to isolated bad gates, dealiasing errors, velocity texture, coarse sampling, and fixed-grid clustering.
+2. Rotation and debris scores are cross-corroborated and then combined again by Tornado ID, which can double-count correlated evidence and inflate moderate signals into apparently high-confidence tornado detections.
+3. Temporal persistence, object motion, storm-relative structure, and robust neighborhood statistics are not first-class inputs to tornado inference.
+
+The goal is not to eliminate all false positives. The goal is to make high scores difficult to obtain unless multiple physically consistent lines of evidence support the same persistent low-level circulation.
+
+---
+
+# Guiding principles
+
+## 1. Candidate generation is not classification
+
+Separate the system into:
+
+```
+Radar QC
+  -> candidate fields
+  -> physical objects
+  -> vertical association
+  -> temporal tracking
+  -> feature fusion
+  -> tornado classification / probability
+```
+
+Do not allow early-stage candidate scores to masquerade as final tornado confidence.
+
+## 2. Every source of evidence is counted once
+
+Rotation, CC, ZDR, reflectivity, vertical structure, persistence, reports, and warning metadata must each enter fusion only once.
+
+Do not boost rotation with debris, boost debris with rotation, and then combine the boosted values again.
+
+## 3. Prefer robust spatial statistics to maxima
+
+A single maximum gate-to-gate value must not dominate a high-confidence decision.
+
+Use neighborhood medians, percentiles, coherent object area, spatial gradients, texture, persistence, and vertical consistency.
+
+## 4. Scores are not probabilities unless calibrated
+
+Until a detector is calibrated against held-out historical events, label its value as an "evidence score", not a percentage probability.
+
+## 5. Hard negatives matter as much as tornadoes
+
+The validation corpus must contain large hail, QLCS shear, gust fronts, clear-air artifacts, dealiasing failures, sidelobes, wind farms, melting layers, biological scatter, and non-tornadic supercells.
+
+---
+
+# Phase 0 - Preserve a reproducible baseline
+
+Before changing detector behavior, create a baseline so every later change can be compared objectively.
+
+## Tasks
+
+- Preserve current algorithm versions and current detector output on the existing archived corpus.
+- Extend the headless backtest to export machine-readable JSON or CSV containing every candidate, not only summary metrics.
+- Include:
+  - radar site
+  - volume timestamp
+  - detector type
+  - lon/lat
+  - range
+  - beam height
+  - raw score
+  - final displayed score
+  - gate count
+  - tilt count
+  - Vrot
+  - gate-to-gate delta
+  - min/mean CC
+  - mean/max reflectivity
+  - ZDR
+  - vertical depth
+  - rooted state
+  - confirmation state
+  - whether matched to truth
+- Save baseline aggregate statistics for:
+  - POD
+  - FAR
+  - CSI
+  - false detections per radar-hour
+  - detections per volume
+  - score reliability by score bin
+  - performance by range band
+  - performance by beam-height band
+
+## Files
+
+- `crates/wxdata/src/detverify.rs`
+- headless/backtest CLI code
+- `docs/backtest-events.txt`
+
+## Acceptance criteria
+
+No detector behavior changes in this phase.
+
+A command must reproduce the same baseline summary on repeated runs.
+
+---
+
+# Phase 1 - Fix score semantics and double counting
+
+This phase should happen before replacing the detector itself.
+
+## Problem
+
+Current flow can effectively do:
+
+```
+raw rotation
+  -> boosted by debris
+
+raw debris
+  -> boosted by rotation
+
+then Tornado ID:
+  1 - (1 - boosted_rotation) * (1 - boosted_debris)
+```
+
+This treats highly correlated evidence as if it were independent and can inflate moderate detections into 80-95% scores.
+
+## Required redesign
+
+Introduce immutable raw detector evidence.
+
+Suggested structures:
+
+```rust
+pub struct RotationEvidence {
+    pub raw_score: f32,
+    // physical measurements...
+}
+
+pub struct DebrisEvidence {
+    pub raw_score: f32,
+    // physical measurements...
+}
+
+pub struct TornadoEvidence {
+    pub rotation: Option<RotationEvidence>,
+    pub debris: Option<DebrisEvidence>,
+    // later: temporal, environmental, reports, etc.
+}
+```
+
+The individual detector modules may report their own evidence quality, but they must not mutate each other.
+
+Remove bidirectional confidence boosting from the production tornado-classification path.
+
+If cross-corroboration remains for display compatibility, it must be clearly separated from raw evidence and must never feed Tornado ID.
+
+## Tornado ID changes
+
+Remove the noisy-OR combination of already-correlated detector scores.
+
+Initially replace it with a transparent rule-based fusion score while the new detector is being built.
+
+Example concept only:
+
+```
+rotation_quality
++ low_level_rooting
++ vertical_continuity
++ temporal_persistence
++ debris_consistency
++ spatial_collocation
+- QC penalties
+- hail-like penalties
+- implausible-motion penalties
+```
+
+Do not copy these exact weights without backtesting.
+
+## Rename score presentation
+
+Change user-facing text from:
+
+```
+78% confidence
+```
+
+to something such as:
+
+```
+Evidence score: 78/100
+```
+
+until calibration exists.
+
+## Tests
+
+Add tests proving:
+
+- debris cannot increase a rotation raw score
+- rotation cannot increase a debris raw score
+- Tornado ID sees raw evidence
+- adding the same evidence through two paths cannot increase the final score twice
+- duplicate nearby detections cannot increase confidence merely because there are more copies of the same object
+
+## Files
+
+- `crates/wxdata/src/rotation.rs`
+- `crates/wxdata/src/tds.rs`
+- `crates/wxdata/src/tornado_id.rs`
+- `crates/hookecho/src/app/detectors.rs`
+- marker/tooltip code displaying confidence
+
+---
+
+# Phase 2 - Replace peak gate-to-gate rotation detection with an LLSD/AzShear field
+
+This is the highest-priority detector redesign.
+
+The present adjacent-gate peak-difference approach is fundamentally sensitive to individual bad gates and sampling geometry.
+
+Implement a local linear least-squares derivative style azimuthal shear field similar in concept to modern NSSL/MRMS approaches.
+
+Reference concepts:
+- NSSL mesocyclone / tornado algorithm work
+- MRMS low-level and mid-level AzShear
+- LLSD velocity derivative techniques
+- TORP object-based rotation detection
+
+Useful references:
+- https://www.nssl.noaa.gov/research/tornadoes/
+- https://www.nssl.noaa.gov/education/svrwx101/tornadoes/detection/
+- https://repository.library.noaa.gov/view/noaa/48189
+
+## LLSD field
+
+For each valid velocity gate:
+
+1. Gather a local polar neighborhood.
+2. Reject invalid/range-folded/QC-failed samples.
+3. Fit the local radial-velocity field using robust or weighted least squares.
+4. Estimate azimuthal derivative / shear.
+5. Normalize the result into physically meaningful units.
+6. Store:
+   - signed shear
+   - absolute shear
+   - sample count
+   - fit residual
+   - local velocity texture
+   - QC flag
+
+Do not use only two adjacent gates.
+
+## Adaptive neighborhood
+
+The physical width represented by an azimuth bin grows strongly with range.
+
+The LLSD neighborhood should be based on approximate physical distance, not a fixed number of azimuth bins across all ranges.
+
+Candidate neighborhood target should be configurable and backtested.
+
+## Robust fitting
+
+Investigate:
+
+- median/MAD outlier rejection
+- Huber weighting
+- residual clipping
+- minimum valid-neighbor count
+
+A single velocity outlier should not create a strong shear maximum.
+
+## Quality fields
+
+Every AzShear gate/object should carry QC information.
+
+Suggested values:
+
+```rust
+pub struct ShearQuality {
+    pub valid_fraction: f32,
+    pub velocity_texture_ms: f32,
+    pub fit_rmse_ms: f32,
+    pub dealias_suspect_fraction: f32,
+    pub temporal_consistency: Option<f32>,
+}
+```
+
+High shear with terrible fit quality must be penalized heavily or rejected.
+
+---
+
+# Phase 3 - Create connected rotation objects
+
+Do not cluster candidate pairs by a fixed 0.04-degree geographic grid.
+
+Create a shear mask and connected objects directly from the AzShear field.
+
+## Candidate mask
+
+Candidate membership should use a combination of:
+
+- minimum absolute AzShear
+- minimum valid-neighbor count
+- acceptable LLSD fit quality
+- reflectivity / storm-context requirement
+- range/beam-height restrictions
+
+Use hysteresis if useful:
+
+```
+strong seed threshold
++
+weaker continuation threshold
+```
+
+This prevents weak isolated noise from becoming objects while allowing coherent circulation footprints to retain their full structure.
+
+## Object properties
+
+Create a new object type, for example:
+
+```rust
+pub struct RotationObject {
+    pub lon: f64,
+    pub lat: f64,
+    pub area_km2: f32,
+    pub diameter_km: f32,
+
+    pub max_azshear: f32,
+    pub p90_azshear: f32,
+    pub median_azshear: f32,
+
+    pub robust_delta_v_ms: f32,
+    pub max_delta_v_ms: f32,
+
+    pub mean_texture_ms: f32,
+    pub fit_rmse_ms: f32,
+    pub valid_fraction: f32,
+
+    pub range_km: f32,
+    pub beam_height_km: f32,
+    pub elevation_deg: f32,
+
+    pub sense: Sense,
+}
+```
+
+Use maximum shear only as one feature.
+
+## Reject obvious artifacts
+
+Explicitly test and penalize:
+
+- one-gate spikes
+- one-radial streaks
+- broad radial seams
+- Nyquist-boundary artifacts
+- implausibly elongated radial structures
+- isolated features with no coherent neighborhood
+- high texture / poor LLSD fit
+
+Retain the good existing seam and leftover-fold safeguards where they remain useful.
+
+---
+
+# Phase 4 - Redesign vertical association
+
+Current vertical association can potentially gain confidence through single-linkage chaining.
+
+Replace that behavior.
+
+## Vertical association rules
+
+Associate objects across elevation angles using:
+
+- distance from a common core/centroid
+- overlap or nearest-edge distance
+- expected storm tilt with height
+- maximum allowed displacement per kilometer of height
+- rotation sense consistency
+- comparable AzShear structure
+
+Do not allow:
+
+```
+A near B
+B near C
+therefore A == C
+```
+
+unless A and C are also physically consistent with a common vertical circulation.
+
+## Analyze physical height, not only tilt count
+
+Build vertical summaries by AGL layer.
+
+At minimum:
+
+```
+0-2 km AGL low-level rotation
+2-3 km transition
+3-6 km AGL mid-level rotation
+```
+
+Properties should include:
+
+- lowest detected height
+- strongest low-level shear
+- strongest midlevel shear
+- depth
+- centroid tilt with height
+- vertically integrated rotation evidence
+- whether the circulation reaches the lowest usable radar sample
+
+A circulation at four high tilts is not equivalent to a circulation rooted below 1 km.
+
+---
+
+# Phase 5 - Add temporal object tracking
+
+Temporal persistence must become detector evidence, not merely a UI sparkline.
+
+Implement a persistent track type.
+
+```rust
+pub struct RotationTrack {
+    pub id: u64,
+    pub age_volumes: usize,
+    pub age_seconds: i64,
+    pub history: Vec<RotationTrackPoint>,
+    pub motion_u_ms: f32,
+    pub motion_v_ms: f32,
+    pub trend: RotationTrend,
+}
+```
+
+## Association
+
+Associate objects between volumes with a motion-aware cost using:
+
+- predicted position
+- spatial distance
+- shear similarity
+- area similarity
+- sense
+- vertical structure
+- parent reflectivity-cell motion if available
+
+Hungarian matching is preferred if candidate counts stay manageable. A gated nearest-neighbor solution is acceptable initially.
+
+## Temporal features
+
+Expose:
+
+- age
+- volumes persisted
+- position jump
+- motion consistency
+- AzShear trend
+- Vrot trend
+- low-level depth trend
+- vertical-depth trend
+- debris appearance time relative to rotation
+
+## False-positive handling
+
+One-volume objects should normally have limited confidence unless evidence is extreme.
+
+Do not hard-require two volumes for all tornado detections, because rapidly developing tornadoes exist.
+
+Instead create a temporal term such as:
+
+```
+1 volume      neutral/limited
+2 volumes     meaningful persistence
+3+ volumes    strong persistence
+```
+
+with an escape path for an exceptionally strong, clean, low-level circulation with collocated debris.
+
+---
+
+# Phase 6 - Redesign TDS as a polarimetric object detector
+
+The current TDS module already has useful connected-component logic, contrast, size, vertical continuity, range effects, and ZDR.
+
+Keep those strengths, but change the semantics.
+
+## Split two concepts
+
+Introduce:
+
+```
+PolarimetricAnomaly
+TornadoDebrisSignature
+```
+
+A low-CC/high-Z object without credible nearby low-level circulation is a polarimetric anomaly or debris candidate, not automatically a Tornado Debris Signature.
+
+## Fuzzy polarimetric evidence
+
+Avoid making the detector depend on only:
+
+```
+CC < 0.80
+Z >= 40 dBZ
+```
+
+Use continuous evidence functions.
+
+Potential inputs:
+
+- min CC
+- mean CC
+- p10 / p25 CC
+- CC contrast to surroundings
+- reflectivity mean/max
+- ZDR mean/median
+- ZDR variance
+- area
+- shape compactness
+- vertical depth
+- low-level rooting
+- range/beam height
+- persistence
+
+## Hail discrimination
+
+Add explicit hail-like features where possible:
+
+- very high reflectivity
+- hail/MESH/MEHS context if already available
+- broad low-CC region
+- positive/high ZDR pattern
+- lack of collocated low-level rotation
+- storm-relative placement
+- melting-layer / bright-band proximity
+
+Do not allow a high-quality hail signature with no rotation to become an 80% "TDS".
+
+## TDS promotion
+
+Promote a polarimetric anomaly to `TornadoDebrisSignature` when:
+
+- the polarimetric signature itself is credible
+- a credible low-level rotational object is collocated within an adaptive physical radius
+- temporal/vertical behavior is consistent
+
+Do not use a fixed 5 km association radius at all ranges without testing beam geometry.
+
+---
+
+# Phase 7 - Build one fusion layer
+
+After Phases 2-6, Tornado ID should be the only place where evidence becomes a tornado-level score.
+
+Suggested feature vector:
+
+```
+rotation:
+  low_level_max_azshear
+  low_level_p90_azshear
+  midlevel_max_azshear
+  robust_delta_v
+  object_area
+  vertical_depth
+  lowest_height
+  rooted
+  sense
+  LLSD_fit_quality
+  velocity_texture
+  range
+  beam_height
+
+temporal:
+  track_age
+  volumes_persisted
+  motion_consistency
+  shear_trend
+  depth_trend
+
+polarimetric:
+  debris_candidate_quality
+  min_cc
+  mean_cc
+  cc_contrast
+  mean_z
+  max_z
+  zdr
+  compactness
+  debris_height
+  tds_persistence
+
+collocation:
+  rotation_debris_distance
+  rotation_debris_height_consistency
+
+context:
+  reflectivity_cell_strength
+  MESH/MEHS if available
+  storm type features if reliable
+
+external:
+  tornado report
+  observed warning
+```
+
+External confirmation must remain semantically distinct from radar inference.
+
+An observed warning or report may alter the displayed state, but it should not contaminate training features intended to estimate radar-only probability.
+
+---
+
+# Phase 8 - Start with transparent fusion, then train a model
+
+Do not block the detector redesign on ML.
+
+## Stage A - transparent fusion
+
+Implement an explainable provisional score with terms exposed in the tooltip/debug output.
+
+Every positive and negative contribution must be visible.
+
+Example output:
+
+```
+Rotation strength        +0.21
+Low-level rooting        +0.12
+Vertical depth           +0.09
+3-volume persistence     +0.14
+Debris collocation       +0.18
+Velocity texture         -0.11
+Far-range beam penalty   -0.08
+```
+
+Again: derive actual weights from backtests rather than the example.
+
+## Stage B - trained tornado probability
+
+Once a sufficiently large labeled corpus exists, train a small offline model.
+
+Preferred initial candidates:
+
+- logistic regression
+- generalized additive model
+- gradient-boosted trees
+- random forest
+
+Do not begin with a deep neural network.
+
+The runtime should only need inference. Training can occur offline in Python and export model coefficients/tree data into a deterministic format consumed by Rust.
+
+## Calibration
+
+If the UI eventually says:
+
+```
+70% tornado probability
+```
+
+the model must be calibrated on held-out data.
+
+Evaluate:
+
+- reliability diagram
+- Brier score
+- expected calibration error
+- isotonic calibration
+- Platt/logistic calibration if appropriate
+
+Split train/test by complete storm/event, not random detections.
+
+Never allow consecutive volumes from the same tornado into both train and test.
+
+---
+
+# Phase 9 - Expand the historical corpus
+
+The current backtest corpus is too small for reliable probability calibration.
+
+Create manifests for:
+
+## Tornadic cases
+
+Include:
+
+- classic supercell tornadoes
+- QLCS tornadoes
+- weak EF0/EF1 tornadoes
+- violent tornadoes
+- short-lived tornadoes
+- rain-wrapped/night tornadoes
+- near-radar cases
+- far-range cases
+- tropical tornadoes
+
+## Hard negatives
+
+This category is critical.
+
+Include:
+
+- large hail supercells with no tornado
+- strongly rotating non-tornadic supercells
+- derecho/QLCS shear zones
+- gust fronts
+- outflow boundaries
+- wind farms
+- terrain clutter
+- anomalous propagation
+- clear-air velocity noise
+- velocity dealias failures
+- range-folding artifacts
+- sidelobes
+- melting-layer low CC
+- biological scatter
+- bright-band contamination
+- very high-reflectivity hail cores
+
+## Sampling
+
+Do not compare a few tornado minutes against entire quiet days without controlling class balance.
+
+Maintain:
+
+- event-level metrics
+- object-level metrics
+- radar-hour false alarms
+- per-volume false alarms
+
+---
+
+# Phase 10 - Improve truth matching
+
+Local storm reports are useful but incomplete.
+
+Support several truth sources separately:
+
+- SPC/NCEI tornado reports
+- damage survey tracks
+- tornado start/end times where available
+- surveyed path geometry
+- observed warnings as contextual metadata only
+- manually verified research cases
+
+Truth matching should prefer distance to a tornado path segment when available rather than only distance to a point report.
+
+Record uncertainty in event timing.
+
+Do not silently treat every unmatched radar detection as definitively false when truth coverage is weak.
+
+---
+
+# Phase 11 - Verification matrix
+
+Every major detector revision must produce a comparison table against the baseline.
+
+At minimum report:
+
+```
+POD
+FAR
+CSI
+precision
+recall
+F1
+false alarms / radar-hour
+false alarms / volume
+median lead time
+score reliability
+```
+
+Break these down by:
+
+```
+0-30 km
+30-60 km
+60-100 km
+100-150 km
+
+beam height:
+<1 km
+1-2 km
+2-3 km
+>3 km
+
+storm type if labels exist
+```
+
+A change is not accepted merely because the total FAR falls if weak tornadoes or distant tornadoes are disproportionately lost.
+
+---
+
+# Phase 12 - UI and analyst diagnostics
+
+Add an analyst/debug mode showing why each object exists.
+
+For rotation show:
+
+- LLSD AzShear object outline
+- max / p90 / median AzShear
+- robust Delta-V
+- max Delta-V
+- area
+- lowest/highest height
+- vertical depth
+- velocity texture
+- fit RMSE
+- age
+- motion
+- score history
+- QC flags
+
+For debris show:
+
+- CC footprint
+- CC contrast
+- Z
+- ZDR
+- area
+- vertical extent
+- rotation distance
+- whether it is:
+  - polarimetric anomaly
+  - debris candidate
+  - TDS
+
+For Tornado ID show a complete feature explanation.
+
+This is required so false alarms can be diagnosed instead of merely observed.
+
+---
+
+# Phase 13 - Safe migration strategy
+
+Do not replace the existing detector in one commit.
+
+Implement:
+
+```
+Legacy rotation detector
+New LLSD detector
+```
+
+side-by-side behind a feature/debug flag.
+
+During development:
+
+- run both on every backtest case
+- export paired detections
+- compare object counts and truth matches
+- inspect disagreements
+
+Only promote the LLSD detector to default once it improves the agreed validation metrics.
+
+Keep legacy mode available temporarily for regression comparison.
+
+Do the same for Tornado ID fusion.
+
+---
+
+# Recommended implementation order for Claude Code / Codex
+
+Execute in this order:
+
+1. Baseline/export tooling.
+2. Stop detector score double counting.
+3. Rename "confidence" to evidence score in uncalibrated UI paths.
+4. Implement LLSD/AzShear field.
+5. Implement connected rotation objects.
+6. Add strong QC and robust object statistics.
+7. Replace vertical single-linkage with physical column association.
+8. Add temporal tracking.
+9. Split polarimetric anomaly from true TDS.
+10. Build one centralized Tornado ID fusion layer.
+11. Expand hard-negative test corpus.
+12. Tune transparent score using held-out events.
+13. Add optional offline-trained classifier.
+14. Calibrate probability.
+15. Promote new detector to default only after documented validation.
+
+---
+
+# Non-negotiable regression tests
+
+Add automated fixtures covering at least:
+
+- isolated bad velocity gate does not create high score
+- residual Nyquist jump does not create high score
+- radial seam does not create a circulation
+- broad gust-front shear is not classified as compact tornado rotation
+- three spatially chained but mutually displaced tilt detections do not create a deep column
+- same-sign storm-relative shear can still be detected if physically valid
+- strong hail low-CC core with no rotation is not labeled TDS
+- low-CC biological/clutter region is rejected
+- collocated clean low-level rotation + compact low-CC debris object strongly increases Tornado ID
+- duplicated detector objects do not increase final confidence
+- one-frame noisy object receives limited confidence
+- persistent coherent object becomes more credible
+- real short-lived extreme circulation is not blocked solely because persistence is missing
+- score explanation exactly reproduces the score
+- outputs remain deterministic across runs
+
+---
+
+# Performance constraints
+
+HookEcho is interactive, so new algorithms must remain bounded.
+
+Requirements:
+
+- no unbounded full-history scans per frame
+- detector work once per new radar volume
+- cache LLSD fields and objects by volume key
+- use bounded recent-track windows
+- avoid allocations inside gate loops where practical
+- parallelize per-tilt processing only if deterministic ordering is preserved
+- retain deterministic output for tests and reproducible backtests
+
+Benchmark:
+
+- LLSD generation
+- object segmentation
+- vertical association
+- temporal tracking
+- Tornado ID fusion
+
+Record representative timings for low-end desktop hardware.
+
+---
+
+# Definition of done
+
+The redesign is complete when:
+
+1. Rotation candidates come from a robust local shear field rather than a single adjacent-gate maximum.
+2. Rotation objects are contiguous and quality controlled.
+3. Vertical continuity uses physical height and cannot be artificially chained.
+4. Temporal persistence and motion influence tornado inference.
+5. Low-CC objects without credible rotation are not automatically called TDS.
+6. Rotation and debris evidence are fused exactly once.
+7. "Probability" is only shown if calibrated.
+8. High-score false alarms are substantially reduced on a hard-negative corpus without an unacceptable loss of POD or lead time.
+9. All scoring is explainable in analyst mode.
+10. Backtests are reproducible and event-separated.
+
+---
+
+# Research direction notes
+
+The implementation should use established operational/research ideas rather than blindly copy thresholds.
+
+Relevant concepts:
+
+- Local Linear Least Squares Derivatives (LLSD)
+- MRMS AzShear
+- object-based mesocyclone detection
+- TORP-style object tracking and probabilistic fusion
+- velocity QC before rotation detection
+- low-level vs mid-level AGL rotation
+- multi-product TDS identification
+- temporal and vertical continuity
+
+Useful starting references:
+
+- NSSL Tornado Research:
+  https://www.nssl.noaa.gov/research/tornadoes/
+
+- NSSL severe-weather tornado detection overview:
+  https://www.nssl.noaa.gov/education/svrwx101/tornadoes/detection/
+
+- NOAA/NSSL TORP publication:
+  https://repository.library.noaa.gov/view/noaa/48189
+
+- NWS Dual-Pol applications:
+  https://www.weather.gov/jan/dualpolupgrade-applications
+
+- NWS Tornado Debris Signature training/examples:
+  https://www.weather.gov/lmk/nws_radar_dualpol_tordebris
+
+The agents should verify implementation details against primary meteorological literature before hard-coding new thresholds.
+
+---
+
+# Instructions to coding agents
+
+When executing this roadmap:
+
+- inspect the current implementation before changing it
+- preserve existing useful QC/tests unless the replacement makes them obsolete
+- make incremental commits
+- do not silently change unrelated UI or radar behavior
+- add tests with every detector behavior change
+- run the full Rust test suite after each major phase
+- run the archived-event backtest before and after detector changes
+- document metric changes in the commit/PR
+- do not optimize solely for the existing small corpus
+- explicitly record regressions and tradeoffs
+- prefer physically meaningful features over arbitrary score bonuses
+- never call an uncalibrated heuristic a probability
