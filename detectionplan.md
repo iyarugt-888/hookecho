@@ -107,6 +107,19 @@ Primary code areas:
     Out of sample the fusion is more often right but finds fewer tornadoes. The in-sample POD parity was optimistic. **Not promoted:** the plan does not accept a lower FAR that loses tornadoes.
   - **Hail.** With the hail cases, hail beside debris fits at −1.05, the sign physics expects (on 9 events it fitted positive and was dropped). The shipped weights are this 21-event fit.
 
+- **Round two, 25 events, fusion-3.**
+  - **Corpus additions.** Rotation-only and QLCS tornadoes (the December 2021 Iowa derecho, a Naperville night QLCS, Mangum on the 2019 Oklahoma high-risk day) and a rotating non-tornadic hard negative (KTLX on that day, no report within 150 km for the whole window).
+  - **The `stationary` feature.** A track seen in 3+ volumes moving under 3 m/s; wind-farm tracks moved a median 1.9 m/s, verified ones 13.4. It fits against a tornado (−0.51). On this corpus its measurable effect is small: the refit had already brought the wind-farm night down to 1 false detection at ≥ 0.5, and slow tracks are not only clutter (11 of 109 verified).
+  - **Held out by event, report level, against Tornado ID at matched false-alarm rates.**
+
+    | Matched rate | Fusion | Tornado ID |
+    |---|---|---|
+    | ~1.5 per hour | ≥ 0.6: POD 0.32, FAR 0.34, CSI 0.24 | ≥ 0.7: POD 0.28, FAR 0.48, CSI 0.23 |
+    | ~3–4 per hour | ≥ 0.4: POD 0.42, FAR 0.44 | ≥ 0.6: POD 0.45, FAR 0.62 |
+
+    At a strict setting the fusion now finds more tornadoes and is far more often right; at a looser one Tornado ID still finds slightly more.
+  - **Per event.** The rotating non-tornadic day costs Tornado ID 4 false detections and the fusion none. On the December derecho Tornado ID finds 12 reports and paths, the fusion 6: debris-less QLCS tornadoes are the fusion's weak spot, for the same reason it rejects rotating storms that make no tornado.
+
 ### What stands between the fusion and promotion
 
 - **POD.** Looked at with `matched_truths`, the gap is a weighting trade-off, not a blind spot. At Tornado ID ≥ 0.6 and fusion ≥ 0.5 they find 46 and 45 reports: 38 in common, 8 only Tornado ID, 7 only the fusion. Every one of the 8 has an LLSD column on it: rotation-only tornadoes (0.025–0.034 s⁻¹, 3–4 tilts, persisting, no debris signature), fused at 0.17–0.41 because debris carries most of the weight. Five of the 8 are one Washington, IL circulation matched to five reports. Weighting rotation-only circulations as Tornado ID does would recover them, and with them the false alarms the hard negatives exposed. More rotation-only tornadoes and rotating non-tornadic storms in the corpus are what can settle that weight.

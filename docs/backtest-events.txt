@@ -26,6 +26,10 @@ KDGX 2023-03-25 00:55   # Rolling Fork, MS, violent, night, 109-116 km out (00:5
 KDGX 2020-04-12 17:55   # Easter outbreak, MS (18:00Z, Cary, 102 km; 81 km by 18:22Z)
 KDIX 2021-09-01 21:30   # Ida remnants, tropical, NJ/PA (21:35Z, Whitemarsh Twp, 73 km)
 KHGX 2017-08-25 19:15   # Harvey, tropical, weak and short-lived (19:23Z, NE of Galveston, 35 km)
+# Rotation-only and QLCS tornadoes, which carry little debris (the fusion's weak spot, Phase 9):
+KFDR 2019-05-20 22:05   # SW Oklahoma high-risk day (22:12Z, SW of Mangum, 75 km)
+KLOT 2021-06-21 04:00   # Naperville/Woodridge QLCS, night, near range (04:05Z, 17 km; 04:08Z, 10 km)
+KDMX 2021-12-15 22:58   # December derecho, embedded QLCS tornadoes (23:01Z, Brayton, 105 km)
 # Deliberately a no-CC case, to see the tool call it out rather than silently score it as misses:
 KSGF 2011-05-22 22:30   # Joplin, MO - KSGF was not yet dual-pol; debris signatures are impossible
 # Not mainly a tornado day, to measure false alarms in a big hail and wind storm:
@@ -42,6 +46,9 @@ KTLX 2019-07-15 11:30   # Clear air, no storms (the scientific corpus's clear-ai
 KEWX 2021-04-29 02:50   # New Braunfels/San Marcos hail, 17-21 km from the radar (03:00-03:17Z)
 KOAX 2014-06-03 20:40   # Omaha hail: Uehling 2.75 in 20:45Z, Kennard 4.25 in 21:09Z, Blair 21:20Z
 KLSX 2012-04-28 22:15   # St. Louis hail: Wentzville 2.75-3 in 22:28-22:41Z; no tornado that evening
+# Rotating supercells without a tornado: the 2019 Oklahoma high-risk day had no tornado report within
+# 150 km of KTLX between 21:22Z (Perry) and 03:05Z, with its supercells still going.
+KTLX 2019-05-20 22:15   # Oklahoma high-risk day, rotating storms, no tornado reported in the window
 # Non-meteorological scatter, no reports at all in the window:
 KDDC 2020-01-15 06:00   # Wind farms around Dodge City, quiet winter night
 KHGX 2019-04-21 05:00   # Spring bird migration over the Gulf coast, night

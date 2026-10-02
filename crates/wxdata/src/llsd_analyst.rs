@@ -356,6 +356,22 @@ mod tests {
     }
 
     #[test]
+    fn a_track_that_does_not_move_is_stationary() {
+        // Seen in 3 volumes and moving 0.7 m/s: fixed clutter, a wind farm.
+        let mut still = tracked(3);
+        still.motion_ms = Some((0.5, 0.5));
+        assert_eq!(analyse(vec![still], &[], &[])[0].features.stationary, 1.0);
+        // Moving 14 m/s, or seen only twice, it is not.
+        assert_eq!(
+            analyse(vec![tracked(3)], &[], &[])[0].features.stationary,
+            0.0
+        );
+        let mut young = tracked(2);
+        young.motion_ms = Some((0.5, 0.5));
+        assert_eq!(analyse(vec![young], &[], &[])[0].features.stationary, 0.0);
+    }
+
+    #[test]
     fn far_debris_is_not_listed() {
         let a = analyse(vec![tracked(2)], &[debris_ball(20.0, 0.5)], &[]);
         assert!(a[0].debris.is_empty());

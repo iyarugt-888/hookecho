@@ -20,10 +20,10 @@ use crate::rotation_tracks::Tracked;
 use crate::tds::TdsHit;
 
 /// Version of the features and weights, recorded with anything derived from them.
-pub const ALGORITHM_VERSION: &str = "fusion-2";
+pub const ALGORITHM_VERSION: &str = "fusion-3";
 
 /// The features, in [`Features::values`] order. Shear is in units of 0.01 s⁻¹.
-pub const FEATURE_NAMES: [&str; 13] = [
+pub const FEATURE_NAMES: [&str; 14] = [
     "low_level_shear",
     "max_shear",
     "depth_km",
@@ -37,6 +37,7 @@ pub const FEATURE_NAMES: [&str; 13] = [
     "debris_hail",
     "range_100km",
     "weak_echo_root",
+    "stationary",
 ];
 
 /// What the fusion knows about one circulation in one volume.
@@ -69,7 +70,14 @@ pub struct Features {
     pub range_100km: f32,
     /// 1 when the column reaches the lowest tilt only through an object found in weak echo.
     pub weak_echo_root: f32,
+    /// 1 when the track has been seen in 3 or more volumes and moves under
+    /// [`STATIONARY_MS`]: fixed clutter. On the backtest, wind-farm tracks around Dodge City
+    /// moved a median 1.9 m/s (90% under 3); verified tornadic tracks 13.4 m/s (5% under 3).
+    pub stationary: f32,
 }
+
+/// Slower than this (m/s) over 3 or more volumes is [`Features::stationary`].
+pub const STATIONARY_MS: f32 = 3.0;
 
 impl Features {
     /// The features of a tracked column, given the volume's classified debris signatures.
@@ -102,6 +110,9 @@ impl Features {
             debris: near.map_or(0.0, |(_, a)| a.polarimetric),
             debris_hail: flag(near.is_some_and(|(_, a)| !a.hail_signs.is_empty())),
             range_100km: range_km / 100.0,
+            stationary: flag(
+                t.age_volumes >= 3 && t.motion_ms.is_some_and(|(u, v)| u.hypot(v) < STATIONARY_MS),
+            ),
             weak_echo_root: flag(
                 c.rooted
                     && c.members
@@ -113,7 +124,7 @@ impl Features {
     }
 
     /// The features in [`FEATURE_NAMES`] order.
-    pub fn values(&self) -> [f32; 13] {
+    pub fn values(&self) -> [f32; 14] {
         [
             self.low_level_shear,
             self.max_shear,
@@ -128,6 +139,7 @@ impl Features {
             self.debris_hail,
             self.range_100km,
             self.weak_echo_root,
+            self.stationary,
         ]
     }
 }
@@ -136,42 +148,45 @@ impl Features {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Weights {
     pub bias: f32,
-    pub w: [f32; 13],
+    pub w: [f32; 14],
 }
 
-/// The fitted weights (`scripts/fusion/fit.py`, fusion-2, on the 21-event backtest corpus of
-/// `docs/backtest-events.txt`, eight of them hard negatives: giant-hail supercells, a derecho,
+/// The fitted weights (`scripts/fusion/fit.py`, fusion-3, on the 25-event backtest corpus of
+/// `docs/backtest-events.txt`: tornadoes of every kind, including rotation-only QLCS ones, and nine
+/// hard negatives: giant-hail supercells, a derecho, a rotating non-tornadic high-risk day,
 /// wind-farm clutter, a bird-migration night and clear air).
 ///
 /// Each weight is held to the sign physics expects, and range is left out. A free fit learned the
 /// corpus's quirks instead: range got the largest weight, negative, from where the reports happen
 /// to be (LLSD underestimates shear far out, so physically the same measured shear means more
 /// rotation there), and the two correlated shear features took opposite signs. Hail beside debris
-/// counted *for* a tornado on the first 9 events; with five hail and clutter cases it fits
-/// against one (−1.05), as physics expects. Rooting, shear trend and weak-echo rooting come out at
-/// zero under the constraint and are dropped.
+/// counted *for* a tornado on the first 9 events; with the hail and clutter cases it fits against
+/// one (−1.18), as physics expects, and so does a track that does not move (−0.51). Rooting, shear
+/// trend and weak-echo rooting come out at zero under the constraint and are dropped.
 ///
-/// Held out by whole event it ranks 32, 68 and 113 verified rows among its top 50, 100 and 200 of
-/// 12 599, against 26, 44 and 87 for peak shear alone. At the report level, held out, it is more
-/// often right than the app's Tornado ID at the same false-alarm rate (FAR 0.32 against 0.47 at
-/// ~1.5 per radar-hour) but finds fewer tornadoes (POD 0.36 against 0.39, and 0.37 against 0.49
-/// at ~3 per hour), so it is not promoted. Debris beside a column carries the most weight.
+/// Held out by whole event it ranks 33, 69 and 122 verified rows among its top 50, 100 and 200 of
+/// 16 004, against 25, 44 and 82 for peak shear alone. At the report level, held out, against the
+/// app's Tornado ID at matched false-alarm rates: at ~1.5 per radar-hour POD 0.32, FAR 0.34
+/// against 0.28, 0.48; at ~3-4, POD 0.42, FAR 0.44 against 0.45, 0.62. It rejects rotating
+/// storms that make no tornado and misses some debris-less QLCS tornadoes, for the same reason:
+/// debris beside a column carries the most weight. Not promoted (detectionplan.md).
 pub const WEIGHTS: Weights = Weights {
-    bias: -3.6412,
+    bias: -3.5957,
     w: [
-        0.1672,  // low_level_shear
-        0.5637,  // max_shear
-        0.1004,  // depth_km
-        0.1487,  // tilts
+        0.1201,  // low_level_shear
+        0.6619,  // max_shear
+        0.0193,  // depth_km
+        0.1229,  // tilts
         0.0,     // rooted
-        0.1967,  // cyclonic
-        0.1030,  // persisted_2
-        0.2189,  // persisted_3
+        0.2459,  // cyclonic
+        0.0822,  // persisted_2
+        0.1180,  // persisted_3
         0.0,     // shear_trend
-        2.4130,  // debris
-        -1.0499, // debris_hail
+        2.6348,  // debris
+        -1.1841, // debris_hail
         0.0,     // range_100km
         0.0,     // weak_echo_root
+        -0.5120, // stationary
     ],
 };
 
@@ -233,6 +248,7 @@ mod tests {
             debris_hail: 0.0,
             range_100km: 0.4,
             weak_echo_root: 0.0,
+            stationary: 0.0,
         }
     }
 
@@ -241,11 +257,11 @@ mod tests {
         let w = Weights {
             bias: -3.0,
             w: [
-                0.8, 0.2, 0.3, 0.1, 0.9, 1.1, 0.4, 0.2, 0.2, 2.0, -0.8, -0.5, -0.3,
+                0.8, 0.2, 0.3, 0.1, 0.9, 1.1, 0.4, 0.2, 0.2, 2.0, -0.8, -0.5, -0.3, -1.0,
             ],
         };
         let f = fuse(&features(), &w);
-        assert_eq!(f.terms.len(), 14);
+        assert_eq!(f.terms.len(), 15);
         let z: f32 = f.terms.iter().map(|t| t.logit).sum();
         assert_eq!(f.score, 1.0 / (1.0 + (-z).exp()));
         assert_eq!(f.terms[10].label, "debris");
@@ -256,7 +272,7 @@ mod tests {
     fn more_evidence_with_positive_weights_never_lowers_the_score() {
         let w = Weights {
             bias: -2.0,
-            w: [0.5; 13],
+            w: [0.5; 14],
         };
         let base = fuse(&features(), &w).score;
         let mut more = features();
@@ -270,7 +286,7 @@ mod tests {
         // weak-echo rooting against a tornado or nothing, everything else for one or nothing.
         let i = |n: &str| FEATURE_NAMES.iter().position(|f| *f == n).unwrap();
         for (k, w) in WEIGHTS.w.iter().enumerate() {
-            if k == i("debris_hail") || k == i("weak_echo_root") {
+            if k == i("debris_hail") || k == i("weak_echo_root") || k == i("stationary") {
                 assert!(
                     *w <= 0.0,
                     "{} is evidence against, or nothing",
@@ -305,6 +321,7 @@ mod tests {
                 debris_hail: 0.0,
                 range_100km: 0.4,
                 weak_echo_root: 0.0,
+                stationary: 0.0,
             },
             &WEIGHTS,
         );
