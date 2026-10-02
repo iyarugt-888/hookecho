@@ -443,6 +443,88 @@ async fn corpus_tornadoes_are_found_once_where_reported() {
     }
 }
 
+/// Point-to-segment distance in the same local-km approximation as the report checks.
+fn track_km(point: (f64, f64), line: &[[f64; 2]]) -> f64 {
+    let x = 111.32 * point.1.to_radians().cos();
+    line.windows(2)
+        .map(|w| {
+            let a = ((w[0][0] - point.0) * x, (w[0][1] - point.1) * 111.32);
+            let b = ((w[1][0] - point.0) * x, (w[1][1] - point.1) * 111.32);
+            let delta = (b.0 - a.0, b.1 - a.1);
+            let norm = delta.0 * delta.0 + delta.1 * delta.1;
+            let t = if norm > 0.0 {
+                (-(a.0 * delta.0 + a.1 * delta.1) / norm).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            (a.0 + t * delta.0).hypot(a.1 + t * delta.1)
+        })
+        .fold(f64::INFINITY, f64::min)
+}
+
+/// Iowa's December 2021 QLCS: independently analyzed NWS paths, not sparse LSR
+/// point locations. Knierim must retain a Likely-or-higher detection; Somers is a
+/// distinct Possible candidate in this algorithm baseline. Its stronger-tier
+/// detection remains an open science gap. Path vertices have no individual clocks,
+/// so this is proximity to an active damage path, not exact tornado localization.
+#[tokio::test]
+#[ignore = "large cached fixture or pinned archive download"]
+async fn iowa_qlcs_2021_retains_distinct_track_candidates() {
+    let when = Utc.with_ymd_and_hms(2021, 12, 15, 23, 44, 0).unwrap();
+    let scan = volume("KDMX", when).await;
+    let f = detect(&scan);
+    let circs = circulations(&f.couplets, &f.debris);
+    let manifest = corpus::manifest();
+    let tracks: Vec<_> = ["knierim-2021-damage-track", "somers-2021-damage-track"]
+        .into_iter()
+        .map(|id| {
+            let track = manifest
+                .track_snapshots
+                .iter()
+                .find(|t| t.id == id)
+                .expect("required QLCS track");
+            assert!(
+                track.start <= when && when <= track.end,
+                "track must be active at the case time"
+            );
+            (
+                track,
+                corpus::read_track(track).expect("verified NWS damage track"),
+            )
+        })
+        .collect();
+    let mut assigned: [Vec<_>; 2] = [Vec::new(), Vec::new()];
+    // Assign each circulation only to its nearest of these paths. A single
+    // merged detection cannot satisfy both neighboring tornadoes' expectations.
+    for z in &circs {
+        let nearest = tracks
+            .iter()
+            .enumerate()
+            .map(|(i, (_, line))| (i, track_km((z.id.lon, z.id.lat), line)))
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .unwrap();
+        eprintln!(
+            "QLCS {:.6},{:.6} {:?} score {:.2}: {:.2} km from {}",
+            z.id.lon, z.id.lat, z.id.tier, z.id.score, nearest.1, tracks[nearest.0].0.event_name
+        );
+        if nearest.1 <= 8.0 {
+            assigned[nearest.0].push(z);
+        }
+    }
+    for (i, (track, _)) in tracks.iter().enumerate() {
+        assert_eq!(
+            assigned[i].len(),
+            1,
+            "{}: one distinct candidate",
+            track.event_name
+        );
+    }
+    assert!(
+        assigned[0][0].id.tier >= Tier::Likely,
+        "Knierim lost its stronger detection"
+    );
+}
+
 /// The corpus's false-alarm cases (ROADMAP_2 §8.1): what the detectors must not claim.
 const QUIET: [Case; 3] = [
     // Joplin, 22 May 2011: KSGF was not yet dual-pol, so a debris signature is impossible.

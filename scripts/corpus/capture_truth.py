@@ -17,7 +17,7 @@ def main():
     destination = args.output.resolve()
     if destination == provision.MANIFEST.parent.resolve() or provision.MANIFEST.parent.resolve() in destination.parents:
         parser.error("Candidate output must be separate from the pinned corpus")
-    _, snapshots = provision.load_manifest(provision.MANIFEST)
+    _, snapshots, _ = provision.load_manifest(provision.MANIFEST)
     destination.mkdir(parents=True, exist_ok=True)
     report = []
     for f in snapshots:

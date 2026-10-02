@@ -10,11 +10,14 @@ import sys
 import tempfile
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
+import zipfile
+import re
 
 REPO = Path(__file__).resolve().parents[2]
 MANIFEST = REPO / "crates/wxdata/tests/data/corpus/manifest.json"
 SOURCE_PREFIX = "https://unidata-nexrad-level2.s3.amazonaws.com/"
-MANIFEST_VERSION = 2
+MANIFEST_VERSION = 3
 
 
 def checksum(path):
@@ -97,7 +100,49 @@ def load_manifest(path):
         requests.add(url)
         if not isinstance(f["expected_features"], int) or f["expected_features"] < 0:
             raise ValueError("Missing truth feature count")
-    return fixtures, snapshots
+    tracks = manifest.get("track_snapshots", [])
+    all_inputs = fixtures + snapshots + tracks
+    if not tracks or len({f["id"] for f in all_inputs}) != len(all_inputs):
+        raise ValueError("Missing or duplicate damage tracks")
+    for f in tracks:
+        safe_path(path.parent, f["path"])
+        if f["format"] != "nws-damage-track-kmz" or not 0 < f["bytes"] <= 2_000_000 or len(f["sha256"]) != 64 or any(c not in "0123456789abcdef" for c in f["sha256"]):
+            raise ValueError("Invalid damage-track integrity contract")
+        url = f["source"]["url"]
+        if url != "https://www.weather.gov/source/dmx/IowaTors/2021/" + f["path"] or not f["path"].endswith(".kmz") or url in requests:
+            raise ValueError("Incorrect or duplicate damage-track source")
+        requests.add(url)
+        times = [dt.datetime.fromisoformat(f[key].replace("Z", "+00:00")) for key in ("start", "end")]
+        captured = dt.datetime.fromisoformat(f["source"]["captured_at"].replace("Z", "+00:00"))
+        if any(t.tzinfo is None or t.utcoffset() != dt.timedelta(0) for t in times + [captured]) or not times[0] < times[1] <= captured:
+            raise ValueError("Invalid damage-track UTC interval")
+        if not f["event_name"] or not f["evidence"] or f["expected_vertices"] < 2 or not f["source"]["attribution"] or f["source"]["license_url"] != "https://www.weather.gov/disclaimer":
+            raise ValueError("Missing damage-track provenance")
+    return fixtures, snapshots, tracks
+
+
+def verify_track(path, fixture):
+    """Check NWS metadata and vertices independently of the production Rust importer."""
+    verify(path, fixture["bytes"], fixture["sha256"])
+    with zipfile.ZipFile(path) as archive:
+        kml = archive.getinfo("doc.kml")
+        if kml.file_size > 2_000_000:
+            raise ValueError("Inflated damage-track KML exceeds bound")
+        doc = ET.fromstring(archive.read(kml))
+    ns = {"k": "http://earth.google.com/kml/2.2"}
+    marks = doc.findall(".//k:Placemark", ns)
+    if len(marks) != 1:
+        raise ValueError("Expected exactly one NWS track")
+    fields = dict(re.findall(r"<td><b>(.*?)</b></td><td>(.*?)</td>", marks[0].findtext("k:description", namespaces=ns) or ""))
+    expected = {"event_id": fixture["event_name"], "comments": fixture["evidence"]}
+    expected.update({key + "time": dt.datetime.fromisoformat(fixture[key].replace("Z", "+00:00")).strftime("%Y-%m-%d %H:%M:%S") for key in ("start", "end")})
+    if any(fields.get(key) != value for key, value in expected.items()):
+        raise ValueError("Damage-track metadata differs from source")
+    coords = marks[0].findtext("k:LineString/k:coordinates", namespaces=ns)
+    vertices = [tuple(map(float, p.split(",")[:2])) for p in (coords or "").split()]
+    if len(vertices) != fixture["expected_vertices"] or any(len(p) != 2 or not -180 <= p[0] <= 180 or not -90 <= p[1] <= 90 for p in vertices):
+        raise ValueError("Damage-track geometry differs from source")
+    return vertices
 
 
 def download(fixture, destination, opener=urllib.request.urlopen):
@@ -172,7 +217,7 @@ def main():
     args = parser.parse_args()
     if args.verify_only and args.rebuild_offline:
         parser.error("--verify-only cannot rebuild files")
-    fixtures, snapshots = load_manifest(MANIFEST)
+    fixtures, snapshots, tracks = load_manifest(MANIFEST)
     # Required offline inputs always verify, even while provisioning the large suite.
     for f in fixtures:
         if f["tier"] == "cached":
@@ -198,6 +243,9 @@ def main():
         if collection.get("type") != "FeatureCollection" or not isinstance(collection.get("features"), list) or len(collection["features"]) != f["expected_features"]:
             raise ValueError(f"Pinned truth collection shape/count changed: {f['id']}")
         print(f"Verified truth {f['id']}: {f['bytes']} bytes SHA-256 {f['sha256']}")
+    for f in tracks:
+        verify_track(safe_path(MANIFEST.parent, f["path"]), f)
+        print(f"Verified track {f['id']}: {f['expected_vertices']} vertices SHA-256 {f['sha256']}")
 
 
 if __name__ == "__main__":

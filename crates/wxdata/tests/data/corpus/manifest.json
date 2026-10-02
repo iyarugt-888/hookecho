@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "baseline_commit": "0fe93dec1a7dd59c25affc422a5b49b0a76f5bd4",
   "fixtures": [
     {
@@ -460,6 +460,38 @@
         "populated_bins": 240,
         "max_dbz": 34.26087
       }
+    },
+    {
+      "id": "iowa-qlcs-2021",
+      "tier": "cached",
+      "path": "KDMX20211215_234124_V06",
+      "format": "nexrad-archive-ii",
+      "site": "KDMX",
+      "case_time": "2021-12-15T23:44:00Z",
+      "sha256": "b78a818359f29832474bddaf9212267db22b252da2204e29752d42dc87fde5fa",
+      "bytes": 14563869,
+      "source": {
+        "url": "https://unidata-nexrad-level2.s3.amazonaws.com/2021/12/15/KDMX/KDMX20211215_234124_V06",
+        "object_key": "2021/12/15/KDMX/KDMX20211215_234124_V06",
+        "sha256": "b78a818359f29832474bddaf9212267db22b252da2204e29752d42dc87fde5fa",
+        "bytes": 14563869,
+        "acquisition_time": "2021-12-15T23:41:24Z",
+        "captured_at": "2026-10-02T00:31:50.152096Z",
+        "attribution": "NOAA NWS/NCEI NEXRAD Level II; distributed by Unidata through NOAA Open Data Dissemination.",
+        "license_url": "https://registry.opendata.aws/noaa-nexrad/"
+      },
+      "transform": {
+        "kind": "identity",
+        "records": []
+      },
+      "tags": [
+        "tornado",
+        "qlcs"
+      ],
+      "checks": [
+        "golden_events::iowa_qlcs_2021_retains_distinct_track_candidates"
+      ],
+      "expected": null
     }
   ],
   "truth_snapshots": [
@@ -593,6 +625,63 @@
         "license_url": "https://mesonet.agron.iastate.edu/disclaimer.php"
       },
       "expected_features": 19
+    },
+    {
+      "id": "iowa-qlcs-reports",
+      "path": "iowa-qlcs-reports.geojson",
+      "format": "geojson-feature-collection",
+      "bytes": 59251,
+      "sha256": "04a25f153600de71283b8feca41272f043f9f8bc1350156e7c3d0db5cd571752",
+      "request": {
+        "kind": "reports",
+        "start": "2021-12-15T23:24:00Z",
+        "end": "2021-12-16T00:04:00Z"
+      },
+      "source": {
+        "url": "https://mesonet.agron.iastate.edu/geojson/lsr.geojson?sts=2021-12-15T23%3A24%3A00Z&ets=2021-12-16T00%3A04%3A00Z",
+        "captured_at": "2026-10-02T00:33:14.030029Z",
+        "attribution": "NOAA NWS local storm report archive; Iowa Environmental Mesonet, Iowa State University.",
+        "license_url": "https://mesonet.agron.iastate.edu/disclaimer.php"
+      },
+      "expected_features": 118
+    }
+  ],
+  "track_snapshots": [
+    {
+      "id": "knierim-2021-damage-track",
+      "path": "15Dec2021_Tor14.kmz",
+      "format": "nws-damage-track-kmz",
+      "bytes": 9227,
+      "sha256": "aad822104783bfadd6645f66ce4460f6f88d8b6eeaed44b3d0bfd80136b68674",
+      "source": {
+        "url": "https://www.weather.gov/source/dmx/IowaTors/2021/15Dec2021_Tor14.kmz",
+        "captured_at": "2026-10-02T00:41:45.664888Z",
+        "attribution": "NOAA National Weather Service Des Moines damage analysis, December 15, 2021 event review",
+        "license_url": "https://www.weather.gov/disclaimer"
+      },
+      "event_name": "Lohrville to Knierim",
+      "start": "2021-12-15T23:35:00Z",
+      "end": "2021-12-15T23:49:00Z",
+      "evidence": "Per conversation with EM, mostly tree and outbuilding damage.  Will reshare pictures",
+      "expected_vertices": 47
+    },
+    {
+      "id": "somers-2021-damage-track",
+      "path": "15Dec2021_Tor16.kmz",
+      "format": "nws-damage-track-kmz",
+      "bytes": 8438,
+      "sha256": "9d3d3c9513472fe5911f8e13b6e04b6c4c8902539b3532c8f68dcc5d31e2df3e",
+      "source": {
+        "url": "https://www.weather.gov/source/dmx/IowaTors/2021/15Dec2021_Tor16.kmz",
+        "captured_at": "2026-10-02T00:41:46.004048Z",
+        "attribution": "NOAA National Weather Service Des Moines damage analysis, December 15, 2021 event review",
+        "license_url": "https://www.weather.gov/disclaimer"
+      },
+      "event_name": "South of Somers to Barnum",
+      "start": "2021-12-15T23:40:00Z",
+      "end": "2021-12-15T23:54:00Z",
+      "evidence": "Not surveyed. Based on damage reports. ",
+      "expected_vertices": 22
     }
   ]
 }

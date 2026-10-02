@@ -13,6 +13,25 @@ pub struct Manifest {
     pub baseline_commit: String,
     pub fixtures: Vec<Fixture>,
     pub truth_snapshots: Vec<TruthSnapshot>,
+    pub track_snapshots: Vec<TrackSnapshot>,
+}
+
+/// Original NWS damage-analysis files. Metadata is checked against the file itself;
+/// these paths are neither point reports nor time-interpolated tornado positions.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TrackSnapshot {
+    pub id: String,
+    pub path: String,
+    pub format: String,
+    pub bytes: usize,
+    pub sha256: String,
+    pub source: TruthSource,
+    pub event_name: String,
+    pub start: DateTime<Utc>,
+    pub end: DateTime<Utc>,
+    pub evidence: String,
+    pub expected_vertices: usize,
 }
 
 #[derive(Debug, Deserialize)]
@@ -121,7 +140,7 @@ pub fn manifest() -> Manifest {
 }
 
 pub fn validate(m: &Manifest) -> Result<()> {
-    ensure!(m.schema_version == 2, "unsupported corpus schema");
+    ensure!(m.schema_version == 3, "unsupported corpus schema");
     ensure!(!m.baseline_commit.is_empty(), "missing algorithm baseline");
     ensure!(!m.fixtures.is_empty(), "empty corpus");
     let mut ids = HashSet::new();
@@ -279,6 +298,47 @@ pub fn validate(m: &Manifest) -> Result<()> {
         !m.truth_snapshots.is_empty(),
         "required truth snapshots missing"
     );
+    ensure!(
+        !m.track_snapshots.is_empty(),
+        "required damage tracks missing"
+    );
+    for f in &m.track_snapshots {
+        ensure!(ids.insert(&f.id), "duplicate track identity");
+        let parts: Vec<_> = Path::new(&f.path).components().collect();
+        ensure!(
+            parts.len() == 1
+                && matches!(parts[0], Component::Normal(_))
+                && !f.path.contains(['/', '\\', ':']),
+            "unsafe track path"
+        );
+        ensure!(
+            f.format == "nws-damage-track-kmz"
+                && hash(&f.sha256)
+                && f.bytes > 0
+                && f.bytes <= 2_000_000
+                && f.expected_vertices >= 2,
+            "invalid track integrity contract"
+        );
+        ensure!(
+            f.source.url
+                == format!(
+                    "https://www.weather.gov/source/dmx/IowaTors/2021/{}",
+                    f.path
+                )
+                && f.path.ends_with(".kmz")
+                && requests.insert(f.source.url.clone()),
+            "incorrect or duplicate damage-track source"
+        );
+        ensure!(
+            f.start < f.end
+                && f.source.captured_at >= f.end
+                && !f.event_name.is_empty()
+                && !f.evidence.is_empty()
+                && !f.source.attribution.is_empty()
+                && f.source.license_url == "https://www.weather.gov/disclaimer",
+            "damage-track time/attribution missing"
+        );
+    }
     Ok(())
 }
 
@@ -337,6 +397,76 @@ pub fn read_truth(f: &TruthSnapshot) -> Result<String> {
         f.id
     );
     Ok(json)
+}
+
+pub fn track_properties(description: &str) -> Result<std::collections::HashMap<String, String>> {
+    let mut fields = std::collections::HashMap::new();
+    // This pinned NWS export encodes attributes in a two-column HTML table, not
+    // ExtendedData. Fail if the shape changes rather than guessing absent times.
+    for row in description.split("<tr>").skip(1) {
+        let row = row.split_once("</tr>").context("unterminated track row")?.0;
+        let cells: Vec<_> = row
+            .split("<td>")
+            .skip(1)
+            .map(|s| s.split_once("</td>").map(|(value, _)| value))
+            .collect::<Option<Vec<_>>>()
+            .context("unterminated track cell")?;
+        ensure!(cells.len() == 2, "unexpected track table row");
+        let key = cells[0]
+            .strip_prefix("<b>")
+            .and_then(|s| s.strip_suffix("</b>"))
+            .context("unexpected track field")?;
+        ensure!(
+            fields.insert(key.to_owned(), cells[1].to_owned()).is_none(),
+            "duplicate track field"
+        );
+    }
+    ensure!(!fields.is_empty(), "damage track has no source attributes");
+    Ok(fields)
+}
+
+pub fn read_track(f: &TrackSnapshot) -> Result<Vec<[f64; 2]>> {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/data/corpus")
+        .join(&f.path);
+    let bytes =
+        std::fs::read(&path).with_context(|| format!("{}: required damage track missing", f.id))?;
+    verify_bytes(&f.id, f.bytes, &f.sha256, &bytes)?;
+    let mut features = wxdata::kml::parse_kmz(&bytes)?;
+    ensure!(features.len() == 1, "{}: expected one track", f.id);
+    let feature = features.pop().unwrap();
+    let fields = track_properties(
+        feature
+            .properties
+            .get("description")
+            .and_then(|value| value.as_str())
+            .context("track description missing")?,
+    )?;
+    for (key, expected) in [
+        ("event_id", f.event_name.clone()),
+        ("starttime", f.start.format("%Y-%m-%d %H:%M:%S").to_string()),
+        ("endtime", f.end.format("%Y-%m-%d %H:%M:%S").to_string()),
+        ("comments", f.evidence.clone()),
+    ] {
+        ensure!(
+            fields.get(key) == Some(&expected),
+            "{}: source {key} differs from manifest",
+            f.id
+        );
+    }
+    let wxdata::gis::Geometry::LineString(line) = feature.geometry else {
+        bail!("{}: damage track is not a line", f.id);
+    };
+    ensure!(
+        line.len() == f.expected_vertices
+            && line.iter().all(|p| p[0].is_finite()
+                && p[1].is_finite()
+                && (-180.0..=180.0).contains(&p[0])
+                && (-90.0..=90.0).contains(&p[1])),
+        "{}: damage track vertices changed",
+        f.id
+    );
+    Ok(line)
 }
 
 pub fn warnings_at(at: DateTime<Utc>) -> Vec<wxdata::overlay::GeoFeature> {

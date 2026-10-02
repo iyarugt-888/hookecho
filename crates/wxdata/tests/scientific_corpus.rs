@@ -48,7 +48,7 @@ fn pinned_truth_preserves_archive_membership_and_shape() {
     let m = corpus::manifest();
     assert_eq!(
         m.truth_snapshots.len(),
-        7,
+        8,
         "required truth subset must not shrink"
     );
     for f in &m.truth_snapshots {
@@ -94,6 +94,38 @@ fn pinned_truth_preserves_archive_membership_and_shape() {
         !covers(&before),
         "warning must not exist before it was issued"
     );
+}
+
+#[test]
+fn pinned_damage_tracks_preserve_geometry_and_source_evidence() {
+    let mut m = corpus::manifest();
+    assert_eq!(
+        m.track_snapshots.len(),
+        2,
+        "required track subset must not shrink"
+    );
+    for f in &m.track_snapshots {
+        let line = corpus::read_track(f).unwrap();
+        assert!(line.windows(2).any(|w| w[0] != w[1]));
+    }
+    let f = m
+        .track_snapshots
+        .iter()
+        .find(|f| f.id == "somers-2021-damage-track")
+        .unwrap();
+    assert!(
+        f.evidence.starts_with("Not surveyed."),
+        "source limitations must survive"
+    );
+    m.track_snapshots[0].event_name = "invented tornado".into();
+    assert!(corpus::read_track(&m.track_snapshots[0]).is_err());
+    m.track_snapshots[0].path = "../escape.kmz".into();
+    assert!(corpus::validate(&m).is_err());
+    assert!(corpus::track_properties("<tr><td><b>x</b></td><td>y</td>").is_err());
+    assert!(corpus::track_properties(
+        "<tr><td><b>x</b></td><td>y</td></tr><tr><td><b>x</b></td><td>z</td></tr>"
+    )
+    .is_err());
 }
 
 #[test]

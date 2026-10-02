@@ -77,6 +77,36 @@ class ProvisionTests(unittest.TestCase):
                 capture_truth.main()
         self.assertEqual(error.exception.code, 2)
 
+    def test_damage_tracks_retain_source_metadata_and_geometry(self):
+        _, _, tracks = provision.load_manifest(provision.MANIFEST)
+        self.assertEqual(len(tracks), 2)
+        for track in tracks:
+            path = provision.MANIFEST.parent / track["path"]
+            line = provision.verify_track(path, track)
+            self.assertEqual(len(line), track["expected_vertices"])
+            changed = dict(track, event_name="invented tornado")
+            with self.assertRaises(ValueError):
+                provision.verify_track(path, changed)
+            changed = dict(track, expected_vertices=track["expected_vertices"] + 1)
+            with self.assertRaises(ValueError):
+                provision.verify_track(path, changed)
+        self.assertTrue(tracks[1]["evidence"].startswith("Not surveyed."))
+
+    def test_damage_track_manifest_rejects_missing_paths_and_invalid_times(self):
+        original = json.loads(provision.MANIFEST.read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "manifest.json"
+            mutations = [lambda d: d.update(track_snapshots=[]),
+                         lambda d: d["track_snapshots"][0].update(path="../escape.kmz"),
+                         lambda d: d["track_snapshots"][0].update(end=d["track_snapshots"][0]["start"]),
+                         lambda d: d["track_snapshots"][0].update(start="2021-12-15T23:35:00")]
+            for mutate in mutations:
+                data = json.loads(json.dumps(original))
+                mutate(data)
+                path.write_text(json.dumps(data))
+                with self.assertRaises(ValueError):
+                    provision.load_manifest(path)
+
 
 if __name__ == "__main__":
     unittest.main()
