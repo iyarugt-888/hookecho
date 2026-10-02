@@ -24,9 +24,13 @@ use crate::tds::TdsHit;
 use crate::tornado_fusion::{fuse, Features, Fused, WEIGHTS};
 use crate::tornado_id::{Circulation, Evidence, Member, Tier, TornadoId, MERGE_KM};
 
-/// Fused evidence at and above which a circulation is a Tornado ID detection at all: the
-/// looser operating point (about 3-4 false alarms per radar-hour on the backtest).
-pub const MIN_SCORE: f32 = 0.4;
+/// Fused evidence at and above which a circulation is a Tornado ID detection at all (the
+/// Possible tier). Held out by event on the 25-event backtest, everything at and above 0.3 found
+/// more tornadoes than everything the legacy Tornado ID shows, with fewer false alarms (POD 0.54,
+/// FAR 0.53, 7.7 per radar-hour, against 0.49, 0.77 and 10.1). It is also where a strong,
+/// deep circulation with no debris yet (40-50 m/s, three tilts) begins to show: at 0.4 it did
+/// not, where the legacy Tornado ID read it as Likely.
+pub const MIN_SCORE: f32 = 0.3;
 /// Fused evidence at and above which it reads as Likely, or as Debris with a tornado debris
 /// signature beside it: the strict operating point (about 1.5 false alarms per radar-hour).
 pub const LIKELY_SCORE: f32 = 0.6;
@@ -536,8 +540,14 @@ mod tests {
             .reasons
             .iter()
             .any(|r| r.contains("tornado debris signature")));
-        // The same rotation alone is weaker; below the floor it is not a detection at all.
-        let alone = analyse(vec![tracked(1)], &[], &[]);
+        // Weak rotation alone is below the floor: not a detection at all.
+        let mut weak = tracked(1);
+        for m in &mut weak.column.members {
+            m.object.max_azshear = 0.008;
+        }
+        weak.column.max_azshear = 0.008;
+        weak.column.low_level_azshear = Some(0.008);
+        let alone = analyse(vec![weak], &[], &[]);
         assert!(alone[0].fused.score < MIN_SCORE, "{}", alone[0].fused.score);
         assert!(identify(&alone, none).is_empty());
         // A report beside it makes it one, confirmed; an observed warning alone does not.

@@ -125,6 +125,14 @@ Primary code areas:
   - **Unchanged.** The rotation and debris layers and their alerts.
   - **Cost, kept off the UI thread.** On Moore 2013 in a release build the fused columns take 329 ms per volume, against 12 ms for the legacy couplets and 43 ms for legacy debris. They are computed on a background thread per new full volume, which asks for a repaint when done. Until then, and for light loop frames (one tilt, while the fusion's evidence is a column through several), Tornado ID shows the original's verdict, so the markers never blink out. The browser build has no threads and computes it in line.
 
+- **End-to-end regression tests** (`crates/wxdata/tests/detection_regressions.rs`). The plan's non-negotiable cases run through exactly the app's Tornado ID pipeline on synthetic three-tilt volumes:
+  - **Positive:** a vortex with debris on it is a Debris-tier tornado where it is; a short-lived extreme circulation is not held back for lack of persistence; a persisting circulation gains evidence; a strong persisting circulation without debris still shows.
+  - **Negative:** a wild gate, a leftover fold, a radial seam and a gust front are not tornadoes.
+  - **Invariants:** duplicate debris does not raise the score; the verdict is deterministic.
+
+  A diagnostic shows *why* the seam and fold produce nothing: the biweight discards the minority side of a one-sided step, so the field's shear there is exactly 0. Vortices narrower than the radial spacing still form columns (a 0.3 km core reads ~0.027 s⁻¹ after LLSD smoothing).
+- **Possible-tier floor lowered from 0.4 to 0.3.** At 0.4 a strong, deep circulation with no debris (40–50 m/s, three tilts, scoring 0.29–0.34) did not show at all, where the legacy Tornado ID read it as Likely. Held out by event, everything at ≥ 0.3 still beats everything the legacy Tornado ID shows: POD 0.54 against 0.49, FAR 0.53 against 0.77, 7.7 false per hour against 10.1. Likely stays at 0.6.
+
 ### What stands between the fusion and promotion
 
 - **POD.** Looked at with `matched_truths`, the gap is a weighting trade-off, not a blind spot. At Tornado ID ≥ 0.6 and fusion ≥ 0.5 they find 46 and 45 reports: 38 in common, 8 only Tornado ID, 7 only the fusion. Every one of the 8 has an LLSD column on it: rotation-only tornadoes (0.025–0.034 s⁻¹, 3–4 tilts, persisting, no debris signature), fused at 0.17–0.41 because debris carries most of the weight. Five of the 8 are one Washington, IL circulation matched to five reports. Weighting rotation-only circulations as Tornado ID does would recover them, and with them the false alarms the hard negatives exposed. More rotation-only tornadoes and rotating non-tornadic storms in the corpus are what can settle that weight.
