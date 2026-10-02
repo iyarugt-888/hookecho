@@ -58,7 +58,11 @@ fn real_products_retain_acquisition_and_output_clocks() {
     for (bytes, expected) in cases {
         let product = decode(bytes).expect("existing real product must decode");
         assert_eq!(product.times, *expected, "product {}", product.code);
-        assert_eq!(decode(bytes).unwrap().times, *expected, "replay keeps clocks");
+        assert_eq!(
+            decode(bytes).unwrap().times,
+            *expected,
+            "replay keeps clocks"
+        );
     }
 }
 
@@ -113,4 +117,23 @@ fn free_text_generation_does_not_become_an_acquisition() {
             volume_end_unix: None,
         }
     );
+}
+
+#[cfg(feature = "serde")]
+#[test]
+fn serialized_source_clocks_preserve_roles_and_unknowns() {
+    let product = decode(&message(134, (1, 7), (1, 12))).unwrap();
+    let json = serde_json::to_value(product).unwrap();
+    assert_eq!(
+        json["times"],
+        serde_json::json!({
+            "data_start_unix": 7,
+            "generation_unix": null,
+            "volume_end_unix": 12,
+        })
+    );
+    let product = decode(&message(165, (0, 7), (1, 12))).unwrap();
+    let json = serde_json::to_value(product).unwrap();
+    assert_eq!(json["times"]["data_start_unix"], serde_json::Value::Null);
+    assert_eq!(json["times"]["generation_unix"], 12);
 }

@@ -33,6 +33,7 @@
 
 use crate::level2::{BinnedSweep, Moment};
 use crate::rotation::{decode, is_leftover_fold, scanned_together};
+#[cfg(not(target_arch = "wasm32"))]
 use rayon::prelude::*;
 
 /// Version of the field computation, recorded with anything derived from it.
@@ -379,8 +380,13 @@ pub fn llsd(vel: &BinnedSweep, p: &LlsdParams) -> AzShearField {
     let g_side = gates_each_side(gi, p) as i64;
     let nyq = vel.nyquist_ms;
 
-    let rows: Vec<Vec<GateOut>> = (0..n_az)
-        .into_par_iter()
+    // Rayon is a native-only dependency. Preserve the identical row calculation and order
+    // in browser builds, which execute it sequentially without a thread pool.
+    #[cfg(not(target_arch = "wasm32"))]
+    let azimuths = (0..n_az).into_par_iter();
+    #[cfg(target_arch = "wasm32")]
+    let azimuths = 0..n_az;
+    let rows: Vec<Vec<GateOut>> = azimuths
         .map(|az| {
             let empty = (f32::NAN, 0.0, 0.0, 0u16, 0u8, 0u8);
             let mut row = vec![empty; stored];

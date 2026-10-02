@@ -8,6 +8,27 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: browser compilation of the shear calculation
+
+The new LLSD azimuthal-shear computation uses the same row calculation sequentially in
+browser builds, where the native threading dependency is unavailable. Desktop builds
+keep their parallel execution. This repairs compilation; browser runtime and performance
+certification remain open.
+
+### Improved: explainable Tornado ID evidence scores
+
+Tornado ID fuses each detector's raw evidence once, rather than reusing scores already
+boosted by corroboration. Named positive and negative terms add up to the resulting score,
+including the deduction for a debris candidate without nearby rotation. These scores
+describe radar evidence; they are not calibrated tornado probabilities.
+
+### Added: reproducible detector baseline exports
+
+The headless historic backtest can export every rotation, debris, Tornado ID, and hail
+candidate with its physical measurements and summary statistics. Stable ordering and
+cached soundings make repeated baseline runs comparable. This provides evidence for
+detector tuning without changing detections through the export itself.
+
 ### Fixed: Level III grids retain their radar observation time
 
 Digital VIL, echo tops, hydrometeor classification, and N0B mosaic ingredients use the

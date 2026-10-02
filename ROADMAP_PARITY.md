@@ -234,6 +234,10 @@ Unless marked otherwise, every card starts with **implementation: planned; verif
 
 **Agent prompt:** `Implement M1.4 using section 6. Finish retained stamps and dependency lineage through the shared inspector/export path; never invent an unavailable source clock.`
 
+**Source-clock foundation — 2026-10-01 (`7079846`):** the Level III decoder retains checked PDB data-start, RPG generation, and DVL/EET volume-end clocks separately. Supplemental elevation starts keep their source meaning; free-text generation is not labeled acquisition. Gridded DVL/EET/HHC/N0B products and SCIT history/forecast origins use the decoded data start, without S3-name or client-clock substitution. An undated grid is unavailable. This corrects a production issue discovered while pairing M0.3's candidate HCA clutter labels with their Archive II volume. Six existing real products, one-based epoch/midnight boundaries, invalid day/second encodings, and independent Python header interpretation verify the decoder. Serialized clocks preserve unknown values and their distinct roles. Shared grid lineage, persisted archive receipts, inspectors/exports, and the remainder of this parent card remain open.
+
+**Foundation verification:** Windows workspace tests passed (2,019; zero failures; 115 explicitly ignored), and workspace/all-target Clippy passed. Five source-clock tests, including JSON unknown/role preservation, and eight existing MetPy value/geometry goldens passed separately. The WASM library check initially exposed a native-only Rayon import in the concurrent LLSD shear feature (`08df4ae`). The row calculation now runs sequentially on WASM and retains parallel ordered collection on native; the repeated workspace/Clippy checks and full HookEcho WASM library check passed. Existing browser warnings remain. This is compilation/unit evidence, with browser runtime, device, and sustained-load certification still open. Review logs are `target/parity-review/m0.3/clock-*.log`. CHANGELOG.md now records the implemented parity foundations and other committed branch features.
+
 ### M2 — Storm-centered operator workflows
 
 #### M2.1 — Introduce persistent storm identity and history
