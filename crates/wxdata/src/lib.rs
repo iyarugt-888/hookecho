@@ -7,6 +7,7 @@ pub mod archive_mds;
 pub mod archive_warnings;
 pub mod atcf;
 pub mod aviation;
+pub mod azshear;
 pub mod banding;
 pub mod beam_geometry;
 pub mod cellscore;

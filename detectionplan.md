@@ -11,6 +11,17 @@ Primary code areas:
 - `crates/hookecho/src/app.rs`
 - `crates/hookecho/src/settings.rs`
 
+## Progress
+
+- **Phase 0, done** (`d82778b`, `05d01e2`). `hookecho --headless-backtest-file docs/backtest-events.txt --export DIR` writes `candidates.csv` and `summary.json`; two consecutive runs are byte-identical (3021 candidates). Soundings are cached and named per event in the summary, because a failed sounding download silently changed every hail candidate.
+- **Phase 1, done except the UI rename** (`d1ce635`). Tornado ID reads raw detector scores and fuses them once as named terms that sum exactly to the score. `COLLOCATION_SHARE = 1.0`: 0.5 cut false alarms scoring ≥ 0.9 from 7 to 1 but dropped the Washington, IL tornado (KILX 2013-11-17) out of Likely. Still to do: show "Evidence score" instead of "78%" in `detector_markers.rs` and `cell.rs`.
+- **Phase 2, field done** (`azshear.rs`). LLSD AzShear with a 2.5 km × 750 m physical kernel and a Tukey-biweighted fit started from the median plane. Huber weighting was tried and fails on a single bad radial once the kernel is three radials wide (beyond ~90 km): it read half the radial's step as 0.014 s⁻¹. Nothing consumes the field yet. Lowest-tilt results: Moore 2013 peak cyclonic 0.039 s⁻¹, Mayfield 2021 0.028 s⁻¹, 35–51 ms per tilt in release. The clear-air control has 0.19% of gates at |shear| ≥ 0.006 before any screening.
+
+### Findings to carry into Phase 3
+
+- Real violent tornadoes have *high* fit RMSE (Moore 14 m/s) and texture (19 m/s) at their peak gate, and Moore's peak gate has a 17% leftover-fold share. Quality gates must therefore be relative to the shear's own size, and fold flags must count only alongside other evidence. Absolute RMSE or texture limits would reject the strongest tornadoes.
+- Clear air produces isolated gates past 0.006 s⁻¹. The reflectivity requirement and coherent-object area are needed, not optional.
+
 ## Purpose
 
 This roadmap is intended for Claude Code and Codex to implement a substantial reduction in high-confidence false tornado, rotation, and debris detections without simply raising thresholds until true events disappear.

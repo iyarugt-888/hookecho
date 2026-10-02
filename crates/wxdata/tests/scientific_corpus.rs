@@ -341,3 +341,81 @@ fn cached_derived_products_repeat_with_source_clock() {
         }
     }
 }
+
+/// The lowest tilt that carries velocity, dealiased.
+fn lowest_velocity(scan: &level2::Scan) -> level2::BinnedSweep {
+    (0..level2::elevation_angles(scan).len())
+        .find_map(|tilt| level2::bin_scan_opts(scan, Moment::Velocity, tilt, true).ok())
+        .expect("a velocity tilt")
+}
+
+fn ground_km(a: (f64, f64), b: (f64, f64)) -> f64 {
+    let dlat = (b.1 - a.1) * 111.32;
+    let dlon = (b.0 - a.0) * 111.32 * a.1.to_radians().cos();
+    dlat.hypot(dlon)
+}
+
+/// detectionplan.md Phase 2: the LLSD AzShear field reads both violent tornadoes as rotation
+/// clearly past the 0.006 s⁻¹ TORP builds its objects from, cyclonic, at the lowest tilt.
+#[test]
+#[ignore = "large cached fixtures: provision explicitly before running"]
+fn cached_llsd_azshear_reads_violent_tornadoes() {
+    use wxdata::azshear::{llsd, LlsdParams};
+    let m = corpus::manifest();
+    for (id, tornado) in [
+        ("moore-2013", (-97.491, 35.332)),
+        ("mayfield-2021", (-88.636, 36.742)),
+    ] {
+        let f = m.fixtures.iter().find(|f| f.id == id).unwrap();
+        let scan = level2::decode_volume(corpus::read(f, &corpus::cache_dir()).unwrap()).unwrap();
+        let vel = lowest_velocity(&scan);
+        let t0 = std::time::Instant::now();
+        let field = llsd(&vel, &LlsdParams::default());
+        let took = t0.elapsed();
+        let sign = field.cyclonic_sign();
+        let (peak, at) = field
+            .iter()
+            .filter(|&(az, g, _)| ground_km(field.lonlat(az, g), tornado) <= 8.0)
+            .map(|(az, g, s)| (s.shear_s * sign, (az, g, s)))
+            .max_by(|a, b| a.0.total_cmp(&b.0))
+            .expect("shear near the tornado");
+        eprintln!(
+            "{id}: {:.1}° tilt, {} gates computed in {took:?}; peak cyclonic {peak:.4} s⁻¹ at {:.1} km, {:?}",
+            vel.elevation_deg,
+            field.iter().count(),
+            field.range_km(at.1),
+            at.2.quality
+        );
+        assert!(peak >= 0.01, "{id}: peak cyclonic shear {peak}");
+    }
+}
+
+/// The clear-air control, for comparison: how much of a weak-echo field reaches the TORP
+/// threshold before any object, reflectivity or quality screening (Phase 3's job).
+#[test]
+#[ignore = "large cached fixtures: provision explicitly before running"]
+fn cached_llsd_azshear_clear_air_report() {
+    use wxdata::azshear::{llsd, LlsdParams};
+    let m = corpus::manifest();
+    let f = m
+        .fixtures
+        .iter()
+        .find(|f| f.id == "clear-air-2019")
+        .unwrap();
+    let scan = level2::decode_volume(corpus::read(f, &corpus::cache_dir()).unwrap()).unwrap();
+    let field = llsd(&lowest_velocity(&scan), &LlsdParams::default());
+    let all: Vec<_> = field.iter().collect();
+    let strong = all
+        .iter()
+        .filter(|(_, _, s)| s.shear_s.abs() >= 0.006)
+        .count();
+    let peak = all
+        .iter()
+        .map(|(_, _, s)| s.shear_s.abs())
+        .fold(0.0f32, f32::max);
+    eprintln!(
+        "clear-air-2019: {} gates, {strong} at |shear| >= 0.006 ({:.3}%), peak {peak:.4}",
+        all.len(),
+        100.0 * strong as f64 / all.len().max(1) as f64
+    );
+}

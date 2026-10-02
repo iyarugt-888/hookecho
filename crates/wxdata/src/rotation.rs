@@ -442,7 +442,7 @@ impl Explanation {
 
 /// Decode a binned `u8` gate index back to its physical value, or `None` for below-threshold /
 /// range-folded gates (indices 0/1). Same encoding as [`crate::tds`].
-fn decode(sweep: &BinnedSweep, idx: u8) -> Option<f32> {
+pub(crate) fn decode(sweep: &BinnedSweep, idx: u8) -> Option<f32> {
     if idx < 2 {
         return None;
     }
@@ -451,7 +451,7 @@ fn decode(sweep: &BinnedSweep, idx: u8) -> Option<f32> {
 }
 
 /// Great-circle destination point (places a gate at its azimuth/range).
-fn dest(lon: f64, lat: f64, bearing_deg: f64, dist_km: f64) -> (f64, f64) {
+pub(crate) fn dest(lon: f64, lat: f64, bearing_deg: f64, dist_km: f64) -> (f64, f64) {
     let r = 6371.0;
     let ad = dist_km / r;
     let (br, la1, lo1) = (bearing_deg.to_radians(), lat.to_radians(), lon.to_radians());
@@ -468,7 +468,7 @@ const MAX_NEIGHBOUR_GAP_MS: i64 = 2_000;
 /// Whether bins `a` and `b` of `sweep` were scanned as neighbours. Sweeps built without timing
 /// (every fixture, and any path that predates partial-sweep rendering) have no way to say, and are
 /// taken at their word.
-fn scanned_together(sweep: &BinnedSweep, a: usize, b: usize) -> bool {
+pub(crate) fn scanned_together(sweep: &BinnedSweep, a: usize, b: usize) -> bool {
     match (sweep.bin_time_ms.get(a), sweep.bin_time_ms.get(b)) {
         (Some(&ta), Some(&tb)) => ta != 0 && tb != 0 && (ta - tb).abs() <= MAX_NEIGHBOUR_GAP_MS,
         _ => true,
@@ -486,7 +486,7 @@ fn scanned_together(sweep: &BinnedSweep, a: usize, b: usize) -> bool {
 /// 1.6 to 2.2 Nyquists. Real rotation strong enough to matter unfolds past the limit, on one side or
 /// both: the 2013 Moore tornado reads about 50 m/s each way on a 26.6 m/s Nyquist, well clear of
 /// this band, and must not be mistaken for a fold. `nyquist_ms` of 0 (unknown) never flags anything.
-fn is_leftover_fold(a: f32, b: f32, nyquist_ms: f32) -> bool {
+pub(crate) fn is_leftover_fold(a: f32, b: f32, nyquist_ms: f32) -> bool {
     let at_the_limit = |v: f32| (0.75 * nyquist_ms..=1.1 * nyquist_ms).contains(&v.abs());
     nyquist_ms > 5.0
         && at_the_limit(a)
