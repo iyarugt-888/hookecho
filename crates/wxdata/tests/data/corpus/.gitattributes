@@ -1,2 +1,3 @@
 # Snapshot checksums describe the original HTTP bytes on Windows and Linux.
 *.geojson -text
+*.l3 -text

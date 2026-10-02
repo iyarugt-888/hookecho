@@ -1,0 +1,51 @@
+{
+  "status": "passed",
+  "recorded_on": "2026-10-02",
+  "manifest_schema": 4,
+  "algorithm_baseline_commit": "aa977fe75b82bb7046e871cc8746caca640f2bec",
+  "platform": "Windows x86_64",
+  "inputs": {
+    "classification": {
+      "fixture_id": "tlx-clutter-2020-labels",
+      "bytes": 32618,
+      "sha256": "e135a96cd1c2ad31fe6563d6af4dd403dd368c244383f38b047699b2e4ef7057",
+      "data_start": "2020-07-15T12:04:10Z",
+      "generation": "2020-07-15T12:04:54Z",
+      "radials": 360,
+      "bins": 1200,
+      "clutter_gates": 2363,
+      "clutter_gates_15_to_150_km": 1917
+    },
+    "radar": {
+      "fixture_id": "tlx-clutter-2020",
+      "bytes": 9276011,
+      "sha256": "6f5ea62a1162daf6de0c426c7bc74cc9882b2405708b6afafa42b1b8768e5779",
+      "last_collected": "2020-07-15T12:08:32.335Z",
+      "analysis_time": "2020-07-15T12:08:33Z",
+      "original_receipt": null
+    }
+  },
+  "pipeline": {
+    "tilts": 4,
+    "velocity_processing": "production dealiased binning",
+    "debris": { "max_cc": 0.8, "min_dbz": 40.0, "max_range_km": 150.0, "min_gates": 4 },
+    "rotation": { "min_vrot_ms": 25.0, "min_dbz": 20.0, "min_range_km": 15.0, "max_range_km": 150.0, "min_gates": 3 },
+    "fusion": "production ZDR correction, cross-corroboration and tornado_id::circulations"
+  },
+  "measurements": {
+    "raw_debris_candidates": 6,
+    "couplets": 1,
+    "fused_circulations": 0,
+    "raw_and_fused_repeatability": "identical debug representations on two runs",
+    "classifier_gate_center_round_trips": 2363,
+    "debris_tier_or_higher_centroids_in_clutter_mask": 0
+  },
+  "independent_checks": [ "PowerShell SHA-256", "Python bounded struct/zlib/bzip2 reader" ],
+  "limitations": [
+    "HCA is operational classification, not a field survey or proof the entire volume is non-tornadic.",
+    "Classification has start/generation clocks, with no per-gate observation clocks.",
+    "The false-alarm assertion applies only to centroids in the original raw-code-20 polar mask; it does not interpolate or dilate classes.",
+    "The legacy debris/couplet fusion pipeline is checked here; independent LLSD object/column certification is separate.",
+    "Concurrent object/column and backtest-tool edits were present, while this pipeline's invoked detector functions remained unchanged from the stated baseline."
+  ]
+}

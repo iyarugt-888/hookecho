@@ -10,6 +10,7 @@ from unittest import mock
 
 import capture_truth
 import provision
+import classification
 
 
 class ProvisionTests(unittest.TestCase):
@@ -78,7 +79,7 @@ class ProvisionTests(unittest.TestCase):
         self.assertEqual(error.exception.code, 2)
 
     def test_damage_tracks_retain_source_metadata_and_geometry(self):
-        _, _, tracks = provision.load_manifest(provision.MANIFEST)
+        _, _, tracks, _ = provision.load_manifest(provision.MANIFEST)
         self.assertEqual(len(tracks), 2)
         for track in tracks:
             path = provision.MANIFEST.parent / track["path"]
@@ -106,6 +107,47 @@ class ProvisionTests(unittest.TestCase):
                 path.write_text(json.dumps(data))
                 with self.assertRaises(ValueError):
                     provision.load_manifest(path)
+
+    def test_independent_classification_reader_preserves_labels_and_clocks(self):
+        _, _, _, inputs = provision.load_manifest(provision.MANIFEST)
+        self.assertEqual(len(inputs), 1)
+        fixture = inputs[0]
+        path = provision.MANIFEST.parent / fixture['path']
+        data = provision.verify_classification(path, fixture)
+        self.assertEqual(data['class_counts']['20'], 2363)
+        self.assertEqual(sum(data['class_counts'].values()), 360 * 1200)
+        self.assertEqual((data['lat'], data['lon']), (35.333, -97.278))
+        self.assertEqual(data['acquisition_time'], '2020-07-15T12:04:10Z')
+        self.assertEqual(data['generation_time'], '2020-07-15T12:04:54Z')
+        for changed in (dict(fixture, generation_time='2020-07-15T12:04:55Z'),
+                        dict(fixture, expected_radials=359),
+                        dict(fixture, expected_classes={'20': 432000})):
+            with self.assertRaises(ValueError):
+                provision.verify_classification(path, changed)
+
+    def test_classification_manifest_rejects_missing_context_and_invalid_clocks(self):
+        original = json.loads(provision.MANIFEST.read_text(encoding='utf-8'))
+        mutations = [lambda d: d.update(classification_snapshots=[]),
+                     lambda d: d['classification_snapshots'][0].update(radar_fixture='missing'),
+                     lambda d: d['classification_snapshots'][0].update(path='../escape.l3'),
+                     lambda d: d['classification_snapshots'][0].update(generation_time='2020-07-15T12:04:09Z'),
+                     lambda d: d['classification_snapshots'][0].update(expected_classes={'20': 0}),
+                     lambda d: d['classification_snapshots'][0]['source'].update(acquisition_time='2020-07-15T12:04:11Z')]
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'manifest.json'
+            for mutate in mutations:
+                data = json.loads(json.dumps(original))
+                mutate(data)
+                path.write_text(json.dumps(data))
+                with self.assertRaises(ValueError):
+                    provision.load_manifest(path)
+
+    def test_classification_reader_rejects_truncated_containers(self):
+        _, _, _, inputs = provision.load_manifest(provision.MANIFEST)
+        raw = (provision.MANIFEST.parent / inputs[0]['path']).read_bytes()
+        for body in (b'', raw[:100], raw[:-80]):
+            with self.assertRaises(ValueError):
+                classification.inspect_hca(body)
 
 
 if __name__ == "__main__":

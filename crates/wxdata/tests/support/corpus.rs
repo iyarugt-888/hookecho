@@ -14,6 +14,31 @@ pub struct Manifest {
     pub fixtures: Vec<Fixture>,
     pub truth_snapshots: Vec<TruthSnapshot>,
     pub track_snapshots: Vec<TrackSnapshot>,
+    pub classification_snapshots: Vec<ClassificationSnapshot>,
+}
+
+/// Independent operational gate labels, retaining their classifier and clock limitations.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClassificationSnapshot {
+    pub id: String,
+    pub path: String,
+    pub format: String,
+    pub site: String,
+    pub radar_fixture: String,
+    pub bytes: usize,
+    pub sha256: String,
+    pub source: Source,
+    pub generation_time: DateTime<Utc>,
+    pub elevation_deg: f32,
+    pub gate_spacing_km: f32,
+    pub expected_radials: usize,
+    pub expected_bins: usize,
+    pub expected_classes: std::collections::BTreeMap<u8, usize>,
+    pub evidence: String,
+    pub reference_url: String,
+    pub checks: Vec<String>,
+    pub algorithm_baseline_commit: String,
 }
 
 /// Original NWS damage-analysis files. Metadata is checked against the file itself;
@@ -140,7 +165,7 @@ pub fn manifest() -> Manifest {
 }
 
 pub fn validate(m: &Manifest) -> Result<()> {
-    ensure!(m.schema_version == 3, "unsupported corpus schema");
+    ensure!(m.schema_version == 4, "unsupported corpus schema");
     ensure!(!m.baseline_commit.is_empty(), "missing algorithm baseline");
     ensure!(!m.fixtures.is_empty(), "empty corpus");
     let mut ids = HashSet::new();
@@ -339,7 +364,144 @@ pub fn validate(m: &Manifest) -> Result<()> {
             "damage-track time/attribution missing"
         );
     }
+    ensure!(
+        !m.classification_snapshots.is_empty(),
+        "required independent classification missing"
+    );
+    let mut paths: HashSet<_> = m
+        .fixtures
+        .iter()
+        .map(|f| &f.path)
+        .chain(m.truth_snapshots.iter().map(|f| &f.path))
+        .chain(m.track_snapshots.iter().map(|f| &f.path))
+        .collect();
+    for f in &m.classification_snapshots {
+        ensure!(
+            ids.insert(&f.id) && paths.insert(&f.path),
+            "duplicate classification identity/path"
+        );
+        ensure!(
+            safe_name(&f.path)
+                && f.format == "nexrad-level3-digital-hca"
+                && hash(&f.sha256)
+                && f.bytes > 120
+                && f.bytes <= 2_000_000,
+            "invalid classification input"
+        );
+        let radar = m
+            .fixtures
+            .iter()
+            .find(|r| r.id == f.radar_fixture)
+            .context("classification radar fixture missing")?;
+        ensure!(
+            radar.site == f.site
+                && f.site.starts_with('K')
+                && f.site.len() == 4
+                && radar.source.acquisition_time == f.source.acquisition_time,
+            "classification/radar source context mismatch"
+        );
+        let key = format!(
+            "{}_N0H_{}",
+            &f.site[1..],
+            f.source.acquisition_time.format("%Y_%m_%d_%H_%M_%S")
+        );
+        ensure!(
+            f.source.object_key == key
+                && f.source.url == format!("https://unidata-nexrad-level3.s3.amazonaws.com/{key}")
+                && f.source.bytes == f.bytes
+                && f.source.sha256 == f.sha256
+                && f.source.acquisition_time < f.generation_time
+                && f.source.captured_at >= f.generation_time,
+            "classification source identity/clock mismatch"
+        );
+        ensure!(
+            f.elevation_deg.is_finite()
+                && (0.0..=20.0).contains(&f.elevation_deg)
+                && f.gate_spacing_km == 0.25
+                && f.expected_radials > 0
+                && f.expected_radials <= 720
+                && f.expected_bins > 0
+                && f.expected_bins <= 2_000
+                && f.expected_classes
+                    .values()
+                    .all(|&n| n > 0 && n <= 1_440_000)
+                && f.expected_classes.values().sum::<usize>()
+                    == f.expected_radials * f.expected_bins
+                && f.expected_classes.get(&20).is_some_and(|&n| n > 0),
+            "invalid classification coverage/labels"
+        );
+        ensure!(
+            !f.evidence.is_empty()
+                && !f.source.attribution.is_empty()
+                && !f.checks.is_empty()
+                && f.algorithm_baseline_commit.len() == 40
+                && f.algorithm_baseline_commit
+                    .bytes()
+                    .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+                && f.source.license_url == "https://registry.opendata.aws/noaa-nexrad/"
+                && f.reference_url
+                    == "https://www.roc.noaa.gov/public-documents/icds/2620001AD.pdf",
+            "classification attribution/limitations missing"
+        );
+    }
     Ok(())
+}
+
+fn safe_name(name: &str) -> bool {
+    !name.is_empty() && name != "." && name != ".." && !name.contains(['/', '\\', ':'])
+}
+
+pub fn read_classification(f: &ClassificationSnapshot) -> Result<nexrad_level3::Level3Product> {
+    ensure!(safe_name(&f.path), "unsafe classification path");
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/data/corpus")
+        .join(&f.path);
+    let bytes = std::fs::read(path)
+        .with_context(|| format!("{}: required classification missing", f.id))?;
+    verify_bytes(&f.id, f.bytes, &f.sha256, &bytes)?;
+    let p = nexrad_level3::decode(&bytes)?;
+    ensure!(
+        p.code == 165
+            && p.times.data_start_unix == Some(f.source.acquisition_time.timestamp())
+            && p.times.generation_unix == Some(f.generation_time.timestamp())
+            && p.times.volume_end_unix.is_none()
+            && p.elevation_deg == Some(f.elevation_deg),
+        "classification product/clock mismatch"
+    );
+    let site = wxdata::sites::site_by_id(&f.site).context("unknown classification radar site")?;
+    ensure!(
+        (p.lat - site.latitude).abs() < 0.002 && (p.lon - site.longitude).abs() < 0.002,
+        "classification radar location mismatch"
+    );
+    let ra = p
+        .radial
+        .as_ref()
+        .context("classification radial packet missing")?;
+    ensure!(
+        ra.first_bin == 0
+            && ra.radials.len() == f.expected_radials
+            && usize::from(ra.nbins) == f.expected_bins,
+        "classification geometry mismatch"
+    );
+    let mut classes = std::collections::BTreeMap::new();
+    for r in &ra.radials {
+        ensure!(
+            r.levels.len() == f.expected_bins
+                && r.start_deg.is_finite()
+                && (0.0..360.0).contains(&r.start_deg)
+                && r.delta_deg > 0.0
+                && r.delta_deg <= 2.0,
+            "invalid classification radial"
+        );
+        for &code in &r.levels {
+            *classes.entry(code).or_insert(0usize) += 1;
+        }
+    }
+    ensure!(
+        classes == f.expected_classes,
+        "classification labels changed"
+    );
+    Ok(p)
 }
 
 pub fn cache_dir() -> PathBuf {

@@ -4,8 +4,10 @@
 contract for the radar corpus. It records exact archive objects, SHA-256 hashes, sizes,
 collection and retrieval times, attribution, transforms, and the checks that consume them.
 Version 2 added required warning/report truth snapshots. Version 3 adds original NWS damage
-track KMZ files with source-checked time intervals, evidence notes, and vertex counts; older
-schema readers reject it explicitly.
+track KMZ files with source-checked time intervals, evidence notes, and vertex counts.
+Version 4 adds required original Level III HCA classifications tied to their radar input,
+with acquisition/generation clocks, class counts, geometry, and classifier limitations.
+Older schema readers reject it explicitly.
 The initial algorithm baseline is `0fe93de`. Updates to expected science require an explained
 review; provisioning never discovers a newer scan or updates a golden.
 
@@ -27,7 +29,7 @@ measurements. Existing full-volume storm tests retain their established scientif
 ```sh
 python -m unittest discover -s scripts/corpus -p test_provision.py
 python scripts/corpus/provision.py --offline-only --verify-only
-cargo test -p wxdata --test scientific_corpus
+cargo test -p wxdata --test scientific_corpus --test clutter_corpus
 ```
 
 Eight committed GeoJSON snapshots (320,333 bytes) preserve the original IEM HTTP response bytes
@@ -46,8 +48,8 @@ clocks, missing rows, missing upper elevations, and the recorded baseline.
 
 ## Large cached checks
 
-Eleven full archive objects (about 126 MB) cover the existing historic tornado, hail, pre-dual-pol,
-and convective-line controls plus clear-air and QLCS controls. They remain out of Git. Python 3.10+
+Twelve full archive objects (125,511,988 bytes, about 126 MB) cover the existing historic tornado, hail, pre-dual-pol,
+and convective-line controls plus clear-air, QLCS, and classified-clutter controls. They remain out of Git. Python 3.10+
 and the standard library suffice; the commands work on Windows and Linux.
 
 ```sh
@@ -69,7 +71,7 @@ export HOOKECHO_CORPUS_CACHE="$PWD/target/scientific-corpus"
 ```
 
 ```sh
-cargo test -p wxdata --test scientific_corpus -- --ignored --nocapture
+cargo test -p wxdata --test scientific_corpus --test clutter_corpus -- --ignored --nocapture
 cargo test -p wxdata --test golden_events -- --ignored --nocapture --test-threads=1
 ```
 
@@ -125,6 +127,36 @@ candidate report with old/new hashes and feature counts. It refuses the certifie
 an output directory and leaves the manifest and goldens unchanged. Review source-object changes,
 geometry, individual report validity, and their effect on scientific results before updating
 the tracked response and manifest together. A hash difference alone is not a reason to update.
+
+## Operationally classified clutter control
+
+The original 32,618-byte `TLX_N0H_2020_07_15_12_04_10` Digital HCA product is committed beside
+the manifest. Its decoded start is **12:04:10 UTC**, generation is **12:04:54 UTC**, and
+raw code **20** denotes anomalous propagation/ground clutter under
+[NOAA ICD 2620001](https://www.roc.noaa.gov/public-documents/icds/2620001AD.pdf).
+The exact corresponding Archive II volume is cached (9,276,011 bytes). Both hashes are pinned.
+Source clocks select the match; filenames do not replace decoded clocks.
+
+The Rust production decoder and an independent bounded Python struct/zlib/bzip2 reader verify
+360 radials × 1,200 bins, all class counts, and both clocks. The 2,363 clutter-labeled gate
+centers also round-trip through the categorical spatial mask. The conversion preserves the
+observation clock and missing cells. Invalid metadata, missing companions, unsafe paths,
+truncation, checksum changes, and changed label inventories fail explicitly.
+
+The completed-volume check uses four tilts with the established debris/couplet fusion parameters.
+Its retrospective analysis time is **12:08:33 UTC**, after the last radial at **12:08:32.335**;
+this is a data-analysis clock, with original archive receipt still unknown. Selected low-level
+split-cut radials precede HCA generation, and 1,917 labeled gates fall in the rotation detector's
+15–150 km range. Raw measurements and fused results must repeat. The recorded run produced six
+raw debris candidates, one couplet, and zero fused circulations.
+
+The false-alarm guard rejects debris-tier or higher circulations whose centroids fall in the
+original raw-code-20 mask. It performs no class interpolation or mask dilation. Candidates
+elsewhere are not classified as clutter by this check. HCA is an independent **operational
+classifier**, with no individual label clocks or field-survey certainty; it does not establish
+that the entire volume is non-tornadic. The 2019 weak-echo control remains a separate case.
+The classification record identifies the algorithm baseline separately from the original
+corpus baseline. Detector thresholds and existing historic scientific expectations are unchanged.
 
 ## Real radar render checks
 

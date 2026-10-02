@@ -1,5 +1,5 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "baseline_commit": "0fe93dec1a7dd59c25affc422a5b49b0a76f5bd4",
   "fixtures": [
     {
@@ -492,6 +492,38 @@
         "golden_events::iowa_qlcs_2021_retains_distinct_track_candidates"
       ],
       "expected": null
+    },
+    {
+      "id": "tlx-clutter-2020",
+      "tier": "cached",
+      "path": "KTLX20200715_120410_V06",
+      "format": "nexrad-archive-ii",
+      "site": "KTLX",
+      "case_time": "2020-07-15T12:08:33Z",
+      "sha256": "6f5ea62a1162daf6de0c426c7bc74cc9882b2405708b6afafa42b1b8768e5779",
+      "bytes": 9276011,
+      "source": {
+        "url": "https://unidata-nexrad-level2.s3.amazonaws.com/2020/07/15/KTLX/KTLX20200715_120410_V06",
+        "object_key": "2020/07/15/KTLX/KTLX20200715_120410_V06",
+        "sha256": "6f5ea62a1162daf6de0c426c7bc74cc9882b2405708b6afafa42b1b8768e5779",
+        "bytes": 9276011,
+        "acquisition_time": "2020-07-15T12:04:10Z",
+        "captured_at": "2026-10-02T03:56:14.987238+00:00",
+        "attribution": "NOAA NWS/NCEI NEXRAD; distributed by Unidata through NOAA Open Data Dissemination.",
+        "license_url": "https://registry.opendata.aws/noaa-nexrad/"
+      },
+      "transform": {
+        "kind": "identity",
+        "records": []
+      },
+      "tags": [
+        "clutter",
+        "operational-label"
+      ],
+      "checks": [
+        "clutter_corpus::cached_classified_clutter_does_not_promote_debris"
+      ],
+      "expected": null
     }
   ],
   "truth_snapshots": [
@@ -682,6 +714,53 @@
       "end": "2021-12-15T23:54:00Z",
       "evidence": "Not surveyed. Based on damage reports. ",
       "expected_vertices": 22
+    }
+  ],
+  "classification_snapshots": [
+    {
+      "id": "tlx-clutter-2020-labels",
+      "path": "tlx-clutter-2020-hca.l3",
+      "format": "nexrad-level3-digital-hca",
+      "site": "KTLX",
+      "radar_fixture": "tlx-clutter-2020",
+      "bytes": 32618,
+      "sha256": "e135a96cd1c2ad31fe6563d6af4dd403dd368c244383f38b047699b2e4ef7057",
+      "source": {
+        "url": "https://unidata-nexrad-level3.s3.amazonaws.com/TLX_N0H_2020_07_15_12_04_10",
+        "object_key": "TLX_N0H_2020_07_15_12_04_10",
+        "sha256": "e135a96cd1c2ad31fe6563d6af4dd403dd368c244383f38b047699b2e4ef7057",
+        "bytes": 32618,
+        "acquisition_time": "2020-07-15T12:04:10Z",
+        "captured_at": "2026-10-02T01:32:02.324120+00:00",
+        "attribution": "NOAA NWS/NCEI NEXRAD; distributed by Unidata through NOAA Open Data Dissemination.",
+        "license_url": "https://registry.opendata.aws/noaa-nexrad/"
+      },
+      "generation_time": "2020-07-15T12:04:54Z",
+      "elevation_deg": 0.5,
+      "gate_spacing_km": 0.25,
+      "expected_radials": 360,
+      "expected_bins": 1200,
+      "expected_classes": {
+        "0": 256687,
+        "10": 119437,
+        "20": 2363,
+        "30": 2918,
+        "40": 13774,
+        "50": 445,
+        "60": 23815,
+        "70": 8,
+        "80": 5545,
+        "90": 131,
+        "100": 9,
+        "140": 6868
+      },
+      "evidence": "NWS operational Digital HCA raw code 20 labels anomalous propagation/ground clutter. This is an independent operational classifier, not a field survey or proof that every gate or the entire volume is non-tornadic. The source supplies data-start and product-generation clocks, not per-gate label times.",
+      "reference_url": "https://www.roc.noaa.gov/public-documents/icds/2620001AD.pdf",
+      "checks": [
+        "clutter_corpus::pinned_classification_retains_source_clocks_and_labels",
+        "clutter_corpus::cached_classified_clutter_does_not_promote_debris"
+      ],
+      "algorithm_baseline_commit": "aa977fe75b82bb7046e871cc8746caca640f2bec"
     }
   ]
 }

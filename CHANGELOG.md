@@ -8,6 +8,14 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Improved: an independent clutter regression control
+
+The scientific corpus includes an original operational hydrometeor-classification product and
+its matching radar volume. Checks verify source times, categorical gate locations, missing
+coverage, and repeatable detector results, and reject debris-tier promotions inside the labeled
+clutter mask. The labels remain identified as operational classification rather than field-survey
+certainty. Pinned input provisioning and CI now include this control.
+
 ### Fixed: browser compilation of the shear calculation
 
 The new LLSD azimuthal-shear computation uses the same row calculation sequentially in

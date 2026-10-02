@@ -129,8 +129,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: target/scientific-corpus
-          key: scientific-corpus-v3-${{ hashFiles('crates/wxdata/tests/data/corpus/manifest.json') }}
+          key: scientific-corpus-v4-${{ hashFiles('crates/wxdata/tests/data/corpus/manifest.json') }}
           restore-keys: |
+            scientific-corpus-v4-
             scientific-corpus-v3-
             scientific-corpus-v2-
             scientific-corpus-v1-
@@ -143,7 +144,7 @@ jobs:
       - name: Cached scientific controls
         env:
           HOOKECHO_CORPUS_CACHE: ${{ github.workspace }}/target/scientific-corpus
-        run: cargo test -p wxdata --test scientific_corpus -- --ignored --nocapture
+        run: cargo test -p wxdata --test scientific_corpus --test clutter_corpus -- --ignored --nocapture
 
       - name: Golden events
         env:

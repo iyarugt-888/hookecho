@@ -131,7 +131,7 @@ fn pinned_radar_values_and_missing_sectors_render_consistently() {
     let manifest: serde_json::Value =
         serde_json::from_slice(&manifest_bytes).expect("corpus manifest");
     assert_eq!(
-        manifest["schema_version"], 3,
+        manifest["schema_version"], 4,
         "unsupported visual input contract"
     );
     let output = repo.join("target/parity-review/m0.3/visual-corpus");

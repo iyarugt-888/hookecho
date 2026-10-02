@@ -13,11 +13,12 @@ import urllib.request
 import xml.etree.ElementTree as ET
 import zipfile
 import re
+from classification import inspect_hca
 
 REPO = Path(__file__).resolve().parents[2]
 MANIFEST = REPO / "crates/wxdata/tests/data/corpus/manifest.json"
 SOURCE_PREFIX = "https://unidata-nexrad-level2.s3.amazonaws.com/"
-MANIFEST_VERSION = 3
+MANIFEST_VERSION = 4
 
 
 def checksum(path):
@@ -118,7 +119,49 @@ def load_manifest(path):
             raise ValueError("Invalid damage-track UTC interval")
         if not f["event_name"] or not f["evidence"] or f["expected_vertices"] < 2 or not f["source"]["attribution"] or f["source"]["license_url"] != "https://www.weather.gov/disclaimer":
             raise ValueError("Missing damage-track provenance")
-    return fixtures, snapshots, tracks
+    classifications = manifest.get("classification_snapshots", [])
+    all_inputs += classifications
+    if not classifications or len({f["id"] for f in all_inputs}) != len(all_inputs) or len({f["path"] for f in all_inputs}) != len(all_inputs):
+        raise ValueError("Missing or duplicate classification identity/path")
+    for f in classifications:
+        safe_path(path.parent, f["path"])
+        if f["format"] != "nexrad-level3-digital-hca" or not 120 < f["bytes"] <= 2_000_000 or len(f["sha256"]) != 64 or any(c not in "0123456789abcdef" for c in f["sha256"]):
+            raise ValueError("Invalid classification integrity contract")
+        radar = next((r for r in fixtures if r["id"] == f["radar_fixture"]), None)
+        source = f["source"]
+        if radar is None or radar["site"] != f["site"] or radar["source"]["acquisition_time"] != source["acquisition_time"]:
+            raise ValueError("Classification/radar context mismatch")
+        if not re.fullmatch(r'K[A-Z0-9]{3}', f["site"]):
+            raise ValueError("Invalid classification radar site")
+        times = [dt.datetime.fromisoformat(t.replace("Z", "+00:00")) for t in
+                 (source["acquisition_time"], f["generation_time"], source["captured_at"])]
+        if any(t.tzinfo is None or t.utcoffset() != dt.timedelta(0) for t in times) or not times[0] < times[1] <= times[2]:
+            raise ValueError("Invalid classification source clocks")
+        key = f['site'][1:] + '_N0H_' + times[0].strftime('%Y_%m_%d_%H_%M_%S')
+        if source["object_key"] != key or source["url"] != 'https://unidata-nexrad-level3.s3.amazonaws.com/' + key or (source["bytes"], source["sha256"]) != (f["bytes"], f["sha256"]):
+            raise ValueError("Classification source identity mismatch")
+        classes = f["expected_classes"]
+        if not 0 < f["expected_radials"] <= 720 or not 0 < f["expected_bins"] <= 2000 or f["gate_spacing_km"] != 0.25 or not 0 <= f["elevation_deg"] <= 20:
+            raise ValueError("Invalid classification geometry")
+        if not classes or any(not k.isdigit() or str(int(k)) != k or not 0 <= int(k) <= 255 or not isinstance(v, int) or not 0 < v <= 1_440_000 for k, v in classes.items()) or sum(classes.values()) != f["expected_radials"] * f["expected_bins"] or not classes.get("20", 0):
+            raise ValueError("Invalid classification label inventory")
+        if not f["evidence"] or not f["checks"] or not re.fullmatch(r'[0-9a-f]{40}', f["algorithm_baseline_commit"]) or not source["attribution"] or source["license_url"] != 'https://registry.opendata.aws/noaa-nexrad/' or f["reference_url"] != 'https://www.roc.noaa.gov/public-documents/icds/2620001AD.pdf':
+            raise ValueError("Classification attribution/limitations missing")
+    return fixtures, snapshots, tracks, classifications
+
+
+def verify_classification(path, fixture):
+    verify(path, fixture["bytes"], fixture["sha256"])
+    decoded = inspect_hca(path.read_bytes())
+    expected = {'product_code': 165, 'first_bin': 0,
+                'acquisition_time': fixture['source']['acquisition_time'],
+                'generation_time': fixture['generation_time'],
+                'elevation_deg': fixture['elevation_deg'],
+                'radials': fixture['expected_radials'], 'bins': fixture['expected_bins'],
+                'class_counts': fixture['expected_classes']}
+    if any(decoded[k] != v for k, v in expected.items()):
+        raise ValueError(f"Classification source clocks/geometry/labels changed: {fixture['id']}")
+    return decoded
 
 
 def verify_track(path, fixture):
@@ -217,7 +260,7 @@ def main():
     args = parser.parse_args()
     if args.verify_only and args.rebuild_offline:
         parser.error("--verify-only cannot rebuild files")
-    fixtures, snapshots, tracks = load_manifest(MANIFEST)
+    fixtures, snapshots, tracks, classifications = load_manifest(MANIFEST)
     # Required offline inputs always verify, even while provisioning the large suite.
     for f in fixtures:
         if f["tier"] == "cached":
@@ -246,6 +289,9 @@ def main():
     for f in tracks:
         verify_track(safe_path(MANIFEST.parent, f["path"]), f)
         print(f"Verified track {f['id']}: {f['expected_vertices']} vertices SHA-256 {f['sha256']}")
+    for f in classifications:
+        decoded = verify_classification(safe_path(MANIFEST.parent, f["path"]), f)
+        print(f"Verified classification {f['id']}: {decoded['class_counts']['20']} AP/ground-clutter gates SHA-256 {f['sha256']}")
 
 
 if __name__ == "__main__":

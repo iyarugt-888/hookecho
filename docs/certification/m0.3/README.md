@@ -40,3 +40,27 @@ other products, or device interaction performance.
 The new CI step invokes the same semantic check on Mesa lavapipe and uploads
 fresh PNGs and JSON. That Linux result remains open until CI runs. Physical
 Android and browser runtime certification remain open.
+
+## Classified clutter evidence
+
+[clutter-reference.json](clutter-reference.json) records the passing CPU control on the original
+operational HCA classifications and matching completed radar volume. It preserves source hashes,
+clocks, missing original receipt, parameters, measured candidate counts, and test scope.
+The raw operational labels are independent of HookEcho's detector scores. They are not field-survey
+certainty or a non-tornado label for the whole volume. The source mask's 2,363 clutter gate centers
+round-trip spatially; the false-alarm assertion applies to debris-tier or higher centroids inside
+that categorical mask. The existing 2019 clear-air control remains separate.
+
+Run the small metadata/geometry controls and explicitly provisioned completed-volume check with:
+
+```sh
+cargo test -p wxdata --test clutter_corpus
+# After provisioning and setting HOOKECHO_CORPUS_CACHE (see the provisioning guide):
+cargo test -p wxdata --test clutter_corpus -- --ignored --nocapture
+```
+
+Python provisioning independently verifies the HCA packet, clocks, geometry, and class inventory.
+The source schema is now 4. The unchanged three reflectivity inputs also passed the GPU check
+again under that schema, with the same 16,083 color and 160,292 missing-sector samples and zero
+errors (4.66 seconds). The original PNG references above retain their original manifest hash
+and capture context; fresh reports remain under `target/parity-review/m0.3/visual-corpus/`.
