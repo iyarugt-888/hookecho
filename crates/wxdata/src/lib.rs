@@ -20,6 +20,7 @@ pub mod contour;
 pub mod dat;
 pub mod dealias;
 pub mod derived;
+pub mod detbaseline;
 pub mod detverify;
 pub mod doppler_wind;
 pub mod dotcams;

@@ -616,6 +616,7 @@ mod tests {
             sense: crate::rotation::Sense::Cyclonic,
             debris_confidence: None,
             confidence: conf,
+            raw_confidence: conf,
             confirmation: Confirmation::default(),
         }
     }
@@ -641,6 +642,7 @@ mod tests {
             zdr_db: None,
             confirmation: Confirmation::default(),
             confidence: conf,
+            raw_confidence: conf,
         }
     }
 

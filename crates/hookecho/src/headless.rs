@@ -5602,6 +5602,11 @@ struct BacktestEvent {
     /// for the observed sounding, then both heights in metres above the radar.
     freezing: Option<(String, f64, f64)>,
     volumes: usize,
+    /// Every candidate each detector produced, with its measurements, for the baseline export
+    /// (detectionplan.md Phase 0). Truth matching is filled in at export time.
+    candidates: Vec<wxdata::detbaseline::Candidate>,
+    /// Radar time covered: first to last volume, plus one volume's gap.
+    radar_hours: f64,
     /// Volumes that actually carried a correlation-coefficient tilt. Some pre-2013 archives
     /// (the WSR-88D dual-pol rollout ran 2011-2013) have none at all, in which case `tds` is
     /// correctly empty every time — not a detector failure, just a moment the radar never sent.
@@ -5681,6 +5686,7 @@ fn backtest_event(
         hail,
         freezing,
         scanned,
+        candidates,
     ) = rt.block_on(async {
         let mut ids: Vec<_> = level2::list_volumes(site, day)
             .await?
@@ -5709,11 +5715,13 @@ fn backtest_event(
         let mut tds_tracks: Vec<wxdata::scoretrack::ScoreTrack> = Vec::new();
         let mut rot_tracks: Vec<wxdata::scoretrack::ScoreTrack> = Vec::new();
         let mut hail = Vec::new();
+        let mut candidates: Vec<wxdata::detbaseline::Candidate> = Vec::new();
         // The minute of every volume actually decoded, for which reports could be matched at all.
         let mut scanned: Vec<i64> = Vec::new();
         let freezing = freezing_levels_for(site, first).await;
+        let cache = backtest_cache_dir();
         for (t, id) in ids {
-            let scan = match level2::download_scan(id, None).await {
+            let scan = match level2::download_scan(id, cache.clone()).await {
                 Ok(s) => s,
                 Err(e) => {
                     eprintln!("  {site} {}: skipped, {e}", t.format("%H:%M"));
@@ -5747,6 +5755,14 @@ fn backtest_event(
             wxdata::tds::apply_zdr(&mut hits, &zdr_sweeps);
             let mut couplets =
                 wxdata::rotation::detect_volume(&vel_pairs, 25.0, 20.0, 15.0, 150.0, 3);
+            // Each hit's own score before corroboration re-scores and re-sorts them, by position.
+            let key = |lon: f64, lat: f64| (lon.to_bits(), lat.to_bits());
+            let raw_tds: std::collections::BTreeMap<_, f32> =
+                hits.iter().map(|h| (key(h.lon, h.lat), h.confidence)).collect();
+            let raw_rot: std::collections::BTreeMap<_, f32> = couplets
+                .iter()
+                .map(|c| (key(c.lon, c.lat), c.confidence))
+                .collect();
             // Corroborate both ways at once, each from the other's pre-corroboration confidence,
             // so the backtest scores what a debris ball beside a couplet is actually worth without
             // either side's boost feeding the other's back in.
@@ -5757,6 +5773,7 @@ fn backtest_event(
             // Hail: MEHS/POSH over every reflectivity tilt (the column integral needs all of
             // them, not the four the two detectors above read), reduced to discrete cores.
             let mut hail_here = 0usize;
+            let mut hail_cands: Vec<(f64, f64, f32, f32)> = Vec::new();
             if let Some((_, h0, hm20)) = &freezing {
                 let zs: Vec<_> = (0..level2::elevation_angles(&scan).len())
                     .filter_map(|tilt| level2::bin_scan(&scan, Moment::Reflectivity, tilt).ok())
@@ -5774,6 +5791,7 @@ fn backtest_event(
                             continue;
                         }
                         hail_here += 1;
+                        hail_cands.push((c.lon, c.lat, c.posh / 100.0, range_km as f32));
                         hail.push(Detection {
                             lon: c.lon,
                             lat: c.lat,
@@ -5849,6 +5867,100 @@ fn backtest_event(
                 })
                 .count();
 
+            let observed = |lon: f64, lat: f64| {
+                wxdata::confirm::confirm(lon, lat, minute, &evidence).observed_warning
+            };
+            let volume = t.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+            let base = |detector, lon, lat, range_km, raw, fin| wxdata::detbaseline::Candidate {
+                event: String::new(),
+                site: site.to_string(),
+                volume: volume.clone(),
+                minute,
+                detector,
+                lon,
+                lat,
+                range_km,
+                beam_base_km: None,
+                beam_top_km: None,
+                raw_score: raw,
+                final_score: fin,
+                gates: None,
+                tilts: None,
+                vrot_ms: None,
+                g2g_ms: None,
+                min_cc: None,
+                mean_cc: None,
+                mean_z: None,
+                max_z: None,
+                zdr_db: None,
+                depth_km: None,
+                rooted: None,
+                sense: None,
+                tier: None,
+                members: None,
+                observed_warning: observed(lon, lat),
+                matched_report: false,
+                matched_survey: false,
+            };
+            use wxdata::detbaseline::{Candidate, DetectorKind as K};
+            for c in &couplets {
+                let raw = raw_rot.get(&key(c.lon, c.lat)).copied().unwrap_or(c.confidence);
+                candidates.push(Candidate {
+                    beam_base_km: Some(c.base_km),
+                    beam_top_km: Some(c.top_km),
+                    gates: Some(c.gates),
+                    tilts: Some(c.tilts),
+                    vrot_ms: Some(c.vrot_ms),
+                    g2g_ms: Some(c.g2g_ms),
+                    depth_km: Some(c.top_km - c.base_km),
+                    rooted: c.rooted,
+                    sense: Some(
+                        match c.sense {
+                            wxdata::rotation::Sense::Cyclonic => "cyclonic",
+                            wxdata::rotation::Sense::Anticyclonic => "anticyclonic",
+                        }
+                        .into(),
+                    ),
+                    ..base(K::Rotation, c.lon, c.lat, c.range_km, raw, c.confidence)
+                });
+            }
+            for h in &hits {
+                let raw = raw_tds.get(&key(h.lon, h.lat)).copied().unwrap_or(h.confidence);
+                candidates.push(Candidate {
+                    beam_base_km: Some(h.base_km),
+                    beam_top_km: Some(h.top_km),
+                    gates: Some(h.gates),
+                    tilts: Some(h.tilts),
+                    vrot_ms: h.rotation_ms,
+                    min_cc: Some(h.min_cc),
+                    mean_cc: Some(h.mean_cc),
+                    mean_z: Some(h.mean_z),
+                    max_z: Some(h.max_z),
+                    zdr_db: h.zdr_db,
+                    depth_km: Some(h.top_km - h.base_km),
+                    rooted: h.rooted,
+                    ..base(K::Debris, h.lon, h.lat, h.range_km, raw, h.confidence)
+                });
+            }
+            // Tornado ID's circulations, as the map shows them: fused from the corroborated
+            // couplets and debris above (no reports or warnings — the backtest scores radar alone).
+            if let Some((rlon, rlat)) = radar_pos {
+                for c in wxdata::tornado_id::circulations(&couplets, &hits) {
+                    let id = &c.id;
+                    let range = crate::geo::great_circle([rlon, rlat], [id.lon, id.lat]).0 as f32;
+                    candidates.push(Candidate {
+                        vrot_ms: id.vrot_ms,
+                        min_cc: id.min_cc,
+                        tier: Some(id.tier.label().to_string()),
+                        members: Some(c.members.len()),
+                        ..base(K::TornadoId, id.lon, id.lat, range, id.score, id.score)
+                    });
+                }
+            }
+            for (lon, lat, posh, range_km) in hail_cands {
+                candidates.push(base(K::Hail, lon, lat, range_km, posh, posh));
+            }
+
             tds.extend(hits.iter().map(|h| Detection {
                 lon: h.lon,
                 lat: h.lat,
@@ -5885,6 +5997,7 @@ fn backtest_event(
             hail,
             freezing,
             scanned,
+            candidates,
         ))
     })?;
 
@@ -6008,8 +6121,25 @@ fn backtest_event(
         Vec::new()
     };
 
+    let label = format!("{site} {} {}", day, first.format("%H:%M"));
+    let mut candidates = candidates;
+    for c in &mut candidates {
+        c.event = label.clone();
+    }
+    // First to last volume, plus one typical gap so a single volume is not zero hours.
+    let gap_min = if scanned.len() > 1 {
+        (scanned[scanned.len() - 1] - scanned[0]) as f64 / (scanned.len() - 1) as f64
+    } else {
+        5.0
+    };
+    let radar_hours = match (scanned.first(), scanned.last()) {
+        (Some(a), Some(b)) => ((b - a) as f64 + gap_min) / 60.0,
+        _ => 0.0,
+    };
     Ok(BacktestEvent {
-        label: format!("{site} {} {}", day, first.format("%H:%M")),
+        label,
+        candidates,
+        radar_hours,
         tds,
         rot,
         truths,
@@ -6359,6 +6489,7 @@ pub fn run_detector_backtest(
     date: &str,
     hhmm: &str,
     volumes: Option<&str>,
+    export: Option<&str>,
 ) -> anyhow::Result<()> {
     let (day, start) = parse_start(date, hhmm)?;
     let count = volumes
@@ -6370,7 +6501,10 @@ pub fn run_detector_backtest(
         .build()?;
     let event = backtest_event(&rt, site, day, start, count)?;
     print_event_line(&event);
-    print_backtest_tables(&[event]);
+    print_backtest_tables(std::slice::from_ref(&event));
+    if let Some(dir) = export {
+        export_baseline(&[event], dir)?;
+    }
     Ok(())
 }
 
@@ -6380,7 +6514,11 @@ pub fn run_detector_backtest(
 /// volumes for the site that day, a network error) is reported and left out rather than ending the
 /// run. Each event is matched only against its own reports, and the counts are then added, so a
 /// day with a dozen tornadoes counts for more than one with one.
-pub fn run_detector_backtest_file(path: &str, volumes: Option<&str>) -> anyhow::Result<()> {
+pub fn run_detector_backtest_file(
+    path: &str,
+    volumes: Option<&str>,
+    export: Option<&str>,
+) -> anyhow::Result<()> {
     let text = std::fs::read_to_string(path)?;
     let count = volumes
         .and_then(|v| v.parse::<usize>().ok())
@@ -6417,5 +6555,58 @@ pub fn run_detector_backtest_file(path: &str, volumes: Option<&str>) -> anyhow::
         print_event_line(e);
     }
     print_backtest_tables(&done);
+    if let Some(dir) = export {
+        export_baseline(&done, dir)?;
+    }
+    Ok(())
+}
+
+/// Where archived volumes are kept between backtest runs: an archived volume never changes, so a
+/// rerun reads the same bytes instead of downloading them again. `HOOKECHO_BACKTEST_CACHE`
+/// overrides it; an empty value turns caching off.
+fn backtest_cache_dir() -> Option<std::path::PathBuf> {
+    match std::env::var("HOOKECHO_BACKTEST_CACHE") {
+        Ok(v) if v.is_empty() => None,
+        Ok(v) => Some(v.into()),
+        Err(_) => Some(std::path::PathBuf::from("target/backtest-cache")),
+    }
+}
+
+/// Write the detector baseline (detectionplan.md Phase 0) for these events into `dir`:
+/// `candidates.csv`, one row per candidate with its measurements and whether it verified, and
+/// `summary.json`, the aggregate statistics. Both are ordered, so the same corpus gives the same
+/// files.
+fn export_baseline(events: &[BacktestEvent], dir: &str) -> anyhow::Result<()> {
+    use wxdata::detbaseline::{mark_matches, sort_candidates, summarize, to_csv, EventRun};
+    let mut runs: Vec<EventRun> = events
+        .iter()
+        .map(|e| EventRun {
+            label: e.label.clone(),
+            candidates: e.candidates.clone(),
+            tornado_reports: e.truths.clone(),
+            tornado_surveys: e.dat_truths.clone(),
+            hail_reports: e.hail_truths.clone(),
+            volumes: e.volumes,
+            radar_hours: e.radar_hours,
+        })
+        .collect();
+    for r in &mut runs {
+        mark_matches(r, BACKTEST_RADIUS_KM, BACKTEST_WINDOW_MIN);
+    }
+    let mut all: Vec<_> = runs.iter().flat_map(|r| r.candidates.clone()).collect();
+    sort_candidates(&mut all);
+    let summary = summarize(&runs, BACKTEST_RADIUS_KM, BACKTEST_WINDOW_MIN);
+    let dir = std::path::Path::new(dir);
+    std::fs::create_dir_all(dir)?;
+    std::fs::write(dir.join("candidates.csv"), to_csv(&all))?;
+    std::fs::write(
+        dir.join("summary.json"),
+        serde_json::to_string_pretty(&summary)? + "\n",
+    )?;
+    println!(
+        "\nbaseline: {} candidate(s) written to {}",
+        all.len(),
+        dir.display()
+    );
     Ok(())
 }

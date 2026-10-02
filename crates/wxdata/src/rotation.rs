@@ -104,6 +104,11 @@ pub struct CoupletHit {
     /// corroborated), once [`corroborate_with_debris`] has been run. `None` means no debris was
     /// found near this couplet (or it was never checked); it is not evidence against it.
     pub debris_confidence: Option<f32>,
+    /// The detector's own score from its own measurements alone, set once when the hit is made
+    /// and never changed by corroboration from the other detector (detectionplan.md Phase 1:
+    /// every source of evidence is counted once). `confidence` may be raised or lowered for
+    /// display by [`crate::tds::cross_corroborate`]; Tornado ID fuses this one.
+    pub raw_confidence: f32,
     /// 0..1 confidence. `detect()`'s single-tilt read has no vertical evidence at all and caps out
     /// at 0.5 on rotational strength alone; [`detect_volume`] can go higher once a couplet repeats
     /// up through the tilts. Debris nearby ([`corroborate_with_debris`]) can raise it further: a
@@ -667,6 +672,7 @@ pub fn detect(
                 sense,
                 debris_confidence: None,
                 confidence,
+                raw_confidence: confidence,
                 confirmation: crate::confirm::Confirmation::NONE,
             }
         })
@@ -792,6 +798,7 @@ pub fn detect_volume(
                 sense,
                 debris_confidence: None,
                 confidence,
+                raw_confidence: confidence,
                 confirmation: crate::confirm::Confirmation::NONE,
             }
         })
@@ -1370,6 +1377,10 @@ mod scoring_tests {
         sense: Sense,
     ) -> CoupletHit {
         let per_tilt = gates as f32 / tilts as f32;
+        let score = confidence(
+            evidence(g2g_ms, per_tilt, range_km),
+            vertical_term(top_km, tilts, None),
+        ) * sense_factor(sense);
         CoupletHit {
             lon: -97.5,
             lat: 35.3,
@@ -1383,10 +1394,8 @@ mod scoring_tests {
             rooted: None,
             sense,
             debris_confidence: None,
-            confidence: confidence(
-                evidence(g2g_ms, per_tilt, range_km),
-                vertical_term(top_km, tilts, None),
-            ) * sense_factor(sense),
+            confidence: score,
+            raw_confidence: score,
             confirmation: crate::confirm::Confirmation::NONE,
         }
     }

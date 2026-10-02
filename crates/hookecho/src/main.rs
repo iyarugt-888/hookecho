@@ -769,9 +769,17 @@ fn main() -> eframe::Result<()> {
     // The same over a file of events: `hookecho --headless-backtest-file <events.txt> [volumes]`.
     if let Some(pos) = args.iter().position(|a| a == "--headless-backtest-file") {
         let path = args.get(pos + 1).map(String::as_str).unwrap_or("");
-        if let Err(e) =
-            headless::run_detector_backtest_file(path, args.get(pos + 2).map(String::as_str))
-        {
+        // `--export DIR` anywhere after it writes the candidate baseline (detectionplan.md).
+        let export = args
+            .iter()
+            .position(|a| a == "--export")
+            .and_then(|i| args.get(i + 1))
+            .map(String::as_str);
+        let volumes = args
+            .get(pos + 2)
+            .map(String::as_str)
+            .filter(|v| *v != "--export");
+        if let Err(e) = headless::run_detector_backtest_file(path, volumes, export) {
             eprintln!("headless backtest failed: {e}");
             std::process::exit(1);
         }
@@ -782,11 +790,17 @@ fn main() -> eframe::Result<()> {
     // <HH:MM> [volumes]`.
     if let Some(pos) = args.iter().position(|a| a == "--headless-backtest") {
         let arg = |n: usize| args.get(pos + n).map(String::as_str);
+        let export = args
+            .iter()
+            .position(|a| a == "--export")
+            .and_then(|i| args.get(i + 1))
+            .map(String::as_str);
         if let Err(e) = headless::run_detector_backtest(
             arg(1).unwrap_or(""),
             arg(2).unwrap_or(""),
             arg(3).unwrap_or(""),
-            arg(4),
+            arg(4).filter(|v| *v != "--export"),
+            export,
         ) {
             eprintln!("headless backtest failed: {e}");
             std::process::exit(1);

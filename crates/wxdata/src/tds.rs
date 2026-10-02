@@ -128,6 +128,11 @@ pub struct TdsHit {
     /// tornado warning over it. Separate from `confidence`, which is radar alone and stops at 100%;
     /// see [`crate::confirm`]. Set by the caller, never by the detector.
     pub confirmation: crate::confirm::Confirmation,
+    /// The detector's own score from its own measurements alone, set once when the hit is made
+    /// and never changed by corroboration from the other detector (detectionplan.md Phase 1:
+    /// every source of evidence is counted once). `confidence` may be raised or lowered for
+    /// display by [`crate::tds::cross_corroborate`]; Tornado ID fuses this one.
+    pub raw_confidence: f32,
     /// 0..1 confidence, from the evidence above and the vertical continuity. A single tilt has no
     /// vertical evidence, so [`detect`] never reports more than [`SINGLE_TILT_CAP`]; a hit that
     /// repeats up through the tilts earns the rest. Rotation nearby ([`corroborate_with_rotation`])
@@ -629,6 +634,10 @@ pub fn detect(
         let contrast = surroundings_contrast(cc, &members, mean_cc);
         let range_km = (s_range / n) as f32;
         let top_km = crate::xsection::beam_height_km(range_km as f64, elev) as f32;
+        let score = confidence(
+            evidence(min_cc, mean_cc, mean_z, area_km2, contrast, range_km),
+            0.0,
+        );
         hits.push(TdsHit {
             lon: s_lon / n,
             lat: s_lat / n,
@@ -648,10 +657,8 @@ pub fn detect(
             unrotated: false,
             zdr_db: None,
             confirmation: crate::confirm::Confirmation::NONE,
-            confidence: confidence(
-                evidence(min_cc, mean_cc, mean_z, area_km2, contrast, range_km),
-                0.0,
-            ),
+            confidence: score,
+            raw_confidence: score,
         });
     }
     hits.sort_by(|a, b| b.confidence.total_cmp(&a.confidence));
@@ -942,7 +949,9 @@ pub fn apply_zdr(hits: &mut [TdsHit], zdr: &[BinnedSweep]) {
         let radius = ((h.area_km2 / std::f32::consts::PI).sqrt() + 0.5).clamp(1.0, 3.0);
         if let Some(mean) = mean_around(low, h.lon, h.lat, radius) {
             h.zdr_db = Some(mean);
+            // The debris signature's own dual-pol evidence, so its raw score takes it too.
             h.confidence *= zdr_factor(mean);
+            h.raw_confidence *= zdr_factor(mean);
         }
     }
     hits.sort_by(|a, b| b.confidence.total_cmp(&a.confidence));
@@ -1042,6 +1051,7 @@ pub fn detect_volume(
                 zdr_db: None,
                 confirmation: crate::confirm::Confirmation::NONE,
                 confidence: confidence(ev, vertical_term(top_km, tilts, rooted)),
+                raw_confidence: confidence(ev, vertical_term(top_km, tilts, rooted)),
             }
         })
         .collect();
@@ -1651,6 +1661,7 @@ mod tests {
             zdr_db: None,
             confirmation: crate::confirm::Confirmation::NONE,
             confidence,
+            raw_confidence: confidence,
         }
     }
 
@@ -1775,6 +1786,7 @@ mod tests {
             sense: crate::rotation::Sense::Cyclonic,
             debris_confidence: None,
             confidence,
+            raw_confidence: confidence,
             confirmation: crate::confirm::Confirmation::NONE,
         }
     }

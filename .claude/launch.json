@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "hookecho-web",
+      "runtimeExecutable": "cargo",
+      "runtimeArgs": ["run", "--release", "--bin", "hookecho", "--", "--serve", "8080", "--web-root", "web"],
+      "port": 8080
+    }
+  ]
+}

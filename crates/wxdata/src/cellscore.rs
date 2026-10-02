@@ -350,6 +350,7 @@ mod tests {
             sense: crate::rotation::Sense::Cyclonic,
             debris_confidence: None,
             confidence: 0.5,
+            raw_confidence: 0.5,
             confirmation: crate::confirm::Confirmation::NONE,
         }];
         let s = score_all(&cells, &feats, &couplets);
