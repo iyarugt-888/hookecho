@@ -249,36 +249,13 @@ impl HookEchoApp {
 
     /// Build a plain-language briefing of the in-view weather. The templated summary shows
     /// instantly; if the chosen AI provider has a key, its model rewrites it in the background.
-    pub(crate) fn generate_digest(&mut self) {
-        let bounds = self.view_bounds();
-        let overlaps = |f: &GeoFeature| {
-            let Some((w, s, e, n)) = f.bbox() else {
-                return false;
-            };
-            !(e < bounds.0 || w > bounds.2 || n < bounds.1 || s > bounds.3)
-        };
-        let alerts: Vec<crate::digest::AlertLine> = self
-            .alert_features
-            .iter()
-            .filter(|f| overlaps(f))
-            .filter_map(|f| f.alert.as_ref())
-            .map(|a| crate::digest::AlertLine {
-                event: a.event.clone(),
-                area: a.area.clone(),
-            })
-            .collect();
-        let mut reports = [0usize; 3]; // tornado, wind, hail
-        for r in self.active_storm_reports() {
-            use wxdata::spc::ReportKind::*;
-            match r.kind {
-                Tornado => reports[0] += 1,
-                Wind => reports[1] += 1,
-                Hail => reports[2] += 1,
-                Flood | Other => {}
-            }
-        }
-        let templated = crate::digest::templated(&alerts, reports);
-        self.digest_window.text = templated.clone();
+    pub(crate) fn generate_digest(&mut self, ctx: &egui::Context) {
+        let brief = self.storm_brief(ctx);
+        let facts = brief.fact_sheet();
+        log::info!(target: "hookecho::digest", "storm brief:
+{facts}");
+        self.digest_window.text = brief.summary();
+        self.digest_window.facts = facts.clone();
         self.digest_window.enhanced = false;
         self.digest_window.error = None;
 
@@ -299,7 +276,7 @@ impl HookEchoApp {
         self.digest_window.busy = true;
         let http = self.http.clone();
         self.spawner.spawn(async move {
-            let res = crate::digest::enhance(&http, provider, &key, &templated)
+            let res = crate::digest::enhance(&http, provider, &key, &facts)
                 .await
                 .map_err(|e| e.to_string());
             let _ = tx.send(res);

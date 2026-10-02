@@ -137,6 +137,7 @@ pub mod status;
 /// `storage::human` (byte formatting) is plain and shared with the web build's own IndexedDB
 /// storage stats in the Storage settings tab.
 pub mod storage;
+pub mod storm_brief;
 pub mod textview;
 /// ROADMAP_NEW B6.11 step 10: `Level2LiveProvider` for NOAA's TGFTP completed-volume mirror, the
 /// last-resort degraded fallback when neither progressive path is usable. Cross-platform (needs

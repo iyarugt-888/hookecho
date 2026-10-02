@@ -208,6 +208,28 @@ impl HookEchoApp {
             .collect()
     }
 
+    /// The core-statistics rows (label, value) around each of `at` on pane `idx`'s displayed
+    /// tilt, the same table this window shows, with the tilt binned once for all of them. The
+    /// Storm Digest's brief reads its cores through this.
+    pub(crate) fn core_rows_at(&mut self, idx: usize, at: &[(f64, f64)]) -> Vec<Vec<(String, String)>> {
+        if at.is_empty() {
+            return Vec::new();
+        }
+        let sweeps = self.core_sweeps(idx);
+        at.iter()
+            .map(|&(lon, lat)| {
+                core_at(&sweeps, lon, lat)
+                    .map(|s| {
+                        core_rows(&s)
+                            .into_iter()
+                            .map(|(l, v, _)| (l.to_string(), v))
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            })
+            .collect()
+    }
+
     /// Keep the window's open storms in step with the selection: a storm selected while the
     /// window is open joins it (the oldest leaves past [`MAX_OPEN`]), a storm SCIT no longer
     /// tracks leaves, and closing the window empties it. Every frame.

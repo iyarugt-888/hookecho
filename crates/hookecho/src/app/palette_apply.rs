@@ -426,7 +426,7 @@ impl HookEchoApp {
                 W::ChaseReplay => self.chase_replay.open = true,
                 W::Digest => {
                     self.digest_window.open = true;
-                    self.generate_digest();
+                    self.generate_digest(ctx);
                 }
                 W::Afd => {
                     self.afd_open = true;

@@ -1,6 +1,6 @@
-//! Plain-language storm digest window: a "what does this mean for me" briefing of the in-view
-//! weather. The app fills `text` (templated instantly; rewritten by Claude or Gemini if the
-//! chosen provider has a key).
+//! Storm Digest window: a briefing of the storms in view from the app's own radar analysis. The
+//! app fills `text` (the built-in summary instantly; Claude's or Gemini's analysis when the chosen
+//! provider has a key) and `facts`, the data the model was given, which the window can show.
 
 #[derive(Default)]
 pub struct DigestWindow {
@@ -13,6 +13,8 @@ pub struct DigestWindow {
     pub provider: &'static str,
     /// Why the model's rewrite failed, when it did; the built-in summary stands meanwhile.
     pub error: Option<String>,
+    /// The fact sheet the briefing was written from.
+    pub facts: String,
 }
 
 pub enum DigestAction {
@@ -60,12 +62,29 @@ impl DigestWindow {
                     );
                 }
                 if self.text.is_empty() {
-                    ui.weak("Click Generate for a plain-language briefing of the in-view weather.");
+                    ui.weak("Click Generate for a briefing of the storms in view, from the radar's rotation, debris, hail and storm-cell analysis.");
                 } else {
-                    ui.label(egui::RichText::new(&self.text).size(14.0));
+                    egui::ScrollArea::vertical()
+                        .id_salt("digest_text")
+                        .max_height(360.0)
+                        .show(ui, |ui| {
+                            ui.label(egui::RichText::new(&self.text).size(14.0));
+                        });
+                }
+                if !self.facts.is_empty() {
+                    egui::CollapsingHeader::new("Radar data used")
+                        .id_salt("digest_facts")
+                        .show(ui, |ui| {
+                            egui::ScrollArea::vertical()
+                                .id_salt("digest_facts_scroll")
+                                .max_height(260.0)
+                                .show(ui, |ui| {
+                                    ui.label(egui::RichText::new(&self.facts).monospace().size(11.0));
+                                });
+                        });
                 }
                 ui.add_space(6.0);
-                ui.weak("Set an Anthropic or Google AI Studio key in Settings ▸ General ▸ AI for friendlier prose; otherwise a built-in summary is used.");
+                ui.weak("Set an Anthropic or Google AI Studio key in Settings ▸ General ▸ AI to have Claude or Gemini analyse this data; otherwise a built-in summary is used.");
             });
         self.open = open;
         action

@@ -223,7 +223,7 @@ impl HookEchoApp {
         if let Some(ui::digest_window::DigestAction::Generate) =
             self.digest_window.show(ctx, &mut self.drawer)
         {
-            self.generate_digest();
+            self.generate_digest(ctx);
         }
         // Live station cards. Video keeps arriving between input events, so a playing card asks
         // for the next frame itself rather than waiting for the idle heartbeat.

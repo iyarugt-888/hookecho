@@ -40,6 +40,7 @@ mod contours;
 mod data_age;
 mod data_poll;
 mod detectors;
+mod digest_brief;
 mod draw_panes;
 mod fetch_schedule;
 mod floating_windows;

@@ -1,53 +1,8 @@
-//! Plain-language storm digest: turn the in-view alerts + storm reports into a short readable
-//! briefing. Works fully offline (templated summary); if an Anthropic key is set, Claude rewrites
-//! the same facts into friendlier prose.
+//! Storm Digest: an AI briefing written from the app's own radar analysis of the storms in view
+//! (the facts come from [`crate::storm_brief`]). Works offline as a built-in summary of the same
+//! facts; with an Anthropic or Google AI Studio key, Claude or Gemini analyses them.
 
-/// One active alert to summarize.
-pub struct AlertLine {
-    pub event: String,
-    pub area: String,
-}
-
-/// A deterministic, offline plain-language summary. Also serves as the exact fact list handed to
-/// the LLM, so the two never disagree on substance.
-pub fn templated(alerts: &[AlertLine], reports: [usize; 3]) -> String {
-    let mut out = String::new();
-    if alerts.is_empty() {
-        out.push_str("No active warnings or watches in view.");
-    } else {
-        // Count by event type.
-        let mut counts: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
-        for a in alerts {
-            *counts.entry(a.event.as_str()).or_default() += 1;
-        }
-        out.push_str("Active in view: ");
-        let parts: Vec<String> = counts.iter().map(|(e, n)| format!("{n} {e}")).collect();
-        out.push_str(&parts.join(", "));
-        out.push('.');
-        // Name a few specific areas for the highest-priority events.
-        let mut areas: Vec<&str> = alerts
-            .iter()
-            .filter(|a| a.event.contains("Tornado") || a.event.contains("Severe"))
-            .map(|a| a.area.as_str())
-            .filter(|s| !s.is_empty())
-            .collect();
-        areas.dedup();
-        if !areas.is_empty() {
-            out.push_str(" Affected: ");
-            out.push_str(&areas.into_iter().take(4).collect::<Vec<_>>().join("; "));
-            out.push('.');
-        }
-    }
-    let [tor, wind, hail] = reports;
-    if tor + wind + hail > 0 {
-        out.push_str(&format!(
-            " Today's storm reports: {tor} tornado, {wind} wind, {hail} hail."
-        ));
-    }
-    out
-}
-
-/// Which model rewrites the templated facts (Settings > General > AI).
+/// Which model analyses the facts (Settings > General > AI).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Provider {
     /// Claude, through the Anthropic API.
@@ -80,12 +35,31 @@ impl Provider {
 /// The Gemini model the digest asks. Flash: fast and inexpensive, which a few sentences need.
 pub const GEMINI_MODEL: &str = "gemini-3.8-flash";
 
-/// The instruction both models get. `context` is the templated summary (the ground truth).
+/// The instruction both models get. `context` is the storm brief's fact sheet
+/// ([`crate::storm_brief::Brief::fact_sheet`]): radar measurements and detector output, the
+/// only ground truth the model has.
 fn prompt(context: &str) -> String {
     format!(
-        "You are a calm, plain-language weather briefer for the general public. In 2-4 short \
-         sentences, explain what these active weather conditions mean and what people in the \
-         area should do. Do not invent facts beyond what is given. Facts:\n\n{context}"
+        "You are an experienced radar meteorologist writing a short storm briefing from \
+         HookEcho's radar analysis. The data below is what the app measured and computed from \
+         the latest radar volume: storm-cell attributes, a 0-100 severity score with its \
+         evidence, ProbSevere, dual-polarization core statistics, and detector output for \
+         rotation couplets, tornado debris signatures (TDS), hail spikes (TBSS) and ZDR \
+         columns, with recent trends.\n\n\
+         Write the briefing:\n\
+         - Lead with the storm or storms that matter most and say why, citing the specific \
+         measurements (for example rotational velocity, low CC in a strong core, VIL, POSH, \
+         trends).\n\
+         - Interpret the evidence: what the combination suggests about tornado, hail and wind \
+         potential, and whether storms are strengthening or weakening.\n\
+         - Say where each significant storm is and where it is heading, in place names where \
+         given.\n\
+         - Give a detector's confidence where it has one, and note weak or conflicting \
+         evidence (aloft-only rotation, single-tilt detections, range from the radar).\n\
+         - Briefly mention quieter storms only as a group.\n\n\
+         Use only these facts; do not invent values, places or warnings, and do not mention \
+         warnings or watches. Plain text, no markdown headings, at most about 250 words.\n\n\
+         Data:\n\n{context}"
     )
 }
 
@@ -107,7 +81,7 @@ pub async fn enhance(
 pub async fn claude(http: &reqwest::Client, key: &str, context: &str) -> anyhow::Result<String> {
     let body = serde_json::json!({
         "model": "claude-haiku-4-5",
-        "max_tokens": 400,
+        "max_tokens": 1200,
         "messages": [{"role": "user", "content": prompt(context)}],
     });
     let resp = http
@@ -234,32 +208,11 @@ mod tests {
     }
 
     #[test]
-    fn templated_summarizes_and_counts() {
-        let alerts = vec![
-            AlertLine {
-                event: "Tornado Warning".into(),
-                area: "Cleveland Co.".into(),
-            },
-            AlertLine {
-                event: "Tornado Warning".into(),
-                area: "McClain Co.".into(),
-            },
-            AlertLine {
-                event: "Severe Thunderstorm Warning".into(),
-                area: "Grady Co.".into(),
-            },
-        ];
-        let s = templated(&alerts, [1, 3, 2]);
-        assert!(s.contains("2 Tornado Warning"), "counts events: {s}");
-        assert!(s.contains("Cleveland Co."), "names affected areas: {s}");
-        assert!(
-            s.contains("1 tornado, 3 wind, 2 hail"),
-            "storm report tally: {s}"
-        );
-    }
-
-    #[test]
-    fn templated_handles_quiet() {
-        assert!(templated(&[], [0, 0, 0]).starts_with("No active"));
+    fn the_prompt_asks_for_analysis_of_the_data_and_keeps_warnings_out() {
+        let p = prompt("Storm K4");
+        assert!(p.ends_with("Storm K4"));
+        assert!(p.contains("rotation couplets"));
+        assert!(p.contains("do not mention warnings"));
+        assert!(p.contains("do not invent"));
     }
 }
