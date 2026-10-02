@@ -129,6 +129,10 @@ pub struct EventRun {
     pub volumes: usize,
     /// Radar time covered: from the first volume to the last, plus one volume's gap.
     pub radar_hours: f64,
+    /// The sounding the hail algorithm's freezing levels came from ("Nashville, TN 03 00Z"), or
+    /// `None` without one. Recorded because a failed download falls back to an older sounding,
+    /// which changes every hail candidate.
+    pub sounding: Option<String>,
 }
 
 /// Mark each candidate matched or not against its event's truth.
@@ -215,6 +219,8 @@ pub struct Summary {
     /// The detector algorithm versions that produced it.
     pub versions: BTreeMap<String, String>,
     pub events: Vec<String>,
+    /// Each event's sounding (see [`EventRun::sounding`]); "none" without one.
+    pub soundings: BTreeMap<String, String>,
     pub radius_km: f64,
     pub window_min: i64,
     pub detectors: BTreeMap<String, DetectorSummary>,
@@ -382,6 +388,13 @@ pub fn summarize(runs: &[EventRun], radius_km: f64, window_min: i64) -> Summary 
     Summary {
         versions,
         events: runs.iter().map(|r| r.label.clone()).collect(),
+        soundings: runs
+            .iter()
+            .map(|r| {
+                let s = r.sounding.clone().unwrap_or_else(|| "none".into());
+                (r.label.clone(), s)
+            })
+            .collect(),
         radius_km,
         window_min,
         detectors: DetectorKind::ALL
@@ -510,6 +523,7 @@ mod tests {
             hail_reports: Vec::new(),
             volumes: 2,
             radar_hours: 0.5,
+            sounding: Some("Norman, OK 20 12Z".into()),
         }
     }
 
@@ -542,6 +556,7 @@ mod tests {
         assert_eq!(rot.by_range[0].candidates, 2);
         assert_eq!(rot.by_beam_height[0].candidates, 2);
         assert_eq!(s.versions["rotation"], crate::rotation::ALGORITHM_VERSION);
+        assert_eq!(s.soundings["KTLX test"], "Norman, OK 20 12Z");
     }
 
     #[test]

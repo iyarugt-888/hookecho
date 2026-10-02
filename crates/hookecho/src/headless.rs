@@ -5638,7 +5638,11 @@ async fn freezing_levels_for(
 ) -> Option<(String, f64, f64)> {
     let s = wxdata::sites::site_by_id(site)?;
     let http = reqwest::Client::new();
-    match wxdata::raob::melting_levels(&http, s.longitude as f64, s.latitude as f64, when, None)
+    // Cached with the volumes: a sounding that fails to download once falls back to the one 12 h
+    // earlier or the next station, and an uncached rerun would then score hail against a
+    // different freezing level (detectionplan.md Phase 0: the same corpus gives the same baseline).
+    let cache = backtest_cache_dir().map(|d| d.join("soundings"));
+    match wxdata::raob::melting_levels(&http, s.longitude as f64, s.latitude as f64, when, cache)
         .await
     {
         Ok(m) => Some((m.label, m.h0_m, m.hm20_m)),
@@ -6588,6 +6592,7 @@ fn export_baseline(events: &[BacktestEvent], dir: &str) -> anyhow::Result<()> {
             hail_reports: e.hail_truths.clone(),
             volumes: e.volumes,
             radar_hours: e.radar_hours,
+            sounding: e.freezing.as_ref().map(|(from, _, _)| from.clone()),
         })
         .collect();
     for r in &mut runs {
