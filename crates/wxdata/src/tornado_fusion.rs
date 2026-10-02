@@ -20,17 +20,18 @@ use crate::rotation_tracks::Tracked;
 use crate::tds::TdsHit;
 
 /// Version of the features and weights, recorded with anything derived from them.
-pub const ALGORITHM_VERSION: &str = "fusion-1";
+pub const ALGORITHM_VERSION: &str = "fusion-2";
 
 /// The features, in [`Features::values`] order. Shear is in units of 0.01 s⁻¹.
-pub const FEATURE_NAMES: [&str; 12] = [
+pub const FEATURE_NAMES: [&str; 13] = [
     "low_level_shear",
     "max_shear",
     "depth_km",
     "tilts",
     "rooted",
     "cyclonic",
-    "persistence",
+    "persisted_2",
+    "persisted_3",
     "shear_trend",
     "debris",
     "debris_hail",
@@ -51,8 +52,12 @@ pub struct Features {
     pub rooted: f32,
     /// 1 when it turns the way this hemisphere's tornadoes do.
     pub cyclonic: f32,
-    /// Earlier volumes the track has been seen in, capped at 3: 0 for a new circulation.
-    pub persistence: f32,
+    /// 1 once the track has been seen in 2 or more volumes, and (`persisted_3`) in 3 or more: the
+    /// plan's step shape, "1 volume neutral, 2 meaningful, 3+ strong", rather than a straight
+    /// line. A new circulation loses nothing here: strong shear and debris beside it can carry
+    /// the score alone (the plan's escape path for a rapidly developing tornado).
+    pub persisted_2: f32,
+    pub persisted_3: f32,
     /// Peak AzShear trend, 0.01 s⁻¹ per 10 minutes, clamped to ±3 (0 for a new track).
     pub shear_trend: f32,
     /// Polarimetric evidence (0..1) of the strongest tornado debris signature within the
@@ -89,7 +94,8 @@ impl Features {
             tilts: c.tilts() as f32,
             rooted: flag(c.rooted),
             cyclonic: flag(c.sense == Sense::Cyclonic),
-            persistence: (t.age_volumes.saturating_sub(1)).min(3) as f32,
+            persisted_2: flag(t.age_volumes >= 2),
+            persisted_3: flag(t.age_volumes >= 3),
             shear_trend: t
                 .azshear_trend
                 .map_or(0.0, |s| (s * 100.0).clamp(-3.0, 3.0)),
@@ -107,7 +113,7 @@ impl Features {
     }
 
     /// The features in [`FEATURE_NAMES`] order.
-    pub fn values(&self) -> [f32; 12] {
+    pub fn values(&self) -> [f32; 13] {
         [
             self.low_level_shear,
             self.max_shear,
@@ -115,7 +121,8 @@ impl Features {
             self.tilts,
             self.rooted,
             self.cyclonic,
-            self.persistence,
+            self.persisted_2,
+            self.persisted_3,
             self.shear_trend,
             self.debris,
             self.debris_hail,
@@ -129,7 +136,7 @@ impl Features {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Weights {
     pub bias: f32,
-    pub w: [f32; 12],
+    pub w: [f32; 13],
 }
 
 /// The fitted weights (`scripts/fusion/fit.py`, first fit, on the 9-event backtest corpus of
@@ -156,7 +163,10 @@ pub const WEIGHTS: Weights = Weights {
         0.1789, // tilts
         0.0203, // rooted
         0.0136, // cyclonic
-        0.1249, // persistence
+        // fusion-1 fitted one weight per volume of persistence (0.1249, capped at 3); until the
+        // step features are refitted, each step carries one of those.
+        0.1249, // persisted_2
+        0.1249, // persisted_3
         0.0,    // shear_trend
         2.4257, // debris
         0.0,    // debris_hail
@@ -216,7 +226,8 @@ mod tests {
             tilts: 3.0,
             rooted: 1.0,
             cyclonic: 1.0,
-            persistence: 2.0,
+            persisted_2: 1.0,
+            persisted_3: 1.0,
             shear_trend: 0.5,
             debris: 0.7,
             debris_hail: 0.0,
@@ -230,22 +241,22 @@ mod tests {
         let w = Weights {
             bias: -3.0,
             w: [
-                0.8, 0.2, 0.3, 0.1, 0.9, 1.1, 0.4, 0.2, 2.0, -0.8, -0.5, -0.3,
+                0.8, 0.2, 0.3, 0.1, 0.9, 1.1, 0.4, 0.2, 0.2, 2.0, -0.8, -0.5, -0.3,
             ],
         };
         let f = fuse(&features(), &w);
-        assert_eq!(f.terms.len(), 13);
+        assert_eq!(f.terms.len(), 14);
         let z: f32 = f.terms.iter().map(|t| t.logit).sum();
         assert_eq!(f.score, 1.0 / (1.0 + (-z).exp()));
-        assert_eq!(f.terms[9].label, "debris");
-        assert!((f.terms[9].logit - 1.4).abs() < 1e-6);
+        assert_eq!(f.terms[10].label, "debris");
+        assert!((f.terms[10].logit - 1.4).abs() < 1e-6);
     }
 
     #[test]
     fn more_evidence_with_positive_weights_never_lowers_the_score() {
         let w = Weights {
             bias: -2.0,
-            w: [0.5; 12],
+            w: [0.5; 13],
         };
         let base = fuse(&features(), &w).score;
         let mut more = features();
@@ -273,7 +284,8 @@ mod tests {
                 tilts: 1.0,
                 rooted: 1.0,
                 cyclonic: 1.0,
-                persistence: 0.0,
+                persisted_2: 0.0,
+                persisted_3: 0.0,
                 shear_trend: 0.0,
                 debris: 0.0,
                 debris_hail: 0.0,
