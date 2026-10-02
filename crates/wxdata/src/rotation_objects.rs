@@ -15,7 +15,10 @@
 //!   centrifuge the echo out of its core, and a couplet sits at the edge of a hook (Mayfield's
 //!   strongest lowest-tilt shear was over 6 dBZ). A share, not any one gate: near the radar a
 //!   kernel spans dozens of gates, and a speck of ground clutter in clear air would otherwise
-//!   qualify it.
+//!   qualify it. With [`ObjectParams::require_echo`] off, gates are not screened and an object
+//!   whose gates' kernels are mostly echo-free is [`Artifact::NoEcho`] instead: how
+//!   [`crate::rotation_columns`] finds a circulation's root in weak echo below a column that has
+//!   storm context higher up.
 //! * **Fit relative to the shear.** A gate's fit RMSE is compared with half the velocity change its
 //!   shear makes across the kernel (plus [`ObjectParams::noise_floor_ms`] for quantization). Not
 //!   an absolute limit: Moore and Mayfield have 11–14 m/s RMSE at their peaks, because a violent
@@ -62,6 +65,9 @@ pub struct ObjectParams {
     pub grow_s: f32,
     /// Reflectivity (dBZ) that counts as echo.
     pub z_min_dbz: f32,
+    /// Screen gates by echo (the default). Off, objects form in weak echo too and are flagged
+    /// [`Artifact::NoEcho`].
+    pub require_echo: bool,
     /// Least share of a gate's kernel that must be echo.
     pub min_echo_share: f32,
     /// Noise (m/s) every gate is allowed, however weak its shear: about two quantization steps.
@@ -98,6 +104,7 @@ impl Default for ObjectParams {
             seed_s: 0.006,
             grow_s: 0.004,
             z_min_dbz: 20.0,
+            require_echo: true,
             min_echo_share: 0.25,
             noise_floor_ms: 1.0,
             min_gates: 4,
@@ -138,6 +145,10 @@ pub enum Artifact {
     Ragged,
     /// The outer flank of a stronger circulation of the other sense beside it.
     Flank,
+    /// Its gates' kernels average less than [`ObjectParams::min_echo_share`] echo: shear with no
+    /// storm behind it at this tilt. Only with [`ObjectParams::require_echo`] off; otherwise such
+    /// gates never join an object.
+    NoEcho,
 }
 
 impl Artifact {
@@ -151,6 +162,7 @@ impl Artifact {
             Artifact::NotSignificant => "within what velocity noise alone makes",
             Artifact::Ragged => "scattered, not one filled circulation",
             Artifact::Flank => "the flank of a stronger circulation beside it",
+            Artifact::NoEcho => "no storm echo around it at this tilt",
         }
     }
 }
@@ -285,7 +297,8 @@ pub fn objects(
                 Some(s)
                     if relative_noise(&s, kernel_km, p) <= 2.0 * p.max_relative_noise
                         && s.shear_s.abs() >= p.grow_s
-                        && echo_share(z, field, az, g, p.z_min_dbz) >= p.min_echo_share =>
+                        && (!p.require_echo
+                            || echo_share(z, field, az, g, p.z_min_dbz) >= p.min_echo_share) =>
                 {
                     s.shear_s
                 }
@@ -329,7 +342,7 @@ pub fn objects(
                 continue;
             }
             members.sort_unstable();
-            out.push(describe(field, vel, &members, polarity, dtheta, p));
+            out.push(describe(field, vel, z, &members, polarity, dtheta, p));
         }
     }
     mark_flanks(&mut out, p);
@@ -366,6 +379,7 @@ fn mark_flanks(objs: &mut [RotationObject], p: &ObjectParams) {
 fn describe(
     field: &AzShearField,
     vel: &BinnedSweep,
+    z: &BinnedSweep,
     members: &[usize],
     polarity: f32,
     dtheta: f64,
@@ -480,6 +494,16 @@ fn describe(
     }
     if quantile(&misfit, 0.5) > p.max_relative_noise {
         artifacts.push(Artifact::PoorFit);
+    }
+    if !p.require_echo {
+        let share = members
+            .iter()
+            .map(|&i| echo_share(z, field, i / ng, i % ng, p.z_min_dbz))
+            .sum::<f32>()
+            / n;
+        if share < p.min_echo_share {
+            artifacts.push(Artifact::NoEcho);
+        }
     }
     // Velocity noise from a fixed window about the peak: for white noise the RMS of gate-to-gate
     // differences is √2 σ. The peak's range sets the kernel the slope was fitted over.
@@ -690,7 +714,18 @@ mod tests {
     #[test]
     fn rotation_in_clear_air_makes_no_object() {
         let vortex = rankine(200.0, 50.0, 1.5, 35.0);
-        assert!(run(&vel(|d, r| Some(vortex(d, r) as f32)), &echo(5.0)).is_empty());
+        let v = vel(|d, r| Some(vortex(d, r) as f32));
+        assert!(run(&v, &echo(5.0)).is_empty());
+        // Without the echo screen it is found, and flagged as having no storm behind it.
+        let relaxed = ObjectParams {
+            require_echo: false,
+            ..ObjectParams::default()
+        };
+        let objs = objects(&llsd(&v, &LlsdParams::default()), &v, &echo(5.0), &relaxed);
+        assert!(!objs.is_empty());
+        assert!(objs.iter().all(|o| o.artifacts.contains(&Artifact::NoEcho)));
+        let main = &objs[0];
+        assert_eq!(main.artifacts, vec![Artifact::NoEcho], "{main:#?}");
     }
 
     #[test]

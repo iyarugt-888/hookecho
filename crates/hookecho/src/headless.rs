@@ -5759,23 +5759,38 @@ fn backtest_event(
             wxdata::tds::apply_zdr(&mut hits, &zdr_sweeps);
             let mut couplets =
                 wxdata::rotation::detect_volume(&vel_pairs, 25.0, 20.0, 15.0, 150.0, 3);
-            // The LLSD rotation objects beside them (detectionplan.md Phase 13), on the lowest
-            // velocity tilt for now (vertical association is Phase 4), over the same 15-150 km the
-            // couplets are looked for in.
-            let llsd_objects: Vec<wxdata::rotation_objects::RotationObject> = vel_pairs
-                .first()
+            // The LLSD rotation columns beside them (detectionplan.md Phases 4 and 13): credible
+            // objects on each velocity tilt the couplets read, associated up through the tilts
+            // (with objects found without the echo screen to root them in weak echo), based in
+            // the same 15-150 km the couplets are looked for in.
+            let (llsd_tilts, llsd_support): (Vec<Vec<_>>, Vec<Vec<_>>) = vel_pairs
+                .iter()
                 .map(|(vel, z)| {
+                    use wxdata::rotation_objects::{objects, Artifact, ObjectParams};
                     let field = wxdata::azshear::llsd(vel, &wxdata::azshear::LlsdParams::default());
-                    wxdata::rotation_objects::objects(
-                        &field,
-                        vel,
-                        z,
-                        &wxdata::rotation_objects::ObjectParams::default(),
-                    )
+                    let credible = objects(&field, vel, z, &ObjectParams::default())
+                        .into_iter()
+                        .filter(|o| o.credible())
+                        .collect();
+                    let relaxed = ObjectParams {
+                        require_echo: false,
+                        ..ObjectParams::default()
+                    };
+                    let support = objects(&field, vel, z, &relaxed)
+                        .into_iter()
+                        .filter(|o| o.artifacts.iter().all(|a| *a == Artifact::NoEcho))
+                        .collect();
+                    (credible, support)
                 })
-                .unwrap_or_default()
+                .unzip();
+            let llsd_columns: Vec<wxdata::rotation_columns::RotationColumn> =
+                wxdata::rotation_columns::columns_with_support(
+                    &llsd_tilts,
+                    &llsd_support,
+                    &wxdata::rotation_columns::ColumnParams::default(),
+                )
                 .into_iter()
-                .filter(|o| o.credible() && (15.0..=150.0).contains(&o.range_km))
+                .filter(|c| (15.0..=150.0).contains(&c.members[0].object.range_km))
                 .collect();
             // Each hit's own score before corroboration re-scores and re-sorts them, by position.
             let key = |lon: f64, lat: f64| (lon.to_bits(), lat.to_bits());
@@ -5988,24 +6003,31 @@ fn backtest_event(
                     });
                 }
             }
-            for o in &llsd_objects {
+            for c in &llsd_columns {
                 // A strength index, not an evidence score: see `DetectorKind::RotationLlsd`.
-                let strength = (o.max_azshear / 0.02).min(1.0);
+                let strength = (c.max_azshear / 0.02).min(1.0);
+                let o = &c.members[0].object;
                 candidates.push(Candidate {
-                    beam_base_km: Some(o.beam_height_km),
-                    beam_top_km: Some(o.beam_height_km),
-                    gates: Some(o.gates),
-                    tilts: Some(1),
-                    vrot_ms: Some(o.max_delta_v_ms / 2.0),
-                    depth_km: Some(0.0),
+                    beam_base_km: Some(c.base_km),
+                    beam_top_km: Some(c.top_km),
+                    gates: Some(c.members.iter().map(|m| m.object.gates).sum()),
+                    tilts: Some(c.tilts()),
+                    vrot_ms: Some(
+                        c.members
+                            .iter()
+                            .map(|m| m.object.max_delta_v_ms / 2.0)
+                            .fold(0.0, f32::max),
+                    ),
+                    depth_km: Some(c.depth_km),
+                    rooted: Some(c.rooted),
                     sense: Some(
-                        match o.sense {
+                        match c.sense {
                             wxdata::rotation::Sense::Cyclonic => "cyclonic",
                             wxdata::rotation::Sense::Anticyclonic => "anticyclonic",
                         }
                         .into(),
                     ),
-                    azshear_s: Some(o.max_azshear),
+                    azshear_s: Some(c.max_azshear),
                     ..base(
                         K::RotationLlsd,
                         o.lon,

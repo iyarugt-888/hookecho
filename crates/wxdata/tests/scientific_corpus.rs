@@ -497,3 +497,73 @@ fn cached_llsd_azshear_clear_air_report() {
         100.0 * strong as f64 / all.len().max(1) as f64
     );
 }
+
+/// detectionplan.md Phase 4: each violent tornado is a rooted cyclonic column several tilts deep
+/// with strong low-level shear, from objects on the lowest four velocity tilts (and, for its root,
+/// objects found without the echo screen: Mayfield's lowest-tilt shear sits over 3-12 dBZ).
+#[test]
+#[ignore = "large cached fixtures: provision explicitly before running"]
+fn cached_rotation_columns_root_the_violent_tornadoes() {
+    use wxdata::azshear::{llsd, LlsdParams};
+    use wxdata::rotation_columns::{columns_with_support, ColumnParams};
+    use wxdata::rotation_objects::{objects, Artifact, ObjectParams};
+    let m = corpus::manifest();
+    for (id, tornado) in [
+        ("moore-2013", (-97.491, 35.332)),
+        ("mayfield-2021", (-88.636, 36.742)),
+    ] {
+        let f = m.fixtures.iter().find(|f| f.id == id).unwrap();
+        let scan = level2::decode_volume(corpus::read(f, &corpus::cache_dir()).unwrap()).unwrap();
+        let mut tilts = Vec::new();
+        let mut support = Vec::new();
+        let relaxed = ObjectParams {
+            require_echo: false,
+            ..ObjectParams::default()
+        };
+        for tilt in 0..level2::elevation_angles(&scan).len() {
+            let (Ok(vel), Ok(z)) = (
+                level2::bin_scan_opts(&scan, Moment::Velocity, tilt, true),
+                level2::bin_scan(&scan, Moment::Reflectivity, tilt),
+            ) else {
+                continue;
+            };
+            let field = llsd(&vel, &LlsdParams::default());
+            tilts.push(
+                objects(&field, &vel, &z, &ObjectParams::default())
+                    .into_iter()
+                    .filter(|o| o.credible())
+                    .collect::<Vec<_>>(),
+            );
+            support.push(
+                objects(&field, &vel, &z, &relaxed)
+                    .into_iter()
+                    .filter(|o| o.artifacts.iter().all(|a| *a == Artifact::NoEcho))
+                    .collect::<Vec<_>>(),
+            );
+            if tilts.len() == 4 {
+                break;
+            }
+        }
+        let cols = columns_with_support(&tilts, &support, &ColumnParams::default());
+        let here: Vec<_> = cols
+            .iter()
+            .filter(|c| ground_km((c.lon, c.lat), tornado) <= 8.0)
+            .collect();
+        for c in &here {
+            eprintln!(
+                "{id}: {:?} {} tilts {:.1}-{:.1} km, rooted {} (weak echo {:?}), low {:?} mid {:?} max {:.4}, lean {:?} km/km",
+                c.sense, c.tilts(), c.base_km, c.top_km, c.rooted,
+                c.members.iter().map(|m| m.weak_echo).collect::<Vec<_>>(), c.low_level_azshear,
+                c.mid_level_azshear, c.max_azshear, c.lean_km_per_km
+            );
+        }
+        assert!(
+            here.iter()
+                .any(|c| c.sense == wxdata::rotation::Sense::Cyclonic
+                    && c.rooted
+                    && c.tilts() >= 2
+                    && c.low_level_azshear.is_some_and(|s| s >= 0.012)),
+            "{id}: no rooted multi-tilt cyclonic column at the tornado"
+        );
+    }
+}

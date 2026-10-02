@@ -82,6 +82,7 @@ pub mod regionstats;
 pub mod relay_wire;
 pub mod river;
 pub mod rotation;
+pub mod rotation_columns;
 pub mod rotation_objects;
 pub mod route;
 pub mod rtma;

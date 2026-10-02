@@ -21,7 +21,16 @@ Primary code areas:
   - Lowest tilt, pinned corpus: Moore has a credible 0.039 s⁻¹ cyclonic object at the tornado (significance 39.5). Mayfield has credible 0.019 and 0.017 s⁻¹ objects beside it. The clear-air control has no credible object.
   - Side by side in the backtest export (`rotation_llsd`, lowest tilt, 15–150 km, unscored): 2366 candidates vs the legacy detector's 663. At matched POD (~0.6) the false-alarm ratio is similar (0.68 vs 0.66), but there are 9.8 false alarms per radar-hour against 5.9. At the strongest end the LLSD objects keep POD 0.59 where the legacy score keeps 0.06. The existing detectors' output is unchanged, row for row.
 
-### Findings to carry into Phase 4
+- **Phase 4, columns done** (`rotation_columns.rs`). Credible objects are associated up through the tilts by complete linkage: compatible with *every* member, within 3 km + 1 km per km of height, same sense, shear within 6×, one object per tilt. Columns report base and top height, depth, rooted, strongest shear in the 0–2, 2–3 and 3–6 km layers, height-integrated shear, and lean (only when at least 0.5 km deep). `columns_with_support` lets a column take, on a tilt it is missing, an object found without the echo screen (flagged `NoEcho`), marked `weak_echo`. Support never starts a column.
+  - Pinned corpus: Moore is a rooted cyclonic column through 4 tilts (0.3–0.9 km, 0.039 s⁻¹). Mayfield's rooted cyclonic column (0.5–1.4 km, 0.032 s⁻¹) needs a weak-echo member. Its strongest column (0.041 s⁻¹ at 0.7–0.9 km) stays unrooted, because the lowest-tilt circulation is in pieces 3–4 km apart.
+  - Backtest (`rotation_llsd` is now one candidate per column over the lowest four velocity tilts). At peak AzShear ≥ 0.018 s⁻¹, rooted, ≥ 2 tilts and cyclonic: 117 candidates, 46 verified, precision 0.39, 7.2 false per radar-hour, 7/9 events. Legacy at score ≥ 0.5: 88, 30, 0.34, 5.9 per hour, 7/9. With weak-echo support: 192, 71, 0.37, 12.3 per hour, 7/9. Rooting, depth and sense each raise precision at every shear cut.
+
+### Findings to carry into Phase 5
+
+- One tornado's low-level circulation can be several objects 3–4 km apart at one tilt (Mayfield), so one column per tornado per volume is not guaranteed. Tracking should associate columns, not assume one.
+- Weak-echo rooting finds more real rooted columns but also more false ones. Phase 7 should weigh `weak_echo` members rather than count them as equal to members with echo.
+
+### Findings carried into Phase 4
 
 - Velocity noise far out makes 0.01–0.017 s⁻¹ slopes in nine-sample kernels. What separates it is significance against noise estimated over a fixed window, not the object's own few gates (which select low texture). Pure ±12 m/s noise: 11 436 objects, none credible.
 - AzShear is not vorticity: a vortex's outer flow gives opposite-sense shear on both flanks, about half the core's peak. These flanks are flagged and must not become anticyclonic rotation.

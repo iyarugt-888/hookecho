@@ -26,10 +26,11 @@ pub enum DetectorKind {
     TornadoId,
     /// A MEHS/POSH hail core (`derived::hail_cores`).
     Hail,
-    /// A credible LLSD rotation object on the lowest velocity tilt (`rotation_objects`), run
-    /// beside the legacy couplets for comparison (detectionplan.md Phase 13). It has no evidence
-    /// score yet (Phase 7): its score is a strength index, peak AzShear in units of 0.02 s⁻¹,
-    /// capped at 1, so the threshold table reads 0.002 s⁻¹ steps.
+    /// An LLSD rotation column (`rotation_columns`): credible `rotation_objects` on each velocity
+    /// tilt, associated up through the tilts, run beside the legacy couplets for comparison
+    /// (detectionplan.md Phase 13). Its position is its lowest member's. It has no evidence score
+    /// yet (Phase 7): its score is a strength index, peak AzShear in units of 0.02 s⁻¹, capped at
+    /// 1, so the threshold table reads 0.002 s⁻¹ steps.
     RotationLlsd,
 }
 
@@ -399,9 +400,10 @@ pub fn summarize(runs: &[EventRun], radius_km: f64, window_min: i64) -> Summary 
     versions.insert(
         "rotation_llsd".into(),
         format!(
-            "{} + {}",
+            "{} + {} + {}",
             crate::azshear::ALGORITHM_VERSION,
-            crate::rotation_objects::ALGORITHM_VERSION
+            crate::rotation_objects::ALGORITHM_VERSION,
+            crate::rotation_columns::ALGORITHM_VERSION
         ),
     );
     Summary {
