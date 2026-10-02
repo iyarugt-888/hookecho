@@ -53,6 +53,15 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Offline scientific corpus integrity
+        run: |
+          python -m unittest discover -s scripts/corpus -p test_provision.py
+          python scripts/corpus/provision.py --offline-only --verify-only
+
       # The website ships a committed copy of the NEXRAD site table (its build has no Rust), so
       # check it still matches the registry.
       - name: Site table up to date

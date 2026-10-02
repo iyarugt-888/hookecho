@@ -3,10 +3,14 @@
 //! (four tilts, dealiased velocity, debris and rotation detection, cross-corroboration, and the
 //! one-detection-per-tornado merge), with what each must find pinned.
 //!
-//! The volumes are fetched, not committed (§8.1: "publicly available archive references rather
-//! than committing huge raw files"), so these need the network:
+//! Exact source objects and SHA-256 checksums live in tests/data/corpus/manifest.json.
+//! The full volumes are fetched, not committed (§8.1: "publicly available archive references
+//! rather than committing huge raw files"), so these need the network by default:
 //!
 //!     cargo test -p wxdata --test golden_events -- --ignored
+//!
+//! Set HOOKECHO_CORPUS_CACHE after provisioning scripts/corpus/provision.py to read verified
+//! local radar inputs. The warning/report checks still exercise their separate live archives.
 //!
 //! What is pinned is what the science should give, with tolerances where the algorithm is
 //! continuous: the tilt inventory exactly, peak reflectivity within 1 dBZ, and the detections by
@@ -19,39 +23,9 @@ use wxdata::rotation::CoupletHit;
 use wxdata::tds::TdsHit;
 use wxdata::tornado_id::{circulations, Tier};
 
-/// The volume that started at or just before `when` on `site`.
-async fn volume(site: &str, when: chrono::DateTime<Utc>) -> level2::Scan {
-    // Eight of these at once against the archive: a listing fails now and then too, and a
-    // network blip is not a regression.
-    let mut listing = None;
-    for _ in 0..3 {
-        match level2::list_volumes(site, when.date_naive()).await {
-            Ok(ids) => {
-                listing = Some(Ok(ids));
-                break;
-            }
-            Err(e) => listing = Some(Err(e)),
-        }
-    }
-    let ids = listing.expect("three tries").expect("archive listing");
-    let id = ids
-        .into_iter()
-        .filter(|id| id.date_time().is_some_and(|t| t <= when))
-        .filter(|id| !id.name().ends_with("_MDM"))
-        .max_by_key(|id| id.date_time())
-        .expect("a volume before the time");
-    eprintln!("{site} {when}: {}", id.name());
-    // The archive drops the odd download when several of these run at once; a network blip is
-    // not a regression.
-    let mut last = None;
-    for _ in 0..3 {
-        match level2::download_scan(id.clone(), None).await {
-            Ok(scan) => return scan,
-            Err(e) => last = Some(e),
-        }
-    }
-    panic!("download {}: {:#}", id.name(), last.expect("three tries"));
-}
+#[path = "support/corpus.rs"]
+pub mod corpus;
+use corpus::historic_volume as volume;
 
 struct Found {
     angles: Vec<f32>,
@@ -219,7 +193,9 @@ async fn moore_2013() {
         MOORE,
         Golden {
             tilts: 14,
-            max_dbz: 68.4,
+            // The newest 0.5° reflectivity cut has raw peak 70.5 dBZ, quantized to
+            // 70.4. The former 68.4 golden described the first cut (raw 68.5).
+            max_dbz: 70.4,
             vrot_ms: 45.0,
         },
     );
@@ -278,7 +254,9 @@ async fn mayfield_2021() {
         MAYFIELD,
         Golden {
             tilts: 14,
-            max_dbz: 66.4,
+            // The newest SAILS repeat has raw peak 68.0 dBZ, quantized to 67.9.
+            // The former 66.4 golden described the first cut (raw 66.5).
+            max_dbz: 67.9,
             vrot_ms: 25.0,
         },
     );
@@ -479,7 +457,8 @@ const QUIET: [Case; 3] = [
         site: "KSGF",
         when: (2011, 5, 22, 22, 40),
     },
-    // The Iowa derecho, 10 August 2020: a wind storm, not a tornado day.
+    // The Iowa derecho, 10 August 2020: this scan is a debris false-positive control.
+    // This assertion does not claim that no tornadoes occurred anywhere in the event.
     Case {
         site: "KDVN",
         when: (2020, 8, 10, 17, 45),

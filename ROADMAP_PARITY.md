@@ -122,7 +122,7 @@ Unless marked otherwise, every card starts with **implementation: planned; verif
 
 **Agent prompt:** `Refresh M0.1 against the current branch head using section 6. Inspect changed code, correct only affected evidence, and preserve the distinction between implementation and certification.`
 
-**Evidence refresh — 2026-10-01:** implementation began at `ffa22a3`; the concurrent `365369f` change adds an optional Gemini digest provider. Self-updating builds and the additional digest provider do not close the competitive gates in the original matrix. That matrix retains its dated audit baseline; the increments below record subsequent delivery.
+**Evidence refresh — 2026-10-01:** implementation began at `ffa22a3`; the concurrent `365369f` change adds an optional Gemini digest provider. Further concurrent commits add zipped shapefile imports (`770a881`, an M4.2 foundation), explain Android update rejection (`47c8676`), and update the configured Gemini model (`bc40699`). These changes are preserved. GIS collections, advanced inspection, and physical-device import certification remain open. That matrix retains its dated audit baseline; the increments below record subsequent delivery.
 
 #### M0.2 — Make domain ownership testable
 
@@ -137,7 +137,7 @@ Unless marked otherwise, every card starts with **implementation: planned; verif
 
 **Agent prompt:** `Implement M0.2 incrementally using section 6. Establish narrow acquisition and field-state seams first; preserve behavior and stop after a reviewable domain extraction.`
 
-**Evidence ledger — 2026-10-01, increment 1:** local commit `d0da38b` introduces [OverlayAcquisition](crates/hookecho/src/app/acquisition.rs), which owns request generations, health, timeout, background preparation, and delivery. [FieldState](crates/hookecho/src/app/field_state.rs) owns MRMS selection, cadence, readiness, and staging. The app delegates these responsibilities; [ARCHITECTURE.md](ARCHITECTURE.md) documents ownership and the remaining shared-context boundary. Regression tests cover live/archive selection changes, rejected previous-context uploads, refresh cadence, last-good data, and unknown stamps. Settings, workspaces, and command serialization are unchanged.
+**Evidence ledger — 2026-10-01, increment 1:** commit `d0da38b` introduces [OverlayAcquisition](crates/hookecho/src/app/acquisition.rs), which owns request generations, health, timeout, background preparation, and delivery. [FieldState](crates/hookecho/src/app/field_state.rs) owns MRMS selection, cadence, readiness, and staging. The app delegates these responsibilities; [ARCHITECTURE.md](ARCHITECTURE.md) documents ownership and the remaining shared-context boundary. Regression tests cover live/archive selection changes, rejected previous-context uploads, refresh cadence, last-good data, and unknown stamps. Settings, workspaces, and command serialization are unchanged.
 
 **Adjacent Sources dock increment:** [Sources](crates/hookecho/src/app/chrome/dock/sources.rs) now supports search, attention filtering, stable row identity, tap/Enter/Space expansion, source/provider/recovery details, and explicit future valid-time labels. Session-only filters do not change acquisition or source enablement. Interaction and narrow-layout tests accompany six reproducible offscreen captures at 240/300/400 px in desktop/touch modes (`gpu_sources_dock_snapshots`; ignored by default because it requires a GPU). Reviewed captures include 240 px touch, 300 px desktop, and 400 px touch. This improves source inspection; retained provenance and lineage in M1.4 remain planned.
 
@@ -145,7 +145,7 @@ Unless marked otherwise, every card starts with **implementation: planned; verif
 
 #### M0.3 — Pin the scientific and visual corpus
 
-**Priority:** P0. **Depends on:** M0.1. **Original references:** ROADMAP_2 §8; ROADMAP_NEW §§K2, K3, 25.
+**Priority:** P0. **Depends on:** M0.1. **Status:** implementation: in progress (increment 1 delivered); verification: partial. **Original references:** ROADMAP_2 §8; ROADMAP_NEW §§K2, K3, 25.
 
 - **Starting evidence:** `golden_events`, scheduled corpus jobs, GPU goldens, headless verifiers, and case manifests.
 - **Outcome/build:** add a fixture manifest with exact source object, acquisition time, checksum, format, attribution/license, expected scientific checks, and intended false-positive cases. Provision a small offline fixture subset for PR checks and larger cached inputs for scheduled certification. Keep real archive retrieval tests separate.
@@ -155,6 +155,14 @@ Unless marked otherwise, every card starts with **implementation: planned; verif
 - **Proof:** fixture manifest, acquisition script, independent checksum verification, and baseline scientific/visual reports.
 
 **Agent prompt:** `Implement M0.3 using section 6. Extend the existing corpus with pinned identities and an offline subset; retain network contract checks as a separate suite.`
+
+**Evidence ledger — 2026-10-01, increment 1:** [manifest.json](crates/wxdata/tests/data/corpus/manifest.json) pins ten full NOAA/Unidata Archive II objects and three committed partial inputs (1,263,075 bytes). Collection time, retrieval time, exact source identity, SHA-256, format, attribution/license, transforms, baseline, and consuming checks are recorded. [Provisioning](scripts/corpus/README.md) streams bounded downloads into a verified cache, reproduces unchanged LDM record subsets, and rejects missing/corrupt inputs without rewriting goldens. [Offline scientific tests](crates/wxdata/tests/scientific_corpus.rs) check independent decode repeatability, values, acquisition time, and missing coverage. Existing [historic tests](crates/wxdata/tests/golden_events.rs) now select pinned objects. PR CI verifies the small corpus; scheduled certification caches and verifies full objects separately from provider contracts.
+
+**Scientific expectation correction:** the pinned run exposed first-cut peak goldens predating `8a1d853`'s newest-cut selection. Raw-gate traversal verifies Moore's first/newest peaks at 68.5/70.5 dBZ and Mayfield's at 66.5/68.0 dBZ. Only the selected-cut binned peak expectations changed to 70.4/67.9 dBZ; other scientific thresholds remain intact. A dedicated repeated-cut regression and the provisioning guide preserve this reason. The clear-air control checks the final classification after velocity/ZDR corroboration, retaining a low-CC candidate without promoting it to a debris-tier tornado.
+
+**Verification:** Python provisioner tests passed (4); all 13 file checksums verified, including independent PowerShell SHA-256 checks of the small subset. Actual acquisition into the standard ignored cache and subset reproduction passed. Cached clear-air, repeated-cut, and derived-product repeatability tests passed (3). Moore, Mayfield, deterministic replay, and the combined false-positive controls passed (4 historic tests, with report-dependent tests explicitly excluded from this offline run). Fresh Windows workspace tests passed (1,974; zero failures; 110 ignored), including the new corpus and concurrent ZIP tests; native Clippy and the WASM library check passed (existing browser warnings remain). Platform runtime/device/soak gates remain open.
+
+**Remaining/next increment:** pin the warning/report truth snapshots and run all historic checks offline. Add independently labeled clutter and QLCS tornado cases and visual reports before closing the parent card. The partial tornado/hail files are decoding controls; they do not establish full storm detection or column accuracy. Clear-air clutter tags remain candidates. Android/Linux/browser runtime and sustained application certification remain open.
 
 ### M1 — Live-data trust
 

@@ -1,0 +1,465 @@
+{
+  "schema_version": 1,
+  "baseline_commit": "0fe93dec1a7dd59c25affc422a5b49b0a76f5bd4",
+  "fixtures": [
+    {
+      "id": "moore-2013",
+      "tier": "cached",
+      "path": "KTLX20130520_201229_V06.gz",
+      "format": "nexrad-archive-ii",
+      "site": "KTLX",
+      "case_time": "2013-05-20T20:16:00Z",
+      "sha256": "e1160f973262663dcb04d70e8fcdfffa2be978327eba87af9972e833c505f100",
+      "bytes": 9293467,
+      "source": {
+        "url": "https://unidata-nexrad-level2.s3.amazonaws.com/2013/05/20/KTLX/KTLX20130520_201229_V06.gz",
+        "object_key": "2013/05/20/KTLX/KTLX20130520_201229_V06.gz",
+        "sha256": "e1160f973262663dcb04d70e8fcdfffa2be978327eba87af9972e833c505f100",
+        "bytes": 9293467,
+        "acquisition_time": "2013-05-20T20:12:29Z",
+        "captured_at": "2026-10-01T23:50:13.021899Z",
+        "attribution": "NOAA NWS/NCEI NEXRAD Level II; distributed by Unidata through NOAA Open Data Dissemination.",
+        "license_url": "https://registry.opendata.aws/noaa-nexrad/"
+      },
+      "transform": {
+        "kind": "identity",
+        "records": []
+      },
+      "tags": [
+        "tornado"
+      ],
+      "checks": [
+        "golden_events::moore_2013",
+        "golden_events::archive_replay_is_deterministic",
+        "scientific_corpus::cached_repeated_cut_selection_matches_raw_observations"
+      ],
+      "expected": null
+    },
+    {
+      "id": "mayfield-2021",
+      "tier": "cached",
+      "path": "KPAH20211211_032349_V06",
+      "format": "nexrad-archive-ii",
+      "site": "KPAH",
+      "case_time": "2021-12-11T03:27:00Z",
+      "sha256": "e45d575393af3edbc059ede7821fe560384aca283cc7260e64a08f1ea3e14df4",
+      "bytes": 14058534,
+      "source": {
+        "url": "https://unidata-nexrad-level2.s3.amazonaws.com/2021/12/11/KPAH/KPAH20211211_032349_V06",
+        "object_key": "2021/12/11/KPAH/KPAH20211211_032349_V06",
+        "sha256": "e45d575393af3edbc059ede7821fe560384aca283cc7260e64a08f1ea3e14df4",
+        "bytes": 14058534,
+        "acquisition_time": "2021-12-11T03:23:49Z",
+        "captured_at": "2026-10-01T23:50:13.210476Z",
+        "attribution": "NOAA NWS/NCEI NEXRAD Level II; distributed by Unidata through NOAA Open Data Dissemination.",
+        "license_url": "https://registry.opendata.aws/noaa-nexrad/"
+      },
+      "transform": {
+        "kind": "identity",
+        "records": []
+      },
+      "tags": [
+        "tornado"
+      ],
+      "checks": [
+        "golden_events::mayfield_2021",
+        "scientific_corpus::cached_derived_products_repeat_with_source_clock",
+        "scientific_corpus::cached_repeated_cut_selection_matches_raw_observations"
+      ],
+      "expected": null
+    },
+    {
+      "id": "mayfield-2021-partial",
+      "tier": "offline",
+      "path": "mayfield-2021-first-records.ar2",
+      "format": "nexrad-archive-ii",
+      "site": "KPAH",
+      "case_time": "2021-12-11T03:27:00Z",
+      "sha256": "7ff2afe7bb52dec13b14d68c75e7654c18536eb9c39da8615c3bd1583cdc7332",
+      "bytes": 358290,
+      "source": {
+        "url": "https://unidata-nexrad-level2.s3.amazonaws.com/2021/12/11/KPAH/KPAH20211211_032349_V06",
+        "object_key": "2021/12/11/KPAH/KPAH20211211_032349_V06",
+        "sha256": "e45d575393af3edbc059ede7821fe560384aca283cc7260e64a08f1ea3e14df4",
+        "bytes": 14058534,
+        "acquisition_time": "2021-12-11T03:23:49Z",
+        "captured_at": "2026-10-01T23:50:13.210476Z",
+        "attribution": "NOAA NWS/NCEI NEXRAD Level II; distributed by Unidata through NOAA Open Data Dissemination.",
+        "license_url": "https://registry.opendata.aws/noaa-nexrad/"
+      },
+      "transform": {
+        "kind": "ldm-record-subset",
+        "records": [
+          0,
+          1,
+          2
+        ]
+      },
+      "tags": [
+        "partial-coverage",
+        "missing-data",
+        "tornado"
+      ],
+      "checks": [
+        "scientific_corpus::offline_radar_inputs_preserve_values_time_and_missing_coverage"
+      ],
+      "expected": {
+        "elevations": [
+          0.52734375
+        ],
+        "az_bins": 720,
+        "gate_count": 1832,
+        "reflectivity_sha256": "c6b612a54849e6a793b850f97cde41f8595ad394064114481f36d84a11c5e60f",
+        "populated_bins": 240,
+        "max_dbz": 66.38735
+      }
+    },
+    {
+      "id": "el-reno-2013",
+      "tier": "cached",
+      "path": "KTLX20130531_230957_V06.gz",
+      "format": "nexrad-archive-ii",
+      "site": "KTLX",
+      "case_time": "2013-05-31T23:10:00Z",
+      "sha256": "40f7072e11c6c43cea6e912b22be7f79d818bdff892973d0660dcb804534a4e0",
+      "bytes": 9989765,
+      "source": {
+        "url": "https://unidata-nexrad-level2.s3.amazonaws.com/2013/05/31/KTLX/KTLX20130531_230957_V06.gz",
+        "object_key": "2013/05/31/KTLX/KTLX20130531_230957_V06.gz",
+        "sha256": "40f7072e11c6c43cea6e912b22be7f79d818bdff892973d0660dcb804534a4e0",
+        "bytes": 9989765,
+        "acquisition_time": "2013-05-31T23:09:57Z",
+        "captured_at": "2026-10-01T23:50:14.016358Z",
+        "attribution": "NOAA NWS/NCEI NEXRAD Level II; distributed by Unidata through NOAA Open Data Dissemination.",
+        "license_url": "https://registry.opendata.aws/noaa-nexrad/"
+      },
+      "transform": {
+        "kind": "identity",
+        "records": []
+      },
+      "tags": [
+        "tornado"
+      ],
+      "checks": [
+        "golden_events::corpus_tornadoes_are_found_once_where_reported"
+      ],
+      "expected": null
+    },
+    {
+      "id": "washington-2013",
+      "tier": "cached",
+      "path": "KILX20131117_170314_V06.gz",
+      "format": "nexrad-archive-ii",
+      "site": "KILX",
+      "case_time": "2013-11-17T17:05:00Z",
+      "sha256": "f14f1f325b708a8a0ab6e935535b0318fb7a12ac10ec8e3c95a6865116db8704",
+      "bytes": 10808120,
+      "source": {
+        "url": "https://unidata-nexrad-level2.s3.amazonaws.com/2013/11/17/KILX/KILX20131117_170314_V06.gz",
+        "object_key": "2013/11/17/KILX/KILX20131117_170314_V06.gz",
+        "sha256": "f14f1f325b708a8a0ab6e935535b0318fb7a12ac10ec8e3c95a6865116db8704",
+        "bytes": 10808120,
+        "acquisition_time": "2013-11-17T17:03:14Z",
+        "captured_at": "2026-10-01T23:50:15.727686Z",
+        "attribution": "NOAA NWS/NCEI NEXRAD Level II; distributed by Unidata through NOAA Open Data Dissemination.",
+        "license_url": "https://registry.opendata.aws/noaa-nexrad/"
+      },
+      "transform": {
+        "kind": "identity",
+        "records": []
+      },
+      "tags": [
+        "tornado"
+      ],
+      "checks": [
+        "golden_events::corpus_tornadoes_are_found_once_where_reported"
+      ],
+      "expected": null
+    },
+    {
+      "id": "vilonia-2014",
+      "tier": "cached",
+      "path": "KLZK20140428_003415_V06.gz",
+      "format": "nexrad-archive-ii",
+      "site": "KLZK",
+      "case_time": "2014-04-28T00:35:00Z",
+      "sha256": "9e4956d9fb44299f784a521358de310599472b38f621d15c9828c4fbb1c7f23f",
+      "bytes": 11965679,
+      "source": {
+        "url": "https://unidata-nexrad-level2.s3.amazonaws.com/2014/04/28/KLZK/KLZK20140428_003415_V06.gz",
+        "object_key": "2014/04/28/KLZK/KLZK20140428_003415_V06.gz",
+        "sha256": "9e4956d9fb44299f784a521358de310599472b38f621d15c9828c4fbb1c7f23f",
+        "bytes": 11965679,
+        "acquisition_time": "2014-04-28T00:34:15Z",
+        "captured_at": "2026-10-01T23:50:15.541584Z",
+        "attribution": "NOAA NWS/NCEI NEXRAD Level II; distributed by Unidata through NOAA Open Data Dissemination.",
+        "license_url": "https://registry.opendata.aws/noaa-nexrad/"
+      },
+      "transform": {
+        "kind": "identity",
+        "records": []
+      },
+      "tags": [
+        "tornado"
+      ],
+      "checks": [
+        "golden_events::corpus_tornadoes_are_found_once_where_reported"
+      ],
+      "expected": null
+    },
+    {
+      "id": "nashville-2020",
+      "tier": "cached",
+      "path": "KOHX20200303_064302_V06",
+      "format": "nexrad-archive-ii",
+      "site": "KOHX",
+      "case_time": "2020-03-03T06:45:00Z",
+      "sha256": "597d04cdb2ccba7449e3fef707af4a72e7ef505236b3143012de234fc48071c6",
+      "bytes": 15179034,
+      "source": {
+        "url": "https://unidata-nexrad-level2.s3.amazonaws.com/2020/03/03/KOHX/KOHX20200303_064302_V06",
+        "object_key": "2020/03/03/KOHX/KOHX20200303_064302_V06",
+        "sha256": "597d04cdb2ccba7449e3fef707af4a72e7ef505236b3143012de234fc48071c6",
+        "bytes": 15179034,
+        "acquisition_time": "2020-03-03T06:43:02Z",
+        "captured_at": "2026-10-01T23:50:16.908592Z",
+        "attribution": "NOAA NWS/NCEI NEXRAD Level II; distributed by Unidata through NOAA Open Data Dissemination.",
+        "license_url": "https://registry.opendata.aws/noaa-nexrad/"
+      },
+      "transform": {
+        "kind": "identity",
+        "records": []
+      },
+      "tags": [
+        "tornado"
+      ],
+      "checks": [
+        "golden_events::corpus_tornadoes_are_found_once_where_reported"
+      ],
+      "expected": null
+    },
+    {
+      "id": "joplin-2011",
+      "tier": "cached",
+      "path": "KSGF20110522_223858_V03.gz",
+      "format": "nexrad-archive-ii",
+      "site": "KSGF",
+      "case_time": "2011-05-22T22:40:00Z",
+      "sha256": "0e11293df065b274eefa1d8b30d70bda74dfbac3bed34443eb7c049870c2ed73",
+      "bytes": 3758724,
+      "source": {
+        "url": "https://unidata-nexrad-level2.s3.amazonaws.com/2011/05/22/KSGF/KSGF20110522_223858_V03.gz",
+        "object_key": "2011/05/22/KSGF/KSGF20110522_223858_V03.gz",
+        "sha256": "0e11293df065b274eefa1d8b30d70bda74dfbac3bed34443eb7c049870c2ed73",
+        "bytes": 3758724,
+        "acquisition_time": "2011-05-22T22:38:58Z",
+        "captured_at": "2026-10-01T23:50:16.512890Z",
+        "attribution": "NOAA NWS/NCEI NEXRAD Level II; distributed by Unidata through NOAA Open Data Dissemination.",
+        "license_url": "https://registry.opendata.aws/noaa-nexrad/"
+      },
+      "transform": {
+        "kind": "identity",
+        "records": []
+      },
+      "tags": [
+        "debris-false-positive-control",
+        "missing-dual-pol"
+      ],
+      "checks": [
+        "golden_events::quiet_cases_claim_no_debris_tornado"
+      ],
+      "expected": null
+    },
+    {
+      "id": "derecho-2020",
+      "tier": "cached",
+      "path": "KDVN20200810_174355_V06",
+      "format": "nexrad-archive-ii",
+      "site": "KDVN",
+      "case_time": "2020-08-10T17:45:00Z",
+      "sha256": "aa442ba73c3add4bb5db11b965a04ded0d8be05dc561bc5085c59280e9ec9d57",
+      "bytes": 15190781,
+      "source": {
+        "url": "https://unidata-nexrad-level2.s3.amazonaws.com/2020/08/10/KDVN/KDVN20200810_174355_V06",
+        "object_key": "2020/08/10/KDVN/KDVN20200810_174355_V06",
+        "sha256": "aa442ba73c3add4bb5db11b965a04ded0d8be05dc561bc5085c59280e9ec9d57",
+        "bytes": 15190781,
+        "acquisition_time": "2020-08-10T17:43:55Z",
+        "captured_at": "2026-10-01T23:50:18.317360Z",
+        "attribution": "NOAA NWS/NCEI NEXRAD Level II; distributed by Unidata through NOAA Open Data Dissemination.",
+        "license_url": "https://registry.opendata.aws/noaa-nexrad/"
+      },
+      "transform": {
+        "kind": "identity",
+        "records": []
+      },
+      "tags": [
+        "debris-false-positive-control",
+        "convective-line"
+      ],
+      "checks": [
+        "golden_events::quiet_cases_claim_no_debris_tornado"
+      ],
+      "expected": null
+    },
+    {
+      "id": "denver-hail-2017",
+      "tier": "cached",
+      "path": "KFTG20170508_203405_V06",
+      "format": "nexrad-archive-ii",
+      "site": "KFTG",
+      "case_time": "2017-05-08T20:35:00Z",
+      "sha256": "cf0b833d1be85ccd513d483c6e4a59eeeb042c24e115ebe4e7fde2c337829d1f",
+      "bytes": 7529679,
+      "source": {
+        "url": "https://unidata-nexrad-level2.s3.amazonaws.com/2017/05/08/KFTG/KFTG20170508_203405_V06",
+        "object_key": "2017/05/08/KFTG/KFTG20170508_203405_V06",
+        "sha256": "cf0b833d1be85ccd513d483c6e4a59eeeb042c24e115ebe4e7fde2c337829d1f",
+        "bytes": 7529679,
+        "acquisition_time": "2017-05-08T20:34:05Z",
+        "captured_at": "2026-10-01T23:50:17.900267Z",
+        "attribution": "NOAA NWS/NCEI NEXRAD Level II; distributed by Unidata through NOAA Open Data Dissemination.",
+        "license_url": "https://registry.opendata.aws/noaa-nexrad/"
+      },
+      "transform": {
+        "kind": "identity",
+        "records": []
+      },
+      "tags": [
+        "debris-false-positive-control",
+        "hail"
+      ],
+      "checks": [
+        "golden_events::quiet_cases_claim_no_debris_tornado",
+        "scientific_corpus::cached_derived_products_repeat_with_source_clock"
+      ],
+      "expected": null
+    },
+    {
+      "id": "denver-hail-2017-partial",
+      "tier": "offline",
+      "path": "denver-hail-2017-first-records.ar2",
+      "format": "nexrad-archive-ii",
+      "site": "KFTG",
+      "case_time": "2017-05-08T20:35:00Z",
+      "sha256": "ff66e16eade943e9d272aed38bcf0b231c5517fbde0e59953f0b207aec3c303c",
+      "bytes": 462169,
+      "source": {
+        "url": "https://unidata-nexrad-level2.s3.amazonaws.com/2017/05/08/KFTG/KFTG20170508_203405_V06",
+        "object_key": "2017/05/08/KFTG/KFTG20170508_203405_V06",
+        "sha256": "cf0b833d1be85ccd513d483c6e4a59eeeb042c24e115ebe4e7fde2c337829d1f",
+        "bytes": 7529679,
+        "acquisition_time": "2017-05-08T20:34:05Z",
+        "captured_at": "2026-10-01T23:50:17.900267Z",
+        "attribution": "NOAA NWS/NCEI NEXRAD Level II; distributed by Unidata through NOAA Open Data Dissemination.",
+        "license_url": "https://registry.opendata.aws/noaa-nexrad/"
+      },
+      "transform": {
+        "kind": "ldm-record-subset",
+        "records": [
+          0,
+          1,
+          2
+        ]
+      },
+      "tags": [
+        "partial-coverage",
+        "missing-data",
+        "debris-false-positive-control",
+        "hail"
+      ],
+      "checks": [
+        "scientific_corpus::offline_radar_inputs_preserve_values_time_and_missing_coverage"
+      ],
+      "expected": {
+        "elevations": [
+          0.4449463
+        ],
+        "az_bins": 720,
+        "gate_count": 1832,
+        "reflectivity_sha256": "62d50d6bff67296bfef5cd0f58ed0bd25e663c09f7fdda7d292a046042fd2db4",
+        "populated_bins": 240,
+        "max_dbz": 73.415016
+      }
+    },
+    {
+      "id": "clear-air-2019",
+      "tier": "cached",
+      "path": "KTLX20190715_120037_V06",
+      "format": "nexrad-archive-ii",
+      "site": "KTLX",
+      "case_time": "2019-07-15T12:01:00Z",
+      "sha256": "d8b0efb8b1b64676dac07f4833dae2c42fdcbff0d24a97138664c8849226e2c7",
+      "bytes": 3898325,
+      "source": {
+        "url": "https://unidata-nexrad-level2.s3.amazonaws.com/2019/07/15/KTLX/KTLX20190715_120037_V06",
+        "object_key": "2019/07/15/KTLX/KTLX20190715_120037_V06",
+        "sha256": "d8b0efb8b1b64676dac07f4833dae2c42fdcbff0d24a97138664c8849226e2c7",
+        "bytes": 3898325,
+        "acquisition_time": "2019-07-15T12:00:37Z",
+        "captured_at": "2026-10-01T23:50:18.594616Z",
+        "attribution": "NOAA NWS/NCEI NEXRAD Level II; distributed by Unidata through NOAA Open Data Dissemination.",
+        "license_url": "https://registry.opendata.aws/noaa-nexrad/"
+      },
+      "transform": {
+        "kind": "identity",
+        "records": []
+      },
+      "tags": [
+        "weak-echo-candidate",
+        "clutter-candidate"
+      ],
+      "checks": [
+        "scientific_corpus::cached_clear_air_control"
+      ],
+      "expected": null
+    },
+    {
+      "id": "clear-air-2019-partial",
+      "tier": "offline",
+      "path": "clear-air-2019-first-records.ar2",
+      "format": "nexrad-archive-ii",
+      "site": "KTLX",
+      "case_time": "2019-07-15T12:01:00Z",
+      "sha256": "d0e6ac4b459b1c30e1687f749ab7d43e7aaf734c965b45cf734152e1410721d5",
+      "bytes": 442616,
+      "source": {
+        "url": "https://unidata-nexrad-level2.s3.amazonaws.com/2019/07/15/KTLX/KTLX20190715_120037_V06",
+        "object_key": "2019/07/15/KTLX/KTLX20190715_120037_V06",
+        "sha256": "d8b0efb8b1b64676dac07f4833dae2c42fdcbff0d24a97138664c8849226e2c7",
+        "bytes": 3898325,
+        "acquisition_time": "2019-07-15T12:00:37Z",
+        "captured_at": "2026-10-01T23:50:18.594616Z",
+        "attribution": "NOAA NWS/NCEI NEXRAD Level II; distributed by Unidata through NOAA Open Data Dissemination.",
+        "license_url": "https://registry.opendata.aws/noaa-nexrad/"
+      },
+      "transform": {
+        "kind": "ldm-record-subset",
+        "records": [
+          0,
+          1,
+          2
+        ]
+      },
+      "tags": [
+        "partial-coverage",
+        "missing-data",
+        "weak-echo-candidate",
+        "clutter-candidate"
+      ],
+      "checks": [
+        "scientific_corpus::offline_radar_inputs_preserve_values_time_and_missing_coverage"
+      ],
+      "expected": {
+        "elevations": [
+          0.43945313
+        ],
+        "az_bins": 720,
+        "gate_count": 1832,
+        "reflectivity_sha256": "a6ba58e73cd0770302f3350202dcc7a1f4ce15cad32dd289267bf6cc196b97db",
+        "populated_bins": 240,
+        "max_dbz": 34.26087
+      }
+    }
+  ]
+}
