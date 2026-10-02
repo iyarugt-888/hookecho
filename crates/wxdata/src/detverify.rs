@@ -232,6 +232,11 @@ pub fn lead_minutes_with_paths(
     out
 }
 
+/// Whether `d` is within `radius_km` and `window_min` of the point truth `t`.
+pub fn near_point(d: &Detection, t: &Truth, radius_km: f64, window_min: i64) -> bool {
+    near(d, t, radius_km, window_min)
+}
+
 fn near(d: &Detection, t: &Truth, radius_km: f64, window_min: i64) -> bool {
     (d.minute - t.minute).abs() <= window_min
         && km_between((d.lon, d.lat), (t.lon, t.lat)) <= radius_km

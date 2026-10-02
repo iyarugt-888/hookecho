@@ -46,6 +46,8 @@ SIGNS = {
 
 def load(path):
     rows = [r for r in csv.DictReader(open(path, encoding="utf-8")) if r["detector"] == "tornado_fusion"]
+    global ALL_ROWS
+    ALL_ROWS = rows
     names = [k[2:] for k in rows[0].keys() if k.startswith("f_")] if rows else []
     xs = [[float(r["f_" + n]) for n in names] for r in rows]
     ys = [1.0 if r["matched_report"] == "true" or r["matched_survey"] == "true" else 0.0 for r in rows]
@@ -166,6 +168,31 @@ def top(scores, ys, groups, k):
     return ver, events
 
 
+def report_matrix(rows, scores, summary, thresholds):
+    """Report-level verification of `rows` scored by `scores`: distinct tornado reports and
+    surveyed paths found (from each row's matched_truths), against every one the events have."""
+    events = sum(c["tornado_reports"] + c["tornado_surveys"] for c in summary["truth_counts"].values())
+    hours = summary["detectors"]["tornado_fusion"]["radar_hours"]
+    out = []
+    for t in thresholds:
+        kept = [r for r, s in zip(rows, scores) if s >= t]
+        ver = sum(1 for r in kept if r.get("matched_truths"))
+        found = len({(r["event"], i) for r in kept for i in (r.get("matched_truths") or "").split(";") if i})
+        det = len(kept)
+        far = (det - ver) / det if det else None
+        csi = found / (events + det - ver) if events + det - ver else None
+        out.append((t, det, ver, found / events if events else None, far, csi, (det - ver) / hours))
+    return out
+
+
+def print_matrix(title, m):
+    print(f"\n{title}")
+    print("  thr    det   ver   POD   FAR   CSI   FA/h")
+    for t, det, ver, pod, far, csi, fah in m:
+        f = lambda v: "  -  " if v is None else f"{v:5.2f}"
+        print(f"  {t:.2f} {det:6d} {ver:5d} {f(pod)} {f(far)} {f(csi)} {fah:6.1f}")
+
+
 def main():
     names, xs, ys, groups = load(sys.argv[1])
     events = sorted(set(groups))
@@ -201,6 +228,17 @@ def main():
             if g == e:
                 free[i] = predict(model, xs[i])
     print(f"\nfor comparison, an unconstrained fit held out by event: AUC {auc(free, ys):.3f}")
+    # Report-level, out of sample: the held-out fused scores against Tornado ID's own (which is
+    # not fitted to anything here), when the export carries matched truth ids.
+    import json
+    import os
+    summary_path = os.path.join(os.path.dirname(sys.argv[1]), "summary.json")
+    if ALL_ROWS and "matched_truths" in ALL_ROWS[0] and os.path.exists(summary_path):
+        summary = json.load(open(summary_path, encoding="utf-8"))
+        thresholds = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8]
+        print_matrix("fused, held out by event (report level)", report_matrix(ALL_ROWS, held, summary, thresholds))
+        tid = [r for r in csv.DictReader(open(sys.argv[1], encoding="utf-8")) if r["detector"] == "tornado_id"]
+        print_matrix("Tornado ID (the app's), same events", report_matrix(tid, [float(r["final_score"]) for r in tid], summary, thresholds))
     mean, sd, b, w = fit(xs, ys, names)
     w_orig = [wj / sd[j] for j, wj in enumerate(w)]
     b_orig = b - sum(wj * mean[j] / sd[j] for j, wj in enumerate(w))

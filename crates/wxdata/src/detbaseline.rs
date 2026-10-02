@@ -126,6 +126,11 @@ pub struct Candidate {
     pub matched_report: bool,
     /// Near a Damage Assessment Toolkit surveyed track (tornado detectors only).
     pub matched_survey: bool,
+    /// Which truths it matched: `r<i>` for the event's `i`th tornado report, `s<i>` for its `i`th
+    /// surveyed path, `h<i>` for its `i`th hail report. With the event's truth counts in the
+    /// summary, scores computed elsewhere (held out by event, say) can be verified at the report
+    /// level without rerunning the backtest.
+    pub matched_truths: Vec<String>,
 }
 
 impl Candidate {
@@ -181,6 +186,28 @@ pub fn mark_matches(run: &mut EventRun, radius_km: f64, window_min: i64) {
             c.matched_report = near(c, &run.hail_reports, &[]);
             c.matched_survey = false;
         }
+        let d = c.detection();
+        let points = |prefix: &str, truths: &[Truth]| -> Vec<String> {
+            truths
+                .iter()
+                .enumerate()
+                .filter(|(_, t)| crate::detverify::near_point(&d, t, radius_km, window_min))
+                .map(|(i, _)| format!("{prefix}{i}"))
+                .collect()
+        };
+        c.matched_truths = if c.detector.is_tornado() {
+            let mut ids = points("r", &run.tornado_reports);
+            ids.extend(
+                run.tornado_surveys
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, p)| p.near(&d, radius_km, window_min))
+                    .map(|(i, _)| format!("s{i}")),
+            );
+            ids
+        } else {
+            points("h", &run.hail_reports)
+        };
     }
 }
 
@@ -263,6 +290,14 @@ pub struct DetectorSummary {
     pub by_beam_height: Vec<Band>,
 }
 
+/// How much truth one event has.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct TruthCounts {
+    pub tornado_reports: usize,
+    pub tornado_surveys: usize,
+    pub hail_reports: usize,
+}
+
 /// The whole baseline.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Summary {
@@ -271,6 +306,8 @@ pub struct Summary {
     pub events: Vec<String>,
     /// Each event's sounding (see [`EventRun::sounding`]); "none" without one.
     pub soundings: BTreeMap<String, String>,
+    /// Each event's truth: tornado reports, surveyed paths and hail reports.
+    pub truth_counts: BTreeMap<String, TruthCounts>,
     pub radius_km: f64,
     pub window_min: i64,
     pub detectors: BTreeMap<String, DetectorSummary>,
@@ -525,6 +562,19 @@ pub fn summarize(runs: &[EventRun], radius_km: f64, window_min: i64) -> Summary 
                 (r.label.clone(), s)
             })
             .collect(),
+        truth_counts: runs
+            .iter()
+            .map(|r| {
+                (
+                    r.label.clone(),
+                    TruthCounts {
+                        tornado_reports: r.tornado_reports.len(),
+                        tornado_surveys: r.tornado_surveys.len(),
+                        hail_reports: r.hail_reports.len(),
+                    },
+                )
+            })
+            .collect(),
         radius_km,
         window_min,
         detectors: DetectorKind::ALL
@@ -544,7 +594,7 @@ pub fn to_csv(candidates: &[Candidate]) -> String {
     const HEADER: &str = "event,site,volume,minute,detector,lon,lat,range_km,beam_base_km,\
         beam_top_km,raw_score,final_score,gates,tilts,vrot_ms,g2g_ms,min_cc,mean_cc,mean_z,max_z,\
         zdr_db,depth_km,rooted,sense,tier,members,observed_warning,matched_report,matched_survey,\
-        azshear_s,track_id,track_age_volumes,azshear_trend";
+        azshear_s,track_id,track_age_volumes,azshear_trend,matched_truths";
     fn cell(s: &str) -> String {
         if s.contains([',', '"', '\n']) {
             format!("\"{}\"", s.replace('"', "\"\""))
@@ -599,6 +649,7 @@ pub fn to_csv(candidates: &[Candidate]) -> String {
             o(c.track_id),
             o(c.track_age_volumes),
             f(c.azshear_trend),
+            c.matched_truths.join(";"),
         ];
         let features = c.features.as_deref().unwrap_or(&[]);
         row.extend(
@@ -645,6 +696,7 @@ mod tests {
             observed_warning: false,
             matched_report: false,
             matched_survey: false,
+            matched_truths: Vec::new(),
             azshear_s: None,
             track_id: None,
             track_age_volumes: None,
@@ -682,6 +734,8 @@ mod tests {
         let m: Vec<bool> = r.candidates.iter().map(|c| c.matched_report).collect();
         // The far couplet misses; the hail core is not matched by a tornado report.
         assert_eq!(m, [true, false, true, false]);
+        let ids: Vec<String> = r.candidates.iter().map(|c| c.matched_truths.join(";")).collect();
+        assert_eq!(ids, ["r0", "", "r0", ""]);
     }
 
     #[test]

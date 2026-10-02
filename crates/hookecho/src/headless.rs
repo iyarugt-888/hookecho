@@ -5933,6 +5933,7 @@ fn backtest_event(
                 observed_warning: observed(lon, lat),
                 matched_report: false,
                 matched_survey: false,
+                matched_truths: Vec::new(),
             };
             use wxdata::detbaseline::{Candidate, DetectorKind as K};
             for c in &couplets {

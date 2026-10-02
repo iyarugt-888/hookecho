@@ -95,6 +95,24 @@ Primary code areas:
 
     FAR at 0.5 beyond 60 km is 0.24 and 0.09 for the fusion, against 0.68 and 0.76 for Tornado ID. At ≥ 0.7 the fusion has no detection in any hard-negative event. Same POD with half the false-alarm ratio is the plan's goal. Promotion is a user-visible change and is left to a decision (Phase 13).
 
+- **Validation round before promotion** (decision: validate more first). The corpus is now 21 events, with five more hard negatives: giant hail at San Marcos 2021, Omaha 2014 and St. Louis 2012, wind-farm clutter around Dodge City on a quiet night, and a bird-migration night at Houston. The export records which reports and paths each candidate matched (`matched_truths`) and each event's truth counts, so `fit.py` can verify held-out scores at the report level.
+  - **Hard negatives.** Across the nine, the app's Tornado ID at ≥ 0.6 makes 41 false detections: 14 on the wind-farm night and 16 in the Omaha hailstorm. Fusion at ≥ 0.7 makes 2. Migration and clear air produce nothing from any detector.
+  - **Held out by event, report level, against Tornado ID at matched false-alarm rates.**
+
+    | Matched rate | Fusion | Tornado ID |
+    |---|---|---|
+    | ~1.5 per hour | ≥ 0.6: POD 0.36, FAR 0.32, CSI 0.27 | ≥ 0.7: POD 0.39, FAR 0.47, CSI 0.30 |
+    | ~3 per hour | ≥ 0.5: POD 0.37, FAR 0.38 | ≥ 0.6: POD 0.49, FAR 0.64 |
+
+    Out of sample the fusion is more often right but finds fewer tornadoes. The in-sample POD parity was optimistic. **Not promoted:** the plan does not accept a lower FAR that loses tornadoes.
+  - **Hail.** With the hail cases, hail beside debris fits at −1.05, the sign physics expects (on 9 events it fitted positive and was dropped). The shipped weights are this 21-event fit.
+
+### What stands between the fusion and promotion
+
+- **POD.** The fusion only knows LLSD columns. Tornado ID also finds tornadoes from legacy couplets the LLSD columns do not reach, so look at which reports Tornado ID finds and the fusion misses (`matched_truths` names them) before adding features.
+- **Wind-farm clutter.** It fools every detector here (Tornado ID 14 false on one quiet night). Low CC and noisy velocity in clutter fixed in place are what a clutter or persistence-of-position feature would catch.
+- **Calibration (Phase 14).** It still waits on a much larger corpus: 21 events cannot calibrate a probability.
+
 ### Findings to carry into Phase 9 (from 10 and 11)
 
 - Lead times measure a median of only 3–5 minutes because every event starts a few minutes before its first report. Measuring real lead time needs events that start earlier.

@@ -139,39 +139,39 @@ pub struct Weights {
     pub w: [f32; 13],
 }
 
-/// The fitted weights (`scripts/fusion/fit.py`, fusion-2, on the 16-event backtest corpus of
-/// `docs/backtest-events.txt`: nine original events plus a night outbreak, a violent far-range
-/// tornado, an outbreak, two tropical cases, a giant-hail supercell and a clear-air morning).
+/// The fitted weights (`scripts/fusion/fit.py`, fusion-2, on the 21-event backtest corpus of
+/// `docs/backtest-events.txt`, eight of them hard negatives: giant-hail supercells, a derecho,
+/// wind-farm clutter, a bird-migration night and clear air).
 ///
 /// Each weight is held to the sign physics expects, and range is left out. A free fit learned the
 /// corpus's quirks instead: range got the largest weight, negative, from where the reports happen
 /// to be (LLSD underestimates shear far out, so physically the same measured shear means more
-/// rotation there); hail beside debris counted *for* a tornado; and the two correlated shear
-/// features took opposite signs. Rooting, shear trend, hail and weak-echo rooting come out at zero
-/// or wrong-signed under the constraint and are dropped.
+/// rotation there), and the two correlated shear features took opposite signs. Hail beside debris
+/// counted *for* a tornado on the first 9 events; with five hail and clutter cases it fits
+/// against one (−1.05), as physics expects. Rooting, shear trend and weak-echo rooting come out at
+/// zero under the constraint and are dropped.
 ///
-/// Held out by whole event, the fit ranks 31, 72 and 125 verified rows among its top 50, 100 and
-/// 200 of 11 029, against 29, 49 and 93 for peak shear alone (AUC over every row 0.62 against
-/// 0.64: it is better where the score is high, not at telling weak rows apart). The weights barely
-/// moved from the 9-event fit (debris 2.43 to 2.49, peak shear 0.70 to 0.57), and persistence came
-/// out the step the plan describes: 3+ volumes weighs more than 2. Debris beside a column carries
-/// the most weight.
+/// Held out by whole event it ranks 32, 68 and 113 verified rows among its top 50, 100 and 200 of
+/// 12 599, against 26, 44 and 87 for peak shear alone. At the report level, held out, it is more
+/// often right than the app's Tornado ID at the same false-alarm rate (FAR 0.32 against 0.47 at
+/// ~1.5 per radar-hour) but finds fewer tornadoes (POD 0.36 against 0.39, and 0.37 against 0.49
+/// at ~3 per hour), so it is not promoted. Debris beside a column carries the most weight.
 pub const WEIGHTS: Weights = Weights {
-    bias: -3.5050,
+    bias: -3.6412,
     w: [
-        0.2020, // low_level_shear
-        0.5686, // max_shear
-        0.0235, // depth_km
-        0.1821, // tilts
-        0.0,    // rooted
-        0.1785, // cyclonic
-        0.0799, // persisted_2
-        0.1976, // persisted_3
-        0.0,    // shear_trend
-        2.4937, // debris
-        0.0,    // debris_hail
-        0.0,    // range_100km
-        0.0,    // weak_echo_root
+        0.1672,  // low_level_shear
+        0.5637,  // max_shear
+        0.1004,  // depth_km
+        0.1487,  // tilts
+        0.0,     // rooted
+        0.1967,  // cyclonic
+        0.1030,  // persisted_2
+        0.2189,  // persisted_3
+        0.0,     // shear_trend
+        2.4130,  // debris
+        -1.0499, // debris_hail
+        0.0,     // range_100km
+        0.0,     // weak_echo_root
     ],
 };
 
@@ -266,10 +266,24 @@ mod tests {
 
     #[test]
     fn the_fitted_weights_point_the_way_physics_does() {
-        // Every feature is evidence for a tornado or left out, never evidence against: the
-        // constraint `fit.py` holds the fit to.
-        assert!(WEIGHTS.w.iter().all(|w| *w >= 0.0), "{:?}", WEIGHTS.w);
+        // Every feature points the way `fit.py`'s SIGNS hold it to: hail beside debris and
+        // weak-echo rooting against a tornado or nothing, everything else for one or nothing.
         let i = |n: &str| FEATURE_NAMES.iter().position(|f| *f == n).unwrap();
+        for (k, w) in WEIGHTS.w.iter().enumerate() {
+            if k == i("debris_hail") || k == i("weak_echo_root") {
+                assert!(
+                    *w <= 0.0,
+                    "{} is evidence against, or nothing",
+                    FEATURE_NAMES[k]
+                );
+            } else {
+                assert!(
+                    *w >= 0.0,
+                    "{} is evidence for, or nothing",
+                    FEATURE_NAMES[k]
+                );
+            }
+        }
         assert_eq!(WEIGHTS.w[i("range_100km")], 0.0, "range is not evidence");
     }
 

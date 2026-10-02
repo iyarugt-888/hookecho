@@ -36,3 +36,12 @@ KFTG 2017-05-08 20:20   # Denver, CO hailstorm
 # Hard negatives added for Phase 9, with no tornado report within 150 km of the radar in the window:
 KFWS 2016-04-11 22:10   # Denton/Wylie, TX giant-hail supercells (4 in at Denton 22:20Z; 20 >= 2 in)
 KTLX 2019-07-15 11:30   # Clear air, no storms (the scientific corpus's clear-air control day)
+# More hard negatives. Giant-hail supercells, each window ending well before (with the 15-minute
+# matching window) any tornado report within 150 km: Hondo's storm had a brief tornado at 00:33Z,
+# two and a half hours before this window; Omaha's nearest was 22:10Z at Oakland, 81 km out.
+KEWX 2021-04-29 02:50   # New Braunfels/San Marcos hail, 17-21 km from the radar (03:00-03:17Z)
+KOAX 2014-06-03 20:40   # Omaha hail: Uehling 2.75 in 20:45Z, Kennard 4.25 in 21:09Z, Blair 21:20Z
+KLSX 2012-04-28 22:15   # St. Louis hail: Wentzville 2.75-3 in 22:28-22:41Z; no tornado that evening
+# Non-meteorological scatter, no reports at all in the window:
+KDDC 2020-01-15 06:00   # Wind farms around Dodge City, quiet winter night
+KHGX 2019-04-21 05:00   # Spring bird migration over the Gulf coast, night
