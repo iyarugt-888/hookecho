@@ -198,6 +198,19 @@ Primary code areas:
     - Likely: POD 0.08 against 0.20.
   - **Not adopted.** A better ranking that loses tornadoes at the tier readers act on fails the plan's rule. The four measurements stay exported as instrumentation for a larger corpus, where calibration (Phase 14) can set the tiers with the weights.
 
+- **Lead time, measured along the storm's track** (`docs/backtest-leadtime.txt`, `scripts/fusion/lead_time.py`, export `p13-lead`). The main corpus could not measure lead. Each event starts a few minutes before its first report, and a detection counted only inside the 15-minute window at the report's own place, so lead could never exceed 15 minutes.
+  - **Setup.** The lead-time manifest starts the 20 tornado events 30 minutes earlier and runs 16 volumes each. The summary now records every tornado truth's minute (`tornado_truth_minutes`). For the fused Tornado ID, a found truth's lead runs from the first volume in which a track that matched it was already at the threshold. The original has no tracks, so it gets the window-limited lead.
+  - **All 254 reports and paths.** Fused along its track: median 4 minutes at ≥ 0.3, with 31% at 10 minutes or more (max 40). This overstates lead, because a report made partway along an ongoing tornado's path is credited from earlier in the same track.
+  - **The honest measure: the 100 surveyed paths, from their surveyed start.**
+
+    | | ≥ 0.3: median | ≥ 0.3: ≥ 10 min | ≥ 0.6: median | ≥ 0.6: ≥ 10 min |
+    |---|---|---|---|---|
+    | Fused, along its track | +1 min (n 44) | 16% (max 33) | −4 min (n 23) | 9% |
+    | Fused, window-limited | +1 min | 9% | −4 min | 4% |
+    | Original, window-limited | +1 min (n 46) | 4% | −1.5 min (n 34) | 3% |
+
+  - **Both Tornado IDs mostly confirm a tornado around touchdown rather than warn ahead of it.** At Possible, the fused one gives 10+ minutes of lead four times as often as the original. At Likely it arrives later: most of its weight is debris, and debris follows touchdown. Survey start times are themselves estimates, often radar-derived, so these are within a few minutes. This is a property of the evidence, not a defect to tune away. Lead would come from precursor evidence (mesocyclone intensification, trends), which the constrained fit currently zeroes (`shear_trend`).
+
 ### What stands between the fusion and promotion
 
 - **POD.** Looked at with `matched_truths`, the gap is a weighting trade-off, not a blind spot. At Tornado ID ≥ 0.6 and fusion ≥ 0.5 they find 46 and 45 reports: 38 in common, 8 only Tornado ID, 7 only the fusion. Every one of the 8 has an LLSD column on it: rotation-only tornadoes (0.025–0.034 s⁻¹, 3–4 tilts, persisting, no debris signature), fused at 0.17–0.41 because debris carries most of the weight. Five of the 8 are one Washington, IL circulation matched to five reports. Weighting rotation-only circulations as Tornado ID does would recover them, and with them the false alarms the hard negatives exposed. More rotation-only tornadoes and rotating non-tornadic storms in the corpus are what can settle that weight.
