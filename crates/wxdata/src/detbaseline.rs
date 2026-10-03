@@ -308,6 +308,11 @@ pub struct Summary {
     pub soundings: BTreeMap<String, String>,
     /// Each event's truth: tornado reports, surveyed paths and hail reports.
     pub truth_counts: BTreeMap<String, TruthCounts>,
+    /// Each event's tornado truths by the ids `matched_truths` uses (`r0`.. reports, `s0`..
+    /// surveyed paths), with their minute: a report's time, a path's start. With the export's
+    /// track ids this measures lead time along a storm's own track rather than only inside the
+    /// matching window (detectionplan.md, Phase 9/11 finding).
+    pub tornado_truth_minutes: BTreeMap<String, BTreeMap<String, i64>>,
     pub radius_km: f64,
     pub window_min: i64,
     pub detectors: BTreeMap<String, DetectorSummary>,
@@ -573,6 +578,22 @@ pub fn summarize(runs: &[EventRun], radius_km: f64, window_min: i64) -> Summary 
                         hail_reports: r.hail_reports.len(),
                     },
                 )
+            })
+            .collect(),
+        tornado_truth_minutes: runs
+            .iter()
+            .map(|r| {
+                let reports = r
+                    .tornado_reports
+                    .iter()
+                    .enumerate()
+                    .map(|(i, t)| (format!("r{i}"), t.minute));
+                let paths = r
+                    .tornado_surveys
+                    .iter()
+                    .enumerate()
+                    .map(|(i, p)| (format!("s{i}"), p.start_minute));
+                (r.label.clone(), reports.chain(paths).collect())
             })
             .collect(),
         radius_km,

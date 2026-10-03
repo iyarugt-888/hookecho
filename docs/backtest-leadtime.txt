@@ -1,0 +1,27 @@
+# Lead-time backtest (detectionplan.md, Phase 9/11 finding): every tornado event of
+# docs/backtest-events.txt started 30 minutes earlier, run with 16 volumes:
+#   hookecho --headless-backtest-file docs/backtest-leadtime.txt 16 --export DIR
+# The main corpus starts each event a few minutes before its first report, so its lead times
+# measure nothing; these windows open half an hour before. Hard negatives are left out: they
+# have no reports to lead.
+
+KTLX 2013-05-20 19:20   # Moore, OK
+KTLX 2013-05-31 22:25   # El Reno, OK
+KILX 2013-11-17 16:20   # Washington, IL (dual-pol)
+KPAH 2021-12-11 02:55   # Mayfield, KY (dual-pol, night)
+KLZK 2014-04-27 23:50   # Mayflower and Vilonia, AR (dual-pol)
+KOHX 2020-03-03 06:00   # Nashville and Cookeville, TN (dual-pol, night)
+KILN 2019-05-28 01:15   # Dayton, OH outbreak, night (01:48Z, Hollansburg, 103 km)
+KDGX 2023-03-25 00:25   # Rolling Fork, MS, violent, night, 109-116 km out (00:57Z, Mayersville)
+KDGX 2020-04-12 17:25   # Easter outbreak, MS (18:00Z, Cary, 102 km; 81 km by 18:22Z)
+KDIX 2021-09-01 21:00   # Ida remnants, tropical, NJ/PA (21:35Z, Whitemarsh Twp, 73 km)
+KHGX 2017-08-25 18:45   # Harvey, tropical, weak and short-lived (19:23Z, NE of Galveston, 35 km)
+KFDR 2019-05-20 21:35   # SW Oklahoma high-risk day (22:12Z, SW of Mangum, 75 km)
+KLOT 2021-06-21 03:30   # Naperville/Woodridge QLCS, night, near range (04:05Z, 17 km; 04:08Z, 10 km)
+KDMX 2021-12-15 22:28   # December derecho, embedded QLCS tornadoes (23:01Z, Brayton, 105 km)
+KLOT 2020-08-10 19:20   # Chicago derecho QLCS, EF0-1 (19:54Z, Kirkland, 85 km; Plainfield 19 km at 20:15Z)
+KILX 2023-03-31 19:00   # Brief tornadoes ahead of the 3/31 outbreak (19:37Z, Manito, 49 km)
+KSHV 2024-07-08 17:30   # Beryl, tropical, weak (18:06Z, Henderson, 96 km; Huxley 71 km at 18:10Z)
+KMLB 2024-10-09 17:25   # Milton, tropical, 90-140 km out (18:00Z, Archbold; Port St. Lucie 18:15Z)
+KRAX 2024-08-08 05:35   # Debby, tropical, night (06:08Z, Snow Hill, 77 km; Lucama 40 km at 06:51Z)
+KCAE 2024-09-27 04:40   # Helene's outer bands, weak, night (05:17Z, Branchville, 88 km; Woodford 34 km at 05:54Z)
