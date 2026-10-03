@@ -567,7 +567,9 @@ fn body(
                 stages: card.show_stages,
                 flow: card.show_flow,
             };
-            hydrograph(ui, h, &d.thresholds, opts, tz, Utc::now());
+            if let Some(p) = hydrograph(ui, h, &d.thresholds, opts, tz, Utc::now()) {
+                pick = Some(p);
+            }
             crest_lines(ui, h, &d.thresholds, card.past, tz, &on, &mut pick);
         }
         None if card.loading => {
@@ -935,17 +937,18 @@ fn hydrograph(
     opts: GraphOpts,
     tz: Option<Tz>,
     now: DateTime<Utc>,
-) {
+) -> MapPick {
     let (obs, fc) = visible(h, opts.past, opts.forecast, now);
     let x0 = now - Duration::hours(opts.past.hours());
     let x1 = fc.last().map_or(now, |r| r.time.max(now));
     let stages: Vec<f64> = obs.iter().chain(fc).filter_map(|r| r.stage_ft).collect();
     let Some((y0, y1)) = stage_range(&stages, t, opts.stages) else {
         ui.label(RichText::new("No stage readings in this window.").weak());
-        return;
+        return None;
     };
     let width = ui.available_width().max(260.0);
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(width, 220.0), Sense::hover());
+    // A click maps the flooding at the reading under the pointer.
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(width, 220.0), Sense::click());
     let painter = ui.painter_at(rect);
     let vis = ui.visuals();
     let text = vis.text_color();
@@ -1254,6 +1257,7 @@ fn hydrograph(
     }
 
     // Hover: the reading under the pointer.
+    let mut pick = None;
     if let Some(hp) = response.hover_pos().filter(|p| plot.contains(*p)) {
         let near = obs
             .iter()
@@ -1287,9 +1291,17 @@ fn hydrograph(
                 tip.push_str(&format!("\n{}", flow_text(f, units)));
             }
             tip.push_str(if is_fc { "\nforecast" } else { "\nobserved" });
-            response.on_hover_text_at_pointer(tip);
+            tip.push_str("\nClick to map the flooding at this level");
+            if response.clicked() {
+                let what = if is_fc { "Forecast" } else { "Observed" };
+                pick = Some((s, format!("{what} {}", when(r.time, tz))));
+            }
+            response
+                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                .on_hover_text_at_pointer(tip);
         }
     }
+    pick
 }
 
 /// A polyline through the readings that have a value, broken at gaps in the record.
