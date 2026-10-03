@@ -340,13 +340,20 @@ impl HookEchoApp {
         let rows = super::inspector::storm_rows(&c, metric);
         // Whether the tornado detectors ran on this volume at all: "no detection" means nothing
         // only if they did.
-        let detectors_ran = {
+        let (detectors_ran, tornado_lineage) = {
             let name = self.views[self.active]
                 .volume
                 .as_ref()
                 .map(|v| v.name.clone())
                 .unwrap_or_default();
-            self.rot_shown_cache.peek(&name).is_some() || self.tds_shown_cache.peek(&name).is_some()
+            (
+                self.rot_shown_cache.peek(&name).is_some()
+                    || self.tds_shown_cache.peek(&name).is_some(),
+                // Where Tornado ID's verdicts on this volume came from (`detection_lineage`).
+                self.tornado_shown_for(&name)
+                    .map(|(_, _, l)| l.lines())
+                    .unwrap_or_default(),
+            )
         };
         let threat = {
             let vol = self.views[self.active].volume.as_ref();
@@ -499,6 +506,11 @@ impl HookEchoApp {
                                     Some(line) => ws::kv(ui, &t, "Tornado", line, Some(t.warn)),
                                     None if detectors_ran => ws::kv(ui, &t, "Tornado", "no uniquely associated detection", None),
                                     None => ws::kv(ui, &t, "Tornado", "detectors off (a tornado layer runs them)", None),
+                                }
+                                if threat.tornado.is_some() {
+                                    for line in &tornado_lineage {
+                                        ui.label(ws::text(line, 10.5, t.text_faint));
+                                    }
                                 }
                                 if threat.ambiguous > 0 {
                                     ui.label(ws::text(format!("{} nearby circulation match(es) ambiguous between SCIT cores", threat.ambiguous), 11.0, t.warn));
