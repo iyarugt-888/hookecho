@@ -265,6 +265,20 @@ Primary code areas:
 
 - **Near-ground low-level shear does not separate either** (offline on `p14-45`). The feature is the 0–2 km shear when the column's base beam is under 1 km above the radar, else 0: close-range, low-tilt rotation, the operational cue. Held out by event on all 45, it fits to almost nothing. AUC goes from 0.596 to 0.594, and POD and FAR are unchanged at every threshold, for example at ≥ 0.6 POD 0.21 and FAR 0.30 against 0.20 and 0.32. On round four the shipped fusion finds 3% at Possible, so there is nothing for it to recover there. The near-range miss is not about where the shear was measured: rotation-only columns of 0.013–0.020 s⁻¹ simply look like the many that never produce a tornado.
 
+- **Per-stage cost** (`scientific_corpus::cached_fused_pipeline_stage_timings`). The pinned Moore 2013 volume, lowest four velocity tilts, 67 columns, 18 debris signatures. Release build, median of 5, on an AMD Ryzen 7 3700X (16 threads):
+
+  | Stage | Time |
+  |---|---|
+  | LLSD field | 151 ms (38 ms per tilt; rows in parallel) |
+  | Objects, the credible pass and the weak-echo support pass | 108 ms |
+  | Echo shape and near-ground flow | 3.3 ms |
+  | Vertical association | 0.17 ms |
+  | Tracking | 0.03 ms |
+  | Debris classification and fusion | 0.08 ms |
+  | `from_sweeps` end to end | 277 ms |
+
+  The field and the two object passes are 94% of the cost; everything after them is negligible. The app runs this once per new full volume on a background thread, so it never blocks a frame. The object passes are the first place to look if a slower device needs it: the support pass re-segments the same field. Low-end desktop and Android timings are not measured.
+
 ### Where the detection stands (45 events)
 
 - **Promoted.** The fused Tornado ID (fusion-3) is the app's default; the original is selectable. On every held-out test since promotion it has found as many tornadoes as the original or more, at a far lower false-alarm ratio. On round three's unseen events at matched false-alarm rates: POD 0.29, FAR 0.21 against 0.15, 0.64. On non-tornadic lines (round four): 0 false detections against 23. On the hail storms, at Likely: 2 against 25.

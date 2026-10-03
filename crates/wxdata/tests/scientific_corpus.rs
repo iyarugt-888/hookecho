@@ -700,3 +700,124 @@ fn cached_echo_shape_tells_a_line_from_a_cell() {
     }
     eprintln!("{aspect_at:?}");
 }
+
+/// detectionplan.md "Performance constraints": each stage of the fused pipeline timed on its own,
+/// on the pinned Moore volume's lowest four velocity tilts (median of 5 runs). Run in release
+/// with `--ignored --nocapture`; the numbers are recorded in the plan with the hardware.
+#[test]
+#[ignore = "large cached fixtures: provision explicitly before running (release build)"]
+fn cached_fused_pipeline_stage_timings() {
+    use std::time::{Duration, Instant};
+    use wxdata::azshear::{llsd, LlsdParams};
+    use wxdata::rotation_columns::{columns_with_support, ColumnParams};
+    use wxdata::rotation_objects::{objects, Artifact, ObjectParams};
+    let m = corpus::manifest();
+    let f = m.fixtures.iter().find(|f| f.id == "moore-2013").unwrap();
+    let scan = level2::decode_volume(corpus::read(f, &corpus::cache_dir()).unwrap()).unwrap();
+    let (mut pairs, mut cc_pairs) = (Vec::new(), Vec::new());
+    for tilt in 0..level2::elevation_angles(&scan).len() {
+        let z = level2::bin_scan(&scan, Moment::Reflectivity, tilt);
+        if let (Ok(z), Ok(cc)) = (
+            &z,
+            level2::bin_scan(&scan, Moment::CorrelationCoefficient, tilt),
+        ) {
+            cc_pairs.push((z.clone(), cc));
+        }
+        if let (Ok(z), Ok(v)) = (
+            z,
+            level2::bin_scan_opts(&scan, Moment::Velocity, tilt, true),
+        ) {
+            pairs.push((v, z));
+        }
+        if pairs.len() == 4 {
+            break;
+        }
+    }
+    let median = |mut d: Vec<Duration>| {
+        d.sort();
+        d[d.len() / 2]
+    };
+    let time = |f: &mut dyn FnMut()| {
+        median(
+            (0..5)
+                .map(|_| {
+                    let t = Instant::now();
+                    f();
+                    t.elapsed()
+                })
+                .collect(),
+        )
+    };
+    let p = LlsdParams::default();
+    let fields: Vec<_> = pairs.iter().map(|(v, _)| llsd(v, &p)).collect();
+    let field_t = time(&mut || {
+        for (v, _) in &pairs {
+            std::hint::black_box(llsd(v, &p));
+        }
+    });
+    let relaxed = ObjectParams {
+        require_echo: false,
+        ..ObjectParams::default()
+    };
+    let mut tilts = Vec::new();
+    let mut support = Vec::new();
+    let objects_t = time(&mut || {
+        tilts.clear();
+        support.clear();
+        for (fld, (v, z)) in fields.iter().zip(&pairs) {
+            tilts.push(
+                objects(fld, v, z, &ObjectParams::default())
+                    .into_iter()
+                    .filter(|o| o.credible())
+                    .collect::<Vec<_>>(),
+            );
+            support.push(
+                objects(fld, v, z, &relaxed)
+                    .into_iter()
+                    .filter(|o| o.artifacts.iter().all(|a| *a == Artifact::NoEcho))
+                    .collect::<Vec<_>>(),
+            );
+        }
+    });
+    let mut columns = Vec::new();
+    let columns_t = time(&mut || {
+        columns = columns_with_support(&tilts, &support, &ColumnParams::default());
+    });
+    let echo_t = time(&mut || {
+        let e = wxdata::storm_mode::EchoObjects::label(&pairs[0].1, wxdata::storm_mode::CORE_DBZ);
+        for c in &columns {
+            std::hint::black_box(e.shape_at(c.lon, c.lat, wxdata::storm_mode::SEARCH_KM));
+            std::hint::black_box(wxdata::near_flow::near_flow(
+                &pairs[0].0,
+                c.lon,
+                c.lat,
+                wxdata::near_flow::RADIUS_KM,
+            ));
+        }
+    });
+    let debris = wxdata::tds::detect_volume(&cc_pairs, 0.80, 40.0, 150.0, 4);
+    let track_t = time(&mut || {
+        let mut tracker =
+            wxdata::rotation_tracks::Tracker::new(wxdata::rotation_tracks::TrackParams::default());
+        std::hint::black_box(tracker.update(0, columns.clone()));
+    });
+    let mut tracker =
+        wxdata::rotation_tracks::Tracker::new(wxdata::rotation_tracks::TrackParams::default());
+    let tracked = tracker.update(0, columns.clone());
+    let fuse_t = time(&mut || {
+        std::hint::black_box(wxdata::llsd_analyst::analyse(tracked.clone(), &debris, &[]));
+    });
+    let whole_t = time(&mut || {
+        std::hint::black_box(wxdata::rotation_columns::from_sweeps(&pairs));
+    });
+    eprintln!(
+        "Moore 2013, 4 tilts, {} columns, {} debris signatures (median of 5):\n  \
+         LLSD field {field_t:?} ({:?} per tilt)\n  objects (credible + weak-echo support) {objects_t:?}\n  \
+         vertical association {columns_t:?}\n  echo shape + near flow {echo_t:?}\n  \
+         tracking {track_t:?}\n  debris classification + fusion {fuse_t:?}\n  \
+         from_sweeps end to end {whole_t:?}",
+        columns.len(),
+        debris.len(),
+        field_t / pairs.len() as u32
+    );
+}
