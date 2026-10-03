@@ -1,7 +1,7 @@
+# M1.1 derived radar coverage increment
+
 Smooth/isosurface increment 4 evidence is in [map-3d.md](map-3d.md), with its own covered
 builder controls and reviewed source-coverage captures. Earlier counts below remain historical.
-
-# M1.1 derived radar coverage increment
 
 The subsequent [standalone 3D increment](standalone-3d.md) has its own scientific controls,
 ownership tests, reviewed UI references and remaining-scope record. The [native observed

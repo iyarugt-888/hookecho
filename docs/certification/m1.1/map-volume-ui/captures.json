@@ -1,0 +1,100 @@
+{
+  "scenario": "Controlled binned contributor metadata in production Inspector painter; smooth and isosurface source sections, no full 3D viewport",
+  "theme": "DearImGui",
+  "pixels_per_point": 1,
+  "adapter_driver": "Not retained by the UI snapshot helper",
+  "command": "cargo test -p hookecho --lib gpu_map_volume_coverage_snapshots -- --ignored --nocapture",
+  "source_baseline": "cd412d4, with concurrent detector changes in the shared tree; coverage painter unchanged",
+  "captures": [
+    {
+      "file": "continuous-240.png",
+      "bytes": 41510,
+      "sha256": "85356886fd3bfd5510dd45341bfdf7c544b1bcdcc2aa762eee8c869182c3b7ee",
+      "width": 240,
+      "height": 700,
+      "touch": true,
+      "capture_utc": "2026-10-03T04:09:49.053884+00:00"
+    },
+    {
+      "file": "continuous-300.png",
+      "bytes": 42190,
+      "sha256": "36dd396756d75384824c0c046994ec4881ca325353e2fafdbb9ad115c00385d7",
+      "width": 300,
+      "height": 700,
+      "touch": false,
+      "capture_utc": "2026-10-03T04:09:49.381114+00:00"
+    },
+    {
+      "file": "empty-240.png",
+      "bytes": 15777,
+      "sha256": "dd81e3aa4ba7c2918dec85a30fc2ea7eaea0bfefda4a97a4215a4dd8d5682341",
+      "width": 240,
+      "height": 700,
+      "touch": true,
+      "capture_utc": "2026-10-03T04:09:51.552174+00:00"
+    },
+    {
+      "file": "empty-300.png",
+      "bytes": 16445,
+      "sha256": "f4ec4317948d66ebb24a4b209223f65f72b261ce98adcad9266c3e3aaeed7e84",
+      "width": 300,
+      "height": 700,
+      "touch": false,
+      "capture_utc": "2026-10-03T04:09:51.728054+00:00"
+    },
+    {
+      "file": "pending-240.png",
+      "bytes": 17364,
+      "sha256": "602b732bb0c0a3cabd016296a186a476ed2316fefe4fd8d129cf615454f27aea",
+      "width": 240,
+      "height": 700,
+      "touch": true,
+      "capture_utc": "2026-10-03T04:09:50.428236+00:00"
+    },
+    {
+      "file": "pending-300.png",
+      "bytes": 18047,
+      "sha256": "817f2f438163620c6d642858dae88c42bd0ebf0e2d8e461ef43dc1f32b7262eb",
+      "width": 300,
+      "height": 700,
+      "touch": false,
+      "capture_utc": "2026-10-03T04:09:50.608820+00:00"
+    },
+    {
+      "file": "strict-240.png",
+      "bytes": 40965,
+      "sha256": "fe31b533feef1cc4d816d267a3e063668ee9d2ee5ce734720ac0ba0bbeaf1dac",
+      "width": 240,
+      "height": 700,
+      "touch": true,
+      "capture_utc": "2026-10-03T04:09:49.843685+00:00"
+    },
+    {
+      "file": "strict-300.png",
+      "bytes": 41657,
+      "sha256": "6e8328baf329ae29492f2a495f7a147d3e570de339374b747445a7ab92f00016",
+      "width": 300,
+      "height": 700,
+      "touch": false,
+      "capture_utc": "2026-10-03T04:09:50.145201+00:00"
+    },
+    {
+      "file": "unknown-240.png",
+      "bytes": 39485,
+      "sha256": "f630c84c1bb3c9d27614ffa92e0e26036ef4fe2b4c013ac5853d4cd734481d8a",
+      "width": 240,
+      "height": 700,
+      "touch": true,
+      "capture_utc": "2026-10-03T04:09:50.998379+00:00"
+    },
+    {
+      "file": "unknown-300.png",
+      "bytes": 40167,
+      "sha256": "5fae2ec9ac8af45189233e84c247d38c2d55655588a55045c95066d511a63f1d",
+      "width": 300,
+      "height": 700,
+      "touch": false,
+      "capture_utc": "2026-10-03T04:09:51.276557+00:00"
+    }
+  ]
+}
