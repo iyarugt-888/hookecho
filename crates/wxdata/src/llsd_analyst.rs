@@ -410,6 +410,7 @@ mod tests {
                 lean_km_per_km: None,
                 lean_bearing_deg: None,
                 echo: None,
+                near_flow: None,
                 members,
             },
             track_id: 7,

@@ -59,6 +59,7 @@ pub mod level3;
 pub mod live;
 pub mod live_block;
 pub mod llsd_analyst;
+pub mod near_flow;
 pub mod lsr;
 pub mod metar;
 pub mod meteoalarm;

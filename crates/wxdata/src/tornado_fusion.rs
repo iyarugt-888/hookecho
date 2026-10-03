@@ -23,7 +23,7 @@ use crate::tds::TdsHit;
 pub const ALGORITHM_VERSION: &str = "fusion-3";
 
 /// The features, in [`Features::values`] order. Shear is in units of 0.01 s⁻¹.
-pub const FEATURE_NAMES: [&str; 16] = [
+pub const FEATURE_NAMES: [&str; 18] = [
     "low_level_shear",
     "max_shear",
     "depth_km",
@@ -40,6 +40,8 @@ pub const FEATURE_NAMES: [&str; 16] = [
     "stationary",
     "echo_length_100km",
     "echo_aspect",
+    "near_wind_10ms",
+    "near_inbound_10ms",
 ];
 
 /// What the fusion knows about one circulation in one volume.
@@ -82,6 +84,11 @@ pub struct Features {
     pub echo_length_100km: f32,
     /// That echo's length over width, capped at 10; 0 with no core near it.
     pub echo_aspect: f32,
+    /// 90th percentile near-ground radial speed within 5 km of the base on the lowest tilt, in
+    /// 10 m/s ([`crate::near_flow`]); 0 unmeasured. Weight 0 until fitted.
+    pub near_wind_10ms: f32,
+    /// The strongest flow toward the radar there, in 10 m/s; 0 unmeasured.
+    pub near_inbound_10ms: f32,
 }
 
 /// Slower than this (m/s) over 3 or more volumes is [`Features::stationary`].
@@ -130,11 +137,13 @@ impl Features {
             ),
             echo_length_100km: c.echo.map_or(0.0, |e| (e.length_km / 100.0).min(3.0)),
             echo_aspect: c.echo.map_or(0.0, |e| e.aspect().min(10.0)),
+            near_wind_10ms: c.near_flow.map_or(0.0, |f| f.p90_speed_ms / 10.0),
+            near_inbound_10ms: c.near_flow.map_or(0.0, |f| f.max_inbound_ms / 10.0),
         }
     }
 
     /// The features in [`FEATURE_NAMES`] order.
-    pub fn values(&self) -> [f32; 16] {
+    pub fn values(&self) -> [f32; 18] {
         [
             self.low_level_shear,
             self.max_shear,
@@ -152,6 +161,8 @@ impl Features {
             self.stationary,
             self.echo_length_100km,
             self.echo_aspect,
+            self.near_wind_10ms,
+            self.near_inbound_10ms,
         ]
     }
 }
@@ -160,7 +171,7 @@ impl Features {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Weights {
     pub bias: f32,
-    pub w: [f32; 16],
+    pub w: [f32; 18],
 }
 
 /// The fitted weights (`scripts/fusion/fit.py`, fusion-3, on the 25-event backtest corpus of
@@ -201,6 +212,8 @@ pub const WEIGHTS: Weights = Weights {
         -0.5120, // stationary
         0.0,     // echo_length_100km
         0.0,     // echo_aspect
+        0.0,     // near_wind_10ms
+        0.0,     // near_inbound_10ms
     ],
 };
 
@@ -265,6 +278,8 @@ mod tests {
             stationary: 0.0,
             echo_length_100km: 0.3,
             echo_aspect: 1.5,
+            near_wind_10ms: 2.0,
+            near_inbound_10ms: 2.5,
         }
     }
 
@@ -274,10 +289,11 @@ mod tests {
             bias: -3.0,
             w: [
                 0.8, 0.2, 0.3, 0.1, 0.9, 1.1, 0.4, 0.2, 0.2, 2.0, -0.8, -0.5, -0.3, -1.0, 0.0, 0.0,
+                0.0, 0.0,
             ],
         };
         let f = fuse(&features(), &w);
-        assert_eq!(f.terms.len(), 17);
+        assert_eq!(f.terms.len(), 19);
         let z: f32 = f.terms.iter().map(|t| t.logit).sum();
         assert_eq!(f.score, 1.0 / (1.0 + (-z).exp()));
         assert_eq!(f.terms[10].label, "debris");
@@ -288,7 +304,7 @@ mod tests {
     fn more_evidence_with_positive_weights_never_lowers_the_score() {
         let w = Weights {
             bias: -2.0,
-            w: [0.5; 16],
+            w: [0.5; 18],
         };
         let base = fuse(&features(), &w).score;
         let mut more = features();
@@ -340,6 +356,8 @@ mod tests {
                 stationary: 0.0,
                 echo_length_100km: 0.0,
                 echo_aspect: 0.0,
+                near_wind_10ms: 0.0,
+                near_inbound_10ms: 0.0,
             },
             &WEIGHTS,
         );

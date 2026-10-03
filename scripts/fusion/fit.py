@@ -45,6 +45,9 @@ SIGNS = {
     # Storm mode (round three): measured, left out until the line-or-cell question is settled.
     "echo_length_100km": 0,
     "echo_aspect": 0,
+    # Near-ground flow beside the column (round three): measured, left out until tested.
+    "near_wind_10ms": 0,
+    "near_inbound_10ms": 0,
 }
 
 

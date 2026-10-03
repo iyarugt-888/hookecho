@@ -105,6 +105,9 @@ pub struct RotationColumn {
     /// ([`crate::storm_mode`]): a line or a cell. `None` with no core within
     /// [`crate::storm_mode::SEARCH_KM`], or when the caller measured none.
     pub echo: Option<crate::storm_mode::EchoShape>,
+    /// The near-ground flow around the column's base on the lowest tilt ([`crate::near_flow`]);
+    /// `None` when the caller measured none or too few gates were valid.
+    pub near_flow: Option<crate::near_flow::NearFlow>,
 }
 
 impl RotationColumn {
@@ -172,6 +175,13 @@ pub fn from_sweeps(pairs: &[(BinnedSweep, BinnedSweep)]) -> Vec<RotationColumn> 
         let echo = EchoObjects::label(z, CORE_DBZ);
         for c in &mut cols {
             c.echo = echo.shape_at(c.lon, c.lat, SEARCH_KM);
+        }
+    }
+    // And the near-ground flow around each, from the lowest tilt's velocity.
+    if let Some((vel, _)) = pairs.first() {
+        for c in &mut cols {
+            c.near_flow =
+                crate::near_flow::near_flow(vel, c.lon, c.lat, crate::near_flow::RADIUS_KM);
         }
     }
     cols
@@ -330,6 +340,7 @@ fn describe(mut members: Vec<ColumnMember>) -> RotationColumn {
         lean_km_per_km,
         lean_bearing_deg,
         echo: None,
+        near_flow: None,
         members,
     }
 }
