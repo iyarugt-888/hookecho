@@ -60,6 +60,15 @@ tops and VIL, sorted; click a row to fly there.
 tilt: a velocity couplet, high reflectivity, and a *hole* in CC where debris is
 lofted. The app flags candidates, but the three panels are the reason.
 
+Turn on **Tornado detection** (Layers → Severe) to have the app read them for
+you. It draws one marker per possible tornado (*possible*, *likely*, *debris* or
+*confirmed*) with an evidence score out of 100. That score says how much radar
+evidence there is, not a probability. Click or tap a marker to open the web of
+rotation and debris detections behind it, each with its factors. The hover says
+which pipeline made the verdict and when the sweeps behind it were scanned. It
+alerts when a marker reaches *likely* or higher; *possible* is drawn but stays
+quiet. It does not run on TDWR sites.
+
 ## Project a storm's motion
 
 Search `Ctrl+K` for **Storm motion** and enable the tool. Drag from the storm's current
@@ -126,7 +135,8 @@ warned for.
 - **Markers** are what alerts watch. Search a place in the panel → **Save marker**.
 - Settings → Alerts: chime, desktop notification, [ntfy.sh](https://ntfy.sh)
   push, Discord/Slack/Matrix webhook. Triggers include warnings, lightning
-  distance, rain arrival, debris signature and rotation.
+  distance, rain arrival, debris signature and rotation. With **Tornado
+  detection** on, a tornado *likely* or worse alerts on its own.
 - **Android**: opt into the background service and your phone notifies you with
   the app closed, tiered watch / warning / emergency, tapping through to the storm.
   The home-screen widget shows what's warned at your saved locations.

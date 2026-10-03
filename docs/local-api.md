@@ -14,7 +14,7 @@ no-store`).
 |---|---|
 | `/api/v1` | the list of endpoints |
 | `/api/v1/state` | every pane: site, product, tilt and elevation, the volume on display and its time, whether it follows live, the camera; which pane is active |
-| `/api/v1/detections` | debris signatures and rotation couplets on the active pane's volume, as shown (after corroboration), with confidence and the algorithm versions |
+| `/api/v1/detections` | Tornado detection on the active pane's volume: Tornado ID's verdicts (tier, evidence score, reasons) with their lineage (pipeline, algorithm versions, the scan times of their input sweeps), and the debris signatures and rotation couplets behind them with confidence and algorithm versions |
 | `/api/v1/warnings` | the warnings shown on the map: event, headline, area, expiry, VTEC |
 | `/api/v1/health` | each data source's health, as the diagnostics export reports it |
 | `/api/v1/products` | the active volume's moments and elevation angles, and the field layers on |
