@@ -30,6 +30,11 @@ impl PartialEq for ScanIdentity {
     }
 }
 impl Eq for ScanIdentity {}
+impl std::hash::Hash for ScanIdentity {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::hash::Hash::hash(&(self.0.as_ptr() as usize), state);
+    }
+}
 
 /// Fetch and decode one volume, using whatever cache this target has.
 ///

@@ -8,6 +8,17 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: smooth volumes and isosurfaces match the selected radar frame
+
+Smooth map volumes, user products and isosurfaces now carry source coverage through worker
+builds and playback caches. Strict-current mode masks contributing moments and reflectivity
+quality-mask inputs before evaluation or interpolation. Older GPU volumes, meshes and summaries
+are hidden when the scan, accepted revision, policy or build controls change. The Inspector
+reports the accepted frame and contributing moments with mixed, excluded and unknown coverage.
+Current-frame and prefetch builds share a bounded worker limit; failed/unavailable selections
+have an explicit retry. Archive/playback retain continuous inputs and valid empty surfaces keep
+their coverage metadata.
+
 ### Fixed: native 3D sweeps follow source revisions and sweep policy
 
 Observed 3D map sweeps now rebuild for the actual accepted scan, including another update at

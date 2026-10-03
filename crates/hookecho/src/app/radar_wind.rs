@@ -41,7 +41,11 @@ impl HookEchoApp {
         if !self.radar_wind.on || !self.show_wind {
             return;
         }
-        let Some(key) = self.shown_volume_key(self.active) else {
+        let Some(key) = self.views[self.active]
+            .volume
+            .as_ref()
+            .map(|v| (v.name.clone(), v.revision()))
+        else {
             return;
         };
         if self.radar_wind.key.as_ref() == Some(&key) {

@@ -304,71 +304,51 @@ impl HookEchoApp {
             .as_deref()
             .and_then(wxdata::sites::site_by_id)?;
 
-        // Show the built volume for what is displayed, from the pane's loop cache, and start its
-        // build when there is none (ROADMAP_NEW H8). Until it lands the last one stays up, and the
-        // controls say so. While the loop plays, frames use the smaller loop grid, so a loop's
-        // worth fits in the cache; pausing builds the paused frame at full resolution.
+        // Cache/upload/coverage are one accepted frame. A different selected source never
+        // draws the old GPU volume while its worker runs.
         self.loop3d_jobs.drain(&mut self.loop3d);
         let loop_quality = self.views[data].timeline.playing;
-        if let Some((name, rev)) = self.shown_volume_key(data) {
-            if let Some(key) = self.smooth_key_for(idx, &name, rev, loop_quality) {
-                if self.smooth_vol_key[idx].as_ref() != Some(&key) {
-                    let job = JobKey::Smooth(idx, key.clone());
-                    if let Some(up) = self.loop3d[idx].smooth.get(&key) {
-                        self.smooth_vol_dims[idx] = Some((up.n, up.nz, up.half_km, up.top_km));
-                        self.smooth_vol_info[idx] = Some((up.cell_km(), up.outside));
-                        self.smooth_vol_range[idx] = up.value_range;
-                        self.smooth_vol_pending[idx] = Some(Arc::clone(up));
-                        self.smooth_vol_key[idx] = Some(key);
-                        ctx.request_repaint();
-                    } else if self.loop3d_jobs.came_up_empty(&job) {
-                        // No sweeps survived the resample: draw nothing rather than the last one.
-                        self.smooth_vol_dims[idx] = None;
-                        self.smooth_vol_info[idx] = None;
-                        self.smooth_vol_range[idx] = None;
-                        self.smooth_vol_key[idx] = Some(key);
-                    } else if self.loop3d_jobs.wants(&job) {
-                        if let (Some(spec), Some(vol)) = (
-                            self.smooth_spec(idx, loop_quality),
-                            self.views[data].volume.as_mut(),
-                        ) {
-                            if spec.product.is_some() {
-                                // A product reads every moment: build it from the whole scan,
-                                // off the UI thread.
-                                let scan = Arc::clone(&vol.scan);
-                                self.loop3d_jobs.start(job, &self.spawner, ctx, move || {
-                                    crate::loop3d::Built::Smooth(crate::loop3d::build_smooth(
-                                        crate::loop3d::Sweeps::Scan(scan),
-                                        &spec,
-                                    ))
-                                });
-                            } else {
-                                // Velocity dealiased, so folded gates do not read as false
-                                // couplets.
-                                let sweeps = if resample_moment == Moment::Velocity {
-                                    vol.velocity_tilts_dealiased()
-                                } else {
-                                    vol.moment_tilts(resample_moment)
-                                };
-                                let mask = crate::loop3d::masked_by_reflectivity(resample_moment)
-                                    .then(|| vol.moment_tilts(Moment::Reflectivity));
-                                if !sweeps.is_empty() {
-                                    self.loop3d_jobs.start(job, &self.spawner, ctx, move || {
-                                        crate::loop3d::Built::Smooth(crate::loop3d::build_smooth(
-                                            crate::loop3d::Sweeps::Binned { sweeps, mask },
-                                            &spec,
-                                        ))
-                                    });
-                                }
-                            }
-                        }
-                    }
+        let source = self.shown_volume_key(data)?;
+        let key = self.smooth_key_for(idx, source, loop_quality)?;
+        if self.smooth_vol_key[idx].as_ref() != Some(&key) {
+            let job = JobKey::Smooth(idx, key.clone());
+            if let Some(frame) = self.loop3d[idx].smooth.get(&key) {
+                let up = &frame.upload;
+                self.smooth_vol_dims[idx] = Some((up.n, up.nz, up.half_km, up.top_km));
+                self.smooth_vol_info[idx] = Some((up.cell_km(), up.outside));
+                self.smooth_vol_range[idx] = up.value_range;
+                self.smooth_vol_coverage[idx] = Some(frame.coverage.clone());
+                self.smooth_vol_pending[idx] = Some(Arc::clone(up));
+                self.smooth_vol_key[idx] = Some(key.clone());
+                ctx.request_repaint();
+            } else if self.loop3d_jobs.came_up_empty(&job) {
+                self.smooth_vol_dims[idx] = None;
+                self.smooth_vol_info[idx] = None;
+                self.smooth_vol_range[idx] = None;
+                self.smooth_vol_coverage[idx] = None;
+                self.smooth_vol_pending[idx] = None;
+                self.smooth_vol_key[idx] = Some(key.clone());
+            } else if self.loop3d_jobs.wants(&job) {
+                if let (Some(spec), Some(vol)) = (
+                    self.smooth_spec(idx, loop_quality),
+                    self.views[data].volume.as_ref(),
+                ) {
+                    let scan = Arc::clone(&vol.scan);
+                    let policy = key.source.policy;
+                    self.loop3d_jobs.start(job, &self.spawner, ctx, move || {
+                        crate::loop3d::Built::Smooth(crate::loop3d::build_smooth_covered(
+                            crate::loop3d::Sweeps::Scan(scan),
+                            &spec,
+                            policy,
+                        ))
+                    });
                 }
             }
         }
+        if self.smooth_vol_key[idx].as_ref() != Some(&key) {
+            return None;
+        }
 
-        // Nothing GPU-resident yet for this pane (first frame in Smooth mode, or the first build
-        // is still in flight) — nothing to raymarch this frame.
         let (n, nz, half_km, top_km) = self.smooth_vol_dims[idx]?;
         let antenna_altitude_m =
             (site.elevation_meters as f64 + wxdata::towers::tower_m(site.id)) as f32;

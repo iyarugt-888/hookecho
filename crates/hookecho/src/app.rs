@@ -70,6 +70,7 @@ mod cell_markers;
 mod detector_markers;
 mod loop_capture;
 mod map_click;
+mod map_volume;
 mod pane_3d_overlays;
 mod pane_feeds;
 mod pane_layout;
@@ -2251,17 +2252,15 @@ pub struct HookEchoApp {
     /// ceiling) rather than the window's single `vol3d_*` set — more than one pane can be
     /// showing it at once, each its own site and volume.
     ///
-    /// `(volume name, tilt count, moment)` last built per pane — the moment is part of the key so
-    /// switching between the reflectivity Smooth volume and the CC Debris volume on the same pane
-    /// rebuilds instead of showing the stale one; an in-flight receiver while a rebuild runs
-    /// off-thread; a finished upload waiting for `render_pane`'s GPU callback to consume it; and
-    /// the small geometry facts (`n, nz, half_km, top_km`) of whatever is currently GPU-resident,
-    /// kept separately from the (heavy) upload so the frames between rebuilds don't need the
-    /// tens-of-MB volume held twice just to recompute the camera uniform.
+    /// The accepted decoded source, revision, policy and build controls per pane. Upload
+    /// geometry and contributor coverage are accepted together, and hidden on mismatch.
+    /// Heavy samples stay shared with the byte-bounded playback cache.
     smooth_vol_key: [Option<SmoothKey>; crate::view::MAX_PANES],
     /// Per pane: the isosurface shells shown and the [`IsoKey`] they were built for
     /// (ROADMAP_NEW H3).
-    iso_mesh: [Option<(IsoKey, Arc<Vec<IsoShell>>)>; crate::view::MAX_PANES],
+    iso_mesh: [Option<(IsoKey, Arc<crate::loop3d::IsoFrame>)>; crate::view::MAX_PANES],
+    smooth_vol_coverage:
+        [Option<wxdata::level2::temporal::TemporalCoverage>; crate::view::MAX_PANES],
     /// Per pane: built Smooth volumes and isosurfaces by frame, so a loop plays its 3D frame for
     /// frame (ROADMAP_NEW H8), and every 3D build in flight.
     loop3d: [Loop3dCache; crate::view::MAX_PANES],
@@ -4876,92 +4875,6 @@ impl HookEchoApp {
             .is_none_or(|m| src.and_then(|&s| m.get(s)).copied().unwrap_or(true))
     }
 
-    /// Keep pane `idx`'s isosurface in step with its volume, moment and threshold: show the
-    /// built surface for what is displayed, from the pane's loop cache, and start its build when
-    /// there is none.
-    fn sync_isosurface(&mut self, idx: usize, ctx: &egui::Context) {
-        self.loop3d_jobs.drain(&mut self.loop3d);
-        let Some((name, rev)) = self.shown_volume_key(idx) else {
-            return;
-        };
-        let Some(key) = self.iso_key_for(idx, &name, rev) else {
-            return;
-        };
-        if self.iso_mesh[idx].as_ref().is_some_and(|(k, _)| *k == key) {
-            return;
-        }
-        if let Some(shells) = self.loop3d[idx].iso.get(&key) {
-            self.iso_mesh[idx] = Some((key, Arc::clone(shells)));
-            return;
-        }
-        let job = JobKey::Iso(idx, key.clone());
-        if self.loop3d_jobs.came_up_empty(&job) {
-            // Nothing crosses the threshold in this volume: show nothing, not the last one's.
-            self.iso_mesh[idx] = Some((key, Arc::new(Vec::new())));
-            return;
-        }
-        if !self.loop3d_jobs.wants(&job) {
-            return;
-        }
-        let spec = self.iso_spec(idx);
-        let Some(vol) = self.views[idx].volume.as_mut() else {
-            return;
-        };
-        let sweeps = if spec.moment == Moment::Velocity {
-            vol.velocity_tilts_dealiased()
-        } else {
-            vol.moment_tilts(spec.moment)
-        };
-        if sweeps.is_empty() {
-            return;
-        }
-        self.loop3d_jobs.start(job, &self.spawner, ctx, move || {
-            crate::loop3d::Built::Iso(crate::loop3d::build_iso(
-                crate::loop3d::Sweeps::Binned { sweeps, mask: None },
-                &spec,
-            ))
-        });
-    }
-
-    /// The displayed volume's name and live revision (0 for a volume loaded whole, so a frame
-    /// built ahead from the download cache is found again when the playhead reaches it).
-    fn shown_volume_key(&self, idx: usize) -> Option<(String, u64)> {
-        let vol = self.views[idx].volume.as_ref()?;
-        Some((vol.name.clone(), vol.revision()))
-    }
-
-    /// What pane `idx`'s Smooth volume of volume `name` is built from, when it shows one.
-    /// `loop_quality` is the smaller grid used while the loop plays.
-    fn smooth_key_for(
-        &self,
-        idx: usize,
-        name: &str,
-        rev: u64,
-        loop_quality: bool,
-    ) -> Option<SmoothKey> {
-        let v = &self.views[idx];
-        let state = &v.map_3d;
-        if !state.enabled {
-            return None;
-        }
-        let (moment, _) = state
-            .representation
-            .smooth_moment()
-            .filter(|(m, _)| *m == v.moment)?;
-        Some((
-            name.to_string(),
-            rev,
-            moment,
-            state.smooth_full_range,
-            loop_quality,
-            v.storm_motion_uv().map(|(u, n)| (u.to_bits(), n.to_bits())),
-            match state.representation {
-                Map3dRepresentation::SmoothProduct => Some(self.product_spec_key(idx)?),
-                _ => None,
-            },
-        ))
-    }
-
     /// User product `name` as pane `idx` would evaluate it: its formula, range and the site
     /// facts it can read, plus a key identifying all of that. `None` when it no longer exists, it
     /// does not parse, or it reduces a whole column (a vertical/layer function has no value at a
@@ -5048,63 +4961,6 @@ impl HookEchoApp {
             .map(|m| crate::colormap::effective_table(&self.palettes, m, self.settings.theme))
             .unwrap_or_else(|| crate::colormap::ramp_table(lo, hi));
         Some((table, name.clone(), units))
-    }
-
-    /// What pane `idx`'s isosurface of volume `name` is built from, when it shows one.
-    fn iso_key_for(&self, idx: usize, name: &str, rev: u64) -> Option<IsoKey> {
-        let v = &self.views[idx];
-        let state = &v.map_3d;
-        if !state.enabled || !state.iso_enabled {
-            return None;
-        }
-        let spec = self.iso_spec(idx);
-        Some((
-            name.to_string(),
-            rev,
-            spec.moment,
-            spec.value.to_bits(),
-            spec.smooth,
-            spec.step.map(f32::to_bits),
-            spec.storm_uv.map(|(u, n)| (u.to_bits(), n.to_bits())),
-        ))
-    }
-
-    fn iso_spec(&self, idx: usize) -> crate::loop3d::IsoSpec {
-        let v = &self.views[idx];
-        let state = &v.map_3d;
-        let mi = Moment::ALL.iter().position(|m| *m == v.moment).unwrap_or(0);
-        crate::loop3d::IsoSpec {
-            moment: v.moment,
-            value: state.iso_values[mi],
-            step: state.iso_nested.then_some(state.iso_steps[mi]),
-            smooth: state.iso_smooth,
-            max_dim: self.vol3d_max_dim,
-            top_km: VOL3D_TOP_KM,
-            storm_uv: v.storm_motion_uv(),
-        }
-    }
-
-    fn smooth_spec(&self, idx: usize, loop_quality: bool) -> Option<crate::loop3d::SmoothSpec> {
-        let state = &self.views[idx].map_3d;
-        let (moment, invert) = state.representation.smooth_moment()?;
-        Some(crate::loop3d::SmoothSpec {
-            moment,
-            invert,
-            full_range: state.smooth_full_range,
-            table: crate::colormap::effective_table(&self.palettes, moment, self.settings.theme),
-            max_dim: self.vol3d_max_dim,
-            max_voxels: if loop_quality {
-                crate::loop3d::SMOOTH_LOOP_MAX_VOXELS
-            } else {
-                crate::loop3d::SMOOTH_MAX_VOXELS
-            },
-            top_km: VOL3D_TOP_KM,
-            storm_uv: self.views[idx].storm_motion_uv(),
-            product: match state.representation {
-                Map3dRepresentation::SmoothProduct => Some(self.product_spec(idx)?),
-                _ => None,
-            },
-        })
     }
 
     /// Recompute the imported features' colours when the colouring attribute changed.
@@ -6747,12 +6603,15 @@ impl HookEchoApp {
         if self.views[idx].map_3d.enabled && self.views[idx].map_3d.iso_enabled {
             let v = &self.views[idx];
             let moment = v.moment;
-            if let (Some(site), Some((_, shells))) = (
+            if let (Some(site), Some((_, frame))) = (
                 v.site.as_deref().and_then(wxdata::sites::site_by_id),
-                self.iso_mesh[idx].as_ref(),
+                self.iso_mesh[idx]
+                    .as_ref()
+                    .filter(|(key, _)| self.current_iso_key(idx).as_ref() == Some(key)),
             ) {
                 let table =
                     crate::colormap::effective_table(&self.palettes, moment, self.settings.theme);
+                let shells = &frame.shells;
                 let deepest = shells.iter().map(|s| s.1).max().unwrap_or(0);
                 // Innermost first, so each fainter outer shell is painted over what it wraps.
                 let mut order: Vec<&IsoShell> = shells.iter().collect();

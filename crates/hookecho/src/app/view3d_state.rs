@@ -7,13 +7,16 @@ impl HookEchoApp {
     /// The 3D builds pane `idx` needs for volume `name` (a complete volume) that are neither
     /// cached nor known to be empty.
     pub(crate) fn loop3d_missing(&self, idx: usize, name: &str) -> Vec<JobKey> {
+        let Some(source) = self.cached_volume_key(idx, name) else {
+            return Vec::new();
+        };
         let mut out = Vec::new();
-        if let Some(k) = self.smooth_key_for(idx, name, 0, true) {
+        if let Some(k) = self.smooth_key_for(idx, source.clone(), true) {
             if !self.loop3d[idx].smooth.contains(&k) {
                 out.push(JobKey::Smooth(idx, k));
             }
         }
-        if let Some(k) = self.iso_key_for(idx, name, 0) {
+        if let Some(k) = self.iso_key_for(idx, source) {
             if !self.loop3d[idx].iso.contains(&k) {
                 out.push(JobKey::Iso(idx, k));
             }
@@ -54,18 +57,24 @@ impl HookEchoApp {
                 }
                 let sweeps = crate::loop3d::Sweeps::Scan(Arc::clone(&scan));
                 match &job {
-                    JobKey::Smooth(..) => {
+                    JobKey::Smooth(_, key) => {
+                        let policy = key.source.policy;
                         let Some(spec) = self.smooth_spec(idx, true) else {
                             continue;
                         };
                         self.loop3d_jobs.start(job, &self.spawner, ctx, move || {
-                            crate::loop3d::Built::Smooth(crate::loop3d::build_smooth(sweeps, &spec))
+                            crate::loop3d::Built::Smooth(crate::loop3d::build_smooth_covered(
+                                sweeps, &spec, policy,
+                            ))
                         });
                     }
-                    JobKey::Iso(..) => {
+                    JobKey::Iso(_, key) => {
+                        let policy = key.source.policy;
                         let spec = self.iso_spec(idx);
                         self.loop3d_jobs.start(job, &self.spawner, ctx, move || {
-                            crate::loop3d::Built::Iso(crate::loop3d::build_iso(sweeps, &spec))
+                            crate::loop3d::Built::Iso(crate::loop3d::build_iso_covered(
+                                sweeps, &spec, policy,
+                            ))
                         });
                     }
                 }
@@ -112,9 +121,18 @@ impl HookEchoApp {
         let built = frames
             .iter()
             .filter_map(|i| tl.frames.get(*i))
-            .filter(|id| self.loop3d_missing(idx, id.name()).is_empty())
+            .filter(|id| {
+                self.cached_volume_key(idx, id.name())
+                    .is_some_and(|source| {
+                        self.smooth_key_for(idx, source.clone(), true)
+                            .is_none_or(|k| self.loop3d[idx].smooth.contains(&k))
+                            && self
+                                .iso_key_for(idx, source)
+                                .is_none_or(|k| self.loop3d[idx].iso.contains(&k))
+                    })
+            })
             .count();
-        (self.smooth_key_for(idx, "", 0, true).is_some() || self.iso_key_for(idx, "", 0).is_some())
+        (self.current_smooth_key(idx).is_some() || self.current_iso_key(idx).is_some())
             .then_some((built, total))
     }
 
@@ -168,8 +186,31 @@ impl HookEchoApp {
     /// window draws them, and so does the workstation's 3D view window.
     pub(crate) fn map_3d_controls_body(&mut self, idx: usize, ui: &mut egui::Ui) {
         let volume_supported = self.volume3d_supported;
-        let smooth_info = self.smooth_vol_info[idx];
-        let product_range = self.smooth_vol_range[idx];
+        let smooth_current = self.current_smooth_key(idx);
+        let iso_current = self.current_iso_key(idx);
+        let smooth_ready = smooth_current
+            .as_ref()
+            .is_some_and(|key| self.smooth_vol_key[idx].as_ref() == Some(key));
+        let smooth_info = self.smooth_vol_info[idx].filter(|_| smooth_ready);
+        let product_range = self.smooth_vol_range[idx].filter(|_| smooth_ready);
+        let failed: Vec<JobKey> = smooth_current
+            .clone()
+            .map(|key| JobKey::Smooth(idx, key))
+            .into_iter()
+            .chain(iso_current.clone().map(|key| JobKey::Iso(idx, key)))
+            .filter(|key| self.loop3d_jobs.came_up_empty(key))
+            .collect();
+        if !failed.is_empty() {
+            ui.weak("No renderable 3D result for the selected inputs");
+            if ui.button("Retry 3D build").clicked() {
+                for key in &failed {
+                    self.loop3d_jobs.retry(key);
+                }
+                // An accepted empty result must also be released before retrying.
+                self.smooth_vol_key[idx] = None;
+                ui.ctx().request_repaint();
+            }
+        }
         // Products usable in 3D: those that parse and give a value at a single gate.
         let products: Vec<(String, bool)> = self
             .settings
@@ -181,20 +222,12 @@ impl HookEchoApp {
             })
             .collect();
         let loop_progress = self.loop3d_progress(idx);
-        // The 3D shown belongs to another scan while this one's build runs.
-        let shown = self.shown_volume_key(idx).map(|(n, _)| n);
-        let behind = shown.as_deref().is_some_and(|n| {
-            self.smooth_vol_key[idx].as_ref().is_some_and(|k| {
-                k.0 != n
-                    && self.views[idx]
-                        .map_3d
-                        .representation
-                        .smooth_moment()
-                        .is_some()
-            }) || self.iso_mesh[idx]
-                .as_ref()
-                .is_some_and(|(k, _)| k.0 != n && self.views[idx].map_3d.iso_enabled)
-        });
+        let behind = (smooth_current.is_some() && !smooth_ready)
+            || iso_current.as_ref().is_some_and(|key| {
+                self.iso_mesh[idx]
+                    .as_ref()
+                    .is_none_or(|(accepted, _)| accepted != key)
+            });
         let moment = self.views[idx].moment;
         // Read before `view` borrows `self.views[idx]`: a different field of
         // `self`, but taken up front keeps the split obviously safe rather than
@@ -563,8 +596,8 @@ impl HookEchoApp {
                     }
                 }
             }
-            if behind {
-                ui.weak("3D is still the previous scan's; building this one");
+            if behind && failed.is_empty() {
+                ui.weak("Building the selected 3D frame; unmatched content is hidden");
             }
             if view.map_3d.representation == Map3dRepresentation::SmoothVelocity {
                 ui.weak(if view.srv {

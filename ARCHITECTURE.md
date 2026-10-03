@@ -86,8 +86,25 @@ bins. The accepted `ObservedKey` includes weak scan identity, actual volume revi
 policy, palette and render controls. Inspector and Layers summaries reject a different selected
 source before painting. Native coverage counts recorded radials separately from binned azimuth
 rows; absent radials have no inventory estimate. Decoded sweep indices are local to a scan, not
-persisted pass IDs. Full raw pass/transport inventory, finer contributor invalidation and
-smooth/isosurface propagation remain M1.1 work.
+persisted pass IDs. Full raw pass/transport inventory and finer contributor invalidation remain
+M1.1 work.
+
+`app/map_volume.rs` captures the selected smooth/isosurface source, accepted revision and policy.
+`loop3d::SourceKey` adds weak scan identity and site to complete-frame labels; smooth keys also
+include palette generation, contrast and grid quality. Current-frame workers bin owned inputs
+from a captured scan off the native UI thread. Product moments and reflectivity quality-mask
+inputs use shared temporal preparation before evaluation, range fitting, interpolation or meshing.
+Coverage is cached together with uploads/shells and accepted as one frame. Smooth GPU callbacks,
+isosurface painting and Inspector/control summaries require the entire selected key to match.
+
+Current builds and prefetch share per-pane admission (two native desktop jobs; one on Android
+or WASM). There is no pending request queue: a newer selection is retried for admission on the
+next UI frame, while already-running older work lands only under its original cache key. Complete
+prefetch frames use continuous policy and actual downloaded scan identity. Empty/failed answers
+are remembered by full key and have an explicit retry; valid empty meshes retain coverage.
+Playback progress counts cached payloads rather than failed or unavailable frames. Byte budgets
+include allocated sample/mesh capacity and coverage; they are not process-memory measurements.
+Browser scheduling still uses its event loop and does not imply a native worker or runtime proof.
 
 ## Rendering
 

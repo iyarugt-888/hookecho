@@ -60,9 +60,23 @@ pass or frame-label clock. The Inspector's **Observed source coverage** reports 
 recorded radials and unknown clocks per cut. It explicitly leaves absent-radial inventory and
 column completeness unestablished. Native radial counts are distinct from 2D angular bins; the
 same time-gap rule can classify occluded native rows differently from their binned replacement.
-Uploads and summaries follow actual scan identity, accepted revision and policy. Smooth and
-isosurface map paths remain open. Source-time gap inference does not establish persistent pass
-identity or proven transport gaps.
+Uploads and summaries follow actual scan identity, accepted revision and policy. Source-time
+gap inference does not establish persistent pass identity or proven transport gaps.
+
+Smooth map volumes and isosurfaces now retain binned contributor coverage with each cached
+upload/mesh. Current partial-live builds use the selected sweep policy; archive/playback and
+complete prefetch frames stay continuous. Owned product inputs and reflectivity quality masks
+are prepared before evaluation, product auto-range, resampling and meshing. Geometry-only
+formulas cannot refill rows excluded by the strict source mask. Existing continuous numerical
+behavior, native gate clocks and cached scans remain intact.
+
+The Inspector's **Smooth source coverage** and **Isosurface source coverage** show the accepted
+frame/revision, contributing moment names, acquisition interval, mixed/excluded azimuth rows,
+unobserved bins and unknown clocks. These binned counts describe the moments actually supplied,
+not native-radial totals or an expected-cut inventory. Column completeness stays unestablished.
+Unmatched uploads, meshes and summaries are hidden; unavailable/failed builds offer retry in
+3D controls. An empty threshold surface can still have valid input coverage. Source labels never
+supply replacement acquisition clocks for cached frames.
 
 Direct MRMS field layers expose a **Data source** inspector in Layer options:
 the product path, provider, GRIB valid time, and complete-response receipt time

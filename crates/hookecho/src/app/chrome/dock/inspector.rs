@@ -136,6 +136,29 @@ impl HookEchoApp {
                 )
             }
         });
+        let smooth_rows = self.current_smooth_key(self.active).map(|key| {
+            let job = JobKey::Smooth(self.active, key.clone());
+            map_volume_coverage_rows(
+                self.smooth_vol_coverage[self.active]
+                    .as_ref()
+                    .filter(|_| self.smooth_vol_key[self.active].as_ref() == Some(&key)),
+                &key.source,
+                self.loop3d_jobs.came_up_empty(&job),
+                tz,
+            )
+        });
+        let iso_rows = self.current_iso_key(self.active).map(|key| {
+            let job = JobKey::Iso(self.active, key.clone());
+            map_volume_coverage_rows(
+                self.iso_mesh[self.active]
+                    .as_ref()
+                    .filter(|(accepted, _)| accepted == &key)
+                    .map(|(_, frame)| &frame.coverage),
+                &key.source,
+                self.loop3d_jobs.came_up_empty(&job),
+                tz,
+            )
+        });
         let (disp_factor, disp_unit) = display_units(moment, &self.settings);
         let source_rows =
             radar_source_rows(moment, v.srv, disp_unit, self.settings.dealias_velocity);
@@ -271,6 +294,12 @@ impl HookEchoApp {
                 ws::kv(ui, &t, "Pitch", &format!("{pitch:.0}\u{b0}"), None);
                 ws::kv(ui, &t, "Bearing", &format!("{bearing:.0}\u{b0}"), None);
                 ws::kv(ui, &t, "Zoom", &format!("{zoom:.1}"), None);
+            }
+            if let Some(rows) = &smooth_rows {
+                paint_coverage_rows(ui, &t, "Smooth source coverage", rows);
+            }
+            if let Some(rows) = &iso_rows {
+                paint_coverage_rows(ui, &t, "Isosurface source coverage", rows);
             }
             if let Some(rows) = &observed_rows {
                 ui.add_space(6.0);
@@ -785,6 +814,44 @@ fn observed_coverage_rows(
     rows
 }
 
+fn map_volume_coverage_rows(
+    coverage: Option<&wxdata::level2::temporal::TemporalCoverage>,
+    source: &crate::loop3d::SourceKey,
+    empty: bool,
+    tz: Option<wxdata::tz::Tz>,
+) -> Vec<(&'static str, String)> {
+    let Some(coverage) = coverage.filter(|c| c.policy == source.policy) else {
+        return vec![(
+            "Status",
+            if empty {
+                "No renderable 3D result; retry in 3D controls"
+            } else {
+                "Waiting for matching 3D inputs; unmatched content hidden"
+            }
+            .into(),
+        )];
+    };
+    let mut rows = vec![
+        ("Frame", source.name.clone()),
+        ("Revision", source.revision.to_string()),
+    ];
+    let mut details = radar_coverage_rows(Some(coverage), tz);
+    for (key, _) in &mut details {
+        if *key == "Input tilts" {
+            *key = "Input sweeps";
+        }
+    }
+    rows.extend(details);
+    let mut moments = Vec::new();
+    for sweep in &coverage.contributors {
+        if !moments.contains(&sweep.moment.short_name()) {
+            moments.push(sweep.moment.short_name());
+        }
+    }
+    rows.push(("Inputs", moments.join(", ")));
+    rows
+}
+
 fn radar_coverage_rows(
     coverage: Option<&wxdata::level2::temporal::TemporalCoverage>,
     tz: Option<wxdata::tz::Tz>,
@@ -901,6 +968,130 @@ mod tests {
             ..Default::default()
         }];
         wxdata::level2::temporal::prepare(&mut sweeps, policy).unwrap()
+    }
+
+    fn volume_source(policy: wxdata::level2::temporal::TemporalPolicy) -> crate::loop3d::SourceKey {
+        let scan = Arc::new(
+            wxdata::level2::decode_volume(
+                include_bytes!(
+                    "../../../../../wxdata/tests/data/corpus/mayfield-2021-first-records.ar2"
+                )
+                .to_vec(),
+            )
+            .unwrap(),
+        );
+        crate::loop3d::SourceKey::new(
+            Some("KPAH".into()),
+            "KPAH20211211_032349_V06".into(),
+            7,
+            &scan,
+            policy,
+        )
+    }
+
+    #[test]
+    fn map_volume_card_keeps_dependencies_and_hides_mismatched_or_unavailable_metadata() {
+        use wxdata::level2::temporal::TemporalPolicy as P;
+        let source = volume_source(P::StrictCurrent);
+        let mut c = coverage(P::StrictCurrent);
+        let mut mask = c.contributors[0].clone();
+        mask.moment = Moment::DifferentialReflectivity;
+        c.contributors.push(mask);
+        let rows = map_volume_coverage_rows(Some(&c), &source, false, None);
+        assert!(rows.contains(&("Inputs", "REF, ZDR".into())));
+        assert!(rows.contains(&("Input sweeps", "2".into())));
+        assert!(rows.contains(&("Revision", "7".into())));
+        assert!(rows.contains(&("Column", "Completeness not established".into())));
+        let mismatch =
+            map_volume_coverage_rows(Some(&coverage(P::Continuous)), &source, false, None);
+        assert_eq!(mismatch.len(), 1);
+        assert!(!mismatch
+            .iter()
+            .any(|(k, _)| *k == "Input start" || *k == "Frame"));
+        assert!(map_volume_coverage_rows(None, &source, true, None)[0]
+            .1
+            .contains("retry"));
+        for width in [240.0, 300.0] {
+            let ctx = egui::Context::default();
+            let _ = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(width, 700.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| {
+                    paint_coverage_rows(
+                        ui,
+                        &ws::Tokens::new(egui::Color32::LIGHT_BLUE),
+                        "Smooth source coverage",
+                        &rows,
+                    );
+                    assert!(ui.min_rect().width() <= width);
+                },
+            );
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "gpu: writes smooth/isosurface coverage Inspector captures"]
+    fn gpu_map_volume_coverage_snapshots() {
+        use wxdata::level2::temporal::TemporalPolicy as P;
+        let gpu = crate::headless::ui::Snapshot::new().expect("GPU adapter for coverage review");
+        let destination = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/parity-review/m1.1/map-volume-ui");
+        std::fs::create_dir_all(&destination).unwrap();
+        let t = ws::Tokens::new(egui::Color32::from_rgb(72, 142, 226));
+        for name in ["continuous", "strict", "pending", "unknown", "empty"] {
+            let policy = if name == "strict" {
+                P::StrictCurrent
+            } else {
+                P::Continuous
+            };
+            let mut c = coverage(policy);
+            let mut mask = c.contributors[0].clone();
+            mask.moment = Moment::DifferentialReflectivity;
+            c.contributors.push(mask);
+            if name == "unknown" {
+                for s in &mut c.contributors {
+                    s.used_start_ms = None;
+                    s.used_end_ms = None;
+                }
+            }
+            let rows = map_volume_coverage_rows(
+                (!matches!(name, "pending" | "empty")).then_some(&c),
+                &volume_source(policy),
+                name == "empty",
+                None,
+            );
+            for width in [240, 300] {
+                gpu.save(
+                    &destination.join(format!("{name}-{width}.png")),
+                    width,
+                    700,
+                    |ui| {
+                        ws::set_touch(ui.ctx(), width == 240);
+                        ws::panel_frame(&t).show(ui, |ui| {
+                            ws::style_scope(ui, &t);
+                            ws::window_header(ui, &t, ph::INFO, "Inspector", None, None);
+                            paint_coverage_rows(
+                                ui,
+                                &t,
+                                if name == "strict" {
+                                    "Isosurface source coverage"
+                                } else {
+                                    "Smooth source coverage"
+                                },
+                                &rows,
+                            );
+                        });
+                    },
+                )
+                .unwrap();
+            }
+        }
     }
 
     #[test]

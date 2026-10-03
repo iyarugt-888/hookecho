@@ -794,6 +794,7 @@ impl HookEchoApp {
             // `[None; MAX_PANES]` needs `Option<T>: Copy`, which a
             // `Receiver`/`Volume3dUpload` inside it is not; `from_fn` avoids that requirement.
             smooth_vol_key: std::array::from_fn(|_| None),
+            smooth_vol_coverage: std::array::from_fn(|_| None),
             iso_mesh: std::array::from_fn(|_| None),
             loop3d: std::array::from_fn(|_| Loop3dCache::default()),
             loop3d_jobs: Loop3dJobs::default(),
