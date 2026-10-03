@@ -88,6 +88,7 @@ pub(crate) fn csv_buttons(
 /// Accessible names for icon-only chrome.
 pub mod a11y;
 pub mod about_window;
+pub(crate) mod acquisition_inventory;
 pub mod afd_window;
 pub mod alert_panel;
 /// theme_plan.md §4: Analyst Mode's live filtered log — see that module's own doc comment.

@@ -9,7 +9,11 @@ use wxdata::live::{CutKind, RadialCoverage, ScanProgress};
 #[derive(Clone, Debug)]
 struct CutObservation {
     kind: CutKind,
+    angle_deg: f64,
     chunks: Vec<bool>,
+    raw_chunks: Vec<bool>,
+    /// Presence is independent of whether the source supplied a usable acquisition clock.
+    radial_seen: Vec<bool>,
     /// Newest source acquisition time seen at each one-based azimuth position.
     radial_times_ms: Vec<i64>,
 }
@@ -18,7 +22,10 @@ impl CutObservation {
     fn new(progress: ScanProgress) -> Self {
         Self {
             kind: progress.cut_kind,
+            angle_deg: progress.elevation_angle_deg,
             chunks: vec![false; progress.chunks_in_sweep],
+            raw_chunks: vec![false; progress.chunks_in_sweep],
+            radial_seen: vec![false; progress.chunks_in_sweep * 120],
             radial_times_ms: vec![0; progress.chunks_in_sweep * 120],
         }
     }
@@ -36,19 +43,19 @@ impl CutObservation {
                 continue;
             }
             let start = chunk * 120;
-            let sector = &self.radial_times_ms[start..start + 120];
-            let Some(first) = sector.iter().position(|time| *time > 0) else {
+            let sector = &self.radial_seen[start..start + 120];
+            let Some(first) = sector.iter().position(|seen| *seen) else {
                 continue; // no radial bounds in this chunk yet
             };
-            let last = sector.iter().rposition(|time| *time > 0).unwrap_or(first);
+            let last = sector.iter().rposition(|seen| *seen).unwrap_or(first);
             let mut index = first;
             while index <= last {
-                if sector[index] > 0 {
+                if sector[index] {
                     index += 1;
                     continue;
                 }
                 let gap_start = index;
-                while index <= last && sector[index] == 0 {
+                while index <= last && !sector[index] {
                     index += 1;
                 }
                 gaps.push(((start + gap_start + 1) as u16, (start + index) as u16));
@@ -58,12 +65,41 @@ impl CutObservation {
     }
 }
 
+/// Raw acquisition evidence for one scan-local VCP position, before older sweep stitching.
+/// Equal elevation angles remain separate cuts. This is not a persistent cut/pass identity.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CutAcquisition {
+    pub number: usize,
+    pub kind: Option<CutKind>,
+    pub angle_deg: Option<f64>,
+    pub received_chunks: usize,
+    pub expected_chunks: Option<usize>,
+    pub unobserved_chunks: Vec<usize>,
+    /// None when only progress metadata was received; Some(0) when raw input was empty.
+    pub observed_radials: Option<usize>,
+    pub raw_chunks: usize,
+    pub unknown_clock_radials: usize,
+    /// Bounds of known clocks only. An unknown-clock radial does not acquire these times.
+    pub known_interval_ms: Option<(i64, i64)>,
+    /// Unobserved positions bounded by raw arrivals within a received chunk. Not transport loss.
+    pub internal_unobserved_spans: Vec<(u16, u16)>,
+}
+
+/// A small immutable summary of the receiver's current source volume, independent of playhead.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AcquisitionInventory {
+    pub volume_start_ms: Option<i64>,
+    pub vcp_number: Option<u16>,
+    pub cuts: Vec<CutAcquisition>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Progression {
     pub vcp_number: Option<u16>,
     pub expected_cuts: usize,
     pub observed_cuts: usize,
     pub completed_cuts: usize,
+    /// All reported chunks received with no bounded raw holes. Not full radial/VCP coverage.
     pub volume_complete: bool,
     pub expected_next_cut: Option<usize>,
     /// Seconds since the source volume start, if that timestamp is available.
@@ -194,6 +230,7 @@ impl LiveScan {
         if next_volume || next_vcp || changed_cut_count {
             self.observed_cuts.clear();
             self.progress = None;
+            self.progress_vcp_number = progress.vcp_number;
         }
         if let Some(start) = progress.volume_start_ms {
             self.latest_progress_volume_start_ms = Some(start);
@@ -283,18 +320,91 @@ impl LiveScan {
             && newest_arrival > newest_prior + rotation_ms.saturating_mul(3) / 4;
         if new_pass {
             cut.chunks.fill(false);
+            cut.raw_chunks.fill(false);
+            cut.radial_seen.fill(false);
             cut.radial_times_ms.fill(0);
             self.progress = Some(p);
         }
         cut.chunks[p.chunk_index - 1] = true;
+        cut.raw_chunks[p.chunk_index - 1] = true;
         for (number, time) in coverage.radials {
-            let index = if number == 0 { 0 } else { number as usize - 1 };
-            if time > 0 {
-                if let Some(slot) = cut.radial_times_ms.get_mut(index) {
+            let Some(index) = number.checked_sub(1).map(usize::from) else {
+                continue; // the provider contract is one-based; zero is not radial #1
+            };
+            if let Some(seen) = cut.radial_seen.get_mut(index) {
+                *seen = true;
+                if time > 0 {
+                    let slot = &mut cut.radial_times_ms[index];
                     *slot = (*slot).max(time);
                 }
             }
         }
+    }
+
+    /// Snapshot only the raw evidence accepted for this receiver volume. Angular zeros in a
+    /// merged/rendered sweep are never used to infer arrivals, pass identity or transport gaps.
+    pub fn acquisition_inventory(&self) -> Option<AcquisitionInventory> {
+        if self.observed_cuts.is_empty() {
+            return None;
+        }
+        let cuts = self
+            .observed_cuts
+            .iter()
+            .enumerate()
+            .map(|(index, cut)| {
+                let Some(cut) = cut else {
+                    return CutAcquisition {
+                        number: index + 1,
+                        kind: None,
+                        angle_deg: None,
+                        received_chunks: 0,
+                        expected_chunks: None,
+                        unobserved_chunks: Vec::new(),
+                        observed_radials: None,
+                        raw_chunks: 0,
+                        unknown_clock_radials: 0,
+                        known_interval_ms: None,
+                        internal_unobserved_spans: Vec::new(),
+                    };
+                };
+                let raw_chunks = cut.raw_chunks.iter().filter(|seen| **seen).count();
+                let mut known = cut.radial_times_ms.iter().copied().filter(|time| *time > 0);
+                let known_interval_ms = known.next().map(|first| {
+                    known.fold((first, first), |(start, end), time| {
+                        (start.min(time), end.max(time))
+                    })
+                });
+                CutAcquisition {
+                    number: index + 1,
+                    kind: Some(cut.kind),
+                    angle_deg: cut.angle_deg.is_finite().then_some(cut.angle_deg),
+                    received_chunks: cut.chunks.iter().filter(|seen| **seen).count(),
+                    expected_chunks: Some(cut.chunks.len()),
+                    unobserved_chunks: cut
+                        .chunks
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(i, seen)| (!seen).then_some(i + 1))
+                        .collect(),
+                    observed_radials: (raw_chunks > 0)
+                        .then(|| cut.radial_seen.iter().filter(|seen| **seen).count()),
+                    raw_chunks,
+                    unknown_clock_radials: cut
+                        .radial_seen
+                        .iter()
+                        .zip(&cut.radial_times_ms)
+                        .filter(|(seen, time)| **seen && **time <= 0)
+                        .count(),
+                    known_interval_ms,
+                    internal_unobserved_spans: cut.radial_gaps(),
+                }
+            })
+            .collect();
+        Some(AcquisitionInventory {
+            volume_start_ms: self.latest_progress_volume_start_ms,
+            vcp_number: self.progress_vcp_number,
+            cuts,
+        })
     }
 
     fn cut(&self, number: usize) -> Option<&CutObservation> {
@@ -569,6 +679,145 @@ mod tests {
             chunk_index: chunk,
             chunks_in_sweep: 3,
         }
+    }
+
+    fn raw(state: &mut LiveScan, p: ScanProgress, radials: &[(u16, i64)]) {
+        state.observe_radials(
+            RadialCoverage {
+                progress: p,
+                radials: radials.to_vec(),
+            },
+            Utc::now(),
+        );
+    }
+
+    #[test]
+    fn raw_inventory_separates_unobserved_positions_from_unknown_clocks_and_progress_only() {
+        let mut state = LiveScan::default();
+        assert_eq!(state.acquisition_inventory(), None);
+        state.progress(progress(1, 1), Utc::now());
+        let metadata = state.acquisition_inventory().unwrap();
+        assert_eq!(metadata.cuts[0].observed_radials, None);
+        assert_eq!(metadata.cuts[1].expected_chunks, None);
+        raw(
+            &mut state,
+            progress(1, 1),
+            &[(1, 2000), (2, 0), (4, 4000), (0, 5000), (900, 5000)],
+        );
+        let snapshot = state.acquisition_inventory().unwrap();
+        let cut = &snapshot.cuts[0];
+        assert_eq!(cut.observed_radials, Some(3));
+        assert_eq!(cut.unknown_clock_radials, 1);
+        assert_eq!(cut.known_interval_ms, Some((2000, 4000)));
+        assert_eq!(cut.internal_unobserved_spans, [(3, 3)]);
+        assert_eq!(cut.unobserved_chunks, [2, 3]);
+        assert_eq!(state.radial_gaps(), [(3, 3)]);
+        raw(&mut state, progress(1, 1), &[(3, 0), (2, 3000), (1, 1900)]);
+        let filled = state.acquisition_inventory().unwrap();
+        assert_eq!(filled.cuts[0].observed_radials, Some(4));
+        assert_eq!(filled.cuts[0].unknown_clock_radials, 1);
+        assert_eq!(filled.cuts[0].known_interval_ms, Some((2000, 4000)));
+        assert!(filled.cuts[0].internal_unobserved_spans.is_empty());
+        assert_eq!(
+            snapshot.cuts[0].internal_unobserved_spans,
+            [(3, 3)],
+            "snapshot is immutable across gap fill"
+        );
+    }
+
+    #[test]
+    fn raw_inventory_retains_supplemental_equal_angle_cuts_and_late_gap_fill() {
+        let mut state = LiveScan::default();
+        raw(&mut state, progress(1, 1), &[(1, 2000), (3, 2100)]);
+        raw(
+            &mut state,
+            ScanProgress {
+                cut_kind: CutKind::Sails,
+                ..progress(2, 1)
+            },
+            &[(1, 8000)],
+        );
+        raw(
+            &mut state,
+            ScanProgress {
+                cut_kind: CutKind::Mrle,
+                ..progress(3, 1)
+            },
+            &[(1, 10000)],
+        );
+        raw(&mut state, progress(1, 1), &[(2, 2050)]);
+        let inventory = state.acquisition_inventory().unwrap();
+        assert_eq!(inventory.cuts.len(), 3);
+        assert_eq!(inventory.cuts[0].observed_radials, Some(3));
+        assert!(inventory.cuts[0].internal_unobserved_spans.is_empty());
+        assert_eq!(inventory.cuts[1].kind, Some(CutKind::Sails));
+        assert_eq!(inventory.cuts[2].kind, Some(CutKind::Mrle));
+        assert!(inventory.cuts.iter().all(|cut| cut.angle_deg == Some(0.5)));
+        assert_eq!(state.progress.unwrap().elevation_number, 3);
+    }
+
+    #[test]
+    fn raw_inventory_resets_at_volume_vcp_and_inferred_revisit_boundaries() {
+        let mut state = LiveScan::default();
+        raw(&mut state, progress(1, 1), &[(1, 2000), (2, 0)]);
+        // Existing rotation-time reset is an inference, not a persistent pass identifier.
+        raw(&mut state, progress(1, 1), &[(4, 100000)]);
+        assert_eq!(
+            state.acquisition_inventory().unwrap().cuts[0].observed_radials,
+            Some(1)
+        );
+        let next = ScanProgress {
+            volume_start_ms: Some(200000),
+            ..progress(2, 2)
+        };
+        raw(&mut state, next, &[(121, 201000), (123, 202000)]);
+        let snapshot = state.acquisition_inventory().unwrap();
+        assert_eq!(snapshot.volume_start_ms, Some(200000));
+        assert_eq!(snapshot.cuts[0].kind, None);
+        assert_eq!(
+            snapshot.cuts[1].unobserved_chunks,
+            [1, 3],
+            "mid-volume join does not fill unseen sectors"
+        );
+        raw(&mut state, progress(1, 1), &[(1, 199000)]);
+        assert_eq!(
+            state.acquisition_inventory().unwrap(),
+            snapshot,
+            "late old volume is rejected"
+        );
+        raw(
+            &mut state,
+            ScanProgress {
+                vcp_number: Some(35),
+                ..next
+            },
+            &[],
+        );
+        let changed = state.acquisition_inventory().unwrap();
+        assert_eq!(changed.vcp_number, Some(35));
+        assert_eq!(changed.cuts[1].observed_radials, Some(0));
+        assert_eq!(changed.cuts[1].known_interval_ms, None);
+        state.reset(Some("KOUN".into()));
+        assert_eq!(state.acquisition_inventory(), None);
+    }
+
+    #[test]
+    fn raw_inventory_does_not_carry_a_vcp_into_a_new_volume_with_unknown_metadata() {
+        let mut state = LiveScan::default();
+        raw(&mut state, progress(1, 1), &[(1, 2000)]);
+        raw(
+            &mut state,
+            ScanProgress {
+                volume_start_ms: Some(3000),
+                vcp_number: None,
+                ..progress(1, 1)
+            },
+            &[(1, 4000)],
+        );
+        let inventory = state.acquisition_inventory().unwrap();
+        assert_eq!(inventory.vcp_number, None);
+        assert_eq!(inventory.volume_start_ms, Some(3000));
+        assert_eq!(inventory.cuts[0].known_interval_ms, Some((4000, 4000)));
     }
 
     #[test]

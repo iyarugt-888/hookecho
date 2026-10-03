@@ -8,6 +8,16 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: raw cut acquisition details in Analyst Mode
+
+The live radar log now exposes each VCP cut's chunk arrivals, raw radial positions, unknown
+clocks and known acquisition bounds on desktop and phone layouts. Equal-angle standard,
+SAILS and MRLE cuts retain separate source positions. A received radial with no clock is no
+longer reported as missing; bounded unobserved positions and progress-only metadata stay
+explicit. Volume rollover also clears an unavailable VCP instead of carrying the prior number.
+The details describe the live receiver, independently of the timeline playhead, and do not
+claim complete scans, persistent pass identity or proven transport loss.
+
 ### Added: flood maps from a gauge card
 
 Clicking a river gauge's record crest, a crest from its history, the current level, the forecast

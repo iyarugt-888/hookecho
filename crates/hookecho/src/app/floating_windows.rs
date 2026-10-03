@@ -973,7 +973,12 @@ impl HookEchoApp {
         // theme_plan.md §4: self-gates on `settings.analyst_mode`, so this costs nothing when off.
         // The workstation shows the log as a dock tab (`app::chrome::dock::log`).
         if !self.workstation_chrome() {
-            ui::analyst_log_window::show(ctx, &mut self.settings, &mut self.drawer);
+            ui::analyst_log_window::show(
+                ctx,
+                &mut self.settings,
+                &mut self.drawer,
+                &self.views[self.active].live_scan,
+            );
         }
         self.show_warning_banners(ctx);
         self.show_toasts(ctx);

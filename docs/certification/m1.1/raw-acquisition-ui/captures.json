@@ -1,0 +1,46 @@
+{
+  "scenario": "Controlled four-cut receiver inventory; raw untimed/gap evidence, equal-angle SAILS/MRLE, metadata-only and unobserved cuts. Production shared painter; no radar viewport or full phone page.",
+  "theme": "DearImGui",
+  "pixels_per_point": 1,
+  "adapter_driver": "Not retained by the UI snapshot helper",
+  "command": "cargo test -p hookecho --lib gpu_raw_acquisition_snapshots -- --ignored --nocapture",
+  "source_baseline": "2a035e0 plus this raw-acquisition feature; native painter output unchanged by final Clippy borrow cleanup",
+  "captures": [
+    {
+      "file": "raw-240.png",
+      "bytes": 103169,
+      "sha256": "c1499d8d5fe9c4add6174dea46ebda8d38534ac45f5e3c5fea41d7cdaa44b6ff",
+      "width": 240,
+      "height": 1100,
+      "touch": true,
+      "capture_utc": "2026-10-03T04:41:46.688370+00:00"
+    },
+    {
+      "file": "raw-300.png",
+      "bytes": 104293,
+      "sha256": "b4df55f1aabbda8b91714f812b9711d4d238824dff32f6852a422b7921153558",
+      "width": 300,
+      "height": 1100,
+      "touch": false,
+      "capture_utc": "2026-10-03T04:41:47.082719+00:00"
+    },
+    {
+      "file": "metadata-240.png",
+      "bytes": 71710,
+      "sha256": "85d7e6346bad369d5ff6225e3bba205c0608db77b551230d1dd38b1b25b1b8e5",
+      "width": 240,
+      "height": 1100,
+      "touch": true,
+      "capture_utc": "2026-10-03T04:41:47.391423+00:00"
+    },
+    {
+      "file": "metadata-300.png",
+      "bytes": 72697,
+      "sha256": "40ba8118e44004f60fb76bd1b2cd09bb75480510d36e080779ce9967ac949f66",
+      "width": 300,
+      "height": 1100,
+      "touch": false,
+      "capture_utc": "2026-10-03T04:41:47.777999+00:00"
+    }
+  ]
+}

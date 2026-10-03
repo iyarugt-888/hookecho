@@ -307,7 +307,7 @@ fn scan_progression(ui: &mut egui::Ui, t: &ws::Tokens, scan: &crate::live_scan::
         t,
         "Cuts",
         &format!(
-            "{} observed / {} expected · {} complete",
+            "{} observed / {} expected · {} chunk inventories received",
             state.observed_cuts, state.expected_cuts, state.completed_cuts
         ),
         None,
@@ -343,7 +343,7 @@ fn scan_progression(ui: &mut egui::Ui, t: &ws::Tokens, scan: &crate::live_scan::
             None,
         );
     }
-    // Radials missing inside the chunks received for the current cut.
+    // Raw positions not observed inside the chunks received for the current cut.
     if let Some(gaps) = crate::live_scan::gap_summary(&scan.radial_gaps()) {
         ws::kv(ui, t, "Gaps", &gaps, Some(t.warn));
     }
@@ -352,13 +352,14 @@ fn scan_progression(ui: &mut egui::Ui, t: &ws::Tokens, scan: &crate::live_scan::
             let (color, status) = match scan.cut_coverage(number) {
                 CutCoverage::Unobserved => (t.text_faint, "unobserved"),
                 CutCoverage::Partial => (t.warn, "partial"),
-                CutCoverage::Complete => (t.live, "complete"),
+                CutCoverage::Complete => (t.live, "chunk inventory received"),
             };
             let kind = scan.cut_kind(number).map_or("", |kind| kind.label());
             ws::badge(ui, t, &number.to_string(), color)
                 .on_hover_text(format!("Cut {number}: {status} {kind}"));
         }
     });
+    crate::ui::acquisition_inventory::show(ui, t, scan);
 }
 
 /// Ingest lag of recent arrivals as a line (accent), decode time as bars (dim), on their own

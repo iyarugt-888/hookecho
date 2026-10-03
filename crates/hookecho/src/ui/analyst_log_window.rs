@@ -36,6 +36,7 @@ pub(crate) fn show(
     ctx: &egui::Context,
     settings: &mut crate::settings::Settings,
     drawer: &mut crate::ui::drawer::Drawer,
+    scan: &crate::live_scan::LiveScan,
 ) {
     if !settings.analyst_mode {
         return;
@@ -56,7 +57,18 @@ pub(crate) fn show(
         crate::devlog::set_analyst_mode(keep);
         return;
     };
-    window.show(ctx, |ui| body(ui, 360.0));
+    window.show(ctx, |ui| {
+        let mut t = crate::ui::workstation::Tokens::new(ui.visuals().selection.bg_fill);
+        // This page also uses the Light theme; keep the shared metadata readable there.
+        t.text = ui.visuals().text_color();
+        t.text_dim = t.text.gamma_multiply(0.8);
+        egui::ScrollArea::vertical()
+            .max_height(260.0)
+            .show(ui, |ui| {
+                crate::ui::acquisition_inventory::show(ui, &t, scan);
+            });
+        body(ui, 360.0);
+    });
     // Mirrors the early-return branch above: the window's own close button can flip `keep` to
     // false during `show()`, and that has to turn Analyst Mode off the same consistent way the
     // Settings checkbox does (including restoring the log level), not just update the flag.

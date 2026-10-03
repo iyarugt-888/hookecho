@@ -75,6 +75,15 @@ Statuses in this table describe the audited baseline. **Foundation present** mea
 
 ## 3. Delivery sequence and interface contracts
 
+### Current agent scope — 2026-10-02
+
+The maintainer assigned Codex to WSV3-to-HookEcho feature gaps. Claude owns tornado detection
+methodology and its ongoing calculations, including detector inputs/lineage, scoring, fusion,
+calibration and detection-corpus work. Continue progressive acquisition, rendering reliability,
+storm operator tools, GIS, linked context and broadcast features; keep detector files and
+uncommitted peer work outside Codex commits. This assignment supersedes the default next-task
+order where it would lead into detector work.
+
 ### Milestones
 
 | Milestone | Priority | User-visible result | Completion gate |
@@ -231,9 +240,57 @@ Smooth callbacks and isosurface paint require the entire selected key to match. 
 
 **Increment 4 verification:** implementation landed in `b84d816`, with the test-only Clippy correction in `b265b52`. The fresh Windows workspace run passed **2,120 tests**, zero failures and 131 explicitly ignored checks across 27 suites (`--test-threads=4`); native workspace/all-target Clippy passed. The WASM library check passed in 2 minutes 59 seconds including build-lock wait, with existing browser warnings. The explicit GPU source-coverage capture passed in 4.30 seconds, producing ten reviewed continuous/strict/pending/unknown/unavailable references at 240 px touch and 300 px desktop; independent hash and byte-count checks verified every committed copy. Final logs are `target/parity-review/m1.1/map3d-restored-{workspace,clippy,wasm}.log` and `map3d-gpu.log`. Checks compiled the shared tree at `40e8365`, preserving Claude's concurrent detector work. These controls establish builder ownership and coverage-section layout, not full viewport, physical-device, completed-GPU performance or soak certification.
 
-**Remaining/next increment:** expose scan-local cut/pass acquisition inventory from the existing progressive receiver, including supplemental low cuts and repeated elevations, and propagate that inventory alongside the accepted source revision. Use observed arrivals/status transitions to distinguish partial joins, unobserved sectors and proven transport gaps; source-time inference alone cannot establish persistent pass identities or VCP completeness. Keep absent upper cuts and unknown clocks explicit. Whole-scan invalidation remains conservative; per-contributor optimization, full viewport interaction, Android/browser runtime, completed GPU timing and sustained-load certification are still open. Independent local-product textures per pane remain M5.1.
+**Evidence ledger — 2026-10-02, increment 5:** the live receiver now tracks raw radial presence
+independently of source clocks and exposes an immutable scan-local cut inventory. Each ordinal
+retains source elevation/kind, received/unobserved chunks, raw-evidence availability, unique raw
+positions, unknown-clock positions, known acquisition bounds and internally bounded unobserved
+spans. Equal-angle standard/SAILS/MRLE cuts remain separate source positions. Progress-only
+metadata does not turn into zero observed radials; empty raw input is a distinct zero. Gap filling
+with an untimed radial resolves its unobserved position while its clock remains unknown. Zero and
+out-of-range radial numbers are rejected. A new volume with unavailable VCP metadata does not
+inherit the prior VCP number.
 
-**Next agent handoff:** inspect `live_scan.rs`, `wxdata::live_block`, `continuation` and their merge tests before defining cut/pass inventory. Establish a typed unknown/observed/proven distinction, source-driven cut boundaries and revision ownership; do not infer transport loss or completeness from angular zeros. Add focused repeat-cut, SAILS/MRLE, VCP-change, reordering, gap-fill and mid-volume-join controls, then extend output coverage from the same captured source snapshot. Preserve continuous defaults and the delivered strict mask until stronger source evidence can justify a change. Update this ledger and certification evidence with the actual passing checks; leave device/performance gates partial until measured.
+One shared wrapping component exposes these details in the workstation Analyst log and the
+phone/floating Analyst Mode surface. Chunk inventory labels describe receipt rather than full
+radial coverage. The section explicitly describes the live receiver, independently of playback;
+known-clock bounds do not date unknown arrivals. [Reproduction and remaining limits](docs/certification/m1.1/raw-acquisition.md)
+keep raw observations separate from angular zeros, inferred revisits, persistent pass IDs and
+proven transport gaps. Rendering samples, continuous/strict policy and detector methodology are
+outside this increment.
+
+**Increment 5 verification:** final Windows workspace checks passed **2,126 tests**, zero failures
+and 132 explicitly ignored checks across 27 suites (`--test-threads=4`); native workspace/all-target
+Clippy passed. Four acquisition controls and two shared UI controls passed. The explicit GPU helper
+passed in 3.05 seconds after compilation; four expanded raw/progress-only references were reviewed
+at 240 px touch and 300 px desktop, and separate Python/PowerShell checks verified copied hashes
+and byte counts. The final WASM library check passed in 17.26 seconds with existing warnings.
+Phone/floating metadata uses the selected theme's foreground colors, including Light. Logs are
+`target/parity-review/m1.1/raw-acquisition-{workspace,clippy,wasm}-final-verified.log` and
+`raw-acquisition-gpu.log`. The checked tree is based on `2a035e0`, retaining Claude's detector
+work unchanged. These are clock/presence, compilation and expanded-section layout controls;
+full application interaction, actual Android/browser runtime, source pass identity and accepted
+frame/revision propagation remain open.
+
+**Remaining/next increment:** bind the delivered raw cut inventory to accepted decoded-source
+snapshots/revisions in derived and 3D payloads, then add source-driven persistent cut/pass
+boundaries and explicit transport-gap evidence. The current receiver retains scan-local ordinals
+and uses the existing rotation-time reset for revisits; it does not retain a pass history. Keep
+unobserved sectors, unknown clocks, absent upper cuts and source-context uncertainty explicit.
+Whole-scan invalidation remains conservative; contributor optimization, full viewport interaction,
+Android/browser runtime, completed GPU timing and sustained-load certification remain open.
+Independent local-product textures per pane remain M5.1.
+
+**Next agent handoff:** inspect `LiveScan::acquisition_inventory`, `Volume::apply_live`,
+`wxdata::live_block`, `continuation` and the provider merge tests. Attach the same accepted
+inventory to each source snapshot rather than reading the moving receiver from a selected
+playback frame. Preserve unavailable raw evidence on completed/archive inputs. Extend provider
+metadata with source-driven pass boundaries and a typed observed/unobserved/proven-gap
+distinction; do not infer transport loss or completeness from angular zeros or equal elevation
+angles. Add real-provider repeat-cut, SAILS/MRLE, VCP-change, reordering, gap-fill and mid-volume
+join controls, retaining the passing clock/presence controls. Preserve continuous defaults and
+the delivered strict mask until stronger source evidence justifies a change. Record actual checks
+and keep device/performance gates partial until measured. Tornado detection work stays with
+Claude under the current agent assignment.
 
 #### M1.2 — Trace receipt through completed rendering
 
