@@ -116,6 +116,7 @@ impl HookEchoApp {
             // For the local API and the analysis export: the verdicts, one per tornado.
             let shown = circs.iter().map(|c| c.id.clone()).collect();
             self.tornado_shown = Some((lineage.volume.clone(), shown, lineage.clone()));
+            self.tornado_alert(idx, &circs, Some(&lineage));
             (ids, circs, Some(lineage))
         } else {
             (Vec::new(), Vec::new(), None)

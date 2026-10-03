@@ -2229,9 +2229,10 @@ pub struct HookEchoApp {
     /// Per-location cooldown clock for the lightning-proximity alarm (re-alert after it goes quiet).
     lightning_alerted: std::collections::HashMap<String, Instant>,
     /// True while a TDS is currently detected, so the alert fires on the rising edge only.
-    tds_active: bool,
     /// True while a rotation couplet is currently detected (rising-edge alarm latch).
-    rot_active: bool,
+    /// The highest Tornado ID tier Tornado detection last alerted on and still sees (Likely or
+    /// above), so a verdict alerts once and again only when it rises (`tornado_alert`).
+    tornado_alerted: Option<wxdata::tornado_id::Tier>,
     /// Active new-warning banners (event, area, first-seen time); expire after a while.
     warning_banners: Vec<(String, String, Instant)>,
     /// Transient results of things the user just did (export saved, encode failed). The third

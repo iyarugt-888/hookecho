@@ -172,64 +172,8 @@ impl HookEchoApp {
             self.tds_shown_cache.put(name, hits.clone());
         }
 
-        let site = self.views[idx].site.clone().unwrap_or_default();
-        // Rising-edge alert, on the corroborated hits that clear the user's confidence threshold.
-        // A threshold set to quiet doubtful detections must quiet their chime and banner too.
-        let min_confidence = self.settings.detectors.tds_min_confidence;
-        let alertable: Vec<_> = hits
-            .iter()
-            .filter(|h| h.confidence >= min_confidence)
-            .collect();
-        let now_active = !alertable.is_empty();
-        if now_active && !self.tds_active {
-            print!("\x07");
-            use std::io::Write;
-            let _ = std::io::stdout().flush();
-            let best = *alertable[0]; // sorted strongest-first (by confidence)
-                                      // Debris is lofted from the ground, so a column the lowest tilt does not see is the
-                                      // one qualification worth carrying into the alert itself rather than the hover.
-            let aloft = if best.rooted == Some(false) {
-                ", aloft only"
-            } else {
-                ""
-            };
-            log::info!(
-                target: "wxdata::tds",
-                "{site}: TDS detected — evidence {}, {} tilt{}, {:.1}-{:.1} km{aloft}",
-                wxdata::evidence::out_of_100(best.confidence),
-                best.tilts,
-                if best.tilts == 1 { "" } else { "s" },
-                best.base_km,
-                best.top_km,
-            );
-            self.banner(
-                "⚠ TDS detected".to_string(),
-                format!(
-                    "{} debris signature(s) — possible tornado (evidence {}, \
-                     {} tilt{}, lofted to {:.1} km{aloft}{})",
-                    alertable.len(),
-                    wxdata::evidence::out_of_100(best.confidence),
-                    best.tilts,
-                    if best.tilts == 1 { "" } else { "s" },
-                    best.top_km,
-                    best.rotation_ms.map_or(String::new(), |v| format!(
-                        ", {:.0} kt rotation beside it",
-                        v * 1.943_844
-                    )),
-                ),
-            );
-            self.notify_alert(
-                "⚠ Tornado Debris Signature",
-                "Low CC + high reflectivity detected on radar",
-                true,
-            );
-            if self.settings.alert_sound {
-                self.play_alert_urgent(&self.settings.tds_sound.clone());
-            }
-        } else if self.tds_active && !now_active {
-            log::debug!(target: "wxdata::tds", "{site}: TDS cleared");
-        }
-        self.tds_active = now_active;
+        // No alert of its own: debris is evidence for Tornado detection, which alerts on its verdicts
+        // (`Self::tornado_alert`). A user's rule on debris signatures still fires from these hits.
 
         // The user's confidence threshold is applied on the way out (after corroboration, not
         // baked into the cache), so lowering it shows the hidden hits at once instead of at the
@@ -587,7 +531,7 @@ impl HookEchoApp {
     /// chime + banner on the rising edge, like the TDS detector (they're complementary: rotation
     /// aloft precedes debris at the ground).
     pub(crate) fn compute_couplets(&mut self, idx: usize) -> Vec<wxdata::rotation::CoupletHit> {
-        let (mut hits, (radar_lon, radar_lat), scanned) = self.couplets_raw(idx);
+        let (mut hits, _, scanned) = self.couplets_raw(idx);
         // Cross-corroborate from each side's own raw evidence (see `compute_tds`'s matching
         // comment). `tds_quiet` reads the debris cache without chiming — the rotation layer must
         // not sound the TDS alarm for debris the user never asked about, only use it to
@@ -609,64 +553,15 @@ impl HookEchoApp {
             hits.len(),
         );
 
-        // Rising-edge alert, on the corroborated hits that clear the user's confidence threshold.
+        // No alert of its own: rotation is evidence for Tornado detection, which alerts on its
+        // verdicts (`Self::tornado_alert`). A user's rule on rotation still fires from these hits,
+        // and the near-you check still reads the couplets that clear the user's floor.
         let min = self.settings.detectors.rotation_min_confidence;
-        // Alerts see only what the user would see; the return value keeps everything.
         let alertable: Vec<_> = hits
             .iter()
             .copied()
             .filter(|h| h.confidence >= min)
             .collect();
-        let now_active = !alertable.is_empty();
-        if now_active && !self.rot_active {
-            let h = alertable[0]; // sorted strongest-first (by confidence, now that height/depth count)
-            let kt = h.vrot_ms * 1.943_844;
-            let (km, bearing) =
-                crate::geo::great_circle([radar_lon as f64, radar_lat as f64], [h.lon, h.lat]);
-            let where_ = format!("{:.0} km {} of {site}", km, cardinal(bearing));
-            // The two things that change what the confidence means, and both belong in the alert
-            // rather than only in the hover: rotation turning the way tornadoes essentially never
-            // do, and rotation that never reaches the lowest tilt (a mid-level mesocyclone).
-            let mut caveats: Vec<&str> = Vec::new();
-            if h.sense == wxdata::rotation::Sense::Anticyclonic {
-                caveats.push("anticyclonic");
-            }
-            if h.rooted == Some(false) {
-                caveats.push("aloft only");
-            }
-            let caveat = if caveats.is_empty() {
-                String::new()
-            } else {
-                format!(", {}", caveats.join(", "))
-            };
-            log::info!(
-                target: "wxdata::rotation",
-                "{site}: rotation detected — {kt:.0} kt, {where_}, evidence {}, {} tilt{}{caveat}",
-                wxdata::evidence::out_of_100(h.confidence),
-                h.tilts,
-                if h.tilts == 1 { "" } else { "s" },
-            );
-            self.banner(
-                "⟳ Rotation detected".to_string(),
-                format!(
-                    "{kt:.0} kt couplet — {where_} (evidence {}, {} tilt{}{caveat})",
-                    wxdata::evidence::out_of_100(h.confidence),
-                    h.tilts,
-                    if h.tilts == 1 { "" } else { "s" },
-                ),
-            );
-            self.notify_alert(
-                "⟳ Rotation couplet",
-                &format!("{kt:.0} kt rotational velocity — {where_}"),
-                true,
-            );
-            if self.settings.alert_sound {
-                self.play_alert_urgent(&self.settings.rotation_sound.clone());
-            }
-        } else if self.rot_active && !now_active {
-            log::debug!(target: "wxdata::rotation", "{site}: rotation cleared");
-        }
-        self.rot_active = now_active;
         self.rotation_near_you(&alertable);
 
         // The user's confidence threshold is applied on the way out (after corroboration, not
@@ -872,4 +767,145 @@ fn columns_and_inputs(
     let columns = wxdata::rotation_columns::from_sweeps(&pairs);
     let sweeps = pairs.into_iter().flat_map(|(v, z)| [v, z]).collect();
     (columns, wxdata::detection_lineage::input_coverage(sweeps))
+}
+
+impl HookEchoApp {
+    /// Tornado detection's one alert: a banner, notification and sound when a verdict reaches
+    /// Likely or higher (Likely, Debris, Confirmed), or rises to a higher tier, on the active pane.
+    /// Possible does not alert: on a random sample of ordinary severe days it was wrong about once
+    /// per radar-hour, where Likely was wrong once in forty (detectionplan.md). While the original
+    /// pipeline stands in for a fused verdict still being computed, nothing is decided, so an alert
+    /// cannot flip when the fused one lands.
+    pub(crate) fn tornado_alert(
+        &mut self,
+        idx: usize,
+        circulations: &[wxdata::tornado_id::Circulation],
+        lineage: Option<&wxdata::detection_lineage::DetectionLineage>,
+    ) {
+        use wxdata::tornado_id::Tier;
+        let ids: Vec<_> = circulations.iter().map(|c| c.id.clone()).collect();
+        let standing_in = lineage.is_some_and(|l| l.stand_in.is_some());
+        let (fire, state) = tornado_alert_decision(self.tornado_alerted, &ids, standing_in);
+        self.tornado_alerted = state;
+        if let Some(t) = fire {
+            let site = self.views[idx].site.clone().unwrap_or_default();
+            let where_ = wxdata::sites::site_by_id(&site)
+                .map(|s| {
+                    let (km, bearing) = crate::geo::great_circle(
+                        [s.longitude as f64, s.latitude as f64],
+                        [t.lon, t.lat],
+                    );
+                    format!("{km:.0} km {} of {site}", cardinal(bearing))
+                })
+                .unwrap_or_else(|| format!("{:.2}, {:.2}", t.lat, t.lon));
+            let mut detail = vec![format!(
+                "evidence {}",
+                wxdata::evidence::out_of_100(t.score)
+            )];
+            if let Some(v) = t.vrot_ms {
+                detail.push(format!("{:.0} kt rotation", v * 1.943_844));
+            }
+            if let Some(cc) = t.min_cc {
+                detail.push(format!("debris CC down to {cc:.2}"));
+            }
+            log::info!(
+                target: "wxdata::tornado_id",
+                "{site}: {} — {where_} ({})",
+                t.tier.label(),
+                detail.join(", ")
+            );
+            let mark = if t.tier >= Tier::Debris {
+                "\u{26a0}"
+            } else {
+                "\u{27f3}"
+            };
+            self.banner(
+                format!("{mark} {}", t.tier.label()),
+                format!("{where_} ({})", detail.join(", ")),
+            );
+            self.notify_alert(&format!("{mark} {}", t.tier.label()), &where_, true);
+            if self.settings.alert_sound {
+                let sound = if t.tier >= Tier::Debris {
+                    self.settings.tds_sound.clone()
+                } else {
+                    self.settings.rotation_sound.clone()
+                };
+                self.play_alert_urgent(&sound);
+            }
+        }
+    }
+}
+
+/// What Tornado detection alerts on, given the tier it last alerted on (`previous`) and this
+/// volume's verdicts: the verdict to alert on, if any, and the state to keep. It alerts when the
+/// best verdict reaches Likely or higher, or rises above what it alerted on; it stays quiet while
+/// that holds; it resets once nothing is Likely or higher. While the original pipeline stands in
+/// for a fused verdict (`standing_in`), nothing changes.
+pub(crate) fn tornado_alert_decision(
+    previous: Option<wxdata::tornado_id::Tier>,
+    ids: &[wxdata::tornado_id::TornadoId],
+    standing_in: bool,
+) -> (
+    Option<wxdata::tornado_id::TornadoId>,
+    Option<wxdata::tornado_id::Tier>,
+) {
+    use wxdata::tornado_id::Tier;
+    if standing_in {
+        return (None, previous);
+    }
+    let best = ids
+        .iter()
+        .filter(|t| t.tier >= Tier::Likely)
+        .max_by(|a, b| a.tier.cmp(&b.tier).then(a.score.total_cmp(&b.score)))
+        .cloned();
+    let state = best.as_ref().map(|t| t.tier);
+    let fire = best.filter(|t| previous.is_none_or(|was| t.tier > was));
+    (fire, state)
+}
+
+#[cfg(test)]
+mod tornado_alert_tests {
+    use super::tornado_alert_decision;
+    use wxdata::tornado_id::{Tier, TornadoId};
+
+    fn id(tier: Tier, score: f32) -> TornadoId {
+        TornadoId {
+            lon: -97.5,
+            lat: 35.3,
+            tier,
+            score,
+            terms: Vec::new(),
+            vrot_ms: None,
+            min_cc: None,
+            reasons: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn it_alerts_on_likely_or_higher_once_and_again_only_when_it_rises() {
+        // Possible alone never alerts.
+        let (fire, state) = tornado_alert_decision(None, &[id(Tier::Possible, 0.4)], false);
+        assert!(fire.is_none() && state.is_none());
+        // Likely alerts, once.
+        let (fire, state) = tornado_alert_decision(None, &[id(Tier::Likely, 0.65)], false);
+        assert_eq!(fire.map(|t| t.tier), Some(Tier::Likely));
+        let (fire, state) = tornado_alert_decision(state, &[id(Tier::Likely, 0.70)], false);
+        assert!(fire.is_none(), "the same tier again stays quiet");
+        // Debris beside it raises it: alert again.
+        let (fire, state) = tornado_alert_decision(
+            state,
+            &[id(Tier::Likely, 0.7), id(Tier::Debris, 0.8)],
+            false,
+        );
+        assert_eq!(fire.map(|t| t.tier), Some(Tier::Debris));
+        // A stand-in volume decides nothing.
+        let (fire, held) = tornado_alert_decision(state, &[], true);
+        assert!(fire.is_none());
+        assert_eq!(held, Some(Tier::Debris));
+        // It ends, and a new one alerts afresh.
+        let (_, state) = tornado_alert_decision(held, &[id(Tier::Possible, 0.35)], false);
+        assert!(state.is_none());
+        let (fire, _) = tornado_alert_decision(state, &[id(Tier::Likely, 0.62)], false);
+        assert!(fire.is_some());
+    }
 }

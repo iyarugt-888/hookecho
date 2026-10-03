@@ -68,8 +68,12 @@ impl HookEchoApp {
                     "New scan" => self.settings.scan_sound = sound,
                     "Warning" => self.settings.warn_sound = sound,
                     "Emergency" => self.settings.emergency_sound = sound,
-                    "TDS" => self.settings.tds_sound = sound,
-                    "Rotation" => self.settings.rotation_sound = sound,
+                    // Tornado detection's alert sounds (named "TDS" and "Rotation" before the
+                    // detectors were merged into one feature).
+                    "Tornado debris / confirmed" | "TDS" => self.settings.tds_sound = sound,
+                    "Tornado likely / rotation" | "Rotation" => {
+                        self.settings.rotation_sound = sound
+                    }
                     "Lightning" => self.settings.lightning_sound = sound,
                     other => log::warn!("no alert sound row named '{other}'"),
                 }

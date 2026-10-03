@@ -1477,8 +1477,8 @@ pub fn sound_picker(ui: &mut egui::Ui, settings: &mut Settings) {
         ("New scan", |s| &mut s.scan_sound),
         ("Warning", |s| &mut s.warn_sound),
         ("Emergency", |s| &mut s.emergency_sound),
-        ("TDS", |s| &mut s.tds_sound),
-        ("Rotation", |s| &mut s.rotation_sound),
+        ("Tornado debris / confirmed", |s| &mut s.tds_sound),
+        ("Tornado likely / rotation", |s| &mut s.rotation_sound),
         ("Lightning", |s| &mut s.lightning_sound),
     ];
     let volume = settings.alert_volume;

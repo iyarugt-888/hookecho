@@ -384,6 +384,12 @@ Primary code areas:
   - **What it no longer draws.** Rotation and debris tied to no verdict, which is what the fusion weighed and set aside.
   - **Unchanged.** Alert rules that watch rotation or debris still drive their detectors with the layer off. The Detectors section keeps the two evidence floors, which now decide what enters a tornado's web, the original Tornado ID and the rotation and debris alerts.
   - **Old saves.** A settings file, workspace or scene saved with the rotation or debris layer on restores with Tornado detection on (`OverlayToggle::from_slug` aliases). The merge setting is gone (always merged). A test pins the aliases.
+  - **One alert.** Debris and rotation used to raise their own banner, notification and sound on any raw detection over its floor, even where no tornado marker was drawn. Tornado detection now alerts on its verdicts (`tornado_alert_decision`):
+    - when the best verdict reaches Likely or higher (Likely, Debris, Confirmed), or rises to a higher tier
+    - never on Possible, which was wrong about once per radar-hour on the random sample, where Likely was wrong once in forty
+    - not while the original pipeline stands in for a fused verdict still being computed
+
+    The debris sound plays for Debris and Confirmed, the rotation sound for Likely; the Settings rows say so. User-defined rules on rotation or debris and the rotation-near-you check are unchanged. A test pins the decision.
 
 ### Where the detection stands (65 events)
 
