@@ -304,6 +304,24 @@ Primary code areas:
 
     On the five wind lines the fusion makes 0 false detections and the original 10. The one near-range line day, KCLX (67 km), is found by both: 14 and 11 of 27 at Possible, 11 each at Likely. Far-range line tornadoes stay mostly unfound by either, as round four found.
 
+- **Phase 14 groundwork: the fused score's reliability out of sample** (`p17-65`). This is the share of fused rows that verify, by score band, on fusion-3's 25 training events and on the 40 events it never saw:
+
+  | Score | Training: rows | Training: verified | Unseen: rows | Unseen: verified |
+  |---|---|---|---|---|
+  | 0.0–0.1 | 12,378 | 0.07 | 15,015 | 0.09 |
+  | 0.1–0.2 | 2,970 | 0.13 | 2,936 | 0.18 |
+  | 0.2–0.3 | 325 | 0.27 | 249 | 0.41 |
+  | 0.3–0.4 | 108 | 0.34 | 63 | 0.41 |
+  | 0.4–0.5 | 54 | 0.44 | 29 | 0.59 |
+  | 0.5–0.6 | 45 | 0.56 | 35 | 0.69 |
+  | 0.6–0.7 | 32 | 0.62 | 25 | 0.84 |
+  | 0.7–0.8 | 46 | 0.80 | 18 | 1.00 |
+  | 0.8–1.0 | 46 | 0.72 | 14 | 1.00 |
+
+  In sample the score tracks the verified share, as a logistic fit does. On unseen events it understates it at every band: the evidence score is conservative out of sample and does not over-claim.
+  - **This is not calibration.** "Verified" means a report or surveyed path within the matching radius and window, not a tornado probability. The share depends on the corpus's base rate, and rounds three to six lean tornadic, which inflates it.
+  - **What calibration still needs:** a corpus sampled to represent how often each kind of storm occurs, so the base rate is meaningful. Until then the tiers stay evidence scores out of 100.
+
 ### Where the detection stands (65 events)
 
 - **Promoted.** The fused Tornado ID (fusion-3) is the app's default; the original is selectable. On every held-out test since promotion it has found as many tornadoes as the original or more, at a far lower false-alarm ratio. On round three's unseen events at matched false-alarm rates: POD 0.29, FAR 0.21 against 0.15, 0.64. On round five's unseen supercell days at Likely: POD 0.28, FAR 0.11 against 0.26, 0.62. On non-tornadic lines (round four): 0 false detections against 23. On the hail storms, at Likely: 2 against 25.
