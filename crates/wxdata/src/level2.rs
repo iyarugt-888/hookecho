@@ -1801,6 +1801,15 @@ pub fn bin_sweep_opts(
                 .unwrap_or(0)
         })
         .collect();
+    // No radial with a clock at all (Level 3 tilts synthesized into a scan, such as a TDWR's):
+    // timing is unknown, which the field's contract spells as an empty vector. All zeros would
+    // instead read as "no radial landed in any row", and every neighbour check
+    // (`rotation::scanned_together`) would then refuse every kernel and pairing on the sweep.
+    let bin_time_ms = if bin_time_ms.iter().all(|&t| t <= 0) {
+        Vec::new()
+    } else {
+        bin_time_ms
+    };
     let stale_arc_deg = previous_pass_arc(&bin_time_ms, AZ_BINS);
 
     Ok(BinnedSweep {

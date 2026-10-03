@@ -256,7 +256,80 @@ pub async fn fetch_volume(
         crate::stats::bump(crate::stats::Counter::FetchSkipped);
         return Ok(None);
     }
+    assemble(http, id, meta, keys).await.map(Some)
+}
 
+/// The volume as it stood at `at`: each tilt product's newest key at or before it, from that
+/// hour's and the previous hour's listings, at most [`ARCHIVE_SLACK_MIN`] minutes old. For the
+/// backtest and archive review; [`fetch_volume`] is the live poll.
+pub async fn fetch_volume_at(
+    http: &reqwest::Client,
+    id: &str,
+    at: DateTime<Utc>,
+) -> anyhow::Result<(String, DateTime<Utc>, Scan)> {
+    let meta = site_by_id(id).ok_or_else(|| anyhow::anyhow!("{id} is not a TDWR"))?;
+    let short = &meta.id[1..];
+    let keys = futures_util::future::join_all(PRODUCTS.iter().map(|(product, _)| {
+        let http = http.clone();
+        async move { key_at(&http, short, product, at).await }
+    }))
+    .await;
+    assemble(http, id, meta, keys).await
+}
+
+/// How old a tilt may be and still count as part of the volume at a time, minutes.
+pub const ARCHIVE_SLACK_MIN: i64 = 10;
+
+/// Every S3 key under `prefix` (one listing page: an hour of one product is a few dozen).
+async fn keys_under(http: &reqwest::Client, prefix: &str) -> Vec<String> {
+    let url = format!("{BUCKET}/?list-type=2&prefix={prefix}");
+    let Some(xml) = async {
+        http.get(crate::net::fetch_url(&url))
+            .timeout(crate::net::FEED_TIMEOUT)
+            .send()
+            .await
+            .ok()?
+            .text()
+            .await
+            .ok()
+    }
+    .await
+    else {
+        return Vec::new();
+    };
+    crate::stats::net(xml.len());
+    xml.split("<Key>")
+        .skip(1)
+        .filter_map(|k| k.split("</Key>").next().map(str::to_string))
+        .collect()
+}
+
+/// The newest key of `product` at or before `at`, no more than [`ARCHIVE_SLACK_MIN`] older.
+async fn key_at(
+    http: &reqwest::Client,
+    short: &str,
+    product: &str,
+    at: DateTime<Utc>,
+) -> Option<String> {
+    let mut keys = Vec::new();
+    for hour in [at, at - chrono::Duration::hours(1)] {
+        let prefix = format!("{short}_{product}_{}", hour.format("%Y_%m_%d_%H"));
+        keys.extend(keys_under(http, &prefix).await);
+    }
+    keys.into_iter()
+        .filter_map(|k| key_time(&k).map(|t| (t, k)))
+        .filter(|(t, _)| *t <= at && (at - *t).num_minutes() <= ARCHIVE_SLACK_MIN)
+        .max_by_key(|(t, _)| *t)
+        .map(|(_, k)| k)
+}
+
+/// Fetch and decode the given products' keys (in [`PRODUCTS`] order) into one volume.
+async fn assemble(
+    http: &reqwest::Client,
+    id: &str,
+    meta: &SiteEntry,
+    keys: Vec<Option<String>>,
+) -> anyhow::Result<(String, DateTime<Utc>, Scan)> {
     // Six products. Serially that was most of the wait for a TDWR site; they're independent, so
     // fetch and decode them all at once.
     let mut jobs = Vec::new();
@@ -332,7 +405,7 @@ pub async fn fetch_volume(
         false,
         Vec::new(),
     );
-    Ok(Some((name, time, Scan::with_site(site, vcp, sweeps))))
+    Ok((name, time, Scan::with_site(site, vcp, sweeps)))
 }
 
 #[cfg(test)]
@@ -448,6 +521,9 @@ mod tests {
         assert_eq!(binned.data[row + 1], 1, "range folded");
         let want = 2 + (((39.0f32 + 32.0) / 127.0) * 253.0) as u8;
         assert_eq!(binned.data[row + 2], want, "39 dBZ");
+        // Level 3 radials carry no clocks: timing is unknown (empty), not "no radial anywhere"
+        // (zeros), which made the rotation detectors refuse every kernel on a TDWR.
+        assert!(binned.bin_time_ms.is_empty());
     }
 
     #[tokio::test]

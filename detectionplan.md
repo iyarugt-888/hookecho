@@ -247,11 +247,26 @@ Primary code areas:
 
   Shear is in 0.01 s⁻¹. The same pattern holds on the QLCS/tropical, hail and supercell groups. The kernel stays at 2.5 km; no refit was needed to reject it.
 
+- **TDWR feasibility, and a binning bug it exposed** (`tests/tdwr_feasibility.rs`, `tdwr::fetch_volume_at`). The same LLSD field on the lowest velocity tilt of O'Hare's TDWR (TORD) and of KLOT, at six Chicago derecho tornado reports on 2020-08-10. Strongest cyclonic shear within 3 km, s⁻¹:
+
+  | Report | TORD (range) | KLOT (range) |
+  |---|---|---|
+  | Wheaton | 0.0076 (22 km) | 0.0135 (29 km) |
+  | Lombard | 0.0224 (16 km) | 0.0188 (32 km) |
+  | Midlothian | 0.0047 (22 km) | 0.0197 (30 km) |
+  | Park Forest | 0.0211 (38 km) | 0.0190 (36 km) |
+  | West Ridge | 0.0034 (27 km) | 0.0095 (55 km) |
+  | Plainfield | no data | sparse |
+
+  - **TDWR is not a reliable gain here.** It is stronger at two reports and much weaker at three, consistent with C-band attenuation in the derecho's heavy rain.
+  - **The QLCS conclusion is refined.** KLOT already reads 0.013–0.020 s⁻¹ at four of these near-range tornadoes, so within ~40 km the miss is weighting (rotation-only, no debris), not sensing. The sensing limit applies beyond ~70 km, as round four found.
+  - **Bug fixed.** Level 3 radials carry no clocks, so binning gave a TDWR sweep a per-bin time vector of zeros. `rotation::scanned_together` reads zero as "no radial landed", so the LLSD field and the couplet detector refused every kernel on a TDWR: no rotation detection at all on TDWR sites in the app. A sweep with no clocked radial now bins with timing unknown (an empty vector, as `BinnedSweep` documents). Every other reader already treated zero as unknown, so nothing else changes. The TDWR synthesis test pins it.
+
 ### Where the detection stands (45 events)
 
 - **Promoted.** The fused Tornado ID (fusion-3) is the app's default; the original is selectable. On every held-out test since promotion it has found as many tornadoes as the original or more, at a far lower false-alarm ratio. On round three's unseen events at matched false-alarm rates: POD 0.29, FAR 0.21 against 0.15, 0.64. On non-tornadic lines (round four): 0 false detections against 23. On the hail storms, at Likely: 2 against 25.
 - **Weights.** fusion-3, fitted on the first 25 events, still outperforms every refit on events it never saw. Every candidate feature was measured, exported at weight 0 and tested held out by event: echo shape, no core, near-ground speed, inbound, Vrot, couplet minimum, circulation persistence. None improved the Likely tier on unseen events. The couplet minimum ranks better but loses Likely POD (0.20 to 0.08), so the weights stand.
-- **Line (QLCS) tornadoes are a sensing limit, not a weighting gap.** At 70–100 km, a shallow mesovortex spans a few radials and sits under or within the lowest beam. Its columns are unrooted and weak (median 0.008–0.0095 s⁻¹), and both Tornado IDs find almost none (round four POD 0.03 and 0.05). A narrower kernel adds more noise than signal. Closer, higher-resolution data would be needed, for example the TDWRs near cities, which `wxdata::tdwr` already decodes.
+- **Line (QLCS) tornadoes are a sensing limit, not a weighting gap.** At 70–100 km, a shallow mesovortex spans a few radials and sits under or within the lowest beam. Its columns are unrooted and weak (median 0.008–0.0095 s⁻¹), and both Tornado IDs find almost none (round four POD 0.03 and 0.05). A narrower kernel adds more noise than signal. Within ~40 km the WSR-88D already resolves them, so the near-range miss is weighting. A TDWR test on the Chicago derecho was not a reliable gain (C-band attenuation).
 - **Lead time.** Measured along the storm's track from surveyed starts, both Tornado IDs confirm around touchdown: median +1 minute at Possible. The fused one has 10+ minutes of lead four times as often as the original (16% against 4%) and is later at Likely (−4 minutes), because debris follows touchdown. The radar evidence 5–30 minutes before touchdown holds little precursor signal (AUC ≤ 0.61 per feature).
 - **Calibration (Phase 14).** It still waits on a much larger corpus: 45 events with 15 hard negatives cannot set a probability, and the tiers stay evidence scores.
 
