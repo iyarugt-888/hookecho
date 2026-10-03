@@ -279,13 +279,25 @@ Primary code areas:
 
   The field and the two object passes are 94% of the cost; everything after them is negligible. The app runs this once per new full volume on a background thread, so it never blocks a frame. The object passes are the first place to look if a slower device needs it: the support pass re-segments the same field. Low-end desktop and Android timings are not measured.
 
-### Where the detection stands (45 events)
+- **Round five, 55 events: supercell tornadoes and more hail, unseen by every fit** (export `p16-55`).
+  - **Supercell tornado days:** Andover/Wichita 2022 (KICT), Little Rock 2023 (KLZK, 12 km), Selma 2023 (KBMX), Newnan 2021 at night (KFFC) and Arabi/New Orleans 2022 (KLIX).
+  - **Giant-hail supercells with no tornado:** northeast Kansas 2016 (KTWX), Hill Country 2024 (KGRK, 6.25 in), Dallas–Fort Worth 2024 (KFWS), Bridge Creek 2021 (KTLX) and Heidelberg 2021 (KMPX).
+  - **Results.** 54 tornado reports and paths:
 
-- **Promoted.** The fused Tornado ID (fusion-3) is the app's default; the original is selectable. On every held-out test since promotion it has found as many tornadoes as the original or more, at a far lower false-alarm ratio. On round three's unseen events at matched false-alarm rates: POD 0.29, FAR 0.21 against 0.15, 0.64. On non-tornadic lines (round four): 0 false detections against 23. On the hail storms, at Likely: 2 against 25.
+    | Tier | Fusion (shipped) | Original Tornado ID |
+    |---|---|---|
+    | Possible (≥ 0.3) | POD 0.41, FAR 0.39, CSI 0.30, 2.5 false/h | POD 0.39, FAR 0.67, CSI 0.25, 3.6 false/h |
+    | Likely (≥ 0.6) | POD 0.28, FAR 0.11, CSI 0.27, 0.2 false/h | POD 0.26, FAR 0.62, CSI 0.21, 1.6 false/h |
+
+    On the five hail storms, at Likely, the fusion makes 2 false detections and the original 12. At Little Rock the fusion finds 6 of 10 at Likely with no false detection; the original finds 1 of 10.
+
+### Where the detection stands (55 events)
+
+- **Promoted.** The fused Tornado ID (fusion-3) is the app's default; the original is selectable. On every held-out test since promotion it has found as many tornadoes as the original or more, at a far lower false-alarm ratio. On round three's unseen events at matched false-alarm rates: POD 0.29, FAR 0.21 against 0.15, 0.64. On round five's unseen supercell days at Likely: POD 0.28, FAR 0.11 against 0.26, 0.62. On non-tornadic lines (round four): 0 false detections against 23. On the hail storms, at Likely: 2 against 25.
 - **Weights.** fusion-3, fitted on the first 25 events, still outperforms every refit on events it never saw. Every candidate feature was measured, exported at weight 0 and tested held out by event: echo shape, no core, near-ground speed, inbound, Vrot, couplet minimum, circulation persistence. None improved the Likely tier on unseen events. The couplet minimum ranks better but loses Likely POD (0.20 to 0.08), so the weights stand.
 - **Line (QLCS) tornadoes are a sensing limit, not a weighting gap.** At 70–100 km, a shallow mesovortex spans a few radials and sits under or within the lowest beam. Its columns are unrooted and weak (median 0.008–0.0095 s⁻¹), and both Tornado IDs find almost none (round four POD 0.03 and 0.05). A narrower kernel adds more noise than signal. Within ~40 km the WSR-88D already resolves them, so the near-range miss is weighting. A TDWR test on the Chicago derecho was not a reliable gain (C-band attenuation).
 - **Lead time.** Measured along the storm's track from surveyed starts, both Tornado IDs confirm around touchdown: median +1 minute at Possible. The fused one has 10+ minutes of lead four times as often as the original (16% against 4%) and is later at Likely (−4 minutes), because debris follows touchdown. The radar evidence 5–30 minutes before touchdown holds little precursor signal (AUC ≤ 0.61 per feature).
-- **Calibration (Phase 14).** It still waits on a much larger corpus: 45 events with 15 hard negatives cannot set a probability, and the tiers stay evidence scores.
+- **Calibration (Phase 14).** It still waits on a much larger corpus: 55 events with 20 hard negatives cannot set a probability, and the tiers stay evidence scores.
 
 ### Findings to carry into Phase 9 (from 10 and 11)
 

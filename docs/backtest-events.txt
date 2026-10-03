@@ -81,3 +81,16 @@ KDVN 2024-05-21 23:45   # Derecho line, eastern Iowa/Illinois (113 wind reports)
 KILX 2023-05-08 00:40   # Central Illinois line (99 wind reports, 2 in hail)
 KIWX 2024-06-13 20:35   # Northern Indiana line (90 wind reports)
 KLOT 2022-08-29 16:30   # Chicago-area line (65 wind reports)
+# Round five (detectionplan.md: calibration and every open question wait on a larger corpus).
+# Supercell tornado days, each checked against the IEM LSR archive within 150 km:
+KICT 2022-04-30 00:50   # Wichita area / Andover, KS (00:55Z landspouts 103 km; Andover EF3 later)
+KLZK 2023-03-31 19:05   # Little Rock, AR, EF3, near range (19:15Z, Little Rock, 12 km)
+KBMX 2023-01-12 16:50   # Selma, AL, and the Alabama outbreak (16:57Z, Greensboro, 98 km)
+KFFC 2021-03-26 03:35   # Newnan, GA, EF4, night (03:43Z, Franklin, 52 km)
+KLIX 2022-03-23 00:15   # Arabi / New Orleans, EF3 (00:21Z, Harvey, 55 km)
+# More giant-hail supercells with no tornado within 150 km from two hours before to three after:
+KTWX 2016-04-26 21:20   # Northeast Kansas hail, 84-128 km (24 reports >= 2 in)
+KGRK 2024-05-10 00:05   # Johnson City / Hill Country hail, 6.25 in (15 reports >= 2 in)
+KFWS 2024-05-27 23:55   # Dallas-Fort Worth hail, 17-58 km (14 reports >= 2 in)
+KTLX 2021-04-29 01:25   # Bridge Creek, OK hail, 14-42 km (2.75 in 01:38Z)
+KMPX 2021-06-17 23:25   # Heidelberg, MN hail, 39-60 km (2 in 23:40Z)
