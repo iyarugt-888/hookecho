@@ -343,12 +343,53 @@ increment, preserving Claude's concurrent detector commits. These are source/own
 compilation and expanded-section layout controls, not full application/device interaction,
 completed-GPU performance or operational soak certification.
 
-**Remaining/next increment:** add typed source-sequence discontinuity and recovery evidence;
+**Evidence ledger — 2026-10-03, increment 8:** direct-source initial backfill now checks the
+downloaded Start, joined chunk and every requested middle position before assembly erases
+source boundaries. An omitted Start/middle position cannot appear to be uninterrupted native
+input. A combined prefix/current chunk after failed decoding also takes conservative association
+when its positions are not adjacent. An actual adjacent metadata-only Start/current chunk remains
+contiguous; failed decoding alone does not invent a missing source position.
+Coalesced relay input requires adjacent source sequences; jumps, duplicates, reversals and
+overflow do not become apparently continuous input. Its first observed sequence retains an
+unknown earlier prefix rather than inventing missing messages. Relay decoding failure clears
+the earlier continuation anchor.
+
+Repeated untimed start/end fingerprints also clear a possible old anchor. With no source clock,
+deduplication cannot establish that the boundary belongs only to old backfill; later ordinary
+radials must not inherit an intervening timed pass's ID across this ambiguity.
+
+Discontinuous assemblies keep valid recorded start IDs while ordinary positions and end
+markers remain unanchored. Their starts cannot lend identity to subsequent input; a fresh
+native start in contiguous input can restore association. A separate discontinuous-assembly
+counter travels with immutable accepted receipts and appears in the expanded Inspector and
+all shared derived/3D source rows. It counts inspected assemblies, including non-rendering
+input, not missing packets/passes/radials. Continuous samples, newest-radial stitching and
+scientific masks are unchanged. [Source controls, captures and conservative limits](docs/certification/m1.1/pass-continuity.md)
+document the deliberately conservative relay behavior across its accumulated input.
+
+**Increment 8 verification:** the final serial Windows workspace run passed **2,154 tests**,
+zero failures and 137 explicitly ignored checks across 28 suites (`--test-threads=4`). All
+five new source-continuity controls passed, including adjacent metadata-only recovery and
+repeated untimed boundaries around same/different-elevation timed passes. Native workspace/
+all-target Clippy passed with warnings denied; the final WASM check passed with existing
+browser warnings. The explicit GPU helper passed in 2.94 seconds after compilation. Four
+expanded history/unavailable references at 240 px touch and 300 px desktop were reviewed;
+fresh captures matched their reviewed bytes exactly, and independent Python/PowerShell checks
+verified every copied hash/size and all eight final capture-source hashes. Final logs are
+`target/parity-review/m1.1/pass-continuity/{workspace,clippy,wasm}-serial.log` and `gpu-ready.log`,
+with exit codes retained. An intermediate enum-pattern compile error was corrected; overlapping
+Windows verification runs hit an executable linker lock, and the final serial rerun passed.
+The checked tree is based on `af0d1e6` plus this increment. This establishes conservative source
+association and expanded-section layout, leaving exact transport origins/recovery, operational
+sessions, contributor association, persisted replay and device/performance gates open.
+
+**Remaining/next increment:** add typed source-sequence origin, exact discontinuity and recovery receipts;
 keep transport message holes distinct from unobserved native radial positions and actual proven
 loss. Bind contributor rows/gates to the retained native pass keys before replacing inferred
 revisit behavior. Arrival-ordered relay CutTracker IDs and predicted Unidata VCP cut positions
-still require stronger continuation controls. Transport continuity within aggregated initial
-backfill and association across missing boundaries are not certified. Missing cut metadata can leave raw receipts
+still require stronger continuation controls. Known discontinuous assemblies now keep ordinary
+positions unanchored; locating exact source gaps and associating recovered contributors remains
+open. Missing cut metadata can leave raw receipts
 unavailable, and progressive replay storage remains open. Whole-scan invalidation remains
 conservative; contributor optimization, full viewport interaction, Android/browser runtime,
 completed GPU timing and sustained-load certification remain open. Independent local-product

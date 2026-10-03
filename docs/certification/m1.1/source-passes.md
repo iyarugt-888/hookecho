@@ -72,7 +72,9 @@ Reviewed references are [history at 240 px touch](source-pass-ui/history-240.png
 [unavailable at 240 px touch](source-pass-ui/unavailable-240.png) and
 [unavailable at 300 px desktop](source-pass-ui/unavailable-300.png), with a
 [hash/size/time/source manifest](source-pass-ui/captures.json). Fresh output is under
-`target/parity-review/m1.1/source-pass-ui/`. The helper does not retain adapter/driver identity.
+`target/parity-review/m1.1/source-pass-ui/` at captured revision `af0d1e6`. The subsequent
+[continuity increment](pass-continuity.md) updates the helper's output directory and qualifications;
+these original references retain their own recorded source hashes. The helper does not retain adapter/driver identity.
 These references establish expanded-section wrapping, not real device, scroll/collapse interaction
 or full radar viewport behavior. The GPU check is explicitly invoked; its default ignored state
 does not certify execution.
@@ -83,8 +85,9 @@ Logs are under `target/parity-review/m1.1/source-passes/`.
 ## Remaining gates and handoff
 
 The initial backfill can assemble several source chunks, with failed downloads omitted. This
-increment does not certify transport continuity throughout that assembled input or pass
-association across every missing boundary. Native IDs still require recorded start clocks;
+increment did not certify transport continuity throughout that assembled input or pass
+association across every missing boundary. The subsequent [continuity controls](pass-continuity.md)
+keep ordinary positions unanchored in a known discontinuous assembly. Native IDs still require recorded start clocks;
 source-sequence receipts and stronger contributor association remain the next controls.
 
 The receipt now contains native pass history; merged product contributor rows/gates do not yet

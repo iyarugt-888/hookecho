@@ -8,6 +8,14 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: pass history cannot bridge discontinuous backfill
+
+Missing direct-source backfill chunks and relay sequence jumps, duplicates or reversals no
+longer lend a native start to ordinary positions in a coalesced decoded input. Recorded start
+IDs remain visible; uncertain positions and end markers stay unanchored until contiguous input
+and a fresh recorded start establish association. Inspector and derived/3D source receipts qualify discontinuous
+assemblies separately from unavailable evidence. These counts do not prove lost radials.
+
 ### Added: source-marked radar pass history
 
 The Inspector's acquisition details now retain separate passes at the same elevation using

@@ -1,0 +1,56 @@
+{
+  "scenario": "Controlled source pass history from increment 7 with one discontinuous assembly and one unavailable subsequent raw update, plus unavailable history. Production expanded pass painter. No storm, viewport, scroll/collapse or device interaction.",
+  "theme": "DearImGui",
+  "pixels_per_point": 1,
+  "adapter_driver": "Not retained by the UI snapshot helper",
+  "command": "cargo test -p hookecho --lib gpu_source_pass_snapshots -- --ignored --nocapture",
+  "source_baseline": "af0d1e6 plus M1.1 increment 8 discontinuous assembly controls",
+  "source_sha256": {
+    "crates/wxdata/src/live_pass.rs": "a943cf25187f904a3d3d317ab7027dfc0064142e5661c0b552c02b2eaf206b72",
+    "crates/wxdata/src/live.rs": "3c7ffd18e1b6955e70cb5d0b6142cb98ad0e13ca47f706d5abd2fa53ea463355",
+    "crates/wxdata/src/lib.rs": "3b27a0ba196c3f2071512e4899435fd27cb4a8bad4aad215de924d29e3a66ecf",
+    "crates/hookecho/src/relay_provider.rs": "2f619f2bd3e9ad4e62ea3105593b4fb4e304e1c59964579e5278158c84edc545",
+    "crates/hookecho/src/live_scan.rs": "26946e249efbe1ad75398962d514e316ccb3eb15fa8ea9b0ccbcb2a0081b84df",
+    "crates/hookecho/src/ui/acquisition_inventory.rs": "b7e3a7a19cef28e76107aaeeeead67e539d15dab19bb56d988a6c55e19d56825",
+    "crates/hookecho/src/view.rs": "4e714e15d84235421eb0668f9d131c3f0a3b19c696f369a4c58b368161fec9b3",
+    "crates/hookecho/src/app/radar_products.rs": "8ebfdda78a51970a211deed2e5abbc8bbaf81081059dceb3fe4bfd2947447c45"
+  },
+  "captures": [
+    {
+      "file": "history-240.png",
+      "bytes": 98563,
+      "sha256": "f2ec8fb32f9a12bf76bcad081e9d5decf5ee8b222278effdf797adb914dbb312",
+      "width": 240,
+      "height": 900,
+      "touch": true,
+      "capture_utc": "2026-10-03T22:27:10.389849+00:00"
+    },
+    {
+      "file": "history-300.png",
+      "bytes": 99510,
+      "sha256": "18b1e65074e994c49215b4ef2b1a0c82bd43b52fb7734e03222b79bfa0771cde",
+      "width": 300,
+      "height": 900,
+      "touch": false,
+      "capture_utc": "2026-10-03T22:27:10.671662+00:00"
+    },
+    {
+      "file": "unavailable-240.png",
+      "bytes": 15665,
+      "sha256": "5609f7d58ef4c9a13c51bc5178114c947a23f87271411c042dc0aa3940c89d81",
+      "width": 240,
+      "height": 900,
+      "touch": true,
+      "capture_utc": "2026-10-03T22:27:10.832413+00:00"
+    },
+    {
+      "file": "unavailable-300.png",
+      "bytes": 16620,
+      "sha256": "66150907e39446439091371abbaa0d1701b634c9e8c21703d3c8801a8dfeef72",
+      "width": 300,
+      "height": 900,
+      "touch": false,
+      "capture_utc": "2026-10-03T22:27:11.008666+00:00"
+    }
+  ]
+}

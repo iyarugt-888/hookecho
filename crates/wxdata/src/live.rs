@@ -213,6 +213,10 @@ where
 
     // Assemble the current volume: start chunk + backfilled middle chunks + the joined chunk.
     let mut chunks: Vec<Chunk<'static>> = Vec::new();
+    let start_sequence = init
+        .start_chunk
+        .as_ref()
+        .map(|chunk| chunk.identifier.sequence());
     if let Some(sc) = init.start_chunk {
         chunks.push(sc.chunk);
     }
@@ -253,6 +257,14 @@ where
         );
     }
     backfill.sort_by_key(|(seq, _)| *seq);
+    let input_complete = initial_chunks_contiguous(
+        start_sequence,
+        latest_seq,
+        backfill.iter().map(|(seq, _)| *seq),
+    );
+    let mut prefix_sequence = start_sequence
+        .or_else(|| backfill.first().map(|(seq, _)| *seq))
+        .or(Some(latest_seq));
     chunks.extend(backfill.into_iter().map(|(_, ch)| ch));
     chunks.push(init.latest_chunk.chunk);
 
@@ -274,6 +286,7 @@ where
             cut: None,
             passes: &mut passes,
             continuous: false,
+            input_complete,
         },
         &mut on_update,
     )
@@ -315,6 +328,7 @@ where
                     window_start = 0;
                     passes = crate::live_pass::PassTracker::default();
                     last_decoded_sequence = None;
+                    prefix_sequence = Some(seq);
                 }
                 volume = vol;
                 chunks.push(dc.chunk);
@@ -388,6 +402,12 @@ where
                             passes: &mut passes,
                             continuous: last_decoded_sequence.and_then(|old| old.checked_add(1))
                                 == Some(seq),
+                            input_complete: incremental_input_contiguous(
+                                prefix_sequence,
+                                seq,
+                                last_decoded_sequence.is_some(),
+                                window.len() == 1,
+                            ),
                         },
                         &mut on_update,
                     )
@@ -485,6 +505,32 @@ struct EmissionProgress<'a> {
     cut: Option<ScanProgress>,
     passes: &'a mut crate::live_pass::PassTracker,
     continuous: bool,
+    input_complete: bool,
+}
+
+/// Check downloaded positions before assembly erases chunk boundaries. Failed middle downloads
+/// or an absent Start cannot become an apparently uninterrupted native pass.
+fn initial_chunks_contiguous(
+    start_sequence: Option<usize>,
+    joined_sequence: usize,
+    middle: impl Iterator<Item = usize>,
+) -> bool {
+    joined_sequence >= 1
+        && (joined_sequence == 1 || start_sequence == Some(1))
+        && middle.eq(2..joined_sequence)
+}
+
+fn incremental_input_contiguous(
+    prefix_sequence: Option<usize>,
+    current_sequence: usize,
+    prefix_decoded: bool,
+    single_chunk: bool,
+) -> bool {
+    // A failed metadata-only Start followed by its actual adjacent chunk is still contiguous.
+    // Otherwise an old, not-yet-decoded prefix cannot lend a boundary over omitted input.
+    single_chunk
+        || prefix_decoded
+        || prefix_sequence.and_then(|sequence| sequence.checked_add(1)) == Some(current_sequence)
 }
 
 /// Backfilled first inputs have no chunk-mapper event. Use the decoded last cut's native
@@ -565,7 +611,11 @@ async fn emit<F: FnMut(Update)>(
             return false;
         }
     };
-    progress.passes.observe(&partial, progress.continuous);
+    if progress.input_complete {
+        progress.passes.observe(&partial, progress.continuous);
+    } else {
+        progress.passes.observe_discontinuous_assembly(&partial);
+    }
     let cut = progress.cut.or_else(|| {
         raw_progress(
             &partial,
@@ -731,6 +781,43 @@ pub fn merge_scan(base: &Scan, partial: Scan) -> (Scan, Vec<f32>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn initial_chunk_continuity_requires_every_downloaded_position_without_inventing_a_prefix() {
+        assert!(initial_chunks_contiguous(None, 1, [].into_iter()));
+        assert!(initial_chunks_contiguous(Some(1), 2, [].into_iter()));
+        assert!(initial_chunks_contiguous(Some(1), 5, [2, 3, 4].into_iter()));
+        assert!(!initial_chunks_contiguous(None, 5, [2, 3, 4].into_iter()));
+        assert!(!initial_chunks_contiguous(Some(1), 5, [2, 4].into_iter()));
+        assert!(!initial_chunks_contiguous(
+            Some(1),
+            5,
+            [2, 3, 3, 4].into_iter()
+        ));
+        assert!(!initial_chunks_contiguous(
+            Some(1),
+            5,
+            [4, 3, 2].into_iter()
+        ));
+        assert!(!initial_chunks_contiguous(Some(1), 0, [].into_iter()));
+    }
+
+    #[test]
+    fn incremental_prefix_continuity_uses_actual_adjacency_even_after_metadata_only_decode_failure()
+    {
+        assert!(incremental_input_contiguous(Some(1), 2, false, false));
+        assert!(incremental_input_contiguous(Some(500), 501, false, false));
+        assert!(!incremental_input_contiguous(Some(1), 5, false, false));
+        assert!(!incremental_input_contiguous(None, 5, false, false));
+        assert!(!incremental_input_contiguous(
+            Some(usize::MAX),
+            0,
+            false,
+            false
+        ));
+        assert!(incremental_input_contiguous(Some(1), 5, true, false));
+        assert!(incremental_input_contiguous(None, 500, false, true));
+    }
 
     #[test]
     fn decoded_backfill_progress_preserves_native_boundary_evidence_without_a_mapper_event() {

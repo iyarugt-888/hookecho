@@ -163,6 +163,12 @@ pub(crate) fn receipt_rows(
                 ),
             ));
         }
+        if history.discontinuous_assemblies > 0 {
+            rows.push((
+                "Source continuity",
+                format!("{} discontinuous assemblies; pass association unestablished across uncertain boundaries", history.discontinuous_assemblies),
+            ));
+        }
     }
     rows
 }
@@ -319,6 +325,13 @@ fn paint_pass_inventory(
             .wrap(),
         );
     }
+    if history.discontinuous_assemblies > 0 {
+        ui.add(egui::Label::new(ws::text(
+            format!("Discontinuous assemblies: {}. Ordinary positions remain unanchored across uncertain source boundaries; this does not prove radial loss.", history.discontinuous_assemblies),
+            11.0,
+            t.warn,
+        )).wrap());
+    }
     for pass in history.passes.iter().rev() {
         ui.add_space(4.0);
         ui.add(
@@ -376,6 +389,7 @@ mod tests {
             },
         ]);
         ledger.record_unclassified();
+        ledger.record_discontinuous_assembly();
         ledger.inventory()
     }
 
@@ -392,6 +406,7 @@ mod tests {
         assert!(revisit.contains(&("Markers retained", "start yes; end no".into())));
         assert_eq!(history.unanchored_positions, 2);
         assert_eq!(history.unanchored_unknown_clocks, 1);
+        assert_eq!(history.discontinuous_assemblies, 1);
     }
 
     #[test]
@@ -428,7 +443,7 @@ mod tests {
     fn gpu_source_pass_snapshots() {
         let gpu = crate::headless::ui::Snapshot::new().expect("GPU adapter for native pass review");
         let destination = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../target/parity-review/m1.1/source-pass-ui");
+            .join("../../target/parity-review/m1.1/source-pass-continuity-ui");
         std::fs::create_dir_all(&destination).unwrap();
         let t = ws::Tokens::new(egui::Color32::from_rgb(72, 142, 226));
         let history = pass_fixture();

@@ -47,6 +47,26 @@ impl PassTracker {
     /// `continuous` is true only for consecutive source transport sequences in this volume.
     /// If bytes were skipped or decoding failed, no earlier boundary is lent to the new input.
     pub fn observe(&mut self, scan: &Scan, continuous: bool) -> Vec<PassArrival> {
+        self.observe_inner(scan, continuous, true)
+    }
+
+    /// Coalesced bytes contain a known source discontinuity, but decoded radials do not identify
+    /// which side of it they came from. Keep native start IDs, without assigning ordinary positions
+    /// or end markers across a potentially missing boundary. Do not lend these starts to later input.
+    pub fn observe_discontinuous_assembly(&mut self, scan: &Scan) -> Vec<PassArrival> {
+        let arrivals = self.observe_inner(scan, false, false);
+        self.active.clear();
+        self.last_elevation = None;
+        self.ledger.record_discontinuous_assembly();
+        arrivals
+    }
+
+    fn observe_inner(
+        &mut self,
+        scan: &Scan,
+        continuous: bool,
+        associate_positions: bool,
+    ) -> Vec<PassArrival> {
         if !continuous {
             self.active.clear();
             self.last_elevation = None;
@@ -69,6 +89,23 @@ impl PassTracker {
             let status = radial.radial_status();
             let fingerprint = (elevation, number, time, status);
             if !self.seen.insert(fingerprint) {
+                // An untimed boundary is not uniquely identified by this fingerprint. It might
+                // be repeated backfill or a new boundary with another unknown clock. Fail closed
+                // instead of lending a timed pass's anchor across it.
+                if time == 0
+                    && matches!(
+                        status,
+                        RadialStatus::ScanStart
+                            | RadialStatus::ElevationStart
+                            | RadialStatus::ElevationStartVCPFinal
+                            | RadialStatus::ElevationEnd
+                            | RadialStatus::ScanEnd
+                    )
+                {
+                    self.active.clear();
+                    local.clear();
+                    self.last_elevation = None;
+                }
                 continue;
             }
             self.order.push_back(fingerprint);
@@ -124,6 +161,8 @@ impl PassTracker {
             let active = self.active.get(&elevation).copied();
             let key = if starts {
                 declared
+            } else if !associate_positions {
+                None
             } else {
                 let current = active
                     .filter(|active| !active.closed)
@@ -202,6 +241,7 @@ pub struct PassLedger {
     unanchored: BTreeMap<u16, BTreeMap<u16, i64>>,
     retired: usize,
     unclassified_updates: usize,
+    discontinuous_assemblies: usize,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -212,9 +252,15 @@ pub struct PassInventory {
     pub unanchored_unknown_clocks: usize,
     pub retired_passes: usize,
     pub unclassified_updates: usize,
+    /// Decoded assemblies whose known source discontinuity makes native pass association unsafe.
+    /// This counts inspected assemblies, not missing messages or radials.
+    pub discontinuous_assemblies: usize,
 }
 
 impl PassLedger {
+    pub fn record_discontinuous_assembly(&mut self) {
+        self.discontinuous_assemblies = self.discontinuous_assemblies.saturating_add(1);
+    }
     pub fn record_unclassified(&mut self) {
         self.unclassified_updates = self.unclassified_updates.saturating_add(1);
     }
@@ -311,6 +357,7 @@ impl PassLedger {
                 .count(),
             retired_passes: self.retired,
             unclassified_updates: self.unclassified_updates,
+            discontinuous_assemblies: self.discontinuous_assemblies,
         }
     }
 }
@@ -541,6 +588,79 @@ mod tests {
             "the next emitted receipt retains non-rendering decoded evidence"
         );
         assert_eq!(accepted.passes.len(), 1, "earlier receipts stay immutable");
+    }
+
+    #[test]
+    fn discontinuous_assembly_retains_starts_without_lending_them_across_missing_boundaries() {
+        use RadialStatus::*;
+        let mut tracker = PassTracker::default();
+        tracker.observe_discontinuous_assembly(&input(&[
+            (1, 1, 1000, ScanStart),
+            (1, 2, 1100, IntermediateRadialData),
+            (1, 3, 1200, ElevationEnd),
+            (1, 1, 2000, ElevationStart),
+            (1, 2, 0, IntermediateRadialData),
+        ]));
+        let before = tracker.inventory();
+        assert_eq!(before.discontinuous_assemblies, 1);
+        assert_eq!(before.passes.len(), 2);
+        assert!(before
+            .passes
+            .iter()
+            .all(|pass| pass.observed_positions == 1 && !pass.end_marker));
+        assert_eq!(before.unanchored_positions, 2);
+        assert_eq!(
+            before.unanchored_unknown_clocks, 0,
+            "a known clock survives an untimed duplicate"
+        );
+        let following = tracker.observe(&input(&[(1, 3, 2200, IntermediateRadialData)]), true);
+        assert_eq!(
+            following[0].key, None,
+            "a questionable anchor cannot reach later input"
+        );
+        tracker.observe(
+            &input(&[(1, 1, 3000, ElevationStart), (1, 2, 3100, ElevationEnd)]),
+            true,
+        );
+        let after = tracker.inventory();
+        assert_eq!(after.passes.last().unwrap().observed_positions, 2);
+        assert!(
+            after.passes.last().unwrap().end_marker,
+            "a fresh contiguous marked pass recovers"
+        );
+        assert_eq!(before.passes.len(), 2, "earlier receipts remain immutable");
+    }
+
+    #[test]
+    fn repeated_untimed_boundary_cannot_lend_the_intervening_timed_pass_anchor() {
+        use RadialStatus::*;
+        for boundary in [ElevationStart, ElevationEnd] {
+            for current_elevation in [1, 2] {
+                let mut tracker = PassTracker::default();
+                tracker.observe(&input(&[(1, 1, 0, boundary)]), false);
+                tracker.observe(
+                    &input(&[(current_elevation, 1, 4000, ElevationStart)]),
+                    true,
+                );
+                let next = tracker.observe(
+                    &input(&[
+                        (1, 1, 0, boundary),
+                        (current_elevation, 2, 4100, IntermediateRadialData),
+                    ]),
+                    true,
+                );
+                assert_eq!(
+                    next.last().unwrap().key,
+                    None,
+                    "a duplicate untimed boundary remains ambiguous"
+                );
+                assert_eq!(
+                    tracker.inventory().passes.len(),
+                    1,
+                    "no invented new pass ID"
+                );
+            }
+        }
     }
 
     #[test]

@@ -179,7 +179,10 @@ impl Level2LiveProvider for HookEchoRelayLevel2Provider {
                 // Most commonly: no VCP block has arrived yet this volume (e.g. a client that
                 // joined mid-volume before the VCP message was seen). Not an error worth
                 // surfacing — the next block may complete it.
-                Err(_) => continue,
+                Err(_) => {
+                    last_decoded_sequence = None;
+                    continue;
+                }
             };
             let progress = pending_blocks
                 .last()
@@ -188,10 +191,14 @@ impl Level2LiveProvider for HookEchoRelayLevel2Provider {
                 .last()
                 .expect("current source block")
                 .sequence;
-            passes.observe(
-                &partial,
-                last_decoded_sequence.and_then(|old| old.checked_add(1)) == Some(sequence),
-            );
+            if relay_sequences_contiguous(pending_blocks.iter().map(|block| block.sequence)) {
+                passes.observe(
+                    &partial,
+                    last_decoded_sequence.and_then(|old| old.checked_add(1)) == Some(sequence),
+                );
+            } else {
+                passes.observe_discontinuous_assembly(&partial);
+            }
             last_decoded_sequence = Some(sequence);
             let radial_coverage = progress.map(|progress| {
                 let block = pending_blocks
@@ -292,9 +299,33 @@ impl Level2LiveProvider for HookEchoRelayLevel2Provider {
     }
 }
 
+/// A mid-volume join's first sequence is an unknown prefix, not a gap. Only positions actually
+/// present in a coalesced input are checked; a jump, duplicate or reversal makes association unsafe.
+fn relay_sequences_contiguous(mut sequences: impl Iterator<Item = u64>) -> bool {
+    let Some(mut previous) = sequences.next() else {
+        return false;
+    };
+    sequences.all(|sequence| {
+        let continuous = previous.checked_add(1) == Some(sequence);
+        previous = sequence;
+        continuous
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn coalesced_relay_positions_require_continuity_without_dating_an_unknown_prefix() {
+        assert!(relay_sequences_contiguous([500, 501, 502].into_iter()));
+        assert!(relay_sequences_contiguous([u64::MAX].into_iter()));
+        assert!(!relay_sequences_contiguous([500, 502].into_iter()));
+        assert!(!relay_sequences_contiguous([500, 500].into_iter()));
+        assert!(!relay_sequences_contiguous([502, 501].into_iter()));
+        assert!(!relay_sequences_contiguous([u64::MAX, 0].into_iter()));
+        assert!(!relay_sequences_contiguous([].into_iter()));
+    }
 
     #[test]
     fn the_provider_names_itself() {
