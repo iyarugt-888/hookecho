@@ -669,6 +669,14 @@ fn cached_echo_shape_tells_a_line_from_a_cell() {
             );
         }
         aspect_at.insert(id, cols.first().and_then(|c| c.echo).map(|e| e.aspect()));
+        let t0 = std::time::Instant::now();
+        let labelled =
+            wxdata::storm_mode::EchoObjects::label(&pairs[0].1, wxdata::storm_mode::CORE_DBZ);
+        eprintln!(
+            "{id}: labelled {} objects in {:?}",
+            labelled.len(),
+            t0.elapsed()
+        );
         // Other thresholds and search radii, for the strongest two columns.
         for dbz in [30.0, 35.0, 45.0, 50.0] {
             let objs = wxdata::storm_mode::EchoObjects::label(&pairs[0].1, dbz);

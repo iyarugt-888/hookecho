@@ -149,6 +149,25 @@ Primary code areas:
   - **Refit not adopted.** Each new event was scored by a constrained fit on the 34 others and compared with the shipped scores on the same 5,338 rows. The refit ranks worse (AUC 0.569 against 0.638) and has a higher FAR at every threshold, for about the same POD. fusion-3's weights stand; the full 35-event fit is in `target/detection-baseline-p9g-fit.txt`.
   - **The QLCS and tropical gap is weighting, not detection, again.** 21 of the 22 KLOT truths and 23 of 28 KMLB truths have an LLSD column on them. The columns are rotation-only: median 0.017 s⁻¹ through 2 tilts, rooted, persisting, no debris. They fuse at 0.08–0.26, under the Possible floor. The original Tornado ID finds 4 of 22 at KLOT at the cost of 19 false; the fusion finds 2 with 2 false. The hail-only storms make columns in the same shear range, so neither a lower floor nor more weight on shear separates them. What is missing is evidence about the circulation itself that a hail storm's mesocyclone lacks, for example storm mode (embedded in a line) or a rear-inflow/notch signature. That is a new feature to design, not a threshold to tune.
 
+- **Storm mode tried: connected-echo shape does not separate a line from a cell** (`storm_mode.rs`, export `p10-echo`). Each column now carries the ground shape of the ≥ 40 dBZ object under its base on the lowest tilt, or of the strongest object within 5 km. The shape is the area and principal-axis length and width, from one labelling pass per volume that costs 1.4–3.6 ms in release. It is exported as `echo_length_100km` and `echo_aspect` at weight 0, and shipped scores are unchanged row for row.
+  - **Five pinned storms.** Moore's tornadic column sits in a 37 × 7 km 40 dBZ region (aspect 5.4: the hook and forward flank joined). The derecho's echo is one 142 × 66 km region (aspect 2.2). Across 30–50 dBZ thresholds, the supercells read 1.3–2.3, the derecho 1.7–2.6 and Denver hail 1.1–3.5.
+  - **35 events, columns with ≥ 0.012 s⁻¹ low-level shear.**
+
+    | Group | Median aspect | No core within 5 km |
+    |---|---|---|
+    | QLCS/tropical, verified | 2.3 | 3% |
+    | QLCS/tropical, false | 3.6 | 12% |
+    | Hail storms, false | 1.9 | 25% |
+    | Supercell days, verified | 2.9 | 4% |
+    | Supercell days, false | 2.6 | 9% |
+
+  - **Held out by event** (constrained fit, each sign tried):
+    - Aspect and length, either sign: the fit gives them zero weight, and results are identical to the shipped features (AUC 0.597; QLCS events 0.607).
+    - "No core within 5 km", against a tornado: a small gain. AUC 0.602 (QLCS 0.610), and POD 0.40 against 0.37 at ≥ 0.4 at the same FAR (0.43) and false-alarm rate (4.8 per hour).
+  - **Not adopted.** The no-core gain is within what a different corpus could take back, and the last refit already scored worse than fusion-3 on unseen events. The measurement stays as instrumentation.
+  - **For the QLCS gap, the next candidate is velocity evidence around the circulation rather than echo shape.** The three-ingredients view of QLCS tornadogenesis (line-normal low-level shear, a surging rear-inflow jet, a mesovortex on the leading edge) predicts strong near-ground inbound flow beside the vortex. A hail storm's mesocyclone need not have it.
+  - **Determinism note.** This run differs from `p9g-35` only in the hail detector at the new KLOT event (157 rows against 155): the earlier run fell back to the 00Z Lincoln sounding where this one got 12Z. The summary records each run's sounding label, as Phase 0 intended.
+
 ### What stands between the fusion and promotion
 
 - **POD.** Looked at with `matched_truths`, the gap is a weighting trade-off, not a blind spot. At Tornado ID ≥ 0.6 and fusion ≥ 0.5 they find 46 and 45 reports: 38 in common, 8 only Tornado ID, 7 only the fusion. Every one of the 8 has an LLSD column on it: rotation-only tornadoes (0.025–0.034 s⁻¹, 3–4 tilts, persisting, no debris signature), fused at 0.17–0.41 because debris carries most of the weight. Five of the 8 are one Washington, IL circulation matched to five reports. Weighting rotation-only circulations as Tornado ID does would recover them, and with them the false alarms the hard negatives exposed. More rotation-only tornadoes and rotating non-tornadic storms in the corpus are what can settle that weight.
