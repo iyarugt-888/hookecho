@@ -299,6 +299,124 @@ fn the_verdict_is_the_same_every_run() {
     assert_eq!(a, b);
 }
 
+/// A repeatable uniform number in [0, 1) for a gate, so noise is the same every run.
+fn noise(d: f64, r: f64, seed: u64) -> f64 {
+    let a = (d / 360.0 * AZ as f64).floor() as u64;
+    let g = ((r - FIRST_KM as f64) / GATE_KM as f64).round() as u64;
+    let mut z = (a << 32 | g) ^ seed.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    (z ^ (z >> 31)) as f64 / u64::MAX as f64
+}
+
+/// A volume from its three fields directly: velocity, reflectivity and CC by (azimuth, range),
+/// `None` where there is no echo (velocity is masked wherever reflectivity is).
+fn volume_fields(
+    vel: &dyn Fn(f64, f64) -> f32,
+    z: &dyn Fn(f64, f64) -> Option<f32>,
+    cc: &dyn Fn(f64, f64) -> Option<f32>,
+) -> Volume {
+    let (mut vel_pairs, mut cc_pairs) = (Vec::new(), Vec::new());
+    for elev in TILTS {
+        let zs = binned(Moment::Reflectivity, elev, -32.0, 94.5, z);
+        let ccs = binned(Moment::CorrelationCoefficient, elev, 0.2, 1.05, cc);
+        let v = binned(Moment::Velocity, elev, -64.0, 64.0, &|d, r| {
+            z(d, r).map(|_| vel(d, r))
+        });
+        vel_pairs.push((v, zs.clone()));
+        cc_pairs.push((zs, ccs));
+    }
+    Volume {
+        vel_pairs,
+        cc_pairs,
+    }
+}
+
+#[test]
+fn biological_scatter_is_not_a_tornado() {
+    // A dense migration night: 12-28 dBZ (enough to pass the storm-context echo screen) with
+    // low, scattered CC (0.3-0.6) everywhere out to 80 km, and birds flying a steady 10 m/s with
+    // 6 m/s of scatter, for four volumes running.
+    let mut tr = tracker();
+    for k in 0..4u64 {
+        let v = volume_fields(
+            &move |d, r| {
+                let toward = (d - 200.0).to_radians().cos() * 10.0;
+                (toward + 12.0 * (noise(d, r, 3 * k) - 0.5)) as f32
+            },
+            &move |d, r| (r < 80.0).then(|| (12.0 + 16.0 * noise(d, r, 3 * k + 1)) as f32),
+            &move |d, r| (r < 80.0).then(|| (0.3 + 0.3 * noise(d, r, 3 * k + 2)) as f32),
+        );
+        let (_, ids) = run(&mut tr, k as i64 * 300, &v);
+        assert!(ids.is_empty(), "volume {k}: {ids:#?}");
+    }
+}
+
+#[test]
+fn wind_farm_clutter_is_not_a_tornado() {
+    // A 5 km wind farm 40 km out on a quiet night: strong echo (50 dBZ), low CC (0.35-0.65) and
+    // turbine blades scattering velocity by ±25 m/s, in the same place for four volumes.
+    let farm = xy(STORM.0, 40.0);
+    let on = move |d: f64, r: f64| {
+        let p = xy(d, r);
+        (p.0 - farm.0).hypot(p.1 - farm.1) <= 2.5
+    };
+    let mut tr = tracker();
+    let mut worst = Tier::Possible;
+    let mut shown = 0;
+    for k in 0..4u64 {
+        let v = volume_fields(
+            &move |d, r| (50.0 * (noise(d, r, 3 * k) - 0.5)) as f32,
+            &move |d, r| on(d, r).then_some(50.0),
+            &move |d, r| on(d, r).then(|| (0.35 + 0.3 * noise(d, r, 3 * k + 2)) as f32),
+        );
+        let (_, ids) = run(&mut tr, k as i64 * 300, &v);
+        shown += ids.len();
+        worst = ids.iter().map(|t| t.tier).fold(worst, Tier::max);
+        assert!(
+            ids.iter().all(|t| t.tier < Tier::Likely),
+            "volume {k}: {ids:#?}"
+        );
+    }
+    assert_eq!(shown, 0, "worst tier {worst:?}");
+}
+
+#[test]
+fn a_hail_core_with_no_rotation_is_not_a_tornado() {
+    // A 65 dBZ core with CC down to 0.75 (big wet hail), inside a storm moving air at a steady
+    // 10 m/s: low CC, no rotation, no tornado.
+    let core = xy(STORM.0, STORM.1);
+    let storm = xy(STORM.0, STORM.1);
+    let in_storm = move |d: f64, r: f64| {
+        let p = xy(d, r);
+        (p.0 - storm.0).hypot(p.1 - storm.1) <= STORM.2
+    };
+    let in_core = move |d: f64, r: f64| {
+        let p = xy(d, r);
+        (p.0 - core.0).hypot(p.1 - core.1) <= 3.0
+    };
+    let v = volume_fields(
+        &|_, _| 10.0,
+        &move |d, r| {
+            if in_core(d, r) {
+                Some(65.0)
+            } else {
+                in_storm(d, r).then_some(45.0)
+            }
+        },
+        &move |d, r| {
+            if in_core(d, r) {
+                Some(0.75)
+            } else {
+                in_storm(d, r).then_some(0.98)
+            }
+        },
+    );
+    let (a, ids) = run(&mut tracker(), 0, &v);
+    assert!(ids.is_empty(), "{ids:#?}");
+    assert!(max_score(&a) < MIN_SCORE);
+}
+
 /// Not a regression test: how much each negative case gives the pipeline to reject, so the tests
 /// above cannot pass by having nothing reach it (`--ignored --nocapture`).
 #[test]
@@ -307,7 +425,30 @@ fn negative_cases_reach_the_pipeline() {
     use wxdata::azshear::{llsd, LlsdParams};
     use wxdata::rotation_objects::{objects, ObjectParams};
     let line = xy(STORM.0, STORM.1);
+    let farm = xy(STORM.0, 40.0);
+    let on = move |d: f64, r: f64| {
+        let p = xy(d, r);
+        (p.0 - farm.0).hypot(p.1 - farm.1) <= 2.5
+    };
     let cases: Vec<(&str, Volume)> = vec![
+        (
+            "birds",
+            volume_fields(
+                &|d, r| {
+                    ((d - 200.0).to_radians().cos() * 10.0 + 12.0 * (noise(d, r, 0) - 0.5)) as f32
+                },
+                &|d, r| (r < 80.0).then(|| (12.0 + 16.0 * noise(d, r, 1)) as f32),
+                &|d, r| (r < 80.0).then(|| (0.3 + 0.3 * noise(d, r, 2)) as f32),
+            ),
+        ),
+        (
+            "wind farm",
+            volume_fields(
+                &|d, r| (50.0 * (noise(d, r, 0) - 0.5)) as f32,
+                &move |d, r| on(d, r).then_some(50.0),
+                &move |d, r| on(d, r).then(|| (0.35 + 0.3 * noise(d, r, 2)) as f32),
+            ),
+        ),
         (
             "fold",
             volume(&|d, _| if d < 200.0 { 24.0 } else { -24.0 }, None, 26.0),
