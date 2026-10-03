@@ -1284,20 +1284,27 @@ pub(crate) fn tornado_id_controls(
         use crate::settings::TornadoIdSource as S;
         ui.radio_value(&mut detectors.tornado_id_source, S::Fusion, "Fused (default)")
             .on_hover_text(
-                "Rotation found as azimuthal-shear columns, followed up through the tilts and                      from scan to scan, with the debris beside it, scored as one evidence score.                      On the archived-event backtest it raised far fewer false alarms than the                      original for as many tornadoes found.",
+                "Rotation found as azimuthal-shear columns, followed up through the tilts and from scan to scan, with the debris beside it, scored as one evidence score. On the archived-event backtest it raised far fewer false alarms than the original for as many tornadoes found.",
             );
         ui.radio_value(&mut detectors.tornado_id_source, S::Legacy, "Original")
             .on_hover_text(
                 "The original Tornado ID, from the rotation-couplet and debris layers.",
             );
     });
+    ui.label(
+        egui::RichText::new(
+            "Rotation and Tornado ID are not run on TDWR sites: they were fitted on WSR-88D data, and on a TDWR's finer C-band gates they flag far too much.",
+        )
+        .small()
+        .weak(),
+    );
     header(ui, "Analyst");
     ui.checkbox(
         &mut detectors.llsd_preview,
         "LLSD rotation (analyst preview)",
     )
     .on_hover_text(
-        "Draws every column of the fused pipeline, not only the ones Tornado ID shows:              azimuthal shear objects, followed up through the tilts and from volume to volume,              with the debris beside them classified and every term of their evidence score on              hover. It raises no alert of its own.",
+        "Draws every column of the fused pipeline, not only the ones Tornado ID shows: azimuthal shear objects, followed up through the tilts and from volume to volume, with the debris beside them classified and every term of their evidence score on hover. It raises no alert of its own.",
     );
 }
 

@@ -122,3 +122,68 @@ async fn tdwr_against_wsr88d_on_the_chicago_line_tornadoes() {
         );
     }
 }
+
+/// What the fused Tornado ID would show on the O'Hare TDWR through the derecho hour, now that
+/// TDWR sweeps reach the detectors: every fused column at Possible (0.3) or Likely (0.6), and
+/// whether a tornado report is within 8 km and 15 minutes. A TDWR has no dual-pol, so there is
+/// no debris evidence; the weights were fitted on WSR-88D data only.
+#[tokio::test]
+#[ignore = "network: TDWR archive"]
+async fn fused_tornado_id_on_a_tdwr_through_the_derecho() {
+    let http = reqwest::Client::new();
+    let base = chrono::NaiveDate::from_ymd_opt(2020, 8, 10)
+        .unwrap()
+        .and_hms_opt(20, 0, 0)
+        .unwrap()
+        .and_utc();
+    let mut tracker =
+        wxdata::rotation_tracks::Tracker::new(wxdata::rotation_tracks::TrackParams::default());
+    let (mut possible, mut likely, mut near_possible, mut near_likely) = (0, 0, 0, 0);
+    for step in 0..20 {
+        let at = base + chrono::Duration::minutes(3 * step);
+        let Ok((name, time, scan)) = wxdata::tdwr::fetch_volume_at(&http, "TORD", at).await else {
+            continue;
+        };
+        let mut pairs = Vec::new();
+        for t in 0..level2::elevation_angles(&scan).len() {
+            if let (Ok(v), Ok(z)) = (
+                level2::bin_scan_opts(&scan, Moment::Velocity, t, true),
+                level2::bin_scan(&scan, Moment::Reflectivity, t),
+            ) {
+                pairs.push((v, z));
+            }
+        }
+        let columns = wxdata::rotation_columns::from_sweeps(&pairs);
+        let tracked = tracker.update(time.timestamp(), columns);
+        let analysed = wxdata::llsd_analyst::analyse(tracked, &[], &[]);
+        let minute = (time - base).num_minutes();
+        for a in &analysed {
+            let s = a.fused.score;
+            if s < 0.3 {
+                continue;
+            }
+            let c = &a.tracked.column;
+            let near = REPORTS.iter().any(|&(m, lat, lon, _)| {
+                (m - minute).abs() <= 15 && km((c.lon, c.lat), (lon, lat)) <= 8.0
+            });
+            possible += 1;
+            near_possible += usize::from(near);
+            if s >= 0.6 {
+                likely += 1;
+                near_likely += usize::from(near);
+            }
+            eprintln!(
+                "{name}: {:.3},{:.3} score {s:.2} {} tilts, max {:.4} s-1{}",
+                c.lon,
+                c.lat,
+                c.tilts(),
+                c.max_azshear,
+                if near { " near a report" } else { "" }
+            );
+        }
+    }
+    eprintln!(
+        "TORD 20:00-21:00Z: {possible} at Possible ({near_possible} near a report), \
+         {likely} at Likely ({near_likely} near a report)"
+    );
+}

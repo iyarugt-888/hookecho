@@ -44,6 +44,16 @@ impl HookEchoApp {
                 .iter()
                 .any(|r| r.enabled && &r.trigger == t)
         };
+        // The rotation detectors and Tornado ID are not run on a TDWR. Their thresholds and the
+        // fusion's weights were fitted on WSR-88D data only. On O'Hare's TDWR through the
+        // 2020-08-10 derecho, the fused Tornado ID would have shown 78 Possible markers in an
+        // hour, 2 of them near a tornado report: its 150 m C-band gates read routinely higher
+        // shear (detectionplan.md, TDWR feasibility). A TDWR has no dual-pol, so there is no
+        // debris evidence either.
+        let tdwr = self.views[idx]
+            .site
+            .as_deref()
+            .is_some_and(wxdata::tdwr::is_tdwr);
         // One detection per tornado (`wxdata::tornado_id::circulations`), when any of the three
         // tornado layers is on: it reads both detectors, as Tornado ID does.
         let merge = self.settings.merge_tornado_signals
@@ -58,10 +68,11 @@ impl HookEchoApp {
         let want_tbss = self.filters.show_tbss || armed(&crate::settings::RuleTrigger::Tbss);
         let want_zdr =
             self.filters.show_zdr_columns || armed(&crate::settings::RuleTrigger::ZdrColumn);
-        let want_couplets = self.filters.show_couplets
-            || self.filters.show_tornado_id
-            || merge
-            || armed(&crate::settings::RuleTrigger::Rotation);
+        let want_couplets = !tdwr
+            && (self.filters.show_couplets
+                || self.filters.show_tornado_id
+                || merge
+                || armed(&crate::settings::RuleTrigger::Rotation));
         let tds_hits = if want_tds && idx == self.active {
             self.compute_tds(idx)
         } else {
@@ -108,7 +119,7 @@ impl HookEchoApp {
         // Merged: every rotation and debris detection near a tornado is drawn as part of that
         // tornado's one marker, not on its own; the full lists stay for the web it opens into.
         let (tornado_ids, circulations, tornado_lineage) =
-            if idx == self.active && (merge || self.filters.show_tornado_id) {
+            if idx == self.active && !tdwr && (merge || self.filters.show_tornado_id) {
                 let (ids, circs, lineage) =
                     self.tornado_identifications(idx, ctx, &couplets, &tds_hits, merge);
                 // For the local API and the analysis export: the verdicts, one per tornado.
@@ -149,7 +160,7 @@ impl HookEchoApp {
         } else {
             Vec::new()
         };
-        let llsd = if self.settings.detectors.llsd_preview && idx == self.active {
+        let llsd = if self.settings.detectors.llsd_preview && idx == self.active && !tdwr {
             self.compute_llsd(idx, ctx).unwrap_or_default()
         } else {
             Vec::new()
