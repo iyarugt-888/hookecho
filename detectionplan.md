@@ -265,7 +265,7 @@ Primary code areas:
 
 - **Near-ground low-level shear does not separate either** (offline on `p14-45`). The feature is the 0–2 km shear when the column's base beam is under 1 km above the radar, else 0: close-range, low-tilt rotation, the operational cue. Held out by event on all 45, it fits to almost nothing. AUC goes from 0.596 to 0.594, and POD and FAR are unchanged at every threshold, for example at ≥ 0.6 POD 0.21 and FAR 0.30 against 0.20 and 0.32. On round four the shipped fusion finds 3% at Possible, so there is nothing for it to recover there. The near-range miss is not about where the shear was measured: rotation-only columns of 0.013–0.020 s⁻¹ simply look like the many that never produce a tornado.
 
-- **Per-stage cost** (`scientific_corpus::cached_fused_pipeline_stage_timings`). The pinned Moore 2013 volume, lowest four velocity tilts, 67 columns, 18 debris signatures. Release build, median of 5, on an AMD Ryzen 7 3700X (16 threads):
+- **Per-stage cost** (`scientific_corpus::cached_fused_pipeline_stage_timings`). The pinned Moore 2013 volume, lowest four velocity tilts, 67 columns, 18 debris signatures. Release build, median of 5, on an AMD Ryzen 7 2700 (8 cores, 16 threads):
 
   | Stage | Time |
   |---|---|
