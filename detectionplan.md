@@ -391,6 +391,25 @@ Primary code areas:
 
     The debris sound plays for Debris and Confirmed, the rotation sound for Likely; the Settings rows say so. User-defined rules on rotation or debris and the rotation-near-you check are unchanged. A test pins the decision.
 
+- **The random sample at 139 windows** (2019 and 2021 added, 40 each; 95 radar-hours; 15 windows with tornadoes, 57 reports and paths).
+  - **Ordinary severe days:**
+
+    | Tier | Fusion | Original |
+    |---|---|---|
+    | Possible | 1.41 false/h, POD 0.09 | 3.51 false/h, POD 0.16 |
+    | Likely | 0.05 false/h, POD 0.00 | 0.89 false/h, POD 0.07 |
+
+    The fusion barely false-alarms on ordinary days, but it also finds few of their typical, mostly weak tornadoes.
+  - **The rotation-only opt-in on the same 139 windows (Possible tier):**
+
+    | Bar | Truths found | Total false |
+    |---|---|---|
+    | 0.018 s⁻¹ | 19 of 57 (POD 0.33) | 2.95 per hour |
+    | 0.020 s⁻¹ | 11 (POD 0.19) | 2.20 per hour |
+    | 0.022 s⁻¹ | 5 (no gain) | 1.89 per hour |
+
+    At either 0.018 or 0.020 the fused Possible tier beats the original Tornado ID on both counts on ordinary severe days: more tornadoes for fewer false alarms. On the hand-picked corpus the same bar costs more false alarms than it gains tornadoes, because that corpus is built from tornado days and hard negatives. The opt-in stays off until the maintainer chooses; the random sample is the stronger case for 0.018 or 0.020.
+
 ### Where the detection stands (65 events)
 
 - **Promoted.** The fused Tornado ID (fusion-3) is the app's default; the original is selectable. On every held-out test since promotion it has found as many tornadoes as the original or more, at a far lower false-alarm ratio. On round three's unseen events at matched false-alarm rates: POD 0.29, FAR 0.21 against 0.15, 0.64. On round five's unseen supercell days at Likely: POD 0.28, FAR 0.11 against 0.26, 0.62. On non-tornadic lines (round four): 0 false detections against 23. On the hail storms, at Likely: 2 against 25.
