@@ -235,11 +235,25 @@ Primary code areas:
   - **Data note.** KDVN 2024-05-21 and 2024-07-15 had only 3 and 4 volumes in the archive window.
   - **Next experiment.** Better QLCS POD needs the field to resolve smaller vortices: a narrower azimuthal kernel at range, or the plan's adaptive neighbourhood. Any change to the field changes every feature, so it needs the full refit and the clean held-out test.
 
-### What stands between the fusion and promotion
+- **A narrower LLSD kernel does not resolve line tornadoes; it amplifies noise** (export `p15-k15`, the 45 events with `HOOKECHO_LLSD_AZIMUTHAL_KM=1.5`, against the 2.5 km default in `p14-45`).
 
-- **POD.** Looked at with `matched_truths`, the gap is a weighting trade-off, not a blind spot. At Tornado ID ≥ 0.6 and fusion ≥ 0.5 they find 46 and 45 reports: 38 in common, 8 only Tornado ID, 7 only the fusion. Every one of the 8 has an LLSD column on it: rotation-only tornadoes (0.025–0.034 s⁻¹, 3–4 tilts, persisting, no debris signature), fused at 0.17–0.41 because debris carries most of the weight. Five of the 8 are one Washington, IL circulation matched to five reports. Weighting rotation-only circulations as Tornado ID does would recover them, and with them the false alarms the hard negatives exposed. More rotation-only tornadoes and rotating non-tornadic storms in the corpus are what can settle that weight.
-- **Wind-farm clutter.** It fools every detector here (Tornado ID 14 false on one quiet night). Low CC and noisy velocity in clutter fixed in place are what a clutter or persistence-of-position feature would catch.
-- **Calibration (Phase 14).** It still waits on a much larger corpus: 21 events cannot calibrate a probability.
+  | Measure | 2.5 km | 1.5 km |
+  |---|---|---|
+  | Line-tornado truths' low-level shear (90th percentile) | 1.44 | 1.51 |
+  | False columns' low-level shear (90th percentile) | 1.05 | 1.33 |
+  | False columns' low-level shear (99th percentile) | 1.87 | 2.26 |
+  | Fused rows | 27,402 | 41,190 |
+  | Line-tornado truths with a ≥ 0.012 s⁻¹ low-level column | 49 | 48 |
+
+  Shear is in 0.01 s⁻¹. The same pattern holds on the QLCS/tropical, hail and supercell groups. The kernel stays at 2.5 km; no refit was needed to reject it.
+
+### Where the detection stands (45 events)
+
+- **Promoted.** The fused Tornado ID (fusion-3) is the app's default; the original is selectable. On every held-out test since promotion it has found as many tornadoes as the original or more, at a far lower false-alarm ratio. On round three's unseen events at matched false-alarm rates: POD 0.29, FAR 0.21 against 0.15, 0.64. On non-tornadic lines (round four): 0 false detections against 23. On the hail storms, at Likely: 2 against 25.
+- **Weights.** fusion-3, fitted on the first 25 events, still outperforms every refit on events it never saw. Every candidate feature was measured, exported at weight 0 and tested held out by event: echo shape, no core, near-ground speed, inbound, Vrot, couplet minimum, circulation persistence. None improved the Likely tier on unseen events. The couplet minimum ranks better but loses Likely POD (0.20 to 0.08), so the weights stand.
+- **Line (QLCS) tornadoes are a sensing limit, not a weighting gap.** At 70–100 km, a shallow mesovortex spans a few radials and sits under or within the lowest beam. Its columns are unrooted and weak (median 0.008–0.0095 s⁻¹), and both Tornado IDs find almost none (round four POD 0.03 and 0.05). A narrower kernel adds more noise than signal. Closer, higher-resolution data would be needed, for example the TDWRs near cities, which `wxdata::tdwr` already decodes.
+- **Lead time.** Measured along the storm's track from surveyed starts, both Tornado IDs confirm around touchdown: median +1 minute at Possible. The fused one has 10+ minutes of lead four times as often as the original (16% against 4%) and is later at Likely (−4 minutes), because debris follows touchdown. The radar evidence 5–30 minutes before touchdown holds little precursor signal (AUC ≤ 0.61 per feature).
+- **Calibration (Phase 14).** It still waits on a much larger corpus: 45 events with 15 hard negatives cannot set a probability, and the tiers stay evidence scores.
 
 ### Findings to carry into Phase 9 (from 10 and 11)
 
