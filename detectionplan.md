@@ -168,6 +168,36 @@ Primary code areas:
   - **For the QLCS gap, the next candidate is velocity evidence around the circulation rather than echo shape.** The three-ingredients view of QLCS tornadogenesis (line-normal low-level shear, a surging rear-inflow jet, a mesovortex on the leading edge) predicts strong near-ground inbound flow beside the vortex. A hail storm's mesocyclone need not have it.
   - **Determinism note.** This run differs from `p9g-35` only in the hail detector at the new KLOT event (157 rows against 155): the earlier run fell back to the 00Z Lincoln sounding where this one got 12Z. The summary records each run's sounding label, as Phase 0 intended.
 
+- **Velocity beside the circulation: a couplet signal that ranks better but does not survive the Likely tier** (`near_flow.rs`, exports `p11-flow` and `p12-vrot`). Every valid gate within 5 km of a column's base on the lowest dealiased velocity tilt gives four measurements, each exported at weight 0; shipped scores are unchanged row for row:
+  - the 90th-percentile radial speed
+  - the strongest inbound and outbound flow
+  - Vrot, half their sum
+  - the couplet minimum, the weaker of the two
+  - **By class** (columns with ≥ 0.012 s⁻¹ low-level shear):
+
+    | Group | p90 speed | Strongest inbound | Couplet minimum |
+    |---|---|---|---|
+    | QLCS/tropical, verified | 20.6 | 26.6 | 14.6 |
+    | QLCS/tropical, false | — | — | 9.5 |
+    | Hail storms, false | 21.6 | 27.6 | 8.5 |
+    | Derecho, false | 30.6 | 31.1 | **0.0** |
+    | Rotating storms with no tornado, false | — | — | 19.6 |
+    | Supercell days, verified | — | 30.6 | 27.6 |
+    | Supercell days, false | — | 16.6 | 4.5 |
+
+    Speeds are medians, m/s. Speed alone does not separate a QLCS tornado from a hail storm. A couplet needs strong flow both ways, and straight-line wind has only one.
+  - **Held out by event, 35 events:**
+    - p90 speed: no effect.
+    - Inbound: AUC 0.617, but the derecho goes from 0 to 13 false detections at ≥ 0.5.
+    - Vrot: AUC 0.605.
+    - Couplet minimum: AUC 0.626, with the derecho at 0.
+    - Couplet minimum with no core: AUC 0.632, with weights of +0.38 per 10 m/s and −0.61. POD/FAR improve at every threshold, for example at ≥ 0.4 POD 0.43 and FAR 0.40 against 0.37 and 0.42 at a similar false-alarm rate.
+    - The QLCS events' own AUC barely moves (0.612): it is a general gain, not the QLCS fix.
+  - **The deciding test: both feature sets trained on the original 25 events and scored on the 10 round-three events.** The shipped features trained this way reproduce fusion-3 exactly (AUC 0.638), which validates the method. With the couplet minimum and no core, AUC rises to 0.659, but the scores shift. With each tier re-derived to keep fusion-3's false-alarm rate on the training events, the unseen events give:
+    - Possible: POD 0.28 against 0.29, same FAR (a wash).
+    - Likely: POD 0.08 against 0.20.
+  - **Not adopted.** A better ranking that loses tornadoes at the tier readers act on fails the plan's rule. The four measurements stay exported as instrumentation for a larger corpus, where calibration (Phase 14) can set the tiers with the weights.
+
 ### What stands between the fusion and promotion
 
 - **POD.** Looked at with `matched_truths`, the gap is a weighting trade-off, not a blind spot. At Tornado ID ≥ 0.6 and fusion ≥ 0.5 they find 46 and 45 reports: 38 in common, 8 only Tornado ID, 7 only the fusion. Every one of the 8 has an LLSD column on it: rotation-only tornadoes (0.025–0.034 s⁻¹, 3–4 tilts, persisting, no debris signature), fused at 0.17–0.41 because debris carries most of the weight. Five of the 8 are one Washington, IL circulation matched to five reports. Weighting rotation-only circulations as Tornado ID does would recover them, and with them the false alarms the hard negatives exposed. More rotation-only tornadoes and rotating non-tornadic storms in the corpus are what can settle that weight.
