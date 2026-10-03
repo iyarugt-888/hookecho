@@ -48,6 +48,8 @@ SIGNS = {
     # Near-ground flow beside the column (round three): measured, left out until tested.
     "near_wind_10ms": 0,
     "near_inbound_10ms": 0,
+    "near_vrot_10ms": 0,
+    "near_couplet_10ms": 0,
 }
 
 

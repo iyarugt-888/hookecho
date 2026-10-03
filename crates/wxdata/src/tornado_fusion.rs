@@ -23,7 +23,7 @@ use crate::tds::TdsHit;
 pub const ALGORITHM_VERSION: &str = "fusion-3";
 
 /// The features, in [`Features::values`] order. Shear is in units of 0.01 s⁻¹.
-pub const FEATURE_NAMES: [&str; 18] = [
+pub const FEATURE_NAMES: [&str; 20] = [
     "low_level_shear",
     "max_shear",
     "depth_km",
@@ -42,6 +42,8 @@ pub const FEATURE_NAMES: [&str; 18] = [
     "echo_aspect",
     "near_wind_10ms",
     "near_inbound_10ms",
+    "near_vrot_10ms",
+    "near_couplet_10ms",
 ];
 
 /// What the fusion knows about one circulation in one volume.
@@ -89,6 +91,12 @@ pub struct Features {
     pub near_wind_10ms: f32,
     /// The strongest flow toward the radar there, in 10 m/s; 0 unmeasured.
     pub near_inbound_10ms: f32,
+    /// Rotational velocity there: half the strongest inbound plus outbound speed, in 10 m/s.
+    /// Unlike inbound alone, it does not depend on which side of the radar a storm is on.
+    pub near_vrot_10ms: f32,
+    /// The weaker of the strongest inbound and outbound speeds, in 10 m/s: a couplet needs both,
+    /// and straight-line wind (a derecho's) has only one.
+    pub near_couplet_10ms: f32,
 }
 
 /// Slower than this (m/s) over 3 or more volumes is [`Features::stationary`].
@@ -139,11 +147,17 @@ impl Features {
             echo_aspect: c.echo.map_or(0.0, |e| e.aspect().min(10.0)),
             near_wind_10ms: c.near_flow.map_or(0.0, |f| f.p90_speed_ms / 10.0),
             near_inbound_10ms: c.near_flow.map_or(0.0, |f| f.max_inbound_ms / 10.0),
+            near_vrot_10ms: c
+                .near_flow
+                .map_or(0.0, |f| (f.max_inbound_ms + f.max_outbound_ms) / 20.0),
+            near_couplet_10ms: c
+                .near_flow
+                .map_or(0.0, |f| f.max_inbound_ms.min(f.max_outbound_ms) / 10.0),
         }
     }
 
     /// The features in [`FEATURE_NAMES`] order.
-    pub fn values(&self) -> [f32; 18] {
+    pub fn values(&self) -> [f32; 20] {
         [
             self.low_level_shear,
             self.max_shear,
@@ -163,6 +177,8 @@ impl Features {
             self.echo_aspect,
             self.near_wind_10ms,
             self.near_inbound_10ms,
+            self.near_vrot_10ms,
+            self.near_couplet_10ms,
         ]
     }
 }
@@ -171,7 +187,7 @@ impl Features {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Weights {
     pub bias: f32,
-    pub w: [f32; 18],
+    pub w: [f32; 20],
 }
 
 /// The fitted weights (`scripts/fusion/fit.py`, fusion-3, on the 25-event backtest corpus of
@@ -214,6 +230,8 @@ pub const WEIGHTS: Weights = Weights {
         0.0,     // echo_aspect
         0.0,     // near_wind_10ms
         0.0,     // near_inbound_10ms
+        0.0,     // near_vrot_10ms
+        0.0,     // near_couplet_10ms
     ],
 };
 
@@ -280,6 +298,8 @@ mod tests {
             echo_aspect: 1.5,
             near_wind_10ms: 2.0,
             near_inbound_10ms: 2.5,
+            near_vrot_10ms: 2.0,
+            near_couplet_10ms: 1.5,
         }
     }
 
@@ -289,11 +309,11 @@ mod tests {
             bias: -3.0,
             w: [
                 0.8, 0.2, 0.3, 0.1, 0.9, 1.1, 0.4, 0.2, 0.2, 2.0, -0.8, -0.5, -0.3, -1.0, 0.0, 0.0,
-                0.0, 0.0,
+                0.0, 0.0, 0.0, 0.0,
             ],
         };
         let f = fuse(&features(), &w);
-        assert_eq!(f.terms.len(), 19);
+        assert_eq!(f.terms.len(), 21);
         let z: f32 = f.terms.iter().map(|t| t.logit).sum();
         assert_eq!(f.score, 1.0 / (1.0 + (-z).exp()));
         assert_eq!(f.terms[10].label, "debris");
@@ -304,7 +324,7 @@ mod tests {
     fn more_evidence_with_positive_weights_never_lowers_the_score() {
         let w = Weights {
             bias: -2.0,
-            w: [0.5; 18],
+            w: [0.5; 20],
         };
         let base = fuse(&features(), &w).score;
         let mut more = features();
@@ -358,6 +378,8 @@ mod tests {
                 echo_aspect: 0.0,
                 near_wind_10ms: 0.0,
                 near_inbound_10ms: 0.0,
+                near_vrot_10ms: 0.0,
+                near_couplet_10ms: 0.0,
             },
             &WEIGHTS,
         );
