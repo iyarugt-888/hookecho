@@ -52,3 +52,17 @@ KTLX 2019-05-20 22:15   # Oklahoma high-risk day, rotating storms, no tornado re
 # Non-meteorological scatter, no reports at all in the window:
 KDDC 2020-01-15 06:00   # Wind farms around Dodge City, quiet winter night
 KHGX 2019-04-21 05:00   # Spring bird migration over the Gulf coast, night
+# Round three (detectionplan.md Phase 9): more tornadoes that carry little debris (QLCS, tropical,
+# brief), and more rotating supercells that made none. Each line checked against the IEM LSR
+# archive within 150 km of the radar; the first report in the window is in brackets.
+KLOT 2020-08-10 19:50   # Chicago derecho QLCS, EF0-1 (19:54Z, Kirkland, 85 km; Plainfield 19 km at 20:15Z)
+KILX 2023-03-31 19:30   # Brief tornadoes ahead of the 3/31 outbreak (19:37Z, Manito, 49 km)
+KSHV 2024-07-08 18:00   # Beryl, tropical, weak (18:06Z, Henderson, 96 km; Huxley 71 km at 18:10Z)
+KMLB 2024-10-09 17:55   # Milton, tropical, 90-140 km out (18:00Z, Archbold; Port St. Lucie 18:15Z)
+KRAX 2024-08-08 06:05   # Debby, tropical, night (06:08Z, Snow Hill, 77 km; Lucama 40 km at 06:51Z)
+KCAE 2024-09-27 05:10   # Helene's outer bands, weak, night (05:17Z, Branchville, 88 km; Woodford 34 km at 05:54Z)
+# Giant-hail supercells with no tornado report within 150 km from two hours before to three after:
+KTLX 2020-05-04 22:00   # Norman hail, 12-42 km (3.25 in 4 W Lake Thunderbird 22:11Z)
+KFWS 2023-06-13 02:40   # Granbury hail, 6-60 km (2.5-5 in from 02:46Z)
+KEWX 2016-04-13 02:10   # Helotes/San Antonio hail, 37-66 km (4.5 in 02:20Z)
+KGLD 2014-06-15 00:50   # Kanorado hail, near the radar (2.75 in 00:59Z)

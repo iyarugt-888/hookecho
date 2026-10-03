@@ -134,6 +134,21 @@ Primary code areas:
   A diagnostic shows *why* the seam and fold produce nothing: the biweight discards the minority side of a one-sided step, so the field's shear there is exactly 0. Vortices narrower than the radial spacing still form columns (a 0.3 km core reads ~0.027 s⁻¹ after LLSD smoothing).
 - **Possible-tier floor lowered from 0.4 to 0.3.** At 0.4 a strong, deep circulation with no debris (40–50 m/s, three tilts, scoring 0.29–0.34) did not show at all, where the legacy Tornado ID read it as Likely. Held out by event, everything at ≥ 0.3 still beats everything the legacy Tornado ID shows: POD 0.54 against 0.49, FAR 0.53 against 0.77, 7.7 false per hour against 10.1. Likely stays at 0.6.
 
+- **Round three, 35 events: the shipped weights tested on events they never saw** (`docs/backtest-events.txt`, export `p9g-35`). Ten events were added, each checked against the IEM LSR archive within 150 km:
+  - **Tornadoes that carry little debris:** the Chicago derecho QLCS (KLOT 2020-08-10), brief tornadoes ahead of the 3/31/2023 outbreak (KILX), and four tropical cases: Beryl (KSHV), Milton (KMLB, 90–140 km out), Debby at night (KRAX) and Helene's outer bands at night (KCAE).
+  - **Giant-hail supercells with no tornado report within 150 km from two hours before to three after:** Norman 2020 (KTLX, 12–42 km), Granbury 2023 (KFWS), San Antonio 2016 (KEWX) and Kanorado 2014 (KGLD). These were found by a search of 2014–2024 LSRs for bursts of ≥ 2 in hail.
+  - **Out of sample.** fusion-3 was fitted on the other 25 events, so these 10 are fully held out. Report level, 85 tornado reports and paths, ~9 radar-hours:
+
+    | Matched rate | Fusion (shipped) | Tornado ID (original) |
+    |---|---|---|
+    | ~1.5–1.9 per hour | ≥ 0.4: POD 0.29, FAR 0.21, CSI 0.25 | ≥ 0.7: POD 0.15, FAR 0.64, CSI 0.13 |
+    | App floors | Possible ≥ 0.3: POD 0.29, FAR 0.37 | ≥ 0.3: POD 0.33, FAR 0.72 |
+    | Likely | ≥ 0.6: POD 0.20, FAR 0.07 | ≥ 0.6: POD 0.19, FAR 0.68 |
+
+    On the four hail storms, at Likely, the fusion makes 2 false detections and the original 25.
+  - **Refit not adopted.** Each new event was scored by a constrained fit on the 34 others and compared with the shipped scores on the same 5,338 rows. The refit ranks worse (AUC 0.569 against 0.638) and has a higher FAR at every threshold, for about the same POD. fusion-3's weights stand; the full 35-event fit is in `target/detection-baseline-p9g-fit.txt`.
+  - **The QLCS and tropical gap is weighting, not detection, again.** 21 of the 22 KLOT truths and 23 of 28 KMLB truths have an LLSD column on them. The columns are rotation-only: median 0.017 s⁻¹ through 2 tilts, rooted, persisting, no debris. They fuse at 0.08–0.26, under the Possible floor. The original Tornado ID finds 4 of 22 at KLOT at the cost of 19 false; the fusion finds 2 with 2 false. The hail-only storms make columns in the same shear range, so neither a lower floor nor more weight on shear separates them. What is missing is evidence about the circulation itself that a hail storm's mesocyclone lacks, for example storm mode (embedded in a line) or a rear-inflow/notch signature. That is a new feature to design, not a threshold to tune.
+
 ### What stands between the fusion and promotion
 
 - **POD.** Looked at with `matched_truths`, the gap is a weighting trade-off, not a blind spot. At Tornado ID ≥ 0.6 and fusion ≥ 0.5 they find 46 and 45 reports: 38 in common, 8 only Tornado ID, 7 only the fusion. Every one of the 8 has an LLSD column on it: rotation-only tornadoes (0.025–0.034 s⁻¹, 3–4 tilts, persisting, no debris signature), fused at 0.17–0.41 because debris carries most of the weight. Five of the 8 are one Washington, IL circulation matched to five reports. Weighting rotation-only circulations as Tornado ID does would recover them, and with them the false alarms the hard negatives exposed. More rotation-only tornadoes and rotating non-tornadic storms in the corpus are what can settle that weight.
