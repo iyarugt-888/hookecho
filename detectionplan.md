@@ -290,6 +290,7 @@ Primary code areas:
     | Likely (≥ 0.6) | POD 0.28, FAR 0.11, CSI 0.27, 0.2 false/h | POD 0.26, FAR 0.62, CSI 0.21, 1.6 false/h |
 
     On the five hail storms, at Likely, the fusion makes 2 false detections and the original 12. At Little Rock the fusion finds 6 of 10 at Likely with no false detection; the original finds 1 of 10.
+  - **More data still does not beat fusion-3.** The shipped feature set refitted on the first 45 events, with tiers set to fusion-3's training false-alarm rates (Possible 0.350, Likely 0.655), ranks round five identically (AUC 0.651 both). At Possible it is a wash: POD 0.41, FAR 0.37 against 0.41, 0.39. At Likely it loses: POD 0.17 against 0.28 at the same false-alarm rate. Its weights barely move (debris 2.77, max shear 0.66, low-level 0.21, hail −1.70, stationary −0.48), but they put the Likely boundary in a worse place. This is the third refit to lose out of sample, so fusion-3 stays.
 
 ### Where the detection stands (55 events)
 
