@@ -745,11 +745,11 @@ mod android_alerts {
                     .into(),
             ),
             Ok(2) => Err(
-                "This build is signed with a different key than the installed HookEcho, so Android                  would refuse it (\"App not installed\"). Uninstall HookEcho and install the APK                  from the wsv3-latest release once; updates after that install in place."
+                "This build is signed with a different key than the installed HookEcho, so Android would refuse it (\"App not installed\"). Uninstall HookEcho and install the APK from the wsv3-latest release once; updates after that install in place."
                     .into(),
             ),
             Ok(3) => Err(
-                "This build is older than the installed HookEcho, and Android does not install an                  older version over a newer one."
+                "This build is older than the installed HookEcho, and Android does not install an older version over a newer one."
                     .into(),
             ),
             Ok(n) => Err(format!("the installer answered {n}")),

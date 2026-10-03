@@ -67,14 +67,14 @@ impl HookEchoApp {
                 b.minus20_m = Some(hm20);
             }
             None if b.has_dualpol => b.notes.push(
-                "ZDR columns not checked: the freezing level for this scan is not loaded yet                  (generate again in a moment)"
+                "ZDR columns not checked: the freezing level for this scan is not loaded yet (generate again in a moment)"
                     .into(),
             ),
             None => {}
         }
         if self.archive_bucket().is_some() {
             b.notes.push(
-                "Archived scan: the SCIT storm-cell table is live-only, so storms are described                  by their detector signatures alone"
+                "Archived scan: the SCIT storm-cell table is live-only, so storms are described by their detector signatures alone"
                     .into(),
             );
         }

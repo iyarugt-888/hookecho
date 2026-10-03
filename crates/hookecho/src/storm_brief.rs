@@ -341,7 +341,7 @@ impl Brief {
         if let Some(t) = self.tilt_deg {
             let _ = writeln!(
                 o,
-                "Core statistics read from the {t:.1}° tilt within 8 km of each core. Dual-pol                  values are from the ≥40 dBZ core. ΔV is the spread between the strongest inbound                  and outbound velocity in that box — broad flow as much as rotation; rotation is                  what the couplet detector reports."
+                "Core statistics read from the {t:.1}° tilt within 8 km of each core. Dual-pol values are from the ≥40 dBZ core. ΔV is the spread between the strongest inbound and outbound velocity in that box — broad flow as much as rotation; rotation is what the couplet detector reports."
             );
         }
         for n in &self.notes {
