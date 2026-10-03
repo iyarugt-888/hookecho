@@ -6263,7 +6263,15 @@ fn backtest_event(
             let tracks = rt
                 .block_on(async {
                     let http = reqwest::Client::new();
-                    wxdata::dat::fetch(&http, bbox, first - pad, last + pad).await
+                    // Cached with the soundings, so every run scores against the same surveys.
+                    wxdata::dat::fetch_cached(
+                        &http,
+                        bbox,
+                        first - pad,
+                        last + pad,
+                        backtest_cache_dir(),
+                    )
+                    .await
                 })
                 .map(|(_points, tracks)| tracks)
                 .unwrap_or_else(|e| {

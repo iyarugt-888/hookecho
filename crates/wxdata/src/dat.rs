@@ -235,10 +235,51 @@ pub async fn fetch(
     start: chrono::DateTime<chrono::Utc>,
     end: chrono::DateTime<chrono::Utc>,
 ) -> anyhow::Result<(Vec<DamagePoint>, Vec<DamageTrack>)> {
-    let (pt_pages, ln_pages) = futures_util::try_join!(
-        fetch_layer(client, 0, bbox, start, end),
-        fetch_layer(client, 1, bbox, start, end),
-    )?;
+    fetch_cached(client, bbox, start, end, None).await
+}
+
+/// [`fetch`], with the service's raw pages kept in `cache_dir` for a query that succeeded, and
+/// read back from it after. A past window's surveys are effectively fixed, and the backtest must
+/// give the same truth on every run. A failed fetch is never cached, so a later run retries
+/// rather than keeping an outage. (On 2026-10-03 the service failed three events' queries with
+/// HTTP 400, which silently dropped their surveyed paths from that run's truth.)
+pub async fn fetch_cached(
+    client: &reqwest::Client,
+    bbox: (f64, f64, f64, f64),
+    start: chrono::DateTime<chrono::Utc>,
+    end: chrono::DateTime<chrono::Utc>,
+    cache_dir: Option<std::path::PathBuf>,
+) -> anyhow::Result<(Vec<DamagePoint>, Vec<DamageTrack>)> {
+    let (min_lon, min_lat, max_lon, max_lat) = bbox;
+    let cache_file = cache_dir.map(|d| {
+        d.join("dat").join(format!(
+            "{min_lon:.3}_{min_lat:.3}_{max_lon:.3}_{max_lat:.3}_{}_{}.json",
+            start.format("%Y%m%d%H%M"),
+            end.format("%Y%m%d%H%M")
+        ))
+    });
+    let cached: Option<(Vec<String>, Vec<String>)> = cache_file
+        .as_ref()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|s| serde_json::from_str(&s).ok());
+    let (pt_pages, ln_pages) = match cached {
+        Some(pages) => pages,
+        None => {
+            let pages = futures_util::try_join!(
+                fetch_layer(client, 0, bbox, start, end),
+                fetch_layer(client, 1, bbox, start, end),
+            )?;
+            if let Some(p) = &cache_file {
+                if let Some(dir) = p.parent() {
+                    let _ = std::fs::create_dir_all(dir);
+                }
+                if let Ok(s) = serde_json::to_string(&pages) {
+                    let _ = std::fs::write(p, s);
+                }
+            }
+            pages
+        }
+    };
     let mut points = Vec::new();
     for p in &pt_pages {
         points.extend(parse_points(p)?);
@@ -274,6 +315,38 @@ mod tests {
        "properties":{"objectid":9,"stormdate":1369079760000,"efscale":"EF5","efnum":5,
          "length":13.85,"width":1900,"maxwind":210,"fatalities":24,"injuries":212,"wfo":"OUN",
          "comments":"null"}}]}"#;
+
+    #[tokio::test]
+    async fn cached_surveys_are_read_back_without_the_service() {
+        let dir = std::env::temp_dir().join(format!("hookecho-dat-cache-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let bbox = (-98.0, 35.0, -97.0, 36.0);
+        let start = chrono::DateTime::from_timestamp(1_369_079_000, 0).unwrap();
+        let end = start + chrono::Duration::hours(1);
+        let file = dir.join("dat").join(format!(
+            "-98.000_35.000_-97.000_36.000_{}_{}.json",
+            start.format("%Y%m%d%H%M"),
+            end.format("%Y%m%d%H%M")
+        ));
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        let pages = (vec![POINTS.to_string()], vec![TRACK.to_string()]);
+        std::fs::write(&file, serde_json::to_string(&pages).unwrap()).unwrap();
+        // A client that cannot reach anything: the answer must come from the cache.
+        let offline = reqwest::Client::builder()
+            .proxy(reqwest::Proxy::all("http://127.0.0.1:9").unwrap())
+            .build()
+            .unwrap();
+        let (points, tracks) = fetch_cached(&offline, bbox, start, end, Some(dir.clone()))
+            .await
+            .unwrap();
+        assert_eq!((points.len(), tracks.len()), (2, 1));
+        // A corrupt cache file is not trusted: it falls through to the (unreachable) service.
+        std::fs::write(&file, "not json").unwrap();
+        assert!(fetch_cached(&offline, bbox, start, end, Some(dir.clone()))
+            .await
+            .is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn parses_damage_points() {
