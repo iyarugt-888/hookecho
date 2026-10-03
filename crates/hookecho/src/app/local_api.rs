@@ -163,6 +163,16 @@ impl HookEchoApp {
                 "debris": wxdata::tds::ALGORITHM_VERSION,
                 "rotation": wxdata::rotation::ALGORITHM_VERSION,
             },
+            "tornado_id": name
+                .as_ref()
+                .and_then(|n| self.tornado_shown_for(n))
+                .map(|(_, ids, lineage)| json!({
+                    "verdicts": ids.iter().map(|t| json!({
+                        "lat": t.lat, "lon": t.lon, "tier": t.tier.label(),
+                        "score": t.score, "reasons": t.reasons,
+                    })).collect::<Vec<_>>(),
+                    "lineage": lineage.to_json(),
+                })),
             "note": "HookEcho heuristics, not NWS products",
         });
 

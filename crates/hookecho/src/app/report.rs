@@ -21,10 +21,12 @@ case.hookecho.json    The case: every pane's radar, product, tilt, camera and la
                       user-defined products. Open it in HookEcho with Share > Open case.\n\
 annotations.geojson   Drawings, markers and watch zones, for QGIS/ArcGIS or any GeoJSON reader.\n\
 provenance.json       Which radar volume each pane showed (the NOAA object name and scan time),\n\
-                      its VCP, tilt and elevation, the detector algorithm versions and the melting\n\
-                      level in use.\n\
-detections.csv        The debris signatures and rotation couplets on the active pane's volume, as\n\
-                      shown (after corroboration), with their confidence and algorithm version.\n\
+                      its VCP, tilt and elevation, the detector algorithm versions, Tornado ID's\n\
+                      lineage (pipeline, versions, input scan times) and the melting level in use.\n\
+detections.csv        The debris signatures, rotation couplets and Tornado ID verdicts on the active\n\
+                      pane's volume, as shown, with their score and algorithm version. Tornado ID\n\
+                      rows say which pipeline made them and when their input sweeps were scanned\n\
+                      (blank where that was not recorded).\n\
 probes/*.csv          Whichever probes were open: region statistics, the gate inspector's vertical\n\
                       profile and time series, the cross-section.\n\
 grid.tif              The top gridded layer on the active pane, as a float32 GeoTIFF (EPSG:4326,\n\
@@ -32,6 +34,40 @@ grid.tif              The top gridded layer on the active pane, as a float32 Geo
 \n\
 Radar data is public (NOAA NEXRAD Level II via the AWS Open Data programme) and is not included;\n\
 provenance.json names every volume used, so it can be fetched again.\n";
+
+/// Tornado ID verdicts as `detections.csv` rows: the score in the confidence column, the
+/// pipeline's own version, and the input sweeps' scan interval (blank when not recorded).
+fn tornado_csv_rows(
+    ids: &[wxdata::tornado_id::TornadoId],
+    lineage: &wxdata::detection_lineage::DetectionLineage,
+) -> String {
+    use wxdata::detection_lineage::Pipeline;
+    let (pipeline, version) = match lineage.pipeline {
+        Pipeline::Fused => ("fused", wxdata::tornado_fusion::ALGORITHM_VERSION),
+        Pipeline::Original => ("original", wxdata::tornado_id::ALGORITHM_VERSION),
+    };
+    let utc = |ms: i64| {
+        chrono::DateTime::from_timestamp_millis(ms)
+            .map(|t| t.to_rfc3339())
+            .unwrap_or_default()
+    };
+    let (start, end) = lineage
+        .inputs
+        .as_ref()
+        .and_then(|c| c.acquisition_range_ms())
+        .map_or((String::new(), String::new()), |(a, b)| (utc(a), utc(b)));
+    ids.iter()
+        .map(|t| {
+            format!(
+                "tornado_id,{:.4},{:.4},{:.3},,,{version},{},{pipeline},{start},{end}\n",
+                t.lat,
+                t.lon,
+                t.score,
+                t.tier.label().replace(' ', "_").to_ascii_lowercase()
+            )
+        })
+        .collect()
+}
 
 impl HookEchoApp {
     /// The active pane's topmost visible gridded layer that holds a grid, as a GeoTIFF with its
@@ -225,6 +261,7 @@ impl HookEchoApp {
                 "debris_min_confidence": self.settings.detectors.tds_min_confidence,
                 "rotation_min_confidence": self.settings.detectors.rotation_min_confidence,
             },
+            "tornado_id": self.tornado_lineage_json(),
             "melting_level": self.freezing.as_ref().map(|(site, epoch, h0, hm20)| json!({
                 "site": site,
                 "source": if epoch.is_some() { "observed sounding" } else { "HRRR analysis" },
@@ -241,7 +278,9 @@ impl HookEchoApp {
 
     /// The active pane's shown debris signatures and couplets as CSV rows.
     fn detections_csv(&self) -> String {
-        let mut out = String::from("kind,lat,lon,confidence,range_km,tilts,algorithm\n");
+        let mut out = String::from(
+            "kind,lat,lon,confidence,range_km,tilts,algorithm,tier,pipeline,inputs_start_utc,inputs_end_utc\n",
+        );
         let Some(name) = self.views[self.active]
             .volume
             .as_ref()
@@ -251,7 +290,7 @@ impl HookEchoApp {
         };
         for h in self.tds_shown_cache.peek(&name).into_iter().flatten() {
             out.push_str(&format!(
-                "debris,{:.4},{:.4},{:.3},{:.1},{},{}\n",
+                "debris,{:.4},{:.4},{:.3},{:.1},{},{},,,,\n",
                 h.lat,
                 h.lon,
                 h.confidence,
@@ -262,7 +301,7 @@ impl HookEchoApp {
         }
         for c in self.rot_shown_cache.peek(&name).into_iter().flatten() {
             out.push_str(&format!(
-                "rotation,{:.4},{:.4},{:.3},{:.1},{},{}\n",
+                "rotation,{:.4},{:.4},{:.3},{:.1},{},{},,,,\n",
                 c.lat,
                 c.lon,
                 c.confidence,
@@ -271,7 +310,43 @@ impl HookEchoApp {
                 wxdata::rotation::ALGORITHM_VERSION
             ));
         }
+        if let Some((_, ids, lineage)) = self.tornado_shown_for(&name) {
+            out.push_str(&tornado_csv_rows(ids, lineage));
+        }
         out
+    }
+
+    /// The active pane's Tornado ID verdicts and their lineage, when they are of its volume.
+    #[allow(clippy::type_complexity)]
+    pub(crate) fn tornado_shown_for(
+        &self,
+        volume: &str,
+    ) -> Option<&(
+        String,
+        Vec<wxdata::tornado_id::TornadoId>,
+        wxdata::detection_lineage::DetectionLineage,
+    )> {
+        self.tornado_shown.as_ref().filter(|(v, _, _)| v == volume)
+    }
+
+    /// Tornado ID's lineage on the active pane's volume, or why there is none.
+    pub(crate) fn tornado_lineage_json(&self) -> serde_json::Value {
+        let name = self.views[self.active]
+            .volume
+            .as_ref()
+            .map(|v| v.name.clone())
+            .unwrap_or_default();
+        match self.tornado_shown_for(&name) {
+            Some((_, ids, lineage)) => {
+                let mut j = lineage.to_json();
+                j["verdicts"] = serde_json::Value::from(ids.len());
+                j
+            }
+            None => serde_json::json!({
+                "shown": false,
+                "note": "Tornado ID was not shown on this volume, so no verdicts or lineage were recorded",
+            }),
+        }
     }
 
     /// Assemble and save the archive, `image` being the map just captured.
@@ -344,5 +419,61 @@ impl HookEchoApp {
             }
             crate::dialog::Saved::Cancelled => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod lineage_export_tests {
+    use super::*;
+    use wxdata::detection_lineage::{DetectionLineage, Pipeline};
+
+    #[test]
+    fn tornado_rows_name_their_pipeline_and_input_scan_times() {
+        let id = wxdata::tornado_id::TornadoId {
+            lon: -97.48,
+            lat: 35.33,
+            tier: wxdata::tornado_id::Tier::Debris,
+            score: 0.82,
+            terms: Vec::new(),
+            vrot_ms: Some(40.0),
+            min_cc: Some(0.6),
+            reasons: Vec::new(),
+        };
+        let mut z = wxdata::level2::BinnedSweep {
+            az_bins: 2,
+            gate_count: 1,
+            data: vec![10, 10],
+            elevation_deg: 0.5,
+            bin_time_ms: vec![1_369_080_749_000, 1_369_080_772_000],
+            ..Default::default()
+        };
+        z.moment = wxdata::level2::Moment::Reflectivity;
+        let lineage = DetectionLineage {
+            pipeline: Pipeline::Fused,
+            algorithms: wxdata::detection_lineage::fused_algorithms(),
+            site: Some("KTLX".into()),
+            volume: "KTLX20130520_201229_V06".into(),
+            volume_time: None,
+            inputs: wxdata::detection_lineage::input_coverage(vec![z]),
+            stand_in: None,
+        };
+        let rows = tornado_csv_rows(std::slice::from_ref(&id), &lineage);
+        assert_eq!(
+            rows,
+            "tornado_id,35.3300,-97.4800,0.820,,,fusion-3,tornado_debris,fused,\
+             2013-05-20T20:12:29+00:00,2013-05-20T20:12:52+00:00\n"
+        );
+        // Not recorded: blank, never the volume's nominal time.
+        let original = DetectionLineage {
+            pipeline: Pipeline::Original,
+            algorithms: wxdata::detection_lineage::original_algorithms(),
+            inputs: None,
+            ..lineage
+        };
+        let rows = tornado_csv_rows(&[id], &original);
+        assert!(
+            rows.ends_with(",tornado-id-1,tornado_debris,original,,\n"),
+            "{rows}"
+        );
     }
 }

@@ -263,7 +263,7 @@ Smooth callbacks and isosurface paint require the entire selected key to match. 
 
 #### M1.4 — Complete retained provenance and scientific lineage
 
-**Priority:** P0. **Depends on:** M0.2, M1.1. **Original references:** ROADMAP_2 §§9, 10; ROADMAP_NEW §§A1, A2, N1, N2.
+**Priority:** P0. **Depends on:** M0.2, M1.1. **Status:** implementation: in progress (source clocks; Tornado ID lineage); verification: partial. **Original references:** ROADMAP_2 §§9, 10; ROADMAP_NEW §§A1, A2, N1, N2.
 
 - **Starting evidence:** `DataStamp`/`Stamped`, field descriptors, probe rows, source health, observed/forecast/derived flags, and current archive receipt limitations.
 - **Outcome/build:** retain provenance with cached/archived payloads; migrate observations, warnings, detections, and trail/derived outputs to common metadata access. Record algorithm version, input clocks, temporal coverage, native grid/units, processing/interpolation, and input quality. Inspectors, captions, exports, and diagnostics consume this same record.
@@ -277,6 +277,34 @@ Smooth callbacks and isosurface paint require the entire selected key to match. 
 **Source-clock foundation — 2026-10-01 (`7079846`):** the Level III decoder retains checked PDB data-start, RPG generation, and DVL/EET volume-end clocks separately. Supplemental elevation starts keep their source meaning; free-text generation is not labeled acquisition. Gridded DVL/EET/HHC/N0B products and SCIT history/forecast origins use the decoded data start, without S3-name or client-clock substitution. An undated grid is unavailable. This corrects a production issue discovered while pairing M0.3's candidate HCA clutter labels with their Archive II volume. Six existing real products, one-based epoch/midnight boundaries, invalid day/second encodings, and independent Python header interpretation verify the decoder. Serialized clocks preserve unknown values and their distinct roles. Shared grid lineage, persisted archive receipts, inspectors/exports, and the remainder of this parent card remain open.
 
 **Foundation verification:** Windows workspace tests passed (2,019; zero failures; 115 explicitly ignored), and workspace/all-target Clippy passed. Five source-clock tests, including JSON unknown/role preservation, and eight existing MetPy value/geometry goldens passed separately. The WASM library check initially exposed a native-only Rayon import in the concurrent LLSD shear feature (`08df4ae`). The row calculation now runs sequentially on WASM and retains parallel ordered collection on native; the repeated workspace/Clippy checks and full HookEcho WASM library check passed. Existing browser warnings remain. This is compilation/unit evidence, with browser runtime, device, and sustained-load certification still open. Review logs are `target/parity-review/m0.3/clock-*.log`. CHANGELOG.md now records the implemented parity foundations and other committed branch features.
+
+**Evidence ledger — 2026-10-02, Tornado ID lineage:** Tornado ID is the detection most readers act on, and it has two pipelines. The fused one is the default. The original stands in while the fused verdict for a volume computes and on light loop frames, and its markers look the same. Before this increment, nothing said which pipeline made a marker, and neither export (the local API snapshot or the analysis archive) included Tornado ID at all.
+
+[`wxdata::detection_lineage`](crates/wxdata/src/detection_lineage.rs) now records each volume's verdicts:
+- the pipeline, and why the original stood in when it did
+- every stage's algorithm version (`tornado_id::ALGORITHM_VERSION` is new)
+- the site, volume name and nominal time
+- the acquisition coverage of the sweeps the rotation evidence was measured on
+
+The coverage comes from the sweeps' own radial clocks, gathered through M1.1's `level2::temporal::prepare` under the continuous policy the detectors read with. The fused worker computes it from the sweeps it already owns, after the columns, without copying them.
+
+Marker and merged-detection hovers show the lineage in place of a fixed caption that was wrong for the fused pipeline. The local API's `detections.tornado_id`, `provenance.json`'s `tornado_id` and new `detections.csv` rows carry the same record. The CSV rows give the tier, pipeline and input interval; the CSV's new columns are appended, so existing columns keep their positions.
+
+Unknown values stay unknown:
+- A row with data and no clock is counted as unknown; an empty untimed row is counted as unobserved, not as a gap.
+- Inputs that were not recorded are blank or `null`, never the volume time.
+- A malformed sweep yields no record.
+
+On the pinned Moore 2013 volume, the fused verdict's four input tilts were scanned 20:12:47–20:14:20Z, against a nominal 20:12:29Z. The record keeps the two clocks apart. The 1.8° sweeps have 132 unobserved rows. [Reviewed capture, lineage JSON, hashes and limits](docs/certification/m1.4/README.md) document this.
+
+**Tornado ID lineage verification:** Windows `cargo test --workspace` passed **2,117 tests**, with zero failures and 130 explicitly ignored. That includes two lineage unit tests (input clocks, unknown/unobserved rows, missing inputs, malformed sweeps, JSON) and a CSV export test (fused interval, blank original interval). `cargo clippy --workspace --all-targets -- -D warnings` passed. The gate first failed on four `chunks_exact` lints in increment 4's `loop3d.rs` tests; those were corrected mechanically, with their assertions unchanged. The WASM library check passed (existing warnings: one in wxdata, ten in hookecho). The explicitly invoked GPU capture on cached Moore passed on RTX 2060/Vulkan. Logs are `target/parity-review/m1.4/lineage-{workspace,clippy,wasm}.log`.
+
+Remaining open:
+- input clocks for the original pipeline and the debris (CC) tilts
+- lineage in the pinned circulation card and the Cell dock
+- the same record for the rotation and debris layers, warnings and observations
+- persisted archive receipts
+- Android/browser runtime and full application interaction
 
 ### M2 — Storm-centered operator workflows
 

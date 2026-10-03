@@ -18,6 +18,8 @@ pub(crate) struct Markers<'a> {
     pub couplets: &'a [wxdata::rotation::CoupletHit],
     pub tornado_ids: &'a [wxdata::tornado_id::TornadoId],
     pub circulations: &'a [wxdata::tornado_id::Circulation],
+    /// Where the Tornado ID verdicts came from: pipeline, versions, volume and input scan times.
+    pub tornado_lineage: Option<&'a wxdata::detection_lineage::DetectionLineage>,
     pub tied_tds: &'a [bool],
     pub tied_couplet: &'a [bool],
     pub all_couplets: &'a [wxdata::rotation::CoupletHit],
@@ -42,6 +44,7 @@ impl HookEchoApp {
             couplets,
             tornado_ids,
             circulations,
+            tornado_lineage,
             tied_tds,
             tied_couplet,
             all_couplets,
@@ -357,7 +360,7 @@ impl HookEchoApp {
                     for r in &t.reasons {
                         ui.label(r);
                     }
-                    ui.weak("From this radar's rotation and debris detectors, and reports");
+                    lineage_lines(ui, tornado_lineage);
                 });
             }
         }
@@ -571,6 +574,7 @@ impl HookEchoApp {
                             "{} detections tied together. Click to open the web.",
                             c.members.len()
                         ));
+                        lineage_lines(ui, tornado_lineage);
                     });
                 }
                 if !is_open {
@@ -672,6 +676,18 @@ impl HookEchoApp {
     }
 }
 
+/// Where a Tornado ID verdict came from, small and weak under its reasons: which pipeline and
+/// version, the volume, and when its inputs were scanned.
+fn lineage_lines(ui: &mut egui::Ui, lineage: Option<&wxdata::detection_lineage::DetectionLineage>) {
+    let Some(l) = lineage else {
+        return;
+    };
+    ui.add_space(2.0);
+    for line in l.lines() {
+        ui.label(egui::RichText::new(line).small().weak());
+    }
+}
+
 #[cfg(test)]
 mod llsd_preview_snapshots {
     /// The analyst hover for the experimental LLSD layer, on the real Moore 2013 volume (the
@@ -727,6 +743,84 @@ mod llsd_preview_snapshots {
                     }
                 });
             },
+        )
+        .unwrap();
+    }
+
+    /// A Tornado ID hover on the same volume, with where the verdict came from under its reasons:
+    /// the fused pipeline's version, the volume, and when its four input tilts were scanned.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "gpu + cached corpus volume: writes a Tornado ID hover with its lineage"]
+    fn gpu_tornado_id_lineage_hover() {
+        use wxdata::detection_lineage::{
+            fused_algorithms, input_coverage, DetectionLineage, Pipeline,
+        };
+        use wxdata::level2::{self, Moment};
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
+        let bytes = std::fs::read(root.join("scientific-corpus/KTLX20130520_201229_V06.gz"))
+            .expect("cached Moore volume (provision the scientific corpus first)");
+        let scan = level2::decode_volume(bytes).unwrap();
+        let (mut vel_pairs, mut cc_pairs) = (Vec::new(), Vec::new());
+        for tilt in 0..level2::elevation_angles(&scan).len() {
+            let z = level2::bin_scan(&scan, Moment::Reflectivity, tilt);
+            if let (Ok(z), Ok(cc)) = (
+                &z,
+                level2::bin_scan(&scan, Moment::CorrelationCoefficient, tilt),
+            ) {
+                cc_pairs.push((z.clone(), cc));
+            }
+            if let (Ok(z), Ok(v)) = (
+                z,
+                level2::bin_scan_opts(&scan, Moment::Velocity, tilt, true),
+            ) {
+                vel_pairs.push((v, z));
+            }
+            if vel_pairs.len() == 4 {
+                break;
+            }
+        }
+        let columns = wxdata::rotation_columns::from_sweeps(&vel_pairs);
+        let tracked =
+            wxdata::rotation_tracks::Tracker::new(wxdata::rotation_tracks::TrackParams::default())
+                .update(0, columns);
+        let debris = wxdata::tds::detect_volume(&cc_pairs, 0.80, 40.0, 150.0, 4);
+        let analysed = wxdata::llsd_analyst::analyse(tracked, &debris, &[]);
+        let ids = wxdata::llsd_analyst::identify(&analysed, |_, _| Default::default());
+        let t = ids.first().expect("a Tornado ID verdict on Moore");
+        let lineage = DetectionLineage {
+            pipeline: Pipeline::Fused,
+            algorithms: fused_algorithms(),
+            site: Some("KTLX".into()),
+            volume: "KTLX20130520_201229_V06".into(),
+            volume_time: "2013-05-20T20:12:29Z".parse().ok(),
+            inputs: input_coverage(vel_pairs.into_iter().flat_map(|(v, z)| [v, z]).collect()),
+            stand_in: None,
+        };
+        let gpu = crate::headless::ui::Snapshot::new().expect("GPU adapter for UI review");
+        let destination = root.join("parity-review/m1.4");
+        std::fs::create_dir_all(&destination).unwrap();
+        gpu.save(
+            &destination.join("tornado-id-lineage-hover.png"),
+            520,
+            250,
+            |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.set_max_width(480.0);
+                    ui.strong(t.tier.label());
+                    // The first reasons only: the capture is for the lineage under them.
+                    for r in t.reasons.iter().take(2) {
+                        ui.label(r);
+                    }
+                    ui.weak("\u{2026}");
+                    super::lineage_lines(ui, Some(&lineage));
+                });
+            },
+        )
+        .unwrap();
+        std::fs::write(
+            destination.join("tornado-id-lineage.json"),
+            serde_json::to_string_pretty(&lineage.to_json()).unwrap(),
         )
         .unwrap();
     }

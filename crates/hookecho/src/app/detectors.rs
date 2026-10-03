@@ -290,34 +290,68 @@ impl HookEchoApp {
     ) -> (
         Vec<wxdata::tornado_id::TornadoId>,
         Vec<wxdata::tornado_id::Circulation>,
+        wxdata::detection_lineage::DetectionLineage,
     ) {
         use crate::settings::TornadoIdSource;
+        use wxdata::detection_lineage::{DetectionLineage, Pipeline};
         // The fusion's verdict once this volume's columns are ready; until then, and for a light
         // loop frame (one tilt), the original's, so the markers never blink out.
-        let analysed = match self.settings.detectors.tornado_id_source {
-            TornadoIdSource::Fusion => self.compute_llsd(idx, ctx),
-            TornadoIdSource::Legacy => None,
+        let fused = self.settings.detectors.tornado_id_source == TornadoIdSource::Fusion;
+        let analysed = if fused {
+            self.compute_llsd(idx, ctx)
+        } else {
+            None
+        };
+        let vol = self.views[idx].volume.as_ref();
+        let mut lineage = DetectionLineage {
+            pipeline: Pipeline::Original,
+            algorithms: wxdata::detection_lineage::original_algorithms(),
+            site: self.views[idx].site.clone(),
+            volume: vol.map(|v| v.name.clone()).unwrap_or_default(),
+            volume_time: vol.map(|v| v.time),
+            inputs: None,
+            stand_in: None,
         };
         match analysed {
             None => {
+                if fused {
+                    lineage.stand_in = Some(if vol.is_some_and(|v| v.light) {
+                        "a loop frame carries one tilt, and the fused evidence is a column \
+                         through several"
+                    } else {
+                        "the fused verdict for this volume is still being computed"
+                    });
+                }
                 if merged {
-                    (Vec::new(), wxdata::tornado_id::circulations(couplets, tds))
+                    (
+                        Vec::new(),
+                        wxdata::tornado_id::circulations(couplets, tds),
+                        lineage,
+                    )
                 } else {
-                    (wxdata::tornado_id::identify(couplets, tds), Vec::new())
+                    (
+                        wxdata::tornado_id::identify(couplets, tds),
+                        Vec::new(),
+                        lineage,
+                    )
                 }
             }
             Some(analysed) => {
+                lineage.pipeline = Pipeline::Fused;
+                lineage.algorithms = wxdata::detection_lineage::fused_algorithms();
+                lineage.inputs = self.llsd_inputs(idx);
                 let evidence = self.confirm_evidence(idx);
                 let minute = self.volume_minute(idx);
                 let confirm =
                     |lon: f64, lat: f64| wxdata::confirm::confirm(lon, lat, minute, &evidence);
                 if merged {
                     let c = wxdata::llsd_analyst::circulations(&analysed, couplets, tds, confirm);
-                    (Vec::new(), c)
+                    (Vec::new(), c, lineage)
                 } else {
                     (
                         wxdata::llsd_analyst::identify(&analysed, confirm),
                         Vec::new(),
+                        lineage,
                     )
                 }
             }
@@ -334,7 +368,7 @@ impl HookEchoApp {
     ) -> Vec<wxdata::tornado_id::Circulation> {
         use crate::settings::TornadoIdSource;
         if self.settings.detectors.tornado_id_source == TornadoIdSource::Fusion {
-            if let Some((key, analysed)) = &self.llsd_cache {
+            if let Some((key, analysed, _)) = &self.llsd_cache {
                 if key.1 == volume_name {
                     let idx = key.0;
                     let evidence = self.confirm_evidence(idx);
@@ -370,7 +404,7 @@ impl HookEchoApp {
         ctx: &egui::Context,
     ) -> Option<Vec<wxdata::llsd_analyst::Analysed>> {
         let key = self.volume_key(idx);
-        if let Some((k, v)) = &self.llsd_cache {
+        if let Some((k, v, _)) = &self.llsd_cache {
             if *k == key {
                 return Some(v.clone());
             }
@@ -378,9 +412,9 @@ impl HookEchoApp {
         if self.views[idx].volume.as_ref().is_none_or(|v| v.light) {
             return None;
         }
-        let columns = match self.llsd_job.take() {
+        let (columns, inputs) = match self.llsd_job.take() {
             Some((k, rx)) if k == key => match rx.try_recv() {
-                Ok(columns) => columns,
+                Ok(done) => done,
                 Err(std::sync::mpsc::TryRecvError::Empty) => {
                     self.llsd_job = Some((k, rx));
                     return None;
@@ -402,7 +436,7 @@ impl HookEchoApp {
                     let (tx, rx) = std::sync::mpsc::channel();
                     let ctx = ctx.clone();
                     std::thread::spawn(move || {
-                        let _ = tx.send(wxdata::rotation_columns::from_sweeps(&pairs));
+                        let _ = tx.send(columns_and_inputs(pairs));
                         ctx.request_repaint();
                     });
                     self.llsd_job = Some((key, rx));
@@ -411,7 +445,7 @@ impl HookEchoApp {
                 #[cfg(target_arch = "wasm32")]
                 {
                     let _ = ctx;
-                    wxdata::rotation_columns::from_sweeps(&pairs)
+                    columns_and_inputs(pairs)
                 }
             }
         };
@@ -442,8 +476,21 @@ impl HookEchoApp {
             .unwrap_or_default();
         let debris = self.tds_quiet(idx);
         let out = wxdata::llsd_analyst::analyse(tracked, &debris, &[]);
-        self.llsd_cache = Some((key, out.clone()));
+        self.llsd_cache = Some((key, out.clone(), inputs));
         Some(out)
+    }
+
+    /// When the sweeps behind this volume's fused columns were scanned, once they are computed;
+    /// `None` when they are not (yet), or were not recorded.
+    pub(crate) fn llsd_inputs(
+        &self,
+        idx: usize,
+    ) -> Option<wxdata::level2::temporal::TemporalCoverage> {
+        let key = self.volume_key(idx);
+        self.llsd_cache
+            .as_ref()
+            .filter(|(k, _, _)| *k == key)
+            .and_then(|(_, _, inputs)| inputs.clone())
     }
 
     /// The tornado reports and tornado warnings a detection can be confirmed by right now: the live
@@ -802,4 +849,18 @@ impl HookEchoApp {
         self.rot_tracks_cache = Some((key, tracks.clone()));
         tracks
     }
+}
+
+/// One volume's rotation columns and, from the same sweeps once the columns are done, when those
+/// sweeps were scanned (the fused Tornado ID's input clocks).
+#[allow(clippy::type_complexity)]
+fn columns_and_inputs(
+    pairs: Vec<(wxdata::level2::BinnedSweep, wxdata::level2::BinnedSweep)>,
+) -> (
+    Vec<wxdata::rotation_columns::RotationColumn>,
+    Option<wxdata::level2::temporal::TemporalCoverage>,
+) {
+    let columns = wxdata::rotation_columns::from_sweeps(&pairs);
+    let sweeps = pairs.into_iter().flat_map(|(v, z)| [v, z]).collect();
+    (columns, wxdata::detection_lineage::input_coverage(sweeps))
 }

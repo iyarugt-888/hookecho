@@ -17,6 +17,8 @@ pub(crate) struct PaneDetections {
     pub local_tracks: Vec<wxdata::celltrack::Track>,
     pub tornado_ids: Vec<wxdata::tornado_id::TornadoId>,
     pub circulations: Vec<wxdata::tornado_id::Circulation>,
+    /// Where this pane's Tornado ID verdicts came from, when it shows any.
+    pub tornado_lineage: Option<wxdata::detection_lineage::DetectionLineage>,
     pub tied_couplet: Vec<bool>,
     pub tied_tds: Vec<bool>,
     pub all_couplets: Vec<wxdata::rotation::CoupletHit>,
@@ -105,11 +107,20 @@ impl HookEchoApp {
         // Tornado ID, from the fusion or the legacy detectors (`detectors.tornado_id_source`).
         // Merged: every rotation and debris detection near a tornado is drawn as part of that
         // tornado's one marker, not on its own; the full lists stay for the web it opens into.
-        let (tornado_ids, circulations) =
+        let (tornado_ids, circulations, tornado_lineage) =
             if idx == self.active && (merge || self.filters.show_tornado_id) {
-                self.tornado_identifications(idx, ctx, &couplets, &tds_hits, merge)
+                let (ids, circs, lineage) =
+                    self.tornado_identifications(idx, ctx, &couplets, &tds_hits, merge);
+                // For the local API and the analysis export: the verdicts, one per tornado.
+                let shown = if merge {
+                    circs.iter().map(|c| c.id.clone()).collect()
+                } else {
+                    ids.clone()
+                };
+                self.tornado_shown = Some((lineage.volume.clone(), shown, lineage.clone()));
+                (ids, circs, Some(lineage))
             } else {
-                (Vec::new(), Vec::new())
+                (Vec::new(), Vec::new(), None)
             };
         let mut tied_couplet = vec![false; couplets.len()];
         let mut tied_tds = vec![false; tds_hits.len()];
@@ -159,6 +170,7 @@ impl HookEchoApp {
             local_tracks,
             tornado_ids,
             circulations,
+            tornado_lineage,
             tied_couplet,
             tied_tds,
             all_couplets,

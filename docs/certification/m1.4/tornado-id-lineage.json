@@ -1,0 +1,106 @@
+{
+  "algorithms": {
+    "azshear": "llsd-azshear-1",
+    "debris_class": "debris-class-1",
+    "debris_signature": "tds-6",
+    "rotation_columns": "llsd-columns-1",
+    "rotation_objects": "llsd-objects-1",
+    "rotation_tracks": "llsd-tracks-1",
+    "tornado_fusion": "fusion-3"
+  },
+  "inputs": {
+    "acquisition_end_utc": "2013-05-20T20:14:20.355+00:00",
+    "acquisition_start_utc": "2013-05-20T20:12:47.077+00:00",
+    "older_pass_rows": 0,
+    "policy": "continuous",
+    "sweeps": [
+      {
+        "azimuth_rows": 720,
+        "elevation_deg": 0.52734375,
+        "end_utc": "2013-05-20T20:13:01.113+00:00",
+        "moment": "VEL",
+        "older_pass_rows": 0,
+        "start_utc": "2013-05-20T20:12:47.077+00:00",
+        "unknown_time_rows": 0,
+        "unobserved_rows": 0
+      },
+      {
+        "azimuth_rows": 720,
+        "elevation_deg": 0.52734375,
+        "end_utc": "2013-05-20T20:13:01.113+00:00",
+        "moment": "REF",
+        "older_pass_rows": 0,
+        "start_utc": "2013-05-20T20:12:47.077+00:00",
+        "unknown_time_rows": 0,
+        "unobserved_rows": 0
+      },
+      {
+        "azimuth_rows": 720,
+        "elevation_deg": 0.9228515625,
+        "end_utc": "2013-05-20T20:13:33.118+00:00",
+        "moment": "VEL",
+        "older_pass_rows": 0,
+        "start_utc": "2013-05-20T20:13:19.073+00:00",
+        "unknown_time_rows": 0,
+        "unobserved_rows": 0
+      },
+      {
+        "azimuth_rows": 720,
+        "elevation_deg": 0.9228515625,
+        "end_utc": "2013-05-20T20:13:33.118+00:00",
+        "moment": "REF",
+        "older_pass_rows": 0,
+        "start_utc": "2013-05-20T20:13:19.073+00:00",
+        "unknown_time_rows": 0,
+        "unobserved_rows": 0
+      },
+      {
+        "azimuth_rows": 720,
+        "elevation_deg": 1.3623046875,
+        "end_utc": "2013-05-20T20:14:05.078+00:00",
+        "moment": "VEL",
+        "older_pass_rows": 0,
+        "start_utc": "2013-05-20T20:13:51.031+00:00",
+        "unknown_time_rows": 0,
+        "unobserved_rows": 0
+      },
+      {
+        "azimuth_rows": 720,
+        "elevation_deg": 1.3623046875,
+        "end_utc": "2013-05-20T20:14:05.078+00:00",
+        "moment": "REF",
+        "older_pass_rows": 0,
+        "start_utc": "2013-05-20T20:13:51.031+00:00",
+        "unknown_time_rows": 0,
+        "unobserved_rows": 0
+      },
+      {
+        "azimuth_rows": 720,
+        "elevation_deg": 1.845703125,
+        "end_utc": "2013-05-20T20:14:20.355+00:00",
+        "moment": "VEL",
+        "older_pass_rows": 0,
+        "start_utc": "2013-05-20T20:14:06.126+00:00",
+        "unknown_time_rows": 0,
+        "unobserved_rows": 66
+      },
+      {
+        "azimuth_rows": 720,
+        "elevation_deg": 1.845703125,
+        "end_utc": "2013-05-20T20:14:20.355+00:00",
+        "moment": "REF",
+        "older_pass_rows": 0,
+        "start_utc": "2013-05-20T20:14:06.126+00:00",
+        "unknown_time_rows": 0,
+        "unobserved_rows": 66
+      }
+    ],
+    "unknown_time_rows": 0,
+    "unobserved_rows": 132
+  },
+  "pipeline": "fused",
+  "site": "KTLX",
+  "stand_in": null,
+  "volume": "KTLX20130520_201229_V06",
+  "volume_time_utc": "2013-05-20T20:12:29+00:00"
+}

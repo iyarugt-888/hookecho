@@ -37,6 +37,10 @@ pub const MIN_COUPLET: f32 = 0.35;
 pub const MIN_DEBRIS: f32 = 0.5;
 /// Rotational velocity (m/s, ~50 kt) that with a rooted, multi-tilt column reads as Likely.
 pub const STRONG_VROT_MS: f32 = 25.0;
+/// The original Tornado ID's fusion of couplets and debris signatures, for provenance records.
+/// Bump when a change alters the identifications its inputs produce.
+pub const ALGORITHM_VERSION: &str = "tornado-id-1";
+
 /// Combined score at and above which rotation alone reads as Likely.
 pub const LIKELY_SCORE: f32 = 0.6;
 /// How much of the gap the weaker of a collocated couplet and debris signature closes. Rotation

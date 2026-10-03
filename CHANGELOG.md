@@ -8,6 +8,22 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: flood maps from a gauge card
+
+Clicking a river gauge's record crest, a crest from its history, the current level, the forecast
+crest, a flood stage or a point on its hydrograph shades what NOAA's inundation library maps
+for that stage. The map moves to the flooding, in the flood category's color. The card names the
+stage and quotes the forecast office's impact statement. When the stage is above everything
+mapped, the card says the shading is the most NOAA maps there.
+
+### Added: where each Tornado ID verdict came from
+
+Tornado ID hovers now say which pipeline made a verdict and at which version. The pipeline is
+either the fused one or the original, which stands in while the fused verdict is being computed.
+The hovers also give the radar volume and when the sweeps behind the verdict were scanned. The
+local API and the analysis export now include Tornado ID verdicts with the same record, and keep
+unknown scan times unknown.
+
 ### Fixed: smooth volumes and isosurfaces match the selected radar frame
 
 Smooth map volumes, user products and isosurfaces now carry source coverage through worker

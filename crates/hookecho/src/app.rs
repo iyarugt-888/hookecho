@@ -1271,14 +1271,31 @@ pub struct HookEchoApp {
     /// The experimental LLSD pipeline's analysed columns for one volume (the settings flag
     /// `detectors.llsd_preview`), and the tracker that follows them from volume to volume on one
     /// site. See `compute_llsd`.
+    /// With the analysed columns, when the sweeps they were measured on were scanned
+    /// (`detection_lineage`); `None` when not recorded.
     #[allow(clippy::type_complexity)]
-    llsd_cache: Option<((usize, String, usize), Vec<wxdata::llsd_analyst::Analysed>)>,
+    llsd_cache: Option<(
+        (usize, String, usize),
+        Vec<wxdata::llsd_analyst::Analysed>,
+        Option<wxdata::level2::temporal::TemporalCoverage>,
+    )>,
     llsd_tracker: Option<(String, wxdata::rotation_tracks::Tracker)>,
     /// The background job computing one volume's columns (see `compute_llsd`).
     #[allow(clippy::type_complexity)]
     llsd_job: Option<(
         (usize, String, usize),
-        std::sync::mpsc::Receiver<Vec<wxdata::rotation_columns::RotationColumn>>,
+        std::sync::mpsc::Receiver<(
+            Vec<wxdata::rotation_columns::RotationColumn>,
+            Option<wxdata::level2::temporal::TemporalCoverage>,
+        )>,
+    )>,
+    /// The active pane's last Tornado ID verdicts, by volume, with where they came from: what the
+    /// local API and the analysis export report. Set in `pane_detections`.
+    #[allow(clippy::type_complexity)]
+    pub(crate) tornado_shown: Option<(
+        String,
+        Vec<wxdata::tornado_id::TornadoId>,
+        wxdata::detection_lineage::DetectionLineage,
     )>,
     /// Same role as `tds_shown_cache`, for rotation: the corroborated couplets, not `couplet_cache`'s
     /// raw ones. Filled once per volume, in `compute_couplets`.
@@ -5655,6 +5672,7 @@ impl HookEchoApp {
             local_tracks,
             tornado_ids,
             circulations,
+            tornado_lineage,
             tied_couplet,
             tied_tds,
             all_couplets,
@@ -6039,6 +6057,7 @@ impl HookEchoApp {
                     couplets: &couplets,
                     tornado_ids: &tornado_ids,
                     circulations: &circulations,
+                    tornado_lineage: tornado_lineage.as_ref(),
                     tied_tds: &tied_tds,
                     tied_couplet: &tied_couplet,
                     all_couplets: &all_couplets,

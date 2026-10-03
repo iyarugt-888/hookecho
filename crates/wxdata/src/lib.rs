@@ -23,6 +23,7 @@ pub mod dealias;
 pub mod debris_class;
 pub mod derived;
 pub mod detbaseline;
+pub mod detection_lineage;
 pub mod detverify;
 pub mod doppler_wind;
 pub mod dotcams;
