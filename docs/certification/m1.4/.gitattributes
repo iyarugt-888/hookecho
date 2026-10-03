@@ -1,0 +1,2 @@
+# Evidence checksums in README.md describe these exact bytes on every platform.
+*.json -text
