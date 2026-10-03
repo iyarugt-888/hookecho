@@ -322,6 +322,27 @@ Primary code areas:
   - **This is not calibration.** "Verified" means a report or surveyed path within the matching radius and window, not a tornado probability. The share depends on the corpus's base rate, and rounds three to six lean tornadic, which inflates it.
   - **What calibration still needs:** a corpus sampled to represent how often each kind of storm occurs, so the base rate is meaningful. Until then the tiers stay evidence scores out of 100.
 
+- **A random sample of ordinary severe days** (`scripts/fusion/sample_days.py`, `docs/backtest-sample-2023.txt`, export `s1-2023`). Every hand-picked event fixes the base rate by design. Here 20 radar windows were drawn at random (seed 2023) from the 1,672 radar-days of March–August 2023 with any severe report within 150 km. Each window starts 20 minutes before one of that day's reports.
+  - **Results.** 13.2 radar-hours; one tornado report in the whole sample, found by neither detector.
+
+    | Tier | Fusion, false | Original, false |
+    |---|---|---|
+    | Possible (≥ 0.3) | 15 (1.1 per radar-hour, on 4 of 20 windows) | 27 (2.1 per hour, on 10) |
+    | Likely (≥ 0.6) | 2 (0.15 per hour, on 1) | 11 (0.84 per hour, on 3) |
+
+  - **What the false detections are.** 12 of the fusion's 15 are debris-driven: credible low-CC signatures (polarimetric 0.61–0.80, no hail sign) beside weak rotation 99–125 km out, mostly at night.
+    - Against the corpus's verified far-range debris detections (25 of 29 verified, Rolling Fork, Milton and Moore), these have weaker rotation (low-level 0.009 against 0.020 s⁻¹, couplet minimum 21 against 28 m/s) and stronger-looking debris (0.73 against 0.65).
+    - Debris needed only 0.010 s⁻¹ of low-level rotation beside it.
+  - **Debris now needs 0.012 s⁻¹ (debris-class-2).** Simulated first by rescoring with fusion-3's weights, which reproduces the shipped scores to 1e-4, and dropping debris where the column's low-level shear is under the bar:
+
+    | Set | POD | False at ≥ 0.3 | False at ≥ 0.6 |
+    |---|---|---|---|
+    | Unseen 40 events | unchanged (0.18, 0.12) | 64 → 34 | 4 → 3 |
+    | Training 25 | unchanged | 155 → 127 | — |
+    | Random sample | — | 15 → 5 | 2 → 0 |
+
+    0.015 removes a few more false alarms but costs training POD (0.54 to 0.52). The weights are unchanged; the debris feature means the same, more strictly. A full backtest validates the change (next entry).
+
 ### Where the detection stands (65 events)
 
 - **Promoted.** The fused Tornado ID (fusion-3) is the app's default; the original is selectable. On every held-out test since promotion it has found as many tornadoes as the original or more, at a far lower false-alarm ratio. On round three's unseen events at matched false-alarm rates: POD 0.29, FAR 0.21 against 0.15, 0.64. On round five's unseen supercell days at Likely: POD 0.28, FAR 0.11 against 0.26, 0.62. On non-tornadic lines (round four): 0 false detections against 23. On the hail storms, at Likely: 2 against 25.

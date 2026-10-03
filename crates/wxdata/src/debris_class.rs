@@ -37,7 +37,7 @@ use crate::rotation_columns::RotationColumn;
 use crate::tds::TdsHit;
 
 /// Version of the classification rules, recorded with anything derived from them.
-pub const ALGORITHM_VERSION: &str = "debris-class-1";
+pub const ALGORITHM_VERSION: &str = "debris-class-2";
 
 /// WSR-88D half-power beam width, degrees.
 pub const BEAM_WIDTH_DEG: f32 = 0.95;
@@ -48,6 +48,11 @@ pub struct DebrisParams {
     /// Least polarimetric evidence ([`TdsHit::raw_confidence`]) of a credible signature.
     pub min_polarimetric: f32,
     /// Least low-level (0-2 km) peak AzShear (s⁻¹) of a column that can promote a signature.
+    /// 0.012 (debris-class-2; it was 0.010): on ordinary severe days (a random 2023 sample), most
+    /// fused false alarms were strong-looking low-CC signatures beside 0.009-0.013 s⁻¹ rotation
+    /// 100-125 km out. Requiring 0.012 cut false detections at Possible by half on the 40 events
+    /// fusion-3 never saw and by two-thirds on the random sample, with no tornado lost
+    /// (detectionplan.md).
     pub min_low_level_s: f32,
     /// The radius's fixed allowance (km), before the beam widths.
     pub base_radius_km: f32,
@@ -64,7 +69,7 @@ impl Default for DebrisParams {
     fn default() -> Self {
         DebrisParams {
             min_polarimetric: 0.5,
-            min_low_level_s: 0.01,
+            min_low_level_s: 0.012,
             base_radius_km: 3.0,
             beam_widths: 2.0,
             hail_zdr_db: -0.5,
