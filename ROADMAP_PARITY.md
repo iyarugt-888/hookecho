@@ -303,7 +303,7 @@ On the pinned Moore 2013 volume, the fused verdict's four input tilts were scann
 
 Remaining open:
 - input clocks for the debris (CC) tilts
-- lineage in the pinned circulation card and the Cell dock
+- lineage in the Cell dock (the pinned circulation card, the only place a phone can read it, now shows it)
 - the same record for the rotation and debris layers, warnings and observations
 - persisted archive receipts
 - Android/browser runtime and full application interaction

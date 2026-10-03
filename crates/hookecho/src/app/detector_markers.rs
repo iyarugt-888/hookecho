@@ -661,6 +661,9 @@ impl HookEchoApp {
                                     );
                                         }
                                     }
+                                    // Where the verdict came from: a finger has no hover, so the
+                                    // card is where a phone reads it.
+                                    lineage_lines(ui, tornado_lineage);
                                 });
                         });
                     });

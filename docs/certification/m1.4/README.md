@@ -74,6 +74,6 @@ are not called either one.
 
 - **Debris inputs.** The CC tilts behind the debris evidence are named by their algorithm
   version, not by their own clocks.
-- **Pinned circulation card.** It does not show lineage yet; the hovers do.
+- **Cell dock.** It does not show lineage yet. The hovers and the pinned circulation card do.
 - **Platforms.** Android and browser runtime, and full application interaction, are not
   certified.
