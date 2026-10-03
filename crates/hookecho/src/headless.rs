@@ -5646,10 +5646,34 @@ async fn freezing_levels_for(
     // earlier or the next station, and an uncached rerun would then score hail against a
     // different freezing level (detectionplan.md Phase 0: the same corpus gives the same baseline).
     let cache = backtest_cache_dir().map(|d| d.join("soundings"));
+    // Which sounding this event used, kept once chosen. The per-launch cache alone is not
+    // enough: when the preferred launch fails to download, the fallback (12 h earlier, or the
+    // next station) is used and cached, and a later run that reaches the preferred launch then
+    // scores hail against a different freezing level (KMKX 2021-08-10 read Green Bay 00Z in one
+    // run and 12Z in the next). Delete the file to choose again.
+    let choice = cache
+        .as_ref()
+        .map(|d| d.join(format!("choice-{site}-{}.json", when.format("%Y%m%d%H%M"))));
+    if let Some(levels) = choice
+        .as_ref()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|t| serde_json::from_str::<(String, f64, f64)>(&t).ok())
+    {
+        return Some(levels);
+    }
     match wxdata::raob::melting_levels(&http, s.longitude as f64, s.latitude as f64, when, cache)
         .await
     {
-        Ok(m) => Some((m.label, m.h0_m, m.hm20_m)),
+        Ok(m) => {
+            let levels = (m.label, m.h0_m, m.hm20_m);
+            if let (Some(p), Ok(text)) = (&choice, serde_json::to_string(&levels)) {
+                if let Some(dir) = p.parent() {
+                    let _ = std::fs::create_dir_all(dir);
+                }
+                let _ = std::fs::write(p, text);
+            }
+            Some(levels)
+        }
         Err(e) => {
             eprintln!("  {site}: no sounding for the hail algorithm, {e}");
             None
