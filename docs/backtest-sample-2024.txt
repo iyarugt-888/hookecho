@@ -1,0 +1,22 @@
+# Random severe-weather radar windows, 2024 March-August, seed 2024 (20 of 1771 qualifying radar-days):
+#   python scripts/fusion/sample_days.py 2024 20 2024
+KDTX 2024-05-19 22:13   # 9 severe reports that radar-day
+KDVN 2024-05-24 11:25   # 22 severe reports that radar-day
+KFDR 2024-04-09 03:52   # 1 severe reports that radar-day
+KFFC 2024-07-09 01:09   # 4 severe reports that radar-day
+KFTG 2024-07-15 00:37   # 2 severe reports that radar-day
+KGLD 2024-07-28 02:59   # 8 severe reports that radar-day
+KGWX 2024-07-14 20:13   # 1 severe reports that radar-day
+KHGX 2024-03-16 08:04   # 47 severe reports that radar-day
+KILN 2024-05-29 02:35   # 2 severe reports that radar-day
+KILX 2024-08-01 08:18   # 11 severe reports that radar-day
+KIWX 2024-06-19 23:20   # 7 severe reports that radar-day
+KLCH 2024-05-28 20:33   # 6 severe reports that radar-day
+KLVX 2024-05-22 10:40   # 1 severe reports that radar-day
+KMPX 2024-08-05 23:46   # 24 severe reports that radar-day
+KNQA 2024-06-26 07:15   # 2 severe reports that radar-day
+KOAX 2024-04-16 18:19   # 17 severe reports that radar-day
+KOAX 2024-06-02 07:17   # 1 severe reports that radar-day
+KOHX 2024-08-31 21:04   # 4 severe reports that radar-day
+KPAH 2024-04-07 21:50   # 13 severe reports that radar-day
+KTWX 2024-06-19 01:20   # 1 severe reports that radar-day

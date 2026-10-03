@@ -357,6 +357,27 @@ Primary code areas:
   - **The training 25 showed POD 0.54 to 0.52 and 0.32 to 0.30. That was not the change.** The damage-survey service answered three events' queries with HTTP 400 during that run (Washington IL 2013, Vilonia 2014, Nashville 2020), so their surveyed paths were missing from its truth. All three tornadoes were still found at Likely through their point reports, and no truth present in both runs was lost.
   - **The surveys are now cached** like the soundings (`dat::fetch_cached`), so a later outage cannot change the truth between runs.
 
+- **The random sample widened to 59 windows (2022, 2023, 2024; 40 radar-hours)**, with `docs/backtest-sample-2022.txt` and `-2024.txt` and debris-class-2 throughout. One 2022 window had no data.
+  - **False detections on ordinary severe days:**
+
+    | Tier | Fusion | Original |
+    |---|---|---|
+    | Possible | 0.98 per radar-hour | 2.03 per radar-hour |
+    | Likely | 0.03 per radar-hour (once in 40 hours) | 0.63 per radar-hour |
+
+  - **Neither found any of the sample's tornadoes** (four windows, 26 reports and paths). The 2024 ones are rotation-only with strong low-level shear: Davenport 2024-05-24 read 0.028 s⁻¹ at 83 km, Omaha 2024-04-16 0.019 at 63 km, Minneapolis 2024-08-05 0.017 at 98 km. With no debris they fused at 0.22–0.25, under the Possible floor. The original had no detection on them at all.
+- **A decision for the maintainer: let strong rotation alone reach Possible?** Lifting a rooted, cyclonic, debris-free column to Possible once its low-level shear passes a bar:
+
+  | Bar | Corpus: tornadoes gained | Corpus: false added | Random: gained | Random: false added |
+  |---|---|---|---|---|
+  | ≥ 0.018 s⁻¹ | +59 (of 137 found now) | +221 (3.2 → 7.3 per hour) | +8 (of 0 found now) | +0.95 per hour |
+  | ≥ 0.020 s⁻¹ | +26 | +117 | +3 | +0.43 per hour |
+  | ≥ 0.022 s⁻¹ | +11 | +59 | 0 | +0.28 per hour |
+
+  - **The case for it.** At 0.018 the fused Possible tier on random days would make 1.9 false per radar-hour, the original's own rate, while finding tornadoes the original misses.
+  - **The cost.** The lifted columns verify about 20% of the time, against about 44% for today's Possible tier, so "Tornado possible" would mean much less.
+  - **Not adopted unilaterally.** It changes what the lowest tier promises, and the plan's rule about losing tornadoes for a lower FAR does not settle the reverse trade.
+
 ### Where the detection stands (65 events)
 
 - **Promoted.** The fused Tornado ID (fusion-3) is the app's default; the original is selectable. On every held-out test since promotion it has found as many tornadoes as the original or more, at a far lower false-alarm ratio. On round three's unseen events at matched false-alarm rates: POD 0.29, FAR 0.21 against 0.15, 0.64. On round five's unseen supercell days at Likely: POD 0.28, FAR 0.11 against 0.26, 0.62. On non-tornadic lines (round four): 0 false detections against 23. On the hail storms, at Likely: 2 against 25.

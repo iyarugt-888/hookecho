@@ -1,0 +1,22 @@
+# Random severe-weather radar windows, 2022 March-August, seed 2022 (20 of 1844 qualifying radar-days):
+#   python scripts/fusion/sample_days.py 2022 20 2022
+KABR 2022-07-23 10:55   # 5 severe reports that radar-day
+KARX 2022-05-29 14:35   # 2 severe reports that radar-day
+KFTG 2022-04-05 19:50   # 1 severe reports that radar-day
+KFWS 2022-05-05 18:48   # 5 severe reports that radar-day
+KFWS 2022-06-27 00:35   # 2 severe reports that radar-day
+KHTX 2022-05-05 23:06   # 17 severe reports that radar-day
+KICT 2022-06-22 20:42   # 19 severe reports that radar-day
+KIWX 2022-06-12 20:42   # 1 severe reports that radar-day
+KJGX 2022-05-06 19:18   # 41 severe reports that radar-day
+KJGX 2022-08-10 00:17   # 2 severe reports that radar-day
+KLIX 2022-08-07 22:45   # 1 severe reports that radar-day
+KLVX 2022-07-27 23:29   # 4 severe reports that radar-day
+KMAF 2022-08-30 00:18   # 7 severe reports that radar-day
+KMLB 2022-05-27 23:23   # 7 severe reports that radar-day
+KMLB 2022-08-07 18:35   # 2 severe reports that radar-day
+KOHX 2022-05-02 22:17   # 5 severe reports that radar-day
+KPAH 2022-05-18 12:15   # 3 severe reports that radar-day
+KRAX 2022-07-21 17:57   # 19 severe reports that radar-day
+KTWX 2022-07-01 23:06   # 6 severe reports that radar-day
+KVNX 2022-05-05 15:44   # 26 severe reports that radar-day
