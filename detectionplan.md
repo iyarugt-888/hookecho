@@ -211,6 +211,17 @@ Primary code areas:
 
   - **Both Tornado IDs mostly confirm a tornado around touchdown rather than warn ahead of it.** At Possible, the fused one gives 10+ minutes of lead four times as often as the original. At Likely it arrives later: most of its weight is debris, and debris follows touchdown. Survey start times are themselves estimates, often radar-derived, so these are within a few minutes. This is a property of the evidence, not a defect to tune away. Lead would come from precursor evidence (mesocyclone intensification, trends), which the constrained fit currently zeroes (`shear_trend`).
 
+- **Precursors and track continuity** (from `p13-lead` and `p12-vrot`).
+  - **5–30 minutes before a surveyed touchdown**, columns on tracks that later produce the tornado (720 rows) differ only slightly from columns on tracks that never verify (18,056). Each feature's AUC: low-level shear 0.61, peak shear 0.60, depth 0.59, couplet minimum 0.59, shear trend 0.53. The fused score itself is 0.61. The radar evidence here holds little precursor signal.
+  - **Tracking is fragmented along tornadoes.** On 91 surveyed paths matched in 3+ volumes:
+    - the strongest matching column changes track in 87% of consecutive volumes
+    - a median of 18 track ids touch one path
+    - the longest track on a path is a median 2 volumes old
+    - 90% of all fused rows are on tracks 1–2 volumes old
+
+    A replay of the tracker on the export (dropped: it reproduced only 62% of the exported ages, since minute timestamps carry a kilometre of prediction error) showed widening the gate barely moves the switching, 0.91 to 0.85 even at 8 km. The cause is that one circulation is several simultaneous column pieces, each with its own track.
+  - **Circulation persistence does not help either.** Rebuilt as the oldest same-sense track within 5 km in the same volume, it doubles the rows on 3+ volume tracks (14% to 30%). Held out by event, AUC goes from 0.597 to 0.598, and POD only at ≥ 0.4 (0.37 to 0.40). Persistence is weak evidence, as Phase 5 found, because non-tornadic mesocyclones persist too. Fragmentation is real, but it is not what limits the score or the lead time.
+
 ### What stands between the fusion and promotion
 
 - **POD.** Looked at with `matched_truths`, the gap is a weighting trade-off, not a blind spot. At Tornado ID ≥ 0.6 and fusion ≥ 0.5 they find 46 and 45 reports: 38 in common, 8 only Tornado ID, 7 only the fusion. Every one of the 8 has an LLSD column on it: rotation-only tornadoes (0.025–0.034 s⁻¹, 3–4 tilts, persisting, no debris signature), fused at 0.17–0.41 because debris carries most of the weight. Five of the 8 are one Washington, IL circulation matched to five reports. Weighting rotation-only circulations as Tornado ID does would recover them, and with them the false alarms the hard negatives exposed. More rotation-only tornadoes and rotating non-tornadic storms in the corpus are what can settle that weight.
