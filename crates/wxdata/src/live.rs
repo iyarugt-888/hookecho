@@ -126,6 +126,9 @@ pub struct RadialCoverage {
     pub progress: ScanProgress,
     /// (one-based azimuth number, source acquisition timestamp in milliseconds).
     pub radials: Vec<(u16, i64)>,
+    /// Source boundary evidence from raw input, before older-pass stitching. None for callers
+    /// that do not expose native boundary markers; it never implies an empty pass history.
+    pub source_passes: Option<crate::live_pass::PassInventory>,
 }
 
 /// The oldest a joined live volume may be and still be the one being scanned: a volume lasts four
@@ -260,16 +263,24 @@ where
     // metadata assembly needs). Re-decoding every accumulated chunk at every boundary was O(n^2)
     // over a volume, and the chunk count grows to ~55.
     let mut total_retries = 0u32;
-    emit(
+    let mut passes = crate::live_pass::PassTracker::default();
+    let first_decoded = emit(
         &it,
         &chunks,
         &mut merged,
         total_retries,
         crate::clock::Instant::now(),
-        None,
+        EmissionProgress {
+            cut: None,
+            passes: &mut passes,
+            continuous: false,
+        },
         &mut on_update,
     )
     .await;
+    let mut last_decoded_sequence = first_decoded
+        .then(|| it.current().map(|id| id.sequence()))
+        .flatten();
     let mut window_start = chunks.len();
 
     let mut fails = 0u32;
@@ -302,6 +313,8 @@ where
                 if ctype == ChunkType::Start || vol != volume {
                     chunks.clear(); // volume rollover: start a fresh accumulator
                     window_start = 0;
+                    passes = crate::live_pass::PassTracker::default();
+                    last_decoded_sequence = None;
                 }
                 volume = vol;
                 chunks.push(dc.chunk);
@@ -364,16 +377,22 @@ where
                         .chain(chunks[window_start..].iter())
                         .cloned()
                         .collect();
-                    emit(
+                    let decoded = emit(
                         &it,
                         &window,
                         &mut merged,
                         total_retries,
                         received_at,
-                        current_progress,
+                        EmissionProgress {
+                            cut: current_progress,
+                            passes: &mut passes,
+                            continuous: last_decoded_sequence.and_then(|old| old.checked_add(1))
+                                == Some(seq),
+                        },
                         &mut on_update,
                     )
                     .await;
+                    last_decoded_sequence = decoded.then_some(seq);
                     // Advance every emit, not only at sweep boundaries: each window is then the
                     // start chunk plus the one new chunk, so per-chunk emitting costs about the
                     // same total assembly work as the old per-sweep one rather than re-decoding
@@ -462,15 +481,58 @@ fn tolerate_failure(consecutive: u32) -> bool {
 
 /// Assemble `chunks`, merge into `merged`, and emit if anything changed. Assembly failure
 /// (e.g. a still-incomplete volume) is skipped; the next sweep boundary self-heals.
+struct EmissionProgress<'a> {
+    cut: Option<ScanProgress>,
+    passes: &'a mut crate::live_pass::PassTracker,
+    continuous: bool,
+}
+
+/// Backfilled first inputs have no chunk-mapper event. Use the decoded last cut's native
+/// geometry for inspection, rather than discarding its raw boundary evidence.
+fn raw_progress(scan: &Scan, volume_start_ms: Option<i64>) -> Option<ScanProgress> {
+    let sweep = scan
+        .sweeps()
+        .iter()
+        .rev()
+        .find(|sweep| !sweep.radials().is_empty())?;
+    let elevation_number = usize::from(sweep.elevation_number());
+    let cuts = scan.coverage_pattern().elevation_cuts();
+    let cut = cuts.get(elevation_number.checked_sub(1)?)?;
+    let chunks_in_sweep = if cut.super_resolution_half_degree_azimuth() {
+        6
+    } else {
+        3
+    };
+    let bins = chunks_in_sweep * 120;
+    let first = sweep.radials().first()?.azimuth_number() as usize;
+    let last = sweep.radials().last()?.azimuth_number() as usize;
+    if !(1..=bins).contains(&first) || !(1..=bins).contains(&last) {
+        return None;
+    }
+    Some(ScanProgress {
+        volume_start_ms,
+        vcp_number: Some(scan.coverage_pattern_number().number()),
+        cut_kind: CutKind::from_flags(cut.is_sails_cut(), cut.is_mrle_cut(), cut.is_mpda_cut()),
+        elevation_number,
+        total_elevations: cuts.len(),
+        elevation_angle_deg: f64::from(sweep.elevation_angle_degrees()?),
+        azimuth_rate_dps: cut.azimuth_rate_degrees_per_second(),
+        azimuth_start_deg: (first - 1) as f64 * 360.0 / bins as f64,
+        azimuth_end_deg: last as f64 * 360.0 / bins as f64,
+        chunk_index: (last - 1) / 120 + 1,
+        chunks_in_sweep,
+    })
+}
+
 async fn emit<F: FnMut(Update)>(
     it: &ChunkIterator,
     chunks: &[Chunk<'static>],
     merged: &mut Arc<Scan>,
     retries: u32,
     received_at: crate::clock::Instant,
-    progress: Option<ScanProgress>,
+    progress: EmissionProgress<'_>,
     on_update: &mut F,
-) {
+) -> bool {
     // Wall clock around assembly + merge — on native that's real CPU time (off the async worker,
     // see below); on the web it also includes the postMessage round trip to the decode worker, so
     // either way this is an honest answer to "how long did the app wait for usable data," not a
@@ -500,15 +562,23 @@ async fn emit<F: FnMut(Update)>(
         Ok(s) => s,
         Err(e) => {
             log::debug!("assemble skipped: {e}");
-            return;
+            return false;
         }
     };
-    let radial_coverage = progress.map(|progress| RadialCoverage {
-        progress,
+    progress.passes.observe(&partial, progress.continuous);
+    let cut = progress.cut.or_else(|| {
+        raw_progress(
+            &partial,
+            it.current()
+                .map(|id| id.date_time_prefix().and_utc().timestamp_millis()),
+        )
+    });
+    let radial_coverage = cut.map(|cut| RadialCoverage {
+        progress: cut,
         radials: partial
             .sweeps()
             .iter()
-            .filter(|sweep| sweep.elevation_number() as usize == progress.elevation_number)
+            .filter(|sweep| sweep.elevation_number() as usize == cut.elevation_number)
             .flat_map(|sweep| {
                 sweep
                     .radials()
@@ -516,10 +586,11 @@ async fn emit<F: FnMut(Update)>(
                     .map(|radial| (radial.azimuth_number(), radial.collection_timestamp()))
             })
             .collect(),
+        source_passes: Some(progress.passes.inventory()),
     });
     let (new_scan, changed) = merge_scan(merged, partial);
     if changed.is_empty() {
-        return; // nothing new since the last emit; `merged` already holds this content
+        return true; // decoding succeeded; metadata/duplicates do not interrupt source continuity
     }
     *merged = Arc::new(new_scan);
     let (name, time) = it
@@ -541,6 +612,7 @@ async fn emit<F: FnMut(Update)>(
         retries,
         decode_time: started.elapsed(),
     });
+    true
 }
 
 /// How far behind the newest radial in a tilt an older one may be and still be kept.
@@ -659,6 +731,25 @@ pub fn merge_scan(base: &Scan, partial: Scan) -> (Scan, Vec<f32>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn decoded_backfill_progress_preserves_native_boundary_evidence_without_a_mapper_event() {
+        let scan = crate::level2::decode_volume(
+            include_bytes!("../tests/data/corpus/mayfield-2021-first-records.ar2").to_vec(),
+        )
+        .unwrap();
+        let p = raw_progress(&scan, Some(1_639_193_029_000)).expect("decoded native cut metadata");
+        let sweep = scan.sweeps().last().unwrap();
+        assert_eq!(p.elevation_number, sweep.elevation_number() as usize);
+        assert_eq!(p.volume_start_ms, Some(1_639_193_029_000));
+        assert_eq!(p.vcp_number, Some(scan.coverage_pattern_number().number()));
+        assert!((1..=p.chunks_in_sweep).contains(&p.chunk_index));
+        assert!(p.azimuth_span_deg() > 0.0);
+        assert_eq!(
+            p.elevation_angle_deg,
+            f64::from(sweep.elevation_angle_degrees().unwrap())
+        );
+    }
 
     #[test]
     fn cut_kind_reads_the_supplemental_flags() {

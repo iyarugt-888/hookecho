@@ -1430,6 +1430,7 @@ mod tests {
             .capture_acquisition(
                 wxdata::live::RadialCoverage {
                     progress: receiver.progress.unwrap(),
+                    source_passes: None,
                     radials: vec![(3, 0)],
                 },
                 now,

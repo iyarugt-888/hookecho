@@ -58,6 +58,7 @@ pub mod level2;
 pub mod level3;
 pub mod live;
 pub mod live_block;
+pub mod live_pass;
 pub mod llsd_analyst;
 pub mod near_flow;
 pub mod lsr;

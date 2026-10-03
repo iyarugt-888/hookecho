@@ -130,6 +130,8 @@ impl Level2LiveProvider for HookEchoRelayLevel2Provider {
         let mut current_volume: Option<VolumeKey> = None;
         let mut pending_blocks: Vec<LiveLevel2Block> = Vec::new();
         let mut update_count: u64 = 0;
+        let mut passes = wxdata::live_pass::PassTracker::default();
+        let mut last_decoded_sequence: Option<u64> = None;
 
         while active() {
             let Some(msg) = read.next().await else {
@@ -163,6 +165,8 @@ impl Level2LiveProvider for HookEchoRelayLevel2Provider {
             if current_volume.as_ref() != Some(&block.volume) {
                 pending_blocks.clear();
                 current_volume = Some(block.volume.clone());
+                passes = wxdata::live_pass::PassTracker::default();
+                last_decoded_sequence = None;
             }
             pending_blocks.push(block);
 
@@ -180,6 +184,15 @@ impl Level2LiveProvider for HookEchoRelayLevel2Provider {
             let progress = pending_blocks
                 .last()
                 .and_then(|block| relay_scan_progress(block, &partial));
+            let sequence = pending_blocks
+                .last()
+                .expect("current source block")
+                .sequence;
+            passes.observe(
+                &partial,
+                last_decoded_sequence.and_then(|old| old.checked_add(1)) == Some(sequence),
+            );
+            last_decoded_sequence = Some(sequence);
             let radial_coverage = progress.map(|progress| {
                 let block = pending_blocks
                     .last()
@@ -198,6 +211,7 @@ impl Level2LiveProvider for HookEchoRelayLevel2Provider {
                         .filter(|radial| (start..=end).contains(&radial.collection_timestamp()))
                         .map(|radial| (radial.azimuth_number(), radial.collection_timestamp()))
                         .collect(),
+                    source_passes: Some(passes.inventory()),
                 }
             });
             let (new_scan, changed) = wxdata::live::merge_scan(&merged, partial);
@@ -433,9 +447,9 @@ mod integration_tests {
     fn a_completed_volume_at(site: &str, t: chrono::DateTime<chrono::Utc>) -> Vec<u8> {
         [
             synthetic_vcp(t),
-            synthetic_radial(site, 1, 0, VOLUME_START, t),
-            synthetic_radial(site, 1, 1, ELEVATION_END, t),
-            synthetic_radial(site, 2, 0, VOLUME_END, t),
+            synthetic_radial(site, 1, 1, VOLUME_START, t),
+            synthetic_radial(site, 1, 2, ELEVATION_END, t),
+            synthetic_radial(site, 2, 1, VOLUME_END, t),
         ]
         .concat()
     }
@@ -567,6 +581,16 @@ mod integration_tests {
         assert!(update
             .name
             .contains(&(source_time.timestamp() * 1_000).to_string()));
+        let passes = update
+            .radial_coverage
+            .as_ref()
+            .and_then(|coverage| coverage.source_passes.as_ref())
+            .expect("native boundary evidence delivered over the real relay transport");
+        assert!(passes
+            .passes
+            .iter()
+            .any(|pass| pass.key.elevation_number == 1
+                && pass.key.start_ms == source_time.timestamp_millis()));
         let progress = tokio::time::timeout(std::time::Duration::from_secs(5), progress_rx.recv())
             .await
             .expect("no live progress arrived over the websocket in time")

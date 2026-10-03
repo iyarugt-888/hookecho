@@ -5,8 +5,10 @@ builder controls and reviewed source-coverage captures. Earlier counts below rem
 
 [Raw cut acquisition details](raw-acquisition.md) add independent radial-presence evidence and
 shared desktop/phone Analyst Mode inspection. [Accepted frame receipts](frame-acquisition.md)
-subsequently bind that evidence to decoded revisions and accepted derived/3D results; persistent
-source pass identity and transport evidence remain open.
+subsequently bind that evidence to decoded revisions and accepted derived/3D results.
+[Source-marked pass history](source-passes.md) then retains native boundary identities when
+their radar clocks are known, including repeated elevations and non-rendering delayed input.
+Per-contributor pass association, proven transport gaps and persisted progressive replay remain open.
 
 The subsequent [standalone 3D increment](standalone-3d.md) has its own scientific controls,
 ownership tests, reviewed UI references and remaining-scope record. The [native observed
@@ -67,7 +69,9 @@ change. Local logs are under `target/parity-review/m1.1/`. Concurrent fusion/bac
 present in the shared checkout at `4a84473` and remain outside this increment.
 
 The runtime frame identity uses weak scan references and is not persisted as scientific source
-identity. Raw cut/pass inventory, proven transport gaps, per-contributor revision optimization,
-3D propagation, full application interaction, browser/Android runtime and sustained-load evidence
-remain open. Pass boundaries still use the existing 2D source-time gap inference. Independent
-local-product textures per pane are a separate M5.1 task.
+identity. At this original derived-grid increment, raw cut/pass inventory, proven transport gaps,
+per-contributor revision optimization, 3D propagation, full application interaction,
+browser/Android runtime and sustained-load evidence remained open. The later increment references
+above record delivered 3D propagation, accepted raw receipts and native pass history with their
+remaining limits. Scientific strict masks still use the existing 2D source-time gap inference.
+Independent local-product textures per pane are a separate M5.1 task.

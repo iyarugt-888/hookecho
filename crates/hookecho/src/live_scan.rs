@@ -91,6 +91,7 @@ pub struct AcquisitionInventory {
     pub volume_start_ms: Option<i64>,
     pub vcp_number: Option<u16>,
     pub cuts: Vec<CutAcquisition>,
+    pub source_passes: Option<wxdata::live_pass::PassInventory>,
 }
 
 /// An immutable accepted receipt. Equality is runtime receipt identity, never a persisted pass ID.
@@ -116,6 +117,17 @@ impl AcquisitionSnapshot {
             + self.site.as_ref().map_or(0, String::capacity)
             + std::mem::size_of::<AcquisitionInventory>()
             + self.inventory.cuts.capacity() * std::mem::size_of::<CutAcquisition>()
+            + self.inventory.source_passes.as_ref().map_or(0, |history| {
+                history.passes.capacity() * std::mem::size_of::<wxdata::live_pass::PassSummary>()
+                    + history
+                        .passes
+                        .iter()
+                        .map(|pass| {
+                            pass.bounded_unobserved_spans.capacity()
+                                * std::mem::size_of::<(u16, u16)>()
+                        })
+                        .sum::<usize>()
+            })
             + self
                 .inventory
                 .cuts
@@ -227,6 +239,7 @@ pub struct LiveScan {
     /// Retained across stream reconnects to reject delayed progress from an old volume.
     latest_progress_volume_start_ms: Option<i64>,
     progress_vcp_number: Option<u16>,
+    source_passes: Option<wxdata::live_pass::PassInventory>,
     streaming: bool,
     fallback: bool,
     recovering: bool,
@@ -277,6 +290,9 @@ impl LiveScan {
         let changed_cut_count =
             !self.observed_cuts.is_empty() && self.observed_cuts.len() != progress.total_elevations;
         if next_volume || next_vcp || changed_cut_count {
+            if next_volume {
+                self.source_passes = None;
+            }
             self.observed_cuts.clear();
             self.progress = None;
             self.progress_vcp_number = progress.vcp_number;
@@ -356,6 +372,11 @@ impl LiveScan {
         else {
             return false;
         };
+        if let Some(history) = &coverage.source_passes {
+            self.source_passes = Some(history.clone());
+        } else if let Some(history) = &mut self.source_passes {
+            history.unclassified_updates = history.unclassified_updates.saturating_add(1);
+        }
         let newest_arrival = coverage
             .radials
             .iter()
@@ -469,6 +490,7 @@ impl LiveScan {
             volume_start_ms: self.latest_progress_volume_start_ms,
             vcp_number: self.progress_vcp_number,
             cuts,
+            source_passes: self.source_passes.clone(),
         })
     }
 
@@ -747,6 +769,7 @@ pub(crate) fn acquisition_fixture(site: &str) -> (LiveScan, AcquisitionSnapshot)
                     chunk_index: 1,
                     chunks_in_sweep: 3,
                 },
+                source_passes: None,
                 radials: vec![(1, start + 1000), (2, 0), (4, start + 3000)],
             },
             Utc::now(),
@@ -780,10 +803,129 @@ mod tests {
         state.observe_radials(
             RadialCoverage {
                 progress: p,
+                source_passes: None,
                 radials: radials.to_vec(),
             },
             Utc::now(),
         );
+    }
+
+    #[test]
+    fn source_pass_history_survives_vcp_changes_and_inferred_revisits_with_the_accepted_receipt() {
+        use wxdata::live_pass::{PassArrival, PassKey, PassLedger};
+        let mut receiver = LiveScan::default();
+        receiver.reset(Some("KTLX".into()));
+        let arrival = |start, end| PassArrival {
+            elevation_number: 1,
+            key: Some(PassKey {
+                elevation_number: 1,
+                start_ms: start,
+            }),
+            start_marker: true,
+            end_marker: end,
+            radials: vec![(1, start), (3, 0)],
+        };
+        let mut provider = PassLedger::default();
+        provider.observe(&[arrival(2000, true)]);
+        let first = receiver
+            .capture_acquisition(
+                RadialCoverage {
+                    progress: progress(1, 1),
+                    radials: vec![(1, 2000), (3, 0)],
+                    source_passes: Some(provider.inventory()),
+                },
+                Utc::now(),
+            )
+            .unwrap();
+        provider.observe(&[arrival(100000, false)]);
+        let second = receiver
+            .capture_acquisition(
+                RadialCoverage {
+                    progress: ScanProgress {
+                        vcp_number: Some(35),
+                        ..progress(1, 1)
+                    },
+                    radials: vec![(1, 100000)],
+                    source_passes: Some(provider.inventory()),
+                },
+                Utc::now(),
+            )
+            .unwrap();
+        assert_eq!(
+            first
+                .inventory()
+                .source_passes
+                .as_ref()
+                .unwrap()
+                .passes
+                .len(),
+            1
+        );
+        let history = second.inventory().source_passes.as_ref().unwrap();
+        assert_eq!(
+            history.passes.len(),
+            2,
+            "VCP change does not erase source-marked history within this volume"
+        );
+        assert_eq!(history.passes[0].key.start_ms, 2000);
+        assert!(history.passes[0].end_marker);
+        assert!(!history.passes[1].end_marker);
+        assert!(second.estimated_bytes() > first.estimated_bytes());
+        let legacy = receiver
+            .capture_acquisition(
+                RadialCoverage {
+                    progress: ScanProgress {
+                        vcp_number: Some(35),
+                        ..progress(1, 1)
+                    },
+                    radials: vec![(2, 100010)],
+                    source_passes: None,
+                },
+                Utc::now(),
+            )
+            .unwrap();
+        assert_eq!(
+            legacy
+                .inventory()
+                .source_passes
+                .as_ref()
+                .unwrap()
+                .unclassified_updates,
+            1
+        );
+        assert_eq!(
+            history.unclassified_updates, 0,
+            "accepted snapshots remain immutable"
+        );
+        let mut provider = PassLedger::default();
+        provider.observe(&[arrival(201000, false)]);
+        let next_volume = receiver
+            .capture_acquisition(
+                RadialCoverage {
+                    progress: ScanProgress {
+                        volume_start_ms: Some(200000),
+                        ..progress(1, 1)
+                    },
+                    radials: vec![(1, 201000)],
+                    source_passes: Some(provider.inventory()),
+                },
+                Utc::now(),
+            )
+            .unwrap();
+        assert_eq!(
+            next_volume
+                .inventory()
+                .source_passes
+                .as_ref()
+                .unwrap()
+                .passes
+                .len(),
+            1
+        );
+        assert_eq!(history.passes.len(), 2);
+        receiver.reset(Some("KPAH".into()));
+        assert_eq!(receiver.acquisition_inventory(), None);
+        assert!(second.matches_site(Some("KTLX")));
     }
 
     #[test]
@@ -807,6 +949,7 @@ mod tests {
             .capture_acquisition(
                 RadialCoverage {
                     progress: p,
+                    source_passes: None,
                     radials: vec![(1, 1_700_000_001_000)],
                 },
                 Utc::now(),
@@ -827,7 +970,8 @@ mod tests {
             .capture_acquisition(
                 RadialCoverage {
                     progress: p,
-                    radials: vec![]
+                    source_passes: None,
+                    radials: vec![],
                 },
                 Utc::now()
             )
@@ -838,7 +982,8 @@ mod tests {
             .capture_acquisition(
                 RadialCoverage {
                     progress: p,
-                    radials: vec![]
+                    source_passes: None,
+                    radials: vec![],
                 },
                 Utc::now()
             )

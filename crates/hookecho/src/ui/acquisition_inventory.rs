@@ -79,7 +79,7 @@ fn paint_acquisition_inventory(
     t: &ws::Tokens,
     inventory: &crate::live_scan::AcquisitionInventory,
 ) {
-    paint_inventory(ui, t, inventory, "Live receiver inventory, independent of the playhead. Known clocks cover timed arrivals only. Unobserved positions do not prove transport loss or a complete scan; repeated-pass identity is not established.");
+    paint_inventory(ui, t, inventory, "Live receiver inventory, independent of the playhead. Known clocks cover timed arrivals only. Ordinal coverage does not establish pass identity, transport loss or complete scans. Native source-marked passes are listed separately when available.");
 }
 
 pub(crate) fn show_frame(
@@ -110,7 +110,7 @@ fn paint_frame(
         .wrap(),
     );
     if let Some(receipt) = receipt {
-        paint_inventory(ui, t, receipt.inventory(), "Arrivals retained with this decoded frame. Product coverage describes contributors separately. Known clocks cover timed arrivals only; complete scans, transport loss and persistent pass identity remain unestablished.");
+        paint_inventory(ui, t, receipt.inventory(), "Arrivals retained with this decoded frame. Product coverage describes contributors separately. Known clocks cover timed arrivals only; complete scans and transport loss remain unestablished. Native pass evidence is inspected separately.");
     } else {
         ui.add(egui::Label::new(ws::text("Raw acquisition receipt unavailable for this frame. Completed/archive inputs do not establish progressive arrivals.", 11.0, t.text_dim)).wrap());
     }
@@ -139,12 +139,32 @@ pub(crate) fn receipt_rows(
         .iter()
         .map(|cut| cut.unknown_clock_radials)
         .sum();
-    vec![
+    let mut rows = vec![
         ("Raw receipt", format!("{raw_cuts} / {} cuts with raw evidence", inventory.cuts.len())),
         ("Raw positions", positions.to_string()),
         ("Untimed raw", unknown.to_string()),
-        ("Receipt scope", "Source arrivals; contributor coverage is separate. Pass identity and transport loss unestablished.".into()),
-    ]
+        ("Receipt scope", "Source arrivals; contributor coverage is separate. Native pass evidence is inspected separately; transport loss unestablished.".into()),
+    ];
+    if let Some(history) = &inventory.source_passes {
+        rows.push((
+            "Source passes",
+            format!(
+                "{} boundary-anchored; {} unanchored positions",
+                history.passes.len(),
+                history.unanchored_positions
+            ),
+        ));
+        if history.unclassified_updates > 0 {
+            rows.push((
+                "Pass evidence",
+                format!(
+                    "Unavailable on {} subsequent raw updates",
+                    history.unclassified_updates
+                ),
+            ));
+        }
+    }
+    rows
 }
 
 fn paint_inventory(
@@ -193,12 +213,244 @@ fn paint_inventory(
             );
         }
     }
+    let title = inventory.source_passes.as_ref().map_or_else(
+        || "Source-marked passes".into(),
+        |history| format!("Source-marked passes ({})", history.passes.len()),
+    );
+    egui::CollapsingHeader::new(title)
+        .id_salt("native-pass-history")
+        .show(ui, |ui| {
+            egui::ScrollArea::vertical()
+                .id_salt("native-pass-history-scroll")
+                .max_height(280.0)
+                .show(ui, |ui| {
+                    paint_pass_inventory(ui, t, inventory.source_passes.as_ref());
+                });
+        });
+}
+
+fn pass_rows(pass: &wxdata::live_pass::PassSummary) -> Vec<(&'static str, String)> {
+    let mut rows = vec![
+        ("Native boundary", source_clock(pass.key.start_ms)),
+        (
+            "Positions",
+            format!(
+                "{} observed; {} clocks unknown",
+                pass.observed_positions, pass.unknown_clock_positions
+            ),
+        ),
+        (
+            "Markers retained",
+            format!(
+                "start {}; end {}",
+                if pass.start_marker { "yes" } else { "no" },
+                if pass.end_marker { "yes" } else { "no" }
+            ),
+        ),
+    ];
+    if let Some((first, last)) = pass.known_interval_ms {
+        rows.push(("Known clock start", source_clock(first)));
+        rows.push(("Known clock end", source_clock(last)));
+    }
+    if let Some(gaps) = crate::live_scan::gap_summary(&pass.bounded_unobserved_spans) {
+        rows.push(("Bounded holes", gaps.replace("missing", "unobserved")));
+    }
+    rows
+}
+
+fn source_clock(ms: i64) -> String {
+    chrono::DateTime::<chrono::Utc>::from_timestamp_millis(ms).map_or_else(
+        || "Unknown".into(),
+        |time| time.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+    )
+}
+
+fn paint_pass_inventory(
+    ui: &mut egui::Ui,
+    t: &ws::Tokens,
+    history: Option<&wxdata::live_pass::PassInventory>,
+) {
+    let Some(history) = history else {
+        ui.add(
+            egui::Label::new(ws::text(
+                "Native pass-boundary evidence unavailable for this source.",
+                11.0,
+                t.text_dim,
+            ))
+            .wrap(),
+        );
+        return;
+    };
+    ui.add(egui::Label::new(ws::text("Passes use recorded radar boundary clocks and elevation numbers, scoped to this radar. End markers do not certify every radial. Unanchored joins and untimed starts stay separate; holes do not prove transport loss.", 11.0, t.text_dim)).wrap());
+    ui.add(
+        egui::Label::new(ws::text(
+            format!(
+                "Unanchored positions: {} ({} clocks unknown)",
+                history.unanchored_positions, history.unanchored_unknown_clocks
+            ),
+            11.0,
+            t.text_dim,
+        ))
+        .wrap(),
+    );
+    if history.retired_passes > 0 {
+        ui.add(
+            egui::Label::new(ws::text(
+                format!(
+                    "History limit: {} older passes retired",
+                    history.retired_passes
+                ),
+                11.0,
+                t.text_dim,
+            ))
+            .wrap(),
+        );
+    }
+    if history.unclassified_updates > 0 {
+        ui.add(
+            egui::Label::new(ws::text(
+                format!(
+                    "Native pass evidence unavailable on {} subsequent raw updates",
+                    history.unclassified_updates
+                ),
+                11.0,
+                t.warn,
+            ))
+            .wrap(),
+        );
+    }
+    for pass in history.passes.iter().rev() {
+        ui.add_space(4.0);
+        ui.add(
+            egui::Label::new(ws::text(
+                format!("Elevation {} · source pass", pass.key.elevation_number),
+                12.0,
+                t.text,
+            ))
+            .wrap(),
+        );
+        for (label, value) in pass_rows(pass) {
+            ui.add(
+                egui::Label::new(ws::text(format!("{label}: {value}"), 11.0, t.text_dim)).wrap(),
+            );
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use egui_phosphor::regular as ph;
+
+    fn pass_fixture() -> wxdata::live_pass::PassInventory {
+        use wxdata::live_pass::{PassArrival, PassKey, PassLedger};
+        let start = 1_700_000_000_000;
+        let mut ledger = PassLedger::default();
+        ledger.observe(&[
+            PassArrival {
+                elevation_number: 1,
+                key: Some(PassKey {
+                    elevation_number: 1,
+                    start_ms: start,
+                }),
+                start_marker: true,
+                end_marker: true,
+                radials: vec![(1, start), (2, 0), (4, start + 3000)],
+            },
+            PassArrival {
+                elevation_number: 1,
+                key: Some(PassKey {
+                    elevation_number: 1,
+                    start_ms: start + 20000,
+                }),
+                start_marker: true,
+                end_marker: false,
+                radials: vec![(1, start + 20000), (2, 0)],
+            },
+            PassArrival {
+                elevation_number: 2,
+                key: None,
+                start_marker: false,
+                end_marker: false,
+                radials: vec![(121, start + 30000), (122, 0)],
+            },
+        ]);
+        ledger.record_unclassified();
+        ledger.inventory()
+    }
+
+    #[test]
+    fn source_pass_details_separate_recorded_markers_from_complete_radial_coverage() {
+        let history = pass_fixture();
+        let base = pass_rows(&history.passes[0]);
+        assert!(base.contains(&("Native boundary", "2023-11-14T22:13:20.000Z".into())));
+        assert!(base.contains(&("Markers retained", "start yes; end yes".into())));
+        assert!(base.contains(&("Bounded holes", "1 radial unobserved (#3)".into())));
+        assert!(base.contains(&("Positions", "3 observed; 1 clocks unknown".into())));
+        let revisit = pass_rows(&history.passes[1]);
+        assert!(revisit.contains(&("Native boundary", "2023-11-14T22:13:40.000Z".into())));
+        assert!(revisit.contains(&("Markers retained", "start yes; end no".into())));
+        assert_eq!(history.unanchored_positions, 2);
+        assert_eq!(history.unanchored_unknown_clocks, 1);
+    }
+
+    #[test]
+    fn source_pass_details_wrap_with_unanchored_and_unavailable_evidence() {
+        let history = pass_fixture();
+        let ctx = egui::Context::default();
+        let t = ws::Tokens::new(egui::Color32::LIGHT_BLUE);
+        for width in [240.0, 300.0] {
+            for history in [Some(&history), None] {
+                let _ = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(width, 900.0),
+                        )),
+                        ..Default::default()
+                    },
+                    |ui| {
+                        ws::set_touch(ui.ctx(), width == 240.0);
+                        ws::panel_frame(&t).show(ui, |ui| {
+                            ws::style_scope(ui, &t);
+                            paint_pass_inventory(ui, &t, history);
+                            assert!(ui.min_rect().right() <= width + 1.0);
+                            assert!(ui.min_rect().bottom() < 900.0);
+                        });
+                    },
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "gpu: writes native source pass history captures"]
+    fn gpu_source_pass_snapshots() {
+        let gpu = crate::headless::ui::Snapshot::new().expect("GPU adapter for native pass review");
+        let destination = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/parity-review/m1.1/source-pass-ui");
+        std::fs::create_dir_all(&destination).unwrap();
+        let t = ws::Tokens::new(egui::Color32::from_rgb(72, 142, 226));
+        let history = pass_fixture();
+        for (name, history) in [("history", Some(&history)), ("unavailable", None)] {
+            for width in [240, 300] {
+                gpu.save(
+                    &destination.join(format!("{name}-{width}.png")),
+                    width,
+                    900,
+                    |ui| {
+                        ws::set_touch(ui.ctx(), width == 240);
+                        ws::panel_frame(&t).show(ui, |ui| {
+                            ws::style_scope(ui, &t);
+                            ws::window_header(ui, &t, ph::INFO, "Source-marked passes", None, None);
+                            paint_pass_inventory(ui, &t, history);
+                        });
+                    },
+                )
+                .unwrap();
+            }
+        }
+    }
 
     fn inventory(raw: bool) -> crate::live_scan::AcquisitionInventory {
         let mut scan = crate::live_scan::LiveScan::default();
@@ -221,6 +473,7 @@ mod tests {
             scan.observe_radials(
                 wxdata::live::RadialCoverage {
                     progress: p,
+                    source_passes: None,
                     radials: vec![(1, start + 1000), (2, 0), (4, start + 3000)],
                 },
                 chrono::Utc::now(),
@@ -232,6 +485,7 @@ mod tests {
                         cut_kind: wxdata::live::CutKind::Sails,
                         ..p
                     },
+                    source_passes: None,
                     radials: vec![(1, start + 10000), (2, start + 11000)],
                 },
                 chrono::Utc::now(),
@@ -336,6 +590,7 @@ mod tests {
         receiver.observe_radials(
             wxdata::live::RadialCoverage {
                 progress: receiver.progress.unwrap(),
+                source_passes: None,
                 radials: vec![(3, 0)],
             },
             chrono::Utc::now(),

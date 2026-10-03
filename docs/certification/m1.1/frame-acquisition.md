@@ -73,8 +73,9 @@ capture copies provide durable reproduction outside that ignored directory.
 
 ## Remaining gates and handoff
 
-Persistent source-driven cut/pass boundaries, pass history, proven transport-gap evidence,
-progressive replay persistence, real mid-volume join/recovery sessions, full viewport interaction,
+The subsequent [source-marked history increment](source-passes.md) adds recorded native boundary
+keys and bounded pass history to these receipts. Per-contributor pass association, proven
+transport-gap evidence, progressive replay persistence, real mid-volume join/recovery sessions, full viewport interaction,
 physical Android/browser runtime and completed-GPU/soak measurements remain open. The existing
 rotation-time revisit heuristic is still an inference. Keep unknown clocks, absent sectors and
 complete-column uncertainty explicit. Continue with provider-origin pass/transport metadata and

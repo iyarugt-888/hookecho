@@ -199,7 +199,7 @@ Unless marked otherwise, every card starts with **implementation: planned; verif
 
 #### M1.1 — Carry temporal coverage into every radar representation
 
-**Priority:** P0. **Depends on:** M0.2, M0.3. **Status:** implementation: in progress (derived and all existing 3D paths carry coverage); verification: partial. **Original references:** ROADMAP_2 §§1.2, 9, 10; ROADMAP_NEW §§B2, B5, H8.
+**Priority:** P0. **Depends on:** M0.2, M0.3. **Status:** implementation: in progress (derived/3D coverage, accepted receipts and native pass history); verification: partial. **Original references:** ROADMAP_2 §§1.2, 9, 10; ROADMAP_NEW §§B2, B5, H8.
 
 - **Starting evidence:** `LiveScanState`, per-azimuth times, strict-current 2D masking, `Volume` revisions, derived grids, and 3D playback readiness.
 - **Outcome/build:** propagate acquisition intervals, cut/pass identities, contributor revisions, and completeness into derived products and 3D builds. Continuous mode retains older contributions with a mixed-time indication; strict mode excludes them and displays incomplete coverage. Distinguish unobserved chunks from proven radial gaps on a mid-volume join.
@@ -301,22 +301,68 @@ concurrent detector edits remain outside the parity commit. Compilation and expa
 layout are verified; full application interaction, physical Android/browser runtime, persistent
 source pass IDs, completed GPU timing and sustained-load certification remain open.
 
-**Remaining/next increment:** add source-driven persistent cut/pass boundaries and explicit
-transport-gap evidence. The current receiver retains scan-local ordinals
-and uses the existing rotation-time reset for revisits; it does not retain a pass history. Keep
-unobserved sectors, unknown clocks, absent upper cuts and source-context uncertainty explicit.
-Whole-scan invalidation remains conservative; contributor optimization, full viewport interaction,
-Android/browser runtime, completed GPU timing and sustained-load certification remain open.
-Independent local-product textures per pane remain M5.1.
+**Evidence ledger — 2026-10-03, increment 7:** both progressive providers now collect native
+pass starts/ends before repeated elevations are stitched by azimuth. A source pass key uses
+the actual elevation number and positive recorded start-marker clock, scoped to the radar by
+the accepted receipt. It does not use angles, local repeat counters, rotation durations or client
+clocks. Mid-cut joins and untimed starts remain unanchored. Continuation between incremental
+inputs requires consecutive successfully decoded source sequences within the volume; sequence discontinuity, a closed pass
+or an elevation transition prevents borrowing an earlier anchor. Repeated metadata/backfill
+prefixes cannot silently reopen older passes.
+
+Providers retain a bounded ledger even for delayed decoded input that cannot replace displayed
+gates. The next accepted update carries the history; already accepted receipts remain immutable.
+Up to 128 source passes are retained with observed positions, unknown clocks, native boundary
+markers, known acquisition bounds and internally bounded holes. Retired delayed passes cannot
+evict newer history. VCP changes preserve native history in the same source volume; source
+volume/site rollover resets it. The summaries hold no gate buffers and their capacities join
+existing smooth/isosurface receipt byte charges.
+
+Shared acquisition details expose **Source-marked passes** with wrapping values and a bounded
+vertical scroll area. Native markers do not certify a complete pass; unanchored deduplicated
+positions are not a count of unknown passes. Unavailable subsequent evidence and retired history
+are qualified. Accepted derived/3D outputs retain the source history through their existing
+receipts, separately from contributing rows/gates. [Controls, reviewed captures and remaining
+limits](docs/certification/m1.1/source-passes.md) document the distinction. Continuous defaults,
+scientific strict masks, relay wire identity and detector methodology are unchanged.
+
+**Increment 7 verification:** the fresh Windows workspace run passed **2,149 tests**, zero
+failures and 137 explicitly ignored checks across 28 suites (`--test-threads=4`). Native
+workspace/all-target Clippy passed with warnings denied, and the WASM library check passed
+in 24.01 seconds with existing browser warnings. Ten new CPU controls cover native boundaries,
+continuity uncertainty, immutable receipts and narrow layout; the local relay protocol control
+also verifies delivered native keys. The explicit GPU helper passed in 2.48 seconds after
+compilation. All four expanded history/unavailable references were reviewed at 240 px touch
+and 300 px desktop; independent Python/PowerShell copy/hash/byte checks verified the images
+and all eight capture-source hashes. Final logs are
+`target/parity-review/m1.1/source-passes/{workspace,clippy,wasm,gpu}-current.log`, with exit
+codes retained. Earlier queued builds exposed a corrected closure-shadowing error and an old
+wxdata artifact without the new metadata; the fresh rebuild and complete checks passed.
+Work began at `f7ffef7`; final checks/captures use the shared tree at `3240a67` plus this
+increment, preserving Claude's concurrent detector commits. These are source/ownership,
+compilation and expanded-section layout controls, not full application/device interaction,
+completed-GPU performance or operational soak certification.
+
+**Remaining/next increment:** add typed source-sequence discontinuity and recovery evidence;
+keep transport message holes distinct from unobserved native radial positions and actual proven
+loss. Bind contributor rows/gates to the retained native pass keys before replacing inferred
+revisit behavior. Arrival-ordered relay CutTracker IDs and predicted Unidata VCP cut positions
+still require stronger continuation controls. Transport continuity within aggregated initial
+backfill and association across missing boundaries are not certified. Missing cut metadata can leave raw receipts
+unavailable, and progressive replay storage remains open. Whole-scan invalidation remains
+conservative; contributor optimization, full viewport interaction, Android/browser runtime,
+completed GPU timing and sustained-load certification remain open. Independent local-product
+textures per pane remain M5.1.
 
 **Next agent handoff:** inspect `LiveScan::capture_acquisition`, `Volume::apply_live_captured`,
-`wxdata::live_block`, `continuation` and the provider merge tests. Preserve immutable accepted
+`wxdata::live_pass`, `wxdata::live_block`, `continuation` and the provider merge tests. Preserve immutable accepted
 receipts in every result key and unavailable raw evidence on completed/archive/reloaded replay
-inputs. Extend provider
-metadata with source-driven pass boundaries and a typed observed/unobserved/proven-gap
-distinction; do not infer transport loss or completeness from angular zeros or equal elevation
-angles. Add real-provider repeat-cut, SAILS/MRLE, VCP-change, reordering, gap-fill and mid-volume
-join controls, retaining the passing clock/presence controls. Preserve continuous defaults and
+inputs. Extend provider metadata with source-sequence origin, explicit discontinuity/recovery
+receipts and a typed observed/unobserved/proven-gap distinction; do not infer transport loss or
+completeness from angular zeros, sequence holes or equal elevation angles. Add operational
+repeat-cut, SAILS/MRLE, VCP-change, reordering, gap-fill and mid-volume join controls beyond the
+native partial fixture and local relay protocol controls. Retain bounded native history through
+non-rendering decodes and accepted receipt immutability. Preserve continuous defaults and
 the delivered strict mask until stronger source evidence justifies a change. Record actual checks
 and keep device/performance gates partial until measured. Tornado detection work stays with
 Claude under the current agent assignment.

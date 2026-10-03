@@ -8,6 +8,17 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: source-marked radar pass history
+
+The Inspector's acquisition details now retain separate passes at the same elevation using
+recorded radar start markers and clocks. Both progressive providers collect this evidence
+before stitching, including delayed input that does not replace displayed gates. Expand
+**Source-marked passes** to inspect retained start/end markers, observed positions, unknown
+clocks and bounded holes. Mid-scan joins without a known start remain unanchored. Accepted
+frames and their derived/3D results retain their own history; receiver advancement cannot
+rewrite it. The bounded history does not certify complete passes or transport loss, and
+independently loaded archive/replay frames still report raw evidence unavailable.
+
 ### Added: acquisition details belong to the selected radar frame
 
 The Inspector now offers **Selected frame acquisition**, retaining raw cut arrivals with the
@@ -15,7 +26,7 @@ accepted decoded scan and revision. Receiver progress cannot rewrite those detai
 3D sweeps, smooth map volumes, user products, isosurfaces, local derived fields and the standalone
 3D reflectivity window carry the same receipt with their accepted result. Product coverage
 continues to describe contributing inputs separately. Completed/archive frames explicitly report
-raw acquisition evidence unavailable; receipts do not establish persistent pass identity or
+raw acquisition evidence unavailable; ordinal cut counts do not establish pass identity or
 transport loss. Smooth/isosurface cache budgets include retained receipt summaries.
 
 ### Added: raw cut acquisition details in Analyst Mode
