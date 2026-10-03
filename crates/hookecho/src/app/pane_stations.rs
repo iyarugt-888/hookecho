@@ -16,6 +16,11 @@ impl HookEchoApp {
         response: &egui::Response,
         labels: &mut crate::labelplace::Placer,
     ) {
+        // The stage a gauge card put on the map, under the gauges, whether or not the gauge
+        // layer is on: the card asked for it.
+        self.gauge_cards
+            .impact
+            .paint(painter, prect, cam, vp, response);
         if self.show_gauges && cam.zoom >= 6.0 {
             let gcolor = crate::ui::gauge_card::cat_color;
             let glabel = crate::ui::gauge_card::cat_label;

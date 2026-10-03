@@ -159,6 +159,8 @@ pub struct Cards {
     /// Gauges asked for by a deep link, opened on the next frame (a link is read before there is
     /// a frame to open a window in).
     queued: Vec<String>,
+    /// The stage a card put on the map, and its inundation (`ui::flood_impact`).
+    pub impact: crate::ui::flood_impact::FloodImpact,
     tx: Sender<Landed>,
     rx: Receiver<Landed>,
 }
@@ -170,6 +172,7 @@ impl Default for Cards {
             cards: Vec::new(),
             focus: None,
             queued: Vec::new(),
+            impact: Default::default(),
             tx,
             rx,
         }
@@ -342,11 +345,14 @@ impl Cards {
         let mut actions = Vec::new();
         let mut neighbors = Vec::new();
         let mut refetch = Vec::new();
+        let mut map = None;
         for (i, card) in self.cards.iter_mut().enumerate() {
-            if let Some(req) = show_card(ctx, card, tz, i, &mut actions) {
+            if let Some(req) = show_card(ctx, card, &self.impact, tz, i, &mut actions) {
                 match req {
                     Request::Refresh => refetch.push(card.lid.clone()),
                     Request::Open(lid) => neighbors.push(lid),
+                    Request::Map(ask) => map = Some(Some(ask)),
+                    Request::ClearMap => map = Some(None),
                 }
             }
             let stale = card
@@ -357,6 +363,7 @@ impl Cards {
             }
         }
         self.cards.retain(|c| c.open);
+        self.map_request(map, spawner, http, ctx);
         for lid in refetch {
             self.fetch(&lid, spawner, http, ctx);
         }
@@ -372,8 +379,32 @@ impl Cards {
 }
 
 impl Cards {
+    /// Put a stage on the map (`Some(Some(ask))`), take it off (`Some(None)`), and take it off
+    /// when no card shows its gauge any more.
+    fn map_request(
+        &mut self,
+        map: Option<Option<crate::ui::flood_impact::Ask>>,
+        spawner: &crate::rt::Spawner,
+        http: &reqwest::Client,
+        ctx: &egui::Context,
+    ) {
+        match map {
+            Some(Some(ask)) => self.impact.toggle(ask, spawner, http, ctx),
+            Some(None) => self.impact.clear(),
+            None => {}
+        }
+        let orphan = self
+            .impact
+            .current()
+            .is_some_and(|(a, _)| !self.is_open(&a.lid));
+        if orphan {
+            self.impact.clear();
+        }
+    }
+
     /// Land finished fetches in every card (window or dashboard) showing that gauge.
     fn land(&mut self) {
+        self.impact.land();
         for (lid, d, h) in self.rx.try_iter() {
             for card in self
                 .cards
@@ -412,7 +443,7 @@ impl Cards {
         let Some(card) = self.focus.as_mut() else {
             return actions;
         };
-        let request = body(ui, card, tz, &mut actions);
+        let request = body(ui, card, &self.impact, tz, &mut actions);
         let stale = card
             .fetched
             .is_none_or(|t| t.elapsed().as_secs() >= REFRESH_SECS);
@@ -421,8 +452,11 @@ impl Cards {
         if refresh {
             self.fetch(&lid, spawner, http, &ctx);
         }
-        if let Some(Request::Open(next)) = request {
-            self.set_focus(&next, "", (0.0, 0.0), spawner, http, &ctx);
+        match request {
+            Some(Request::Open(next)) => self.set_focus(&next, "", (0.0, 0.0), spawner, http, &ctx),
+            Some(Request::Map(ask)) => self.map_request(Some(Some(ask)), spawner, http, &ctx),
+            Some(Request::ClearMap) => self.map_request(Some(None), spawner, http, &ctx),
+            _ => {}
         }
         ctx.request_repaint_after(std::time::Duration::from_secs(30));
         actions
@@ -432,6 +466,23 @@ impl Cards {
 enum Request {
     Refresh,
     Open(String),
+    /// Show this stage's inundation on the map (or take it off when it is already there).
+    Map(crate::ui::flood_impact::Ask),
+    ClearMap,
+}
+
+/// A stage the reader clicked to see on the map, and what to call it.
+type MapPick = Option<(f64, String)>;
+
+/// A clickable stage: highlighted while it is on the map. True when clicked.
+fn map_link(ui: &mut egui::Ui, text: RichText, on: bool) -> bool {
+    ui.selectable_label(on, text)
+        .on_hover_text(if on {
+            "Take this stage off the map"
+        } else {
+            "Show what the river covers at this stage on the map"
+        })
+        .clicked()
 }
 
 fn window_id(lid: &str) -> egui::Id {
@@ -441,6 +492,7 @@ fn window_id(lid: &str) -> egui::Id {
 fn show_card(
     ctx: &egui::Context,
     card: &mut Card,
+    impact: &crate::ui::flood_impact::FloodImpact,
     tz: Option<Tz>,
     index: usize,
     actions: &mut Vec<Action>,
@@ -466,7 +518,7 @@ fn show_card(
             .max_height(ctx.content_rect().height() * 0.8)
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                request = body(ui, card, tz, actions);
+                request = body(ui, card, impact, tz, actions);
             });
     });
     card.open = open;
@@ -476,10 +528,14 @@ fn show_card(
 fn body(
     ui: &mut egui::Ui,
     card: &mut Card,
+    impact: &crate::ui::flood_impact::FloodImpact,
     tz: Option<Tz>,
     actions: &mut Vec<Action>,
 ) -> Option<Request> {
     let mut request = None;
+    let mut pick: MapPick = None;
+    let lid = card.lid.clone();
+    let on = |s: f64| impact.is_shown(&lid, s);
     if let Some(e) = &card.error {
         ui.colored_label(ui.visuals().warn_fg_color, format!("⚠ {e}"));
     }
@@ -512,7 +568,7 @@ fn body(
                 flow: card.show_flow,
             };
             hydrograph(ui, h, &d.thresholds, opts, tz, Utc::now());
-            crest_lines(ui, h, &d.thresholds, card.past, tz);
+            crest_lines(ui, h, &d.thresholds, card.past, tz, &on, &mut pick);
         }
         None if card.loading => {
             ui.horizontal(|ui| {
@@ -525,8 +581,21 @@ fn body(
         }
     }
     ui.separator();
-    stages_and_impacts(ui, d, card.hydro.as_ref());
-    crest_history(ui, d, tz);
+    if impact.card_status(ui, &card.lid) {
+        request = Some(Request::ClearMap);
+    }
+    stages_and_impacts(ui, d, card.hydro.as_ref(), &on, &mut pick);
+    crest_history(ui, d, tz, &on, &mut pick);
+    if let Some((stage_ft, label)) = pick {
+        request = Some(Request::Map(crate::ui::flood_impact::Ask {
+            lid: card.lid.clone(),
+            stage_ft,
+            label,
+            cat: d.thresholds.category(stage_ft),
+            impact: d.impact_at(stage_ft).cloned(),
+            at: (card.lat, card.lon),
+        }));
+    }
     if let Some(o) = &d.outlook {
         ui.label(
             RichText::new(format!(
@@ -1261,7 +1330,15 @@ fn draw_series(
 }
 
 /// The crests in words under the graph, with what they mean.
-fn crest_lines(ui: &mut egui::Ui, h: &Hydrograph, t: &Thresholds, past: Past, tz: Option<Tz>) {
+fn crest_lines(
+    ui: &mut egui::Ui,
+    h: &Hydrograph,
+    t: &Thresholds,
+    past: Past,
+    tz: Option<Tz>,
+    on: &dyn Fn(f64) -> bool,
+    pick: &mut MapPick,
+) {
     let now = Utc::now();
     let obs = h.observed.since(now - Duration::hours(past.hours()));
     if let Some((r, kind)) = wxdata::river::peak(obs) {
@@ -1271,17 +1348,22 @@ fn crest_lines(ui: &mut egui::Ui, h: &Hydrograph, t: &Thresholds, past: Past, tz
             PeakKind::AtEnd => "Highest now,",
             PeakKind::AtStart => "Highest at the start of the window,",
         };
-        ui.label(
-            RichText::new(format!(
-                "Past {}: {what} {s:.2} ft at {} ({})",
-                past.label(),
-                when(r.time, tz),
-                cat_label(t.category(s))
-            ))
-            .size(11.5),
-        );
+        let text = RichText::new(format!(
+            "Past {}: {what} {s:.2} ft at {} ({})",
+            past.label(),
+            when(r.time, tz),
+            cat_label(t.category(s))
+        ))
+        .size(11.5);
+        if map_link(ui, text, on(s)) {
+            let label = match kind {
+                PeakKind::AtEnd => "Current level".to_string(),
+                _ => format!("Crest {}", when(r.time, tz)),
+            };
+            *pick = Some((s, label));
+        }
     }
-    forecast_line(ui, &h.forecast, h.observed.latest(), t, tz);
+    forecast_line(ui, &h.forecast, h.observed.latest(), t, tz, on, pick);
 }
 
 fn forecast_line(
@@ -1290,6 +1372,8 @@ fn forecast_line(
     latest: Option<&Reading>,
     t: &Thresholds,
     tz: Option<Tz>,
+    on: &dyn Fn(f64) -> bool,
+    pick: &mut MapPick,
 ) {
     let now = Utc::now();
     let ahead: Vec<Reading> = latest
@@ -1314,9 +1398,12 @@ fn forecast_line(
         .issued
         .map(|i| format!(" (issued {})", age_text(i, now)))
         .unwrap_or_default();
+    // The forecast's highest stage, when it rises to one, can go on the map.
+    let mut crest = None;
     let text = match wxdata::river::peak(&ahead) {
         Some((r, PeakKind::Crest)) => {
             let s = r.stage_ft.unwrap_or(0.0);
+            crest = Some((s, format!("Forecast crest {}", when(r.time, tz))));
             format!(
                 "Forecast crest {s:.1} ft {} — {}{issued}",
                 when(r.time, tz),
@@ -1325,6 +1412,7 @@ fn forecast_line(
         }
         Some((r, PeakKind::AtEnd)) => {
             let s = r.stage_ft.unwrap_or(0.0);
+            crest = Some((s, format!("Forecast {}", when(r.time, tz))));
             format!(
                 "Forecast to keep rising, to {s:.1} ft by {} — {}{issued}",
                 when(r.time, tz),
@@ -1341,10 +1429,25 @@ fn forecast_line(
             }
         }
     };
-    ui.label(RichText::new(text).size(11.5));
+    match crest {
+        Some((s, label)) => {
+            if map_link(ui, RichText::new(text).size(11.5), on(s)) {
+                *pick = Some((s, label));
+            }
+        }
+        None => {
+            ui.label(RichText::new(text).size(11.5));
+        }
+    }
 }
 
-fn stages_and_impacts(ui: &mut egui::Ui, d: &GaugeDetail, h: Option<&Hydrograph>) {
+fn stages_and_impacts(
+    ui: &mut egui::Ui,
+    d: &GaugeDetail,
+    h: Option<&Hydrograph>,
+    on: &dyn Fn(f64) -> bool,
+    pick: &mut MapPick,
+) {
     let levels = d.thresholds.levels();
     if levels.is_empty() {
         ui.label(
@@ -1356,9 +1459,38 @@ fn stages_and_impacts(ui: &mut egui::Ui, d: &GaugeDetail, h: Option<&Hydrograph>
         ui.horizontal_wrapped(|ui| {
             ui.label(RichText::new("Flood stages:").size(11.0));
             for (c, s) in levels.iter().rev() {
-                chip(ui, &format!("{} {s:.0} ft", stage_name(*c)), cat_color(*c));
+                let text = RichText::new(format!("{} {s:.0} ft", stage_name(*c)))
+                    .size(11.0)
+                    .color(cat_color(*c));
+                if map_link(ui, text, on(*s)) {
+                    *pick = Some((*s, format!("{} flood stage", stage_name(*c))));
+                }
             }
         });
+    }
+    ui.label(
+        RichText::new("Click a stage or crest to map what the river covers there.")
+            .size(10.0)
+            .weak(),
+    );
+    ui.label(
+        RichText::new("Click a stage or crest to map what the river covers there.")
+            .size(10.0)
+            .weak(),
+    );
+    if let Some(now) = h
+        .and_then(|h| h.observed.latest())
+        .and_then(|r| r.stage_ft)
+        .or(d.summary.stage_ft)
+    {
+        let text = RichText::new(format!(
+            "Current level {now:.2} ft ({})",
+            cat_label(d.thresholds.category(now))
+        ))
+        .size(11.0);
+        if map_link(ui, text, on(now)) {
+            *pick = Some((now, "Current level".to_string()));
+        }
     }
     // What happens at this level now, and at the forecast crest if that is higher.
     let now_stage = h
@@ -1389,11 +1521,12 @@ fn stages_and_impacts(ui: &mut egui::Ui, d: &GaugeDetail, h: Option<&Hydrograph>
             .show(ui, |ui| {
                 for i in &d.impacts {
                     ui.horizontal_wrapped(|ui| {
-                        ui.label(
-                            RichText::new(format!("{:.1} ft", i.stage_ft))
-                                .strong()
-                                .color(cat_color(d.thresholds.category(i.stage_ft))),
-                        );
+                        let text = RichText::new(format!("{:.1} ft", i.stage_ft))
+                            .strong()
+                            .color(cat_color(d.thresholds.category(i.stage_ft)));
+                        if map_link(ui, text, on(i.stage_ft)) {
+                            *pick = Some((i.stage_ft, "Impact stage".to_string()));
+                        }
                         ui.label(RichText::new(&i.statement).size(11.0));
                     });
                 }
@@ -1410,35 +1543,40 @@ fn impact_label(ui: &mut egui::Ui, heading: &str, i: &wxdata::river::Impact) {
     ui.label(RichText::new(&i.statement).size(11.0));
 }
 
-fn crest_history(ui: &mut egui::Ui, d: &GaugeDetail, tz: Option<Tz>) {
+fn crest_history(
+    ui: &mut egui::Ui,
+    d: &GaugeDetail,
+    tz: Option<Tz>,
+    on: &dyn Fn(f64) -> bool,
+    pick: &mut MapPick,
+) {
     if d.historic.is_empty() && d.recent.is_empty() {
         return;
     }
     if let Some(rec) = d.record() {
-        ui.label(
-            RichText::new(format!(
-                "Record crest {:.2} ft on {}",
-                rec.stage_ft,
-                rec.time.format("%b %-d, %Y")
-            ))
-            .size(11.0),
-        );
+        let date = rec.time.format("%b %-d, %Y");
+        let text =
+            RichText::new(format!("Record crest {:.2} ft on {date}", rec.stage_ft)).size(11.0);
+        if map_link(ui, text, on(rec.stage_ft)) {
+            *pick = Some((rec.stage_ft, format!("Record crest ({date})")));
+        }
     }
     egui::CollapsingHeader::new("Crest history")
         .id_salt(("gauge-crests", &d.summary.lid))
         .show(ui, |ui| {
-            let row = |ui: &mut egui::Ui, c: &wxdata::river::Crest| {
+            let mut row = |ui: &mut egui::Ui, c: &wxdata::river::Crest| {
                 ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new(format!("{:>6.2} ft", c.stage_ft))
-                            .monospace()
-                            .color(cat_color(d.thresholds.category(c.stage_ft))),
-                    );
                     // Old crests have no time of day worth showing.
                     let date = match tz {
                         Some(z) => c.time.with_timezone(&z).format("%b %-d, %Y").to_string(),
                         None => c.time.format("%b %-d, %Y").to_string(),
                     };
+                    let text = RichText::new(format!("{:>6.2} ft", c.stage_ft))
+                        .monospace()
+                        .color(cat_color(d.thresholds.category(c.stage_ft)));
+                    if map_link(ui, text, on(c.stage_ft)) {
+                        *pick = Some((c.stage_ft, format!("Crest of {date}")));
+                    }
                     ui.label(RichText::new(date).size(11.0));
                     if let Some(f) = c.flow_cfs {
                         ui.label(RichText::new(flow_text(f, "cfs")).size(10.5).weak());
@@ -1534,5 +1672,63 @@ mod tests {
         assert_eq!(season_label("xx"), "xx");
         assert_eq!(nice_step(13.0, 5.0), 5.0);
         assert_eq!(nice_step(0.4, 5.0), 0.1);
+    }
+    /// A live gauge's card with its crests clickable, the record crest's flooding put on the map
+    /// and the crest history open, for visual review.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "gpu + network: writes a gauge card with a stage on the map for visual review"]
+    fn gpu_gauge_card_flood_review() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let http = reqwest::Client::new();
+        let (d, h) = rt.block_on(async {
+            (
+                wxdata::river::fetch_detail(&http, "MDVG1").await.unwrap(),
+                wxdata::river::fetch_hydrograph(&http, "MDVG1")
+                    .await
+                    .unwrap(),
+            )
+        });
+        let mut card = Card::new("MDVG1", "", (d.summary.lat, d.summary.lon));
+        let rec = d.record().cloned();
+        card.detail = Some(Box::new(d.clone()));
+        card.hydro = Some(h);
+        let mut impact = crate::ui::flood_impact::FloodImpact::default();
+        if let Some(rec) = rec {
+            let ctx = egui::Context::default();
+            let spawner = crate::rt::Spawner::new(rt.handle().clone());
+            impact.toggle(
+                crate::ui::flood_impact::Ask {
+                    lid: "MDVG1".into(),
+                    stage_ft: rec.stage_ft,
+                    label: "Record crest".into(),
+                    cat: d.thresholds.category(rec.stage_ft),
+                    impact: d.impact_at(rec.stage_ft).cloned(),
+                    at: (d.summary.lat, d.summary.lon),
+                },
+                &spawner,
+                &http,
+                &ctx,
+            );
+            for _ in 0..100 {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                impact.land();
+                if !matches!(
+                    impact.current(),
+                    Some((_, crate::ui::flood_impact::Shown::Loading))
+                ) {
+                    break;
+                }
+            }
+        }
+        let gpu = crate::headless::ui::Snapshot::new().expect("GPU adapter for UI review");
+        let destination =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/ui-review");
+        std::fs::create_dir_all(&destination).unwrap();
+        gpu.save(&destination.join("gauge-card-flood.png"), 480, 1100, |ui| {
+            let mut actions = Vec::new();
+            body(ui, &mut card, &impact, None, &mut actions);
+        })
+        .unwrap();
     }
 }

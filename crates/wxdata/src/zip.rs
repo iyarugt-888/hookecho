@@ -176,7 +176,10 @@ mod tests {
 
     #[test]
     fn stored_and_deflated_entries_read_back() {
-        let z = build(&[("a.txt", b"hello", false), ("d/b.txt", b"world world", true)]);
+        let z = build(&[
+            ("a.txt", b"hello", false),
+            ("d/b.txt", b"world world", true),
+        ]);
         assert!(is_zip(&z));
         let es = entries(&z).unwrap();
         assert_eq!(es.len(), 2);

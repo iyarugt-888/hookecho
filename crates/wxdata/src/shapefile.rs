@@ -606,7 +606,10 @@ pub fn parse_zip(zip: &[u8]) -> Result<Vec<Dataset>> {
             !e.is_dir() && !e.name.starts_with("__MACOSX/") && !file.starts_with("._")
         })
         .collect();
-    let lower: Vec<String> = entries.iter().map(|e| e.name.to_ascii_lowercase()).collect();
+    let lower: Vec<String> = entries
+        .iter()
+        .map(|e| e.name.to_ascii_lowercase())
+        .collect();
     let find = |stem: &str, ext: &str| -> Result<Option<&crate::zip::Entry>> {
         let want = format!("{stem}.{ext}");
         let mut hits = entries.iter().zip(&lower).filter(|(_, l)| **l == want);
@@ -919,7 +922,10 @@ mod tests {
         assert_eq!(codepage_from_cpg("950"), None, "Big5 is not decoded");
         // 0x93/0x94 are curly quotes in Windows-1252 and control codes in Latin-1.
         let quoted = [0x93, b'H', b'i', 0x94];
-        assert_eq!(decode_text(&quoted, Codepage::Windows1252), "\u{201C}Hi\u{201D}");
+        assert_eq!(
+            decode_text(&quoted, Codepage::Windows1252),
+            "\u{201C}Hi\u{201D}"
+        );
         assert_eq!(decode_text(&quoted, Codepage::Auto), "\u{201C}Hi\u{201D}");
         assert_eq!(decode_text(&quoted, Codepage::Latin1), "\u{93}Hi\u{94}");
         assert_eq!(decode_text(&quoted, Codepage::Utf8), "\u{FFFD}Hi\u{FFFD}");
@@ -965,7 +971,12 @@ mod tests {
         let sets = parse_zip(&z).expect("parses");
         assert_eq!(sets.len(), 2);
         assert!(sets[0].notes[0].contains("\"OEM\""), "{:?}", sets[0].notes);
-        assert_eq!(sets[1].notes.len(), 2, "no .dbf and no .prj: {:?}", sets[1].notes);
+        assert_eq!(
+            sets[1].notes.len(),
+            2,
+            "no .dbf and no .prj: {:?}",
+            sets[1].notes
+        );
         assert!(sets[1].features[0].properties.is_empty());
     }
 
@@ -973,7 +984,10 @@ mod tests {
     fn a_bundle_without_shapes_or_with_ambiguous_sidecars_is_refused() {
         let (shp, dbf) = bundle_parts();
         let none = crate::zip::build(&[("readme.txt", b"hi", false)]);
-        assert!(parse_zip(&none).unwrap_err().to_string().contains("no .shp"));
+        assert!(parse_zip(&none)
+            .unwrap_err()
+            .to_string()
+            .contains("no .shp"));
         let twins = crate::zip::build(&[
             ("a.shp", &shp, false),
             ("a.dbf", &dbf, false),

@@ -243,6 +243,16 @@ impl HookEchoApp {
             for action in self.gauge_cards.show(ctx, tz, &rt, &http) {
                 self.gauge_card_action(action, ctx);
             }
+            // A stage a card put on the map: move the map to its flooding when it lands.
+            if let Some(bounds) = self.gauge_cards.impact.take_fit() {
+                self.follow_cell = None;
+                let v = &mut self.views[self.active];
+                v.camera = crate::ui::flood_impact::fit_camera(
+                    &v.camera,
+                    bounds,
+                    ctx.content_rect().size(),
+                );
+            }
             // The flood-gauge dashboard, as a window, in the layouts without the workstation's
             // docks (the workstation draws it as a tool window).
             if !self.workstation_chrome() && self.gauge_dash.window_open {

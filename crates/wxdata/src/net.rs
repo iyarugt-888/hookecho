@@ -39,6 +39,8 @@ pub const CORS_OK: &[&str] = &[
     "noaa-goes16.s3.amazonaws.com",
     "noaa-goes17.s3.amazonaws.com",
     "ecmwf-forecasts.s3.eu-central-1.amazonaws.com",
+    // NOAA's flood inundation map library echoes the origin back in `Access-Control-Allow-Origin`.
+    "maps.water.noaa.gov",
 ];
 
 /// How long any one feed request may take.

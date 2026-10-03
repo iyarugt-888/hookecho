@@ -109,6 +109,7 @@ pub mod forecast_window;
 pub(crate) mod freshness;
 pub mod gate_inspector;
 /// River-gauge cards: hydrograph, flood stages, crests.
+pub mod flood_impact;
 pub mod gauge_card;
 /// Every river gauge in view: flood categories, sparklines, the selected gauge's card.
 pub mod gauge_dashboard;

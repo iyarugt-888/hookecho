@@ -734,7 +734,11 @@ mod tests {
         let m: Vec<bool> = r.candidates.iter().map(|c| c.matched_report).collect();
         // The far couplet misses; the hail core is not matched by a tornado report.
         assert_eq!(m, [true, false, true, false]);
-        let ids: Vec<String> = r.candidates.iter().map(|c| c.matched_truths.join(";")).collect();
+        let ids: Vec<String> = r
+            .candidates
+            .iter()
+            .map(|c| c.matched_truths.join(";"))
+            .collect();
         assert_eq!(ids, ["r0", "", "r0", ""]);
     }
 

@@ -579,10 +579,16 @@ fn cached_fused_pipeline_cost_against_legacy() {
     let (mut vel_pairs, mut cc_pairs) = (Vec::new(), Vec::new());
     for tilt in 0..level2::elevation_angles(&scan).len() {
         let z = level2::bin_scan(&scan, Moment::Reflectivity, tilt);
-        if let (Ok(z), Ok(cc)) = (&z, level2::bin_scan(&scan, Moment::CorrelationCoefficient, tilt)) {
+        if let (Ok(z), Ok(cc)) = (
+            &z,
+            level2::bin_scan(&scan, Moment::CorrelationCoefficient, tilt),
+        ) {
             cc_pairs.push((z.clone(), cc));
         }
-        if let (Ok(z), Ok(v)) = (z, level2::bin_scan_opts(&scan, Moment::Velocity, tilt, true)) {
+        if let (Ok(z), Ok(v)) = (
+            z,
+            level2::bin_scan_opts(&scan, Moment::Velocity, tilt, true),
+        ) {
             vel_pairs.push((v, z));
         }
         if vel_pairs.len() == 4 {
