@@ -98,11 +98,20 @@ pub fn identify(
     analysed: &[Analysed],
     confirm: impl Fn(f64, f64) -> Confirmation,
 ) -> Vec<TornadoId> {
+    identify_with(analysed, confirm, None)
+}
+
+/// [`identify`], with the opt-in rotation-only bar of [`Analysed::tornado_id_with`].
+pub fn identify_with(
+    analysed: &[Analysed],
+    confirm: impl Fn(f64, f64) -> Confirmation,
+    rotation_only_possible: Option<f32>,
+) -> Vec<TornadoId> {
     let mut out: Vec<TornadoId> = analysed
         .iter()
         .filter_map(|a| {
             let c = &a.tracked.column;
-            a.tornado_id(&confirm(c.lon, c.lat))
+            a.tornado_id_with(&confirm(c.lon, c.lat), rotation_only_possible)
         })
         .collect();
     out.sort_by(|a, b| b.tier.cmp(&a.tier).then(b.score.total_cmp(&a.score)));
@@ -119,7 +128,18 @@ pub fn circulations(
     debris: &[TdsHit],
     confirm: impl Fn(f64, f64) -> Confirmation,
 ) -> Vec<Circulation> {
-    let ids = identify(analysed, confirm);
+    circulations_with(analysed, couplets, debris, confirm, None)
+}
+
+/// [`circulations`], with the opt-in rotation-only bar of [`Analysed::tornado_id_with`].
+pub fn circulations_with(
+    analysed: &[Analysed],
+    couplets: &[CoupletHit],
+    debris: &[TdsHit],
+    confirm: impl Fn(f64, f64) -> Confirmation,
+    rotation_only_possible: Option<f32>,
+) -> Vec<Circulation> {
+    let ids = identify_with(analysed, confirm, rotation_only_possible);
     let (mut tied_c, mut tied_d) = (vec![false; couplets.len()], vec![false; debris.len()]);
     ids.into_iter()
         .map(|id| {
@@ -171,16 +191,43 @@ impl Analysed {
     /// evidence is under [`MIN_SCORE`] and no tornado report confirms it: an observed warning
     /// raises the tier of a detection but cannot make one (its polygon is a county wide).
     pub fn tornado_id(&self, confirmation: &Confirmation) -> Option<TornadoId> {
+        self.tornado_id_with(confirmation, None)
+    }
+
+    /// [`Self::tornado_id`], with an opt-in bar (s⁻¹): a rooted, cyclonic column with no tornado
+    /// debris signature beside it reaches Possible once its 0-2 km shear is at least the bar,
+    /// whatever its evidence score. Its score is unchanged and its first reason says why it is
+    /// shown.
+    ///
+    /// Off by default. Rotation-only tornadoes with strong low-level shear (0.017-0.028 s⁻¹ on the
+    /// random 2022-2024 sample) fuse at 0.22-0.25, under Possible, because debris carries most of
+    /// the weight. Lifting them at 0.018 s⁻¹ found 59 more tornado reports and paths on the
+    /// 65-event corpus for 221 more false detections, and on the random sample brought the fused
+    /// Possible tier to the original Tornado ID's false-alarm rate. Lifted markers verify about a
+    /// fifth of the time, against about two-fifths for the rest of Possible (detectionplan.md).
+    pub fn tornado_id_with(
+        &self,
+        confirmation: &Confirmation,
+        rotation_only_possible: Option<f32>,
+    ) -> Option<TornadoId> {
         let score = self.fused.score;
-        if score < MIN_SCORE && confirmation.report.is_none() {
-            return None;
-        }
         let c = &self.tracked.column;
         let tds = self
             .debris
             .iter()
             .filter(|(_, a, _)| a.class == DebrisClass::TornadoDebrisSignature)
             .min_by(|a, b| a.2.total_cmp(&b.2));
+        let lifted = score < MIN_SCORE
+            && confirmation.report.is_none()
+            && rotation_only_possible.is_some_and(|bar| {
+                c.rooted
+                    && c.sense == Sense::Cyclonic
+                    && tds.is_none()
+                    && c.low_level_azshear.is_some_and(|s| s >= bar)
+            });
+        if score < MIN_SCORE && confirmation.report.is_none() && !lifted {
+            return None;
+        }
         let tier = if confirmation.level().is_some() {
             Tier::Confirmed
         } else if score >= LIKELY_SCORE && tds.is_some() {
@@ -191,6 +238,15 @@ impl Analysed {
             Tier::Possible
         };
         let mut reasons = Vec::new();
+        if lifted {
+            reasons.push(format!(
+                "Shown for strong low-level rotation without debris ({:.3} s\u{207b}\u{b9}, \
+                 at or above the {:.3} s\u{207b}\u{b9} you set); its evidence score alone is \
+                 under Possible",
+                c.low_level_azshear.unwrap_or(0.0),
+                rotation_only_possible.unwrap_or(0.0)
+            ));
+        }
         if let Some(line) = confirmation.describe() {
             reasons.push(line);
         }
@@ -447,6 +503,43 @@ mod tests {
             raw_confidence: 0.75,
             confidence: 0.75,
         }
+    }
+
+    #[test]
+    fn strong_rotation_without_debris_reaches_possible_only_when_opted_in() {
+        // One volume, no debris: strong low-level shear (0.03 s^-1) that fuses under Possible.
+        let mut t = tracked(1);
+        t.column.low_level_azshear = Some(0.021);
+        t.column.max_azshear = 0.021;
+        for m in &mut t.column.members {
+            m.object.max_azshear = 0.021;
+        }
+        let a = &analyse(vec![t.clone()], &[], &[])[0];
+        assert!(a.fused.score < MIN_SCORE, "{}", a.fused.score);
+        let none = Confirmation::default();
+        assert!(a.tornado_id(&none).is_none(), "off by default");
+        assert!(
+            a.tornado_id_with(&none, Some(0.022)).is_none(),
+            "under the bar"
+        );
+        let id = a.tornado_id_with(&none, Some(0.020)).expect("lifted");
+        assert_eq!(id.tier, Tier::Possible);
+        assert_eq!(id.score, a.fused.score, "the evidence score is not changed");
+        assert!(id.reasons[0].starts_with("Shown for strong low-level rotation without debris"));
+        // Not for anticyclonic rotation, an unrooted column, or one with debris beside it.
+        let mut anti = t.clone();
+        anti.column.sense = Sense::Anticyclonic;
+        let anti = &analyse(vec![anti], &[], &[])[0];
+        assert!(anti.tornado_id_with(&none, Some(0.020)).is_none());
+        let mut aloft = t.clone();
+        aloft.column.rooted = false;
+        let aloft = &analyse(vec![aloft], &[], &[])[0];
+        assert!(aloft.tornado_id_with(&none, Some(0.020)).is_none());
+        // identify_with passes the bar through.
+        assert_eq!(
+            identify_with(&analyse(vec![t], &[], &[]), |_, _| none, Some(0.020)).len(),
+            1
+        );
     }
 
     #[test]

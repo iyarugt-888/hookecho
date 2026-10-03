@@ -907,6 +907,13 @@ pub struct DetectorTuning {
     /// rotation and debris layers, and their alerts, are the same either way.
     #[serde(default)]
     pub tornado_id_source: TornadoIdSource,
+    /// Opt-in: the fused Tornado ID shows a rooted, cyclonic column with no debris beside it as
+    /// Possible once its 0-2 km shear is at least this (s⁻¹), though its evidence score is under
+    /// Possible (`llsd_analyst::Analysed::tornado_id_with`). Off (`None`) by default: it finds
+    /// rotation-only tornadoes the fusion scores low, at the cost of many more false alarms
+    /// (detectionplan.md, the random-sample decision).
+    #[serde(default)]
+    pub rotation_only_possible: Option<f32>,
 }
 
 /// Which pipeline Tornado ID shows.
@@ -955,6 +962,7 @@ impl Default for DetectorTuning {
             floors_adopted: true,
             llsd_preview: false,
             tornado_id_source: TornadoIdSource::Fusion,
+            rotation_only_possible: None,
         }
     }
 }

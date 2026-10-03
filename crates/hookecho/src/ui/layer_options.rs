@@ -1291,6 +1291,29 @@ pub(crate) fn tornado_id_controls(
                 "The original Tornado ID, from the rotation-couplet and debris layers.",
             );
     });
+    if detectors.tornado_id_source == crate::settings::TornadoIdSource::Fusion {
+        let label = |bar: Option<f32>| match bar {
+            None => "Off".to_string(),
+            Some(b) => format!("{b:.3} s\u{207b}\u{b9}"),
+        };
+        ui.label("Strong rotation without debris as Possible");
+        egui::ComboBox::from_id_salt("rotation_only_possible")
+            .selected_text(label(detectors.rotation_only_possible))
+            .show_ui(ui, |ui| {
+                for bar in [None, Some(0.022), Some(0.020), Some(0.018)] {
+                    ui.selectable_value(&mut detectors.rotation_only_possible, bar, label(bar));
+                }
+            })
+            .response
+        .on_hover_text(
+            "Shows a rooted, cyclonic circulation with no debris beside it as Tornado possible \
+             once its low-level shear reaches this, though its evidence score is lower. Off by \
+             default. On the archived-event backtest, 0.018 found 59 more tornado reports and \
+             paths for 221 more false alarms; on a random sample of ordinary severe days it \
+             brought false Possible markers to about two per radar-hour, the original Tornado \
+             ID's rate. Markers shown this way turn out real about a fifth of the time.",
+        );
+    }
     ui.label(
         egui::RichText::new(
             "Rotation and Tornado ID are not run on TDWR sites: they were fitted on WSR-88D data, and on a TDWR's finer C-band gates they flag far too much.",
@@ -1456,7 +1479,7 @@ mod detector_threshold_snapshots {
             gpu.save(
                 &destination.join(format!("detector-thresholds-{width}.png")),
                 width,
-                340,
+                400,
                 |ui| {
                     egui::Frame::NONE.inner_margin(10).show(ui, |ui| {
                         detector_score_thresholds(ui, &filters, &mut detectors);

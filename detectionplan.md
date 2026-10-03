@@ -377,6 +377,7 @@ Primary code areas:
   - **The case for it.** At 0.018 the fused Possible tier on random days would make 1.9 false per radar-hour, the original's own rate, while finding tornadoes the original misses.
   - **The cost.** The lifted columns verify about 20% of the time, against about 44% for today's Possible tier, so "Tornado possible" would mean much less.
   - **Not adopted unilaterally.** It changes what the lowest tier promises, and the plan's rule about losing tornadoes for a lower FAR does not settle the reverse trade.
+  - **Built as an opt-in, off by default** (`llsd_analyst::Analysed::tornado_id_with`, setting `detectors.rotation_only_possible`). The Detectors panel offers Off, 0.022, 0.020 and 0.018 s⁻¹. A lifted marker keeps its evidence score, and its first reason says it is shown for strong low-level rotation without debris, under Possible on evidence alone. The default and every shipped verdict are unchanged until the maintainer chooses a bar.
 
 ### Where the detection stands (65 events)
 

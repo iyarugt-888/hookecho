@@ -349,12 +349,15 @@ impl HookEchoApp {
                 let minute = self.volume_minute(idx);
                 let confirm =
                     |lon: f64, lat: f64| wxdata::confirm::confirm(lon, lat, minute, &evidence);
+                let bar = self.settings.detectors.rotation_only_possible;
                 if merged {
-                    let c = wxdata::llsd_analyst::circulations(&analysed, couplets, tds, confirm);
+                    let c = wxdata::llsd_analyst::circulations_with(
+                        &analysed, couplets, tds, confirm, bar,
+                    );
                     (Vec::new(), c, lineage)
                 } else {
                     (
-                        wxdata::llsd_analyst::identify(&analysed, confirm),
+                        wxdata::llsd_analyst::identify_with(&analysed, confirm, bar),
                         Vec::new(),
                         lineage,
                     )
@@ -378,11 +381,12 @@ impl HookEchoApp {
                     let idx = key.0;
                     let evidence = self.confirm_evidence(idx);
                     let minute = self.volume_minute(idx);
-                    return wxdata::llsd_analyst::circulations(
+                    return wxdata::llsd_analyst::circulations_with(
                         analysed,
                         couplets,
                         tds,
                         |lon, lat| wxdata::confirm::confirm(lon, lat, minute, &evidence),
+                        self.settings.detectors.rotation_only_possible,
                     );
                 }
             }
