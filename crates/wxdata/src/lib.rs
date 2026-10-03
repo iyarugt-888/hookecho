@@ -100,6 +100,7 @@ pub mod sounding;
 pub mod spc;
 pub mod spoken;
 pub mod spotters;
+pub mod storm_mode;
 pub mod stations;
 pub mod stats;
 pub mod suitability;

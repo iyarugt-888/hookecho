@@ -23,7 +23,7 @@ use crate::tds::TdsHit;
 pub const ALGORITHM_VERSION: &str = "fusion-3";
 
 /// The features, in [`Features::values`] order. Shear is in units of 0.01 s⁻¹.
-pub const FEATURE_NAMES: [&str; 14] = [
+pub const FEATURE_NAMES: [&str; 16] = [
     "low_level_shear",
     "max_shear",
     "depth_km",
@@ -38,6 +38,8 @@ pub const FEATURE_NAMES: [&str; 14] = [
     "range_100km",
     "weak_echo_root",
     "stationary",
+    "echo_length_100km",
+    "echo_aspect",
 ];
 
 /// What the fusion knows about one circulation in one volume.
@@ -74,6 +76,12 @@ pub struct Features {
     /// [`STATIONARY_MS`]: fixed clutter. On the backtest, wind-farm tracks around Dodge City
     /// moved a median 1.9 m/s (90% under 3); verified tornadic tracks 13.4 m/s (5% under 3).
     pub stationary: f32,
+    /// Length of the convective echo (≥ 40 dBZ) the column is rooted in, in 100 km, capped at 3;
+    /// 0 with no core near it ([`crate::storm_mode`]). Measured for detectionplan.md round
+    /// three's line-or-cell question; weight 0 until fitted.
+    pub echo_length_100km: f32,
+    /// That echo's length over width, capped at 10; 0 with no core near it.
+    pub echo_aspect: f32,
 }
 
 /// Slower than this (m/s) over 3 or more volumes is [`Features::stationary`].
@@ -120,11 +128,13 @@ impl Features {
                         .filter(|m| m.tilt == 0)
                         .all(|m| m.weak_echo),
             ),
+            echo_length_100km: c.echo.map_or(0.0, |e| (e.length_km / 100.0).min(3.0)),
+            echo_aspect: c.echo.map_or(0.0, |e| e.aspect().min(10.0)),
         }
     }
 
     /// The features in [`FEATURE_NAMES`] order.
-    pub fn values(&self) -> [f32; 14] {
+    pub fn values(&self) -> [f32; 16] {
         [
             self.low_level_shear,
             self.max_shear,
@@ -140,6 +150,8 @@ impl Features {
             self.range_100km,
             self.weak_echo_root,
             self.stationary,
+            self.echo_length_100km,
+            self.echo_aspect,
         ]
     }
 }
@@ -148,7 +160,7 @@ impl Features {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Weights {
     pub bias: f32,
-    pub w: [f32; 14],
+    pub w: [f32; 16],
 }
 
 /// The fitted weights (`scripts/fusion/fit.py`, fusion-3, on the 25-event backtest corpus of
@@ -187,6 +199,8 @@ pub const WEIGHTS: Weights = Weights {
         0.0,     // range_100km
         0.0,     // weak_echo_root
         -0.5120, // stationary
+        0.0,     // echo_length_100km
+        0.0,     // echo_aspect
     ],
 };
 
@@ -249,6 +263,8 @@ mod tests {
             range_100km: 0.4,
             weak_echo_root: 0.0,
             stationary: 0.0,
+            echo_length_100km: 0.3,
+            echo_aspect: 1.5,
         }
     }
 
@@ -257,11 +273,11 @@ mod tests {
         let w = Weights {
             bias: -3.0,
             w: [
-                0.8, 0.2, 0.3, 0.1, 0.9, 1.1, 0.4, 0.2, 0.2, 2.0, -0.8, -0.5, -0.3, -1.0,
+                0.8, 0.2, 0.3, 0.1, 0.9, 1.1, 0.4, 0.2, 0.2, 2.0, -0.8, -0.5, -0.3, -1.0, 0.0, 0.0,
             ],
         };
         let f = fuse(&features(), &w);
-        assert_eq!(f.terms.len(), 15);
+        assert_eq!(f.terms.len(), 17);
         let z: f32 = f.terms.iter().map(|t| t.logit).sum();
         assert_eq!(f.score, 1.0 / (1.0 + (-z).exp()));
         assert_eq!(f.terms[10].label, "debris");
@@ -272,7 +288,7 @@ mod tests {
     fn more_evidence_with_positive_weights_never_lowers_the_score() {
         let w = Weights {
             bias: -2.0,
-            w: [0.5; 14],
+            w: [0.5; 16],
         };
         let base = fuse(&features(), &w).score;
         let mut more = features();
@@ -322,6 +338,8 @@ mod tests {
                 range_100km: 0.4,
                 weak_echo_root: 0.0,
                 stationary: 0.0,
+                echo_length_100km: 0.0,
+                echo_aspect: 0.0,
             },
             &WEIGHTS,
         );

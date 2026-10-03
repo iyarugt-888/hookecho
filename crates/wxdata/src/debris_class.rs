@@ -241,6 +241,7 @@ mod tests {
             integrated_azshear: 0.0,
             lean_km_per_km: None,
             lean_bearing_deg: None,
+            echo: None,
         }
     }
 

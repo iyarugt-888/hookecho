@@ -101,6 +101,10 @@ pub struct RotationColumn {
     /// at all (Mayfield: 2.6 km over 0.2 km).
     pub lean_km_per_km: Option<f32>,
     pub lean_bearing_deg: Option<f32>,
+    /// The convective echo the column's base sits in, on the lowest tilt
+    /// ([`crate::storm_mode`]): a line or a cell. `None` with no core within
+    /// [`crate::storm_mode::SEARCH_KM`], or when the caller measured none.
+    pub echo: Option<crate::storm_mode::EchoShape>,
 }
 
 impl RotationColumn {
@@ -161,7 +165,16 @@ pub fn from_sweeps(pairs: &[(BinnedSweep, BinnedSweep)]) -> Vec<RotationColumn> 
             (credible, support)
         })
         .unzip();
-    columns_with_support(&tilts, &support, &ColumnParams::default())
+    let mut cols = columns_with_support(&tilts, &support, &ColumnParams::default());
+    // The echo each column is rooted in, from the lowest tilt's reflectivity: labelled once.
+    if let Some((_, z)) = pairs.first() {
+        use crate::storm_mode::{EchoObjects, CORE_DBZ, SEARCH_KM};
+        let echo = EchoObjects::label(z, CORE_DBZ);
+        for c in &mut cols {
+            c.echo = echo.shape_at(c.lon, c.lat, SEARCH_KM);
+        }
+    }
+    cols
 }
 
 /// [`columns`], then each column (strongest first) may take one `support[t]` object on each tilt
@@ -316,6 +329,7 @@ fn describe(mut members: Vec<ColumnMember>) -> RotationColumn {
         integrated_azshear,
         lean_km_per_km,
         lean_bearing_deg,
+        echo: None,
         members,
     }
 }

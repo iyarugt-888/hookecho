@@ -620,3 +620,75 @@ fn cached_fused_pipeline_cost_against_legacy() {
         one.len()
     );
 }
+
+/// Diagnostic for detectionplan.md round three (`--ignored --nocapture`): the echo the strongest
+/// rooted cyclonic columns sit in (`storm_mode`, lowest tilt, as `from_sweeps` measures it), and
+/// the same at other reflectivity thresholds and search radii. Recorded rather than asserted: on
+/// these storms connected-echo aspect does not separate a line from a cell (Moore reads 5.4 at
+/// 40 dBZ; the derecho's echo is one 140 km blob of aspect 2).
+#[test]
+#[ignore = "diagnostic; large cached fixtures: provision explicitly before running"]
+fn cached_echo_shape_tells_a_line_from_a_cell() {
+    let m = corpus::manifest();
+    let mut aspect_at = std::collections::HashMap::new();
+    for id in [
+        "moore-2013",
+        "mayfield-2021",
+        "iowa-qlcs-2021",
+        "derecho-2020",
+        "denver-hail-2017",
+    ] {
+        let f = m.fixtures.iter().find(|f| f.id == id).unwrap();
+        let scan = level2::decode_volume(corpus::read(f, &corpus::cache_dir()).unwrap()).unwrap();
+        let mut pairs = Vec::new();
+        for tilt in 0..level2::elevation_angles(&scan).len() {
+            if let (Ok(v), Ok(z)) = (
+                level2::bin_scan_opts(&scan, Moment::Velocity, tilt, true),
+                level2::bin_scan(&scan, Moment::Reflectivity, tilt),
+            ) {
+                pairs.push((v, z));
+            }
+            if pairs.len() == 4 {
+                break;
+            }
+        }
+        let mut cols: Vec<_> = wxdata::rotation_columns::from_sweeps(&pairs)
+            .into_iter()
+            .filter(|c| c.rooted && c.sense == wxdata::rotation::Sense::Cyclonic)
+            .collect();
+        cols.sort_by(|a, b| b.max_azshear.total_cmp(&a.max_azshear));
+        for c in cols.iter().take(4) {
+            eprintln!(
+                "{id}: column {:.3},{:.3} max {:.4} s-1, {} tilts: echo {:?} aspect {:?}",
+                c.lon,
+                c.lat,
+                c.max_azshear,
+                c.tilts(),
+                c.echo,
+                c.echo.map(|e| e.aspect())
+            );
+        }
+        aspect_at.insert(id, cols.first().and_then(|c| c.echo).map(|e| e.aspect()));
+        // Other thresholds and search radii, for the strongest two columns.
+        for dbz in [30.0, 35.0, 45.0, 50.0] {
+            let objs = wxdata::storm_mode::EchoObjects::label(&pairs[0].1, dbz);
+            for search in [5.0, 10.0] {
+                let shapes: Vec<String> = cols
+                    .iter()
+                    .take(2)
+                    .map(|c| match objs.shape_at(c.lon, c.lat, search) {
+                        Some(e) => format!(
+                            "{:.0}x{:.0} km ({:.1})",
+                            e.length_km,
+                            e.width_km,
+                            e.aspect()
+                        ),
+                        None => "none".into(),
+                    })
+                    .collect();
+                eprintln!("{id}: {dbz} dBZ within {search} km: {shapes:?}");
+            }
+        }
+    }
+    eprintln!("{aspect_at:?}");
+}

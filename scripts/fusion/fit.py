@@ -42,6 +42,9 @@ SIGNS = {
     "range_100km": 0,
     "weak_echo_root": -1,
     "stationary": -1,
+    # Storm mode (round three): measured, left out until the line-or-cell question is settled.
+    "echo_length_100km": 0,
+    "echo_aspect": 0,
 }
 
 

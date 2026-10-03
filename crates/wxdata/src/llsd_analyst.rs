@@ -409,6 +409,7 @@ mod tests {
                 integrated_azshear: 0.011,
                 lean_km_per_km: None,
                 lean_bearing_deg: None,
+                echo: None,
                 members,
             },
             track_id: 7,
