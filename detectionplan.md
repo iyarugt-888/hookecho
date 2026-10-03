@@ -343,6 +343,20 @@ Primary code areas:
 
     0.015 removes a few more false alarms but costs training POD (0.54 to 0.52). The weights are unchanged; the debris feature means the same, more strictly. A full backtest validates the change (next entry).
 
+- **debris-class-2 validated by full backtests** (exports `p18-dc2`, `s1-2023-dc2`, against `p17-65`, `s1-2023`).
+
+  | Set | Before | After |
+  |---|---|---|
+  | Unseen 40, Possible | POD 0.18, FAR 0.35, 64 false | POD 0.18, FAR 0.22, 34 false |
+  | Unseen 40, Likely | 4 false | 3 false |
+  | Random sample, Possible | 15 false | 12 false |
+  | Random sample, Likely | 2 false | 0 false |
+  | Training 25, Likely | 34 false | 36 false |
+
+  - **The random sample falls less than simulated (15 to 12, against 5).** Raising the bar changes which signatures are debris for every column within the radius, not only the column that promoted them.
+  - **The training 25 showed POD 0.54 to 0.52 and 0.32 to 0.30. That was not the change.** The damage-survey service answered three events' queries with HTTP 400 during that run (Washington IL 2013, Vilonia 2014, Nashville 2020), so their surveyed paths were missing from its truth. All three tornadoes were still found at Likely through their point reports, and no truth present in both runs was lost.
+  - **The surveys are now cached** like the soundings (`dat::fetch_cached`), so a later outage cannot change the truth between runs.
+
 ### Where the detection stands (65 events)
 
 - **Promoted.** The fused Tornado ID (fusion-3) is the app's default; the original is selectable. On every held-out test since promotion it has found as many tornadoes as the original or more, at a far lower false-alarm ratio. On round three's unseen events at matched false-alarm rates: POD 0.29, FAR 0.21 against 0.15, 0.64. On round five's unseen supercell days at Likely: POD 0.28, FAR 0.11 against 0.26, 0.62. On non-tornadic lines (round four): 0 false detections against 23. On the hail storms, at Likely: 2 against 25.
