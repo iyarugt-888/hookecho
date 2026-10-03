@@ -5774,7 +5774,7 @@ fn backtest_event(
             // export is limited to the couplets' range.
             let llsd_all: Vec<wxdata::rotation_tracks::Tracked> = llsd_tracker.update(
                 t.timestamp(),
-                wxdata::rotation_columns::from_sweeps(&vel_pairs),
+                wxdata::rotation_columns::from_sweeps_with(&vel_pairs, &backtest_llsd_params()),
             );
             let llsd_columns: Vec<&wxdata::rotation_tracks::Tracked> = llsd_all
                 .iter()
@@ -6688,6 +6688,21 @@ pub fn run_detector_backtest(
     Ok(())
 }
 
+/// The LLSD field's parameters for the backtest: the default, unless the experiment variable
+/// `HOOKECHO_LLSD_AZIMUTHAL_KM` sets the kernel's width across the beam (detectionplan.md round
+/// four). Backtest only; the app always uses the default. The width used is printed per run.
+fn backtest_llsd_params() -> wxdata::azshear::LlsdParams {
+    let mut p = wxdata::azshear::LlsdParams::default();
+    if let Some(km) = std::env::var("HOOKECHO_LLSD_AZIMUTHAL_KM")
+        .ok()
+        .and_then(|v| v.parse::<f32>().ok())
+        .filter(|km| (0.5..=5.0).contains(km))
+    {
+        p.azimuthal_km = km;
+    }
+    p
+}
+
 /// Run the backtest over a list of events and total them:
 /// `hookecho --headless-backtest-file <events.txt> [volumes]`. One event per line as
 /// `SITE YYYY-MM-DD HH:MM`; blank lines and `#` comments are skipped. An event that fails (no
@@ -6704,6 +6719,10 @@ pub fn run_detector_backtest_file(
         .and_then(|v| v.parse::<usize>().ok())
         .unwrap_or(8)
         .clamp(1, 16);
+    println!(
+        "LLSD kernel across the beam: {} km",
+        backtest_llsd_params().azimuthal_km
+    );
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;

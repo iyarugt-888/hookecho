@@ -148,11 +148,20 @@ pub fn columns(tilts: &[Vec<RotationObject>], p: &ColumnParams) -> Vec<RotationC
 /// echo screen whose only artifact is having none (to root a column in weak echo), and the columns
 /// with that support, all with default parameters. Velocity should be dealiased.
 pub fn from_sweeps(pairs: &[(BinnedSweep, BinnedSweep)]) -> Vec<RotationColumn> {
+    from_sweeps_with(pairs, &crate::azshear::LlsdParams::default())
+}
+
+/// [`from_sweeps`] with the LLSD field's parameters given: for the backtest to compare kernels
+/// (detectionplan.md round four: line tornadoes at range are too small for the default kernel).
+pub fn from_sweeps_with(
+    pairs: &[(BinnedSweep, BinnedSweep)],
+    llsd: &crate::azshear::LlsdParams,
+) -> Vec<RotationColumn> {
     use crate::rotation_objects::{objects, Artifact, ObjectParams};
     let (tilts, support): (Vec<Vec<RotationObject>>, Vec<Vec<RotationObject>>) = pairs
         .iter()
         .map(|(vel, z)| {
-            let field = crate::azshear::llsd(vel, &crate::azshear::LlsdParams::default());
+            let field = crate::azshear::llsd(vel, llsd);
             let credible = objects(&field, vel, z, &ObjectParams::default())
                 .into_iter()
                 .filter(|o| o.credible())
