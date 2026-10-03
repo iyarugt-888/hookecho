@@ -875,13 +875,15 @@ mod tests {
         for (voxel, (old, new)) in continuous
             .upload
             .data
-            .chunks_exact(2)
-            .zip(strict.upload.data.chunks_exact(2))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .zip(strict.upload.data.as_chunks::<2>().0.iter())
             .enumerate()
         {
             if old[0] >= 2 {
                 if voxel % n < n / 2 {
-                    assert_eq!(new, [0, 0]);
+                    assert_eq!(*new, [0, 0]);
                     removed += 1;
                 } else {
                     assert_eq!(new, old);
@@ -926,11 +928,19 @@ mod tests {
         assert!(frame
             .upload
             .data
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .enumerate()
             .filter(|(v, _)| v % n < n / 2)
-            .all(|(_, v)| v == [0, 0]));
-        assert!(frame.upload.data.chunks_exact(2).any(|v| v[0] >= 2));
+            .all(|(_, v)| *v == [0, 0]));
+        assert!(frame
+            .upload
+            .data
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .any(|v| v[0] >= 2));
     }
 
     #[test]
