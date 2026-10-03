@@ -379,6 +379,12 @@ Primary code areas:
   - **Not adopted unilaterally.** It changes what the lowest tier promises, and the plan's rule about losing tornadoes for a lower FAR does not settle the reverse trade.
   - **Built as an opt-in, off by default** (`llsd_analyst::Analysed::tornado_id_with`, setting `detectors.rotation_only_possible`). The Detectors panel offers Off, 0.022, 0.020 and 0.018 s⁻¹. A lifted marker keeps its evidence score, and its first reason says it is shown for strong low-level rotation without debris, under Possible on evidence alone. The default and every shipped verdict are unchanged until the maintainer chooses a bar.
 
+- **One feature on the map: Tornado detection.** Rotation couplets, debris signatures and Tornado ID were separate layers, plus a "one detection per tornado" switch, all feeding the same markers. They are now one layer, Tornado detection (`OverlayToggle::TornadoId`, `filters.show_tornado_id`).
+  - **What it draws.** One marker per tornado (Tornado ID's verdict, fused by default), which opens into the web of the rotation and debris detections it ties together.
+  - **What it no longer draws.** Rotation and debris tied to no verdict, which is what the fusion weighed and set aside.
+  - **Unchanged.** Alert rules that watch rotation or debris still drive their detectors with the layer off. The Detectors section keeps the two evidence floors, which now decide what enters a tornado's web, the original Tornado ID and the rotation and debris alerts.
+  - **Old saves.** A settings file, workspace or scene saved with the rotation or debris layer on restores with Tornado detection on (`OverlayToggle::from_slug` aliases). The merge setting is gone (always merged). A test pins the aliases.
+
 ### Where the detection stands (65 events)
 
 - **Promoted.** The fused Tornado ID (fusion-3) is the app's default; the original is selectable. On every held-out test since promotion it has found as many tornadoes as the original or more, at a far lower false-alarm ratio. On round three's unseen events at matched false-alarm rates: POD 0.29, FAR 0.21 against 0.15, 0.64. On round five's unseen supercell days at Likely: POD 0.28, FAR 0.11 against 0.26, 0.62. On non-tornadic lines (round four): 0 false detections against 23. On the hail storms, at Likely: 2 against 25.

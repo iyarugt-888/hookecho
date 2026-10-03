@@ -102,7 +102,10 @@ impl HookEchoApp {
             if t.session_only() {
                 continue;
             }
-            *self.overlay_flag(t) = ws.overlays_on.iter().any(|s| *s == t.slug());
+            *self.overlay_flag(t) = ws
+                .overlays_on
+                .iter()
+                .any(|s| OverlayToggle::from_slug(s) == Some(t));
         }
         // Same rule for the national field layers: an unknown slug is a layer this build
         // doesn't have, which is a thing to skip rather than an error.

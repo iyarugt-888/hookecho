@@ -77,7 +77,10 @@ impl HookEchoApp {
             if t.session_only() {
                 continue;
             }
-            *self.overlay_flag(t) = scene.overlays_on.iter().any(|s| *s == t.slug());
+            *self.overlay_flag(t) = scene
+                .overlays_on
+                .iter()
+                .any(|s| OverlayToggle::from_slug(s) == Some(t));
         }
         self.settings.broadcast = scene.style.clone();
         self.output.strap = scene.strap.clone();

@@ -796,13 +796,6 @@ impl HookEchoApp {
                 true,
             ),
             (
-                T::Couplets,
-                "Severe",
-                "Rotation couplets",
-                "Flag tight rotation that could produce a tornado",
-                true,
-            ),
-            (
                 T::Tbss,
                 "Severe",
                 "Hail spikes (TBSS)",
@@ -817,13 +810,6 @@ impl HookEchoApp {
                 "Flag rain carried above the freezing level \u{2014} an updraft proxy that \
                  deepens before a storm intensifies",
                 false,
-            ),
-            (
-                T::Tds,
-                "Severe",
-                "Debris detection (TDS)",
-                "Flag lofted debris — a tornado is likely on the ground",
-                true,
             ),
             (
                 T::StormReports,
@@ -1103,19 +1089,13 @@ impl HookEchoApp {
                 false,
             ),
             (
-                T::MergeTornado,
-                "Severe",
-                "One detection per tornado",
-                "Rotation couplets, debris signatures and Tornado ID as one marker per tornado, centred on the most likely rotation; click it to open the web of detections it ties together and their factors. Off: a marker per detection",
-                true,
-            ),
-            (
                 T::TornadoId,
                 "Severe",
-                "Tornado ID",
-                "One verdict per possible tornado \u{2014} possible, likely, debris or confirmed \
-                 \u{2014} from the rotation and debris detectors and tornado reports",
-                false,
+                "Tornado detection",
+                "Rotation and debris read together into one verdict per tornado \u{2014} \
+                 possible, likely, debris or confirmed \u{2014} with tornado reports. Click a \
+                 marker to open the web of detections it ties together and their factors",
+                true,
             ),
             (
                 T::GlmLightning,

@@ -396,6 +396,36 @@ fn every_overlay_toggle_survives_a_slug_round_trip() {
 }
 
 #[test]
+fn the_separate_rotation_and_debris_layers_restore_as_tornado_detection() {
+    // Rotation couplets, debris signatures and Tornado ID are one feature now. A settings file,
+    // workspace or scene saved with either detector layer on turns Tornado detection on, and the
+    // old "one detection per tornado" switch is simply gone.
+    assert_eq!(
+        OverlayToggle::from_slug("Couplets"),
+        Some(OverlayToggle::TornadoId)
+    );
+    assert_eq!(
+        OverlayToggle::from_slug("Tds"),
+        Some(OverlayToggle::TornadoId)
+    );
+    assert_eq!(OverlayToggle::from_slug("MergeTornado"), None);
+    assert!(
+        !OverlayToggle::ALL.iter().any(|t| matches!(t.slug().as_str(), "Tds" | "Couplets")),
+        "the merged layers are not toggles of their own any more"
+    );
+    // A saved workspace naming only the debris layer reports nothing it cannot restore.
+    let mut ws = crate::workspace::starters().remove(0);
+    ws.overlays_on = vec!["Tds".into()];
+    assert!(
+        crate::workspace::problems(&ws)
+            .iter()
+            .all(|p| !p.contains("layers this version does not have")),
+        "{:?}",
+        crate::workspace::problems(&ws)
+    );
+}
+
+#[test]
 fn every_contour_kind_is_saved_and_read_back_by_its_token() {
     for k in ContourKind::ALL {
         match k.token() {

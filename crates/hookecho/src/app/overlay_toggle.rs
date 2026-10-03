@@ -38,17 +38,15 @@ pub(crate) enum OverlayToggle {
     Trail,
     /// A ring at the sweep edge coloured by how long before the newest data each azimuth was collected.
     ScanAge,
-    Tds,
-    Couplets,
-    /// Tornado ID (`wxdata::tornado_id`).
+    /// Tornado detection: the rotation and debris detectors and Tornado ID's verdicts, drawn as one
+    /// marker per tornado that opens into the web of detections it ties together
+    /// (`wxdata::tornado_id::circulations`). Its slug stays `TornadoId`; the separate rotation
+    /// (`Couplets`) and debris (`Tds`) layers it replaced restore as it ([`Self::from_slug`]).
     TornadoId,
     /// Y'all mode (`crate::yall`): the Y'all-O-Meter card and Y'all Tracks.
     YallMode,
     /// The layer probe (`app::layer_probe`): every visible layer's reading under the pointer.
     LayerProbe,
-    /// Rotation, debris and Tornado ID drawn as one detection per tornado, expandable into the
-    /// web of what it ties together (`wxdata::tornado_id::circulations`).
-    MergeTornado,
     /// The zoomed-out map as a globe (`render::mercator::set_globe`).
     Globe,
     /// A distance ruler in the corner of each flat pane (`app::scale_bar`).
@@ -105,7 +103,7 @@ pub(crate) enum OverlayToggle {
 impl OverlayToggle {
     /// Every toggle, for the persistence sweep. A new variant belongs here too, or it silently
     /// stops being remembered across restarts.
-    pub(crate) const ALL: [OverlayToggle; 60] = [
+    pub(crate) const ALL: [OverlayToggle; 57] = [
         Self::AlertPanel,
         Self::StormReports,
         Self::Spotters,
@@ -133,12 +131,9 @@ impl OverlayToggle {
         Self::Nowcast,
         Self::Trail,
         Self::ScanAge,
-        Self::Tds,
-        Self::Couplets,
         Self::TornadoId,
         Self::YallMode,
         Self::LayerProbe,
-        Self::MergeTornado,
         Self::Globe,
         Self::ScaleBar,
         Self::Tbss,
@@ -194,9 +189,6 @@ impl OverlayToggle {
                 | Self::LinkStorm
                 | Self::MiniLoop
                 | Self::ImportedGis
-                // A display preference kept in its own setting: a workspace that does not name
-                // it must not switch it off.
-                | Self::MergeTornado
         )
     }
 
@@ -209,6 +201,11 @@ impl OverlayToggle {
     }
 
     pub(crate) fn from_slug(s: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|t| t.slug() == s)
+        Self::ALL.into_iter().find(|t| t.slug() == s).or(match s {
+            // The rotation-couplet and debris-signature layers, merged into Tornado detection: a
+            // settings file, workspace or scene that had either on turns it on.
+            "Couplets" | "Tds" => Some(Self::TornadoId),
+            _ => None,
+        })
     }
 }

@@ -481,10 +481,7 @@ pub(crate) fn show(
         ),
         (
             "Detectors",
-            filters.show_tds
-                || filters.show_couplets
-                || filters.show_tbss
-                || filters.show_zdr_columns,
+            filters.show_tornado_id || filters.show_tbss || filters.show_zdr_columns,
         ),
         (
             "Level 3 grids",
@@ -1248,11 +1245,7 @@ pub(crate) fn show(
         ui.weak("Takes effect on the next flash-density refresh.");
     }
     if (section == "Detectors" || section == "Lightning")
-        && (filters.show_tds
-            || filters.show_couplets
-            || filters.show_tbss
-            || filters.show_zdr_columns
-            || show_glm)
+        && (filters.show_tornado_id || filters.show_tbss || filters.show_zdr_columns || show_glm)
         && ui.button("Reset detector thresholds").clicked()
     {
         *detectors = crate::settings::DetectorTuning::default();
@@ -1343,7 +1336,7 @@ pub(crate) fn detector_score_thresholds(
         ui.add_space(4.0);
         ui.label(egui::RichText::new(text).small().strong());
     };
-    if filters.show_tds {
+    if filters.show_tornado_id {
         header(ui, "Debris signature (TDS)");
         let mut pct = (detectors.tds_min_confidence * 100.0).round();
         if ui
@@ -1366,9 +1359,9 @@ pub(crate) fn detector_score_thresholds(
         {
             detectors.tds_min_confidence = pct / 100.0;
         }
-        ui.weak("Each marker shows its evidence score. Raise this to cut down on doubtful ones.");
+        ui.weak("Below this a debris signature is left out of a tornado's web, the original Tornado ID and debris alerts.");
     }
-    if filters.show_couplets {
+    if filters.show_tornado_id {
         header(ui, "Rotation couplets");
         let mut pct = (detectors.rotation_min_confidence * 100.0).round();
         if ui
@@ -1389,7 +1382,7 @@ pub(crate) fn detector_score_thresholds(
         {
             detectors.rotation_min_confidence = pct / 100.0;
         }
-        ui.weak("Each marker shows its evidence score; hover it for the working.");
+        ui.weak("Below this a couplet is left out of a tornado's web, the original Tornado ID and rotation alerts.");
     }
 }
 
@@ -1470,8 +1463,7 @@ mod detector_threshold_snapshots {
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/ui-review");
         std::fs::create_dir_all(&destination).unwrap();
         let filters = OverlayFilters {
-            show_tds: true,
-            show_couplets: true,
+            show_tornado_id: true,
             ..Default::default()
         };
         for width in [280, 640] {

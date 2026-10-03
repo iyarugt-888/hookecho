@@ -54,25 +54,16 @@ impl HookEchoApp {
             .site
             .as_deref()
             .is_some_and(wxdata::tdwr::is_tdwr);
-        // One detection per tornado (`wxdata::tornado_id::circulations`), when any of the three
-        // tornado layers is on: it reads both detectors, as Tornado ID does.
-        let merge = self.settings.merge_tornado_signals
-            && (self.filters.show_tornado_id
-                || self.filters.show_tds
-                || self.filters.show_couplets);
-        // Tornado ID reads both detectors, whether or not their own layers are shown.
-        let want_tds = self.filters.show_tds
-            || self.filters.show_tornado_id
-            || merge
-            || armed(&crate::settings::RuleTrigger::Tds);
+        // Tornado detection is one feature: the rotation and debris detectors feed Tornado ID, which
+        // is drawn as one marker per tornado that opens into the web of the detections it ties
+        // together (`wxdata::tornado_id::circulations`). A rule that watches rotation or debris
+        // drives its detector even with the feature off.
+        let tornado = self.filters.show_tornado_id;
+        let want_tds = tornado || armed(&crate::settings::RuleTrigger::Tds);
         let want_tbss = self.filters.show_tbss || armed(&crate::settings::RuleTrigger::Tbss);
         let want_zdr =
             self.filters.show_zdr_columns || armed(&crate::settings::RuleTrigger::ZdrColumn);
-        let want_couplets = !tdwr
-            && (self.filters.show_couplets
-                || self.filters.show_tornado_id
-                || merge
-                || armed(&crate::settings::RuleTrigger::Rotation));
+        let want_couplets = !tdwr && (tornado || armed(&crate::settings::RuleTrigger::Rotation));
         let tds_hits = if want_tds && idx == self.active {
             self.compute_tds(idx)
         } else {
@@ -115,24 +106,20 @@ impl HookEchoApp {
             self.check_rain_arrival();
             self.evaluate_scan_rules(idx, &tds_hits, &tbss_hits, &zdr_hits, &couplets);
         }
-        // Tornado ID, from the fusion or the legacy detectors (`detectors.tornado_id_source`).
-        // Merged: every rotation and debris detection near a tornado is drawn as part of that
-        // tornado's one marker, not on its own; the full lists stay for the web it opens into.
-        let (tornado_ids, circulations, tornado_lineage) =
-            if idx == self.active && !tdwr && (merge || self.filters.show_tornado_id) {
-                let (ids, circs, lineage) =
-                    self.tornado_identifications(idx, ctx, &couplets, &tds_hits, merge);
-                // For the local API and the analysis export: the verdicts, one per tornado.
-                let shown = if merge {
-                    circs.iter().map(|c| c.id.clone()).collect()
-                } else {
-                    ids.clone()
-                };
-                self.tornado_shown = Some((lineage.volume.clone(), shown, lineage.clone()));
-                (ids, circs, Some(lineage))
-            } else {
-                (Vec::new(), Vec::new(), None)
-            };
+        // Tornado ID, from the fusion or the legacy detectors (`detectors.tornado_id_source`): every
+        // rotation and debris detection near a tornado is part of that tornado's one marker, and
+        // the full lists stay for the web it opens into.
+        let (tornado_ids, circulations, tornado_lineage) = if idx == self.active && !tdwr && tornado
+        {
+            let (ids, circs, lineage) =
+                self.tornado_identifications(idx, ctx, &couplets, &tds_hits, true);
+            // For the local API and the analysis export: the verdicts, one per tornado.
+            let shown = circs.iter().map(|c| c.id.clone()).collect();
+            self.tornado_shown = Some((lineage.volume.clone(), shown, lineage.clone()));
+            (ids, circs, Some(lineage))
+        } else {
+            (Vec::new(), Vec::new(), None)
+        };
         let mut tied_couplet = vec![false; couplets.len()];
         let mut tied_tds = vec![false; tds_hits.len()];
         for c in &circulations {
@@ -144,12 +131,10 @@ impl HookEchoApp {
             }
         }
         let (all_couplets, all_tds) = (couplets.clone(), tds_hits.clone());
-        // Hidden layers computed only for a rule must not also be drawn.
-        let tds_hits = if self.filters.show_tds {
-            tds_hits
-        } else {
-            Vec::new()
-        };
+        // Rotation and debris are drawn only as part of a tornado's marker and its web, never on
+        // their own: one tied to no verdict is what the fusion weighed and set aside. (Hidden
+        // layers computed only for a rule are not drawn either.)
+        let tds_hits: Vec<wxdata::tds::TdsHit> = Vec::new();
         let tbss_hits = if self.filters.show_tbss {
             tbss_hits
         } else {
@@ -165,11 +150,7 @@ impl HookEchoApp {
         } else {
             Vec::new()
         };
-        let couplets = if self.filters.show_couplets {
-            couplets
-        } else {
-            Vec::new()
-        };
+        let couplets: Vec<wxdata::rotation::CoupletHit> = Vec::new();
         PaneDetections {
             nowcast_pts,
             tds_hits,

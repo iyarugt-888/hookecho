@@ -284,11 +284,8 @@ pub struct OverlayFilters {
     pub trail_decay: bool,
     /// One line of trail progress or restart reason, written by the app and read by Layer options.
     pub trail_status: String,
-    /// Auto tornado-debris-signature detection (low CC collocated with high reflectivity).
-    pub show_tds: bool,
-    /// Flag velocity rotation couplets (client-side gate-to-gate azimuthal shear).
-    pub show_couplets: bool,
-    /// Tornado ID: one verdict per place from the couplet and debris detectors together.
+    /// Tornado detection: the rotation and debris detectors and Tornado ID's verdicts, as one
+    /// marker per tornado (`OverlayToggle::TornadoId`).
     pub show_tornado_id: bool,
     /// Flag three-body scatter spikes (hail spikes) off the lowest tilt.
     pub show_tbss: bool,
@@ -319,8 +316,6 @@ impl Default for OverlayFilters {
             trail_keep_min: false,
             trail_decay: false,
             trail_status: String::new(),
-            show_tds: false,
-            show_couplets: false,
             show_tornado_id: false,
             show_tbss: false,
             show_zdr_columns: false,
@@ -4299,14 +4294,11 @@ impl HookEchoApp {
             T::Nowcast => &mut self.filters.show_nowcast,
             T::Trail => &mut self.filters.show_trail,
             T::ScanAge => &mut self.show_scan_age,
-            T::Tds => &mut self.filters.show_tds,
             T::Tbss => &mut self.filters.show_tbss,
             T::ZdrColumns => &mut self.filters.show_zdr_columns,
-            T::Couplets => &mut self.filters.show_couplets,
             T::TornadoId => &mut self.filters.show_tornado_id,
             T::YallMode => &mut self.settings.yall_mode,
             T::LayerProbe => &mut self.settings.layer_probe,
-            T::MergeTornado => &mut self.settings.merge_tornado_signals,
             T::Globe => &mut self.settings.globe,
             T::ScaleBar => &mut self.settings.scale_bar,
             T::Alerts => &mut self.filters.show_alerts,
@@ -4367,7 +4359,7 @@ impl HookEchoApp {
     /// Drive the archived-LSR set from the active pane's playhead (mirrors
     /// [`Self::sync_archive_warnings`], on 30-min buckets).
     fn sync_archive_lsr(&mut self, ctx: &egui::Context) {
-        if !(self.show_storm_reports || self.filters.show_tds || self.filters.show_couplets) {
+        if !(self.show_storm_reports || self.filters.show_tornado_id) {
             return;
         }
         let bucket = (|| {

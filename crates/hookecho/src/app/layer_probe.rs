@@ -277,12 +277,12 @@ impl HookEchoApp {
         // Rotation and debris tracks near the point, when they are drawn.
         let tracks = [
             (
-                self.filters.show_couplets,
+                self.filters.show_tornado_id,
                 self.rot_tracks_cache.as_ref(),
                 "Rotation track",
             ),
             (
-                self.filters.show_tds,
+                self.filters.show_tornado_id,
                 self.tds_tracks_cache.as_ref(),
                 "Debris (TDS) track",
             ),

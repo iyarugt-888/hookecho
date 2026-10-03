@@ -814,7 +814,7 @@ impl HookEchoApp {
         }
         // Live LSR refresh (~2-min cadence; the IEM feed is minutes-fresh).
         // The reports layer, or a detector that confirms itself against them.
-        if (self.show_storm_reports || self.filters.show_tds || self.filters.show_couplets)
+        if (self.show_storm_reports || self.filters.show_tornado_id)
             && self
                 .reports_last_fetch
                 .is_none_or(|t| t.elapsed().as_secs() >= 120)
