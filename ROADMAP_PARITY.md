@@ -299,8 +299,10 @@ On the pinned Moore 2013 volume, the fused verdict's four input tilts were scann
 
 **Tornado ID lineage verification:** Windows `cargo test --workspace` passed **2,117 tests**, with zero failures and 130 explicitly ignored. That includes two lineage unit tests (input clocks, unknown/unobserved rows, missing inputs, malformed sweeps, JSON) and a CSV export test (fused interval, blank original interval). `cargo clippy --workspace --all-targets -- -D warnings` passed. The gate first failed on four `chunks_exact` lints in increment 4's `loop3d.rs` tests; those were corrected mechanically, with their assertions unchanged. The WASM library check passed (existing warnings: one in wxdata, ten in hookecho). The explicitly invoked GPU capture on cached Moore passed on RTX 2060/Vulkan. Logs are `target/parity-review/m1.4/lineage-{workspace,clippy,wasm}.log`.
 
+**Follow-up (same day):** the original pipeline now records its input clocks too. Its couplets read the same four lowest velocity and reflectivity tilts, captured from the sweeps `detect_couplets` already owns. The record says "not recorded" only when the couplets were computed for another volume.
+
 Remaining open:
-- input clocks for the original pipeline and the debris (CC) tilts
+- input clocks for the debris (CC) tilts
 - lineage in the pinned circulation card and the Cell dock
 - the same record for the rotation and debris layers, warnings and observations
 - persisted archive receipts

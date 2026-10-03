@@ -1289,6 +1289,12 @@ pub struct HookEchoApp {
             Option<wxdata::level2::temporal::TemporalCoverage>,
         )>,
     )>,
+    /// When the sweeps behind `couplet_cache`'s couplets were scanned (`detection_lineage`).
+    #[allow(clippy::type_complexity)]
+    pub(crate) couplet_inputs: Option<(
+        (usize, String, usize),
+        Option<wxdata::level2::temporal::TemporalCoverage>,
+    )>,
     /// The active pane's last Tornado ID verdicts, by volume, with where they came from: what the
     /// local API and the analysis export report. Set in `pane_detections`.
     #[allow(clippy::type_complexity)]
@@ -4063,7 +4069,13 @@ impl HookEchoApp {
         // usable range band (nearer, clutter fakes couplets; farther, the beam is too high and
         // too coarsely sampled).
         let hits = wxdata::rotation::detect_volume(&pairs, 25.0, 20.0, 15.0, 150.0, 3);
-        Some((hits, (radar_lon, radar_lat), pairs.len()))
+        let n = pairs.len();
+        // When these sweeps were scanned: the original Tornado ID's input clocks.
+        let inputs = wxdata::detection_lineage::input_coverage(
+            pairs.into_iter().flat_map(|(v, z)| [v, z]).collect(),
+        );
+        self.couplet_inputs = Some((self.volume_key(idx), inputs));
+        Some((hits, (radar_lon, radar_lat), n))
     }
 
     /// Raw couplets for this volume plus the radar position and tilt count the alert banner and

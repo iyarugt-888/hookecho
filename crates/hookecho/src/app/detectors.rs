@@ -309,7 +309,12 @@ impl HookEchoApp {
             site: self.views[idx].site.clone(),
             volume: vol.map(|v| v.name.clone()).unwrap_or_default(),
             volume_time: vol.map(|v| v.time),
-            inputs: None,
+            // The couplets were read from these sweeps; see `detect_couplets`.
+            inputs: self
+                .couplet_inputs
+                .as_ref()
+                .filter(|(k, _)| *k == self.volume_key(idx))
+                .and_then(|(_, inputs)| inputs.clone()),
             stand_in: None,
         };
         match analysed {

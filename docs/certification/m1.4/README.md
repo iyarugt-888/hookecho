@@ -65,13 +65,13 @@ are not called either one.
   - An empty row without a clock is counted as unobserved.
   - A sweep with no clocks has no interval; the record never invents one.
 - **Inputs not recorded:**
-  - When the original pipeline makes the verdict, the input clocks are reported as "not recorded"
-    (blank in the CSV, `null` in JSON), never borrowed from the volume time.
+  - The original pipeline records the clocks of the same four lowest tilts its couplets read.
+    When it has none for the volume shown, they are reported as "not recorded" (blank in the
+    CSV, `null` in JSON), never borrowed from the volume time.
   - A malformed sweep yields no record rather than a partial one.
 
 ## Not established
 
-- **Original-pipeline input clocks.** They are not yet recorded; its record says so.
 - **Debris inputs.** The CC tilts behind the debris evidence are named by their algorithm
   version, not by their own clocks.
 - **Pinned circulation card.** It does not show lineage yet; the hovers do.
