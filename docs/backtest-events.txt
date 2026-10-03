@@ -66,3 +66,18 @@ KTLX 2020-05-04 22:00   # Norman hail, 12-42 km (3.25 in 4 W Lake Thunderbird 22
 KFWS 2023-06-13 02:40   # Granbury hail, 6-60 km (2.5-5 in from 02:46Z)
 KEWX 2016-04-13 02:10   # Helotes/San Antonio hail, 37-66 km (4.5 in 02:20Z)
 KGLD 2014-06-15 00:50   # Kanorado hail, near the radar (2.75 in 00:59Z)
+# Round four (detectionplan.md: the corpus is the limit). Found by searching 2014-2024 IEM LSRs
+# within 150 km of each radar, then checked line by line with the first report in brackets.
+# Tornadoes embedded in widespread wind damage (>= 3 tornado and >= 20 wind reports in 90 min):
+KMPX 2018-09-20 23:10   # Minnesota line and cells, EF0-2 (23:19Z, Smiths Mill, 80 km)
+KILN 2020-04-09 01:50   # Ohio Valley QLCS, night (01:59Z, Versailles IN, 130 km; 167 reports)
+KDVN 2024-07-15 23:40   # Mississippi Valley QLCS (23:48Z, Elmoville, 89 km; Fairport 35 km at 00:02Z)
+KMHX 2020-04-13 12:55   # Easter line, eastern NC (13:04Z, Haws Run, 60 km)
+KPAH 2024-04-02 09:05   # Morning QLCS, southern IL (09:15Z, Gordonville, 81 km; Lake of Egypt EF2 09:46Z)
+# Lines with >= 30 wind reports in 90 minutes and no tornado report within 150 km from two hours
+# before to three after: the straight-line wind a line-tornado signal has to reject.
+KIND 2023-06-29 18:15   # Derecho across Indiana (224 wind reports in 90 min)
+KDVN 2024-05-21 23:45   # Derecho line, eastern Iowa/Illinois (113 wind reports)
+KILX 2023-05-08 00:40   # Central Illinois line (99 wind reports, 2 in hail)
+KIWX 2024-06-13 20:35   # Northern Indiana line (90 wind reports)
+KLOT 2022-08-29 16:30   # Chicago-area line (65 wind reports)
