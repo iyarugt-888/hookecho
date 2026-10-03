@@ -1281,7 +1281,7 @@ pub(crate) fn tornado_id_controls(
             );
         ui.radio_value(&mut detectors.tornado_id_source, S::Legacy, "Original")
             .on_hover_text(
-                "The original Tornado ID, from the rotation-couplet and debris layers.",
+                "The original Tornado ID, from the rotation-couplet and debris-signature detectors.",
             );
     });
     if detectors.tornado_id_source == crate::settings::TornadoIdSource::Fusion {

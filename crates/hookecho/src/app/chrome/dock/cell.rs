@@ -505,7 +505,7 @@ impl HookEchoApp {
                                 match &threat.tornado {
                                     Some(line) => ws::kv(ui, &t, "Tornado", line, Some(t.warn)),
                                     None if detectors_ran => ws::kv(ui, &t, "Tornado", "no uniquely associated detection", None),
-                                    None => ws::kv(ui, &t, "Tornado", "detectors off (a tornado layer runs them)", None),
+                                    None => ws::kv(ui, &t, "Tornado", "off (turn on Tornado detection to run the detectors)", None),
                                 }
                                 if threat.tornado.is_some() {
                                     for line in &tornado_lineage {
