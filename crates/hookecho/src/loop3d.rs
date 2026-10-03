@@ -28,6 +28,7 @@ pub struct SourceKey {
     pub policy: TemporalPolicy,
     site: Option<String>,
     scan: crate::volume::ScanIdentity,
+    acquisition: Option<crate::live_scan::AcquisitionSnapshot>,
 }
 
 impl SourceKey {
@@ -43,19 +44,32 @@ impl SourceKey {
             name,
             revision,
             scan: crate::volume::ScanIdentity::new(scan),
+            acquisition: None,
             policy,
         }
     }
 
     pub(crate) fn for_view(view: &crate::view::MapView, policy: TemporalPolicy) -> Option<Self> {
         let volume = view.volume.as_ref()?;
-        Some(Self::new(
+        let mut key = Self::new(
             view.site.clone(),
             volume.name.clone(),
             volume.revision(),
             &volume.scan,
             policy,
-        ))
+        );
+        key.acquisition = volume.acquisition_for(view.site.as_deref()).cloned();
+        Some(key)
+    }
+
+    pub(crate) fn acquisition(&self) -> Option<&crate::live_scan::AcquisitionSnapshot> {
+        self.acquisition.as_ref()
+    }
+
+    fn acquisition_bytes(&self) -> usize {
+        self.acquisition
+            .as_ref()
+            .map_or(0, crate::live_scan::AcquisitionSnapshot::estimated_bytes)
     }
 }
 
@@ -768,6 +782,7 @@ impl Loop3dJobs {
                 {
                     let size = smooth_bytes(&up.upload)
                         + coverage_bytes(&up.coverage)
+                        + k.source.acquisition_bytes()
                         + std::mem::size_of::<SmoothFrame>();
                     cache.smooth.insert(k, Arc::new(up), size);
                 }
@@ -776,6 +791,7 @@ impl Loop3dJobs {
                 {
                     let size = iso_bytes(&shells.shells)
                         + coverage_bytes(&shells.coverage)
+                        + k.source.acquisition_bytes()
                         + std::mem::size_of::<IsoFrame>()
                         + (shells.shells.capacity() - shells.shells.len())
                             * std::mem::size_of::<IsoShell>();
@@ -1027,6 +1043,91 @@ mod tests {
             high_contrast: false,
             max_dim: 32,
         }
+    }
+
+    #[test]
+    fn cached_map_payloads_keep_their_original_receipt_and_charge_its_capacity() {
+        let scan = fixture_scan();
+        let weak = Arc::downgrade(&scan);
+        let (_, receipt) = crate::live_scan::acquisition_fixture("KPAH");
+        let mut view = crate::view::MapView::new(
+            Some("KPAH".into()),
+            crate::render::mercator::Camera::at_lonlat(-88.0, 37.0, 8.0),
+        );
+        view.volume = Some(crate::view::Volume::from_live_captured(
+            scan.clone(),
+            "same-frame".into(),
+            chrono::DateTime::UNIX_EPOCH,
+            Some(receipt.clone()),
+        ));
+        let accepted = SourceKey::for_view(&view, TemporalPolicy::Continuous).unwrap();
+        let prefetch = source(&scan, TemporalPolicy::Continuous);
+        assert_ne!(
+            accepted, prefetch,
+            "prefetch without evidence cannot satisfy a raw accepted source"
+        );
+        let mut key = smooth_key(&scan, TemporalPolicy::Continuous);
+        key.source = accepted.clone();
+        let frame = build_smooth_covered(
+            Sweeps::Binned {
+                sweeps: mixed_inputs(Moment::Reflectivity),
+                mask: None,
+            },
+            &smooth_spec(Moment::Reflectivity),
+            TemporalPolicy::Continuous,
+        )
+        .unwrap();
+        let smooth_charge = smooth_bytes(&frame.upload)
+            + coverage_bytes(&frame.coverage)
+            + std::mem::size_of::<SmoothFrame>()
+            + receipt.estimated_bytes();
+        let iso = IsoKey {
+            source: accepted.clone(),
+            moment: Moment::Reflectivity,
+            value: 100.0f32.to_bits(),
+            smooth: true,
+            step: None,
+            storm_uv: None,
+            max_dim: 32,
+        };
+        let iso_frame = IsoFrame {
+            shells: Vec::new(),
+            coverage: frame.coverage.clone(),
+        };
+        let iso_charge = coverage_bytes(&iso_frame.coverage)
+            + std::mem::size_of::<IsoFrame>()
+            + receipt.estimated_bytes();
+        let mut jobs = Loop3dJobs::default();
+        jobs.tx
+            .send((JobKey::Smooth(0, key.clone()), Built::Smooth(Some(frame))))
+            .unwrap();
+        jobs.tx
+            .send((JobKey::Iso(0, iso.clone()), Built::Iso(Some(iso_frame))))
+            .unwrap();
+        // Delivery occurs after the source advances; it must retain the worker's original receipt.
+        view.volume.as_mut().unwrap().apply_live(
+            scan.clone(),
+            "same-frame".into(),
+            chrono::DateTime::UNIX_EPOCH,
+            &[0.5],
+        );
+        let current = SourceKey::for_view(&view, TemporalPolicy::Continuous).unwrap();
+        assert_ne!(accepted, current);
+        assert_eq!(current.acquisition(), None);
+        let mut caches = [Loop3dCache::default()];
+        jobs.drain(&mut caches);
+        assert!(caches[0].smooth.contains(&key));
+        assert!(caches[0].iso.contains(&iso));
+        assert_eq!(caches[0].smooth.bytes(), smooth_charge);
+        assert_eq!(caches[0].iso.bytes(), iso_charge);
+        let mut new_key = key.clone();
+        new_key.source = current;
+        assert!(!caches[0].smooth.contains(&new_key));
+        drop(view);
+        drop(scan);
+        assert!(weak.upgrade().is_none());
+        assert_eq!(key.source.acquisition(), Some(&receipt));
+        assert_eq!(iso.source.acquisition(), Some(&receipt));
     }
 
     #[test]

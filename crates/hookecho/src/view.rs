@@ -126,6 +126,7 @@ pub struct ObservedKey {
     volume: String,
     revision: u64,
     scan: crate::volume::ScanIdentity,
+    acquisition: Option<crate::live_scan::AcquisitionSnapshot>,
     moment: Moment,
     policy: level2::temporal::TemporalPolicy,
     palette: u64,
@@ -148,6 +149,7 @@ impl ObservedKey {
             volume: volume.name.clone(),
             revision: volume.revision(),
             scan: crate::volume::ScanIdentity::new(&volume.scan),
+            acquisition: volume.acquisition_for(view.site.as_deref()).cloned(),
             moment,
             policy,
             palette,
@@ -169,7 +171,12 @@ impl ObservedKey {
                 self.volume == volume.name
                     && self.revision == volume.revision()
                     && self.scan.matches(&volume.scan)
+                    && self.acquisition.as_ref() == volume.acquisition_for(view.site.as_deref())
             })
+    }
+
+    pub(crate) fn acquisition(&self) -> Option<&crate::live_scan::AcquisitionSnapshot> {
+        self.acquisition.as_ref()
     }
 }
 
@@ -520,12 +527,68 @@ pub struct Volume {
     /// Live merges applied to this volume, so a build keyed by it goes stale when it grows and
     /// only then (the pane's own revision also moves when a *newer* volume grows).
     revision: u64,
+    acquisition: Option<AcceptedAcquisition>,
     /// User-defined products evaluated on a tilt, keyed by the product's identity, the tilt and
     /// the revision they were worked out at (so a live merge makes them stale).
     products: LruCache<(u64, usize, u64), BinnedSweep>,
 }
 
+struct AcceptedAcquisition {
+    scan: crate::volume::ScanIdentity,
+    revision: u64,
+    receipt: crate::live_scan::AcquisitionSnapshot,
+}
+
 impl Volume {
+    pub(crate) fn acquisition_for(
+        &self,
+        site: Option<&str>,
+    ) -> Option<&crate::live_scan::AcquisitionSnapshot> {
+        self.acquisition
+            .as_ref()
+            .filter(|accepted| {
+                accepted.revision == self.revision
+                    && accepted.scan.matches(&self.scan)
+                    && accepted.receipt.matches_site(site)
+            })
+            .map(|accepted| &accepted.receipt)
+    }
+
+    fn retain_acquisition(&mut self, receipt: Option<crate::live_scan::AcquisitionSnapshot>) {
+        self.acquisition = receipt.map(|receipt| AcceptedAcquisition {
+            scan: crate::volume::ScanIdentity::new(&self.scan),
+            revision: self.revision,
+            receipt,
+        });
+    }
+
+    pub(crate) fn from_live_captured(
+        scan: Arc<Scan>,
+        name: String,
+        time: DateTime<Utc>,
+        receipt: Option<crate::live_scan::AcquisitionSnapshot>,
+    ) -> Self {
+        let mut volume = Self::from_live(scan, name, time);
+        if !volume.elevations.is_empty() {
+            volume.retain_acquisition(receipt);
+        }
+        volume
+    }
+
+    pub(crate) fn apply_live_captured(
+        &mut self,
+        scan: Arc<Scan>,
+        name: String,
+        time: DateTime<Utc>,
+        changed: &[f32],
+        receipt: Option<crate::live_scan::AcquisitionSnapshot>,
+    ) {
+        let before = self.revision;
+        self.apply_live(scan, name, time, changed);
+        if self.revision != before {
+            self.retain_acquisition(receipt);
+        }
+    }
     /// Whether this volume has received a progressive chunk merge.
     pub(crate) fn is_live_partial(&self) -> bool {
         self.live
@@ -554,6 +617,7 @@ impl Volume {
             live: false,
             light: false,
             revision: 0,
+            acquisition: None,
             products: LruCache::new(NonZeroUsize::new(6).unwrap()),
         }
     }
@@ -650,6 +714,7 @@ impl Volume {
         if new_elev.is_empty() {
             return;
         }
+        self.acquisition = None;
         self.scan = scan;
         // Any changed tilt changes the column maximum above it, and its cleaned copy.
         for m in Moment::ALL {
@@ -1347,6 +1412,86 @@ mod tests {
         let archived = Volume::new(scan, "archive".into(), now);
         assert!(live.is_live_partial());
         assert!(!archived.is_live_partial());
+    }
+
+    #[test]
+    fn accepted_receipt_changes_only_with_an_accepted_decoded_revision() {
+        let (mut receiver, first) = crate::live_scan::acquisition_fixture("KTLX");
+        let now = Utc::now();
+        let mut volume =
+            Volume::from_live_captured(scan_at(&[0.5]), "first".into(), now, Some(first.clone()));
+        assert_eq!(volume.acquisition_for(Some("KTLX")), Some(&first));
+        let revision = volume.revision();
+        volume.apply_live_captured(scan_at(&[]), "metadata-only".into(), now, &[], None);
+        assert_eq!(volume.revision(), revision);
+        assert_eq!(volume.name, "first");
+        assert_eq!(volume.acquisition_for(Some("KTLX")), Some(&first));
+        let second = receiver
+            .capture_acquisition(
+                wxdata::live::RadialCoverage {
+                    progress: receiver.progress.unwrap(),
+                    radials: vec![(3, 0)],
+                },
+                now,
+            )
+            .unwrap();
+        volume.apply_live_captured(
+            scan_at(&[0.5]),
+            "first".into(),
+            now,
+            &[0.5],
+            Some(second.clone()),
+        );
+        assert_eq!(volume.revision(), revision + 1);
+        assert_eq!(volume.acquisition_for(Some("KTLX")), Some(&second));
+        assert!(first.inventory().cuts[0].internal_unobserved_spans.len() == 1);
+        assert!(second.inventory().cuts[0]
+            .internal_unobserved_spans
+            .is_empty());
+        assert_eq!(volume.acquisition_for(Some("KPAH")), None);
+        // A public scan replacement cannot accidentally inherit an earlier receipt.
+        volume.scan = scan_at(&[0.5]);
+        assert_eq!(volume.acquisition_for(Some("KTLX")), None);
+        volume.apply_live_captured(scan_at(&[0.5]), "first".into(), now, &[0.5], Some(second));
+        volume.apply_live_captured(scan_at(&[0.5]), "complete".into(), now, &[0.5], None);
+        assert_eq!(volume.acquisition_for(Some("KTLX")), None);
+        assert_eq!(
+            Volume::new(scan_at(&[0.5]), "archive".into(), now).acquisition_for(Some("KTLX")),
+            None
+        );
+    }
+
+    #[test]
+    fn observed_key_owns_the_receipt_of_its_upload_without_pinning_scan_buffers() {
+        use level2::temporal::TemporalPolicy as P;
+        let (_, receipt) = crate::live_scan::acquisition_fixture("KTLX");
+        let scan = scan_at(&[0.5]);
+        let weak = Arc::downgrade(&scan);
+        let mut view = MapView::new(Some("KTLX".into()), Camera::at_lonlat(-97.0, 35.0, 8.0));
+        view.volume = Some(Volume::from_live_captured(
+            scan.clone(),
+            "source".into(),
+            Utc::now(),
+            Some(receipt.clone()),
+        ));
+        let key = ObservedKey::new(
+            &view,
+            Moment::Reflectivity,
+            P::Continuous,
+            0,
+            false,
+            [0; 12 + MAX_HIGHLIGHTED_LAYERS],
+        )
+        .unwrap();
+        assert_eq!(key.acquisition(), Some(&receipt));
+        assert!(key.matches_source(&view, Moment::Reflectivity, P::Continuous));
+        // Same accepted numerical identity but unavailable evidence must not borrow the old receipt.
+        view.volume.as_mut().unwrap().acquisition = None;
+        assert!(!key.matches_source(&view, Moment::Reflectivity, P::Continuous));
+        drop(view);
+        drop(scan);
+        assert!(weak.upgrade().is_none());
+        assert_eq!(key.acquisition(), Some(&receipt));
     }
 
     use super::*;

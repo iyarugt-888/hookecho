@@ -158,9 +158,8 @@ impl HookEchoApp {
                     if !v.live_scan.accept_volume(&name, time, Utc::now()) {
                         continue; // late chunk from an older volume cannot reverse display time
                     }
-                    if let Some(coverage) = radial_coverage {
-                        v.live_scan.observe_radials(coverage, Utc::now());
-                    }
+                    let acquisition = radial_coverage
+                        .and_then(|coverage| v.live_scan.capture_acquisition(coverage, Utc::now()));
                     v.live_render_started = received_at;
                     log::debug!(
                         target: "hookecho::live_sweep",
@@ -172,8 +171,13 @@ impl HookEchoApp {
                         if retries == 1 { "y" } else { "ies" },
                     );
                     match &mut v.volume {
-                        Some(vol) => vol.apply_live(scan, name, time, &changed),
-                        None => v.volume = Some(Volume::from_live(scan, name, time)),
+                        Some(vol) => {
+                            vol.apply_live_captured(scan, name, time, &changed, acquisition)
+                        }
+                        None => {
+                            v.volume =
+                                Some(Volume::from_live_captured(scan, name, time, acquisition))
+                        }
                     }
                     v.live_scan_revision = v.live_scan_revision.wrapping_add(1);
                     // Phase B5's "follow newest low-level cut": jump to the lowest tilt the

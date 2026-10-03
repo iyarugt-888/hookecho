@@ -11,6 +11,7 @@ pub struct VolumeFrameLabel {
     pub site: Option<String>,
     pub volume: String,
     pub revision: u64,
+    pub acquisition: Option<crate::live_scan::AcquisitionSnapshot>,
 }
 
 /// Everything the window keeps between frames: the orbit camera, the dBZ floor, the slab, and the
@@ -687,6 +688,10 @@ fn source_details(ui: &mut egui::Ui, label: &VolumeFrameLabel, coverage: &Tempor
     for line in coverage_lines(coverage) {
         ui.add(egui::Label::new(line).wrap());
     }
+    for (name, value) in crate::ui::acquisition_inventory::receipt_rows(label.acquisition.as_ref())
+    {
+        ui.add(egui::Label::new(format!("{name}: {value}")).wrap());
+    }
 }
 
 fn coverage_lines(coverage: &TemporalCoverage) -> Vec<String> {
@@ -771,6 +776,7 @@ mod tests {
             site: Some("DEMO".into()),
             volume: "controlled-input-20231114_221320".into(),
             revision: 7,
+            acquisition: None,
         }
     }
 
@@ -801,6 +807,31 @@ mod tests {
         unknown.contributors[0].used_start_ms = None;
         unknown.contributors[0].used_end_ms = None;
         assert!(coverage_lines(&unknown).contains(&"Input clocks unknown".into()));
+    }
+
+    #[test]
+    fn standalone_receipt_summary_wraps_with_accepted_grid_coverage() {
+        let (_, receipt) = crate::live_scan::acquisition_fixture("KPAH");
+        let mut label = frame();
+        label.acquisition = Some(receipt);
+        let ctx = egui::Context::default();
+        for width in [240.0, 300.0] {
+            let _ = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(width, 900.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| {
+                    crate::ui::workstation::set_touch(ui.ctx(), width == 240.0);
+                    source_details(ui, &label, &coverage(TemporalPolicy::Continuous));
+                    assert!(ui.min_rect().right() <= width + 1.0);
+                    assert!(ui.min_rect().bottom() < 900.0);
+                },
+            );
+        }
     }
 
     #[test]

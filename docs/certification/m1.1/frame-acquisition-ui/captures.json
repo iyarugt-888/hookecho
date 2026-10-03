@@ -1,0 +1,57 @@
+{
+  "scenario": "Controlled accepted receipt after receiver gap fill; revision 7 preserves raw #3 unobserved, radial #2 untimed, cuts 2/3 unobserved; separate unavailable frame. Production expanded selected-frame painter; no viewport or device interaction.",
+  "theme": "DearImGui",
+  "pixels_per_point": 1,
+  "adapter_driver": "Not retained by the UI snapshot helper",
+  "command": "cargo test -p hookecho --lib gpu_frame_acquisition_snapshots -- --ignored --nocapture",
+  "source_baseline": "c369d3e plus M1.1 increment 6 accepted-frame acquisition receipts",
+  "source_sha256": {
+    "live_scan.rs": "468b41a1332271140ed6b2cadb25268194561bc91eda9777ae43793e7eac4e64",
+    "view.rs": "f7620caacdeeb1627d3342b2fcbd72531e3a07e53e983900b70388099654ba88",
+    "loop3d.rs": "863c570eef4ca9078152ed8fb8950075747d40a7652cd6c058ec0a3bf0c12dab",
+    "app/data_poll.rs": "4f5081b2da7ad2966daf3f60fadc352f1fd9e3fcea6c2676c08a5eb11144d1c8",
+    "app/radar_products.rs": "bfc4855159961867dc2befdb0ef41f874dd623d3fa3e5f01ec81382bd849aa0a",
+    "app/standalone_volume.rs": "17e315eebd6a2fb3da038761e282665e8b8ed1d7590ab4867ad68e7d3ef05209",
+    "app/chrome/dock/inspector.rs": "4dcf53a90377a16446295b7f083431f0ed2c3dd53461bf2140302b827468ee21",
+    "ui/acquisition_inventory.rs": "cd7d9fe85427743cc29d554daef5a8ebf215f8581fdbf725a4f874a98ccc7605",
+    "ui/volume3d_window.rs": "4c73c200399e883f506edb63d8725b53cef79ec813af4b1fa54b59d6b68d0a83"
+  },
+  "captures": [
+    {
+      "file": "accepted-240.png",
+      "bytes": 83527,
+      "sha256": "febda488e2584bae1dbe9a88fc67d81d1d2f51733f7c2fb0df8f2cb9dfcc0a46",
+      "width": 240,
+      "height": 900,
+      "touch": true,
+      "capture_utc": "2026-10-03T14:38:26.217735+00:00"
+    },
+    {
+      "file": "accepted-300.png",
+      "bytes": 84328,
+      "sha256": "8774143c5050d5ea1549a5b7fb99393a2f1c61229b922b4bdd0817b2817e01cd",
+      "width": 300,
+      "height": 900,
+      "touch": false,
+      "capture_utc": "2026-10-03T14:38:26.513697+00:00"
+    },
+    {
+      "file": "unavailable-240.png",
+      "bytes": 25199,
+      "sha256": "7ee2dfc132ae10ac4b8104086cda8b9338c6c73868e305a11d61ecba0655fddb",
+      "width": 240,
+      "height": 900,
+      "touch": true,
+      "capture_utc": "2026-10-03T14:38:26.706427+00:00"
+    },
+    {
+      "file": "unavailable-300.png",
+      "bytes": 26178,
+      "sha256": "5afd53e6661901683c72b6836a86cb7085cdf0c8c9e20e887fb686eb74d1d71d",
+      "width": 300,
+      "height": 900,
+      "touch": false,
+      "capture_utc": "2026-10-03T14:38:26.912468+00:00"
+    }
+  ]
+}

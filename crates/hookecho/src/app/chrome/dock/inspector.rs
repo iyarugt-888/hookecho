@@ -88,6 +88,13 @@ impl HookEchoApp {
             .find(|(k, _)| *k == "Active provider")
             .map(|(_, v)| v);
         let v = &self.views[self.active];
+        let frame_acquisition = v.volume.as_ref().map(|volume| {
+            (
+                volume.name.clone(),
+                volume.revision(),
+                volume.acquisition_for(v.site.as_deref()).cloned(),
+            )
+        });
         let moment = v.moment;
         let product = crate::products::name(moment, v.srv);
         let site_id = v.site.clone();
@@ -127,37 +134,59 @@ impl HookEchoApp {
             if moment == Moment::SpecificDifferentialPhase {
                 vec![("Status", "KDP is derived; displayed on map plane".into())]
             } else {
-                observed_coverage_rows(
-                    v.map_3d
-                        .observed_coverage
-                        .as_ref()
-                        .filter(|_| observed_current),
-                    tz,
-                )
+                let coverage = v
+                    .map_3d
+                    .observed_coverage
+                    .as_ref()
+                    .filter(|_| observed_current);
+                let mut rows = observed_coverage_rows(coverage, tz);
+                if coverage.is_some() {
+                    rows.extend(crate::ui::acquisition_inventory::receipt_rows(
+                        v.map_3d
+                            .observed_key
+                            .as_ref()
+                            .and_then(|key| key.acquisition()),
+                    ));
+                }
+                rows
             }
         });
         let smooth_rows = self.current_smooth_key(self.active).map(|key| {
             let job = JobKey::Smooth(self.active, key.clone());
-            map_volume_coverage_rows(
-                self.smooth_vol_coverage[self.active]
-                    .as_ref()
-                    .filter(|_| self.smooth_vol_key[self.active].as_ref() == Some(&key)),
+            let coverage = self.smooth_vol_coverage[self.active]
+                .as_ref()
+                .filter(|_| self.smooth_vol_key[self.active].as_ref() == Some(&key));
+            let mut rows = map_volume_coverage_rows(
+                coverage,
                 &key.source,
                 self.loop3d_jobs.came_up_empty(&job),
                 tz,
-            )
+            );
+            if coverage.is_some() {
+                rows.extend(crate::ui::acquisition_inventory::receipt_rows(
+                    key.source.acquisition(),
+                ));
+            }
+            rows
         });
         let iso_rows = self.current_iso_key(self.active).map(|key| {
             let job = JobKey::Iso(self.active, key.clone());
-            map_volume_coverage_rows(
-                self.iso_mesh[self.active]
-                    .as_ref()
-                    .filter(|(accepted, _)| accepted == &key)
-                    .map(|(_, frame)| &frame.coverage),
+            let coverage = self.iso_mesh[self.active]
+                .as_ref()
+                .filter(|(accepted, _)| accepted == &key)
+                .map(|(_, frame)| &frame.coverage);
+            let mut rows = map_volume_coverage_rows(
+                coverage,
                 &key.source,
                 self.loop3d_jobs.came_up_empty(&job),
                 tz,
-            )
+            );
+            if coverage.is_some() {
+                rows.extend(crate::ui::acquisition_inventory::receipt_rows(
+                    key.source.acquisition(),
+                ));
+            }
+            rows
         });
         let (disp_factor, disp_unit) = display_units(moment, &self.settings);
         let source_rows =
@@ -196,7 +225,13 @@ impl HookEchoApp {
                 .iter()
                 .filter(|l| v.fields_on.contains(l) && self.radar_field_ready(self.active, **l))
                 .find_map(|l| self.fields.get(l)?.radar.as_ref());
-            radar_coverage_rows(metadata.map(|m| &m.coverage), tz)
+            let mut rows = radar_coverage_rows(metadata.map(|m| &m.coverage), tz);
+            if let Some(metadata) = metadata {
+                rows.extend(crate::ui::acquisition_inventory::receipt_rows(
+                    metadata.acquisition(),
+                ));
+            }
+            rows
         } else {
             Vec::new()
         };
@@ -308,6 +343,15 @@ impl HookEchoApp {
             if !local_radar_rows.is_empty() {
                 ui.add_space(6.0);
                 paint_radar_coverage(ui, &t, &local_radar_rows);
+            }
+            if let Some((name, revision, receipt)) = &frame_acquisition {
+                crate::ui::acquisition_inventory::show_frame(
+                    ui,
+                    &t,
+                    name,
+                    *revision,
+                    receipt.as_ref(),
+                );
             }
             if !model_rows.is_empty() {
                 ui.add_space(6.0);
@@ -1121,12 +1165,16 @@ mod tests {
     fn radar_coverage_details_fit_narrow_docks() {
         let ctx = egui::Context::default();
         let t = ws::Tokens::new(egui::Color32::LIGHT_BLUE);
-        let rows = radar_coverage_rows(
+        let mut rows = radar_coverage_rows(
             Some(&coverage(
                 wxdata::level2::temporal::TemporalPolicy::Continuous,
             )),
             None,
         );
+        let (_, receipt) = crate::live_scan::acquisition_fixture("KTLX");
+        rows.extend(crate::ui::acquisition_inventory::receipt_rows(Some(
+            &receipt,
+        )));
         for width in [240.0, 300.0] {
             let _ = ctx.run_ui(
                 egui::RawInput {

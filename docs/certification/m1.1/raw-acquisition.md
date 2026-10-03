@@ -57,8 +57,9 @@ Final workspace, Clippy and browser compatibility results are recorded in ROADMA
 
 ## Remaining work
 
-Bind inventory to the accepted decoded source/revision in derived and 3D payloads, then add
-source-driven persistent pass boundaries and explicit transport evidence. The provider's current
+Accepted decoded-source/revision propagation is delivered in the subsequent
+[frame acquisition increment](frame-acquisition.md). Add source-driven persistent pass boundaries
+and explicit transport evidence. The provider's current
 chunk layout supplies positional storage; absent edge sectors are not inferred as transport loss.
 Retain historical pass inventory rather than replacing it on an inferred revisit. Exercise a real
 mid-volume join and recovery session, full application interaction and Android hardware before

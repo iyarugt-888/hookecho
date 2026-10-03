@@ -4,7 +4,9 @@ Smooth/isosurface increment 4 evidence is in [map-3d.md](map-3d.md), with its ow
 builder controls and reviewed source-coverage captures. Earlier counts below remain historical.
 
 [Raw cut acquisition details](raw-acquisition.md) add independent radial-presence evidence and
-shared desktop/phone Analyst Mode inspection; source pass/revision propagation remains open.
+shared desktop/phone Analyst Mode inspection. [Accepted frame receipts](frame-acquisition.md)
+subsequently bind that evidence to decoded revisions and accepted derived/3D results; persistent
+source pass identity and transport evidence remain open.
 
 The subsequent [standalone 3D increment](standalone-3d.md) has its own scientific controls,
 ownership tests, reviewed UI references and remaining-scope record. The [native observed

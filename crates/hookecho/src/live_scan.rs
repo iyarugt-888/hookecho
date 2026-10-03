@@ -93,6 +93,55 @@ pub struct AcquisitionInventory {
     pub cuts: Vec<CutAcquisition>,
 }
 
+/// An immutable accepted receipt. Equality is runtime receipt identity, never a persisted pass ID.
+/// Clones share the small summary; they do not retain decoded gate buffers.
+#[derive(Clone, Debug)]
+pub struct AcquisitionSnapshot {
+    site: Option<String>,
+    inventory: std::sync::Arc<AcquisitionInventory>,
+}
+
+impl AcquisitionSnapshot {
+    pub fn inventory(&self) -> &AcquisitionInventory {
+        &self.inventory
+    }
+
+    pub fn matches_site(&self, site: Option<&str>) -> bool {
+        self.site.as_deref() == site
+    }
+
+    /// Conservative summary capacity charge; shared receipts may be charged once per cache entry.
+    pub fn estimated_bytes(&self) -> usize {
+        std::mem::size_of::<Self>()
+            + self.site.as_ref().map_or(0, String::capacity)
+            + std::mem::size_of::<AcquisitionInventory>()
+            + self.inventory.cuts.capacity() * std::mem::size_of::<CutAcquisition>()
+            + self
+                .inventory
+                .cuts
+                .iter()
+                .map(|cut| {
+                    cut.unobserved_chunks.capacity() * std::mem::size_of::<usize>()
+                        + cut.internal_unobserved_spans.capacity()
+                            * std::mem::size_of::<(u16, u16)>()
+                })
+                .sum::<usize>()
+    }
+}
+
+impl PartialEq for AcquisitionSnapshot {
+    fn eq(&self, other: &Self) -> bool {
+        self.site == other.site && std::sync::Arc::ptr_eq(&self.inventory, &other.inventory)
+    }
+}
+impl Eq for AcquisitionSnapshot {}
+impl std::hash::Hash for AcquisitionSnapshot {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::hash::Hash::hash(&self.site, state);
+        std::hash::Hash::hash(&(std::sync::Arc::as_ptr(&self.inventory) as usize), state);
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Progression {
     pub vcp_number: Option<u16>,
@@ -284,28 +333,28 @@ impl LiveScan {
     /// Apply raw positions from the arriving chunk, before the merged sweep's older pass can
     /// fill holes. The progress event normally arrived first, but this also tolerates a missing
     /// progress message without guessing from elevation angle.
-    pub fn observe_radials(&mut self, coverage: RadialCoverage, received: DateTime<Utc>) {
+    pub fn observe_radials(&mut self, coverage: RadialCoverage, received: DateTime<Utc>) -> bool {
         let p = coverage.progress;
         if !(1..=64).contains(&p.total_elevations)
             || !(1..=p.total_elevations).contains(&p.elevation_number)
             || !(1..=64).contains(&p.chunks_in_sweep)
             || !(1..=p.chunks_in_sweep).contains(&p.chunk_index)
         {
-            return;
+            return false;
         }
         self.progress(p, received);
         if (p.volume_start_ms.is_some()
             && self.latest_progress_volume_start_ms != p.volume_start_ms)
             || (p.vcp_number.is_some() && self.progress_vcp_number != p.vcp_number)
         {
-            return;
+            return false;
         }
         let Some(cut) = self
             .observed_cuts
             .get_mut(p.elevation_number.saturating_sub(1))
             .and_then(Option::as_mut)
         else {
-            return;
+            return false;
         };
         let newest_arrival = coverage
             .radials
@@ -339,6 +388,22 @@ impl LiveScan {
                 }
             }
         }
+        true
+    }
+
+    /// Called with the accepted Update's raw envelope, never an independently polled progress event.
+    pub fn capture_acquisition(
+        &mut self,
+        coverage: RadialCoverage,
+        received: DateTime<Utc>,
+    ) -> Option<AcquisitionSnapshot> {
+        if !self.observe_radials(coverage, received) {
+            return None;
+        }
+        Some(AcquisitionSnapshot {
+            site: self.site.clone(),
+            inventory: std::sync::Arc::new(self.acquisition_inventory()?),
+        })
     }
 
     /// Snapshot only the raw evidence accepted for this receiver volume. Angular zeros in a
@@ -660,6 +725,36 @@ fn chunk_sequence(name: &str) -> Option<(&str, u16)> {
     Some((prefix, sequence))
 }
 
+/// Controlled raw arrival envelope shared by accepted-source ownership and UI tests.
+#[cfg(test)]
+pub(crate) fn acquisition_fixture(site: &str) -> (LiveScan, AcquisitionSnapshot) {
+    let mut receiver = LiveScan::default();
+    receiver.reset(Some(site.into()));
+    let start = 1_700_000_000_000;
+    let receipt = receiver
+        .capture_acquisition(
+            RadialCoverage {
+                progress: ScanProgress {
+                    volume_start_ms: Some(start),
+                    vcp_number: Some(212),
+                    cut_kind: CutKind::Standard,
+                    elevation_number: 1,
+                    total_elevations: 3,
+                    elevation_angle_deg: 0.5,
+                    azimuth_rate_dps: 18.0,
+                    azimuth_start_deg: 0.0,
+                    azimuth_end_deg: 120.0,
+                    chunk_index: 1,
+                    chunks_in_sweep: 3,
+                },
+                radials: vec![(1, start + 1000), (2, 0), (4, start + 3000)],
+            },
+            Utc::now(),
+        )
+        .unwrap();
+    (receiver, receipt)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -689,6 +784,68 @@ mod tests {
             },
             Utc::now(),
         );
+    }
+
+    #[test]
+    fn accepted_receipt_survives_receiver_advance_reset_and_rejected_envelopes() {
+        use std::collections::HashSet;
+        let (mut receiver, receipt) = acquisition_fixture("KTLX");
+        let mut identities = HashSet::new();
+        identities.insert(receipt.clone());
+        assert!(identities.contains(&receipt.clone()));
+        assert!(receipt.matches_site(Some("KTLX")));
+        assert!(!receipt.matches_site(Some("KPAH")));
+        assert!(!receipt.matches_site(None));
+        let original = receipt.inventory().clone();
+        assert!(
+            receipt.estimated_bytes()
+                >= std::mem::size_of::<AcquisitionInventory>()
+                    + original.cuts.len() * std::mem::size_of::<CutAcquisition>()
+        );
+        let mut p = receiver.progress.unwrap();
+        let duplicate = receiver
+            .capture_acquisition(
+                RadialCoverage {
+                    progress: p,
+                    radials: vec![(1, 1_700_000_001_000)],
+                },
+                Utc::now(),
+            )
+            .unwrap();
+        assert_eq!(receipt.inventory(), duplicate.inventory());
+        assert_ne!(
+            receipt, duplicate,
+            "equal summaries are separate accepted receipts"
+        );
+        p.elevation_number = 2;
+        p.cut_kind = CutKind::Sails;
+        raw(&mut receiver, p, &[(1, 1_700_000_010_000)]);
+        assert_eq!(receipt.inventory(), &original);
+        assert_ne!(receiver.acquisition_inventory().as_ref(), Some(&original));
+        p.elevation_number = 0;
+        assert!(receiver
+            .capture_acquisition(
+                RadialCoverage {
+                    progress: p,
+                    radials: vec![]
+                },
+                Utc::now()
+            )
+            .is_none());
+        p.elevation_number = 1;
+        p.volume_start_ms = Some(1000);
+        assert!(receiver
+            .capture_acquisition(
+                RadialCoverage {
+                    progress: p,
+                    radials: vec![]
+                },
+                Utc::now()
+            )
+            .is_none());
+        receiver.reset(Some("KPAH".into()));
+        assert_eq!(receiver.acquisition_inventory(), None);
+        assert_eq!(receipt.inventory(), &original);
     }
 
     #[test]

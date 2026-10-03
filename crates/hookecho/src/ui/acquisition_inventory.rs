@@ -79,6 +79,80 @@ fn paint_acquisition_inventory(
     t: &ws::Tokens,
     inventory: &crate::live_scan::AcquisitionInventory,
 ) {
+    paint_inventory(ui, t, inventory, "Live receiver inventory, independent of the playhead. Known clocks cover timed arrivals only. Unobserved positions do not prove transport loss or a complete scan; repeated-pass identity is not established.");
+}
+
+pub(crate) fn show_frame(
+    ui: &mut egui::Ui,
+    t: &ws::Tokens,
+    name: &str,
+    revision: u64,
+    receipt: Option<&crate::live_scan::AcquisitionSnapshot>,
+) {
+    egui::CollapsingHeader::new("Selected frame acquisition")
+        .id_salt("accepted-frame-acquisition")
+        .show(ui, |ui| paint_frame(ui, t, name, revision, receipt));
+}
+
+fn paint_frame(
+    ui: &mut egui::Ui,
+    t: &ws::Tokens,
+    name: &str,
+    revision: u64,
+    receipt: Option<&crate::live_scan::AcquisitionSnapshot>,
+) {
+    ui.add(
+        egui::Label::new(ws::text(
+            format!("Frame: {name} · revision {revision}"),
+            11.0,
+            t.text,
+        ))
+        .wrap(),
+    );
+    if let Some(receipt) = receipt {
+        paint_inventory(ui, t, receipt.inventory(), "Arrivals retained with this decoded frame. Product coverage describes contributors separately. Known clocks cover timed arrivals only; complete scans, transport loss and persistent pass identity remain unestablished.");
+    } else {
+        ui.add(egui::Label::new(ws::text("Raw acquisition receipt unavailable for this frame. Completed/archive inputs do not establish progressive arrivals.", 11.0, t.text_dim)).wrap());
+    }
+}
+
+/// Source arrival evidence is separate from the product's retained/interpolated contributors.
+pub(crate) fn receipt_rows(
+    receipt: Option<&crate::live_scan::AcquisitionSnapshot>,
+) -> Vec<(&'static str, String)> {
+    let Some(receipt) = receipt else {
+        return vec![("Raw receipt", "Unavailable for this accepted source".into())];
+    };
+    let inventory = receipt.inventory();
+    let raw_cuts = inventory
+        .cuts
+        .iter()
+        .filter(|cut| cut.observed_radials.is_some())
+        .count();
+    let positions: usize = inventory
+        .cuts
+        .iter()
+        .filter_map(|cut| cut.observed_radials)
+        .sum();
+    let unknown: usize = inventory
+        .cuts
+        .iter()
+        .map(|cut| cut.unknown_clock_radials)
+        .sum();
+    vec![
+        ("Raw receipt", format!("{raw_cuts} / {} cuts with raw evidence", inventory.cuts.len())),
+        ("Raw positions", positions.to_string()),
+        ("Untimed raw", unknown.to_string()),
+        ("Receipt scope", "Source arrivals; contributor coverage is separate. Pass identity and transport loss unestablished.".into()),
+    ]
+}
+
+fn paint_inventory(
+    ui: &mut egui::Ui,
+    t: &ws::Tokens,
+    inventory: &crate::live_scan::AcquisitionInventory,
+    scope: &str,
+) {
     let source_time = inventory
         .volume_start_ms
         .and_then(chrono::DateTime::<chrono::Utc>::from_timestamp_millis)
@@ -97,10 +171,7 @@ fn paint_acquisition_inventory(
         ))
         .wrap(),
     );
-    ui.add(egui::Label::new(ws::text(
-        "Live receiver inventory, independent of the playhead. Known clocks cover timed arrivals only. Unobserved positions do not prove transport loss or a complete scan; repeated-pass identity is not established.",
-        11.0, t.text_dim,
-    )).wrap());
+    ui.add(egui::Label::new(ws::text(scope, 11.0, t.text_dim)).wrap());
     for cut in &inventory.cuts {
         let angle = cut
             .angle_deg
@@ -199,6 +270,108 @@ mod tests {
                 "Cut not observed; angle and clocks unknown".into()
             )]
         );
+    }
+
+    #[test]
+    fn frame_receipt_rows_keep_source_arrivals_distinct_from_product_coverage() {
+        let (_, receipt) = crate::live_scan::acquisition_fixture("KTLX");
+        let rows = receipt_rows(Some(&receipt));
+        assert!(rows.contains(&("Raw receipt", "1 / 3 cuts with raw evidence".into())));
+        assert!(rows.contains(&("Raw positions", "3".into())));
+        assert!(rows.contains(&("Untimed raw", "1".into())));
+        assert!(rows
+            .last()
+            .unwrap()
+            .1
+            .contains("contributor coverage is separate"));
+        assert_eq!(
+            receipt_rows(None),
+            [("Raw receipt", "Unavailable for this accepted source".into())]
+        );
+    }
+
+    #[test]
+    fn selected_frame_acquisition_wraps_with_and_without_raw_evidence() {
+        let (_, receipt) = crate::live_scan::acquisition_fixture("KTLX");
+        let ctx = egui::Context::default();
+        let t = ws::Tokens::new(egui::Color32::LIGHT_BLUE);
+        for width in [240.0, 300.0] {
+            for evidence in [Some(&receipt), None] {
+                let _ = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(width, 900.0),
+                        )),
+                        ..Default::default()
+                    },
+                    |ui| {
+                        ws::set_touch(ui.ctx(), width == 240.0);
+                        ws::panel_frame(&t).show(ui, |ui| {
+                            ws::style_scope(ui, &t);
+                            paint_frame(ui, &t, "KTLX20231114_221320_V06", 7, evidence);
+                            assert!(
+                                ui.min_rect().right() <= width + 1.0,
+                                "frame receipt overflowed {width}px"
+                            );
+                            assert!(ui.min_rect().bottom() < 900.0);
+                        });
+                    },
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "gpu: writes accepted frame acquisition captures"]
+    fn gpu_frame_acquisition_snapshots() {
+        let gpu =
+            crate::headless::ui::Snapshot::new().expect("GPU adapter for frame acquisition review");
+        let destination = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/parity-review/m1.1/frame-acquisition-ui");
+        std::fs::create_dir_all(&destination).unwrap();
+        let t = ws::Tokens::new(egui::Color32::from_rgb(72, 142, 226));
+        let (mut receiver, receipt) = crate::live_scan::acquisition_fixture("KTLX");
+        // The retained accepted receipt must still show #3 unobserved after the receiver fills it.
+        receiver.observe_radials(
+            wxdata::live::RadialCoverage {
+                progress: receiver.progress.unwrap(),
+                radials: vec![(3, 0)],
+            },
+            chrono::Utc::now(),
+        );
+        assert!(receiver.acquisition_inventory().unwrap().cuts[0]
+            .internal_unobserved_spans
+            .is_empty());
+        assert_eq!(
+            receipt.inventory().cuts[0].internal_unobserved_spans,
+            [(3, 3)]
+        );
+        for (name, evidence) in [("accepted", Some(&receipt)), ("unavailable", None)] {
+            for width in [240, 300] {
+                gpu.save(
+                    &destination.join(format!("{name}-{width}.png")),
+                    width,
+                    900,
+                    |ui| {
+                        ws::set_touch(ui.ctx(), width == 240);
+                        ws::panel_frame(&t).show(ui, |ui| {
+                            ws::style_scope(ui, &t);
+                            ws::window_header(
+                                ui,
+                                &t,
+                                ph::INFO,
+                                "Selected frame acquisition",
+                                None,
+                                None,
+                            );
+                            paint_frame(ui, &t, "KTLX20231114_221320_V06", 7, evidence);
+                        });
+                    },
+                )
+                .unwrap();
+            }
+        }
     }
 
     #[test]

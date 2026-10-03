@@ -23,6 +23,7 @@ pub(super) struct DerivedKey {
     pub volume: String,
     pub revision: u64,
     scan: ScanIdentity,
+    acquisition: Option<crate::live_scan::AcquisitionSnapshot>,
     pub policy: TemporalPolicy,
     pub etop_bits: u32,
     pub layers: u8,
@@ -56,6 +57,12 @@ pub(crate) struct DerivedDelivery {
 pub(crate) struct RadarMetadata {
     pub(super) key: DerivedKey,
     pub coverage: TemporalCoverage,
+}
+
+impl RadarMetadata {
+    pub(crate) fn acquisition(&self) -> Option<&crate::live_scan::AcquisitionSnapshot> {
+        self.key.acquisition.as_ref()
+    }
 }
 
 impl HookEchoApp {
@@ -126,6 +133,7 @@ impl DerivedKey {
             volume: vol.name.clone(),
             revision: vol.revision(),
             scan: ScanIdentity::new(&vol.scan),
+            acquisition: vol.acquisition_for(view.site.as_deref()).cloned(),
             policy: policy(view, settings),
             etop_bits: settings.etop_dbz.to_bits(),
             layers,
@@ -140,7 +148,10 @@ impl DerivedKey {
     fn matches_view(&self, view: &MapView, settings: &Settings) -> bool {
         self.site == view.site
             && view.volume.as_ref().is_some_and(|v| {
-                self.volume == v.name && self.revision == v.revision() && self.scan.matches(&v.scan)
+                self.volume == v.name
+                    && self.revision == v.revision()
+                    && self.scan.matches(&v.scan)
+                    && self.acquisition.as_ref() == v.acquisition_for(view.site.as_deref())
             })
             && self.policy == policy(view, settings)
             && self.etop_bits == settings.etop_dbz.to_bits()
@@ -257,5 +268,66 @@ mod tests {
             time,
         ));
         view
+    }
+
+    #[test]
+    fn derived_delivery_retains_its_receipt_and_rejects_later_raw_context() {
+        let mut view = fixture_view();
+        let settings = Settings::default();
+        let old = view.volume.take().unwrap();
+        let (mut receiver, receipt) = crate::live_scan::acquisition_fixture("KPAH");
+        let weak = Arc::downgrade(&old.scan);
+        view.volume = Some(Volume::from_live_captured(
+            old.scan,
+            old.name,
+            old.time,
+            Some(receipt.clone()),
+        ));
+        let key = DerivedKey::for_view(&view, &settings, 63, None).unwrap();
+        let metadata = RadarMetadata {
+            key: key.clone(),
+            coverage: TemporalCoverage {
+                policy: TemporalPolicy::Continuous,
+                contributors: Vec::new(),
+            },
+        };
+        assert_eq!(metadata.acquisition(), Some(&receipt));
+        assert!(key.matches_view(&view, &settings));
+        let next_receipt = receiver
+            .capture_acquisition(
+                wxdata::live::RadialCoverage {
+                    progress: receiver.progress.unwrap(),
+                    radials: vec![(3, 0)],
+                },
+                Utc::now(),
+            )
+            .unwrap();
+        let vol = view.volume.as_mut().unwrap();
+        vol.apply_live_captured(
+            vol.scan.clone(),
+            vol.name.clone(),
+            vol.time,
+            &[0.5],
+            Some(next_receipt.clone()),
+        );
+        let next = DerivedKey::for_view(&view, &settings, 63, None).unwrap();
+        assert!(!key.is_current(Some(&next), Some(&next)));
+        assert!(!key.matches_view(&view, &settings));
+        assert_eq!(next.acquisition.as_ref(), Some(&next_receipt));
+        assert_eq!(metadata.acquisition(), Some(&receipt));
+        view.site = Some("KTLX".into());
+        assert!(!next.matches_view(&view, &settings));
+        assert_eq!(
+            DerivedKey::for_view(&view, &settings, 63, None)
+                .unwrap()
+                .acquisition,
+            None
+        );
+        drop(view);
+        assert!(
+            weak.upgrade().is_none(),
+            "metadata retains summaries rather than gate buffers"
+        );
+        assert_eq!(metadata.acquisition(), Some(&receipt));
     }
 }

@@ -271,19 +271,48 @@ work unchanged. These are clock/presence, compilation and expanded-section layou
 full application interaction, actual Android/browser runtime, source pass identity and accepted
 frame/revision propagation remain open.
 
-**Remaining/next increment:** bind the delivered raw cut inventory to accepted decoded-source
-snapshots/revisions in derived and 3D payloads, then add source-driven persistent cut/pass
-boundaries and explicit transport-gap evidence. The current receiver retains scan-local ordinals
+**Evidence ledger — 2026-10-03, increment 6:** accepted live Updates now retain an immutable raw
+acquisition receipt bound to the actual decoded scan, accepted revision and source site. Rejected
+metadata-only scans cannot overwrite the prior frame receipt; accepted inputs without usable raw
+evidence clear it. Raw position/clock evidence survives receiver advancement, gap fill and reset.
+Observed uploads, all six local derived fields, smooth/user-product volumes, isosurfaces and
+standalone reflectivity workers carry the same receipt with their original result. Stale deliveries
+and receipt-free prefetch builds cannot borrow newer evidence. Smooth/isosurface byte budgets
+charge retained summary capacities without pinning decoded gate buffers.
+
+The Inspector's **Selected frame acquisition** exposes the accepted frame/revision and cut
+inventory. Product coverage sections and the standalone window expose their own result's source
+receipt separately from contributor coverage. Completed/archive and independently reloaded replay
+frames retain unavailable raw evidence. In-memory receipt identity is not a persisted pass ID, and
+this increment does not add progressive replay storage. [Ownership controls, reproduction and
+reviewed references](docs/certification/m1.1/frame-acquisition.md) record these boundaries.
+
+**Increment 6 verification:** final Windows workspace checks passed **2,135 tests**, zero failures
+and 136 explicitly ignored checks across 28 suites (`--test-threads=4`); native workspace/all-target
+Clippy passed. Nine new ownership/layout controls passed. The explicit GPU helper passed in
+2.17 seconds after compilation; four accepted/unavailable references were reviewed at 240 px
+touch and 300 px desktop. Independent copy/hash/byte checks verified all captures, and all nine
+implementation files still matched their recorded capture-source hashes. The WASM library check
+passed with the existing browser warnings. The first workspace build stopped from disk exhaustion;
+removing seven stale incremental caches recovered roughly 9 GB and the complete rerun passed.
+Logs are `target/parity-review/m1.1/frame-acquisition/{workspace-recovered,clippy,wasm,gpu}.log`;
+the initial failure is retained in `workspace.log`. Checks began at `c369d3e` plus this increment;
+concurrent detector edits remain outside the parity commit. Compilation and expanded-section
+layout are verified; full application interaction, physical Android/browser runtime, persistent
+source pass IDs, completed GPU timing and sustained-load certification remain open.
+
+**Remaining/next increment:** add source-driven persistent cut/pass boundaries and explicit
+transport-gap evidence. The current receiver retains scan-local ordinals
 and uses the existing rotation-time reset for revisits; it does not retain a pass history. Keep
 unobserved sectors, unknown clocks, absent upper cuts and source-context uncertainty explicit.
 Whole-scan invalidation remains conservative; contributor optimization, full viewport interaction,
 Android/browser runtime, completed GPU timing and sustained-load certification remain open.
 Independent local-product textures per pane remain M5.1.
 
-**Next agent handoff:** inspect `LiveScan::acquisition_inventory`, `Volume::apply_live`,
-`wxdata::live_block`, `continuation` and the provider merge tests. Attach the same accepted
-inventory to each source snapshot rather than reading the moving receiver from a selected
-playback frame. Preserve unavailable raw evidence on completed/archive inputs. Extend provider
+**Next agent handoff:** inspect `LiveScan::capture_acquisition`, `Volume::apply_live_captured`,
+`wxdata::live_block`, `continuation` and the provider merge tests. Preserve immutable accepted
+receipts in every result key and unavailable raw evidence on completed/archive/reloaded replay
+inputs. Extend provider
 metadata with source-driven pass boundaries and a typed observed/unobserved/proven-gap
 distinction; do not infer transport loss or completeness from angular zeros or equal elevation
 angles. Add real-provider repeat-cut, SAILS/MRLE, VCP-change, reordering, gap-fill and mid-volume

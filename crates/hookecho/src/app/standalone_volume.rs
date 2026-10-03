@@ -9,6 +9,7 @@ pub(super) struct VolumeKey {
     volume: String,
     revision: u64,
     scan: radar_products::ScanIdentity,
+    acquisition: Option<crate::live_scan::AcquisitionSnapshot>,
     policy: TemporalPolicy,
     chosen: Vec<u32>,
     palette: u64,
@@ -26,6 +27,7 @@ impl VolumeKey {
             volume: vol.name.clone(),
             revision: vol.revision(),
             scan: radar_products::ScanIdentity::new(&vol.scan),
+            acquisition: vol.acquisition_for(view.site.as_deref()).cloned(),
             policy: radar_products::policy(view, settings),
             chosen,
             palette,
@@ -39,6 +41,15 @@ impl VolumeKey {
                 .chosen
                 .iter()
                 .any(|&bits| (f32::from_bits(bits) - elevation).abs() < 0.05)
+    }
+
+    fn frame_label(&self) -> ui::volume3d_window::VolumeFrameLabel {
+        ui::volume3d_window::VolumeFrameLabel {
+            site: self.site.clone(),
+            volume: self.volume.clone(),
+            revision: self.revision,
+            acquisition: self.acquisition.clone(),
+        }
     }
 }
 
@@ -245,11 +256,7 @@ impl HookEchoApp {
         };
         self.vol3d_build.rx = None;
         let actual = self.current_volume3d_key();
-        let label = ui::volume3d_window::VolumeFrameLabel {
-            site: delivery.key.site.clone(),
-            volume: delivery.key.volume.clone(),
-            revision: delivery.key.revision,
-        };
+        let label = delivery.key.frame_label();
         match self.vol3d_build.accept(delivery, actual.as_ref()) {
             Some(Ok(built)) => {
                 // Publish source, coverage, layer summaries and GPU staging together.
@@ -270,6 +277,43 @@ impl HookEchoApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn standalone_receipt_belongs_to_the_accepted_grid_and_not_the_new_request() {
+        let mut view = fixture_view();
+        let vol = view.volume.take().unwrap();
+        let (_, receipt) = crate::live_scan::acquisition_fixture("KPAH");
+        let weak = Arc::downgrade(&vol.scan);
+        view.volume = Some(Volume::from_live_captured(
+            vol.scan,
+            vol.name,
+            vol.time,
+            Some(receipt.clone()),
+        ));
+        let old = key(&view);
+        let label = old.frame_label();
+        assert_eq!(label.acquisition.as_ref(), Some(&receipt));
+        let mut state = VolumeBuildState {
+            attempted: Some(old.clone()),
+            ..Default::default()
+        };
+        let vol = view.volume.as_mut().unwrap();
+        vol.apply_live(vol.scan.clone(), vol.name.clone(), vol.time, &[0.5]);
+        let actual = key(&view);
+        assert_eq!(actual.frame_label().acquisition, None);
+        assert!(state
+            .accept(
+                VolumeDelivery {
+                    key: old,
+                    result: Err("old failure".into())
+                },
+                Some(&actual)
+            )
+            .is_none());
+        drop(view);
+        assert!(weak.upgrade().is_none());
+        assert_eq!(label.acquisition.as_ref(), Some(&receipt));
+    }
 
     fn fixture_view() -> MapView {
         let scan = level2::decode_volume(

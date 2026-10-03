@@ -8,6 +8,16 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: acquisition details belong to the selected radar frame
+
+The Inspector now offers **Selected frame acquisition**, retaining raw cut arrivals with the
+accepted decoded scan and revision. Receiver progress cannot rewrite those details. Native
+3D sweeps, smooth map volumes, user products, isosurfaces, local derived fields and the standalone
+3D reflectivity window carry the same receipt with their accepted result. Product coverage
+continues to describe contributing inputs separately. Completed/archive frames explicitly report
+raw acquisition evidence unavailable; receipts do not establish persistent pass identity or
+transport loss. Smooth/isosurface cache budgets include retained receipt summaries.
+
 ### Added: raw cut acquisition details in Analyst Mode
 
 The live radar log now exposes each VCP cut's chunk arrivals, raw radial positions, unknown
