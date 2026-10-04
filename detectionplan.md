@@ -384,6 +384,9 @@ Primary code areas:
   - **What it no longer draws.** Rotation and debris tied to no verdict, which is what the fusion weighed and set aside.
   - **Unchanged.** Alert rules that watch rotation or debris still drive their detectors with the layer off. The Detectors section keeps the two evidence floors, which now decide what enters a tornado's web, the original Tornado ID and the rotation and debris alerts.
   - **Old saves.** A settings file, workspace or scene saved with the rotation or debris layer on restores with Tornado detection on (`OverlayToggle::from_slug` aliases). The merge setting is gone (always merged). A test pins the aliases.
+  - **One marker per tornado, for real.** The merged view tied the original detectors' couplets and debris to each fused verdict, but never merged verdicts with each other. A tornado's low-level circulation is often several rotation columns a few km apart, so Mayfield 2021 drew 2–5 markers on every scan (all within 6 km), more with rotation-only Possible. `circulations_with` now keeps the strongest verdict (highest tier, then score) and folds any other within `MERGE_KM` (15 km, the radius that already ties couplets and debris) into it. The lead's first reason says how many columns it folded.
+    - **Mayfield.** The pinned volume goes from 4 verdicts to 1 marker (`cached_mayfield_is_one_tornado_marker`). All 8 backtest scans go to 1 each.
+    - A unit test pins that 3 km apart is one tornado and 30 km apart is two.
   - **One alert.** Debris and rotation used to raise their own banner, notification and sound on any raw detection over its floor, even where no tornado marker was drawn. Tornado detection now alerts on its verdicts (`tornado_alert_decision`):
     - when the best verdict reaches Likely or higher (Likely, Debris, Confirmed), or rises to a higher tier
     - never on Possible, which was wrong about once per radar-hour on the random sample, where Likely was wrong once in forty

@@ -821,3 +821,55 @@ fn cached_fused_pipeline_stage_timings() {
         field_t / pairs.len() as u32
     );
 }
+
+/// One marker per tornado on the pinned Mayfield 2021 volume: every fused verdict within 15 km of
+/// the tornado folds into one circulation (it was 2-5 markers on every scan, with the
+/// rotation-only Possible bar adding more). Fast: one cached volume, release build.
+#[test]
+#[ignore = "large cached fixtures: provision explicitly before running"]
+fn cached_mayfield_is_one_tornado_marker() {
+    let m = corpus::manifest();
+    let f = m.fixtures.iter().find(|f| f.id == "mayfield-2021").unwrap();
+    let scan = level2::decode_volume(corpus::read(f, &corpus::cache_dir()).unwrap()).unwrap();
+    let (mut pairs, mut cc_pairs) = (Vec::new(), Vec::new());
+    for tilt in 0..level2::elevation_angles(&scan).len() {
+        let z = level2::bin_scan(&scan, Moment::Reflectivity, tilt);
+        if let (Ok(z), Ok(cc)) = (
+            &z,
+            level2::bin_scan(&scan, Moment::CorrelationCoefficient, tilt),
+        ) {
+            cc_pairs.push((z.clone(), cc));
+        }
+        if let (Ok(z), Ok(v)) = (
+            z,
+            level2::bin_scan_opts(&scan, Moment::Velocity, tilt, true),
+        ) {
+            pairs.push((v, z));
+        }
+        if pairs.len() == 4 {
+            break;
+        }
+    }
+    let columns = wxdata::rotation_columns::from_sweeps(&pairs);
+    let tracked = wxdata::rotation_tracks::Tracker::new(Default::default()).update(0, columns);
+    let debris = wxdata::tds::detect_volume(&cc_pairs, 0.80, 40.0, 150.0, 4);
+    let analysed = wxdata::llsd_analyst::analyse(tracked, &debris, &[]);
+    let tornado = (-88.636, 36.742);
+    let verdicts =
+        wxdata::llsd_analyst::identify_with(&analysed, |_, _| Default::default(), Some(0.018));
+    let circs = wxdata::llsd_analyst::circulations_with(
+        &analysed,
+        &[],
+        &[],
+        |_, _| Default::default(),
+        Some(0.018),
+    );
+    let near = |lon: f64, lat: f64| ground_km((lon, lat), tornado) <= 15.0;
+    let before = verdicts.iter().filter(|t| near(t.lon, t.lat)).count();
+    let after = circs.iter().filter(|c| near(c.id.lon, c.id.lat)).count();
+    eprintln!(
+        "Mayfield: {before} verdicts within 15 km of the tornado, {after} marker(s) after merging"
+    );
+    assert!(before >= 1, "the tornado is detected");
+    assert_eq!(after, 1, "one tornado, one marker");
+}

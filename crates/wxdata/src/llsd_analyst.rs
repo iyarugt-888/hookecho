@@ -139,7 +139,36 @@ pub fn circulations_with(
     confirm: impl Fn(f64, f64) -> Confirmation,
     rotation_only_possible: Option<f32>,
 ) -> Vec<Circulation> {
-    let ids = identify_with(analysed, confirm, rotation_only_possible);
+    // One marker per tornado. A tornado's low-level circulation is often several rotation columns
+    // a few km apart (Mayfield 2021: 2-5 verdicts within 6 km on every scan), and each was drawn
+    // as its own marker. The strongest verdict (highest tier, then score; `identify_with` sorts
+    // them so) leads; any other within MERGE_KM is the same tornado and is folded into it, the
+    // same radius that ties the original detectors' couplets and debris to it below.
+    let mut ids: Vec<TornadoId> = Vec::new();
+    let mut folded: Vec<usize> = Vec::new();
+    for id in identify_with(analysed, confirm, rotation_only_possible) {
+        match ids
+            .iter()
+            .position(|k| crate::tds::ground_km((k.lon, k.lat), (id.lon, id.lat)) <= MERGE_KM)
+        {
+            Some(i) => folded[i] += 1,
+            None => {
+                ids.push(id);
+                folded.push(0);
+            }
+        }
+    }
+    for (id, n) in ids.iter_mut().zip(&folded) {
+        if *n > 0 {
+            id.reasons.insert(
+                0,
+                format!(
+                    "{n} more rotation column{} within {MERGE_KM:.0} km read as this same tornado",
+                    if *n == 1 { "" } else { "s" }
+                ),
+            );
+        }
+    }
     let (mut tied_c, mut tied_d) = (vec![false; couplets.len()], vec![false; debris.len()]);
     ids.into_iter()
         .map(|id| {
@@ -503,6 +532,36 @@ mod tests {
             raw_confidence: 0.75,
             confidence: 0.75,
         }
+    }
+
+    #[test]
+    fn rotation_columns_a_few_km_apart_are_one_tornado_marker() {
+        // Two strong columns of one circulation, 3 km apart: one marker, the stronger leading.
+        let near = |km: f64, id: u64| {
+            let mut t = tracked(3);
+            t.track_id = id;
+            t.column.lon = east(km);
+            for m in &mut t.column.members {
+                m.object.lon = east(km);
+            }
+            t
+        };
+        let none = Confirmation::default();
+        let two = analyse(
+            vec![near(0.0, 1), near(3.0, 2)],
+            &[debris_ball(0.5, 0.5)],
+            &[],
+        );
+        assert!(
+            two.iter().all(|a| a.fused.score >= MIN_SCORE),
+            "both would show"
+        );
+        let circs = circulations(&two, &[], &[], |_, _| none);
+        assert_eq!(circs.len(), 1, "one tornado, one marker");
+        assert!(circs[0].id.reasons[0].starts_with("1 more rotation column within 15 km"));
+        // Thirty km apart they are two tornadoes.
+        let apart = analyse(vec![near(0.0, 1), near(30.0, 2)], &[], &[]);
+        assert_eq!(circulations(&apart, &[], &[], |_, _| none).len(), 2);
     }
 
     #[test]
