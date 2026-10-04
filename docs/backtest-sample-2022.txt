@@ -1,5 +1,6 @@
 # Random severe-weather radar windows, 2022 March-August, seed 2022 (20 of 1844 qualifying radar-days):
 #   python scripts/fusion/sample_days.py 2022 20 2022
+# Drawn before sample_days.py compared corpus events by radar day (12Z-12Z); that fix changes this year's pool, so rerunning the command draws other windows. None of these falls on a corpus radar-day, so the sample stands as drawn.
 KABR 2022-07-23 10:55   # 5 severe reports that radar-day
 KARX 2022-05-29 14:35   # 2 severe reports that radar-day
 KFTG 2022-04-05 19:50   # 1 severe reports that radar-day

@@ -68,9 +68,12 @@ def main():
     year, n, seed = int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3])
     used = set()
     for line in open("docs/backtest-events.txt", encoding="utf-8"):
-        m = re.match(r"^(K[A-Z]{3}) (\d{4}-\d\d-\d\d)", line)
+        m = re.match(r"^(K[A-Z]{3}) (\d{4}-\d\d-\d\d \d\d:\d\d)", line)
         if m:
-            used.add((m.group(1), m.group(2)))
+            # The same 12Z-to-12Z radar day the pool is keyed by: an overnight event (Nashville,
+            # 2020-03-03 06:30Z) belongs to the day before its date.
+            t = dt.datetime.strptime(m.group(2), "%Y-%m-%d %H:%M")
+            used.add((m.group(1), (t - dt.timedelta(hours=12)).strftime("%Y-%m-%d")))
     days = {}
     for m in range(3, 9):
         for t, lat, lon in month(year, m):

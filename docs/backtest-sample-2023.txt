@@ -1,5 +1,6 @@
 # Random severe-weather radar windows, 2023 March-August, seed 2023 (20 of 1672 qualifying radar-days):
 #   python scripts/fusion/sample_days.py 2023 20 2023
+# Drawn before sample_days.py compared corpus events by radar day (12Z-12Z); that fix changes this year's pool, so rerunning the command draws other windows. None of these falls on a corpus radar-day, so the sample stands as drawn.
 KCAE 2023-06-19 14:58   # 2 severe reports that radar-day
 KDDC 2023-05-30 23:02   # 29 severe reports that radar-day
 KDTX 2023-07-14 17:37   # 33 severe reports that radar-day
