@@ -367,12 +367,14 @@ impl HookEchoApp {
 
         // One detection per tornado: the verdict at the most likely rotation. A click or tap
         // opens it into a web — a spoke to every rotation and debris detection it ties
-        // together — with a pinned card of the verdict, what it tied in and, for the point
-        // picked (on the map or in the card), that detection's factors. Nothing here needs a
-        // hover: a finger has none. A mouse still gets the same readings as tooltips.
+        // together — with a card of the verdict, what it tied in and, for the point picked (on
+        // the map or in the card), that detection's factors. Nothing here needs a hover: a
+        // finger has none. A mouse still gets the same readings as tooltips, and a press-and-hold
+        // pins them on a touch screen (`touch_hover`).
         if !circulations.is_empty() {
-            use wxdata::tornado_id::{Evidence, Tier, MERGE_KM};
+            use wxdata::tornado_id::{Evidence, MERGE_KM};
             let ctx = ui.ctx().clone();
+            let touch = ctx.input(|i| i.has_touch_screen() || i.any_touches());
             let open_id = egui::Id::new(("circulation_open", idx));
             let pick_id = egui::Id::new(("circulation_pick", idx));
             let open: Option<(f64, f64)> = ctx.data(|d| d.get_temp(open_id)).flatten();
@@ -385,12 +387,17 @@ impl HookEchoApp {
                 .clicked()
                 .then(|| response.interact_pointer_pos())
                 .flatten();
-            let hover = response.hover_pos();
+            // No hover tooltip on the frame a tap opens or closes something: on a touch screen it
+            // flashed up under the finger and the card then opened over it.
+            let hover = response.hover_pos().filter(|_| tap.is_none());
+            // A fingertip is wider than a cursor: so are the targets.
+            let (marker_hit, member_hit) = if touch { (48.0, 40.0) } else { (36.0, 28.0) };
             let kt = |ms: f32| ms * 1.943_844;
             let near = |a: (f64, f64), b: (f64, f64)| {
                 crate::geo::great_circle([a.0, a.1], [b.0, b.1]).0 <= 0.5
             };
-            // A detection's glyph colour, one-line label, factor lines and score history.
+            // A detection's glyph colour, one-line label, factor lines, score history and
+            // evidence (0..1).
             let describe = |e: Evidence| match e {
                 Evidence::Rotation(i) => {
                     let h = &all_couplets[i];
@@ -408,6 +415,7 @@ impl HookEchoApp {
                         ),
                         h.explain().lines(h),
                         nearest_score_track(rot_score_tracks, h.lon, h.lat),
+                        h.confidence,
                     )
                 }
                 Evidence::Debris(i) => {
@@ -421,6 +429,7 @@ impl HookEchoApp {
                         ),
                         h.explain().lines(h),
                         nearest_score_track(tds_score_tracks, h.lon, h.lat),
+                        h.confidence,
                     )
                 }
             };
@@ -430,18 +439,12 @@ impl HookEchoApp {
                 if !prect.contains(p) {
                     continue;
                 }
-                let col = match t.tier {
-                    Tier::Possible => egui::Color32::from_rgb(245, 210, 60),
-                    Tier::Likely => egui::Color32::from_rgb(245, 110, 40),
-                    Tier::Debris => egui::Color32::from_rgb(225, 70, 225),
-                    Tier::Confirmed => CONFIRMED_GOLD,
-                };
+                let col = tier_colour(t.tier);
                 // Open survives the next scan, whose centre sits a little further along.
                 let is_open = open.is_some_and(|(lon, lat)| {
                     crate::geo::great_circle([lon, lat], [t.lon, t.lat]).0 <= MERGE_KM
                 });
-                // A finger is wider than a cursor: the target is too.
-                let hit = egui::Rect::from_center_size(p, egui::vec2(36.0, 36.0));
+                let hit = egui::Rect::from_center_size(p, egui::vec2(marker_hit, marker_hit));
                 hits.push(hit);
                 let hovered = hover.is_some_and(|hp| hit.contains(hp));
                 if tap.is_some_and(|tp| hit.contains(tp)) {
@@ -450,95 +453,27 @@ impl HookEchoApp {
                 }
                 let seed = c.members.first().map(|m| m.evidence);
                 if is_open || hovered {
-                    // How far it reached for what it tied in.
+                    // How far it reached for what it tied in: a faint dashed ring.
                     let edge = {
                         let e = crate::geo::destination_point([t.lon, t.lat], 90.0, MERGE_KM);
                         to_screen(e[0], e[1])
                     };
-                    painter.circle_stroke(
-                        p,
-                        (edge - p).length(),
-                        egui::Stroke::new(1.0, col.gamma_multiply(0.35)),
-                    );
+                    let r = (edge - p).length();
+                    let ring: Vec<egui::Pos2> = (0..=72)
+                        .map(|k| {
+                            let a = k as f32 / 72.0 * std::f32::consts::TAU;
+                            p + egui::vec2(a.cos(), a.sin()) * r
+                        })
+                        .collect();
+                    painter.extend(egui::Shape::dashed_line(
+                        &ring,
+                        egui::Stroke::new(1.0, col.gamma_multiply(0.45)),
+                        6.0,
+                        5.0,
+                    ));
                 }
-                let mut picked_member = None;
-                if is_open {
-                    for m in &c.members {
-                        let centre = Some(m.evidence) == seed;
-                        let q = to_screen(m.lon, m.lat);
-                        if !centre {
-                            painter.line_segment(
-                                [p, q],
-                                egui::Stroke::new(1.5, col.gamma_multiply(0.75)),
-                            );
-                        }
-                        // The centre's own detection sits under the verdict; its glyph goes
-                        // just below it so it can be reached.
-                        let q = if centre { p + egui::vec2(0.0, 38.0) } else { q };
-                        let (glyph_col, label, lines, track) = describe(m.evidence);
-                        let is_picked = picked.is_some_and(|at| near(at, (m.lon, m.lat)));
-                        if is_picked {
-                            picked_member = Some(*m);
-                            painter.circle_filled(q, 11.0, glyph_col.gamma_multiply(0.35));
-                        }
-                        match m.evidence {
-                            Evidence::Rotation(_) => {
-                                painter.circle_stroke(q, 7.0, egui::Stroke::new(2.0, glyph_col));
-                            }
-                            Evidence::Debris(_) => {
-                                let s = 6.0;
-                                painter.add(egui::Shape::convex_polygon(
-                                    vec![
-                                        q + egui::vec2(-s, -s),
-                                        q + egui::vec2(s, -s),
-                                        q + egui::vec2(0.0, s),
-                                    ],
-                                    glyph_col.gamma_multiply(0.3),
-                                    egui::Stroke::new(1.5, glyph_col),
-                                ));
-                            }
-                        }
-                        painter.text(
-                            q + egui::vec2(10.0, 0.0),
-                            egui::Align2::LEFT_CENTER,
-                            if centre {
-                                format!("{label} (centre)")
-                            } else {
-                                format!("{label} \u{b7} {:.1} km", m.km)
-                            },
-                            egui::FontId::proportional(10.5),
-                            glyph_col,
-                        );
-                        let mhit = egui::Rect::from_center_size(q, egui::vec2(28.0, 28.0));
-                        hits.push(mhit);
-                        if tap.is_some_and(|tp| mhit.contains(tp)) {
-                            set_pick = Some((!is_picked).then_some((m.lon, m.lat)));
-                        }
-                        if !hovered && hover.is_some_and(|hp| mhit.contains(hp)) {
-                            response
-                                .clone()
-                                .show_tooltip_ui(|ui| score_tooltip(ui, lines, track, glyph_col));
-                        }
-                    }
-                }
-                let tri = vec![
-                    p + egui::vec2(0.0, -14.0),
-                    p + egui::vec2(12.5, 7.5),
-                    p + egui::vec2(-12.5, 7.5),
-                ];
-                painter.add(egui::Shape::convex_polygon(
-                    tri,
-                    col,
-                    egui::Stroke::new(1.5, egui::Color32::BLACK),
-                ));
-                painter.text(
-                    p + egui::vec2(0.0, 1.0),
-                    egui::Align2::CENTER_CENTER,
-                    t.tier.glyph(),
-                    egui::FontId::proportional(12.0),
-                    egui::Color32::BLACK,
-                );
-                // One line: the verdict, then the strongest numbers behind it.
+                // One line: the verdict, then the strongest numbers behind it. Measured now so
+                // the web's labels keep off it; drawn last, on top.
                 let mut label = format!(
                     "{} \u{b7} {}",
                     t.tier.label(),
@@ -553,13 +488,145 @@ impl HookEchoApp {
                 if c.members.len() > 1 && !is_open {
                     label.push_str(&format!(" \u{b7} {} signals", c.members.len()));
                 }
-                painter.text(
-                    p + egui::vec2(0.0, 10.0),
-                    egui::Align2::CENTER_TOP,
+                let verdict_label = painter.layout_no_wrap(
                     label,
-                    egui::FontId::proportional(11.5),
+                    egui::FontId::proportional(if touch { 13.0 } else { 11.5 }),
                     col,
                 );
+                let verdict_rect = egui::Align2::CENTER_TOP.anchor_size(
+                    p + egui::vec2(0.0, if is_open { 21.0 } else { 10.0 }),
+                    verdict_label.size(),
+                );
+                // Room the web's labels must leave: the verdict's label and its triangle.
+                let mut placed = vec![
+                    verdict_rect,
+                    egui::Rect::from_center_size(p, egui::vec2(40.0, 40.0)),
+                ];
+                let mut picked_member = None;
+                if is_open {
+                    // Everything it tied together is listed in the card; on the map only the
+                    // picked one is labelled once there are more than four, so the labels do not
+                    // pile up on the storm.
+                    let label_all = c.members.len() <= 4;
+                    // Spokes first, under every glyph: a dark underlay so they read over any
+                    // colour of radar, weighted by how strong each detection is.
+                    for m in &c.members {
+                        if Some(m.evidence) == seed {
+                            continue;
+                        }
+                        let q = to_screen(m.lon, m.lat);
+                        let (_, _, _, _, ev) = describe(m.evidence);
+                        let w = 1.2 + 2.0 * ev.clamp(0.0, 1.0);
+                        painter.line_segment(
+                            [p, q],
+                            egui::Stroke::new(w + 2.5, egui::Color32::from_black_alpha(150)),
+                        );
+                        painter.line_segment(
+                            [p, q],
+                            egui::Stroke::new(
+                                w,
+                                col.gamma_multiply(0.55 + 0.4 * ev.clamp(0.0, 1.0)),
+                            ),
+                        );
+                    }
+                    for m in &c.members {
+                        let centre = Some(m.evidence) == seed;
+                        // The centre's own detection sits under the verdict; its glyph goes
+                        // just below it so it can be reached.
+                        let q = if centre {
+                            p + egui::vec2(0.0, 40.0)
+                        } else {
+                            to_screen(m.lon, m.lat)
+                        };
+                        let (glyph_col, label, lines, track, ev) = describe(m.evidence);
+                        let is_picked = picked.is_some_and(|at| near(at, (m.lon, m.lat)));
+                        if is_picked {
+                            picked_member = Some(*m);
+                            painter.circle_filled(q, 13.0, glyph_col.gamma_multiply(0.35));
+                            painter.circle_stroke(q, 13.0, egui::Stroke::new(1.5, glyph_col));
+                        }
+                        let s = 5.5 + 3.0 * ev.clamp(0.0, 1.0);
+                        match m.evidence {
+                            Evidence::Rotation(_) => {
+                                painter.circle_stroke(
+                                    q,
+                                    s + 1.0,
+                                    egui::Stroke::new(4.0, egui::Color32::from_black_alpha(150)),
+                                );
+                                painter.circle_stroke(
+                                    q,
+                                    s + 1.0,
+                                    egui::Stroke::new(2.0, glyph_col),
+                                );
+                            }
+                            Evidence::Debris(_) => {
+                                painter.add(egui::Shape::convex_polygon(
+                                    vec![
+                                        q + egui::vec2(-s, -s),
+                                        q + egui::vec2(s, -s),
+                                        q + egui::vec2(0.0, s),
+                                    ],
+                                    glyph_col.gamma_multiply(0.35),
+                                    egui::Stroke::new(1.5, glyph_col),
+                                ));
+                            }
+                        }
+                        // Labelled only where the label fits: never over the verdict's own
+                        // label or another, whatever the zoom. Every one is in the card; the
+                        // picked one is always labelled.
+                        if is_picked || (label_all && !centre) {
+                            halo_label(
+                                painter,
+                                &mut placed,
+                                is_picked,
+                                q + egui::vec2(s + 6.0, 0.0),
+                                egui::Align2::LEFT_CENTER,
+                                if centre {
+                                    format!("{label} (centre)")
+                                } else {
+                                    format!("{label} \u{b7} {:.1} km", m.km)
+                                },
+                                egui::FontId::proportional(if touch { 12.0 } else { 10.5 }),
+                                glyph_col,
+                            );
+                        }
+                        let mhit =
+                            egui::Rect::from_center_size(q, egui::vec2(member_hit, member_hit));
+                        hits.push(mhit);
+                        if tap.is_some_and(|tp| mhit.contains(tp)) {
+                            set_pick = Some((!is_picked).then_some((m.lon, m.lat)));
+                        }
+                        if !hovered && hover.is_some_and(|hp| mhit.contains(hp)) {
+                            response
+                                .clone()
+                                .show_tooltip_ui(|ui| score_tooltip(ui, lines, track, glyph_col));
+                        }
+                    }
+                }
+                // The verdict: a warning triangle, a dark rim when open so it stands out from
+                // its own web.
+                let tri = vec![
+                    p + egui::vec2(0.0, -14.0),
+                    p + egui::vec2(12.5, 7.5),
+                    p + egui::vec2(-12.5, 7.5),
+                ];
+                if is_open {
+                    painter.circle_filled(p, 19.0, egui::Color32::from_black_alpha(110));
+                    painter.circle_stroke(p, 19.0, egui::Stroke::new(2.0, col));
+                }
+                painter.add(egui::Shape::convex_polygon(
+                    tri,
+                    col,
+                    egui::Stroke::new(1.5, egui::Color32::BLACK),
+                ));
+                painter.text(
+                    p + egui::vec2(0.0, 1.0),
+                    egui::Align2::CENTER_CENTER,
+                    t.tier.glyph(),
+                    egui::FontId::proportional(12.0),
+                    egui::Color32::BLACK,
+                );
+                halo_galley(painter, verdict_rect.min, verdict_label, col);
                 if hovered && !is_open {
                     response.clone().show_tooltip_ui(|ui| {
                         ui.strong(format!(
@@ -571,7 +638,7 @@ impl HookEchoApp {
                             ui.label(r);
                         }
                         ui.weak(format!(
-                            "{} detections tied together. Click to open the web.",
+                            "{} detections tied together. Click or tap to open the web.",
                             c.members.len()
                         ));
                         lineage_lines(ui, tornado_lineage);
@@ -580,65 +647,110 @@ impl HookEchoApp {
                 if !is_open {
                     continue;
                 }
-                // The pinned card: beside the marker, on whichever side has room.
-                let right = p.x + 330.0 < prect.right();
-                egui::Area::new(egui::Id::new(("circulation_card", idx, ci)))
+                // The card, away from the storm: on the side of the pane the marker is not on,
+                // below the alert banners and clear of the colour legend; on a narrow pane a
+                // sheet along the bottom. A thin line ties it to its marker.
+                let place = card_placement(prect, p);
+                let card = egui::Area::new(egui::Id::new(("circulation_card", idx, ci)))
                     .order(egui::Order::Foreground)
-                    .pivot(if right {
-                        egui::Align2::LEFT_TOP
-                    } else {
-                        egui::Align2::RIGHT_TOP
-                    })
-                    .fixed_pos(p + egui::vec2(if right { 24.0 } else { -24.0 }, -16.0))
+                    .pivot(place.pivot)
+                    .fixed_pos(place.at)
                     .constrain_to(prect)
                     .show(&ctx, |ui| {
                         crate::ui::style::glass(ui, 240).show(ui, |ui| {
+                            ui.set_width(place.width);
+                            let body = if touch { 13.5 } else { 12.0 };
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "{} \u{b7} {}",
+                                        t.tier.label(),
+                                        wxdata::evidence::out_of_100(t.score)
+                                    ))
+                                    .strong()
+                                    .size(body + 1.5)
+                                    .color(col),
+                                );
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        let side = if touch { 40.0 } else { 24.0 };
+                                        let close = ui
+                                            .add(
+                                                egui::Button::new(
+                                                    egui::RichText::new(egui_phosphor::regular::X)
+                                                        .size(if touch { 18.0 } else { 14.0 }),
+                                                )
+                                                .frame(false)
+                                                .min_size(egui::vec2(side, side)),
+                                            )
+                                            .on_hover_text("Close");
+                                        if close.clicked() {
+                                            set_open = Some(None);
+                                            set_pick = Some(None);
+                                        }
+                                    },
+                                );
+                            });
                             // Tall with a factor breakdown open: it scrolls inside the map.
                             egui::ScrollArea::vertical()
-                                .max_height((prect.height() - 32.0).max(120.0))
+                                .max_height(place.max_height)
                                 .show(ui, |ui| {
-                                    ui.set_max_width(300.0);
-                                    ui.horizontal(|ui| {
-                                        ui.label(
-                                            egui::RichText::new(format!(
-                                                "{} \u{b7} {}",
-                                                t.tier.label(),
-                                                wxdata::evidence::out_of_100(t.score)
-                                            ))
-                                            .strong()
-                                            .color(col),
-                                        );
-                                        ui.with_layout(
-                                            egui::Layout::right_to_left(egui::Align::Center),
-                                            |ui| {
-                                                if ui.small_button("\u{d7}").clicked() {
-                                                    set_open = Some(None);
-                                                    set_pick = Some(None);
-                                                }
-                                            },
-                                        );
-                                    });
-                                    for r in &t.reasons {
-                                        ui.label(egui::RichText::new(r).size(11.5));
+                                    // The verdict in a few lines; the full working (every
+                                    // tilt's numbers, the track, each term) one tap away.
+                                    let (summary, details) =
+                                        t.reasons.split_at(t.reasons.len().min(SUMMARY_REASONS));
+                                    for r in summary {
+                                        ui.label(egui::RichText::new(r).size(body));
                                     }
-                                    ui.add_space(4.0);
+                                    if !details.is_empty() {
+                                        egui::CollapsingHeader::new(
+                                            egui::RichText::new(format!(
+                                                "Radar details ({} lines)",
+                                                details.len()
+                                            ))
+                                            .size(body - 1.0),
+                                        )
+                                        .id_salt(("circulation_details", idx))
+                                        .show(ui, |ui| {
+                                            for r in details {
+                                                ui.label(
+                                                    egui::RichText::new(r.trim_start())
+                                                        .size(body - 1.5),
+                                                );
+                                            }
+                                        });
+                                    }
+                                    ui.add_space(6.0);
                                     ui.label(
-                                        egui::RichText::new("Tied together").weak().size(11.0),
+                                        egui::RichText::new("Tied together")
+                                            .weak()
+                                            .size(body - 1.0),
                                     );
+                                    let row_h = if touch { 36.0 } else { 22.0 };
                                     for m in &c.members {
-                                        let (mc, what, _, _) = describe(m.evidence);
+                                        let (mc, what, _, _, _) = describe(m.evidence);
                                         let where_ = if Some(m.evidence) == seed {
                                             "centre".to_string()
                                         } else {
                                             format!("{:.1} km off", m.km)
                                         };
+                                        let glyph = match m.evidence {
+                                            Evidence::Rotation(_) => "\u{25ef}",
+                                            Evidence::Debris(_) => "\u{25bd}",
+                                        };
                                         let sel = picked_member
                                             .is_some_and(|pm| pm.evidence == m.evidence);
-                                        let row = ui.selectable_label(
-                                            sel,
-                                            egui::RichText::new(format!("{what} \u{b7} {where_}"))
+                                        let row = ui.add(
+                                            egui::Button::selectable(
+                                                sel,
+                                                egui::RichText::new(format!(
+                                                    "{glyph}  {what} \u{b7} {where_}"
+                                                ))
                                                 .color(mc)
-                                                .size(11.5),
+                                                .size(body),
+                                            )
+                                            .min_size(egui::vec2(ui.available_width(), row_h)),
                                         );
                                         if row.clicked() {
                                             set_pick = Some((!sel).then_some((m.lon, m.lat)));
@@ -646,19 +758,22 @@ impl HookEchoApp {
                                     }
                                     match picked_member {
                                         Some(m) => {
-                                            let (mc, _, lines, track) = describe(m.evidence);
+                                            let (mc, _, lines, track, _) = describe(m.evidence);
                                             ui.separator();
                                             score_tooltip(ui, lines, track, mc);
                                         }
                                         None => {
                                             ui.label(
-                                        egui::RichText::new(
-                                            "Pick a detection, here or on the map, for the \
-                                             factors behind it.",
-                                        )
-                                        .weak()
-                                        .size(10.5),
-                                    );
+                                                egui::RichText::new(if touch {
+                                                    "Tap a detection, here or on the map, for \
+                                                     the factors behind it."
+                                                } else {
+                                                    "Pick a detection, here or on the map, for \
+                                                     the factors behind it."
+                                                })
+                                                .weak()
+                                                .size(body - 1.5),
+                                            );
                                         }
                                     }
                                     // Where the verdict came from: a finger has no hover, so the
@@ -667,6 +782,21 @@ impl HookEchoApp {
                                 });
                         });
                     });
+                // The tie from card to marker, from the card's nearest edge.
+                let r = card.response.rect;
+                let from = egui::pos2(
+                    p.x.clamp(r.left(), r.right()),
+                    p.y.clamp(r.top(), r.bottom()),
+                );
+                if from.distance(p) > 24.0 {
+                    let to = p + (from - p).normalized() * 20.0;
+                    painter.line_segment(
+                        [from, to],
+                        egui::Stroke::new(3.0, egui::Color32::from_black_alpha(120)),
+                    );
+                    painter
+                        .line_segment([from, to], egui::Stroke::new(1.25, col.gamma_multiply(0.8)));
+                }
             }
             if let Some(v) = set_open {
                 ctx.data_mut(|d| d.insert_temp(open_id, v));
@@ -676,6 +806,144 @@ impl HookEchoApp {
             }
             ctx.data_mut(|d| d.insert_temp(egui::Id::new(("circulation_hits", idx)), hits));
         }
+    }
+}
+
+/// How many of a verdict's reasons its card shows before folding the rest under "Radar details":
+/// the verdict lines (folded columns, why it is shown, confirmation) and the column summary.
+const SUMMARY_REASONS: usize = 3;
+
+/// A Tornado ID tier's marker colour.
+fn tier_colour(tier: wxdata::tornado_id::Tier) -> egui::Color32 {
+    use wxdata::tornado_id::Tier;
+    match tier {
+        Tier::Possible => egui::Color32::from_rgb(245, 210, 60),
+        Tier::Likely => egui::Color32::from_rgb(245, 110, 40),
+        Tier::Debris => egui::Color32::from_rgb(225, 70, 225),
+        Tier::Confirmed => CONFIRMED_GOLD,
+    }
+}
+
+/// A map label with a dark halo, placed only where it overlaps nothing in `placed` (unless
+/// `force`), which it then joins. Whether it was drawn.
+#[allow(clippy::too_many_arguments)]
+fn halo_label(
+    painter: &egui::Painter,
+    placed: &mut Vec<egui::Rect>,
+    force: bool,
+    at: egui::Pos2,
+    align: egui::Align2,
+    text: String,
+    font: egui::FontId,
+    colour: egui::Color32,
+) -> bool {
+    let galley = painter.layout_no_wrap(text, font, colour);
+    let rect = align.anchor_size(at, galley.size());
+    if !force && placed.iter().any(|r| r.expand(2.0).intersects(rect)) {
+        return false;
+    }
+    placed.push(rect);
+    halo_galley(painter, rect.min, galley, colour);
+    true
+}
+
+/// Laid-out text with a dark halo, so it reads over any colour of radar.
+fn halo_galley(
+    painter: &egui::Painter,
+    at: egui::Pos2,
+    galley: std::sync::Arc<egui::Galley>,
+    colour: egui::Color32,
+) {
+    let halo = egui::Color32::from_black_alpha(200);
+    for d in [
+        egui::vec2(-1.0, 0.0),
+        egui::vec2(1.0, 0.0),
+        egui::vec2(0.0, -1.0),
+        egui::vec2(0.0, 1.0),
+    ] {
+        painter.galley_with_override_text_color(at + d, galley.clone(), halo);
+    }
+    painter.galley(at, galley, colour);
+}
+
+/// Where a circulation's card goes in a pane, given its marker.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct CardPlacement {
+    pivot: egui::Align2,
+    at: egui::Pos2,
+    width: f32,
+    max_height: f32,
+}
+
+/// The card away from its marker: on a pane wide enough for it to sit beside the storm, at the
+/// bottom of the half the marker is not in (the alert banners stack at the top; the colour
+/// legend is on the right edge); on a narrow pane (a phone) a sheet along the bottom, or along
+/// the top when the marker is in the lower half.
+fn card_placement(prect: egui::Rect, marker: egui::Pos2) -> CardPlacement {
+    const WIDTH: f32 = 340.0;
+    /// Room left above the card for the alert banners.
+    const TOP: f32 = 140.0;
+    const BOTTOM: f32 = 36.0;
+    const SIDE: f32 = 12.0;
+    const LEGEND: f32 = 44.0;
+    if prect.width() < 2.0 * WIDTH + 2.0 * LEGEND {
+        let width = (prect.width() - 2.0 * SIDE).clamp(160.0, 520.0);
+        let max_height = (prect.height() * 0.42).max(120.0);
+        return if marker.y > prect.center().y {
+            CardPlacement {
+                pivot: egui::Align2::CENTER_TOP,
+                at: egui::pos2(prect.center().x, prect.top() + SIDE),
+                width,
+                max_height,
+            }
+        } else {
+            CardPlacement {
+                pivot: egui::Align2::CENTER_BOTTOM,
+                at: egui::pos2(prect.center().x, prect.bottom() - SIDE),
+                width,
+                max_height,
+            }
+        };
+    }
+    let max_height = (prect.height() - TOP - BOTTOM - 60.0).max(120.0);
+    if marker.x > prect.center().x {
+        CardPlacement {
+            pivot: egui::Align2::LEFT_BOTTOM,
+            at: egui::pos2(prect.left() + SIDE, prect.bottom() - BOTTOM),
+            width: WIDTH,
+            max_height,
+        }
+    } else {
+        CardPlacement {
+            pivot: egui::Align2::RIGHT_BOTTOM,
+            at: egui::pos2(prect.right() - LEGEND, prect.bottom() - BOTTOM),
+            width: WIDTH,
+            max_height,
+        }
+    }
+}
+
+#[cfg(test)]
+mod card_placement_tests {
+    use super::card_placement;
+
+    #[test]
+    fn the_card_goes_where_the_storm_is_not() {
+        let wide = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1200.0, 800.0));
+        // A marker on the right: the card on the left, and the other way round.
+        let c = card_placement(wide, egui::pos2(900.0, 300.0));
+        assert!(c.at.x < 600.0 && c.pivot == egui::Align2::LEFT_BOTTOM);
+        let c = card_placement(wide, egui::pos2(200.0, 300.0));
+        assert!(c.at.x > 600.0 && c.pivot == egui::Align2::RIGHT_BOTTOM);
+        // Clear of the alert banners at the top.
+        assert!(c.at.y - c.max_height > 100.0);
+        // A phone-width pane: a sheet across it, on the half the marker is not in.
+        let narrow = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(400.0, 800.0));
+        let c = card_placement(narrow, egui::pos2(200.0, 200.0));
+        assert_eq!(c.pivot, egui::Align2::CENTER_BOTTOM);
+        assert!(c.width <= 400.0 && c.max_height <= 800.0 * 0.42 + 0.1);
+        let c = card_placement(narrow, egui::pos2(200.0, 700.0));
+        assert_eq!(c.pivot, egui::Align2::CENTER_TOP);
     }
 }
 

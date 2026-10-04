@@ -121,6 +121,19 @@ for that stage. The map moves to the flooding, in the flood category's color. Th
 stage and quotes the forecast office's impact statement. When the stage is above everything
 mapped, the card says the shading is the most NOAA maps there.
 
+### Improved: tooltips on touch screens, and Tornado detection's card and web
+
+On a touch screen, press and hold anything that explains itself on hover: the explanation now
+stays up after the finger lifts, until the next tap, across every tooltip and map reading in the
+app. Holding a button to read it does not press it. A Tornado detection marker's card opens on
+the side of the map away from the storm (a sheet along the bottom of a narrow map) with a line
+back to its marker, below the alert banners. It gives the verdict in a few lines, folds the
+radar working under *Radar details*, and lists what it tied together in rows sized for a
+finger, with a larger close button. On the map the web's spokes are weighted by each
+detection's strength over a dark underlay, its reach is a dashed ring, and labels are placed
+only where they overlap nothing, with a halo so they read over any radar colour. A tap no
+longer flashes the hover tooltip before the card opens.
+
 ### Changed: Tornado detection is one layer, with far fewer false markers
 
 **Tornado detection** (Layers → Severe) replaces the separate Debris detection (TDS), Rotation

@@ -90,6 +90,7 @@ mod sharing;
 mod standalone_volume;
 mod surface_feeds;
 mod time_layers;
+mod touch_hover;
 mod view3d_state;
 mod workspace_apply;
 pub(crate) use overlay_toggle::OverlayToggle;
@@ -8650,6 +8651,13 @@ impl eframe::App for HookEchoApp {
         }
         // Web: never let eframe drop a frame's texture changes as hidden (see the function).
         crate::platform::guard_font_atlas(raw_input);
+        // Touch: a press-and-hold pins the tooltip it showed until the next touch, so every
+        // hover reading in the app can be read with a finger (`touch_hover`).
+        let now = raw_input.time.unwrap_or_else(|| ctx.input(|i| i.time));
+        let id = egui::Id::new("touch_hover");
+        let mut hold: touch_hover::TouchHold = ctx.data_mut(|d| d.get_temp(id).unwrap_or_default());
+        touch_hover::pin_long_press_hover(&mut hold, raw_input, now);
+        ctx.data_mut(|d| d.insert_temp(id, hold));
     }
 
     fn ui(&mut self, root: &mut egui::Ui, frame: &mut eframe::Frame) {

@@ -21,6 +21,9 @@ settings, the event library, alert rules — open as pages in a slide-over
 page you came from.
 Anything you click *on the map* — a storm cell, a warning polygon, one of your
 own markers — answers in a card next to the click instead.
+On a touch screen, anything that explains itself when a mouse rests on it does
+the same when you press and hold it: the explanation stays up after you lift
+your finger, until your next tap. Holding a button to read it does not press it.
 
 With the **Dock (ImGui)** theme, tools and Settings use dockable windows. Open Settings
 to change its section, then use the window menu to dock or float it. Narrow Settings
@@ -64,8 +67,12 @@ Turn on **Tornado detection** (Layers → Severe) to have the app read them for
 you. It draws one marker per possible tornado (*possible*, *likely*, *debris* or
 *confirmed*) with an evidence score out of 100. That score says how much radar
 evidence there is, not a probability. Click or tap a marker to open the web of
-rotation and debris detections behind it, each with its factors. The hover says
-which pipeline made the verdict and when the sweeps behind it were scanned. It
+rotation and debris detections behind it. Its card opens on the side of the map
+away from the storm (along the bottom on a narrow screen) with the verdict in a
+few lines, the full radar working folded under *Radar details*, and everything
+it tied together; tap a detection, on the map or in the card, for its factors.
+The card says which pipeline made the verdict and when the sweeps behind it were
+scanned. It
 alerts when a marker reaches *likely* or higher; *possible* is drawn but stays
 quiet. *Possible* also marks strong rotation that has no debris yet, which finds
 more of the weak tornadoes ordinary severe days bring; set the bar, or turn it
