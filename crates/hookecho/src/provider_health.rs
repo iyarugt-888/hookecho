@@ -32,8 +32,12 @@ pub struct ProviderHealth {
     /// Wall-clock time this provider last successfully delivered an update.
     pub last_receipt_at: Option<DateTime<Utc>>,
     pub successes: u32,
+    /// Actual advancing source-clock observations, never UI polls or repeated callbacks.
+    pub advancing_observations: u64,
+    /// Advances since the last subscription failure/end, including failures between UI frames.
+    pub consecutive_advancing_observations: u32,
     pub failures: u32,
-    /// Failed/errored `subscribe` attempts in a row since the last successful `on_update`, reset
+    /// Failed/errored or unexpectedly ended attempts since the last successful `on_update`, reset
     /// to zero the instant one arrives — [`crate::failover_arbiter::ArbiterInput`]'s own field of
     /// the same name wants exactly this, not the lifetime `failures` total below it (an old
     /// failure hours ago shouldn't still count against a provider that has since recovered).
@@ -44,18 +48,43 @@ pub struct ProviderHealth {
 }
 
 impl ProviderHealth {
-    fn new(label: &'static str, capabilities: ProviderCapabilities) -> Self {
+    pub(crate) fn new(label: &'static str, capabilities: ProviderCapabilities) -> Self {
         Self {
             label,
             capabilities,
             newest_radar_time: None,
             last_receipt_at: None,
             successes: 0,
+            advancing_observations: 0,
+            consecutive_advancing_observations: 0,
             failures: 0,
             consecutive_failures: 0,
             reconnects: 0,
             last_error: None,
         }
+    }
+
+    pub(crate) fn record_update(&mut self, source_time: DateTime<Utc>, receipt: DateTime<Utc>) {
+        if self
+            .newest_radar_time
+            .is_none_or(|current| source_time > current)
+        {
+            self.newest_radar_time = Some(source_time);
+            self.advancing_observations = self.advancing_observations.saturating_add(1);
+            self.consecutive_advancing_observations =
+                self.consecutive_advancing_observations.saturating_add(1);
+        }
+        self.last_receipt_at = Some(receipt);
+        self.successes = self.successes.saturating_add(1);
+        self.consecutive_failures = 0;
+        self.last_error = None;
+    }
+
+    pub(crate) fn record_failure(&mut self, error: &str) {
+        self.failures = self.failures.saturating_add(1);
+        self.consecutive_failures = self.consecutive_failures.saturating_add(1);
+        self.consecutive_advancing_observations = 0;
+        self.last_error = Some(error.chars().take(512).collect());
     }
 }
 
@@ -90,18 +119,19 @@ pub async fn monitor_provider(
     while active() {
         let board_for_updates = board.clone();
         let active_for_subscribe = active.clone();
+        let active_for_updates = active.clone();
         let result = provider
             .subscribe(
                 site.clone(),
                 base.clone(),
                 Box::new(move || active_for_subscribe()),
                 Box::new(move |update: wxdata::live::Update| {
+                    if !active_for_updates() {
+                        return;
+                    }
                     let mut board = board_for_updates.lock().unwrap();
                     if let Some(health) = board.get_mut(label) {
-                        health.newest_radar_time = Some(update.time);
-                        health.last_receipt_at = Some(Utc::now());
-                        health.successes += 1;
-                        health.consecutive_failures = 0;
+                        health.record_update(update.time, Utc::now());
                     }
                 }),
                 Box::new(|_progress| {}),
@@ -115,13 +145,14 @@ pub async fn monitor_provider(
             // same way).
             let mut board_guard = board.lock().unwrap();
             if let Some(health) = board_guard.get_mut(label) {
-                if let Err(e) = &result {
-                    health.failures += 1;
-                    health.consecutive_failures += 1;
-                    health.last_error = Some(e.to_string());
-                }
                 if active() {
-                    health.reconnects += 1;
+                    match &result {
+                        Err(e) => health.record_failure(&e.to_string()),
+                        Ok(()) => {
+                            health.record_failure("live subscription ended while still wanted")
+                        }
+                    }
+                    health.reconnects = health.reconnects.saturating_add(1);
                 }
             }
         }
@@ -132,7 +163,12 @@ pub async fn monitor_provider(
         // Brief backoff before reconnecting, so a persistently failing provider doesn't spin the
         // task hot — a lightweight stand-in for the hysteresis/cooldown policy B6.6 asks for at
         // the arbiter level; this alone doesn't decide anything, it just avoids busy-looping.
-        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        for _ in 0..8 {
+            if !active() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        }
     }
 }
 
@@ -203,6 +239,122 @@ mod tests {
         Scan::new(vcp, Vec::new())
     }
 
+    #[test]
+    fn health_counts_source_advances_and_keeps_freshness_high_water_across_replays() {
+        let now = Utc::now();
+        let mut health = ProviderHealth::new("control", ProviderCapabilities::unidata());
+        health.record_update(now, now);
+        health.record_update(now, now + chrono::Duration::seconds(1));
+        health.record_update(
+            now - chrono::Duration::seconds(30),
+            now + chrono::Duration::seconds(2),
+        );
+        assert_eq!(health.successes, 3);
+        assert_eq!(health.advancing_observations, 1);
+        assert_eq!(health.consecutive_advancing_observations, 1);
+        assert_eq!(health.newest_radar_time, Some(now));
+        assert_eq!(
+            health.last_receipt_at,
+            Some(now + chrono::Duration::seconds(2))
+        );
+        health.record_update(
+            now + chrono::Duration::seconds(1),
+            now + chrono::Duration::seconds(3),
+        );
+        assert_eq!(health.advancing_observations, 2);
+    }
+
+    #[test]
+    fn failure_resets_advancing_streak_and_success_clears_bounded_error() {
+        let now = Utc::now();
+        let mut health = ProviderHealth::new("control", ProviderCapabilities::unidata());
+        health.record_update(now, now);
+        health.record_failure(&"é".repeat(900));
+        assert_eq!(health.last_error.as_ref().unwrap().chars().count(), 512);
+        assert_eq!(health.consecutive_advancing_observations, 0);
+        health.record_update(now, now);
+        assert_eq!(
+            health.consecutive_advancing_observations, 0,
+            "duplicate cannot establish recovery"
+        );
+        assert_eq!(health.consecutive_failures, 0);
+        assert!(health.last_error.is_none());
+        health.record_update(now + chrono::Duration::seconds(1), now);
+        assert_eq!(health.advancing_observations, 2);
+        assert_eq!(health.consecutive_advancing_observations, 1);
+    }
+
+    struct EndedProvider;
+    #[async_trait::async_trait]
+    impl Level2LiveProvider for EndedProvider {
+        fn label(&self) -> &'static str {
+            "clean-end control"
+        }
+        fn capabilities(&self) -> ProviderCapabilities {
+            ProviderCapabilities::relay()
+        }
+        async fn subscribe(
+            &self,
+            _site: String,
+            _base: Arc<Scan>,
+            _active: Box<dyn Fn() -> bool + Send + Sync>,
+            _on_update: Box<dyn FnMut(wxdata::live::Update) + Send>,
+            _on_progress: Box<dyn FnMut(wxdata::live::ScanProgress) + Send>,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn latest_complete_volume(
+            &self,
+            _site: &str,
+            _current_name: Option<&str>,
+        ) -> anyhow::Result<LatestVolume> {
+            Ok(LatestVolume::UpToDate)
+        }
+    }
+
+    #[tokio::test]
+    async fn unexpected_clean_end_is_a_failure_and_cancelled_backoff_stops_promptly() {
+        let board: HealthBoard = Arc::new(Mutex::new(HashMap::new()));
+        let active = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let token = active.clone();
+        let task_board = board.clone();
+        let handle = tokio::spawn(monitor_provider(
+            Arc::new(EndedProvider),
+            "KTLX".into(),
+            Arc::new(empty_scan()),
+            Arc::new(move || token.load(Ordering::Relaxed)),
+            task_board,
+        ));
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                if board
+                    .lock()
+                    .unwrap()
+                    .get("clean-end control")
+                    .is_some_and(|health| health.failures == 1)
+                {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        active.store(false, Ordering::Relaxed);
+        tokio::time::timeout(std::time::Duration::from_secs(1), handle)
+            .await
+            .expect("cancelled backoff leaked monitor task")
+            .unwrap();
+        let board = board.lock().unwrap();
+        let health = &board["clean-end control"];
+        assert_eq!(health.consecutive_failures, 1);
+        assert_eq!(health.reconnects, 1);
+        assert_eq!(
+            health.last_error.as_deref(),
+            Some("live subscription ended while still wanted")
+        );
+    }
+
     #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
     impl Level2LiveProvider for ScriptedProvider {
         fn label(&self) -> &'static str {
@@ -237,6 +389,9 @@ mod tests {
             }
             if self.fail {
                 anyhow::bail!("scripted failure");
+            }
+            while active() {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
             }
             Ok(())
         }
@@ -278,8 +433,7 @@ mod tests {
             .await;
         });
 
-        // The scripted provider sends 3 updates then ends cleanly; give it time to finish one
-        // full pass before stopping the loop from reconnecting further.
+        // The scripted healthy provider sends 3 updates then stays open until stopped.
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         active.store(false, Ordering::Relaxed);
         tokio::time::timeout(std::time::Duration::from_secs(2), handle)
@@ -358,7 +512,7 @@ mod tests {
             &self,
             _site: String,
             base: Arc<Scan>,
-            _active: Box<dyn Fn() -> bool + Send + Sync>,
+            active: Box<dyn Fn() -> bool + Send + Sync>,
             mut on_update: Box<dyn FnMut(wxdata::live::Update) + Send>,
             _on_progress: Box<dyn FnMut(wxdata::live::ScanProgress) + Send>,
         ) -> anyhow::Result<()> {
@@ -376,6 +530,9 @@ mod tests {
                 retries: 0,
                 decode_time: std::time::Duration::ZERO,
             });
+            while active() {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
             Ok(())
         }
 
@@ -431,6 +588,7 @@ mod tests {
             "a subsequent success must reset the consecutive-failure count the arbiter reads"
         );
         assert_eq!(health.successes, 1);
+        assert!(health.last_error.is_none());
     }
 
     #[tokio::test]

@@ -13,7 +13,9 @@
 //! - **Backup**: [`HookEchoRelayLevel2Provider`], only once the user has configured a relay URL
 //!   (ROADMAP_NEW's own "opt-in ... never the default" for that provider).
 //! - **Degraded**: [`NoaaTgftpLevel2Provider`] (B6.8), selected only once whichever side the
-//!   arbiter currently prefers has *itself* gone stale past [`DEGRADED_AFTER`] — the roadmap's own
+//!   arbiter currently prefers has *itself* gone stale past [`DEGRADED_AFTER`] — with a bounded
+//!   observation window for an initially empty monitor board. Restoration requires advancing,
+//!   fresh observations rather than repeated frames. The roadmap's own
 //!   topology diagram places TGFTP behind *both* progressive paths as the universal last resort,
 //!   not a candidate the two-sided arbiter would ever choose on its own. This falls out naturally
 //!   even with no relay configured at all: a lone, stalled Unidata feed still degrades to TGFTP
@@ -130,6 +132,9 @@ pub struct SiteProviders {
     board: HealthBoard,
     active_flag: Arc<AtomicBool>,
     degraded: bool,
+    started_at: wxdata::clock::Instant,
+    degraded_primary_baseline: u64,
+    degraded_backup_baseline: u64,
     manual_override: Option<SelectedTier>,
     last_transition: Option<(DateTime<Utc>, ProviderSwitchReason, SelectedTier)>,
 }
@@ -162,6 +167,9 @@ impl SiteProviders {
             board,
             active_flag,
             degraded: false,
+            started_at: wxdata::clock::Instant::now(),
+            degraded_primary_baseline: 0,
+            degraded_backup_baseline: 0,
             manual_override: None,
             last_transition: None,
         }
@@ -175,12 +183,15 @@ impl SiteProviders {
         self.relay_url.as_deref()
     }
 
-    fn health(&self, label: &str) -> Option<ProviderHealth> {
-        self.board
+    fn health_pair(&self) -> (Option<ProviderHealth>, Option<ProviderHealth>) {
+        let board = self
+            .board
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .get(label)
-            .cloned()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        (
+            board.get(PRIMARY_LABEL).cloned(),
+            board.get(BACKUP_LABEL).cloned(),
+        )
     }
 
     /// Force `tier` active until [`Self::clear_manual_override`] — ROADMAP_NEW B6.1/B6.9's Advanced
@@ -209,43 +220,73 @@ impl SiteProviders {
     /// periodically (once per frame is plenty — it's a couple of `HashMap` lookups and pure
     /// arithmetic, no I/O). A no-op while a manual override is set.
     pub fn tick(&mut self) -> Option<Transition> {
+        self.tick_at(Utc::now(), self.started_at.elapsed())
+    }
+
+    /// Production decision seam with explicit source-age and monotonic startup clocks.
+    pub(crate) fn tick_at(
+        &mut self,
+        now: DateTime<Utc>,
+        uptime: std::time::Duration,
+    ) -> Option<Transition> {
         if self.manual_override.is_some() {
             return None;
         }
-        let now = Utc::now();
-        let primary = self.health(PRIMARY_LABEL);
-        let backup = self.health(BACKUP_LABEL);
+        let previous_tier = self.selected_tier();
+        let (primary, backup) = self.health_pair();
         let primary_input = to_arbiter_input(&primary);
         let backup_input = to_arbiter_input(&backup);
 
         let transition = self.arbiter.evaluate(now, primary_input, backup_input);
-        if let Some(t) = transition {
-            let tier = match t.to {
-                ActiveSide::Primary => SelectedTier::Primary,
-                ActiveSide::Backup => SelectedTier::Backup,
-            };
-            self.last_transition = Some((now, t.reason, tier));
-        }
 
         let active_input = match self.arbiter.active() {
             ActiveSide::Primary => &primary_input,
             ActiveSide::Backup => &backup_input,
         };
-        let now_degraded = is_older_than(active_input.newest_radar_time, now, DEGRADED_AFTER);
-        if now_degraded != self.degraded {
-            self.degraded = now_degraded;
-            let tier = if now_degraded {
-                SelectedTier::Degraded
-            } else {
-                match self.arbiter.active() {
-                    ActiveSide::Primary => SelectedTier::Primary,
-                    ActiveSide::Backup => SelectedTier::Backup,
-                }
+        // Unknown at startup is not yet stale: allow the monitor its bounded observation window.
+        let stale = active_input.newest_radar_time.map_or_else(
+            || uptime >= std::time::Duration::from_secs(DEGRADED_AFTER.num_seconds() as u64),
+            |time| is_older_than(Some(time), now, DEGRADED_AFTER),
+        );
+        let now_degraded = if self.degraded {
+            let baseline = match self.arbiter.active() {
+                ActiveSide::Primary => &mut self.degraded_primary_baseline,
+                ActiveSide::Backup => &mut self.degraded_backup_baseline,
             };
-            let reason = if now_degraded {
-                ProviderSwitchReason::StaleData
+            if is_older_than(
+                active_input.newest_radar_time,
+                now,
+                ArbiterConfig::default().staleness_threshold,
+            ) || active_input.consecutive_failures != 0
+            {
+                *baseline = active_input.advancing_observations;
+                true
             } else {
+                let observations = active_input
+                    .advancing_observations
+                    .saturating_sub(*baseline)
+                    .min(u64::from(active_input.consecutive_advancing_observations));
+                observations
+                    < u64::from(ArbiterConfig::default().failback_consecutive_healthy.max(1))
+            }
+        } else {
+            stale
+        };
+        if now_degraded != self.degraded {
+            if now_degraded {
+                self.degraded_primary_baseline = primary_input.advancing_observations;
+                self.degraded_backup_baseline = backup_input.advancing_observations;
+            }
+            self.degraded = now_degraded;
+        }
+        let tier = self.selected_tier();
+        if tier != previous_tier {
+            let reason = if tier == SelectedTier::Degraded {
+                ProviderSwitchReason::StaleData
+            } else if previous_tier == SelectedTier::Degraded {
                 ProviderSwitchReason::Recovery
+            } else {
+                transition.map_or(ProviderSwitchReason::Recovery, |t| t.reason)
             };
             self.last_transition = Some((now, reason, tier));
         }
@@ -279,11 +320,12 @@ impl SiteProviders {
     }
 
     pub fn snapshot(&self) -> FailoverSnapshot {
+        let (primary, backup) = self.health_pair();
         FailoverSnapshot {
             selected: self.selected_tier(),
             has_backup: self.relay_url.is_some(),
-            primary: self.health(PRIMARY_LABEL),
-            backup: self.health(BACKUP_LABEL),
+            primary,
+            backup,
             manual_override: self.manual_override.is_some(),
             last_transition: self.last_transition,
         }
@@ -293,7 +335,7 @@ impl SiteProviders {
     /// instead of spawning real monitor tasks, so `tick()`/`selected_tier()` are exercisable with
     /// deterministic, network-free fixtures.
     #[cfg(test)]
-    fn for_test(relay_url: Option<String>, board: HealthBoard) -> Self {
+    pub(crate) fn for_test(relay_url: Option<String>, board: HealthBoard) -> Self {
         Self {
             site: "KTLX".to_string(),
             relay_url,
@@ -301,6 +343,9 @@ impl SiteProviders {
             board,
             active_flag: Arc::new(AtomicBool::new(false)),
             degraded: false,
+            started_at: wxdata::clock::Instant::now(),
+            degraded_primary_baseline: 0,
+            degraded_backup_baseline: 0,
             manual_override: None,
             last_transition: None,
         }
@@ -323,6 +368,8 @@ fn to_arbiter_input(health: &Option<ProviderHealth>) -> ArbiterInput {
         Some(h) => ArbiterInput {
             newest_radar_time: h.newest_radar_time,
             consecutive_failures: h.consecutive_failures,
+            advancing_observations: h.advancing_observations,
+            consecutive_advancing_observations: h.consecutive_advancing_observations,
         },
     }
 }
@@ -351,6 +398,8 @@ mod tests {
             newest_radar_time: Some(newest),
             last_receipt_at: Some(newest),
             successes: 1,
+            advancing_observations: 1,
+            consecutive_advancing_observations: 1,
             failures: 0,
             consecutive_failures,
             reconnects: 0,
@@ -487,5 +536,132 @@ mod tests {
         let board = board_with(vec![(PRIMARY_LABEL, health(now, 0))]);
         let sp = SiteProviders::for_test(None, board);
         assert_eq!(sp.provider().label(), PRIMARY_LABEL);
+    }
+
+    #[test]
+    fn empty_startup_has_bounded_grace_and_degraded_restore_requires_advances() {
+        let now = Utc::now();
+        let board = board_with(vec![]);
+        let mut providers = SiteProviders::for_test(None, board.clone());
+        for seconds in [0, 1, 179] {
+            providers.tick_at(now, std::time::Duration::from_secs(seconds));
+            assert_eq!(providers.selected_tier(), SelectedTier::Primary);
+            assert!(providers.snapshot().last_transition.is_none());
+        }
+        providers.tick_at(now, std::time::Duration::from_secs(180));
+        assert_eq!(providers.selected_tier(), SelectedTier::Degraded);
+        board.lock().unwrap().insert(
+            PRIMARY_LABEL,
+            ProviderHealth::new(
+                PRIMARY_LABEL,
+                wxdata::live_block::ProviderCapabilities::unidata(),
+            ),
+        );
+        for count in 1..=3 {
+            board
+                .lock()
+                .unwrap()
+                .get_mut(PRIMARY_LABEL)
+                .unwrap()
+                .record_update(now + Duration::seconds(count), now);
+            for _ in 0..100 {
+                providers.tick_at(
+                    now + Duration::seconds(count),
+                    std::time::Duration::from_secs(181),
+                );
+                assert_eq!(
+                    providers.selected_tier(),
+                    if count == 3 {
+                        SelectedTier::Primary
+                    } else {
+                        SelectedTier::Degraded
+                    }
+                );
+            }
+        }
+        assert_eq!(
+            providers
+                .snapshot()
+                .last_transition
+                .map(|(_, reason, tier)| (reason, tier)),
+            Some((ProviderSwitchReason::Recovery, SelectedTier::Primary))
+        );
+    }
+
+    #[test]
+    fn held_degraded_tier_does_not_announce_internal_arbiter_candidate_switch() {
+        let now = Utc::now();
+        let board = board_with(vec![
+            (PRIMARY_LABEL, health(now - Duration::seconds(400), 3)),
+            (BACKUP_LABEL, health(now - Duration::seconds(400), 3)),
+        ]);
+        let mut providers =
+            SiteProviders::for_test(Some("http://relay.local".into()), board.clone());
+        providers.tick_at(now, std::time::Duration::ZERO);
+        let degraded_transition = providers.snapshot().last_transition;
+        assert_eq!(providers.selected_tier(), SelectedTier::Degraded);
+        for count in 1..=3 {
+            board
+                .lock()
+                .unwrap()
+                .get_mut(BACKUP_LABEL)
+                .unwrap()
+                .record_update(now + Duration::seconds(count), now);
+            providers.tick_at(now + Duration::seconds(count), std::time::Duration::ZERO);
+            if count < 3 {
+                assert_eq!(providers.selected_tier(), SelectedTier::Degraded);
+                assert_eq!(providers.snapshot().last_transition, degraded_transition);
+            }
+        }
+        assert_eq!(providers.selected_tier(), SelectedTier::Backup);
+        assert_eq!(
+            providers
+                .snapshot()
+                .last_transition
+                .map(|(_, reason, tier)| (reason, tier)),
+            Some((ProviderSwitchReason::Recovery, SelectedTier::Backup))
+        );
+    }
+
+    #[test]
+    fn degraded_restore_uses_freshness_threshold_and_failures_between_ticks() {
+        let now = Utc::now();
+        let board = board_with(vec![(
+            PRIMARY_LABEL,
+            health(now - Duration::seconds(400), 3),
+        )]);
+        let mut providers = SiteProviders::for_test(None, board.clone());
+        providers.tick_at(now, std::time::Duration::ZERO);
+        for offset in [120, 119, 118] {
+            board
+                .lock()
+                .unwrap()
+                .get_mut(PRIMARY_LABEL)
+                .unwrap()
+                .record_update(now - Duration::seconds(offset), now);
+            providers.tick_at(now, std::time::Duration::ZERO);
+            assert_eq!(providers.selected_tier(), SelectedTier::Degraded);
+        }
+        {
+            let mut health = board.lock().unwrap();
+            let primary = health.get_mut(PRIMARY_LABEL).unwrap();
+            primary.record_update(now, now);
+            primary.record_update(now + Duration::seconds(1), now);
+            primary.record_failure("hidden between ticks");
+            primary.record_update(now + Duration::seconds(2), now);
+            primary.record_update(now + Duration::seconds(3), now);
+        }
+        for _ in 0..1000 {
+            providers.tick_at(now + Duration::seconds(3), std::time::Duration::ZERO);
+            assert_eq!(providers.selected_tier(), SelectedTier::Degraded);
+        }
+        board
+            .lock()
+            .unwrap()
+            .get_mut(PRIMARY_LABEL)
+            .unwrap()
+            .record_update(now + Duration::seconds(4), now);
+        providers.tick_at(now + Duration::seconds(4), std::time::Duration::ZERO);
+        assert_eq!(providers.selected_tier(), SelectedTier::Primary);
     }
 }

@@ -1,0 +1,80 @@
+{
+  "workspace-final": {
+    "command": "cargo test --workspace -- --test-threads=4",
+    "exit_code": 0,
+    "log_sha256": "400157fb7fde6a29f6b97af45cb05f416efee83dd8e4431f6dc48c4972e3f601",
+    "log_bytes": 195216,
+    "suites": 28,
+    "passed": 2210,
+    "failed": 0,
+    "ignored": 142
+  },
+  "clippy-final": {
+    "command": "cargo clippy --workspace --all-targets -- -D warnings",
+    "exit_code": 0,
+    "log_sha256": "3a95bcab555497f8a8261bd07335c8505121a5041ef273b50d5aad8ba9c216fd",
+    "log_bytes": 448
+  },
+  "wasm-final": {
+    "command": "CARGO_INCREMENTAL=0 RUSTFLAGS=--cfg getrandom_backend=\"wasm_js\" cargo check --target wasm32-unknown-unknown -p hookecho --lib",
+    "exit_code": 0,
+    "log_sha256": "59a3e37b415d0782ba4f207175e30c10f523bb596dc5b2a7d12ce94e8ca99845",
+    "log_bytes": 3495
+  },
+  "restoration_controls_passed": [
+    "failover_arbiter::tests::unchanged_health_snapshots_cannot_satisfy_failback_hysteresis",
+    "failover_arbiter::tests::fresh_but_older_primary_cannot_restore_until_it_catches_up_and_advances",
+    "failover_arbiter::tests::failure_between_ui_samples_does_not_count_pre_failure_observations",
+    "failover_arbiter::tests::failed_or_stale_backup_is_not_a_healthy_failover_candidate",
+    "provider_health::tests::health_counts_source_advances_and_keeps_freshness_high_water_across_replays",
+    "provider_health::tests::failure_resets_advancing_streak_and_success_clears_bounded_error",
+    "provider_health::tests::unexpected_clean_end_is_a_failure_and_cancelled_backoff_stops_promptly",
+    "radar_provider_manager::tests::empty_startup_has_bounded_grace_and_degraded_restore_requires_advances",
+    "radar_provider_manager::tests::held_degraded_tier_does_not_announce_internal_arbiter_candidate_switch",
+    "radar_provider_manager::tests::degraded_restore_uses_freshness_threshold_and_failures_between_ticks",
+    "app::chrome::registry::tests::degraded_failover_lists_primary_recovery_without_a_relay",
+    "app::live_session::tests::automatic_failover_completed_floor_and_preferred_restore_keep_receiver_ownership"
+  ],
+  "source_sha256": {
+    "crates/hookecho/src/provider_health.rs": "cb8adde63b423884ca5dd097928578f25db37d352d799db4a1a4ae813e574fb6",
+    "crates/hookecho/src/failover_arbiter.rs": "adefeb3c44b9fe27faa23f11e379e68cac4bc99a2b009d807a308fba7599c994",
+    "crates/hookecho/src/radar_provider_manager.rs": "f6ee764c8451fdb921dbee4113ae548356eb59de5be2b791eb572c84d5239df8",
+    "crates/hookecho/src/app/live_session.rs": "0dcc2d820581ad517a782f4cd0e58aae937e963c9bbe3bdd2851a7f026b27e45",
+    "crates/hookecho/src/app/chrome/registry.rs": "8bfe2092aee9808332481637fb5b7da5175d0be9a5fa7c8aaee6126df25f0ff9",
+    "crates/hookecho/src/app/radar_feed.rs": "9350535be35b614a21cdf986cb15c492439ce06a9864043ee881362d518de1bb",
+    "crates/hookecho/src/app/data_poll.rs": "34931ebd2c26267dc331a06b349736f4f3fc26bb7c08ac07cd1cf55982db70b9",
+    "crates/hookecho/src/live_scan.rs": "c0c9dcbeb268606ae843fc62f32c221fd713ce98bb6c8731df608fb5048d02bb",
+    "crates/hookecho/src/view.rs": "f2272daf5bda5b49aefc03c1847c012019a46ec3f7a70fd3e1a9e5aa2b03a97c",
+    "crates/hookecho/src/volume.rs": "041a36d83a9463809cf25ed29a4c5cef5bab387f8bd2a19c6f5c2eb0c6fa69ed",
+    "crates/hookecho/src/relay_provider.rs": "4907deed63d18f22da3b32acf0476d3f7c43983d57a4e0d73baed36455c76883",
+    "crates/wxdata/src/live.rs": "0706ec7be04a843c5a1d4b55f73509a1f43f6f296c9e785e2654627f65a737b3",
+    "crates/wxdata/src/continuation.rs": "c58a9163c47fcfea12eafcf091829e9734d9a28d97737ffd03df92ccfd597195",
+    "crates/wxdata/src/clock.rs": "546b5a7a8d97c578a526c1b1922442c38bc7da5264fd789b9d369a0e530348c7"
+  },
+  "implementation_baseline": "edc279fc76f08da42b7d80186cebbf10a3a0157e",
+  "shared_head_at_verification": "4e85a8dbae345e25949be7d4ba239235ba77c6e4",
+  "verified_at_utc": "2026-10-04T20:12:25.460215+00:00",
+  "fault_trace": {
+    "path": "docs/certification/m1.3/restoration/fault-transitions.json",
+    "sha256": "bbe68bd49972f91e76f948ac9fbe62da6e941ae44afe809bb5622696087992e4",
+    "bytes": 1029,
+    "events": 6,
+    "kind": "Deterministic production manager/controller/receiver control; no whole-app rendering or operational network claim"
+  },
+  "prior_runs": {
+    "failover-tests": {
+      "command": "cargo test --workspace failover -- --test-threads=4",
+      "exit_code": 0,
+      "log_sha256": "fc69f10c6c8ddd865d693422855ee661be58a273758b44155addbf1d7f380143",
+      "log_bytes": 6770
+    },
+    "workspace-initial": {
+      "command": "cargo test --workspace -- --test-threads=4",
+      "exit_code": 101,
+      "log_sha256": "202f09d73a3dfbeec640a843b7a4218f6e10926411974413464ac8a8c619183e",
+      "log_bytes": 1271
+    },
+    "note": "Initial workspace check caught a missing super qualifier in the new source-health test; corrected before final verification. Concurrent detector/touch UI/backtest work is outside this increment. Source/data caches were not removed."
+  },
+  "scope": "Windows native production monitor/arbiter/manager/controller/receiver fault controls and source-health detail, plus shared workspace Clippy and WASM compilation. Same existing painter/layout. Full app delivery/rendering faults, declared failure-domain identity, cross-provider cut continuation, operational direct/relay sessions, physical devices, presentation latency, cadence calibration and soak gates remain open. Tornado detection edits excluded."
+}

@@ -76,6 +76,11 @@ alongside the final run. Claude's concurrent detector/documentation files are ou
 
 ## Remaining work and agent handoff
 
+Follow-up — 2026-10-04: [increment 2](restoration.md) repairs frame-count hysteresis, older/failed
+candidates, startup observation and completed restoration. Its emitted fault scenario integrates the
+manager/controller/receiver. Full app rendering and operational severe-weather sessions remain open;
+this report's verification manifest remains historical evidence for increment 1.
+
 This closes the scoped retry/generation and idle relay retirement seams. The receiver control
 exercises production controller, pane and receiver methods, not a complete `HookEchoApp` runtime.
 No painter/layout changed. It does not certify arbiter-driven preferred-tier restoration under

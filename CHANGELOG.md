@@ -8,6 +8,20 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: automatic radar restoration waits for advancing data
+
+Preferred-source recovery now requires three advancing source timestamps after failure instead
+of three repaints of the same health snapshot. Failures between frames reset recovery evidence;
+older or replayed updates cannot rewind the monitor's freshness or count as recovery. A primary
+still older than the backup stays on standby, and failed or stale backups cannot become active.
+Completed fallback also holds until fresh progressive data establishes recovery. Source health
+announces the tier actually selected, and shows the primary recovery candidate without a relay.
+
+An initially empty health monitor has a bounded startup window before degrading. Unexpected
+clean subscription ends now count as transport loss; successful updates clear the old error,
+and stopped monitors leave reconnect backoff promptly. Displayed source clocks and accepted
+acquisition receipts retain their existing ownership.
+
 ### Fixed: live retries follow the selected radar source
 
 Switching radar, pane, provider or the selected relay endpoint now starts the new live source

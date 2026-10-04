@@ -1,0 +1,43 @@
+[
+  {
+    "generation": 1,
+    "selected": "Unidata Level II (AWS S3)",
+    "source_time_ms": 1700000000000,
+    "stage": "initial"
+  },
+  {
+    "generation": 3,
+    "reason": "transport error",
+    "selected": "HookEcho Relay",
+    "source_time_ms": 1700000010000,
+    "stage": "primary loss"
+  },
+  {
+    "generation": 5,
+    "reason": "stale source data",
+    "selected": "NOAA TGFTP (degraded)",
+    "source_time_ms": 1700000191000,
+    "stage": "both sources lost"
+  },
+  {
+    "generation": 5,
+    "selected": "NOAA TGFTP (degraded)",
+    "source_time_ms": 1700000191000,
+    "stage": "recovery observation 1"
+  },
+  {
+    "generation": 5,
+    "selected": "NOAA TGFTP (degraded)",
+    "source_time_ms": 1700000191000,
+    "stage": "recovery observation 2"
+  },
+  {
+    "frozen_receipt_preserved": true,
+    "generation": 7,
+    "older_update_refused": true,
+    "reason": "preferred source recovered",
+    "selected": "Unidata Level II (AWS S3)",
+    "source_time_ms": 1700000195000,
+    "stage": "preferred restored"
+  }
+]

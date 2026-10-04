@@ -594,11 +594,37 @@ denied, and the WASM library check with existing browser warnings (wxdata 1, hoo
 manifest retains seven lifecycle controls, 18 source hashes, final log hashes, and prior attempt
 results. Native/data caches were preserved. No painter/layout or detector input changed.
 
-**Next agent handoff:** integrate fault scenarios with the existing arbiter/provider manager and
-application lifecycle, proving preferred-tier restoration, retained-data age and downgrade reason.
-Keep M1.3 partial until operational relay/direct-source sessions, actual failure-domain identity,
-cross-provider continuation, sustained load and applicable platform gates have evidence. Keep
-tornado detection with Claude.
+**Increment 2 — 2026-10-04, observed restoration:** the provider monitor now distinguishes advancing
+source-clock observations from callback successes and preserves freshness high-water marks across
+duplicates/replays. Failure resets the advancing streak, including failures between UI frames.
+Unexpected clean End while wanted is transport loss; intentional stop does not add failures, and
+cancelled reconnect backoff returns promptly. Arbiter failback uses real observation counters instead
+of frame evaluations, requires a primary no older than backup, and excludes failed/stale backup
+candidates. Completed fallback also waits for fresh recovery evidence. Empty startup health gets a
+bounded 180-second monotonic observation window; known stale data can degrade immediately.
+
+Manager health samples are coherent, and only actual selected-tier changes replace the visible
+transition. Degraded source health lists primary recovery even without a relay. Twelve new controls
+include a manager/controller/actual-receiver primary-loss/relay-loss/completed-floor/flap/preferred-
+restoration scenario, with 1,000 repeated evaluations proving weak recovery cannot trigger a switch.
+Late Ends and older volumes are refused, source clocks are retained and accepted receipts remain
+immutable. See [observed restoration](docs/certification/m1.3/restoration.md), the
+[emitted fault trace](docs/certification/m1.3/restoration/fault-transitions.json), and
+[verification](docs/certification/m1.3/restoration/verification.json). This closes demonstrated
+decision/ownership seams; it does not certify a complete application/rendering or operational session.
+
+Final Windows workspace verification passed **2,210 tests** across 28 suites, with zero failures
+and 142 explicitly ignored checks. All twelve new restoration controls, strict workspace Clippy
+and WASM compilation passed; existing browser warnings remain. The manifest hashes fourteen source
+files and the six-event trace. Concurrent detection/touch work is excluded from this increment.
+
+**Next agent handoff:** add declared upstream failure-domain identity through comparative health
+and retained diagnostics; keep missing/uncertain identity explicit. Do not label two transports
+independent merely because they have different provider labels. Then exercise complete app delivery/
+rendering and operational direct/relay fault sessions under load. Keep M1.3 partial until actual
+failure-domain identity, cross-provider cut continuation, live-session evidence, sustained load,
+thresholds benchmarked against cadence and applicable platform gates have evidence. Keep tornado
+detection with Claude.
 
 
 #### M1.4 — Complete retained provenance and scientific lineage

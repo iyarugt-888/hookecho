@@ -5,8 +5,8 @@
 //! machine: given a freshness/failure snapshot for each side at one instant
 //! ([`SiteArbiter::evaluate`]), it says whether the active side should change and why. It runs no
 //! network I/O, decodes nothing, and never touches a `Scan` — the actual switching of *which
-//! `Level2LiveProvider`'s updates reach `MapView`* is the caller's job (not yet wired in; see
-//! ROADMAP_NEW B6.11 step 11), same separation [`crate::provider_health`] keeps between observing
+//! `Level2LiveProvider`'s updates reach `MapView`* is the provider manager/app's job, the same
+//! separation [`crate::provider_health`] keeps between observing
 //! health and rendering it.
 //!
 //! Every rule below traces to a specific ROADMAP_NEW B6.6 bullet:
@@ -19,9 +19,9 @@
 //!   [`is_fresher`]. This is also what keeps the visible newest-radar timestamp from ever moving
 //!   backwards on a switch.
 //! - **Hysteresis before failback.** [`ArbiterConfig::failback_consecutive_healthy`] requires
-//!   multiple *consecutive* healthy primary observations, not just one, before switching back —
-//!   any unhealthy observation resets the streak to zero, so a flapping primary cannot bounce the
-//!   active side back and forth.
+//!   multiple advancing source-clock observations, not evaluations of an unchanged board, before
+//!   switching back. The monitor retains the post-failure streak even if an error and recovery
+//!   occur between evaluations. A recovered primary cannot be older than the backup.
 //! - **Explicit switch reason, always.** Every [`Transition`] carries a
 //!   [`wxdata::live_block::ProviderSwitchReason`] — `TransportError`, `StaleData`,
 //!   `ManualOverride`, or `Recovery`. `SequenceGap` is not produced by this arbiter: detecting a
@@ -41,6 +41,10 @@ pub struct ArbiterInput {
     /// success — not a lifetime total, so a provider that recovers and later fails again is
     /// judged on its current run of failures, not ancient history.
     pub consecutive_failures: u32,
+    /// Monotonic count from the provider monitor, not calls to `evaluate`.
+    pub advancing_observations: u64,
+    /// Consecutive advancing observations since the monitor's last failure/active end.
+    pub consecutive_advancing_observations: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,7 +67,7 @@ pub struct ArbiterConfig {
     /// The candidate side must be fresher than the current active side by at least this much to
     /// be worth switching to.
     pub min_freshness_margin: Duration,
-    /// Consecutive healthy primary observations required, once on the backup, before failing back.
+    /// Advancing source-clock observations required after failover; at least one is required.
     pub failback_consecutive_healthy: u32,
 }
 
@@ -92,9 +96,9 @@ pub struct Transition {
 pub struct SiteArbiter {
     config: ArbiterConfig,
     active: ActiveSide,
-    /// Consecutive healthy primary observations since failing over to the backup, toward failback
-    /// hysteresis. Reset to zero on any unhealthy primary observation or on failing back.
-    primary_recovery_streak: u32,
+    /// The monitor count when recovery started/reset; repeated evaluations cannot advance it.
+    primary_recovery_baseline: u64,
+    last_primary_observations: u64,
     manual_override: Option<ActiveSide>,
 }
 
@@ -103,7 +107,8 @@ impl SiteArbiter {
         Self {
             config,
             active: ActiveSide::Primary,
-            primary_recovery_streak: 0,
+            primary_recovery_baseline: 0,
+            last_primary_observations: 0,
             manual_override: None,
         }
     }
@@ -125,7 +130,7 @@ impl SiteArbiter {
             return None;
         }
         self.active = side;
-        self.primary_recovery_streak = 0;
+        self.primary_recovery_baseline = self.last_primary_observations;
         Some(Transition {
             to: side,
             reason: ProviderSwitchReason::ManualOverride,
@@ -145,12 +150,15 @@ impl SiteArbiter {
         primary: ArbiterInput,
         backup: ArbiterInput,
     ) -> Option<Transition> {
+        self.last_primary_observations = primary.advancing_observations;
         if self.manual_override.is_some() {
+            self.primary_recovery_baseline = primary.advancing_observations;
             return None;
         }
 
         match self.active {
             ActiveSide::Primary => {
+                self.primary_recovery_baseline = primary.advancing_observations;
                 let transport_failed =
                     primary.consecutive_failures >= self.config.max_consecutive_failures;
                 let stale = is_stale(
@@ -163,15 +171,21 @@ impl SiteArbiter {
                 }
                 // Never fail over to an even older (or equally uninformative) stream just because
                 // it happens to be reachable right now.
-                if !is_fresher(
-                    backup.newest_radar_time,
-                    primary.newest_radar_time,
-                    self.config.min_freshness_margin,
-                ) {
+                if backup.consecutive_failures != 0
+                    || is_stale(
+                        backup.newest_radar_time,
+                        now,
+                        self.config.staleness_threshold,
+                    )
+                    || !is_fresher(
+                        backup.newest_radar_time,
+                        primary.newest_radar_time,
+                        self.config.min_freshness_margin,
+                    )
+                {
                     return None;
                 }
                 self.active = ActiveSide::Backup;
-                self.primary_recovery_streak = 0;
                 Some(Transition {
                     to: ActiveSide::Backup,
                     reason: if transport_failed {
@@ -187,17 +201,21 @@ impl SiteArbiter {
                         primary.newest_radar_time,
                         now,
                         self.config.staleness_threshold,
-                    );
-                if primary_healthy {
-                    self.primary_recovery_streak += 1;
-                } else {
-                    self.primary_recovery_streak = 0;
+                    )
+                    && primary.newest_radar_time >= backup.newest_radar_time;
+                if !primary_healthy {
+                    self.primary_recovery_baseline = primary.advancing_observations;
+                    return None;
                 }
-                if self.primary_recovery_streak < self.config.failback_consecutive_healthy {
+                let observations = primary
+                    .advancing_observations
+                    .saturating_sub(self.primary_recovery_baseline)
+                    .min(u64::from(primary.consecutive_advancing_observations));
+                if observations < u64::from(self.config.failback_consecutive_healthy.max(1)) {
                     return None;
                 }
                 self.active = ActiveSide::Primary;
-                self.primary_recovery_streak = 0;
+                self.primary_recovery_baseline = primary.advancing_observations;
                 Some(Transition {
                     to: ActiveSide::Primary,
                     reason: ProviderSwitchReason::Recovery,
@@ -241,6 +259,16 @@ mod tests {
         ArbiterInput {
             newest_radar_time: Some(newest),
             consecutive_failures: 0,
+            advancing_observations: 1,
+            consecutive_advancing_observations: 1,
+        }
+    }
+
+    fn observed(newest: DateTime<Utc>, total: u64, consecutive: u32) -> ArbiterInput {
+        ArbiterInput {
+            advancing_observations: total,
+            consecutive_advancing_observations: consecutive,
+            ..healthy(newest)
         }
     }
 
@@ -261,6 +289,7 @@ mod tests {
         let primary = ArbiterInput {
             newest_radar_time: Some(t(200, now)),
             consecutive_failures: 5,
+            ..ArbiterInput::default()
         };
         let backup = healthy(t(1, now));
         let transition = arbiter.evaluate(now, primary, backup).unwrap();
@@ -279,6 +308,7 @@ mod tests {
         let primary = ArbiterInput {
             newest_radar_time: Some(t(500, now)),
             consecutive_failures: 0,
+            ..ArbiterInput::default()
         };
         let backup = healthy(t(1, now));
         let transition = arbiter.evaluate(now, primary, backup).unwrap();
@@ -292,6 +322,7 @@ mod tests {
         let primary = ArbiterInput {
             newest_radar_time: Some(t(1, now)),
             consecutive_failures: 10,
+            ..ArbiterInput::default()
         };
         // Backup is older than the primary's last known data — switching would move the visible
         // newest-radar timestamp backwards, which must never happen.
@@ -310,10 +341,12 @@ mod tests {
         let primary = ArbiterInput {
             newest_radar_time: Some(t(1, now)),
             consecutive_failures: 10,
+            ..ArbiterInput::default()
         };
         let backup = ArbiterInput {
             newest_radar_time: None,
             consecutive_failures: 0,
+            ..ArbiterInput::default()
         };
         assert!(arbiter.evaluate(now, primary, backup).is_none());
     }
@@ -326,6 +359,7 @@ mod tests {
         let failing_primary = ArbiterInput {
             newest_radar_time: Some(t(500, now)),
             consecutive_failures: 10,
+            ..ArbiterInput::default()
         };
         arbiter
             .evaluate(now, failing_primary, healthy(t(1, now)))
@@ -333,14 +367,18 @@ mod tests {
         assert_eq!(arbiter.active(), ActiveSide::Backup);
 
         // Two healthy observations are not enough (default threshold is 3).
-        for _ in 0..2 {
-            let result = arbiter.evaluate(now, healthy(t(1, now)), healthy(t(1, now)));
+        for count in 1..=2 {
+            let result = arbiter.evaluate(
+                now,
+                observed(t(1, now), count, count as u32),
+                healthy(t(1, now)),
+            );
             assert!(result.is_none());
             assert_eq!(arbiter.active(), ActiveSide::Backup);
         }
         // The third consecutive healthy observation triggers failback.
         let transition = arbiter
-            .evaluate(now, healthy(t(1, now)), healthy(t(1, now)))
+            .evaluate(now, observed(t(1, now), 3, 3), healthy(t(1, now)))
             .unwrap();
         assert_eq!(transition.to, ActiveSide::Primary);
         assert_eq!(transition.reason, ProviderSwitchReason::Recovery);
@@ -353,6 +391,7 @@ mod tests {
         let failing_primary = ArbiterInput {
             newest_radar_time: Some(t(500, now)),
             consecutive_failures: 10,
+            ..ArbiterInput::default()
         };
         arbiter
             .evaluate(now, failing_primary, healthy(t(1, now)))
@@ -360,15 +399,16 @@ mod tests {
 
         // Two healthy observations, then one unhealthy one (a flapping primary), then two more
         // healthy ones — never three genuinely *consecutive* healthy observations.
-        arbiter.evaluate(now, healthy(t(1, now)), healthy(t(1, now)));
-        arbiter.evaluate(now, healthy(t(1, now)), healthy(t(1, now)));
+        arbiter.evaluate(now, observed(t(1, now), 1, 1), healthy(t(1, now)));
+        arbiter.evaluate(now, observed(t(1, now), 2, 2), healthy(t(1, now)));
         let flap = ArbiterInput {
             newest_radar_time: Some(t(1, now)),
             consecutive_failures: 1,
+            ..ArbiterInput::default()
         };
         arbiter.evaluate(now, flap, healthy(t(1, now)));
-        arbiter.evaluate(now, healthy(t(1, now)), healthy(t(1, now)));
-        let still_backup = arbiter.evaluate(now, healthy(t(1, now)), healthy(t(1, now)));
+        arbiter.evaluate(now, observed(t(1, now), 3, 1), healthy(t(1, now)));
+        let still_backup = arbiter.evaluate(now, observed(t(1, now), 4, 2), healthy(t(1, now)));
         assert!(
             still_backup.is_none(),
             "a flapping primary must not accumulate a broken streak into a failback"
@@ -388,6 +428,7 @@ mod tests {
         let failing_backup = ArbiterInput {
             newest_radar_time: Some(t(500, now)),
             consecutive_failures: 10,
+            ..ArbiterInput::default()
         };
         assert!(arbiter
             .evaluate(now, healthy(t(1, now)), failing_backup)
@@ -399,6 +440,107 @@ mod tests {
         // and fresher, so a normal failover-style decision (now from Backup toward Primary) can
         // proceed via the same hysteresis path as any other recovery.
         assert!(!arbiter.is_manually_overridden());
+    }
+
+    fn on_backup(now: DateTime<Utc>) -> SiteArbiter {
+        let mut arbiter = SiteArbiter::new(ArbiterConfig::default());
+        let failed = ArbiterInput {
+            consecutive_failures: 3,
+            ..observed(t(200, now), 10, 0)
+        };
+        assert_eq!(
+            arbiter
+                .evaluate(now, failed, healthy(t(1, now)))
+                .unwrap()
+                .to,
+            ActiveSide::Backup
+        );
+        arbiter
+    }
+
+    #[test]
+    fn unchanged_health_snapshots_cannot_satisfy_failback_hysteresis() {
+        let now = Utc::now();
+        let mut arbiter = on_backup(now);
+        for count in 11..=12 {
+            for _ in 0..1000 {
+                assert!(arbiter
+                    .evaluate(
+                        now,
+                        observed(now, count, (count - 10) as u32),
+                        healthy(t(1, now))
+                    )
+                    .is_none());
+                assert_eq!(arbiter.active(), ActiveSide::Backup);
+            }
+        }
+        let restored = arbiter
+            .evaluate(now, observed(now, 13, 3), healthy(t(1, now)))
+            .unwrap();
+        assert_eq!(restored.reason, ProviderSwitchReason::Recovery);
+        assert_eq!(restored.to, ActiveSide::Primary);
+    }
+
+    #[test]
+    fn fresh_but_older_primary_cannot_restore_until_it_catches_up_and_advances() {
+        let now = Utc::now();
+        let mut arbiter = on_backup(now);
+        for count in 11..=15 {
+            assert!(arbiter
+                .evaluate(now, observed(t(20, now), count, 10), healthy(now))
+                .is_none());
+        }
+        for count in 16..=17 {
+            assert!(arbiter
+                .evaluate(now, observed(now, count, 10), healthy(now))
+                .is_none());
+        }
+        assert_eq!(
+            arbiter
+                .evaluate(now, observed(now, 18, 10), healthy(now))
+                .unwrap()
+                .to,
+            ActiveSide::Primary
+        );
+    }
+
+    #[test]
+    fn failure_between_ui_samples_does_not_count_pre_failure_observations() {
+        let now = Utc::now();
+        let mut arbiter = on_backup(now);
+        // Five advances have occurred, but only two follow the most recent failure.
+        for _ in 0..1000 {
+            assert!(arbiter
+                .evaluate(now, observed(now, 15, 2), healthy(now))
+                .is_none());
+        }
+        assert_eq!(
+            arbiter
+                .evaluate(now, observed(now, 16, 3), healthy(now))
+                .unwrap()
+                .to,
+            ActiveSide::Primary
+        );
+    }
+
+    #[test]
+    fn failed_or_stale_backup_is_not_a_healthy_failover_candidate() {
+        let now = Utc::now();
+        for backup in [
+            ArbiterInput {
+                consecutive_failures: 1,
+                ..healthy(now)
+            },
+            healthy(t(100, now)),
+        ] {
+            let mut arbiter = SiteArbiter::new(ArbiterConfig::default());
+            let failed = ArbiterInput {
+                consecutive_failures: 3,
+                ..healthy(t(400, now))
+            };
+            assert!(arbiter.evaluate(now, failed, backup).is_none());
+            assert_eq!(arbiter.active(), ActiveSide::Primary);
+        }
     }
 
     #[test]
@@ -414,6 +556,7 @@ mod tests {
                 ArbiterInput {
                     newest_radar_time: Some(t(1, now)),
                     consecutive_failures: 5,
+                    ..ArbiterInput::default()
                 },
                 healthy(t(2, now)), // backup is actually OLDER — must not switch
             ),
@@ -421,6 +564,7 @@ mod tests {
                 ArbiterInput {
                     newest_radar_time: Some(t(1, now)),
                     consecutive_failures: 5,
+                    ..ArbiterInput::default()
                 },
                 healthy(t(0, now)), // backup is fresher — may switch
             ),

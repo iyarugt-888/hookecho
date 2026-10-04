@@ -121,7 +121,7 @@ fn failover_details(
     out.push(("Failover state", state.to_string()));
     out.push((
         "Standby provider",
-        if snap.has_backup {
+        if snap.has_backup || snap.selected != SelectedTier::Primary {
             let standby = match snap.selected {
                 SelectedTier::Primary => snap.backup.as_ref(),
                 _ => snap.primary.as_ref(),
@@ -1874,6 +1874,33 @@ mod tests {
     #[test]
     fn no_live_arrival_yet_means_no_lag_detail() {
         assert!(ingest_lag_detail(None).is_none());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn degraded_failover_lists_primary_recovery_without_a_relay() {
+        let mut primary = crate::provider_health::ProviderHealth::new(
+            crate::radar_provider_manager::PRIMARY_LABEL,
+            wxdata::live_block::ProviderCapabilities::unidata(),
+        );
+        primary.record_update(chrono::Utc::now(), chrono::Utc::now());
+        let snapshot = crate::radar_provider_manager::FailoverSnapshot {
+            selected: crate::radar_provider_manager::SelectedTier::Degraded,
+            has_backup: false,
+            primary: Some(primary),
+            backup: None,
+            manual_override: false,
+            last_transition: None,
+        };
+        let details = super::failover_details(&snapshot);
+        let standby = details
+            .iter()
+            .find(|(key, _)| *key == "Standby provider")
+            .unwrap();
+        assert!(standby
+            .1
+            .starts_with(crate::radar_provider_manager::PRIMARY_LABEL));
+        assert!(!standby.1.contains("no relay configured"));
     }
 
     /// Received 41 seconds after the volume's own valid time — a plausible provider/network

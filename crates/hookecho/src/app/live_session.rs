@@ -482,4 +482,218 @@ mod tests {
         session.finish_into(0, first.generation, true, None, &mut []);
         assert!(!session.accepts(0, first.generation));
     }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn automatic_failover_completed_floor_and_preferred_restore_keep_receiver_ownership() {
+        use crate::provider_health::{HealthBoard, ProviderHealth};
+        use crate::radar_provider_manager::{
+            label_for_reason, label_for_tier, SelectedTier, SiteProviders, BACKUP_LABEL,
+            PRIMARY_LABEL,
+        };
+        use std::collections::HashMap;
+        use std::sync::Mutex;
+        let clock = chrono::DateTime::from_timestamp_millis(1_700_000_000_000).unwrap();
+        let mono = Instant::now();
+        let mut primary = ProviderHealth::new(
+            PRIMARY_LABEL,
+            wxdata::live_block::ProviderCapabilities::unidata(),
+        );
+        let mut backup = ProviderHealth::new(
+            BACKUP_LABEL,
+            wxdata::live_block::ProviderCapabilities::relay(),
+        );
+        primary.record_update(clock, clock);
+        backup.record_update(clock, clock);
+        let board: HealthBoard = Arc::new(Mutex::new(HashMap::from([
+            (PRIMARY_LABEL, primary),
+            (BACKUP_LABEL, backup),
+        ])));
+        let mut providers =
+            SiteProviders::for_test(Some("http://relay.control".into()), board.clone());
+        let (view, receipt) = pane("KTLX");
+        let frozen = receipt.inventory().clone();
+        let mut views = [view];
+        let mut session = LiveSession::default();
+        let mut events = Vec::new();
+        let request = |tier| StreamRequest {
+            view: 0,
+            site: "KTLX",
+            provider: label_for_tier(tier),
+            relay_endpoint: (tier == SelectedTier::Backup).then_some("http://relay.control"),
+        };
+
+        providers.tick_at(clock, Duration::ZERO);
+        assert_eq!(providers.selected_tier(), SelectedTier::Primary);
+        let first = session
+            .reconcile(Some(request(providers.selected_tier())), mono)
+            .start
+            .unwrap();
+        views[0].live_scan.stream_started(first.provider, false);
+        assert!(views[0]
+            .live_scan
+            .accept_volume("initial-control", clock, clock));
+        events.push(serde_json::json!({"stage":"initial", "selected":label_for_tier(providers.selected_tier()), "generation":first.generation, "source_time_ms":views[0].live_scan.volume_time.unwrap().timestamp_millis()}));
+
+        let backup_clock = clock + chrono::Duration::seconds(10);
+        {
+            let mut board = board.lock().unwrap();
+            for _ in 0..3 {
+                board
+                    .get_mut(PRIMARY_LABEL)
+                    .unwrap()
+                    .record_failure("primary transport control");
+            }
+            board
+                .get_mut(BACKUP_LABEL)
+                .unwrap()
+                .record_update(backup_clock, backup_clock);
+        }
+        providers.tick_at(backup_clock, Duration::from_secs(10));
+        assert_eq!(providers.selected_tier(), SelectedTier::Backup);
+        assert_eq!(
+            providers.snapshot().last_transition.unwrap().1,
+            wxdata::live_block::ProviderSwitchReason::TransportError
+        );
+        let decision = session.reconcile(
+            Some(request(providers.selected_tier())),
+            mono + Duration::from_secs(1),
+        );
+        assert_eq!(decision.stopped_view, Some(0));
+        let relay = decision.start.unwrap();
+        assert!(!session.accepts(0, first.generation));
+        views[0].live_scan.stream_started(relay.provider, true);
+        assert!(views[0]
+            .live_scan
+            .accept_volume("backup-control", backup_clock, backup_clock));
+        session.finish_into(
+            0,
+            first.generation,
+            true,
+            Some("late primary end".into()),
+            &mut views,
+        );
+        assert!(session.accepts(0, relay.generation));
+        assert!(views[0].live_scan.last_stream_error.is_none());
+        events.push(serde_json::json!({"stage":"primary loss", "selected":label_for_tier(providers.selected_tier()), "reason":label_for_reason(providers.snapshot().last_transition.unwrap().1), "generation":relay.generation, "source_time_ms":views[0].live_scan.volume_time.unwrap().timestamp_millis()}));
+
+        for _ in 0..3 {
+            board
+                .lock()
+                .unwrap()
+                .get_mut(BACKUP_LABEL)
+                .unwrap()
+                .record_failure("backup transport control");
+        }
+        let floor_clock = clock + chrono::Duration::seconds(191);
+        providers.tick_at(floor_clock, Duration::from_secs(191));
+        assert_eq!(providers.selected_tier(), SelectedTier::Degraded);
+        let completed = session
+            .reconcile(
+                Some(request(providers.selected_tier())),
+                mono + Duration::from_secs(2),
+            )
+            .start
+            .unwrap();
+        views[0].live_scan.stream_started(completed.provider, true);
+        views[0]
+            .live_scan
+            .set_source_mode(crate::live_scan::SourceMode::CompletedVolumes);
+        assert!(views[0]
+            .live_scan
+            .accept_volume("completed-control", floor_clock, floor_clock));
+        session.finish_into(
+            0,
+            relay.generation,
+            true,
+            Some("late relay end".into()),
+            &mut views,
+        );
+        assert!(session.accepts(0, completed.generation));
+        assert_eq!(
+            views[0].live_scan.source_mode,
+            Some(crate::live_scan::SourceMode::CompletedVolumes)
+        );
+        let floor_transition = providers.snapshot().last_transition;
+        events.push(serde_json::json!({"stage":"both sources lost", "selected":label_for_tier(providers.selected_tier()), "reason":label_for_reason(floor_transition.unwrap().1), "generation":completed.generation, "source_time_ms":views[0].live_scan.volume_time.unwrap().timestamp_millis()}));
+
+        // A failure occurs between UI samples, after two new primary observations.
+        {
+            let mut board = board.lock().unwrap();
+            let primary = board.get_mut(PRIMARY_LABEL).unwrap();
+            primary.record_update(floor_clock, floor_clock);
+            primary.record_update(floor_clock + chrono::Duration::seconds(1), floor_clock);
+            primary.record_failure("flap between frames");
+        }
+        for count in 1..=2 {
+            let recovery_clock = floor_clock + chrono::Duration::seconds(count + 1);
+            board
+                .lock()
+                .unwrap()
+                .get_mut(PRIMARY_LABEL)
+                .unwrap()
+                .record_update(recovery_clock, recovery_clock);
+            for _ in 0..1000 {
+                providers.tick_at(recovery_clock, Duration::from_secs(192));
+                assert_eq!(providers.selected_tier(), SelectedTier::Degraded);
+                assert_eq!(providers.snapshot().last_transition, floor_transition);
+                assert!(session
+                    .reconcile(
+                        Some(request(providers.selected_tier())),
+                        mono + Duration::from_secs(3)
+                    )
+                    .start
+                    .is_none());
+            }
+            events.push(serde_json::json!({"stage":format!("recovery observation {count}"), "selected":label_for_tier(providers.selected_tier()), "generation":completed.generation, "source_time_ms":views[0].live_scan.volume_time.unwrap().timestamp_millis()}));
+        }
+        let restored_clock = floor_clock + chrono::Duration::seconds(4);
+        board
+            .lock()
+            .unwrap()
+            .get_mut(PRIMARY_LABEL)
+            .unwrap()
+            .record_update(restored_clock, restored_clock);
+        providers.tick_at(restored_clock, Duration::from_secs(195));
+        assert_eq!(providers.selected_tier(), SelectedTier::Primary);
+        assert_eq!(
+            providers.snapshot().last_transition.unwrap().1,
+            wxdata::live_block::ProviderSwitchReason::Recovery
+        );
+        let restored = session
+            .reconcile(
+                Some(request(providers.selected_tier())),
+                mono + Duration::from_secs(4),
+            )
+            .start
+            .unwrap();
+        views[0].live_scan.stream_started(restored.provider, false);
+        views[0]
+            .live_scan
+            .set_source_mode(crate::live_scan::SourceMode::ProgressiveRadials);
+        session.finish_into(
+            0,
+            completed.generation,
+            true,
+            Some("late completed end".into()),
+            &mut views,
+        );
+        assert!(session.accepts(0, restored.generation));
+        assert!(views[0].live_scan.last_stream_error.is_none());
+        assert!(!views[0]
+            .live_scan
+            .accept_volume("older-primary-control", clock, restored_clock));
+        assert_eq!(views[0].live_scan.volume_time, Some(floor_clock));
+        assert!(views[0].live_scan.accept_volume(
+            "restored-control",
+            restored_clock,
+            restored_clock
+        ));
+        assert_eq!(receipt.inventory(), &frozen);
+        events.push(serde_json::json!({"stage":"preferred restored", "selected":label_for_tier(providers.selected_tier()), "reason":label_for_reason(providers.snapshot().last_transition.unwrap().1), "generation":restored.generation, "source_time_ms":views[0].live_scan.volume_time.unwrap().timestamp_millis(), "frozen_receipt_preserved":true, "older_update_refused":true}));
+        let destination = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/parity-review/m1.3/restoration/fault-transitions.json");
+        std::fs::create_dir_all(destination.parent().unwrap()).unwrap();
+        std::fs::write(destination, serde_json::to_vec_pretty(&events).unwrap()).unwrap();
+    }
 }
