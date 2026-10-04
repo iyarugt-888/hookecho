@@ -469,6 +469,10 @@ Primary code areas:
 
   - **Where it stands, false Possible markers per radar-hour and POD:** random sample 0.60 at 0.33 (original Tornado ID 3.51 at 0.16); corpus 3.10 at 0.38 (original 7.60 at 0.29). The backtest export still writes every column; the mask, like the lift, is applied when verdicts are drawn, so these come from the offline rescoring.
 
+- **A report raises a verdict; it no longer makes one** (seen in the app, web build, Mayfield 2021-12-11). At 03:45Z the map showed two Tornado confirmed markers about 40 km apart: the tornado near Benton (90/100, 88 kt) and a 13/100, 21 kt column southwest of Mayfield. A report counted as confirmation for any column within 10 km and ±30 minutes, whatever its score or core, and the tornado moves 1.5 km a minute, so a report in town kept confirming the weak shear left behind for half an hour. Confirmed is at or above Likely, so such a column also raised the tornado alert, and as the top tier it led any 15 km fold over the real tornado.
+  - **Rule:** confirmation (report or observed warning) raises a verdict to Confirmed but cannot make one; the score (or the rotation-only lift) and the storm core decide whether there is a verdict. The observed-warning rule already worked this way.
+  - **Measured numbers are unchanged:** the offline rescoring never counted report-made markers (it scores radar evidence only), so every false-alarm and POD figure above stands. What changes is what the app drew and alerted on beyond them.
+
 ### Where the detection stands (65 events)
 
 - **Promoted.** The fused Tornado ID (fusion-3) is the app's default; the original is selectable. On every held-out test since promotion it has found as many tornadoes as the original or more, at a far lower false-alarm ratio. On round three's unseen events at matched false-alarm rates: POD 0.29, FAR 0.21 against 0.15, 0.64. On round five's unseen supercell days at Likely: POD 0.28, FAR 0.11 against 0.26, 0.62. On non-tornadic lines (round four): 0 false detections against 23. On the hail storms, at Likely: 2 against 25.

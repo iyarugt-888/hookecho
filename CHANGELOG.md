@@ -97,9 +97,10 @@ it open from the marker.
 It alerts once when a marker reaches *likely* or higher, and again only if it rises. The fused
 pipeline makes the verdicts; the original stands in while it computes. *Possible* now also marks
 strong low-level rotation without debris, 40 km or more from the radar (bar in Layer options →
-Detectors, 0.018 s⁻¹ by default, or off). Every marker needs a storm core (≥ 40 dBZ within 5 km)
-unless a tornado report confirms it, and a *possible* marker within 2 km of a wind turbine that
-stood in the scan's year is not drawn (USGS U.S. Wind Turbine Database). It does not run on TDWR
+Detectors, 0.018 s⁻¹ by default, or off). Every marker needs a storm core (≥ 40 dBZ within 5 km),
+and a *possible* marker within 2 km of a wind turbine that stood in the scan's year is not drawn
+(USGS U.S. Wind Turbine Database). A tornado report or an observed warning raises a marker to
+*confirmed* but no longer makes one from weak shear near the report. It does not run on TDWR
 sites. On 139 random severe-weather windows it found a third of the tornadoes at 0.6 false
 *possible* markers per radar-hour and none at *likely*; the original Tornado ID found 16% at 3.5
 and 0.9. Scores remain evidence, not calibrated probabilities.

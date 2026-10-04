@@ -264,9 +264,11 @@ fn opt(v: Option<f32>, fmt: impl Fn(f32) -> String) -> String {
 
 impl Analysed {
     /// This circulation as a Tornado ID verdict, with what people said about it. `None` when its
-    /// evidence is under [`MIN_SCORE`], or it sits in no convective core, and no tornado report
-    /// confirms it: an observed warning raises the tier of a detection but cannot make one (its
-    /// polygon is a county wide).
+    /// evidence is under [`MIN_SCORE`] or it sits in no convective core. A tornado report or an
+    /// observed warning raises a verdict to Confirmed but cannot make one: a warning's polygon is a
+    /// county wide, and a report is a point that stays in reach for half an hour while its
+    /// tornado moves on (Mayfield 2021: 1.5 km a minute), so it would confirm whatever weak shear
+    /// is left behind it.
     pub fn tornado_id(&self, confirmation: &Confirmation) -> Option<TornadoId> {
         self.tornado_id_with(confirmation, None)
     }
@@ -296,7 +298,6 @@ impl Analysed {
             .filter(|(_, a, _)| a.class == DebrisClass::TornadoDebrisSignature)
             .min_by(|a, b| a.2.total_cmp(&b.2));
         let lifted = score < MIN_SCORE
-            && confirmation.report.is_none()
             && rotation_only_possible.is_some_and(|bar| {
                 c.rooted
                     && c.sense == Sense::Cyclonic
@@ -309,13 +310,14 @@ impl Analysed {
                     && c.echo.is_some()
                     && c.members.first().is_some_and(|m| m.object.range_km >= LIFT_MIN_RANGE_KM)
             });
-        // Every verdict sits in a convective core (`echo`: a >= 40 dBZ object within 5 km) unless a
-        // tornado report confirms it. Shear with no core is stratiform rain, synoptic wind or
-        // clutter: on 139 random severe-weather windows the rule removed 61 of 134 false markers at
-        // Possible and all 5 at Likely, on the 65-event corpus 23 of 172 and 6 of 35, and it lost
-        // no tornado on any set (detectionplan.md).
-        let coreless = c.echo.is_none();
-        if confirmation.report.is_none() && (coreless || (score < MIN_SCORE && !lifted)) {
+        // Every verdict sits in a convective core (`echo`: a >= 40 dBZ object within 5 km). Shear
+        // with no core is stratiform rain, synoptic wind or clutter: on 139 random severe-weather
+        // windows the rule removed 61 of 134 false markers at Possible and all 5 at Likely, on the
+        // 65-event corpus 23 of 172 and 6 of 35, and it lost no tornado on any set
+        // (detectionplan.md). Confirmation does not stand in for radar evidence: at Mayfield a
+        // report in town, still within its 30 minutes, made a 13/100 column there a Confirmed
+        // marker (and an alert) after the tornado was 25 km on.
+        if c.echo.is_none() || (score < MIN_SCORE && !lifted) {
             return None;
         }
         let tier = if confirmation.level().is_some() {
@@ -847,12 +849,12 @@ mod tests {
         let alone = analyse(vec![weak], &[], &[]);
         assert!(alone[0].fused.score < MIN_SCORE, "{}", alone[0].fused.score);
         assert!(identify(&alone, none).is_empty());
-        // A report beside it makes it one, confirmed; an observed warning alone does not.
+        // Neither a report beside it nor an observed warning makes it one.
         let report = |_: f64, _: f64| Confirmation {
             observed_warning: false,
             report: Some((2.0, 3)),
         };
-        assert_eq!(identify(&alone, report)[0].tier, Tier::Confirmed);
+        assert!(identify(&alone, report).is_empty());
         let warned = |_: f64, _: f64| Confirmation {
             observed_warning: true,
             report: None,
@@ -861,19 +863,23 @@ mod tests {
     }
 
     #[test]
-    fn a_circulation_with_no_convective_core_is_no_verdict_unless_reported() {
+    fn a_circulation_with_no_convective_core_is_no_verdict_even_when_reported() {
         // Strong, debris-backed shear, but no >= 40 dBZ core within 5 km: stratiform rain,
-        // synoptic wind or clutter. No marker, at any score; a tornado report still makes one.
+        // synoptic wind or clutter. No marker, at any score, and a report does not make one.
         let mut t = tracked(3);
         t.column.echo = None;
-        let a = analyse(vec![t], &[debris_ball(0.5, 0.5)], &[]);
+        let a = analyse(vec![t.clone()], &[debris_ball(0.5, 0.5)], &[]);
         assert!(a[0].fused.score >= MIN_SCORE, "{}", a[0].fused.score);
         assert!(identify(&a, |_, _| Confirmation::default()).is_empty());
         let report = |_: f64, _: f64| Confirmation {
             observed_warning: false,
             report: Some((2.0, 3)),
         };
-        assert_eq!(identify(&a, report)[0].tier, Tier::Confirmed);
+        assert!(identify(&a, report).is_empty());
+        // In a core, the same report raises it to Confirmed.
+        t.column.echo = tracked(1).column.echo;
+        let cored = analyse(vec![t], &[debris_ball(0.5, 0.5)], &[]);
+        assert_eq!(identify(&cored, report)[0].tier, Tier::Confirmed);
     }
 
     #[test]
