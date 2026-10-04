@@ -5817,6 +5817,9 @@ fn backtest_event(
             // Corroborate both ways at once, each from the other's pre-corroboration confidence,
             // so the backtest scores what a debris ball beside a couplet is actually worth without
             // either side's boost feeding the other's back in.
+            // The app's fused Tornado ID reads the debris signatures before corroboration
+            // (`tds_raw`); kept for the marker rows below.
+            let raw_hits = hits.clone();
             wxdata::tds::cross_corroborate(&mut hits, &mut couplets, !vel_pairs.is_empty());
             let minute = minute_of(t);
             scanned.push(minute);
@@ -6150,6 +6153,35 @@ fn backtest_event(
                         fused.score,
                     )
                 });
+            }
+            // The markers the app would draw (`DetectorKind::TornadoMarker`): every tracked column
+            // analysed as the app does (raw debris signatures, no hail cores), then the same
+            // `circulations_with` call, radar evidence only, so the backtest verifies the rules
+            // (core, rotation-only bar from 40 km, wind-turbine mask, one per tornado) in code
+            // rather than re-deriving them from the fused rows.
+            if let Some((rlon, rlat)) = radar_pos {
+                use chrono::Datelike;
+                let analysed = wxdata::llsd_analyst::analyse(llsd_all.clone(), &raw_hits, &[]);
+                let options = wxdata::llsd_analyst::VerdictOptions {
+                    rotation_only_possible: Some(crate::settings::DEFAULT_ROTATION_ONLY_POSSIBLE),
+                    turbines_in_year: Some(t.year()),
+                };
+                for c in wxdata::llsd_analyst::circulations_with(
+                    &analysed,
+                    &[],
+                    &[],
+                    |_, _| Default::default(),
+                    options,
+                ) {
+                    let id = &c.id;
+                    let range = crate::geo::great_circle([rlon, rlat], [id.lon, id.lat]).0 as f32;
+                    candidates.push(Candidate {
+                        vrot_ms: id.vrot_ms,
+                        min_cc: id.min_cc,
+                        tier: Some(id.tier.label().to_string()),
+                        ..base(K::TornadoMarker, id.lon, id.lat, range, id.score, id.score)
+                    });
+                }
             }
             for (lon, lat, posh, range_km) in hail_cands {
                 candidates.push(base(K::Hail, lon, lat, range_km, posh, posh));

@@ -39,10 +39,16 @@ pub enum DetectorKind {
     /// Each LLSD column fused (`tornado_fusion`, detectionplan.md Phase 7): the score is its
     /// fused evidence score from the current weights, and `features` the inputs, for fitting.
     TornadoFusion,
+    /// Each Tornado detection marker the app would draw from the fused pipeline, radar evidence
+    /// only (`llsd_analyst::circulations_with` with no report or warning confirmation): one per
+    /// tornado after folding, with the storm-core rule, the default rotation-only bar from 40 km
+    /// and the wind-turbine mask. The score and `tier` are the lead verdict's. What the map shows,
+    /// verified directly rather than re-derived from the fused rows.
+    TornadoMarker,
 }
 
 impl DetectorKind {
-    pub const ALL: [DetectorKind; 7] = [
+    pub const ALL: [DetectorKind; 8] = [
         DetectorKind::Rotation,
         DetectorKind::Debris,
         DetectorKind::TornadoId,
@@ -50,6 +56,7 @@ impl DetectorKind {
         DetectorKind::RotationLlsd,
         DetectorKind::DebrisClass,
         DetectorKind::TornadoFusion,
+        DetectorKind::TornadoMarker,
     ];
 
     pub fn name(self) -> &'static str {
@@ -61,6 +68,7 @@ impl DetectorKind {
             DetectorKind::RotationLlsd => "rotation_llsd",
             DetectorKind::DebrisClass => "debris_class",
             DetectorKind::TornadoFusion => "tornado_fusion",
+            DetectorKind::TornadoMarker => "tornado_marker",
         }
     }
 
