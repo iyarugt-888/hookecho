@@ -1,0 +1,36 @@
+{
+  "workspace-final": {
+    "command": "cargo test --workspace -- --test-threads=4",
+    "exit_code": 0,
+    "log_sha256": "1de4b8fd2896f006e6745381fc5d9ee38acd2872f11a3c014b493ca8d66f7bc4",
+    "log_bytes": 191224,
+    "suites": 28,
+    "passed": 2177,
+    "failed": 0,
+    "ignored": 141
+  },
+  "clippy-final": {
+    "command": "cargo clippy --workspace --all-targets -- -D warnings",
+    "exit_code": 0,
+    "log_sha256": "c6c9ba94ab80ca314675cde252b95134620c55c3cea2b2796a0f6b8cf8096160",
+    "log_bytes": 448
+  },
+  "gpu": {
+    "command": "cargo test --workspace gpu_native_contributor_snapshots -- --ignored --nocapture --test-threads=1",
+    "exit_code": 0,
+    "log_sha256": "5bc890f121bb60e7291b3618d0a924dbe589d47554be2888e0985971beb5b1fd",
+    "log_bytes": 5580,
+    "suites": 22,
+    "passed": 1,
+    "failed": 0,
+    "ignored": 0
+  },
+  "wasm-final": {
+    "command": "CARGO_INCREMENTAL=0 RUSTFLAGS=--cfg getrandom_backend=\"wasm_js\" cargo check --target wasm32-unknown-unknown -p hookecho --lib",
+    "exit_code": 0,
+    "log_sha256": "1e59f6217ac8f2a2e30d535d7ee7d208fb4274bfcc10a77f101ee7b141c5eafe",
+    "log_bytes": 3516
+  },
+  "scope": "Windows native static/unit/controlled GPU review and WASM compile; physical device, browser runtime, full application, operational continuation and performance gates open.",
+  "verified_at_utc": "2026-10-04T03:53:31.257276+00:00"
+}

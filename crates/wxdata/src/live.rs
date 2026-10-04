@@ -132,6 +132,7 @@ pub struct RadialCoverage {
     /// Byte-transport receipts, independent of radial positions and scientific pass identity.
     /// Indirection keeps queued progressive channel messages small as receipt evidence grows.
     pub source_sequences: Option<Box<crate::live_sequence::SequenceInventory>>,
+    pub source_attribution: Option<Arc<crate::live_pass::PassAttributionIndex>>,
 }
 
 /// The oldest a joined live volume may be and still be the one being scanned: a volume lasts four
@@ -648,7 +649,7 @@ async fn emit<F: FnMut(Update)>(
                 .map(|id| id.date_time_prefix().and_utc().timestamp_millis()),
         )
     });
-    let radial_coverage = cut.map(|cut| RadialCoverage {
+    let mut radial_coverage = cut.map(|cut| RadialCoverage {
         progress: cut,
         radials: partial
             .sweeps()
@@ -663,10 +664,15 @@ async fn emit<F: FnMut(Update)>(
             .collect(),
         source_passes: Some(progress.passes.inventory()),
         source_sequences: Some(Box::new(progress.sequences.inventory())),
+        source_attribution: None,
     });
     let (new_scan, changed) = merge_scan(merged, partial);
     if changed.is_empty() {
         return true; // decoding succeeded; metadata/duplicates do not interrupt source continuity
+    }
+    if let Some(coverage) = &mut radial_coverage {
+        coverage.source_attribution =
+            Some(Arc::new(progress.passes.attribution_for_scan(&new_scan)));
     }
     *merged = Arc::new(new_scan);
     let (name, time) = it

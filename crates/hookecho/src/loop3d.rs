@@ -112,6 +112,12 @@ pub struct IsoFrame {
 
 fn coverage_bytes(coverage: &TemporalCoverage) -> usize {
     coverage.contributors.capacity() * std::mem::size_of::<temporal::SweepCoverage>()
+        + coverage
+            .contributors
+            .iter()
+            .filter_map(|sweep| sweep.native_passes.as_ref())
+            .map(temporal::PassContributors::estimated_dynamic_bytes)
+            .sum::<usize>()
 }
 
 /// One isosurface shell: its value, how deep it is nested (0 = outermost), and its mesh.
@@ -339,9 +345,33 @@ pub enum Sweeps {
         mask: Option<Vec<BinnedSweep>>,
     },
     Scan(Arc<Scan>),
+    Captured {
+        scan: Arc<Scan>,
+        passes: Arc<wxdata::live_pass::PassAttributionIndex>,
+    },
 }
 
 impl Sweeps {
+    pub(crate) fn captured(
+        scan: Arc<Scan>,
+        receipt: Option<&crate::live_scan::AcquisitionSnapshot>,
+    ) -> Self {
+        if let Some(passes) =
+            receipt.and_then(|receipt| receipt.inventory().source_attribution.clone())
+        {
+            Self::Captured { scan, passes }
+        } else {
+            Self::Scan(scan)
+        }
+    }
+
+    fn passes(&self) -> Option<Arc<wxdata::live_pass::PassAttributionIndex>> {
+        match self {
+            Self::Captured { passes, .. } => Some(passes.clone()),
+            _ => None,
+        }
+    }
+
     /// The moment's tilts, lowest first (velocity dealiased when asked), and the reflectivity
     /// tilts that mask it when `masked`.
     fn resolve(
@@ -352,7 +382,7 @@ impl Sweeps {
     ) -> (Vec<BinnedSweep>, Option<Vec<BinnedSweep>>) {
         match self {
             Sweeps::Binned { sweeps, mask } => (sweeps, mask),
-            Sweeps::Scan(scan) => {
+            Sweeps::Scan(scan) | Sweeps::Captured { scan, .. } => {
                 let mut v =
                     crate::view::Volume::new(scan, String::new(), chrono::DateTime::UNIX_EPOCH);
                 let sweeps = if dealias && moment == Moment::Velocity {
@@ -402,9 +432,11 @@ fn product_sweeps(
     sweeps: Sweeps,
     p: &ProductSpec,
     policy: TemporalPolicy,
+    passes: Option<&wxdata::live_pass::PassAttributionIndex>,
 ) -> Option<(Vec<BinnedSweep>, TemporalCoverage)> {
-    let Sweeps::Scan(scan) = sweeps else {
-        return None;
+    let scan = match sweeps {
+        Sweeps::Scan(scan) | Sweeps::Captured { scan, .. } => scan,
+        _ => return None,
     };
     let mut v = crate::view::Volume::new(scan, String::new(), chrono::DateTime::UNIX_EPOCH);
     let n = v.elevations.len();
@@ -438,7 +470,7 @@ fn product_sweeps(
     for moment in &mut per {
         for sweep in moment.iter_mut().flatten() {
             coverage.contributors.extend(
-                temporal::prepare(std::slice::from_mut(sweep), policy)
+                temporal::prepare_with_passes(std::slice::from_mut(sweep), policy, passes)
                     .ok()?
                     .contributors,
             );
@@ -487,19 +519,23 @@ pub fn build_smooth_covered(
     spec: &SmoothSpec,
     policy: TemporalPolicy,
 ) -> Option<SmoothFrame> {
+    let passes = sweeps.passes();
     let masked = masked_by_reflectivity(spec.moment) && spec.product.is_none();
     let (mut sweeps, mask, coverage) = match &spec.product {
         Some(p) => {
-            let (sweeps, coverage) = product_sweeps(sweeps, p, policy)?;
+            let (sweeps, coverage) = product_sweeps(sweeps, p, policy, passes.as_deref())?;
             (sweeps, None, coverage)
         }
         None => {
             let (mut sweeps, mut mask) = sweeps.resolve(spec.moment, true, masked);
-            let mut coverage = temporal::prepare(&mut sweeps, policy).ok()?;
+            let mut coverage =
+                temporal::prepare_with_passes(&mut sweeps, policy, passes.as_deref()).ok()?;
             if let Some(mask) = &mut mask {
-                coverage
-                    .contributors
-                    .extend(temporal::prepare(mask, policy).ok()?.contributors);
+                coverage.contributors.extend(
+                    temporal::prepare_with_passes(mask, policy, passes.as_deref())
+                        .ok()?
+                        .contributors,
+                );
             }
             (sweeps, mask, coverage)
         }
@@ -605,8 +641,9 @@ pub fn build_iso_covered(
     spec: &IsoSpec,
     policy: TemporalPolicy,
 ) -> Option<IsoFrame> {
+    let passes = sweeps.passes();
     let (mut sweeps, _) = sweeps.resolve(spec.moment, true, false);
-    let coverage = temporal::prepare(&mut sweeps, policy).ok()?;
+    let coverage = temporal::prepare_with_passes(&mut sweeps, policy, passes.as_deref()).ok()?;
     if sweeps.is_empty() {
         return None;
     }
@@ -1330,12 +1367,14 @@ mod tests {
                 Sweeps::Scan(Arc::clone(&scan)),
                 &product,
                 TemporalPolicy::Continuous,
+                None,
             )
             .unwrap();
             let (strict, current) = product_sweeps(
                 Sweeps::Scan(Arc::clone(&scan)),
                 &product,
                 TemporalPolicy::StrictCurrent,
+                None,
             )
             .unwrap();
             assert!(coverage.retained_older_rows() > 0);
@@ -1430,5 +1469,85 @@ mod tests {
         let mut tl = crate::timeline::Timeline::default();
         tl.frames = Vec::new();
         assert!(upcoming(&tl, 5).is_empty());
+    }
+    #[test]
+    fn captured_native_inputs_reach_smooth_iso_and_formula_receipts_without_becoming_output_lineage(
+    ) {
+        let scan = fixture_scan();
+        let mut tracker = wxdata::live_pass::PassTracker::default();
+        tracker.observe(&scan, false);
+        let passes = Arc::new(tracker.attribution_for_scan(&scan));
+        let (mut receiver, _) = crate::live_scan::acquisition_fixture("KPAH");
+        let receipt = receiver
+            .capture_acquisition(
+                wxdata::live::RadialCoverage {
+                    progress: receiver.progress.unwrap(),
+                    source_passes: Some(tracker.inventory()),
+                    source_sequences: None,
+                    source_attribution: Some(passes.clone()),
+                    radials: vec![],
+                },
+                chrono::Utc::now(),
+            )
+            .unwrap();
+        let smooth = build_smooth_covered(
+            Sweeps::captured(scan.clone(), Some(&receipt)),
+            &smooth_spec(Moment::Reflectivity),
+            TemporalPolicy::Continuous,
+        )
+        .unwrap();
+        let iso = build_iso_covered(
+            Sweeps::captured(scan.clone(), Some(&receipt)),
+            &IsoSpec {
+                moment: Moment::Reflectivity,
+                value: 30.0,
+                step: None,
+                smooth: false,
+                max_dim: 32,
+                top_km: 6.0,
+                storm_uv: None,
+            },
+            TemporalPolicy::Continuous,
+        )
+        .unwrap();
+        assert_eq!(smooth.coverage, iso.coverage);
+        assert!(smooth.coverage.contributors.iter().any(|c| c
+            .native_passes
+            .as_ref()
+            .is_some_and(|p| !p.passes.is_empty())));
+        let legacy = build_smooth_covered(
+            Sweeps::Scan(scan.clone()),
+            &smooth_spec(Moment::Reflectivity),
+            TemporalPolicy::Continuous,
+        )
+        .unwrap();
+        assert_eq!(smooth.upload.data, legacy.upload.data);
+        assert!(legacy
+            .coverage
+            .contributors
+            .iter()
+            .all(|c| c.native_passes.is_none()));
+        assert!(coverage_bytes(&smooth.coverage) > coverage_bytes(&legacy.coverage));
+        let product = ProductSpec {
+            expr: wxdata::udp::parse("REF + 1").unwrap(),
+            range: None,
+            env: wxdata::udp_volume::Env::default(),
+            table: None,
+        };
+        let (generated, inputs) = product_sweeps(
+            Sweeps::captured(scan, Some(&receipt)),
+            &product,
+            TemporalPolicy::Continuous,
+            Some(&passes),
+        )
+        .unwrap();
+        assert!(inputs.contributors.iter().any(|c| c
+            .native_passes
+            .as_ref()
+            .is_some_and(|p| !p.passes.is_empty())));
+        assert!(
+            generated.iter().all(|s| s.source_radials.is_none()),
+            "formulas retain input coverage, never a sole output writer"
+        );
     }
 }

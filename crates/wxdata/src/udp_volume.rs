@@ -189,6 +189,8 @@ pub fn quantize(
             s.value_min = lo;
             s.value_max = hi;
             s.nyquist_ms = 0.0;
+            // A formula can combine moments/tilts; the base row is geometry, not its sole source.
+            s.source_radials = None;
             s
         })
         .collect();

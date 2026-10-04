@@ -335,11 +335,10 @@ impl HookEchoApp {
                 ) {
                     let scan = Arc::clone(&vol.scan);
                     let policy = key.source.policy;
+                    let inputs = crate::loop3d::Sweeps::captured(scan, key.source.acquisition());
                     self.loop3d_jobs.start(job, &self.spawner, ctx, move || {
                         crate::loop3d::Built::Smooth(crate::loop3d::build_smooth_covered(
-                            crate::loop3d::Sweeps::Scan(scan),
-                            &spec,
-                            policy,
+                            inputs, &spec, policy,
                         ))
                     });
                 }
@@ -554,11 +553,16 @@ impl HookEchoApp {
         // Full native resolution: every gate of every radial goes to the GPU as a texel, and the
         // shader draws each radial as a strip on its own beam surface. `max_texture_dim` is only
         // a ceiling; a sweep wider than it is max-pooled and reported, never silently thinned.
-        let observed = match level2::observed_volume_with_policy(
+        let observed = match level2::observed_volume_with_passes(
             &scan,
             moment,
             self.max_texture_dim as usize,
             policy,
+            self.views[data]
+                .volume
+                .as_ref()
+                .and_then(|volume| volume.acquisition_for(self.views[data].site.as_deref()))
+                .and_then(crate::live_scan::AcquisitionSnapshot::pass_index),
         ) {
             Ok(volume) => volume,
             Err(err) => {

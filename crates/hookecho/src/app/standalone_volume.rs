@@ -117,8 +117,14 @@ fn build(
     n: usize,
     nz: usize,
 ) -> Result<VolumeBuilt, String> {
-    let mut coverage =
-        level2::temporal::prepare(&mut sweeps, key.policy).map_err(|error| error.to_string())?;
+    let mut coverage = level2::temporal::prepare_with_passes(
+        &mut sweeps,
+        key.policy,
+        key.acquisition
+            .as_ref()
+            .and_then(crate::live_scan::AcquisitionSnapshot::pass_index),
+    )
+    .map_err(|error| error.to_string())?;
     // The extent is shared across tilt selections, but only retained policy inputs can set it.
     let half_km = wxdata::volume3d::max_sample_range_km(&sweeps).max(50.0);
     let layers = sweeps

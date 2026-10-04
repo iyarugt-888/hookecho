@@ -161,6 +161,14 @@ impl Level2LiveProvider for HookEchoRelayLevel2Provider {
                 }
             };
 
+            // The socket subscription is the outer scope of every accepted receipt.
+            if !block.site.eq_ignore_ascii_case(&site)
+                || !block.volume.site.eq_ignore_ascii_case(&site)
+            {
+                log::warn!("relay {site}: discarded block for another radar");
+                continue;
+            }
+
             // A new volume from the relay's own identity model: never mix blocks from two
             // different volumes into one assembly attempt (ROADMAP_NEW B6.5's cross-source
             // mixing guard applies just as much within a single source's own volume rollover).
@@ -217,7 +225,7 @@ impl Level2LiveProvider for HookEchoRelayLevel2Provider {
                 passes.observe_discontinuous_assembly(&partial);
             }
             last_decoded_sequence = Some(sequence);
-            let radial_coverage = progress.map(|progress| {
+            let mut radial_coverage = progress.map(|progress| {
                 let block = pending_blocks
                     .last()
                     .expect("the current block was appended");
@@ -237,6 +245,7 @@ impl Level2LiveProvider for HookEchoRelayLevel2Provider {
                         .collect(),
                     source_passes: Some(passes.inventory()),
                     source_sequences: Some(Box::new(sequences.inventory())),
+                    source_attribution: None,
                 }
             });
             let (new_scan, changed) = wxdata::live::merge_scan(&merged, partial);
@@ -245,6 +254,10 @@ impl Level2LiveProvider for HookEchoRelayLevel2Provider {
             }
             if let Some(progress) = progress {
                 on_progress(progress);
+            }
+            if let Some(coverage) = &mut radial_coverage {
+                coverage.source_attribution =
+                    Some(Arc::new(passes.attribution_for_scan(&new_scan)));
             }
             merged = Arc::new(new_scan);
             update_count += 1;
@@ -590,8 +603,14 @@ mod integration_tests {
         let mut corrupt = BlockDto::from(&full);
         corrupt.sequence = 5000;
         corrupt.checksum_hex = "0".repeat(64);
+        let mut foreign = make(6000, 5, "ldm", 0);
+        foreign.site = "KOUN".into();
+        let mut foreign_volume = make(6001, 6, "ldm", 0);
+        foreign_volume.volume.site = "KOUN".into();
         let messages = [
             "malformed JSON".to_string(),
+            serde_json::to_string(&BlockDto::from(&foreign)).unwrap(),
+            serde_json::to_string(&BlockDto::from(&foreign_volume)).unwrap(),
             serde_json::to_string(&corrupt).unwrap(),
             serde_json::to_string(&BlockDto::from(&no_vcp)).unwrap(),
             serde_json::to_string(&BlockDto::from(&full)).unwrap(),
@@ -636,6 +655,31 @@ mod integration_tests {
             5,
             "duplicate-only decode does not produce an accepted gate update"
         );
+        for update in updates.iter() {
+            let index = update
+                .radial_coverage
+                .as_ref()
+                .unwrap()
+                .source_attribution
+                .as_ref()
+                .unwrap();
+            assert!(
+                update
+                    .scan
+                    .sweeps()
+                    .iter()
+                    .any(|sweep| sweep.radials().iter().any(|radial| {
+                        matches!(
+                            index.resolve(wxdata::live_pass::NativeRadialKey::from_radial(
+                                u16::from(sweep.elevation_number()),
+                                radial
+                            )),
+                            wxdata::live_pass::RowPass::Anchored(_)
+                        )
+                    })),
+                "accepted websocket inputs retain exact native starts"
+            );
+        }
         let receipts: Vec<_> = updates
             .iter()
             .map(|update| {

@@ -32,12 +32,9 @@ impl HookEchoApp {
             return;
         };
         let scan = Arc::clone(&volume.scan);
+        let inputs = crate::loop3d::Sweeps::captured(scan, key.source.acquisition());
         self.loop3d_jobs.start(job, &self.spawner, ctx, move || {
-            crate::loop3d::Built::Iso(crate::loop3d::build_iso_covered(
-                crate::loop3d::Sweeps::Scan(scan),
-                &spec,
-                policy,
-            ))
+            crate::loop3d::Built::Iso(crate::loop3d::build_iso_covered(inputs, &spec, policy))
         });
     }
 

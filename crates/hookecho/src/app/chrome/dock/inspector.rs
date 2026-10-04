@@ -25,10 +25,14 @@ impl HookEchoApp {
         let dealias = dealias
             && moment == Moment::Velocity
             && !v.site.as_deref().is_some_and(wxdata::tdwr::is_tdwr);
+        let pass_site = v.site.clone();
         let vol = v.volume.as_mut()?;
         if vol.elevations.is_empty() {
             return None;
         }
+        let pass_index = vol
+            .acquisition_for(pass_site.as_deref())
+            .and_then(|receipt| receipt.inventory().source_attribution.clone());
         let sweep = vol.binned(moment, tilt, dealias).ok()?;
         let s = sweep.sample_at(lon, lat)?;
         Some(Probe {
@@ -45,6 +49,17 @@ impl HookEchoApp {
             range_km: s.range_km,
             beam_ft: sweep.beam_height_ft(s.range_km),
             collected_ms: s.collected_ms,
+            native_row_ms: s
+                .source_radial
+                .map(|row| row.collected_ms)
+                .filter(|&ms| ms > 0 && chrono::DateTime::from_timestamp_millis(ms).is_some()),
+            native_pass: s
+                .source_radial
+                .zip(pass_index.as_ref())
+                .map_or(wxdata::live_pass::RowPass::Unavailable, |(row, index)| {
+                    index.resolve(row)
+                }),
+            pass_site,
             nyquist_mps: sweep.estimated_nyquist_mps(),
             dealiased: dealias,
         })
@@ -292,14 +307,42 @@ impl HookEchoApp {
                     if let Some(ms) = p.collected_ms {
                         if let Some(d) = chrono::DateTime::from_timestamp_millis(ms) {
                             let mut when = crate::timefmt::fmt_clock(d, tz, true);
-                            // Live, how old this very radial is, to the tenth of a second
-                            // (ROADMAP_2 §1.2): a mixed sweep's beams are not all one age.
+                            // Preserve the existing bin clock; its actual recorded writer
+                            // can have a different clock on overlapping input.
                             if live {
                                 let now = chrono::Utc::now().timestamp_millis();
                                 when.push_str(&format!("  \u{b7}  {}", radial_age(now - ms)));
                             }
-                            ws::kv(ui, &t, "Sampled", &when, None);
+                            ws::kv(
+                                ui,
+                                &t,
+                                if p.native_row_ms.is_some_and(|row| row != ms) {
+                                    "Bin maximum"
+                                } else {
+                                    "Sampled"
+                                },
+                                &when,
+                                None,
+                            );
                         }
+                    }
+                    for (label, value) in crate::ui::acquisition_inventory::gate_pass_rows(
+                        p.native_pass,
+                        p.pass_site.as_deref(),
+                    )
+                    .into_iter()
+                    .chain(crate::ui::acquisition_inventory::gate_clock_rows(
+                        p.native_row_ms,
+                        p.collected_ms,
+                    )) {
+                        ui.add(
+                            egui::Label::new(ws::text(
+                                format!("{label}: {value}"),
+                                11.0,
+                                t.text_dim,
+                            ))
+                            .wrap(),
+                        );
                     }
                     if let Some(n) = &nyquist {
                         ws::kv(ui, &t, "Nyquist", n, None);
@@ -834,6 +877,10 @@ fn observed_coverage_rows(
             ),
         ));
     }
+    rows.extend(crate::ui::acquisition_inventory::contributor_rows(
+        c.cuts.iter().map(|cut| cut.native_passes.as_ref()),
+        "input recorded radials",
+    ));
     for cut in &c.cuts {
         rows.push((
             "Source cut",
@@ -955,6 +1002,12 @@ fn radar_coverage_rows(
             ),
         ));
     }
+    rows.extend(crate::ui::acquisition_inventory::contributor_rows(
+        c.contributors
+            .iter()
+            .map(|sweep| sweep.native_passes.as_ref()),
+        "input azimuth rows",
+    ));
     rows.push(("Column", "Completeness not established".into()));
     rows
 }
@@ -1249,6 +1302,7 @@ mod tests {
                     unknown_time_radials: 0,
                     used_start_ms: (!strict).then_some(1_700_000_000_000),
                     used_end_ms: (!strict).then_some(1_700_000_001_000),
+                    native_passes: None,
                 },
                 ObservedCutCoverage {
                     source_cut: 3,
@@ -1265,6 +1319,7 @@ mod tests {
                         1_700_000_002_000
                     }),
                     used_end_ms: Some(1_700_000_123_000),
+                    native_passes: None,
                 },
             ],
         }
@@ -1523,6 +1578,9 @@ mod tests {
             range_km: 10.0,
             beam_ft: 500.0,
             collected_ms: None,
+            native_row_ms: None,
+            native_pass: wxdata::live_pass::RowPass::Unavailable,
+            pass_site: None,
             nyquist_mps: None,
             dealiased: false,
         };
@@ -1544,5 +1602,115 @@ mod tests {
     fn beam_height_follows_the_units_setting() {
         assert_eq!(fmt_beam(3280.84, true), "1.00 km");
         assert_eq!(fmt_beam(5123.4, false), "5123 ft");
+    }
+    fn native_contributor_fixture() -> Vec<(&'static str, String)> {
+        use wxdata::level2::temporal::PassContributors;
+        use wxdata::live_pass::PassKey;
+        let summary = PassContributors {
+            passes: vec![
+                (
+                    PassKey {
+                        elevation_number: 1,
+                        start_ms: 1_700_000_000_000,
+                    },
+                    120,
+                ),
+                (
+                    PassKey {
+                        elevation_number: 1,
+                        start_ms: 1_700_000_020_000,
+                    },
+                    240,
+                ),
+            ],
+            unanchored_rows: 3,
+            unknown_clock_rows: 2,
+            unavailable_rows: 1,
+        };
+        let mut rows = crate::ui::acquisition_inventory::contributor_rows(
+            [Some(&summary), None].into_iter(),
+            "input azimuth rows",
+        );
+        rows.extend(crate::ui::acquisition_inventory::gate_pass_rows(
+            wxdata::live_pass::RowPass::Anchored(summary.passes[0].0),
+            Some("KPAH"),
+        ));
+        rows.extend(crate::ui::acquisition_inventory::gate_clock_rows(
+            Some(1_700_000_001_000),
+            Some(1_700_000_021_000),
+        ));
+        rows
+    }
+
+    #[test]
+    fn native_contributors_and_pinned_gate_scope_wrap_in_narrow_docks() {
+        let rows = native_contributor_fixture();
+        assert!(rows.contains(&("Pass radar", "KPAH".into())));
+        assert_eq!(
+            rows.iter().filter(|(k, _)| *k == "Recorded pass").count(),
+            2
+        );
+        assert!(rows.contains(&(
+            "Unavailable inputs",
+            "1 input sweep lacks exact row association".into()
+        )));
+        let ctx = egui::Context::default();
+        let t = ws::Tokens::new(egui::Color32::LIGHT_BLUE);
+        for width in [240.0, 300.0] {
+            let _ = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(width, 1200.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| {
+                    ws::set_touch(ui.ctx(), width == 240.0);
+                    ws::panel_frame(&t).show(ui, |ui| {
+                        ws::style_scope(ui, &t);
+                        paint_radar_coverage(ui, &t, &rows);
+                        assert!(ui.min_rect().right() <= width + 1.0);
+                        assert!(ui.min_rect().bottom() < 1200.0);
+                    });
+                },
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "gpu: writes contributor native pass review captures"]
+    fn gpu_native_contributor_snapshots() {
+        let gpu = crate::headless::ui::Snapshot::new().expect("GPU for native pass review");
+        let destination = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/parity-review/m1.1/contributor-passes-ui");
+        std::fs::create_dir_all(&destination).unwrap();
+        let t = ws::Tokens::new(egui::Color32::from_rgb(72, 142, 226));
+        let known = native_contributor_fixture();
+        let mut unavailable = crate::ui::acquisition_inventory::contributor_rows(
+            [None].into_iter(),
+            "input azimuth rows",
+        );
+        unavailable.extend(crate::ui::acquisition_inventory::gate_pass_rows(
+            wxdata::live_pass::RowPass::UnknownClock,
+            Some("KTLX"),
+        ));
+        for (name, rows) in [("recorded", known), ("unavailable", unavailable)] {
+            for width in [240, 300] {
+                gpu.save(
+                    &destination.join(format!("{name}-{width}.png")),
+                    width,
+                    1200,
+                    |ui| {
+                        ws::set_touch(ui.ctx(), width == 240);
+                        ws::panel_frame(&t).show(ui, |ui| {
+                            ws::style_scope(ui, &t);
+                            paint_radar_coverage(ui, &t, &rows);
+                        });
+                    },
+                )
+                .unwrap();
+            }
+        }
     }
 }

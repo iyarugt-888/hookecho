@@ -8,6 +8,20 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: native pass attribution for displayed and integrated radar inputs
+
+Progressive frames now retain native pass associations for the rows surviving a merge.
+The Inspector's local coverage and the standalone 3D source details list recorded boundaries
+and retained input counts, with unanchored, untimed and unmatched rows kept explicit.
+Pinned gate readings retain their radar and native boundary. Plain-moment attribution follows
+the actual row writer, including live cache updates, rather than guessing from the row's
+maximum clock. If those clocks differ, the Inspector labels the bin maximum and reports
+the native writer time separately. Native observed sweeps, local derived products, smooth volumes, isosurfaces
+and user-product input receipts carry this evidence under the selected temporal policy.
+KDP and dealiased or generated outputs cannot claim one native writer. Scientific values,
+source clocks and existing strict/continuous masks are unchanged; completeness remains
+unestablished. Relay subscriptions also reject envelopes scoped to another radar.
+
 ### Changed: the 3D view controls are a compact property panel
 
 The 3D view window (and the floating "3D map" window) groups its controls into folding

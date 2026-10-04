@@ -93,6 +93,7 @@ pub struct AcquisitionInventory {
     pub cuts: Vec<CutAcquisition>,
     pub source_passes: Option<wxdata::live_pass::PassInventory>,
     pub source_sequences: Option<wxdata::live_sequence::SequenceInventory>,
+    pub source_attribution: Option<std::sync::Arc<wxdata::live_pass::PassAttributionIndex>>,
 }
 
 /// An immutable accepted receipt. Equality is runtime receipt identity, never a persisted pass ID.
@@ -104,6 +105,10 @@ pub struct AcquisitionSnapshot {
 }
 
 impl AcquisitionSnapshot {
+    pub fn pass_index(&self) -> Option<&wxdata::live_pass::PassAttributionIndex> {
+        self.inventory.source_attribution.as_deref()
+    }
+
     pub fn inventory(&self) -> &AcquisitionInventory {
         &self.inventory
     }
@@ -118,6 +123,11 @@ impl AcquisitionSnapshot {
             + self.site.as_ref().map_or(0, String::capacity)
             + std::mem::size_of::<AcquisitionInventory>()
             + self.inventory.cuts.capacity() * std::mem::size_of::<CutAcquisition>()
+            + self
+                .inventory
+                .source_attribution
+                .as_ref()
+                .map_or(0, |index| index.estimated_bytes())
             + self
                 .inventory
                 .source_sequences
@@ -247,6 +257,7 @@ pub struct LiveScan {
     progress_vcp_number: Option<u16>,
     source_passes: Option<wxdata::live_pass::PassInventory>,
     source_sequences: Option<wxdata::live_sequence::SequenceInventory>,
+    source_attribution: Option<std::sync::Arc<wxdata::live_pass::PassAttributionIndex>>,
     streaming: bool,
     fallback: bool,
     recovering: bool,
@@ -300,6 +311,7 @@ impl LiveScan {
             if next_volume {
                 self.source_passes = None;
                 self.source_sequences = None;
+                self.source_attribution = None;
             }
             self.observed_cuts.clear();
             self.progress = None;
@@ -390,6 +402,9 @@ impl LiveScan {
         } else if let Some(history) = &mut self.source_sequences {
             history.unavailable_updates = history.unavailable_updates.saturating_add(1);
         }
+        // This index belongs to the accepted scan, unlike receiver history. A raw envelope
+        // without an index cannot reuse another accepted scan's row associations.
+        self.source_attribution = coverage.source_attribution.clone();
         let newest_arrival = coverage
             .radials
             .iter()
@@ -505,6 +520,7 @@ impl LiveScan {
             cuts,
             source_passes: self.source_passes.clone(),
             source_sequences: self.source_sequences.clone(),
+            source_attribution: self.source_attribution.clone(),
         })
     }
 
@@ -785,6 +801,7 @@ pub(crate) fn acquisition_fixture(site: &str) -> (LiveScan, AcquisitionSnapshot)
                 },
                 source_passes: None,
                 source_sequences: None,
+                source_attribution: None,
                 radials: vec![(1, start + 1000), (2, 0), (4, start + 3000)],
             },
             Utc::now(),
@@ -820,6 +837,7 @@ mod tests {
                 progress: p,
                 source_passes: None,
                 source_sequences: None,
+                source_attribution: None,
                 radials: radials.to_vec(),
             },
             Utc::now(),
@@ -841,6 +859,7 @@ mod tests {
                 radials: vec![(1, 2000)],
                 source_passes: None,
                 source_sequences: sequence.map(Box::new),
+                source_attribution: None,
             };
         let first = receiver
             .capture_acquisition(
@@ -912,6 +931,7 @@ mod tests {
                     radials: vec![(1, 2000), (3, 0)],
                     source_passes: Some(provider.inventory()),
                     source_sequences: None,
+                    source_attribution: None,
                 },
                 Utc::now(),
             )
@@ -927,6 +947,7 @@ mod tests {
                     radials: vec![(1, 100000)],
                     source_passes: Some(provider.inventory()),
                     source_sequences: None,
+                    source_attribution: None,
                 },
                 Utc::now(),
             )
@@ -961,6 +982,7 @@ mod tests {
                     radials: vec![(2, 100010)],
                     source_passes: None,
                     source_sequences: None,
+                    source_attribution: None,
                 },
                 Utc::now(),
             )
@@ -990,6 +1012,7 @@ mod tests {
                     radials: vec![(1, 201000)],
                     source_passes: Some(provider.inventory()),
                     source_sequences: None,
+                    source_attribution: None,
                 },
                 Utc::now(),
             )
@@ -1033,6 +1056,7 @@ mod tests {
                     progress: p,
                     source_passes: None,
                     source_sequences: None,
+                    source_attribution: None,
                     radials: vec![(1, 1_700_000_001_000)],
                 },
                 Utc::now(),
@@ -1055,6 +1079,7 @@ mod tests {
                     progress: p,
                     source_passes: None,
                     source_sequences: None,
+                    source_attribution: None,
                     radials: vec![],
                 },
                 Utc::now()
@@ -1068,6 +1093,7 @@ mod tests {
                     progress: p,
                     source_passes: None,
                     source_sequences: None,
+                    source_attribution: None,
                     radials: vec![],
                 },
                 Utc::now()
@@ -1455,5 +1481,31 @@ mod tests {
         assert!(!state.accept_volume("20260520-190000-004-I", now, now));
         assert_eq!(state.volume.as_deref(), Some("20260520-190000-005-I"));
         assert!(state.accept_volume("20260520-190000-006-I", now, now));
+    }
+    #[test]
+    fn accepted_pass_lookup_is_owned_by_its_frame_and_missing_input_cannot_borrow_it() {
+        let mut receiver = LiveScan::default();
+        receiver.reset(Some("KTLX".into()));
+        let index = std::sync::Arc::new(wxdata::live_pass::PassAttributionIndex::default());
+        let envelope = |index| RadialCoverage {
+            progress: progress(1, 1),
+            source_passes: None,
+            source_sequences: None,
+            source_attribution: index,
+            radials: vec![(1, 1100)],
+        };
+        let frozen = receiver
+            .capture_acquisition(envelope(Some(index.clone())), Utc::now())
+            .unwrap();
+        assert!(std::ptr::eq(frozen.pass_index().unwrap(), index.as_ref()));
+        let without = receiver
+            .capture_acquisition(envelope(None), Utc::now())
+            .unwrap();
+        assert!(without.pass_index().is_none());
+        assert!(frozen.pass_index().is_some());
+        assert!(frozen.estimated_bytes() >= without.estimated_bytes() + index.estimated_bytes());
+        receiver.reset(Some("KOUN".into()));
+        assert!(receiver.source_attribution.is_none());
+        assert!(frozen.matches_site(Some("KTLX")));
     }
 }

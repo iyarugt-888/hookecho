@@ -426,28 +426,63 @@ Claude's concurrent commits. This establishes typed transport receipts and expan
 layout, leaving contributor association, operational sessions, persistent replay and
 application/device/performance certification open.
 
-**Remaining/next increment:** bind contributor rows/gates to retained native pass keys before
-replacing inferred revisit behavior. Arrival-ordered relay CutTracker IDs and predicted Unidata
-VCP cut positions still require stronger continuation controls. Exact source message holes and
-later-arrival receipts are now available, but mapping those positions to native radial boundaries,
-associating recovered contributors and proving loss remain open. Missing cut metadata can leave
-raw receipts unavailable. Emitter epoch/resume negotiation and progressive replay storage remain
-open. Whole-scan invalidation remains conservative; contributor optimization, full viewport
-interaction, Android/browser runtime, completed GPU timing and sustained-load certification
-remain open. Independent local-product textures per pane remain M5.1.
+**Evidence ledger — 2026-10-03, increment 10:** accepted progressive frames now retain exact
+native radial-to-pass associations for rows surviving the provider merge. Recorded metadata keys
+(elevation, native position, source clock and status) resolve against bounded pre-stitch evidence;
+angles, maximum bucket clocks and local counters cannot lend another row's boundary. Unknown
+clocks and ordinary discontinuous inputs remain unestablished. Late non-rendering evidence remains
+available to the next accepted frame. Both progressive providers capture the actual merged scan's
+index. Missing metadata clears the current index; earlier immutable receipts remain unchanged.
+Foreign radar/volume envelopes cannot alter a relay subscription's source scope.
+
+Plain display/product bins retain their actual last radial writer, including copy-on-write live
+updates. Default scientific binning remains unrecorded. Native observed sweeps, local derived
+products, standalone Reflectivity volumes, smooth/isosurface builds and user-product input receipts
+now aggregate policy-retained native pass keys. KDP/dealiased rows and generated outputs cannot
+claim one raw writer. All gate values, original clocks, continuous defaults and strict source-time
+masks remain unchanged. Native keys describe retained input rows rather than interpolated or
+winning output cells, and do not certify complete passes or columns. Receipt and 3D cache capacity
+charges include the new bounded metadata.
+
+The dock Inspector and standalone 3D source details list recorded boundaries, retained counts,
+unanchored/untimed/unmatched inputs and unavailable input sweeps, with bounded wrapping detail.
+Pinned gate readings preserve their original radar and native boundary scope. See
+[native contributor controls, review evidence and limitations](docs/certification/m1.1/contributor-passes.md).
+
+**Increment 10 verification:** final serial Windows checks passed **2,177 workspace tests**, zero
+failures and 141 explicit ignores across 28 suites, workspace/all-target Clippy with warnings denied,
+and the WASM library check with existing browser warnings. The explicit GPU helper passed in
+3.14 seconds after compilation. Four 240 px touch / 300 px desktop references were visually
+reviewed, and final source/image hashes, byte counts and dimensions verified. The durable
+[verification summary](docs/certification/m1.1/contributor-passes-ui/verification.json) and
+[capture manifest](docs/certification/m1.1/contributor-passes-ui/captures.json) retain the results.
+Initial controls required fixture corrections for absent synthetic reflectivity and an angular
+sampling boundary; stale WASM dependency metadata was invalidated without removing native/data
+caches. Final local logs are `target/parity-review/m1.1/contributor-passes/{workspace-final,clippy-final,gpu,wasm-final}.log`.
+The shared tree preserves Claude's `c308f50` detector commit. Application/device, operational
+source continuation, persistent replay and performance gates remain open.
+
+**Remaining/next increment:** canonical source volume/cut continuation and stronger native revisit
+controls precede replacing inferred strict boundaries. Arrival-ordered relay CutTracker IDs and
+predicted Unidata VCP cut positions still require stronger lifecycle evidence. Source message holes
+and later-arrival receipts do not yet map to individual radial boundaries or establish loss.
+Missing cut metadata can leave raw receipts unavailable; expired associations remain unavailable.
+Emitter epoch/resume negotiation and progressive replay storage remain open. Whole-scan invalidation
+remains conservative; contributor optimization, full viewport interaction, Android/browser runtime,
+completed GPU timing and sustained-load certification remain open. Independent local-product
+textures per pane remain M5.1.
 
 **Next agent handoff:** inspect `LiveScan::capture_acquisition`, `Volume::apply_live_captured`,
-`wxdata::live_pass`, `wxdata::live_sequence`, `wxdata::live_block`, `continuation` and the provider
-merge tests. Preserve immutable accepted receipts in every result key and unavailable raw evidence
-on completed/archive/reloaded replay inputs. Carry actual native pass associations into contributor
-rows/gates before retiring inferred revisit behavior. Keep source message holes, actual failed
-requests, recovered bytes, unobserved radials and proven loss distinct. Do not establish scientific
-completeness from angular zeros, sequence holes or equal elevation angles. Add operational repeat-cut,
-SAILS/MRLE, VCP-change, reordering, gap-fill and mid-volume join controls beyond partial native
-fixtures and local relay sessions. Retain bounded history through non-rendering decodes. Preserve
-continuous defaults and the delivered strict mask until stronger source evidence justifies a change.
-Record actual checks and keep device/performance gates partial until measured. Tornado detection
-work stays with Claude under the current agent assignment.
+`wxdata::live_pass`, `wxdata::live_sequence`, direct stream lifecycle and relay merge controls.
+Preserve immutable accepted receipts and plain-moment row writers across every result key.
+Completed/archive/reloaded replay inputs still have unavailable progressive associations.
+Keep native boundary identities independent of the delivered source-time strict masks and detector
+inputs. Establish canonical rollover/reconnect/cut continuation with operational repeated-cut,
+SAILS/MRLE, VCP-change, reordering, gap-fill and mid-volume join controls. Source message holes,
+actual failed requests, recovered bytes, unobserved radials and proven loss remain distinct.
+Do not infer scientific completeness from angular zeros or source sequence gaps. Keep device and
+performance gates partial until measured. Tornado detection work stays with Claude under the
+current agent assignment.
 
 #### M1.2 — Trace receipt through completed rendering
 

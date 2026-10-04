@@ -58,7 +58,12 @@ impl HookEchoApp {
                 {
                     continue;
                 }
-                let sweeps = crate::loop3d::Sweeps::Scan(Arc::clone(&scan));
+                let source = match &job {
+                    JobKey::Smooth(_, key) => &key.source,
+                    JobKey::Iso(_, key) => &key.source,
+                };
+                let sweeps =
+                    crate::loop3d::Sweeps::captured(Arc::clone(&scan), source.acquisition());
                 match &job {
                     JobKey::Smooth(_, key) => {
                         let policy = key.source.policy;
@@ -436,7 +441,8 @@ pub(crate) fn map_3d_panel(
             );
             ws::prop_row(ui, &t, "Bearing", |ui| {
                 let gap = ui.spacing().item_spacing.x;
-                ui.spacing_mut().slider_width = ws::prop_slider_width(ui, ws::CONTROL_H + 2.0 * gap);
+                ui.spacing_mut().slider_width =
+                    ws::prop_slider_width(ui, ws::CONTROL_H + 2.0 * gap);
                 ui.add(
                     egui::Slider::new(&mut view.camera.bearing, -180.0..=180.0)
                         .suffix("°")

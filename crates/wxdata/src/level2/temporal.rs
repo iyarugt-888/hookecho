@@ -5,6 +5,35 @@
 //! indices are scan-local; persistent pass identities and proven transport gaps need live inventory.
 
 use super::{mask_previous_pass_rows, previous_pass_cutoff, BinnedSweep, Moment};
+use crate::live_pass::{NativeRadialKey, PassAttributionIndex, PassKey, RowPass};
+
+/// Recorded native pass associations of policy-retained input rows, not output-cell winners.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PassContributors {
+    pub passes: Vec<(PassKey, usize)>,
+    pub unanchored_rows: usize,
+    pub unknown_clock_rows: usize,
+    pub unavailable_rows: usize,
+}
+
+impl PassContributors {
+    pub fn observe(&mut self, index: &PassAttributionIndex, row: NativeRadialKey) {
+        match index.resolve(row) {
+            RowPass::Anchored(key) => match self.passes.binary_search_by_key(&key, |entry| entry.0)
+            {
+                Ok(position) => self.passes[position].1 += 1,
+                Err(position) => self.passes.insert(position, (key, 1)),
+            },
+            RowPass::Unanchored => self.unanchored_rows += 1,
+            RowPass::UnknownClock => self.unknown_clock_rows += 1,
+            RowPass::Unavailable => self.unavailable_rows += 1,
+        }
+    }
+
+    pub fn estimated_dynamic_bytes(&self) -> usize {
+        self.passes.capacity() * std::mem::size_of::<(PassKey, usize)>()
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum TemporalPolicy {
@@ -29,6 +58,7 @@ pub struct ObservedCutCoverage {
     pub unknown_time_radials: usize,
     pub used_start_ms: Option<i64>,
     pub used_end_ms: Option<i64>,
+    pub native_passes: Option<PassContributors>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -78,6 +108,8 @@ pub struct SweepCoverage {
     pub unobserved_rows: usize,
     /// Rows with data but without a usable source clock. These are never called current.
     pub unknown_time_rows: usize,
+    /// Native boundary associations, separate from the source-time gap inference above.
+    pub native_passes: Option<PassContributors>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -128,6 +160,14 @@ pub fn prepare(
     sweeps: &mut [BinnedSweep],
     policy: TemporalPolicy,
 ) -> anyhow::Result<TemporalCoverage> {
+    prepare_with_passes(sweeps, policy, None)
+}
+
+pub fn prepare_with_passes(
+    sweeps: &mut [BinnedSweep],
+    policy: TemporalPolicy,
+    passes: Option<&PassAttributionIndex>,
+) -> anyhow::Result<TemporalCoverage> {
     // Reject the whole build before changing any input when a later contributor is malformed.
     for sweep in sweeps.iter() {
         anyhow::ensure!(
@@ -152,10 +192,32 @@ pub fn prepare(
             excluded_rows: 0,
             unobserved_rows: 0,
             unknown_time_rows: 0,
+            native_passes: passes
+                .filter(|_| {
+                    sweep
+                        .source_radials
+                        .as_ref()
+                        .is_some_and(|rows| rows.len() == sweep.az_bins)
+                })
+                .map(|_| PassContributors::default()),
         };
         for row in 0..sweep.az_bins {
             let time = if timed { sweep.bin_time_ms[row] } else { 0 };
             let excluded = strict && cutoff.is_some_and(|old| time <= old);
+            if !excluded {
+                if let (Some(summary), Some(index), Some(source)) = (
+                    &mut coverage.native_passes,
+                    passes,
+                    sweep
+                        .source_radials
+                        .as_ref()
+                        .and_then(|rows| rows.get(row))
+                        .copied()
+                        .flatten(),
+                ) {
+                    summary.observe(index, source);
+                }
+            }
             if time > 0 {
                 coverage.older_pass_rows += usize::from(cutoff.is_some_and(|old| time <= old));
                 if !excluded {
@@ -339,5 +401,37 @@ mod tests {
         let complete_pass = prepare(&mut [input], TemporalPolicy::StrictCurrent).unwrap();
         assert_eq!(complete_pass.excluded_rows(), 0);
         assert_eq!(complete_pass.retained_older_rows(), 0);
+    }
+    #[test]
+    fn unavailable_and_unknown_row_evidence_never_becomes_an_inferred_native_pass() {
+        let index = PassAttributionIndex::default();
+        let row = NativeRadialKey {
+            elevation_number: 1,
+            azimuth_number: 1,
+            collected_ms: 0,
+            status: nexrad_model::data::RadialStatus::IntermediateRadialData,
+        };
+        let mut input = mixed();
+        let mut sources = vec![None; 8];
+        sources[0] = Some(row);
+        sources[1] = Some(NativeRadialKey {
+            collected_ms: 1_700_000_120_000,
+            ..row
+        });
+        input.source_radials = Some(sources.into());
+        let mut recorded = [input.clone()];
+        let c =
+            prepare_with_passes(&mut recorded, TemporalPolicy::Continuous, Some(&index)).unwrap();
+        let p = c.contributors[0].native_passes.as_ref().unwrap();
+        assert!(p.passes.is_empty());
+        assert_eq!((p.unknown_clock_rows, p.unavailable_rows), (1, 1));
+        assert_eq!(recorded[0].data, input.data);
+        input.source_radials = Some(vec![Some(row)].into());
+        let c =
+            prepare_with_passes(&mut [input], TemporalPolicy::Continuous, Some(&index)).unwrap();
+        assert!(
+            c.contributors[0].native_passes.is_none(),
+            "malformed metadata cannot partially certify a sweep"
+        );
     }
 }

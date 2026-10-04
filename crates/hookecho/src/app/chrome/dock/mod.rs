@@ -138,6 +138,9 @@ pub(crate) struct Probe {
     pub range_km: f32,
     pub beam_ft: f64,
     pub collected_ms: Option<i64>,
+    pub native_row_ms: Option<i64>,
+    pub native_pass: wxdata::live_pass::RowPass,
+    pub pass_site: Option<String>,
     /// The sweep's estimated Nyquist velocity, m/s (velocity only).
     pub nyquist_mps: Option<f32>,
     /// The value came from the dealiased sweep.

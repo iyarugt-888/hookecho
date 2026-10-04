@@ -483,6 +483,7 @@ mod tests {
                     range_km: 45.6,
                     gate: 182,
                     collected_ms: Some(1_050_000),
+                    source_radial: None,
                 },
                 dealiased_value: (moment == Moment::Velocity).then_some(28.0),
                 ground_range_km: 45.0,

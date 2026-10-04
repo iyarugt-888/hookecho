@@ -688,6 +688,15 @@ fn source_details(ui: &mut egui::Ui, label: &VolumeFrameLabel, coverage: &Tempor
     for line in coverage_lines(coverage) {
         ui.add(egui::Label::new(line).wrap());
     }
+    for (name, value) in crate::ui::acquisition_inventory::contributor_rows(
+        coverage
+            .contributors
+            .iter()
+            .map(|sweep| sweep.native_passes.as_ref()),
+        "input azimuth rows",
+    ) {
+        ui.add(egui::Label::new(format!("{name}: {value}")).wrap());
+    }
     for (name, value) in crate::ui::acquisition_inventory::receipt_rows(label.acquisition.as_ref())
     {
         ui.add(egui::Label::new(format!("{name}: {value}")).wrap());

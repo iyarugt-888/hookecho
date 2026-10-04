@@ -1,0 +1,74 @@
+{
+  "schema": 1,
+  "implementation_baseline": "8cf7d0a",
+  "shared_head_at_review": "c308f50",
+  "command": "cargo test --workspace gpu_native_contributor_snapshots -- --ignored --nocapture --test-threads=1",
+  "scope": "Production Inspector coverage painter with controlled retained-input and unavailable states, not full application/device certification",
+  "adapter_identity": "not retained by helper",
+  "source_sha256": {
+    "crates/hookecho/src/app/chrome/dock/inspector.rs": "439252361d76b0bcbb4b3069bb261ada730a1dd761365742c82384cd39f4e260",
+    "crates/hookecho/src/app/chrome/dock/mod.rs": "25c27bb3838bcaee41c34cf1e347a058bb80592299f5944708da983515156641",
+    "crates/hookecho/src/app/map_volume.rs": "6cab052cf7317a55a79ed95302253fb56c39be3dafc48fcf0d07beb48de47ca0",
+    "crates/hookecho/src/app/pane_upload.rs": "6693de5dd99f069416c3c938ce6416b242accf6806ece72d96352dc2efb4df50",
+    "crates/hookecho/src/app/radar_products.rs": "e1d0040718db5ae888253271d7e1e6ce7be85ba652eb25261850d31788a13538",
+    "crates/hookecho/src/app/rebuild.rs": "9b7d031c44c70548ec2a1e136f1cd769107c136daaaf73d212b856ae0d6dd358",
+    "crates/hookecho/src/app/standalone_volume.rs": "5b2a027fc97173c44ef288ea9cae8300fe0f1694c276d798faba27c6f182120f",
+    "crates/hookecho/src/app/view3d_state.rs": "9c7d0f822ca1446250835dc7c7c1311ae740575f16a57d74b51e75fbd1b75484",
+    "crates/hookecho/src/live_scan.rs": "574e296eca1a2abf4694777a9455f8028f3117a69886a98f27f1f1403edbcdd1",
+    "crates/hookecho/src/loop3d.rs": "d589fbe56a1bca4c6370fd3e28cb724d02ec8c411cfc8121fc2d7a23af9fdbeb",
+    "crates/hookecho/src/relay_provider.rs": "16b56e45ccc2a492d9c6fd9907cfa61606dd3bf4b35182e3bfba6d30c10d2df9",
+    "crates/hookecho/src/ui/acquisition_inventory.rs": "e29e1be46b70bf333d869a2831ae3fdde94cbd9af6d0b434ecfc9bda3fc4081e",
+    "crates/hookecho/src/ui/gate_inspector.rs": "fab6111fec2c0ba25591dd37c0a1f1f98fa564fe5d73d7c337418675dea3cf44",
+    "crates/hookecho/src/ui/volume3d_window.rs": "09ea668c418c775d120fcb248f425330ec837da636e571a8791afe870d521a25",
+    "crates/hookecho/src/view.rs": "5e4adeab06a337020786875154a36a0a3228a318973b5f6bf5e77cf3ac6d5f43",
+    "crates/wxdata/src/level2.rs": "b6b0c6fbef3f420e57abc5766592aa3b1f96ed9180b7814e9b4cc8cf47b40856",
+    "crates/wxdata/src/level2/temporal.rs": "e1b96104a62c623b8483378d32d5c964fa5631d62e27e4e504a13fce0c15418e",
+    "crates/wxdata/src/live.rs": "e29d20514c0c102979abf059a823c74f15bd8ef10d8a1c6beff97dc88390a505",
+    "crates/wxdata/src/live_pass.rs": "bb185c0937e161a276045fe84e02454ecbd9f39dfc6d41ac43fc1571cf0e6cd6",
+    "crates/wxdata/src/udp_volume.rs": "f9fcfa8fa91bf510b9481dc1529e65b247ef743882fe1c95718b5a088c6d2ac8",
+    "crates/hookecho/src/headless_ui.rs": "d4a604c60653441a5258aca270083ff41e74f2e8376c8a454e1271c3761ba824",
+    "crates/hookecho/src/ui/workstation.rs": "09f5501c3b16c0f14620e4991888ae7865acdfc5bd252ebaa058047b6c18b6ea"
+  },
+  "captures": [
+    {
+      "file": "recorded-240.png",
+      "width": 240,
+      "height": 1200,
+      "bytes": 109623,
+      "sha256": "d2150447b22fa60582774dde56360e8b7eec135fe3f1c9078207e5674dd5fce3",
+      "captured_at_utc": "2026-10-04T03:49:08.505960+00:00",
+      "touch": true,
+      "reviewed": true
+    },
+    {
+      "file": "recorded-300.png",
+      "width": 300,
+      "height": 1200,
+      "bytes": 110923,
+      "sha256": "60c15638c86664f0f00a7fc04c1fabe87cf3cacdabf8fb68f7e391d96bffbe94",
+      "captured_at_utc": "2026-10-04T03:49:08.884695+00:00",
+      "touch": false,
+      "reviewed": true
+    },
+    {
+      "file": "unavailable-240.png",
+      "width": 240,
+      "height": 1200,
+      "bytes": 26246,
+      "sha256": "00f7e1a4a7bcc8bb2af9897890209aae008e764f0963cde2d1bb8a8770506812",
+      "captured_at_utc": "2026-10-04T03:49:09.101193+00:00",
+      "touch": true,
+      "reviewed": true
+    },
+    {
+      "file": "unavailable-300.png",
+      "width": 300,
+      "height": 1200,
+      "bytes": 27776,
+      "sha256": "b915a88240b7ba5e15ee7a8043bb75105d39e60c55c390b2fb5483486fb9f58e",
+      "captured_at_utc": "2026-10-04T03:49:09.319135+00:00",
+      "touch": false,
+      "reviewed": true
+    }
+  ]
+}

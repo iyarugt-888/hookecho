@@ -22,6 +22,119 @@ pub(crate) fn show(ui: &mut egui::Ui, t: &ws::Tokens, scan: &crate::live_scan::L
         });
 }
 
+/// Native keys describe policy-retained input rows; they do not identify interpolated output cells.
+pub(crate) fn contributor_rows<'a>(
+    inputs: impl Iterator<Item = Option<&'a wxdata::level2::temporal::PassContributors>>,
+    unit: &str,
+) -> Vec<(&'static str, String)> {
+    let mut total = 0;
+    let mut known = 0;
+    let mut passes = std::collections::BTreeMap::new();
+    let (mut unanchored, mut unknown, mut unavailable) = (0, 0, 0);
+    for input in inputs {
+        total += 1;
+        if let Some(input) = input {
+            known += 1;
+            for &(key, count) in &input.passes {
+                *passes.entry(key).or_insert(0usize) += count;
+            }
+            unanchored += input.unanchored_rows;
+            unknown += input.unknown_clock_rows;
+            unavailable += input.unavailable_rows;
+        }
+    }
+    if known == 0 {
+        return vec![(
+            "Native passes",
+            "Exact input row association unavailable".into(),
+        )];
+    }
+    let mut rows = vec![(
+        "Native passes",
+        format!(
+            "{} recorded boundaries; {known} / {total} input sweeps with row evidence",
+            passes.len()
+        ),
+    )];
+    for (key, count) in passes.iter().take(8) {
+        rows.push((
+            "Recorded pass",
+            format!(
+                "Elevation {} · {} · {count} {unit}",
+                key.elevation_number,
+                source_clock(key.start_ms)
+            ),
+        ));
+    }
+    if passes.len() > 8 {
+        rows.push((
+            "More passes",
+            format!("{} additional recorded boundaries", passes.len() - 8),
+        ));
+    }
+    rows.push(("Unanchored inputs", format!("{unanchored} {unit}")));
+    rows.push((
+        "Untimed inputs",
+        format!("{unknown} {unit}; pass identity unestablished"),
+    ));
+    rows.push((
+        "Unmatched inputs",
+        format!("{unavailable} {unit}; no matching retained source evidence"),
+    ));
+    if known < total {
+        rows.push((
+            "Unavailable inputs",
+            format!(
+                "{} input sweep{} lack{} exact row association",
+                total - known,
+                if total - known == 1 { "" } else { "s" },
+                if total - known == 1 { "s" } else { "" }
+            ),
+        ));
+    }
+    rows.push(("Pass scope","Recorded source rows retained by the policy. Spatial/range transforms and individual output-cell lineage are separate; pass completeness remains unestablished. Source-time mixed-pass inference is independent.".into()));
+    rows
+}
+
+pub(crate) fn gate_pass_rows(
+    pass: wxdata::live_pass::RowPass,
+    site: Option<&str>,
+) -> Vec<(&'static str, String)> {
+    use wxdata::live_pass::RowPass;
+    let mut rows = vec![("Pass radar", site.unwrap_or("Unknown").into())];
+    rows.push((
+        "Native pass",
+        match pass {
+            RowPass::Anchored(key) => format!(
+                "Elevation {} · recorded start {}",
+                key.elevation_number,
+                source_clock(key.start_ms)
+            ),
+            RowPass::Unanchored => "Unanchored; no established native boundary".into(),
+            RowPass::UnknownClock => "Unknown radial clock; unique identity unestablished".into(),
+            RowPass::Unavailable => "Exact source row association unavailable".into(),
+        },
+    ));
+    rows
+}
+
+/// An overlapping plain row's actual writer clock may differ from the unchanged bin maximum.
+pub(crate) fn gate_clock_rows(row: Option<i64>, bin: Option<i64>) -> Vec<(&'static str, String)> {
+    row.filter(|&ms| {
+        ms > 0 && chrono::DateTime::from_timestamp_millis(ms).is_some() && Some(ms) != bin
+    })
+    .map(|ms| {
+        vec![(
+            "Native row time",
+            format!(
+                "{} · recorded writer; bin maximum differs",
+                source_clock(ms)
+            ),
+        )]
+    })
+    .unwrap_or_default()
+}
+
 fn cut_acquisition_rows(cut: &crate::live_scan::CutAcquisition) -> Vec<(&'static str, String)> {
     let Some(expected) = cut.expected_chunks else {
         return vec![(
@@ -738,6 +851,7 @@ mod tests {
                     progress: p,
                     source_passes: None,
                     source_sequences: None,
+                    source_attribution: None,
                     radials: vec![(1, start + 1000), (2, 0), (4, start + 3000)],
                 },
                 chrono::Utc::now(),
@@ -751,6 +865,7 @@ mod tests {
                     },
                     source_passes: None,
                     source_sequences: None,
+                    source_attribution: None,
                     radials: vec![(1, start + 10000), (2, start + 11000)],
                 },
                 chrono::Utc::now(),
@@ -857,6 +972,7 @@ mod tests {
                 progress: receiver.progress.unwrap(),
                 source_passes: None,
                 source_sequences: None,
+                source_attribution: None,
                 radials: vec![(3, 0)],
             },
             chrono::Utc::now(),
@@ -960,6 +1076,50 @@ mod tests {
                 )
                 .unwrap();
             }
+        }
+    }
+    #[test]
+    fn contributor_rows_bound_detail_and_keep_unavailable_and_untimed_evidence_explicit() {
+        use wxdata::level2::temporal::PassContributors;
+        use wxdata::live_pass::{PassKey, RowPass};
+        let summary = PassContributors {
+            passes: (0..10)
+                .map(|i| {
+                    (
+                        PassKey {
+                            elevation_number: 1,
+                            start_ms: 1_700_000_000_000 + i * 1000,
+                        },
+                        120,
+                    )
+                })
+                .collect(),
+            unanchored_rows: 3,
+            unknown_clock_rows: 2,
+            unavailable_rows: 1,
+        };
+        let rows = contributor_rows(
+            [Some(&summary), Some(&summary), None].into_iter(),
+            "input azimuth rows",
+        );
+        assert_eq!(
+            rows.iter().filter(|(k, _)| *k == "Recorded pass").count(),
+            8
+        );
+        assert!(rows.contains(&("More passes", "2 additional recorded boundaries".into())));
+        assert!(rows.contains(&(
+            "Untimed inputs",
+            "4 input azimuth rows; pass identity unestablished".into()
+        )));
+        assert!(rows.contains(&("Unanchored inputs", "6 input azimuth rows".into())));
+        for pass in [
+            RowPass::Unanchored,
+            RowPass::UnknownClock,
+            RowPass::Unavailable,
+        ] {
+            let gate = gate_pass_rows(pass, None);
+            assert!(gate.contains(&("Pass radar", "Unknown".into())));
+            assert!(!gate.iter().any(|(_, v)| v.contains("recorded start")));
         }
     }
 }

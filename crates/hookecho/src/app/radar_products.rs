@@ -121,6 +121,12 @@ impl HookEchoApp {
 }
 
 impl DerivedKey {
+    pub(super) fn pass_index(&self) -> Option<&wxdata::live_pass::PassAttributionIndex> {
+        self.acquisition
+            .as_ref()
+            .and_then(crate::live_scan::AcquisitionSnapshot::pass_index)
+    }
+
     fn for_view(
         view: &MapView,
         settings: &Settings,
@@ -299,6 +305,7 @@ mod tests {
                     progress: receiver.progress.unwrap(),
                     source_passes: None,
                     source_sequences: None,
+                    source_attribution: None,
                     radials: vec![(3, 0)],
                 },
                 Utc::now(),

@@ -797,7 +797,7 @@ impl Volume {
     ) -> anyhow::Result<&BinnedSweep> {
         let scan = Arc::clone(&self.scan);
         self.binned.try_get_or_insert((moment, tilt, dealias), || {
-            level2::bin_scan_opts(&scan, moment, tilt, dealias)
+            level2::bin_scan_opts_recorded(&scan, moment, tilt, dealias)
         })
     }
 
@@ -1432,6 +1432,7 @@ mod tests {
                     progress: receiver.progress.unwrap(),
                     source_passes: None,
                     source_sequences: None,
+                    source_attribution: None,
                     radials: vec![(3, 0)],
                 },
                 now,

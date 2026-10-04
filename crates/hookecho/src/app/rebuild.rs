@@ -59,7 +59,11 @@ impl HookEchoApp {
         let ctx = ctx.clone();
         self.spawner.spawn_blocking(move || {
             let result = (|| -> anyhow::Result<_> {
-                let coverage = wxdata::level2::temporal::prepare(&mut sweeps, key.policy)?;
+                let coverage = wxdata::level2::temporal::prepare_with_passes(
+                    &mut sweeps,
+                    key.policy,
+                    key.pass_index(),
+                )?;
                 let mut out: Vec<(FL, wxdata::mrms::MrmsField)> = Vec::new();
                 if mask & !HAIL_BITS != 0 {
                     if let Some(d) = wxdata::derived::derive(&sweeps, &opts) {

@@ -146,6 +146,9 @@ pub struct BinnedSweep {
     /// predates partial-sweep rendering) — treat an empty vector as "timing unknown", never
     /// as "all bins at time zero".
     pub bin_time_ms: Vec<i64>,
+    /// Exact plain-moment row writers, populated only by the display/product recording path.
+    /// None for derived/dealiased rows and legacy callers. Clones share metadata, never gates.
+    pub source_radials: Option<std::sync::Arc<[Option<crate::live_pass::NativeRadialKey>]>>,
     /// The azimuth wedge, `(start_deg, end_deg)` clockwise, still showing the *previous*
     /// rotation because the current one has not swept through it yet. `end < start` means the
     /// wedge crosses north. `None` when every bin came from one pass, which is the normal
@@ -177,6 +180,7 @@ impl Default for BinnedSweep {
             value_min: 0.0,
             value_max: 0.0,
             bin_time_ms: Vec::new(),
+            source_radials: None,
             stale_arc_deg: None,
             nyquist_ms: 0.0,
         }
@@ -402,6 +406,16 @@ pub fn observed_volume_with_policy(
     max_gates: usize,
     policy: temporal::TemporalPolicy,
 ) -> anyhow::Result<ObservedVolume> {
+    observed_volume_with_passes(scan, moment, max_gates, policy, None)
+}
+
+pub fn observed_volume_with_passes(
+    scan: &Scan,
+    moment: Moment,
+    max_gates: usize,
+    policy: temporal::TemporalPolicy,
+    passes: Option<&crate::live_pass::PassAttributionIndex>,
+) -> anyhow::Result<ObservedVolume> {
     if moment == Moment::SpecificDifferentialPhase {
         anyhow::bail!("KDP is derived during binning and has no exact observed gates");
     }
@@ -483,6 +497,7 @@ pub fn observed_volume_with_policy(
             unknown_time_radials: 0,
             used_start_ms: None,
             used_end_ms: None,
+            native_passes: passes.map(|_| temporal::PassContributors::default()),
         };
         // Retain the original row geometry and clock even when its gate values are excluded.
         // This leaves every missing/excluded gate transparent without synthesizing a radial.
@@ -517,6 +532,15 @@ pub fn observed_volume_with_policy(
         for (row, (radial, data)) in carrying.iter().enumerate() {
             let out = &mut values[row * cells..(row + 1) * cells];
             if !excluded[row] {
+                if let (Some(summary), Some(index)) = (&mut cut_coverage.native_passes, passes) {
+                    summary.observe(
+                        index,
+                        crate::live_pass::NativeRadialKey::from_radial(
+                            u16::from(sweep.elevation_number()),
+                            radial,
+                        ),
+                    );
+                }
                 for (gate, value) in data.iter().enumerate() {
                     let idx = match value {
                         MomentValue::BelowThreshold => 0,
@@ -615,6 +639,7 @@ pub struct GateSample {
     /// when the sweep carries no timing. On a live partially-swept volume this is the gate's
     /// *own* age, which can be a full rotation older than the volume's nominal time.
     pub collected_ms: Option<i64>,
+    pub source_radial: Option<crate::live_pass::NativeRadialKey>,
 }
 
 impl BinnedSweep {
@@ -650,6 +675,13 @@ impl BinnedSweep {
             range_km: slant as f32,
             gate,
             collected_ms: self.bin_time_ms.get(bin).copied().filter(|&t| t > 0),
+            source_radial: self
+                .source_radials
+                .as_ref()
+                .filter(|rows| rows.len() == self.az_bins)
+                .and_then(|rows| rows.get(bin))
+                .copied()
+                .flatten(),
         })
     }
 
@@ -1437,6 +1469,26 @@ pub fn bin_scan_opts(
     tilt: usize,
     dealias: bool,
 ) -> anyhow::Result<BinnedSweep> {
+    bin_scan_opts_inner(scan, moment, tilt, dealias, false)
+}
+
+/// Display/product binning with exact plain-moment row identity; gates and clocks are unchanged.
+pub fn bin_scan_opts_recorded(
+    scan: &Scan,
+    moment: Moment,
+    tilt: usize,
+    dealias: bool,
+) -> anyhow::Result<BinnedSweep> {
+    bin_scan_opts_inner(scan, moment, tilt, dealias, true)
+}
+
+fn bin_scan_opts_inner(
+    scan: &Scan,
+    moment: Moment,
+    tilt: usize,
+    dealias: bool,
+    record: bool,
+) -> anyhow::Result<BinnedSweep> {
     crate::stats::bump(crate::stats::Counter::SweepsBinned);
     let target = *elevation_angles(scan)
         .get(tilt)
@@ -1454,7 +1506,7 @@ pub fn bin_scan_opts(
         .map(|s| (s.latitude(), s.longitude()))
         .ok_or_else(|| anyhow::anyhow!("scan has no site metadata"))?;
 
-    bin_sweep_opts(sweep, moment, lat, lon, dealias)
+    bin_sweep_opts_inner(sweep, moment, lat, lon, dealias, record)
 }
 
 /// Select a repeated cut by acquisition time, preserving the first match for sources without
@@ -1591,6 +1643,17 @@ pub fn update_binned_sweep_live(
                 };
             }
             binned.bin_time_ms[row_index] = timestamp;
+            if let Some(rows) = &mut binned.source_radials {
+                if rows.len() == binned.az_bins {
+                    std::sync::Arc::make_mut(rows)[row_index] =
+                        Some(crate::live_pass::NativeRadialKey::from_radial(
+                            u16::from(sweep.elevation_number()),
+                            radial,
+                        ));
+                } else {
+                    binned.source_radials = None;
+                }
+            }
             changed[row_index] = true;
         }
     }
@@ -1620,6 +1683,28 @@ pub fn bin_sweep_opts(
     radar_lat: f32,
     radar_lon: f32,
     dealias: bool,
+) -> anyhow::Result<BinnedSweep> {
+    bin_sweep_opts_inner(sweep, moment, radar_lat, radar_lon, dealias, false)
+}
+
+/// Record exact plain-moment writers; derived KDP and dealiased velocity remain unavailable.
+pub fn bin_sweep_opts_recorded(
+    sweep: &Sweep,
+    moment: Moment,
+    radar_lat: f32,
+    radar_lon: f32,
+    dealias: bool,
+) -> anyhow::Result<BinnedSweep> {
+    bin_sweep_opts_inner(sweep, moment, radar_lat, radar_lon, dealias, true)
+}
+
+fn bin_sweep_opts_inner(
+    sweep: &Sweep,
+    moment: Moment,
+    radar_lat: f32,
+    radar_lon: f32,
+    dealias: bool,
+    record: bool,
 ) -> anyhow::Result<BinnedSweep> {
     let radials = sweep.radials();
     // Azimuth resolution: 0.5-degree (720 bins) covers both super-res and legacy;
@@ -1811,6 +1896,26 @@ pub fn bin_sweep_opts(
         bin_time_ms
     };
     let stale_arc_deg = previous_pass_arc(&bin_time_ms, AZ_BINS);
+    // Plain fill_row overwrites every gate from the last eligible radial in each bucket.
+    // Clock maxima are intentionally untouched: detector calculations retain their existing inputs.
+    // KDP/dealiasing combine measurements and cannot claim one exact native row writer.
+    let source_radials = (record
+        && moment != Moment::SpecificDifferentialPhase
+        && !(dealias && moment == Moment::Velocity))
+        .then(|| {
+            by_bin
+                .iter()
+                .map(|bucket| {
+                    bucket.last().map(|radial| {
+                        crate::live_pass::NativeRadialKey::from_radial(
+                            u16::from(sweep.elevation_number()),
+                            radial,
+                        )
+                    })
+                })
+                .collect::<Vec<_>>()
+                .into()
+        });
 
     Ok(BinnedSweep {
         moment,
@@ -1825,6 +1930,7 @@ pub fn bin_sweep_opts(
         value_min,
         value_max,
         bin_time_ms,
+        source_radials,
         stale_arc_deg,
         nyquist_ms,
     })
@@ -3254,5 +3360,142 @@ mod tests {
             ..key
         };
         assert_eq!(take_dealias_reference(&other_site, 400_000), None);
+    }
+    #[test]
+    fn recorded_rows_follow_gate_writers_instead_of_bucket_clock_and_update_without_mutating_clones(
+    ) {
+        use crate::live_pass::{NativeRadialKey, PassKey, PassTracker, RowPass};
+        let radial = |t, raw| observed_radial(t, 90.0, 0.5, 1, Moment::Reflectivity, vec![raw; 4]);
+        let newer = radial(2000, 180);
+        let older = radial(1000, 100);
+        let scan = observed_scan(vec![Sweep::new(1, vec![newer, older.clone()])]);
+        let legacy = bin_scan_opts(&scan, Moment::Reflectivity, 0, false).unwrap();
+        let mut recorded = bin_scan_opts_recorded(&scan, Moment::Reflectivity, 0, false).unwrap();
+        assert!(
+            legacy.source_radials.is_none(),
+            "scientific/default path allocates no lineage"
+        );
+        assert_eq!(recorded.data, legacy.data);
+        assert_eq!(recorded.bin_time_ms, legacy.bin_time_ms);
+        assert_eq!(recorded.stale_arc_deg, legacy.stale_arc_deg);
+        let (lon, lat) = destination(
+            f64::from(recorded.radar_lon),
+            f64::from(recorded.radar_lat),
+            90.25,
+            0.625,
+        );
+        let sample = recorded.sample_at(lon, lat).unwrap();
+        assert_eq!(
+            sample.collected_ms,
+            Some(2000),
+            "existing maximum clock stays unchanged"
+        );
+        assert_eq!(
+            sample.source_radial,
+            Some(NativeRadialKey::from_radial(1, &older))
+        );
+        let old_only = bin_sweep(
+            &Sweep::new(1, vec![older]),
+            Moment::Reflectivity,
+            35.33,
+            -97.28,
+        )
+        .unwrap();
+        assert_eq!(sample.value, old_only.sample_at(lon, lat).unwrap().value);
+        let mut tracker = PassTracker::default();
+        tracker.observe(&scan, false);
+        let index = tracker.attribution_for_scan(&scan);
+        assert_eq!(
+            index.resolve(sample.source_radial.unwrap()),
+            RowPass::Anchored(PassKey {
+                elevation_number: 1,
+                start_ms: 1000
+            })
+        );
+        let frozen = recorded.clone();
+        let fresh = radial(3000, 200);
+        update_binned_sweep_live(&mut recorded, &Sweep::new(1, vec![fresh.clone()])).unwrap();
+        assert_eq!(
+            recorded.sample_at(lon, lat).unwrap().source_radial,
+            Some(NativeRadialKey::from_radial(1, &fresh))
+        );
+        assert_eq!(
+            frozen.sample_at(lon, lat).unwrap().source_radial,
+            sample.source_radial
+        );
+        let velocity = observed_scan(vec![Sweep::new(
+            1,
+            vec![observed_radial(
+                2000,
+                90.0,
+                0.5,
+                1,
+                Moment::Velocity,
+                vec![100; 4],
+            )],
+        )]);
+        assert!(bin_scan_opts_recorded(&velocity, Moment::Velocity, 0, true)
+            .unwrap()
+            .source_radials
+            .is_none());
+    }
+
+    #[test]
+    fn retained_native_pass_contributors_follow_policy_without_changing_scientific_masks_or_values()
+    {
+        use crate::live_pass::{PassKey, PassTracker};
+        use temporal::{prepare, prepare_with_passes, TemporalPolicy as P};
+        let old = 1_700_000_000_000;
+        let new = old + 120_000;
+        let scan = observed_scan(vec![Sweep::new(
+            1,
+            vec![
+                observed_radial(old, 180.0, 0.5, 1, Moment::Reflectivity, vec![100; 4]),
+                observed_radial(new, 90.0, 0.5, 1, Moment::Reflectivity, vec![180; 4]),
+            ],
+        )]);
+        let mut tracker = PassTracker::default();
+        tracker.observe(&scan, false);
+        let index = tracker.attribution_for_scan(&scan);
+        for policy in [P::Continuous, P::StrictCurrent] {
+            let mut recorded =
+                [bin_scan_opts_recorded(&scan, Moment::Reflectivity, 0, false).unwrap()];
+            let mut legacy = [bin_scan_opts(&scan, Moment::Reflectivity, 0, false).unwrap()];
+            let original = prepare(&mut legacy, policy).unwrap();
+            let exact = prepare_with_passes(&mut recorded, policy, Some(&index)).unwrap();
+            assert_eq!(recorded[0].data, legacy[0].data);
+            assert_eq!(recorded[0].bin_time_ms, legacy[0].bin_time_ms);
+            assert_eq!(exact.excluded_rows(), original.excluded_rows());
+            let passes = &exact.contributors[0].native_passes.as_ref().unwrap().passes;
+            assert_eq!(passes.len(), if policy == P::Continuous { 2 } else { 1 });
+            assert!(passes.contains(&(
+                PassKey {
+                    elevation_number: 1,
+                    start_ms: new
+                },
+                1
+            )));
+            let legacy_native =
+                observed_volume_with_policy(&scan, Moment::Reflectivity, 4096, policy).unwrap();
+            let native = observed_volume_with_passes(
+                &scan,
+                Moment::Reflectivity,
+                4096,
+                policy,
+                Some(&index),
+            )
+            .unwrap();
+            assert_eq!(native.sweeps[0].values, legacy_native.sweeps[0].values);
+            assert_eq!(
+                native.coverage.cuts[0]
+                    .native_passes
+                    .as_ref()
+                    .unwrap()
+                    .passes,
+                *passes
+            );
+            let unavailable = prepare_with_passes(&mut legacy, policy, Some(&index)).unwrap();
+            assert!(unavailable.contributors[0].native_passes.is_none());
+        }
     }
 }

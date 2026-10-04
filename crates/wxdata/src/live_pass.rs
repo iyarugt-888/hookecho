@@ -4,13 +4,71 @@
 
 use crate::level2::Scan;
 use nexrad_model::data::RadialStatus;
-use std::collections::{BTreeMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
 /// Scoped to the source radar by the enclosing acquisition receipt.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PassKey {
     pub elevation_number: u16,
     pub start_ms: i64,
+}
+
+/// Exact native radial metadata, scoped to the radar/volume of an accepted receipt.
+/// Untimed keys cannot uniquely identify arrivals and never establish an association.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct NativeRadialKey {
+    pub elevation_number: u16,
+    pub azimuth_number: u16,
+    pub collected_ms: i64,
+    pub status: RadialStatus,
+}
+
+impl NativeRadialKey {
+    pub fn from_radial(elevation_number: u16, radial: &nexrad_model::data::Radial) -> Self {
+        Self {
+            elevation_number,
+            azimuth_number: radial.azimuth_number(),
+            collected_ms: radial.collection_timestamp(),
+            status: radial.radial_status(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RowPass {
+    Anchored(PassKey),
+    Unanchored,
+    UnknownClock,
+    Unavailable,
+}
+
+/// Native associations for the rows surviving one accepted scan's merge. No gates held.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PassAttributionIndex {
+    rows: HashMap<NativeRadialKey, Option<PassKey>>,
+}
+
+impl PassAttributionIndex {
+    pub fn resolve(&self, row: NativeRadialKey) -> RowPass {
+        if row.collected_ms <= 0
+            || chrono::DateTime::from_timestamp_millis(row.collected_ms).is_none()
+        {
+            return RowPass::UnknownClock;
+        }
+        match self.rows.get(&row) {
+            Some(Some(key)) => RowPass::Anchored(*key),
+            Some(None) => RowPass::Unanchored,
+            None => RowPass::Unavailable,
+        }
+    }
+
+    pub fn estimated_bytes(&self) -> usize {
+        std::mem::size_of::<Self>()
+            + self.rows.capacity()
+                * (std::mem::size_of::<NativeRadialKey>()
+                    + std::mem::size_of::<Option<PassKey>>()
+                    + 16)
+    }
 }
 
 /// Raw positions from one source-marked segment in the arriving decoded input.
@@ -35,6 +93,7 @@ struct ActivePass {
 pub struct PassTracker {
     active: BTreeMap<u16, ActivePass>,
     seen: HashSet<(u16, u16, i64, RadialStatus)>,
+    associations: HashMap<NativeRadialKey, Option<PassKey>>,
     order: VecDeque<(u16, u16, i64, RadialStatus)>,
     last_elevation: Option<u16>,
     ledger: PassLedger,
@@ -110,8 +169,14 @@ impl PassTracker {
             }
             self.order.push_back(fingerprint);
             if self.order.len() > MAX_FINGERPRINTS {
-                self.seen
-                    .remove(&self.order.pop_front().expect("bounded duplicate history"));
+                let retired = self.order.pop_front().expect("bounded duplicate history");
+                self.seen.remove(&retired);
+                self.associations.remove(&NativeRadialKey {
+                    elevation_number: retired.0,
+                    azimuth_number: retired.1,
+                    collected_ms: retired.2,
+                    status: retired.3,
+                });
             }
             if self.last_elevation != Some(elevation) {
                 if let Some(previous) = self
@@ -193,6 +258,15 @@ impl PassTracker {
                     radials: Vec::new(),
                 });
             }
+            self.associations.insert(
+                NativeRadialKey {
+                    elevation_number: elevation,
+                    azimuth_number: number,
+                    collected_ms: time,
+                    status,
+                },
+                key,
+            );
             let arrival = arrivals.last_mut().expect("source segment created");
             arrival.radials.push((number, time));
             arrival.end_marker |= ends;
@@ -212,6 +286,19 @@ impl PassTracker {
     /// Includes decoded source evidence that did not replace any displayed gates.
     pub fn inventory(&self) -> PassInventory {
         self.ledger.inventory()
+    }
+
+    pub fn attribution_for_scan(&self, scan: &Scan) -> PassAttributionIndex {
+        let mut rows = HashMap::new();
+        for sweep in scan.sweeps() {
+            for radial in sweep.radials() {
+                let row = NativeRadialKey::from_radial(u16::from(sweep.elevation_number()), radial);
+                if let Some(key) = self.associations.get(&row) {
+                    rows.insert(row, *key);
+                }
+            }
+        }
+        PassAttributionIndex { rows }
     }
 }
 
@@ -714,5 +801,100 @@ mod tests {
         assert!(invalid.inventory().passes.is_empty());
         assert_eq!(invalid.inventory().unanchored_positions, 1);
         assert_eq!(invalid.inventory().unanchored_unknown_clocks, 1);
+    }
+    #[test]
+    fn accepted_row_lookup_retains_exact_revisits_and_cannot_borrow_another_rows_anchor() {
+        use RadialStatus::*;
+        let old = input(&[
+            (1, 1, 1000, ScanStart),
+            (1, 2, 1100, IntermediateRadialData),
+        ]);
+        let next = input(&[
+            (1, 1, 2000, ElevationStart),
+            (1, 3, 2100, IntermediateRadialData),
+        ]);
+        let mut tracker = PassTracker::default();
+        tracker.observe(&old, false);
+        let frozen = tracker.attribution_for_scan(&old);
+        tracker.observe(&next, true);
+        let retained = input(&[
+            (1, 2, 1100, IntermediateRadialData),
+            (1, 3, 2100, IntermediateRadialData),
+        ]);
+        let accepted = tracker.attribution_for_scan(&retained);
+        let key = |n, t, status| NativeRadialKey {
+            elevation_number: 1,
+            azimuth_number: n,
+            collected_ms: t,
+            status,
+        };
+        assert_eq!(
+            accepted.resolve(key(2, 1100, IntermediateRadialData)),
+            RowPass::Anchored(PassKey {
+                elevation_number: 1,
+                start_ms: 1000
+            })
+        );
+        assert_eq!(
+            accepted.resolve(key(3, 2100, IntermediateRadialData)),
+            RowPass::Anchored(PassKey {
+                elevation_number: 1,
+                start_ms: 2000
+            })
+        );
+        assert_eq!(
+            accepted.resolve(key(1, 2000, ElevationStart)),
+            RowPass::Unavailable,
+            "index only covers accepted rows"
+        );
+        assert_eq!(
+            accepted.resolve(key(2, 1100, ElevationEnd)),
+            RowPass::Unavailable,
+            "same position/clock is insufficient"
+        );
+        assert_eq!(
+            frozen.resolve(key(3, 2100, IntermediateRadialData)),
+            RowPass::Unavailable
+        );
+        assert_eq!(
+            accepted.resolve(key(2, 0, IntermediateRadialData)),
+            RowPass::UnknownClock
+        );
+        let join = input(&[(1, 4, 2200, IntermediateRadialData)]);
+        tracker.observe(&join, false);
+        assert_eq!(
+            tracker
+                .attribution_for_scan(&join)
+                .resolve(key(4, 2200, IntermediateRadialData)),
+            RowPass::Unanchored
+        );
+        assert!(accepted.estimated_bytes() > std::mem::size_of::<PassAttributionIndex>());
+    }
+
+    #[test]
+    fn row_lookup_evicts_old_evidence_without_mutating_accepted_receipts() {
+        use RadialStatus::*;
+        let first = input(&[(1, 1, 1000, ScanStart)]);
+        let mut tracker = PassTracker::default();
+        tracker.observe(&first, false);
+        let frozen = tracker.attribution_for_scan(&first);
+        // One large arrival controls the actual provider bound, without thousands of fixture decodes.
+        let samples: Vec<_> = (0..MAX_FINGERPRINTS)
+            .map(|i| (1, 2, 2000 + i as i64, IntermediateRadialData))
+            .collect();
+        tracker.observe(&input(&samples), true);
+        let key = NativeRadialKey::from_radial(1, &first.sweeps()[0].radials()[0]);
+        assert_eq!(
+            tracker.attribution_for_scan(&first).resolve(key),
+            RowPass::Unavailable
+        );
+        assert_eq!(
+            frozen.resolve(key),
+            RowPass::Anchored(PassKey {
+                elevation_number: 1,
+                start_ms: 1000
+            })
+        );
+        assert_eq!(tracker.associations.len(), MAX_FINGERPRINTS);
     }
 }
