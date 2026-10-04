@@ -477,6 +477,19 @@ Primary code areas:
   - **Parity:** stratiform (4 h) and the 2022 random sample (13 h): identical, volume for volume (6 and 9 false markers). Three tornadic events (Washington IL 2013, Mayfield 2021, Nashville 2020; 5.9 h): 33 markers against Python's 30, 17 of 26 truths found by both; within 15–150 km the false counts agree (13 and 12, one volume). The rest is the app being more faithful than the re-derivation: markers under 15 km (the fused rows stop there; all 3 verified), and two Nashville volumes where scoring raw rather than cross-corroborated debris moves a score across a tier.
   - Future verification should read `tornado_marker` rows (threshold 0.0 is every marker shown, 0.6 the Likely tier) rather than re-derive them.
 
+- **The full sets with `tornado_marker` rows found a mismatch: single-gate "cores".** On the random sample the app drew 82 false markers within 15–150 km where the re-derivation had 57. The cause: the core rule took any ≥ 40 dBZ object within 5 km, and a lone gate is an object. Its length is the variance of one point in floating point, 0 to a few hundredths of a km, so the fused rows' `echo_aspect` read 0 (no core) while the app's `echo.is_some()` passed. Two gates already measure 0.3 km or more (of 67k fused rows: 10,301 at 0, 60 under 0.1 km, 13 at 0.1–0.3, the rest above). `in_core` now needs a core at least `MIN_CORE_LENGTH_KM` = 0.1 km long, which is the rule the re-derivation measured; a `> 0` test was not enough (the noise is positive).
+  - **Parity after the fix:** within 15–150 km, random sample 58 false against 57 (one volume, raw against corroborated debris), corpus 165 against 166, stratiform identical. Specks as cores had found no more tornadoes (19 of 57 either way).
+  - **The app's own rates** (all ranges, radar evidence only), false markers per radar-hour and POD:
+
+    | Set | Possible and up | Likely and up | Original, Possible / Likely |
+    |---|---|---|---|
+    | Random 139 (95 h, 57 truths) | 0.71, 0.40 | 0.03, 0.00 | 3.51, 0.16 / 0.89, 0.07 |
+    | Corpus 65 (53.5 h, 493 truths) | 3.14, 0.40 | 0.22, 0.18 | 7.60, 0.29 / 2.58, 0.21 |
+    | Stratiform (4 h) | 1.50 | 0 | 5.50 / 0.75 |
+
+    The figures quoted earlier from the re-derivation (0.60 on the random sample) were 15–150 km only; the app also draws nearer. Under 15 km the random sample had 11 markers, 9 false (3 of them Likely, mostly 5–10 km from the radar) and 2 verified; on the corpus 10 of 13 markers under 15 km were tornadoes, so close range is not cut.
+  - **Why tornadoes are missed** (corpus, 298 of 493; each miss attributed by the best fused column near it): 93 only weak shear (median 0.012 s⁻¹, 107 km), 91 only unrooted columns, 65 no rotation column at all, 39 only anticyclonic columns (median 119 km), 7 within 40 km below Possible, 3 folded or turbine-masked. None to the core rule. On the random sample, 34 misses: 15 weak, 14 unrooted, 4 no column, 1 within 40 km. The misses are the far-range sensing limit, not the display rules.
+
 ### Where the detection stands (65 events)
 
 - **Promoted.** The fused Tornado ID (fusion-3) is the app's default; the original is selectable. On every held-out test since promotion it has found as many tornadoes as the original or more, at a far lower false-alarm ratio. On round three's unseen events at matched false-alarm rates: POD 0.29, FAR 0.21 against 0.15, 0.64. On round five's unseen supercell days at Likely: POD 0.28, FAR 0.11 against 0.26, 0.62. On non-tornadic lines (round four): 0 false detections against 23. On the hail storms, at Likely: 2 against 25.

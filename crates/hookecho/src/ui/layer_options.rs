@@ -1302,9 +1302,9 @@ pub(crate) fn tornado_id_controls(
             "Shows a rooted, cyclonic circulation in a storm core, 40 km or more from the radar \
              and with no debris beside it, as Tornado possible once its low-level shear reaches \
              this, though its evidence score is lower. Possible raises no alert. Starts at \
-             0.018: on a random sample of ordinary severe days it found a third of the \
-             tornadoes, against a tenth without it, at about one false Possible marker every \
-             two radar-hours; the original Tornado ID made three and a half an hour.",
+             0.018: on a random sample of ordinary severe days it found a third or more of the \
+             tornadoes, against a tenth without it, at under one false Possible marker per \
+             radar-hour; the original Tornado ID made three and a half.",
         );
     }
     ui.label(

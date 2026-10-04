@@ -101,8 +101,8 @@ Detectors, 0.018 s⁻¹ by default, or off). Every marker needs a storm core (�
 and a *possible* marker within 2 km of a wind turbine that stood in the scan's year is not drawn
 (USGS U.S. Wind Turbine Database). A tornado report or an observed warning raises a marker to
 *confirmed* but no longer makes one from weak shear near the report. It does not run on TDWR
-sites. On 139 random severe-weather windows it found a third of the tornadoes at 0.6 false
-*possible* markers per radar-hour and none at *likely*; the original Tornado ID found 16% at 3.5
+sites. On 139 random severe-weather windows it found two in five of the tornadoes at 0.7 false
+*possible* markers per radar-hour and 0.03 at *likely*; the original Tornado ID found 16% at 3.5
 and 0.9. Scores remain evidence, not calibrated probabilities.
 
 ### Added: where each Tornado ID verdict came from

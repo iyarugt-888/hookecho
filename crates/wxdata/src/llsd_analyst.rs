@@ -253,6 +253,20 @@ pub fn circulations_with(
         .collect()
 }
 
+/// Whether a column sits in a convective core: a >= 40 dBZ object within 5 km (`column.echo`)
+/// that is more than a single gate. A lone gate is a speck of clutter, bright band or a hail
+/// shaft's edge, not a core; it measures a length of 0 to a few hundredths of a km (the variance
+/// of one point, in floating point), while two gates already measure 0.3 km or more. Counting
+/// specks as cores showed 25 more false markers on 139 random severe-weather windows and found no
+/// more tornadoes (detectionplan.md).
+fn in_core(c: &crate::rotation_columns::RotationColumn) -> bool {
+    c.echo.is_some_and(|e| e.length_km >= MIN_CORE_LENGTH_KM)
+}
+
+/// The shortest echo object that counts as a core (km): above a single gate's floating-point
+/// length, below any two gates'.
+const MIN_CORE_LENGTH_KM: f32 = 0.1;
+
 /// Compass bearing (degrees from north) of motion `(east, north)`.
 fn bearing(u: f32, v: f32) -> f32 {
     u.atan2(v).to_degrees().rem_euclid(360.0)
@@ -307,7 +321,7 @@ impl Analysed {
                     // Stratiform rain and strong synoptic wind make rotation-like shear with no
                     // core; requiring one kept every tornado the bar gains while halving its
                     // false markers on ordinary severe days (146 to 71 over 95 radar-hours).
-                    && c.echo.is_some()
+                    && in_core(c)
                     && c.members.first().is_some_and(|m| m.object.range_km >= LIFT_MIN_RANGE_KM)
             });
         // Every verdict sits in a convective core (`echo`: a >= 40 dBZ object within 5 km). Shear
@@ -317,7 +331,7 @@ impl Analysed {
         // (detectionplan.md). Confirmation does not stand in for radar evidence: at Mayfield a
         // report in town, still within its 30 minutes, made a 13/100 column there a Confirmed
         // marker (and an alert) after the tornado was 25 km on.
-        if c.echo.is_none() || (score < MIN_SCORE && !lifted) {
+        if !in_core(c) || (score < MIN_SCORE && !lifted) {
             return None;
         }
         let tier = if confirmation.level().is_some() {
@@ -876,6 +890,14 @@ mod tests {
             report: Some((2.0, 3)),
         };
         assert!(identify(&a, report).is_empty());
+        // A single-gate speck is no core either.
+        t.column.echo = Some(crate::storm_mode::EchoShape {
+            length_km: 0.004,
+            width_km: 0.0,
+            area_km2: 0.06,
+        });
+        let speck = analyse(vec![t.clone()], &[debris_ball(0.5, 0.5)], &[]);
+        assert!(identify(&speck, |_, _| Confirmation::default()).is_empty());
         // In a core, the same report raises it to Confirmed.
         t.column.echo = tracked(1).column.echo;
         let cored = analyse(vec![t], &[debris_ball(0.5, 0.5)], &[]);
