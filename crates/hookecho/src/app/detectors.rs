@@ -293,15 +293,15 @@ impl HookEchoApp {
                 let minute = self.volume_minute(idx);
                 let confirm =
                     |lon: f64, lat: f64| wxdata::confirm::confirm(lon, lat, minute, &evidence);
-                let bar = self.settings.detectors.rotation_only_possible;
+                let options = self.verdict_options(idx);
                 if merged {
                     let c = wxdata::llsd_analyst::circulations_with(
-                        &analysed, couplets, tds, confirm, bar,
+                        &analysed, couplets, tds, confirm, options,
                     );
                     (Vec::new(), c, lineage)
                 } else {
                     (
-                        wxdata::llsd_analyst::identify_with(&analysed, confirm, bar),
+                        wxdata::llsd_analyst::identify_with(&analysed, confirm, options),
                         Vec::new(),
                         lineage,
                     )
@@ -330,7 +330,7 @@ impl HookEchoApp {
                         couplets,
                         tds,
                         |lon, lat| wxdata::confirm::confirm(lon, lat, minute, &evidence),
-                        self.settings.detectors.rotation_only_possible,
+                        self.verdict_options(idx),
                     );
                 }
             }
@@ -485,6 +485,16 @@ impl HookEchoApp {
 
     /// Minutes since the Unix epoch of the pane's displayed volume, the moment its detections are
     /// about. Zero with no volume, when there are no detections to place anyway.
+    /// How the fused Tornado ID draws verdicts for pane `idx`: the rotation-only bar from settings,
+    /// and the wind-turbine mask for the turbines standing in its volume's year.
+    pub(crate) fn verdict_options(&self, idx: usize) -> wxdata::llsd_analyst::VerdictOptions {
+        use chrono::Datelike;
+        wxdata::llsd_analyst::VerdictOptions {
+            rotation_only_possible: self.settings.detectors.rotation_only_possible,
+            turbines_in_year: self.views[idx].volume.as_ref().map(|v| v.time.year()),
+        }
+    }
+
     pub(crate) fn volume_minute(&self, idx: usize) -> i64 {
         self.views[idx]
             .volume

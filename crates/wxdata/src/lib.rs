@@ -130,6 +130,7 @@ pub mod vtec;
 pub mod wasm_worker;
 pub mod webcams;
 pub mod wfigs;
+pub mod wind_turbines;
 pub mod wssi;
 pub mod xsection;
 pub mod zip;

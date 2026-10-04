@@ -69,7 +69,10 @@ which pipeline made the verdict and when the sweeps behind it were scanned. It
 alerts when a marker reaches *likely* or higher; *possible* is drawn but stays
 quiet. *Possible* also marks strong rotation that has no debris yet, which finds
 more of the weak tornadoes ordinary severe days bring; set the bar, or turn it
-off, in Layer options → Detectors. It does not run on TDWR sites.
+off, in Layer options → Detectors. Wind turbines make rotation-like clutter, so
+a *possible* marker within 2 km of a turbine that stood in the scan's year is
+not drawn (turbine locations from the USGS U.S. Wind Turbine Database); *likely*
+and stronger still are. It does not run on TDWR sites.
 
 ## Project a storm's motion
 

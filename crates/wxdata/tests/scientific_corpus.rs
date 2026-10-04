@@ -855,14 +855,17 @@ fn cached_mayfield_is_one_tornado_marker() {
     let debris = wxdata::tds::detect_volume(&cc_pairs, 0.80, 40.0, 150.0, 4);
     let analysed = wxdata::llsd_analyst::analyse(tracked, &debris, &[]);
     let tornado = (-88.636, 36.742);
-    let verdicts =
-        wxdata::llsd_analyst::identify_with(&analysed, |_, _| Default::default(), Some(0.018));
+    let verdicts = wxdata::llsd_analyst::identify_with(
+        &analysed,
+        |_, _| Default::default(),
+        wxdata::llsd_analyst::VerdictOptions::bar(Some(0.018)),
+    );
     let circs = wxdata::llsd_analyst::circulations_with(
         &analysed,
         &[],
         &[],
         |_, _| Default::default(),
-        Some(0.018),
+        wxdata::llsd_analyst::VerdictOptions::bar(Some(0.018)),
     );
     let near = |lon: f64, lat: f64| ground_km((lon, lat), tornado) <= 15.0;
     let before = verdicts.iter().filter(|t| near(t.lon, t.lat)).count();
