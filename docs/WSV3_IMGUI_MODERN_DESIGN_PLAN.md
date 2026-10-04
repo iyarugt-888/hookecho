@@ -1053,3 +1053,32 @@ a network round-trip measurement for the app bar; a natural-language
 - A dock's contents draw in a child its panel does not grow around (`dock::contained`): egui
   re-sizes a right panel from its screen edge when its content overflows, so the 3D view's
   representation row had been narrowing the right dock and sliding the map under it.
+- The 3D view's body is a property panel (`app::view3d_state::map_3d_controls_body`), the erhe
+  look of reference B. Mode is one full-width segmented row, `Observed | Volume | User`, because
+  at most three of the eight representations can be chosen at once: Volume is the pane's own
+  moment's volume and names it on the status line under the row ("Smooth reflectivity", "Debris
+  (low CC)"); a segment that cannot be chosen is greyed with what brings it. The eight chips this
+  replaces wrapped a docked column until "User" stood one letter per line. Under the status line
+  (a dot: current, building, waiting, no result with Retry) the controls fold into **Camera**
+  (pitch, bearing with face-north, vertical), **Volume** (opacity, then beam rise, denoise or CC
+  anomaly and the tilt layers for Observed; product, denoise, ceiling, quality and full range for
+  a volume), **Opacity curve** (curve and presets, folded), **Isosurface**, **Overlays** (short
+  labels in two columns, analyses left and geometry right, each full description on hover) and
+  **Slice** (folded). Each section's header carries its state ("72° · −76°", "50 dBZ", "3 on").
+- New components for it (`ui/workstation.rs`): `prop_row`, `prop_slider` and `prop_toggle` (a
+  fixed 88 pt label column; sliders sized so the typeable value box closes every row at the same
+  x; a toggle's control greyed rather than hidden while off), `segmented_full` (per-segment
+  enabled and hover, stretched to the row), `glyph_button`, `note` (a wrapped hint) and
+  `Tokens::from_visuals`, which lets the floating "3D map" window of the other layouts draw the
+  same body in its own theme's colours.
+  Each property row lays out in a child clipped to the column and takes only the column's
+  width (`prop_container`): egui grows a layout's room to fit an over-wide row, so one value
+  wider than its box had widened every row after it.
+- The 3D view window scrolls vertically only. Its horizontal scroll had let one over-wide row
+  slide the panel sideways on a tablet, clipping the start of every line.
+- The panel itself is a free function over the pane's view and the settings
+  (`view3d_state::map_3d_panel`, its build state passed in as `Panel3dInputs`); the app keeps the
+  retry and the preset save. That lets `gpu_map_3d_panel_snapshots` (ignored; needs a GPU) draw
+  the real panel for Observed, Volume and Debris at 300 pt and at the floating window's 240 pt
+  minimum into `target/parity-review/map-3d-panel`. Checked by those captures: every row ends
+  inside the column at both widths.

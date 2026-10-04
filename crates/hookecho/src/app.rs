@@ -8149,22 +8149,6 @@ fn model_diff_upload(
     )
 }
 
-/// Interpolate a 256-entry RGBA LUT from `(t, [r,g,b])` stops; index 0 is always transparent.
-/// One `min..max` pair of sliders for an axis of the map-embedded 3D volume's slab, mirroring the
-/// standalone "3D Reflectivity" window's `axis_slice`, which lives in a different module (a
-/// per-pane `egui::Area`, not that window's own `egui::Window`) and so isn't reused directly.
-fn map_3d_axis_slice(ui: &mut egui::Ui, label: &str, lo: &mut f32, hi: &mut f32) {
-    ui.horizontal(|ui| {
-        ui.label(label);
-        ui.add(egui::Slider::new(lo, 0.0..=1.0).show_value(false));
-        ui.add(egui::Slider::new(hi, 0.0..=1.0).show_value(false));
-    });
-    // Keep the pair ordered so an inverted drag empties the view instead of inverting the slab.
-    if *lo > *hi {
-        std::mem::swap(lo, hi);
-    }
-}
-
 /// Pack `radar_observed.wgsl`'s `Radar3d` uniform: eleven fixed scalars, the four CC-anomaly
 /// slots, the highlighted-elevation slots, and one trailing pad float. Some downlevel backends
 /// (mobile GLES via ANGLE) reject a uniform binding whose declared type isn't a multiple of 16
@@ -8184,64 +8168,7 @@ pub(crate) fn observed_uniform(
     uniform
 }
 
-/// The CC-anomaly row, shared by the Observed (correlation coefficient) and Debris 3D modes so
-/// the two cannot drift into describing the same thing differently.
-///
-/// The thresholds are all user-set on purpose. The defaults are a reasonable starting point for
-/// a warm-season CONUS debris hunt and nothing more — CC backgrounds move with the radar, the
-/// beam's distance, the precipitation type and the season, so anything presented here as a fixed
-/// meteorological constant would be wrong somewhere.
-fn map_3d_cc_anomaly_controls(ui: &mut egui::Ui, a: &mut crate::view::CcAnomaly) {
-    ui.horizontal(|ui| {
-        ui.checkbox(&mut a.enabled, "CC anomaly").on_hover_text(
-            "Fade ordinary high-CC precipitation toward transparent and make low CC \
-             progressively more solid, so lofted debris, clutter and other non-meteorological \
-             returns stand out of the storm around them. The opposite of a denoise floor, which \
-             for CC would hide exactly those.",
-        );
-        if !a.enabled {
-            return;
-        }
-        if ui
-            .small_button("Reset")
-            .on_hover_text("Back to 0.97 / 0.80")
-            .clicked()
-        {
-            *a = crate::view::CcAnomaly::default();
-        }
-    });
-    if !a.enabled {
-        return;
-    }
-    ui.add(
-        egui::Slider::new(&mut a.clear_cc, 0.80..=1.0)
-            .text("Clear above")
-            .custom_formatter(|v, _| format!("{v:.3}")),
-    )
-    .on_hover_text("CC at or above this draws faintest — the background scatter edge");
-    ui.add(
-        egui::Slider::new(&mut a.opaque_cc, 0.0..=0.99)
-            .text("Solid below")
-            .custom_formatter(|v, _| format!("{v:.3}")),
-    )
-    .on_hover_text("CC at or below this draws at full strength");
-    ui.add(
-        egui::Slider::new(&mut a.faintest, 0.0..=0.5)
-            .text("Faintest")
-            .custom_formatter(|v, _| format!("{v:.2}")),
-    )
-    .on_hover_text(
-        "How visible the background stays. Zero removes it entirely; a little left keeps the \
-         storm as context around the anomaly.",
-    );
-    // Ordering here rather than clamping each slider against the other: mutually-constrained
-    // sliders feel stuck, and `cc_anomaly_uniform` already orders the pair before it builds the
-    // ramp, so a crossed pair is only ever a display question.
-    if a.opaque_cc > a.clear_cc {
-        std::mem::swap(&mut a.opaque_cc, &mut a.clear_cc);
-    }
-}
-
+/// Interpolate a 256-entry RGBA LUT from `(t, [r,g,b])` stops; index 0 is always transparent.
 pub(crate) fn ramp_lut(stops: &[(f32, [u8; 3])]) -> Vec<u8> {
     ramp_lut_a(stops, 255)
 }

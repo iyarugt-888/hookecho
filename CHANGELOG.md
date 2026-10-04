@@ -8,6 +8,15 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Changed: the 3D view controls are a compact property panel
+
+The 3D view window (and the floating "3D map" window) groups its controls into folding
+**Camera**, **Volume**, **Opacity curve**, **Isosurface**, **Overlays** and **Slice** sections of
+aligned label-and-control rows. The eight representation chips are now `Observed | Volume |
+User`: Volume is always the volume of the product on the map, named on a status line that also
+says whether the 3D frame is current, building or failed. On a tablet the panel no longer
+scrolls sideways and cuts off the start of each line.
+
 ### Fixed: pass history cannot bridge discontinuous backfill
 
 Missing direct-source backfill chunks and relay sequence jumps, duplicates or reversals no

@@ -5,7 +5,10 @@
 //! Dark only, like the dock before it, but the accent is the theme's (with the user's accent
 //! override folded in by `theme::accent`), so the one "your colour" setting still applies.
 
-use egui::{Color32, CornerRadius, FontId, Frame, Margin, Rect, Response, Sense, Stroke, Vec2};
+use egui::{
+    Color32, CornerRadius, FontId, Frame, InnerResponse, Margin, Rect, Response, Sense, Stroke,
+    Vec2,
+};
 
 /// App bar height.
 pub const APP_BAR_H: f32 = 40.0;
@@ -66,6 +69,29 @@ impl Tokens {
     pub fn accent_soft(&self) -> Color32 {
         let [r, g, b, _] = self.accent.to_array();
         Color32::from_rgba_unmultiplied(r, g, b, 46)
+    }
+
+    /// The same roles read from a host theme's `visuals`, for a panel shared with a layout
+    /// outside the workstation (the floating "3D map" window): the components keep their shape
+    /// and take that theme's colours, light or dark.
+    pub fn from_visuals(v: &egui::Visuals, accent: Color32) -> Tokens {
+        let line = match v.widgets.inactive.bg_stroke.color {
+            c if c.a() == 0 => v.window_stroke.color,
+            c => c,
+        };
+        Tokens {
+            bg: v.extreme_bg_color,
+            panel: v.window_fill,
+            panel_hi: v.faint_bg_color,
+            field: v.extreme_bg_color,
+            field_hi: v.widgets.hovered.weak_bg_fill,
+            line,
+            line_soft: v.widgets.noninteractive.bg_stroke.color,
+            text: v.text_color(),
+            text_dim: v.weak_text_color(),
+            text_faint: v.weak_text_color().gamma_multiply(0.7),
+            ..Tokens::new(accent)
+        }
     }
 }
 
@@ -693,18 +719,56 @@ pub fn rail_button(ui: &mut egui::Ui, t: &Tokens, glyph: &str, on: bool) -> Resp
 /// Joined segment buttons; returns the segment clicked, if any. The selected one is filled with
 /// the accent.
 pub fn segmented(ui: &mut egui::Ui, t: &Tokens, labels: &[&str], selected: usize) -> Option<usize> {
+    let segments: Vec<Segment<'_>> = labels.iter().map(|l| Segment::new(l)).collect();
+    segmented_full(ui, t, &segments, Some(selected), false)
+}
+
+/// One segment of [`segmented_full`].
+#[derive(Debug, Clone, Copy)]
+pub struct Segment<'a> {
+    pub label: &'a str,
+    /// A disabled segment is drawn dimmed and does not click; its `hover` says what brings it.
+    pub enabled: bool,
+    pub hover: &'a str,
+}
+
+impl<'a> Segment<'a> {
+    pub fn new(label: &'a str) -> Self {
+        Segment {
+            label,
+            enabled: true,
+            hover: "",
+        }
+    }
+}
+
+/// [`segmented`] with per-segment enabled state and hover text, optionally stretched across the
+/// row (`fill`), each segment widened in proportion to its label. `selected` may be `None`.
+pub fn segmented_full(
+    ui: &mut egui::Ui,
+    t: &Tokens,
+    segments: &[Segment<'_>],
+    selected: Option<usize>,
+    fill: bool,
+) -> Option<usize> {
     let font = FontId::proportional(12.5);
-    let widths: Vec<f32> = labels
+    let mut widths: Vec<f32> = segments
         .iter()
-        .map(|l| {
+        .map(|s| {
             ui.painter()
-                .layout_no_wrap(l.to_string(), font.clone(), t.text)
+                .layout_no_wrap(s.label.to_string(), font.clone(), t.text)
                 .size()
                 .x
                 + 22.0
         })
         .collect();
+    let natural: f32 = widths.iter().sum();
+    if fill && natural > 0.0 {
+        let k = ui.available_width() / natural;
+        widths.iter_mut().for_each(|w| *w *= k);
+    }
     let total: f32 = widths.iter().sum();
+    let enabled = ui.is_enabled();
     let (rect, _) = ui.allocate_exact_size(egui::vec2(total, CONTROL_H), Sense::hover());
     ui.painter().rect(
         rect,
@@ -715,17 +779,26 @@ pub fn segmented(ui: &mut egui::Ui, t: &Tokens, labels: &[&str], selected: usize
     );
     let mut clicked = None;
     let mut x = rect.left();
-    for (i, (label, w)) in labels.iter().zip(&widths).enumerate() {
+    for (i, (seg, w)) in segments.iter().zip(&widths).enumerate() {
         let r = Rect::from_min_size(egui::pos2(x, rect.top()), egui::vec2(*w, rect.height()));
         x += w;
-        let resp = ui.interact(r, ui.id().with(("seg", i, *label)), Sense::click());
-        let on = i == selected;
+        let live = enabled && seg.enabled;
+        let mut resp = ui.interact(
+            r,
+            ui.id().with(("seg", i, seg.label)),
+            if live { Sense::click() } else { Sense::hover() },
+        );
+        let on = selected == Some(i);
+        resp.widget_info(|| {
+            egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, live, on, seg.label)
+        });
         if on {
             ui.painter().rect_filled(r.shrink(1.0), 3.0, t.accent);
-        } else if resp.hovered() {
+        } else if live && resp.hovered() {
             ui.painter().rect_filled(r.shrink(1.0), 3.0, t.field_hi);
         }
-        if i > 0 && !on && i != selected + 1 {
+        let after_selected = selected.is_some_and(|s| i == s + 1);
+        if i > 0 && !on && !after_selected {
             ui.painter().line_segment(
                 [
                     r.left_top() + egui::vec2(0.0, 5.0),
@@ -737,10 +810,19 @@ pub fn segmented(ui: &mut egui::Ui, t: &Tokens, labels: &[&str], selected: usize
         ui.painter().text(
             r.center(),
             egui::Align2::CENTER_CENTER,
-            *label,
+            seg.label,
             font.clone(),
-            if on { Color32::WHITE } else { t.text },
+            if on {
+                Color32::WHITE
+            } else if live {
+                t.text
+            } else {
+                t.text_faint
+            },
         );
+        if !seg.hover.is_empty() {
+            resp = resp.on_hover_text(seg.hover);
+        }
         if resp.clicked() {
             clicked = Some(i);
         }
@@ -750,23 +832,50 @@ pub fn segmented(ui: &mut egui::Ui, t: &Tokens, labels: &[&str], selected: usize
 
 /// A compact checkbox: an accent-filled box with a tick when on, then the label.
 pub fn check(ui: &mut egui::Ui, t: &Tokens, on: &mut bool, label: &str) -> Response {
+    check_sized(ui, t, on, label, None)
+}
+
+/// [`check`] in a box `width` wide (the label column of a [`prop_toggle`]), or as wide as its
+/// label. Dimmed, and inert, inside a disabled `ui`.
+fn check_sized(
+    ui: &mut egui::Ui,
+    t: &Tokens,
+    on: &mut bool,
+    label: &str,
+    width: Option<f32>,
+) -> Response {
     let font = FontId::proportional(12.5);
     let galley = ui
         .painter()
         .layout_no_wrap(label.to_string(), font.clone(), t.text);
-    let size = egui::vec2(galley.size().x + 24.0, CONTROL_H);
+    let size = egui::vec2(width.unwrap_or(galley.size().x + 24.0), CONTROL_H);
     let (rect, mut resp) = ui.allocate_exact_size(size, Sense::click());
+    let enabled = ui.is_enabled();
     if resp.clicked() {
         *on = !*on;
         resp.mark_changed();
     }
+    let checked = *on;
+    resp.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Checkbox, enabled, checked, label)
+    });
+    let hot = enabled && resp.hovered();
     let bx = Rect::from_center_size(
         egui::pos2(rect.left() + 7.0, rect.center().y),
         egui::vec2(14.0, 14.0),
     );
-    if *on {
-        ui.painter().rect_filled(bx, 3.0, t.accent);
-        ui.painter().text(
+    let p = ui.painter_at(rect);
+    if checked {
+        p.rect_filled(
+            bx,
+            3.0,
+            if enabled {
+                t.accent
+            } else {
+                t.accent.gamma_multiply(0.45)
+            },
+        );
+        p.text(
             bx.center(),
             egui::Align2::CENTER_CENTER,
             egui_phosphor::regular::CHECK,
@@ -774,26 +883,172 @@ pub fn check(ui: &mut egui::Ui, t: &Tokens, on: &mut bool, label: &str) -> Respo
             Color32::WHITE,
         );
     } else {
-        ui.painter().rect(
+        p.rect(
             bx,
             3.0,
             t.field,
-            Stroke::new(1.0, if resp.hovered() { t.accent } else { t.line }),
+            Stroke::new(1.0, if hot { t.accent } else { t.line }),
             egui::StrokeKind::Inside,
         );
     }
-    ui.painter().text(
+    p.text(
         egui::pos2(bx.right() + 7.0, rect.center().y),
         egui::Align2::LEFT_CENTER,
         label,
         font,
-        if resp.hovered() {
+        if !enabled {
+            t.text_faint
+        } else if hot {
             Color32::WHITE
         } else {
             t.text
         },
     );
     resp
+}
+
+/// The label column of a property row ([`prop_row`]): wide enough for "North–south" or a box and "Anomaly".
+pub const PROP_LABEL_W: f32 = 88.0;
+/// The value box closing a [`prop_slider`] row, the same width on every row so they line up.
+pub const PROP_VALUE_W: f32 = 60.0;
+
+/// Lay a property row out in a child exactly as wide as the column, clipped to it, and take only
+/// that width from `ui`. A value that comes out wider than its box ("43.4 dBZ") is cut at the
+/// column's edge instead of widening it: egui grows a layout's room to fit an over-wide row, so
+/// one such row had widened every row after it.
+fn prop_container<R>(
+    ui: &mut egui::Ui,
+    add: impl FnOnce(&mut egui::Ui) -> R,
+) -> egui::InnerResponse<R> {
+    let room = Rect::from_min_size(ui.cursor().min, egui::vec2(ui.available_width(), CONTROL_H));
+    let mut child = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(room)
+            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+    );
+    let clip = ui.clip_rect();
+    child.set_clip_rect(Rect::from_x_y_ranges(
+        room.x_range().intersection(clip.x_range()),
+        clip.y_range(),
+    ));
+    let inner = add(&mut child);
+    let used = Rect::from_min_size(
+        room.min,
+        egui::vec2(room.width(), child.min_rect().height().max(CONTROL_H)),
+    );
+    InnerResponse::new(inner, ui.allocate_rect(used, Sense::hover()))
+}
+
+/// A property row in the Dear ImGui editor manner: the label dim in a fixed column, the control
+/// filling the rest, so a panel of rows reads as two aligned columns.
+pub fn prop_row<R>(
+    ui: &mut egui::Ui,
+    t: &Tokens,
+    label: &str,
+    add: impl FnOnce(&mut egui::Ui) -> R,
+) -> egui::InnerResponse<R> {
+    prop_container(ui, |ui| {
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(PROP_LABEL_W, CONTROL_H), Sense::hover());
+        let color = if ui.is_enabled() {
+            t.text_dim
+        } else {
+            t.text_faint
+        };
+        ui.painter_at(rect).text(
+            rect.left_center(),
+            egui::Align2::LEFT_CENTER,
+            label,
+            FontId::proportional(12.0),
+            color,
+        );
+        ui.spacing_mut().interact_size.x = PROP_VALUE_W;
+        add(ui)
+    })
+}
+
+/// The slider width that leaves `trailing` points, and the value box, at the end of the row.
+pub fn prop_slider_width(ui: &egui::Ui, trailing: f32) -> f32 {
+    let gap = ui.spacing().item_spacing.x;
+    (ui.available_width() - PROP_VALUE_W - gap - trailing).max(20.0)
+}
+
+/// A slider in a [`prop_row`]: the track fills the row and the typeable value box closes it.
+/// Give the slider no `.text()`; the row's label is its name.
+pub fn prop_slider(
+    ui: &mut egui::Ui,
+    t: &Tokens,
+    label: &str,
+    slider: egui::Slider<'_>,
+) -> Response {
+    prop_row(ui, t, label, |ui| {
+        ui.spacing_mut().slider_width = prop_slider_width(ui, 0.0);
+        ui.add(slider)
+    })
+    .inner
+}
+
+/// A property row whose label is a checkbox: the control beside it is dimmed and inert while it
+/// is off, rather than hidden, so the panel does not jump when it is ticked. Returns the
+/// checkbox's response.
+pub fn prop_toggle(
+    ui: &mut egui::Ui,
+    t: &Tokens,
+    on: &mut bool,
+    label: &str,
+    add: impl FnOnce(&mut egui::Ui),
+) -> Response {
+    prop_container(ui, |ui| {
+        let resp = check_sized(ui, t, on, label, Some(PROP_LABEL_W));
+        let live = *on;
+        ui.add_enabled_ui(live, |ui| {
+            ui.spacing_mut().interact_size.x = PROP_VALUE_W;
+            add(ui)
+        });
+        resp
+    })
+    .inner
+}
+
+/// A small square glyph button for the end of a property row (reset, face north).
+pub fn glyph_button(ui: &mut egui::Ui, t: &Tokens, glyph: &str, label: &str) -> Response {
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(CONTROL_H, CONTROL_H), Sense::click());
+    let enabled = ui.is_enabled();
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, label));
+    let hot = enabled && resp.hovered();
+    ui.painter().rect(
+        rect,
+        4.0,
+        if hot { t.field_hi } else { t.field },
+        Stroke::new(
+            1.0,
+            if hot {
+                t.accent.gamma_multiply(0.6)
+            } else {
+                t.line
+            },
+        ),
+        egui::StrokeKind::Inside,
+    );
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        glyph,
+        FontId::proportional(13.0),
+        if !enabled {
+            t.text_faint
+        } else if hot {
+            Color32::WHITE
+        } else {
+            t.text
+        },
+    );
+    resp
+}
+
+/// A hint or status line in a panel: small, dim, and wrapped to the column rather than widening
+/// it.
+pub fn note(ui: &mut egui::Ui, t: &Tokens, s: impl Into<String>) -> Response {
+    ui.add(egui::Label::new(text(s, 11.5, t.text_dim)).wrap())
 }
 
 /// A flat fraction slider for a dense row: a 3 px track filled with the accent up to `value`, and
@@ -1713,6 +1968,90 @@ mod tests {
             v, 0.05,
             "an invisible layer is a removed one, not a faded one"
         );
+    }
+
+    /// Property rows fill a narrow column without running past it: the 3D view's rows had pushed
+    /// its docked column into scrolling sideways.
+    #[test]
+    fn property_rows_stay_inside_their_column() {
+        let ctx = egui::Context::default();
+        let column = Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(240.0, 600.0));
+        let mut widest = 0.0_f32;
+        let mut v = 0.72_f32;
+        let mut on = false;
+        let _ = ctx.run_ui(egui::RawInput::default(), |root| {
+            let t = t();
+            let mut ui = root.new_child(egui::UiBuilder::new().max_rect(column));
+            style_scope(&mut ui, &t);
+            let rows = [
+                prop_slider(&mut ui, &t, "Opacity", egui::Slider::new(&mut v, 0.1..=1.0)).rect,
+                prop_toggle(&mut ui, &t, &mut on, "CC anomaly", |ui| {
+                    ui.spacing_mut().slider_width = prop_slider_width(ui, 0.0);
+                    ui.add(egui::Slider::new(&mut v, 0.0..=1.0));
+                })
+                .rect,
+            ];
+            segmented_full(
+                &mut ui,
+                &t,
+                &[
+                    Segment::new("Observed"),
+                    Segment::new("Volume"),
+                    Segment::new("User"),
+                ],
+                Some(0),
+                true,
+            );
+            widest = rows
+                .iter()
+                .map(|r| r.right())
+                .fold(ui.min_rect().right(), f32::max);
+        });
+        assert!(
+            widest <= column.right() + 0.5,
+            "{widest} > {}",
+            column.right()
+        );
+    }
+
+    #[test]
+    fn a_disabled_segment_does_not_click() {
+        let ctx = egui::Context::default();
+        let segs = [
+            Segment::new("Observed"),
+            Segment {
+                label: "Volume",
+                enabled: false,
+                hover: "",
+            },
+        ];
+        let at = egui::pos2(175.0, 16.0);
+        let mut got = Vec::new();
+        for events in [
+            vec![egui::Event::PointerMoved(at)],
+            vec![egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: Default::default(),
+            }],
+            vec![egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: Default::default(),
+            }],
+        ] {
+            let input = egui::RawInput {
+                events,
+                ..Default::default()
+            };
+            let _ = ctx.run_ui(input, |ui| {
+                ui.set_width(200.0);
+                got.push(segmented_full(ui, &t(), &segs, Some(0), true));
+            });
+        }
+        assert_eq!(got, [None, None, None], "the greyed half clicked");
     }
 
     #[test]
