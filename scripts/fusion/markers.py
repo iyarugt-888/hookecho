@@ -26,6 +26,9 @@ def load(dirs):
     rows, hours, truths = collections.defaultdict(list), 0.0, set()
     for d in dirs:
         summary = json.load(open(os.path.join(d, "summary.json"), encoding="utf-8"))
+        if "tornado_marker" not in summary["detectors"]:
+            sys.exit(f"{d}: no tornado_marker detector in this export; it predates them, rerun the "
+                     "backtest")
         hours += summary["detectors"]["tornado_fusion"]["radar_hours"]
         for event, ids in summary["tornado_truth_minutes"].items():
             truths |= {(event, i) for i in ids}
@@ -79,8 +82,6 @@ def main():
         sys.exit(__doc__)
     rows, hours, truths = load(dirs)
     marks = rows["tornado_marker"]
-    if not marks and rows["tornado_fusion"]:
-        sys.exit("no tornado_marker rows: this export predates them; rerun the backtest")
     print(f"{', '.join(dirs)}: {hours:.1f} radar-hours, {len(truths)} tornado truths")
     rates("markers", marks, hours, truths, lambda r: r["tier"] != "Tornado possible")
     rates("original", rows["tornado_id"], hours, truths, lambda r: float(r["final_score"]) >= 0.6)

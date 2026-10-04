@@ -263,6 +263,29 @@ fn in_core(c: &crate::rotation_columns::RotationColumn) -> bool {
     c.echo.is_some_and(|e| e.length_km >= MIN_CORE_LENGTH_KM)
 }
 
+/// Near-ground flow (m/s) at or above which a shallow column with no debris beside it is not a
+/// tornado the radar is resolving but velocity dealiasing gone wrong, typically around fixed
+/// clutter.
+pub const IMPLAUSIBLE_FLOW_MS: f32 = 60.0;
+/// Shallower than this (km), with implausible flow and no debris, a column is that artifact.
+pub const IMPLAUSIBLE_FLOW_DEPTH_KM: f32 = 0.5;
+
+/// Whether a column's near-ground flow ([`crate::near_flow`] within 5 km of its base) is
+/// implausible: a strongest inbound or a rotational velocity of [`IMPLAUSIBLE_FLOW_MS`] or more,
+/// with no debris signature beside it, in a column under [`IMPLAUSIBLE_FLOW_DEPTH_KM`] deep. On the
+/// quiet days of 2024 the radar at Davenport (KDVN) showed Likely markers 16-19 km out on a fixed
+/// spot two months apart, with up to 123 m/s inbound and 52-89 m/s rotation, 0-0.3 km deep, no
+/// severe weather anywhere near. Verified markers run 18 / 29 / 47 m/s inbound (p10 / median /
+/// p90) and a median 1.2 km deep. The rule removed 11 false markers (4 on 259 random windows, 1
+/// on the 65-event corpus, all 6 on the quiet days) and no verified one. A deep violent vortex
+/// with no debris yet still reads as a tornado (`detection_regressions`), as does any with debris.
+fn implausible_flow(f: &crate::tornado_fusion::Features) -> bool {
+    let limit = IMPLAUSIBLE_FLOW_MS / 10.0;
+    f.debris == 0.0
+        && f.depth_km < IMPLAUSIBLE_FLOW_DEPTH_KM
+        && (f.near_inbound_10ms >= limit || f.near_vrot_10ms >= limit)
+}
+
 /// The shortest echo object that counts as a core (km): above a single gate's floating-point
 /// length, below any two gates'.
 const MIN_CORE_LENGTH_KM: f32 = 0.1;
@@ -331,7 +354,7 @@ impl Analysed {
         // (detectionplan.md). Confirmation does not stand in for radar evidence: at Mayfield a
         // report in town, still within its 30 minutes, made a 13/100 column there a Confirmed
         // marker (and an alert) after the tornado was 25 km on.
-        if !in_core(c) || (score < MIN_SCORE && !lifted) {
+        if !in_core(c) || (score < MIN_SCORE && !lifted) || implausible_flow(&self.features) {
             return None;
         }
         let tier = if confirmation.level().is_some() {
@@ -874,6 +897,27 @@ mod tests {
             report: None,
         };
         assert!(identify(&alone, warned).is_empty());
+    }
+
+    #[test]
+    fn implausible_near_ground_flow_without_debris_is_no_verdict() {
+        // A shallow column in a core with 80 m/s inbound at the ground and no debris: a
+        // dealiasing failure around clutter, not a tornado.
+        let mut t = tracked(3);
+        assert!(t.column.depth_km < IMPLAUSIBLE_FLOW_DEPTH_KM);
+        t.column.near_flow = Some(crate::near_flow::NearFlow {
+            p90_speed_ms: 30.0,
+            max_inbound_ms: 80.0,
+            max_outbound_ms: 20.0,
+            gates: 120,
+        });
+        let none = Confirmation::default();
+        assert!(identify(&analyse(vec![t.clone()], &[], &[]), |_, _| none).is_empty());
+        // With debris beside it, or deep, it is read as the violent tornado it may be.
+        let with = analyse(vec![t.clone()], &[debris_ball(0.5, 0.5)], &[]);
+        assert!(!identify(&with, |_, _| none).is_empty());
+        t.column.depth_km = 2.0;
+        assert!(!identify(&analyse(vec![t], &[], &[]), |_, _| none).is_empty());
     }
 
     #[test]

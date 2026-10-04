@@ -2,6 +2,7 @@
 Phase 14: calibration needs a corpus whose base rate means something).
 
     python scripts/fusion/sample_days.py YEAR N SEED > docs/backtest-sample-YEAR.txt
+    python scripts/fusion/sample_days.py YEAR N SEED quiet > docs/backtest-quiet-YEAR.txt
 
 Every hand-picked corpus event so far was chosen as a tornado case or a hard negative, which fixes
 the base rate by design. Here a radar-day qualifies if any severe report (tornado, hail, wind)
@@ -9,6 +10,11 @@ falls within 150 km of the radar between March and August; N of them are drawn a
 and each window starts 20 minutes before one of that day's reports, also drawn at random. The
 sample is what an operator watching a random severe day would see, tornadoes or not.
 Radar-days already in docs/backtest-events.txt are left out.
+
+`quiet` draws the opposite: radar-days with no severe report within 150 km, each window starting at
+a random minute of the radar day. Every Tornado detection marker there is a false alarm, so it
+measures what clutter, anomalous propagation, birds and ordinary showers cost on the days that
+make up most of the year.
 """
 
 import datetime as dt
@@ -66,6 +72,7 @@ def month(year, m):
 
 def main():
     year, n, seed = int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3])
+    quiet = sys.argv[4:] == ["quiet"]
     used = set()
     for line in open("docs/backtest-events.txt", encoding="utf-8"):
         m = re.match(r"^(K[A-Z]{3}) (\d{4}-\d\d-\d\d \d\d:\d\d)", line)
@@ -82,6 +89,21 @@ def main():
                     # A radar day runs 12Z to 12Z, so an evening's storms stay on one day.
                     day = (t - dt.timedelta(hours=12)).strftime("%Y-%m-%d")
                     days.setdefault((site, day), []).append(t)
+    if quiet:
+        # Every radar-day of the season with no severe report within 150 km.
+        start, end = dt.date(year, 3, 1), dt.date(year, 9, 1)
+        every = {(site, (start + dt.timedelta(days=i)).strftime("%Y-%m-%d"))
+                 for site in RADARS for i in range((end - start).days)}
+        pool = sorted(k for k in every if k not in days and k not in used)
+        rng = random.Random(seed)
+        picks = rng.sample(pool, n)
+        print(f"# Quiet radar windows (no severe report within 150 km that radar day), {year} "
+              f"March-August, seed {seed} ({n} of {len(pool)} quiet radar-days):")
+        print(f"#   python scripts/fusion/sample_days.py {year} {n} {seed} quiet")
+        for site, day in sorted(picks):
+            t = dt.datetime.strptime(day, "%Y-%m-%d") + dt.timedelta(hours=12, minutes=rng.randrange(1440))
+            print(f"{site} {t:%Y-%m-%d %H:%M}   # quiet radar-day")
+        return
     pool = sorted(k for k in days if k not in used)
     rng = random.Random(seed)
     picks = rng.sample(pool, n)

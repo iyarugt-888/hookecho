@@ -146,7 +146,9 @@ pipeline makes the verdicts; the original stands in while it computes. *Possible
 strong low-level rotation without debris, 40 km or more from the radar (bar in Layer options →
 Detectors, 0.018 s⁻¹ by default, or off). Every marker needs a storm core (≥ 40 dBZ within 5 km),
 and a *possible* marker within 2 km of a wind turbine that stood in the scan's year is not drawn
-(USGS U.S. Wind Turbine Database). A tornado report or an observed warning raises a marker to
+(USGS U.S. Wind Turbine Database). Nor is shallow rotation with no debris and near-ground winds of
+60 m/s or more, which is velocity unfolding failing around ground clutter; on the quiet days of
+2024 that was every false marker. A tornado report or an observed warning raises a marker to
 *confirmed* but no longer makes one from weak shear near the report. It does not run on TDWR
 sites. On 259 random severe-weather windows (2018–2025, three of the years held out from all
 tuning) it found 38% of the tornadoes at 0.6 false *possible* markers per radar-hour and 0.03 at
