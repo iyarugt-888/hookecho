@@ -199,7 +199,7 @@ impl Analysed {
     /// whatever its evidence score. Its score is unchanged and its first reason says why it is
     /// shown.
     ///
-    /// Off by default. Rotation-only tornadoes with strong low-level shear (0.017-0.028 s⁻¹ on the
+    /// `None` here is off; the app starts at 0.018. Rotation-only tornadoes with strong low-level shear (0.017-0.028 s⁻¹ on the
     /// random 2022-2024 sample) fuse at 0.22-0.25, under Possible, because debris carries most of
     /// the weight. Lifting them at 0.018 s⁻¹ found 59 more tornado reports and paths on the
     /// 65-event corpus for 221 more false detections, and on the random sample brought the fused
@@ -241,7 +241,7 @@ impl Analysed {
         if lifted {
             reasons.push(format!(
                 "Shown for strong low-level rotation without debris ({:.3} s\u{207b}\u{b9}, \
-                 at or above the {:.3} s\u{207b}\u{b9} you set); its evidence score alone is \
+                 at or above the {:.3} s\u{207b}\u{b9} bar); its evidence score alone is \
                  under Possible",
                 c.low_level_azshear.unwrap_or(0.0),
                 rotation_only_possible.unwrap_or(0.0)

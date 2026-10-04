@@ -903,12 +903,12 @@ pub struct DetectorTuning {
     /// rotation and debris layers, and their alerts, are the same either way.
     #[serde(default)]
     pub tornado_id_source: TornadoIdSource,
-    /// Opt-in: the fused Tornado ID shows a rooted, cyclonic column with no debris beside it as
-    /// Possible once its 0-2 km shear is at least this (s⁻¹), though its evidence score is under
-    /// Possible (`llsd_analyst::Analysed::tornado_id_with`). Off (`None`) by default: it finds
-    /// rotation-only tornadoes the fusion scores low, at the cost of many more false alarms
-    /// (detectionplan.md, the random-sample decision).
-    #[serde(default)]
+    /// The fused Tornado ID shows a rooted, cyclonic column with no debris beside it as Possible
+    /// once its 0-2 km shear is at least this (s⁻¹), though its evidence score is under Possible
+    /// (`llsd_analyst::Analysed::tornado_id_with`); `None` is off. Starts at 0.018
+    /// ([`DEFAULT_ROTATION_ONLY_POSSIBLE`]). A file without the key gets that default; one that
+    /// says `null` keeps it off.
+    #[serde(default = "default_rotation_only_possible")]
     pub rotation_only_possible: Option<f32>,
 }
 
@@ -924,6 +924,17 @@ pub enum TornadoIdSource {
     Fusion,
     /// The original: legacy couplets and debris signatures (`wxdata::tornado_id`).
     Legacy,
+}
+
+/// Where Tornado detection's rotation-only Possible bar starts (s⁻¹). On a random sample of 139
+/// ordinary severe-weather windows (2019 and 2021-2024) the fused Possible tier found 9% of the
+/// tornadoes at 1.41 false markers per radar-hour without it, and 33% at 2.95 with it. The
+/// original Tornado ID found 16% at 3.51. Possible raises no alert. The maintainer chose it over
+/// 0.020 (19% at 2.20) and leaving it off (detectionplan.md).
+pub const DEFAULT_ROTATION_ONLY_POSSIBLE: f32 = 0.018;
+
+fn default_rotation_only_possible() -> Option<f32> {
+    Some(DEFAULT_ROTATION_ONLY_POSSIBLE)
 }
 
 /// The debris-signature floor a fresh install starts with. From the archived-event backtest
@@ -958,7 +969,7 @@ impl Default for DetectorTuning {
             floors_adopted: true,
             llsd_preview: false,
             tornado_id_source: TornadoIdSource::Fusion,
-            rotation_only_possible: None,
+            rotation_only_possible: default_rotation_only_possible(),
         }
     }
 }
@@ -2199,6 +2210,23 @@ fn replace_file(from: &std::path::Path, to: &std::path::Path) -> std::io::Result
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rotation_only_possible_starts_on_and_an_explicit_off_stays_off() {
+        assert_eq!(
+            DetectorTuning::default().rotation_only_possible,
+            Some(DEFAULT_ROTATION_ONLY_POSSIBLE)
+        );
+        let mut v = serde_json::to_value(DetectorTuning::default()).unwrap();
+        // A file from before the setting: the new default.
+        v.as_object_mut().unwrap().remove("rotation_only_possible");
+        let t: DetectorTuning = serde_json::from_value(v.clone()).unwrap();
+        assert_eq!(t.rotation_only_possible, Some(0.018));
+        // Someone who turned it off: off.
+        v["rotation_only_possible"] = serde_json::Value::Null;
+        let t: DetectorTuning = serde_json::from_value(v).unwrap();
+        assert_eq!(t.rotation_only_possible, None);
+    }
 
     /// Nothing imported must stay silent — this runs on every launch, and an empty setting is the
     /// ordinary case, not an error worth reporting.

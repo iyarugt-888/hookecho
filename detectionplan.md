@@ -409,6 +409,7 @@ Primary code areas:
     | 0.022 s⁻¹ | 5 (no gain) | 1.89 per hour |
 
     At either 0.018 or 0.020 the fused Possible tier beats the original Tornado ID on both counts on ordinary severe days: more tornadoes for fewer false alarms. On the hand-picked corpus the same bar costs more false alarms than it gains tornadoes, because that corpus is built from tornado days and hard negatives. The opt-in stays off until the maintainer chooses; the random sample is the stronger case for 0.018 or 0.020.
+  - **Decision: on by default at 0.018 s⁻¹** (the maintainer chose it over 0.020 and off). `DEFAULT_ROTATION_ONLY_POSSIBLE`; a settings file without the key gets it, and an explicit `null` stays off. Possible raises no alert, so the extra markers add no alarms.
 
 ### Where the detection stands (65 events)
 

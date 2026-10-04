@@ -67,7 +67,9 @@ evidence there is, not a probability. Click or tap a marker to open the web of
 rotation and debris detections behind it, each with its factors. The hover says
 which pipeline made the verdict and when the sweeps behind it were scanned. It
 alerts when a marker reaches *likely* or higher; *possible* is drawn but stays
-quiet. It does not run on TDWR sites.
+quiet. *Possible* also marks strong rotation that has no debris yet, which finds
+more of the weak tornadoes ordinary severe days bring; set the bar, or turn it
+off, in Layer options → Detectors. It does not run on TDWR sites.
 
 ## Project a storm's motion
 

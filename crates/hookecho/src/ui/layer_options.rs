@@ -1300,11 +1300,11 @@ pub(crate) fn tornado_id_controls(
             .response
         .on_hover_text(
             "Shows a rooted, cyclonic circulation with no debris beside it as Tornado possible \
-             once its low-level shear reaches this, though its evidence score is lower. Off by \
-             default. On the archived-event backtest, 0.018 found 59 more tornado reports and \
-             paths for 221 more false alarms; on a random sample of ordinary severe days it \
-             brought false Possible markers to about two per radar-hour, the original Tornado \
-             ID's rate. Markers shown this way turn out real about a fifth of the time.",
+             once its low-level shear reaches this, though its evidence score is lower. Possible \
+             raises no alert. Starts at 0.018: on a random sample of ordinary severe days it \
+             found a third of the tornadoes, against a tenth without it, at about three false \
+             Possible markers per radar-hour, fewer than the original Tornado ID's three and a \
+             half. Markers shown this way turn out real about a fifth of the time.",
         );
     }
     ui.label(
