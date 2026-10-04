@@ -1,0 +1,82 @@
+{
+  "workspace-final": {
+    "command": "cargo test --workspace -- --test-threads=4",
+    "exit_code": 0,
+    "log_sha256": "b0a11331cf846b610b7c768b4587294a5f9052a37c590e3f8049eeb69056e9ea",
+    "log_bytes": 193116,
+    "suites": 28,
+    "passed": 2195,
+    "failed": 0,
+    "ignored": 142
+  },
+  "clippy-final": {
+    "command": "cargo clippy --workspace --all-targets -- -D warnings",
+    "exit_code": 0,
+    "log_sha256": "7bf224a441bdf82c4b7879b618220134cd967e96ea402cd5c21ccca44711eabd",
+    "log_bytes": 204
+  },
+  "wasm-final": {
+    "command": "CARGO_INCREMENTAL=0 RUSTFLAGS=--cfg getrandom_backend=\"wasm_js\" cargo check --target wasm32-unknown-unknown -p hookecho --lib",
+    "exit_code": 0,
+    "log_sha256": "5d2f72368ac81bab9bf8208250e7fd5b9c5dab373075aab91385405f88064ba9",
+    "log_bytes": 3440
+  },
+  "lifecycle_controls_passed": [
+    "app::live_session::tests::active_endpoint_changes_cancel_and_unchanged_normalized_endpoints_do_not_churn",
+    "app::live_session::tests::ended_stream_site_pane_and_configuration_changes_bypass_old_retry_delays",
+    "app::live_session::tests::intentional_pause_and_background_end_resume_without_failure_throttle",
+    "app::live_session::tests::lost_subscription_retries_are_scoped_bounded_and_have_fresh_generations",
+    "app::live_session::tests::original_end_retires_work_without_writing_into_reselected_or_removed_panes",
+    "app::live_session::tests::receiver_recovery_poll_and_restoration_preserve_clocks_and_frozen_receipts",
+    "relay_provider::integration_tests::subscribe_receives_live_update_and_progress_over_a_real_websocket"
+  ],
+  "source_sha256": {
+    "crates/hookecho/src/app.rs": "bd2c1e1e2723c8911c26f20f254f7f10d416394a84eefb05c5ae215a7b081020",
+    "crates/hookecho/src/app/live_session.rs": "1dd121cd0bfbd55b595df9294a50f9fedebf793059d99374e86e51cac7a65b96",
+    "crates/hookecho/src/app/construct.rs": "7701e40851aa59eb6523e22b30e3612dad4ffb3e3a8ff6815a1b98f5cfda5f9a",
+    "crates/hookecho/src/app/data_poll.rs": "34931ebd2c26267dc331a06b349736f4f3fc26bb7c08ac07cd1cf55982db70b9",
+    "crates/hookecho/src/app/radar_feed.rs": "9350535be35b614a21cdf986cb15c492439ce06a9864043ee881362d518de1bb",
+    "crates/hookecho/src/relay_provider.rs": "4907deed63d18f22da3b32acf0476d3f7c43983d57a4e0d73baed36455c76883",
+    "crates/hookecho/src/app/chrome/dock/app_bar.rs": "776a131eb3c17d899ed316f6704976b49f1551b0441da787ba2453b82ef2efe5",
+    "crates/hookecho/src/app/chrome/dock/log.rs": "3836750b1308cb3acbd921704a6c0f4ef330c2abcec1e9cd7f52629e3aa5ac6d",
+    "crates/hookecho/src/app/chrome/dock/phone.rs": "da53a044dc20ae89b9b3bd5cf2f77f3eb9b32fd5431ae5f234be9808895b56a7",
+    "crates/hookecho/src/app/chrome/dock/timeline.rs": "b56568d96b5fcaac087b54675a1e0e992e22dd79b1c7efc8d3b196f7ab40c3c3",
+    "crates/hookecho/src/app/chrome/ribbon.rs": "8baed62ff68264efd4f2d25166494f3b735d16ebf128e56b84c945f2cd7b9fd8",
+    "crates/hookecho/src/app/chrome/scrubber.rs": "3e3c5da190467b7bb37b85255ff1530ede3cbd3112d08fe9850309c78961a9ac",
+    "crates/hookecho/src/live_scan.rs": "c0c9dcbeb268606ae843fc62f32c221fd713ce98bb6c8731df608fb5048d02bb",
+    "crates/hookecho/src/view.rs": "f2272daf5bda5b49aefc03c1847c012019a46ec3f7a70fd3e1a9e5aa2b03a97c",
+    "crates/hookecho/src/radar_provider_manager.rs": "422e48a537de920631698055849f46117370a878e096d4dee59525017d68db5f",
+    "crates/wxdata/src/live.rs": "0706ec7be04a843c5a1d4b55f73509a1f43f6f296c9e785e2654627f65a737b3",
+    "crates/wxdata/src/continuation.rs": "c58a9163c47fcfea12eafcf091829e9734d9a28d97737ffd03df92ccfd597195",
+    "crates/wxdata/src/clock.rs": "546b5a7a8d97c578a526c1b1922442c38bc7da5264fd789b9d369a0e530348c7"
+  },
+  "implementation_baseline": "964e0cdef4456fe69036345d36dbed78146f3a36",
+  "shared_head_at_verification": "964e0cdef4456fe69036345d36dbed78146f3a36",
+  "verified_at_utc": "2026-10-04T15:48:23.072624+00:00",
+  "prior_runs": {
+    "workspace-before-normalization": {
+      "command": "cargo test --workspace",
+      "exit_code": 0,
+      "log_sha256": "36bfd667f6d596908ea7f93c48576b06f298ee627432fdd828741a15bfe4c012",
+      "log_bytes": 193195,
+      "suites": 28,
+      "passed": 2195,
+      "failed": 0,
+      "ignored": 142
+    },
+    "session-tests": {
+      "command": "cargo test -p hookecho --lib app::live_session::tests -- --nocapture",
+      "exit_code": 101,
+      "log_sha256": "bcda10f84b555e2500dd943a4b147dae83dbfb0a9f70075e1e557702739de987",
+      "log_bytes": 11769
+    },
+    "session-tests-initial-verbose": {
+      "command": "cargo test -p hookecho --lib app::live_session::tests --verbose",
+      "exit_code": 101,
+      "log_sha256": "5f4aa56c61d6d17ecc2924fa7eda1525422148a8d692bff0576711ef924fc561",
+      "log_bytes": 35973
+    },
+    "note": "Focused package builds reused old wxdata-7d8298d01a412d16 metadata despite current APIs on disk. The first also caught the obsolete test handle.abort after awaiting it; removed before workspace validation. The current workspace feature set passed before and after monitor endpoint normalization; no native cache removed."
+  },
+  "scope": "Deterministic Windows controller/actual-pane/receiver controls and a local real WebSocket graceful idle cancellation control, plus shared workspace Clippy and WASM compilation. No painter/layout changes. Whole-application, arbiter-driven preferred-tier restoration, failure-domain identity, operational live sessions, platform runtime and performance gates open. Detector edits excluded."
+}

@@ -325,9 +325,7 @@ impl HookEchoApp {
             tour_anchors: Default::default(),
             settings_window: Default::default(),
             palettes: Palettes::default(),
-            live_stream: None,
-            live_gen: Arc::new(std::sync::atomic::AtomicU64::new(0)),
-            last_stream_attempt: None,
+            live_session: Default::default(),
             // DVR: retain a deep buffer of decoded volumes so instant replay serves recent frames
             // from RAM without re-downloading (~30 volumes ≈ 2.5 h at a 5-min cadence).
             // Phones can't hold a 2.5 h DVR buffer of decoded volumes — each is tens of MB and

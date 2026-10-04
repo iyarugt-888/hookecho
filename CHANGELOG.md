@@ -8,6 +8,15 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: live retries follow the selected radar source
+
+Switching radar, pane, provider or the selected relay endpoint now starts the new live source
+without inheriting a failed source's retry delay. Same-source failures retain the bounded retry
+interval. Each reconnect gets a fresh subscription generation, so delayed updates and end events
+cannot clear a replacement's sweep marker or health. Old radar errors cannot enter a newly selected
+radar. Foreground resume refreshes the source monitor, and idle relay sockets release promptly when
+their subscription stops. Source clocks and accepted acquisition receipts remain unchanged.
+
 ### Fixed: scan progress markers cannot rewind ahead of receipt validation
 
 The sweep bar and follow-sweep marker now use the receiver's admitted cut selection. Older

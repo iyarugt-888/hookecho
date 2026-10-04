@@ -51,10 +51,7 @@ impl HookEchoApp {
         let loading = self.views[self.active].loading;
         // Which mechanism is actually feeding the pane: the sweep-by-sweep chunk stream, or the
         // interval poller it falls back to when the stream can't run.
-        let streaming = self
-            .live_stream
-            .as_ref()
-            .is_some_and(|(v, _, _, _)| *v == self.active);
+        let streaming = self.live_session.streaming_for(self.active);
         // Read before `t` below takes its mutable borrow of the same view's `timeline` field.
         let live_progress = self.views[self.active].live_progress;
         let show_live_indicator = self.settings.live_scan_indicator;

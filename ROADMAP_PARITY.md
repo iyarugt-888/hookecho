@@ -525,8 +525,8 @@ completed GPU timing and sustained-load certification remain open. Independent l
 textures per pane remain M5.1.
 
 **Next agent handoff:** establish deterministic provider-loss/polling/preferred-tier restoration
-through the application lifecycle. Inspect the global `last_stream_attempt` gate after a stream ends:
-a subsequent provider/site change with no live handle can inherit the old context's retry delay.
+through the application lifecycle. [M1.3 increment 1](docs/certification/m1.3/live-session.md) closes
+the global retry/context and generation seams identified here, plus idle relay retirement.
 Retain admitted marker/receipt ownership, then inspect `LiveScan::capture_acquisition`, `Volume::apply_live_captured`,
 `wxdata::live_pass`, `wxdata::live_sequence`, direct stream lifecycle and relay merge controls.
 Preserve immutable accepted receipts and plain-moment row writers across every result key.
@@ -571,6 +571,34 @@ recovery errors reach source health/the Analyst log. Local WebSocket and HTTP re
 frame-owned receipts are documented in [source admission](docs/certification/m1.1/source-admission.md).
 This is partial lifecycle evidence. Cross-provider cut continuation, preferred-tier restoration,
 independent failure domains, whole-application transitions and operational/soak gates remain open.
+
+**Increment 1 — 2026-10-04, subscription lifecycle:** live retry scope now includes pane, radar,
+provider and selected relay endpoint. A changed context starts immediately even after End; a
+same-context failure retains the monotonic 60-second interval. Every attempt receives a fresh local
+cancellation generation. End events retire only their owning subscription and update only the
+original radar receiver. Background/pause resumes can refresh without a failure delay. Selected
+endpoint changes retire the old stream, equivalent normalized endpoints avoid churn, and the
+native relay checks cancellation during idle reads without discarding its pending frame future.
+Source clocks, frozen acquisition receipts and detector inputs remain unchanged.
+
+Six controller/actual-receiver controls cover retries, replacement, endpoint changes, intentional
+resume, loss/poll/restoration, late End, and reselected/removed panes. The real local WebSocket
+delivery control now awaits graceful idle cancellation instead of aborting its task. See the
+[lifecycle report](docs/certification/m1.3/live-session.md) and
+[verification manifest](docs/certification/m1.3/live-session/verification.json).
+These are deterministic controls, not whole-application or operational severe-weather certification.
+
+**Increment 1 verification:** final shared-tree Windows checks passed **2,195 workspace tests**,
+zero failures and 142 explicit ignores across 28 suites, workspace/all-target Clippy with warnings
+denied, and the WASM library check with existing browser warnings (wxdata 1, hookecho 10). The
+manifest retains seven lifecycle controls, 18 source hashes, final log hashes, and prior attempt
+results. Native/data caches were preserved. No painter/layout or detector input changed.
+
+**Next agent handoff:** integrate fault scenarios with the existing arbiter/provider manager and
+application lifecycle, proving preferred-tier restoration, retained-data age and downgrade reason.
+Keep M1.3 partial until operational relay/direct-source sessions, actual failure-domain identity,
+cross-provider continuation, sustained load and applicable platform gates have evidence. Keep
+tornado detection with Claude.
 
 
 #### M1.4 — Complete retained provenance and scientific lineage

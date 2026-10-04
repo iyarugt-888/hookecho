@@ -584,10 +584,7 @@ impl HookEchoApp {
     fn phone_controls(&mut self, root: &mut egui::Ui, ctx: &egui::Context) {
         use crate::app::PaletteAction as A;
         let t = self.ws_tokens();
-        let streaming = self
-            .live_stream
-            .as_ref()
-            .is_some_and(|(view, _, _, _)| *view == self.active);
+        let streaming = self.live_session.streaming_for(self.active);
         let (site, moment, srv, tilt, elevations, map_3d, progress) = {
             let v = &self.views[self.active];
             (

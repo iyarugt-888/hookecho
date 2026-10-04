@@ -88,10 +88,7 @@ impl HookEchoApp {
             .iter()
             .map(|id| self.scan_cache.contains(&id.name().to_string()))
             .collect();
-        let streaming = self
-            .live_stream
-            .as_ref()
-            .is_some_and(|(view, _, _, _)| *view == self.active);
+        let streaming = self.live_session.streaming_for(self.active);
         let progress = self.views[self.active].live_progress;
         let indicator = self.settings.live_scan_indicator;
         let status = live_status(progress, streaming, indicator);

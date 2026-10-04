@@ -177,10 +177,7 @@ impl HookEchoApp {
             .map(|v| wxdata::level2::tilt_cuts(&v.scan))
             .unwrap_or_default();
         let show_live_indicator = self.settings.live_scan_indicator;
-        let streaming = self
-            .live_stream
-            .as_ref()
-            .is_some_and(|(v, _, _, _)| *v == self.active);
+        let streaming = self.live_session.streaming_for(self.active);
         let live_progress = self.views[self.active].live_progress;
         let health = self.radar_health();
         let (health_txt, health_col) = ui::layers_panel::health_look(health.state());

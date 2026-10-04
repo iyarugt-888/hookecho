@@ -436,10 +436,7 @@ impl HookEchoApp {
             .as_ref()
             .map(|v| (v.vcp.clone(), wxdata::level2::tilt_cuts(&v.scan)))
             .unwrap_or_default();
-        let streaming = self
-            .live_stream
-            .as_ref()
-            .is_some_and(|(view, _, _, _)| *view == self.active);
+        let streaming = self.live_session.streaming_for(self.active);
         let live_progress = self.views[self.active].live_progress;
         let (site, vcp, moment, srv, tilt, elevations, map_3d, follow_now) = {
             let v = &self.views[self.active];

@@ -138,7 +138,23 @@ impl Level2LiveProvider for HookEchoRelayLevel2Provider {
         let mut sequences: Option<SequenceLedger> = None;
 
         while active() {
-            let Some(msg) = read.next().await else {
+            // A quiet relay must still release a superseded/background subscription. Keep the
+            // read future alive between checks: no reconnects or loss of partially read frames.
+            let next = read.next();
+            tokio::pin!(next);
+            let msg = loop {
+                tokio::select! {
+                    msg = &mut next => break msg,
+                    _ = tokio::time::sleep(std::time::Duration::from_millis(250)) => {
+                        if !active() { return Ok(()); }
+                    }
+                }
+            };
+            // Cancellation may race with a ready frame. Do not decode/deliver it after stop.
+            if !active() {
+                return Ok(());
+            }
+            let Some(msg) = msg else {
                 break; // relay closed the connection
             };
             let received_at = wxdata::clock::Instant::now();
@@ -933,6 +949,12 @@ mod integration_tests {
         assert!(progress.chunk_duration_secs() > 0.0);
 
         active.store(false, std::sync::atomic::Ordering::Relaxed);
-        handle.abort();
+        // The server stays open without another ingest. Cancellation must release an idle read,
+        // not rely on another message to wake it or leave a detached task behind.
+        tokio::time::timeout(std::time::Duration::from_secs(2), handle)
+            .await
+            .expect("idle relay subscription did not stop after cancellation")
+            .expect("relay subscription task panicked")
+            .expect("intentional cancellation reported a transport error");
     }
 }

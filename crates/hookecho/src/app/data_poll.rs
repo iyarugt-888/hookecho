@@ -24,11 +24,7 @@ impl HookEchoApp {
                 continue; // view gone or its site changed since the fetch spawned
             }
             if let DataMsg::Live { gen, .. } | DataMsg::LiveProgress { gen, .. } = &msg {
-                if !self
-                    .live_stream
-                    .as_ref()
-                    .is_some_and(|(v, _, g, _)| *v == idx && g == gen)
-                {
+                if !self.live_session.accepts(idx, *gen) {
                     continue; // a superseded provider must never rewind this pane
                 }
             }

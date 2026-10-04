@@ -55,6 +55,10 @@ these are state/delivery controls, not screenshot or whole-application interacti
 
 ## Next work and open gates
 
+Follow-up — 2026-10-04: [M1.3 increment 1](../m1.3/live-session.md) closes the retry/context,
+generation and idle relay retirement seams in the original handoff below. Provider-manager/app
+restoration scenarios and operational evidence remain open; this report's manifest is historical.
+
 The identified legacy marker seam is closed. Canonical cut/revisit continuation, retry scope,
 actual failure-domain identity, preferred-tier restoration and operational source sessions remain
 open. Audit `manage_stream`'s global `last_stream_attempt` retry gate when a stream already ended

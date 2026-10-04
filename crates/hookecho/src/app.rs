@@ -15,6 +15,7 @@ mod field_state;
 mod goes_timeline;
 pub(crate) mod impact;
 mod layer_probe;
+mod live_session;
 #[cfg(not(target_arch = "wasm32"))]
 mod local_api;
 pub(crate) mod long_loop;
@@ -1333,18 +1334,8 @@ pub struct HookEchoApp {
     settings_window: ui::settings_window::SettingsWindow,
     /// Active color tables (one per moment); reloaded when the palette settings change.
     palettes: Palettes,
-    /// Live chunk stream for the active view: (view index, site, the generation it was spawned
-    /// at, the provider label it was started with). Cancellation is a counter bump rather than a
-    /// task abort, because the browser has no abort — `spawn_local` hands back nothing to hold.
-    /// The stream reads the counter before every chunk fetch and ends itself when it no longer
-    /// recognizes its own generation. The label is `None` on wasm32 (no failover manager exists
-    /// there, so it never disagrees with itself); on native it's ROADMAP_NEW B6.11 step 11's own
-    /// addition — a live tier switch aborts the running stream on the spot rather than waiting
-    /// for it to fail/end on its own before the new tier is picked up.
-    live_stream: Option<(usize, String, u64, Option<&'static str>)>,
-    /// Bumped to cancel whatever stream is running. Shared with the spawned task.
-    live_gen: Arc<std::sync::atomic::AtomicU64>,
-    last_stream_attempt: Option<Instant>,
+    /// Active subscription, scoped retry and cancellation epoch; no radar payload ownership.
+    live_session: live_session::LiveSession,
     /// Decoded-volume LRU keyed by AWS object name, so scrubbing back and forth on the
     /// timeline doesn't re-download. ~10 volumes; each ~a few MB.
     scan_cache: LruCache<String, Arc<Scan>>,

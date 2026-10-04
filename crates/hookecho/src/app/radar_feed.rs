@@ -102,24 +102,8 @@ impl HookEchoApp {
     /// reads as Recovering; one the app stopped (a new generation, a hidden tab, a backgrounded
     /// app) does not.
     pub(crate) fn live_ended(&mut self, view: usize, gen: u64, lost: bool, error: Option<String>) {
-        let current = self
-            .live_stream
-            .as_ref()
-            .is_some_and(|(v, _, g, _)| *v == view && *g == gen);
-        if !current {
-            return;
-        }
-        self.live_stream = None; // interval polling resumes automatically
-        if let Some(v) = self.views.get_mut(view) {
-            v.live_progress = None;
-            v.live_progress_at = None;
-            v.live_retries = 0;
-            if lost {
-                v.live_scan.stream_ended_with_error(error);
-            } else {
-                v.live_scan.stream_stopped();
-            }
-        }
+        self.live_session
+            .finish_into(view, gen, lost, error, &mut self.views);
     }
 
     /// A palette step (`NavStep`): the key action that already does it, or the loop's own
@@ -275,7 +259,8 @@ impl HookEchoApp {
             // stream) carries new-volume arrival. ponytail: stream resumes on pause / go_head.
             // Only WSR-88Ds have a Level 2 chunk stream to merge — asking for one downloads a
             // WSR-88D-shaped file that isn't there and decodes garbage.
-            let want = v.timeline.following
+            let want = crate::platform::activity::is_active()
+                && v.timeline.following
                 && !v.timeline.playing
                 && v.site.as_deref().is_some_and(wxdata::sites::is_nexrad)
                 && v.volume.is_some();
@@ -304,36 +289,57 @@ impl HookEchoApp {
         #[cfg(target_arch = "wasm32")]
         let desired_label: Option<&'static str> = None;
 
-        // Abort an existing stream if it no longer matches the active view/site/desired provider,
-        // or isn't wanted.
-        if let Some((sv, ss, _, sl)) = &self.live_stream {
-            if !want || *sv != idx || Some(ss.as_str()) != site.as_deref() || *sl != desired_label {
-                let ended_view = *sv;
-                // ponytail: the cancelled stream notices within a second (its wait is sliced),
-                // so a fast site switch overlaps two streams for about that long and at most
-                // one in-flight chunk fetch. An abort channel if even that shows up.
-                self.live_gen
-                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                self.live_stream = None;
-                // Stopped on purpose (a loop, a scrub, a new site or provider), not lost: it must
-                // not read as Recovering. A stream that dies on its own ends in `LiveEnded`.
-                if ended_view < self.views.len() {
-                    self.views[ended_view].live_scan.stream_stopped();
-                }
-                // A new site (or a failover switch) shouldn't inherit the old one's 60 s retry
-                // gate — a switch away from a stalled/failing provider should reconnect promptly.
-                self.last_stream_attempt = None;
+        #[cfg(not(target_arch = "wasm32"))]
+        let relay_endpoint = (desired_label == Some(crate::radar_provider_manager::BACKUP_LABEL))
+            .then(|| {
+                self.views[idx]
+                    .radar_providers
+                    .as_ref()
+                    .and_then(|p| p.relay_url())
+            })
+            .flatten();
+        #[cfg(target_arch = "wasm32")]
+        let relay_endpoint = None;
+        let wanted = if want {
+            site.as_deref().map(|site| live_session::StreamRequest {
+                view: idx,
+                site,
+                provider: desired_label.unwrap_or("Unidata Level II (AWS S3)"),
+                relay_endpoint,
+            })
+        } else {
+            None
+        };
+        let decision = self.live_session.reconcile(wanted, Instant::now());
+        if let Some(ended_view) = decision.stopped_view {
+            if let Some(v) = self.views.get_mut(ended_view) {
+                v.live_progress = None;
+                v.live_progress_at = None;
+                v.live_retries = 0;
+                v.live_scan.stream_stopped();
             }
         }
-
-        if want && self.live_stream.is_none() {
-            let due = self
-                .last_stream_attempt
-                .is_none_or(|t| t.elapsed().as_secs() >= 60);
-            // `want` already implies both, but the two are computed a screen away from here.
-            if let (true, Some(site), Some(base)) = (due, site, base) {
-                self.last_stream_attempt = Some(Instant::now());
-                let provider = desired_label.unwrap_or("Unidata Level II (AWS S3)");
+        if let Some(delay) = decision.retry_after {
+            ctx.request_repaint_after(delay);
+        }
+        if let Some(start) = decision.start {
+            if let Some(base) = base {
+                let idx = start.view;
+                let site = start.site;
+                let provider = start.provider;
+                if start.context_changed {
+                    // Includes a same-label relay endpoint change and a change after End.
+                    self.views[idx].live_render_started = None;
+                    self.views[idx].live_queue_timings =
+                        Arc::new(crate::render::LiveQueueTimings::default());
+                    self.views[idx]
+                        .live_scan
+                        .set_switch_reason("live subscription context changed");
+                    log::info!(
+                        target: "hookecho::radar_provider_manager",
+                        "{site}: live subscription context changed; starting {provider}"
+                    );
+                }
                 let same_scan_site =
                     self.views[idx].live_scan.site.as_deref() == Some(site.as_str());
                 if self.views[idx].live_scan.site.is_none() {
@@ -390,9 +396,7 @@ impl HookEchoApp {
                         }
                     }
                 }
-                let gen = self.live_gen.load(std::sync::atomic::Ordering::Relaxed);
-                self.spawn_stream(idx, site.clone(), base, ctx.clone(), gen);
-                self.live_stream = Some((idx, site, gen, desired_label));
+                self.spawn_stream(idx, site, base, ctx.clone(), start.generation);
                 self.views[idx].live_scan.stream_started(
                     provider,
                     desired_label.is_some_and(|label| label != "Unidata Level II (AWS S3)"),
@@ -427,8 +431,8 @@ impl HookEchoApp {
     ) {
         use crate::radar_provider_manager::SiteProviders;
 
-        let relay_url = (!self.settings.radar_relay_url.trim().is_empty())
-            .then(|| self.settings.radar_relay_url.trim().to_string());
+        let configured_relay = live_session::relay_endpoint_key(&self.settings.radar_relay_url);
+        let relay_url = (!configured_relay.is_empty()).then(|| configured_relay.to_string());
         let override_tier = match self.settings.radar_provider_override {
             crate::settings::RadarProviderOverride::Auto => None,
             crate::settings::RadarProviderOverride::Primary => {
@@ -485,10 +489,10 @@ impl HookEchoApp {
         gen: u64,
     ) {
         let tx = self.msg_tx.clone();
-        let live_gen = Arc::clone(&self.live_gen);
+        let live_gen = self.live_session.token();
         // Read again when the stream ends, to tell a stream the app stopped (a new generation, a
         // hidden tab or a backgrounded app) from one that was lost while still wanted.
-        let end_gen = Arc::clone(&self.live_gen);
+        let end_gen = self.live_session.token();
         let active = move || {
             live_gen.load(std::sync::atomic::Ordering::Relaxed) == gen
                 && crate::platform::activity::is_active()

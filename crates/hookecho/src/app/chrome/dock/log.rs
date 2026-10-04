@@ -37,10 +37,7 @@ pub(super) struct LiveStats {
 impl HookEchoApp {
     fn live_stats(&self) -> LiveStats {
         let v = &self.views[self.active];
-        let streaming = self
-            .live_stream
-            .as_ref()
-            .is_some_and(|(i, ..)| *i == self.active);
+        let streaming = self.live_session.streaming_for(self.active);
         let key = self.volume_key(self.active);
         LiveStats {
             site: v.site.clone().unwrap_or_default(),
