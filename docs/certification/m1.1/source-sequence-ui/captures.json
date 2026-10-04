@@ -1,0 +1,101 @@
+{
+  "base_commit": "d751c53336c72e7687f08bfd30c83473e0754684",
+  "reviewed_utc": "2026-10-04T02:51:32.641402+00:00",
+  "command": "cargo test -p hookecho --lib gpu_source_sequence_snapshots -- --ignored --nocapture",
+  "scope": "Controlled expanded production source sequence section; 1 pixel per point; no adapter/driver identity or physical-device/viewport interaction certification.",
+  "sources": [
+    {
+      "file": "crates/wxdata/src/live_sequence.rs",
+      "sha256": "e1da2052b160a542b09f6e20be253e58eedcf2b40ee34b77b5461f6eb077af23"
+    },
+    {
+      "file": "crates/wxdata/src/live.rs",
+      "sha256": "f9d3bf2d9a93cb74fbdd54b6c2d9d5cb43e2b86adde647e1c6f7af43ffeef3fa"
+    },
+    {
+      "file": "crates/hookecho/src/relay_provider.rs",
+      "sha256": "137351dedc66c0e1fa443779644d487639c37fbe5e3818eab6319cf0a9d2b436"
+    },
+    {
+      "file": "crates/hookecho/src/live_scan.rs",
+      "sha256": "fecfef7481ef29ecbd8f492b883a49be00e375c3f39c0c46ad76687b4ca081a6"
+    },
+    {
+      "file": "crates/hookecho/src/ui/acquisition_inventory.rs",
+      "sha256": "b0683e88044feb0429d6cbf8a21d4ea6ef5381658370403f9ea3306e0ad6cf4f"
+    },
+    {
+      "file": "crates/hookecho/src/headless_ui.rs",
+      "sha256": "d4a604c60653441a5258aca270083ff41e74f2e8376c8a454e1271c3761ba824"
+    }
+  ],
+  "captures": [
+    {
+      "file": "holes-240.png",
+      "scenario": "holes",
+      "width": 240,
+      "height": 900,
+      "touch": true,
+      "bytes": 92802,
+      "sha256": "712e0e6d56dc98a70ac047961fd9225d17da9ec147b2a4b039ecf0e53a8aec72",
+      "capture_modified_utc": "2026-10-04T03:05:13.975066+00:00",
+      "reviewed": true
+    },
+    {
+      "file": "holes-300.png",
+      "scenario": "holes",
+      "width": 300,
+      "height": 900,
+      "touch": false,
+      "bytes": 93794,
+      "sha256": "b356b2e9f99182ab6fb88fe5bb1505a2c273a2d4041ee78befc07651080ea243",
+      "capture_modified_utc": "2026-10-04T03:05:14.277017+00:00",
+      "reviewed": true
+    },
+    {
+      "file": "recovered-240.png",
+      "scenario": "recovered",
+      "width": 240,
+      "height": 900,
+      "touch": true,
+      "bytes": 93462,
+      "sha256": "433ad27ae68806e106837d6ab6455644a2f67dcea58c5f33a9234656d915a5ea",
+      "capture_modified_utc": "2026-10-04T03:05:14.545870+00:00",
+      "reviewed": true
+    },
+    {
+      "file": "recovered-300.png",
+      "scenario": "recovered",
+      "width": 300,
+      "height": 900,
+      "touch": false,
+      "bytes": 94438,
+      "sha256": "c4396ba8aff82fe9bcaa360b7443e861fdb7b716274b80d41eb297a8e450c243",
+      "capture_modified_utc": "2026-10-04T03:05:14.897666+00:00",
+      "reviewed": true
+    },
+    {
+      "file": "unavailable-240.png",
+      "scenario": "unavailable",
+      "width": 240,
+      "height": 900,
+      "touch": true,
+      "bytes": 19800,
+      "sha256": "5e3eb5601153e9d1a29f32e3e1299092fc7b3a4d4c5cbcec249060830817eb07",
+      "capture_modified_utc": "2026-10-04T03:05:15.116591+00:00",
+      "reviewed": true
+    },
+    {
+      "file": "unavailable-300.png",
+      "scenario": "unavailable",
+      "width": 300,
+      "height": 900,
+      "touch": false,
+      "bytes": 20755,
+      "sha256": "d0e2c1405a0c06a9cac6b2b7b3480cdaa2c8f28d4fe485d8dc19c9bb9cc25e94",
+      "capture_modified_utc": "2026-10-04T03:05:15.326195+00:00",
+      "reviewed": true
+    }
+  ],
+  "verified_utc": "2026-10-04T03:07:09.836149+00:00"
+}

@@ -92,6 +92,7 @@ pub struct AcquisitionInventory {
     pub vcp_number: Option<u16>,
     pub cuts: Vec<CutAcquisition>,
     pub source_passes: Option<wxdata::live_pass::PassInventory>,
+    pub source_sequences: Option<wxdata::live_sequence::SequenceInventory>,
 }
 
 /// An immutable accepted receipt. Equality is runtime receipt identity, never a persisted pass ID.
@@ -117,6 +118,11 @@ impl AcquisitionSnapshot {
             + self.site.as_ref().map_or(0, String::capacity)
             + std::mem::size_of::<AcquisitionInventory>()
             + self.inventory.cuts.capacity() * std::mem::size_of::<CutAcquisition>()
+            + self
+                .inventory
+                .source_sequences
+                .as_ref()
+                .map_or(0, |history| history.estimated_dynamic_bytes())
             + self.inventory.source_passes.as_ref().map_or(0, |history| {
                 history.passes.capacity() * std::mem::size_of::<wxdata::live_pass::PassSummary>()
                     + history
@@ -240,6 +246,7 @@ pub struct LiveScan {
     latest_progress_volume_start_ms: Option<i64>,
     progress_vcp_number: Option<u16>,
     source_passes: Option<wxdata::live_pass::PassInventory>,
+    source_sequences: Option<wxdata::live_sequence::SequenceInventory>,
     streaming: bool,
     fallback: bool,
     recovering: bool,
@@ -292,6 +299,7 @@ impl LiveScan {
         if next_volume || next_vcp || changed_cut_count {
             if next_volume {
                 self.source_passes = None;
+                self.source_sequences = None;
             }
             self.observed_cuts.clear();
             self.progress = None;
@@ -376,6 +384,11 @@ impl LiveScan {
             self.source_passes = Some(history.clone());
         } else if let Some(history) = &mut self.source_passes {
             history.unclassified_updates = history.unclassified_updates.saturating_add(1);
+        }
+        if let Some(history) = &coverage.source_sequences {
+            self.source_sequences = Some((**history).clone());
+        } else if let Some(history) = &mut self.source_sequences {
+            history.unavailable_updates = history.unavailable_updates.saturating_add(1);
         }
         let newest_arrival = coverage
             .radials
@@ -491,6 +504,7 @@ impl LiveScan {
             vcp_number: self.progress_vcp_number,
             cuts,
             source_passes: self.source_passes.clone(),
+            source_sequences: self.source_sequences.clone(),
         })
     }
 
@@ -770,6 +784,7 @@ pub(crate) fn acquisition_fixture(site: &str) -> (LiveScan, AcquisitionSnapshot)
                     chunks_in_sweep: 3,
                 },
                 source_passes: None,
+                source_sequences: None,
                 radials: vec![(1, start + 1000), (2, 0), (4, start + 3000)],
             },
             Utc::now(),
@@ -804,10 +819,73 @@ mod tests {
             RadialCoverage {
                 progress: p,
                 source_passes: None,
+                source_sequences: None,
                 radials: radials.to_vec(),
             },
             Utc::now(),
         );
+    }
+
+    #[test]
+    fn sequence_receipts_survive_recovery_and_vcp_change_without_rewriting_accepted_frames() {
+        use wxdata::live_sequence::{SequenceLedger, SequenceOrigin};
+        let mut receiver = LiveScan::default();
+        receiver.reset(Some("KTLX".into()));
+        let mut ledger = SequenceLedger::new(SequenceOrigin::UnidataChunks);
+        ledger.observe(1);
+        ledger.download_failed(2);
+        ledger.observe(3);
+        let envelope =
+            |p, sequence: Option<wxdata::live_sequence::SequenceInventory>| RadialCoverage {
+                progress: p,
+                radials: vec![(1, 2000)],
+                source_passes: None,
+                source_sequences: sequence.map(Box::new),
+            };
+        let first = receiver
+            .capture_acquisition(
+                envelope(progress(1, 1), Some(ledger.inventory())),
+                Utc::now(),
+            )
+            .unwrap();
+        ledger.observe(2);
+        let mut p = progress(1, 1);
+        p.vcp_number = Some(35);
+        let recovered = receiver
+            .capture_acquisition(envelope(p, Some(ledger.inventory())), Utc::now())
+            .unwrap();
+        let before = first.inventory().source_sequences.as_ref().unwrap();
+        let after = recovered.inventory().source_sequences.as_ref().unwrap();
+        assert_eq!(before.bounded_holes, [(2, 2)]);
+        assert_eq!(before.failed_request_spans, [(2, 2)]);
+        assert!(after.bounded_holes.is_empty());
+        assert_eq!(after.recovered_spans, [(2, 2)]);
+        assert!(
+            first.estimated_bytes()
+                >= std::mem::size_of::<AcquisitionInventory>() + before.estimated_dynamic_bytes()
+        );
+        let legacy = receiver
+            .capture_acquisition(envelope(p, None), Utc::now())
+            .unwrap();
+        assert_eq!(
+            legacy
+                .inventory()
+                .source_sequences
+                .as_ref()
+                .unwrap()
+                .unavailable_updates,
+            1
+        );
+        assert_eq!(after.unavailable_updates, 0);
+        p.volume_start_ms = Some(5000);
+        let rollover = receiver
+            .capture_acquisition(envelope(p, None), Utc::now())
+            .unwrap();
+        assert!(rollover.inventory().source_sequences.is_none());
+        receiver.reset(Some("KPAH".into()));
+        assert!(receiver.acquisition_inventory().is_none());
+        assert!(first.matches_site(Some("KTLX")));
+        assert_eq!(before.bounded_holes, [(2, 2)]);
     }
 
     #[test]
@@ -833,6 +911,7 @@ mod tests {
                     progress: progress(1, 1),
                     radials: vec![(1, 2000), (3, 0)],
                     source_passes: Some(provider.inventory()),
+                    source_sequences: None,
                 },
                 Utc::now(),
             )
@@ -847,6 +926,7 @@ mod tests {
                     },
                     radials: vec![(1, 100000)],
                     source_passes: Some(provider.inventory()),
+                    source_sequences: None,
                 },
                 Utc::now(),
             )
@@ -880,6 +960,7 @@ mod tests {
                     },
                     radials: vec![(2, 100010)],
                     source_passes: None,
+                    source_sequences: None,
                 },
                 Utc::now(),
             )
@@ -908,6 +989,7 @@ mod tests {
                     },
                     radials: vec![(1, 201000)],
                     source_passes: Some(provider.inventory()),
+                    source_sequences: None,
                 },
                 Utc::now(),
             )
@@ -950,6 +1032,7 @@ mod tests {
                 RadialCoverage {
                     progress: p,
                     source_passes: None,
+                    source_sequences: None,
                     radials: vec![(1, 1_700_000_001_000)],
                 },
                 Utc::now(),
@@ -971,6 +1054,7 @@ mod tests {
                 RadialCoverage {
                     progress: p,
                     source_passes: None,
+                    source_sequences: None,
                     radials: vec![],
                 },
                 Utc::now()
@@ -983,6 +1067,7 @@ mod tests {
                 RadialCoverage {
                     progress: p,
                     source_passes: None,
+                    source_sequences: None,
                     radials: vec![],
                 },
                 Utc::now()

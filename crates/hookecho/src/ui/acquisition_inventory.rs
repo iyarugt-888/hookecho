@@ -170,6 +170,19 @@ pub(crate) fn receipt_rows(
             ));
         }
     }
+    if let Some(history) = &inventory.source_sequences {
+        rows.push(("Source sequence", sequence_origin(&history.origin)));
+        rows.push(("Message holes", sequence_spans(&history.bounded_holes)));
+        if history.unavailable_updates > 0 {
+            rows.push((
+                "Sequence evidence",
+                format!(
+                    "Unavailable on {} subsequent raw updates",
+                    history.unavailable_updates
+                ),
+            ));
+        }
+    }
     rows
 }
 
@@ -233,6 +246,136 @@ fn paint_inventory(
                     paint_pass_inventory(ui, t, inventory.source_passes.as_ref());
                 });
         });
+    egui::CollapsingHeader::new("Source sequence receipts")
+        .id_salt("source-sequence-receipts")
+        .show(ui, |ui| {
+            egui::ScrollArea::vertical()
+                .id_salt("source-sequence-receipts-scroll")
+                .max_height(280.0)
+                .show(ui, |ui| {
+                    paint_sequence_inventory(ui, t, inventory.source_sequences.as_ref())
+                });
+        });
+}
+
+fn sequence_origin(origin: &wxdata::live_sequence::SequenceOrigin) -> String {
+    match origin {
+        wxdata::live_sequence::SequenceOrigin::UnidataChunks => {
+            "Direct chunks · current source volume".into()
+        }
+        wxdata::live_sequence::SequenceOrigin::RelayBlocks { upstream_id } => format!(
+            "Relay blocks · current subscription and volume · upstream {}",
+            upstream_id.as_deref().unwrap_or("unknown")
+        ),
+    }
+}
+
+fn sequence_spans(spans: &[(u64, u64)]) -> String {
+    if spans.is_empty() {
+        return "None retained".into();
+    }
+    let mut result = spans
+        .iter()
+        .take(8)
+        .map(|(first, last)| {
+            if first == last {
+                first.to_string()
+            } else {
+                format!("{first}–{last}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    if spans.len() > 8 {
+        result.push_str(&format!("; {} more spans", spans.len() - 8));
+    }
+    result
+}
+
+fn sequence_rows(
+    history: &wxdata::live_sequence::SequenceInventory,
+) -> Vec<(&'static str, String)> {
+    vec![
+        ("Origin", sequence_origin(&history.origin)),
+        (
+            "Received bounds",
+            history.received_bounds.map_or_else(
+                || "Unavailable".into(),
+                |(first, last)| {
+                    format!(
+                        "{first}–{last}; {} positions retained",
+                        history.retained_received
+                    )
+                },
+            ),
+        ),
+        (
+            "Bounded message holes",
+            sequence_spans(&history.bounded_holes),
+        ),
+        (
+            "Failed requests pending",
+            sequence_spans(&history.failed_request_spans),
+        ),
+        (
+            "Later arrivals retained",
+            sequence_spans(&history.recovered_spans),
+        ),
+        (
+            "Recovery total",
+            format!(
+                "{} sequence positions arrived after a bounded hole or failed request",
+                history.recovered_positions
+            ),
+        ),
+        (
+            "Arrival order",
+            format!(
+                "{} duplicates; {} reversals",
+                history.duplicate_arrivals, history.reordered_arrivals
+            ),
+        ),
+        (
+            "Download failures",
+            format!(
+                "{} attempts with known request positions; {} errors with unavailable positions",
+                history.failed_download_attempts, history.unlocated_transport_errors
+            ),
+        ),
+        (
+            "Decode failures",
+            format!(
+                "{} assembly attempts; received bytes remain recorded",
+                history.failed_decode_attempts
+            ),
+        ),
+        (
+            "Retained scope",
+            format!(
+                "{} older sequence positions retired; {} late arrivals outside retained scope",
+                history.retired_positions, history.outside_retained_arrivals
+            ),
+        ),
+        (
+            "Unavailable updates",
+            history.unavailable_updates.to_string(),
+        ),
+    ]
+}
+
+fn paint_sequence_inventory(
+    ui: &mut egui::Ui,
+    t: &ws::Tokens,
+    history: Option<&wxdata::live_sequence::SequenceInventory>,
+) {
+    let Some(history) = history else {
+        ui.add(egui::Label::new(ws::text("Source sequence evidence unavailable. Completed/archive inputs do not establish message arrivals.", 11.0, t.text_dim)).wrap());
+        return;
+    };
+    ui.add(egui::Label::new(ws::text("Message positions describe received source bytes. Holes do not prove lost radials or incomplete scientific passes. An unrequested prefix is unknown. Relay labels do not establish emitter instance identity or independent redundancy. Counters cover this source context; listed spans cover retained positions only.", 11.0, t.text_dim)).wrap());
+    for (label, value) in sequence_rows(history) {
+        ui.add(egui::Label::new(ws::text(format!("{label}: {value}"), 11.0, t.text_dim)).wrap());
+    }
 }
 
 fn pass_rows(pass: &wxdata::live_pass::PassSummary) -> Vec<(&'static str, String)> {
@@ -354,6 +497,111 @@ fn paint_pass_inventory(
 mod tests {
     use super::*;
     use egui_phosphor::regular as ph;
+
+    fn sequence_fixture(recovered: bool) -> wxdata::live_sequence::SequenceInventory {
+        use wxdata::live_sequence::{SequenceLedger, SequenceOrigin};
+        let mut ledger = SequenceLedger::new(SequenceOrigin::RelayBlocks {
+            upstream_id: Some("ldm".into()),
+        });
+        ledger.observe(500);
+        ledger.download_failed(501);
+        ledger.observe(503);
+        ledger.decode_failed();
+        ledger.transport_error_without_position();
+        if recovered {
+            ledger.observe(501);
+            ledger.observe(502);
+            ledger.observe(502);
+        }
+        ledger.inventory()
+    }
+
+    #[test]
+    fn source_sequence_rows_keep_pending_requests_and_recovery_separate_from_native_positions() {
+        let before = sequence_rows(&sequence_fixture(false));
+        assert!(before.contains(&("Bounded message holes", "501–502".into())));
+        assert!(before.contains(&("Failed requests pending", "501".into())));
+        let after = sequence_rows(&sequence_fixture(true));
+        assert!(after.contains(&("Bounded message holes", "None retained".into())));
+        assert!(after.contains(&("Later arrivals retained", "501–502".into())));
+        assert!(after.contains(&("Arrival order", "1 duplicates; 1 reversals".into())));
+        assert_eq!(
+            sequence_spans(&(0..20).map(|n| (n * 2, n * 2)).collect::<Vec<_>>()),
+            "0, 2, 4, 6, 8, 10, 12, 14; 12 more spans"
+        );
+    }
+
+    #[test]
+    fn source_sequence_receipts_wrap_on_desktop_and_touch_with_unknown_or_recovered_evidence() {
+        let before = sequence_fixture(false);
+        let after = sequence_fixture(true);
+        let ctx = egui::Context::default();
+        let t = ws::Tokens::new(egui::Color32::LIGHT_BLUE);
+        for width in [240.0, 300.0] {
+            for history in [Some(&before), Some(&after), None] {
+                let _ = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(width, 900.0),
+                        )),
+                        ..Default::default()
+                    },
+                    |ui| {
+                        ws::set_touch(ui.ctx(), width == 240.0);
+                        ws::panel_frame(&t).show(ui, |ui| {
+                            ws::style_scope(ui, &t);
+                            paint_sequence_inventory(ui, &t, history);
+                            assert!(ui.min_rect().right() <= width + 1.0);
+                            assert!(ui.min_rect().bottom() < 900.0);
+                        });
+                    },
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "gpu: writes source sequence receipt captures"]
+    fn gpu_source_sequence_snapshots() {
+        let gpu =
+            crate::headless::ui::Snapshot::new().expect("GPU adapter for sequence receipt review");
+        let destination = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/parity-review/m1.1/source-sequence-ui");
+        std::fs::create_dir_all(&destination).unwrap();
+        let t = ws::Tokens::new(egui::Color32::from_rgb(72, 142, 226));
+        let before = sequence_fixture(false);
+        let after = sequence_fixture(true);
+        for (name, history) in [
+            ("holes", Some(&before)),
+            ("recovered", Some(&after)),
+            ("unavailable", None),
+        ] {
+            for width in [240, 300] {
+                gpu.save(
+                    &destination.join(format!("{name}-{width}.png")),
+                    width,
+                    900,
+                    |ui| {
+                        ws::set_touch(ui.ctx(), width == 240);
+                        ws::panel_frame(&t).show(ui, |ui| {
+                            ws::style_scope(ui, &t);
+                            ws::window_header(
+                                ui,
+                                &t,
+                                ph::INFO,
+                                "Source sequence receipts",
+                                None,
+                                None,
+                            );
+                            paint_sequence_inventory(ui, &t, history);
+                        });
+                    },
+                )
+                .unwrap();
+            }
+        }
+    }
 
     fn pass_fixture() -> wxdata::live_pass::PassInventory {
         use wxdata::live_pass::{PassArrival, PassKey, PassLedger};
@@ -489,6 +737,7 @@ mod tests {
                 wxdata::live::RadialCoverage {
                     progress: p,
                     source_passes: None,
+                    source_sequences: None,
                     radials: vec![(1, start + 1000), (2, 0), (4, start + 3000)],
                 },
                 chrono::Utc::now(),
@@ -501,6 +750,7 @@ mod tests {
                         ..p
                     },
                     source_passes: None,
+                    source_sequences: None,
                     radials: vec![(1, start + 10000), (2, start + 11000)],
                 },
                 chrono::Utc::now(),
@@ -606,6 +856,7 @@ mod tests {
             wxdata::live::RadialCoverage {
                 progress: receiver.progress.unwrap(),
                 source_passes: None,
+                source_sequences: None,
                 radials: vec![(3, 0)],
             },
             chrono::Utc::now(),

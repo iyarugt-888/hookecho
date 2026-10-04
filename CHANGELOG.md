@@ -17,6 +17,15 @@ User`: Volume is always the volume of the product on the map, named on a status 
 says whether the 3D frame is current, building or failed. On a tablet the panel no longer
 scrolls sideways and cuts off the start of each line.
 
+### Added: source sequence and recovery receipts
+
+The Inspector now separates source message holes, failed download requests, later arrivals,
+duplicates and decode failures from raw radial coverage. Expand **Source sequence receipts**
+to inspect direct chunk or relay block origins and bounded recovery evidence. A mid-volume
+relay join leaves its earlier prefix unknown. Both progressive providers retain receipts with
+accepted frames and derived/3D results; later gap fills cannot rewrite those frames. Counters
+and retired evidence have explicit scopes, and message holes do not imply lost radar radials.
+
 ### Fixed: pass history cannot bridge discontinuous backfill
 
 Missing direct-source backfill chunks and relay sequence jumps, duplicates or reversals no

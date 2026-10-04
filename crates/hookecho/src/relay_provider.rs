@@ -20,6 +20,7 @@ use std::sync::Arc;
 use wxdata::level2::Scan;
 use wxdata::live::{CutKind, RadialCoverage, ScanProgress, Update};
 use wxdata::live_block::{assemble_scan, LiveLevel2Block, ProviderCapabilities, VolumeKey};
+use wxdata::live_sequence::{SequenceLedger, SequenceOrigin};
 use wxdata::relay_wire::BlockDto;
 
 /// A live Level II source backed by a self-hosted `radar-ingest` instance (ROADMAP_NEW B6.2-B6.4).
@@ -132,6 +133,7 @@ impl Level2LiveProvider for HookEchoRelayLevel2Provider {
         let mut update_count: u64 = 0;
         let mut passes = wxdata::live_pass::PassTracker::default();
         let mut last_decoded_sequence: Option<u64> = None;
+        let mut sequences: Option<SequenceLedger> = None;
 
         while active() {
             let Some(msg) = read.next().await else {
@@ -162,12 +164,26 @@ impl Level2LiveProvider for HookEchoRelayLevel2Provider {
             // A new volume from the relay's own identity model: never mix blocks from two
             // different volumes into one assembly attempt (ROADMAP_NEW B6.5's cross-source
             // mixing guard applies just as much within a single source's own volume rollover).
-            if current_volume.as_ref() != Some(&block.volume) {
+            let origin = SequenceOrigin::RelayBlocks {
+                upstream_id: Some(block.source_id.clone()),
+            };
+            if current_volume.as_ref() != Some(&block.volume)
+                || sequences
+                    .as_ref()
+                    .is_none_or(|ledger| ledger.origin() != &origin)
+            {
                 pending_blocks.clear();
                 current_volume = Some(block.volume.clone());
                 passes = wxdata::live_pass::PassTracker::default();
                 last_decoded_sequence = None;
+                // A changed declared upstream cannot lend its counter or payload prefix to
+                // another source. Even an unchanged label proves no emitter instance identity.
+                sequences = Some(SequenceLedger::new(origin));
             }
+            let sequences = sequences
+                .as_mut()
+                .expect("validated block established source scope");
+            sequences.observe(block.sequence);
             pending_blocks.push(block);
 
             // Re-assemble from everything accumulated so far this volume. Same O(n) per new
@@ -180,6 +196,7 @@ impl Level2LiveProvider for HookEchoRelayLevel2Provider {
                 // joined mid-volume before the VCP message was seen). Not an error worth
                 // surfacing — the next block may complete it.
                 Err(_) => {
+                    sequences.decode_failed();
                     last_decoded_sequence = None;
                     continue;
                 }
@@ -219,6 +236,7 @@ impl Level2LiveProvider for HookEchoRelayLevel2Provider {
                         .map(|radial| (radial.azimuth_number(), radial.collection_timestamp()))
                         .collect(),
                     source_passes: Some(passes.inventory()),
+                    source_sequences: Some(Box::new(sequences.inventory())),
                 }
             });
             let (new_scan, changed) = wxdata::live::merge_scan(&merged, partial);
@@ -532,6 +550,137 @@ mod integration_tests {
         let provider = HookEchoRelayLevel2Provider::new(format!("http://{addr}"));
         let result = provider.latest_complete_volume("KTLX", None).await.unwrap();
         assert!(matches!(result, LatestVolume::UpToDate));
+    }
+
+    #[tokio::test]
+    async fn websocket_sequence_receipts_track_late_fill_duplicates_and_source_rollover() {
+        use futures_util::SinkExt;
+        use wxdata::live_block::{checksum, CutKey};
+        let time = chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap();
+        let make = |sequence, offset, source: &str, volume_offset| {
+            let clock = time + chrono::Duration::seconds(offset);
+            let payload = a_completed_volume_at("KTLX", clock);
+            LiveLevel2Block {
+                site: "KTLX".into(),
+                volume: VolumeKey::new("KTLX", time + chrono::Duration::seconds(volume_offset)),
+                cut: Some(CutKey {
+                    elevation_number: 1,
+                    repeat_index: 0,
+                }),
+                elevation_angle_deg: Some(0.5),
+                first_azimuth_number: Some(1),
+                last_azimuth_number: Some(2),
+                radar_start: clock,
+                radar_end: clock,
+                received_at: clock,
+                emitted_at: clock,
+                sequence,
+                source_id: source.into(),
+                checksum: checksum(&payload),
+                payload,
+            }
+        };
+        let full = make(502, 1, "ldm", 0);
+        let decoded = assemble_scan(std::slice::from_ref(&full)).unwrap();
+        let base = Arc::new(Scan::new(decoded.coverage_pattern().clone(), Vec::new()));
+        let mut no_vcp = make(500, 0, "ldm", 0);
+        no_vcp.payload = synthetic_radial("KTLX", 1, 1, VOLUME_START, time);
+        no_vcp.checksum = checksum(&no_vcp.payload);
+        let late = make(501, 2, "ldm", 0);
+        let mut corrupt = BlockDto::from(&full);
+        corrupt.sequence = 5000;
+        corrupt.checksum_hex = "0".repeat(64);
+        let messages = [
+            "malformed JSON".to_string(),
+            serde_json::to_string(&corrupt).unwrap(),
+            serde_json::to_string(&BlockDto::from(&no_vcp)).unwrap(),
+            serde_json::to_string(&BlockDto::from(&full)).unwrap(),
+            serde_json::to_string(&BlockDto::from(&late)).unwrap(),
+            serde_json::to_string(&BlockDto::from(&late)).unwrap(),
+            serde_json::to_string(&BlockDto::from(&make(503, 3, "ldm", 0))).unwrap(),
+            serde_json::to_string(&BlockDto::from(&make(0, 4, "other-upstream", 0))).unwrap(),
+            serde_json::to_string(&BlockDto::from(&make(5, 61, "other-upstream", 60))).unwrap(),
+        ];
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let mut ws = tokio_tungstenite::accept_async(socket).await.unwrap();
+            for message in messages {
+                ws.send(tokio_tungstenite::tungstenite::Message::Text(message))
+                    .await
+                    .unwrap();
+            }
+            ws.close(None).await.unwrap();
+        });
+        let updates = Arc::new(Mutex::new(Vec::new()));
+        let collect = updates.clone();
+        let provider = HookEchoRelayLevel2Provider::new(format!("http://{address}"));
+        tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            provider.subscribe(
+                "KTLX".into(),
+                base,
+                Box::new(|| true),
+                Box::new(move |update| collect.lock().unwrap().push(update)),
+                Box::new(|_| {}),
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        server.await.unwrap();
+        let updates = updates.lock().unwrap();
+        assert_eq!(
+            updates.len(),
+            5,
+            "duplicate-only decode does not produce an accepted gate update"
+        );
+        let receipts: Vec<_> = updates
+            .iter()
+            .map(|update| {
+                update
+                    .radial_coverage
+                    .as_ref()
+                    .unwrap()
+                    .source_sequences
+                    .as_ref()
+                    .unwrap()
+            })
+            .collect();
+        assert_eq!(
+            receipts[0].received_bounds,
+            Some((500, 502)),
+            "corrupt metadata cannot become a source position"
+        );
+        assert_eq!(receipts[0].bounded_holes, [(501, 501)]);
+        assert_eq!(receipts[0].failed_decode_attempts, 1);
+        assert_eq!(receipts[1].recovered_spans, [(501, 501)]);
+        assert!(receipts[1].bounded_holes.is_empty());
+        assert_eq!(
+            receipts[2].duplicate_arrivals, 1,
+            "non-rendering arrivals survive to the next accepted frame"
+        );
+        assert_eq!(receipts[2].retained_received, 4);
+        assert_eq!(receipts[3].received_bounds, Some((0, 0)));
+        assert_eq!(
+            receipts[3].origin,
+            SequenceOrigin::RelayBlocks {
+                upstream_id: Some("other-upstream".into())
+            }
+        );
+        assert_eq!(receipts[3].failed_decode_attempts, 0);
+        assert_eq!(
+            receipts[4].received_bounds,
+            Some((5, 5)),
+            "new volume has no invented prefix holes"
+        );
+        assert_eq!(receipts[4].recovered_positions, 0);
+        assert_eq!(
+            receipts[0].bounded_holes,
+            [(501, 501)],
+            "accepted receipt is immutable"
+        );
     }
 
     #[tokio::test]

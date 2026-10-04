@@ -298,6 +298,7 @@ mod tests {
                 wxdata::live::RadialCoverage {
                     progress: receiver.progress.unwrap(),
                     source_passes: None,
+                    source_sequences: None,
                     radials: vec![(3, 0)],
                 },
                 Utc::now(),

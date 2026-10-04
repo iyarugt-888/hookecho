@@ -11,6 +11,8 @@ their radar clocks are known, including repeated elevations and non-rendering de
 Per-contributor pass association, proven transport gaps and persisted progressive replay remain open.
 [Discontinuous assembly controls](pass-continuity.md) subsequently prevent known missing or
 unordered source input from assigning ordinary positions across an uncertain pass boundary.
+[Source sequence receipts](source-sequences.md) then distinguish bounded byte-message holes,
+actual failed requests and later arrivals from raw radial and native pass coverage.
 
 The subsequent [standalone 3D increment](standalone-3d.md) has its own scientific controls,
 ownership tests, reviewed UI references and remaining-scope record. The [native observed

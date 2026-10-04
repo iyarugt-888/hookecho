@@ -129,6 +129,9 @@ pub struct RadialCoverage {
     /// Source boundary evidence from raw input, before older-pass stitching. None for callers
     /// that do not expose native boundary markers; it never implies an empty pass history.
     pub source_passes: Option<crate::live_pass::PassInventory>,
+    /// Byte-transport receipts, independent of radial positions and scientific pass identity.
+    /// Indirection keeps queued progressive channel messages small as receipt evidence grows.
+    pub source_sequences: Option<Box<crate::live_sequence::SequenceInventory>>,
 }
 
 /// The oldest a joined live volume may be and still be the one being scanned: a volume lasts four
@@ -222,6 +225,16 @@ where
     }
     let joined = &init.latest_chunk.identifier;
     let latest_seq = joined.sequence();
+    let mut sequences = crate::live_sequence::SequenceLedger::new(
+        crate::live_sequence::SequenceOrigin::UnidataChunks,
+    );
+    if let Some(sequence) = start_sequence {
+        sequences.observe(sequence as u64);
+    } else if joined.chunk_type() != ChunkType::Start {
+        // Initialization actually attempted Start 1. Its absence is a failed request receipt,
+        // unlike an unrequested prefix on a mid-volume relay join.
+        sequences.download_failed(1);
+    }
     let volume = *joined.volume();
     let prefix = *joined.date_time_prefix();
     // Backfill the middle chunks so the first frame is a full volume. Up to ~53 of them, and
@@ -243,18 +256,19 @@ where
                     ChunkType::Intermediate,
                     None,
                 );
-                download_chunk(&site, &id)
-                    .await
-                    .ok()
-                    .map(|(_, ch)| (seq, ch))
+                (seq, download_chunk(&site, &id).await)
             }
         });
-        backfill.extend(
-            futures_util::future::join_all(gets)
-                .await
-                .into_iter()
-                .flatten(),
-        );
+        // join_all retains request order: concurrent completion order is not source reordering.
+        for (seq, result) in futures_util::future::join_all(gets).await {
+            match result {
+                Ok((_, chunk)) => {
+                    sequences.observe(seq as u64);
+                    backfill.push((seq, chunk));
+                }
+                Err(_) => sequences.download_failed(seq as u64),
+            }
+        }
     }
     backfill.sort_by_key(|(seq, _)| *seq);
     let input_complete = initial_chunks_contiguous(
@@ -267,6 +281,7 @@ where
         .or(Some(latest_seq));
     chunks.extend(backfill.into_iter().map(|(_, ch)| ch));
     chunks.push(init.latest_chunk.chunk);
+    sequences.observe(latest_seq as u64);
 
     let mut merged = base;
     let mut volume = init.latest_chunk.identifier.volume().as_number();
@@ -285,6 +300,7 @@ where
         EmissionProgress {
             cut: None,
             passes: &mut passes,
+            sequences: &mut sequences,
             continuous: false,
             input_complete,
         },
@@ -327,10 +343,14 @@ where
                     chunks.clear(); // volume rollover: start a fresh accumulator
                     window_start = 0;
                     passes = crate::live_pass::PassTracker::default();
+                    sequences = crate::live_sequence::SequenceLedger::new(
+                        crate::live_sequence::SequenceOrigin::UnidataChunks,
+                    );
                     last_decoded_sequence = None;
                     prefix_sequence = Some(seq);
                 }
                 volume = vol;
+                sequences.observe(seq as u64);
                 chunks.push(dc.chunk);
                 let meta = it.chunk_metadata(seq).copied();
                 let mut current_progress = None;
@@ -400,6 +420,7 @@ where
                         EmissionProgress {
                             cut: current_progress,
                             passes: &mut passes,
+                            sequences: &mut sequences,
                             continuous: last_decoded_sequence.and_then(|old| old.checked_add(1))
                                 == Some(seq),
                             input_complete: incremental_input_contiguous(
@@ -422,6 +443,8 @@ where
             }
             Ok(None) => { /* not available yet; loop and wait again */ }
             Err(e) => {
+                // try_next does not expose the failed request's object ID; do not predict it.
+                sequences.transport_error_without_position();
                 fails += 1;
                 total_retries += 1;
                 if !tolerate_failure(fails) {
@@ -504,6 +527,7 @@ fn tolerate_failure(consecutive: u32) -> bool {
 struct EmissionProgress<'a> {
     cut: Option<ScanProgress>,
     passes: &'a mut crate::live_pass::PassTracker,
+    sequences: &'a mut crate::live_sequence::SequenceLedger,
     continuous: bool,
     input_complete: bool,
 }
@@ -607,6 +631,7 @@ async fn emit<F: FnMut(Update)>(
     let partial = match assembled {
         Ok(s) => s,
         Err(e) => {
+            progress.sequences.decode_failed();
             log::debug!("assemble skipped: {e}");
             return false;
         }
@@ -637,6 +662,7 @@ async fn emit<F: FnMut(Update)>(
             })
             .collect(),
         source_passes: Some(progress.passes.inventory()),
+        source_sequences: Some(Box::new(progress.sequences.inventory())),
     });
     let (new_scan, changed) = merge_scan(merged, partial);
     if changed.is_empty() {
