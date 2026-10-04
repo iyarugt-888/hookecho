@@ -1299,12 +1299,12 @@ pub(crate) fn tornado_id_controls(
             })
             .response
         .on_hover_text(
-            "Shows a rooted, cyclonic circulation with no debris beside it as Tornado possible \
-             once its low-level shear reaches this, though its evidence score is lower. Possible \
-             raises no alert. Starts at 0.018: on a random sample of ordinary severe days it \
-             found a third of the tornadoes, against a tenth without it, at about three false \
-             Possible markers per radar-hour, fewer than the original Tornado ID's three and a \
-             half. Markers shown this way turn out real about a fifth of the time.",
+            "Shows a rooted, cyclonic circulation in a storm core, with no debris beside it, as \
+             Tornado possible once its low-level shear reaches this, though its evidence score \
+             is lower. Possible raises no alert. Starts at 0.018: on a random sample of ordinary \
+             severe days it found a third of the tornadoes, against a tenth without it, at about \
+             two false Possible markers per radar-hour, fewer than the original Tornado ID's \
+             three and a half.",
         );
     }
     ui.label(

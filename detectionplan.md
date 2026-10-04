@@ -414,6 +414,25 @@ Primary code areas:
     At either 0.018 or 0.020 the fused Possible tier beats the original Tornado ID on both counts on ordinary severe days: more tornadoes for fewer false alarms. On the hand-picked corpus the same bar costs more false alarms than it gains tornadoes, because that corpus is built from tornado days and hard negatives. The opt-in stays off until the maintainer chooses; the random sample is the stronger case for 0.018 or 0.020.
   - **Decision: on by default at 0.018 s⁻¹** (the maintainer chose it over 0.020 and off). `DEFAULT_ROTATION_ONLY_POSSIBLE`; a settings file without the key gets it, and an explicit `null` stays off. Possible raises no alert, so the extra markers add no alarms.
 
+- **Stratiform rain hard negatives, and rotation-only Possible needs a storm core** (`docs/backtest-stratiform.txt`, export `h1-stratiform`). Phase 9 lists melting-layer low CC and bright-band contamination as hard negatives. Six cold-season stratiform windows with no tornado or hail report: nor'easter 2023-12-18 (KDIX), Puget Sound atmospheric river 2021-11-15 (KATX), California atmospheric river 2023-01-09 (KMUX, no archived volumes), and the January 2024 Northeast storm (KBOX, KPBZ, KLWX).
+  - **Results.**
+
+    | Detector | Possible | Likely |
+    |---|---|---|
+    | Fusion | 6 | 0 |
+    | Original | 22 | 3 |
+
+    The debris classifier finds 136 melting-layer low-CC anomalies, as it should; the fusion counts only tornado debris signatures. The fusion's six are synoptic-wind shear of 0.017–0.036 s⁻¹ at 63–104 km, two beside melting-layer low CC.
+  - **The rotation-only default added 10 more there.** A lifted column now must sit in a convective core (≥ 40 dBZ within 5 km, `column.echo`):
+
+    | Set | Tornadoes gained | False lifts, before → after |
+    |---|---|---|
+    | Random 139 | 14 of 14 kept | 146 → 71 |
+    | Corpus | 59 of 59 kept | 221 → 176 |
+    | Stratiform | — | 10 → 4 |
+
+    With it, the fused Possible tier on ordinary severe days runs at 2.16 false markers per radar-hour with POD 0.33, against the original's 3.51 and 0.16.
+
 ### Where the detection stands (65 events)
 
 - **Promoted.** The fused Tornado ID (fusion-3) is the app's default; the original is selectable. On every held-out test since promotion it has found as many tornadoes as the original or more, at a far lower false-alarm ratio. On round three's unseen events at matched false-alarm rates: POD 0.29, FAR 0.21 against 0.15, 0.64. On round five's unseen supercell days at Likely: POD 0.28, FAR 0.11 against 0.26, 0.62. On non-tornadic lines (round four): 0 false detections against 23. On the hail storms, at Likely: 2 against 25.

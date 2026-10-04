@@ -1,0 +1,11 @@
+# Stratiform rain with a melting layer (detectionplan.md Phase 9 hard negatives: melting-layer low
+# CC and bright-band contamination, a classic false debris signature). Each window has no tornado or
+# hail report within 150 km from three hours before to four after (IEM LSR archive); the reports
+# there are rain, flooding and synoptic wind. Run on its own:
+#   hookecho --headless-backtest-file docs/backtest-stratiform.txt --export DIR
+KDIX 2023-12-18 06:00   # Nor'easter, New Jersey (72 rain/flood/wind reports)
+KATX 2021-11-15 12:00   # Atmospheric river, Puget Sound
+KMUX 2023-01-09 18:00   # Atmospheric river, central California (78 reports)
+KBOX 2024-01-10 00:00   # Northeast winter storm, rain side (43 reports)
+KPBZ 2024-01-09 18:00   # Same storm, western Pennsylvania (100 reports)
+KLWX 2024-01-09 21:00   # Same storm, Washington DC area (125 reports, 5 wind damage)

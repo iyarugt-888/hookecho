@@ -223,8 +223,9 @@ impl Analysed {
         self.tornado_id_with(confirmation, None)
     }
 
-    /// [`Self::tornado_id`], with an opt-in bar (s⁻¹): a rooted, cyclonic column with no tornado
-    /// debris signature beside it reaches Possible once its 0-2 km shear is at least the bar,
+    /// [`Self::tornado_id`], with an opt-in bar (s⁻¹): a rooted, cyclonic column in a convective
+    /// core, with no tornado debris signature beside it, reaches Possible once its 0-2 km shear is
+    /// at least the bar,
     /// whatever its evidence score. Its score is unchanged and its first reason says why it is
     /// shown.
     ///
@@ -253,6 +254,11 @@ impl Analysed {
                     && c.sense == Sense::Cyclonic
                     && tds.is_none()
                     && c.low_level_azshear.is_some_and(|s| s >= bar)
+                    // In a convective core: a >= 40 dBZ object within 5 km (`storm_mode`).
+                    // Stratiform rain and strong synoptic wind make rotation-like shear with no
+                    // core; requiring one kept every tornado the bar gains while halving its
+                    // false markers on ordinary severe days (146 to 71 over 95 radar-hours).
+                    && c.echo.is_some()
             });
         if score < MIN_SCORE && confirmation.report.is_none() && !lifted {
             return None;
@@ -570,6 +576,11 @@ mod tests {
         let mut t = tracked(1);
         t.column.low_level_azshear = Some(0.021);
         t.column.max_azshear = 0.021;
+        t.column.echo = Some(crate::storm_mode::EchoShape {
+            length_km: 20.0,
+            width_km: 12.0,
+            area_km2: 180.0,
+        });
         for m in &mut t.column.members {
             m.object.max_azshear = 0.021;
         }
@@ -590,6 +601,11 @@ mod tests {
         anti.column.sense = Sense::Anticyclonic;
         let anti = &analyse(vec![anti], &[], &[])[0];
         assert!(anti.tornado_id_with(&none, Some(0.020)).is_none());
+        // No convective core near it (stratiform rain, synoptic wind): not lifted.
+        let mut coreless = t.clone();
+        coreless.column.echo = None;
+        let coreless = &analyse(vec![coreless], &[], &[])[0];
+        assert!(coreless.tornado_id_with(&none, Some(0.020)).is_none());
         let mut aloft = t.clone();
         aloft.column.rooted = false;
         let aloft = &analyse(vec![aloft], &[], &[])[0];
