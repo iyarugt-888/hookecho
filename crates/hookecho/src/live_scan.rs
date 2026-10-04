@@ -297,19 +297,25 @@ impl LiveScan {
         self.switch_reason = Some(reason.into());
     }
 
-    pub fn progress(&mut self, progress: ScanProgress, received: DateTime<Utc>) {
+    /// Admit metadata into receiver inventory. False leaves inventory, freshness and recovery
+    /// unchanged; true can fill late cut gaps without advancing the display marker.
+    pub fn progress(&mut self, progress: ScanProgress, received: DateTime<Utc>) -> bool {
         // A recovered source can still deliver progress for an older volume. Never let it
         // replace the current cut's inventory before its matching Update is rejected.
         if matches!((self.latest_progress_volume_start_ms, progress.volume_start_ms), (Some(old), Some(new)) if new < old)
         {
-            return;
+            return false;
         }
         if !(1..=64).contains(&progress.total_elevations)
             || !(1..=progress.total_elevations).contains(&progress.elevation_number)
             || !(1..=64).contains(&progress.chunks_in_sweep)
             || !(1..=progress.chunks_in_sweep).contains(&progress.chunk_index)
+            || !progress.elevation_angle_deg.is_finite()
+            || !progress.azimuth_rate_dps.is_finite()
+            || !progress.azimuth_start_deg.is_finite()
+            || !progress.azimuth_end_deg.is_finite()
         {
-            return;
+            return false;
         }
         let next_volume = matches!((self.latest_progress_volume_start_ms, progress.volume_start_ms), (Some(old), Some(new)) if new > old);
         let next_vcp = self.progress_vcp_number.is_some()
@@ -356,6 +362,7 @@ impl LiveScan {
         }
         self.last_received = Some(received);
         self.recovering = false;
+        true
     }
 
     pub fn unobserved_chunks(&self) -> Vec<usize> {
@@ -382,14 +389,9 @@ impl LiveScan {
     /// progress message without guessing from elevation angle.
     pub fn observe_radials(&mut self, coverage: RadialCoverage, received: DateTime<Utc>) -> bool {
         let p = coverage.progress;
-        if !(1..=64).contains(&p.total_elevations)
-            || !(1..=p.total_elevations).contains(&p.elevation_number)
-            || !(1..=64).contains(&p.chunks_in_sweep)
-            || !(1..=p.chunks_in_sweep).contains(&p.chunk_index)
-        {
+        if !self.progress(p, received) {
             return false;
         }
-        self.progress(p, received);
         if (p.volume_start_ms.is_some()
             && self.latest_progress_volume_start_ms != p.volume_start_ms)
             || (p.vcp_number.is_some() && self.progress_vcp_number != p.vcp_number)
@@ -1618,5 +1620,37 @@ mod tests {
         receiver.reset(Some("KPAH".into()));
         assert!(receiver.source_scope.is_none());
         assert!(frozen.matches_site(Some("KTLX")));
+    }
+    #[test]
+    fn rejected_raw_progress_preserves_receipts_freshness_and_recovery() {
+        let (mut receiver, frozen) = acquisition_fixture("KTLX");
+        let before = receiver.acquisition_inventory();
+        let received = receiver.last_received;
+        receiver.stream_ended_with_error(Some("transport closed".into()));
+        let p = ScanProgress {
+            azimuth_start_deg: f64::NAN,
+            ..progress(1, 1)
+        };
+        assert!(receiver
+            .capture_acquisition(
+                RadialCoverage {
+                    progress: p,
+                    radials: vec![(1, 2000)],
+                    source_passes: None,
+                    source_sequences: None,
+                    source_attribution: None,
+                    source_scope: None,
+                },
+                Utc::now()
+            )
+            .is_none());
+        assert_eq!(receiver.acquisition_inventory(), before);
+        assert_eq!(receiver.last_received, received);
+        assert_eq!(
+            receiver.last_stream_error.as_deref(),
+            Some("transport closed")
+        );
+        assert!(receiver.recovering);
+        assert_eq!(frozen.inventory(), before.as_ref().unwrap());
     }
 }

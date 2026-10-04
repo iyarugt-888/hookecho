@@ -494,6 +494,26 @@ Local logs: `target/parity-review/m1.1/source-admission/{workspace-final,clippy-
 Claude's concurrent detector commit `0018089` remains outside this increment. Whole-application,
 physical-device, operational failover, cut/revisit continuation and performance gates stay open.
 
+**Evidence ledger — 2026-10-04, increment 12:** the legacy `MapView.live_progress` marker now
+uses receiver admission and monotonic cut selection. `LiveScan::progress` reports acceptance;
+rejected older-volume, out-of-bounds or non-finite metadata cannot update inventory, freshness or
+recovery. Raw acquisition uses the same gate. Valid late cuts still fill gaps without rewinding the
+marker, and duplicates do not renew its animation receipt. Accepted changed metadata, volume/VCP
+changes and existing supplemental-cut resets update the marker/time together. The generation/site
+filters remain ahead of delivery. Values, source clocks, strict masks and detector inputs remain
+unchanged. This fixes the marker seam identified in increment 11; it does not establish unique
+native revisit identity. See [progress admission](docs/certification/m1.1/progress-admission.md).
+
+**Increment 12 verification:** final shared-tree Windows checks passed **2,189 workspace tests**,
+zero failures and 142 explicit ignores across 28 suites, workspace/all-target Clippy with warnings
+denied, and a fresh WASM library check with existing browser warnings. The three new actual-pane/
+receiver delivery controls passed. [Durable verification](docs/certification/m1.1/progress-admission/verification.json)
+records commands, exits, counts, source hashes and log hashes. The stale WASM package fingerprint
+was refreshed without removing native/data caches. Local logs are
+`target/parity-review/m1.1/progress-admission/{workspace-final,clippy-final,wasm-final}.log`.
+No layout/painter changed. Application/device, native revisit identity, operational failover and
+performance gates remain open; Claude's detector work remains outside this increment.
+
 **Remaining/next increment:** canonical cut/revisit continuation and provider-loss/polling/restoration
 controls precede replacing inferred strict boundaries. Arrival-ordered relay CutTracker IDs still
 require stronger native chronology and operational lifecycle evidence. Source message holes
@@ -504,10 +524,10 @@ remains conservative; contributor optimization, full viewport interaction, Andro
 completed GPU timing and sustained-load certification remain open. Independent local-product
 textures per pane remain M5.1.
 
-**Next agent handoff:** first unify the legacy `MapView.live_progress` marker with
-`LiveScan::progress` admission: `data_poll` currently assigns the marker before the receiver rejects
-older/invalid metadata. Retain the immutable frame receipt and avoid renewing stale animation.
-Then inspect `LiveScan::capture_acquisition`, `Volume::apply_live_captured`,
+**Next agent handoff:** establish deterministic provider-loss/polling/preferred-tier restoration
+through the application lifecycle. Inspect the global `last_stream_attempt` gate after a stream ends:
+a subsequent provider/site change with no live handle can inherit the old context's retry delay.
+Retain admitted marker/receipt ownership, then inspect `LiveScan::capture_acquisition`, `Volume::apply_live_captured`,
 `wxdata::live_pass`, `wxdata::live_sequence`, direct stream lifecycle and relay merge controls.
 Preserve immutable accepted receipts and plain-moment row writers across every result key.
 Completed/archive/reloaded replay inputs still have unavailable progressive associations.

@@ -8,6 +8,15 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: scan progress markers cannot rewind ahead of receipt validation
+
+The sweep bar and follow-sweep marker now use the receiver's admitted cut selection. Older
+source-volume metadata and malformed progress cannot replace a current marker or renew its
+animation. Valid delayed cuts still fill acquisition inventory gaps; duplicate metadata keeps
+the original animation receipt time. Admitted volume/VCP changes and supplemental cut resets
+continue to start the next observed motion. Non-finite geometry is rejected before freshness,
+recovery or raw receipt state changes. Radar gates, source clocks and detector inputs are unchanged.
+
 ### Fixed: source volume rollover and visible live recovery reasons
 
 Live acquisition now admits each source volume by its radar and declared start clock before

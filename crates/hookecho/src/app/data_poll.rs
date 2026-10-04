@@ -247,9 +247,7 @@ impl HookEchoApp {
                     }
                 }
                 DataMsg::LiveProgress { view, progress, .. } => {
-                    self.views[view].live_progress = Some(progress);
-                    self.views[view].live_progress_at = Some(Instant::now());
-                    self.views[view].live_scan.progress(progress, Utc::now());
+                    self.views[view].observe_live_progress(progress, Utc::now(), Instant::now());
                 }
                 DataMsg::LiveEnded { .. } => unreachable!("handled above"),
             }

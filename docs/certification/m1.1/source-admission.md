@@ -91,6 +91,10 @@ progress delivery accurately; it does not alter the behaviors covered by the ful
 
 ## Open gates and next work
 
+Follow-up — 2026-10-04: [increment 12](progress-admission.md) closes the legacy marker admission
+seam identified in this increment's original handoff below. Its source/capture manifests remain
+historical evidence for increment 11.
+
 Canonical cut/revisit continuation, source/emitter epoch negotiation, preferred-source restoration,
 persisted progressive replay and actual failure-domain evidence remain open. Arrival-ordered relay
 cut IDs cannot substitute for verified native cut chronology. Strict masks still use the established

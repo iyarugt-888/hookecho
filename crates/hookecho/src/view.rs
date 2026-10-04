@@ -1063,6 +1063,24 @@ impl MapView {
         }
     }
 
+    /// The animation and inventory share admission and monotonic cut selection. Late valid
+    /// metadata still fills inventory; duplicate/rejected input cannot renew an old animation.
+    pub(crate) fn observe_live_progress(
+        &mut self,
+        progress: wxdata::live::ScanProgress,
+        received: DateTime<Utc>,
+        receipt: Instant,
+    ) {
+        if !self.live_scan.progress(progress, received) {
+            return;
+        }
+        let marker = self.live_scan.progress;
+        if self.live_progress != marker {
+            self.live_progress = marker;
+            self.live_progress_at = marker.map(|_| receipt);
+        }
+    }
+
     pub fn new(site: Option<String>, camera: crate::render::mercator::Camera) -> Self {
         Self {
             camera,
@@ -1272,6 +1290,124 @@ impl MapView {
 
 #[cfg(test)]
 mod tests {
+    fn marker_progress(cut: usize, chunk: usize, start: i64) -> wxdata::live::ScanProgress {
+        wxdata::live::ScanProgress {
+            volume_start_ms: Some(start),
+            vcp_number: Some(212),
+            cut_kind: wxdata::live::CutKind::Standard,
+            elevation_number: cut,
+            total_elevations: 3,
+            elevation_angle_deg: 0.5,
+            azimuth_rate_dps: 18.0,
+            azimuth_start_deg: ((chunk - 1) * 120) as f64,
+            azimuth_end_deg: (chunk * 120) as f64,
+            chunk_index: chunk,
+            chunks_in_sweep: 3,
+        }
+    }
+
+    #[test]
+    fn live_marker_admission_preserves_late_inventory_fills_and_does_not_renew_old_animation() {
+        use super::*;
+        let mut view = MapView::new(
+            Some("KTLX".into()),
+            crate::render::mercator::Camera::at_lonlat(-97.0, 35.0, 8.0),
+        );
+        view.live_scan.reset(Some("KTLX".into()));
+        let clock = Utc::now();
+        let stamp = Instant::now();
+        view.observe_live_progress(marker_progress(1, 1, 1000), clock, stamp);
+        view.observe_live_progress(marker_progress(1, 3, 1000), clock, stamp);
+        assert_eq!(view.live_scan.unobserved_chunks(), vec![2]);
+        view.observe_live_progress(marker_progress(2, 1, 1000), clock, stamp);
+        let marker = view.live_progress;
+        let newer = stamp + std::time::Duration::from_secs(20);
+        view.observe_live_progress(
+            marker_progress(1, 2, 1000),
+            clock + chrono::Duration::seconds(20),
+            newer,
+        );
+        assert_eq!(
+            view.live_scan.acquisition_inventory().unwrap().cuts[0].received_chunks,
+            3
+        );
+        assert_eq!(
+            view.live_progress, marker,
+            "late cut fills inventory without rewinding marker"
+        );
+        assert_eq!(view.live_progress_at, Some(stamp));
+        view.observe_live_progress(
+            marker_progress(2, 1, 1000),
+            clock + chrono::Duration::seconds(20),
+            newer,
+        );
+        assert_eq!(
+            view.live_progress_at,
+            Some(stamp),
+            "duplicate metadata is not new motion"
+        );
+        let inventory = view.live_scan.acquisition_inventory();
+        let received = view.live_scan.last_received;
+        for invalid in [
+            marker_progress(3, 1, 0),
+            wxdata::live::ScanProgress {
+                total_elevations: 65,
+                ..marker_progress(3, 1, 1000)
+            },
+            wxdata::live::ScanProgress {
+                elevation_angle_deg: f64::NAN,
+                ..marker_progress(3, 1, 1000)
+            },
+            wxdata::live::ScanProgress {
+                azimuth_end_deg: f64::INFINITY,
+                ..marker_progress(3, 1, 1000)
+            },
+        ] {
+            view.observe_live_progress(invalid, clock + chrono::Duration::seconds(30), newer);
+            assert_eq!(view.live_progress, marker);
+            assert_eq!(view.live_progress_at, Some(stamp));
+            assert_eq!(view.live_scan.acquisition_inventory(), inventory);
+            assert_eq!(view.live_scan.last_received, received);
+        }
+        let next = marker_progress(1, 1, 2000);
+        view.observe_live_progress(next, clock + chrono::Duration::seconds(40), newer);
+        assert_eq!(view.live_progress, Some(next));
+        assert_eq!(view.live_progress_at, Some(newer));
+        assert_eq!(view.live_scan.progression(clock).unwrap().observed_cuts, 1);
+    }
+
+    #[test]
+    fn live_marker_follows_admitted_vcp_changes_and_supplemental_cut_resets() {
+        use super::*;
+        let mut view = MapView::new(
+            Some("KTLX".into()),
+            crate::render::mercator::Camera::at_lonlat(-97.0, 35.0, 8.0),
+        );
+        view.live_scan.reset(Some("KTLX".into()));
+        let clock = Utc::now();
+        let stamp = Instant::now();
+        let later = stamp + std::time::Duration::from_secs(10);
+        view.observe_live_progress(marker_progress(1, 3, 1000), clock, stamp);
+        let sails = wxdata::live::ScanProgress {
+            cut_kind: wxdata::live::CutKind::Sails,
+            ..marker_progress(1, 1, 1000)
+        };
+        view.observe_live_progress(sails, clock, later);
+        assert_eq!(view.live_progress, Some(sails));
+        assert_eq!(view.live_progress_at, Some(later));
+        let changed_vcp = wxdata::live::ScanProgress {
+            vcp_number: Some(35),
+            ..marker_progress(1, 1, 1000)
+        };
+        view.observe_live_progress(changed_vcp, clock, stamp);
+        assert_eq!(view.live_progress, Some(changed_vcp));
+        assert_eq!(
+            view.live_scan.progression(clock).unwrap().vcp_number,
+            Some(35)
+        );
+        assert_eq!(view.live_scan.progression(clock).unwrap().observed_cuts, 1);
+    }
+
     #[test]
     fn each_smooth_representation_resamples_its_own_moment() {
         use super::Map3dRepresentation as R;

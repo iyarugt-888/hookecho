@@ -1,0 +1,43 @@
+{
+  "workspace-final": {
+    "command": "cargo test --workspace -- --test-threads=4",
+    "exit_code": 0,
+    "log_sha256": "9288c7e4a770c3221737b1fc9cb2a5af3df40ae1c15671e309c571fedf185ca7",
+    "log_bytes": 192683,
+    "suites": 28,
+    "passed": 2189,
+    "failed": 0,
+    "ignored": 142
+  },
+  "clippy-final": {
+    "command": "cargo clippy --workspace --all-targets -- -D warnings",
+    "exit_code": 0,
+    "log_sha256": "1c3f9952c7082bf0fa2d972d2407c51469fbeebade46cf76f893d2754647af8f",
+    "log_bytes": 448
+  },
+  "wasm-final": {
+    "command": "CARGO_INCREMENTAL=0 RUSTFLAGS=--cfg getrandom_backend=\"wasm_js\" cargo check --target wasm32-unknown-unknown -p hookecho --lib",
+    "exit_code": 0,
+    "log_sha256": "14092e50d8266dd93e6bb4b7a1c318cc8ae8067bf4cb83e2b8781795bc6bc151",
+    "log_bytes": 3516
+  },
+  "implementation_baseline": "29b8dfa3f04e7630bae3250ae0a61e3680b15631",
+  "source_sha256": {
+    "crates/hookecho/src/app/data_poll.rs": "434d38d2fdb707f4bc28d4e0f34a21130a84c0d5543572174be6ca952d78bc7f",
+    "crates/hookecho/src/live_scan.rs": "c0c9dcbeb268606ae843fc62f32c221fd713ce98bb6c8731df608fb5048d02bb",
+    "crates/hookecho/src/view.rs": "f2272daf5bda5b49aefc03c1847c012019a46ec3f7a70fd3e1a9e5aa2b03a97c",
+    "crates/hookecho/src/app/radar_feed.rs": "d2f5e36367a3fb7729da5c08e7a0a554b75825eb08999a51dca2e75f7f240d93",
+    "crates/hookecho/src/app.rs": "94d9b548d85844e0e9561b142d97828af184ca2e254242f575ebca449e3d7d2a",
+    "crates/wxdata/src/live.rs": "0706ec7be04a843c5a1d4b55f73509a1f43f6f296c9e785e2654627f65a737b3",
+    "crates/wxdata/src/continuation.rs": "c58a9163c47fcfea12eafcf091829e9734d9a28d97737ffd03df92ccfd597195",
+    "crates/wxdata/src/clock.rs": "546b5a7a8d97c578a526c1b1922442c38bc7da5264fd789b9d369a0e530348c7"
+  },
+  "cache_refresh": {
+    "initial_wasm_exit": 101,
+    "initial_log_sha256": "0a1306701c40c4489c27f1c39f25cadd382dbf9fce72a8170ebc3b11c1260f2e",
+    "action": "Removed only the checked 16-byte wxdata-f02a1823d2fc3fe0/lib-wxdata WASM fingerprint to force fresh metadata; native/data caches preserved."
+  },
+  "scope": "Windows native static/unit delivery controls using the actual MapView/receiver helper and WASM compile on the shared working tree. No painter/layout change. Full application, physical device, operational continuation and performance gates open; detector edits excluded.",
+  "shared_head_at_verification": "e79762ff35c1f2721a6efc434aec67548a1dae7d",
+  "verified_at_utc": "2026-10-04T15:23:36.711439+00:00"
+}
