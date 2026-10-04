@@ -829,6 +829,11 @@ impl HookEchoApp {
             } else {
                 "\u{27f3}"
             };
+            // One banner per tornado: a rise (Likely to Debris, or to Confirmed once the reports
+            // load) replaces the card it raised before instead of stacking a second one about the
+            // same storm.
+            self.warning_banners
+                .retain(|(event, _, _)| !is_tornado_detection_banner(event));
             self.banner(
                 format!("{mark} {}", t.tier.label()),
                 format!("{where_} ({})", detail.join(", ")),
@@ -844,6 +849,19 @@ impl HookEchoApp {
             }
         }
     }
+}
+
+/// Whether a banner is one Tornado detection raised: "⚠ Tornado debris", "⟳ Tornado likely" and
+/// so on, as `tornado_alert` titles them.
+pub(crate) fn is_tornado_detection_banner(event: &str) -> bool {
+    use wxdata::tornado_id::Tier;
+    [Tier::Possible, Tier::Likely, Tier::Debris, Tier::Confirmed]
+        .iter()
+        .any(|tier| {
+            ["\u{26a0}", "\u{27f3}"]
+                .iter()
+                .any(|mark| event == format!("{mark} {}", tier.label()))
+        })
 }
 
 /// What Tornado detection alerts on, given the tier it last alerted on (`previous`) and this
@@ -875,7 +893,17 @@ pub(crate) fn tornado_alert_decision(
 
 #[cfg(test)]
 mod tornado_alert_tests {
-    use super::tornado_alert_decision;
+    use super::{is_tornado_detection_banner, tornado_alert_decision};
+
+    #[test]
+    fn a_rise_replaces_the_tornado_banner_and_leaves_the_others() {
+        assert!(is_tornado_detection_banner("\u{26a0} Tornado debris"));
+        assert!(is_tornado_detection_banner("\u{26a0} Tornado confirmed"));
+        assert!(is_tornado_detection_banner("\u{27f3} Tornado likely"));
+        // An NWS warning banner, or anything else, is not one.
+        assert!(!is_tornado_detection_banner("Tornado Warning"));
+        assert!(!is_tornado_detection_banner("\u{26a0} Tornado Emergency"));
+    }
     use wxdata::tornado_id::{Tier, TornadoId};
 
     fn id(tier: Tier, score: f32) -> TornadoId {
