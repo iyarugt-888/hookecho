@@ -87,6 +87,23 @@ for that stage. The map moves to the flooding, in the flood category's color. Th
 stage and quotes the forecast office's impact statement. When the stage is above everything
 mapped, the card says the shading is the most NOAA maps there.
 
+### Changed: Tornado detection is one layer, with far fewer false markers
+
+**Tornado detection** (Layers → Severe) replaces the separate Debris detection (TDS), Rotation
+couplets and Tornado ID layers; saved workspaces and scenes that had any of them turn it on. It
+draws one marker per tornado: rotation columns within 15 km of each other fold into the
+strongest, whose hover says how many it absorbed, and the rotation and debris detections behind
+it open from the marker.
+It alerts once when a marker reaches *likely* or higher, and again only if it rises. The fused
+pipeline makes the verdicts; the original stands in while it computes. *Possible* now also marks
+strong low-level rotation without debris, 40 km or more from the radar (bar in Layer options →
+Detectors, 0.018 s⁻¹ by default, or off). Every marker needs a storm core (≥ 40 dBZ within 5 km)
+unless a tornado report confirms it, and a *possible* marker within 2 km of a wind turbine that
+stood in the scan's year is not drawn (USGS U.S. Wind Turbine Database). It does not run on TDWR
+sites. On 139 random severe-weather windows it found a third of the tornadoes at 0.6 false
+*possible* markers per radar-hour and none at *likely*; the original Tornado ID found 16% at 3.5
+and 0.9. Scores remain evidence, not calibrated probabilities.
+
 ### Added: where each Tornado ID verdict came from
 
 Tornado ID hovers now say which pipeline made a verdict and at which version. The pipeline is
