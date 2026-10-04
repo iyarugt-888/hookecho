@@ -217,8 +217,9 @@ fn opt(v: Option<f32>, fmt: impl Fn(f32) -> String) -> String {
 
 impl Analysed {
     /// This circulation as a Tornado ID verdict, with what people said about it. `None` when its
-    /// evidence is under [`MIN_SCORE`] and no tornado report confirms it: an observed warning
-    /// raises the tier of a detection but cannot make one (its polygon is a county wide).
+    /// evidence is under [`MIN_SCORE`], or it sits in no convective core, and no tornado report
+    /// confirms it: an observed warning raises the tier of a detection but cannot make one (its
+    /// polygon is a county wide).
     pub fn tornado_id(&self, confirmation: &Confirmation) -> Option<TornadoId> {
         self.tornado_id_with(confirmation, None)
     }
@@ -260,7 +261,13 @@ impl Analysed {
                     // false markers on ordinary severe days (146 to 71 over 95 radar-hours).
                     && c.echo.is_some()
             });
-        if score < MIN_SCORE && confirmation.report.is_none() && !lifted {
+        // Every verdict sits in a convective core (`echo`: a >= 40 dBZ object within 5 km) unless a
+        // tornado report confirms it. Shear with no core is stratiform rain, synoptic wind or
+        // clutter: on 139 random severe-weather windows the rule removed 61 of 134 false markers at
+        // Possible and all 5 at Likely, on the 65-event corpus 23 of 172 and 6 of 35, and it lost
+        // no tornado on any set (detectionplan.md).
+        let coreless = c.echo.is_none();
+        if confirmation.report.is_none() && (coreless || (score < MIN_SCORE && !lifted)) {
             return None;
         }
         let tier = if confirmation.level().is_some() {
@@ -500,7 +507,11 @@ mod tests {
                 integrated_azshear: 0.011,
                 lean_km_per_km: None,
                 lean_bearing_deg: None,
-                echo: None,
+                echo: Some(crate::storm_mode::EchoShape {
+                    length_km: 20.0,
+                    width_km: 12.0,
+                    area_km2: 180.0,
+                }),
                 near_flow: None,
                 members,
             },
@@ -731,6 +742,22 @@ mod tests {
             report: None,
         };
         assert!(identify(&alone, warned).is_empty());
+    }
+
+    #[test]
+    fn a_circulation_with_no_convective_core_is_no_verdict_unless_reported() {
+        // Strong, debris-backed shear, but no >= 40 dBZ core within 5 km: stratiform rain,
+        // synoptic wind or clutter. No marker, at any score; a tornado report still makes one.
+        let mut t = tracked(3);
+        t.column.echo = None;
+        let a = analyse(vec![t], &[debris_ball(0.5, 0.5)], &[]);
+        assert!(a[0].fused.score >= MIN_SCORE, "{}", a[0].fused.score);
+        assert!(identify(&a, |_, _| Confirmation::default()).is_empty());
+        let report = |_: f64, _: f64| Confirmation {
+            observed_warning: false,
+            report: Some((2.0, 3)),
+        };
+        assert_eq!(identify(&a, report)[0].tier, Tier::Confirmed);
     }
 
     #[test]

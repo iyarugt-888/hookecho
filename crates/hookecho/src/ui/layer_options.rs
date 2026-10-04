@@ -1303,8 +1303,8 @@ pub(crate) fn tornado_id_controls(
              Tornado possible once its low-level shear reaches this, though its evidence score \
              is lower. Possible raises no alert. Starts at 0.018: on a random sample of ordinary \
              severe days it found a third of the tornadoes, against a tenth without it, at about \
-             two false Possible markers per radar-hour, fewer than the original Tornado ID's \
-             three and a half.",
+             one and a half false Possible markers per radar-hour, fewer than half the original \
+             Tornado ID's three and a half.",
         );
     }
     ui.label(

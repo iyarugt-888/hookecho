@@ -433,6 +433,16 @@ Primary code areas:
 
     With it, the fused Possible tier on ordinary severe days runs at 2.16 false markers per radar-hour with POD 0.33, against the original's 3.51 and 0.16.
 
+- **Every fused verdict needs a storm core** (`Analysed::tornado_id_with`). The same rule, applied to all verdicts rather than only lifted ones: no marker without a ≥ 40 dBZ object within 5 km (`column.echo`), unless a tornado report confirms it. As a weighted feature (`f_echo_aspect`, "no core") it never improved the Likely tier held out, because almost every tornado has a core and the fusion already scores most coreless shear low. As a gate it removes what remains. Measured offline from the exported `f_*` columns, then confirmed in code:
+
+    | Set | Tornadoes found | False at ≥ 0.3 | False at ≥ 0.6 |
+    |---|---|---|---|
+    | Random 139 | unchanged | 134 → 73 | 5 → 0 |
+    | Corpus 65 | unchanged (137 at ≥ 0.3, 85 at ≥ 0.6) | 172 → 149 | 35 → 29 |
+    | Stratiform | — | 6 → 4 | — |
+
+    On ordinary severe days the fused tier now runs at 0.77 false Possible markers per radar-hour (POD 0.09) without the rotation-only lift, and 1.52 with it (POD 0.33). Likely raised no false marker in 95 radar-hours. The original Tornado ID: 3.51 and 0.89. The four stratiform markers left each have a ≥ 40 dBZ object within 5 km; whether that is bright band or embedded convection is not yet examined.
+
 ### Where the detection stands (65 events)
 
 - **Promoted.** The fused Tornado ID (fusion-3) is the app's default; the original is selectable. On every held-out test since promotion it has found as many tornadoes as the original or more, at a far lower false-alarm ratio. On round three's unseen events at matched false-alarm rates: POD 0.29, FAR 0.21 against 0.15, 0.64. On round five's unseen supercell days at Likely: POD 0.28, FAR 0.11 against 0.26, 0.62. On non-tornadic lines (round four): 0 false detections against 23. On the hail storms, at Likely: 2 against 25.
