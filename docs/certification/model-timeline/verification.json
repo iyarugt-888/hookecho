@@ -1,0 +1,108 @@
+{
+  "verified_at_utc": "2026-10-04T20:33:47.868860+00:00",
+  "implementation_baseline": "aa41602adaaf59878871e2f9bdd98211cf3c186c",
+  "shared_head_at_verification": "aa41602adaaf59878871e2f9bdd98211cf3c186c",
+  "checks": {
+    "workspace": {
+      "command": "cargo test --workspace -- --test-threads=4",
+      "exit_code": 0,
+      "log_sha256": "ae87757c97842df5cbc04b84d010f298645d03e7716ee2e7dac934014d641b98",
+      "log_bytes": 195733,
+      "suites": 28,
+      "passed": 2218,
+      "failed": 0,
+      "ignored": 143
+    },
+    "clippy": {
+      "command": "cargo clippy --workspace --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log_sha256": "e65b102ff2cd3588c032331544a44faf973866e82d9fce6c8252af93c769adc5",
+      "log_bytes": 204
+    },
+    "wasm": {
+      "command": "CARGO_INCREMENTAL=0 RUSTFLAGS=--cfg getrandom_backend=\"wasm_js\" cargo check --target wasm32-unknown-unknown -p hookecho --lib",
+      "exit_code": 0,
+      "log_sha256": "d774e913469ec0afabf50d683d93c399472c5bad45c362c6b033179cf2d9717c",
+      "log_bytes": 3440
+    },
+    "gpu": {
+      "command": "cargo test --workspace gpu_model_timeline_snapshots -- --ignored --test-threads=1",
+      "exit_code": 0,
+      "log_sha256": "fb4c0b26b64977fb30163265814c1074f84e4fec07040bfde02631d3aa58ecea",
+      "log_bytes": 5338
+    }
+  },
+  "controls": [
+    "app::models::tests::model_timeline_activation_retires_radar_tail_without_needing_a_model_slider",
+    "app::models::tests::model_timeline_playback_waits_for_matching_source_run_and_lead",
+    "timeline::tests::model_timeline_playback_holds_loading_steps_native_leads_and_wraps",
+    "model_browser::tests::model_timeline_positions_follow_all_models_and_run_specific_ranges",
+    "app::chrome::model_timeline::tests::model_timeline_hour_entry_round_trips_native_and_decimal_leads",
+    "app::chrome::model_timeline::tests::model_timeline_clock_discloses_requested_and_loaded_times_separately"
+  ],
+  "source_sha256": {
+    "crates/hookecho/src/app.rs": "c3988d9179efd948476a7773103244c2ae5d67c20621d5c45afbfbe025cbc463",
+    "crates/hookecho/src/app/models.rs": "ea0695be4309a37875054a79e201985ca17738679c7ba51e46f707edd1e0034b",
+    "crates/hookecho/src/app/palette_apply.rs": "701be2254d1e89ef282097c3a0c4a66cfcd31f599b38e1ef496be21b18c806d8",
+    "crates/hookecho/src/app/pane_sync.rs": "1ac5a302eb0f6aae32449278d54380a55b7bbb4f445c079ea16fe17e7153070e",
+    "crates/hookecho/src/app/radar_feed.rs": "7ac11e51fad5e0584e4af878daf62a68dce341fef253f579da61593ef5d7e5c7",
+    "crates/hookecho/src/app/chrome/mod.rs": "98af039fe678c4f8ea69b2472234f5da655bf0bb03aff4dcf7031ec0af73e829",
+    "crates/hookecho/src/app/chrome/model_timeline.rs": "79d31ad8933cb4ff91abbea05afb468739288d3ce0fab65c8015e19dac35c6d5",
+    "crates/hookecho/src/app/chrome/dock/timeline.rs": "578603c07a38d839744f7ae8bb748e153b3adc7db49b16e0d4689c35fc9b618a",
+    "crates/hookecho/src/app/chrome/scrubber.rs": "58655c76ec8d56626ef326fd2b42885023653757fbf4cdffd229250568aa52b1",
+    "crates/hookecho/src/model_browser.rs": "dbe142814aef5f785057401f408b97f999745de9d691e955451647aad3446679",
+    "crates/hookecho/src/timeline.rs": "bef79e386912638dd550b74a4720c569ba2a7489fcd7e92809f4b3cfd71b7e85",
+    "crates/hookecho/src/view.rs": "4ce38d3fde788c3f3adb869d8b6a5f39e2e1824eb9b277a6afad194c136a18b6"
+  },
+  "captures": {
+    "target/parity-review/model-timeline/ui/subhourly-320.png": {
+      "sha256": "6dd31c66ac34841653dffa29d33814b22924f0ea8a4af428570ac47ee3a3ef05",
+      "bytes": 15996,
+      "width": 320,
+      "height": 180
+    },
+    "target/parity-review/model-timeline/ui/subhourly-1000.png": {
+      "sha256": "8e542fe1f61e913dd7f99aa43499b6b2ed61a4a0d1207354379024d6459f7067",
+      "bytes": 19143,
+      "width": 1000,
+      "height": 148
+    },
+    "target/parity-review/model-timeline/ui/regional-320.png": {
+      "sha256": "b11647e64742eec83b78bbd9028c3c6bb91219374614375163b9401b608f71c1",
+      "bytes": 16394,
+      "width": 320,
+      "height": 180
+    },
+    "target/parity-review/model-timeline/ui/regional-1000.png": {
+      "sha256": "08a14e85145e70fe7c734dbc0d2989da0b913f56394b967b0af22d3df2f12a7c",
+      "bytes": 19552,
+      "width": 1000,
+      "height": 148
+    },
+    "target/parity-review/model-timeline/ui/global-320.png": {
+      "sha256": "52265421bb2e5d1a9386d6372df17b26df000e5a4d2744cc547ea3659cdf0e8a",
+      "bytes": 19708,
+      "width": 320,
+      "height": 180
+    },
+    "target/parity-review/model-timeline/ui/global-1000.png": {
+      "sha256": "1d897559f96308e54a1a2ba69213a8be8e4b99bf9d1cf3193a941cccfd82c18a",
+      "bytes": 22751,
+      "width": 1000,
+      "height": 148
+    },
+    "target/parity-review/model-timeline/ui/analysis-320.png": {
+      "sha256": "5cb25739b5dffd1bf88432f6b8cdd8e43c907f659b34c59fd936c53499566a78",
+      "bytes": 16216,
+      "width": 320,
+      "height": 180
+    },
+    "target/parity-review/model-timeline/ui/analysis-1000.png": {
+      "sha256": "c32e064a35aa1ad87326e7e199fd5e66c443067b1f9e5ffa8887daa97f673207",
+      "bytes": 19482,
+      "width": 1000,
+      "height": 148
+    }
+  },
+  "scope": "Production model activation/playback/catalogue/clock controls and offscreen forecast rows using application GPU renderer/fonts. Complete application/provider sessions, browser runtime, physical devices and independent model/run groups remain open. Tornado detection excluded."
+}

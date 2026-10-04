@@ -15,6 +15,10 @@ impl HookEchoApp {
     /// drives the same `crate::timeline::Timeline` state (`playhead`/`following`/`playing`) —
     /// only the paint/interaction surface differs.
     pub(crate) fn scrubber(&mut self, ctx: &egui::Context) {
+        if self.model_timeline_active() {
+            self.floating_model_timeline(ctx);
+            return;
+        }
         match self.settings.timeline_style {
             crate::settings::TimelineStyle::Default => self.scrubber_default(ctx),
             crate::settings::TimelineStyle::Wsv3 => self.scrubber_wsv3_style(ctx),

@@ -126,6 +126,20 @@ pub struct LeadRange {
 }
 
 impl LeadRange {
+    /// Published forecast positions, including a model's change to coarser output. UI tracks
+    /// scrub these positions rather than manufacturing unsupported hours between them.
+    pub fn positions(self) -> Vec<u16> {
+        let mut positions = vec![self.min];
+        while let Some(&last) = positions.last() {
+            let next = self.neighbour(last, true);
+            if next <= last {
+                break;
+            }
+            positions.push(next);
+        }
+        positions
+    }
+
     const fn fixed(min: u16, max: u16, step: u16) -> Self {
         Self {
             min,
@@ -780,6 +794,30 @@ pub fn format_lead(minutes: u16) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn model_timeline_positions_follow_all_models_and_run_specific_ranges() {
+        use super::*;
+        use chrono::TimeZone;
+        let now = Utc.with_ymd_and_hms(2026, 10, 4, 21, 0, 0).unwrap();
+        for model in BModel::ALL {
+            for hour in [12, 18, 19] {
+                let run = Utc.with_ymd_and_hms(2026, 10, 4, hour, 0, 0).unwrap();
+                let range = model.leads_for(Some(run), now);
+                let positions = range.positions();
+                assert_eq!(positions[0], range.min);
+                assert_eq!(*positions.last().unwrap(), range.max);
+                assert!(positions
+                    .windows(2)
+                    .all(|pair| pair[0] < pair[1] && range.neighbour(pair[0], true) == pair[1]));
+                assert!(positions.iter().all(|lead| range.clamp(*lead) == *lead));
+            }
+        }
+        assert!(BModel::Hrrr15.leads().positions().contains(&75));
+        assert!(!BModel::Nam.leads().positions().contains(&(37 * 60)));
+        assert!(!BModel::GefsMean.leads().positions().contains(&(243 * 60)));
+        assert_eq!(BModel::Rtma.leads().positions(), vec![0]);
+    }
+
     use super::*;
 
     #[test]

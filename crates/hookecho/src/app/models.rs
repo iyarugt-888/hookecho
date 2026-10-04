@@ -5,6 +5,68 @@
 use super::*;
 
 impl HookEchoApp {
+    pub(crate) fn model_timeline_active(&self) -> bool {
+        model_timeline_active(&self.views[self.active], self.model_sel)
+    }
+
+    pub(crate) fn activate_model_timeline(&mut self) {
+        if !self.views[self.active]
+            .fields_on
+            .contains(&self.model_sel.layer())
+        {
+            return;
+        }
+        activate_model_timeline(&mut self.views[self.active]);
+        // The selected product now owns its layer, so the legacy radar forecast tail must not
+        // clear it on its next observed frame or replace the selected model with reflectivity.
+        self.hrrr_by_timeline = false;
+    }
+
+    pub(crate) fn radar_timeline(&mut self) {
+        let playback = &mut self.views[self.active].model_playback;
+        playback.active = false;
+        playback.pause();
+    }
+
+    pub(crate) fn toggle_model_playback(&mut self) {
+        if self.model_sel.model.has_lead() {
+            self.views[self.active].model_playback.toggle();
+        }
+    }
+
+    pub(crate) fn drive_model_timeline(&mut self, ctx: &egui::Context) {
+        if !self.model_timeline_active() {
+            self.views[self.active].model_playback.pause();
+            return;
+        }
+        let range = self.model_sel.model.leads_for(self.model_run, Utc::now());
+        let lead = range.clamp(self.model_lead_min());
+        if lead != self.model_lead_min() {
+            // Following latest can move from an extended cycle to a shorter one.
+            self.write_model_lead_min(lead);
+            self.views[self.active].model_playback.pause();
+        }
+        let ready = crate::platform::activity::is_active()
+            && self
+                .fields
+                .get(&self.model_sel.layer())
+                .and_then(|state| state.stamp.as_ref())
+                .is_some_and(|stamp| {
+                    model_frame_matches(stamp, self.model_sel, lead, self.model_run)
+                });
+        if let Some(next) =
+            self.views[self.active]
+                .model_playback
+                .tick(lead, range, ready, Instant::now())
+        {
+            // Playback advances without the user-scrub path's pause.
+            self.write_model_lead_min(next);
+        }
+        if self.views[self.active].model_playback.playing {
+            ctx.request_repaint_after(self.views[self.active].model_playback.interval());
+        }
+    }
+
     /// Everything the model controls need to draw themselves, whichever surface hosts them.
     pub(crate) fn model_panel_input(&self) -> crate::ui::model_panel::Input {
         let now = Utc::now();
@@ -61,6 +123,11 @@ impl HookEchoApp {
 
     /// Scrub the selected model to `minutes`, snapped to that model's own range and steps.
     pub(crate) fn set_model_lead_min(&mut self, minutes: u16) {
+        self.write_model_lead_min(minutes);
+        self.activate_model_timeline();
+    }
+
+    fn write_model_lead_min(&mut self, minutes: u16) {
         use crate::model_browser::Engine;
         let m = self
             .model_sel
@@ -134,6 +201,7 @@ impl HookEchoApp {
             fields.remove(&prev.layer());
         }
         fields.insert(next.layer());
+        self.activate_model_timeline();
         let slug = next.slug();
         if self.settings.model_pick != slug {
             self.settings.model_pick = slug;
@@ -284,6 +352,38 @@ impl HookEchoApp {
     }
 }
 
+pub(super) fn model_timeline_active(view: &MapView, sel: crate::model_browser::Selection) -> bool {
+    view.model_playback.active && view.fields_on.contains(&sel.layer())
+}
+
+fn activate_model_timeline(view: &mut MapView) {
+    view.timeline.playing = false;
+    if view.timeline.forecast_hour().is_some() {
+        view.timeline.go_head();
+    }
+    view.model_playback.activate();
+}
+
+fn model_frame_matches(
+    stamp: &wxdata::field::DataStamp,
+    sel: crate::model_browser::Selection,
+    lead: u16,
+    run: Option<DateTime<Utc>>,
+) -> bool {
+    let source = match sel.model.engine() {
+        crate::model_browser::Engine::Regional(model) => model.label(),
+        crate::model_browser::Engine::Global(model) => model.label(),
+        _ => sel.model.label(),
+    };
+    if stamp.source_id != source {
+        return false;
+    }
+    stamp.run_time.is_some_and(|cycle| {
+        run.is_none_or(|selected| selected == cycle)
+            && stamp.valid_time == cycle + chrono::Duration::minutes(i64::from(lead))
+    })
+}
+
 /// The model run to read for a view scrubbed back to `target`: the newest cycle at or before it,
 /// so a historical radar event is never shown under today's model. `None` within the few hours a
 /// run takes to post, where the newest run is the right one anyway and the target's own may not
@@ -307,6 +407,92 @@ pub(crate) fn archive_run(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::model_browser::{BModel, Product, Selection};
+
+    #[test]
+    fn model_timeline_activation_retires_radar_tail_without_needing_a_model_slider() {
+        let mut view = MapView::new(
+            None,
+            crate::render::mercator::Camera::at_lonlat(-97.0, 35.0, 8.0),
+        );
+        let regional = Selection {
+            model: BModel::NamNest,
+            product: Product::Reflectivity,
+        };
+        view.fields_on.insert(regional.layer());
+        view.timeline.frames.push(wxdata::level2::Identifier::new(
+            "KTLX20260819_120000_V06".into(),
+        ));
+        view.timeline.playhead = 1;
+        view.timeline.playing = true;
+        assert_eq!(view.timeline.forecast_hour(), Some(1));
+        activate_model_timeline(&mut view);
+        assert!(model_timeline_active(&view, regional));
+        assert!(!view.timeline.playing);
+        assert_eq!(
+            view.timeline.forecast_hour(),
+            None,
+            "old tail cannot overwrite the model"
+        );
+        assert!(view.fields_on.contains(&regional.layer()));
+        let global = Selection {
+            model: BModel::Gfs,
+            product: Product::Temp2m,
+        };
+        view.fields_on.remove(&regional.layer());
+        view.fields_on.insert(global.layer());
+        activate_model_timeline(&mut view);
+        assert!(model_timeline_active(&view, global));
+        assert!(!model_timeline_active(&view, regional));
+        view.fields_on.remove(&global.layer());
+        assert!(!model_timeline_active(&view, global));
+        let other = MapView::new(
+            None,
+            crate::render::mercator::Camera::at_lonlat(-97.0, 35.0, 8.0),
+        );
+        assert!(
+            !model_timeline_active(&other, global),
+            "mode belongs to its pane"
+        );
+    }
+
+    #[test]
+    fn model_timeline_playback_waits_for_matching_source_run_and_lead() {
+        use chrono::TimeZone;
+        let run = Utc.with_ymd_and_hms(2026, 10, 4, 12, 0, 0).unwrap();
+        let sel = Selection {
+            model: BModel::NamNest,
+            product: Product::Reflectivity,
+        };
+        let mut stamp = wxdata::field::DataStamp {
+            source_id: "NAM 3 km nest".into(),
+            product_id: "Composite reflectivity".into(),
+            issue_time: None,
+            run_time: Some(run),
+            valid_time: run + chrono::Duration::hours(2),
+            received_time: run,
+            source_latency: None,
+            is_forecast: true,
+            is_derived: false,
+            quality: wxdata::field::QualitySummary::Unknown,
+            grid: None,
+        };
+        assert!(model_frame_matches(&stamp, sel, 120, Some(run)));
+        assert!(model_frame_matches(&stamp, sel, 120, None));
+        assert!(!model_frame_matches(&stamp, sel, 180, None));
+        assert!(!model_frame_matches(
+            &stamp,
+            sel,
+            120,
+            Some(run - chrono::Duration::hours(6))
+        ));
+        stamp.source_id = "HRRR".into();
+        assert!(!model_frame_matches(&stamp, sel, 120, None));
+        stamp.run_time = None;
+        assert!(!model_frame_matches(&stamp, sel, 120, None));
+    }
+
     #[test]
     fn a_past_event_reads_the_model_run_of_its_time() {
         use chrono::TimeZone;

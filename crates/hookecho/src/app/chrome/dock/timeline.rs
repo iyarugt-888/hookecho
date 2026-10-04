@@ -9,9 +9,9 @@ use egui::{FontId, Sense, Stroke};
 use egui_phosphor::regular as ph;
 
 /// The panel's height: the three rows and their margins.
-const TIMELINE_H: f32 = 122.0;
+const TIMELINE_H: f32 = 148.0;
 /// The phone's timeline: transport and state, the time and speed, then the track.
-pub(super) const PHONE_TIMELINE_H: f32 = 124.0;
+pub(super) const PHONE_TIMELINE_H: f32 = 148.0;
 /// Labels on the track closer than this would run into each other; the later one is dropped.
 const HOUR_LABEL_GAP: f32 = 52.0;
 
@@ -76,6 +76,21 @@ impl HookEchoApp {
             return;
         }
         let t = self.ws_tokens();
+        if self.model_timeline_active() {
+            egui::Panel::bottom("dock_timeline")
+                .exact_size(if phone { 180.0 } else { TIMELINE_H })
+                .resizable(false)
+                .frame(ws::panel_frame(&t).inner_margin(egui::Margin::symmetric(12, 6)))
+                .show(root, |ui| {
+                    ws::style_scope(ui, &t);
+                    self.model_timeline_ui(ui, phone);
+                });
+            return;
+        }
+        let model_available = self.views[self.active]
+            .fields_on
+            .contains(&self.model_sel.layer());
+        let mut use_model = false;
         let tz = self.active_tz();
         let site = self.views[self.active]
             .site
@@ -120,6 +135,13 @@ impl HookEchoApp {
             )
             .show(root, |ui| {
                 ws::style_scope(ui, &t);
+                ui.horizontal(|ui| {
+                    ui.selectable_label(true, "Radar").named("Using radar timeline");
+                    if ui.add_enabled(model_available, egui::Button::new(self.model_sel.model.label()))
+                        .named("Use model forecast timeline").clicked() {
+                        use_model = true;
+                    }
+                });
                 let tl = &mut self.views[self.active].timeline;
                 let slots = tl.slot_count();
                 let observed = tl.frames.len();
@@ -434,6 +456,9 @@ impl HookEchoApp {
             });
         if go_head {
             self.views[self.active].timeline.go_head();
+        }
+        if use_model {
+            self.activate_model_timeline();
         }
         if let Some(i) = pick_tilt {
             self.views[self.active].tilt = i;

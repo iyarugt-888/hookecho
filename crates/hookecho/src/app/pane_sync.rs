@@ -75,7 +75,7 @@ impl HookEchoApp {
         // Waits for two frames rather than starting on one, so the first thing the visitor sees
         // move is an actual loop and not a one-frame stutter. `backfill_loop_frames` is what
         // fetches the tail; once playing, ordinary prefetch takes over.
-        if self.autoplay_pending {
+        if self.autoplay_pending && !(idx == self.active && self.model_timeline_active()) {
             let tl = &self.views[idx].timeline;
             if tl.following && !tl.playing {
                 let window = tl.live_window.max(1);

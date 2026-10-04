@@ -9,6 +9,7 @@ impl HookEchoApp {
         use AppWindow as W;
         match action {
             PaletteAction::SetMoment(m, srv) => {
+                self.radar_timeline();
                 let v = &mut self.views[self.active];
                 v.moment = m;
                 if m == Moment::Velocity {
@@ -41,6 +42,7 @@ impl HookEchoApp {
                 }
             }
             PaletteAction::SeekTime(seconds) => {
+                self.radar_timeline();
                 if let Some(target) = chrono::DateTime::from_timestamp(seconds, 0) {
                     let view = &mut self.views[self.active];
                     let site = view.site.as_deref().unwrap_or_default();
@@ -102,6 +104,7 @@ impl HookEchoApp {
                 let model = self.model_sel.model;
                 let runs = model.runs_around(self.model_run, Utc::now(), model.run_list_len());
                 self.model_run = crate::model_browser::step_run(&runs, self.model_run, steps);
+                self.activate_model_timeline();
             }
             PaletteAction::StepModelLead(steps) => {
                 // Step along the model's own published leads, which are not evenly spaced for
@@ -298,7 +301,10 @@ impl HookEchoApp {
             PaletteAction::DockWindow(w) => self.dock.toggle(w),
             PaletteAction::Reload => self.trigger_reload(ctx),
             PaletteAction::InstantReplay => self.instant_replay(),
-            PaletteAction::GoLive => self.views[self.active].timeline.go_head(),
+            PaletteAction::GoLive => {
+                self.radar_timeline();
+                self.views[self.active].timeline.go_head();
+            }
             PaletteAction::Nav(step) => self.apply_nav(step, ctx),
             PaletteAction::CopyViewLink => {
                 let v = &self.views[self.active];
@@ -560,6 +566,12 @@ impl HookEchoApp {
                 self.panel_open = true;
                 self.show_alert_panel = false;
                 self.sidebar_focus_search = true;
+            }
+            A::StepBack | A::StepHourBack if self.model_timeline_active() => {
+                self.apply_palette(PaletteAction::StepModelLead(-1), ctx)
+            }
+            A::StepForward | A::StepHourForward if self.model_timeline_active() => {
+                self.apply_palette(PaletteAction::StepModelLead(1), ctx)
             }
             A::StepBack => self.views[self.active].timeline.step(-1),
             A::StepForward => self.views[self.active].timeline.step(1),

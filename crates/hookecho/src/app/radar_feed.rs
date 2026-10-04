@@ -111,6 +111,7 @@ impl HookEchoApp {
     pub(crate) fn apply_nav(&mut self, step: NavStep, ctx: &egui::Context) {
         match step.bindable() {
             Some(action) => self.apply_action(action, ctx),
+            None if self.model_timeline_active() => self.toggle_model_playback(),
             None => self.views[self.active].timeline.toggle_play(),
         }
     }

@@ -2984,6 +2984,9 @@ impl HookEchoApp {
     /// forecast tail enables HRRR at that forecast hour (and suppresses the observed radar for the
     /// scrubbed pane, done at draw time); scrubbing back to observed frames turns it off again.
     fn sync_forecast_scrub(&mut self) {
+        if self.model_timeline_active() {
+            return;
+        }
         use crate::render::FieldLayer as FL;
         match self.views[self.active].timeline.forecast_hour() {
             Some(h) => {
@@ -8691,6 +8694,7 @@ impl HookEchoApp {
         self.sync_share(ctx);
         self.poll_sync();
         self.sync_forecast_scrub();
+        self.drive_model_timeline(ctx);
         self.poll_messages();
         self.poll_overlays();
         // Time-machine warnings + storm reports: swap in archived sets while scrubbed.

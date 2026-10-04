@@ -4,6 +4,7 @@
 
 mod broadcast;
 mod chips;
+mod model_timeline;
 mod dock;
 pub(crate) use dock::{DockState, DockWin, Sheet};
 mod overlay;

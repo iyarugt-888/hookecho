@@ -876,6 +876,23 @@ Remaining open:
 
 **Agent prompt:** `Implement M5.1 using section 6. Extend global linking into independent groups and key asynchronous results by their complete source/time context.`
 
+**Accessibility increment — 2026-10-04, model forecast timeline:** model/product selection now
+activates the main timeline immediately, retiring the old hourly radar forecast tail before it
+can overwrite the selected model. The dock and floating timeline share model/run selection,
+native forecast positions, previous/next, first/last and field-paced playback. The Models
+panel remains synchronized through existing selection/lead actions. A visible Radar control
+returns to observations; keyboard stepping follows the active timeline. RTMA steps analysis
+hours without presenting a forecast slider. This improves access to existing model features;
+independent model/run link groups and complete asynchronous context isolation remain open.
+See [controls and verification](docs/certification/model-timeline.md).
+
+**Verification:** Windows workspace tests passed **2,218 tests** with zero failures and 143
+explicitly ignored checks across 28 suites. Six new controls, strict workspace Clippy and WASM
+compilation passed. The explicit GPU control produced eight reviewed production-row captures
+at desktop/phone widths, including loaded-clock wrapping. The manifest retains twelve source
+hashes and capture/log hashes. Full application/provider sessions, browser runtime, physical
+devices and independent model/run groups remain open; detection work remains with Claude.
+
 #### M5.2 — Add satellite-native one-minute playback
 
 **Priority:** P1. **Depends on:** M0.3, M1.4, M5.1. **Original references:** ROADMAP_NEW §§E1, E4, E5, E7; ROADMAP_2 §§10, 14.

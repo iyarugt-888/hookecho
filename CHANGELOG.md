@@ -8,6 +8,18 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Improved: model forecast hours in the main timeline
+
+Selecting a model or product now immediately switches the bottom timeline to its forecast
+controls. Change the run, scrub the forecast lead, step through published times, or play the
+forecast without opening Models. HRRR quarter-hour output, regional extended runs and the
+global models' coarser steps use their own ranges. The Models controls and bottom timeline
+share one selected lead; the old hourly radar forecast tail cannot reset a new model choice.
+
+A visible Radar control returns to the radar timeline. Model playback waits for the requested
+field and pauses on manual lead/run/model changes. Requested time and loaded field time remain
+separate while downloads are pending; RTMA offers analysis hours instead of forecast leads.
+
 ### Fixed: automatic radar restoration waits for advancing data
 
 Preferred-source recovery now requires three advancing source timestamps after failure instead

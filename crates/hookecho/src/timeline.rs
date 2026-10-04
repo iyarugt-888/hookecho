@@ -9,6 +9,74 @@ use chrono::{DateTime, NaiveDate, Utc};
 use wxdata::clock::Instant;
 use wxdata::level2::Identifier;
 
+/// A pane's model transport. Its leads belong to the selected model, independently of the
+/// radar inventory: a model can be scrubbed even before a radar listing arrives.
+pub(crate) struct ModelPlayback {
+    pub active: bool,
+    pub playing: bool,
+    pub speed: f32,
+    last_step: Instant,
+}
+
+impl Default for ModelPlayback {
+    fn default() -> Self {
+        Self {
+            active: false,
+            playing: false,
+            speed: 2.0,
+            last_step: Instant::now(),
+        }
+    }
+}
+
+impl ModelPlayback {
+    pub fn activate(&mut self) {
+        self.active = true;
+        self.pause();
+    }
+
+    pub fn pause(&mut self) {
+        self.playing = false;
+        self.last_step = Instant::now();
+    }
+
+    pub fn toggle(&mut self) {
+        self.playing = !self.playing;
+        self.last_step = Instant::now();
+    }
+
+    /// Wait for the requested field before advancing; slow downloads must not make a loop
+    /// skip every frame. One step per tick prevents catch-up bursts after backgrounding.
+    pub fn tick(
+        &mut self,
+        lead: u16,
+        range: crate::model_browser::LeadRange,
+        ready: bool,
+        now: Instant,
+    ) -> Option<u16> {
+        if !self.active || !self.playing {
+            return None;
+        }
+        if !ready {
+            self.last_step = now;
+            return None;
+        }
+        if now.saturating_duration_since(self.last_step) < self.interval() {
+            return None;
+        }
+        self.last_step = now;
+        Some(if range.clamp(lead) >= range.max {
+            range.min
+        } else {
+            range.neighbour(lead, true)
+        })
+    }
+
+    pub fn interval(&self) -> std::time::Duration {
+        frame_interval(self.speed, false)
+    }
+}
+
 pub struct Timeline {
     /// Selected UTC archive day.
     pub date: NaiveDate,
@@ -419,6 +487,41 @@ fn frame_interval(speed: f32, degraded: bool) -> std::time::Duration {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn model_timeline_playback_holds_loading_steps_native_leads_and_wraps() {
+        use crate::model_browser::BModel;
+        let mut playback = super::ModelPlayback::default();
+        playback.activate();
+        playback.toggle();
+        let start = playback.last_step;
+        let range = BModel::Nam.leads();
+        let later = start + std::time::Duration::from_secs(2);
+        assert_eq!(playback.tick(36 * 60, range, false, later), None);
+        assert_eq!(
+            playback.tick(36 * 60, range, true, later),
+            None,
+            "loading resets the deadline"
+        );
+        let next = later + playback.interval();
+        assert_eq!(playback.tick(36 * 60, range, true, next), Some(39 * 60));
+        let next = next + playback.interval();
+        assert_eq!(playback.tick(range.max, range, true, next), Some(range.min));
+        playback.pause();
+        assert_eq!(
+            playback.tick(0, range, true, next + playback.interval()),
+            None
+        );
+        playback.activate();
+        assert!(
+            !playback.playing,
+            "a model or run change pauses the previous loop"
+        );
+        let sub = BModel::Hrrr15.leads();
+        playback.toggle();
+        let next = playback.last_step + playback.interval();
+        assert_eq!(playback.tick(60, sub, true, next), Some(75));
+    }
+
     use super::*;
 
     // `Identifier` has no cheap public constructor, so the populated-frame paths are exercised
