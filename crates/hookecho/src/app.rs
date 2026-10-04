@@ -890,10 +890,11 @@ enum DataMsg {
         gen: u64,
         /// Ended while still wanted (lost), not stopped by the app.
         lost: bool,
+        /// Current subscription failure; ignored with an obsolete stream generation.
+        error: Option<String>,
     },
-    /// How far the live stream has scanned into the current sweep — fires on every chunk, far
-    /// more often than `Live`'s full merged-volume updates, so a UI can show scan-in-progress
-    /// motion between them.
+    /// Observed progress for newly decoded live input, delivered before its merged `Live`
+    /// update. Failed or unchanged decodes do not invent fresh progress.
     LiveProgress {
         view: usize,
         site: String,

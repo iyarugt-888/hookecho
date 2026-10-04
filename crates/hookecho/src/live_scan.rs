@@ -94,6 +94,7 @@ pub struct AcquisitionInventory {
     pub source_passes: Option<wxdata::live_pass::PassInventory>,
     pub source_sequences: Option<wxdata::live_sequence::SequenceInventory>,
     pub source_attribution: Option<std::sync::Arc<wxdata::live_pass::PassAttributionIndex>>,
+    pub source_scope: Option<std::sync::Arc<wxdata::continuation::SourceScopeReceipt>>,
 }
 
 /// An immutable accepted receipt. Equality is runtime receipt identity, never a persisted pass ID.
@@ -123,6 +124,11 @@ impl AcquisitionSnapshot {
             + self.site.as_ref().map_or(0, String::capacity)
             + std::mem::size_of::<AcquisitionInventory>()
             + self.inventory.cuts.capacity() * std::mem::size_of::<CutAcquisition>()
+            + self
+                .inventory
+                .source_scope
+                .as_ref()
+                .map_or(0, |scope| scope.estimated_bytes())
             + self
                 .inventory
                 .source_attribution
@@ -250,6 +256,8 @@ pub struct LiveScan {
     pub progress: Option<ScanProgress>,
     pub source_mode: Option<SourceMode>,
     pub switch_reason: Option<String>,
+    /// Last failure of the current live subscription; independent of accepted frame receipts.
+    pub last_stream_error: Option<String>,
     /// Cut positions, not unique angles: supplemental low-level cuts keep their own slot.
     observed_cuts: Vec<Option<CutObservation>>,
     /// Retained across stream reconnects to reject delayed progress from an old volume.
@@ -258,6 +266,7 @@ pub struct LiveScan {
     source_passes: Option<wxdata::live_pass::PassInventory>,
     source_sequences: Option<wxdata::live_sequence::SequenceInventory>,
     source_attribution: Option<std::sync::Arc<wxdata::live_pass::PassAttributionIndex>>,
+    source_scope: Option<std::sync::Arc<wxdata::continuation::SourceScopeReceipt>>,
     streaming: bool,
     fallback: bool,
     recovering: bool,
@@ -273,6 +282,7 @@ impl LiveScan {
 
     pub fn stream_started(&mut self, provider: &str, fallback: bool) {
         self.provider = Some(provider.to_owned());
+        self.last_stream_error = None;
         self.streaming = true;
         self.fallback = fallback;
         self.recovering = false;
@@ -312,6 +322,7 @@ impl LiveScan {
                 self.source_passes = None;
                 self.source_sequences = None;
                 self.source_attribution = None;
+                self.source_scope = None;
             }
             self.observed_cuts.clear();
             self.progress = None;
@@ -405,6 +416,12 @@ impl LiveScan {
         // This index belongs to the accepted scan, unlike receiver history. A raw envelope
         // without an index cannot reuse another accepted scan's row associations.
         self.source_attribution = coverage.source_attribution.clone();
+        self.source_scope = coverage.source_scope.filter(|scope| {
+            self.site
+                .as_deref()
+                .is_some_and(|site| scope.volume.site.eq_ignore_ascii_case(site))
+                && p.volume_start_ms == Some(scope.volume.volume_start.timestamp_millis())
+        });
         let newest_arrival = coverage
             .radials
             .iter()
@@ -521,6 +538,7 @@ impl LiveScan {
             source_passes: self.source_passes.clone(),
             source_sequences: self.source_sequences.clone(),
             source_attribution: self.source_attribution.clone(),
+            source_scope: self.source_scope.clone(),
         })
     }
 
@@ -649,6 +667,11 @@ impl LiveScan {
         self.streaming = false;
         self.progress = None;
         self.recovering = true;
+    }
+
+    pub fn stream_ended_with_error(&mut self, error: Option<String>) {
+        self.stream_ended();
+        self.last_stream_error = error.map(|message| message.chars().take(512).collect());
     }
 
     /// The app stopped the stream on purpose: a loop started playing, the view was scrubbed off
@@ -802,6 +825,7 @@ pub(crate) fn acquisition_fixture(site: &str) -> (LiveScan, AcquisitionSnapshot)
                 source_passes: None,
                 source_sequences: None,
                 source_attribution: None,
+                source_scope: None,
                 radials: vec![(1, start + 1000), (2, 0), (4, start + 3000)],
             },
             Utc::now(),
@@ -838,6 +862,7 @@ mod tests {
                 source_passes: None,
                 source_sequences: None,
                 source_attribution: None,
+                source_scope: None,
                 radials: radials.to_vec(),
             },
             Utc::now(),
@@ -860,6 +885,7 @@ mod tests {
                 source_passes: None,
                 source_sequences: sequence.map(Box::new),
                 source_attribution: None,
+                source_scope: None,
             };
         let first = receiver
             .capture_acquisition(
@@ -932,6 +958,7 @@ mod tests {
                     source_passes: Some(provider.inventory()),
                     source_sequences: None,
                     source_attribution: None,
+                    source_scope: None,
                 },
                 Utc::now(),
             )
@@ -948,6 +975,7 @@ mod tests {
                     source_passes: Some(provider.inventory()),
                     source_sequences: None,
                     source_attribution: None,
+                    source_scope: None,
                 },
                 Utc::now(),
             )
@@ -983,6 +1011,7 @@ mod tests {
                     source_passes: None,
                     source_sequences: None,
                     source_attribution: None,
+                    source_scope: None,
                 },
                 Utc::now(),
             )
@@ -1013,6 +1042,7 @@ mod tests {
                     source_passes: Some(provider.inventory()),
                     source_sequences: None,
                     source_attribution: None,
+                    source_scope: None,
                 },
                 Utc::now(),
             )
@@ -1057,6 +1087,7 @@ mod tests {
                     source_passes: None,
                     source_sequences: None,
                     source_attribution: None,
+                    source_scope: None,
                     radials: vec![(1, 1_700_000_001_000)],
                 },
                 Utc::now(),
@@ -1080,6 +1111,7 @@ mod tests {
                     source_passes: None,
                     source_sequences: None,
                     source_attribution: None,
+                    source_scope: None,
                     radials: vec![],
                 },
                 Utc::now()
@@ -1094,6 +1126,7 @@ mod tests {
                     source_passes: None,
                     source_sequences: None,
                     source_attribution: None,
+                    source_scope: None,
                     radials: vec![],
                 },
                 Utc::now()
@@ -1492,6 +1525,7 @@ mod tests {
             source_passes: None,
             source_sequences: None,
             source_attribution: index,
+            source_scope: None,
             radials: vec![(1, 1100)],
         };
         let frozen = receiver
@@ -1506,6 +1540,83 @@ mod tests {
         assert!(frozen.estimated_bytes() >= without.estimated_bytes() + index.estimated_bytes());
         receiver.reset(Some("KOUN".into()));
         assert!(receiver.source_attribution.is_none());
+        assert!(frozen.matches_site(Some("KTLX")));
+    }
+    #[test]
+    fn admitted_scope_is_frame_owned_scoped_charged_and_independent_of_recovery_errors() {
+        use wxdata::continuation::SourceVolumeCursor;
+        use wxdata::live_block::VolumeKey;
+        let now = Utc::now();
+        let mut receiver = LiveScan::default();
+        receiver.reset(Some("KTLX".into()));
+        receiver.stream_started("chunks", false);
+        assert!(receiver.accept_volume("20260520-190000-005-I", now, now));
+        let mut cursor = SourceVolumeCursor::new("KTLX");
+        let key = VolumeKey::new(
+            "KTLX",
+            chrono::DateTime::from_timestamp_millis(1000).unwrap(),
+        );
+        cursor.admit(&key, Some(99));
+        let scope = std::sync::Arc::new(cursor.receipt().unwrap());
+        let envelope = |scope| RadialCoverage {
+            progress: progress(1, 1),
+            radials: vec![(1, 1100)],
+            source_passes: None,
+            source_sequences: None,
+            source_attribution: None,
+            source_scope: scope,
+        };
+        let frozen = receiver
+            .capture_acquisition(envelope(Some(scope.clone())), now)
+            .unwrap();
+        assert_eq!(
+            frozen.inventory().source_scope.as_deref(),
+            Some(scope.as_ref())
+        );
+        receiver.stream_ended_with_error(Some("計".repeat(600)));
+        assert_eq!(
+            receiver.last_stream_error.as_ref().unwrap().chars().count(),
+            512
+        );
+        assert_eq!(receiver.phase(now, 900), Phase::Recovering);
+        assert_eq!(receiver.volume_time, Some(now));
+        assert_eq!(
+            frozen.inventory().source_scope.as_deref(),
+            Some(scope.as_ref())
+        );
+        receiver.stream_started("relay", false);
+        assert!(receiver.last_stream_error.is_none());
+        assert_eq!(
+            frozen.inventory().source_scope.as_deref(),
+            Some(scope.as_ref())
+        );
+        for wrong in [
+            VolumeKey::new("KOUN", key.volume_start),
+            VolumeKey::new("KTLX", key.volume_start + Duration::seconds(60)),
+        ] {
+            let mut wrong_cursor = SourceVolumeCursor::new(&wrong.site);
+            wrong_cursor.admit(&wrong, None);
+            let refused = receiver
+                .capture_acquisition(
+                    envelope(Some(std::sync::Arc::new(wrong_cursor.receipt().unwrap()))),
+                    now,
+                )
+                .unwrap();
+            assert!(
+                refused.inventory().source_scope.is_none(),
+                "foreign radar/clock evidence cannot be borrowed"
+            );
+        }
+        let absent = receiver.capture_acquisition(envelope(None), now).unwrap();
+        assert!(absent.inventory().source_scope.is_none());
+        assert!(frozen.estimated_bytes() >= absent.estimated_bytes() + scope.estimated_bytes());
+        cursor.admit(
+            &VolumeKey::new("KTLX", key.volume_start + Duration::seconds(60)),
+            Some(99),
+        );
+        assert_eq!(scope.volume_rollovers, 0);
+        receiver.reset(Some("KPAH".into()));
+        assert!(receiver.source_scope.is_none());
         assert!(frozen.matches_site(Some("KTLX")));
     }
 }

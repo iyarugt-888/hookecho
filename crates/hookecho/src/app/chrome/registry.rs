@@ -253,6 +253,10 @@ impl HookEchoApp {
             decode_time_detail(v.last_decode_time),
             render_queue_detail(v.live_queue_timings.latest_micros()),
             retry_detail(v.live_retries),
+            v.live_scan
+                .last_stream_error
+                .as_ref()
+                .map(|error| ("Last live stream error", error.clone())),
         ]
         .into_iter()
         .flatten()

@@ -8,12 +8,11 @@
 //!
 //! All merged state lives on this task; the UI thread only ever receives a finished `Scan`.
 //!
-//! [`ScanProgress`] is the lighter-weight sibling: `on_progress` also fires on every chunk before
-//! the merged [`Update`], so a UI can show how far into the current tilt the radar has scanned. It carries no
-//! scan data and costs nothing to compute — the chunk's own metadata already has the answer —
-//! so this does not change how often the expensive reassembly in `emit` runs (Phase B2's
-//! "expose current elevation, VCP, sweep number and scan progress").
+//! [`ScanProgress`] is the lighter-weight sibling: successful changed decodes report observed
+//! progress before their merged [`Update`]. It carries no scan data and uses the decoded input's
+//! VCP and native positions. Missing/failed metadata never borrows an earlier volume's mapper.
 
+use crate::continuation::{SourceAdmission, SourceVolumeCursor};
 use crate::level2::{elevation_angles, Scan};
 use nexrad_data::aws::realtime::{
     assemble_volume, download_chunk, Chunk, ChunkIdentifier, ChunkIterator, ChunkTimingModel,
@@ -133,6 +132,8 @@ pub struct RadialCoverage {
     /// Indirection keeps queued progressive channel messages small as receipt evidence grows.
     pub source_sequences: Option<Box<crate::live_sequence::SequenceInventory>>,
     pub source_attribution: Option<Arc<crate::live_pass::PassAttributionIndex>>,
+    /// Subscription guard evidence for this accepted frame; no radial/completeness claim.
+    pub source_scope: Option<Arc<crate::continuation::SourceScopeReceipt>>,
 }
 
 /// The oldest a joined live volume may be and still be the one being scanned: a volume lasts four
@@ -215,6 +216,15 @@ where
         );
     }
 
+    let mut source_scope = SourceVolumeCursor::new(&site);
+    if let SourceAdmission::Refused(reason) =
+        admit_unidata(&mut source_scope, &init.latest_chunk.identifier)
+    {
+        anyhow::bail!(
+            "{site} source scope refused: {reason}; live stream stopped for polling recovery"
+        );
+    }
+
     // Assemble the current volume: start chunk + backfilled middle chunks + the joined chunk.
     let mut chunks: Vec<Chunk<'static>> = Vec::new();
     let start_sequence = init
@@ -222,6 +232,9 @@ where
         .as_ref()
         .map(|chunk| chunk.identifier.sequence());
     if let Some(sc) = init.start_chunk {
+        if admit_unidata(&mut source_scope, &sc.identifier) != SourceAdmission::CurrentVolume {
+            anyhow::bail!("{site} Start chunk scope differs from the joined volume; live stream stopped for polling recovery");
+        }
         chunks.push(sc.chunk);
     }
     let joined = &init.latest_chunk.identifier;
@@ -285,7 +298,6 @@ where
     sequences.observe(latest_seq as u64);
 
     let mut merged = base;
-    let mut volume = init.latest_chunk.identifier.volume().as_number();
     // First emit assembles the whole backfilled volume; after that only the chunks since the last
     // sweep boundary are re-assembled (plus the start chunk, which carries the VCP and site
     // metadata assembly needs). Re-decoding every accumulated chunk at every boundary was O(n^2)
@@ -299,13 +311,13 @@ where
         total_retries,
         crate::clock::Instant::now(),
         EmissionProgress {
-            cut: None,
             passes: &mut passes,
             sequences: &mut sequences,
             continuous: false,
             input_complete,
+            source_scope: &source_scope,
         },
-        &mut on_update,
+        (&mut on_update, &mut on_progress),
     )
     .await;
     let mut last_decoded_sequence = first_decoded
@@ -335,13 +347,14 @@ where
                 let received_at = crate::clock::Instant::now();
                 fails = 0;
                 let seq = dc.identifier.sequence();
-                let ctype = dc.identifier.chunk_type();
-                let vol = dc.identifier.volume().as_number();
-                // Start chunk is the normal rollover marker, but a stream that joins mid-volume
-                // (or misses the Start) would otherwise keep assembling the previous volume's
-                // chunks alongside the new one's.
-                if ctype == ChunkType::Start || vol != volume {
-                    chunks.clear(); // volume rollover: start a fresh accumulator
+                // Admission precedes assembly, progress and source receipts. An iterator that
+                // moved to an older/conflicting identifier cannot safely keep driving this stream.
+                let admission = admit_unidata(&mut source_scope, &dc.identifier);
+                if let SourceAdmission::Refused(reason) = admission {
+                    anyhow::bail!("{site} source scope refused: {reason}; live stream stopped for polling recovery");
+                }
+                if admission == SourceAdmission::NewVolume {
+                    chunks.clear();
                     window_start = 0;
                     passes = crate::live_pass::PassTracker::default();
                     sequences = crate::live_sequence::SequenceLedger::new(
@@ -350,51 +363,10 @@ where
                     last_decoded_sequence = None;
                     prefix_sequence = Some(seq);
                 }
-                volume = vol;
                 sequences.observe(seq as u64);
                 chunks.push(dc.chunk);
-                let meta = it.chunk_metadata(seq).copied();
-                let mut current_progress = None;
-                if let Some(meta) = meta {
-                    // The Start chunk has no elevation of its own; nothing to report yet.
-                    if let Some(elevation_number) = meta.elevation_number() {
-                        let progress = ScanProgress {
-                            volume_start_ms: Some(
-                                dc.identifier
-                                    .date_time_prefix()
-                                    .and_utc()
-                                    .timestamp_millis(),
-                            ),
-                            vcp_number: it.vcp().map(|vcp| vcp.header().pattern_number()),
-                            cut_kind: it
-                                .vcp()
-                                .and_then(|vcp| {
-                                    vcp.elevations().get(elevation_number.saturating_sub(1))
-                                })
-                                .map_or(CutKind::Standard, |cut| {
-                                    CutKind::from_flags(
-                                        cut.is_sails_cut(),
-                                        cut.is_mrle_cut(),
-                                        cut.is_mpda_cut(),
-                                    )
-                                }),
-                            elevation_number,
-                            total_elevations: it
-                                .elevation_mapper()
-                                .map_or(elevation_number, |m| m.total_elevations()),
-                            elevation_angle_deg: meta.elevation_angle_deg(),
-                            azimuth_rate_dps: meta.azimuth_rate_dps(),
-                            chunk_index: meta.chunk_index_in_sweep() + 1,
-                            chunks_in_sweep: meta.chunks_in_sweep(),
-                            azimuth_start_deg: meta.chunk_index_in_sweep() as f64 * 360.0
-                                / meta.chunks_in_sweep() as f64,
-                            azimuth_end_deg: (meta.chunk_index_in_sweep() + 1) as f64 * 360.0
-                                / meta.chunks_in_sweep() as f64,
-                        };
-                        on_progress(progress);
-                        current_progress = Some(progress);
-                    }
-                }
+                // Progress must belong to the decoded input. The iterator can retain a previous
+                // volume's mapper when its next Start is missing or cannot be decoded.
                 // Phase B2 / suggestions.md §21: every chunk is a rendering unit, not just the
                 // one that finishes a sweep. A chunk is ~120 radials — a 60° wedge of super-res —
                 // so waiting for all six of them held the display a whole rotation (15 s in a
@@ -419,9 +391,9 @@ where
                         total_retries,
                         received_at,
                         EmissionProgress {
-                            cut: current_progress,
                             passes: &mut passes,
                             sequences: &mut sequences,
+                            source_scope: &source_scope,
                             continuous: last_decoded_sequence.and_then(|old| old.checked_add(1))
                                 == Some(seq),
                             input_complete: incremental_input_contiguous(
@@ -431,7 +403,7 @@ where
                                 window.len() == 1,
                             ),
                         },
-                        &mut on_update,
+                        (&mut on_update, &mut on_progress),
                     )
                     .await;
                     last_decoded_sequence = decoded.then_some(seq);
@@ -526,11 +498,18 @@ fn tolerate_failure(consecutive: u32) -> bool {
 /// Assemble `chunks`, merge into `merged`, and emit if anything changed. Assembly failure
 /// (e.g. a still-incomplete volume) is skipped; the next sweep boundary self-heals.
 struct EmissionProgress<'a> {
-    cut: Option<ScanProgress>,
     passes: &'a mut crate::live_pass::PassTracker,
     sequences: &'a mut crate::live_sequence::SequenceLedger,
     continuous: bool,
     input_complete: bool,
+    source_scope: &'a SourceVolumeCursor,
+}
+
+fn admit_unidata(scope: &mut SourceVolumeCursor, id: &ChunkIdentifier) -> SourceAdmission {
+    scope.admit(
+        &crate::live_block::VolumeKey::new(id.site(), id.date_time_prefix().and_utc()),
+        Some(id.volume().as_number()),
+    )
 }
 
 /// Check downloaded positions before assembly erases chunk boundaries. Failed middle downloads
@@ -595,15 +574,16 @@ fn raw_progress(scan: &Scan, volume_start_ms: Option<i64>) -> Option<ScanProgres
     })
 }
 
-async fn emit<F: FnMut(Update)>(
+async fn emit<F: FnMut(Update), P: FnMut(ScanProgress)>(
     it: &ChunkIterator,
     chunks: &[Chunk<'static>],
     merged: &mut Arc<Scan>,
     retries: u32,
     received_at: crate::clock::Instant,
     progress: EmissionProgress<'_>,
-    on_update: &mut F,
+    callbacks: (&mut F, &mut P),
 ) -> bool {
+    let (on_update, on_progress) = callbacks;
     // Wall clock around assembly + merge — on native that's real CPU time (off the async worker,
     // see below); on the web it also includes the postMessage round trip to the decode worker, so
     // either way this is an honest answer to "how long did the app wait for usable data," not a
@@ -642,13 +622,11 @@ async fn emit<F: FnMut(Update)>(
     } else {
         progress.passes.observe_discontinuous_assembly(&partial);
     }
-    let cut = progress.cut.or_else(|| {
-        raw_progress(
-            &partial,
-            it.current()
-                .map(|id| id.date_time_prefix().and_utc().timestamp_millis()),
-        )
-    });
+    let cut = raw_progress(
+        &partial,
+        it.current()
+            .map(|id| id.date_time_prefix().and_utc().timestamp_millis()),
+    );
     let mut radial_coverage = cut.map(|cut| RadialCoverage {
         progress: cut,
         radials: partial
@@ -665,6 +643,7 @@ async fn emit<F: FnMut(Update)>(
         source_passes: Some(progress.passes.inventory()),
         source_sequences: Some(Box::new(progress.sequences.inventory())),
         source_attribution: None,
+        source_scope: progress.source_scope.receipt().map(Arc::new),
     });
     let (new_scan, changed) = merge_scan(merged, partial);
     if changed.is_empty() {
@@ -673,6 +652,9 @@ async fn emit<F: FnMut(Update)>(
     if let Some(coverage) = &mut radial_coverage {
         coverage.source_attribution =
             Some(Arc::new(progress.passes.attribution_for_scan(&new_scan)));
+    }
+    if let Some(cut) = cut {
+        on_progress(cut);
     }
     *merged = Arc::new(new_scan);
     let (name, time) = it
@@ -813,6 +795,55 @@ pub fn merge_scan(base: &Scan, partial: Scan) -> (Scan, Vec<f32>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn direct_admission_distinguishes_clock_rollover_from_repeated_start_and_number_wrap() {
+        use crate::continuation::SourceRefusal;
+        use nexrad_data::aws::realtime::VolumeIndex;
+        let start = chrono::NaiveDate::from_ymd_opt(2026, 10, 3)
+            .unwrap()
+            .and_hms_opt(23, 59, 0)
+            .unwrap();
+        let id = |number, offset, seq, kind| {
+            ChunkIdentifier::new(
+                "KTLX".into(),
+                VolumeIndex::new(number),
+                start + chrono::Duration::seconds(offset),
+                seq,
+                kind,
+                None,
+            )
+        };
+        let mut scope = SourceVolumeCursor::new("KTLX");
+        assert_eq!(
+            admit_unidata(&mut scope, &id(999, 0, 1, ChunkType::Start)),
+            SourceAdmission::FirstVolume
+        );
+        assert_eq!(
+            admit_unidata(&mut scope, &id(999, 0, 1, ChunkType::Start)),
+            SourceAdmission::CurrentVolume
+        );
+        assert_eq!(
+            admit_unidata(&mut scope, &id(999, 120, 5, ChunkType::Intermediate)),
+            SourceAdmission::NewVolume,
+            "changed clock resets assembly even with a reused number and missing Start"
+        );
+        assert_eq!(
+            admit_unidata(&mut scope, &id(1, 240, 1, ChunkType::Start)),
+            SourceAdmission::NewVolume
+        );
+        let frozen = scope.receipt().unwrap();
+        assert_eq!(
+            admit_unidata(&mut scope, &id(999, 0, 55, ChunkType::End)),
+            SourceAdmission::Refused(SourceRefusal::OlderVolume)
+        );
+        assert_eq!(
+            admit_unidata(&mut scope, &id(2, 240, 2, ChunkType::Intermediate)),
+            SourceAdmission::Refused(SourceRefusal::ConflictingVolumeNumber)
+        );
+        assert_eq!(scope.receipt().unwrap().volume, frozen.volume);
+        assert_eq!(frozen.volume_rollovers, 2);
+    }
 
     #[test]
     fn initial_chunk_continuity_requires_every_downloaded_position_without_inventing_a_prefix() {

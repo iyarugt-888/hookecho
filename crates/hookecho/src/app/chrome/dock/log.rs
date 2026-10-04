@@ -153,6 +153,16 @@ fn live_stats(ui: &mut egui::Ui, t: &ws::Tokens, s: &LiveStats) {
     if let Some(reason) = &s.scan.switch_reason {
         ws::kv(ui, t, "Last switch", reason, Some(t.warn));
     }
+    if let Some(error) = &s.scan.last_stream_error {
+        ui.add(
+            egui::Label::new(ws::text(
+                format!("Last live stream error: {error}"),
+                11.0,
+                t.warn,
+            ))
+            .wrap(),
+        );
+    }
     if let Some(p) = s.scan.progress {
         ws::kv(
             ui,

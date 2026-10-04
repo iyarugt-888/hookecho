@@ -1485,6 +1485,7 @@ mod tests {
                     source_passes: Some(tracker.inventory()),
                     source_sequences: None,
                     source_attribution: Some(passes.clone()),
+                    source_scope: None,
                     radials: vec![],
                 },
                 chrono::Utc::now(),

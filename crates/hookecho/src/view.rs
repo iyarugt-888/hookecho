@@ -1433,6 +1433,7 @@ mod tests {
                     source_passes: None,
                     source_sequences: None,
                     source_attribution: None,
+                    source_scope: None,
                     radials: vec![(3, 0)],
                 },
                 now,

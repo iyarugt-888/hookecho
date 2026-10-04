@@ -462,9 +462,41 @@ caches. Final local logs are `target/parity-review/m1.1/contributor-passes/{work
 The shared tree preserves Claude's `c308f50` detector commit. Application/device, operational
 source continuation, persistent replay and performance gates remain open.
 
-**Remaining/next increment:** canonical source volume/cut continuation and stronger native revisit
-controls precede replacing inferred strict boundaries. Arrival-ordered relay CutTracker IDs and
-predicted Unidata VCP cut positions still require stronger lifecycle evidence. Source message holes
+**Evidence ledger — 2026-10-03, increment 11:** direct and relay subscriptions now use a
+shared canonical radar/start-clock admission cursor before accumulation, source ledgers or progress.
+Reused/wrapped native volume numbers and missing Start markers cannot retain an older accumulator;
+a repeated same-volume Start preserves history. Delayed older relay envelopes cannot change the
+current upstream or rewind assembly. Same-volume late sequence input stays admissible under existing
+continuity rules. Direct refusal ends the mutated iterator and uses the existing polling recovery
+path; initial Start scope is validated. Direct progress derives from newly decoded VCP/native
+positions, so missing/invalid metadata cannot borrow an older iterator mapper. Completed relay
+HTTP arrays reject incompatible radar, start-clock and declared upstream scopes before assembly.
+
+Immutable accepted receipts expose **Source volume admission**: admitted radar/clock, optional native
+number, rollovers, declared-label resets and older/foreign/number-conflict refusals. Totals cover the
+current subscription, including non-rendering input; reconnect resets them. Wrong/missing scope
+becomes unavailable rather than borrowed. Receiver errors are bounded, generation-gated, shown
+separately in source health/the Analyst log, and cleared on reconnect. Receipt memory charges include
+the retained radar string. This validates declared envelope identity, not payload lineage, complete
+radials, emitter epochs, independent failure domains or cross-provider splicing. Values, gate clocks,
+strict masks and detector inputs remain unchanged. See
+[source admission controls and open gates](docs/certification/m1.1/source-admission.md).
+
+**Increment 11 verification:** shared-tree Windows checks passed **2,186 workspace tests**, zero
+failures and 142 explicit ignores across 28 suites; workspace/all-target Clippy with warnings denied;
+and fresh WASM library compilation with existing browser warnings. The explicit GPU helper passed
+in 3.03 seconds after compilation. Six 240 px touch / 300 px desktop references were visually
+reviewed; source/image hashes, byte counts and dimensions were verified. Durable
+[verification](docs/certification/m1.1/source-admission-ui/verification.json) and
+[capture](docs/certification/m1.1/source-admission-ui/captures.json) manifests retain results.
+The stale WASM dependency fingerprint was refreshed without removing native/data caches.
+Local logs: `target/parity-review/m1.1/source-admission/{workspace-final,clippy-final,gpu,wasm-final}.log`.
+Claude's concurrent detector commit `0018089` remains outside this increment. Whole-application,
+physical-device, operational failover, cut/revisit continuation and performance gates stay open.
+
+**Remaining/next increment:** canonical cut/revisit continuation and provider-loss/polling/restoration
+controls precede replacing inferred strict boundaries. Arrival-ordered relay CutTracker IDs still
+require stronger native chronology and operational lifecycle evidence. Source message holes
 and later-arrival receipts do not yet map to individual radial boundaries or establish loss.
 Missing cut metadata can leave raw receipts unavailable; expired associations remain unavailable.
 Emitter epoch/resume negotiation and progressive replay storage remain open. Whole-scan invalidation
@@ -472,12 +504,15 @@ remains conservative; contributor optimization, full viewport interaction, Andro
 completed GPU timing and sustained-load certification remain open. Independent local-product
 textures per pane remain M5.1.
 
-**Next agent handoff:** inspect `LiveScan::capture_acquisition`, `Volume::apply_live_captured`,
+**Next agent handoff:** first unify the legacy `MapView.live_progress` marker with
+`LiveScan::progress` admission: `data_poll` currently assigns the marker before the receiver rejects
+older/invalid metadata. Retain the immutable frame receipt and avoid renewing stale animation.
+Then inspect `LiveScan::capture_acquisition`, `Volume::apply_live_captured`,
 `wxdata::live_pass`, `wxdata::live_sequence`, direct stream lifecycle and relay merge controls.
 Preserve immutable accepted receipts and plain-moment row writers across every result key.
 Completed/archive/reloaded replay inputs still have unavailable progressive associations.
 Keep native boundary identities independent of the delivered source-time strict masks and detector
-inputs. Establish canonical rollover/reconnect/cut continuation with operational repeated-cut,
+inputs. Build on the canonical source admission guard; establish reconnect/cut continuation with repeated-cut,
 SAILS/MRLE, VCP-change, reordering, gap-fill and mid-volume join controls. Source message holes,
 actual failed requests, recovered bytes, unobserved radials and proven loss remain distinct.
 Do not infer scientific completeness from angular zeros or source sequence gaps. Keep device and
@@ -509,6 +544,14 @@ current agent assignment.
 - **Proof:** fault scenario manifest, transition logs, progressive/completed fallback captures, and live-session report.
 
 **Agent prompt:** `Implement M1.3 using section 6. Extend existing failover tests and repair demonstrated continuity/recovery gaps without replacing the provider architecture.`
+
+**Foundation evidence — 2026-10-03 (M1.1 increment 11):** shared source admission now prevents
+within-subscription older/foreign/conflicting declared volumes from rewinding assembly and ledgers;
+recovery errors reach source health/the Analyst log. Local WebSocket and HTTP refusal controls plus
+frame-owned receipts are documented in [source admission](docs/certification/m1.1/source-admission.md).
+This is partial lifecycle evidence. Cross-provider cut continuation, preferred-tier restoration,
+independent failure domains, whole-application transitions and operational/soak gates remain open.
+
 
 #### M1.4 — Complete retained provenance and scientific lineage
 

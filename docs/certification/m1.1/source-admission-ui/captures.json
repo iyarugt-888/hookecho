@@ -1,0 +1,94 @@
+{
+  "schema": 1,
+  "implementation_baseline": "f90309b7509d020b380776151228d81d824be0ff",
+  "shared_head_at_review": "0a954d7e3eaefeb98bf08ab63da91959e74fd69c",
+  "command": "cargo test --workspace gpu_source_admission_snapshots -- --ignored --nocapture --test-threads=1",
+  "scope": "Production source admission painter with controlled admitted/refused/unavailable states; full application, physical device and operational certification remain open. Images copied without pixel edits; unused canvas preserved.",
+  "adapter_identity": "not retained by helper",
+  "source_sha256": {
+    "crates/wxdata/src/continuation.rs": "c58a9163c47fcfea12eafcf091829e9734d9a28d97737ffd03df92ccfd597195",
+    "crates/wxdata/src/live.rs": "0706ec7be04a843c5a1d4b55f73509a1f43f6f296c9e785e2654627f65a737b3",
+    "crates/wxdata/src/live_pass.rs": "bb185c0937e161a276045fe84e02454ecbd9f39dfc6d41ac43fc1571cf0e6cd6",
+    "crates/wxdata/src/live_sequence.rs": "e1da2052b160a542b09f6e20be253e58eedcf2b40ee34b77b5461f6eb077af23",
+    "crates/hookecho/src/app.rs": "94d9b548d85844e0e9561b142d97828af184ca2e254242f575ebca449e3d7d2a",
+    "crates/hookecho/src/app/data_poll.rs": "3205615fec27f54adeebbea624e1075516f27754f349a047c351172e35abd825",
+    "crates/hookecho/src/app/radar_feed.rs": "d2f5e36367a3fb7729da5c08e7a0a554b75825eb08999a51dca2e75f7f240d93",
+    "crates/hookecho/src/app/chrome/dock/log.rs": "8d610c1e63fdfdd838a1c4c16c5dbf1802bfa896096c8eee2e6c03ab1593bc13",
+    "crates/hookecho/src/app/chrome/registry.rs": "0efc16dd2ac6e83ef2d61d933f9c57a3aeab4c313c3c3efa3d75de647656cfc1",
+    "crates/hookecho/src/app/radar_products.rs": "9b702436c3a542439c044013753555eee7fc07ef23083a756d035d1040700fd3",
+    "crates/hookecho/src/live_scan.rs": "e0e3952b59838446fb87e9864b9df0d469bae1547ab61d624fe5923b613bf2c3",
+    "crates/hookecho/src/loop3d.rs": "3f818e73f092d7a109c6a256a466aeae297db1c6919e4991b48c55e2170a26fe",
+    "crates/hookecho/src/relay_provider.rs": "14e87db66b1e0b29e91645f562d37c36063a366d84e19f01d0a2448aeb009b9f",
+    "crates/hookecho/src/ui/acquisition_inventory.rs": "a7c80abc1f95f1eae36097642c9f9fef3d6e4ccc8fd918963f231cfefba57e81",
+    "crates/hookecho/src/view.rs": "6bed007d83be37009d690aea8db23cc3c1da44e27bd294f816b9bf2d4bc3570d",
+    "crates/hookecho/src/volume.rs": "041a36d83a9463809cf25ed29a4c5cef5bab387f8bd2a19c6f5c2eb0c6fa69ed",
+    "crates/hookecho/src/headless_ui.rs": "d4a604c60653441a5258aca270083ff41e74f2e8376c8a454e1271c3761ba824",
+    "crates/hookecho/src/headless.rs": "6b16506e5782e430a1e576225e3a6b95820f04e15c893b5b110c21f861067c2e",
+    "crates/hookecho/src/fonts.rs": "e892f3f6f84421e64b713d1ff028f31129d7293105929351844783e2eec54845",
+    "crates/hookecho/src/theme.rs": "b623d8186075158c905a1706f4aa674acdc2c39543ea460fbb52715cf3b47d29",
+    "crates/hookecho/src/ui/workstation.rs": "09f5501c3b16c0f14620e4991888ae7865acdfc5bd252ebaa058047b6c18b6ea",
+    "crates/hookecho/src/app/chrome/dock/inspector.rs": "439252361d76b0bcbb4b3069bb261ada730a1dd761365742c82384cd39f4e260"
+  },
+  "captures": [
+    {
+      "file": "admitted-240.png",
+      "width": 240,
+      "height": 900,
+      "bytes": 55303,
+      "sha256": "784147936977210fd2a5345c865476ee9b448de727597ff4cdb9896ae49d8c0f",
+      "captured_at_utc": "2026-10-04T04:24:51.052009+00:00",
+      "touch": true,
+      "reviewed": true
+    },
+    {
+      "file": "admitted-300.png",
+      "width": 300,
+      "height": 900,
+      "bytes": 56208,
+      "sha256": "fb54b674f73f40c8edb2757b239b21dfa3031a783f91bb41c1a75e178ea972ba",
+      "captured_at_utc": "2026-10-04T04:24:51.307458+00:00",
+      "touch": false,
+      "reviewed": true
+    },
+    {
+      "file": "refused-240.png",
+      "width": 240,
+      "height": 900,
+      "bytes": 54617,
+      "sha256": "3ff13ddc2746f6ea6cb94fb2296edf540f56c2257d78239abf40e70282f184b5",
+      "captured_at_utc": "2026-10-04T04:24:51.563553+00:00",
+      "touch": true,
+      "reviewed": true
+    },
+    {
+      "file": "refused-300.png",
+      "width": 300,
+      "height": 900,
+      "bytes": 55529,
+      "sha256": "d37097315ec1c57751899f4abffb1b3b0e1042a8555b25d6eace935381e3685f",
+      "captured_at_utc": "2026-10-04T04:24:51.812080+00:00",
+      "touch": false,
+      "reviewed": true
+    },
+    {
+      "file": "unavailable-240.png",
+      "width": 240,
+      "height": 900,
+      "bytes": 14365,
+      "sha256": "0109cd25ce584f948bd2d00a4b966acef57509e071c0e2df0dd971c3323750bb",
+      "captured_at_utc": "2026-10-04T04:24:51.977570+00:00",
+      "touch": true,
+      "reviewed": true
+    },
+    {
+      "file": "unavailable-300.png",
+      "width": 300,
+      "height": 900,
+      "bytes": 15289,
+      "sha256": "f16bc1c7c037f5193ad4053759d46af13d2d9b9d56c0ab532fa0aa6340e16103",
+      "captured_at_utc": "2026-10-04T04:24:52.197544+00:00",
+      "touch": false,
+      "reviewed": true
+    }
+  ]
+}

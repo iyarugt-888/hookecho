@@ -10,10 +10,14 @@ impl HookEchoApp {
             let idx = msg.view();
             // LiveEnded must be handled even after a site change (to drop the stream handle).
             if let DataMsg::LiveEnded {
-                view, gen, lost, ..
+                view,
+                gen,
+                lost,
+                error,
+                ..
             } = msg
             {
-                self.live_ended(view, gen, lost);
+                self.live_ended(view, gen, lost, error);
                 continue;
             }
             if idx >= self.views.len() || self.views[idx].site.as_deref() != Some(msg.site()) {

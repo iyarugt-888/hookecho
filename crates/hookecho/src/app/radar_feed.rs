@@ -101,7 +101,7 @@ impl HookEchoApp {
     /// stale end (an older generation) is ignored. `lost` says it ended while still wanted, which
     /// reads as Recovering; one the app stopped (a new generation, a hidden tab, a backgrounded
     /// app) does not.
-    pub(crate) fn live_ended(&mut self, view: usize, gen: u64, lost: bool) {
+    pub(crate) fn live_ended(&mut self, view: usize, gen: u64, lost: bool, error: Option<String>) {
         let current = self
             .live_stream
             .as_ref()
@@ -115,7 +115,7 @@ impl HookEchoApp {
             v.live_progress_at = None;
             v.live_retries = 0;
             if lost {
-                v.live_scan.stream_ended();
+                v.live_scan.stream_ended_with_error(error);
             } else {
                 v.live_scan.stream_stopped();
             }
@@ -568,6 +568,7 @@ impl HookEchoApp {
                 site: end_site,
                 gen,
                 lost,
+                error: res.err().map(|error| error.to_string()),
             });
             ctx.request_repaint();
         });

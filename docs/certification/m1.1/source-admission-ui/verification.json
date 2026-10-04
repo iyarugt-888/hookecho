@@ -1,0 +1,42 @@
+{
+  "workspace-final": {
+    "command": "cargo test --workspace -- --test-threads=4",
+    "exit_code": 0,
+    "log_sha256": "87c9f06268ab2ff5a9545ae9e19f8115a135dd026c99dd65a3a06d41bbd09149",
+    "log_bytes": 192378,
+    "suites": 28,
+    "passed": 2186,
+    "failed": 0,
+    "ignored": 142
+  },
+  "clippy-final": {
+    "command": "cargo clippy --workspace --all-targets -- -D warnings",
+    "exit_code": 0,
+    "log_sha256": "3d96f41b2148b7b279d6e1e8bf7ba653edf183f90d1e98cd65639a506c983018",
+    "log_bytes": 503
+  },
+  "gpu": {
+    "command": "cargo test --workspace gpu_source_admission_snapshots -- --ignored --nocapture --test-threads=1",
+    "exit_code": 0,
+    "log_sha256": "c2c462ab0f803a427d0a1769dd604de5ea388505b056f9cdbfa82042640ee0e4",
+    "log_bytes": 5630,
+    "suites": 22,
+    "passed": 1,
+    "failed": 0,
+    "ignored": 0
+  },
+  "wasm-final": {
+    "command": "CARGO_INCREMENTAL=0 RUSTFLAGS=--cfg getrandom_backend=\"wasm_js\" cargo check --target wasm32-unknown-unknown -p hookecho --lib",
+    "exit_code": 0,
+    "log_sha256": "3b511acb0a3842b7bac2420ee0c1602aa31c3b0daadf4da24554762f3597185b",
+    "log_bytes": 3516
+  },
+  "cache_refresh": {
+    "initial_wasm_exit": 101,
+    "initial_log_sha256": "3b47d534cd644942a01087887fd9b0a313c2fab66d613ef1147026ca4775aa12",
+    "action": "Removed only the checked 16-byte target/wasm32-unknown-unknown/debug/.fingerprint/wxdata-f02a1823d2fc3fe0/lib-wxdata fingerprint to force fresh metadata; native/data caches preserved."
+  },
+  "scope": "Windows native static/unit/controlled GPU review and WASM compile on the shared working tree; full application, physical device, operational failover and performance gates open. Concurrent detector work excluded from this increment.",
+  "shared_head_at_verification": "0018089675f30b2296813bfca522581179b53b6b",
+  "verified_at_utc": "2026-10-04T04:28:18.762269+00:00"
+}

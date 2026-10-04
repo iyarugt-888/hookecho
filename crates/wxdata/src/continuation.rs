@@ -10,11 +10,9 @@
 //! [`ContinuationDecision::Incompatible`] for anything else, including two `VolumeKey`s that
 //! merely look close. There is no "probably fine" outcome.
 //!
-//! This module is pure decision/bookkeeping logic — no network, no provider, no rendering. It
-//! does not itself switch what `MapView` shows or reset any live assembly state; it answers the
-//! two questions the caller (ROADMAP_NEW B6.11 step 11's UI/pipeline wiring, not yet built) needs
-//! answered before it safely can: "can I mix these two sources' data right now?" and "have I
-//! already rendered this exact radial?"
+//! Pure decisions/bookkeeping, with source admission used by direct and relay subscriptions
+//! before accumulation and publication. Cross-provider volume/cut splicing still needs the
+//! lifecycle integration and operational verification in ROADMAP_PARITY M1.3.
 
 use crate::live_block::{LiveLevel2Block, RadialIdentity, VolumeKey};
 use std::collections::HashSet;
@@ -49,6 +47,127 @@ pub fn check_volume_continuation(
         ContinuationDecision::Compatible
     } else {
         ContinuationDecision::Incompatible
+    }
+}
+
+/// Admission of a source envelope before assembly. Number hints are provider-local, never clocks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SourceAdmission {
+    FirstVolume,
+    CurrentVolume,
+    NewVolume,
+    Refused(SourceRefusal),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SourceRefusal {
+    ForeignRadar,
+    OlderVolume,
+    ConflictingVolumeNumber,
+}
+
+impl std::fmt::Display for SourceRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::ForeignRadar => "foreign radar",
+            Self::OlderVolume => "older declared volume start",
+            Self::ConflictingVolumeNumber => {
+                "conflicting number for the same declared volume start"
+            }
+        })
+    }
+}
+
+/// Immutable guard evidence attached to an accepted frame. Counts cover this subscription,
+/// including non-rendering envelopes; this is not a radial/completeness or emitter-epoch claim.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SourceScopeReceipt {
+    pub volume: VolumeKey,
+    pub volume_number: Option<usize>,
+    pub volume_rollovers: u64,
+    pub declared_upstream_resets: u64,
+    pub refused_older_volumes: u64,
+    pub refused_foreign_radars: u64,
+    pub refused_number_conflicts: u64,
+}
+
+impl SourceScopeReceipt {
+    pub fn estimated_bytes(&self) -> usize {
+        std::mem::size_of::<Self>() + self.volume.site.capacity()
+    }
+}
+
+/// One provider subscription's volume high-water mark. Refusals never rewind it. Exact start
+/// clocks distinguish reused native numbers; same-volume late messages remain admissible.
+pub struct SourceVolumeCursor {
+    site: String,
+    current: Option<(VolumeKey, Option<usize>)>,
+    rollovers: u64,
+    upstream_resets: u64,
+    older: u64,
+    foreign: u64,
+    conflicts: u64,
+}
+
+impl SourceVolumeCursor {
+    pub fn new(site: &str) -> Self {
+        Self {
+            site: site.to_ascii_uppercase(),
+            current: None,
+            rollovers: 0,
+            upstream_resets: 0,
+            older: 0,
+            foreign: 0,
+            conflicts: 0,
+        }
+    }
+
+    pub fn refuse_foreign_radar(&mut self) {
+        self.foreign = self.foreign.saturating_add(1);
+    }
+
+    /// A changed declared relay label resets assembly, without establishing an emitter identity.
+    pub fn declared_upstream_reset(&mut self) {
+        self.upstream_resets = self.upstream_resets.saturating_add(1);
+    }
+
+    pub fn admit(&mut self, candidate: &VolumeKey, number: Option<usize>) -> SourceAdmission {
+        if !candidate.site.eq_ignore_ascii_case(&self.site) {
+            self.refuse_foreign_radar();
+            return SourceAdmission::Refused(SourceRefusal::ForeignRadar);
+        }
+        if let Some((current, current_number)) = &self.current {
+            if candidate.volume_start < current.volume_start {
+                self.older = self.older.saturating_add(1);
+                return SourceAdmission::Refused(SourceRefusal::OlderVolume);
+            }
+            if candidate.volume_start == current.volume_start {
+                if matches!((*current_number,number),(Some(old),Some(new)) if old != new) {
+                    self.conflicts = self.conflicts.saturating_add(1);
+                    return SourceAdmission::Refused(SourceRefusal::ConflictingVolumeNumber);
+                }
+                return SourceAdmission::CurrentVolume;
+            }
+            self.rollovers = self.rollovers.saturating_add(1);
+            self.current = Some((candidate.clone(), number));
+            SourceAdmission::NewVolume
+        } else {
+            self.current = Some((candidate.clone(), number));
+            SourceAdmission::FirstVolume
+        }
+    }
+
+    pub fn receipt(&self) -> Option<SourceScopeReceipt> {
+        let (volume, number) = self.current.as_ref()?;
+        Some(SourceScopeReceipt {
+            volume: volume.clone(),
+            volume_number: *number,
+            volume_rollovers: self.rollovers,
+            declared_upstream_resets: self.upstream_resets,
+            refused_older_volumes: self.older,
+            refused_foreign_radars: self.foreign,
+            refused_number_conflicts: self.conflicts,
+        })
     }
 }
 
@@ -313,5 +432,77 @@ mod tests {
             6,
             "the SAILS revisit's radials must all be new, not deduplicated against the base tilt"
         );
+    }
+    #[test]
+    fn source_cursor_uses_start_clocks_not_reused_or_wrapped_numbers_and_refusals_never_rewind() {
+        use SourceAdmission::*;
+        let start = Utc.with_ymd_and_hms(2026, 5, 1, 3, 0, 0).unwrap();
+        let mut cursor = SourceVolumeCursor::new("ktlx");
+        let first = VolumeKey::new("KTLX", start);
+        let next = VolumeKey::new("KTLX", start + chrono::Duration::minutes(5));
+        assert_eq!(cursor.admit(&first, Some(999)), FirstVolume);
+        let frozen = cursor.receipt().unwrap();
+        assert_eq!(
+            cursor.admit(&first, Some(999)),
+            CurrentVolume,
+            "a repeated Start is not another volume"
+        );
+        assert_eq!(
+            cursor.admit(&next, Some(999)),
+            NewVolume,
+            "a missing Start and reused number still roll over"
+        );
+        assert_eq!(
+            cursor.admit(&first, Some(999)),
+            Refused(SourceRefusal::OlderVolume)
+        );
+        assert_eq!(
+            cursor.admit(&next, Some(1)),
+            Refused(SourceRefusal::ConflictingVolumeNumber)
+        );
+        assert_eq!(
+            cursor.admit(&VolumeKey::new("KOUN", next.volume_start), Some(999)),
+            Refused(SourceRefusal::ForeignRadar)
+        );
+        let current = cursor.receipt().unwrap();
+        assert_eq!(current.volume, next);
+        assert_eq!(
+            (
+                current.volume_rollovers,
+                current.refused_older_volumes,
+                current.refused_number_conflicts,
+                current.refused_foreign_radars
+            ),
+            (1, 1, 1, 1)
+        );
+        assert_eq!(
+            frozen.volume, first,
+            "accepted guard evidence stays immutable"
+        );
+        assert_eq!(frozen.refused_older_volumes, 0);
+        assert_eq!(
+            cursor.admit(
+                &VolumeKey::new("KTLX", start + chrono::Duration::minutes(10)),
+                Some(1)
+            ),
+            NewVolume,
+            "number wrap is ordinary when the clock advances"
+        );
+    }
+
+    #[test]
+    fn relay_cursor_has_no_invented_number_or_epoch_and_preserves_same_volume_late_input() {
+        let mut cursor = SourceVolumeCursor::new("KTLX");
+        assert!(cursor.receipt().is_none());
+        cursor.refuse_foreign_radar();
+        let volume = VolumeKey::new("KTLX", Utc.with_ymd_and_hms(2026, 5, 1, 3, 0, 0).unwrap());
+        cursor.admit(&volume, None);
+        cursor.declared_upstream_reset();
+        assert_eq!(cursor.admit(&volume, None), SourceAdmission::CurrentVolume);
+        let receipt = cursor.receipt().unwrap();
+        assert_eq!(receipt.volume_number, None);
+        assert_eq!(receipt.declared_upstream_resets, 1);
+        assert_eq!(receipt.refused_foreign_radars, 1);
+        assert_eq!(receipt.volume_rollovers, 0);
     }
 }

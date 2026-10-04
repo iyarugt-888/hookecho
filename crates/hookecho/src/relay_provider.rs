@@ -17,6 +17,7 @@
 use crate::volume::{LatestVolume, Level2LiveProvider};
 use futures_util::StreamExt;
 use std::sync::Arc;
+use wxdata::continuation::{SourceAdmission, SourceVolumeCursor};
 use wxdata::level2::Scan;
 use wxdata::live::{CutKind, RadialCoverage, ScanProgress, Update};
 use wxdata::live_block::{assemble_scan, LiveLevel2Block, ProviderCapabilities, VolumeKey};
@@ -128,6 +129,7 @@ impl Level2LiveProvider for HookEchoRelayLevel2Provider {
         let mut read = ws_stream;
 
         let mut merged = base;
+        let mut source_scope = SourceVolumeCursor::new(&site);
         let mut current_volume: Option<VolumeKey> = None;
         let mut pending_blocks: Vec<LiveLevel2Block> = Vec::new();
         let mut update_count: u64 = 0;
@@ -165,7 +167,14 @@ impl Level2LiveProvider for HookEchoRelayLevel2Provider {
             if !block.site.eq_ignore_ascii_case(&site)
                 || !block.volume.site.eq_ignore_ascii_case(&site)
             {
+                source_scope.refuse_foreign_radar();
                 log::warn!("relay {site}: discarded block for another radar");
+                continue;
+            }
+
+            let admission = source_scope.admit(&block.volume, None);
+            if let SourceAdmission::Refused(reason) = admission {
+                log::warn!("relay {site}: source scope refused: {reason}");
                 continue;
             }
 
@@ -175,11 +184,17 @@ impl Level2LiveProvider for HookEchoRelayLevel2Provider {
             let origin = SequenceOrigin::RelayBlocks {
                 upstream_id: Some(block.source_id.clone()),
             };
-            if current_volume.as_ref() != Some(&block.volume)
-                || sequences
-                    .as_ref()
-                    .is_none_or(|ledger| ledger.origin() != &origin)
+            let upstream_changed = sequences
+                .as_ref()
+                .is_some_and(|ledger| ledger.origin() != &origin);
+            if matches!(
+                admission,
+                SourceAdmission::FirstVolume | SourceAdmission::NewVolume
+            ) || upstream_changed
             {
+                if admission == SourceAdmission::CurrentVolume && upstream_changed {
+                    source_scope.declared_upstream_reset();
+                }
                 pending_blocks.clear();
                 current_volume = Some(block.volume.clone());
                 passes = wxdata::live_pass::PassTracker::default();
@@ -246,6 +261,7 @@ impl Level2LiveProvider for HookEchoRelayLevel2Provider {
                     source_passes: Some(passes.inventory()),
                     source_sequences: Some(Box::new(sequences.inventory())),
                     source_attribution: None,
+                    source_scope: source_scope.receipt().map(Arc::new),
                 }
             });
             let (new_scan, changed) = wxdata::live::merge_scan(&merged, partial);
@@ -316,6 +332,16 @@ impl Level2LiveProvider for HookEchoRelayLevel2Provider {
             .map(LiveLevel2Block::try_from)
             .collect::<Result<_, _>>()?;
 
+        let first = &blocks[0];
+        anyhow::ensure!(
+            blocks
+                .iter()
+                .all(|block| block.site.eq_ignore_ascii_case(site)
+                    && block.volume.site.eq_ignore_ascii_case(site)
+                    && block.volume == first.volume
+                    && block.source_id == first.source_id),
+            "relay {site}: completed volume contains incompatible radar, volume or upstream scope"
+        );
         let volume = blocks[0].volume.clone();
         let name = format!("relay-{site}-{}", volume.volume_start.timestamp_millis());
         if current_name == Some(name.as_str()) {
@@ -547,6 +573,59 @@ mod integration_tests {
     }
 
     #[tokio::test]
+    async fn completed_http_volume_refuses_incompatible_envelope_scopes_before_assembly() {
+        use wxdata::live_block::checksum;
+        let time = chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap();
+        let payload = a_completed_volume_at("KTLX", time);
+        let block = LiveLevel2Block {
+            site: "KTLX".into(),
+            volume: VolumeKey::new("KTLX", time),
+            cut: None,
+            elevation_angle_deg: None,
+            first_azimuth_number: None,
+            last_azimuth_number: None,
+            radar_start: time,
+            radar_end: time,
+            received_at: time,
+            emitted_at: time,
+            sequence: 1,
+            source_id: "ldm".into(),
+            checksum: checksum(&payload),
+            payload,
+        };
+        for mismatch in 0..4 {
+            let mut bad = block.clone();
+            match mismatch {
+                0 => bad.site = "KOUN".into(),
+                1 => bad.volume.site = "KOUN".into(),
+                2 => bad.volume = VolumeKey::new("KTLX", time + chrono::Duration::seconds(60)),
+                _ => bad.source_id = "different-label".into(),
+            }
+            let body =
+                serde_json::to_string(&vec![BlockDto::from(&block), BlockDto::from(&bad)]).unwrap();
+            let app = axum::Router::new().route(
+                "/sites/KTLX/volume/latest",
+                axum::routing::get(move || async move { body }),
+            );
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                axum::serve(listener, app).await.unwrap();
+            });
+            let provider = HookEchoRelayLevel2Provider::new(format!("http://{address}"));
+            let error = provider
+                .latest_complete_volume("KTLX", None)
+                .await
+                .err()
+                .expect("mixed envelope scope must be rejected");
+            assert!(error
+                .to_string()
+                .contains("incompatible radar, volume or upstream scope"));
+            server.abort();
+        }
+    }
+
+    #[tokio::test]
     async fn latest_complete_volume_is_up_to_date_when_nothing_has_completed() {
         let pipeline = Pipeline::new(
             RechunkConfig::default(),
@@ -619,6 +698,9 @@ mod integration_tests {
             serde_json::to_string(&BlockDto::from(&make(503, 3, "ldm", 0))).unwrap(),
             serde_json::to_string(&BlockDto::from(&make(0, 4, "other-upstream", 0))).unwrap(),
             serde_json::to_string(&BlockDto::from(&make(5, 61, "other-upstream", 60))).unwrap(),
+            // A delayed older envelope from another label must not reset the current upstream.
+            serde_json::to_string(&BlockDto::from(&make(9000, 62, "late-upstream", 0))).unwrap(),
+            serde_json::to_string(&BlockDto::from(&make(6, 63, "other-upstream", 60))).unwrap(),
         ];
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
@@ -652,7 +734,7 @@ mod integration_tests {
         let updates = updates.lock().unwrap();
         assert_eq!(
             updates.len(),
-            5,
+            6,
             "duplicate-only decode does not produce an accepted gate update"
         );
         for update in updates.iter() {
@@ -719,6 +801,33 @@ mod integration_tests {
             Some((5, 5)),
             "new volume has no invented prefix holes"
         );
+        assert_eq!(receipts[5].received_bounds, Some((5, 6)));
+        assert_eq!(receipts[5].origin, receipts[4].origin);
+        let scopes: Vec<_> = updates
+            .iter()
+            .map(|update| {
+                update
+                    .radial_coverage
+                    .as_ref()
+                    .unwrap()
+                    .source_scope
+                    .as_ref()
+                    .unwrap()
+            })
+            .collect();
+        assert_eq!(scopes[0].refused_foreign_radars, 2);
+        assert_eq!(scopes[3].declared_upstream_resets, 1);
+        assert_eq!(scopes[4].volume_rollovers, 1);
+        assert_eq!(
+            scopes[4].refused_older_volumes, 0,
+            "earlier accepted receipts stay frozen"
+        );
+        assert_eq!(scopes[5].refused_older_volumes, 1);
+        assert_eq!(
+            scopes[5].declared_upstream_resets, 1,
+            "refused label cannot change origin"
+        );
+        assert!(updates.windows(2).all(|pair| pair[0].time <= pair[1].time));
         assert_eq!(receipts[4].recovered_positions, 0);
         assert_eq!(
             receipts[0].bounded_holes,

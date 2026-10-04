@@ -135,6 +135,35 @@ pub(crate) fn gate_clock_rows(row: Option<i64>, bin: Option<i64>) -> Vec<(&'stat
     .unwrap_or_default()
 }
 
+fn source_scope_rows(
+    scope: Option<&wxdata::continuation::SourceScopeReceipt>,
+) -> Vec<(&'static str, String)> {
+    let Some(scope) = scope else {
+        return vec![("Admission evidence", "Unavailable for this frame".into())];
+    };
+    vec![
+        ("Admitted radar",scope.volume.site.clone()),
+        ("Declared volume start",source_clock(scope.volume.volume_start.timestamp_millis())),
+        ("Source volume number",scope.volume_number.map_or_else(|| "Not provided".into(),|n| n.to_string())),
+        ("Volume rollovers",scope.volume_rollovers.to_string()),
+        ("Declared upstream resets",scope.declared_upstream_resets.to_string()),
+        ("Older volume refusals",scope.refused_older_volumes.to_string()),
+        ("Foreign radar refusals",scope.refused_foreign_radars.to_string()),
+        ("Number conflicts",scope.refused_number_conflicts.to_string()),
+        ("Guard scope","Subscription totals through this accepted frame, including input that did not change gates. Reconnects start fresh totals. Declared labels are not emitter epochs; admission does not certify payload lineage or complete radials. Current live failures are shown in source health and the log.".into()),
+    ]
+}
+
+fn paint_source_scope(
+    ui: &mut egui::Ui,
+    t: &ws::Tokens,
+    scope: Option<&wxdata::continuation::SourceScopeReceipt>,
+) {
+    for (name, value) in source_scope_rows(scope) {
+        ui.add(egui::Label::new(ws::text(format!("{name}: {value}"), 11.0, t.text_dim)).wrap());
+    }
+}
+
 fn cut_acquisition_rows(cut: &crate::live_scan::CutAcquisition) -> Vec<(&'static str, String)> {
     let Some(expected) = cut.expected_chunks else {
         return vec![(
@@ -296,6 +325,25 @@ pub(crate) fn receipt_rows(
             ));
         }
     }
+    if let Some(scope) = &inventory.source_scope {
+        rows.push((
+            "Admitted source volume",
+            format!(
+                "{} · {}",
+                scope.volume.site,
+                source_clock(scope.volume.volume_start.timestamp_millis())
+            ),
+        ));
+        rows.push((
+            "Source volume refusals",
+            format!(
+                "{} older; {} foreign radar; {} number conflicts",
+                scope.refused_older_volumes,
+                scope.refused_foreign_radars,
+                scope.refused_number_conflicts
+            ),
+        ));
+    }
     rows
 }
 
@@ -358,6 +406,11 @@ fn paint_inventory(
                 .show(ui, |ui| {
                     paint_pass_inventory(ui, t, inventory.source_passes.as_ref());
                 });
+        });
+    egui::CollapsingHeader::new("Source volume admission")
+        .id_salt("source-volume-admission")
+        .show(ui, |ui| {
+            paint_source_scope(ui, t, inventory.source_scope.as_deref())
         });
     egui::CollapsingHeader::new("Source sequence receipts")
         .id_salt("source-sequence-receipts")
@@ -611,6 +664,117 @@ mod tests {
     use super::*;
     use egui_phosphor::regular as ph;
 
+    fn scope_fixture(refused: bool) -> wxdata::continuation::SourceScopeReceipt {
+        use wxdata::{continuation::SourceVolumeCursor, live_block::VolumeKey};
+        let start = chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap();
+        let mut cursor = SourceVolumeCursor::new("KTLX");
+        cursor.admit(&VolumeKey::new("KTLX", start), Some(999));
+        if refused {
+            cursor.admit(
+                &VolumeKey::new("KTLX", start + chrono::Duration::seconds(60)),
+                Some(999),
+            );
+            cursor.declared_upstream_reset();
+            cursor.admit(&VolumeKey::new("KTLX", start), Some(999));
+            cursor.admit(&VolumeKey::new("KOUN", start), Some(999));
+            cursor.admit(
+                &VolumeKey::new("KTLX", start + chrono::Duration::seconds(60)),
+                Some(1),
+            );
+        }
+        cursor.receipt().unwrap()
+    }
+
+    #[test]
+    fn source_admission_details_preserve_scope_unknowns_and_wrap_in_desktop_and_touch() {
+        let before = scope_fixture(false);
+        let after = scope_fixture(true);
+        let rows = source_scope_rows(Some(&after));
+        assert!(rows.contains(&("Declared volume start", "2023-11-14T22:14:20.000Z".into())));
+        for label in [
+            "Volume rollovers",
+            "Declared upstream resets",
+            "Older volume refusals",
+            "Foreign radar refusals",
+            "Number conflicts",
+        ] {
+            assert!(rows.contains(&(label, "1".into())));
+        }
+        let mut no_number = after.clone();
+        no_number.volume_number = None;
+        assert!(source_scope_rows(Some(&no_number))
+            .contains(&("Source volume number", "Not provided".into())));
+        assert_eq!(
+            source_scope_rows(None),
+            vec![("Admission evidence", "Unavailable for this frame".into())]
+        );
+        let ctx = egui::Context::default();
+        let t = ws::Tokens::new(egui::Color32::LIGHT_BLUE);
+        for width in [240.0, 300.0] {
+            for scope in [Some(&before), Some(&after), None] {
+                let _ = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(width, 900.0),
+                        )),
+                        ..Default::default()
+                    },
+                    |ui| {
+                        ws::set_touch(ui.ctx(), width == 240.0);
+                        ws::panel_frame(&t).show(ui, |ui| {
+                            ws::style_scope(ui, &t);
+                            paint_source_scope(ui, &t, scope);
+                            assert!(ui.min_rect().right() <= width + 1.0);
+                            assert!(ui.min_rect().bottom() < 900.0);
+                        });
+                    },
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "gpu: writes source volume admission captures"]
+    fn gpu_source_admission_snapshots() {
+        let gpu = crate::headless::ui::Snapshot::new().expect("GPU adapter for admission review");
+        let destination = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/parity-review/m1.1/source-admission-ui");
+        std::fs::create_dir_all(&destination).unwrap();
+        let t = ws::Tokens::new(egui::Color32::from_rgb(72, 142, 226));
+        let before = scope_fixture(false);
+        let after = scope_fixture(true);
+        for (name, scope) in [
+            ("admitted", Some(&before)),
+            ("refused", Some(&after)),
+            ("unavailable", None),
+        ] {
+            for width in [240, 300] {
+                gpu.save(
+                    &destination.join(format!("{name}-{width}.png")),
+                    width,
+                    900,
+                    |ui| {
+                        ws::set_touch(ui.ctx(), width == 240);
+                        ws::panel_frame(&t).show(ui, |ui| {
+                            ws::style_scope(ui, &t);
+                            ws::window_header(
+                                ui,
+                                &t,
+                                ph::INFO,
+                                "Source volume admission",
+                                None,
+                                None,
+                            );
+                            paint_source_scope(ui, &t, scope);
+                        });
+                    },
+                )
+                .unwrap();
+            }
+        }
+    }
+
     fn sequence_fixture(recovered: bool) -> wxdata::live_sequence::SequenceInventory {
         use wxdata::live_sequence::{SequenceLedger, SequenceOrigin};
         let mut ledger = SequenceLedger::new(SequenceOrigin::RelayBlocks {
@@ -852,6 +1016,7 @@ mod tests {
                     source_passes: None,
                     source_sequences: None,
                     source_attribution: None,
+                    source_scope: None,
                     radials: vec![(1, start + 1000), (2, 0), (4, start + 3000)],
                 },
                 chrono::Utc::now(),
@@ -866,6 +1031,7 @@ mod tests {
                     source_passes: None,
                     source_sequences: None,
                     source_attribution: None,
+                    source_scope: None,
                     radials: vec![(1, start + 10000), (2, start + 11000)],
                 },
                 chrono::Utc::now(),
@@ -973,6 +1139,7 @@ mod tests {
                 source_passes: None,
                 source_sequences: None,
                 source_attribution: None,
+                source_scope: None,
                 radials: vec![(3, 0)],
             },
             chrono::Utc::now(),

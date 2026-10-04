@@ -8,6 +8,22 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: source volume rollover and visible live recovery reasons
+
+Live acquisition now admits each source volume by its radar and declared start clock before
+assembly. Reused or wrapped native volume numbers cannot mix adjacent volumes, and a repeated
+Start for the same volume preserves its history. Delayed older relay volumes cannot rewind the
+assembly or replace the current upstream; completed relay responses reject mixed radar, volume
+or upstream scopes. Direct-stream progress comes from decoded native metadata, avoiding a
+previous volume's VCP when the next Start is missing.
+
+Expand **Source volume admission** in acquisition details to inspect the accepted radar/start,
+rollovers, upstream-label resets and refused older/foreign/conflicting input counts. These
+receipts belong to their accepted frame and report subscription totals; they do not certify
+complete radials or payload identity. Source health and the Analyst log retain the last live
+stream error during polling recovery and clear it on reconnect. Values, gate clocks and
+strict/continuous masks are unchanged.
+
 ### Added: native pass attribution for displayed and integrated radar inputs
 
 Progressive frames now retain native pass associations for the rows surviving a merge.
