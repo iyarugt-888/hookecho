@@ -34,6 +34,13 @@ pub const MIN_SCORE: f32 = 0.3;
 /// Fused evidence at and above which it reads as Likely, or as Debris with a tornado debris
 /// signature beside it: the strict operating point (about 1.5 false alarms per radar-hour).
 pub const LIKELY_SCORE: f32 = 0.6;
+/// The rotation-only Possible bar applies from this range (km) out. Nearer, the lowest beam is
+/// under ~0.6 km, a tornado's debris is usually in view and the fused score already finds it,
+/// and the beam resolves ordinary storm shear sharply enough to reach the bar: lifted markers
+/// within 40 km verified 0 of 13 times on 139 random severe-weather windows and 1 of 19 on the
+/// 65-event corpus, against 60% for the fused markers there. Lifting only from 40 km lost no
+/// tornado on either set (detectionplan.md).
+pub const LIFT_MIN_RANGE_KM: f32 = 40.0;
 
 /// One circulation, analysed.
 #[derive(Debug, Clone, PartialEq)]
@@ -225,8 +232,8 @@ impl Analysed {
     }
 
     /// [`Self::tornado_id`], with an opt-in bar (s⁻¹): a rooted, cyclonic column in a convective
-    /// core, with no tornado debris signature beside it, reaches Possible once its 0-2 km shear is
-    /// at least the bar,
+    /// core, at least [`LIFT_MIN_RANGE_KM`] out, with no tornado debris signature beside it,
+    /// reaches Possible once its 0-2 km shear is at least the bar,
     /// whatever its evidence score. Its score is unchanged and its first reason says why it is
     /// shown.
     ///
@@ -260,6 +267,7 @@ impl Analysed {
                     // core; requiring one kept every tornado the bar gains while halving its
                     // false markers on ordinary severe days (146 to 71 over 95 radar-hours).
                     && c.echo.is_some()
+                    && c.members.first().is_some_and(|m| m.object.range_km >= LIFT_MIN_RANGE_KM)
             });
         // Every verdict sits in a convective core (`echo`: a >= 40 dBZ object within 5 km) unless a
         // tornado report confirms it. Shear with no core is stratiform rain, synoptic wind or
@@ -617,6 +625,14 @@ mod tests {
         coreless.column.echo = None;
         let coreless = &analyse(vec![coreless], &[], &[])[0];
         assert!(coreless.tornado_id_with(&none, Some(0.020)).is_none());
+        // Within 40 km, where debris would be in view: not lifted.
+        let mut close = t.clone();
+        for m in &mut close.column.members {
+            m.object.range_km = 30.0;
+        }
+        let close = &analyse(vec![close], &[], &[])[0];
+        assert!(close.fused.score < MIN_SCORE, "{}", close.fused.score);
+        assert!(close.tornado_id_with(&none, Some(0.020)).is_none());
         let mut aloft = t.clone();
         aloft.column.rooted = false;
         let aloft = &analyse(vec![aloft], &[], &[])[0];

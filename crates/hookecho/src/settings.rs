@@ -927,11 +927,11 @@ pub enum TornadoIdSource {
 }
 
 /// Where Tornado detection's rotation-only Possible bar starts (s⁻¹). On a random sample of 139
-/// ordinary severe-weather windows (2019 and 2021-2024) the fused Possible tier found 9% of the
-/// tornadoes at 1.41 false markers per radar-hour without it, and 33% at 2.95 with it. Since every
-/// verdict must sit in a convective core, those are 0.77 and 1.52, finding as many. The original
-/// Tornado ID found 16% at 3.51. Possible raises no alert. The maintainer chose it over 0.020 (19%
-/// at 2.20, before the core rule) and leaving it off (detectionplan.md).
+/// ordinary severe-weather windows (2019 and 2021-2024), counting markers as the map draws them,
+/// the fused Possible tier finds 9% of the tornadoes at 0.35 false markers per radar-hour without
+/// it and 33% at 0.85 with it; the original Tornado ID finds 16% at 3.51. (That is with every
+/// verdict in a convective core and the bar applied from 40 km out.) Possible raises no alert. The
+/// maintainer chose it over 0.020 and leaving it off (detectionplan.md).
 pub const DEFAULT_ROTATION_ONLY_POSSIBLE: f32 = 0.018;
 
 fn default_rotation_only_possible() -> Option<f32> {

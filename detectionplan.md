@@ -443,6 +443,19 @@ Primary code areas:
 
     On ordinary severe days the fused tier now runs at 0.77 false Possible markers per radar-hour (POD 0.09) without the rotation-only lift, and 1.52 with it (POD 0.33). Likely raised no false marker in 95 radar-hours. The original Tornado ID: 3.51 and 0.89. The four stratiform markers left each have a ≥ 40 dBZ object within 5 km; whether that is bright band or embedded convection is not yet examined.
 
+- **Counting markers as the map draws them, and no lift within 40 km.** Since one-marker-per-tornado, verdicts within 15 km in a volume fold into the strongest, so the row counts above overstate what is shown. Marker-level verification folds each volume the same way (the lead's match decides). The original Tornado ID already draws one per circulation and is unchanged by folding.
+  - **By range, lifted markers within 40 km are nearly all false:** 0 of 13 verified on the random sample, 1 of 19 on the corpus, against 60% for fused markers there (corpus). Up close the lowest beam is under ~0.6 km, so a tornado's debris is usually in view and the fused score finds it, and the beam resolves ordinary storm shear sharply enough to reach 0.018 s⁻¹. `LIFT_MIN_RANGE_KM` = 40: the lift applies from there out. Swept 0–50 km; 40 is the farthest that lost no tornado on either set (50 lost one on the corpus).
+  - **Where it stands, false Possible markers per radar-hour and POD:**
+
+    | Set | Fused, no lift | Fused, lift from 40 km | Original |
+    |---|---|---|---|
+    | Random 139 (95 h, 57 truths) | 0.35, 0.09 | 0.85, 0.33 | 3.51, 0.16 |
+    | Corpus 65 (53.5 h, 493 truths) | 1.68, 0.27 | 3.46, 0.38 | 7.60, 0.29 |
+    | Stratiform (4 h) | 0.75 | 1.50 | 5.50 |
+
+    At Likely, the fused tier makes no false marker on the random sample (original 0.89/h) and 0.19/h on the corpus at POD 0.17 (original 2.58/h at 0.21).
+  - **Tried and set aside: fixed-spot clutter.** The KVNX 2019-06-16 false markers recur at one spot about 36 km out, small echo (2 km), likely wind-farm clutter (not yet checked against turbine locations), but the tracker gives them a new track nearly every volume, so `stationary` never fires. Counting the other volumes within ±30 minutes with any column within 2 km: ≥ 4 removes 13 of 94 false markers on the random sample, but only 10 of 203 on the corpus and costs 3 verified ones. Wind-farm columns flicker rather than persist. A turbine-location mask (USGS wind turbine database) would target them directly.
+
 ### Where the detection stands (65 events)
 
 - **Promoted.** The fused Tornado ID (fusion-3) is the app's default; the original is selectable. On every held-out test since promotion it has found as many tornadoes as the original or more, at a far lower false-alarm ratio. On round three's unseen events at matched false-alarm rates: POD 0.29, FAR 0.21 against 0.15, 0.64. On round five's unseen supercell days at Likely: POD 0.28, FAR 0.11 against 0.26, 0.62. On non-tornadic lines (round four): 0 false detections against 23. On the hail storms, at Likely: 2 against 25.
