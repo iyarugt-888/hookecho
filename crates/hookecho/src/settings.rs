@@ -926,12 +926,12 @@ pub enum TornadoIdSource {
     Legacy,
 }
 
-/// Where Tornado detection's rotation-only Possible bar starts (s⁻¹). On a random sample of 139
-/// ordinary severe-weather windows (2019 and 2021-2024), the markers the app draws (the
-/// backtest's `tornado_marker` rows) find 40% of the tornadoes at 0.71 false Possible markers per
-/// radar-hour with it; within 15-150 km, 33% with it against 9% without. The original Tornado ID
-/// finds 16% at 3.51. Possible raises no alert. The maintainer chose it over 0.020 and leaving it
-/// off (detectionplan.md).
+/// Where Tornado detection's rotation-only Possible bar starts (s⁻¹). On 259 random ordinary
+/// severe-weather windows (2018-2025; 2018, 2020 and 2025 held out from every rule's tuning), the
+/// markers the app draws (the backtest's `tornado_marker` rows, `scripts/fusion/markers.py`) find
+/// 38% of the tornadoes at 0.62 false Possible markers per radar-hour with it; the original
+/// Tornado ID finds 16% at 3.14. Without it the fused tier found about a tenth (detectionplan.md).
+/// Possible raises no alert. The maintainer chose it over 0.020 and leaving it off.
 pub const DEFAULT_ROTATION_ONLY_POSSIBLE: f32 = 0.018;
 
 fn default_rotation_only_possible() -> Option<f32> {
