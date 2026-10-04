@@ -177,7 +177,7 @@ and a *possible* marker within 2 km of a wind turbine that stood in the scan's y
 2024 that was every false marker. A tornado report or an observed warning raises a marker to
 *confirmed* but no longer makes one from weak shear near the report. It does not run on TDWR
 sites. On 259 random severe-weather windows (2018–2025, three of the years held out from all
-tuning) it found 38% of the tornadoes at 0.6 false *possible* markers per radar-hour and 0.03 at
+tuning) it found 38% of the tornadoes at 0.56 false *possible* markers per radar-hour and 0.02 at
 *likely*; the original Tornado ID found 16% at 3.1 and 0.75. Scores remain evidence, not
 calibrated probabilities.
 
