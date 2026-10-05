@@ -309,6 +309,8 @@ impl HookEchoApp {
             .map(|(o, _)| self.cell_trends.get(&o.id).cloned().unwrap_or_default())
             .collect();
         let trend = self.cell_trends.get(&c.id).cloned().unwrap_or_default();
+        // Its persistent identity across scans (ROADMAP_PARITY M2.1).
+        let identity = self.dock.storm_ids.describe(&c.id);
         let explained = wxdata::cellscore::score_all_explained(
             std::slice::from_ref(&c),
             &self.probsevere,
@@ -495,6 +497,9 @@ impl HookEchoApp {
                                 if let Some(b) = c.base_kft {
                                     let lt = if c.base_below { "<" } else { "" };
                                     ws::kv(ui, &t, "Base", &format!("{lt}{b:.1} kft"), None);
+                                }
+                                if let Some(line) = &identity {
+                                    ws::kv(ui, &t, "History", line, None);
                                 }
                             });
                             // What threatens where: the tornado detection at this storm, the

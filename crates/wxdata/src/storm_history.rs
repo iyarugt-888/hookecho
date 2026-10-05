@@ -349,8 +349,9 @@ impl StormHistory {
             if taken_obs[o] {
                 continue;
             }
-            let id = StormId(self.next_id);
+            // IDs count from 1: a person reads "#1" as the first storm.
             self.next_id += 1;
+            let id = StormId(self.next_id);
             let mut lineage = Vec::new();
             if let Some((parent, _)) = candidates(o).first() {
                 lineage.push(Lineage::SplitFrom(*parent));

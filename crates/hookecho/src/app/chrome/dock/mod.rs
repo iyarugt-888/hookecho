@@ -417,6 +417,8 @@ pub(crate) struct DockState {
     pub storm_desc: bool,
     /// Session-only filter for the Storms table, independent of the Layers search.
     pub storm_query: String,
+    /// The active radar's persistent storm history (ROADMAP_PARITY M2.1).
+    pub storm_ids: storms::StormIdentity,
     /// Whether a point has been sounded (the sounding window's own `open`). Set each frame.
     pub sounding_available: bool,
     /// Whether the Analyst log has anything to show: Analyst Mode is on. Set each frame.
@@ -511,6 +513,7 @@ impl Default for DockState {
             storm_sort: Default::default(),
             storm_desc: true,
             storm_query: String::new(),
+            storm_ids: Default::default(),
             view3d_available: false,
             prefs_page: PrefsPage::Map,
             timeline_open: true,

@@ -72,8 +72,133 @@ pub(super) fn row_cells(c: &wxdata::level3::Cell, score: Option<u8>) -> ([String
     (cols, flags)
 }
 
+/// The active radar's persistent storm history (ROADMAP_PARITY M2.1): fed once per SCIT table,
+/// so each storm keeps one stable local ID across scans and provider-ID changes, with the evidence
+/// for every link in [`wxdata::storm_history`].
+#[derive(Debug, Default)]
+pub(crate) struct StormIdentity {
+    site: Option<String>,
+    fed: Option<i64>,
+    history: wxdata::storm_history::StormHistory,
+    /// The storm of each SCIT cell in the table last fed, by cell ID.
+    current: Vec<(String, wxdata::storm_history::StormId)>,
+}
+
+impl StormIdentity {
+    /// Feed the current SCIT table, once per scan time. Another radar starts a new history; no
+    /// cells (an archive, where SCIT is not kept) feed nothing.
+    pub(crate) fn feed(&mut self, site: Option<&str>, cells: &[wxdata::level3::Cell]) {
+        use wxdata::storm_history::{ObservationRef, Source};
+        if self.site.as_deref() != site {
+            *self = StormIdentity {
+                site: site.map(str::to_string),
+                ..Default::default()
+            };
+        }
+        let storms: Vec<&wxdata::level3::Cell> =
+            cells.iter().filter(|c| !c.id.is_empty()).collect();
+        let Some(time) = storms.iter().find_map(|c| c.time).map(|t| t.timestamp()) else {
+            return;
+        };
+        if self.fed == Some(time) {
+            return;
+        }
+        self.fed = Some(time);
+        let site = site.unwrap_or_default().to_string();
+        let observations: Vec<ObservationRef> = storms
+            .iter()
+            .map(|c| ObservationRef {
+                source: Source::Scit,
+                site: site.clone(),
+                provider_id: Some(c.id.clone()),
+                time,
+                lon: c.lon,
+                lat: c.lat,
+                provider_motion_ms: scit_motion_ms(c),
+            })
+            .collect();
+        let report = self.history.update(time, &observations);
+        self.current = storms
+            .iter()
+            .zip(&report.storms)
+            .map(|(c, s)| (c.id.clone(), *s))
+            .collect();
+    }
+
+    /// The storm a SCIT cell of the current table belongs to.
+    pub(crate) fn storm_of(&self, cell_id: &str) -> Option<&wxdata::storm_history::Storm> {
+        let id = self.current.iter().find(|(c, _)| c == cell_id)?.1;
+        self.history.storm(id)
+    }
+
+    /// One line on a cell's storm: its stable ID, how long and over how many scans it has been
+    /// tracked, the SCIT IDs it has carried, its lineage and whether its last link is tentative.
+    pub(crate) fn describe(&self, cell_id: &str) -> Option<String> {
+        use wxdata::storm_history::{Confidence, Lineage};
+        let s = self.storm_of(cell_id)?;
+        let first = s.observations.first()?.time;
+        let last = s.observations.last()?.time;
+        let mut line = format!(
+            "storm #{} · {} over {} scan{}",
+            s.id.0,
+            if last > first {
+                format!("tracked {} min", (last - first) / 60)
+            } else {
+                "first seen this scan".to_string()
+            },
+            s.observations.len(),
+            if s.observations.len() == 1 { "" } else { "s" }
+        );
+        let mut ids: Vec<&str> = Vec::new();
+        for o in s.observations.iter().rev() {
+            if let Some(p) = o.provider_id.as_deref() {
+                if !ids.contains(&p) {
+                    ids.push(p);
+                }
+            }
+        }
+        if ids.len() > 1 {
+            line.push_str(&format!(
+                " · SCIT ID {} (earlier {})",
+                ids[0],
+                ids[1..].join(", ")
+            ));
+        }
+        for l in &s.lineage {
+            if let Lineage::SplitFrom(p) = l {
+                line.push_str(&format!(" · split from #{}", p.0));
+            }
+        }
+        if s.associations
+            .last()
+            .is_some_and(|a| a.confidence == Confidence::Tentative)
+        {
+            line.push_str(" · latest link tentative");
+        }
+        Some(line)
+    }
+}
+
+/// SCIT's motion as m/s east and north: `mvt_deg` is the bearing it moves toward.
+fn scit_motion_ms(c: &wxdata::level3::Cell) -> Option<(f64, f64)> {
+    let (deg, kt) = (c.mvt_deg?, c.mvt_kt?);
+    let ms = kt as f64 * 0.514_444;
+    let r = (deg as f64).to_radians();
+    Some((ms * r.sin(), ms * r.cos()))
+}
+
 impl HookEchoApp {
     pub(super) fn dock_storms(&mut self, host: Host<'_>) {
+        // The storm history follows every SCIT table, open or not, so identities survive the
+        // window being closed.
+        let site = self.views[self.active].site.clone();
+        let cells_time = self.active_storm_cells().iter().find_map(|c| c.time);
+        if cells_time.is_some_and(|t| self.dock.storm_ids.fed != Some(t.timestamp()))
+            || self.dock.storm_ids.site != site
+        {
+            let cells = self.active_storm_cells().to_vec();
+            self.dock.storm_ids.feed(site.as_deref(), &cells);
+        }
         if !self.dock.storms.open {
             return;
         }
@@ -91,6 +216,11 @@ impl HookEchoApp {
         let explanations =
             wxdata::cellscore::score_all_explained(&cells, &self.probsevere, couplets);
         let scores: Vec<u8> = explanations.iter().map(|e| e.score).collect();
+        // Each row's stable storm, beside SCIT's own (recycled) ID.
+        let stable: Vec<Option<u64>> = cells
+            .iter()
+            .map(|c| self.dock.storm_ids.storm_of(&c.id).map(|s| s.id.0))
+            .collect();
         let (sort, desc) = (self.dock.storm_sort, self.dock.storm_desc);
         let mut query = self.dock.storm_query.clone();
         let selected = self.cell_popup.as_ref().map(|c| c.id.clone());
@@ -242,7 +372,10 @@ impl HookEchoApp {
                             ui.spacing_mut().item_spacing.y = 0.0;
                             for (n, &i) in order.iter().enumerate() {
                                 let c = &cells[i];
-                                let (cols, flags) = row_cells(c, scores.get(i).copied());
+                                let (mut cols, flags) = row_cells(c, scores.get(i).copied());
+                                if let Some(Some(id)) = stable.get(i) {
+                                    cols[1] = format!("{} #{id}", cols[1]);
+                                }
                                 let (r, _) = ui.allocate_exact_size(
                                     egui::vec2(ui.available_width(), ROW_H),
                                     Sense::hover(),
@@ -495,6 +628,40 @@ mod tests {
         assert_eq!(matching_order(&cells, order.clone(), " a "), vec![2, 0]);
         assert_eq!(matching_order(&cells, order.clone(), ""), order);
         assert!(matching_order(&cells, order, "missing").is_empty());
+    }
+
+    #[test]
+    fn scit_motion_and_a_storm_history_line_read_as_a_person_would() {
+        use wxdata::level3::Cell;
+        let at = |id: &str, lon: f64, min: i64| Cell {
+            id: id.into(),
+            lon,
+            lat: 35.3,
+            time: chrono::DateTime::from_timestamp(1_700_000_000 + min * 60, 0),
+            mvt_deg: Some(90.0),
+            mvt_kt: Some(30.0),
+            ..Default::default()
+        };
+        let east = super::scit_motion_ms(&at("O7", -97.5, 0)).unwrap();
+        assert!(
+            (east.0 - 15.43).abs() < 0.01 && east.1.abs() < 1e-6,
+            "{east:?}"
+        );
+        let mut ids = super::StormIdentity::default();
+        ids.feed(Some("KTLX"), &[at("O7", -97.5, 0)]);
+        ids.feed(Some("KTLX"), &[at("O7", -97.45, 5)]);
+        ids.feed(Some("KTLX"), &[at("K3", -97.40, 10)]);
+        let line = ids.describe("K3").expect("tracked");
+        assert!(
+            line.starts_with("storm #1 · tracked 10 min over 3 scans"),
+            "{line}"
+        );
+        assert!(line.contains("SCIT ID K3 (earlier O7)"), "{line}");
+        // The same table again feeds nothing; another radar starts over.
+        ids.feed(Some("KTLX"), &[at("K3", -97.40, 10)]);
+        assert_eq!(ids.storm_of("K3").unwrap().observations.len(), 3);
+        ids.feed(Some("KOUN"), &[at("A1", -97.4, 15)]);
+        assert!(ids.storm_of("K3").is_none());
     }
 
     #[test]
