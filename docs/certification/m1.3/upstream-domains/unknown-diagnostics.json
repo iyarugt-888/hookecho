@@ -1,0 +1,42 @@
+{
+  "source": "Level II radar",
+  "endpoint_family": "radar-level2",
+  "latest_valid_time": "2023-11-14T22:09:20+00:00",
+  "fallback_providers": [
+    "HookEcho Relay",
+    "NOAA TGFTP (degraded)"
+  ],
+  "cache_state": "memory",
+  "status": "Fresh",
+  "last_success_secs": 30,
+  "cadence_secs": 900,
+  "recent_successes": null,
+  "recent_failures": null,
+  "error": null,
+  "details": [
+    [
+      "Active provider",
+      "Unidata Level II (AWS S3)"
+    ],
+    [
+      "Failover state",
+      "PRIMARY"
+    ],
+    [
+      "Primary upstream",
+      "live input; domains: unidata-level2-aws; adapter declaration"
+    ],
+    [
+      "Relay upstream",
+      "unknown (not declared)"
+    ],
+    [
+      "Upstream relationship",
+      "unknown; independent redundancy not established"
+    ],
+    [
+      "Standby provider",
+      "HookEcho Relay (no data yet)"
+    ]
+  ]
+}

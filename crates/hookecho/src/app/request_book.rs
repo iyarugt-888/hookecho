@@ -212,6 +212,25 @@ pub(crate) struct DiagnosticsSourceHealth {
     pub(crate) details: Vec<(&'static str, String)>,
 }
 
+impl From<&SourceHealth> for DiagnosticsSourceHealth {
+    fn from(h: &SourceHealth) -> Self {
+        Self {
+            source: h.source.clone(),
+            endpoint_family: h.endpoint_family.id(),
+            latest_valid_time: h.latest_valid_time.map(|t| t.to_rfc3339()),
+            fallback_providers: h.fallback_providers.clone(),
+            cache_state: h.cache_state.id(),
+            status: crate::ui::layers_panel::health_look(h.state()).0,
+            last_success_secs: h.last_success.map(|d| d.as_secs()),
+            cadence_secs: h.cadence.as_secs(),
+            recent_successes: h.recent_outcomes.map(|(s, _)| s),
+            recent_failures: h.recent_outcomes.map(|(_, f)| f),
+            error: h.error.clone(),
+            details: h.details.clone(),
+        }
+    }
+}
+
 /// ROADMAP_NEW N4's local diagnostics bundle. See `HookEchoApp::export_diagnostics_bundle` for
 /// what deliberately isn't in here.
 #[derive(serde::Serialize)]

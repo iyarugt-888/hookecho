@@ -483,6 +483,168 @@ mod tests {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
+    fn dependency_health(case: &str, now: chrono::DateTime<chrono::Utc>) -> SourceHealth {
+        use crate::{
+            provider_health::ProviderHealth,
+            radar_provider_manager::{FailoverSnapshot, SelectedTier},
+        };
+        use wxdata::{
+            live_block::ProviderCapabilities,
+            provider_topology::{
+                DeclarationUnavailable, InputMode, ProviderTopology, UpstreamDeclaration,
+                UNIDATA_AWS_DOMAIN,
+            },
+        };
+        let mut primary = ProviderHealth::new("Unidata/AWS", ProviderCapabilities::unidata());
+        primary.record_topology(ProviderTopology::adapter(UNIDATA_AWS_DOMAIN), now);
+        let mut backup = ProviderHealth::new("HookEcho Relay", ProviderCapabilities::relay());
+        if case != "unknown" {
+            backup.record_topology(
+                ProviderTopology::relay(
+                    UpstreamDeclaration::new(
+                        if case == "shared" {
+                            InputMode::Replay
+                        } else {
+                            InputMode::Live
+                        },
+                        if case == "distinct" {
+                            vec!["operator-idd-peer-with-an-explicit-network-dependency".into()]
+                        } else {
+                            vec![
+                                UNIDATA_AWS_DOMAIN.into(),
+                                "deployment-network-with-a-long-declared-failure-domain-identifier"
+                                    .into(),
+                            ]
+                        },
+                    )
+                    .unwrap(),
+                ),
+                now - chrono::Duration::minutes(10),
+            );
+        }
+        if case == "refresh-failed" {
+            backup.record_topology(
+                ProviderTopology::unknown(DeclarationUnavailable::HttpFailure),
+                now,
+            );
+        }
+        let snapshot = FailoverSnapshot {
+            selected: SelectedTier::Primary,
+            has_backup: true,
+            primary: Some(primary),
+            backup: Some(backup),
+            manual_override: false,
+            last_transition: None,
+        };
+        let mut h = health("Level II radar", now);
+        h.endpoint_family = crate::source_health::EndpointFamily::RadarLevel2;
+        h.fallback_providers = snapshot
+            .alternate_provider_labels()
+            .into_iter()
+            .map(str::to_string)
+            .collect();
+        h.details = crate::app::chrome::registry::failover_details(&snapshot);
+        h
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn dependency_disclosure_wraps_and_diagnostics_retain_current_unknown_and_dated_history() {
+        let now = chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap();
+        for case in ["shared", "distinct", "unknown", "refresh-failed"] {
+            let h = dependency_health(case, now);
+            let json = serde_json::to_value(crate::app::DiagnosticsSourceHealth::from(&h)).unwrap();
+            assert_eq!(
+                json["latest_valid_time"],
+                h.latest_valid_time.unwrap().to_rfc3339()
+            );
+            assert_eq!(json["details"], serde_json::to_value(&h.details).unwrap());
+            let details = h
+                .details
+                .iter()
+                .map(|(k, v)| format!("{k}: {v}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            match case {
+                "shared" => {
+                    assert!(details.contains("shared declared upstream: unidata-level2-aws"));
+                    assert!(details.contains("not a live upstream backup"));
+                }
+                "distinct" => assert!(details
+                    .contains("declared domains differ; independent redundancy not established")),
+                "unknown" => assert!(
+                    details.contains("Relay upstream: unknown")
+                        && !details.contains("Previous relay")
+                ),
+                _ => {
+                    assert!(
+                        details.contains("Relay upstream: unknown (metadata endpoint unavailable)")
+                    );
+                    assert!(details.contains("Previous relay declaration:"));
+                    assert!(details.contains("2023-11-14T22:03:20+00:00; current upstream unknown"));
+                    assert!(!details.contains("shared declared upstream:"));
+                }
+            }
+            let ctx = egui::Context::default();
+            let t = ws::Tokens::new(egui::Color32::LIGHT_BLUE);
+            for width in [240.0, 300.0] {
+                let _ = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(width, 1800.0),
+                        )),
+                        ..Default::default()
+                    },
+                    |ui| {
+                        source_row(ui, &t, &h, now, egui::Id::new("dependency_source"), true);
+                        assert!(
+                            ui.min_rect().width() <= width,
+                            "{case} overflows {width}px dock"
+                        );
+                    },
+                );
+            }
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "gpu: writes declared upstream Source details for visual review"]
+    fn gpu_upstream_dependency_sources_snapshots() {
+        let gpu = crate::headless::ui::Snapshot::new().expect("GPU adapter for upstream review");
+        let destination = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/parity-review/m1.3/upstream-domains/ui");
+        std::fs::create_dir_all(&destination).unwrap();
+        let now = chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap();
+        let t = ws::Tokens::new(egui::Color32::from_rgb(72, 142, 226));
+        for case in ["shared", "distinct", "unknown", "refresh-failed"] {
+            let h = dependency_health(case, now);
+            std::fs::write(
+                destination.join(format!("{case}.json")),
+                serde_json::to_vec_pretty(&crate::app::DiagnosticsSourceHealth::from(&h)).unwrap(),
+            )
+            .unwrap();
+            for width in [240, 300] {
+                gpu.save(
+                    &destination.join(format!("{case}-{width}.png")),
+                    width,
+                    1600,
+                    |ui| {
+                        ws::set_touch(ui.ctx(), true);
+                        ws::panel_frame(&t).show(ui, |ui| {
+                            ws::style_scope(ui, &t);
+                            ws::window_header(ui, &t, ph::PULSE, "Sources", None, None);
+                            source_row(ui, &t, &h, now, egui::Id::new("dependency_source"), true);
+                        });
+                    },
+                )
+                .unwrap();
+            }
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     #[ignore = "gpu: writes Sources dock captures for visual review"]
     fn gpu_sources_dock_snapshots() {
@@ -492,7 +654,8 @@ mod tests {
         std::fs::create_dir_all(&destination).unwrap();
         let now = chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap();
         let mut cached = health("MRMS low-level rotation", now);
-        cached.endpoint_family = crate::source_health::field_endpoint_family(crate::render::FieldLayer::Rotation);
+        cached.endpoint_family =
+            crate::source_health::field_endpoint_family(crate::render::FieldLayer::Rotation);
         cached.cadence = std::time::Duration::from_secs(120);
         cached.last_failure = Some(std::time::Duration::from_secs(5));
         cached.error = Some("Upstream timeout. Retaining the previous scan.".into());

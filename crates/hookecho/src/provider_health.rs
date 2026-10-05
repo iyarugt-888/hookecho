@@ -18,6 +18,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use wxdata::level2::Scan;
 use wxdata::live_block::ProviderCapabilities;
+use wxdata::provider_topology::{DeclarationUnavailable, ProviderTopology};
 
 /// Per-provider health for one radar site — the subset of ROADMAP_NEW B6.6's full tracked-state
 /// list achievable from a single provider's own callbacks, without the cross-provider radial
@@ -27,6 +28,11 @@ use wxdata::live_block::ProviderCapabilities;
 pub struct ProviderHealth {
     pub label: &'static str,
     pub capabilities: ProviderCapabilities,
+    /// Current metadata attempt, separate from radar-data health. An unavailable refresh must
+    /// not keep a formerly declared relationship current.
+    pub topology: ProviderTopology,
+    pub topology_checked_at: Option<DateTime<Utc>>,
+    pub last_declared_topology: Option<(DateTime<Utc>, ProviderTopology)>,
     /// The most recent radar-time timestamp this provider has delivered, if any.
     pub newest_radar_time: Option<DateTime<Utc>>,
     /// Wall-clock time this provider last successfully delivered an update.
@@ -52,6 +58,9 @@ impl ProviderHealth {
         Self {
             label,
             capabilities,
+            topology: ProviderTopology::default(),
+            topology_checked_at: None,
+            last_declared_topology: None,
             newest_radar_time: None,
             last_receipt_at: None,
             successes: 0,
@@ -78,6 +87,18 @@ impl ProviderHealth {
         self.successes = self.successes.saturating_add(1);
         self.consecutive_failures = 0;
         self.last_error = None;
+    }
+
+    pub(crate) fn record_topology(
+        &mut self,
+        topology: ProviderTopology,
+        checked_at: DateTime<Utc>,
+    ) {
+        if topology.declaration.is_some() {
+            self.last_declared_topology = Some((checked_at, topology.clone()));
+        }
+        self.topology = topology;
+        self.topology_checked_at = Some(checked_at);
     }
 
     pub(crate) fn record_failure(&mut self, error: &str) {
@@ -117,6 +138,32 @@ pub async fn monitor_provider(
     }
 
     while active() {
+        {
+            let mut health = board.lock().unwrap();
+            if let Some(health) = health.get_mut(label) {
+                health.topology = ProviderTopology::unknown(DeclarationUnavailable::Pending);
+                health.topology_checked_at = None;
+            }
+        }
+        // Metadata never blocks monitoring indefinitely and can be cancelled even if a future
+        // provider implementation forgets its own timeout. It changes no success/failure clocks.
+        let inspect = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            provider.inspect_topology(),
+        );
+        tokio::pin!(inspect);
+        let topology = loop {
+            tokio::select! {
+                result = &mut inspect => break result.unwrap_or_else(|_| ProviderTopology::unknown(DeclarationUnavailable::Timeout)),
+                _ = tokio::time::sleep(std::time::Duration::from_millis(250)) => { if !active() { return; } }
+            }
+        };
+        if !active() {
+            return;
+        }
+        if let Some(health) = board.lock().unwrap().get_mut(label) {
+            health.record_topology(topology, Utc::now());
+        }
         let board_for_updates = board.clone();
         let active_for_subscribe = active.clone();
         let active_for_updates = active.clone();
@@ -237,6 +284,189 @@ mod tests {
             Vec::new(),
         );
         Scan::new(vcp, Vec::new())
+    }
+
+    #[test]
+    fn topology_refresh_keeps_one_dated_declaration_without_renewing_radar_health() {
+        use wxdata::provider_topology::{InputMode, UpstreamDeclaration, UNIDATA_AWS_DOMAIN};
+        let now = DateTime::from_timestamp(1_700_000_000, 0).unwrap();
+        let mut health = ProviderHealth::new("relay", ProviderCapabilities::relay());
+        health.record_update(now, now);
+        health.record_failure("data failure");
+        let first = ProviderTopology::relay(
+            UpstreamDeclaration::new(InputMode::Live, vec![UNIDATA_AWS_DOMAIN.into()]).unwrap(),
+        );
+        health.record_topology(first.clone(), now);
+        let later = now + chrono::Duration::minutes(10);
+        health.record_topology(
+            ProviderTopology::unknown(DeclarationUnavailable::HttpFailure),
+            later,
+        );
+        assert!(health.topology.declaration.is_none());
+        assert_eq!(health.last_declared_topology, Some((now, first)));
+        assert_eq!(health.topology_checked_at, Some(later));
+        assert_eq!(health.newest_radar_time, Some(now));
+        assert_eq!(health.last_receipt_at, Some(now));
+        assert_eq!(
+            (
+                health.successes,
+                health.failures,
+                health.advancing_observations
+            ),
+            (1, 1, 1)
+        );
+        assert_eq!(health.consecutive_advancing_observations, 0);
+        assert_eq!(health.last_error.as_deref(), Some("data failure"));
+        let replacement = ProviderTopology::relay(
+            UpstreamDeclaration::new(InputMode::Idle, vec!["new-dependency".into()]).unwrap(),
+        );
+        health.record_topology(replacement.clone(), later);
+        assert_eq!(health.last_declared_topology, Some((later, replacement)));
+    }
+
+    struct MetadataControl {
+        subscribed: Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    #[async_trait::async_trait]
+    impl Level2LiveProvider for MetadataControl {
+        fn label(&self) -> &'static str {
+            "metadata control"
+        }
+        fn capabilities(&self) -> ProviderCapabilities {
+            ProviderCapabilities::relay()
+        }
+        async fn inspect_topology(&self) -> ProviderTopology {
+            std::future::pending().await
+        }
+        async fn subscribe(
+            &self,
+            _site: String,
+            base: Arc<Scan>,
+            active: Box<dyn Fn() -> bool + Send + Sync>,
+            mut on_update: Box<dyn FnMut(wxdata::live::Update) + Send>,
+            _on_progress: Box<dyn FnMut(wxdata::live::ScanProgress) + Send>,
+        ) -> anyhow::Result<()> {
+            self.subscribed.store(true, Ordering::Relaxed);
+            on_update(wxdata::live::Update {
+                name: "metadata-independent-data".into(),
+                time: Utc::now(),
+                received_at: None,
+                radial_coverage: None,
+                scan: base,
+                changed: vec![0.5],
+                retries: 0,
+                decode_time: std::time::Duration::ZERO,
+            });
+            while active() {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+            Ok(())
+        }
+        async fn latest_complete_volume(
+            &self,
+            _site: &str,
+            _current_name: Option<&str>,
+        ) -> anyhow::Result<LatestVolume> {
+            Ok(LatestVolume::UpToDate)
+        }
+    }
+
+    #[tokio::test]
+    async fn pending_topology_can_cancel_without_subscription_or_freshness_updates() {
+        let board: HealthBoard = Arc::new(Mutex::new(HashMap::new()));
+        let active = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let token = active.clone();
+        let subscribed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let handle = tokio::spawn(monitor_provider(
+            Arc::new(MetadataControl {
+                subscribed: subscribed.clone(),
+            }),
+            "KTLX".into(),
+            Arc::new(empty_scan()),
+            Arc::new(move || token.load(Ordering::Relaxed)),
+            board.clone(),
+        ));
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                if board
+                    .lock()
+                    .unwrap()
+                    .get("metadata control")
+                    .is_some_and(|h| {
+                        h.topology.unavailable == Some(DeclarationUnavailable::Pending)
+                    })
+                {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        active.store(false, Ordering::Relaxed);
+        tokio::time::timeout(std::time::Duration::from_secs(1), handle)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!subscribed.load(Ordering::Relaxed));
+        let board = board.lock().unwrap();
+        let health = &board["metadata control"];
+        assert_eq!(
+            (health.successes, health.failures, health.reconnects),
+            (0, 0, 0)
+        );
+        assert!(health.topology_checked_at.is_none() && health.last_receipt_at.is_none());
+    }
+
+    #[tokio::test]
+    async fn topology_timeout_is_advisory_and_data_subscription_still_delivers() {
+        let board: HealthBoard = Arc::new(Mutex::new(HashMap::new()));
+        let active = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let token = active.clone();
+        let subscribed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let handle = tokio::spawn(monitor_provider(
+            Arc::new(MetadataControl { subscribed }),
+            "KTLX".into(),
+            Arc::new(empty_scan()),
+            Arc::new(move || token.load(Ordering::Relaxed)),
+            board.clone(),
+        ));
+        tokio::time::timeout(std::time::Duration::from_secs(4), async {
+            loop {
+                if board
+                    .lock()
+                    .unwrap()
+                    .get("metadata control")
+                    .is_some_and(|h| h.successes == 1)
+                {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        active.store(false, Ordering::Relaxed);
+        tokio::time::timeout(std::time::Duration::from_secs(1), handle)
+            .await
+            .unwrap()
+            .unwrap();
+        let board = board.lock().unwrap();
+        let health = &board["metadata control"];
+        assert_eq!(
+            health.topology.unavailable,
+            Some(DeclarationUnavailable::Timeout)
+        );
+        assert_eq!(
+            (
+                health.successes,
+                health.failures,
+                health.advancing_observations
+            ),
+            (1, 0, 1)
+        );
+        assert!(health.topology_checked_at.is_some() && health.last_receipt_at.is_some());
     }
 
     #[test]

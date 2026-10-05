@@ -116,6 +116,12 @@ pub trait Level2LiveProvider {
     /// [`wxdata::live_block::ProviderCapabilities`]'s own doc comment for what each field means.
     fn capabilities(&self) -> wxdata::live_block::ProviderCapabilities;
 
+    /// Declared dependencies, never inferred from labels or capabilities. A relay may inspect
+    /// optional metadata; failure to obtain it must not prevent data subscription.
+    async fn inspect_topology(&self) -> wxdata::provider_topology::ProviderTopology {
+        wxdata::provider_topology::ProviderTopology::default()
+    }
+
     /// Stream live updates for `site`, starting from `base` — see [`wxdata::live::stream`] for
     /// the exact contract `active`/`on_update`/`on_progress` follow. Boxed rather than generic so
     /// the method itself stays a plain, nameable type across implementors.
@@ -157,6 +163,12 @@ pub struct UnidataLevel2Provider;
 impl Level2LiveProvider for UnidataLevel2Provider {
     fn label(&self) -> &'static str {
         "Unidata Level II (AWS S3)"
+    }
+
+    async fn inspect_topology(&self) -> wxdata::provider_topology::ProviderTopology {
+        wxdata::provider_topology::ProviderTopology::adapter(
+            wxdata::provider_topology::UNIDATA_AWS_DOMAIN,
+        )
     }
 
     fn capabilities(&self) -> wxdata::live_block::ProviderCapabilities {

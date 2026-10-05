@@ -8,6 +8,18 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: declared radar upstream dependencies in Sources
+
+Radar source details and exported diagnostics now show the primary and relay's declared
+upstream dependencies. Shared identifiers disclose a common upstream; differing declarations
+remain qualified because they do not prove independent redundancy. Missing or failed metadata
+stays unknown, with one dated previous declaration retained after a failed refresh.
+
+The relay adds optional `/provider` metadata and `RADAR_INGEST_UPSTREAM_DOMAINS` configuration.
+Its current replay or idle input is disclosed explicitly. Metadata requests have time and
+size limits, can be cancelled, and failures leave radar subscription available. Metadata does
+not renew radar freshness or count as recovery. Existing servers can continue without it.
+
 ### Improved: model forecast hours in the main timeline
 
 Selecting a model or product now immediately switches the bottom timeline to its forecast

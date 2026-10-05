@@ -1,0 +1,137 @@
+{
+  "verified_at_utc": "2026-10-04T21:24:45.593325+00:00",
+  "implementation_baseline": "fee5dc5",
+  "shared_head_at_verification": "fee5dc55f92cc44e2ae5ad39866185867c50f8ea",
+  "checks": {
+    "workspace-final": {
+      "command": "cargo test --workspace -- --test-threads=4",
+      "exit_code": 0,
+      "log_sha256": "e26b5355b72f56a460c8ab84553004a6851d236ac64fc08ae31bc64c2c2c544e",
+      "log_bytes": 196896,
+      "suites": 28,
+      "passed": 2228,
+      "failed": 0,
+      "ignored": 144
+    },
+    "clippy-final": {
+      "command": "cargo clippy --workspace --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log_sha256": "69283a17dabe3f156fbbe2d940969de4ae6180cf3cd41d604d2c443fd4f5e991",
+      "log_bytes": 368
+    },
+    "wasm-final": {
+      "command": "CARGO_INCREMENTAL=0 RUSTFLAGS=--cfg getrandom_backend=\"wasm_js\" cargo check --target wasm32-unknown-unknown -p hookecho --lib",
+      "exit_code": 0,
+      "log_sha256": "6a804497b30672aecadb03a0e2aab3d8dea1000dc9028f4ce094339951bc7b72",
+      "log_bytes": 3571
+    },
+    "gpu": {
+      "command": "cargo test --workspace gpu_upstream_dependency_sources_snapshots -- --ignored --test-threads=1",
+      "exit_code": 0,
+      "log_sha256": "25b00d599600e85d2182cce0004cb8a5e90dfc8d486768bb2859dbb430bcceb9",
+      "log_bytes": 5431
+    }
+  },
+  "controls": [
+    "provider_topology::tests::provider_topology_declarations_are_bounded_and_reject_urls_and_future_versions",
+    "provider_topology::tests::provider_topology_relations_compare_dependencies_without_certifying_independence",
+    "server::tests::provider_metadata_is_additive_and_never_infers_dependencies_from_source_labels",
+    "relay_provider::integration_tests::relay_topology_roundtrips_real_server_metadata_without_using_deployment_labels",
+    "relay_provider::integration_tests::relay_topology_missing_invalid_redirected_and_oversized_metadata_stays_unknown",
+    "relay_provider::integration_tests::relay_topology_times_out_when_response_body_never_finishes",
+    "provider_health::tests::topology_refresh_keeps_one_dated_declaration_without_renewing_radar_health",
+    "provider_health::tests::pending_topology_can_cancel_without_subscription_or_freshness_updates",
+    "provider_health::tests::topology_timeout_is_advisory_and_data_subscription_still_delivers",
+    "app::chrome::dock::sources::tests::dependency_disclosure_wraps_and_diagnostics_retain_current_unknown_and_dated_history"
+  ],
+  "source_sha256": {
+    "crates/wxdata/src/provider_topology.rs": "6326062e87a8154fb8e043a528df06d904cda43738b2ffc7e9ad003c4605d276",
+    "crates/wxdata/src/lib.rs": "6c750b7b9d8f5fabc87777d3f9646d91724f92ede3f235b04bd09cdc44513a9a",
+    "crates/hookecho/src/volume.rs": "684e96c86f059a40e9acff1a36c7acb028f3bb5678da03564a6ceadfa42434b6",
+    "crates/hookecho/src/tgftp_provider.rs": "3ecdefaa0d368eff399a3b4408ce8bd6aaf7f8f5cdd4b417404bba3990068c5e",
+    "crates/hookecho/src/relay_provider.rs": "8f375f9b8ead0e31d9aeb1f4376377a1903de8663df3d6ea3c05faf21c4642a3",
+    "crates/hookecho/src/provider_health.rs": "0c6b8199c02263a9a4924f49c8f18d1b0260b9c60c90cc4dd12c75b56f021957",
+    "crates/hookecho/src/radar_provider_manager.rs": "ab02be74737f5db381dd957830d1de0ed791275f91cf2f903fc05d544d9dc8ae",
+    "crates/hookecho/src/app.rs": "c095f77820656c002231c7901f85f0548d6c0ad156e72b71861181bb87282abd",
+    "crates/hookecho/src/app/chrome/registry.rs": "9ccf9217ddb38dc9bb17f7c50a2d8b60efdb08660721dd1c6ad9a829cc3fbe99",
+    "crates/hookecho/src/app/chrome/dock/sources.rs": "42767e8c7e81b43fc13572b07a3269ade0304086ba35ecef13c9e37ff69c0e46",
+    "crates/hookecho/src/app/request_book.rs": "7220d741f169bd1e8b890c8f4c2e81215bd88bbb86476decc2e0396fad71f166",
+    "crates/radar-ingest/src/main.rs": "88680f838bf3dbce82f44de47cc932a1c5ac196a81263bf6bc2cdce53cdc3d3a",
+    "crates/radar-ingest/src/server.rs": "7f685944444c4e7de0ff4c9cf6399199437fdcd5da3b74b57e5483f5834fb25e",
+    "docker-compose.radar-ingest.yml": "f36da98c19fe66eea6a2e159c98c267f5b4491ef3c51db5f98d1d5c6f6a6ff9d"
+  },
+  "captures": {
+    "target/parity-review/m1.3/upstream-domains/ui/shared-240.png": {
+      "sha256": "dffeec20ea1247bc9e4c560f94ca3beb6470139d33f4748310873c9be92cadc3",
+      "bytes": 103414,
+      "width": 240,
+      "height": 1600
+    },
+    "target/parity-review/m1.3/upstream-domains/ui/shared-300.png": {
+      "sha256": "365933d18e1c05517e22071a7cc47a1423eda29807ff88ad07bf68b73db04b12",
+      "bytes": 105395,
+      "width": 300,
+      "height": 1600
+    },
+    "target/parity-review/m1.3/upstream-domains/ui/distinct-240.png": {
+      "sha256": "1a52e75339e5096086a35d06a9ed1d9bd25094894c6a89141d06d518dc80b67f",
+      "bytes": 90667,
+      "width": 240,
+      "height": 1600
+    },
+    "target/parity-review/m1.3/upstream-domains/ui/distinct-300.png": {
+      "sha256": "3b4e1af8f61df36966c4dfeee2a11548e1c061794ef50e9e5fedeb9389ba3853",
+      "bytes": 92588,
+      "width": 300,
+      "height": 1600
+    },
+    "target/parity-review/m1.3/upstream-domains/ui/unknown-240.png": {
+      "sha256": "6521dc6d62b370585da4fc840dcf1ef9b48b986b666b013ad1b28648c1d19555",
+      "bytes": 77055,
+      "width": 240,
+      "height": 1600
+    },
+    "target/parity-review/m1.3/upstream-domains/ui/unknown-300.png": {
+      "sha256": "759d3099cab09a359b5b0f6c84d6b273d5de4a655d62d438066a0256adc8b644",
+      "bytes": 78973,
+      "width": 300,
+      "height": 1600
+    },
+    "target/parity-review/m1.3/upstream-domains/ui/refresh-failed-240.png": {
+      "sha256": "9f30d97241f90b76b921ed47a7e159851d610b29d3ecf99163725281be3f7c04",
+      "bytes": 103707,
+      "width": 240,
+      "height": 1600
+    },
+    "target/parity-review/m1.3/upstream-domains/ui/refresh-failed-300.png": {
+      "sha256": "1709ed12839226710dc572dab9b7dfb21c37e03e33407722c6dc9e7ed9732c82",
+      "bytes": 105682,
+      "width": 300,
+      "height": 1600
+    }
+  },
+  "diagnostics": {
+    "docs/certification/m1.3/upstream-domains/shared-diagnostics.json": {
+      "sha256": "8cc810172b58411c0dbcdc60285b4126f7075d9eafb2a46db4b3f46423b1f2fd",
+      "bytes": 1213
+    },
+    "docs/certification/m1.3/upstream-domains/distinct-diagnostics.json": {
+      "sha256": "2ee25c86bcd00a25b29fab807a47da62863155f58d18f9c0ded07ca9f41a2838",
+      "bytes": 1040
+    },
+    "docs/certification/m1.3/upstream-domains/unknown-diagnostics.json": {
+      "sha256": "5c9563cd1cf812d1dad8fec2d3fb86f6cd21dae3c7d6cb45a4e702354c3a78b2",
+      "bytes": 869
+    },
+    "docs/certification/m1.3/upstream-domains/refresh-failed-diagnostics.json": {
+      "sha256": "41a23ab445af0271e6664dbaa597add72a6017149113bb8bdcf16bcddd0ce9f1",
+      "bytes": 1208
+    }
+  },
+  "prior_attempt": {
+    "log_sha256": "b973891828938cd849c067d9035c38e111ea1211c418a68f7f0bf2b6999809e6",
+    "exit_code": 101,
+    "note": "Initial filtered build caught a missing import in the backend test; corrected before final verification."
+  },
+  "scope": "Declared configuration metadata, real loopback HTTP controls, bounded monitor cancellation/timeout, production diagnostics serialization and offscreen source-detail rendering. HTTP declaration is not authenticated, audited or bound to the actual radial stream. Full application faults, topology validation, cross-provider cut continuation, live/soak and platform runtime gates remain open. Tornado detection excluded."
+}

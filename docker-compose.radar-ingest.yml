@@ -32,6 +32,9 @@ services:
     environment:
       RUST_LOG: "info"
       RADAR_INGEST_LISTEN_ADDR: "0.0.0.0:8080"
+      # Optional non-secret dependency IDs for /provider; blank means unknown. Different IDs
+      # do not certify independent redundancy. This binary declares replay or idle input.
+      RADAR_INGEST_UPSTREAM_DOMAINS: "${RADAR_INGEST_UPSTREAM_DOMAINS:-}"
       # Comma-separated: only retain/serve these sites. Unset accepts every site products arrive
       # for — fine for a single-user relay, worth narrowing on a shared one.
       # RADAR_INGEST_ALLOWED_SITES: "KTLX,KOHX"

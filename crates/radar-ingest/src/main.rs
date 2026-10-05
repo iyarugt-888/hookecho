@@ -12,6 +12,8 @@
 //! - `RADAR_INGEST_LISTEN_ADDR` — HTTP/WebSocket bind address (default `0.0.0.0:8080`).
 //! - `RADAR_INGEST_SOURCE_ID` — provenance label stamped on every emitted block (default
 //!   `radar-ingest`; set this per-deployment if you run more than one instance a client might see).
+//! - `RADAR_INGEST_UPSTREAM_DOMAINS` — optional comma-separated non-secret failure-domain IDs
+//!   exposed by `/provider`. These are operator declarations, not proof of independent redundancy.
 //! - `RADAR_INGEST_ALLOWED_SITES` — comma-separated site allowlist for *admission* (distinct from
 //!   `RADAR_INGEST_LDM_*`'s own allowlist, which shapes what is *requested* upstream — see
 //!   [`radar_ingest::ldm`]'s doc comment). Unset accepts every site products arrive for.
@@ -64,6 +66,23 @@ async fn main() -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("RADAR_INGEST_LISTEN_ADDR: {e}"))?;
     let source_id =
         env::var("RADAR_INGEST_SOURCE_ID").unwrap_or_else(|_| "radar-ingest".to_string());
+    let replay_file = env::var("RADAR_INGEST_REPLAY_FILE").ok();
+    let upstream_domains = env::var("RADAR_INGEST_UPSTREAM_DOMAINS")
+        .unwrap_or_default()
+        .split(',')
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_string)
+        .collect();
+    let declaration = wxdata::provider_topology::UpstreamDeclaration::new(
+        if replay_file.is_some() {
+            wxdata::provider_topology::InputMode::Replay
+        } else {
+            wxdata::provider_topology::InputMode::Idle
+        },
+        upstream_domains,
+    )
+    .map_err(|reason| anyhow::anyhow!("RADAR_INGEST_UPSTREAM_DOMAINS: {reason}"))?;
 
     if env::var("RADAR_INGEST_LDM_HOST").is_ok() {
         log::warn!(
@@ -156,8 +175,8 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    match env::var("RADAR_INGEST_REPLAY_FILE") {
-        Ok(path) => {
+    match replay_file {
+        Some(path) => {
             let products = radar_ingest::fixture::load(Path::new(&path))?;
             log::info!(
                 "replaying {} fixture product(s) from {path}",
@@ -176,7 +195,7 @@ async fn main() -> anyhow::Result<()> {
                 }
             });
         }
-        Err(_) => {
+        None => {
             log::warn!(
                 "no input source configured — set RADAR_INGEST_REPLAY_FILE to replay a fixture \
                  for local testing. Serving the HTTP/WS API with nothing to ingest until then."
@@ -203,6 +222,10 @@ async fn main() -> anyhow::Result<()> {
 
     log::info!("radar-ingest listening on {listen_addr}");
     let listener = tokio::net::TcpListener::bind(listen_addr).await?;
-    axum::serve(listener, radar_ingest::server::router(pipeline)).await?;
+    axum::serve(
+        listener,
+        radar_ingest::server::router_with_declaration(pipeline, declaration),
+    )
+    .await?;
     Ok(())
 }

@@ -101,7 +101,7 @@ fn render_queue_detail(micros: u64) -> Option<(&'static str, String)> {
 /// `details` rather than replacing the B3 latency lines above, which describe the *active*
 /// provider's own performance regardless of which one that is.
 #[cfg(not(target_arch = "wasm32"))]
-fn failover_details(
+pub(super) fn failover_details(
     snap: &crate::radar_provider_manager::FailoverSnapshot,
 ) -> Vec<(&'static str, String)> {
     use crate::radar_provider_manager::SelectedTier;
@@ -119,6 +119,53 @@ fn failover_details(
         }
     };
     out.push(("Failover state", state.to_string()));
+    out.push(("Primary upstream", snap.primary_topology().detail()));
+    if snap.has_backup {
+        let topology = snap.backup_topology();
+        out.push(("Relay upstream", topology.detail()));
+        out.push((
+            "Upstream relationship",
+            snap.upstream_relationship().detail(),
+        ));
+        if topology.declaration.as_ref().is_some_and(|declaration| {
+            matches!(
+                declaration.input_mode(),
+                wxdata::provider_topology::InputMode::Replay
+                    | wxdata::provider_topology::InputMode::Idle
+            )
+        }) {
+            out.push((
+                "Relay availability",
+                "No live input declared; relay transport is not a live upstream backup".into(),
+            ));
+        }
+        if let Some(backup) = &snap.backup {
+            if let Some(at) = backup.topology_checked_at {
+                out.push(("Relay metadata checked", at.to_rfc3339()));
+            }
+            if topology.declaration.is_none() {
+                if let Some((at, previous)) = &backup.last_declared_topology {
+                    out.push((
+                        "Previous relay declaration",
+                        format!(
+                            "{} at {}; current upstream unknown",
+                            previous.detail(),
+                            at.to_rfc3339()
+                        ),
+                    ));
+                }
+            }
+        }
+    }
+    if snap.selected == SelectedTier::Degraded {
+        out.push((
+            "Completed upstream",
+            wxdata::provider_topology::ProviderTopology::adapter(
+                wxdata::provider_topology::NOAA_TGFTP_DOMAIN,
+            )
+            .detail(),
+        ));
+    }
     out.push((
         "Standby provider",
         if snap.has_backup || snap.selected != SelectedTier::Primary {

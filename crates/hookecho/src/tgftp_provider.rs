@@ -148,6 +148,11 @@ fn newest_entry(entries: &[(String, u64)]) -> Option<(String, DateTime<Utc>)> {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl Level2LiveProvider for NoaaTgftpLevel2Provider {
+    async fn inspect_topology(&self) -> wxdata::provider_topology::ProviderTopology {
+        wxdata::provider_topology::ProviderTopology::adapter(
+            wxdata::provider_topology::NOAA_TGFTP_DOMAIN,
+        )
+    }
     fn label(&self) -> &'static str {
         "NOAA TGFTP (degraded)"
     }

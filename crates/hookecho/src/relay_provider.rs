@@ -1,6 +1,6 @@
 //! ROADMAP_NEW B6.11 step 6: [`Level2LiveProvider`] for the HookEcho `radar-ingest` relay backend
-//! (`crates/radar-ingest`) — the second, independently acquired progressive Level II path B6 is
-//! ultimately about, alongside the existing [`crate::volume::UnidataLevel2Provider`].
+//! (`crates/radar-ingest`) — a second progressive transport whose upstream independence B6 must
+//! establish, alongside the existing [`crate::volume::UnidataLevel2Provider`].
 //!
 //! **Native only for this increment.** The WebSocket client here is `tokio-tungstenite`; a
 //! browser client would need `web_sys::WebSocket` instead — a genuinely different implementation,
@@ -52,7 +52,13 @@ impl HookEchoRelayLevel2Provider {
     }
 
     fn http_url(&self, path: &str) -> String {
-        format!("{}{path}", self.base_url)
+        let base = if self.base_url.starts_with("http://") || self.base_url.starts_with("https://")
+        {
+            self.base_url.clone()
+        } else {
+            format!("http://{}", self.base_url)
+        };
+        format!("{base}{path}")
     }
 }
 
@@ -106,6 +112,61 @@ fn relay_scan_progress(block: &LiveLevel2Block, scan: &Scan) -> Option<ScanProgr
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Level2LiveProvider for HookEchoRelayLevel2Provider {
+    async fn inspect_topology(&self) -> wxdata::provider_topology::ProviderTopology {
+        use wxdata::provider_topology::{
+            DeclarationUnavailable as U, ProviderTopology, UpstreamDeclaration,
+            MAX_DECLARATION_BYTES,
+        };
+        // Metadata is advisory and optional. Never put the configured URL or an untrusted
+        // error body into retained topology diagnostics, and never follow metadata redirects.
+        let result = async {
+            let http = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(2))
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .map_err(|_| U::HttpFailure)?;
+            let mut response =
+                http.get(self.http_url("/provider"))
+                    .send()
+                    .await
+                    .map_err(|error| {
+                        if error.is_timeout() {
+                            U::Timeout
+                        } else {
+                            U::HttpFailure
+                        }
+                    })?;
+            if !response.status().is_success() {
+                return Err(U::HttpFailure);
+            }
+            if response
+                .content_length()
+                .is_some_and(|bytes| bytes > MAX_DECLARATION_BYTES as u64)
+            {
+                return Err(U::TooLarge);
+            }
+            let mut body = Vec::new();
+            while let Some(chunk) = response.chunk().await.map_err(|error| {
+                if error.is_timeout() {
+                    U::Timeout
+                } else {
+                    U::HttpFailure
+                }
+            })? {
+                if chunk.len() > MAX_DECLARATION_BYTES.saturating_sub(body.len()) {
+                    return Err(U::TooLarge);
+                }
+                body.extend_from_slice(&chunk);
+            }
+            serde_json::from_slice::<UpstreamDeclaration>(&body).map_err(|_| U::Invalid)
+        }
+        .await;
+        match result {
+            Ok(declaration) => ProviderTopology::relay(declaration),
+            Err(reason) => ProviderTopology::unknown(reason),
+        }
+    }
+
     fn label(&self) -> &'static str {
         "HookEcho Relay"
     }
@@ -451,6 +512,10 @@ mod tests {
             provider.ws_url("KTLX"),
             "ws://localhost:8080/sites/KTLX/live"
         );
+        assert_eq!(
+            provider.http_url("/provider"),
+            "http://localhost:8080/provider"
+        );
     }
 }
 
@@ -556,6 +621,137 @@ mod integration_tests {
             synthetic_radial(site, 2, 1, VOLUME_END, t),
         ]
         .concat()
+    }
+
+    #[tokio::test]
+    async fn relay_topology_roundtrips_real_server_metadata_without_using_deployment_labels() {
+        use wxdata::provider_topology::{
+            InputMode, ProviderTopology, UpstreamDeclaration, UNIDATA_AWS_DOMAIN,
+        };
+        let pipeline = Pipeline::new(
+            RechunkConfig::default(),
+            BlockStoreLimits::default(),
+            "independent-looking-deployment",
+        );
+        let declaration =
+            UpstreamDeclaration::new(InputMode::Replay, vec![UNIDATA_AWS_DOMAIN.into()]).unwrap();
+        let app = radar_ingest::server::router_with_declaration(
+            Arc::new(Mutex::new(pipeline)),
+            declaration.clone(),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let provider = HookEchoRelayLevel2Provider::new(address.to_string());
+        assert_eq!(
+            provider.inspect_topology().await,
+            ProviderTopology::relay(declaration)
+        );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn relay_topology_missing_invalid_redirected_and_oversized_metadata_stays_unknown() {
+        use axum::{
+            body::Body,
+            http::{Response, StatusCode},
+            routing::get,
+            Router,
+        };
+        use wxdata::provider_topology::{
+            DeclarationUnavailable as U, ProviderTopology, MAX_DECLARATION_BYTES,
+        };
+        // Both a declared length and chunked transfer are bounded. Raw body/Location text
+        // never enters the fixed diagnostic reasons.
+        let oversized = "s".repeat(MAX_DECLARATION_BYTES + 1);
+        let chunked = oversized.clone();
+        let cases = [
+            (Router::new(), U::HttpFailure),
+            (
+                Router::new().route(
+                    "/provider",
+                    get(|| async { r#"{"schema_version":99,"token":"untrusted-secret"}"# }),
+                ),
+                U::Invalid,
+            ),
+            (
+                Router::new().route(
+                    "/provider",
+                    get(|| async {
+                        (
+                            StatusCode::FOUND,
+                            [("Location", "http://example.invalid/untrusted-secret")],
+                        )
+                    }),
+                ),
+                U::HttpFailure,
+            ),
+            (
+                Router::new().route("/provider", get(move || async move { oversized })),
+                U::TooLarge,
+            ),
+            (
+                Router::new().route(
+                    "/provider",
+                    get(move || async move {
+                        let stream =
+                            futures_util::stream::once(
+                                async move { Ok::<_, std::io::Error>(chunked) },
+                            );
+                        Response::new(Body::from_stream(stream))
+                    }),
+                ),
+                U::TooLarge,
+            ),
+        ];
+        for (app, reason) in cases {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                axum::serve(listener, app).await.unwrap();
+            });
+            let result = HookEchoRelayLevel2Provider::new(format!("http://{address}"))
+                .inspect_topology()
+                .await;
+            assert_eq!(result, ProviderTopology::unknown(reason));
+            let retained = serde_json::to_string(&result).unwrap();
+            assert!(
+                !retained.contains("untrusted-secret") && !retained.contains(&address.to_string())
+            );
+            server.abort();
+        }
+    }
+
+    #[tokio::test]
+    async fn relay_topology_times_out_when_response_body_never_finishes() {
+        use axum::{body::Body, routing::get, Router};
+        use wxdata::provider_topology::{DeclarationUnavailable, ProviderTopology};
+        let app = Router::new().route(
+            "/provider",
+            get(|| async {
+                Body::from_stream(futures_util::stream::pending::<
+                    Result<String, std::io::Error>,
+                >())
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(4),
+            HookEchoRelayLevel2Provider::new(format!("http://{address}")).inspect_topology(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            result,
+            ProviderTopology::unknown(DeclarationUnavailable::Timeout)
+        );
+        server.abort();
     }
 
     #[tokio::test]

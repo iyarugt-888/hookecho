@@ -97,6 +97,33 @@ pub struct FailoverSnapshot {
 }
 
 impl FailoverSnapshot {
+    pub fn primary_topology(&self) -> wxdata::provider_topology::ProviderTopology {
+        self.primary
+            .as_ref()
+            .map(|health| health.topology.clone())
+            .unwrap_or_else(|| {
+                wxdata::provider_topology::ProviderTopology::adapter(
+                    wxdata::provider_topology::UNIDATA_AWS_DOMAIN,
+                )
+            })
+    }
+
+    pub fn backup_topology(&self) -> wxdata::provider_topology::ProviderTopology {
+        self.backup
+            .as_ref()
+            .map(|health| health.topology.clone())
+            .unwrap_or_default()
+    }
+
+    pub fn upstream_relationship(&self) -> wxdata::provider_topology::UpstreamRelationship {
+        if !self.has_backup {
+            return wxdata::provider_topology::UpstreamRelationship::Unknown;
+        }
+        wxdata::provider_topology::UpstreamRelationship::compare(
+            &self.primary_topology(),
+            &self.backup_topology(),
+        )
+    }
     /// Every configured tier other than the one currently selected, in failover preference order.
     /// TGFTP is always available natively; the relay appears only when configured. When TGFTP is
     /// active, the progressive providers are recovery candidates rather than "fallbacks" in the
@@ -395,6 +422,9 @@ mod tests {
         ProviderHealth {
             label: "test",
             capabilities: wxdata::live_block::ProviderCapabilities::unidata(),
+            topology: wxdata::provider_topology::ProviderTopology::default(),
+            topology_checked_at: None,
+            last_declared_topology: None,
             newest_radar_time: Some(newest),
             last_receipt_at: Some(newest),
             successes: 1,

@@ -84,6 +84,7 @@ pub mod overlay;
 pub mod placefile;
 pub mod probsevere;
 pub mod projection;
+pub mod provider_topology;
 pub mod raob;
 pub mod recon;
 pub mod regionstats;

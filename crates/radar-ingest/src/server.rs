@@ -22,21 +22,44 @@ use tokio::sync::broadcast;
 #[derive(Clone)]
 struct AppState {
     pipeline: Arc<Mutex<Pipeline>>,
+    declaration: wxdata::provider_topology::UpstreamDeclaration,
 }
 
 /// Build the router. `pipeline` is shared with whatever task drains the input adapter and feeds
 /// [`Pipeline::ingest`]/[`Pipeline::tick`] — a plain `std::sync::Mutex` is enough since every
 /// critical section here is synchronous (no `.await` while holding the lock).
 pub fn router(pipeline: Arc<Mutex<Pipeline>>) -> Router {
+    router_with_declaration(
+        pipeline,
+        wxdata::provider_topology::UpstreamDeclaration::unknown(),
+    )
+}
+
+/// Optional configuration evidence. Does not alter liveness/readiness, block provenance,
+/// resumability or subscription framing. Existing embedded servers default to unknown.
+pub fn router_with_declaration(
+    pipeline: Arc<Mutex<Pipeline>>,
+    declaration: wxdata::provider_topology::UpstreamDeclaration,
+) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/ready", get(ready))
         .route("/metrics", get(metrics))
+        .route("/provider", get(provider_declaration))
         .route("/sites/{site}/head", get(head))
         .route("/sites/{site}/blocks/{sequence}", get(block_by_sequence))
         .route("/sites/{site}/volume/latest", get(latest_complete_volume))
         .route("/sites/{site}/live", get(live))
-        .with_state(AppState { pipeline })
+        .with_state(AppState {
+            pipeline,
+            declaration,
+        })
+}
+
+async fn provider_declaration(
+    State(state): State<AppState>,
+) -> Json<wxdata::provider_topology::UpstreamDeclaration> {
+    Json(state.declaration)
 }
 
 /// Liveness: the process is up and serving requests at all.
@@ -264,6 +287,49 @@ mod tests {
             received_at: Utc::now(),
         });
         Arc::new(Mutex::new(pipeline))
+    }
+
+    #[tokio::test]
+    async fn provider_metadata_is_additive_and_never_infers_dependencies_from_source_labels() {
+        use wxdata::provider_topology::{InputMode, UpstreamDeclaration, UNIDATA_AWS_DOMAIN};
+        let pipeline = pipeline_with_one_block();
+        let declaration =
+            UpstreamDeclaration::new(InputMode::Replay, vec![UNIDATA_AWS_DOMAIN.into()]).unwrap();
+        for (app, expected) in [
+            (router(pipeline.clone()), UpstreamDeclaration::unknown()),
+            (
+                router_with_declaration(pipeline.clone(), declaration.clone()),
+                declaration,
+            ),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri("/provider")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            let body = response.into_body().collect().await.unwrap().to_bytes();
+            assert_eq!(
+                serde_json::from_slice::<UpstreamDeclaration>(&body).unwrap(),
+                expected
+            );
+            assert!(!String::from_utf8(body.to_vec())
+                .unwrap()
+                .contains("source_id"));
+            for path in ["/health", "/ready"] {
+                let response = app
+                    .clone()
+                    .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+                    .await
+                    .unwrap();
+                assert_eq!(response.status(), StatusCode::OK);
+            }
+        }
     }
 
     #[tokio::test]

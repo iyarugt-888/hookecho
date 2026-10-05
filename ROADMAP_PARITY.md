@@ -618,10 +618,33 @@ and 142 explicitly ignored checks. All twelve new restoration controls, strict w
 and WASM compilation passed; existing browser warnings remain. The manifest hashes fourteen source
 files and the six-event trace. Concurrent detection/touch work is excluded from this increment.
 
-**Next agent handoff:** add declared upstream failure-domain identity through comparative health
-and retained diagnostics; keep missing/uncertain identity explicit. Do not label two transports
-independent merely because they have different provider labels. Then exercise complete app delivery/
-rendering and operational direct/relay fault sessions under load. Keep M1.3 partial until actual
+**Increment 3 — 2026-10-04, declared acquisition dependencies:** primary and completed adapters
+declare their acquisition service families; the optional relay `/provider` endpoint adds schema-1
+input-mode and bounded non-secret domain IDs configured separately from deployment/source labels.
+The bundled binary declares replay or idle, reflecting its actual adapter support. Sources and
+retained diagnostics disclose shared/different/unknown dependencies, metadata evidence and check
+time, and replay/idle availability. Different IDs never certify independent redundancy.
+
+Optional inspection has two-second request/body and monitor limits, a 16 KiB body limit, no
+redirects and prompt cancellation. Old/malformed/oversized/unresponsive metadata remains unknown
+without blocking data subscription or counting as transport failure. Failed refresh replaces current
+metadata, retaining at most one dated declaration under a previous-source label. Metadata changes
+no radar freshness, recovery counters, radial identity, accepted receipts or failover decisions.
+See [declaration contract and limits](docs/certification/m1.3/upstream-domains.md).
+
+**Increment 3 verification:** final Windows workspace checks passed **2,228 tests** across 28
+suites, with zero failures and 144 explicitly ignored checks. All ten new declaration/HTTP/
+monitor/diagnostics controls passed, as did strict workspace/all-target Clippy and WASM compilation
+(existing browser warnings remain). The explicitly invoked GPU control passed in 4.47 seconds;
+all eight captures were inspected at 240/300 px, including long IDs, unknown/different declarations,
+replay input and failed refresh with dated history. The [verification manifest](docs/certification/m1.3/upstream-domains/verification.json)
+retains fourteen source hashes, log/capture hashes and four production diagnostic rows. These are
+deterministic and loopback controls, not full application or operational certification. Concurrent
+detection/backtest artifacts are excluded from this increment.
+
+**Next agent handoff:** exercise complete app delivery/rendering and operational direct/relay
+fault sessions under load. Treat HTTP declarations as configuration evidence, not stream-bound
+upstream attestation; independently validate deployment topology. Keep M1.3 partial until actual
 failure-domain identity, cross-provider cut continuation, live-session evidence, sustained load,
 thresholds benchmarked against cadence and applicable platform gates have evidence. Keep tornado
 detection with Claude.

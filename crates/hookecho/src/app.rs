@@ -7258,20 +7258,7 @@ impl HookEchoApp {
         let entries = self.palette_entries();
         ui::source_health_window::active_health_rows(&entries)
             .into_iter()
-            .map(|h| DiagnosticsSourceHealth {
-                source: h.source.clone(),
-                endpoint_family: h.endpoint_family.id(),
-                latest_valid_time: h.latest_valid_time.map(|t| t.to_rfc3339()),
-                fallback_providers: h.fallback_providers.clone(),
-                cache_state: h.cache_state.id(),
-                status: ui::layers_panel::health_look(h.state()).0,
-                last_success_secs: h.last_success.map(|d| d.as_secs()),
-                cadence_secs: h.cadence.as_secs(),
-                recent_successes: h.recent_outcomes.map(|(s, _)| s),
-                recent_failures: h.recent_outcomes.map(|(_, f)| f),
-                error: h.error.clone(),
-                details: h.details.clone(),
-            })
+            .map(DiagnosticsSourceHealth::from)
             .collect()
     }
 
