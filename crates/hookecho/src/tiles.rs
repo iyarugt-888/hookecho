@@ -1,8 +1,7 @@
 //! Async raster-tile fetching and visible-tile computation for the slippy map.
 //!
-//! The basemap source is a [`BasemapStyle`] (dark/light/satellite raster, or none). Switching
-//! styles clears the pending/uploaded sets so the new source is refetched; the GPU tile cache
-//! is cleared in the render layer via the callback's `clear_tiles` flag.
+//! Each raster tile retains its style, provider revision and exact frame identity from request
+//! through upload and rendering. Time switches reuse resident frames without clearing static maps.
 
 use crate::render::{mercator::Camera, PendingTile, TileId, VisibleTile};
 use lru::LruCache;
@@ -1202,6 +1201,7 @@ pub async fn fetch_frame_times(
 }
 
 struct FetchedTile {
+    context: crate::render::RasterContext,
     id: TileId,
     style: u8,
     rgba: Vec<u8>,
@@ -1297,6 +1297,11 @@ pub struct TileManager {
     maptiler_key: String,
     /// Selected GOES frame time (`None` = latest/`default`). Only affects GOES styles.
     goes_time: Option<chrono::DateTime<chrono::Utc>>,
+    revision: u64,
+    latest_epoch: u64,
+    latest_refresh: Option<wxdata::clock::Instant>,
+    frame_scopes: HashSet<(u8, crate::render::RasterContext)>,
+    frame_visible_keys: HashSet<crate::render::TileKey>,
     /// Ask sources that serve them for `@2x` tiles (high-DPI screen, unmetered link).
     retina: bool,
     /// `{z}/{x}/{y}` template for [`BasemapStyle::CustomXyz`]. Empty until the user sets one.
@@ -1305,8 +1310,11 @@ pub struct TileManager {
     custom_max_z: u8,
     /// Picker thumbnails, keyed by [`BasemapStyle::key`].
     thumbs: std::collections::HashMap<u8, Thumb>,
-    thumb_tx: Sender<(u8, Option<FetchedTile>)>,
-    thumb_rx: Receiver<(u8, Option<FetchedTile>)>,
+    /// Includes old provider revisions until their workers finish, so changing settings cannot
+    /// reset the picker fetch budget while obsolete downloads are still running.
+    thumb_inflight: Arc<std::sync::atomic::AtomicUsize>,
+    thumb_tx: Sender<(u8, u64, Option<FetchedTile>)>,
+    thumb_rx: Receiver<(u8, u64, Option<FetchedTile>)>,
 }
 
 impl TileManager {
@@ -1336,26 +1344,74 @@ impl TileManager {
             custom_template: String::new(),
             custom_max_z: 19,
             thumbs: std::collections::HashMap::new(),
+            thumb_inflight: Default::default(),
             thumb_tx,
             thumb_rx,
             cache_root,
             mapbox_key: String::new(),
             maptiler_key: String::new(),
             goes_time: None,
+            revision: 0,
+            latest_epoch: 0,
+            latest_refresh: None,
+            frame_scopes: Default::default(),
+            frame_visible_keys: Default::default(),
             retina: false,
         }
     }
 
-    /// Select a GOES frame time (`None` = latest). Returns true if it changed (caller clears the
-    /// GPU tile cache). Only meaningful for GOES styles.
+    /// Select a timed frame. Changes select another namespace; they never flush static tiles.
+    /// Mutable latest imagery bypasses disk cache; its epoch renews after five minutes or on
+    /// returning from an explicit frame to latest.
     pub fn set_goes_time(&mut self, t: Option<chrono::DateTime<chrono::Utc>>) -> bool {
-        if self.goes_time == t {
+        let refresh = t.is_none()
+            && (self.goes_time.is_some()
+                || self
+                    .latest_refresh
+                    .is_none_or(|last| last.elapsed().as_secs() >= 300));
+        if self.goes_time == t && !refresh {
             return false;
         }
+        if refresh {
+            self.latest_epoch = self
+                .latest_epoch
+                .checked_add(1)
+                .expect("Raster latest identity exhausted");
+            self.latest_refresh = Some(wxdata::clock::Instant::now());
+        }
         self.goes_time = t;
-        self.requested.clear();
-        self.uploaded.clear();
         true
+    }
+
+    pub fn context(&self, style: BasemapStyle) -> crate::render::RasterContext {
+        let time = style
+            .timed()
+            .then_some(self.goes_time)
+            .flatten()
+            .map(|t| t.timestamp());
+        crate::render::RasterContext {
+            revision: self.revision,
+            time,
+            latest_epoch: if style.timed() && time.is_none() {
+                self.latest_epoch
+            } else {
+                0
+            },
+        }
+    }
+    fn revise_provider(&mut self) {
+        self.revision = self
+            .revision
+            .checked_add(1)
+            .expect("Raster provider identity exhausted");
+        self.evicted
+            .extend(self.uploaded.iter().map(|(key, _)| *key));
+        self.uploaded.clear();
+        self.requested.clear();
+        self.failed.clear();
+        self.frame_scopes.clear();
+        self.frame_visible_keys.clear();
+        self.thumbs.clear();
     }
 
     /// Turn `@2x` tiles on or off (high-DPI screen, and not on a metered link). Returns true if it
@@ -1365,8 +1421,7 @@ impl TileManager {
             return false;
         }
         self.retina = retina;
-        self.requested.clear();
-        self.uploaded.clear();
+        self.revise_provider();
         true
     }
 
@@ -1382,15 +1437,14 @@ impl TileManager {
         if self.mapbox_key != mapbox || self.maptiler_key != maptiler {
             self.mapbox_key = mapbox.to_string();
             self.maptiler_key = maptiler.to_string();
-            self.requested.clear();
-            self.uploaded.clear();
+            self.revise_provider();
         }
     }
 
     /// This style's picker thumbnail, fetching it the first time it is asked for.
     ///
-    /// One z6 tile over the middle of CONUS per style, through the same disk cache as any other
-    /// tile. Returns `None` while it is in flight, if it failed, or if the style has no raster
+    /// One z6 tile over the middle of CONUS per style. Static previews share the map's disk
+    /// cache; timed latest previews bypass it. Returns `None` while it is in flight, if it failed, or if the style has no raster
     /// URL — the picker paints a palette swatch in all of those cases, so nothing ever waits on
     /// a network round trip to draw.
     pub fn thumb(
@@ -1398,7 +1452,10 @@ impl TileManager {
         style: BasemapStyle,
         ctx: &egui::Context,
     ) -> Option<egui::TextureHandle> {
-        while let Ok((key, fetched)) = self.thumb_rx.try_recv() {
+        while let Ok((key, revision, fetched)) = self.thumb_rx.try_recv() {
+            if revision != self.revision {
+                continue;
+            }
             let state = match fetched {
                 Some(f) => {
                     let img = egui::ColorImage::from_rgba_unmultiplied(
@@ -1427,26 +1484,30 @@ impl TileManager {
         }
         // Small separate budget: the picker opening must not stall the map's own tile fetches.
         // ponytail: flat 4, independent of MAX_INFLIGHT.
-        if self
-            .thumbs
-            .values()
-            .filter(|t| matches!(t, Thumb::Loading))
-            .count()
-            >= 4
-        {
+        if self.thumb_inflight.load(Ordering::Relaxed) >= 4 {
             return None;
         }
         let url = style.thumb_url(&self.mapbox_key, &self.maptiler_key, &self.custom_template)?;
-        let path = self.cache_root.as_ref().map(|d| {
-            d.join(style.provider(false, &self.custom_template))
-                .join("default")
-                .join("6/14/24")
-        });
+        let path = self
+            .cache_root
+            .as_ref()
+            .filter(|_| !style.timed())
+            .map(|d| {
+                d.join(style.provider(false, &self.custom_template))
+                    .join("default")
+                    .join("6/14/24")
+            });
         self.thumbs.insert(key, Thumb::Loading);
+        let inflight = self.thumb_inflight.clone();
+        inflight.fetch_add(1, Ordering::Relaxed);
         let client = self.client.clone();
         let tx = self.thumb_tx.clone();
         let ctx2 = self.ctx.clone();
         let blocking = self.spawner.clone();
+        let context = crate::render::RasterContext {
+            revision: self.revision,
+            ..Default::default()
+        };
         self.spawner.spawn(async move {
             let bytes = load_tile_bytes(&client, &url, path.as_deref()).await;
             blocking.spawn_blocking(move || {
@@ -1457,6 +1518,7 @@ impl TileManager {
                         let rgba = img.to_rgba8();
                         let (w, h) = rgba.dimensions();
                         FetchedTile {
+                            context,
                             id: (6, 14, 24),
                             style: key,
                             rgba: rgba.into_raw(),
@@ -1464,7 +1526,8 @@ impl TileManager {
                             height: h,
                         }
                     });
-                let _ = tx.send((key, decoded));
+                let _ = tx.send((key, context.revision, decoded));
+                inflight.fetch_sub(1, Ordering::Relaxed);
                 if let Some(ctx) = ctx2 {
                     ctx.request_repaint();
                 }
@@ -1473,8 +1536,7 @@ impl TileManager {
         None
     }
 
-    /// Point the custom-XYZ slot at a template. Clears the caches on change, like the key setter
-    /// above: the same `(z, x, y)` now means a different server's imagery.
+    /// Configure the deepest custom-XYZ zoom without accepting unbounded tile grids.
     pub fn set_custom_max_z(&mut self, z: u8) {
         // Clamped rather than trusted: `tile_cover` builds a grid of `4^z` tiles, and a typo in
         // the settings file should not turn into an unbounded fetch loop.
@@ -1484,8 +1546,7 @@ impl TileManager {
     pub fn set_custom_template(&mut self, template: &str) {
         if self.custom_template != template {
             self.custom_template = template.to_string();
-            self.requested.clear();
-            self.uploaded.clear();
+            self.revise_provider();
         }
     }
 
@@ -1511,17 +1572,64 @@ impl TileManager {
         }
     }
 
+    /// URL and disk identity are resolved together with the selected frame. Timed latest
+    /// aliases are mutable, so they never read or write persistent tile bytes.
+    fn request_spec(
+        &self,
+        style: BasemapStyle,
+        id: TileId,
+    ) -> Option<(String, Option<std::path::PathBuf>)> {
+        let (z, x, y) = id;
+        let mut url = style.url(
+            z,
+            x,
+            y,
+            self.retina,
+            &self.mapbox_key,
+            &self.maptiler_key,
+            &self.custom_template,
+        )?;
+        let time_tag = match self.goes_time {
+            Some(t) if style.timed() => {
+                let iso = t.format("%Y-%m-%dT%H:%M:%SZ").to_string();
+                if style.wms_layer().is_some() {
+                    url.push_str(&format!("&TIME={iso}"));
+                } else {
+                    url = url.replace(
+                        "/default/GoogleMapsCompatible",
+                        &format!("/{iso}/GoogleMapsCompatible"),
+                    );
+                }
+                // Do not reuse legacy minute-only directories for exact-second requests.
+                t.format("at-%Y%m%dT%H%M%SZ").to_string()
+            }
+            _ => "default".to_string(),
+        };
+        let path = self
+            .cache_root
+            .as_ref()
+            .filter(|_| !style.timed() || self.goes_time.is_some())
+            .map(|root| {
+                root.join(style.provider(self.retina, &self.custom_template))
+                    .join(time_tag)
+                    .join(format!("{z}/{x}/{y}"))
+            });
+        Some((url, path))
+    }
+
     /// Kick off fetches for any visible tiles not yet requested.
     pub fn request_missing(&mut self, style: BasemapStyle, visible: &[VisibleTile]) {
         use std::sync::atomic::Ordering;
         let skey = style.key();
+        let context = self.context(style);
         for v in visible {
-            if self.requested.contains(&(skey, v.id)) {
+            let key = (skey, context, v.id);
+            if self.requested.contains(&key) {
                 continue;
             }
             if self
                 .failed
-                .get(&(skey, v.id))
+                .get(&key)
                 .is_some_and(|(t, n)| t.elapsed() < retry_after(*n))
             {
                 continue;
@@ -1531,40 +1639,10 @@ impl TileManager {
                 break;
             }
             let (z, x, y) = v.id;
-            let Some(mut url) = style.url(
-                z,
-                x,
-                y,
-                self.retina,
-                &self.mapbox_key,
-                &self.maptiler_key,
-                &self.custom_template,
-            ) else {
+            let Some((url, path)) = self.request_spec(style, v.id) else {
                 continue;
             };
-            // GOES frame time: rewrite the `default` time slot in the GIBS URL and tag the cache
-            // dir so different frames don't collide. Latest (`None`) keeps `default`.
-            let time_tag = match self.goes_time {
-                Some(t) if style.timed() => {
-                    let iso = t.format("%Y-%m-%dT%H:%M:%SZ").to_string();
-                    if style.wms_layer().is_some() {
-                        url.push_str(&format!("&TIME={iso}"));
-                    } else {
-                        url = url.replace(
-                            "/default/GoogleMapsCompatible",
-                            &format!("/{iso}/GoogleMapsCompatible"),
-                        );
-                    }
-                    t.format("%Y%m%dT%H%M").to_string()
-                }
-                _ => "default".to_string(),
-            };
-            self.requested.insert((skey, v.id));
-            let path = self.cache_root.as_ref().map(|d| {
-                d.join(style.provider(self.retina, &self.custom_template))
-                    .join(&time_tag)
-                    .join(format!("{z}/{x}/{y}"))
-            });
+            self.requested.insert(key);
             let client = self.client.clone();
             let tx = self.tx.clone();
             let ctx = self.ctx.clone();
@@ -1591,6 +1669,7 @@ impl TileManager {
                             let rgba = img.to_rgba8();
                             let (w, h) = rgba.dimensions();
                             FetchedTile {
+                                context,
                                 id: (z, x, y),
                                 style: skey,
                                 rgba: rgba.into_raw(),
@@ -1598,7 +1677,7 @@ impl TileManager {
                                 height: h,
                             }
                         });
-                    let _ = tx.send(decoded.ok_or((skey, (z, x, y))));
+                    let _ = tx.send(decoded.ok_or(key));
                     inflight.fetch_sub(1, Ordering::Relaxed);
                     if let Some(ctx) = ctx {
                         ctx.request_repaint();
@@ -1703,7 +1782,11 @@ impl TileManager {
     pub fn stats(&self) -> TileStats {
         TileStats {
             resident: self.uploaded.len(),
-            loading: self.requested.len(),
+            loading: self
+                .requested
+                .iter()
+                .filter(|key| !self.uploaded.contains(key))
+                .count(),
             failed: self.failed.len(),
             stubborn: self.failed.values().filter(|(_, n)| *n > 2).count(),
         }
@@ -1716,6 +1799,12 @@ impl TileManager {
             let t = match t {
                 Ok(t) => t,
                 Err(id) => {
+                    if id.1.revision != self.revision
+                        || !self.requested.contains(&id)
+                        || self.uploaded.contains(&id)
+                    {
+                        continue;
+                    }
                     // Out of `requested` so the next visibility pass is the retry, and into
                     // `failed` so that pass isn't the very next frame.
                     self.requested.remove(&id);
@@ -1724,7 +1813,10 @@ impl TileManager {
                     continue;
                 }
             };
-            let key = (t.style, t.id);
+            let key = (t.style, t.context, t.id);
+            if t.context.revision != self.revision || !self.requested.contains(&key) {
+                continue;
+            }
             self.failed.remove(&key);
             // `push` (not `put`) hands back whatever it evicted, so the renderer can free the
             // texture instead of leaking it.
@@ -1737,6 +1829,7 @@ impl TileManager {
                 continue; // already resident
             }
             ready.push(PendingTile {
+                context: t.context,
                 id: t.id,
                 style: t.style,
                 rgba: t.rgba,
@@ -1758,8 +1851,11 @@ impl TileManager {
     /// counted — evicting mid-frame would drop tiles a later pane still needs.
     pub fn promote_visible(&mut self, style: BasemapStyle, visible: &[VisibleTile]) {
         let skey = style.key();
+        let context = self.context(style);
+        self.frame_scopes.insert((skey, context));
         for v in visible {
-            self.uploaded.promote(&(skey, v.id));
+            self.frame_visible_keys.insert((skey, context, v.id));
+            self.uploaded.promote(&(skey, context, v.id));
         }
         self.frame_visible += visible.len();
     }
@@ -1767,6 +1863,13 @@ impl TileManager {
     /// Shrink the cache back to its resting size and return what fell out, so the renderer can
     /// free those textures. Run after the last pane's [`Self::promote_visible`].
     pub fn evict_excess(&mut self) -> Vec<crate::render::TileKey> {
+        self.failed
+            .retain(|key, _| self.frame_visible_keys.contains(key));
+        self.requested.retain(|key| {
+            self.uploaded.contains(key) || self.frame_scopes.contains(&(key.0, key.1))
+        });
+        self.frame_scopes.clear();
+        self.frame_visible_keys.clear();
         // Grow to fit a wide (or multi-pane) frame: the cap is a resting size, not a per-frame
         // limit. An evicted tile also drops out of `requested`, so revisiting that area re-fetches
         // it (from disk, usually) instead of leaving a black square.
@@ -1829,6 +1932,7 @@ pub async fn fetch_visible(
                     let rgba = img.to_rgba8();
                     let (w, h) = rgba.dimensions();
                     out.push(PendingTile {
+                        context: Default::default(),
                         id: v.id,
                         style: style.key(),
                         rgba: rgba.into_raw(),
@@ -2292,7 +2396,8 @@ mod tests {
         let per = 512u32 * 512 * 4;
         let n = (RASTER_TILE_BYTES / per as u64) as usize + 20;
         for i in 0..n {
-            m.uploaded.push((0, (6, i as u32, 0)), per);
+            m.uploaded
+                .push((0, Default::default(), (6, i as u32, 0)), per);
         }
         let dropped = m.evict_excess();
         assert!(!dropped.is_empty(), "byte budget must evict");
@@ -2802,5 +2907,322 @@ mod goes_window_tests {
         // Scrubbing a few minutes inside the same hour must not change the refetch key.
         let (again, ..) = goes_window(now, Some(old + chrono::Duration::minutes(5)));
         assert_eq!(again, hour);
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod raster_context_tests {
+    use super::*;
+    use crate::render::{RasterContext, TileKey};
+
+    const TIMED: BasemapStyle = BasemapStyle::GoesEastIR;
+    const STATIC: BasemapStyle = BasemapStyle::Satellite;
+    const ID: TileId = (6, 14, 24);
+
+    fn with_manager(test: impl FnOnce(&mut TileManager)) {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let mut manager = TileManager::new(crate::rt::Spawner::new(runtime.handle().clone()));
+        manager.cache_root = Some(std::path::PathBuf::from("test-raster-cache"));
+        test(&mut manager);
+    }
+
+    fn time(seconds: i64) -> chrono::DateTime<chrono::Utc> {
+        chrono::DateTime::from_timestamp(1_700_000_040 + seconds, 0).unwrap()
+    }
+
+    fn visible(id: TileId) -> VisibleTile {
+        VisibleTile {
+            id,
+            world_min: [0.0, 0.0],
+            world_max: [1.0, 1.0],
+        }
+    }
+
+    fn key(manager: &TileManager, style: BasemapStyle) -> TileKey {
+        (style.key(), manager.context(style), ID)
+    }
+
+    fn deliver(manager: &TileManager, key: TileKey, color: [u8; 4]) {
+        manager
+            .tx
+            .send(Ok(FetchedTile {
+                style: key.0,
+                context: key.1,
+                id: key.2,
+                rgba: color.to_vec(),
+                width: 1,
+                height: 1,
+            }))
+            .unwrap();
+    }
+
+    #[test]
+    fn exact_seconds_distinguish_url_disk_cache_and_resident_frames() {
+        with_manager(|manager| {
+            manager.set_goes_time(Some(time(1)));
+            let a = key(manager, TIMED);
+            let (url_a, disk_a) = manager.request_spec(TIMED, ID).unwrap();
+            manager.requested.insert(a);
+            deliver(manager, a, [255, 0, 0, 255]);
+            assert_eq!(manager.drain_ready()[0].context, a.1);
+            manager.set_goes_time(Some(time(2)));
+            let b = key(manager, TIMED);
+            let (url_b, disk_b) = manager.request_spec(TIMED, ID).unwrap();
+            assert_ne!(url_a, url_b);
+            assert!(url_a.contains("2023-11-14T22:14:01Z"));
+            assert!(url_b.contains("2023-11-14T22:14:02Z"));
+            assert_ne!(disk_a, disk_b);
+            assert!(disk_a
+                .unwrap()
+                .to_string_lossy()
+                .contains("at-20231114T221401Z"));
+            manager.requested.insert(b);
+            deliver(manager, b, [0, 0, 255, 255]);
+            assert_eq!(manager.drain_ready()[0].rgba, [0, 0, 255, 255]);
+            manager.set_goes_time(Some(time(1)));
+            assert!(manager.requested.contains(&key(manager, TIMED)));
+            assert!(manager.uploaded.contains(&a));
+            assert!(manager.uploaded.contains(&b));
+            assert!(manager.evicted.is_empty());
+            assert_eq!(manager.stats().resident, 2);
+            assert_eq!(manager.stats().loading, 0);
+        });
+    }
+
+    #[test]
+    fn time_changes_preserve_static_maps_and_wms_uses_the_same_exact_identity() {
+        with_manager(|manager| {
+            let stable = key(manager, STATIC);
+            let static_spec = manager.request_spec(STATIC, ID).unwrap();
+            manager.requested.insert(stable);
+            deliver(manager, stable, [10, 20, 30, 255]);
+            manager.drain_ready();
+            manager.set_goes_time(Some(time(1)));
+            let wms_a = manager.request_spec(BasemapStyle::DwdRadarWN, ID).unwrap();
+            manager.set_goes_time(Some(time(2)));
+            let wms_b = manager.request_spec(BasemapStyle::DwdRadarWN, ID).unwrap();
+            assert_ne!(wms_a, wms_b);
+            assert!(wms_b.0.contains("&TIME=2023-11-14T22:14:02Z"));
+            assert_eq!(manager.request_spec(STATIC, ID).unwrap(), static_spec);
+            assert_eq!(key(manager, STATIC), stable);
+            assert!(manager.uploaded.contains(&stable));
+            manager.set_goes_time(None);
+            assert_eq!(key(manager, STATIC), stable);
+            assert!(manager.evicted.is_empty());
+        });
+    }
+
+    #[test]
+    fn late_success_keeps_its_frame_and_failure_cannot_poison_another_frame() {
+        with_manager(|manager| {
+            manager.set_goes_time(Some(time(1)));
+            let a = key(manager, TIMED);
+            manager.requested.insert(a);
+            manager.set_goes_time(Some(time(2)));
+            let b = key(manager, TIMED);
+            manager.requested.insert(b);
+            deliver(manager, a, [255, 0, 0, 255]);
+            manager.tx.send(Err(a)).unwrap();
+            deliver(manager, b, [0, 0, 255, 255]);
+            let ready = manager.drain_ready();
+            assert_eq!(ready.len(), 2);
+            assert_eq!(ready[0].context, a.1);
+            assert_eq!(ready[1].context, b.1);
+            assert!(!manager.failed.contains_key(&a));
+            assert!(!manager.failed.contains_key(&b));
+            assert!(manager.uploaded.contains(&b));
+        });
+    }
+
+    #[test]
+    fn failed_old_frame_does_not_back_off_the_selected_frame() {
+        with_manager(|manager| {
+            manager.set_goes_time(Some(time(1)));
+            let a = key(manager, TIMED);
+            manager.requested.insert(a);
+            manager.set_goes_time(Some(time(2)));
+            let b = key(manager, TIMED);
+            manager.requested.insert(b);
+            manager.tx.send(Err(a)).unwrap();
+            deliver(manager, b, [0, 0, 255, 255]);
+            let ready = manager.drain_ready();
+            assert_eq!(ready.len(), 1);
+            assert_eq!(ready[0].context, b.1);
+            assert_eq!(manager.failed[&a].1, 1);
+            assert!(!manager.failed.contains_key(&b));
+            assert!(manager.requested.contains(&b));
+        });
+    }
+
+    #[test]
+    fn visible_frames_from_two_panes_survive_the_shared_byte_sweep() {
+        with_manager(|manager| {
+            let per = 512u32 * 512 * 4;
+            for x in 0..(RASTER_TILE_BYTES / u64::from(per)) as u32 + 20 {
+                manager
+                    .uploaded
+                    .push((STATIC.key(), RasterContext::default(), (8, x, 0)), per);
+            }
+            manager.set_goes_time(Some(time(1)));
+            let a = key(manager, TIMED);
+            manager.uploaded.push(a, per);
+            manager.promote_visible(TIMED, &[visible(ID)]);
+            manager.set_goes_time(Some(time(2)));
+            let b = key(manager, TIMED);
+            manager.uploaded.push(b, per);
+            manager.promote_visible(TIMED, &[visible(ID)]);
+            let dropped = manager.evict_excess();
+            assert!(!dropped.is_empty());
+            assert!(!dropped.contains(&a));
+            assert!(!dropped.contains(&b));
+            assert!(manager.uploaded.contains(&a));
+            assert!(manager.uploaded.contains(&b));
+            assert!(
+                manager
+                    .uploaded
+                    .iter()
+                    .map(|(_, bytes)| u64::from(*bytes))
+                    .sum::<u64>()
+                    <= RASTER_TILE_BYTES
+            );
+        });
+    }
+
+    #[test]
+    fn abandoned_scope_discards_both_successes_and_failures() {
+        with_manager(|manager| {
+            manager.set_goes_time(Some(time(1)));
+            let a = key(manager, TIMED);
+            manager.requested.insert(a);
+            manager.failed.insert(a, (wxdata::clock::Instant::now(), 2));
+            manager.set_goes_time(Some(time(2)));
+            let b = key(manager, TIMED);
+            manager.requested.insert(b);
+            manager.promote_visible(TIMED, &[visible(ID)]);
+            manager.evict_excess();
+            assert!(!manager.requested.contains(&a));
+            assert!(manager.failed.is_empty());
+            deliver(manager, a, [255, 0, 0, 255]);
+            manager.tx.send(Err(a)).unwrap();
+            deliver(manager, b, [0, 0, 255, 255]);
+            let ready = manager.drain_ready();
+            assert_eq!(ready.len(), 1);
+            assert_eq!(ready[0].context, b.1);
+            assert!(manager.failed.is_empty());
+        });
+    }
+
+    #[test]
+    fn provider_changes_retire_old_success_failure_and_thumbnail_results() {
+        with_manager(|manager| {
+            let a = key(manager, STATIC);
+            manager.requested.insert(a);
+            deliver(manager, a, [255, 0, 0, 255]);
+            manager.drain_ready();
+            manager.thumbs.insert(STATIC.key(), Thumb::Failed);
+            manager.set_keys("example-secret-a", "example-secret-b");
+            let b = key(manager, STATIC);
+            assert_ne!(a, b);
+            assert!(manager.thumbs.is_empty());
+            manager.requested.insert(b);
+            deliver(manager, a, [255, 0, 0, 255]);
+            manager.tx.send(Err(a)).unwrap();
+            manager
+                .thumb_tx
+                .send((STATIC.key(), a.1.revision, None))
+                .unwrap();
+            // A no-URL style drains old results without starting a thumbnail download.
+            assert!(manager
+                .thumb(BasemapStyle::None, &egui::Context::default())
+                .is_none());
+            assert!(!manager.thumbs.contains_key(&STATIC.key()));
+            deliver(manager, b, [0, 0, 255, 255]);
+            let ready = manager.drain_ready();
+            assert_eq!(ready.len(), 1);
+            assert_eq!(ready[0].context, b.1);
+            assert!(manager.failed.is_empty());
+            assert!(manager.evict_excess().contains(&a));
+            assert!(!format!("{b:?}").contains("example-secret"));
+            let unchanged = manager.revision;
+            manager.set_keys("example-secret-a", "example-secret-b");
+            assert_eq!(manager.revision, unchanged);
+            manager.set_custom_template("https://example.invalid/{z}/{x}/{y}");
+            assert_ne!(manager.revision, unchanged);
+            let custom_revision = manager.revision;
+            assert!(manager.set_retina(true));
+            assert_ne!(manager.revision, custom_revision);
+            // Old thumbnail workers continue to consume the shared four-request budget.
+            manager.thumb_inflight.store(4, Ordering::Relaxed);
+            manager.set_keys("another-example-key", "another-example-key");
+            assert!(manager.thumb(STATIC, &egui::Context::default()).is_none());
+            assert!(manager.thumbs.is_empty());
+            assert_eq!(manager.thumb_inflight.load(Ordering::Relaxed), 4);
+        });
+    }
+
+    #[test]
+    fn latest_alias_refreshes_without_reusing_disk_or_static_contexts() {
+        with_manager(|manager| {
+            manager.set_goes_time(None);
+            let a = key(manager, TIMED);
+            let stable = key(manager, STATIC);
+            assert!(manager.request_spec(TIMED, ID).unwrap().1.is_none());
+            assert!(manager.request_spec(STATIC, ID).unwrap().1.is_some());
+            assert!(!manager.set_goes_time(None));
+            assert_eq!(key(manager, TIMED), a);
+            // Make the monotonic refresh window expire without a wall-clock wait.
+            manager.latest_refresh =
+                Some(wxdata::clock::Instant::now() - std::time::Duration::from_secs(301));
+            assert!(manager.set_goes_time(None));
+            let b = key(manager, TIMED);
+            assert_ne!(a, b);
+            assert_eq!(key(manager, STATIC), stable);
+            manager.set_goes_time(Some(time(1)));
+            assert!(manager.request_spec(TIMED, ID).unwrap().1.is_some());
+            manager.set_goes_time(None);
+            assert_ne!(key(manager, TIMED), b);
+            assert_eq!(key(manager, STATIC), stable);
+            assert_eq!(manager.context(TIMED).time, None);
+            assert_ne!(manager.context(TIMED).latest_epoch, 0);
+            assert_eq!(manager.context(STATIC), RasterContext::default());
+        });
+    }
+
+    #[test]
+    fn failure_bookkeeping_is_bounded_by_the_whole_visible_frame() {
+        with_manager(|manager| {
+            for second in 0..100 {
+                manager.set_goes_time(Some(time(second)));
+                let wanted = key(manager, TIMED);
+                let offscreen = (wanted.0, wanted.1, (6, 15, 24));
+                manager
+                    .failed
+                    .insert(wanted, (wxdata::clock::Instant::now(), 1));
+                manager
+                    .failed
+                    .insert(offscreen, (wxdata::clock::Instant::now(), 1));
+                manager.requested.insert(wanted);
+                manager.promote_visible(TIMED, &[visible(ID)]);
+                manager.evict_excess();
+                assert_eq!(manager.failed.len(), 1);
+                assert_eq!(manager.requested.len(), 1);
+                assert!(manager.failed.contains_key(&wanted));
+            }
+            // Two panes may want separate explicit times in a single frame.
+            manager.set_goes_time(Some(time(1)));
+            let a = key(manager, TIMED);
+            manager.failed.insert(a, (wxdata::clock::Instant::now(), 1));
+            manager.promote_visible(TIMED, &[visible(ID)]);
+            manager.set_goes_time(Some(time(2)));
+            let b = key(manager, TIMED);
+            manager.failed.insert(b, (wxdata::clock::Instant::now(), 1));
+            manager.promote_visible(TIMED, &[visible(ID)]);
+            manager.evict_excess();
+            assert_eq!(manager.failed.len(), 2);
+            assert!(manager.failed.contains_key(&a));
+            assert!(manager.failed.contains_key(&b));
+        });
     }
 }

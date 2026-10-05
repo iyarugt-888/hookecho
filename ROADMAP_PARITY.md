@@ -1011,6 +1011,28 @@ workspace/all-target Clippy and WASM compilation passed, and the explicit GPU co
 hashes and nine reviewed production-control captures are retained. Claude-owned wxdata work was
 present during checks and is recorded separately; it is excluded from this increment.
 
+**Raster time increment — 2026-10-05 (partial):** timed tiles now retain style, exact UTC second,
+provider revision and latest-alias epoch through requests, retries, CPU residency, GPU upload,
+draw-list reuse and ancestor/child zoom fallbacks. Changing time selects another namespace,
+retaining static maps and bounded reusable frame textures. Late obsolete replies cannot become
+another frame. Exact-second disk paths avoid legacy minute-only collisions; mutable latest
+aliases bypass disk and renew their memory epoch after five minutes or on return from a dated
+frame. Provider changes discard obsolete map/picker replies without resetting the thumbnail
+worker concurrency budget. Failed tile bookkeeping follows visible owners; loading counts
+exclude resident textures. See [implementation and evidence](docs/certification/raster-context.md).
+
+Verification: 2,295 shared-workspace tests passed across 29 suites (149 ignored), strict
+workspace/all-target Clippy and the WASM library check passed, and two explicit GPU controls
+passed in 1.84 seconds. This increment adds nine ordinary controls and one GPU control;
+the existing model-context GPU control also passed. Eight owned Rust source hashes and thirteen
+visually reviewed raster captures are retained, with no source-guard changes. Claude-owned
+calculation sources were present during workspace checks and are recorded separately.
+
+This closes raster **identity** as a prerequisite; it does not add independent pane time drivers,
+replace the shared satellite catalog, change archive no-match policies, or make MRMS/GOES decoded
+fields independent. Transport jobs retain their existing concurrency/deadline bounds; retiring
+a scope rejects delivery without aborting the underlying HTTP job. Parent acceptance stays open.
+
 **M5.1 remains partial:** independent analysis-time groups and their MRMS/GOES field/tile ownership,
 source driver selection, comparison/ensemble/contour ownership, and full application multi-group
 live/archive operator evidence remain. Global selected-storm linking also remains. The next time

@@ -70,8 +70,10 @@ captured at desktop/phone widths, with bounds and minimum touch-target assertion
 
 ## Remaining parent work
 
-Analysis time still uses the existing global linked clock. MRMS/GOES fields and satellite tiles
-still have shared context ownership; independent analysis-time groups must change those stores,
+Analysis time still uses the existing global linked clock. MRMS/GOES decoded fields still have
+shared context ownership. The subsequent [raster identity increment](raster-context.md) isolates
+tile frame keys, but satellite time/catalog drivers remain shared. Independent analysis-time
+groups must change those stores,
 request lanes and renderer resources together. Global selected-storm linking, comparison/
 ensemble/contour contexts, full application multi-group live/archive sessions and physical-device
 acceptance remain open. Local controls do not certify live provider behavior or a full application

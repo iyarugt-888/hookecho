@@ -50,7 +50,7 @@ impl HookEchoApp {
             // Ask for `@2x` tiles where the provider serves them: same tile count, twice the
             // pixels, labels drawn for the density instead of magnified. Off on a metered link —
             // a double-resolution tile is roughly double the bytes.
-            let mut clear_tiles = self
+            let clear_tiles = self
                 .tiles
                 .set_retina(ctx.pixels_per_point() > 1.0 && !crate::platform::is_metered());
             // GOES sub-hourly scrub: fetch the available frame times when a GOES style becomes
@@ -97,12 +97,12 @@ impl HookEchoApp {
                     (None, Some(_)) => self.goes_times.last().copied(),
                     (s, _) => s,
                 };
-                clear_tiles |= self.tiles.set_goes_time(selected);
-            } else if self.goes_times_style.is_some() {
+                self.tiles.set_goes_time(selected);
+            } else {
                 self.goes_times_style = None;
                 self.goes_hour = None;
                 self.goes_times.clear();
-                clear_tiles |= self.tiles.set_goes_time(None);
+                self.tiles.set_goes_time(None);
             }
             let mut clear_vector = false;
             if is_vector {

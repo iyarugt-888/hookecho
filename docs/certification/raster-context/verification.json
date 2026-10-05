@@ -1,0 +1,284 @@
+{
+  "schema": 1,
+  "recorded_utc": "2026-10-05T23:41:30.296185+00:00",
+  "scope": "M5.1 raster frame/request/cache/render identity prerequisite; independent analysis-time groups remain partial",
+  "source_snapshot": {
+    "recorded_utc": "2026-10-05T23:32:53.618722+00:00",
+    "shared_head": "813efdd66febf34d480104f66cefd272dd9cb068",
+    "owned_sources": {
+      "crates/hookecho/src/app/draw_panes.rs": "20fedc482f78b4a1bbf02a9f9b2ea30bbb1f2c6741f44f8fa7c9cc5fe966c65c",
+      "crates/hookecho/src/app/pane_gpu.rs": "b91fbc03f1aa226ef471532ce2adb832323aba80ab9a591c43efd34862979395",
+      "crates/hookecho/src/headless.rs": "ac3c8eff9fdeec73c478130a5f29f3dbeca4414307e3a6cc4c530bd78ebc9ab1",
+      "crates/hookecho/src/headless_corpus.rs": "41d15429e2cde49c6ff3003bf9abdf4ab9d5eebf4f160e62fcf20041d8228c25",
+      "crates/hookecho/src/headless_model_panes.rs": "f338248d2af73b74b4d73ce9906d0110fc9c55c6638c82f0e69a8e74858db1d5",
+      "crates/hookecho/src/headless_tile_context.rs": "4273fb8addd00634a486150853e23fd6d8319223299a6923430693321a803c00",
+      "crates/hookecho/src/render/mod.rs": "3474fd98ffc45bd31568b9432a793366776ff3045ed01a853c60c53158275a48",
+      "crates/hookecho/src/tiles.rs": "e2a05a08c48bf307f92a5ede83666f0c3e6e468d4aaa315c2b2072b049cd9eff"
+    },
+    "shared_worktree_sources": {
+      "crates/wxdata/src/lib.rs": "ee1d138b1c4f5084ecfdcc667e3e312b19b329413c0af9b0c26e644c1a816cc8",
+      "crates/wxdata/src/near_storm.rs": "5116ec4973c1cbbdc95ba66d8dba87cccd2b0308b73fb72b4530a4d1f3027161",
+      "crates/wxdata/examples/env_sample.rs": "392b80ec80bf485b774af7c9191ab9bbfc9480eed94be8adff00b365305f56fd"
+    },
+    "final_revision_utc": "2026-10-05T23:36:52.288713+00:00",
+    "late_changes_requiring_refresh": [
+      "crates/hookecho/src/headless_tile_context.rs",
+      "crates/hookecho/src/render/mod.rs"
+    ]
+  },
+  "owned_source_guard_changed": [],
+  "shared_worktree_sources_after": {
+    "crates/wxdata/src/lib.rs": "ee1d138b1c4f5084ecfdcc667e3e312b19b329413c0af9b0c26e644c1a816cc8",
+    "crates/wxdata/src/near_storm.rs": "5116ec4973c1cbbdc95ba66d8dba87cccd2b0308b73fb72b4530a4d1f3027161",
+    "crates/wxdata/examples/env_sample.rs": "392b80ec80bf485b774af7c9191ab9bbfc9480eed94be8adff00b365305f56fd"
+  },
+  "shared_worktree_sources_changed": [],
+  "checks": {
+    "workspace": {
+      "command": "cargo test --workspace",
+      "exit_code": 0,
+      "log_path": "target/parity-review/raster-context/final/workspace-v2.log",
+      "log_sha256": "edd4f939ab0f08f625000d764ad9b6cf3834673ab0a781f8cd3585dda1c057cd",
+      "exit_sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+      "totals": {
+        "passed": 2295,
+        "failed": 0,
+        "ignored": 149,
+        "suites": 29
+      },
+      "new_regression_controls": [
+        "exact_seconds_distinguish_url_disk_cache_and_resident_frames",
+        "abandoned_scope_discards_both_successes_and_failures",
+        "failed_old_frame_does_not_back_off_the_selected_frame",
+        "late_success_keeps_its_frame_and_failure_cannot_poison_another_frame",
+        "latest_alias_refreshes_without_reusing_disk_or_static_contexts",
+        "time_changes_preserve_static_maps_and_wms_uses_the_same_exact_identity",
+        "provider_changes_retire_old_success_failure_and_thumbnail_results",
+        "failure_bookkeeping_is_bounded_by_the_whole_visible_frame",
+        "visible_frames_from_two_panes_survive_the_shared_byte_sweep"
+      ]
+    },
+    "clippy": {
+      "command": "cargo clippy --workspace --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log_path": "target/parity-review/raster-context/final/clippy-v2.log",
+      "log_sha256": "682c0d5a9436a877e2b3445f356295f405d75a8d41f035220ebb3c85ff3a2c7a",
+      "exit_sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    "wasm": {
+      "command": "cargo check -p hookecho --lib --target wasm32-unknown-unknown",
+      "exit_code": 0,
+      "log_path": "target/parity-review/raster-context/final/wasm-v2.log",
+      "log_sha256": "65674064d37dee57fbd21fd07c5b5452b0fd6a499107b40071b9e9a8101f0db1",
+      "exit_sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    "gpu": {
+      "command": "cargo test -p hookecho --lib -- --ignored --exact headless::tile_context::gpu_raster_frame_context_isolation headless::model_panes::gpu_model_pane_context_isolation",
+      "exit_code": 0,
+      "log_path": "target/parity-review/raster-context/final/gpu-v2.log",
+      "log_sha256": "de7e9f06e9d736f621a514ac2ff7bd38389b8cc762f459bbf5dc7d55de497ef3",
+      "exit_sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+      "totals": {
+        "passed": 2,
+        "failed": 0,
+        "ignored": 0,
+        "suites": 1
+      }
+    }
+  },
+  "gpu_adapter": "NVIDIA GeForce RTX 2060",
+  "new_gpu_control": "headless::tile_context::gpu_raster_frame_context_isolation",
+  "existing_gpu_regression": "headless::model_panes::gpu_model_pane_context_isolation",
+  "captures": [
+    {
+      "center_rgba": [
+        255,
+        0,
+        0,
+        255
+      ],
+      "name": "exact-second-a",
+      "pane": 0,
+      "sha256": "2c4a66266c5ad8f8488d9c77fae9a319ed360a86f13f21d8481f5b4314f0ea18",
+      "path": "target/parity-review/raster-context/gpu/exact-second-a.png",
+      "png_sha256": "27342b361bfb90e38b06815714f0f9d5fa88ee3a49086e5ae81aa230b00d2648",
+      "visually_reviewed": true
+    },
+    {
+      "center_rgba": [
+        0,
+        0,
+        255,
+        255
+      ],
+      "name": "exact-second-b",
+      "pane": 1,
+      "sha256": "b873d4e9ca87a58fd8b7a3d4dcbb0ecb7df3260c15942ecbf0e501fb2dd3a0ac",
+      "path": "target/parity-review/raster-context/gpu/exact-second-b.png",
+      "png_sha256": "9bee55c73eb0089fc2c708ad71331caa2163bffbc2132e457e42bd70ec95f9d4",
+      "visually_reviewed": true
+    },
+    {
+      "center_rgba": [
+        0,
+        0,
+        255,
+        255
+      ],
+      "name": "late-a-delivery-b",
+      "pane": 1,
+      "sha256": "b873d4e9ca87a58fd8b7a3d4dcbb0ecb7df3260c15942ecbf0e501fb2dd3a0ac",
+      "path": "target/parity-review/raster-context/gpu/late-a-delivery-b.png",
+      "png_sha256": "9bee55c73eb0089fc2c708ad71331caa2163bffbc2132e457e42bd70ec95f9d4",
+      "visually_reviewed": true
+    },
+    {
+      "center_rgba": [
+        0,
+        0,
+        255,
+        255
+      ],
+      "name": "time-switch-a-to-b",
+      "pane": 0,
+      "sha256": "b873d4e9ca87a58fd8b7a3d4dcbb0ecb7df3260c15942ecbf0e501fb2dd3a0ac",
+      "path": "target/parity-review/raster-context/gpu/time-switch-a-to-b.png",
+      "png_sha256": "9bee55c73eb0089fc2c708ad71331caa2163bffbc2132e457e42bd70ec95f9d4",
+      "visually_reviewed": true
+    },
+    {
+      "center_rgba": [
+        255,
+        0,
+        0,
+        255
+      ],
+      "name": "cached-return-b-to-a",
+      "pane": 1,
+      "sha256": "2c4a66266c5ad8f8488d9c77fae9a319ed360a86f13f21d8481f5b4314f0ea18",
+      "path": "target/parity-review/raster-context/gpu/cached-return-b-to-a.png",
+      "png_sha256": "27342b361bfb90e38b06815714f0f9d5fa88ee3a49086e5ae81aa230b00d2648",
+      "visually_reviewed": true
+    },
+    {
+      "center_rgba": [
+        0,
+        0,
+        0,
+        255
+      ],
+      "name": "different-provider-revision",
+      "pane": 0,
+      "sha256": "e7725955bf2aeb00256b3826a660221203307b29ff185e3bcfab8a2aba47bea3",
+      "path": "target/parity-review/raster-context/gpu/different-provider-revision.png",
+      "png_sha256": "4f78a8546375d7e942f007dbf52f31b9fba8db2cd642c5f64ea4cb1832b9478a",
+      "visually_reviewed": true
+    },
+    {
+      "center_rgba": [
+        0,
+        255,
+        0,
+        255
+      ],
+      "name": "latest-epoch-one",
+      "pane": 0,
+      "sha256": "2ffb4adf16085109731a2cfd748f60dc4418d0a321de8454c26420dcf3e14231",
+      "path": "target/parity-review/raster-context/gpu/latest-epoch-one.png",
+      "png_sha256": "aac66803783e00bfff4dfc7db11b3e24e2c1ef4146c70d21e31bd379379b9df6",
+      "visually_reviewed": true
+    },
+    {
+      "center_rgba": [
+        0,
+        0,
+        0,
+        255
+      ],
+      "name": "latest-epoch-two-missing",
+      "pane": 0,
+      "sha256": "e7725955bf2aeb00256b3826a660221203307b29ff185e3bcfab8a2aba47bea3",
+      "path": "target/parity-review/raster-context/gpu/latest-epoch-two-missing.png",
+      "png_sha256": "4f78a8546375d7e942f007dbf52f31b9fba8db2cd642c5f64ea4cb1832b9478a",
+      "visually_reviewed": true
+    },
+    {
+      "center_rgba": [
+        0,
+        0,
+        0,
+        255
+      ],
+      "name": "foreign-parent-and-children",
+      "pane": 0,
+      "sha256": "e7725955bf2aeb00256b3826a660221203307b29ff185e3bcfab8a2aba47bea3",
+      "path": "target/parity-review/raster-context/gpu/foreign-parent-and-children.png",
+      "png_sha256": "4f78a8546375d7e942f007dbf52f31b9fba8db2cd642c5f64ea4cb1832b9478a",
+      "visually_reviewed": true
+    },
+    {
+      "center_rgba": [
+        0,
+        255,
+        0,
+        255
+      ],
+      "name": "matching-parent",
+      "pane": 0,
+      "sha256": "2ffb4adf16085109731a2cfd748f60dc4418d0a321de8454c26420dcf3e14231",
+      "path": "target/parity-review/raster-context/gpu/matching-parent.png",
+      "png_sha256": "aac66803783e00bfff4dfc7db11b3e24e2c1ef4146c70d21e31bd379379b9df6",
+      "visually_reviewed": true
+    },
+    {
+      "center_rgba": [
+        255,
+        255,
+        0,
+        255
+      ],
+      "name": "matching-children",
+      "pane": 0,
+      "sha256": "78e2d3b65db3551d91e5cc2074311b421e1d20478911deb7247ba3d9bf24906b",
+      "path": "target/parity-review/raster-context/gpu/matching-children.png",
+      "png_sha256": "b8e92703a4afd498d596a1b7e889a36069145440f2bddeeddb63213131da731c",
+      "visually_reviewed": true
+    },
+    {
+      "center_rgba": [
+        0,
+        0,
+        0,
+        255
+      ],
+      "name": "retired-context",
+      "pane": 0,
+      "sha256": "e7725955bf2aeb00256b3826a660221203307b29ff185e3bcfab8a2aba47bea3",
+      "path": "target/parity-review/raster-context/gpu/retired-context.png",
+      "png_sha256": "4f78a8546375d7e942f007dbf52f31b9fba8db2cd642c5f64ea4cb1832b9478a",
+      "visually_reviewed": true
+    },
+    {
+      "center_rgba": [
+        0,
+        0,
+        255,
+        255
+      ],
+      "name": "surviving-pyramid-context",
+      "pane": 1,
+      "sha256": "b873d4e9ca87a58fd8b7a3d4dcbb0ecb7df3260c15942ecbf0e501fb2dd3a0ac",
+      "path": "target/parity-review/raster-context/gpu/surviving-pyramid-context.png",
+      "png_sha256": "9bee55c73eb0089fc2c708ad71331caa2163bffbc2132e457e42bd70ec95f9d4",
+      "visually_reviewed": true
+    }
+  ],
+  "source_hash_note": "Hashes bind checked raw worktree bytes, including line endings; shared Claude work is recorded separately and excluded from this commit.",
+  "remaining_parent_work": [
+    "Independent analysis-time memberships and drivers",
+    "Per-pane MRMS/GOES decoded field/probe/export/health ownership",
+    "Satellite catalogs and archive no-match policies",
+    "Comparison/ensemble/contour ownership",
+    "Full application multi-group live/archive operator session and device acceptance"
+  ]
+}

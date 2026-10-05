@@ -320,6 +320,7 @@ impl HookEchoApp {
             new_tiles,
             visible,
             basemap_key: pane_style.key(),
+            basemap_context: self.tiles.context(pane_style),
             vector_over_raster: pane_style == crate::tiles::BasemapStyle::HybridSatellite,
             radar_upload,
             draw_radar,

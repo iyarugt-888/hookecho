@@ -8,6 +8,18 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: satellite raster tiles retain their selected frame
+
+Timed raster replies, GPU textures and zoom fallbacks now keep the exact selected UTC second
+and provider revision. Late replies cannot replace another frame's imagery, and switching
+between cached frames updates the pane's draw list immediately. Time changes retain static map
+tiles and reusable archived frames within the existing bounded cache.
+
+Mutable latest imagery bypasses disk cache and renews its memory identity after five minutes
+or when returning from an explicit frame. Provider changes retire obsolete map and picker
+results, while thumbnail downloads retain their concurrency limit. Tile loading counts now
+exclude already-resident tiles. Independent analysis-time groups remain in progress.
+
 ### Added: independent camera, radar-site and cursor groups
 
 Pane links now let each pane join a different group for its camera, radar site and geographic

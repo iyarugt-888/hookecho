@@ -26,6 +26,7 @@ fn callback(sweep: &BinnedSweep, camera: &Camera) -> MapCallback {
         camera_3d: 0.0,
         camera_globe: [0.0; 4],
         basemap_key: 0,
+        basemap_context: Default::default(),
         vector_over_raster: false,
         new_tiles: Vec::new(),
         visible: Vec::new(),

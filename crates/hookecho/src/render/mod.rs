@@ -52,10 +52,18 @@ impl LiveQueueTimings {
 /// XYZ tile id.
 pub type TileId = (u8, u32, u32);
 
-/// A tile plus which basemap style it came from. Panes can show different basemaps at once, so
-/// the same `(z, x, y)` may be resident twice with different imagery; the style key keeps them
-/// apart in the GPU cache.
-pub type TileKey = (u8, TileId);
+/// Style, immutable frame/provider context, and XYZ tile. Shared caches can retain the same
+/// geographic tile at several times without relabeling replies or borrowing foreign fallbacks.
+pub type TileKey = (u8, RasterContext, TileId);
+
+/// Immutable request identity. Explicit frames share by UTC second; mutable latest aliases
+/// receive a fresh epoch. Provider revisions do not contain credentials or URL text.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub struct RasterContext {
+    pub revision: u64,
+    pub time: Option<i64>,
+    pub latest_epoch: u64,
+}
 
 // Up to 512 visible tiles per frame, flat; on the globe each tile is a bent grid of
 // `GLOBE_TILE_GRID`² quads, and zoomed out there are far fewer tiles.
@@ -65,6 +73,7 @@ const GLOBE_TILE_GRID: usize = 8;
 
 /// A decoded RGBA tile the app wants uploaded this frame.
 pub struct PendingTile {
+    pub context: RasterContext,
     pub id: TileId,
     /// Basemap style this tile was fetched for ([`crate::tiles::BasemapStyle::key`]).
     pub style: u8,
@@ -862,6 +871,8 @@ pub struct MapCallback {
     pub visible: Vec<VisibleTile>,
     /// Which basemap style this pane draws ([`crate::tiles::BasemapStyle::key`]).
     pub basemap_key: u8,
+    /// Must match the request context of this pane's raster frame, including zoom fallbacks.
+    pub basemap_context: RasterContext,
     /// Draw the vector basemap *after* the raster tiles instead of under them — the hybrid
     /// satellite style, where the vector geometry is roads over imagery.
     pub vector_over_raster: bool,
@@ -1111,6 +1122,15 @@ struct MrmsGpu {
     vbuf: wgpu::Buffer,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct TileQuadsKey {
+    generation: u64,
+    style: u8,
+    context: RasterContext,
+    camera: [u32; 4],
+    visible_signature: usize,
+}
+
 /// Per-pane GPU state: its own camera uniform, radar sweep, tile/radar quad buffers, and the
 /// draw lists staged during `prepare` and consumed during `paint`. (All `prepare`s run before
 /// any `paint`, so shared per-frame buffers would clobber across panes — hence per-pane.)
@@ -1124,12 +1144,12 @@ struct PaneGpu {
     /// Ids of the tiles this frame's quads draw, in quad order. Not the same as the visible list:
     /// a missing tile is stood in for by resident children or an ancestor.
     frame_visible: Vec<TileKey>,
-    /// What the tile quads in `tile_vbuf` were built from: tile-cache generation, basemap, camera
+    /// What the tile quads in `tile_vbuf` were built from: tile-cache generation, basemap/frame, camera
     /// and visible count. Unchanged means the quads are still the right ones, so a still map
     /// re-uploads nothing.
     // ponytail: the visible *count* rather than the list — camera plus generation already decide
     // which tiles are asked for; compare the ids if a case ever shows a stale quad.
-    quads_key: Option<(u64, u8, u32, u32, u32, u32, usize)>,
+    quads_key: Option<TileQuadsKey>,
     frame_visible_vector: Vec<TileId>,
     vector_over_raster: bool,
     frame_draw_radar: bool,
@@ -1629,11 +1649,18 @@ impl RenderResources {
     fn tile_quads(
         &self,
         style: u8,
+        context: RasterContext,
         v: &VisibleTile,
     ) -> Vec<(TileKey, [f32; 2], [f32; 2], [f32; 2], [f32; 2])> {
         const FULL: ([f32; 2], [f32; 2]) = ([0.0, 0.0], [1.0, 1.0]);
-        if self.tiles.contains_key(&(style, v.id)) {
-            return vec![((style, v.id), v.world_min, v.world_max, FULL.0, FULL.1)];
+        if self.tiles.contains_key(&(style, context, v.id)) {
+            return vec![(
+                (style, context, v.id),
+                v.world_min,
+                v.world_max,
+                FULL.0,
+                FULL.1,
+            )];
         }
         let (z, x, y) = v.id;
         let [x0, y0] = v.world_min;
@@ -1642,7 +1669,7 @@ impl RenderResources {
         let kids: Vec<_> = [(0u32, 0u32), (1, 0), (0, 1), (1, 1)]
             .into_iter()
             .filter_map(|(dx, dy)| {
-                let id = (style, (z + 1, x * 2 + dx, y * 2 + dy));
+                let id = (style, context, (z + 1, x * 2 + dx, y * 2 + dy));
                 self.tiles.contains_key(&id).then(|| {
                     let (qx0, qx1) = if dx == 0 { (x0, mx) } else { (mx, x1) };
                     let (qy0, qy1) = if dy == 0 { (y0, my) } else { (my, y1) };
@@ -1657,7 +1684,7 @@ impl RenderResources {
             if up > z {
                 break;
             }
-            let id = (style, (z - up, x >> up, y >> up));
+            let id = (style, context, (z - up, x >> up, y >> up));
             if self.tiles.contains_key(&id) {
                 let (uv_min, uv_max) = ancestor_uv(x, y, up);
                 return vec![(id, v.world_min, v.world_max, uv_min, uv_max)];
@@ -1713,7 +1740,7 @@ impl RenderResources {
             ],
         });
         self.tiles.insert(
-            (t.style, t.id),
+            (t.style, t.context, t.id),
             TileGpu {
                 _tex: tex,
                 bind_group,
@@ -2080,7 +2107,9 @@ impl RenderResources {
             1
         };
         for v in &cb.visible {
-            for (id, wmin, wmax, uvmin, uvmax) in self.tile_quads(cb.basemap_key, v) {
+            for (id, wmin, wmax, uvmin, uvmax) in
+                self.tile_quads(cb.basemap_key, cb.basemap_context, v)
+            {
                 if tverts.len() as u64 + (6 * grid * grid) as u64 > MAX_TILE_VERTS {
                     break;
                 }
@@ -2249,16 +2278,19 @@ impl RenderResources {
         // — a tile with no texture yet borrows one from the tiles around it (see `tile_quads`).
         // Skipped outright when nothing it depends on moved: a still map rebuilt up to 512 tiles
         // worth of vertices and re-uploaded them every heartbeat frame.
-        let quads_key = (
-            self.tiles_gen,
-            cb.basemap_key,
-            cb.camera_center[0].to_bits(),
-            cb.camera_center[1].to_bits(),
-            cb.camera_scale[0].to_bits(),
-            cb.camera_scale[1].to_bits(),
+        let quads_key = TileQuadsKey {
+            generation: self.tiles_gen,
+            style: cb.basemap_key,
+            context: cb.basemap_context,
+            camera: [
+                cb.camera_center[0].to_bits(),
+                cb.camera_center[1].to_bits(),
+                cb.camera_scale[0].to_bits(),
+                cb.camera_scale[1].to_bits(),
+            ],
             // The tile count, and whether the tiles are bent onto the globe.
-            cb.visible.len() * 2 + (cb.camera_globe[0] > 0.0) as usize,
-        );
+            visible_signature: cb.visible.len() * 2 + (cb.camera_globe[0] > 0.0) as usize,
+        };
         let quads = (self.panes.get(&cb.pane).map(|p| p.quads_key) != Some(Some(quads_key)))
             .then(|| self.tile_verts(cb));
         let visible_vector =
