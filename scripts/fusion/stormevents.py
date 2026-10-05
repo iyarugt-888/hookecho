@@ -4,6 +4,7 @@ tornado, with where it began and ended (detectionplan.md, "Storm Events as truth
     python scripts/fusion/stormevents.py fetch 2018 2019 ...      # once: the yearly detail files
     python scripts/fusion/stormevents.py DIR [DIR...]             # exports with tornado_marker rows
     python scripts/fusion/stormevents.py sample 2019 2025 60 2019 > docs/backtest-tornadoes.txt
+    python scripts/fusion/stormevents.py sample 2013 2025 60 2013 2 > docs/backtest-tornadoes-ef2.txt
 
 The backtest's own truth is local storm reports and NWS damage-survey paths, counted per report or
 path. Here every tornado counts once: those on the ground while a window was scanned and within 150 km of its
@@ -159,10 +160,11 @@ def evaluate(dirs):
         print(f"  skipped (no radar position): {', '.join(sorted(skipped))}")
 
 
-def sample(first, last, n, seed):
+def sample(first, last, n, seed, min_ef=0):
     """N tornadoes drawn at random from the Storm Events record of years FIRST..LAST, each at the
     nearest radar of the sampler's list within 150 km, the window starting 20 minutes before it
-    began. Radar-days of the hand-picked corpus are left out, as in `sample_days.py`."""
+    began. Radar-days of the hand-picked corpus are left out, as in `sample_days.py`. `min_ef` keeps
+    only tornadoes rated at least that (EF or F scale; unrated ones are left out then)."""
     import random
     radars = {**{k: (v[0], v[1]) for k, v in RADARS.items()}, **MORE_RADARS}
     used = set()
@@ -176,6 +178,8 @@ def sample(first, last, n, seed):
         begin = dt.datetime(1970, 1, 1) + dt.timedelta(minutes=t[0])
         if not first <= begin.year <= last:
             continue
+        if min_ef and not (t[4][-1:].isdigit() and int(t[4][-1]) >= min_ef):
+            continue
         site, km = min(((s, ground_km((lo, la), t[2])) for s, (la, lo) in radars.items()),
                        key=lambda x: x[1])
         day = (begin - dt.timedelta(hours=12)).strftime("%Y-%m-%d")
@@ -183,9 +187,11 @@ def sample(first, last, n, seed):
             pool.append((begin, site, km, t[4]))
     pool.sort()
     picks = sorted(random.Random(seed).sample(pool, n), key=lambda x: (x[1], x[0]))
-    print(f"# Random tornadoes from NOAA Storm Events, {first}-{last}, seed {seed} ({n} of {len(pool)} "
+    rated = f", EF{min_ef}+" if min_ef else ""
+    print(f"# Random tornadoes from NOAA Storm Events, {first}-{last}{rated}, seed {seed} ({n} of {len(pool)} "
           f"within {RANGE_KM:.0f} km of a listed radar, corpus radar-days left out):")
-    print(f"#   python scripts/fusion/stormevents.py sample {first} {last} {n} {seed}")
+    print(f"#   python scripts/fusion/stormevents.py sample {first} {last} {n} {seed}"
+          + (f" {min_ef}" if min_ef else ""))
     for begin, site, km, rating in picks:
         start = begin - dt.timedelta(minutes=20)
         print(f"{site} {start:%Y-%m-%d %H:%M}   # {rating} began {begin:%H:%M}Z, {km:.0f} km")
@@ -195,7 +201,7 @@ if __name__ == "__main__":
     if sys.argv[1:2] == ["fetch"]:
         fetch(sys.argv[2:])
     elif sys.argv[1:2] == ["sample"]:
-        sample(*map(int, sys.argv[2:6]))
+        sample(*map(int, sys.argv[2:7]))
     elif sys.argv[1:]:
         evaluate(sys.argv[1:])
     else:
