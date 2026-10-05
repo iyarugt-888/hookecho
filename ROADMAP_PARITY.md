@@ -701,7 +701,7 @@ Remaining open:
 
 #### M2.1 — Introduce persistent storm identity and history
 
-**Priority:** P0. **Depends on:** M0.2, M0.3, M1.4. **Original references:** ROADMAP_2 §2.1; ROADMAP_NEW §§R3, R4, R5.
+**Priority:** P0. **Depends on:** M0.2, M0.3, M1.4. **Status:** implementation: in progress (domain history owner); verification: partial. **Original references:** ROADMAP_2 §2.1; ROADMAP_NEW §§R3, R4, R5.
 
 - **Starting evidence:** SCIT histories, spatial warning/ProbSevere associations, competing circulation assignment, and detection track modules.
 - **Outcome/build:** add a domain storm-history owner with stable local IDs and timestamped source references. Associate by spatial/temporal evidence and plausible motion while retaining alternatives, confidence reasons, provider-ID changes, and split/merge lineage. Manual objects may remain unassociated.
@@ -711,6 +711,8 @@ Remaining open:
 - **Proof:** association/lineage fixture reports and inspectable explanations for confirmed, tentative, and unmatched objects.
 
 **Agent prompt:** `Implement M2.1 using section 6. Build persistent history around the existing spatial associations, preserving every source object and uncertain alternative.`
+
+**Evidence ledger — 2026-10-05, increment 1 (domain seam):** [`wxdata::storm_history`](crates/wxdata/src/storm_history.rs) is the storm-history owner: one history per radar, fed volume by volume with source observations (SCIT cells, locally tracked cells) by reference (source, site, provider ID, time, position, declared motion), never as copied attributes. Each storm has a stable local ID; each link records its distance from the predicted position, time gap, the motion that predicted it (the storm's own track, the provider's declared motion, or none), competing storms within reach and a confirmed/tentative confidence. Provider IDs are continuity evidence, not identities: an ID change is noted, and a reused ID beyond reach starts a storm noted as recycled. Splits and merges are recorded as lineage; ambiguous links stay tentative with their alternative; storms unseen past the gap limit close. Candidates are ordered by distance, storm ID and source order, and an update older than the history restarts it, so the same inputs replay to the same identities. The limits are a first guess for 5-minute volumes, versioned `storm-history-1`. Unit tests (8) cover motion and replay, crossings, a missed volume and a long gap, a recycled ID, split and merge lineage, an ambiguous midpoint, and a backward seek; wxdata Clippy and the WASM library check passed. Not yet wired to the Storms dock or Inspector; limits not yet calibrated on pinned fixtures; polygon-hole and competing-signature cases belong with the spatial associations it will absorb.
 
 #### M2.2 — Unify storm selection, trends, and tool entry
 
