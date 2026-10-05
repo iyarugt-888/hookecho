@@ -1,17 +1,19 @@
 //! The workstation on a phone: the Station phone design.
 //!
-//! The dock's windows, laid out for one hand. Top to bottom: an app bar (the name, search, the
-//! alerts bell and a menu holding every menu the desktop app bar has), a row of big Site / Product
-//! / Tilt fields with the 2D / 3D switch and the Layers button, the map with a tool rail down its
-//! left edge and the colour scale down its right, a bottom sheet whose tabs are the workstation's
-//! windows (Inspector, Layers, Storms, Alerts, then whatever else is open: storm details, the
-//! sounding, the gauges, preferences), and the timeline under everything.
+//! The dock's windows, laid out for one hand around a full-height map. Over the map's top left a
+//! floating pill holds the menu (behind the logo: every menu the desktop app bar has), search, the
+//! alerts bell and one view chip for Site / Product / Tilt / 2D-3D; over its bottom left a round
+//! menu button expands the map tools (center, Layers, 3D, display, measure, tools, full screen)
+//! beside the always-shown locate button. Under the map, a bottom sheet whose tabs are the
+//! workstation's windows (Inspector, Layers, Storms, Alerts, then whatever else is open), and the
+//! timeline under everything. The full-width app bar and control row this replaced took a sixth
+//! of a phone's height.
 //!
 //! It is the dock's own windows, not copies: the sheet draws the front one through
 //! [`HookEchoApp::dock_window`], the same code a desktop dock runs, so everything the workstation
-//! can do the phone can. What cannot be reached from the bars is in the Layers tab, which is the
-//! whole command registry and searches it, and in the menu behind the gear, which lists every
-//! window (`menus::window_home` is exhaustive).
+//! can do the phone can. What cannot be reached from the pill and the tools is in the Layers tab,
+//! which is the whole command registry and searches it, and in the menu behind the logo, which
+//! lists every window (`menus::window_home` is exhaustive).
 
 use super::app_bar::{pane_items, share_rows, table_items, Follow};
 use super::menus::{window_rows, Menu, MenuPick};
@@ -21,48 +23,84 @@ use egui::{Color32, FontId, Rect, Sense, Stroke};
 use egui_phosphor::regular as ph;
 use wxdata::level2::Moment;
 
-/// App bar height.
-const BAR_H: f32 = 54.0;
-/// The Site / Product / Tilt row's height.
-const ROW_H: f32 = 62.0;
 /// The sheet's drag handle strip.
 const HANDLE_H: f32 = 18.0;
-/// A tool rail button's edge.
+/// A round map button's diameter.
 const RAIL_BTN: f32 = 46.0;
+/// The floating pill's height.
+const PILL_H: f32 = 48.0;
+/// Room kept clear above the map's bottom edge for the basemap attribution line.
+const ATTRIBUTION_H: f32 = 26.0;
+/// Room kept clear at the map's right edge for the colour scale.
+const LEGEND_W: f32 = 56.0;
 /// The map keeps at least this much height however far the sheet is pulled up.
 const MAP_MIN_H: f32 = 96.0;
 /// The least body a sheet needs above its tabs to draw its window rather than fold.
 const UNFOLD_MIN: f32 = 80.0;
 
-/// What a rail button does.
+/// What a map tool button does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Rail {
-    Locate,
     Center,
+    Layers,
+    Dim,
     Display,
     Measure,
     Tools,
     FullScreen,
 }
 
-/// The rail, top to bottom. When the sheet leaves too little map for all of them, the ones at
-/// the end are left off (each is also in a menu).
-const RAIL: [(Rail, &str, &str); 6] = [
-    (Rail::Locate, ph::NAVIGATION_ARROW, "Center on my location"),
-    (Rail::Center, ph::CROSSHAIR, "Center on the radar"),
+/// The expanded tool menu, nearest the thumb first (see [`rail_slots`]).
+const RAIL: [(Rail, &str, &str); 7] = [
+    (Rail::Layers, ph::STACK, "Layers"),
     (
         Rail::Display,
         ph::STACK_SIMPLE,
         "Display: smoothing, colours, overlays, map",
     ),
+    (Rail::Dim, ph::CUBE, "3D map"),
+    (Rail::Center, ph::CROSSHAIR, "Center on the radar"),
     (Rail::Measure, ph::RULER, "Measure distance"),
     (Rail::Tools, ph::WRENCH, "Map tools"),
     (Rail::FullScreen, ph::ARROWS_OUT, "Full-screen map"),
 ];
 
-/// How many rail buttons fit down a map this tall.
-fn rail_fit(map_h: f32) -> usize {
-    (((map_h - 12.0) / (RAIL_BTN + 8.0)).floor().max(0.0) as usize).min(RAIL.len())
+/// Where each of the expanded menu's buttons goes on a map this tall, as (column, row) from the
+/// bottom left: up the first column above the locate and menu buttons that always show, then up
+/// the next column from the bottom, and so on, staying under the pill and above the attribution
+/// line. So a map shortened by the sheet still reaches every tool; past three columns the last
+/// ones are left off (each is also in a menu).
+fn rail_slots(map_h: f32) -> Vec<(usize, usize)> {
+    let room = map_h - 10.0 - PILL_H - 10.0 - ATTRIBUTION_H - 4.0 + 8.0;
+    let rows = ((room / (RAIL_BTN + 8.0)).floor().max(0.0) as usize).max(2);
+    (0..3)
+        .flat_map(|col| (if col == 0 { 2 } else { 0 }..rows).map(move |row| (col, row)))
+        .take(RAIL.len())
+        .collect()
+}
+
+/// A product's name short enough for the view chip: what its name says in brackets
+/// ("Rain intensity (reflectivity)" is "Reflectivity"), or the name itself.
+fn compact_product(name: &str) -> String {
+    let inner = name
+        .find('(')
+        .zip(name.rfind(')'))
+        .filter(|(a, b)| a < b)
+        .map(|(a, b)| &name[a + 1..b]);
+    match inner {
+        Some(x) if !x.is_empty() => {
+            let mut c = x.chars();
+            c.next()
+                .map(|f| f.to_uppercase().collect::<String>() + c.as_str())
+                .unwrap_or_default()
+        }
+        _ => name.to_string(),
+    }
+}
+
+/// The view chip's width on a map this wide: what the pill leaves beside the colour scale.
+fn chip_width(map_w: f32) -> f32 {
+    (map_w - 20.0 - 52.0 - 2.0 * 40.0 - 24.0 - LEGEND_W).clamp(112.0, 210.0)
 }
 
 /// The sheet's heights for the room between the control row and the timeline: folded to its
@@ -105,69 +143,73 @@ fn nearest_snap(h: f32, heights: [f32; 3]) -> Sheet {
     snaps[best]
 }
 
-/// A field in the control row: its name small above, its value large below, a caret at the end.
-fn field(ui: &mut egui::Ui, t: &ws::Tokens, label: &str, value: &str, w: f32) -> egui::Response {
-    let (r, resp) = ui.allocate_exact_size(egui::vec2(w, ROW_H - 14.0), Sense::click());
-    let hot = resp.hovered() || resp.is_pointer_button_down_on();
-    ui.painter().rect(
-        r,
-        8.0,
-        if hot { t.field_hi } else { t.field },
-        Stroke::new(1.0, t.line),
-        egui::StrokeKind::Inside,
-    );
-    let p = ui.painter_at(r.shrink(1.0));
+/// `s`, cut with an ellipsis to fit `room` points in `font`.
+fn fit_text(p: &egui::Painter, s: &str, font: &FontId, room: f32) -> String {
+    let wide = |x: &str| {
+        p.layout_no_wrap(x.to_string(), font.clone(), Color32::WHITE)
+            .size()
+            .x
+            > room
+    };
+    if !wide(s) {
+        return s.to_string();
+    }
+    let mut base: Vec<char> = s.chars().collect();
+    while base.len() > 1 {
+        base.pop();
+        let shown = base.iter().collect::<String>() + "\u{2026}";
+        if !wide(&shown) {
+            return shown;
+        }
+    }
+    "\u{2026}".to_string()
+}
+
+/// The view chip: the radar and tilt small above, the product below, a caret at the end.
+fn view_chip(
+    ui: &mut egui::Ui,
+    t: &ws::Tokens,
+    top: &str,
+    product: &str,
+    w: f32,
+) -> egui::Response {
+    let (r, resp) = ui.allocate_exact_size(egui::vec2(w, 40.0), Sense::click());
+    if resp.hovered() || resp.is_pointer_button_down_on() {
+        ui.painter().rect_filled(r, 10.0, t.field_hi);
+    }
+    let p = ui.painter_at(r);
     p.text(
-        r.left_top() + egui::vec2(10.0, 7.0),
+        r.left_top() + egui::vec2(8.0, 3.0),
         egui::Align2::LEFT_TOP,
-        label,
+        top,
         FontId::proportional(11.5),
         t.text_dim,
     );
+    let font = FontId::proportional(15.5);
     p.text(
-        r.right_center() + egui::vec2(-9.0, 7.0),
+        r.left_bottom() + egui::vec2(8.0, -3.0),
+        egui::Align2::LEFT_BOTTOM,
+        fit_text(&p, product, &font, r.width() - 30.0),
+        font,
+        Color32::WHITE,
+    );
+    p.text(
+        r.right_center() + egui::vec2(-8.0, 6.0),
         egui::Align2::RIGHT_CENTER,
         ph::CARET_DOWN,
         FontId::proportional(13.0),
         t.text,
     );
-    // The value, cut to what fits before the caret.
-    let room = r.width() - 34.0;
-    let font = FontId::proportional(16.0);
-    let wide = |s: &str| {
-        p.layout_no_wrap(s.to_string(), font.clone(), Color32::WHITE)
-            .size()
-            .x
-            > room
-    };
-    let mut shown = value.to_string();
-    if wide(&shown) {
-        let mut base: Vec<char> = value.chars().collect();
-        while base.len() > 1 {
-            base.pop();
-            shown = base.iter().collect::<String>() + "\u{2026}";
-            if !wide(&shown) {
-                break;
-            }
-        }
-    }
-    p.text(
-        r.left_bottom() + egui::vec2(10.0, -8.0),
-        egui::Align2::LEFT_BOTTOM,
-        shown,
-        font,
-        Color32::WHITE,
-    );
-    resp.named(&format!("{label}: {value}"))
+    resp.named(&format!("{top}, {product}: radar, product and tilt"))
 }
 
-/// An app-bar icon: a large glyph with a round press state.
+/// A pill icon: a glyph with a round press state.
 fn bar_icon(ui: &mut egui::Ui, t: &ws::Tokens, glyph: &str, on: bool) -> egui::Response {
-    let (r, resp) = ui.allocate_exact_size(egui::vec2(44.0, 44.0), Sense::click());
+    let (r, resp) = ui.allocate_exact_size(egui::vec2(40.0, 40.0), Sense::click());
     if on || resp.hovered() || resp.is_pointer_button_down_on() {
         ui.painter().circle_filled(
             r.center(),
-            20.0,
+            18.0,
             if on { t.accent_soft() } else { t.field_hi },
         );
     }
@@ -175,13 +217,48 @@ fn bar_icon(ui: &mut egui::Ui, t: &ws::Tokens, glyph: &str, on: bool) -> egui::R
         r.center(),
         egui::Align2::CENTER_CENTER,
         glyph,
-        FontId::proportional(24.0),
+        FontId::proportional(22.0),
         if on { t.accent } else { t.text },
     );
     resp
 }
 
-/// A rail button over the map: a rounded square on the panel colour, the accent when armed.
+/// The pill's menu button: the logo and a caret.
+fn logo_button(ui: &mut egui::Ui, t: &ws::Tokens) -> egui::Response {
+    let (r, resp) = ui.allocate_exact_size(egui::vec2(52.0, 40.0), Sense::click());
+    if resp.hovered() || resp.is_pointer_button_down_on() {
+        ui.painter().rect_filled(r, 10.0, t.field_hi);
+    }
+    ui.painter().text(
+        r.left_center() + egui::vec2(6.0, 0.0),
+        egui::Align2::LEFT_CENTER,
+        ph::BROADCAST,
+        FontId::proportional(25.0),
+        t.accent,
+    );
+    ui.painter().text(
+        r.right_center() + egui::vec2(-5.0, 1.0),
+        egui::Align2::RIGHT_CENTER,
+        ph::CARET_DOWN,
+        FontId::proportional(12.0),
+        t.text,
+    );
+    resp
+}
+
+/// A thin upright line between the pill's groups.
+fn pill_divider(ui: &mut egui::Ui, t: &ws::Tokens) {
+    let (r, _) = ui.allocate_exact_size(egui::vec2(9.0, 40.0), Sense::hover());
+    ui.painter().line_segment(
+        [
+            r.center_top() + egui::vec2(0.0, 9.0),
+            r.center_bottom() - egui::vec2(0.0, 9.0),
+        ],
+        Stroke::new(1.0, t.line),
+    );
+}
+
+/// A round button over the map: the panel colour, the accent when on.
 fn rail_button(ui: &mut egui::Ui, t: &ws::Tokens, glyph: &str, on: bool) -> egui::Response {
     let (r, resp) = ui.allocate_exact_size(egui::vec2(RAIL_BTN, RAIL_BTN), Sense::click());
     let fill = if on {
@@ -189,14 +266,13 @@ fn rail_button(ui: &mut egui::Ui, t: &ws::Tokens, glyph: &str, on: bool) -> egui
     } else if resp.hovered() || resp.is_pointer_button_down_on() {
         t.field_hi
     } else {
-        t.panel.gamma_multiply(0.94)
+        t.panel.gamma_multiply(0.96)
     };
-    ui.painter().rect(
-        r,
-        10.0,
+    ui.painter().circle(
+        r.center(),
+        RAIL_BTN / 2.0,
         fill,
         Stroke::new(1.0, if on { t.accent } else { t.line }),
-        egui::StrokeKind::Inside,
     );
     ui.painter().text(
         r.center(),
@@ -208,6 +284,44 @@ fn rail_button(ui: &mut egui::Ui, t: &ws::Tokens, glyph: &str, on: bool) -> egui
     resp
 }
 
+/// The menu behind the logo: settings, tools, forecasts, share and help.
+fn menu_rows(ui: &mut egui::Ui, t: &ws::Tokens, workspaces: &[String]) -> Option<MenuPick> {
+    let mut pick = None;
+    let head = |ui: &mut egui::Ui, s: &str| {
+        ui.label(ws::text(s, 10.5, t.text_faint));
+    };
+    head(ui, "SETTINGS");
+    if ui.button("Preferences").clicked() {
+        pick = Some(MenuPick::Prefs(PrefsPage::App, None));
+    }
+    if ui.button("Map settings").clicked() {
+        pick = Some(MenuPick::Prefs(PrefsPage::Map, None));
+    }
+    if let Some(p) = window_rows(ui, t, Menu::Settings) {
+        pick = Some(p);
+    }
+    ui.separator();
+    if let Some(p) = window_rows(ui, t, Menu::Tools) {
+        pick = Some(p);
+    }
+    ui.separator();
+    head(ui, "FORECASTS");
+    if let Some(p) = window_rows(ui, t, Menu::Discussion) {
+        pick = Some(p);
+    }
+    ui.separator();
+    head(ui, "SHARE");
+    if let Some(p) = share_rows(ui, t, workspaces) {
+        pick = Some(p);
+    }
+    ui.separator();
+    head(ui, "HELP");
+    if let Some(p) = window_rows(ui, t, Menu::Help) {
+        pick = Some(p);
+    }
+    pick
+}
+
 impl HookEchoApp {
     /// Whether this frame draws the Station phone chrome: on a phone, with that design picked.
     pub(crate) fn phone_station(&self) -> bool {
@@ -216,8 +330,8 @@ impl HookEchoApp {
     }
 
     /// The phone's docked parts, drawn before the map's rect is read (as [`Self::dock_layout`] is
-    /// on a desktop): the app bar and control row across the top, the timeline across the bottom
-    /// and the sheet above it. A full-screen map draws none of them.
+    /// on a desktop): the timeline across the bottom and the sheet above it. The rest floats over
+    /// the map ([`Self::phone_overlay`]). A full-screen map draws none of them.
     pub(crate) fn phone_layout(&mut self, root: &mut egui::Ui, ctx: &egui::Context) {
         self.dock.phone = true;
         ws::set_touch(ctx, true);
@@ -237,105 +351,164 @@ impl HookEchoApp {
         if self.mobile_chrome_hidden {
             return;
         }
-        self.phone_app_bar(root, ctx);
-        self.phone_controls(root, ctx);
         // The timeline first, so it is the lowest of the bottom panels, under the sheet.
         self.dock_timeline(root, true);
         self.phone_sheet(root, ctx);
     }
 
-    /// Over the map: the tool rail.
+    /// Over the map: the pill at the top left and the expandable tools at the bottom left.
     pub(crate) fn phone_overlay(&mut self, ctx: &egui::Context) {
         if self.mobile_chrome_hidden {
             return;
         }
         let t = self.ws_tokens();
         let map = self.chrome_rect;
-        let n = rail_fit(map.height());
-        if n == 0 {
-            return;
-        }
+        self.phone_pill(ctx, &t, map);
+        let open_id = egui::Id::new("phone_tools_open");
+        let mut open: bool = ctx.data(|d| d.get_temp(open_id)).unwrap_or(false);
+        // The tools' places, and each column's height in buttons (the first column also holds
+        // the two buttons that always show); shorter columns are padded at the top so every
+        // column sits on the same bottom line.
+        let slots = if open {
+            rail_slots(map.height())
+        } else {
+            Vec::new()
+        };
+        let cols = slots.iter().map(|s| s.0 + 1).max().unwrap_or(1);
+        let col_rows =
+            |col: usize| slots.iter().filter(|s| s.0 == col).count() + if col == 0 { 2 } else { 0 };
+        let tallest = (0..cols).map(col_rows).max().unwrap_or(2);
         let armed = self.tool;
         let has_site = self.views[self.active].site.is_some();
+        let layers_on = self.dock.shown(DockWin::Layers);
+        let map_3d = self.views[self.active].map_3d.enabled;
         let mut hit = None;
         let mut tool_pick = None;
+        let mut locate = false;
         egui::Area::new(egui::Id::new("phone_rail"))
             .order(egui::Order::Middle)
-            .fixed_pos(map.left_top() + egui::vec2(10.0, 10.0))
+            .pivot(egui::Align2::LEFT_BOTTOM)
+            .fixed_pos(map.left_bottom() + egui::vec2(10.0, -(ATTRIBUTION_H + 4.0)))
             .show(ctx, |ui| {
                 ws::style_scope(ui, &t);
-                ui.spacing_mut().item_spacing.y = 8.0;
-                for &(what, glyph, name) in RAIL.iter().take(n) {
-                    let on = match what {
-                        Rail::Measure => armed == MapTool::Measure,
-                        Rail::Tools => !matches!(armed, MapTool::Interrogate | MapTool::Measure),
-                        _ => false,
-                    };
-                    // The tools button wears the armed tool's glyph, so the rail says what a tap
-                    // on the map will do.
-                    let glyph = if what == Rail::Tools && on {
-                        super::rail::GROUPS
-                            .iter()
-                            .flat_map(|g| g.iter())
-                            .find(|(tool, ..)| *tool == armed)
-                            .map_or(glyph, |(_, g, _)| *g)
-                    } else {
-                        glyph
-                    };
-                    let resp = ui
-                        .add_enabled_ui(what != Rail::Center || has_site, |ui| {
-                            rail_button(ui, &t, glyph, on)
-                        })
-                        .inner
-                        .named_toggle(name, on);
-                    match what {
-                        Rail::Display => {
-                            egui::Popup::menu(&resp)
-                                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-                                .show(|ui| {
-                                    ws::menu_scope(ui, &t);
-                                    ui.set_min_width(250.0);
-                                    ui.spacing_mut().item_spacing.y = 6.0;
-                                    ui.spacing_mut().button_padding = egui::vec2(10.0, 7.0);
-                                    egui::ScrollArea::vertical()
-                                        .max_height(map.height().max(260.0))
-                                        .show(ui, |ui| self.phone_display_items(ui, &t, ctx));
-                                });
-                        }
-                        Rail::Tools => {
-                            egui::Popup::menu(&resp).show(|ui| {
-                                ws::menu_scope(ui, &t);
-                                ui.set_min_width(240.0);
-                                ui.style_mut().spacing.button_padding = egui::vec2(10.0, 9.0);
-                                for (gi, group) in super::rail::GROUPS.iter().enumerate() {
-                                    if gi > 0 {
-                                        ui.separator();
+                ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
+                ui.horizontal(|ui| {
+                    for col in 0..cols {
+                        ui.vertical(|ui| {
+                            ui.add_space((tallest - col_rows(col)) as f32 * (RAIL_BTN + 8.0));
+                            // This column's tools, top down.
+                            let mut mine: Vec<(usize, usize)> = slots
+                                .iter()
+                                .enumerate()
+                                .filter(|(_, s)| s.0 == col)
+                                .map(|(i, s)| (s.1, i))
+                                .collect();
+                            mine.sort_by_key(|m| std::cmp::Reverse(m.0));
+                            for (_, i) in mine {
+                                let (what, glyph, name) = RAIL[i];
+                                let on = match what {
+                                    Rail::Measure => armed == MapTool::Measure,
+                                    Rail::Tools => {
+                                        !matches!(armed, MapTool::Interrogate | MapTool::Measure)
                                     }
-                                    for &(tool, g, name) in group.iter() {
-                                        if ui
-                                            .selectable_label(
-                                                armed == tool,
-                                                format!("{g}   {name}"),
+                                    Rail::Layers => layers_on,
+                                    Rail::Dim => map_3d,
+                                    _ => false,
+                                };
+                                // The tools button wears the armed tool's glyph, so it says
+                                // what a tap on the map will do.
+                                let glyph = if what == Rail::Tools && on {
+                                    super::rail::GROUPS
+                                        .iter()
+                                        .flat_map(|g| g.iter())
+                                        .find(|(tool, ..)| *tool == armed)
+                                        .map_or(glyph, |(_, g, _)| *g)
+                                } else {
+                                    glyph
+                                };
+                                let resp = ui
+                                    .add_enabled_ui(what != Rail::Center || has_site, |ui| {
+                                        rail_button(ui, &t, glyph, on)
+                                    })
+                                    .inner
+                                    .named_toggle(name, on);
+                                match what {
+                                    Rail::Display => {
+                                        egui::Popup::menu(&resp)
+                                            .align(egui::RectAlign::RIGHT_END)
+                                            .close_behavior(
+                                                egui::PopupCloseBehavior::CloseOnClickOutside,
                                             )
-                                            .clicked()
-                                        {
-                                            tool_pick = Some(tool);
+                                            .show(|ui| {
+                                                ws::menu_scope(ui, &t);
+                                                ui.set_min_width(250.0);
+                                                ui.spacing_mut().item_spacing.y = 6.0;
+                                                ui.spacing_mut().button_padding =
+                                                    egui::vec2(10.0, 7.0);
+                                                egui::ScrollArea::vertical()
+                                                    .max_height(map.height().max(260.0))
+                                                    .show(ui, |ui| {
+                                                        self.phone_display_items(ui, &t, ctx)
+                                                    });
+                                            });
+                                    }
+                                    Rail::Tools => {
+                                        egui::Popup::menu(&resp)
+                                            .align(egui::RectAlign::RIGHT_END)
+                                            .show(|ui| {
+                                                ws::menu_scope(ui, &t);
+                                                ui.set_min_width(240.0);
+                                                ui.style_mut().spacing.button_padding =
+                                                    egui::vec2(10.0, 9.0);
+                                                for (gi, group) in
+                                                    super::rail::GROUPS.iter().enumerate()
+                                                {
+                                                    if gi > 0 {
+                                                        ui.separator();
+                                                    }
+                                                    for &(tool, g, name) in group.iter() {
+                                                        if ui
+                                                            .selectable_label(
+                                                                armed == tool,
+                                                                format!("{g}   {name}"),
+                                                            )
+                                                            .clicked()
+                                                        {
+                                                            tool_pick = Some(tool);
+                                                        }
+                                                    }
+                                                }
+                                            });
+                                    }
+                                    _ => {
+                                        if resp.clicked() {
+                                            hit = Some(what);
                                         }
                                     }
                                 }
-                            });
-                        }
-                        _ => {
-                            if resp.clicked() {
-                                hit = Some(what);
                             }
-                        }
+                            if col == 0 {
+                                locate = rail_button(ui, &t, ph::NAVIGATION_ARROW, false)
+                                    .named("Center on my location")
+                                    .clicked();
+                                let toggle =
+                                    rail_button(ui, &t, if open { ph::X } else { ph::LIST }, open)
+                                        .named_toggle("Map tools", open);
+                                if toggle.clicked() {
+                                    open = !open;
+                                }
+                            }
+                        });
                     }
-                }
+                });
             });
+        if locate {
+            self.locate_me();
+        }
         match hit {
-            Some(Rail::Locate) => self.locate_me(),
             Some(Rail::Center) => self.dock_center_on_radar(),
+            Some(Rail::Layers) => self.dock.toggle(DockWin::Layers),
+            Some(Rail::Dim) => self.views[self.active].set_map_3d(!map_3d),
             Some(Rail::Measure) => {
                 let tool = if armed == MapTool::Measure {
                     MapTool::Interrogate
@@ -346,12 +519,14 @@ impl HookEchoApp {
             }
             Some(Rail::FullScreen) => {
                 self.mobile_chrome_hidden = true;
+                open = false;
             }
             _ => {}
         }
         if let Some(tool) = tool_pick {
             self.apply_palette(crate::app::PaletteAction::Tool(tool), ctx);
         }
+        ctx.data_mut(|d| d.insert_temp(open_id, open));
     }
 
     /// The Display menu: what the desktop toolbar carries past Site, Product and Tilt.
@@ -462,9 +637,10 @@ impl HookEchoApp {
         }
     }
 
-    /// The name, then search, the alerts bell and the menu.
-    fn phone_app_bar(&mut self, root: &mut egui::Ui, ctx: &egui::Context) {
-        let t = self.ws_tokens();
+    /// The floating pill over the map's top left: the menu behind the logo, search, the alerts
+    /// bell, and the view chip that picks the radar, product, tilt and 2D / 3D.
+    fn phone_pill(&mut self, ctx: &egui::Context, t: &ws::Tokens, map: Rect) {
+        use crate::app::PaletteAction as A;
         let (alerts, _) = self.alert_badge();
         let alerts_on = self.dock.shown(DockWin::Alerts);
         let workspaces: Vec<String> = self
@@ -474,116 +650,6 @@ impl HookEchoApp {
             .map(|w| w.name.clone())
             .collect();
         let menu_h = ctx.content_rect().height() * 0.7;
-        let mut pick = None;
-        let mut search = false;
-        let mut bell = false;
-        egui::Panel::top("phone_app_bar")
-            .exact_size(BAR_H)
-            .frame(
-                egui::Frame::NONE
-                    .fill(t.bg)
-                    .inner_margin(egui::Margin::symmetric(12, 0)),
-            )
-            .show(root, |ui| {
-                ws::style_scope(ui, &t);
-                ui.horizontal_centered(|ui| {
-                    ui.spacing_mut().item_spacing.x = 0.0;
-                    ui.label(ws::text(ph::BROADCAST, 28.0, t.accent));
-                    ui.add_space(8.0);
-                    ui.label(ws::text("Hook", 22.0, Color32::WHITE).strong());
-                    ui.label(ws::text("Echo", 22.0, t.accent).strong());
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.spacing_mut().item_spacing.x = 6.0;
-                        let gear = bar_icon(ui, &t, ph::GEAR_SIX, false)
-                            .named("Settings, tools, share and help");
-                        egui::Popup::menu(&gear).show(|ui| {
-                            ws::menu_scope(ui, &t);
-                            ui.set_min_width(260.0);
-                            ui.style_mut().spacing.button_padding = egui::vec2(10.0, 8.0);
-                            egui::ScrollArea::vertical()
-                                .max_height(menu_h)
-                                .show(ui, |ui| {
-                                    let head = |ui: &mut egui::Ui, s: &str| {
-                                        ui.label(ws::text(s, 10.5, t.text_faint));
-                                    };
-                                    head(ui, "SETTINGS");
-                                    if ui.button("Preferences").clicked() {
-                                        pick = Some(MenuPick::Prefs(PrefsPage::App, None));
-                                    }
-                                    if ui.button("Map settings").clicked() {
-                                        pick = Some(MenuPick::Prefs(PrefsPage::Map, None));
-                                    }
-                                    if let Some(p) = window_rows(ui, &t, Menu::Settings) {
-                                        pick = Some(p);
-                                    }
-                                    ui.separator();
-                                    if let Some(p) = window_rows(ui, &t, Menu::Tools) {
-                                        pick = Some(p);
-                                    }
-                                    ui.separator();
-                                    head(ui, "FORECASTS");
-                                    if let Some(p) = window_rows(ui, &t, Menu::Discussion) {
-                                        pick = Some(p);
-                                    }
-                                    ui.separator();
-                                    head(ui, "SHARE");
-                                    if let Some(p) = share_rows(ui, &t, &workspaces) {
-                                        pick = Some(p);
-                                    }
-                                    ui.separator();
-                                    head(ui, "HELP");
-                                    if let Some(p) = window_rows(ui, &t, Menu::Help) {
-                                        pick = Some(p);
-                                    }
-                                });
-                        });
-                        let b = bar_icon(ui, &t, ph::BELL, alerts_on)
-                            .named_toggle(&format!("Alerts in view: {alerts}"), alerts_on);
-                        if alerts > 0 {
-                            let at = b.rect.center() + egui::vec2(9.0, -10.0);
-                            let text = if alerts > 99 {
-                                "99+".to_string()
-                            } else {
-                                alerts.to_string()
-                            };
-                            let g = ui.painter().layout_no_wrap(
-                                text,
-                                FontId::proportional(10.5),
-                                Color32::WHITE,
-                            );
-                            let r = Rect::from_center_size(
-                                at,
-                                egui::vec2((g.size().x + 8.0).max(16.0), 16.0),
-                            );
-                            ui.painter().rect_filled(r, 8.0, t.danger);
-                            ui.painter()
-                                .galley(r.center() - g.size() / 2.0, g, Color32::WHITE);
-                        }
-                        bell = b.clicked();
-                        search = bar_icon(ui, &t, ph::MAGNIFYING_GLASS, false)
-                            .named("Search layers, sites, places and tools")
-                            .clicked();
-                    });
-                });
-            });
-        if search {
-            // A search wants the room to show its results.
-            self.dock.open_search();
-            self.dock.bring_forward(DockWin::Layers);
-            self.dock.sheet = Sheet::Full;
-        }
-        if bell {
-            self.dock.toggle(DockWin::Alerts);
-        }
-        if let Some(p) = pick {
-            self.phone_menu_pick(p, ctx);
-        }
-    }
-
-    /// Site, Product and Tilt as big fields, the 2D / 3D switch, and the Layers button.
-    fn phone_controls(&mut self, root: &mut egui::Ui, ctx: &egui::Context) {
-        use crate::app::PaletteAction as A;
-        let t = self.ws_tokens();
         let streaming = self.live_session.streaming_for(self.active);
         let (site, moment, srv, tilt, elevations, map_3d, progress) = {
             let v = &self.views[self.active];
@@ -606,144 +672,167 @@ impl HookEchoApp {
             streaming,
             self.settings.live_scan_indicator,
         );
-        let layers_on = self.dock.shown(DockWin::Layers);
+        let site_text = site.clone().unwrap_or_else(|| "No radar".to_string());
+        let tilt_text = elevations
+            .get(tilt)
+            .map_or_else(|| "\u{2014}".to_string(), |a| format!("{a:.1}\u{b0}"));
+        let top = format!(
+            "{site_text} \u{b7} {tilt_text}{}",
+            if map_3d { " \u{b7} 3D" } else { "" }
+        );
+        let product = compact_product(crate::products::name(moment, srv));
+        let chip_w = chip_width(map.width());
+        let mut pick = None;
+        let mut search = false;
+        let mut bell = false;
         let mut action = None;
         let mut open_sites = false;
         let mut pick_tilt = None;
         let mut want_3d = None;
-        let mut layers = false;
-        egui::Panel::top("phone_controls")
-            .exact_size(ROW_H)
-            .frame(
+        egui::Area::new(egui::Id::new("phone_pill"))
+            .order(egui::Order::Middle)
+            .fixed_pos(map.left_top() + egui::vec2(10.0, 10.0))
+            .show(ctx, |ui| {
+                ws::style_scope(ui, t);
                 egui::Frame::NONE
-                    .fill(t.bg)
-                    .stroke(Stroke::new(1.0, t.line_soft))
-                    .inner_margin(egui::Margin {
-                        left: 10,
-                        right: 10,
-                        top: 4,
-                        bottom: 10,
-                    }),
-            )
-            .show(root, |ui| {
-                ws::style_scope(ui, &t);
-                let gap = 6.0;
-                let (site_w, tilt_w, seg_w, lay_w) = (76.0, 66.0, 88.0, 46.0);
-                let prod_w =
-                    (ui.available_width() - site_w - tilt_w - seg_w - lay_w - 4.0 * gap).max(84.0);
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = gap;
-                    if field(ui, &t, "Site", site.as_deref().unwrap_or("None"), site_w).clicked() {
-                        open_sites = true;
-                    }
-                    let prod = field(
-                        ui,
-                        &t,
-                        "Product",
-                        crate::products::name(moment, srv),
-                        prod_w,
-                    );
-                    egui::Popup::menu(&prod).show(|ui| {
-                        ws::menu_scope(ui, &t);
-                        ui.set_min_width(220.0);
-                        ui.style_mut().spacing.button_padding = egui::vec2(10.0, 8.0);
-                        for m in Moment::ALL {
-                            let on = m == moment && !(srv && m == Moment::Velocity);
-                            if ui
-                                .selectable_label(on, crate::products::info(m).name)
-                                .clicked()
-                            {
-                                action = Some(A::SetMoment(m, false));
+                    .fill(t.panel.gamma_multiply(0.96))
+                    .stroke(Stroke::new(1.0, t.line))
+                    .corner_radius(14)
+                    .inner_margin(egui::Margin::symmetric(4, 4))
+                    .show(ui, |ui| {
+                        ui.set_height(PILL_H - 8.0);
+                        ui.horizontal_centered(|ui| {
+                            ui.spacing_mut().item_spacing.x = 2.0;
+                            let menu = logo_button(ui, t).named("Settings, tools, share and help");
+                            egui::Popup::menu(&menu).show(|ui| {
+                                ws::menu_scope(ui, t);
+                                ui.set_min_width(260.0);
+                                ui.style_mut().spacing.button_padding = egui::vec2(10.0, 8.0);
+                                egui::ScrollArea::vertical()
+                                    .max_height(menu_h)
+                                    .show(ui, |ui| {
+                                        if let Some(p) = menu_rows(ui, t, &workspaces) {
+                                            pick = Some(p);
+                                        }
+                                    });
+                            });
+                            pill_divider(ui, t);
+                            search = bar_icon(ui, t, ph::MAGNIFYING_GLASS, false)
+                                .named("Search layers, sites, places and tools")
+                                .clicked();
+                            let b = bar_icon(ui, t, ph::BELL, alerts_on)
+                                .named_toggle(&format!("Alerts in view: {alerts}"), alerts_on);
+                            if alerts > 0 {
+                                let at = b.rect.center() + egui::vec2(9.0, -10.0);
+                                let text = if alerts > 99 {
+                                    "99+".to_string()
+                                } else {
+                                    alerts.to_string()
+                                };
+                                let g = ui.painter().layout_no_wrap(
+                                    text,
+                                    FontId::proportional(10.5),
+                                    Color32::WHITE,
+                                );
+                                let r = Rect::from_center_size(
+                                    at,
+                                    egui::vec2((g.size().x + 8.0).max(16.0), 16.0),
+                                );
+                                ui.painter().rect_filled(r, 8.0, t.danger);
+                                ui.painter()
+                                    .galley(r.center() - g.size() / 2.0, g, Color32::WHITE);
                             }
-                            if m == Moment::Velocity
-                                && ui
-                                    .selectable_label(
-                                        moment == m && srv,
-                                        crate::products::name(m, true),
-                                    )
-                                    .clicked()
-                            {
-                                action = Some(A::SetMoment(m, true));
-                            }
-                        }
+                            bell = b.clicked();
+                            pill_divider(ui, t);
+                            let chip = view_chip(ui, t, &top, &product, chip_w);
+                            egui::Popup::menu(&chip).show(|ui| {
+                                ws::menu_scope(ui, t);
+                                ui.set_min_width(240.0);
+                                ui.style_mut().spacing.button_padding = egui::vec2(10.0, 8.0);
+                                egui::ScrollArea::vertical()
+                                    .max_height(menu_h)
+                                    .show(ui, |ui| {
+                                        let head = |ui: &mut egui::Ui, s: &str| {
+                                            ui.label(ws::text(s, 10.5, t.text_faint));
+                                        };
+                                        head(ui, "RADAR");
+                                        if ui
+                                            .button(format!("{site_text}   Change radar\u{2026}"))
+                                            .clicked()
+                                        {
+                                            open_sites = true;
+                                            ui.close();
+                                        }
+                                        ui.separator();
+                                        head(ui, "PRODUCT");
+                                        for m in Moment::ALL {
+                                            let on = m == moment && !(srv && m == Moment::Velocity);
+                                            if ui
+                                                .selectable_label(on, crate::products::info(m).name)
+                                                .clicked()
+                                            {
+                                                action = Some(A::SetMoment(m, false));
+                                            }
+                                            if m == Moment::Velocity
+                                                && ui
+                                                    .selectable_label(
+                                                        moment == m && srv,
+                                                        crate::products::name(m, true),
+                                                    )
+                                                    .clicked()
+                                            {
+                                                action = Some(A::SetMoment(m, true));
+                                            }
+                                        }
+                                        ui.separator();
+                                        head(ui, "TILT");
+                                        for (i, a) in elevations.iter().enumerate() {
+                                            let mut label = format!("{a:.1}\u{b0}");
+                                            if sweeping == Some(i) {
+                                                label.push_str("  \u{25cf} live");
+                                            }
+                                            if ui.selectable_label(i == tilt, label).clicked() {
+                                                pick_tilt = Some(i);
+                                            }
+                                        }
+                                        if ui
+                                            .selectable_label(false, "All tilts (four panes)")
+                                            .clicked()
+                                        {
+                                            action = Some(A::AllTilts);
+                                        }
+                                        ui.separator();
+                                        head(ui, "VIEW");
+                                        ui.horizontal(|ui| {
+                                            for (label, three) in
+                                                [("2D map", false), ("3D map", true)]
+                                            {
+                                                if ui
+                                                    .selectable_label(map_3d == three, label)
+                                                    .clicked()
+                                                    && map_3d != three
+                                                {
+                                                    want_3d = Some(three);
+                                                }
+                                            }
+                                        });
+                                    });
+                            });
+                        });
                     });
-                    let tilt_text = elevations
-                        .get(tilt)
-                        .map_or_else(|| "\u{2014}".to_string(), |a| format!("{a:.1}\u{b0}"));
-                    let tr = field(ui, &t, "Tilt", &tilt_text, tilt_w);
-                    egui::Popup::menu(&tr).show(|ui| {
-                        ws::menu_scope(ui, &t);
-                        ui.set_min_width(160.0);
-                        ui.style_mut().spacing.button_padding = egui::vec2(10.0, 8.0);
-                        for (i, a) in elevations.iter().enumerate() {
-                            let mut label = format!("{a:.1}\u{b0}");
-                            if sweeping == Some(i) {
-                                label.push_str("  \u{25cf} live");
-                            }
-                            if ui.selectable_label(i == tilt, label).clicked() {
-                                pick_tilt = Some(i);
-                            }
-                        }
-                        ui.separator();
-                        if ui
-                            .selectable_label(false, "All tilts (four panes)")
-                            .clicked()
-                        {
-                            action = Some(A::AllTilts);
-                        }
-                    });
-                    // 2D / 3D: two halves of one control, the chosen one in the accent.
-                    let (r, _) =
-                        ui.allocate_exact_size(egui::vec2(seg_w, ROW_H - 14.0), Sense::hover());
-                    ui.painter().rect(
-                        r,
-                        8.0,
-                        t.field,
-                        Stroke::new(1.0, t.line),
-                        egui::StrokeKind::Inside,
-                    );
-                    for (i, label) in ["2D", "3D"].into_iter().enumerate() {
-                        let half = Rect::from_min_size(
-                            egui::pos2(r.left() + r.width() / 2.0 * i as f32, r.top()),
-                            egui::vec2(r.width() / 2.0, r.height()),
-                        );
-                        let on = (i == 1) == map_3d;
-                        let resp = ui
-                            .interact(half, ui.id().with(("phone_dim", i)), Sense::click())
-                            .named_toggle(label, on);
-                        if on {
-                            ui.painter().rect_filled(half.shrink(3.0), 6.0, t.accent);
-                        }
-                        ui.painter().text(
-                            half.center(),
-                            egui::Align2::CENTER_CENTER,
-                            label,
-                            FontId::proportional(16.0),
-                            if on { Color32::WHITE } else { t.text },
-                        );
-                        if resp.clicked() && !on {
-                            want_3d = Some(i == 1);
-                        }
-                    }
-                    let (r, resp) =
-                        ui.allocate_exact_size(egui::vec2(lay_w, ROW_H - 14.0), Sense::click());
-                    ui.painter().rect(
-                        r,
-                        8.0,
-                        if layers_on { t.accent_soft() } else { t.field },
-                        Stroke::new(1.0, if layers_on { t.accent } else { t.line }),
-                        egui::StrokeKind::Inside,
-                    );
-                    ui.painter().text(
-                        r.center(),
-                        egui::Align2::CENTER_CENTER,
-                        ph::STACK,
-                        FontId::proportional(24.0),
-                        t.accent,
-                    );
-                    layers = resp.named_toggle("Layers", layers_on).clicked();
-                });
             });
+        if search {
+            // A search wants the room to show its results.
+            self.dock.open_search();
+            self.dock.bring_forward(DockWin::Layers);
+            self.dock.sheet = Sheet::Full;
+        }
+        if bell {
+            self.dock.toggle(DockWin::Alerts);
+        }
+        if let Some(p) = pick {
+            self.phone_menu_pick(p, ctx);
+        }
         if open_sites {
             self.site_dialog = Some(Default::default());
         }
@@ -752,9 +841,6 @@ impl HookEchoApp {
         }
         if let Some(on) = want_3d {
             self.views[self.active].set_map_3d(on);
-        }
-        if layers {
-            self.dock.toggle(DockWin::Layers);
         }
         if let Some(a) = action {
             self.apply_palette(a, ctx);
@@ -853,7 +939,19 @@ impl HookEchoApp {
                     let tab = front.tab();
                     header = ws::window_header(ui, &t, tab.glyph, tab.title, None, None);
                 } else {
-                    self.dock_window(front, Host::Docked(ui), ctx);
+                    // The window draws in exactly the body's room, clipped to it. A window whose
+                    // fixed parts are taller than a half-height sheet (Layers' categories,
+                    // search and filters) otherwise grew the panel upward past its own rect,
+                    // and the handle and tabs went out of view under the map.
+                    let body = ui.available_rect_before_wrap();
+                    let mut child = ui.new_child(
+                        egui::UiBuilder::new()
+                            .max_rect(body)
+                            .layout(egui::Layout::top_down(egui::Align::Min)),
+                    );
+                    child.set_clip_rect(body.intersect(ui.clip_rect()));
+                    self.dock_window(front, Host::Docked(&mut child), ctx);
+                    ui.allocate_rect(body, Sense::hover());
                 }
                 ws::set_header_tabs(ctx, None);
             });
@@ -911,11 +1009,49 @@ mod tests {
 
     #[test]
     fn the_rail_keeps_what_fits() {
-        assert_eq!(rail_fit(1000.0), RAIL.len());
-        assert_eq!(rail_fit(12.0), 0);
-        assert_eq!(rail_fit(12.0 + 2.0 * (RAIL_BTN + 8.0)), 2);
-        // Every map tool can still be armed from the Tools button's menu.
+        // A tall map: one column above locate and the menu button.
+        let tall = rail_slots(2000.0);
+        assert_eq!(tall.len(), RAIL.len());
+        assert!(tall.iter().all(|s| s.0 == 0));
+        assert_eq!(
+            tall[0],
+            (0, 2),
+            "the first tool sits right above the two fixed buttons"
+        );
+        // A half sheet on a phone leaves about 410 points of map: three above, the rest beside.
+        let half = rail_slots(410.0);
+        assert_eq!(half.len(), RAIL.len());
+        assert_eq!(half.iter().filter(|s| s.0 == 0).count(), 3);
+        // Every slot stays under the pill.
+        let rows = |h: f32| ((h - 90.0) / (RAIL_BTN + 8.0)).floor() as usize;
+        assert!(half.iter().all(|s| s.1 < rows(410.0)));
+        // The shortest map the sheet leaves holds four beside the two fixed buttons, and a
+        // quarter of a phone every one.
+        assert_eq!(rail_slots(MAP_MIN_H).len(), 4);
+        assert_eq!(rail_slots(260.0).len(), RAIL.len());
         let tools: usize = super::super::rail::GROUPS.iter().map(|g| g.len()).sum();
         assert!(tools >= 13);
+    }
+
+    #[test]
+    fn the_view_chip_reads_short_and_fits_beside_the_colour_scale() {
+        assert_eq!(
+            compact_product("Rain intensity (reflectivity)"),
+            "Reflectivity"
+        );
+        assert_eq!(compact_product("Wind toward/away (velocity)"), "Velocity");
+        assert_eq!(compact_product("Storm rotation (SRV)"), "SRV");
+        assert_eq!(
+            compact_product("Composite reflectivity"),
+            "Composite reflectivity"
+        );
+        // A 390 pt phone leaves the chip room for "Reflectivity" with the pill's other buttons
+        // and the colour scale; a narrow one keeps a usable minimum.
+        let w = chip_width(390.0);
+        assert!(
+            w >= 140.0 && 10.0 + 52.0 + 80.0 + 24.0 + w + LEGEND_W <= 390.0,
+            "{w}"
+        );
+        assert_eq!(chip_width(200.0), 112.0);
     }
 }
