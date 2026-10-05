@@ -105,7 +105,15 @@ pub fn read(zip: &[u8], e: &Entry, max: u64) -> anyhow::Result<Vec<u8>> {
         .get(start..start.saturating_add(e.comp as usize))
         .ok_or_else(|| anyhow::anyhow!("{name} runs past the end of the zip"))?;
     match e.method {
-        0 => Ok(data.to_vec()),
+        // Stored: the bytes are what they are, whatever size the directory declared.
+        0 => {
+            anyhow::ensure!(
+                data.len() as u64 <= max,
+                "{name} holds {} bytes, past {max}",
+                data.len()
+            );
+            Ok(data.to_vec())
+        }
         8 => {
             // Grown as it inflates: the declared size is the archive's word, not a fact.
             let mut out = Vec::new();
@@ -198,6 +206,17 @@ mod tests {
         let es = entries(&z).unwrap();
         let err = read(&z, &es[0], 1000).unwrap_err().to_string();
         assert!(err.contains("inflates past"), "{err}");
+    }
+
+    #[test]
+    fn a_stored_entry_past_the_limit_is_refused_even_when_it_lies_about_its_size() {
+        let big = vec![b'x'; 10_000];
+        let mut z = build(&[("big", &big, false)]);
+        let cd = z.windows(4).position(|w| w == b"PK\x01\x02").unwrap();
+        z[cd + 24..cd + 28].copy_from_slice(&10u32.to_le_bytes());
+        let es = entries(&z).unwrap();
+        let err = read(&z, &es[0], 1000).unwrap_err().to_string();
+        assert!(err.contains("past 1000"), "{err}");
     }
 
     #[test]

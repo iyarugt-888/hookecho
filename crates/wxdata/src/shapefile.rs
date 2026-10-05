@@ -582,6 +582,10 @@ fn windows_1252(b: u8) -> char {
 const MAX_BUNDLE_FILE_BYTES: u64 = 512 * 1024 * 1024;
 /// The most a bundle may hold in datasets, so a zip of thousands of tiny `.shp` stays bounded.
 const MAX_BUNDLE_DATASETS: usize = 256;
+/// The most a whole bundle may inflate to, every dataset and sidecar together. Without it the
+/// per-file and per-dataset caps still allowed 256 datasets of 512 MB each from one small zip.
+/// A national county file is tens of megabytes; this leaves room for far larger real exports.
+const MAX_BUNDLE_TOTAL_BYTES: u64 = 1024 * 1024 * 1024;
 
 /// One shapefile read from a zipped bundle.
 #[derive(Debug)]
@@ -599,6 +603,13 @@ pub struct Dataset {
 /// entries are ignored. Two sidecars that differ only by case are ambiguous and refused, as is a
 /// bundle with no `.shp`; a dataset that fails to read fails the import, named.
 pub fn parse_zip(zip: &[u8]) -> Result<Vec<Dataset>> {
+    parse_zip_within(zip, MAX_BUNDLE_TOTAL_BYTES)
+}
+
+/// [`parse_zip`] with the whole bundle's inflated bytes held to `budget`: refused up front when
+/// the sizes the archive declares exceed it, and again while inflating, since a declared size is
+/// only the archive's word.
+fn parse_zip_within(zip: &[u8], budget: u64) -> Result<Vec<Dataset>> {
     let entries: Vec<crate::zip::Entry> = crate::zip::entries(zip)?
         .into_iter()
         .filter(|e| {
@@ -623,7 +634,25 @@ pub fn parse_zip(zip: &[u8]) -> Result<Vec<Dataset>> {
         }
         Ok(first)
     };
-    let read = |e: &crate::zip::Entry| crate::zip::read(zip, e, MAX_BUNDLE_FILE_BYTES);
+    let declared: u64 = entries.iter().map(|e| e.size).fold(0, u64::saturating_add);
+    if declared > budget {
+        bail!(
+            "the zip would inflate to {declared} bytes; at most {budget} can be imported at once"
+        );
+    }
+    let spent = std::cell::Cell::new(0u64);
+    let read = |e: &crate::zip::Entry| -> Result<Vec<u8>> {
+        let left = budget.saturating_sub(spent.get());
+        let bytes = crate::zip::read(zip, e, MAX_BUNDLE_FILE_BYTES.min(left)).map_err(|err| {
+            if left < MAX_BUNDLE_FILE_BYTES {
+                anyhow!("{err:#}: the zip inflates past {budget} bytes in all")
+            } else {
+                err
+            }
+        })?;
+        spent.set(spent.get() + bytes.len() as u64);
+        Ok(bytes)
+    };
 
     let shps: Vec<&String> = lower.iter().filter(|l| l.ends_with(".shp")).collect();
     if shps.is_empty() {
@@ -978,6 +1007,32 @@ mod tests {
             sets[1].notes
         );
         assert!(sets[1].features[0].properties.is_empty());
+    }
+
+    #[test]
+    fn a_bundle_is_held_to_one_budget_for_all_it_inflates_to() {
+        let (shp, dbf) = bundle_parts();
+        let z = crate::zip::build(&[
+            ("a.shp", &shp, true),
+            ("a.dbf", &dbf, true),
+            ("b.shp", &shp, true),
+            ("b.dbf", &dbf, true),
+        ]);
+        let whole = (2 * (shp.len() + dbf.len())) as u64;
+        assert_eq!(parse_zip_within(&z, whole).expect("fits").len(), 2);
+        // Declared past the budget: refused before anything is inflated.
+        let err = parse_zip_within(&z, whole - 1).unwrap_err().to_string();
+        assert!(err.contains("would inflate to"), "{err}");
+        // Declaring less than it holds does not get a bundle past the budget while inflating.
+        let mut lying = z.clone();
+        let mut at = 0;
+        while let Some(i) = lying[at..].windows(4).position(|w| w == b"PK\x01\x02") {
+            let cd = at + i;
+            lying[cd + 24..cd + 28].copy_from_slice(&1u32.to_le_bytes());
+            at = cd + 4;
+        }
+        let err = format!("{:#}", parse_zip_within(&lying, whole / 2).unwrap_err());
+        assert!(err.contains("in all"), "{err}");
     }
 
     #[test]
