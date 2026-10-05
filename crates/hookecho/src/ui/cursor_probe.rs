@@ -1,5 +1,5 @@
 //! ROADMAP_NEW J3: the compact "Pane | Source | Product | Time | Value" table shown while
-//! `link_cursor` is on — one row per pane, each independently sampled at the same shared
+//! a cursor group is hovered — one row per member, each independently sampled at the shared
 //! geographic point (`HookEchoApp::linked_probe`) so panes at different zooms/products still read
 //! as answering the same question.
 //!
@@ -44,7 +44,36 @@ pub fn show(ctx: &egui::Context, rows: &[ProbeRow], tz: Option<wxdata::tz::Tz>) 
                 .corner_radius(10)
                 .inner_margin(10),
         )
-        .show(ctx, |ui| table(ui, rows, tz));
+        .show(ctx, |ui| {
+            let narrow = ctx.content_rect().width() < 520.0;
+            if narrow {
+                ui.set_width((ctx.content_rect().width() - 64.0).max(120.0));
+            }
+            egui::ScrollArea::vertical()
+                .max_height(ctx.content_rect().height() * 0.35)
+                .show(ui, |ui| {
+                    body(ui, rows, tz, narrow);
+                });
+        });
+}
+
+pub(crate) fn body(ui: &mut egui::Ui, rows: &[ProbeRow], tz: Option<wxdata::tz::Tz>, narrow: bool) {
+    if !narrow {
+        table(ui, rows, tz);
+        return;
+    }
+    for (idx, row) in rows.iter().enumerate() {
+        if idx > 0 {
+            ui.separator();
+        }
+        ui.add(egui::Label::new(format!("Pane {} · {}", row.pane + 1, row.source)).wrap());
+        ui.add(egui::Label::new(&row.product).wrap());
+        let time = row
+            .time
+            .map(|t| crate::timefmt::fmt_clock(t, tz, false))
+            .unwrap_or_else(|| "—".into());
+        ui.add(egui::Label::new(format!("{time} · {}", value_text(row))).wrap());
+    }
 }
 
 fn table(ui: &mut egui::Ui, rows: &[ProbeRow], tz: Option<wxdata::tz::Tz>) {

@@ -271,6 +271,9 @@ impl HookEchoApp {
                     return;
                 }
                 // A drag rewrites the order in place, so persist it when it moves.
+                if self.views.len() > 1 {
+                    self.spatial_group_ui(ui);
+                }
                 let order_was = self.settings.layer_order.clone();
                 let model_input = self.model_panel_input();
                 let model_on_map = self.views[self.active].fields_on.clone();

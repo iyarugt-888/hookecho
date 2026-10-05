@@ -79,6 +79,7 @@ pub mod nwr;
 pub mod object_store;
 pub mod outage_draw;
 pub mod overlay_build;
+mod pane_links;
 pub mod paths;
 /// The perf counters' readout — native only, see the module docs.
 #[cfg(not(target_arch = "wasm32"))]

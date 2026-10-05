@@ -596,6 +596,7 @@ impl HookEchoApp {
             ui.close();
         }
         let panes = self.views.len();
+        let all_panes_linked = self.all_pane_links_on();
         let links: Vec<(T, bool)> = T::PANE_LINKS
             .into_iter()
             .map(|t| (t, *self.overlay_flag(t)))
@@ -605,7 +606,14 @@ impl HookEchoApp {
             format!("Panes: {panes} \u{b7} {}", pane_layout.label()),
             |ui| {
                 ws::menu_scope(ui, t);
-                pane_items(ui, panes, pane_layout, &links, &mut action);
+                pane_items(
+                    ui,
+                    panes,
+                    pane_layout,
+                    &links,
+                    all_panes_linked,
+                    &mut action,
+                );
             },
         );
         if ui.button("3D volume explorer\u{2026}").clicked() {

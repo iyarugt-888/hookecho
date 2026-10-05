@@ -30,16 +30,7 @@ impl HookEchoApp {
                     self.warning_popup = None;
                     self.detail = None;
                 }
-                // ROADMAP_NEW J2: each pane keeps its own product/tilt, only the site follows —
-                // this is for comparing several products of one storm, not making every pane
-                // identical.
-                if changed && self.link_site {
-                    for (i, other) in self.views.iter_mut().enumerate() {
-                        if i != active {
-                            other.site = Some(id.clone());
-                        }
-                    }
-                }
+                spatial_groups::sync_sites(&mut self.views, active);
             }
             PaletteAction::SeekTime(seconds) => {
                 self.radar_timeline();
@@ -178,8 +169,17 @@ impl HookEchoApp {
                 }
             }
             PaletteAction::ToggleOverlay(t) => {
-                let f = self.overlay_flag(t);
-                *f = !*f;
+                if matches!(
+                    t,
+                    OverlayToggle::LinkCameras
+                        | OverlayToggle::LinkSite
+                        | OverlayToggle::LinkCursor
+                ) {
+                    self.toggle_spatial_link(t);
+                } else {
+                    let f = self.overlay_flag(t);
+                    *f = !*f;
+                }
                 if t == OverlayToggle::RadarWind {
                     self.radar_wind_toggled();
                 }
@@ -428,12 +428,23 @@ impl HookEchoApp {
                 self.dock.reset_layout(layout);
             }
             PaletteAction::ToggleLinkAll => {
-                let on = !OverlayToggle::PANE_LINKS
-                    .iter()
-                    .all(|t| *self.overlay_flag(*t));
+                let on = !self.all_pane_links_on();
                 for t in OverlayToggle::PANE_LINKS {
                     *self.overlay_flag(t) = on;
                 }
+                for view in &mut self.views {
+                    view.spatial_links = crate::pane_links::SpatialLinks::legacy(on, on, on);
+                    view.spatial_restore_raw = None;
+                }
+                if on {
+                    self.link_all_cameras();
+                    let site = self.views[self.active].site.clone();
+                    for view in &mut self.views {
+                        view.site = site.clone();
+                        view.spatial_site_snapshot = site.clone();
+                    }
+                }
+                self.linked_probe = None;
             }
             PaletteAction::ToggleFollowLowest => {
                 let v = &mut self.views[self.active];

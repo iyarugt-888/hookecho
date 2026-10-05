@@ -1298,7 +1298,7 @@ impl HookEchoApp {
                 T::LinkCameras,
                 "Reference",
                 "Link pane cameras",
-                "Pan and zoom every pane together",
+                "Link this pane's camera to its selected group. Choose independent camera, radar-site and cursor groups under Pane links.",
                 false,
             ),
             (
@@ -1319,14 +1319,14 @@ impl HookEchoApp {
                 T::LinkSite,
                 "Reference",
                 "Link pane radar site",
-                "Picking a new site in one pane sets it in every pane; each keeps its own product and tilt",
+                "Link this pane's radar site to its selected group; group members retain their own products, tilts and timeline state. Choose the group under Pane links.",
                 false,
             ),
             (
                 T::LinkCursor,
                 "Reference",
                 "Link pane crosshair",
-                "Hovering one pane shows the same point on every other pane, plus a compact probe table of each pane's value there",
+                "Link this pane's geographic cursor to its selected group. Hovering a member probes only those panes; each row identifies its own displayed data.",
                 false,
             ),
             (
@@ -1493,17 +1493,14 @@ impl HookEchoApp {
                 None,
             );
         }
-        let links_on = OverlayToggle::PANE_LINKS
-            .into_iter()
-            .filter(|t| *self.overlay_flag(*t))
-            .count();
+        let links_on = self.all_pane_links_on();
         push(
             "Link all panes",
             "Reference",
             "Link or unlink every pane at once: camera, time, radar site, crosshair and selected storm",
             false,
             PaletteAction::ToggleLinkAll,
-            Some(links_on == OverlayToggle::PANE_LINKS.len()),
+            Some(links_on),
         );
         push(
             "Top bar",

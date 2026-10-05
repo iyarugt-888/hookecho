@@ -8,6 +8,19 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: independent camera, radar-site and cursor groups
+
+Pane links now let each pane join a different group for its camera, radar site and geographic
+cursor, or keep any of those independent. Joining adopts the group's camera or site; unlinking
+keeps the last resolved view. Site changes from the map, search, dialogs and deep links propagate
+only to that site's group while retaining each pane's product, tilt and analysis clock.
+
+Shared crosshairs and probe readings include only the hovered pane's cursor group. Phone probe
+readings wrap into a scrolling list. Workspaces retain these memberships, migrate old global
+flags and preserve unsupported saved metadata; conflicting saved camera/site groups restore
+independently with a warning. Link all panes still combines the workspace into one spatial group.
+Model/run groups remain separate, and analysis time still uses the existing global link.
+
 ### Added: independent pane models and model/run link groups
 
 Each pane now keeps its own model, product, run and forecast lead. Choose Independent or a

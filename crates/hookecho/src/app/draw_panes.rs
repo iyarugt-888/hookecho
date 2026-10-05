@@ -25,13 +25,7 @@ impl HookEchoApp {
             };
 
             self.step_camera_flights(&rects, ctx); // jumps fly there (ROADMAP_2 §4.4)
-                                                   // If cameras are linked, mirror the active pane's camera to the others.
-            if self.link_cameras {
-                let cam = self.views[self.active.min(n - 1)].camera;
-                for v in &mut self.views {
-                    v.camera = cam;
-                }
-            }
+            spatial_groups::sync_cameras(&mut self.views, self.active);
 
             // Each pane fetches and draws its own `View::basemap` (see `render_pane`). Two things
             // stay global for now: the GOES frame cursor and the vector palette, both driven by

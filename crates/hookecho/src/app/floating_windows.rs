@@ -984,6 +984,7 @@ impl HookEchoApp {
         self.show_toasts(ctx);
 
         // Turn this frame's UI mutations into uploads/fetches before painting the map.
+        spatial_groups::sync_sites(&mut self.views, self.active);
         if self.link_times && !self.views.is_empty() {
             let active = self.active.min(self.views.len() - 1);
             self.sync_pane(active, ctx);

@@ -168,9 +168,9 @@ impl HookEchoApp {
             // ROADMAP_NEW J3: share this pane's hovered geo point with every other pane. Reused
             // directly as the probe table's sample point in `paint_linked_cursor`, called once
             // after every pane has had a chance to update it this frame.
-            if self.link_cursor {
+            if self.views[idx].spatial_links.cursor.enabled {
                 let w = self.views[idx].camera.screen_to_world(cursor, vp);
-                self.linked_probe = Some(crate::render::mercator::world_to_lonlat(w.0, w.1));
+                self.linked_probe = Some((idx, crate::render::mercator::world_to_lonlat(w.0, w.1)));
             }
             // `zoom_delta()` reports a live touchscreen pinch too, which the gesture block below
             // already owns (and it is the one that knows about the mobile chrome) — skip it here

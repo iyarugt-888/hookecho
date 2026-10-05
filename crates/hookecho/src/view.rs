@@ -925,6 +925,10 @@ pub struct MapView {
     pub(crate) model_playback: crate::timeline::ModelPlayback,
     pub(crate) models: crate::model_pane::ModelControls,
     pub(crate) model_group: Option<u8>,
+    pub(crate) spatial_links: crate::pane_links::SpatialLinks,
+    pub(crate) spatial_restore_raw: Option<serde_json::Value>,
+    pub(crate) spatial_camera_snapshot: crate::render::mercator::Camera,
+    pub(crate) spatial_site_snapshot: Option<String>,
     pub(crate) model_restore_raw: Option<serde_json::Value>,
     pub(crate) model_link_snapshot: crate::model_pane::ModelControls,
     pub(crate) last_model_fields:
@@ -1091,6 +1095,10 @@ impl MapView {
     pub fn new(site: Option<String>, camera: crate::render::mercator::Camera) -> Self {
         Self {
             camera,
+            spatial_camera_snapshot: camera,
+            spatial_site_snapshot: site.clone(),
+            spatial_links: Default::default(),
+            spatial_restore_raw: None,
             map_3d: Map3dState::default(),
             site,
             moment: Moment::Reflectivity,

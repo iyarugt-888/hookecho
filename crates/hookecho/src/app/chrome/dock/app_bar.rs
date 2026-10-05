@@ -427,6 +427,7 @@ impl HookEchoApp {
         let basemap_open = self.basemap_open;
         let panes = self.views.len();
         let pane_layout = self.pane_layout;
+        let all_panes_linked = self.all_pane_links_on();
         let links: Vec<(T, bool)> = T::PANE_LINKS
             .into_iter()
             .map(|t| (t, *self.overlay_flag(t)))
@@ -734,7 +735,7 @@ impl HookEchoApp {
                                     ws::menu_scope(ui, &t);
                                     ui.set_min_width(170.0);
                                     ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
-                                    pane_items(ui, panes, pane_layout, &links, &mut action);
+                                    pane_items(ui, panes, pane_layout, &links, all_panes_linked, &mut action);
                                 });
                                 widths.groups[ToolGroup::Map as usize] = take(ui);
                             }
@@ -802,6 +803,7 @@ impl HookEchoApp {
                                                         panes,
                                                         pane_layout,
                                                         &links,
+                                                        all_panes_linked,
                                                         &mut action,
                                                     );
                                                 },
@@ -1096,6 +1098,7 @@ pub(super) fn pane_items(
     panes: usize,
     pane_layout: crate::workspace::PaneLayout,
     links: &[(crate::app::OverlayToggle, bool)],
+    all_panes_linked: bool,
     action: &mut Option<crate::app::PaletteAction>,
 ) {
     use crate::app::PaletteAction as A;
@@ -1139,11 +1142,10 @@ pub(super) fn pane_items(
                 *action = Some(A::ToggleOverlay(*t));
             }
         }
-        let all = links.iter().all(|(_, on)| *on);
         if ui
             .selectable_label(
                 false,
-                if all {
+                if all_panes_linked {
                     "Unlink all (Ctrl+L)"
                 } else {
                     "Link all (Ctrl+L)"

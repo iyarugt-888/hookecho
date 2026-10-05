@@ -271,6 +271,122 @@ mod settings_chrome_tests {
     }
 }
 
+#[cfg(test)]
+mod spatial_link_tests {
+    use super::*;
+    use crate::pane_links::{Dimension, Link, SpatialLinks};
+    use crate::render::mercator::Camera;
+    fn view(site: &str, lon: f64) -> MapView {
+        MapView::new(Some(site.into()), Camera::at_lonlat(lon, 35.0, 8.0))
+    }
+    #[test]
+    fn spatial_links_workspace_round_trip_keeps_each_dimension_and_model_group() {
+        let mut source = view("KTLX", -97.0);
+        source.spatial_links = SpatialLinks {
+            camera: Link {
+                group: 2,
+                enabled: true,
+            },
+            site: Link {
+                group: 3,
+                enabled: false,
+            },
+            cursor: Link {
+                group: 1,
+                enabled: true,
+            },
+        };
+        source.model_group = Some(4);
+        let saved = PaneSnap::capture(&source);
+        let bytes = serde_json::to_vec(&saved).unwrap();
+        let decoded: PaneSnap = serde_json::from_slice(&bytes).unwrap();
+        let mut restored = view("KDMX", -88.0);
+        decoded.apply(&mut restored);
+        assert_eq!(restored.spatial_links, source.spatial_links);
+        assert_eq!(restored.model_group, Some(4));
+        assert_eq!(restored.site, source.site);
+        assert_eq!(restored.camera.center, source.camera.center);
+        assert!(restored.spatial_restore_raw.is_none());
+    }
+    #[test]
+    fn spatial_links_legacy_flags_migrate_to_one_group_and_camera_uses_saved_focus() {
+        let mut ws = starters().remove(0);
+        ws.panes = vec![
+            PaneSnap::capture(&view("KTLX", -97.0)),
+            PaneSnap::capture(&view("KDMX", -88.0)),
+        ];
+        for snap in &mut ws.panes {
+            snap.extra.remove("spatial-links");
+        }
+        ws.link_cameras = true;
+        ws.link_site = false;
+        ws.link_cursor = true;
+        let mut restored = vec![view("KOUN", -98.0), view("KOUN", -98.0)];
+        for (snap, view) in ws.panes.iter().zip(&mut restored) {
+            snap.apply(view);
+        }
+        restore_spatial_memberships(&ws, &mut restored, 1);
+        for view in &restored {
+            assert_eq!(view.spatial_links, SpatialLinks::legacy(true, false, true));
+            assert_eq!(view.camera.center, restored[1].camera.center);
+        }
+        assert_eq!(restored[0].site.as_deref(), Some("KTLX"));
+        assert!(conflicting_spatial_groups(&ws).is_empty());
+    }
+    #[test]
+    fn spatial_links_future_or_invalid_saved_memberships_disable_and_round_trip() {
+        let mut ws = starters().remove(0);
+        for value in [
+            serde_json::json!({"schema": 7, "future": ["clock", "cursor"]}),
+            serde_json::json!({"schema": 1, "links": {"camera": {"group": 0, "enabled": true}, "site": {"group": 1, "enabled": false}, "cursor": {"group": 1, "enabled": true}}}),
+            serde_json::json!({"schema": 1, "links": {"camera": {"group": 255, "enabled": true}, "site": {"group": 1, "enabled": false}, "cursor": {"group": 1, "enabled": true}}}),
+            serde_json::json!({"schema": 1, "links": {"camera": {"group": 1, "enabled": true}}}),
+        ] {
+            let mut snap = PaneSnap::capture(&view("KTLX", -97.0));
+            snap.extra.insert("spatial-links".into(), value.clone());
+            ws.panes = vec![snap.clone()];
+            assert!(problems(&ws)
+                .iter()
+                .any(|p| p.contains("invalid spatial links")));
+            let mut restored = view("KDMX", -88.0);
+            restored.spatial_links = SpatialLinks::legacy(true, true, true);
+            snap.apply(&mut restored);
+            restore_spatial_memberships(&ws, std::slice::from_mut(&mut restored), 0);
+            assert_eq!(restored.spatial_links, SpatialLinks::default());
+            assert_eq!(restored.site.as_deref(), Some("KTLX"));
+            assert_eq!(PaneSnap::capture(&restored).extra["spatial-links"], value);
+        }
+    }
+    #[test]
+    fn spatial_links_conflicting_saved_owners_preserve_views_and_other_dimensions() {
+        let mut ws = starters().remove(0);
+        let mut first = view("KTLX", -97.0);
+        let mut second = view("KDMX", -88.0);
+        first.spatial_links = SpatialLinks::legacy(true, true, true);
+        second.spatial_links = first.spatial_links;
+        ws.panes = vec![PaneSnap::capture(&first), PaneSnap::capture(&second)];
+        assert_eq!(
+            conflicting_spatial_groups(&ws),
+            vec![(Dimension::Camera, 1), (Dimension::Site, 1)]
+        );
+        assert!(problems(&ws).iter().any(|p| p.contains("Camera group 1")));
+        let mut restored = vec![view("KOUN", -98.0), view("KOUN", -98.0)];
+        for (snap, view) in ws.panes.iter().zip(&mut restored) {
+            snap.apply(view);
+        }
+        restore_spatial_memberships(&ws, &mut restored, 0);
+        for view in &restored {
+            assert!(!view.spatial_links.camera.enabled);
+            assert!(!view.spatial_links.site.enabled);
+            assert!(view.spatial_links.cursor.enabled);
+        }
+        assert_eq!(restored[0].site.as_deref(), Some("KTLX"));
+        assert_eq!(restored[1].site.as_deref(), Some("KDMX"));
+        assert_eq!(restored[0].camera.center, first.camera.center);
+        assert_eq!(restored[1].camera.center, second.camera.center);
+    }
+}
+
 fn sounding_default() -> WindowChrome {
     WindowChrome::at(true, Place::Right)
 }
@@ -341,17 +457,29 @@ impl PaneSnap {
                 .filter(|&(i, _)| v.threshold_enabled[i])
                 .filter_map(|(i, m)| v.thresholds[i].map(|t| (*m, t)))
                 .collect(),
-            extra: [(
-                "models".into(),
-                v.model_restore_raw.clone().unwrap_or_else(|| {
-                    serde_json::to_value(crate::model_pane::SavedModelContext {
-                        schema: 1,
-                        group: v.model_group,
-                        controls: v.models.clone(),
-                    })
-                    .expect("Model controls are serializable")
-                }),
-            )]
+            extra: [
+                (
+                    "models".into(),
+                    v.model_restore_raw.clone().unwrap_or_else(|| {
+                        serde_json::to_value(crate::model_pane::SavedModelContext {
+                            schema: 1,
+                            group: v.model_group,
+                            controls: v.models.clone(),
+                        })
+                        .expect("Model controls are serializable")
+                    }),
+                ),
+                (
+                    "spatial-links".into(),
+                    v.spatial_restore_raw.clone().unwrap_or_else(|| {
+                        serde_json::to_value(crate::pane_links::SavedSpatialLinks {
+                            schema: 1,
+                            links: v.spatial_links,
+                        })
+                        .expect("Spatial links are serializable")
+                    }),
+                ),
+            ]
             .into_iter()
             .collect(),
         }
@@ -360,6 +488,16 @@ impl PaneSnap {
     /// Apply this snapshot to a pane. The volume itself isn't restored — a pane with a site and no
     /// data fetches through the normal poll path, which is also what a fresh pane does.
     pub fn apply(&self, v: &mut MapView) {
+        v.spatial_restore_raw = None;
+        if let Some(value) = self.extra.get("spatial-links") {
+            match serde_json::from_value::<crate::pane_links::SavedSpatialLinks>(value.clone()) {
+                Ok(saved) if saved.valid() => v.spatial_links = saved.links,
+                _ => {
+                    v.spatial_links = Default::default();
+                    v.spatial_restore_raw = Some(value.clone());
+                }
+            }
+        }
         v.model_playback = Default::default();
         v.last_model_fields.clear();
         v.model_restore_raw = None;
@@ -386,6 +524,10 @@ impl PaneSnap {
         v.srv = self.srv;
         v.basemap = crate::tiles::BasemapStyle::from_slug(&self.basemap);
         v.camera = crate::render::mercator::Camera::at_lonlat(self.lon, self.lat, self.zoom);
+        v.spatial_camera_snapshot = v.camera;
+        v.spatial_site_snapshot = v.site.clone();
+        v.flight = None;
+        v.shown_camera = None;
         // The camera came from the saved layout, not from a site recenter — hold it through the
         // site change the restore just triggered.
         v.camera_placed = true;
@@ -498,9 +640,95 @@ pub(crate) fn conflicting_model_groups(ws: &Workspace) -> Vec<u8> {
     conflicts.into_iter().collect()
 }
 
+pub(crate) fn conflicting_spatial_groups(
+    ws: &Workspace,
+) -> Vec<(crate::pane_links::Dimension, u8)> {
+    use crate::pane_links::{Dimension, SavedSpatialLinks};
+    let mut conflicts = Vec::new();
+    for dimension in [Dimension::Camera, Dimension::Site] {
+        let mut owners = std::collections::HashMap::new();
+        for pane in &ws.panes {
+            let Some(saved) = pane
+                .extra
+                .get("spatial-links")
+                .and_then(|value| serde_json::from_value::<SavedSpatialLinks>(value.clone()).ok())
+                .filter(|saved| saved.valid())
+            else {
+                continue;
+            };
+            let link = saved.links.get(dimension);
+            if !link.enabled {
+                continue;
+            }
+            let identity = match dimension {
+                Dimension::Camera => serde_json::json!([pane.lon, pane.lat, pane.zoom]),
+                Dimension::Site => serde_json::json!(pane.site),
+                Dimension::Cursor => unreachable!(),
+            };
+            if owners
+                .insert(link.group, identity.clone())
+                .is_some_and(|previous| previous != identity)
+                && !conflicts.contains(&(dimension, link.group))
+            {
+                conflicts.push((dimension, link.group));
+            }
+        }
+    }
+    conflicts
+}
+
+/// Old global flags become group 1. Typed memberships take precedence; conflicting typed
+/// camera/site owners preserve their individual saved values with just that dimension disabled.
+pub(crate) fn restore_spatial_memberships(ws: &Workspace, views: &mut [MapView], active: usize) {
+    for (pane, view) in ws.panes.iter().zip(views.iter_mut()) {
+        if !pane.extra.contains_key("spatial-links") {
+            view.spatial_links = crate::pane_links::SpatialLinks::legacy(
+                ws.link_cameras,
+                ws.link_site,
+                ws.link_cursor,
+            );
+        }
+    }
+    for (dimension, group) in conflicting_spatial_groups(ws) {
+        for view in views.iter_mut() {
+            let link = view.spatial_links.get_mut(dimension);
+            if link.enabled && link.group == group {
+                link.enabled = false;
+            }
+        }
+    }
+    let owner = views
+        .get(active)
+        .filter(|v| v.spatial_links.camera.enabled && v.spatial_links.camera.group == 1)
+        .map(|_| active)
+        .or_else(|| {
+            views
+                .iter()
+                .position(|v| v.spatial_links.camera.enabled && v.spatial_links.camera.group == 1)
+        });
+    if let Some(owner) = owner {
+        let camera = views[owner].camera;
+        for (pane, view) in ws.panes.iter().zip(views.iter_mut()) {
+            if !pane.extra.contains_key("spatial-links") && view.spatial_links.camera.enabled {
+                view.camera = camera;
+            }
+        }
+    }
+    for view in views {
+        view.spatial_camera_snapshot = view.camera;
+        view.spatial_site_snapshot = view.site.clone();
+    }
+}
+
 pub fn problems(ws: &Workspace) -> Vec<String> {
     let mut out = Vec::new();
     for (idx, pane) in ws.panes.iter().enumerate() {
+        if pane.extra.get("spatial-links").is_some_and(|value| {
+            !serde_json::from_value::<crate::pane_links::SavedSpatialLinks>(value.clone())
+                .is_ok_and(|saved| saved.valid())
+        }) {
+            out.push(format!("pane {} has unsupported or invalid spatial links; camera, site and cursor links are disabled", idx + 1));
+        }
         if !pane.model_context_valid() {
             out.push(format!(
                 "pane {} has unsupported or invalid model controls; its model fields are disabled",
@@ -511,6 +739,12 @@ pub fn problems(ws: &Workspace) -> Vec<String> {
     for group in conflicting_model_groups(ws) {
         out.push(format!(
             "model group {group} has conflicting controls; its panes restore independently"
+        ));
+    }
+    for (dimension, group) in conflicting_spatial_groups(ws) {
+        out.push(format!(
+            "{} group {group} has conflicting saved views; that link restores independently",
+            dimension.label()
         ));
     }
     let unknown_overlays: Vec<&str> = ws

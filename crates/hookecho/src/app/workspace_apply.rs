@@ -8,6 +8,8 @@ impl HookEchoApp {
     /// Snapshot the current arrangement. Auto-named: naming things is a peacetime activity.
     pub(crate) fn capture_workspace(&mut self) -> crate::workspace::Workspace {
         self.sync_model_groups();
+        spatial_groups::sync_sites(&mut self.views, self.active);
+        spatial_groups::sync_cameras(&mut self.views, self.active);
         let overlays_on: Vec<String> = OverlayToggle::ALL
             .into_iter()
             .filter(|t| !t.session_only() && *self.overlay_flag(*t))
@@ -22,11 +24,11 @@ impl HookEchoApp {
                 .map(crate::workspace::PaneSnap::capture)
                 .collect(),
             active: self.active,
-            link_cameras: self.link_cameras,
+            link_cameras: self.views[self.active].spatial_links.camera.enabled,
             link_times: self.link_times,
             lock_source_time: self.lock_source_time,
-            link_site: self.link_site,
-            link_cursor: self.link_cursor,
+            link_site: self.views[self.active].spatial_links.site.enabled,
+            link_cursor: self.views[self.active].spatial_links.cursor.enabled,
             link_storm: self.link_storm,
             overlays_on,
             // A workspace you saved records the sites you had open; only the shipped starters
@@ -82,6 +84,11 @@ impl HookEchoApp {
         for view in &mut self.views {
             view.models = legacy_models.clone();
             view.model_group = Some(1);
+            view.spatial_links = crate::pane_links::SpatialLinks::legacy(
+                ws.link_cameras,
+                ws.link_site,
+                ws.link_cursor,
+            );
         }
         self.pane_layout = ws.pane_layout;
         for (v, snap) in self.views.iter_mut().zip(&ws.panes) {
@@ -101,11 +108,9 @@ impl HookEchoApp {
             }
         }
         self.active = ws.active.min(self.views.len() - 1);
-        self.link_cameras = ws.link_cameras;
+        crate::workspace::restore_spatial_memberships(ws, &mut self.views, self.active);
         self.link_times = ws.link_times;
         self.lock_source_time = ws.lock_source_time;
-        self.link_site = ws.link_site;
-        self.link_cursor = ws.link_cursor;
         self.link_storm = ws.link_storm;
         self.linked_probe = None;
         self.linked_analysis = pane_time::LinkedTimeState::default();
@@ -164,9 +169,14 @@ impl HookEchoApp {
                 .then(|| src.timeline.current().and_then(|id| id.date_time()))
                 .flatten();
             let mut v = MapView::new(site, camera);
+            // A split inherits the displayed camera; its first site synchronization must not
+            // recenter it and then pull an entire linked camera group away from that view.
+            v.camera_placed = true;
             v.models = src.models.clone();
             v.model_restore_raw = src.model_restore_raw.clone();
             v.model_group = src.model_group;
+            v.spatial_links = src.spatial_links;
+            v.spatial_restore_raw = src.spatial_restore_raw.clone();
             v.model_link_snapshot = v.models.clone();
             v.model_playback.active = src.model_playback.active;
             v.fields_on = src.fields_on.clone();

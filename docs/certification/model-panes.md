@@ -100,3 +100,7 @@ The next implementation should introduce explicit analysis-time groups and MRMS/
 and renderer ownership together, retaining native source clocks and unavailable/outside-tolerance
 states. Add migration/race controls and record a full application session before accepting the
 parent card. Keep detector methodology changes assigned to Claude.
+
+Subsequent spatial increment: [camera/site/cursor groups](spatial-groups.md) now have independent
+memberships. The verification recorded above remains the evidence for this ordinary-model
+increment; analysis-time and source-driver acceptance still require the remaining work.

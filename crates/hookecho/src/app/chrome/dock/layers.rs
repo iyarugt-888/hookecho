@@ -204,6 +204,9 @@ impl HookEchoApp {
                         // a search or a filter is about layers, so they step aside for it.
                         let plain =
                             self.dock.query.is_empty() && self.dock.filter == LayerFilter::All;
+                        if plain && self.views.len() > 1 {
+                            self.spatial_group_ui(ui);
+                        }
                         if plain && self.dock.tab == DockTab::Models {
                             egui::Frame::NONE
                                 .inner_margin(egui::Margin::symmetric(10, 6))

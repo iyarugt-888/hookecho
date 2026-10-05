@@ -990,6 +990,33 @@ remain. Next: migrate analysis-time groups and their MRMS/GOES request/render ow
 verify no-match policies and migration/races before parent acceptance. Tornado detection stays
 with Claude.
 
+**Spatial increment — 2026-10-05 (partial):** camera, radar-site and geographic-cursor links now
+have independent per-pane group membership, with Independent/Group N choices under Pane links
+in workstation Layers and the floating/phone panel. Joining adopts only that dimension; unlinking
+retains the resolved state. Focus changes do not retarget a settled camera group. Site mutations
+from all existing input paths reconcile before pane fetching, keeping products, tilts and clocks.
+Crosshairs and probe rows include only members of the hovered pane's cursor group; phone probe
+readings wrap and scroll. Link all panes checks the whole workspace before combining spatial
+groups, alongside the existing global time/storm links.
+
+Workspaces retain schema-1 spatial memberships. Legacy global flags become group 1, with the
+saved focused camera retained; unsupported metadata disables spatial links and round-trips.
+Conflicting typed camera/site owners retain their individual saved values and restore just that
+dimension independently, with a warning. New splits inherit memberships. See
+[behavior and verification](docs/certification/spatial-groups.md).
+
+Verification: 2,286 shared-workspace tests passed across 29 suites (148 ignored), strict
+workspace/all-target Clippy and WASM compilation passed, and the explicit GPU control passed in
+2.75 seconds. Ten new ordinary controls, one explicit GPU control, eighteen owned Rust source
+hashes and nine reviewed production-control captures are retained. Claude-owned wxdata work was
+present during checks and is recorded separately; it is excluded from this increment.
+
+**M5.1 remains partial:** independent analysis-time groups and their MRMS/GOES field/tile ownership,
+source driver selection, comparison/ensemble/contour ownership, and full application multi-group
+live/archive operator evidence remain. Global selected-storm linking also remains. The next time
+increment must change clocks and source ownership together and verify archive misses/outside-
+tolerance policies. Tornado detection remains with Claude.
+
 #### M5.2 — Add satellite-native one-minute playback
 
 **Priority:** P1. **Depends on:** M0.3, M1.4, M5.1. **Original references:** ROADMAP_NEW §§E1, E4, E5, E7; ROADMAP_2 §§10, 14.

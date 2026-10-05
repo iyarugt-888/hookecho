@@ -1,0 +1,151 @@
+{
+  "schema": 1,
+  "recorded_utc": "2026-10-05T23:18:09.530794+00:00",
+  "scope": "M5.1 independent spatial link memberships, workspace migration and group cursor probe presentation; parent remains partial",
+  "source_snapshot": {
+    "baseline": "aee884e",
+    "shared_head": "aee884ee98f6879c82c633932e564cd8f21a44ed",
+    "recorded_utc": "2026-10-05T23:03:03.2661793Z",
+    "source_sha256": {
+      "crates/hookecho/src/app.rs": "9f0e899e987b1ef610ca5f3eec0ad57aa73d555a6373b065d45c01a9321ce0a0",
+      "crates/hookecho/src/app/chrome/dock/app_bar.rs": "81fbcf4d8df8a6c52e4acb0ff647884cb0d1b342760feeca889d44574c16de74",
+      "crates/hookecho/src/app/chrome/dock/layers.rs": "0a2e2807e0ddf93ebc0d10fb9b6f25b9144a2469213d4b8a71b4a1e1cba250c9",
+      "crates/hookecho/src/app/chrome/dock/phone.rs": "8f5e2a0435d528a5d168e7607c60626730de802f6f8be194833c78c29439d169",
+      "crates/hookecho/src/app/chrome/overlay.rs": "6bdd1fa0a4de425efd9e22d71c7f0cf8486e794021458dab8a63badc3666f0af",
+      "crates/hookecho/src/app/chrome/registry.rs": "106231229666d6a436a1aef6d54fb844b99e827980bc69f0d6f4060b2f1afcf0",
+      "crates/hookecho/src/app/construct.rs": "7aa8f1f8e3ea5aa20e3b2a545bab69e3811db54f196743a9efd4615fb233461f",
+      "crates/hookecho/src/app/draw_panes.rs": "a04f62586dd24ea74d92f57cc21c891bbc132cd4eb4b45a31c84e2804bff746f",
+      "crates/hookecho/src/app/floating_windows.rs": "a502adc1b0587b864b5a25325db172d5c7caf099cea0985b89ef3ff0d6d8430b",
+      "crates/hookecho/src/app/palette_apply.rs": "66d5ccb3f0a2ccdd19e9589756ec08ec8628101076f09a4de84becf6ea080c03",
+      "crates/hookecho/src/app/pane_input.rs": "c13609bca087d7954c59dbc52e2a4e605fcec6b4dec160e582b4e4d222b6fe88",
+      "crates/hookecho/src/app/workspace_apply.rs": "b05f123991c55908612fae2b5714f9dd13fc0381c9b827f691af0b91ab83fe64",
+      "crates/hookecho/src/lib.rs": "64ae34cbca7c62fcd4f1ec0de5df00b412be00f2dd6eb85f400a38a6c8433464",
+      "crates/hookecho/src/ui/cursor_probe.rs": "86c1054bd4bec6a8fb62e713472ba587d59b8a19ba4d3589b36179ba2f91a2ef",
+      "crates/hookecho/src/view.rs": "675ab325dbd454b012553bf0c7d03f197f234bbf1877b8f85f16220500bb54bf",
+      "crates/hookecho/src/workspace.rs": "2bdf0c015fa2381654b69ae9432a55f3d147a5c33f88bffe185729dd257c0540",
+      "crates/hookecho/src/pane_links.rs": "e8d27de0d9451b736c0a1e32d945dcdf516b2313f32248c46dabc61ab8527677",
+      "crates/hookecho/src/app/spatial_groups.rs": "68ddb697b391a5676972f76c0d5fb7086242892917864efaf5a8c39882000fa2"
+    },
+    "shared_worktree_sources": {
+      "crates/wxdata/src/lib.rs": "ee1d138b1c4f5084ecfdcc667e3e312b19b329413c0af9b0c26e644c1a816cc8",
+      "crates/wxdata/src/near_storm.rs": "5116ec4973c1cbbdc95ba66d8dba87cccd2b0308b73fb72b4530a4d1f3027161"
+    },
+    "final_revision_utc": "2026-10-05T23:10:58.897892+00:00",
+    "late_changes_requiring_workspace_refresh": [
+      "crates/hookecho/src/app/workspace_apply.rs",
+      "crates/hookecho/src/app/spatial_groups.rs"
+    ]
+  },
+  "owned_source_guard_changed": [],
+  "checks": {
+    "workspace": {
+      "command": "cargo test --workspace",
+      "exit_code": 0,
+      "log_path": "target/parity-review/spatial-groups/final/workspace.log",
+      "log_sha256": "d283605d58c52490ec51faee8c49ce45f606b0282a541952e6b3ac4b8c3c404d",
+      "exit_sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+      "totals": {
+        "passed": 2286,
+        "failed": 0,
+        "ignored": 148,
+        "suites": 29
+      }
+    },
+    "clippy": {
+      "command": "cargo clippy --workspace --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log_path": "target/parity-review/spatial-groups/final/clippy.log",
+      "log_sha256": "5f064f207f42bf59d0f030430cbe768db89fd2aaae7a395d5ad93336889b7e9f",
+      "exit_sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    "wasm": {
+      "command": "cargo check -p hookecho --lib --target wasm32-unknown-unknown",
+      "exit_code": 0,
+      "log_path": "target/parity-review/spatial-groups/final/wasm.log",
+      "log_sha256": "b25a00820a144f8e691819e90a10ffe4a3051231f1001401889c0c34aa095c7e",
+      "exit_sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    "gpu": {
+      "command": "cargo test -p hookecho --lib gpu_spatial_groups_controls -- --ignored --nocapture",
+      "exit_code": 0,
+      "log_path": "target/parity-review/spatial-groups/final/gpu.log",
+      "log_sha256": "763de39d77abb5004622b094414058a7f8af077c34eacd5a6a796472c322aef6",
+      "exit_sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+      "totals": {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0,
+        "suites": 1
+      },
+      "test_seconds": 2.75
+    }
+  },
+  "new_controls": {
+    "ordinary": 10,
+    "explicit_gpu": 1
+  },
+  "captures": [
+    {
+      "path": "target/parity-review/spatial-groups/ui/independent-240.png",
+      "png_file_sha256": "563a64af30677c2fe571acc678da1eed28a5b4a0724fb2bec3a85a13e4ddc893",
+      "visually_reviewed": true
+    },
+    {
+      "path": "target/parity-review/spatial-groups/ui/independent-320.png",
+      "png_file_sha256": "580a10322909692129464429531db470894396d33ce940fd962131fcca1060aa",
+      "visually_reviewed": true
+    },
+    {
+      "path": "target/parity-review/spatial-groups/ui/independent-640.png",
+      "png_file_sha256": "315c8264e4bc0e3387aeb038302826588e7a2b3185cfaf751d995643134b7c15",
+      "visually_reviewed": true
+    },
+    {
+      "path": "target/parity-review/spatial-groups/ui/mixed-240.png",
+      "png_file_sha256": "b6ae40a9dfd381a2df27e54420af41ce23062f4af807e423de4718b46d3a6253",
+      "visually_reviewed": true
+    },
+    {
+      "path": "target/parity-review/spatial-groups/ui/mixed-320.png",
+      "png_file_sha256": "5b16af791bff66c708f57ea9fb001073e3550d4f18ac19b360f456bb21f67b35",
+      "visually_reviewed": true
+    },
+    {
+      "path": "target/parity-review/spatial-groups/ui/mixed-640.png",
+      "png_file_sha256": "7cedd981235b4d67af7e43ee6877cc2b111ff4b03b04c01163dde87f9ffb6d7f",
+      "visually_reviewed": true
+    },
+    {
+      "path": "target/parity-review/spatial-groups/ui/probe-1000.png",
+      "png_file_sha256": "034a6b678b88507d5f0ea5f4ca7ff41d09ee9b049aeeb024f1e1d8b5f9aa8a69",
+      "visually_reviewed": true
+    },
+    {
+      "path": "target/parity-review/spatial-groups/ui/probe-240.png",
+      "png_file_sha256": "1eb45cd7043a1b3d5877c3c5857a6ae031fa6f07663ed286223b45c94cde955b",
+      "visually_reviewed": true
+    },
+    {
+      "path": "target/parity-review/spatial-groups/ui/probe-320.png",
+      "png_file_sha256": "35131813be7cdcaaed91804813ddaee8ffbabf7ba8a53bef904e370950c43d1a",
+      "visually_reviewed": true
+    }
+  ],
+  "visual_review": [
+    "Six production group pickers show independent and mixed memberships at 240/320 px touch and 640 px desktop widths. Native selectors retain their arrow and label, fit the host interior, and meet the 44 px touch-target assertion.",
+    "Three production cursor-probe bodies show only panes 1 and 3, their own source/product/time/value, and explicit Range folded text. Narrow 240/320 px rows wrap long provenance; the 1000 px table retains columns."
+  ],
+  "shared_worktree_at_completion": {
+    "crates/wxdata/src/lib.rs": "ee1d138b1c4f5084ecfdcc667e3e312b19b329413c0af9b0c26e644c1a816cc8",
+    "crates/wxdata/src/near_storm.rs": "5116ec4973c1cbbdc95ba66d8dba87cccd2b0308b73fb72b4530a4d1f3027161"
+  },
+  "shared_worktree_changed_during_checks": [],
+  "limitations": [
+    "Checks ran in a shared worktree containing Claude-owned wxdata changes. They were not staged or edited by this increment; no detector-methodology acceptance is claimed.",
+    "UI controls and sampled display fixtures are local verification, not a full application operator session or live provider acceptance.",
+    "Phone layout and minimum target controls do not certify physical touch-device interaction.",
+    "WASM compilation does not certify browser runtime. Existing PDB and WASM warnings remain in local logs.",
+    "Independent analysis-time groups, MRMS/GOES request/field/tile ownership and drivers, comparison/ensemble/contour contexts, global selected-storm links and full application sessions remain open.",
+    "Runtime cameras share center/zoom/pitch/bearing; the existing workspace camera format retains geographic center and zoom."
+  ]
+}

@@ -49,8 +49,8 @@ mod frame_end;
 mod frame_intake;
 mod gis_import;
 mod goto;
-mod models;
 mod model_groups;
+mod models;
 mod output_window;
 mod overlay_poll;
 mod overlay_toggle;
@@ -67,6 +67,7 @@ mod prefs_map;
 mod rebuild;
 mod route_frame;
 mod self_update_ui;
+mod spatial_groups;
 pub(crate) use goto::{goto_link, parse_goto, Goto};
 mod cell_markers;
 mod detector_markers;
@@ -107,8 +108,8 @@ pub(crate) use request_book::{
 mod terrain3d;
 mod yall_mode;
 use acquisition::OverlayAcquisition;
-mod model_context;
 mod model_cache;
+mod model_context;
 pub(crate) use field_state::{FieldState, MrmsRequest};
 use goes_timeline::nearest_goes;
 pub(crate) use model_context::ModelRequest;
@@ -1721,30 +1722,20 @@ pub struct HookEchoApp {
     /// Equal pane grid or AWIPS-style large-primary/detail-rail workspace geometry. Pane identity
     /// stays in `views` order; only its rectangle changes.
     pane_layout: crate::workspace::PaneLayout,
-    /// When true, all panes share the active pane's camera.
-    link_cameras: bool,
     link_times: bool,
     /// When linked, use the active radar scan's actual timestamp as the analysis cursor rather
     /// than retaining an external source's requested valid time.
     lock_source_time: bool,
-    /// ROADMAP_NEW J2: when true, `PaletteAction::SetSite` sets every pane's site, not just the
-    /// active one's — each pane keeps its own product/tilt, so four panes can compare products
-    /// of one storm instead of becoming four copies of the same pane.
-    link_site: bool,
-    /// ROADMAP_NEW J3: when true, hovering any pane records the geographic point under the cursor
-    /// here, so every pane can draw a matching crosshair and the probe table can sample all of
-    /// them at once — a shared cursor rather than each pane's own independent hover.
-    link_cursor: bool,
     /// ROADMAP_NEW J2: the selected storm (`cell_popup`) is shared by every pane — marked in each,
     /// and each recenters on it as it moves. See `paint_selected_storm`/`follow_linked_storm`.
     pub(crate) link_storm: bool,
     /// The selected storm's id and position the panes were last centered on, so the link moves
     /// them once per change rather than pinning them against the user's own panning.
     storm_link_at: Option<(String, f64, f64)>,
-    /// The point `link_cursor` is currently sharing across panes, refreshed every frame from
+    /// The owner and point its cursor group is sharing, refreshed every frame from
     /// whichever pane the mouse is actually over and cleared when the pointer leaves every pane.
     /// Not persisted — a live hover position, not a saved preference.
-    linked_probe: Option<(f64, f64)>,
+    linked_probe: Option<(usize, (f64, f64))>,
     linked_analysis: pane_time::LinkedTimeState,
     /// The always-on-top mini-loop window is open (desktop only; see `mini_loop_viewport`).
     mini_loop: bool,
@@ -3799,25 +3790,31 @@ impl HookEchoApp {
         self.storm_link_at = Some((cell.id.clone(), cell.lon, cell.lat));
     }
 
-    /// ROADMAP_NEW J3: while `link_cursor` is on and some pane is hovered, draw a matching
-    /// crosshair on every pane at the same geographic point and show the compact probe table.
+    /// Draw a shared geographic point and probe only the hovered pane's cursor group.
     /// The table samples each pane's top visible gridded layer or, when there is none, its radar
     /// moment; every row therefore describes what that pane is actually showing at the crosshair.
     fn paint_linked_cursor(&mut self, ui: &egui::Ui, rects: &[egui::Rect], solo: bool) {
-        if !self.link_cursor || solo || rects.len() < 2 {
+        if rects.len() < 2 {
             return;
         }
-        let Some((lon, lat)) = self.linked_probe else {
+        let Some((owner, (lon, lat))) = self.linked_probe else {
             return;
         };
+        let members = spatial_groups::cursor_members(&self.views, owner);
+        if members.len() < 2 {
+            return;
+        }
         let world = crate::render::mercator::lonlat_to_world(lon, lat);
         let color = egui::Color32::from_rgb(255, 214, 92);
         let mut rows = Vec::with_capacity(rects.len());
         for (idx, rect) in rects.iter().enumerate() {
+            if !members.contains(&idx) {
+                continue;
+            }
             let vp = (rect.width(), rect.height());
             let screen = self.views[idx].camera.world_to_screen(world, vp);
             let pos = egui::pos2(rect.left() + screen.0, rect.top() + screen.1);
-            if rect.contains(pos) {
+            if rect.contains(pos) && (!solo || idx == self.active) {
                 let painter = ui.painter_at(*rect);
                 painter.line_segment(
                     [pos - egui::vec2(9.0, 0.0), pos + egui::vec2(9.0, 0.0)],
@@ -4266,11 +4263,11 @@ impl HookEchoApp {
             T::Mping => &mut self.show_mping,
             T::Pireps => &mut self.show_pireps,
             T::Recon => &mut self.show_recon,
-            T::LinkCameras => &mut self.link_cameras,
+            T::LinkCameras => &mut self.views[self.active].spatial_links.camera.enabled,
             T::LinkTimes => &mut self.link_times,
             T::LockSourceTime => &mut self.lock_source_time,
-            T::LinkSite => &mut self.link_site,
-            T::LinkCursor => &mut self.link_cursor,
+            T::LinkSite => &mut self.views[self.active].spatial_links.site.enabled,
+            T::LinkCursor => &mut self.views[self.active].spatial_links.cursor.enabled,
             T::LinkStorm => &mut self.link_storm,
             T::MiniLoop => &mut self.mini_loop,
             T::Blockage => &mut self.show_blockage,
@@ -7006,7 +7003,7 @@ impl HookEchoApp {
             }
         }
         // Four heights of one storm only reads if all four look at the same place.
-        self.link_cameras = true;
+        self.link_all_cameras();
         self.link_times = true;
         self.pane_shown.clear();
     }
@@ -7037,7 +7034,7 @@ impl HookEchoApp {
             view.swipe_compare = false;
         }
         // Two panes of the same field only reads if both look at the same place.
-        self.link_cameras = true;
+        self.link_all_cameras();
     }
 
     /// How visible the wind layer should be in this pane: faded out past the zoom where the
@@ -8632,6 +8629,7 @@ impl HookEchoApp {
         crate::platform::form_factor::update(ctx.viewport_rect().size().min_elem());
 
         self.frame_intake(ctx);
+        spatial_groups::sync_sites(&mut self.views, self.active);
 
         self.drive_snapshot_push(ctx);
         self.drive_widget_snapshot(ctx);
