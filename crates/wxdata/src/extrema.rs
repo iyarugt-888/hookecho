@@ -216,6 +216,157 @@ where
     acc.map(|a| (a, restarted))
 }
 
+/// What a [`SlidingTrail`] covers as of a moment: the window asked for and what its frames span.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Coverage {
+    /// The window asked for, seconds.
+    pub requested_s: i64,
+    /// The oldest and newest frame inside it (seconds since the epoch).
+    pub from: i64,
+    pub to: i64,
+    pub frames: usize,
+    /// Frames the covered span should hold at the trail's own cadence (the median interval
+    /// between its frames) but does not: missed volumes.
+    pub missing: usize,
+    /// Seconds at the old end of the window with no frame at all: a history shorter than asked
+    /// for, which must not be shown as the full window.
+    pub short_s: i64,
+}
+
+/// A trail from a [`SlidingTrail`]: physical extrema, untouched by age.
+#[derive(Debug, Clone)]
+pub struct WindowTrail {
+    /// The extremum at every gate, as codes of the frames' own moment and range.
+    pub sweep: BinnedSweep,
+    /// The time (seconds since the epoch) of the frame that supplied each gate's value, the
+    /// newest when several tie; `None` where no frame held a measurement. Age is for display
+    /// opacity only, computed from this, never by changing a value.
+    pub contributor: Vec<Option<i64>>,
+    pub coverage: Coverage,
+}
+
+/// An exact sliding-window trail (ROADMAP_PARITY M3.4): the frames of the last `window_s`
+/// seconds are kept (at most `max_frames`, oldest dropped first), and the trail as of any moment
+/// is recomputed from those inside the window. So advancing past the strongest old frame removes
+/// its contribution, where the running accumulator ([`accumulate`] with [`decay`]) could only
+/// fade it by rewriting its values. Frames may arrive out of order (a backward seek, a late
+/// download): each is placed by time, and the same frames give the same trail in any order. A
+/// frame that does not share the beam with those held resets the trail to it, as [`trail`] does.
+#[derive(Debug, Clone)]
+pub struct SlidingTrail {
+    keep: Extremum,
+    window_s: i64,
+    max_frames: usize,
+    /// Held frames, oldest first, one per time.
+    frames: Vec<(i64, BinnedSweep)>,
+    /// Why the trail last restarted, for the layer's status line.
+    pub last_reset: Option<Mismatch>,
+}
+
+impl SlidingTrail {
+    pub fn new(keep: Extremum, window_s: i64, max_frames: usize) -> Self {
+        SlidingTrail {
+            keep,
+            window_s: window_s.max(0),
+            max_frames: max_frames.max(1),
+            frames: Vec::new(),
+            last_reset: None,
+        }
+    }
+
+    /// How many frames are held.
+    pub fn len(&self) -> usize {
+        self.frames.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.frames.is_empty()
+    }
+
+    /// Add the frame scanned at `time` (seconds since the epoch). A frame at a time already held
+    /// replaces it; one that does not describe the same beam resets the trail to it.
+    pub fn push(&mut self, time: i64, sweep: &BinnedSweep) -> Merge {
+        if let Some((_, held)) = self.frames.first() {
+            if let Some(why) = mismatch(held, sweep) {
+                self.frames.clear();
+                self.frames.push((time, start(sweep)));
+                self.last_reset = Some(why);
+                return Merge::Reset(why);
+            }
+        }
+        match self.frames.binary_search_by_key(&time, |(t, _)| *t) {
+            Ok(i) => self.frames[i].1 = start(sweep),
+            Err(i) => self.frames.insert(i, (time, start(sweep))),
+        }
+        // Bounded: frames older than the window behind the newest go, then the oldest past the cap.
+        let newest = self.frames.last().map_or(time, |f| f.0);
+        self.frames.retain(|(t, _)| *t >= newest - self.window_s);
+        let over = self.frames.len().saturating_sub(self.max_frames);
+        self.frames.drain(..over);
+        Merge::Merged
+    }
+
+    /// The trail as of `now`: the exact extremum over the held frames with
+    /// `now - window_s <= time <= now`, with each gate's contributing time and the coverage.
+    /// `None` when no frame falls in the window.
+    pub fn at(&self, now: i64) -> Option<WindowTrail> {
+        let inside: Vec<&(i64, BinnedSweep)> = self
+            .frames
+            .iter()
+            .filter(|(t, _)| *t <= now && *t >= now - self.window_s)
+            .collect();
+        let (first_t, first) = inside.first().map(|f| (f.0, &f.1))?;
+        let mut sweep = start(first);
+        let mut contributor: Vec<Option<i64>> = first
+            .data
+            .iter()
+            .map(|&c| (c >= FIRST_VALUE_CODE).then_some(first_t))
+            .collect();
+        for (t, frame) in &inside[1..] {
+            for ((slot, who), &code) in sweep
+                .data
+                .iter_mut()
+                .zip(contributor.iter_mut())
+                .zip(frame.data.iter())
+            {
+                if code < FIRST_VALUE_CODE {
+                    continue;
+                }
+                let better = *slot < FIRST_VALUE_CODE
+                    || match self.keep {
+                        Extremum::Max => code >= *slot,
+                        Extremum::Min => code <= *slot,
+                    };
+                if better {
+                    *slot = code;
+                    *who = Some(*t);
+                }
+            }
+        }
+        let to = inside.last().map_or(first_t, |f| f.0);
+        let mut steps: Vec<i64> = inside.windows(2).map(|w| w[1].0 - w[0].0).collect();
+        steps.sort_unstable();
+        let cadence = steps.get(steps.len() / 2).copied().filter(|c| *c > 0);
+        let missing = cadence.map_or(0, |c| {
+            let expected = ((to - first_t) as f64 / c as f64).round() as usize + 1;
+            expected.saturating_sub(inside.len())
+        });
+        let short_s = (first_t - (now - self.window_s) - cadence.unwrap_or(0)).max(0);
+        Some(WindowTrail {
+            sweep,
+            contributor,
+            coverage: Coverage {
+                requested_s: self.window_s,
+                from: first_t,
+                to,
+                frames: inside.len(),
+                missing,
+                short_s,
+            },
+        })
+    }
+}
+
 /// Whether `sweep` describes the same beam as `acc`, and if not, the first reason it does not.
 fn mismatch(acc: &BinnedSweep, sweep: &BinnedSweep) -> Option<Mismatch> {
     if acc.moment != sweep.moment {
@@ -494,5 +645,123 @@ mod tests {
     fn an_empty_window_is_none_not_a_blank_raster() {
         let empty: [&BinnedSweep; 0] = [];
         assert!(trail(empty, Extremum::Max).is_none());
+    }
+
+    /// A frame whose gates are `codes(gate)`.
+    fn frame(f: impl Fn(usize) -> u8) -> BinnedSweep {
+        sweep(
+            Moment::Reflectivity,
+            &(0..AZ * GATES).map(f).collect::<Vec<_>>(),
+        )
+    }
+
+    #[test]
+    fn a_sliding_trail_is_the_exact_extremum_of_the_frames_in_its_window() {
+        // Pseudo-random frames, sentinels included, checked gate by gate against brute force.
+        let mut seed = 12345u64;
+        let mut rnd = move || {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            (seed >> 33) as u8
+        };
+        let frames: Vec<(i64, BinnedSweep)> = (0..12)
+            .map(|k| {
+                let codes: Vec<u8> = (0..AZ * GATES).map(|_| rnd()).collect();
+                (1_000 + 300 * k as i64, frame(|i| codes[i]))
+            })
+            .collect();
+        for keep in [Extremum::Max, Extremum::Min] {
+            let mut t = SlidingTrail::new(keep, 1_800, 64);
+            // As it runs live: each frame arrives and the trail is read as of it.
+            for (time, f) in &frames {
+                t.push(*time, f);
+                let now = *time;
+                let got = t.at(now).expect("frames in the window");
+                let inside: Vec<&(i64, BinnedSweep)> = frames
+                    .iter()
+                    .filter(|(ft, _)| *ft <= now && *ft >= now - 1_800)
+                    .collect();
+                for g in 0..AZ * GATES {
+                    let real: Vec<(i64, u8)> = inside
+                        .iter()
+                        .map(|(ft, f)| (*ft, f.data[g]))
+                        .filter(|(_, c)| *c >= 2)
+                        .collect();
+                    let want = match keep {
+                        Extremum::Max => real.iter().map(|x| x.1).max(),
+                        Extremum::Min => real.iter().map(|x| x.1).min(),
+                    };
+                    match want {
+                        Some(v) => {
+                            assert_eq!(got.sweep.data[g], v, "{keep:?} gate {g} at {now}");
+                            let newest = real.iter().filter(|x| x.1 == v).map(|x| x.0).max();
+                            assert_eq!(got.contributor[g], newest);
+                        }
+                        None => assert!(got.sweep.data[g] < 2 && got.contributor[g].is_none()),
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn advancing_past_the_strongest_old_frame_removes_it() {
+        let mut t = SlidingTrail::new(Extremum::Max, 600, 16);
+        t.push(0, &frame(|_| 200));
+        t.push(300, &frame(|_| 100));
+        t.push(600, &frame(|_| 90));
+        assert_eq!(t.at(600).unwrap().sweep.data[0], 200);
+        // At 900 the 0 s frame is out of the window: its 200 is gone, not faded.
+        t.push(900, &frame(|_| 80));
+        let later = t.at(900).unwrap();
+        assert_eq!(later.sweep.data[0], 100);
+        assert_eq!(later.contributor[0], Some(300));
+        assert_eq!(later.coverage.from, 300);
+    }
+
+    #[test]
+    fn the_same_frames_in_any_order_give_the_same_trail() {
+        let frames: Vec<(i64, BinnedSweep)> = (0..5)
+            .map(|k| (300 * k, frame(move |i| (10 * k as usize + i) as u8 + 2)))
+            .collect();
+        let mut ordered = SlidingTrail::new(Extremum::Max, 3_600, 16);
+        for (t, f) in &frames {
+            ordered.push(*t, f);
+        }
+        let mut shuffled = SlidingTrail::new(Extremum::Max, 3_600, 16);
+        for &k in &[3, 0, 4, 1, 2, 4] {
+            shuffled.push(frames[k].0, &frames[k].1);
+        }
+        let (a, b) = (ordered.at(1_200).unwrap(), shuffled.at(1_200).unwrap());
+        assert_eq!(a.sweep.data, b.sweep.data);
+        assert_eq!(a.contributor, b.contributor);
+        assert_eq!(a.coverage, b.coverage);
+    }
+
+    #[test]
+    fn coverage_says_what_is_missing_and_a_short_history_is_not_the_full_window() {
+        let mut t = SlidingTrail::new(Extremum::Max, 3_600, 64);
+        // Every 300 s from 2400 to 3600, the 3000 s volume missing.
+        for time in [2_400, 2_700, 3_300, 3_600] {
+            t.push(time, &frame(|_| 50));
+        }
+        let c = t.at(3_600).unwrap().coverage;
+        assert_eq!((c.from, c.to, c.frames, c.missing), (2_400, 3_600, 4, 1));
+        assert_eq!(c.requested_s, 3_600);
+        assert!(c.short_s > 0, "an hour asked for, 20 minutes held: {c:?}");
+    }
+
+    #[test]
+    fn a_sliding_trail_stays_bounded_and_resets_on_another_beam() {
+        let mut t = SlidingTrail::new(Extremum::Max, 100_000, 3);
+        for k in 0..6 {
+            t.push(300 * k, &frame(|_| 10));
+        }
+        assert_eq!(t.len(), 3, "the oldest go past the cap");
+        let velocity = sweep(Moment::Velocity, &[50; AZ * GATES]);
+        assert_eq!(t.push(3_000, &velocity), Merge::Reset(Mismatch::Moment));
+        assert_eq!(t.len(), 1);
+        assert_eq!(t.last_reset, Some(Mismatch::Moment));
     }
 }

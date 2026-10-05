@@ -798,7 +798,7 @@ Remaining open:
 
 #### M3.4 — Preserve physical extrema while aging trails
 
-**Priority:** P1. **Depends on:** M0.3, M1.4, M3.3. **Original references:** ROADMAP_NEW §C2; ROADMAP_2 §§8, 15.2.
+**Priority:** P1. **Depends on:** M0.3, M1.4, M3.3. **Status:** implementation: in progress (exact sliding-window trail with contributor times); verification: partial. **Original references:** ROADMAP_NEW §C2; ROADMAP_2 §§8, 15.2.
 
 - **Starting evidence:** polar extrema, code-changing decay, cached-window rebuilding, threshold outlines, and trail raster export.
 - **Outcome/build:** retain physical extrema separately from contributing time/coverage and age opacity. Support exact expiring windows with bounded frame storage and reusable/block summaries; rebuild deterministically on backward seek or incompatible geometry. Add user-column and MRMS MESH/AzShear trails using their own native grid identity.
@@ -808,6 +808,8 @@ Remaining open:
 - **Proof:** brute-force reference extrema comparisons, expiry/coverage fixtures, and independently recomputed historic hail/rotation trails.
 
 **Agent prompt:** `Implement M3.4 using section 6. Separate extrema from age opacity, implement truthful sliding windows, and extend trails to user-column/MRMS fields.`
+
+**Evidence ledger — 2026-10-05, increment 1 (domain seam):** [`extrema::SlidingTrail`](crates/wxdata/src/extrema.rs) keeps the frames of the last window behind its newest (at most a capped count, oldest dropped first) and recomputes the trail as of any moment from those inside the window, so advancing past the strongest old frame removes its contribution instead of fading it by rewriting values ([`decay`](crates/wxdata/src/extrema.rs), which this replaces once wired). Each gate carries the time of the frame that supplied it (the newest on a tie), for age as display opacity only. Coverage reports the requested window, the span actually held, missed volumes at the trail's own cadence, and the seconds at the old end with no frame, so a short history is not presented as the full window. Frames are placed by time, so out-of-order and backward input give the same trail; a frame at a held time replaces it; another moment, value range, geometry, elevation or site resets the trail with its reason, as the existing accumulator does, and sentinels never win. Tests (5) check it gate by gate against brute-force extrema over pseudo-random frames with sentinels after every frame for Max and Min trails, expiry of the strongest old frame, order independence, coverage with a missing volume and a short history, the frame cap and a reset on another moment; wxdata Clippy and the WASM library check passed. Not yet wired to the chase trail layer (still the running accumulator with decay); user-column and MRMS grid trails and the fade-setting migration remain.
 
 #### M3.5 — Add translucent volume rendering and richer surfaces
 
