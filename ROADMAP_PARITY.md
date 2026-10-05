@@ -848,7 +848,7 @@ Remaining open:
 
 #### M4.2 — Complete native imports with shapefile bundles
 
-**Priority:** P1. **Depends on:** M0.3, M4.1. **Original references:** ROADMAP_NEW §§I1, I2, I3, Q1; ROADMAP_2 §5.1.
+**Priority:** P1. **Depends on:** M0.3, M4.1. **Status:** implementation: in progress (zipped bundles; whole-bundle and stored-entry bounds); verification: partial. **Original references:** ROADMAP_NEW §§I1, I2, I3, Q1; ROADMAP_2 §5.1.
 
 - **Starting evidence:** shapefile geometry/DBF parsing, `.prj` projection handling, KMZ bounded ZIP decoding, platform file handover, and current sidecar omission.
 - **Outcome/build:** accept ZIP shapefile bundles with `.shp`, `.dbf`, optional `.shx`, `.prj`, and `.cpg`. Match sidecars case-insensitively by basename. For multiple datasets, show a dataset picker. Preserve content in app-managed Android storage so a temporary picker URI is not the long-term source.
@@ -858,6 +858,10 @@ Remaining open:
 - **Proof:** attributed real-world fixtures, archive/parser adversarial checks, and complete Android picker/import walkthrough.
 
 **Agent prompt:** `Implement M4.2 using section 6. Reuse existing GIS decoders to import complete shapefile bundles on Android and desktop, preserving CRS and attributes.`
+
+**Evidence ledger — 2026-10-01, increment 1 (`770a881`):** a `.zip` brings a shapefile in with its sidecars, the way a phone or browser picker can hand over one file. [`shapefile::parse_zip`](crates/wxdata/src/shapefile.rs) matches `.dbf`, `.prj` and `.cpg` to each `.shp` by path and name, case-insensitively; macOS resource forks are ignored; case-twin sidecars, a zip with no shapes and a broken dataset are refused by name. UTF-8, Windows-1252 and Latin-1 `.cpg` declarations are honoured and others reported. Several datasets import together as one layer with a note naming them (a per-dataset picker belongs with M4.1's collection). The KMZ reader's archive code moved to the shared bounded [`wxdata::zip`](crates/wxdata/src/zip.rs) (stored and deflated only; Zip64, encryption and other methods refused by name).
+
+**Evidence ledger — 2026-10-05, increment 2 (`d7228b1`):** bounded expansion for the bundle as a whole. The per-file (512 MB) and per-bundle (256 datasets) caps still let one small zip expand to many gigabytes; `parse_zip` now holds everything a bundle inflates to under 1 GiB, refused up front from the declared sizes and again while inflating, since a declared size is only the archive's word. `zip::read` checked a stored entry only by its declared size and returned whatever it held; it now checks the bytes themselves, as deflated entries already were. Tests construct both lies (understated central-directory sizes, stored and deflated). Windows wxdata zip/shapefile tests (33), app GIS tests (52), wxdata Clippy and the WASM library check passed on the shared tree at `9b8c4ef`; Codex's concurrent model-pane work was preserved outside the commit. Open: a dataset picker (with M4.1), app-managed Android storage of picked files, real Census county/place and emergency-asset fixtures checked against independent GIS coordinates, and an Android picker/import walkthrough.
 
 #### M4.3 — Finish styling, feature inspection, and filtering
 
