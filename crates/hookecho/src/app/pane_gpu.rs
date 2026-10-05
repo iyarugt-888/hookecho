@@ -215,9 +215,16 @@ impl HookEchoApp {
             }
         }
         let field_uploads: Vec<(crate::render::FieldLayer, crate::render::MrmsUpload)> = if first {
+            let requests: std::collections::HashMap<_, _> = model_context::MODEL_LAYERS
+                .into_iter()
+                .filter_map(|layer| {
+                    self.selected_model_request(layer)
+                        .map(|request| (layer, request))
+                })
+                .collect();
             self.fields
                 .iter_mut()
-                .filter_map(|(k, s)| s.pending.take().map(|u| (*k, u)))
+                .filter_map(|(k, s)| s.take_upload(requests.get(k).copied()).map(|u| (*k, u)))
                 .collect()
         } else {
             Vec::new()

@@ -8,13 +8,33 @@ impl HookEchoApp {
         crate::prof_scope!("poll_overlays");
         let mut changed = false;
         while let Ok(delivery) = self.overlay_rx.try_recv() {
+            let mut model_context = None;
             let msg = match delivery {
                 OverlayDelivery::Immediate(msg) => msg,
                 OverlayDelivery::Fetched {
                     lane,
                     generation,
-                    result,
+                    model_request,
+                    mut result,
                 } => {
+                    if let Some(request) = model_request {
+                        if !request.current(
+                            self.selected_model_request(request.layer()),
+                            self.fields
+                                .get(&request.layer())
+                                .and_then(|state| state.model_requested),
+                        ) {
+                            self.acquisition.discard(&lane, generation);
+                            continue;
+                        }
+                        if result
+                            .as_ref()
+                            .is_ok_and(|msg| !request.accepts_message(msg))
+                        {
+                            result = Err("Model reply does not match its requested source, product, run and lead".into());
+                        }
+                        model_context = Some(request);
+                    }
                     if let Ok(OverlayMsg::DerivedFields(delivery)) = &result {
                         if !self.derived_key_current(&delivery.key) {
                             self.acquisition.discard(&lane, generation);
@@ -215,7 +235,14 @@ impl HookEchoApp {
                     self.glm_fed_last = None;
                 }
                 OverlayMsg::StampedField(layer, field) => {
-                    self.accept_field(layer, field.data, Some(field.stamp));
+                    if let Some(request) = model_context {
+                        let upload = self.field_upload(layer, &field.data);
+                        if let Some(state) = self.fields.get_mut(&layer) {
+                            state.stage_model(request, field, upload);
+                        }
+                    } else if self.selected_model_request(layer).is_none() {
+                        self.accept_field(layer, field.data, Some(field.stamp));
+                    }
                 }
                 OverlayMsg::DerivedFields(delivery) => self.accept_derived_fields(*delivery),
                 OverlayMsg::MrmsField(layer, field, request) => {
@@ -318,27 +345,6 @@ impl HookEchoApp {
                 OverlayMsg::ProbSevere(f) => {
                     self.evaluate_probsevere_rules(&f);
                     self.probsevere = f;
-                }
-                OverlayMsg::Hrrr(fc) => {
-                    use crate::render::FieldLayer;
-                    let run = fc.run;
-                    let valid = fc.valid();
-                    let upload = self.field_upload(FieldLayer::Hrrr, &fc.field);
-                    let source = self.refl_source_label();
-                    let stamp = field_state::model_stamp(
-                        &source,
-                        "Composite reflectivity",
-                        &fc.field,
-                        Some(run),
-                        false,
-                    );
-                    if let Some(s) = self.fields.get_mut(&FieldLayer::Hrrr) {
-                        s.pending = Some(upload);
-                        s.grid = Some(fc.field);
-                        s.stamp = Some(stamp);
-                    }
-                    self.hrrr_run = Some(run);
-                    self.hrrr_valid = Some(valid);
                 }
                 OverlayMsg::Obs(site, res) => {
                     // Keep only if still the active site.

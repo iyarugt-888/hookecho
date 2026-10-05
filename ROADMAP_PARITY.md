@@ -917,6 +917,36 @@ at desktop/phone widths, including loaded-clock wrapping. The manifest retains t
 hashes and capture/log hashes. Full application/provider sessions, browser runtime, physical
 devices and independent model/run groups remain open; detection work remains with Claude.
 
+**Context increment — 2026-10-04, request-owned model fields (partial):** all 21 ordinary
+regional, global and RTMA/URMA layers carry their original source/product/run/lead and relevant
+CAPE/SRH variants from scheduling through delivery. Provider metadata is stamped at fetch;
+regional reflectivity no longer obtains its source from a later picker. Obsolete replies,
+including failures, are discarded before source-health accounting; current replies must match
+their requested provenance and decoded grid clock. Selection changes clear pending uploads
+and reset that lane's health history while keeping generation numbers monotonic.
+
+Drawing, probing, grid export, loaded-clock labels and forecast playback require the accepted
+field's exact selected context. One previous grid/stamp is retained for explicit historical
+Source details while a different selection is unavailable; it cannot become that selection's
+cache. Same-context retry failures keep usable data. Latest-cycle health reports the resident
+field's actual time rather than a previously seen maximum. The scheduler now recognizes CAPE
+parcel and SRH depth changes immediately. Reflectivity retains its existing ten-minute fetch
+cadence and reports the same cadence in health.
+
+**Verification:** Windows workspace tests passed **2,237 tests**, zero failures and 145
+explicitly ignored checks across 28 suites. Nine request-context controls, strict Clippy and
+WASM compilation passed. The explicit production Sources-row GPU control passed in 4.56
+seconds; eight 240/300 px captures were reviewed. The retained manifest pins twenty source
+hashes, all check/log hashes, and four committed diagnostics fixtures. This is local control
+and layout evidence; full application/provider/group sessions and physical devices remain open.
+
+See [implementation and evidence](docs/certification/model-context.md). Independent groups,
+per-pane model controls, context-keyed shared textures/cache entries, comparison/ensemble and
+contour ownership, and MRMS/GOES group drivers remain open. This is a prerequisite for M5.1's
+multi-group workflow, not acceptance of that parent card. Next: introduce explicit pane/group
+model state and renderer resource ownership together, then migration/race controls and a
+simultaneous live/archive/different-run operator session. Tornado detection stays with Claude.
+
 #### M5.2 — Add satellite-native one-minute playback
 
 **Priority:** P1. **Depends on:** M0.3, M1.4, M5.1. **Original references:** ROADMAP_NEW §§E1, E4, E5, E7; ROADMAP_2 §§10, 14.

@@ -60,3 +60,8 @@ For WASM use `CARGO_INCREMENTAL=0`, `RUSTFLAGS=--cfg getrandom_backend="wasm_js"
 Independent model/run groups, upstream request-result context isolation, unsupported additional
 model products, real-provider playback sessions, and physical-device certification remain open.
 Tornado detection is outside this increment.
+
+
+Subsequent context work is recorded in [request-owned model fields](model-context.md).
+The ordinary model reply admission and loaded-field gates now use complete request identity;
+independent groups and the other remaining certification work above stay open.

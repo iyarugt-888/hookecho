@@ -113,7 +113,7 @@ impl HookEchoApp {
     }
 
     pub(crate) fn mrms_ready(&self, layer: crate::render::FieldLayer) -> bool {
-        if !self.radar_field_ready(self.active, layer) {
+        if !self.model_field_ready(layer) || !self.radar_field_ready(self.active, layer) {
             return false;
         }
         // GOES layers follow the view's time the same way (ROADMAP_NEW A2/E7).

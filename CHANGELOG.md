@@ -8,6 +8,21 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: model replies retain their requested source and time
+
+Forecast and analysis fields now carry the exact model, product, run and lead requested.
+CAPE parcel and SRH depth changes refetch immediately. Late successes and failures from a
+previous selection cannot update the new selection's field or source health, even before
+its replacement download starts. Regional reflectivity records the model that supplied it.
+
+While another selection loads, the prior field is hidden from the map, probes, grid exports,
+loaded-time labels and playback readiness. Sources explicitly dates that previous field;
+its cache and health history cannot become the new request's history. Same-selection failed
+refreshes retain their usable field. Following latest displays the actual accepted run's
+clock, including an older available cycle. Reflectivity health uses its actual ten-minute
+refresh cadence. Independent pane groups remain in progress.
+
+
 ### Added: declared radar upstream dependencies in Sources
 
 Radar source details and exported diagnostics now show the primary and relay's declared

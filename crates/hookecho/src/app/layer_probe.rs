@@ -246,6 +246,7 @@ impl HookEchoApp {
             line.stamp = self
                 .fields
                 .get(&layer)
+                .filter(|_| self.model_field_ready(layer))
                 .and_then(|state| state.stamp.clone());
             line.field = Some(layer);
             out.push(line);
@@ -614,7 +615,10 @@ impl HookEchoApp {
             };
         }
 
-        let state = self.fields.get(&layer);
+        let state = self
+            .fields
+            .get(&layer)
+            .filter(|_| self.model_field_ready(layer));
         let grid = state.and_then(|field| field.grid.as_ref());
         crate::ui::cursor_probe::ProbeRow {
             pane: idx,

@@ -270,97 +270,7 @@ impl HookEchoApp {
                 self.spawn_overlay(ctx, OverlaySource::Ndfd(layer));
             }
         }
-        // RTMA analysis: a new hour posts about 45 minutes after it. Naming an analysis hour in the
-        // browser refetches at once; the pin only applies while RTMA is the selected model, so a
-        // run picked for the HRRR is never read as an analysis hour.
-        for layer in [
-            FL::RtmaTemp2m,
-            FL::RtmaDewpoint2m,
-            FL::RtmaWind10m,
-            FL::RtmaGust10m,
-            FL::RtmaVisibility,
-            FL::RtmaCeiling,
-            FL::RtmaMslp,
-            FL::RtmaPrecip1h,
-        ] {
-            let hour = if self.model_sel.model == crate::model_browser::BModel::Rtma {
-                self.model_run
-            } else {
-                None
-            };
-            let on = self.field_wanted(layer);
-            let changed = on && self.rtma_key.get(&layer) != Some(&hour);
-            let stale = on
-                && self.fields.get(&layer).is_none_or(|s| {
-                    s.last_fetch
-                        .is_none_or(|t| t.elapsed().as_secs() >= field_refresh_secs(layer))
-                });
-            if stale || changed {
-                self.fields.entry(layer).or_default().last_fetch = Some(Instant::now());
-                self.rtma_key.insert(layer, hour);
-                self.spawn_overlay(ctx, OverlaySource::Rtma(layer, hour));
-            }
-        }
-        // Environment suite (CAPE/SRH): the model browser's model at the scrubbed forecast hour.
-        // Changing the model or the hour refetches now rather than on the slow cadence.
-        for layer in [FL::Cape, FL::Srh] {
-            let run = self.pinned_regional_run(self.env_model);
-            let key = (self.env_model, self.hrrr_fcst_hour, run);
-            let changed = self.field_wanted(layer) && self.env_fetch_key.get(&layer) != Some(&key);
-            let stale = self.field_wanted(layer)
-                && self.fields.get(&layer).is_none_or(|s| {
-                    s.last_fetch
-                        .is_none_or(|t| t.elapsed().as_secs() >= field_refresh_secs(layer))
-                });
-            if stale || changed {
-                if let Some(s) = self.fields.get_mut(&layer) {
-                    s.last_fetch = Some(Instant::now());
-                }
-                self.env_fetch_key.insert(layer, key);
-                self.spawn_overlay(
-                    ctx,
-                    OverlaySource::Env(
-                        layer,
-                        self.env_model,
-                        self.env_cape_ml,
-                        self.env_srh_km,
-                        self.hrrr_fcst_hour,
-                        run,
-                    ),
-                );
-            }
-        }
-        // Global models: whichever source and forecast hour the user picked.
-        for (layer, gfield) in [
-            (FL::GlobalMslp, wxdata::global::GlobalField::Mslp),
-            (FL::GlobalHeight500, wxdata::global::GlobalField::Height500),
-            (FL::GlobalTemp2m, wxdata::global::GlobalField::Temp2m),
-            (
-                FL::GlobalDewpoint2m,
-                wxdata::global::GlobalField::Dewpoint2m,
-            ),
-            (FL::GlobalWind10m, wxdata::global::GlobalField::Wind10m),
-            (FL::GlobalPrecip, wxdata::global::GlobalField::Precip),
-        ] {
-            let fh = self.global_fcst_hour;
-            let model = self.global_model;
-            let on = self.field_wanted(layer);
-            let stale = on
-                && self.fields.get(&layer).is_some_and(|s| {
-                    s.last_fetch
-                        .is_none_or(|t| t.elapsed().as_secs() >= field_refresh_secs(layer))
-                });
-            // Changing the source or the hour has to refetch now, not on the next slow cadence.
-            let run = self.pinned_global_run();
-            let changed = on && self.global_layer_key.get(&layer) != Some(&(model, fh, run));
-            if stale || changed {
-                if let Some(s) = self.fields.get_mut(&layer) {
-                    s.last_fetch = Some(Instant::now());
-                }
-                self.global_layer_key.insert(layer, (model, fh, run));
-                self.spawn_overlay(ctx, OverlaySource::Global(layer, model, gfield, fh, run));
-            }
-        }
+        self.schedule_model_fields(ctx);
         // Model difference: same cadence as a global layer, and the same refetch-on-change rule.
         {
             let layer = FL::ModelDiff;
@@ -482,36 +392,6 @@ impl HookEchoApp {
                 }
                 self.compare_key = Some((self.diff_field, fh));
                 self.spawn_overlay(ctx, OverlaySource::Compare(self.diff_field, fh));
-            }
-        }
-        // HRRR rotation tracks + smoke: same forecast-hour scrub as future radar, own cadences.
-        for layer in [
-            FL::UpdraftHelicity,
-            FL::Smoke,
-            FL::Snowfall,
-            FL::ThunderProb,
-        ] {
-            let fh = self.hrrr_fcst_hour;
-            let stale = self.field_wanted(layer)
-                && self.fields.get(&layer).is_none_or(|s| {
-                    s.last_fetch
-                        .is_none_or(|t| t.elapsed().as_secs() >= field_refresh_secs(layer))
-                });
-            // Scrubbing the forecast tail must refetch immediately, not wait out the cadence.
-            // Naming a different run counts as a change for the same reason.
-            let run = self.pinned_regional_run(if layer == FL::ThunderProb {
-                wxdata::hrrr::Model::Nbm
-            } else {
-                wxdata::hrrr::Model::Hrrr
-            });
-            let hour_changed =
-                self.field_wanted(layer) && self.hrrr_layer_hour.get(&layer) != Some(&(fh, run));
-            if stale || hour_changed {
-                if let Some(s) = self.fields.get_mut(&layer) {
-                    s.last_fetch = Some(Instant::now());
-                }
-                self.hrrr_layer_hour.insert(layer, (fh, run));
-                self.spawn_overlay(ctx, OverlaySource::HrrrLayer(layer, fh, run));
             }
         }
         // Quiet hours just ended: replay what it held back as one push, so waking up to a silent
@@ -781,37 +661,6 @@ impl HookEchoApp {
         {
             self.l3grid_site = l3_site;
         }
-        // Forecast reflectivity: fetch when enabled and the model, forecast hour or run changed
-        // (~10-min throttle; a new run posts hourly).
-        let hrrr_on = self.field_wanted(FL::Hrrr);
-        if hrrr_on {
-            let stale = self
-                .hrrr_last_fetch
-                .is_none_or(|t| t.elapsed().as_secs() >= 600);
-            // Sub-hourly and hourly are the same layer on one lane; the selected lead is the
-            // 15-minute value in sub-hourly mode and the whole-hour value otherwise. Switching
-            // modes counts as a change so the tail refetches at the new resolution.
-            let run = self.pinned_regional_run(self.refl_model);
-            let model_changed = self.hrrr_fetched_key != Some((self.refl_model, run));
-            let (changed, source) = if self.hrrr_subhourly {
-                (
-                    model_changed || self.hrrr_fetched_min != Some(self.hrrr_fcst_min),
-                    OverlaySource::HrrrSub(self.hrrr_fcst_min, run),
-                )
-            } else {
-                (
-                    model_changed || self.hrrr_fetched_hour != Some(self.hrrr_fcst_hour),
-                    OverlaySource::Hrrr(self.refl_model, self.hrrr_fcst_hour, run),
-                )
-            };
-            if changed || stale {
-                self.hrrr_fetched_key = Some((self.refl_model, run));
-                self.hrrr_fetched_hour = Some(self.hrrr_fcst_hour);
-                self.hrrr_fetched_min = Some(self.hrrr_fcst_min);
-                self.hrrr_last_fetch = Some(Instant::now());
-                self.spawn_overlay(ctx, source);
-            }
-        }
         // Live LSR refresh (~2-min cadence; the IEM feed is minutes-fresh).
         // The reports layer, or a detector that confirms itself against them.
         if (self.show_storm_reports || self.filters.show_tornado_id)
@@ -914,7 +763,7 @@ pub(crate) fn field_refresh_secs(layer: crate::render::FieldLayer) -> u64 {
     use crate::render::FieldLayer as FL;
     match layer {
         FL::Lightning | FL::AzShear => 60,
-        FL::Mrms | FL::Mesh | FL::Rotation | FL::RotationMidLevel | FL::Hrrr | FL::Mosaic => 120,
+        FL::Mrms | FL::Mesh | FL::Rotation | FL::RotationMidLevel | FL::Mosaic => 120,
         // Same MRMS product cadence as MESH/rotation above.
         FL::Posh
         | FL::Shi
@@ -948,7 +797,7 @@ pub(crate) fn field_refresh_secs(layer: crate::render::FieldLayer) -> u64 {
         | FL::Hca => 120,
         // Bands are cut from the ~2-min mosaic, so they are as fresh as it is.
         FL::SnowBands => 120,
-        FL::UpdraftHelicity => 600,
+        FL::Hrrr | FL::UpdraftHelicity => 600,
         // Snowfall accumulates over a whole model run; it moves as slowly as the run does.
         FL::Snowfall => 600,
         // The analysis is reissued four times a day; half an hour is plenty.

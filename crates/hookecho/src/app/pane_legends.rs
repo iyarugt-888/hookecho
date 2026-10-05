@@ -174,7 +174,10 @@ impl HookEchoApp {
         let view = &self.views[idx];
         if idx == self.active && view.fields_on.contains(&crate::render::FieldLayer::Hrrr) {
             let valid = self
-                .hrrr_valid
+                .fields
+                .get(&crate::render::FieldLayer::Hrrr)
+                .filter(|_| self.model_field_ready(crate::render::FieldLayer::Hrrr))
+                .and_then(|state| state.stamp.as_ref().map(|stamp| stamp.valid_time))
                 .map(|v| crate::timefmt::fmt_date_clock(v, self.active_tz()))
                 .unwrap_or_else(|| "loading…".to_string());
             let lead_min = if self.hrrr_subhourly {

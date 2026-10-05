@@ -279,7 +279,13 @@ const NAV_ROWS: [(crate::app::NavStep, &str, &str, bool); 9] = {
 
 impl HookEchoApp {
     pub(crate) fn request_health(&self, lane: RequestLane) -> SourceHealth {
-        self.acquisition.health(&lane)
+        let health = self.acquisition.health(&lane);
+        if let RequestLane::Field(layer) = lane {
+            if let Some(request) = self.selected_model_request(layer) {
+                return model_context::model_health(request, self.fields.get(&layer), health);
+            }
+        }
+        health
     }
 
     pub(in crate::app) fn radar_health(&self) -> SourceHealth {

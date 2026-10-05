@@ -85,9 +85,72 @@ pub(crate) struct FieldState {
     /// Exact local radar contributors represented by the resident texture.
     pub radar: Option<std::sync::Arc<super::radar_products::RadarMetadata>>,
     mrms_request: Option<MrmsRequest>,
+    pub(super) model_requested: Option<super::ModelRequest>,
+    pub(super) model_accepted: Option<super::ModelRequest>,
 }
 
 impl FieldState {
+    pub(super) fn model_due(
+        &self,
+        request: super::ModelRequest,
+        cadence: std::time::Duration,
+        now: Instant,
+    ) -> bool {
+        self.model_requested != Some(request)
+            || self
+                .last_fetch
+                .is_none_or(|last| now.saturating_duration_since(last) >= cadence)
+    }
+
+    pub(super) fn begin_model(&mut self, request: super::ModelRequest, now: Instant) -> bool {
+        let changed = self.model_requested != Some(request);
+        if changed {
+            self.pending = None;
+            self.model_accepted = None;
+            self.model_requested = Some(request);
+        }
+        self.last_fetch = Some(now);
+        changed
+    }
+
+    pub(super) fn model_ready(&self, request: super::ModelRequest) -> bool {
+        self.model_requested == Some(request)
+            && self.model_accepted == Some(request)
+            && self.grid.is_some()
+            && self
+                .stamp
+                .as_ref()
+                .is_some_and(|stamp| request.accepts(stamp))
+    }
+
+    /// A hidden old context can retain its bounded queued upload. Only an exact selected
+    /// context may consume it; beginning a replacement request clears it and its admission.
+    pub(super) fn take_upload(
+        &mut self,
+        selected: Option<super::ModelRequest>,
+    ) -> Option<MrmsUpload> {
+        if selected.is_some_and(|request| !self.model_ready(request)) {
+            return None;
+        }
+        self.pending.take()
+    }
+
+    pub(super) fn stage_model(
+        &mut self,
+        request: super::ModelRequest,
+        field: Stamped<MrmsField>,
+        upload: MrmsUpload,
+    ) -> bool {
+        if self.model_requested != Some(request)
+            || !request.accepts(&field.stamp)
+            || field.data.time != field.stamp.valid_time
+        {
+            return false;
+        }
+        self.stage(field.data, Some(field.stamp), upload);
+        self.model_accepted = Some(request);
+        true
+    }
     /// Selection changes bypass the cadence, but hidden layers never start a request.
     pub(super) fn mrms_due(
         &self,
@@ -134,6 +197,7 @@ impl FieldState {
         self.pending = Some(upload);
         self.stamp = stamp;
         self.radar = None;
+        self.model_accepted = None;
         self.grid = Some(field);
     }
 }

@@ -1,0 +1,134 @@
+{
+  "verified_at_utc": "2026-10-05T01:50:39.813981+00:00",
+  "implementation_baseline": "198f8708d5315d08215cd40aa3dc144cf03db02b",
+  "shared_head_at_verification": "08562a95fd050c15a4e3090d907b63d78b0f03d0",
+  "checks": {
+    "workspace": {
+      "command": "cargo test --workspace -- --test-threads=4",
+      "exit_code": 0,
+      "log_sha256": "bea7aac11315313aa4ece8f7c7b6c2051ec319db0dc0269ffa60637cdfa0f62e",
+      "log_bytes": 198154,
+      "suites": 28,
+      "passed": 2237,
+      "failed": 0,
+      "ignored": 145
+    },
+    "clippy": {
+      "command": "cargo clippy --workspace --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log_sha256": "092009807bb9c481e1f40eef6533d25aac29d3a540ae7c404e9bc1572d7472dc",
+      "log_bytes": 259
+    },
+    "wasm": {
+      "command": "CARGO_INCREMENTAL=0 RUSTFLAGS=--cfg getrandom_backend=\"wasm_js\" cargo check --target wasm32-unknown-unknown -p hookecho --lib",
+      "exit_code": 0,
+      "log_sha256": "7190dd88321f791ca9e314c6c164620ed9db248c6089698bbf994a260bcbe231",
+      "log_bytes": 3440
+    },
+    "gpu": {
+      "command": "cargo test --workspace gpu_model_context_sources_snapshots -- --ignored --test-threads=1",
+      "exit_code": 0,
+      "log_sha256": "11f4b3f53cc756f9e5f04962afd8ae7e762951a7cd68f1524335ca366dd6672e",
+      "log_bytes": 5344
+    }
+  },
+  "controls": [
+    "app::model_context::tests::model_context_environment_products_global_leads_and_analysis_fallback_are_exact",
+    "app::model_context::tests::model_context_health_discloses_previous_field_without_current_cache_or_clock",
+    "app::model_context::tests::model_context_hidden_pending_upload_is_consumed_only_by_its_exact_context",
+    "app::model_context::tests::model_context_latest_health_uses_the_resident_field_after_older_run_fallback",
+    "app::model_context::tests::model_context_latest_is_request_identity_not_a_rewritten_provider_run",
+    "app::model_context::tests::model_context_obsolete_success_and_failure_cannot_change_selected_health",
+    "app::model_context::tests::model_context_reflectivity_keeps_original_source_and_exact_clocks",
+    "app::model_context::tests::model_context_variants_bypass_cadence_and_dispatch_roundtrips",
+    "app::model_context::tests::model_context_selection_change_rejects_old_delivery_and_switch_back_needs_upload"
+  ],
+  "source_sha256": {
+    "crates/hookecho/src/app.rs": "2335e4056d2e332223734874960ff5457b7b2f28863b7412cebf3bbe429f0ccd",
+    "crates/hookecho/src/app/acquisition.rs": "4c29a130e867b8d20fefbc11eb55f218248a8f12231ce79d0ffefb47aa944ef1",
+    "crates/hookecho/src/app/chrome/dock/sources.rs": "839d99b16d90c3c3a4531161411015ef0b2a0ee9c0113376e7e51e585d1e8c72",
+    "crates/hookecho/src/app/chrome/registry.rs": "f56bbc12cc3dbccdc213c0ecb6b29cd54357aae8dfe870a49f61c7d6bc498a71",
+    "crates/hookecho/src/app/chrome/ribbon.rs": "e483773e6277b894c908e88ab1a4fcdafdc7d10e295bd9738f283be563cc3cda",
+    "crates/hookecho/src/app/construct.rs": "8d1af497708613ef773f37ec2051914587a7887408f836affb9a64b3017264bf",
+    "crates/hookecho/src/app/fetch_schedule.rs": "adc26273e4044fe7a366b7c3e023326cf9b59f6ae6897d76bf1d03c73eb580e9",
+    "crates/hookecho/src/app/field_state.rs": "798b4f8f8e85c32353d0738a6e6e3fa02dee82c6d1eec828704bfc9a88024e6a",
+    "crates/hookecho/src/app/layer_probe.rs": "bfe285081a8291fb1200ec3dfbe189644360c69ca76f7ee922c16eb9b87361f5",
+    "crates/hookecho/src/app/model_context.rs": "c41d7982892e0601fe2ea8e59f538fdd92dceb0576d4de24c059f4d36dd7a61c",
+    "crates/hookecho/src/app/models.rs": "56f11277e1feec732c16f0025d834742a1e168f02882fd6e6214c444f3285b17",
+    "crates/hookecho/src/app/overlay_fetch.rs": "2979d0cf0df1a6f93e3a72925c99f5b50c4ae3b7188e52a1b29830c2e8b89429",
+    "crates/hookecho/src/app/overlay_health.rs": "e864421d885945445123d6c4645ac411fd8c25f6180e8598233158a290e9b79c",
+    "crates/hookecho/src/app/overlay_poll.rs": "c9eddb29331857f4b0fedfd39b04a1295e92ba2da0f125e9015d28f4b857f0db",
+    "crates/hookecho/src/app/pane_gpu.rs": "9747b4388bc78434d06842cf34c9bbeefb4992538c8cb24d4210d882bc79644d",
+    "crates/hookecho/src/app/pane_legends.rs": "2e51fca38ce064082ffd2240673cd5b645bbda956300c7a02e8ede95a7d5f53d",
+    "crates/hookecho/src/app/rebuild.rs": "458ea8abf59f1dc54e3360faa0fab1578b4c3e3f99edd9670439e71ebf6df2ee",
+    "crates/hookecho/src/app/report.rs": "3e8619cfa52fce0eea11280853de890cfd6632a84efa98466c34555020f62583",
+    "crates/hookecho/src/app/request_book.rs": "181e7517a2226399486001a17dd9c6d04770782f0f4287b70350437ab72026fd",
+    "crates/hookecho/src/app/time_layers.rs": "31dcf17ed263e163dba412f064ba3c9703f55fe91c2236c1b51f3c298adb46e8"
+  },
+  "captures": [
+    {
+      "local_path": "target/parity-review/model-context/ui/waiting-240.png",
+      "sha256": "bcdee2b373d628d9fe6af31e1390d551c4da50e6460978cc284d2dcc2add1aa3",
+      "width": 240,
+      "height": 760,
+      "review": "production Sources row; narrow-width state and historical-clock disclosure reviewed"
+    },
+    {
+      "local_path": "target/parity-review/model-context/ui/waiting-300.png",
+      "sha256": "7d516cefab353358234c432a7063b7b3d06275e2129c4f688d23ef060a3bb81e",
+      "width": 300,
+      "height": 760,
+      "review": "production Sources row; narrow-width state and historical-clock disclosure reviewed"
+    },
+    {
+      "local_path": "target/parity-review/model-context/ui/fetching-240.png",
+      "sha256": "9a17d928ad3bfaf87361fbb840490c0a5fbc3daa0a7538b4aa6eeea42d06e54f",
+      "width": 240,
+      "height": 760,
+      "review": "production Sources row; narrow-width state and historical-clock disclosure reviewed"
+    },
+    {
+      "local_path": "target/parity-review/model-context/ui/fetching-300.png",
+      "sha256": "671dbce7bf8edfb319c9635be7e5989b4be24f6c254145588903c228c5984575",
+      "width": 300,
+      "height": 760,
+      "review": "production Sources row; narrow-width state and historical-clock disclosure reviewed"
+    },
+    {
+      "local_path": "target/parity-review/model-context/ui/failed-240.png",
+      "sha256": "788fcdf6f7ca2b02f0b6b76bcf125435c25cf601d67ecccab37f139536fced14",
+      "width": 240,
+      "height": 760,
+      "review": "production Sources row; narrow-width state and historical-clock disclosure reviewed"
+    },
+    {
+      "local_path": "target/parity-review/model-context/ui/failed-300.png",
+      "sha256": "b70897bf984858bbd8f12a6bdf70ddc210c461c9d1f0f2027fac422563b03ccc",
+      "width": 300,
+      "height": 760,
+      "review": "production Sources row; narrow-width state and historical-clock disclosure reviewed"
+    },
+    {
+      "local_path": "target/parity-review/model-context/ui/loaded-240.png",
+      "sha256": "ed660306e3c4140925ffbcccc914deff92a6a96d1fa046caad1747c1e16bc6b1",
+      "width": 240,
+      "height": 760,
+      "review": "production Sources row; narrow-width state and historical-clock disclosure reviewed"
+    },
+    {
+      "local_path": "target/parity-review/model-context/ui/loaded-300.png",
+      "sha256": "ea965e67c2f774e9bcfe0041f60dcbca18574abe47b078eb498ed63719e209ca",
+      "width": 300,
+      "height": 760,
+      "review": "production Sources row; narrow-width state and historical-clock disclosure reviewed"
+    }
+  ],
+  "retained_diagnostics": {
+    "waiting-diagnostics.json": "a66644badbf81f74c4b0f748e0dca51ddc33d1d9eaf39bbb2b604385df974fee",
+    "fetching-diagnostics.json": "7bfe053e1b441fa06f6e697541fba191bf609969b67582ca6311a73998b9ebdc",
+    "failed-diagnostics.json": "6d86e6f258da90c71370510be62d521965b778579f39cace057532ea2c208842",
+    "loaded-diagnostics.json": "012014e96a7c6109f4fdbe79feec4953640349396aff14c99a2b7d5be9d10dd4"
+  },
+  "scope": "Nine request-context controls and production Sources-row GPU captures; global model state and one texture per layer remain. Not multi-group, full application, real-provider, browser runtime or physical-device certification. Tornado detection and concurrent backtest changes excluded.",
+  "source_hash_format": "SHA-256 of checked Windows working-file bytes; Git line-ending conversion may differ"
+}

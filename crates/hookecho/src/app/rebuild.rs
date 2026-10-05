@@ -99,6 +99,7 @@ impl HookEchoApp {
             })()
             .map_err(|error| error.to_string());
             let _ = tx.send(OverlayDelivery::Fetched {
+                model_request: None,
                 lane,
                 generation,
                 result: Ok(OverlayMsg::DerivedFields(Box::new(

@@ -50,7 +50,6 @@ impl OverlayMsg {
             }
             Self::Ensemble(_, _, run) => Some(run.valid()),
             Self::Spotters(spotters) => latest(spotters.iter().map(|s| s.time)),
-            Self::Hrrr(forecast) => Some(forecast.valid()),
             Self::Wind(field) => Some(field.valid()),
             Self::Obs(_, Ok(station)) => latest(
                 station

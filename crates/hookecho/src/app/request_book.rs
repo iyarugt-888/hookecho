@@ -169,9 +169,12 @@ impl SourceHealth {
     /// it reads as delayed and stale, and what happens to its last good data meanwhile.
     pub(crate) fn recovery(&self) -> String {
         use crate::ui::layers_panel::compact_age;
+        let retention = match self.cache_state {
+            CacheState::Memory => "If a refresh fails, the resident data remain available, marked Cached, until a refresh succeeds.",
+            CacheState::Empty => "No usable data are resident for this request. Its value remains unavailable until delivery.",
+        };
         format!(
-            "Retried every {} (no backoff); delayed after {}, stale after {}. The last good data \
-             stays on the map, marked Cached, until a refresh succeeds. Severity: {}.",
+            "Retried every {} (no backoff); delayed after {}, stale after {}. {retention} Severity: {}.",
             compact_age(self.cadence),
             compact_age(self.cadence),
             compact_age(self.cadence * Self::DELAYED_CADENCE_MULTIPLIER),
@@ -277,6 +280,13 @@ impl RequestBook {
     /// enough to smooth over a single transient blip, small enough that a source's tally reflects
     /// its current behavior rather than its whole session history.
     pub(crate) const OUTCOME_WINDOW: usize = 20;
+
+    /// A changed source selection starts its own health history. The generation counter stays
+    /// monotonic, so an old reply cannot become current after a reset.
+    pub(crate) fn reset(&mut self, lane: &RequestLane) {
+        self.latest.remove(lane);
+        self.status.remove(lane);
+    }
 
     pub(crate) fn start(&mut self, lane: RequestLane) -> u64 {
         self.next = self.next.wrapping_add(1);

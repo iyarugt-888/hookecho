@@ -1,0 +1,22 @@
+{
+  "source": "RAP / Composite reflectivity",
+  "endpoint_family": "noaa-ncep-models",
+  "latest_valid_time": null,
+  "cache_state": "empty",
+  "status": "Failed",
+  "last_success_secs": null,
+  "cadence_secs": 600,
+  "recent_successes": 0,
+  "recent_failures": 1,
+  "error": "RAP request timed out",
+  "details": [
+    [
+      "Selected model request",
+      "RAP / Composite reflectivity; lead 60 min; run 2023-11-14 22:13 UTC"
+    ],
+    [
+      "Previous model field",
+      "HRRR / Composite reflectivity; run 2023-11-14 22:13 UTC; valid 2023-11-14 23:13 UTC. Unavailable for the selected request."
+    ]
+  ]
+}

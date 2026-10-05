@@ -106,8 +106,10 @@ pub(crate) use request_book::{
 mod terrain3d;
 mod yall_mode;
 use acquisition::OverlayAcquisition;
+mod model_context;
 pub(crate) use field_state::{FieldState, MrmsRequest};
 use goes_timeline::nearest_goes;
+pub(crate) use model_context::ModelRequest;
 mod mobile;
 
 use crate::colormap::{ColorTable, Palettes};
@@ -1446,11 +1448,6 @@ pub struct HookEchoApp {
     /// Which global model the global layers read, and how far into its run.
     global_model: wxdata::global::GlobalModel,
     global_fcst_hour: u16,
-    /// The (model, hour) each global layer was last fetched for, so a change refetches at once.
-    global_layer_key: std::collections::HashMap<
-        crate::render::FieldLayer,
-        (wxdata::global::GlobalModel, u16, Option<DateTime<Utc>>),
-    >,
     /// What the difference layer differences and the exact shared valid time/source runs.
     diff_field: crate::fielddiff::DiffField,
     /// Signed `A - B` or magnitude-only `|A - B|`. The fetched CPU grid always stays signed;
@@ -1572,11 +1569,6 @@ pub struct HookEchoApp {
     detail_impact: Option<String>,
     /// Newest pane error and the time it appeared, for the auto-hiding bottom-center chip.
     error_chip: Option<(String, f64)>,
-    /// Search text in the mobile navigation drawer's registry list.
-    /// Forecast hour each HRRR-backed field layer was last fetched for, so scrubbing the tail
-    /// refetches instead of showing a stale hour until the cadence expires.
-    hrrr_layer_hour:
-        std::collections::HashMap<crate::render::FieldLayer, (u8, Option<DateTime<Utc>>)>,
     /// Level 3 clickable storm cells for `cells_site` (the active site when last fetched).
     storm_cells: Vec<Cell>,
     cells_site: Option<String>,
@@ -1834,18 +1826,13 @@ pub struct HookEchoApp {
     cappi_alt_km: f32,
     cappi_tex: Option<egui::TextureHandle>,
     cappi_key: Option<(String, u32)>,
-    /// Forecast reflectivity (any regional model): selected forecast hour, last-fetched hour,
+    /// Forecast reflectivity (any regional model): selected forecast hour,
     /// run/valid times, clock.
     hrrr_fcst_hour: u8,
-    hrrr_fetched_hour: Option<u8>,
-    hrrr_run: Option<DateTime<Utc>>,
-    hrrr_valid: Option<DateTime<Utc>>,
-    hrrr_last_fetch: Option<Instant>,
     /// HRRR sub-hourly (`wrfsubhf`) mode: when on, the forecast tail is scrubbed in 15-minute
     /// steps out to 18 h instead of whole hours. `hrrr_fcst_min` is the selected lead (minutes).
     hrrr_subhourly: bool,
     hrrr_fcst_min: u16,
-    hrrr_fetched_min: Option<u16>,
     /// True while the HRRR layer is being driven by a forecast-tail scrub (vs. the manual toggle).
     hrrr_by_timeline: bool,
     /// The model browser's choice: which model, and which of its products (ROADMAP_NEW F-series).
@@ -1854,16 +1841,6 @@ pub struct HookEchoApp {
     model_sel: crate::model_browser::Selection,
     /// Which regional model the forecast-reflectivity layer reads.
     refl_model: wxdata::hrrr::Model,
-    /// The model and run the reflectivity texture was last fetched from, so switching either
-    /// refetches.
-    hrrr_fetched_key: Option<(wxdata::hrrr::Model, Option<DateTime<Utc>>)>,
-    /// The analysis hour each RTMA layer was last fetched for (`None` = newest).
-    rtma_key: std::collections::HashMap<crate::render::FieldLayer, Option<DateTime<Utc>>>,
-    /// The `(model, hour, run)` each environment layer (CAPE, SRH) was last fetched for.
-    env_fetch_key: std::collections::HashMap<
-        crate::render::FieldLayer,
-        (wxdata::hrrr::Model, u8, Option<DateTime<Utc>>),
-    >,
     /// The model run the browser has pinned (`None` = newest available). Session-only: a specific
     /// cycle is a thing to look at now, not a preference to restore.
     model_run: Option<DateTime<Utc>>,

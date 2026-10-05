@@ -60,6 +60,10 @@ impl OverlayAcquisition {
         self.requests().discard(lane, generation);
     }
 
+    pub(super) fn reset(&self, lane: &RequestLane) {
+        self.requests().reset(lane);
+    }
+
     pub(super) fn set_cache_resident(&self, lane: &RequestLane, resident: bool) {
         self.requests().set_cache_resident(lane, resident);
     }
@@ -67,6 +71,7 @@ impl OverlayAcquisition {
     pub(super) fn spawn(&self, ctx: &egui::Context, source: OverlaySource, cap: usize) {
         let lane = source.lane();
         let generation = self.start(lane.clone());
+        let model_request = super::ModelRequest::from_source(&source);
         let http = self.http.clone();
         let tx = self.sender.clone();
         let ctx = ctx.clone();
@@ -82,6 +87,7 @@ impl OverlayAcquisition {
             let _ = tx.send(OverlayDelivery::Fetched {
                 lane,
                 generation,
+                model_request,
                 result,
             });
             ctx.request_repaint();

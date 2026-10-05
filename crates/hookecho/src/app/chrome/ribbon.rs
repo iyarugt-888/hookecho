@@ -201,6 +201,7 @@ impl HookEchoApp {
         let model_valid = self
             .fields
             .get(&model_sel.layer())
+            .filter(|_| self.model_field_ready(model_sel.layer()))
             .and_then(|state| state.stamp.as_ref())
             .map(|stamp| stamp.valid_time);
         let tz_l = self.active_tz();

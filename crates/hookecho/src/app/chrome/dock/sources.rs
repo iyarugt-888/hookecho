@@ -646,6 +646,55 @@ mod tests {
 
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
+    #[ignore = "gpu: captures model context transitions in production Sources rows"]
+    fn gpu_model_context_sources_snapshots() {
+        let gpu =
+            crate::headless::ui::Snapshot::new().expect("GPU adapter for model context review");
+        let destination = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/parity-review/model-context/ui");
+        std::fs::create_dir_all(&destination).unwrap();
+        let now = chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap();
+        let t = ws::Tokens::new(egui::Color32::from_rgb(72, 142, 226));
+        for case in ["waiting", "fetching", "failed", "loaded"] {
+            let h = crate::app::model_context::tests::review_health(case);
+            std::fs::write(
+                destination.join(format!("{case}.json")),
+                serde_json::to_vec_pretty(&crate::app::DiagnosticsSourceHealth::from(&h)).unwrap(),
+            )
+            .unwrap();
+            for width in [240, 300] {
+                gpu.save(
+                    &destination.join(format!("{case}-{width}.png")),
+                    width,
+                    760,
+                    |ui| {
+                        ws::set_touch(ui.ctx(), true);
+                        ws::panel_frame(&t).show(ui, |ui| {
+                            ws::style_scope(ui, &t);
+                            ws::window_header(ui, &t, ph::PULSE, "Sources", None, None);
+                            source_row(
+                                ui,
+                                &t,
+                                &h,
+                                now,
+                                egui::Id::new("model_context_source"),
+                                true,
+                            );
+                            assert!(
+                                ui.min_rect().right() <= width as f32 + 0.5,
+                                "{case}: horizontal overflow"
+                            );
+                            assert!(ui.min_rect().bottom() <= 760.0, "{case}: vertical overflow");
+                        });
+                    },
+                )
+                .unwrap();
+            }
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
     #[ignore = "gpu: writes Sources dock captures for visual review"]
     fn gpu_sources_dock_snapshots() {
         let gpu = crate::headless::ui::Snapshot::new().expect("GPU adapter for Sources review");

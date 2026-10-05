@@ -86,8 +86,6 @@ pub(crate) enum OverlayMsg {
     Spotters(Vec<wxdata::spotters::Spotter>),
     /// ProbSevere per-storm probability polygons.
     ProbSevere(Vec<GeoFeature>),
-    /// An HRRR composite-reflectivity forecast (regridded + run/valid metadata).
-    Hrrr(wxdata::hrrr::HrrrForecast),
     /// HRRR wind components for the particle layer.
     ///
     /// Deliberately not an [`OverlayMsg::Field`]: `spawn_overlay` runs `decimated` on every
@@ -358,6 +356,7 @@ pub(crate) enum OverlayDelivery {
     Fetched {
         lane: RequestLane,
         generation: u64,
+        model_request: Option<ModelRequest>,
         result: Result<OverlayMsg, String>,
     },
 }
@@ -623,12 +622,39 @@ impl OverlaySource {
                         .await?
                     }
                 };
-                OverlayMsg::Hrrr(fc)
+                let valid = fc.valid();
+                OverlayMsg::StampedField(
+                    crate::render::FieldLayer::Hrrr,
+                    field_state::model_field(
+                        model.label(),
+                        "Composite reflectivity",
+                        fc.field,
+                        Some(fc.run),
+                        valid,
+                        false,
+                    )?,
+                )
             }
-            OverlaySource::HrrrSub(mins, run) => OverlayMsg::Hrrr(match run {
-                Some(run) => wxdata::hrrr::fetch_forecast_subhourly_at_run(http, run, mins).await?,
-                None => wxdata::hrrr::fetch_forecast_subhourly(http, mins).await?,
-            }),
+            OverlaySource::HrrrSub(mins, run) => {
+                let fc = match run {
+                    Some(run) => {
+                        wxdata::hrrr::fetch_forecast_subhourly_at_run(http, run, mins).await?
+                    }
+                    None => wxdata::hrrr::fetch_forecast_subhourly(http, mins).await?,
+                };
+                let valid = fc.valid();
+                OverlayMsg::StampedField(
+                    crate::render::FieldLayer::Hrrr,
+                    field_state::model_field(
+                        crate::model_browser::BModel::Hrrr15.label(),
+                        "Composite reflectivity",
+                        fc.field,
+                        Some(fc.run),
+                        valid,
+                        false,
+                    )?,
+                )
+            }
             OverlaySource::HrrrLayer(layer, fh, run) => {
                 use crate::render::FieldLayer as FL;
                 use wxdata::hrrr::Model::{Hrrr as HRRR, Nbm as NBM};
@@ -892,18 +918,8 @@ impl OverlaySource {
                 OverlayMsg::Field(layer, wxdata::ndfd::fetch(http, field).await?)
             }
             OverlaySource::Rtma(layer, hour) => {
-                use crate::render::FieldLayer as FL;
-                let field = match layer {
-                    FL::RtmaTemp2m => wxdata::rtma::RtmaField::Temp2m,
-                    FL::RtmaDewpoint2m => wxdata::rtma::RtmaField::Dewpoint2m,
-                    FL::RtmaWind10m => wxdata::rtma::RtmaField::Wind10m,
-                    FL::RtmaGust10m => wxdata::rtma::RtmaField::Gust10m,
-                    FL::RtmaVisibility => wxdata::rtma::RtmaField::Visibility,
-                    FL::RtmaCeiling => wxdata::rtma::RtmaField::Ceiling,
-                    FL::RtmaMslp => wxdata::rtma::RtmaField::Mslp,
-                    FL::RtmaPrecip1h => wxdata::rtma::RtmaField::Precip1h,
-                    _ => anyhow::bail!("{layer:?} is not an RTMA field"),
-                };
+                let field = model_context::rtma_field(layer)
+                    .ok_or_else(|| anyhow::anyhow!("{layer:?} is not an RTMA field"))?;
                 let analysis = wxdata::rtma::fetch(http, field, hour).await?;
                 // An analysis has no run and no lead: the hour it describes is both.
                 OverlayMsg::StampedField(

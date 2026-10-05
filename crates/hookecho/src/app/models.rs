@@ -46,7 +46,8 @@ impl HookEchoApp {
             self.write_model_lead_min(lead);
             self.views[self.active].model_playback.pause();
         }
-        let ready = crate::platform::activity::is_active()
+        let ready = self.model_field_ready(self.model_sel.layer())
+            && crate::platform::activity::is_active()
             && self
                 .fields
                 .get(&self.model_sel.layer())
@@ -77,6 +78,7 @@ impl HookEchoApp {
             stamp: self
                 .fields
                 .get(&self.model_sel.layer())
+                .filter(|_| self.model_field_ready(self.model_sel.layer()))
                 .and_then(|state| state.stamp.clone()),
             run: self.model_run,
             runs: model.runs_around(self.model_run, now, model.run_list_len()),
