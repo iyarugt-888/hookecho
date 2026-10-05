@@ -50,6 +50,9 @@ SIGNS = {
     "near_inbound_10ms": 0,
     "near_vrot_10ms": 0,
     "near_couplet_10ms": 0,
+    # Pre-touchdown candidates: low-level shear and depth trends over the track, measured and left out until tested.
+    "low_level_trend": 0,
+    "depth_trend": 0,
 }
 
 

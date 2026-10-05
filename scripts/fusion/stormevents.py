@@ -163,19 +163,21 @@ def evaluate(dirs):
         print(f"  skipped (no radar position): {', '.join(sorted(skipped))}")
 
 
-def sample(first, last, n, seed, min_ef=0):
+def sample(first, last, n, seed, min_ef=0, exclude=()):
     """N tornadoes drawn at random from the Storm Events record of years FIRST..LAST, each at the
     nearest radar of the sampler's list within 150 km, the window starting 20 minutes before it
     began. Radar-days of the hand-picked corpus are left out, as in `sample_days.py`. `min_ef` keeps
-    only tornadoes rated at least that (EF or F scale; unrated ones are left out then)."""
+    only tornadoes rated at least that (EF or F scale; unrated ones are left out then). `exclude`
+    names earlier manifests whose radar-days are left out too, so a new sample adds windows."""
     import random
     radars = {**{k: (v[0], v[1]) for k, v in RADARS.items()}, **MORE_RADARS}
     used = set()
-    for line in open("docs/backtest-events.txt", encoding="utf-8"):
-        m = re.match(r"^(K[A-Z]{3}) (\d{4}-\d\d-\d\d \d\d:\d\d)", line)
-        if m:
-            t = dt.datetime.strptime(m.group(2), "%Y-%m-%d %H:%M")
-            used.add((m.group(1), (t - dt.timedelta(hours=12)).strftime("%Y-%m-%d")))
+    for path in ("docs/backtest-events.txt", *exclude):
+        for line in open(path, encoding="utf-8"):
+            m = re.match(r"^(K[A-Z]{3}) (\d{4}-\d\d-\d\d \d\d:\d\d)", line)
+            if m:
+                t = dt.datetime.strptime(m.group(2), "%Y-%m-%d %H:%M")
+                used.add((m.group(1), (t - dt.timedelta(hours=12)).strftime("%Y-%m-%d")))
     pool = []
     for t in tornadoes():
         begin = dt.datetime(1970, 1, 1) + dt.timedelta(minutes=t[0])
@@ -194,7 +196,7 @@ def sample(first, last, n, seed, min_ef=0):
     print(f"# Random tornadoes from NOAA Storm Events, {first}-{last}{rated}, seed {seed} ({n} of {len(pool)} "
           f"within {RANGE_KM:.0f} km of a listed radar, corpus radar-days left out):")
     print(f"#   python scripts/fusion/stormevents.py sample {first} {last} {n} {seed}"
-          + (f" {min_ef}" if min_ef else ""))
+          + (f" {min_ef}" if min_ef or exclude else "") + "".join(f" {x}" for x in exclude))
     for begin, site, km, rating in picks:
         start = begin - dt.timedelta(minutes=20)
         print(f"{site} {start:%Y-%m-%d %H:%M}   # {rating} began {begin:%H:%M}Z, {km:.0f} km")
@@ -257,7 +259,9 @@ if __name__ == "__main__":
     elif sys.argv[1:2] == ["lead"]:
         lead(sys.argv[2:])
     elif sys.argv[1:2] == ["sample"]:
-        sample(*map(int, sys.argv[2:7]))
+        args = sys.argv[2:]
+        numbers = [int(x) for x in args if not x.endswith(".txt")]
+        sample(*numbers, exclude=tuple(x for x in args if x.endswith(".txt")))
     elif sys.argv[1:]:
         evaluate(sys.argv[1:])
     else:
