@@ -13,7 +13,7 @@ before it began and 15 after it ended. Printed per EF rating, with the markers t
 report or survey but lie on a Storm Events track (truth the reports missed).
 
 The detail files (`StormEvents_details-ftp_v1.0_dYYYY_c*.csv.gz`, ~10-16 MB each, public domain)
-go in target/backtest-cache/stormevents/. Times there are local standard time; CZ_TIMEZONE
+go in target/backtest-cache/stormevents/ (or the directory `HOOKECHO_BACKTEST_CACHE` names). Times there are local standard time; CZ_TIMEZONE
 ("CST-6") gives the offset.
 """
 
@@ -31,7 +31,9 @@ import urllib.request
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sample_days import RADARS  # noqa: E402
 
-CACHE = "target/backtest-cache/stormevents"
+# The backtest's cache directory (`HOOKECHO_BACKTEST_CACHE`, as `hookecho --headless-backtest-file`
+# reads it), else the default under target/.
+CACHE = os.path.join(os.environ.get("HOOKECHO_BACKTEST_CACHE") or "target/backtest-cache", "stormevents")
 BASE = "https://www.ncei.noaa.gov/pub/data/swdi/stormevents/csvfiles/"
 RADIUS_KM, WINDOW_MIN, RANGE_KM = 10.0, 15, 150.0
 # Corpus radars outside the sampler's list (positions from the site registry, nexrad-model).
