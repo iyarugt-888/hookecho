@@ -5,6 +5,7 @@ tornado, with where it began and ended (detectionplan.md, "Storm Events as truth
     python scripts/fusion/stormevents.py DIR [DIR...]             # exports with tornado_marker rows
     python scripts/fusion/stormevents.py sample 2019 2025 60 2019 > docs/backtest-tornadoes.txt
     python scripts/fusion/stormevents.py sample 2013 2025 60 2013 2 > docs/backtest-tornadoes-ef2.txt
+    python scripts/fusion/stormevents.py lead DIR [DIR...]        # lead time on a sample's exports
 
 The backtest's own truth is local storm reports and NWS damage-survey paths, counted per report or
 path. Here every tornado counts once: those on the ground while a window was scanned and within 150 km of its
@@ -199,9 +200,62 @@ def sample(first, last, n, seed, min_ef=0):
         print(f"{site} {start:%Y-%m-%d %H:%M}   # {rating} began {begin:%H:%M}Z, {km:.0f} km")
 
 
+def lead(dirs):
+    """Lead time on exports of a `sample` manifest: each window's own tornado (began 20 minutes
+    after the window started, within 150 km of its radar) and the first marker within 10 km of its
+    begin point before it began, or on its track while it was down. Lead is begin minus that
+    marker's time (positive: before touchdown), for every marker and for Likely and up, beside the
+    original Tornado ID. The window caps lead at about 20 minutes."""
+    import statistics
+    by_begin = collections.defaultdict(list)
+    for t in tornadoes():
+        by_begin[t[0]].append(t)
+    radars = {**{k: (v[0], v[1]) for k, v in RADARS.items()}, **MORE_RADARS}
+    for d in dirs:
+        rows = list(csv.DictReader(open(os.path.join(d, "candidates.csv"), encoding="utf-8")))
+        kinds = {"markers": ("tornado_marker", False), "markers Likely+": ("tornado_marker", True),
+                 "original": ("tornado_id", False), "original Likely+": ("tornado_id", True)}
+        leads = {k: [] for k in kinds}
+        n = 0
+        for event in sorted({r["event"] for r in rows}):
+            site, day, hm = event.split()[:3]
+            begin = epoch_min(dt.datetime.strptime(f"{day} {hm}", "%Y-%m-%d %H:%M")) + 20
+            la, lo = radars[site]
+            near = [t for m in range(begin - 2, begin + 3) for t in by_begin.get(m, [])
+                    if ground_km((lo, la), t[2]) <= RANGE_KM]
+            if not near:
+                continue
+            t = min(near, key=lambda t: abs(t[0] - begin))
+            n += 1
+            for kind, (detector, strong) in kinds.items():
+                first = None
+                for r in rows:
+                    if r["event"] != event or r["detector"] != detector:
+                        continue
+                    if strong and r["tier"] == "Tornado possible":
+                        continue
+                    m, p = int(r["minute"]), (float(r["lon"]), float(r["lat"]))
+                    before = m < t[0] and ground_km(p, t[2]) <= RADIUS_KM
+                    if (before or on_track(m, p, t)) and (first is None or m < first):
+                        first = m
+                if first is not None:
+                    leads[kind].append(t[0] - first)
+        print(f"{d}: {n} sampled tornadoes identified")
+        for kind, xs in leads.items():
+            if not xs:
+                print(f"  {kind:17} none found")
+                continue
+            q = sorted(xs)
+            early = sum(1 for x in xs if x >= 10)
+            print(f"  {kind:17} found {len(xs):3d}  lead median {statistics.median(xs):+5.1f} min "
+                  f"(p25 {q[len(q) // 4]:+d}, p75 {q[3 * len(q) // 4]:+d}), 10+ min early {early}")
+
+
 if __name__ == "__main__":
     if sys.argv[1:2] == ["fetch"]:
         fetch(sys.argv[2:])
+    elif sys.argv[1:2] == ["lead"]:
+        lead(sys.argv[2:])
     elif sys.argv[1:2] == ["sample"]:
         sample(*map(int, sys.argv[2:7]))
     elif sys.argv[1:]:
