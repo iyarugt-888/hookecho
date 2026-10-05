@@ -310,6 +310,12 @@ pub struct PaneSnap {
 
 impl PaneSnap {
     /// Snapshot a live pane.
+    pub fn model_context_valid(&self) -> bool {
+        self.extra.get("models").is_none_or(|value| {
+            serde_json::from_value::<crate::model_pane::SavedModelContext>(value.clone())
+                .is_ok_and(|saved| saved.valid())
+        })
+    }
     pub fn capture(v: &MapView) -> Self {
         let (lon, lat) =
             crate::render::mercator::world_to_lonlat(v.camera.center.0, v.camera.center.1);
@@ -335,13 +341,45 @@ impl PaneSnap {
                 .filter(|&(i, _)| v.threshold_enabled[i])
                 .filter_map(|(i, m)| v.thresholds[i].map(|t| (*m, t)))
                 .collect(),
-            extra: Default::default(),
+            extra: [(
+                "models".into(),
+                v.model_restore_raw.clone().unwrap_or_else(|| {
+                    serde_json::to_value(crate::model_pane::SavedModelContext {
+                        schema: 1,
+                        group: v.model_group,
+                        controls: v.models.clone(),
+                    })
+                    .expect("Model controls are serializable")
+                }),
+            )]
+            .into_iter()
+            .collect(),
         }
     }
 
     /// Apply this snapshot to a pane. The volume itself isn't restored — a pane with a site and no
     /// data fetches through the normal poll path, which is also what a fresh pane does.
     pub fn apply(&self, v: &mut MapView) {
+        v.model_playback = Default::default();
+        v.last_model_fields.clear();
+        v.model_restore_raw = None;
+        if let Some(value) = self.extra.get("models") {
+            if let Ok(saved) =
+                serde_json::from_value::<crate::model_pane::SavedModelContext>(value.clone())
+            {
+                if saved.valid() {
+                    v.models = saved.controls;
+                    v.model_group = saved.group;
+                } else {
+                    v.model_restore_raw = Some(value.clone());
+                    v.model_group = None;
+                }
+            } else {
+                v.model_restore_raw = Some(value.clone());
+                v.model_group = None;
+            }
+        }
+        v.model_link_snapshot = v.models.clone();
         v.site = self.site.clone();
         v.moment = self.moment;
         v.tilt = self.tilt;
@@ -427,8 +465,54 @@ pub fn offer_new_starters(
 /// What in `ws` this build cannot restore, said plainly: layers and fields it does not have, radar
 /// sites it does not know, map styles it cannot draw, more panes than it shows. Applying skips
 /// each of these (a file from a newer build still opens); this is so it does not do so silently.
+/// A file cannot advertise shared model controls while storing conflicting owners.
+pub(crate) fn conflicting_model_groups(ws: &Workspace) -> Vec<u8> {
+    let mut owners = std::collections::HashMap::new();
+    let mut conflicts = std::collections::BTreeSet::new();
+    for pane in &ws.panes {
+        let Some(saved) = pane
+            .extra
+            .get("models")
+            .and_then(|value| {
+                serde_json::from_value::<crate::model_pane::SavedModelContext>(value.clone()).ok()
+            })
+            .filter(|saved| saved.valid())
+        else {
+            continue;
+        };
+        let Some(group) = saved.group else {
+            continue;
+        };
+        let identity = (
+            saved.controls.model_sel.model,
+            saved.controls.model_run,
+            saved.controls.lead_min(),
+        );
+        if owners
+            .insert(group, identity)
+            .is_some_and(|previous| previous != identity)
+        {
+            conflicts.insert(group);
+        }
+    }
+    conflicts.into_iter().collect()
+}
+
 pub fn problems(ws: &Workspace) -> Vec<String> {
     let mut out = Vec::new();
+    for (idx, pane) in ws.panes.iter().enumerate() {
+        if !pane.model_context_valid() {
+            out.push(format!(
+                "pane {} has unsupported or invalid model controls; its model fields are disabled",
+                idx + 1
+            ));
+        }
+    }
+    for group in conflicting_model_groups(ws) {
+        out.push(format!(
+            "model group {group} has conflicting controls; its panes restore independently"
+        ));
+    }
     let unknown_overlays: Vec<&str> = ws
         .overlays_on
         .iter()
@@ -1135,5 +1219,84 @@ mod tests {
                 assert_eq!(style.slug(), p.basemap, "{}: bad basemap", ws.name);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod model_context_tests {
+    use super::*;
+    use crate::model_browser::{BModel, Product, Selection};
+    use crate::render::mercator::Camera;
+    use chrono::TimeZone;
+
+    fn view() -> MapView {
+        MapView::new(None, Camera::at_lonlat(-97.0, 35.0, 8.0))
+    }
+    #[test]
+    fn model_workspace_restores_independent_model_run_hour_and_group() {
+        let mut original = view();
+        original.model_group = None;
+        original.models.model_sel = Selection {
+            model: BModel::Ecmwf,
+            product: Product::Mslp,
+        };
+        original.models.apply_engine(original.models.model_sel);
+        original.models.model_run =
+            Some(chrono::Utc.with_ymd_and_hms(2026, 10, 4, 12, 0, 0).unwrap());
+        original.models.global_fcst_hour = 9;
+        let snap = PaneSnap::capture(&original);
+        let decoded: PaneSnap =
+            serde_json::from_str(&serde_json::to_string(&snap).unwrap()).unwrap();
+        let mut restored = view();
+        decoded.apply(&mut restored);
+        assert_eq!(restored.models, original.models);
+        assert_eq!(restored.model_group, None);
+        assert_eq!(restored.model_link_snapshot, restored.models);
+    }
+    #[test]
+    fn model_workspace_legacy_snapshot_keeps_seeded_controls() {
+        let mut original = view();
+        original.models.hrrr_fcst_hour = 9;
+        let mut snap = PaneSnap::capture(&original);
+        snap.extra.remove("models");
+        assert!(snap.model_context_valid());
+        let mut restored = view();
+        restored.models.hrrr_fcst_hour = 12;
+        snap.apply(&mut restored);
+        assert_eq!(restored.models.hrrr_fcst_hour, 12);
+        assert_eq!(restored.model_group, Some(1));
+    }
+    #[test]
+    fn model_workspace_unsupported_context_is_disclosed_and_preserved_for_round_trip() {
+        let mut snap = PaneSnap::capture(&view());
+        let unknown =
+            serde_json::json!({"schema": 99, "group": 4, "controls": {"model": "future"}});
+        snap.extra.insert("models".into(), unknown.clone());
+        assert!(!snap.model_context_valid());
+        let mut restored = view();
+        snap.apply(&mut restored);
+        assert_eq!(restored.model_restore_raw, Some(unknown.clone()));
+        assert_eq!(restored.model_group, None);
+        assert_eq!(PaneSnap::capture(&restored).extra["models"], unknown);
+        let mut workspace = starters().remove(0);
+        workspace.panes = vec![snap];
+        assert!(problems(&workspace)
+            .iter()
+            .any(|p| p.contains("model fields are disabled")));
+    }
+    #[test]
+    fn model_workspace_conflicting_groups_are_disclosed_without_choosing_a_silent_winner() {
+        let first = view();
+        let mut second = view();
+        second.models.hrrr_fcst_hour = 6;
+        let mut workspace = starters().remove(0);
+        workspace.panes = vec![PaneSnap::capture(&first), PaneSnap::capture(&second)];
+        assert_eq!(conflicting_model_groups(&workspace), [1]);
+        assert!(problems(&workspace)
+            .iter()
+            .any(|p| p.contains("restore independently")));
+        second.model_group = None;
+        workspace.panes[1] = PaneSnap::capture(&second);
+        assert!(conflicting_model_groups(&workspace).is_empty());
     }
 }

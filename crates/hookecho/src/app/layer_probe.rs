@@ -244,9 +244,8 @@ impl HookEchoApp {
                 Some(detail),
             );
             line.stamp = self
-                .fields
-                .get(&layer)
-                .filter(|_| self.model_field_ready(layer))
+                .field_state_for(idx, layer)
+                .filter(|_| self.model_field_ready_for(idx, layer))
                 .and_then(|state| state.stamp.clone());
             line.field = Some(layer);
             out.push(line);
@@ -268,10 +267,17 @@ impl HookEchoApp {
                 value.trim_end().to_string(),
                 entry.valid.map(|t| {
                     let note = reference.map(|r| offset_note(t, r)).unwrap_or_default();
-                    format!("{}, valid {}{note}", self.env_model.label(), clock(t))
+                    format!("{}, valid {}{note}", self.contour_model.label(), clock(t))
                 }),
             );
-            line.stamp = super::contours::contour_stamp(self.env_model.label(), *kind, entry);
+            line.stamp = super::contours::contour_stamp(
+                entry
+                    .fetched_key
+                    .map_or(self.contour_model, |key| key.0)
+                    .label(),
+                *kind,
+                entry,
+            );
             out.push(line);
         }
 
@@ -616,13 +622,19 @@ impl HookEchoApp {
         }
 
         let state = self
-            .fields
-            .get(&layer)
-            .filter(|_| self.model_field_ready(layer));
+            .field_state_for(idx, layer)
+            .filter(|_| self.model_field_ready_for(idx, layer));
         let grid = state.and_then(|field| field.grid.as_ref());
         crate::ui::cursor_probe::ProbeRow {
             pane: idx,
-            source: self.probe_field_source(layer, state),
+            source: state
+                .and_then(|state| state.stamp.as_ref())
+                .map(|stamp| stamp.source_id.clone())
+                .or_else(|| {
+                    self.selected_model_request_for(idx, layer)
+                        .map(|request| request.description())
+                })
+                .unwrap_or_else(|| self.probe_field_source(layer, state)),
             product: Self::probe_field_product(layer),
             time: state
                 .and_then(|field| field.stamp.as_ref().map(|stamp| stamp.valid_time))

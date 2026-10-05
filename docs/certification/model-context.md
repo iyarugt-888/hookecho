@@ -80,3 +80,11 @@ and link-group selection, multiple resident source contexts, immutable content c
 keys, comparison/ensemble/contour contexts, and group-specific MRMS/GOES drivers remain open.
 Implement group state and texture ownership together before claiming different simultaneous
 model runs. M5.1 stays partial. Detection calculations and concurrent backtest files are excluded.
+
+## Subsequent pane ownership increment
+
+The next M5.1 increment moves ordinary model controls into each pane and caches complete model
+requests separately. Its previous-data references, Sources enumeration, cancellation and texture
+ownership supersede the single global field-slot implementation described above. See
+[model panes and verification](model-panes.md); earlier manifests remain evidence for their
+pinned commits, not proof of the later implementation.

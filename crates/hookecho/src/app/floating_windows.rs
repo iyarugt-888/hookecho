@@ -962,7 +962,7 @@ impl HookEchoApp {
             self.show_cappi = open;
         }
         if self.show_data_health {
-            let entries = self.palette_entries();
+            let entries = self.source_entries();
             ui::source_health_window::show(
                 ctx,
                 &entries,

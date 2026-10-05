@@ -196,11 +196,10 @@ impl HookEchoApp {
         let map_3d = self.views[self.active].map_3d.enabled;
         let fields_on = self.views[self.active].fields_on.clone();
         let is_on = |l: crate::render::FieldLayer| fields_on.contains(&l);
-        let model_sel = self.model_sel;
+        let model_sel = self.views[self.active].models.model_sel;
         let model_lead = self.model_lead_min();
         let model_valid = self
-            .fields
-            .get(&model_sel.layer())
+            .field_state_for(self.active, model_sel.layer())
             .filter(|_| self.model_field_ready(model_sel.layer()))
             .and_then(|state| state.stamp.as_ref())
             .map(|stamp| stamp.valid_time);
@@ -235,7 +234,7 @@ impl HookEchoApp {
         let clean_on = self.views[self.active].clean_reflectivity;
         let mut toggle_clean = false;
         let mut open_command_search = false;
-        let env_model = self.env_model;
+        let env_model = self.contour_model;
 
         egui::Panel::top("wsv3_ribbon")
             .exact_size(wsv3::RIBBON_H + wsv3::COLORBAR_H)

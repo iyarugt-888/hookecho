@@ -68,6 +68,7 @@ pub mod local_api;
 pub mod loop3d;
 pub mod loopexport;
 pub mod model_browser;
+mod model_pane;
 /// MQTT publishing for home automation; native only (no TCP socket in a browser).
 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 pub mod mqtt;

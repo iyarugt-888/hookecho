@@ -225,7 +225,7 @@ impl HookEchoApp {
         let model_shown = crate::model_browser::model_layers()
             .any(|layer| self.views[self.active].fields_on.contains(&layer));
         // An analysis steps by hour, a forecast by lead: the card's section and buttons say which.
-        let analysis = !self.model_sel.model.has_lead();
+        let analysis = !self.views[self.active].models.model_sel.model.has_lead();
         let model_rows = if model_shown && self.dock.model_open {
             model_card_rows(&self.model_panel_input(), tz, chrono::Utc::now())
         } else {

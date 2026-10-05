@@ -66,16 +66,17 @@ impl HookEchoApp {
                 .fields_on
                 .contains(&crate::render::FieldLayer::GlmFed);
         let goes_note = self.goes_sector_note();
+        let view = &mut self.views[self.active];
         crate::ui::layer_options::show(
             ui,
             &mut self.filters,
             &mut self.fields,
-            &self.views[self.active].fields_on.clone(),
-            self.views[self.active].volume.as_ref().map(|v| v.time),
+            &view.fields_on.clone(),
+            view.volume.as_ref().map(|v| v.time),
             chrono::Duration::minutes(self.settings.time_mismatch_minutes as i64),
             &mut self.rotation_minutes,
             &mut self.hail_minutes,
-            &mut self.env_model,
+            &mut self.contour_model,
             &mut self.active_contours,
             &mut etop_dbz,
             &mut self.snow_hours,
@@ -84,16 +85,16 @@ impl HookEchoApp {
             &mut self.tropical_surge,
             &mut self.spaghetti,
             l3_site.as_deref(),
-            &mut self.global_fcst_hour,
+            &mut self.comparison_fcst_hour,
             &mut self.diff_field,
             &mut self.diff_mode,
             self.diff_valid.as_ref(),
             self.compare_valid.as_ref(),
             self.diff_error.as_deref(),
             self.compare_error.as_deref(),
-            self.views[self.active].blink_compare,
-            self.views[self.active].overlay_compare,
-            self.views[self.active].swipe_compare,
+            view.blink_compare,
+            view.overlay_compare,
+            view.swipe_compare,
             &mut self.ensemble,
             &ensemble_note,
             self.settings.temp_unit,
@@ -307,13 +308,15 @@ impl HookEchoApp {
                             .id_salt("panel_models")
                             .default_open(phone())
                             .show(ui, |ui| {
+                                self.model_group_ui(ui);
+                                let models = &mut self.views[self.active].models;
                                 crate::ui::model_panel::show(
                                     ui,
                                     &model_input,
                                     &model_on_map,
                                     tz,
-                                    &mut self.env_cape_ml,
-                                    &mut self.env_srh_km,
+                                    &mut models.env_cape_ml,
+                                    &mut models.env_srh_km,
                                     &mut self.fields,
                                     &mut opts,
                                 );

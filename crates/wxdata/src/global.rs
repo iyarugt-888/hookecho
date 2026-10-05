@@ -43,7 +43,9 @@ const RES_DEG: f64 = 0.3;
 const GEFS_RES_DEG: f64 = 0.6;
 
 /// Which global model to read.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
+)]
 pub enum GlobalModel {
     #[default]
     Gfs,

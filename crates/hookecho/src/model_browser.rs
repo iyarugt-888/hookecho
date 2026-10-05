@@ -678,7 +678,7 @@ pub fn compare_field(sel: Selection) -> Option<(crate::fielddiff::DiffField, BMo
 }
 
 /// The current choice.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Selection {
     pub model: BModel,
     pub product: Product,

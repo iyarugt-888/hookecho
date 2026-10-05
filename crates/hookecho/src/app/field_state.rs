@@ -220,7 +220,7 @@ impl HookEchoApp {
                 if !self.mrms_ready(*layer) {
                     return None;
                 }
-                let stamp = self.fields.get(layer)?.stamp.as_ref()?;
+                let stamp = self.field_state_for(self.active, *layer)?.stamp.as_ref()?;
                 let comparison = TimeOffset::between(stamp.valid_time, analysis_time, tolerance);
                 comparison
                     .outside_tolerance

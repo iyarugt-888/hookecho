@@ -215,20 +215,58 @@ impl HookEchoApp {
             }
         }
         let field_uploads: Vec<(crate::render::FieldLayer, crate::render::MrmsUpload)> = if first {
-            let requests: std::collections::HashMap<_, _> = model_context::MODEL_LAYERS
-                .into_iter()
-                .filter_map(|layer| {
-                    self.selected_model_request(layer)
-                        .map(|request| (layer, request))
-                })
-                .collect();
             self.fields
                 .iter_mut()
-                .filter_map(|(k, s)| s.take_upload(requests.get(k).copied()).map(|u| (*k, u)))
+                .filter(|(layer, _)| !model_context::MODEL_LAYERS.contains(layer))
+                .filter_map(|(layer, state)| state.take_upload(None).map(|upload| (*layer, upload)))
                 .collect()
         } else {
             Vec::new()
         };
+        if first && self.model_palette_gen != self.palettes.gen {
+            let uploads: Vec<_> = self
+                .model_fields
+                .iter()
+                .filter_map(|(request, slot)| {
+                    let grid = slot.state.grid.as_ref()?;
+                    Some((*request, self.field_upload(request.layer(), grid)))
+                })
+                .collect();
+            for (request, upload) in uploads {
+                if let Some(slot) = self.model_fields.get_mut(&request) {
+                    slot.state.pending = Some(upload);
+                }
+            }
+            self.model_palette_gen = self.palettes.gen;
+        }
+        let model_uploads = if first {
+            self.model_fields
+                .iter_mut()
+                .filter_map(|(request, slot)| {
+                    slot.state
+                        .take_upload(Some(*request))
+                        .map(|upload| (slot.texture, upload))
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let drop_model_fields = if first {
+            std::mem::take(&mut self.model_drop_textures)
+        } else {
+            Vec::new()
+        };
+        let model_fields = self.views[idx]
+            .fields_on
+            .iter()
+            .filter_map(|layer| {
+                let request = self.selected_model_request_for(idx, *layer)?;
+                let slot = self.model_fields.get(&request)?;
+                slot.state
+                    .model_ready(request)
+                    .then_some((*layer, slot.texture))
+            })
+            .collect();
         // Bottom to top, in the user's paint order: the renderer paints this list as given.
         let order = crate::render::FieldLayer::paint_order(&self.settings.field_order);
         let mut on: Vec<crate::render::FieldLayer> =
@@ -238,7 +276,11 @@ impl HookEchoApp {
             .iter()
             .filter(|layer| {
                 crate::fielddiff::layer_ready(**layer, self.diff_valid, self.compare_valid)
-                    && self.mrms_ready(**layer)
+                    && if model_context::MODEL_LAYERS.contains(layer) {
+                        self.model_field_ready_for(idx, **layer)
+                    } else {
+                        self.mrms_ready(**layer)
+                    }
                     && self.radar_field_ready(idx, **layer)
             })
             .map(|k| {
@@ -290,6 +332,9 @@ impl HookEchoApp {
             },
             draw_overlay: self.overlay_ready,
             field_uploads,
+            model_uploads,
+            model_fields,
+            drop_model_fields,
             field_draws,
             field_swipe: self.views[idx]
                 .swipe_compare

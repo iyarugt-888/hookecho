@@ -15,6 +15,7 @@ use wxdata::clock::Instant;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) enum RequestLane {
     Field(crate::render::FieldLayer),
+    Model(super::ModelRequest),
     Placefile(String),
     Feed(FeedSource),
 }
@@ -22,6 +23,7 @@ pub(crate) enum RequestLane {
 impl RequestLane {
     pub(crate) fn label(&self) -> String {
         match self {
+            Self::Model(request) => request.description(),
             Self::Field(layer) => format!("field {}", layer.slug()),
             Self::Placefile(source) => format!("Placefile {source}"),
             Self::Feed(source) => source.label().into(),
@@ -31,6 +33,7 @@ impl RequestLane {
     pub(crate) fn cadence(&self) -> std::time::Duration {
         let secs = match self {
             Self::Field(layer) => field_refresh_secs(*layer),
+            Self::Model(request) => field_refresh_secs(request.layer()),
             Self::Placefile(_) => 120,
             Self::Feed(source) => source.cadence_secs(),
         };
@@ -40,13 +43,16 @@ impl RequestLane {
     pub(crate) fn severity(&self) -> crate::source_health::Severity {
         match self {
             Self::Feed(source) => source.severity(),
-            Self::Field(_) | Self::Placefile(_) => crate::source_health::Severity::Routine,
+            Self::Field(_) | Self::Model(_) | Self::Placefile(_) => {
+                crate::source_health::Severity::Routine
+            }
         }
     }
 
     pub(crate) fn endpoint_family(&self) -> crate::source_health::EndpointFamily {
         match self {
             Self::Field(layer) => crate::source_health::field_endpoint_family(*layer),
+            Self::Model(request) => crate::source_health::field_endpoint_family(request.layer()),
             Self::Placefile(_) => crate::source_health::EndpointFamily::UserConfigured,
             Self::Feed(source) => source.endpoint_family(),
         }

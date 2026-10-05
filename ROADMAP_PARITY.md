@@ -959,6 +959,37 @@ multi-group workflow, not acceptance of that parent card. Next: introduce explic
 model state and renderer resource ownership together, then migration/race controls and a
 simultaneous live/archive/different-run operator session. Tornado detection stays with Claude.
 
+**Pane increment — 2026-10-05, ordinary models (partial):** model controls now belong to each
+pane, with Independent or explicit Model/run groups in the main forecast timeline and Models
+surfaces. Joining shares source/run/lead while preserving compatible products and CAPE/SRH
+variants; unlinking retains values. Independent playback survives focus changes, and group
+playback waits for all enabled selected products. Newly split panes inherit their source context.
+Workspaces persist typed controls/groups; legacy layouts migrate to one group, unsupported
+contexts disable affected fields with preserved metadata, and conflicting groups restore
+independently with a disclosed warning.
+
+The ordinary 21-layer scheduler, source-health lanes and shared cache use complete request keys.
+Identical requests share grids/textures; different source/run/lead/variant contexts remain separate.
+Any remaining exact pane subscriber can admit a reply; dropping the last subscriber cancels work
+without source-health credit. The bounded cache protects visible requests, expires hidden slots
+and retires GPU resources with fresh IDs on re-creation. Rendering, probes, exports, clocks and
+playback read their pane's accepted slot. Sources/diagnostics enumerate all visible contexts and
+name their owners. Missing texture keys cannot borrow another same-layer field.
+
+Verification: 2,272 workspace tests passed across 29 suites (147 ignored), strict workspace/
+all-target Clippy passed, and the WASM library check passed. Four explicit GPU controls passed
+in 3.88 seconds, including the two new pane controls. This increment adds 18 ordinary regression
+controls; the manifest retains 37 Rust source hashes, 23 visually reviewed capture hashes and
+two Sources diagnostics arrays.
+
+See [implementation, operator workflow and evidence](docs/certification/model-panes.md). Local
+controls and production GPU/layout evidence are retained in its verification manifest. **M5.1
+remains partial:** broader camera/site/cursor/time groups, MRMS/GOES time drivers, comparison/
+ensemble/contour ownership, and a full application live/archive/different-run operator session
+remain. Next: migrate analysis-time groups and their MRMS/GOES request/render ownership together;
+verify no-match policies and migration/races before parent acceptance. Tornado detection stays
+with Claude.
+
 #### M5.2 — Add satellite-native one-minute playback
 
 **Priority:** P1. **Depends on:** M0.3, M1.4, M5.1. **Original references:** ROADMAP_NEW §§E1, E4, E5, E7; ROADMAP_2 §§10, 14.

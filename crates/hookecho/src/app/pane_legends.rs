@@ -172,22 +172,25 @@ impl HookEchoApp {
         idx: usize,
     ) {
         let view = &self.views[idx];
-        if idx == self.active && view.fields_on.contains(&crate::render::FieldLayer::Hrrr) {
+        if view.fields_on.contains(&crate::render::FieldLayer::Hrrr) {
             let valid = self
-                .fields
-                .get(&crate::render::FieldLayer::Hrrr)
-                .filter(|_| self.model_field_ready(crate::render::FieldLayer::Hrrr))
+                .field_state_for(idx, crate::render::FieldLayer::Hrrr)
+                .filter(|_| self.model_field_ready_for(idx, crate::render::FieldLayer::Hrrr))
                 .and_then(|state| state.stamp.as_ref().map(|stamp| stamp.valid_time))
                 .map(|v| crate::timefmt::fmt_date_clock(v, self.active_tz()))
                 .unwrap_or_else(|| "loading…".to_string());
-            let lead_min = if self.hrrr_subhourly {
-                self.hrrr_fcst_min
+            let lead_min = if self.views[idx].models.hrrr_subhourly {
+                self.views[idx].models.hrrr_fcst_min
             } else {
-                u16::from(self.hrrr_fcst_hour) * 60
+                u16::from(self.views[idx].models.hrrr_fcst_hour) * 60
             };
             let lead = crate::model_browser::format_lead(lead_min);
             let lead = lead.trim_start_matches('F');
-            let model = self.refl_source_label().to_uppercase();
+            let model = if view.models.hrrr_subhourly {
+                "HRRR 15-MIN".into()
+            } else {
+                view.models.refl_model.label().to_uppercase()
+            };
             let text = format!("⚠ FORECAST {lead} — {model} MODEL, NOT OBSERVED — valid {valid}");
             let font = egui::FontId::proportional(13.0);
             let pad = egui::vec2(10.0, 4.0);

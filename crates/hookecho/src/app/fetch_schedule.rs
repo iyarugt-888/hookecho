@@ -274,7 +274,7 @@ impl HookEchoApp {
         // Model difference: same cadence as a global layer, and the same refetch-on-change rule.
         {
             let layer = FL::ModelDiff;
-            let fh = self.global_fcst_hour;
+            let fh = self.comparison_fcst_hour;
             let on = self.field_wanted(layer);
             let stale = on
                 && self.fields.get(&layer).is_some_and(|s| {
@@ -366,7 +366,7 @@ impl HookEchoApp {
         // instead of subtracted — one fetch feeds both `CompareA`/`CompareB`, so either wanting it
         // is enough to trigger it, and both get the same staleness stamp.
         {
-            let fh = self.global_fcst_hour;
+            let fh = self.comparison_fcst_hour;
             let on = self.field_wanted(FL::CompareA) || self.field_wanted(FL::CompareB);
             let stale = on
                 && self.fields.get(&FL::CompareA).is_some_and(|s| {
@@ -561,7 +561,10 @@ impl HookEchoApp {
             // Panes come and go with the layout; their particle sets should not outlive them.
             self.wind_particles.retain(|k, _| *k < self.views.len());
 
-            let want = (self.wind_level, self.hrrr_fcst_hour);
+            let want = (
+                self.wind_level,
+                self.views[self.active].models.hrrr_fcst_hour,
+            );
             let interval = if crate::platform::is_metered() {
                 1800
             } else {

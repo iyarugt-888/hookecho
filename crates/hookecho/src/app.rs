@@ -50,6 +50,7 @@ mod frame_intake;
 mod gis_import;
 mod goto;
 mod models;
+mod model_groups;
 mod output_window;
 mod overlay_poll;
 mod overlay_toggle;
@@ -107,6 +108,7 @@ mod terrain3d;
 mod yall_mode;
 use acquisition::OverlayAcquisition;
 mod model_context;
+mod model_cache;
 pub(crate) use field_state::{FieldState, MrmsRequest};
 use goes_timeline::nearest_goes;
 pub(crate) use model_context::ModelRequest;
@@ -1445,9 +1447,6 @@ pub struct HookEchoApp {
     // ponytail: index identity — markers have no id, and their names aren't unique ("Marker 3"
     // comes back after a delete). A bounds check closes the popup if the list shrinks under it.
     marker_popup: Option<usize>,
-    /// Which global model the global layers read, and how far into its run.
-    global_model: wxdata::global::GlobalModel,
-    global_fcst_hour: u16,
     /// What the difference layer differences and the exact shared valid time/source runs.
     diff_field: crate::fielddiff::DiffField,
     /// Signed `A - B` or magnitude-only `|A - B|`. The fetched CPU grid always stays signed;
@@ -1757,18 +1756,17 @@ pub struct HookEchoApp {
     /// National gridded field layers (MRMS mosaic, rotation, MESH, AzShear, lightning), each with
     /// its own toggle + pending GPU upload + refresh throttle. Keyed by [`crate::render::FieldLayer`].
     fields: std::collections::HashMap<crate::render::FieldLayer, FieldState>,
+    /// Global comparison and ensemble controls retain their existing shared owner.
+    comparison_fcst_hour: u16,
+    /// Contours retain their shared source until their separate M5.1 migration.
+    contour_model: wxdata::hrrr::Model,
+    model_fields: model_cache::ModelFieldCache,
+    model_palette_gen: u64,
+    model_drop_textures: Vec<crate::render::ModelTextureKey>,
     /// Selected rotation-track accumulation window (minutes): 30, 60, or 120.
     rotation_minutes: u16,
     /// Selected hail-swath accumulation window (minutes); see [`wxdata::mrms::hail_swath`].
     hail_minutes: u16,
-    /// Environment suite (HRRR CAPE/SRH): CAPE uses the mixed-layer (90-0 mb) parcel when true,
-    /// else surface-based; SRH depth in km (1 = 0-1 km, 3 = 0-3 km). Changing either clears the
-    /// layer's last_fetch so the next frame refetches.
-    env_cape_ml: bool,
-    env_srh_km: u8,
-    /// Where the environment fields and contours come from: the HRRR forecast, or the RAP f00
-    /// analysis (13 km, observation-assimilated — "mesoanalysis"). Changing it refetches both.
-    env_model: wxdata::hrrr::Model,
     /// The site the L3 gridded products (DVL/EET) were last fetched for (feature X); refetch on
     /// site change.
     l3grid_site: Option<String>,
@@ -1826,24 +1824,6 @@ pub struct HookEchoApp {
     cappi_alt_km: f32,
     cappi_tex: Option<egui::TextureHandle>,
     cappi_key: Option<(String, u32)>,
-    /// Forecast reflectivity (any regional model): selected forecast hour,
-    /// run/valid times, clock.
-    hrrr_fcst_hour: u8,
-    /// HRRR sub-hourly (`wrfsubhf`) mode: when on, the forecast tail is scrubbed in 15-minute
-    /// steps out to 18 h instead of whole hours. `hrrr_fcst_min` is the selected lead (minutes).
-    hrrr_subhourly: bool,
-    hrrr_fcst_min: u16,
-    /// True while the HRRR layer is being driven by a forecast-tail scrub (vs. the manual toggle).
-    hrrr_by_timeline: bool,
-    /// The model browser's choice: which model, and which of its products (ROADMAP_NEW F-series).
-    /// The layers it puts on the map are the renderer's existing field layers; the fields below
-    /// are the per-engine state those layers already read.
-    model_sel: crate::model_browser::Selection,
-    /// Which regional model the forecast-reflectivity layer reads.
-    refl_model: wxdata::hrrr::Model,
-    /// The model run the browser has pinned (`None` = newest available). Session-only: a specific
-    /// cycle is a thing to look at now, not a preference to restore.
-    model_run: Option<DateTime<Utc>>,
     /// Tray-menu command channel (Linux StatusNotifier); `None` if no tray host is available.
     tray_rx: std::sync::mpsc::Receiver<crate::tray::TrayCmd>,
     /// Last state pushed to the tray, so an unchanged frame sends nothing.
@@ -2950,10 +2930,10 @@ impl HookEchoApp {
 
     /// Name of the source the forecast-reflectivity layer is drawing, for stamps and the banner.
     fn refl_source_label(&self) -> String {
-        if self.hrrr_subhourly {
+        if self.views[self.active].models.hrrr_subhourly {
             crate::model_browser::BModel::Hrrr15.label().into()
         } else {
-            self.refl_model.label().into()
+            self.views[self.active].models.refl_model.label().into()
         }
     }
 
@@ -2967,29 +2947,31 @@ impl HookEchoApp {
         use crate::render::FieldLayer as FL;
         match self.views[self.active].timeline.forecast_hour() {
             Some(h) => {
-                self.hrrr_fcst_hour = h;
+                self.views[self.active].models.hrrr_fcst_hour = h;
                 // The timeline tail is hourly; keep the sub-hourly lead in step with it so
                 // scrubbing works the same in either mode.
-                self.hrrr_fcst_min = u16::from(h) * 60;
+                self.views[self.active].models.hrrr_fcst_min = u16::from(h) * 60;
                 self.views[self.active].fields_on.insert(FL::Hrrr);
-                self.hrrr_by_timeline = true;
+                self.views[self.active].models.hrrr_by_timeline = true;
                 // The browser follows what the scrub put on the map.
                 let scrubbed = crate::model_browser::Selection {
-                    model: if self.hrrr_subhourly {
+                    model: if self.views[self.active].models.hrrr_subhourly {
                         crate::model_browser::BModel::Hrrr15
                     } else {
-                        crate::model_browser::BModel::from_regional(self.refl_model)
+                        crate::model_browser::BModel::from_regional(
+                            self.views[self.active].models.refl_model,
+                        )
                     },
                     product: crate::model_browser::Product::Reflectivity,
                 };
-                if self.model_sel != scrubbed {
-                    self.model_sel = scrubbed;
+                if self.views[self.active].models.model_sel != scrubbed {
+                    self.views[self.active].models.model_sel = scrubbed;
                 }
             }
             None => {
-                if self.hrrr_by_timeline {
+                if self.views[self.active].models.hrrr_by_timeline {
                     self.views[self.active].fields_on.remove(&FL::Hrrr);
-                    self.hrrr_by_timeline = false;
+                    self.views[self.active].models.hrrr_by_timeline = false;
                 }
             }
         }
@@ -3601,10 +3583,12 @@ impl HookEchoApp {
                         FL::ModelDiff => self.diff_grid.is_some(),
                         FL::Ensemble => self.ensemble_grid.is_some(),
                         FL::CompareA | FL::CompareB => self.compare_grid.is_some(),
-                        _ => self
-                            .fields
-                            .get(layer)
-                            .is_some_and(|state| state.grid.is_some()),
+                        _ => {
+                            self.model_field_ready_for(idx, *layer)
+                                && self
+                                    .field_state_for(idx, *layer)
+                                    .is_some_and(|state| state.grid.is_some())
+                        }
                     }
             })
     }
@@ -4693,7 +4677,7 @@ impl HookEchoApp {
         self.contours
             .retain(|k, _| self.active_contours.contains(k));
         for kind in self.active_contours.clone() {
-            let key = (self.env_model, self.settings.temp_unit);
+            let key = (self.contour_model, self.settings.temp_unit);
             let entry = self.contours.entry(kind).or_default();
             let changed = entry.fetched_key != Some(key);
             let stale = entry
@@ -4708,7 +4692,7 @@ impl HookEchoApp {
                 entry.fetched_key = Some(key);
                 self.spawn_overlay(
                     ctx,
-                    OverlaySource::Contours(kind, self.env_model, self.settings.temp_unit),
+                    OverlaySource::Contours(kind, self.contour_model, self.settings.temp_unit),
                 );
             }
         }
@@ -7232,7 +7216,7 @@ impl HookEchoApp {
     /// panic report already commits to.
     /// Every active source's health as the diagnostics bundle and the local API report it.
     fn diagnostics_source_health(&mut self) -> Vec<DiagnosticsSourceHealth> {
-        let entries = self.palette_entries();
+        let entries = self.source_entries();
         ui::source_health_window::active_health_rows(&entries)
             .into_iter()
             .map(DiagnosticsSourceHealth::from)
@@ -8268,7 +8252,7 @@ impl HookEchoApp {
     /// The lead the ensemble layer actually reads: the shared forecast hour, moved to the nearest
     /// one this field is published at (a 6-hour rain total only exists at multiples of six).
     pub(crate) fn ensemble_lead_hour(&self) -> u16 {
-        self.ensemble.field.snap_lead(self.global_fcst_hour)
+        self.ensemble.field.snap_lead(self.comparison_fcst_hour)
     }
 
     /// One line for layer options: which run this is, or why there is nothing yet.
@@ -8657,6 +8641,7 @@ impl HookEchoApp {
         self.apply_chase();
         self.sync_share(ctx);
         self.poll_sync();
+        self.sync_model_groups();
         self.sync_forecast_scrub();
         self.drive_model_timeline(ctx);
         self.poll_messages();
@@ -8903,6 +8888,7 @@ impl HookEchoApp {
         // Floating windows (`app/floating_windows.rs`).
         self.floating_windows(ctx, root, dock_layout);
 
+        self.sync_model_groups();
         self.draw_panes(ctx, root);
 
         self.frame_end(ctx, root);

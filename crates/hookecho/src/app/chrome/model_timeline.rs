@@ -15,6 +15,7 @@ struct Intent {
 
 impl HookEchoApp {
     pub(crate) fn model_timeline_ui(&mut self, ui: &mut egui::Ui, phone: bool) {
+        self.model_group_ui(ui);
         let input = self.model_panel_input();
         let t = self.ws_tokens();
         let tz = self.active_tz();
@@ -365,7 +366,7 @@ mod tests {
     fn gpu_model_timeline_snapshots() {
         let gpu = crate::headless::ui::Snapshot::new().expect("GPU for model timeline review");
         let destination = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../target/parity-review/model-timeline/ui");
+            .join("../../target/parity-review/model-panes/ui");
         std::fs::create_dir_all(&destination).unwrap();
         let t = ws::Tokens::new(egui::Color32::from_rgb(72, 142, 226));
         for (name, model, lead) in [
@@ -378,7 +379,7 @@ mod tests {
             if name == "global" {
                 input.stamp = Some(loaded(&input, lead));
             }
-            for (width, phone, height) in [(320, true, 180), (1000, false, 148)] {
+            for (width, phone, height) in [(320, true, 204), (1000, false, 174)] {
                 gpu.save(
                     &destination.join(format!("{name}-{width}.png")),
                     width,
@@ -389,6 +390,12 @@ mod tests {
                             .inner_margin(egui::Margin::symmetric(12, 6))
                             .show(ui, |ui| {
                                 ws::style_scope(ui, &t);
+                                let mut group = if phone { None } else { Some(2) };
+                                crate::app::model_groups::picker(
+                                    ui,
+                                    if phone { 0 } else { 1 },
+                                    &mut group,
+                                );
                                 let mut speed = 2.0;
                                 forecast_rows(ui, &t, &input, false, &mut speed, None, phone);
                                 assert!(

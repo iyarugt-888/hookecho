@@ -113,7 +113,7 @@ impl HookEchoApp {
             if !view.fields_on.contains(layer) || !self.model_field_ready(*layer) {
                 return None;
             }
-            let state = self.fields.get(layer)?;
+            let state = self.field_state_for(self.active, *layer)?;
             let grid = state.grid.as_ref()?;
             Some((
                 *layer,

@@ -63,11 +63,14 @@ impl HookEchoApp {
                 }
             }
             PaletteAction::SetModel(model) => {
-                let next = self.model_sel.with_model(model);
+                let next = self.views[self.active].models.model_sel.with_model(model);
                 self.commit_model_selection(next, true);
             }
             PaletteAction::SetModelProduct(product) => {
-                let next = self.model_sel.with_product(product);
+                let next = self.views[self.active]
+                    .models
+                    .model_sel
+                    .with_product(product);
                 self.commit_model_selection(next, true);
             }
             PaletteAction::ToggleModelProduct(product) => {
@@ -75,7 +78,10 @@ impl HookEchoApp {
                 if self.views[self.active].fields_on.contains(&layer) {
                     self.set_field(layer, false);
                 } else {
-                    let next = self.model_sel.with_product(product);
+                    let next = self.views[self.active]
+                        .models
+                        .model_sel
+                        .with_product(product);
                     // A row adds its layer without displacing others: HRRR reflectivity under
                     // GFS pressure contours is a normal thing to want.
                     self.commit_model_selection(next, false);
@@ -83,33 +89,49 @@ impl HookEchoApp {
             }
             PaletteAction::SetModelLead(minutes) => self.set_model_lead_min(minutes),
             PaletteAction::CompareSelected => {
-                let Some((field, _)) = crate::model_browser::compare_field(self.model_sel) else {
+                let Some((field, _)) =
+                    crate::model_browser::compare_field(self.views[self.active].models.model_sel)
+                else {
                     return;
                 };
                 // Carry the lead across: comparisons read the shared forecast hour.
                 if let Some((max, _)) = field.lead_hours() {
-                    self.global_fcst_hour = (self.model_lead_min() / 60).min(max);
+                    self.comparison_fcst_hour = (self.model_lead_min() / 60).min(max);
                 }
                 let already = self.diff_field == field && self.views[self.active].swipe_compare;
                 self.diff_field = field;
                 // The single-model layer would paint over the halves, so it steps aside.
-                let layer = self.model_sel.layer();
+                let layer = self.views[self.active].models.model_sel.layer();
                 self.views[self.active].fields_on.remove(&layer);
                 if already || !self.views[self.active].swipe_compare {
                     self.apply_palette(PaletteAction::ToggleCompareSwipe, ctx);
                 }
             }
             // An analysis has no lead: its steps are hours, through the Hour menu's own list.
-            PaletteAction::StepModelLead(steps) if !self.model_sel.model.has_lead() => {
-                let model = self.model_sel.model;
-                let runs = model.runs_around(self.model_run, Utc::now(), model.run_list_len());
-                self.model_run = crate::model_browser::step_run(&runs, self.model_run, steps);
+            PaletteAction::StepModelLead(steps)
+                if !self.views[self.active].models.model_sel.model.has_lead() =>
+            {
+                let model = self.views[self.active].models.model_sel.model;
+                let runs = model.runs_around(
+                    self.views[self.active].models.model_run,
+                    Utc::now(),
+                    model.run_list_len(),
+                );
+                self.views[self.active].models.model_run = crate::model_browser::step_run(
+                    &runs,
+                    self.views[self.active].models.model_run,
+                    steps,
+                );
                 self.activate_model_timeline();
             }
             PaletteAction::StepModelLead(steps) => {
                 // Step along the model's own published leads, which are not evenly spaced for
                 // every model (the NAM 12 km and the global models thin out with lead).
-                let range = self.model_sel.model.leads_for(self.model_run, Utc::now());
+                let range = self.views[self.active]
+                    .models
+                    .model_sel
+                    .model
+                    .leads_for(self.views[self.active].models.model_run, Utc::now());
                 let mut lead = range.clamp(self.model_lead_min());
                 for _ in 0..steps.unsigned_abs() {
                     lead = range.neighbour(lead, steps > 0);
@@ -117,7 +139,8 @@ impl HookEchoApp {
                 self.set_model_lead_min(lead);
             }
             PaletteAction::SetModelRun(run) => {
-                self.model_run = run.and_then(|secs| DateTime::from_timestamp(secs, 0));
+                self.views[self.active].models.model_run =
+                    run.and_then(|secs| DateTime::from_timestamp(secs, 0));
                 // A shorter run may not reach the lead that was showing; snap it back.
                 self.set_model_lead_min(self.model_lead_min());
             }

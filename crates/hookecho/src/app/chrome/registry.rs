@@ -278,14 +278,114 @@ const NAV_ROWS: [(crate::app::NavStep, &str, &str, bool); 9] = {
 };
 
 impl HookEchoApp {
-    pub(crate) fn request_health(&self, lane: RequestLane) -> SourceHealth {
-        let health = self.acquisition.health(&lane);
-        if let RequestLane::Field(layer) = lane {
-            if let Some(request) = self.selected_model_request(layer) {
-                return model_context::model_health(request, self.fields.get(&layer), health);
+    /// Sources and diagnostics enumerate every visible model context, even outside focus.
+    pub(crate) fn source_entries(&mut self) -> Vec<PaletteEntry> {
+        let mut entries = self.palette_entries().to_vec();
+        for entry in &mut entries {
+            let layer = match entry.action {
+                PaletteAction::ToggleField(layer) => Some(layer),
+                PaletteAction::ToggleModelProduct(product) => Some(product.layer()),
+                _ => None,
+            };
+            if layer.is_some_and(|layer| model_context::MODEL_LAYERS.contains(&layer)) {
+                entry.health = None;
             }
         }
-        health
+        let mut requests: Vec<_> = self.wanted_model_requests().into_iter().collect();
+        requests.sort_by_key(|request| request.description());
+        for request in requests {
+            let owners: Vec<_> = self
+                .views
+                .iter()
+                .enumerate()
+                .filter(|(idx, view)| {
+                    view.model_restore_raw.is_none()
+                        && view.fields_on.contains(&request.layer())
+                        && self.selected_model_request_for(*idx, request.layer()) == Some(request)
+                })
+                .map(|(idx, _)| idx)
+                .collect();
+            let panes = owners
+                .iter()
+                .map(|idx| (idx + 1).to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let mut health = self.request_health(RequestLane::Model(request));
+            health.source = format!("Pane {panes} · {}", request.description());
+            health.details.push((
+                "Pane ownership",
+                format!("Panes {panes}; identical requests share this download and field."),
+            ));
+            if !self
+                .model_fields
+                .get(&request)
+                .is_some_and(|slot| slot.state.model_ready(request))
+            {
+                for idx in owners {
+                    if let Some(previous) = self.views[idx]
+                        .last_model_fields
+                        .get(&request.layer())
+                        .filter(|old| **old != request)
+                        .and_then(|old| self.model_fields.get(old))
+                        .and_then(|slot| slot.state.stamp.as_ref())
+                    {
+                        health.details.push(("Previous model field", format!("Pane {}: {} / {}; valid {} UTC. Unavailable for the selected request.", idx + 1, previous.source_id, previous.product_id, previous.valid_time.format("%Y-%m-%d %H:%M"))));
+                    }
+                }
+            }
+            entries.push(PaletteEntry {
+                label: health.source.clone(),
+                category: "Models",
+                action: PaletteAction::ToggleField(request.layer()),
+                on: Some(true),
+                desc: "Visible pane model request",
+                common: false,
+                key: None,
+                health: Some(health),
+            });
+        }
+        entries
+    }
+
+    pub(crate) fn request_health(&self, lane: RequestLane) -> SourceHealth {
+        if let RequestLane::Field(layer) = &lane {
+            if let Some(request) = self.selected_model_request(*layer) {
+                let state = self.model_fields.get(&request).map(|slot| &slot.state);
+                let mut health = model_context::model_health(
+                    request,
+                    state,
+                    self.acquisition.health(&RequestLane::Model(request)),
+                );
+                if !state.is_some_and(|state| state.model_ready(request)) {
+                    if let Some(previous) = self.views[self.active]
+                        .last_model_fields
+                        .get(layer)
+                        .filter(|previous| **previous != request)
+                        .and_then(|previous| self.model_fields.get(previous))
+                        .and_then(|slot| slot.state.stamp.as_ref())
+                    {
+                        health.details.push((
+                            "Previous model field",
+                            format!(
+                                "{} / {}; valid {} UTC. Unavailable for the selected request.",
+                                previous.source_id,
+                                previous.product_id,
+                                previous.valid_time.format("%Y-%m-%d %H:%M")
+                            ),
+                        ));
+                    }
+                }
+                return health;
+            }
+        }
+        if let RequestLane::Model(request) = lane {
+            return model_context::model_health(
+                request,
+                self.model_fields.get(&request).map(|slot| &slot.state),
+                self.acquisition.health(&RequestLane::Model(request)),
+            );
+        }
+        self.acquisition.health(&lane)
     }
 
     pub(in crate::app) fn radar_health(&self) -> SourceHealth {

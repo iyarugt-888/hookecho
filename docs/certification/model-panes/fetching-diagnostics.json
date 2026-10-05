@@ -1,0 +1,46 @@
+[
+  {
+    "source": "Pane 1, 3 · RAP / Composite reflectivity; lead 60 min; run 2023-11-14 22:13 UTC",
+    "endpoint_family": "noaa-ncep-models",
+    "latest_valid_time": "2023-11-14T23:13:20+00:00",
+    "cache_state": "memory",
+    "status": "Fresh",
+    "last_success_secs": 0,
+    "cadence_secs": 600,
+    "recent_successes": 1,
+    "recent_failures": 0,
+    "error": null,
+    "details": [
+      [
+        "Selected model request",
+        "RAP / Composite reflectivity; lead 60 min; run 2023-11-14 22:13 UTC"
+      ],
+      [
+        "Pane ownership",
+        "Panes 1, 3 share this exact request, download and field."
+      ]
+    ]
+  },
+  {
+    "source": "Pane 2 · NAM 3 km nest / Composite reflectivity; lead 180 min; run 2023-11-14 12:00 UTC",
+    "endpoint_family": "noaa-ncep-models",
+    "latest_valid_time": null,
+    "cache_state": "empty",
+    "status": "Fetching",
+    "last_success_secs": null,
+    "cadence_secs": 600,
+    "recent_successes": null,
+    "recent_failures": null,
+    "error": null,
+    "details": [
+      [
+        "Selected model request",
+        "NAM 3 km nest / Composite reflectivity; lead 180 min; run 2023-11-14 12:00 UTC"
+      ],
+      [
+        "Pane ownership",
+        "Pane 2 has its own request, field and health."
+      ]
+    ]
+  }
+]

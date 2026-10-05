@@ -23,7 +23,9 @@ const NBM_BUCKET: &str = "https://noaa-nbm-grib2-pds.s3.amazonaws.com";
 /// the same fields, assimilated from observations rather than projected forward, which is what
 /// people mean when they ask for "mesoanalysis" (SPC's own surface objective analysis is RAP plus
 /// surface obs). It costs one URL and one grid spacing — everything downstream is identical.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
+)]
 pub enum Model {
     #[default]
     Hrrr,

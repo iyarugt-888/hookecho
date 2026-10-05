@@ -209,13 +209,15 @@ impl HookEchoApp {
                                 .inner_margin(egui::Margin::symmetric(10, 6))
                                 .show(ui, |ui| {
                                     ui.spacing_mut().item_spacing.y = 4.0;
+                                    self.model_group_ui(ui);
+                                    let models = &mut self.views[self.active].models;
                                     crate::ui::model_panel::show(
                                         ui,
                                         &model_input,
                                         &model_on,
                                         model_tz,
-                                        &mut self.env_cape_ml,
-                                        &mut self.env_srh_km,
+                                        &mut models.env_cape_ml,
+                                        &mut models.env_srh_km,
                                         &mut self.fields,
                                         &mut ui_actions,
                                     );

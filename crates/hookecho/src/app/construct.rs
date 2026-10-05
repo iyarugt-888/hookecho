@@ -393,8 +393,6 @@ impl HookEchoApp {
             gate_popup: None,
             suitability_popup: None,
             marker_popup: None,
-            global_model: wxdata::global::GlobalModel::default(),
-            global_fcst_hour: 0,
             diff_field: compare_view.map(|v| v.0).unwrap_or_default(),
             diff_mode: compare_view.map(|v| v.1).unwrap_or_default(),
             diff_valid: None,
@@ -541,14 +539,17 @@ impl HookEchoApp {
             cells_site: None,
             cells_history_site: None,
             cell_trends: std::collections::HashMap::new(),
+            comparison_fcst_hour: 0,
+            contour_model: wxdata::hrrr::Model::Hrrr,
+            model_fields: model_cache::ModelFieldCache::default(),
+            model_palette_gen: 0,
+            model_drop_textures: Vec::new(),
             fields: crate::render::FieldLayer::DRAW_ORDER
                 .iter()
                 .map(|&l| (l, FieldState::default()))
                 .collect(),
             rotation_minutes: 30,
             hail_minutes: 1440,
-            env_cape_ml: false,
-            env_srh_km: 3,
             l3grid_site: None,
             derived_key: None,
             snow_hours: 24,
@@ -568,7 +569,6 @@ impl HookEchoApp {
             gauge_dash: Default::default(),
             active_contours: std::collections::BTreeSet::new(),
             contours: std::collections::HashMap::new(),
-            env_model: wxdata::hrrr::Model::Hrrr,
             show_tropical: true,
             tropical: None,
             tropical_last_fetch: None,
@@ -579,13 +579,6 @@ impl HookEchoApp {
             cappi_alt_km: 3.0,
             cappi_tex: None,
             cappi_key: None,
-            hrrr_fcst_hour: 1,
-            hrrr_subhourly: false,
-            hrrr_fcst_min: 15,
-            hrrr_by_timeline: false,
-            model_sel: crate::model_browser::Selection::default(),
-            refl_model: wxdata::hrrr::Model::Hrrr,
-            model_run: None,
             tray_rx: tray_rx_init,
             tray_state: crate::tray::TrayState::default(),
             tray_present: tray_present_init,
@@ -830,7 +823,7 @@ impl HookEchoApp {
             .filter_map(|t| ContourKind::from_token(t))
             .collect();
         if let Some(sel) = crate::model_browser::Selection::from_slug(&app.settings.model_pick) {
-            app.model_sel = sel;
+            app.views[app.active].models.model_sel = sel;
             app.apply_model_engine(sel);
         }
         app.palettes.reload(&app.settings.palette_paths());

@@ -6,20 +6,23 @@ use super::*;
 
 impl HookEchoApp {
     pub(crate) fn model_timeline_active(&self) -> bool {
-        model_timeline_active(&self.views[self.active], self.model_sel)
+        model_timeline_active(
+            &self.views[self.active],
+            self.views[self.active].models.model_sel,
+        )
     }
 
     pub(crate) fn activate_model_timeline(&mut self) {
         if !self.views[self.active]
             .fields_on
-            .contains(&self.model_sel.layer())
+            .contains(&self.views[self.active].models.model_sel.layer())
         {
             return;
         }
         activate_model_timeline(&mut self.views[self.active]);
         // The selected product now owns its layer, so the legacy radar forecast tail must not
         // clear it on its next observed frame or replace the selected model with reflectivity.
-        self.hrrr_by_timeline = false;
+        self.views[self.active].models.hrrr_by_timeline = false;
     }
 
     pub(crate) fn radar_timeline(&mut self) {
@@ -29,84 +32,88 @@ impl HookEchoApp {
     }
 
     pub(crate) fn toggle_model_playback(&mut self) {
-        if self.model_sel.model.has_lead() {
+        if self.views[self.active].models.model_sel.model.has_lead() {
+            let group = self.views[self.active].model_group;
+            for (idx, view) in self.views.iter_mut().enumerate() {
+                if idx != self.active && group.is_some() && view.model_group == group {
+                    view.model_playback.pause();
+                }
+            }
             self.views[self.active].model_playback.toggle();
         }
     }
 
     pub(crate) fn drive_model_timeline(&mut self, ctx: &egui::Context) {
-        if !self.model_timeline_active() {
-            self.views[self.active].model_playback.pause();
-            return;
-        }
-        let range = self.model_sel.model.leads_for(self.model_run, Utc::now());
-        let lead = range.clamp(self.model_lead_min());
-        if lead != self.model_lead_min() {
-            // Following latest can move from an extended cycle to a shorter one.
-            self.write_model_lead_min(lead);
-            self.views[self.active].model_playback.pause();
-        }
-        let ready = self.model_field_ready(self.model_sel.layer())
-            && crate::platform::activity::is_active()
-            && self
-                .fields
-                .get(&self.model_sel.layer())
-                .and_then(|state| state.stamp.as_ref())
-                .is_some_and(|stamp| {
-                    model_frame_matches(stamp, self.model_sel, lead, self.model_run)
-                });
-        if let Some(next) =
-            self.views[self.active]
-                .model_playback
-                .tick(lead, range, ready, Instant::now())
-        {
-            // Playback advances without the user-scrub path's pause.
-            self.write_model_lead_min(next);
-        }
-        if self.views[self.active].model_playback.playing {
-            ctx.request_repaint_after(self.views[self.active].model_playback.interval());
+        // Every pane owns its playback; focus changes do not stop an independent pane.
+        for idx in 0..self.views.len() {
+            let selection = self.views[idx].models.model_sel;
+            if !model_timeline_active(&self.views[idx], selection) {
+                self.views[idx].model_playback.pause();
+                continue;
+            }
+            let run = self.views[idx].models.model_run;
+            let range = selection.model.leads_for(run, Utc::now());
+            let lead = range.clamp(self.views[idx].models.lead_min());
+            if lead != self.views[idx].models.lead_min() {
+                self.views[idx].models.set_lead(lead, Utc::now());
+                self.views[idx].model_playback.pause();
+                model_groups::propagate(&mut self.views, idx, Utc::now());
+            }
+            let group = self.views[idx].model_group;
+            let ready = crate::platform::activity::is_active()
+                && self
+                    .views
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, v)| *i == idx || group.is_some() && v.model_group == group)
+                    .all(|(i, v)| {
+                        !v.fields_on.contains(&v.models.model_sel.layer())
+                            || self.model_field_ready_for(i, v.models.model_sel.layer())
+                                && self
+                                    .field_state_for(i, v.models.model_sel.layer())
+                                    .and_then(|s| s.stamp.as_ref())
+                                    .is_some_and(|stamp| {
+                                        model_frame_matches(stamp, v.models.model_sel, lead, run)
+                                    })
+                    });
+            if let Some(next) =
+                self.views[idx]
+                    .model_playback
+                    .tick(lead, range, ready, Instant::now())
+            {
+                self.views[idx].models.set_lead(next, Utc::now());
+                model_groups::propagate(&mut self.views, idx, Utc::now());
+            }
+            if self.views[idx].model_playback.playing {
+                ctx.request_repaint_after(self.views[idx].model_playback.interval());
+            }
         }
     }
 
     /// Everything the model controls need to draw themselves, whichever surface hosts them.
     pub(crate) fn model_panel_input(&self) -> crate::ui::model_panel::Input {
         let now = Utc::now();
-        let model = self.model_sel.model;
+        let model = self.views[self.active].models.model_sel.model;
         crate::ui::model_panel::Input {
-            sel: self.model_sel,
+            sel: self.views[self.active].models.model_sel,
             lead_min: self.model_lead_min(),
             stamp: self
-                .fields
-                .get(&self.model_sel.layer())
-                .filter(|_| self.model_field_ready(self.model_sel.layer()))
+                .field_state_for(
+                    self.active,
+                    self.views[self.active].models.model_sel.layer(),
+                )
+                .filter(|_| {
+                    self.model_field_ready(self.views[self.active].models.model_sel.layer())
+                })
                 .and_then(|state| state.stamp.clone()),
-            run: self.model_run,
-            runs: model.runs_around(self.model_run, now, model.run_list_len()),
-            range: model.leads_for(self.model_run, now),
+            run: self.views[self.active].models.model_run,
+            runs: model.runs_around(
+                self.views[self.active].models.model_run,
+                now,
+                model.run_list_len(),
+            ),
+            range: model.leads_for(self.views[self.active].models.model_run, now),
         }
-    }
-
-    /// The run pinned in the browser, if it is one this regional model actually publishes. Runs
-    /// are named by hour, so a 17Z pick means something to the hourly HRRR and nothing to the
-    /// six-hourly NAM, which then simply reads its newest run.
-    ///
-    /// With nothing pinned, a view scrubbed back to a past event reads the run of that time
-    /// ([`archive_run`]) rather than today's (ROADMAP_2 §10.3).
-    pub(crate) fn pinned_regional_run(&self, model: wxdata::hrrr::Model) -> Option<DateTime<Utc>> {
-        use chrono::Timelike;
-        let cycle = model.def().cycle_hours;
-        self.model_run
-            .filter(|run| run.hour() % cycle == 0)
-            .or_else(|| archive_run(self.view_target_time()?, Utc::now(), cycle))
-    }
-
-    /// The pinned run, if it lies on the global models' six-hourly cycles; else, scrubbed back,
-    /// the run of that time.
-    pub(crate) fn pinned_global_run(&self) -> Option<DateTime<Utc>> {
-        use chrono::Timelike;
-        self.model_run
-            .filter(|run| run.hour() % 6 == 0)
-            .or_else(|| archive_run(self.view_target_time()?, Utc::now(), 6))
     }
 
     /// The forecast lead the model browser is scrubbed to, in minutes. Which clock that reads
@@ -114,10 +121,10 @@ impl HookEchoApp {
     /// its own, and global models read the global forecast hour.
     pub(crate) fn model_lead_min(&self) -> u16 {
         use crate::model_browser::Engine;
-        match self.model_sel.model.engine() {
-            Engine::Sub15 => self.hrrr_fcst_min,
-            Engine::Regional(_) => u16::from(self.hrrr_fcst_hour) * 60,
-            Engine::Global(_) => self.global_fcst_hour * 60,
+        match self.views[self.active].models.model_sel.model.engine() {
+            Engine::Sub15 => self.views[self.active].models.hrrr_fcst_min,
+            Engine::Regional(_) => u16::from(self.views[self.active].models.hrrr_fcst_hour) * 60,
+            Engine::Global(_) => self.views[self.active].models.global_fcst_hour * 60,
             // An analysis is valid at its own hour: there is no lead.
             Engine::Analysis => 0,
         }
@@ -131,22 +138,25 @@ impl HookEchoApp {
 
     fn write_model_lead_min(&mut self, minutes: u16) {
         use crate::model_browser::Engine;
-        let m = self
+        let m = self.views[self.active]
+            .models
             .model_sel
             .model
-            .leads_for(self.model_run, Utc::now())
+            .leads_for(self.views[self.active].models.model_run, Utc::now())
             .clamp(minutes);
-        match self.model_sel.model.engine() {
+        match self.views[self.active].models.model_sel.model.engine() {
             Engine::Sub15 => {
-                self.hrrr_fcst_min = m;
-                self.hrrr_fcst_hour = (m / 60).min(u16::from(u8::MAX)) as u8;
+                self.views[self.active].models.hrrr_fcst_min = m;
+                self.views[self.active].models.hrrr_fcst_hour =
+                    (m / 60).min(u16::from(u8::MAX)) as u8;
             }
             Engine::Regional(_) => {
-                self.hrrr_fcst_hour = (m / 60).min(u16::from(u8::MAX)) as u8;
+                self.views[self.active].models.hrrr_fcst_hour =
+                    (m / 60).min(u16::from(u8::MAX)) as u8;
                 // Keep the 15-minute lead in step so switching to it lands on the same time.
-                self.hrrr_fcst_min = m.max(15);
+                self.views[self.active].models.hrrr_fcst_min = m.max(15);
             }
-            Engine::Global(_) => self.global_fcst_hour = m / 60,
+            Engine::Global(_) => self.views[self.active].models.global_fcst_hour = m / 60,
             Engine::Analysis => {}
         }
     }
@@ -156,15 +166,16 @@ impl HookEchoApp {
         use crate::model_browser::{Engine, Product};
         match (sel.model.engine(), sel.product) {
             (Engine::Sub15, _) => {
-                self.refl_model = wxdata::hrrr::Model::Hrrr;
-                self.hrrr_subhourly = true;
+                self.views[self.active].models.refl_model = wxdata::hrrr::Model::Hrrr;
+                self.views[self.active].models.hrrr_subhourly = true;
             }
             (Engine::Regional(model), Product::Reflectivity) => {
-                self.refl_model = model;
-                self.hrrr_subhourly = false;
+                self.views[self.active].models.refl_model = model;
+                self.views[self.active].models.hrrr_subhourly = false;
             }
             (Engine::Regional(model), Product::Cape | Product::Srh) => {
-                self.env_model = model;
+                self.views[self.active].models.env_model = model;
+                self.contour_model = model;
                 // STP needs an LCL height that only the HRRR surface file carries; a source
                 // without it cannot keep those contours.
                 if !crate::ui::layer_options::stp_source(model) {
@@ -174,7 +185,7 @@ impl HookEchoApp {
             }
             // Rotation tracks, snowfall, smoke and thunder chance are each tied to one model.
             (Engine::Regional(_), _) => {}
-            (Engine::Global(model), _) => self.global_model = model,
+            (Engine::Global(model), _) => self.views[self.active].models.global_model = model,
             // RTMA layers read the pinned analysis hour directly; nothing to point.
             (Engine::Analysis, _) => {}
         }
@@ -187,15 +198,16 @@ impl HookEchoApp {
         next: crate::model_browser::Selection,
         swap: bool,
     ) {
-        let prev = self.model_sel;
+        self.views[self.active].model_restore_raw = None;
+        let prev = self.views[self.active].models.model_sel;
         // The lead is a time, not a model's own number: carry it across and let the new model
         // snap it to its own range.
         let lead = self.model_lead_min();
         // A run is one model's cycle; another model has its own, so the pick does not carry over.
         if prev.model != next.model {
-            self.model_run = None;
+            self.views[self.active].models.model_run = None;
         }
-        self.model_sel = next;
+        self.views[self.active].models.model_sel = next;
         self.apply_model_engine(next);
         self.set_model_lead_min(lead);
         let fields = &mut self.views[self.active].fields_on;

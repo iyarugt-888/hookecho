@@ -8,6 +8,26 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: independent pane models and model/run link groups
+
+Each pane now keeps its own model, product, run and forecast lead. Choose Independent or a
+model/run group directly in the main forecast timeline or Models controls. Group members share
+source, run and lead while retaining compatible products and CAPE/SRH variants; unlinking keeps
+the pane's current selection. Forecast playback continues outside focus and waits for the
+selected fields of linked members. Saved workspaces retain these controls and groups.
+
+Model downloads, decoded grids, source health and GPU textures now use the complete request
+context. Identical requests share their field; different models, runs, leads and variants stay
+separate. Retiring the last subscriber cancels pending work without recording a source failure.
+A bounded cache retains recent fields for switching back and protects every visible context.
+Probes, grid exports, forecast keys and clocks read their own pane's accepted field. Sources and
+exported diagnostics list every visible model context and its pane owners.
+
+Unsupported saved controls disable the affected model fields with a clear explanation and
+retain the original metadata. Conflicting saved model groups restore independently. Comparison,
+ensemble and contour controls retain their shared ownership; broader pane linking remains in
+progress. Tornado detection work remains separate.
+
 ### Fixed: model replies retain their requested source and time
 
 Forecast and analysis fields now carry the exact model, product, run and lead requested.

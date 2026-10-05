@@ -18,12 +18,13 @@ impl HookEchoApp {
                     mut result,
                 } => {
                     if let Some(request) = model_request {
-                        if !request.current(
-                            self.selected_model_request(request.layer()),
-                            self.fields
-                                .get(&request.layer())
-                                .and_then(|state| state.model_requested),
-                        ) {
+                        if lane != RequestLane::Model(request)
+                            || !self.wanted_model_requests().contains(&request)
+                            || self
+                                .model_fields
+                                .get(&request)
+                                .is_none_or(|slot| slot.state.model_requested != Some(request))
+                        {
                             self.acquisition.discard(&lane, generation);
                             continue;
                         }
@@ -237,8 +238,17 @@ impl HookEchoApp {
                 OverlayMsg::StampedField(layer, field) => {
                     if let Some(request) = model_context {
                         let upload = self.field_upload(layer, &field.data);
-                        if let Some(state) = self.fields.get_mut(&layer) {
-                            state.stage_model(request, field, upload);
+                        if let Some(slot) = self.model_fields.get_mut(&request) {
+                            if slot.state.stage_model(request, field, upload) {
+                                for idx in 0..self.views.len() {
+                                    if self.views[idx].fields_on.contains(&layer)
+                                        && self.selected_model_request_for(idx, layer)
+                                            == Some(request)
+                                    {
+                                        self.views[idx].last_model_fields.insert(layer, request);
+                                    }
+                                }
+                            }
                         }
                     } else if self.selected_model_request(layer).is_none() {
                         self.accept_field(layer, field.data, Some(field.stamp));
@@ -256,7 +266,7 @@ impl HookEchoApp {
                     }
                 }
                 OverlayMsg::ModelDiff(kind, fh, field, pct, valid)
-                    if kind == self.diff_field && fh == self.global_fcst_hour =>
+                    if kind == self.diff_field && fh == self.comparison_fcst_hour =>
                 {
                     let layer = crate::render::FieldLayer::ModelDiff;
                     self.diff_pct = pct;
@@ -280,7 +290,7 @@ impl HookEchoApp {
                 OverlayMsg::ModelDiff(..) => {}
                 OverlayMsg::Compare(field, fh, a, b, valid) => {
                     // A selection change in flight must not overwrite the field now selected.
-                    if field == self.diff_field && fh == self.global_fcst_hour {
+                    if field == self.diff_field && fh == self.comparison_fcst_hour {
                         use crate::render::FieldLayer as FL;
                         let source = field.source_layer();
                         let upload_a = self.field_upload(source, &a);

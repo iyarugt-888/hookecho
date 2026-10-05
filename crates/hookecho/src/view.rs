@@ -923,6 +923,12 @@ pub struct MapView {
     /// Archive/live playback state; `timeline.following` is the live auto-update flag.
     pub timeline: crate::timeline::Timeline,
     pub(crate) model_playback: crate::timeline::ModelPlayback,
+    pub(crate) models: crate::model_pane::ModelControls,
+    pub(crate) model_group: Option<u8>,
+    pub(crate) model_restore_raw: Option<serde_json::Value>,
+    pub(crate) model_link_snapshot: crate::model_pane::ModelControls,
+    pub(crate) last_model_fields:
+        std::collections::HashMap<crate::render::FieldLayer, crate::app::ModelRequest>,
     pub smooth: bool,
     /// Storm-relative velocity (velocity moment only); session state, not persisted.
     pub srv: bool,
@@ -1108,6 +1114,11 @@ impl MapView {
             flight: None,
             timeline: crate::timeline::Timeline::default(),
             model_playback: crate::timeline::ModelPlayback::default(),
+            models: crate::model_pane::ModelControls::default(),
+            model_group: Some(1),
+            model_restore_raw: None,
+            model_link_snapshot: crate::model_pane::ModelControls::default(),
+            last_model_fields: Default::default(),
             smooth: true,
             srv: false,
             storm_dir_deg: 240.0,

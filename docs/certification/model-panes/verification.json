@@ -1,0 +1,363 @@
+{
+  "schema": 1,
+  "recorded_utc": "2026-10-05T13:51:14.524198+00:00",
+  "scope": "M5.1 ordinary model pane controls, request ownership, renderer isolation and model/run groups; parent remains partial",
+  "source_snapshot": {
+    "baseline": "85c488d",
+    "shared_head": "3dbc304a7144189b1dd5bb4b0b2c0d5894fdd034",
+    "recorded_utc": "2026-10-05T13:44:32.294744+00:00",
+    "source_sha256": {
+      "crates/hookecho/src/app.rs": "4b0655d7add27eec6e59fd7107c5b00bd2d620629622058bf4f986cc4201f139",
+      "crates/hookecho/src/app/acquisition.rs": "a8cd37ecffd2c26861cd20116c7f2082c7443838dc71ab76d8da9357d4bb6fd4",
+      "crates/hookecho/src/app/chrome/dock/inspector.rs": "45dd6c4449c1d7309bb086a7153a6ae04fb6c6edae4eb5b6a38ee8f6e9050638",
+      "crates/hookecho/src/app/chrome/dock/layers.rs": "8631a06044bfbdd018495b15f3e3bf57ebeafb50a07d02e4c1522d37ce29d1e1",
+      "crates/hookecho/src/app/chrome/dock/sources.rs": "af6304840293f101d6689244e818f1f9c13abc05f975ea1f143aa7a59cce91e0",
+      "crates/hookecho/src/app/chrome/dock/timeline.rs": "d4cd45e4ce5053e1555a0a792014891c78acc25b9b88de1a53519c754a51c9e1",
+      "crates/hookecho/src/app/chrome/model_timeline.rs": "0a29a2f8e7ec6456e4790b08043a4ddb80d992fcdade875f9915a4529e0079bf",
+      "crates/hookecho/src/app/chrome/overlay.rs": "9bf73164ab2252532076d854a387d62847b6b87ceba6bda9387e30944d56a723",
+      "crates/hookecho/src/app/chrome/registry.rs": "28defbae8d0dfcfe7b6cc0e1b75ff0b4e872d5374de7daebfe13b51507f2bc79",
+      "crates/hookecho/src/app/chrome/ribbon.rs": "7342cd889d75012dcea2d5af8acfb448a866c52d201a2d547845dbe087eaed5c",
+      "crates/hookecho/src/app/construct.rs": "55407db945f0794d8bf3437f86ce4982beb6b78a4fac832894f636e1f26b04e6",
+      "crates/hookecho/src/app/fetch_schedule.rs": "f929ae828928a6a71a3d46d4d95af663f8bf904bdcaed0bd3b67d516b7ef24f0",
+      "crates/hookecho/src/app/field_state.rs": "4bcdf154443320a81f2656523ea6f9cda7d4294a90d9087e5a08d675b48c18f4",
+      "crates/hookecho/src/app/floating_windows.rs": "4c4ff8a865e6bb656203724d1dd75837ca02f171563683c1778e1d003f6e3058",
+      "crates/hookecho/src/app/layer_probe.rs": "f89e594da77aa880cd4109a742bd9830a8b6652f5ede102bfe24448b3342127e",
+      "crates/hookecho/src/app/model_cache.rs": "c21e2588548ff2b503e5771dc06e3d97f5cff549c009bd354d411cea7c55ed7f",
+      "crates/hookecho/src/app/model_context.rs": "0d7ba0656024b11d719c58e819c498bfbe6e68b3ab38855187e28ff38a74a72c",
+      "crates/hookecho/src/app/model_groups.rs": "1896a984352e2e63259fa7fc2ec86ce202ef6369a7a00ac9b31e65be8b4c941e",
+      "crates/hookecho/src/app/models.rs": "1f724bd7a4aab37abadb60a8c908ef448b6176204bb805774925c24f2fa0e893",
+      "crates/hookecho/src/app/overlay_poll.rs": "267cc8d6d84b8bb9d687d6a73996539c4f9a7fdb70cfb3220dfd1529760505ac",
+      "crates/hookecho/src/app/palette_apply.rs": "1020cddcf2d10324bff31654ddf7d91b31adf8344372ecbb5319a921f9b57b15",
+      "crates/hookecho/src/app/pane_gpu.rs": "9d282b79a4800290987668337dc3fb4473ed3e3d3a9c778a2d7e89d02e7bba39",
+      "crates/hookecho/src/app/pane_legends.rs": "af90a21107fcc9f180ec45e16df621f93a90495ebb8453dd9cc8205c6c0693e6",
+      "crates/hookecho/src/app/report.rs": "f5a81ae58cfb1001fccab20e68fb0f8b3fc470611877f5c560531976da381298",
+      "crates/hookecho/src/app/request_book.rs": "8f38892320d54af6278596845eb89152f3ca10efd0f3e3afc1180ec3e4deaf20",
+      "crates/hookecho/src/app/workspace_apply.rs": "6477a6e5438ec3cee14eda27e5eda5a5655539d8dc16dc2377b23bf5a8d28b2f",
+      "crates/hookecho/src/headless.rs": "606aa572d20051c640b7083f70a579b90142c26ebc6aba0f0088440030677621",
+      "crates/hookecho/src/headless_corpus.rs": "e6d98f0176472f593484467ff26228547b048521f35f8a2466885245f2a3f498",
+      "crates/hookecho/src/headless_model_panes.rs": "c814bdabb79a60cb2fadece90cd24dc52e784b4a0d9eef6e875021fff2e69432",
+      "crates/hookecho/src/lib.rs": "e95e57529a1dc3979fc521b838deccb4ea87f73b210c019a320aea93aa89e393",
+      "crates/hookecho/src/model_browser.rs": "fac9ea9cb326996f3bea2357b3eaf10dd83aeb3fec2d6e493b619382d57ae648",
+      "crates/hookecho/src/model_pane.rs": "0ba86a09cd699e407307fcc05fc311ea9d1d915234a87f57389b029a33fdf9b3",
+      "crates/hookecho/src/render/mod.rs": "0ec68c8ed8500e54c80a4fb8d8a463e916c891a853fa585d83635d12615b8445",
+      "crates/hookecho/src/view.rs": "e9ff320549a48c62ce5c8e347ab19e4bb67a10b8b16e7048f1dfd3845177dae9",
+      "crates/hookecho/src/workspace.rs": "957d8b039d1caf789cac123af29d9cd361418735126182a49e6fc23fcb10e1fd",
+      "crates/wxdata/src/global.rs": "eff073260bdb1a8b1e27e8d7315a3df52dd99ec53d2a82a2869b1cfab5c93fb6",
+      "crates/wxdata/src/hrrr.rs": "39185a08fde5afca5b51eccd7e31684a6afc1d1d14049bb3aeb31d61ef245f2d"
+    }
+  },
+  "checks": {
+    "workspace": {
+      "command": "cargo test --workspace",
+      "exit_code": 0,
+      "log_path": "target/parity-review/model-panes/final/workspace.log",
+      "log_sha256": "aa56b311ccb7fcc4f3ddee9122fb87e54a1a98c9d7915319ef1cff1325253102",
+      "exit_sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+      "totals": {
+        "passed": 2272,
+        "failed": 0,
+        "ignored": 147,
+        "suites": 29
+      }
+    },
+    "clippy": {
+      "command": "cargo clippy --workspace --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log_path": "target/parity-review/model-panes/final/clippy.log",
+      "log_sha256": "ac292ddd75aad8f385de0d7e81646f254e2072614a2d121e5cb3e7352b01ab07",
+      "exit_sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    "wasm": {
+      "command": "cargo check -p hookecho --lib --target wasm32-unknown-unknown",
+      "exit_code": 0,
+      "log_path": "target/parity-review/model-panes/final/wasm.log",
+      "log_sha256": "feb9c66b34ac908d70a03ad3b983335b704c4baa94457d9212565ea3f8c3c39f",
+      "exit_sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+    },
+    "gpu": {
+      "command": "cargo test -p hookecho --lib gpu_model_ -- --ignored --nocapture",
+      "exit_code": 0,
+      "log_path": "target/parity-review/model-panes/final/gpu.log",
+      "log_sha256": "d29300e1821f763dfd74c484a19e843fca52d09d9d11d5ef956981e039b79531",
+      "exit_sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+      "totals": {
+        "passed": 4,
+        "failed": 0,
+        "ignored": 0,
+        "suites": 1
+      },
+      "test_seconds": 3.88
+    }
+  },
+  "new_controls": {
+    "ordinary": 18,
+    "explicit_gpu": 2
+  },
+  "captures": [
+    {
+      "path": "target/parity-review/model-panes/gpu/different-run-pane-a.png",
+      "png_file_sha256": "27342b361bfb90e38b06815714f0f9d5fa88ee3a49086e5ae81aa230b00d2648",
+      "visually_reviewed": true
+    },
+    {
+      "path": "target/parity-review/model-panes/gpu/different-run-pane-b.png",
+      "png_file_sha256": "9bee55c73eb0089fc2c708ad71331caa2163bffbc2132e457e42bd70ec95f9d4",
+      "visually_reviewed": true
+    },
+    {
+      "path": "target/parity-review/model-panes/gpu/focus-change-a.png",
+      "png_file_sha256": "27342b361bfb90e38b06815714f0f9d5fa88ee3a49086e5ae81aa230b00d2648",
+      "visually_reviewed": true
+    },
+    {
+      "path": "target/parity-review/model-panes/gpu/focus-change-b.png",
+      "png_file_sha256": "9bee55c73eb0089fc2c708ad71331caa2163bffbc2132e457e42bd70ec95f9d4",
+      "visually_reviewed": true
+    },
+    {
+      "path": "target/parity-review/model-panes/gpu/missing-context.png",
+      "png_file_sha256": "4f78a8546375d7e942f007dbf52f31b9fba8db2cd642c5f64ea4cb1832b9478a",
+      "visually_reviewed": true
+    },
+    {
+      "path": "target/parity-review/model-panes/gpu/replacement-context.png",
+      "png_file_sha256": "b8e92703a4afd498d596a1b7e889a36069145440f2bddeeddb63213131da731c",
+      "visually_reviewed": true
+    },
+    {
+      "path": "target/parity-review/model-panes/gpu/retired-context.png",
+      "png_file_sha256": "4f78a8546375d7e942f007dbf52f31b9fba8db2cd642c5f64ea4cb1832b9478a",
+      "visually_reviewed": true
+    },
+    {
+      "path": "target/parity-review/model-panes/gpu/shared-full-opacity.png",
+      "png_file_sha256": "27342b361bfb90e38b06815714f0f9d5fa88ee3a49086e5ae81aa230b00d2648",
+      "visually_reviewed": true
+    },
+    {
+      "path": "target/parity-review/model-panes/gpu/shared-quarter-opacity.png",
+      "png_file_sha256": "0e8e2d48f34d354bd50937bc2614954842f7ba5139f0f13633fb76c93b220d13",
+      "visually_reviewed": true
+    },
+    {
+      "path": "target/parity-review/model-panes/gpu/surviving-after-replacement.png",
+      "png_file_sha256": "9bee55c73eb0089fc2c708ad71331caa2163bffbc2132e457e42bd70ec95f9d4",
+      "visually_reviewed": true
+    },
+    {
+      "path": "target/parity-review/model-panes/gpu/surviving-context.png",
+      "png_file_sha256": "9bee55c73eb0089fc2c708ad71331caa2163bffbc2132e457e42bd70ec95f9d4",
+      "visually_reviewed": true
+    },
+    {
+      "path": "target/parity-review/model-panes/ui/analysis-1000.png",
+      "png_file_sha256": "24670fdb1b232bd66d612ca3f97bd2ac91f724ee3eab64d23a1e91968296686c",
+      "visually_reviewed": true
+    },
+    {
+      "path": "target/parity-review/model-panes/ui/analysis-320.png",
+      "png_file_sha256": "12346b340dc0c18aabf592cecd733cdf23c6bbf37c4c5710980863682d5c25dd",
+      "visually_reviewed": true
+    },
+    {
+      "path": "target/parity-review/model-panes/ui/global-1000.png",
+      "png_file_sha256": "764239c19f053b97750d3398fd9ea472f3b770d85c3087cf273a397d7667871d",
+      "visually_reviewed": true
+    },
+    {
+      "path": "target/parity-review/model-panes/ui/global-320.png",
+      "png_file_sha256": "6849960c7aefa6b09a5df05f0ac26b66373b76340d30f21845b005c62be4b617",
+      "visually_reviewed": true
+    },
+    {
+      "path": "target/parity-review/model-panes/ui/regional-1000.png",
+      "png_file_sha256": "81da38aefad70a6d1bd55a8ee58eab2041cc3c83149acf797d1e09ff9c578b56",
+      "visually_reviewed": true
+    },
+    {
+      "path": "target/parity-review/model-panes/ui/regional-320.png",
+      "png_file_sha256": "576fc6063222a14e9de725a5fd70a70a32320432f275a2f0b87d44f000d4689c",
+      "visually_reviewed": true
+    },
+    {
+      "path": "target/parity-review/model-panes/ui/subhourly-1000.png",
+      "png_file_sha256": "0814a671c9f40b60730186af1ae7aeb9faf1f0964b1c78724086e84a67b7e248",
+      "visually_reviewed": true
+    },
+    {
+      "path": "target/parity-review/model-panes/ui/subhourly-320.png",
+      "png_file_sha256": "05d2f0d126fc6cff0bfa3b16e908cbc0a66f748ddc655d0e34b82ad79b0a099e",
+      "visually_reviewed": true
+    },
+    {
+      "path": "target/parity-review/model-panes/sources/failed-240.png",
+      "png_file_sha256": "8ea26b1262b5160574b507d793a63817829fe294fcdab7f416f7ca0a834dc738",
+      "visually_reviewed": true
+    },
+    {
+      "path": "target/parity-review/model-panes/sources/failed-300.png",
+      "png_file_sha256": "44de18b49d60adf5e218a6c5dd073a3153dd927ade458cb8d19ce1051509d263",
+      "visually_reviewed": true
+    },
+    {
+      "path": "target/parity-review/model-panes/sources/fetching-240.png",
+      "png_file_sha256": "bc1b9a37e592d0bd2f680eb384254b8db5e48e55e64d12ac8ab1fef3996d5677",
+      "visually_reviewed": true
+    },
+    {
+      "path": "target/parity-review/model-panes/sources/fetching-300.png",
+      "png_file_sha256": "456f64444e22ffd6bb6b199240476668a34f0fc39500582ce5de3d35f2bfb0dd",
+      "visually_reviewed": true
+    }
+  ],
+  "renderer_observations": {
+    "adapter": "NVIDIA GeForce RTX 2060",
+    "captures": [
+      {
+        "center_rgba": [
+          255,
+          0,
+          0,
+          255
+        ],
+        "name": "different-run-pane-a",
+        "pane": 0,
+        "rgba_pixel_sha256": "2c4a66266c5ad8f8488d9c77fae9a319ed360a86f13f21d8481f5b4314f0ea18"
+      },
+      {
+        "center_rgba": [
+          0,
+          0,
+          255,
+          255
+        ],
+        "name": "different-run-pane-b",
+        "pane": 1,
+        "rgba_pixel_sha256": "b873d4e9ca87a58fd8b7a3d4dcbb0ecb7df3260c15942ecbf0e501fb2dd3a0ac"
+      },
+      {
+        "center_rgba": [
+          255,
+          0,
+          0,
+          255
+        ],
+        "name": "focus-change-a",
+        "pane": 0,
+        "rgba_pixel_sha256": "2c4a66266c5ad8f8488d9c77fae9a319ed360a86f13f21d8481f5b4314f0ea18"
+      },
+      {
+        "center_rgba": [
+          0,
+          0,
+          255,
+          255
+        ],
+        "name": "focus-change-b",
+        "pane": 1,
+        "rgba_pixel_sha256": "b873d4e9ca87a58fd8b7a3d4dcbb0ecb7df3260c15942ecbf0e501fb2dd3a0ac"
+      },
+      {
+        "center_rgba": [
+          137,
+          0,
+          0,
+          255
+        ],
+        "name": "shared-quarter-opacity",
+        "pane": 0,
+        "rgba_pixel_sha256": "64f4cec87068dbfe9606d6749cd79c9c8c0adc52dd7ed5f4ef2fb1caff748863"
+      },
+      {
+        "center_rgba": [
+          255,
+          0,
+          0,
+          255
+        ],
+        "name": "shared-full-opacity",
+        "pane": 1,
+        "rgba_pixel_sha256": "2c4a66266c5ad8f8488d9c77fae9a319ed360a86f13f21d8481f5b4314f0ea18"
+      },
+      {
+        "center_rgba": [
+          0,
+          0,
+          0,
+          255
+        ],
+        "name": "missing-context",
+        "pane": 0,
+        "rgba_pixel_sha256": "e7725955bf2aeb00256b3826a660221203307b29ff185e3bcfab8a2aba47bea3"
+      },
+      {
+        "center_rgba": [
+          0,
+          0,
+          0,
+          255
+        ],
+        "name": "retired-context",
+        "pane": 0,
+        "rgba_pixel_sha256": "e7725955bf2aeb00256b3826a660221203307b29ff185e3bcfab8a2aba47bea3"
+      },
+      {
+        "center_rgba": [
+          0,
+          0,
+          255,
+          255
+        ],
+        "name": "surviving-context",
+        "pane": 1,
+        "rgba_pixel_sha256": "b873d4e9ca87a58fd8b7a3d4dcbb0ecb7df3260c15942ecbf0e501fb2dd3a0ac"
+      },
+      {
+        "center_rgba": [
+          255,
+          255,
+          0,
+          255
+        ],
+        "name": "replacement-context",
+        "pane": 0,
+        "rgba_pixel_sha256": "78e2d3b65db3551d91e5cc2074311b421e1d20478911deb7247ba3d9bf24906b"
+      },
+      {
+        "center_rgba": [
+          0,
+          0,
+          255,
+          255
+        ],
+        "name": "surviving-after-replacement",
+        "pane": 1,
+        "rgba_pixel_sha256": "b873d4e9ca87a58fd8b7a3d4dcbb0ecb7df3260c15942ecbf0e501fb2dd3a0ac"
+      }
+    ]
+  },
+  "renderer_fixture_sha256": "5667e9a3970480d082b8412a832f5c670a4b38c130977a94765054b64389a2a0",
+  "diagnostics": [
+    {
+      "path": "docs/certification/model-panes/fetching-diagnostics.json",
+      "sha256": "84a9a89bea7497c62a4abfe8d640db64dc064665b265c888e06d8d23575b50b9"
+    },
+    {
+      "path": "docs/certification/model-panes/failed-diagnostics.json",
+      "sha256": "478707406da676eee46adcad9b843feb3f2b6ab9153343da2a87ba99a560b2db"
+    }
+  ],
+  "visual_review": [
+    "Eleven production-renderer color controls retain distinct requests through focus changes, per-pane opacity, missing keys, retirement and replacement. Black missing/retired contexts reject an unrelated legacy same-layer texture.",
+    "Eight production timeline rows fit phone 320 px and desktop 1000 px bounds; native forecast positions and model/run group selection remain accessible.",
+    "Four Sources panels fit 240/300 px bounds. Owners are visible in row prefixes, details wrap, and a separately fetching/failed pinned request does not borrow the shared loaded request status or timestamp."
+  ],
+  "limitations": [
+    "Synthetic renderer controls establish resource ownership, not meteorological validation.",
+    "No simultaneous full application live/archive/different-run operator session or live provider acceptance claimed.",
+    "WASM compilation does not certify browser runtime; no physical Android acceptance claimed.",
+    "Independent analysis-time/camera/site/cursor groups, MRMS/GOES drivers and comparison/ensemble/contour ownership remain open.",
+    "Latest run keys are refreshable aliases; accepted fields retain their actual provider cycle and valid time.",
+    "Existing WASM and PDB filename warnings remain in local logs. Tornado detection methodology remains assigned to Claude."
+  ]
+}

@@ -7,6 +7,7 @@ use super::*;
 impl HookEchoApp {
     /// Snapshot the current arrangement. Auto-named: naming things is a peacetime activity.
     pub(crate) fn capture_workspace(&mut self) -> crate::workspace::Workspace {
+        self.sync_model_groups();
         let overlays_on: Vec<String> = OverlayToggle::ALL
             .into_iter()
             .filter(|t| !t.session_only() && *self.overlay_flag(*t))
@@ -75,10 +76,21 @@ impl HookEchoApp {
             .adopt_site
             .then(|| self.views[self.active].site.clone())
             .flatten();
+        let conflicting_groups = crate::workspace::conflicting_model_groups(ws);
+        let legacy_models = self.views[self.active].models.clone();
         self.set_pane_count(ws.panes.len());
+        for view in &mut self.views {
+            view.models = legacy_models.clone();
+            view.model_group = Some(1);
+        }
         self.pane_layout = ws.pane_layout;
         for (v, snap) in self.views.iter_mut().zip(&ws.panes) {
             snap.apply(v);
+            if v.model_group
+                .is_some_and(|group| conflicting_groups.contains(&group))
+            {
+                v.model_group = None;
+            }
             if v.site.is_none() {
                 if let Some(site) = &adopted {
                     v.site = Some(site.clone());
@@ -117,8 +129,12 @@ impl HookEchoApp {
             v.fields_on = crate::render::FieldLayer::DRAW_ORDER
                 .iter()
                 .copied()
-                .filter(|l| list.iter().any(|s| s == l.slug()))
+                .filter(|l| {
+                    list.iter().any(|s| s == l.slug())
+                        && (snap.model_context_valid() || !model_context::MODEL_LAYERS.contains(l))
+                })
                 .collect();
+            v.model_playback.active = v.fields_on.contains(&v.models.model_sel.layer());
         }
         if let Some(c) = &ws.chrome {
             self.apply_chrome(c, ctx);
@@ -148,6 +164,12 @@ impl HookEchoApp {
                 .then(|| src.timeline.current().and_then(|id| id.date_time()))
                 .flatten();
             let mut v = MapView::new(site, camera);
+            v.models = src.models.clone();
+            v.model_restore_raw = src.model_restore_raw.clone();
+            v.model_group = src.model_group;
+            v.model_link_snapshot = v.models.clone();
+            v.model_playback.active = src.model_playback.active;
+            v.fields_on = src.fields_on.clone();
             v.smooth = self.settings.smooth_radar;
             v.basemap = basemap;
             v.tilt = tilt;

@@ -72,7 +72,7 @@ fn data_age(
 impl HookEchoApp {
     /// How many active feeds need a look: the Sources window's title count and its tab's dot.
     pub(super) fn sources_attention(&mut self) -> usize {
-        let entries = self.palette_entries();
+        let entries = self.source_entries();
         crate::ui::source_health_window::active_health_rows(&entries)
             .iter()
             // The red dot is for what misleads when missing; a routine feed failing is listed,
@@ -88,7 +88,7 @@ impl HookEchoApp {
             return;
         }
         let t = self.ws_tokens();
-        let entries = self.palette_entries();
+        let entries = self.source_entries();
         let rows = crate::ui::source_health_window::active_health_rows(&entries);
         let now = chrono::Utc::now();
         let map_rect = self.chrome_rect;
@@ -636,6 +636,94 @@ mod tests {
                             ws::style_scope(ui, &t);
                             ws::window_header(ui, &t, ph::PULSE, "Sources", None, None);
                             source_row(ui, &t, &h, now, egui::Id::new("dependency_source"), true);
+                        });
+                    },
+                )
+                .unwrap();
+            }
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "gpu: captures independent model context health and diagnostics"]
+    fn gpu_model_pane_sources_snapshots() {
+        let gpu =
+            crate::headless::ui::Snapshot::new().expect("GPU adapter for pane Sources review");
+        let destination = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/parity-review/model-panes/sources");
+        std::fs::create_dir_all(&destination).unwrap();
+        let now = chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap();
+        let t = ws::Tokens::new(egui::Color32::from_rgb(72, 142, 226));
+        for case in ["fetching", "failed"] {
+            let mut a = crate::app::model_context::tests::review_health("loaded");
+            a.source = format!(
+                "Pane 1, 3 · {}",
+                a.details
+                    .iter()
+                    .find(|(k, _)| *k == "Selected model request")
+                    .unwrap()
+                    .1
+            );
+            a.details.push((
+                "Pane ownership",
+                "Panes 1, 3 share this exact request, download and field.".into(),
+            ));
+            let request = crate::app::ModelRequest::Reflectivity(
+                wxdata::hrrr::Model::NamNest,
+                3,
+                Some(now.date_naive().and_hms_opt(12, 0, 0).unwrap().and_utc()),
+            );
+            let lane = crate::app::RequestLane::Model(request);
+            let mut book = crate::app::RequestBook::default();
+            let mut state = crate::app::FieldState::default();
+            state.begin_model(request, wxdata::clock::Instant::now());
+            let generation = book.start(lane.clone());
+            if case == "failed" {
+                assert!(book.finish(
+                    &lane,
+                    generation,
+                    Some("Pinned run temporarily unavailable"),
+                    None
+                ));
+            }
+            let mut b =
+                crate::app::model_context::model_health(request, Some(&state), book.health(&lane));
+            b.source = format!(
+                "Pane 2 · {}",
+                b.details
+                    .iter()
+                    .find(|(k, _)| *k == "Selected model request")
+                    .unwrap()
+                    .1
+            );
+            b.details.push((
+                "Pane ownership",
+                "Pane 2 has its own request, field and health.".into(),
+            ));
+            let diagnostics = [&a, &b].map(crate::app::DiagnosticsSourceHealth::from);
+            std::fs::write(
+                destination.join(format!("{case}.json")),
+                serde_json::to_vec_pretty(&diagnostics).unwrap(),
+            )
+            .unwrap();
+            for width in [240, 300] {
+                gpu.save(
+                    &destination.join(format!("{case}-{width}.png")),
+                    width,
+                    920,
+                    |ui| {
+                        ws::set_touch(ui.ctx(), true);
+                        ws::panel_frame(&t).show(ui, |ui| {
+                            ws::style_scope(ui, &t);
+                            ws::window_header(ui, &t, ph::PULSE, "Sources", None, None);
+                            source_row(ui, &t, &a, now, egui::Id::new("pane_1_3_source"), false);
+                            source_row(ui, &t, &b, now, egui::Id::new("pane_2_source"), true);
+                            assert!(
+                                ui.min_rect().right() <= width as f32 + 0.5,
+                                "{case}: horizontal overflow"
+                            );
+                            assert!(ui.min_rect().bottom() <= 920.0, "{case}: vertical overflow");
                         });
                     },
                 )

@@ -78,7 +78,7 @@ impl HookEchoApp {
         let t = self.ws_tokens();
         if self.model_timeline_active() {
             egui::Panel::bottom("dock_timeline")
-                .exact_size(if phone { 180.0 } else { TIMELINE_H })
+                .exact_size(if phone { 204.0 } else { TIMELINE_H + 26.0 })
                 .resizable(false)
                 .frame(ws::panel_frame(&t).inner_margin(egui::Margin::symmetric(12, 6)))
                 .show(root, |ui| {
@@ -89,7 +89,7 @@ impl HookEchoApp {
         }
         let model_available = self.views[self.active]
             .fields_on
-            .contains(&self.model_sel.layer());
+            .contains(&self.views[self.active].models.model_sel.layer());
         let mut use_model = false;
         let tz = self.active_tz();
         let site = self.views[self.active]
@@ -137,7 +137,7 @@ impl HookEchoApp {
                 ws::style_scope(ui, &t);
                 ui.horizontal(|ui| {
                     ui.selectable_label(true, "Radar").named("Using radar timeline");
-                    if ui.add_enabled(model_available, egui::Button::new(self.model_sel.model.label()))
+                    if ui.add_enabled(model_available, egui::Button::new(self.views[self.active].models.model_sel.model.label()))
                         .named("Use model forecast timeline").clicked() {
                         use_model = true;
                     }

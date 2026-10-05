@@ -1,8 +1,9 @@
 //! Request-owned model identity. Displayed metadata is never reconstructed from a later picker.
 
+use super::models::archive_run;
 use super::*;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum ModelRequest {
     Reflectivity(wxdata::hrrr::Model, u8, Option<DateTime<Utc>>),
     Subhourly(u16, Option<DateTime<Utc>>),
@@ -53,7 +54,7 @@ pub(super) const MODEL_LAYERS: [crate::render::FieldLayer; 21] = {
 };
 
 impl ModelRequest {
-    fn description(self) -> String {
+    pub(super) fn description(self) -> String {
         use crate::render::FieldLayer as L;
         let (source, product, minutes, run) = match self {
             Self::Reflectivity(model, hour, run) => (
@@ -120,6 +121,7 @@ impl ModelRequest {
                 .unwrap_or_else(|| "latest available run requested".into())
         )
     }
+    #[cfg(test)]
     pub(super) fn current(self, selected: Option<Self>, requested: Option<Self>) -> bool {
         selected == Some(self) && requested == Some(self)
     }
@@ -308,110 +310,202 @@ pub(super) fn rtma_field(layer: crate::render::FieldLayer) -> Option<wxdata::rtm
     })
 }
 
+pub(super) fn request_for(
+    models: &crate::model_pane::ModelControls,
+    layer: crate::render::FieldLayer,
+    target: Option<DateTime<Utc>>,
+    now: DateTime<Utc>,
+) -> Option<ModelRequest> {
+    use chrono::Timelike;
+    let pinned_regional = |model: wxdata::hrrr::Model| {
+        let cycle = model.def().cycle_hours;
+        models
+            .model_run
+            .filter(|run| run.hour() % cycle == 0)
+            .or_else(|| archive_run(target?, now, cycle))
+    };
+    let pinned_global = || {
+        models
+            .model_run
+            .filter(|run| run.hour() % 6 == 0)
+            .or_else(|| archive_run(target?, now, 6))
+    };
+    use crate::render::FieldLayer as L;
+    use wxdata::global::GlobalField as G;
+    Some(match layer {
+        L::Hrrr => {
+            let run = pinned_regional(models.refl_model);
+            if models.hrrr_subhourly {
+                ModelRequest::Subhourly(models.hrrr_fcst_min, run)
+            } else {
+                ModelRequest::Reflectivity(models.refl_model, models.hrrr_fcst_hour, run)
+            }
+        }
+        L::Cape | L::Srh => ModelRequest::Environment(
+            layer,
+            models.env_model,
+            models.env_cape_ml,
+            models.env_srh_km,
+            models.hrrr_fcst_hour,
+            pinned_regional(models.env_model),
+        ),
+        L::UpdraftHelicity | L::Smoke | L::Snowfall | L::ThunderProb => {
+            ModelRequest::RegionalProduct(
+                layer,
+                models.hrrr_fcst_hour,
+                pinned_regional(if layer == L::ThunderProb {
+                    wxdata::hrrr::Model::Nbm
+                } else {
+                    wxdata::hrrr::Model::Hrrr
+                }),
+            )
+        }
+        L::GlobalMslp
+        | L::GlobalHeight500
+        | L::GlobalTemp2m
+        | L::GlobalDewpoint2m
+        | L::GlobalWind10m
+        | L::GlobalPrecip => {
+            let field = match layer {
+                L::GlobalMslp => G::Mslp,
+                L::GlobalHeight500 => G::Height500,
+                L::GlobalTemp2m => G::Temp2m,
+                L::GlobalDewpoint2m => G::Dewpoint2m,
+                L::GlobalWind10m => G::Wind10m,
+                _ => G::Precip,
+            };
+            ModelRequest::Global(
+                layer,
+                models.global_model,
+                field,
+                models.global_fcst_hour,
+                pinned_global(),
+            )
+        }
+        L::RtmaTemp2m
+        | L::RtmaDewpoint2m
+        | L::RtmaWind10m
+        | L::RtmaGust10m
+        | L::RtmaVisibility
+        | L::RtmaCeiling
+        | L::RtmaMslp
+        | L::RtmaPrecip1h => ModelRequest::Analysis(
+            layer,
+            if models.model_sel.model == crate::model_browser::BModel::Rtma {
+                models.model_run
+            } else {
+                None
+            },
+        ),
+        _ => return None,
+    })
+}
+
 impl HookEchoApp {
     pub(super) fn selected_model_request(
         &self,
         layer: crate::render::FieldLayer,
     ) -> Option<ModelRequest> {
-        use crate::render::FieldLayer as L;
-        use wxdata::global::GlobalField as G;
-        Some(match layer {
-            L::Hrrr => {
-                let run = self.pinned_regional_run(self.refl_model);
-                if self.hrrr_subhourly {
-                    ModelRequest::Subhourly(self.hrrr_fcst_min, run)
-                } else {
-                    ModelRequest::Reflectivity(self.refl_model, self.hrrr_fcst_hour, run)
-                }
-            }
-            L::Cape | L::Srh => ModelRequest::Environment(
-                layer,
-                self.env_model,
-                self.env_cape_ml,
-                self.env_srh_km,
-                self.hrrr_fcst_hour,
-                self.pinned_regional_run(self.env_model),
-            ),
-            L::UpdraftHelicity | L::Smoke | L::Snowfall | L::ThunderProb => {
-                ModelRequest::RegionalProduct(
-                    layer,
-                    self.hrrr_fcst_hour,
-                    self.pinned_regional_run(if layer == L::ThunderProb {
-                        wxdata::hrrr::Model::Nbm
-                    } else {
-                        wxdata::hrrr::Model::Hrrr
-                    }),
-                )
-            }
-            L::GlobalMslp
-            | L::GlobalHeight500
-            | L::GlobalTemp2m
-            | L::GlobalDewpoint2m
-            | L::GlobalWind10m
-            | L::GlobalPrecip => {
-                let field = match layer {
-                    L::GlobalMslp => G::Mslp,
-                    L::GlobalHeight500 => G::Height500,
-                    L::GlobalTemp2m => G::Temp2m,
-                    L::GlobalDewpoint2m => G::Dewpoint2m,
-                    L::GlobalWind10m => G::Wind10m,
-                    _ => G::Precip,
-                };
-                ModelRequest::Global(
-                    layer,
-                    self.global_model,
-                    field,
-                    self.global_fcst_hour,
-                    self.pinned_global_run(),
-                )
-            }
-            L::RtmaTemp2m
-            | L::RtmaDewpoint2m
-            | L::RtmaWind10m
-            | L::RtmaGust10m
-            | L::RtmaVisibility
-            | L::RtmaCeiling
-            | L::RtmaMslp
-            | L::RtmaPrecip1h => ModelRequest::Analysis(
-                layer,
-                if self.model_sel.model == crate::model_browser::BModel::Rtma {
-                    self.model_run
-                } else {
-                    None
-                },
-            ),
-            _ => return None,
-        })
+        self.selected_model_request_for(self.active, layer)
+    }
+    pub(super) fn selected_model_request_for(
+        &self,
+        idx: usize,
+        layer: crate::render::FieldLayer,
+    ) -> Option<ModelRequest> {
+        request_for(
+            &self.views.get(idx)?.models,
+            layer,
+            self.model_target_time(idx),
+            Utc::now(),
+        )
     }
 
     pub(crate) fn model_field_ready(&self, layer: crate::render::FieldLayer) -> bool {
-        self.selected_model_request(layer).is_none_or(|request| {
-            self.fields
-                .get(&layer)
-                .is_some_and(|state| state.model_ready(request))
+        self.model_field_ready_for(self.active, layer)
+    }
+    pub(crate) fn model_field_ready_for(
+        &self,
+        idx: usize,
+        layer: crate::render::FieldLayer,
+    ) -> bool {
+        if self
+            .views
+            .get(idx)
+            .is_none_or(|v| v.model_restore_raw.is_some())
+            && MODEL_LAYERS.contains(&layer)
+        {
+            return false;
+        }
+        self.selected_model_request_for(idx, layer)
+            .is_none_or(|request| {
+                self.model_fields
+                    .get(&request)
+                    .is_some_and(|slot| slot.state.model_ready(request))
+            })
+    }
+    pub(super) fn field_state_for(
+        &self,
+        idx: usize,
+        layer: crate::render::FieldLayer,
+    ) -> Option<&FieldState> {
+        if let Some(request) = self.selected_model_request_for(idx, layer) {
+            self.model_fields.get(&request).map(|slot| &slot.state)
+        } else {
+            self.fields.get(&layer)
+        }
+    }
+    fn model_target_time(&self, idx: usize) -> Option<DateTime<Utc>> {
+        // Retain the existing linked analysis clock; independent radar time drivers are M5.1's
+        // next integration. A pane outside that global link resolves its own archive playhead.
+        self.linked_archive_time().or_else(|| {
+            let timeline = &self.views.get(idx)?.timeline;
+            if timeline.following || timeline.forecast_hour().is_some() {
+                None
+            } else {
+                timeline.current().and_then(|id| id.date_time())
+            }
         })
     }
-
+    pub(super) fn wanted_model_requests(&self) -> std::collections::HashSet<ModelRequest> {
+        self.views
+            .iter()
+            .enumerate()
+            .flat_map(|(idx, view)| {
+                view.fields_on.iter().filter_map(move |layer| {
+                    if view.model_restore_raw.is_none() {
+                        self.selected_model_request_for(idx, *layer)
+                    } else {
+                        None
+                    }
+                })
+            })
+            .collect()
+    }
     pub(super) fn schedule_model_fields(&mut self, ctx: &egui::Context) {
         let now = Instant::now();
-        for layer in MODEL_LAYERS {
-            if !self.field_wanted(layer) {
-                continue;
+        let cap = self.field_texture_cap();
+        let wanted = self.wanted_model_requests();
+        for request in self.acquisition.cancel_unwanted_models(&wanted) {
+            if let Some(slot) = self.model_fields.get_mut(&request) {
+                slot.state.last_fetch = None;
             }
-            let Some(request) = self.selected_model_request(layer) else {
-                continue;
-            };
-            let state = self.fields.entry(layer).or_default();
+        }
+        self.model_fields.reconcile(&wanted, now);
+        for request in wanted {
+            let state = &mut self.model_fields.ensure(request).state;
             if state.model_due(
                 request,
-                std::time::Duration::from_secs(field_refresh_secs(layer)),
+                std::time::Duration::from_secs(field_refresh_secs(request.layer())),
                 now,
             ) {
-                if state.begin_model(request, now) {
-                    self.acquisition.reset(&RequestLane::Field(layer));
-                }
-                self.spawn_overlay(ctx, request.source());
+                state.begin_model(request, now);
+                self.acquisition.spawn_model(ctx, request, cap);
             }
+        }
+        for (request, texture) in self.model_fields.take_dropped() {
+            self.acquisition.reset(&RequestLane::Model(request));
+            self.model_drop_textures.push(texture);
         }
     }
 }
@@ -422,6 +516,76 @@ pub(super) mod tests {
     use crate::render::{FieldLayer as L, MrmsUpload};
     use wxdata::global::{GlobalField as F, GlobalModel as G};
     use wxdata::hrrr::Model as M;
+
+    #[test]
+    fn model_pane_request_resolver_separates_runs_with_the_same_valid_time() {
+        use crate::model_browser::{BModel, Product, Selection};
+        let now = Utc::now();
+        let a_run = run();
+        let mut controls = crate::model_pane::ModelControls {
+            model_sel: Selection {
+                model: BModel::Gfs,
+                product: Product::Temp2m,
+            },
+            model_run: Some(a_run),
+            global_fcst_hour: 6,
+            ..Default::default()
+        };
+        // Runs in the fixtures lie on a six-hour boundary.
+        use chrono::Timelike;
+        controls.model_run = Some(
+            a_run
+                .with_hour(12)
+                .unwrap()
+                .with_minute(0)
+                .unwrap()
+                .with_second(0)
+                .unwrap(),
+        );
+        let first = request_for(&controls, L::GlobalTemp2m, None, now).unwrap();
+        controls.model_run = controls.model_run.map(|r| r - chrono::Duration::hours(6));
+        controls.global_fcst_hour = 12;
+        let second = request_for(&controls, L::GlobalTemp2m, None, now).unwrap();
+        assert_ne!(
+            first, second,
+            "matching valid times do not make different cycles interchangeable"
+        );
+        let requests = MODEL_LAYERS.map(|layer| request_for(&controls, layer, None, now).unwrap());
+        assert_eq!(
+            requests
+                .into_iter()
+                .collect::<std::collections::HashSet<_>>()
+                .len(),
+            MODEL_LAYERS.len()
+        );
+    }
+
+    #[test]
+    fn model_pane_request_resolver_keeps_source_variants_and_archive_times_attached() {
+        let now = Utc::now();
+        let mut a = crate::model_pane::ModelControls {
+            env_model: M::Rap,
+            env_cape_ml: true,
+            env_srh_km: 1,
+            hrrr_fcst_hour: 6,
+            ..Default::default()
+        };
+        let b = crate::model_pane::ModelControls::default();
+        let key = request_for(&a, L::Cape, None, now).unwrap();
+        assert_ne!(key, request_for(&b, L::Cape, None, now).unwrap());
+        a.env_cape_ml = false;
+        assert_ne!(key, request_for(&a, L::Cape, None, now).unwrap());
+        assert_ne!(
+            request_for(&a, L::Hrrr, Some(now - chrono::Duration::days(1)), now),
+            request_for(&a, L::Hrrr, None, now)
+        );
+        // Resolving any other pane never mutates this pane's controls or key.
+        let before = a.clone();
+        for layer in MODEL_LAYERS {
+            request_for(&b, layer, None, now);
+        }
+        assert_eq!(a, before);
+    }
 
     fn run() -> DateTime<Utc> {
         DateTime::from_timestamp(1_700_000_000, 0).unwrap()
