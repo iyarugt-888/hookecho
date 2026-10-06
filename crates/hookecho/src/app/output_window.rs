@@ -80,6 +80,11 @@ pub(crate) struct OutputWindow {
     pub source: ProgramSource,
     /// The scene cued in preview, waiting for Take.
     pub cued: Option<crate::broadcast::Scene>,
+    /// Program keeps its own camera: the operator panning or zooming the program pane does not
+    /// move the output, and Take sets it.
+    pub hold: bool,
+    /// The held camera, once taken.
+    pub held: Option<crate::render::mercator::Camera>,
     pub size: OutputSize,
     pub fullscreen: bool,
     /// A title strap along the top, when not empty.
@@ -154,8 +159,17 @@ impl HookEchoApp {
                             }
                         };
                         // A passenger like the mini-loop: the main window's own pane loop owns
-                        // the tile caches.
+                        // the tile caches. A held program view swaps its camera in around the
+                        // render, exactly as the mini-loop does, and the pane gets its own back.
+                        let held = self.output.hold.then(|| {
+                            let cam = *self.output.held.get_or_insert(self.views[idx].camera);
+                            std::mem::replace(&mut self.views[idx].camera, cam)
+                        });
                         self.render_pane(ui, &octx, idx, rect, false, false, false, false, &[]);
+                        if let Some(pane_cam) = held {
+                            self.output.held =
+                                Some(std::mem::replace(&mut self.views[idx].camera, pane_cam));
+                        }
                         let painter = octx.layer_painter(egui::LayerId::new(
                             egui::Order::Foreground,
                             egui::Id::new("output_dressing"),
@@ -256,6 +270,16 @@ impl HookEchoApp {
                     "Pin program to one pane so working in the others never changes what is on \
                      air; scenes are taken into this pane",
                 );
+            if toggle(ui, &mut o.hold, "Hold the program view")
+                .on_hover_text(
+                    "Program keeps its own camera: panning or zooming that pane no longer moves \
+                     the output, and Take sets it",
+                )
+                .changed()
+            {
+                // Held from where the pane is looking now; released, the output follows it again.
+                o.held = None;
+            }
             egui::ComboBox::from_label("Size")
                 .selected_text(o.size.label())
                 .show_ui(ui, |ui| {

@@ -7,6 +7,17 @@ use super::*;
 use crate::broadcast::Scene;
 use output_window::{program_pane, OutputSize};
 
+/// Whether a scene going into pane `target` sets program's held camera rather than the pane's:
+/// the output is open, holding its view, and `target` is its pane.
+pub(crate) fn takes_held_camera(
+    output: &output_window::OutputWindow,
+    active: usize,
+    panes: usize,
+    target: usize,
+) -> bool {
+    output.open && output.hold && program_pane(output.source, active, panes) == Ok(target)
+}
+
 /// What a scene would do on Take (ROADMAP_PARITY M6.1): problems that stop it, so program keeps
 /// what it shows, and notes on what it will skip.
 #[derive(Debug, Default, PartialEq)]
@@ -142,14 +153,22 @@ impl HookEchoApp {
     /// Put a scene on pane `target`: camera (flown to), layers, colour scale, dressing, strap,
     /// output size, GIS layers.
     fn apply_scene_to(&mut self, target: usize, scene: &Scene) {
-        let v = &mut self.views[target];
-        v.camera = crate::render::mercator::Camera {
+        let camera = crate::render::mercator::Camera {
             center: crate::render::mercator::lonlat_to_world(scene.lon, scene.lat),
             zoom: scene.zoom,
             pitch: scene.pitch,
             bearing: scene.bearing,
         };
-        v.camera_placed = true;
+        // A held program view takes the scene's camera itself, leaving the operator's view of
+        // the pane where it is.
+        let holds = takes_held_camera(&self.output, self.active, self.views.len(), target);
+        let v = &mut self.views[target];
+        if holds {
+            self.output.held = Some(camera);
+        } else {
+            v.camera = camera;
+            v.camera_placed = true;
+        }
         v.show_legend = scene.legend;
         if let Some(site) = &scene.site {
             v.site = Some(site.clone());
@@ -269,6 +288,31 @@ impl HookEchoApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_held_program_takes_the_scene_camera_and_the_operator_keeps_theirs() {
+        use output_window::{OutputWindow, ProgramSource};
+        let mut o = OutputWindow::default();
+        o.open = true;
+        o.hold = true;
+        o.source = ProgramSource::Pane(1);
+        assert!(takes_held_camera(&o, 0, 2, 1), "program's pane, held");
+        assert!(
+            !takes_held_camera(&o, 0, 2, 0),
+            "another pane takes it as before"
+        );
+        o.hold = false;
+        assert!(
+            !takes_held_camera(&o, 0, 2, 1),
+            "not held: the pane's camera moves"
+        );
+        o.hold = true;
+        o.open = false;
+        assert!(
+            !takes_held_camera(&o, 0, 2, 1),
+            "no output window, nothing held"
+        );
+    }
 
     #[test]
     fn a_scene_is_checked_before_it_goes_on() {

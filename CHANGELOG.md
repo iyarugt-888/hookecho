@@ -17,6 +17,11 @@ shows where it will go and anything it will skip; Take puts the whole scene on a
 still switch scenes straight away. If the program pane has been closed, Take is refused and the
 output says so instead of switching to another pane.
 
+### Added: hold the program view
+
+Output window → "Hold the program view" keeps the output's own camera: panning or zooming the
+program pane no longer moves what is on air, and taking a scene moves only the output.
+
 ### Added: workspaces and scenes remember your GIS layers
 
 Saving a workspace or a broadcast scene now records which imported GIS layers were on, in what
