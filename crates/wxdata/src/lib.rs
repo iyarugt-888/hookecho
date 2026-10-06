@@ -62,6 +62,7 @@ pub mod live_pass;
 pub mod live_sequence;
 pub mod llsd_analyst;
 pub mod near_flow;
+pub mod near_storm;
 pub mod lsr;
 pub mod metar;
 pub mod meteoalarm;
