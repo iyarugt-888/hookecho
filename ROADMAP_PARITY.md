@@ -923,6 +923,8 @@ Remaining open:
 - *Commands:* clippy `-D warnings` clean; `cargo test --workspace --no-fail-fast` 2,344 passed, 0 failed; GPU suite 38 passed; wasm32 check passes.
 - *Open:* no GPU regression yet for the observed-gates (instanced) representation or the map-pitched smooth path (these cover the orbit raymarch); no real-volume 3D reference; camera/orbit, ROI, ruler and direct-sampling interaction work remains.
 
+**Evidence ledger — 2026-10-06, increment 3 (cross-section ruler):** the cross-section window has a Ruler: drag across the panel to measure between two points ([`ruler_reading`](crates/hookecho/src/ui/xsection_window.rs)) — ground distance along the cut, height difference, straight-line distance, and for each end its height above the radar antenna (the panel's own axis, now labelled so in the hover and caption instead of "km up"), its height above mean sea level from the site's antenna altitude (site elevation plus tower), and the value the panel holds there, flagged when it is held over from the nearest beam rather than sampled. Ground level is stated as unknown (no terrain data), never assumed; with no site altitude the MSL height says so. The ruler belongs to the window and is dropped when the cut changes. Test: `the_ruler_reads_distances_both_datums_and_the_panel_value` (distances both ways round, MSL from antenna altitude, the panel's value and coverage at the end, the unknown-datum wording); full workspace 2,374 passed, Clippy `-D warnings`, the WASM library check. Open: rulers in the 3D view and on the map, terrain AGL (needs a DEM), ROI volumes.
+
 ### M4 — Operational GIS
 
 #### M4.1 — Introduce independent GIS layers and groups

@@ -41,7 +41,7 @@ fn hover_readout(
     let row = (ty * (xs.rows - 1) as f32).round() as usize;
     let dist_km = xs.length_km * col as f64 / (xs.cols - 1) as f64;
     let height_km = xs.max_height_km * (1.0 - row as f32 / (xs.rows - 1) as f32);
-    let mut s = format!("{dist_km:.0} km along \u{b7} {height_km:.1} km up");
+    let mut s = format!("{dist_km:.0} km along \u{b7} {height_km:.1} km above the radar");
     match xs.at(col, row) {
         Some(v) => {
             let units = moment.units();
@@ -138,6 +138,97 @@ pub struct XsControls {
     pub cut_3d: bool,
     /// Site, tilts and the span their radials were scanned over.
     pub info: String,
+    /// The radar antenna's altitude above mean sea level, km, when the site is known: the
+    /// panel's heights are above the antenna, and this turns them into MSL.
+    pub antenna_msl_km: Option<f64>,
+}
+
+/// One end of the cross-section ruler: where it is on the panel.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RulerEnd {
+    /// Distance along the cut from A, km.
+    pub along_km: f64,
+    /// Height above the radar antenna, km (the panel's own axis).
+    pub above_antenna_km: f64,
+}
+
+/// What the ruler measures (ROADMAP_PARITY M3.6).
+#[derive(Clone, Debug, PartialEq)]
+pub struct RulerReading {
+    /// Ground distance between the ends along the cut, km.
+    pub horizontal_km: f64,
+    /// Height of the second end over the first, km.
+    pub vertical_km: f64,
+    /// Straight-line distance between them, km (flat over the span; the panel's heights already
+    /// carry the earth's curvature through the beam model).
+    pub slant_km: f64,
+    /// Per end: height above the antenna, height above MSL when the antenna's is known, and the
+    /// sampled value with whether a beam actually passes there.
+    pub ends: [(f64, Option<f64>, Option<f32>, bool); 2],
+}
+
+/// The panel cell under a position, clamped to the panel.
+fn cell_at(xs: &CrossSection, along_km: f64, above_km: f64) -> (usize, usize) {
+    let cols = xs.cols.max(2) - 1;
+    let rows = xs.rows.max(2) - 1;
+    let col = (along_km / xs.length_km.max(1e-9) * cols as f64)
+        .round()
+        .clamp(0.0, cols as f64) as usize;
+    let row = ((1.0 - above_km / f64::from(xs.max_height_km).max(1e-9)) * rows as f64)
+        .round()
+        .clamp(0.0, rows as f64) as usize;
+    (col, row)
+}
+
+/// Measure between two points on the panel.
+pub fn ruler_reading(
+    xs: &CrossSection,
+    ends: [RulerEnd; 2],
+    antenna_msl_km: Option<f64>,
+) -> RulerReading {
+    let horizontal_km = (ends[1].along_km - ends[0].along_km).abs();
+    let vertical_km = ends[1].above_antenna_km - ends[0].above_antenna_km;
+    let end = |e: RulerEnd| {
+        let (c, r) = cell_at(xs, e.along_km, e.above_antenna_km);
+        (
+            e.above_antenna_km,
+            antenna_msl_km.map(|a| a + e.above_antenna_km),
+            xs.at(c, r),
+            xs.is_covered(c, r),
+        )
+    };
+    RulerReading {
+        horizontal_km,
+        vertical_km,
+        slant_km: horizontal_km.hypot(vertical_km),
+        ends: [end(ends[0]), end(ends[1])],
+    }
+}
+
+/// The ruler's reading as lines a person reads.
+pub fn ruler_text(r: &RulerReading, moment: Moment) -> Vec<String> {
+    let mut lines = vec![format!(
+        "Ruler: {:.1} km across \u{b7} {:+.1} km up \u{b7} {:.1} km straight",
+        r.horizontal_km, r.vertical_km, r.slant_km
+    )];
+    for (name, (above, msl, value, covered)) in ["1", "2"].iter().zip(&r.ends) {
+        let mut l = format!("{name}: {above:.1} km above the radar");
+        match msl {
+            Some(m) => l.push_str(&format!(" ({m:.1} km MSL)")),
+            None => l.push_str(" (MSL unknown: no site altitude)"),
+        }
+        l.push_str(" \u{b7} ground level here unknown: no terrain data");
+        match value {
+            Some(v) if *covered => l.push_str(&format!(" \u{b7} {v:.1} {}", moment.units())),
+            Some(v) => l.push_str(&format!(
+                " \u{b7} {v:.1} {} (held over from the nearest beam, not sampled here)",
+                moment.units()
+            )),
+            None => l.push_str(" \u{b7} no beam here"),
+        }
+        lines.push(l);
+    }
+    lines
 }
 
 /// The share of the panel's cells inside real beam coverage.
@@ -276,7 +367,22 @@ pub fn show(
         // pane, this window's own minimum before the user resizes it) left no room for a sixth
         // control without the two competing layouts overlapping their text.
         controls(ui, ctl);
+        // The ruler is the window's own: two ends on the panel, dropped when the cut changes.
+        let ruler_on_id = egui::Id::new("xs_ruler_on");
+        let ruler_id = egui::Id::new("xs_ruler");
+        let mut ruler_on = ui
+            .ctx()
+            .data(|d| d.get_temp::<bool>(ruler_on_id).unwrap_or(false));
+        let mut ruler = ui.ctx().data(|d| {
+            d.get_temp::<(f64, [RulerEnd; 2])>(ruler_id)
+                .filter(|(len, _)| (*len - xs.length_km).abs() < 1e-6)
+                .map(|(_, e)| e)
+        });
         ui.horizontal(|ui| {
+            ui.checkbox(&mut ruler_on, "Ruler").on_hover_text(
+                "Drag across the panel to measure distance and height between two points; heights \
+                 above the radar and above sea level, and the value at each end",
+            );
             ui.checkbox(beam_rise, "Beam rise").on_hover_text(
                 "Draw each tilt's beam-centre height across the panel, so a feature reading \
                  weaker higher up can be told apart from the beam simply climbing clear of it \
@@ -291,7 +397,11 @@ pub fn show(
         let img = egui::Image::new(tex)
             .fit_to_exact_size(egui::vec2(w, h))
             .texture_options(egui::TextureOptions::LINEAR);
-        let resp = ui.add(img);
+        let resp = ui.add(img.sense(if ruler_on {
+            egui::Sense::click_and_drag()
+        } else {
+            egui::Sense::hover()
+        }));
         // Axis captions along the drawn rect.
         let rect = resp.rect;
         // ROADMAP_NEW C3: "warn when a sampled feature is below/above sampled beam coverage" — a
@@ -302,10 +412,52 @@ pub fn show(
             .hover_pos()
             .and_then(|pos| hover_readout(xs, *moment, rect, pos));
         if let Some(text) = hover {
-            resp.on_hover_text(text);
+            resp.clone().on_hover_text(text);
         }
         if *beam_rise {
             draw_beam_rise(ui, rect, xs);
+        }
+        if ruler_on {
+            let at = |p: egui::Pos2| RulerEnd {
+                along_km: f64::from(((p.x - rect.left()) / rect.width()).clamp(0.0, 1.0))
+                    * xs.length_km,
+                above_antenna_km: f64::from(
+                    1.0 - ((p.y - rect.top()) / rect.height()).clamp(0.0, 1.0),
+                ) * f64::from(xs.max_height_km),
+            };
+            if let Some(p) = resp.interact_pointer_pos() {
+                if resp.drag_started() || resp.clicked() {
+                    ruler = Some([at(p), at(p)]);
+                } else if resp.dragged() {
+                    if let Some(r) = ruler.as_mut() {
+                        r[1] = at(p);
+                    }
+                }
+            }
+            if let Some(ends) = ruler {
+                let to_screen = |e: RulerEnd| {
+                    egui::pos2(
+                        rect.left() + (e.along_km / xs.length_km.max(1e-9)) as f32 * rect.width(),
+                        rect.bottom()
+                            - (e.above_antenna_km / f64::from(xs.max_height_km).max(1e-9)) as f32
+                                * rect.height(),
+                    )
+                };
+                let (p, q) = (to_screen(ends[0]), to_screen(ends[1]));
+                let painter = ui.painter_at(rect);
+                painter.line_segment([p, q], egui::Stroke::new(3.0, egui::Color32::BLACK));
+                painter.line_segment([p, q], egui::Stroke::new(1.5, egui::Color32::WHITE));
+                for (pt, n) in [(p, "1"), (q, "2")] {
+                    painter.circle_filled(pt, 4.0, egui::Color32::WHITE);
+                    painter.text(
+                        pt + egui::vec2(6.0, -6.0),
+                        egui::Align2::LEFT_BOTTOM,
+                        n,
+                        egui::FontId::proportional(11.0),
+                        egui::Color32::WHITE,
+                    );
+                }
+            }
         }
         let cap = |ui: &egui::Ui, pos, anchor, txt: &str| {
             ui.painter().text(
@@ -340,7 +492,23 @@ pub fn show(
             egui::Align2::RIGHT_BOTTOM,
             "B",
         );
-        ui.weak("A→B left to right; height increases upward. Gaps = no beam coverage.");
+        ui.weak(
+            "A→B left to right; height above the radar increases upward. Gaps = no beam coverage.",
+        );
+        if let (true, Some(ends)) = (ruler_on, ruler) {
+            for line in ruler_text(&ruler_reading(xs, ends, ctl.antenna_msl_km), *moment) {
+                ui.label(egui::RichText::new(line).monospace().size(11.0));
+            }
+        }
+        ui.ctx().data_mut(|d| {
+            d.insert_temp(ruler_on_id, ruler_on);
+            match ruler {
+                Some(e) => {
+                    d.insert_temp(ruler_id, (xs.length_km, e));
+                }
+                None => d.remove::<(f64, [RulerEnd; 2])>(ruler_id),
+            }
+        });
     });
     if changed {
         // Force a rebuild on the next frame with the new moment.
@@ -403,6 +571,47 @@ mod tests {
     /// delta ≤ 8 on ≤ 0.5% of pixels absorbs floating-point differences between platforms. A
     /// missing golden is written in place and the test fails, so a new one is looked at before it
     /// is checked in.
+    /// The ruler measures between two panel points: distance across and up, straight-line, each
+    /// end's height above the radar and above sea level, and the value the panel holds there —
+    /// saying when it is held over rather than sampled, and that ground level is not known.
+    #[test]
+    fn the_ruler_reads_distances_both_datums_and_the_panel_value() {
+        let sweeps = storm_volume();
+        let xs = wxdata::xsection::build(&sweeps, (-97.22, 35.0), (-95.8, 35.0), 300, 120, 18.0)
+            .expect("sweeps");
+        let a = RulerEnd {
+            along_km: 20.0,
+            above_antenna_km: 1.0,
+        };
+        let b = RulerEnd {
+            along_km: 50.0,
+            above_antenna_km: 5.0,
+        };
+        let r = ruler_reading(&xs, [a, b], Some(0.37));
+        assert!((r.horizontal_km - 30.0).abs() < 1e-9);
+        assert!((r.vertical_km - 4.0).abs() < 1e-9);
+        assert!((r.slant_km - 30.265_5).abs() < 1e-3, "{}", r.slant_km);
+        assert!(
+            (r.ends[1].1.unwrap() - 5.37).abs() < 1e-9,
+            "MSL = antenna + above it"
+        );
+        // The value is the panel's own at that cell.
+        let (c, row) = cell_at(&xs, b.along_km, b.above_antenna_km);
+        assert_eq!(r.ends[1].2, xs.at(c, row));
+        assert_eq!(r.ends[1].3, xs.is_covered(c, row));
+        // Measured either way round, the distances are the same and the climb flips.
+        let back = ruler_reading(&xs, [b, a], Some(0.37));
+        assert_eq!(back.horizontal_km, r.horizontal_km);
+        assert_eq!(back.vertical_km, -r.vertical_km);
+        let text = ruler_text(&ruler_reading(&xs, [a, b], None), Moment::Reflectivity);
+        assert!(
+            text[0].starts_with("Ruler: 30.0 km across \u{b7} +4.0 km up"),
+            "{text:?}"
+        );
+        assert!(text[1].contains("MSL unknown"), "{text:?}");
+        assert!(text[1].contains("no terrain data"), "{text:?}");
+    }
+
     #[test]
     fn cross_section_matches_its_golden() {
         let sweeps = storm_volume();

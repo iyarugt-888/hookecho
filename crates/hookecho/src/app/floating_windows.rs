@@ -966,6 +966,14 @@ impl HookEchoApp {
                 length_km: line.length_km(),
                 cut_3d: self.xsection_cut_3d,
                 info: self.xsection_info(xs),
+                antenna_msl_km: self.views[self
+                    .xsection_source
+                    .as_ref()
+                    .map_or(self.active, |s| s.pane)]
+                .site
+                .as_deref()
+                .and_then(wxdata::sites::site_by_id)
+                .map(|s| (f64::from(s.elevation_meters) + wxdata::towers::tower_m(s.id)) / 1000.0),
                 ..Default::default()
             };
             let mut ctl = before.clone();

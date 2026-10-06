@@ -17,6 +17,12 @@ shows where it will go and anything it will skip; Take puts the whole scene on a
 still switch scenes straight away. If the program pane has been closed, Take is refused and the
 output says so instead of switching to another pane.
 
+### Added: a ruler in the cross-section
+
+Turn on Ruler in the cross-section window and drag across the panel to measure: distance across,
+height gained, straight-line distance, and at each end the height above the radar, the height above
+sea level, and the value there. Heights in the cross-section are now labelled as above the radar.
+
 ### Added: export and import user-defined products
 
 User-defined products → Export… saves your products as a portable file; Import… adds products from
