@@ -1021,4 +1021,96 @@ mod tests {
         assert_eq!(names, ["big early", "big late"]);
         assert_eq!(out[0].properties["hookecho"], "imported");
     }
+
+    /// Writes one GeoJSON with every kind of feature the map export carries, to the path in
+    /// `HOOKECHO_EXPORT_SAMPLE`, for reading back with an independent GIS reader (GDAL/OGR):
+    /// `HOOKECHO_EXPORT_SAMPLE=/tmp/x.geojson cargo test -p hookecho --lib write_export_sample -- --ignored`
+    #[test]
+    #[ignore = "writes a file for an external reader"]
+    fn write_export_sample() {
+        let Ok(path) = std::env::var("HOOKECHO_EXPORT_SAMPLE") else {
+            return;
+        };
+        let t0 = chrono::DateTime::parse_from_rfc3339("2026-05-06T21:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let attrs = |v: serde_json::Value| v.as_object().unwrap().clone();
+        let imported = vec![
+            wxdata::gis::GisFeature {
+                geometry: wxdata::gis::Geometry::Point([-97.4, 35.2]),
+                properties: attrs(
+                    serde_json::json!({"NAME": "Siren 12", "POP": 5000, "hookecho": "imported", "layer": "Sirens"}),
+                ),
+            },
+            wxdata::gis::GisFeature {
+                geometry: wxdata::gis::Geometry::LineString(vec![[-97.5, 35.1], [-97.3, 35.3]]),
+                properties: attrs(
+                    serde_json::json!({"NAME": "Route 9", "hookecho": "imported", "layer": "Roads"}),
+                ),
+            },
+            wxdata::gis::GisFeature {
+                geometry: wxdata::gis::Geometry::Polygon(vec![vec![
+                    [-97.6, 35.0],
+                    [-97.2, 35.0],
+                    [-97.2, 35.4],
+                    [-97.6, 35.4],
+                    [-97.6, 35.0],
+                ]]),
+                properties: attrs(
+                    serde_json::json!({"NAME": "District", "hookecho": "imported", "layer": "Districts"}),
+                ),
+            },
+        ];
+        let cell = wxdata::level3::Cell {
+            id: "O7".into(),
+            lon: -97.5,
+            lat: 35.3,
+            time: Some(t0),
+            mvt_deg: Some(70.0),
+            mvt_kt: Some(30.0),
+            max_dbz: Some(64.0),
+            ..Default::default()
+        };
+        let tracks = crate::app::storm_track::ManualTrack::from_cell(&cell, t0)
+            .unwrap()
+            .to_features();
+        let routes = vec![wxdata::route::Route {
+            coords: vec![[-97.52, 35.47], [-97.40, 35.50], [-97.30, 35.52]],
+            distance_m: 21_500.0,
+            duration_s: 1_260.0,
+            summary: "I-40 E".into(),
+        }];
+        let contours = crate::app::contours::contour_features(
+            "MSLP",
+            Some("hPa"),
+            Some("HRRR"),
+            &crate::app::contours::ContourEntry {
+                lines: vec![wxdata::contour::ContourLine {
+                    level: 1008.0,
+                    pts: vec![(-98.0, 35.0), (-97.0, 35.1), (-96.0, 35.0)],
+                    bbox: (-98.0, 35.0, -96.0, 35.1),
+                }],
+                valid: Some(t0),
+                run: Some(t0 - chrono::Duration::hours(1)),
+                received: None,
+                grid: None,
+                last_fetch: None,
+                fetched_key: None,
+            },
+        );
+        let features = crate::gis_export::to_features(&crate::gis_export::MapContents {
+            strokes: &[],
+            markers: &[],
+            zones: &[],
+            cells: std::slice::from_ref(&cell),
+            overlays: &[],
+            imported: &imported,
+            tracks: &tracks,
+            routes: &routes,
+            route_selected: 0,
+            route_engine: "OSRM",
+            contours: &contours,
+        });
+        std::fs::write(path, wxdata::gis::to_geojson(&features)).unwrap();
+    }
 }
