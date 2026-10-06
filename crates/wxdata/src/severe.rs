@@ -116,13 +116,15 @@ pub async fn fetch_grid(
         specs.push(("VVCSH", "0-6000 m above ground", f64::NEG_INFINITY));
     }
     if kind == SevereKind::Stp {
-        // LCL height AGL = the adiabatic condensation level minus the surface height.
+        // The LCL height. HRRR posts it above ground already: over the mountains it reads far
+        // below the terrain height (Leadville, 3,291 m: 1,197 m on the 2025-04-28 06Z run), which
+        // a height above sea level cannot. Subtracting the terrain, as this once did, lowered
+        // every LCL by its ground height and so raised STP, the more the higher the ground.
         specs.push((
             "HGT",
             "level of adiabatic condensation from sfc",
             f64::NEG_INFINITY,
         ));
-        specs.push(("HGT", "surface", f64::NEG_INFINITY));
     }
     let (run, fields) = hrrr::fetch_fields_one_run(http, model, 0, &specs).await?;
     let f0 = &fields[0];
@@ -146,11 +148,7 @@ pub async fn fetch_grid(
                 let shear = (fields[2].values[i] as f64).hypot(fields[3].values[i] as f64);
                 match kind {
                     SevereKind::Scp => scp(cape, srh, shear),
-                    SevereKind::Stp => {
-                        let lcl_agl =
-                            (fields[4].values[i] as f64 - fields[5].values[i] as f64).max(0.0);
-                        stp(cape, srh, shear, lcl_agl)
-                    }
+                    SevereKind::Stp => stp(cape, srh, shear, (fields[4].values[i] as f64).max(0.0)),
                     // Handled above, before any surface field was fetched.
                     _ => unreachable!("{kind:?} takes its own path"),
                 }
