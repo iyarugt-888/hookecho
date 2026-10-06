@@ -5,8 +5,8 @@
 //!     cargo run --release -p wxdata --example env_sample -- [--dry-run] OUT.csv DIR/candidates.csv ...
 //!
 //! Reads the `tornado_fusion`, `tornado_marker` and `tornado_id` rows of each export and, for each
-//! hour they fall in, fetches the [`wxdata::near_storm::HRRR_SPECS`] fields of the run an hour
-//! before that hour at F+1 (valid on the hour, as old as the newest run a live app would have),
+//! hour they fall in, fetches the [`wxdata::near_storm::HRRR_SPECS`] fields as the app's
+//! environment gate does ([`wxdata::near_storm::fetch_hour`]: the run an hour before at F+1),
 //! then writes one line per distinct candidate point: `minute,lon,lat` exactly as the export wrote
 //! them, then the [`wxdata::near_storm::EnvSample`]. A run missing from the archive is stood in for
 //! by the on-hour analysis, then the run two hours before (`run` says which was used). An hour whose
@@ -21,20 +21,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 
-use chrono::{DateTime, Utc};
+use chrono::DateTime;
 use futures_util::StreamExt;
-use wxdata::near_storm::{EnvHour, HRRR_SPECS};
+use wxdata::near_storm::ARCHIVE_START;
 
-/// The HRRR archive on AWS begins here.
-const ARCHIVE_START: i64 = 1_406_678_400; // 2014-07-30 00:00Z
-/// Hours fetched at once; each is nine field requests.
+/// Hours fetched at once; each is eight field requests.
 const HOURS_AT_ONCE: usize = 3;
 const DETECTORS: [&str; 3] = ["tornado_fusion", "tornado_marker", "tornado_id"];
+/// What `near_storm::fetch_hour` says of an hour before the archive.
 const BEFORE_ARCHIVE: &str = "before the HRRR archive";
-/// Where an hour's fields are taken from, in order: (hours before the valid hour the run began,
-/// forecast hour). The run an hour before at F+1 is what a live app has; a few runs are missing
-/// from the archive, and then the on-hour analysis or the run two hours before stands in.
-const SOURCES: [(i64, u8); 3] = [(1, 1), (0, 0), (2, 2)];
 
 /// One candidate point: the export's own text for its minute, longitude and latitude.
 type Point = (i64, String, String);
@@ -165,38 +160,10 @@ async fn sample_hour(
     hour: i64,
     pts: &BTreeSet<Point>,
 ) -> anyhow::Result<Vec<String>> {
-    anyhow::ensure!(hour * 60 >= ARCHIVE_START, "{BEFORE_ARCHIVE}");
-    let mut found = None;
-    let mut last_err = None;
-    for (back, fh) in SOURCES {
-        let run_min = hour - 60 * back;
-        let run: DateTime<Utc> = DateTime::from_timestamp(run_min * 60, 0)
-            .ok_or_else(|| anyhow::anyhow!("bad hour {hour}"))?;
-        let fields =
-            futures_util::future::try_join_all(HRRR_SPECS.iter().map(|(var, level, mv)| {
-                wxdata::hrrr::fetch_field_at_run(
-                    http,
-                    wxdata::hrrr::Model::Hrrr,
-                    run,
-                    var,
-                    level,
-                    fh,
-                    *mv,
-                )
-            }))
-            .await;
-        match fields {
-            Ok(f) => {
-                found = Some((run_min, f));
-                break;
-            }
-            Err(e) => last_err = Some(e),
-        }
-    }
-    let Some((run_min, fields)) = found else {
-        return Err(last_err.unwrap_or_else(|| anyhow::anyhow!("no source")));
-    };
-    let env = EnvHour::new(fields.into_iter().map(|f| f.field).collect())?;
+    let valid =
+        DateTime::from_timestamp(hour * 60, 0).ok_or_else(|| anyhow::anyhow!("bad hour {hour}"))?;
+    let (run, env) = wxdata::near_storm::fetch_hour(http, valid).await?;
+    let run_min = run.timestamp() / 60;
     Ok(pts
         .iter()
         .map(|(m, lon, lat)| {

@@ -241,6 +241,11 @@ impl HookEchoApp {
         // The fusion's verdict once this volume's columns are ready; until then, and for a light
         // loop frame (one tilt), the original's, so the markers never blink out.
         let fused = self.settings.detectors.tornado_id_source == TornadoIdSource::Fusion;
+        let environment = if fused {
+            self.near_storm_hour(idx, ctx)
+        } else {
+            None
+        };
         let analysed = if fused {
             self.compute_llsd(idx, ctx)
         } else {
@@ -293,7 +298,7 @@ impl HookEchoApp {
                 let minute = self.volume_minute(idx);
                 let confirm =
                     |lon: f64, lat: f64| wxdata::confirm::confirm(lon, lat, minute, &evidence);
-                let options = self.verdict_options(idx);
+                let options = self.verdict_options(idx, environment.as_deref());
                 if merged {
                     let c = wxdata::llsd_analyst::circulations_with(
                         &analysed, couplets, tds, confirm, options,
@@ -325,12 +330,16 @@ impl HookEchoApp {
                     let idx = key.0;
                     let evidence = self.confirm_evidence(idx);
                     let minute = self.volume_minute(idx);
+                    let environment = self.views[idx]
+                        .volume
+                        .as_ref()
+                        .and_then(|v| self.near_storm.hour(near_storm::valid_hour(v.time)));
                     return wxdata::llsd_analyst::circulations_with(
                         analysed,
                         couplets,
                         tds,
                         |lon, lat| wxdata::confirm::confirm(lon, lat, minute, &evidence),
-                        self.verdict_options(idx),
+                        self.verdict_options(idx, environment.as_deref()),
                     );
                 }
             }
@@ -486,12 +495,18 @@ impl HookEchoApp {
     /// Minutes since the Unix epoch of the pane's displayed volume, the moment its detections are
     /// about. Zero with no volume, when there are no detections to place anyway.
     /// How the fused Tornado ID draws verdicts for pane `idx`: the rotation-only bar from settings,
-    /// and the wind-turbine mask for the turbines standing in its volume's year.
-    pub(crate) fn verdict_options(&self, idx: usize) -> wxdata::llsd_analyst::VerdictOptions {
+    /// the wind-turbine mask for the turbines standing in its volume's year, and the environment
+    /// gate in `environment`, its HRRR hour ([`Self::near_storm_hour`]).
+    pub(crate) fn verdict_options<'a>(
+        &self,
+        idx: usize,
+        environment: Option<&'a wxdata::near_storm::EnvHour>,
+    ) -> wxdata::llsd_analyst::VerdictOptions<'a> {
         use chrono::Datelike;
         wxdata::llsd_analyst::VerdictOptions {
             rotation_only_possible: self.settings.detectors.rotation_only_possible,
             turbines_in_year: self.views[idx].volume.as_ref().map(|v| v.time.year()),
+            environment,
         }
     }
 

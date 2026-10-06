@@ -49,8 +49,8 @@ pub const LIFT_MIN_RANGE_KM: f32 = 40.0;
 pub const WIND_TURBINE_KM: f64 = 2.0;
 
 /// How verdicts are drawn from analysed columns, beyond their evidence.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct VerdictOptions {
+#[derive(Clone, Copy, Debug, Default)]
+pub struct VerdictOptions<'a> {
     /// The rotation-only Possible bar (s⁻¹) of [`Analysed::tornado_id_with`]; `None` is off.
     pub rotation_only_possible: Option<f32>,
     /// The volume's year. A Possible verdict within [`WIND_TURBINE_KM`] of a wind turbine in
@@ -58,14 +58,20 @@ pub struct VerdictOptions {
     /// tornado report confirms, still are, so a tornado through a wind farm is not hidden once
     /// its evidence is strong. `None` skips the mask.
     pub turbines_in_year: Option<i32>,
+    /// The HRRR hour beside the volume ([`crate::near_storm`]). A Possible verdict whose inflow
+    /// STP is under [`crate::near_storm::GATE_STP`] is not shown: a column in air that cannot
+    /// support a tornado is ordinary storm rotation. Likely and above, and anything a tornado
+    /// report confirms, still are, as beside a wind turbine. `None` skips the gate.
+    pub environment: Option<&'a crate::near_storm::EnvHour>,
 }
 
-impl VerdictOptions {
-    /// The rotation-only bar alone, with no wind-turbine mask.
+impl VerdictOptions<'_> {
+    /// The rotation-only bar alone, with no wind-turbine mask or environment gate.
     pub fn bar(rotation_only_possible: Option<f32>) -> Self {
         Self {
             rotation_only_possible,
             turbines_in_year: None,
+            environment: None,
         }
     }
 }
@@ -136,8 +142,8 @@ pub fn identify(
     identify_with(analysed, confirm, VerdictOptions::default())
 }
 
-/// [`identify`], with the rotation-only bar of [`Analysed::tornado_id_with`] and the wind-turbine
-/// mask ([`VerdictOptions`]).
+/// [`identify`], with the rotation-only bar of [`Analysed::tornado_id_with`], the wind-turbine
+/// mask and the environment gate ([`VerdictOptions`]).
 pub fn identify_with(
     analysed: &[Analysed],
     confirm: impl Fn(f64, f64) -> Confirmation,
@@ -149,9 +155,11 @@ pub fn identify_with(
             let c = &a.tracked.column;
             let id = a.tornado_id_with(&confirm(c.lon, c.lat), options.rotation_only_possible)?;
             let clutter = id.tier == Tier::Possible
-                && options.turbines_in_year.is_some_and(|year| {
+                && (options.turbines_in_year.is_some_and(|year| {
                     crate::wind_turbines::near(c.lon, c.lat, year, WIND_TURBINE_KM)
-                });
+                }) || options
+                    .environment
+                    .is_some_and(|env| env.rules_out(c.lon, c.lat)));
             (!clutter).then_some(id)
         })
         .collect();
@@ -749,8 +757,8 @@ mod tests {
         let none = Confirmation::default();
         let a = analyse(vec![t.clone()], &[], &[]);
         let on = |year| VerdictOptions {
-            rotation_only_possible: Some(0.020),
             turbines_in_year: Some(year),
+            ..VerdictOptions::bar(Some(0.020))
         };
         assert_eq!(
             identify_with(&a, |_, _| none, on(2021))[0].tier,
@@ -780,6 +788,76 @@ mod tests {
         assert!(
             ids.first().is_some_and(|id| id.tier >= Tier::Likely),
             "{ids:?}"
+        );
+    }
+
+    #[test]
+    fn a_possible_verdict_in_air_that_cannot_support_a_tornado_is_not_shown() {
+        use crate::near_storm::EnvHour;
+        // An HRRR hour uniform over Oklahoma, rich but for its 0-6 km shear (`shear` m/s).
+        let air = |shear: f32| {
+            let (nx, ny) = (100, 75);
+            let ingredients = [3000.0, 2500.0, -20.0, 300.0, 400.0, shear, 0.0, 900.0];
+            let fields = ingredients.iter().map(|&v| crate::mrms::MrmsField {
+                values: vec![v; nx * ny],
+                nx,
+                ny,
+                lon_west: -100.0,
+                lon_east: -96.0,
+                lat_north: 37.0,
+                lat_south: 34.0,
+                time: chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+            });
+            EnvHour::new(fields.collect()).unwrap()
+        };
+        let (rich, quiet) = (air(30.0), air(8.0));
+        let at = |t: &mut Tracked| {
+            (t.column.lon, t.column.lat) = (-98.0, 35.5);
+            for m in &mut t.column.members {
+                (m.object.lon, m.object.lat) = (-98.0, 35.5);
+            }
+        };
+        let mut weak = tracked(1);
+        weak.column.low_level_azshear = Some(0.021);
+        weak.column.max_azshear = 0.021;
+        for m in &mut weak.column.members {
+            m.object.max_azshear = 0.021;
+        }
+        at(&mut weak);
+        let weak = analyse(vec![weak], &[], &[]);
+        let none = Confirmation::default();
+        let in_air = |env| VerdictOptions {
+            environment: Some(env),
+            ..VerdictOptions::bar(Some(0.020))
+        };
+        assert_eq!(
+            identify_with(&weak, |_, _| none, in_air(&rich))[0].tier,
+            Tier::Possible
+        );
+        assert!(identify_with(&weak, |_, _| none, in_air(&quiet)).is_empty());
+        assert_eq!(
+            identify_with(&weak, |_, _| none, VerdictOptions::bar(Some(0.020))).len(),
+            1,
+            "no gate without an HRRR hour"
+        );
+        // Strong evidence is shown whatever the model's air, and so is a reported tornado.
+        let mut strong = tracked(3);
+        at(&mut strong);
+        let mut ball = debris_ball(0.0, 0.5);
+        (ball.lon, ball.lat) = (-98.0, 35.5);
+        let strong = analyse(vec![strong], &[ball], &[]);
+        let ids = identify_with(&strong, |_, _| none, in_air(&quiet));
+        assert!(
+            ids.first().is_some_and(|id| id.tier >= Tier::Likely),
+            "{ids:?}"
+        );
+        let report = |_: f64, _: f64| Confirmation {
+            observed_warning: false,
+            report: Some((2.0, 3)),
+        };
+        assert_eq!(
+            identify_with(&weak, report, in_air(&quiet))[0].tier,
+            Tier::Confirmed
         );
     }
 

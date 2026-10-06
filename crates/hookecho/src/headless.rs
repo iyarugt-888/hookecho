@@ -6323,9 +6323,13 @@ fn backtest_event(
             if let Some((rlon, rlat)) = radar_pos {
                 use chrono::Datelike;
                 let analysed = wxdata::llsd_analyst::analyse(llsd_all.clone(), &raw_hits, &[]);
+                // No environment gate: the backtest has no HRRR hour beside the radar. Its
+                // effect on these markers is measured from the sampled environment instead
+                // (`scripts/fusion/environment.py apply`, detectionplan.md).
                 let options = wxdata::llsd_analyst::VerdictOptions {
                     rotation_only_possible: Some(crate::settings::DEFAULT_ROTATION_ONLY_POSSIBLE),
                     turbines_in_year: Some(t.year()),
+                    environment: None,
                 };
                 for c in wxdata::llsd_analyst::circulations_with(
                     &analysed,

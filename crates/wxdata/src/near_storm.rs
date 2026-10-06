@@ -49,11 +49,36 @@ const LCL: usize = 7;
 pub const INFLOW_KM: f64 = 40.0;
 /// The percentile read at the favourable end of each ingredient over the inflow.
 pub const HIGH: f64 = 0.9;
+/// Under this inflow STP a Possible Tornado ID verdict is not shown
+/// ([`crate::llsd_analyst::VerdictOptions::environment`]). On eight random years of severe-weather
+/// windows it took the app's false markers from 0.56 to 0.31 per radar-hour, fewer in every year,
+/// at POD 0.38 to 0.33; on four random tornado samples it cost at most a point of POD
+/// (detectionplan.md, "The near-storm environment").
+pub const GATE_STP: f32 = 0.25;
+
+/// The HRRR archive on AWS begins at 2014-07-30 00Z (seconds since the epoch).
+pub const ARCHIVE_START: i64 = 1_406_678_400;
+/// Where an hour's fields come from, in order: (hours before the valid hour the run began,
+/// forecast hour). The run an hour before at F+1 is what a live app has by then; when it is not
+/// there (a run missing from the archive, or not yet posted), the on-hour analysis, then the run
+/// two hours before.
+pub const SOURCES: [(i64, u8); 3] = [(1, 1), (0, 0), (2, 2)];
 
 /// One HRRR hour's ingredients, in [`HRRR_SPECS`] order, all on one grid.
 #[derive(Clone)]
 pub struct EnvHour {
     fields: Vec<MrmsField>,
+}
+
+impl std::fmt::Debug for EnvHour {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let g = &self.fields[0];
+        f.debug_struct("EnvHour")
+            .field("valid", &g.time)
+            .field("nx", &g.nx)
+            .field("ny", &g.ny)
+            .finish()
+    }
 }
 
 /// The environment beside one column.
@@ -183,6 +208,48 @@ impl EnvHour {
     }
 }
 
+impl EnvHour {
+    /// Whether the air beside a column at `(lon, lat)` rules out a Possible tornado: inflow STP
+    /// under [`GATE_STP`]. No sample (off the grid, or masked) rules nothing out.
+    pub fn rules_out(&self, lon: f64, lat: f64) -> bool {
+        self.sample(lon, lat).is_some_and(|s| s.stp < GATE_STP)
+    }
+}
+
+/// The ingredients valid at `valid` (on the hour), from the first of [`SOURCES`] that has every
+/// field, and the run they came from.
+pub async fn fetch_hour(
+    http: &reqwest::Client,
+    valid: chrono::DateTime<chrono::Utc>,
+) -> anyhow::Result<(chrono::DateTime<chrono::Utc>, EnvHour)> {
+    anyhow::ensure!(
+        valid.timestamp() >= ARCHIVE_START,
+        "before the HRRR archive"
+    );
+    let mut last_err = None;
+    for (back, fh) in SOURCES {
+        let run = valid - chrono::Duration::hours(back);
+        let fields =
+            futures_util::future::try_join_all(HRRR_SPECS.iter().map(|(var, level, mv)| {
+                crate::hrrr::fetch_field_at_run(
+                    http,
+                    crate::hrrr::Model::Hrrr,
+                    run,
+                    var,
+                    level,
+                    fh,
+                    *mv,
+                )
+            }))
+            .await;
+        match fields {
+            Ok(f) => return Ok((run, EnvHour::new(f.into_iter().map(|f| f.field).collect())?)),
+            Err(e) => last_err = Some(e),
+        }
+    }
+    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("no HRRR source")))
+}
+
 /// The `q` quantile of `v` (nearest rank), which must be non-empty and finite.
 fn percentile(v: &mut [f64], q: f64) -> f64 {
     v.sort_by(f64::total_cmp);
@@ -256,6 +323,16 @@ mod tests {
         assert!((s.lcl_m - 900.0).abs() < 1e-3);
         assert!(s.stp > 2.0, "{}", s.stp);
         assert_eq!(s.stp_point, 0.0, "the column's own point is in the pool");
+    }
+
+    #[test]
+    fn the_gate_rules_out_quiet_air_and_nothing_it_cannot_see() {
+        assert!(!hour(MOIST).rules_out(-98.0, 35.5), "a tornado environment");
+        let mut weak = MOIST;
+        weak[USHEAR] = 6.0;
+        weak[VSHEAR] = 6.0; // 8.5 m/s of deep shear: STP's shear term is 0
+        assert!(hour(weak).rules_out(-98.0, 35.5));
+        assert!(!hour(weak).rules_out(-90.0, 35.5), "off the grid: no say");
     }
 
     #[test]

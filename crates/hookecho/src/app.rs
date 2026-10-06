@@ -41,6 +41,7 @@ mod contours;
 mod data_age;
 mod data_poll;
 mod detectors;
+mod near_storm;
 mod digest_brief;
 mod draw_panes;
 mod fetch_schedule;
@@ -1286,6 +1287,8 @@ pub struct HookEchoApp {
         Option<wxdata::level2::temporal::TemporalCoverage>,
     )>,
     llsd_tracker: Option<(String, wxdata::rotation_tracks::Tracker)>,
+    /// The HRRR hour beside the active volume, for the Tornado ID's environment gate.
+    near_storm: near_storm::NearStormFeed,
     /// The background job computing one volume's columns (see `compute_llsd`).
     #[allow(clippy::type_complexity)]
     llsd_job: Option<(

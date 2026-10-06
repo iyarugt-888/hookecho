@@ -296,6 +296,7 @@ impl HookEchoApp {
             couplet_cache: None,
             llsd_cache: None,
             llsd_tracker: None,
+            near_storm: Default::default(),
             llsd_job: None,
             tornado_shown: None,
             couplet_inputs: None,
