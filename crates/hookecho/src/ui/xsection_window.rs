@@ -141,6 +141,31 @@ pub struct XsControls {
     /// The radar antenna's altitude above mean sea level, km, when the site is known: the
     /// panel's heights are above the antenna, and this turns them into MSL.
     pub antenna_msl_km: Option<f64>,
+    /// The ground along the cut, from A to B, when the app has terrain for it.
+    pub ground: GroundProfile,
+}
+
+/// Ground height along the cut (ROADMAP_PARITY M3.6): evenly spaced samples from A to B, metres
+/// MSL, `None` where the terrain is not here; the grid's resolution; and whether more is on its
+/// way.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct GroundProfile {
+    pub msl_m: Vec<Option<f32>>,
+    pub resolution_m: Option<f64>,
+    pub loading: bool,
+}
+
+impl GroundProfile {
+    /// The ground `along_km` from A on a cut `length_km` long, metres MSL, from the nearest
+    /// sample.
+    pub fn at(&self, along_km: f64, length_km: f64) -> Option<f64> {
+        let n = self.msl_m.len();
+        if n == 0 || length_km <= 0.0 {
+            return None;
+        }
+        let i = ((along_km / length_km).clamp(0.0, 1.0) * (n - 1) as f64).round() as usize;
+        self.msl_m[i].map(f64::from)
+    }
 }
 
 /// One end of the cross-section ruler: where it is on the panel.
@@ -165,6 +190,11 @@ pub struct RulerReading {
     /// Per end: height above the antenna, height above MSL when the antenna's is known, and the
     /// sampled value with whether a beam actually passes there.
     pub ends: [(f64, Option<f64>, Option<f32>, bool); 2],
+    /// Per end: the ground there, km MSL, when known; and the terrain grid and whether it is
+    /// still loading, for the text.
+    pub ground_km: [Option<f64>; 2],
+    pub ground_resolution_m: Option<f64>,
+    pub ground_loading: bool,
 }
 
 /// The panel cell under a position, clamped to the panel.
@@ -185,7 +215,9 @@ pub fn ruler_reading(
     xs: &CrossSection,
     ends: [RulerEnd; 2],
     antenna_msl_km: Option<f64>,
+    ground: &GroundProfile,
 ) -> RulerReading {
+    let ground_at = |e: RulerEnd| ground.at(e.along_km, xs.length_km).map(|m| m / 1000.0);
     let horizontal_km = (ends[1].along_km - ends[0].along_km).abs();
     let vertical_km = ends[1].above_antenna_km - ends[0].above_antenna_km;
     let end = |e: RulerEnd| {
@@ -202,6 +234,9 @@ pub fn ruler_reading(
         vertical_km,
         slant_km: horizontal_km.hypot(vertical_km),
         ends: [end(ends[0]), end(ends[1])],
+        ground_km: [ground_at(ends[0]), ground_at(ends[1])],
+        ground_resolution_m: ground.resolution_m,
+        ground_loading: ground.loading,
     }
 }
 
@@ -211,13 +246,23 @@ pub fn ruler_text(r: &RulerReading, moment: Moment) -> Vec<String> {
         "Ruler: {:.1} km across \u{b7} {:+.1} km up \u{b7} {:.1} km straight",
         r.horizontal_km, r.vertical_km, r.slant_km
     )];
-    for (name, (above, msl, value, covered)) in ["1", "2"].iter().zip(&r.ends) {
+    for ((name, (above, msl, value, covered)), ground) in
+        ["1", "2"].iter().zip(&r.ends).zip(&r.ground_km)
+    {
         let mut l = format!("{name}: {above:.1} km above the radar");
         match msl {
             Some(m) => l.push_str(&format!(" ({m:.1} km MSL)")),
             None => l.push_str(" (MSL unknown: no site altitude)"),
         }
-        l.push_str(" \u{b7} ground level here unknown: no terrain data");
+        match (msl, ground) {
+            (Some(m), Some(g)) => l.push_str(&format!(
+                " \u{b7} {:.1} km above the ground (terrain on a {:.0} m grid)",
+                m - g,
+                r.ground_resolution_m.unwrap_or(f64::NAN)
+            )),
+            _ if r.ground_loading => l.push_str(" \u{b7} ground loading"),
+            _ => l.push_str(" \u{b7} ground level here unknown: no terrain data"),
+        }
         match value {
             Some(v) if *covered => l.push_str(&format!(" \u{b7} {v:.1} {}", moment.units())),
             Some(v) => l.push_str(&format!(
@@ -417,6 +462,37 @@ pub fn show(
         if *beam_rise {
             draw_beam_rise(ui, rect, xs);
         }
+        // The ground along the cut, where it rises above the radar antenna (the panel's zero):
+        // terrain the low beams may run into. Drawn from the terrain tiles, on their grid.
+        if let Some(antenna) = ctl.antenna_msl_km {
+            let n = ctl.ground.msl_m.len();
+            let painter = ui.painter_at(rect);
+            let top = f64::from(xs.max_height_km).max(1e-9);
+            let mut run: Vec<egui::Pos2> = Vec::new();
+            let flush = |run: &mut Vec<egui::Pos2>| {
+                if run.len() >= 2 {
+                    painter.add(egui::Shape::line(
+                        std::mem::take(run),
+                        egui::Stroke::new(2.0, egui::Color32::from_rgb(170, 120, 70)),
+                    ));
+                }
+                run.clear();
+            };
+            for (i, g) in ctl.ground.msl_m.iter().enumerate() {
+                let above = g
+                    .map(|m| f64::from(m) / 1000.0 - antenna)
+                    .filter(|h| *h > 0.0);
+                match above {
+                    Some(h) if n > 1 => {
+                        let x = rect.left() + rect.width() * i as f32 / (n - 1) as f32;
+                        let y = rect.bottom() - (h / top).min(1.0) as f32 * rect.height();
+                        run.push(egui::pos2(x, y));
+                    }
+                    _ => flush(&mut run),
+                }
+            }
+            flush(&mut run);
+        }
         if ruler_on {
             let at = |p: egui::Pos2| RulerEnd {
                 along_km: f64::from(((p.x - rect.left()) / rect.width()).clamp(0.0, 1.0))
@@ -496,7 +572,10 @@ pub fn show(
             "A→B left to right; height above the radar increases upward. Gaps = no beam coverage.",
         );
         if let (true, Some(ends)) = (ruler_on, ruler) {
-            for line in ruler_text(&ruler_reading(xs, ends, ctl.antenna_msl_km), *moment) {
+            for line in ruler_text(
+                &ruler_reading(xs, ends, ctl.antenna_msl_km, &ctl.ground),
+                *moment,
+            ) {
                 ui.label(egui::RichText::new(line).monospace().size(11.0));
             }
         }
@@ -587,7 +666,7 @@ mod tests {
             along_km: 50.0,
             above_antenna_km: 5.0,
         };
-        let r = ruler_reading(&xs, [a, b], Some(0.37));
+        let r = ruler_reading(&xs, [a, b], Some(0.37), &GroundProfile::default());
         assert!((r.horizontal_km - 30.0).abs() < 1e-9);
         assert!((r.vertical_km - 4.0).abs() < 1e-9);
         assert!((r.slant_km - 30.265_5).abs() < 1e-3, "{}", r.slant_km);
@@ -600,16 +679,42 @@ mod tests {
         assert_eq!(r.ends[1].2, xs.at(c, row));
         assert_eq!(r.ends[1].3, xs.is_covered(c, row));
         // Measured either way round, the distances are the same and the climb flips.
-        let back = ruler_reading(&xs, [b, a], Some(0.37));
+        let back = ruler_reading(&xs, [b, a], Some(0.37), &GroundProfile::default());
         assert_eq!(back.horizontal_km, r.horizontal_km);
         assert_eq!(back.vertical_km, -r.vertical_km);
-        let text = ruler_text(&ruler_reading(&xs, [a, b], None), Moment::Reflectivity);
+        let text = ruler_text(
+            &ruler_reading(&xs, [a, b], None, &GroundProfile::default()),
+            Moment::Reflectivity,
+        );
         assert!(
             text[0].starts_with("Ruler: 30.0 km across \u{b7} +4.0 km up"),
             "{text:?}"
         );
         assert!(text[1].contains("MSL unknown"), "{text:?}");
         assert!(text[1].contains("no terrain data"), "{text:?}");
+        // With terrain along the cut: the end 50 km along stands 5.37 km MSL over 0.45 km ground.
+        let ground = GroundProfile {
+            msl_m: vec![Some(450.0); 11],
+            resolution_m: Some(62.0),
+            loading: false,
+        };
+        let with = ruler_text(
+            &ruler_reading(&xs, [a, b], Some(0.37), &ground),
+            Moment::Reflectivity,
+        );
+        assert!(
+            with[2].contains("4.9 km above the ground (terrain on a 62 m grid)"),
+            "{with:?}"
+        );
+        let loading = GroundProfile {
+            loading: true,
+            ..Default::default()
+        };
+        let l = ruler_text(
+            &ruler_reading(&xs, [a, b], Some(0.37), &loading),
+            Moment::Reflectivity,
+        );
+        assert!(l[1].contains("ground loading"), "{l:?}");
     }
 
     #[test]

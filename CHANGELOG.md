@@ -35,6 +35,13 @@ is true for are drawn, clickable, labelled, exported and used as impact targets.
 doesn't have the attribute is left out rather than treated as zero. A filter with a mistake keeps
 the previous one in force and says what is wrong.
 
+### Added: beam height above the ground
+
+The measure tool and the cross-section ruler now give the beam's height above the ground as well
+as above the radar and above sea level, using public terrain data fetched for the points you
+measure. The cross-section also draws the ground wherever it rises above the radar, so you can see
+where low beams may be blocked.
+
 ### Added: cases keep your manual storm tracks
 
 Saving a case now keeps your manual storm-motion tracks, with the time each was set for and the

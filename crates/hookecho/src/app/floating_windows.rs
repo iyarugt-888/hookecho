@@ -961,6 +961,41 @@ impl HookEchoApp {
             self.show_hodo = false;
         }
         self.show_region_stats(ctx);
+        // The ground along the cut (M3.6): its tiles asked for, and what is here sampled the way
+        // the section samples its columns (straight between A and B in longitude and latitude).
+        let ground = self.xsection_line().map(|line| {
+            const N: usize = 101;
+            let at = |i: usize| {
+                let t = i as f64 / (N - 1) as f64;
+                [
+                    line.a[0] + (line.b[0] - line.a[0]) * t,
+                    line.a[1] + (line.b[1] - line.a[1]) * t,
+                ]
+            };
+            for i in (0..N).step_by(10) {
+                let p = at(i);
+                self.request_ground(p[0], p[1], ctx);
+            }
+            let mut profile = ui::xsection_window::GroundProfile::default();
+            for i in 0..N {
+                let p = at(i);
+                profile.msl_m.push(match self.terrain.ground(p[0], p[1]) {
+                    terrain_cache::Ground::Known {
+                        msl_m,
+                        resolution_m,
+                    } => {
+                        profile.resolution_m = Some(resolution_m);
+                        Some(msl_m as f32)
+                    }
+                    terrain_cache::Ground::Loading => {
+                        profile.loading = true;
+                        None
+                    }
+                    terrain_cache::Ground::Unknown => None,
+                });
+            }
+            profile
+        });
         if let (Some(xs), Some(tex), Some(line)) =
             (&self.xsection, &self.xsection_tex, self.xsection_line())
         {
@@ -978,6 +1013,7 @@ impl HookEchoApp {
                 .as_deref()
                 .and_then(wxdata::sites::site_by_id)
                 .map(|s| (f64::from(s.elevation_meters) + wxdata::towers::tower_m(s.id)) / 1000.0),
+                ground: ground.clone().unwrap_or_default(),
                 ..Default::default()
             };
             let mut ctl = before.clone();

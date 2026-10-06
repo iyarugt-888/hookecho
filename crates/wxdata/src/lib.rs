@@ -115,6 +115,7 @@ pub mod synoptic;
 pub mod task;
 pub mod tds;
 pub mod tdwr;
+pub mod terrain;
 pub mod tfr;
 pub mod time_align;
 pub mod torclimo;

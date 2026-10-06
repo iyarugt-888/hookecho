@@ -221,6 +221,10 @@ impl HookEchoApp {
                         self.measure.clear();
                     }
                     self.measure.push([lon, lat]);
+                    if self.measure.len() == 2 {
+                        // The ground under the far end, for the beam's height above it.
+                        self.request_ground(lon, lat, ctx);
+                    }
                 }
                 MapTool::Marker => {
                     let n = self.settings.markers.len() + 1;

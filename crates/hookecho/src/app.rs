@@ -109,6 +109,7 @@ mod settings_bundle;
 mod sharing;
 mod standalone_volume;
 mod surface_feeds;
+mod terrain_cache;
 mod time_layers;
 mod touch_hover;
 mod view3d_state;
@@ -1564,6 +1565,7 @@ pub struct HookEchoApp {
     impacts: impact::ImpactBook,
     /// Towns in storms' projected paths, looked up on request (M2.3).
     towns: community_targets::TownsBook,
+    terrain: terrain_cache::TerrainCache,
     /// The impact the open feature details show (a discussion's or a watch's), by its key in
     /// `impacts`; `None` for features that have no people count.
     detail_impact: Option<String>,
@@ -4880,16 +4882,6 @@ impl HookEchoApp {
             .map(|m| crate::colormap::effective_table(&self.palettes, m, self.settings.theme))
             .unwrap_or_else(|| crate::colormap::ramp_table(lo, hi));
         Some((table, name.clone(), units))
-    }
-
-    /// Approximate map view range in nautical miles (viewport height), for placefile thresholds.
-    /// `// ponytail: coarse mercator estimate; fine for zoom-gating, not for measuring.`
-    fn view_range_nmi(&self) -> f32 {
-        let cam = &self.views[self.active].camera;
-        let world_h = self.last_viewport.1 as f64 * cam.world_per_pixel();
-        let s = (cam.center.1 * 2.0 - 1.0) * std::f64::consts::PI;
-        let coslat = (1.0 / s.cosh()).max(0.05); // cos(lat) = sech(mercator y)
-        (world_h * 40075.017 * coslat / 1.852) as f32
     }
 
     /// Placefile items currently visible (enabled, zoom threshold met, within time range), as

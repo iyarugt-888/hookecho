@@ -1,8 +1,9 @@
 //! The map's measure tool: great-circle distance and bearing between two clicks, and how high the
 //! pane's beam is over the far end — above the radar antenna, which is what the beam model gives,
 //! and above sea level from the site's antenna altitude, each named so neither is read as the
-//! other (ROADMAP_PARITY M3.6). Height above the ground there is not known without terrain data
-//! and is not offered. Moved out of `app.rs`.
+//! other (ROADMAP_PARITY M3.6) — and above the ground there, from the terrain tiles
+//! (`terrain_cache`), with the grid's resolution, once they are here; until then it says so.
+//! Moved out of `app.rs`.
 use super::*;
 
 /// The beam over a point: height above the radar antenna, and above mean sea level when the
@@ -11,6 +12,8 @@ use super::*;
 pub(crate) struct BeamOver {
     pub above_radar_ft: f64,
     pub msl_ft: Option<f64>,
+    /// The ground under the point, as far as is known.
+    pub ground: super::terrain_cache::Ground,
 }
 
 /// The measure line's label: distance and bearing, then the beam over the far end.
@@ -31,14 +34,36 @@ pub(crate) fn measure_label(
             "  ·  beam {:.0} ft above the radar",
             b.above_radar_ft
         ));
+        use super::terrain_cache::Ground;
         if let Some(msl) = b.msl_ft {
-            txt.push_str(&format!(" ({msl:.0} ft MSL)"));
+            let ground = match b.ground {
+                Ground::Known {
+                    msl_m,
+                    resolution_m,
+                } => format!(
+                    ", {:.0} ft above the ground (terrain on a {resolution_m:.0} m grid)",
+                    msl - msl_m * 3.280_84
+                ),
+                Ground::Loading => ", ground loading".into(),
+                Ground::Unknown => ", ground unknown".into(),
+            };
+            txt.push_str(&format!(" ({msl:.0} ft MSL{ground})"));
         }
     }
     txt
 }
 
 impl HookEchoApp {
+    /// Approximate map view range in nautical miles (viewport height), for placefile thresholds.
+    /// `// ponytail: coarse mercator estimate; fine for zoom-gating, not for measuring.`
+    pub(crate) fn view_range_nmi(&self) -> f32 {
+        let cam = &self.views[self.active].camera;
+        let world_h = self.last_viewport.1 as f64 * cam.world_per_pixel();
+        let s = (cam.center.1 * 2.0 - 1.0) * std::f64::consts::PI;
+        let coslat = (1.0 / s.cosh()).max(0.05); // cos(lat) = sech(mercator y)
+        (world_h * 40075.017 * coslat / 1.852) as f32
+    }
+
     /// Pane `idx`'s beam centre over the point `ll` (`[lon, lat]`) on its displayed tilt. `None`
     /// when the pane has no site or no loaded tilt.
     ///
@@ -55,6 +80,7 @@ impl HookEchoApp {
         Some(BeamOver {
             above_radar_ft,
             msl_ft: Some(above_radar_ft + antenna_m * 3.280_84),
+            ground: self.terrain.ground(ll[0], ll[1]),
         })
     }
 
@@ -107,16 +133,45 @@ mod tests {
 
     #[test]
     fn the_beam_height_names_what_it_is_measured_from() {
+        use crate::app::terrain_cache::Ground;
         let beam = BeamOver {
             above_radar_ft: 6200.0,
             msl_ft: Some(7450.0),
+            ground: Ground::Unknown,
         };
         let l = measure_label(50.0, 87.4, true, Some(beam));
         assert!(l.contains("@ 87°"), "{l}");
         assert!(
-            l.ends_with("beam 6200 ft above the radar (7450 ft MSL)"),
+            l.ends_with("beam 6200 ft above the radar (7450 ft MSL, ground unknown)"),
             "{l}"
         );
+        // 7450 ft MSL over ground at 365.8 m (1200 ft): 6250 ft above it.
+        let over = measure_label(
+            50.0,
+            87.4,
+            true,
+            Some(BeamOver {
+                ground: Ground::Known {
+                    msl_m: 365.76,
+                    resolution_m: 62.0,
+                },
+                ..beam
+            }),
+        );
+        assert!(
+            over.ends_with("(7450 ft MSL, 6250 ft above the ground (terrain on a 62 m grid))"),
+            "{over}"
+        );
+        let loading = measure_label(
+            50.0,
+            87.4,
+            true,
+            Some(BeamOver {
+                ground: Ground::Loading,
+                ..beam
+            }),
+        );
+        assert!(loading.contains("ground loading"), "{loading}");
         let no_msl = measure_label(
             50.0,
             87.4,

@@ -441,6 +441,7 @@ impl HookEchoApp {
             warning_popup: None,
             impacts: Default::default(),
             towns: Default::default(),
+            terrain: Default::default(),
             detail_impact: None,
             error_chip: None,
             storm_cells: Vec::new(),
