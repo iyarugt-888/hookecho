@@ -919,6 +919,7 @@ mod tests {
         assert!(!none.iter().any(|s| s == "USER-DEFINED"), "{none:?}");
 
         let products = [wxdata::udp::ProductDef {
+            id: String::new(),
             name: "Boosted REF".into(),
             units: "dBZ".into(),
             expression: "REF + 10".into(),
@@ -945,6 +946,7 @@ mod tests {
         // Handed over out of order: the lowest level is still the base.
         popup.column_inputs = vec![level(3000.0, 42.5), level(800.0, 30.0), level(6000.0, 55.0)];
         let products = [wxdata::udp::ProductDef {
+            id: String::new(),
             name: "Growth".into(),
             units: "dB".into(),
             expression: "max_vertical(REF) - REF".into(),
@@ -969,6 +971,7 @@ mod tests {
     fn a_broken_product_shows_its_error_instead_of_a_value() {
         let popup = sample_popup(Moment::Reflectivity, false, Some(42.5));
         let products = [wxdata::udp::ProductDef {
+            id: String::new(),
             name: "Broken".into(),
             units: "".into(),
             expression: "REF +".into(),
@@ -987,6 +990,7 @@ mod tests {
         let popup = sample_popup(Moment::Reflectivity, false, Some(42.5));
         // sample_popup's gate_inputs is all-None by default (see `Default::default()` above).
         let products = [wxdata::udp::ProductDef {
+            id: String::new(),
             name: "Needs velocity".into(),
             units: "m/s".into(),
             expression: "VEL".into(),

@@ -16,6 +16,8 @@ pub struct UdpWindow {
     new_units: String,
     new_expression: String,
     show_reference: bool,
+    /// What the last import or export did, product by product.
+    pub report: Vec<String>,
 }
 
 impl UdpWindow {
@@ -60,6 +62,53 @@ impl UdpWindow {
             }
             if self.show_reference {
                 reference(ui);
+            }
+            ui.horizontal(|ui| {
+                if ui
+                    .add_enabled(
+                        !settings.udp_products.is_empty(),
+                        egui::Button::new("Export…"),
+                    )
+                    .on_hover_text(
+                        "Save these products as a portable file, each with a stable ID and the \
+                         inputs, environment and height convention it needs",
+                    )
+                    .clicked()
+                {
+                    wxdata::udp_file::ensure_ids(&mut settings.udp_products);
+                    let text = wxdata::udp_file::export(&settings.udp_products);
+                    self.report = vec![match crate::dialog::save_bytes(
+                        "hookecho-products.json",
+                        "json",
+                        text.as_bytes(),
+                    ) {
+                        crate::dialog::Saved::Where(w) => format!(
+                            "Exported {} product{} to {w}",
+                            settings.udp_products.len(),
+                            if settings.udp_products.len() == 1 {
+                                ""
+                            } else {
+                                "s"
+                            }
+                        ),
+                        crate::dialog::Saved::Failed(e) => format!("Export failed: {e}"),
+                        crate::dialog::Saved::Cancelled => String::new(),
+                    }];
+                    self.report.retain(|l| !l.is_empty());
+                }
+                if ui
+                    .button("Import…")
+                    .on_hover_text(
+                        "Add products from a file; one already here (same ID) is updated, and \
+                         each product is checked before it is added",
+                    )
+                    .clicked()
+                {
+                    crate::dialog::request_open(crate::dialog::ImportKind::UdpProducts, "");
+                }
+            });
+            for line in &self.report {
+                ui.weak(line);
             }
             ui.separator();
 
@@ -121,13 +170,17 @@ impl UdpWindow {
             }
             let valid = !name.is_empty() && parsed.is_ok();
             if ui.add_enabled(valid, egui::Button::new("Add")).clicked() {
-                settings.udp_products.push(ProductDef {
+                let mut def = ProductDef {
+                    id: String::new(),
                     name,
                     units: self.new_units.trim().to_string(),
                     expression: expr,
                     range: None,
                     palette: None,
-                });
+                };
+                // Its ID is fixed now, so renaming or editing it later keeps it the same product.
+                def.id = wxdata::udp_file::derive_id(&def);
+                settings.udp_products.push(def);
                 self.new_name.clear();
                 self.new_units.clear();
                 self.new_expression.clear();

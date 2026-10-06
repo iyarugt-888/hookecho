@@ -750,6 +750,7 @@ mod tests {
     fn settings_with(src: &str) -> Settings {
         Settings {
             udp_products: vec![wxdata::udp::ProductDef {
+                id: String::new(),
                 name: "Core CC".into(),
                 units: String::new(),
                 expression: src.into(),

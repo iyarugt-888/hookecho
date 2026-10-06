@@ -125,6 +125,7 @@ pub mod tropical;
 pub mod tz;
 pub mod udp;
 pub mod udp_column;
+pub mod udp_file;
 pub mod udp_volume;
 pub mod ugc;
 pub mod verify;

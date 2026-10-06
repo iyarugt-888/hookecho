@@ -2276,6 +2276,8 @@ impl Settings {
         loaded.adopt_detector_floors();
         // The pre-M4.1 single imported layer becomes the first of the collection, once.
         let migrated = loaded.migrate_imported_gis();
+        // User products saved before IDs existed get theirs now, and keep them (M3.2).
+        let migrated = wxdata::udp_file::ensure_ids(&mut loaded.udp_products) || migrated;
         // Saved key tables gain the plain-key alternatives, so a tablet keyboard without an F row
         // or Page keys can reach every action (see `hotkeys::fill_plain_keys`).
         crate::hotkeys::fill_plain_keys(&mut loaded.keybinds);
@@ -3059,6 +3061,7 @@ mod tests {
                 opacity: 1.0,
             }],
             udp_products: vec![wxdata::udp::ProductDef {
+                id: String::new(),
                 name: "Test product".to_string(),
                 units: "dBZ".to_string(),
                 expression: "REF + 1".to_string(),

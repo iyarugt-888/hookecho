@@ -966,11 +966,13 @@ impl Parser<'_> {
 }
 
 /// A saved user-defined product: a name, the source formula, and enough display metadata to show
-/// its value sensibly. Serializable so a set of these can be written to disk — see
-/// `crates/hookecho/src/udp_store.rs` for where the app keeps them; syncing and exporting them are
-/// not implemented yet.
+/// its value sensibly. Serializable; [`crate::udp_file`] carries them between installations.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ProductDef {
+    /// Stable for the product's life, so a re-imported update replaces it rather than adding a
+    /// copy (`crate::udp_file`). Empty in definitions saved before IDs existed.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub id: String,
     pub name: String,
     pub units: String,
     pub expression: String,
@@ -1175,6 +1177,7 @@ mod tests {
     #[test]
     fn product_def_compiles_its_own_expression() {
         let def = ProductDef {
+            id: String::new(),
             name: "Hail signature".into(),
             units: "dBZ".into(),
             expression: "REF > 55 && ZDR < 1 ? REF : 0".into(),
@@ -1192,6 +1195,7 @@ mod tests {
     #[test]
     fn product_def_reports_its_own_syntax_error() {
         let def = ProductDef {
+            id: String::new(),
             name: "broken".into(),
             units: "".into(),
             expression: "REF +".into(),

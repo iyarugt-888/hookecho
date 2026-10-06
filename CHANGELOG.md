@@ -17,6 +17,15 @@ shows where it will go and anything it will skip; Take puts the whole scene on a
 still switch scenes straight away. If the program pane has been closed, Take is refused and the
 output says so instead of switching to another pane.
 
+### Added: export and import user-defined products
+
+User-defined products → Export… saves your products as a portable file; Import… adds products from
+one. Each product keeps a stable identity, so importing an updated copy replaces it instead of
+adding a duplicate, and a product whose name is already taken is renamed rather than hidden. Every
+product is checked before it is added, and anything refused or adjusted is listed: a formula that
+doesn't parse, is too large or nests column functions; a colour table this build doesn't have; a
+file that mixes heights measured from the radar with heights above sea level.
+
 ### Added: the gate inspector says what the map is showing
 
 For velocity, the gate inspector now has a "Map shows" row: the value the map colours at that gate
