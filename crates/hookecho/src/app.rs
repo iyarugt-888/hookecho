@@ -11,9 +11,14 @@ mod case;
 /// drawer / pills / alert dock. Only the chrome differs; the map,
 /// windows, and every data path are shared.
 mod chrome;
+mod column_product;
+// For the headless verifier and its GPU check, which are native-only.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) use column_product::column_upload;
+mod env_levels;
 mod field_state;
-mod goes_timeline;
 mod goes_context;
+mod goes_timeline;
 pub(crate) use goes_context::GoesRequest;
 pub(crate) mod impact;
 mod layer_probe;
@@ -43,7 +48,6 @@ mod contours;
 mod data_age;
 mod data_poll;
 mod detectors;
-mod near_storm;
 mod digest_brief;
 mod draw_panes;
 mod fetch_schedule;
@@ -54,6 +58,7 @@ mod gis_import;
 mod goto;
 mod model_groups;
 mod models;
+mod near_storm;
 mod output_window;
 mod overlay_poll;
 mod overlay_toggle;
@@ -1762,11 +1767,15 @@ pub struct HookEchoApp {
     /// What the locally derived products (VIL/VILD/echo tops) were last computed from:
     /// The accepted volume revision, sweep policy, settings and both temperature levels.
     derived_key: Option<radar_products::DerivedKey>,
-    /// `(site, epoch, 0 °C height, −20 °C height)` above sea level in metres, for the hail grids
-    /// and every other consumer of a melting level. `epoch` is `None` for the live HRRR analysis
-    /// and the synoptic time of the observed sounding for an archived volume — read through
-    /// [`App::freezing_for`], which only hands a view the levels for its own site and epoch.
-    freezing: Option<(String, Option<chrono::DateTime<chrono::Utc>>, f64, f64)>,
+    /// The column user product build in flight, the one on the GPU, and the last failure with the
+    /// selection it answered (`app::column_product`).
+    column_requested: Option<column_product::ColumnKey>,
+    column_accepted: Option<Arc<column_product::ColumnAccepted>>,
+    column_failed: Option<(column_product::ColumnKey, String)>,
+    /// The most recent isotherm heights (`env_levels::EnvLevels`), for the hail grids and every
+    /// other consumer of a melting level. Read through [`App::freezing_for`] /
+    /// [`App::env_levels_for`], which only hand a view the levels for its own site and epoch.
+    freezing: Option<env_levels::EnvLevels>,
     /// When, and for which `(site, epoch)`, the last request went out — the throttle.
     freezing_last_fetch: Option<(Instant, String, Option<chrono::DateTime<chrono::Utc>>)>,
     /// Accumulation window (hours) for the observed snowfall analysis, and the one last fetched.
@@ -2495,8 +2504,16 @@ impl HookEchoApp {
         let epoch = self.freezing_epoch(idx);
         self.freezing
             .as_ref()
-            .filter(|(s, e, ..)| s == site && *e == epoch)
-            .map(|(.., h0, hm20)| (*h0, *hm20))
+            .filter(|l| l.answers(site, epoch))
+            .map(|l| (l.h0_m, l.hm20_m))
+    }
+
+    /// The full isotherm reading for view `idx`, under the same site-and-epoch rule as
+    /// [`Self::freezing_for`].
+    pub(crate) fn env_levels_for(&self, idx: usize) -> Option<&env_levels::EnvLevels> {
+        let site = self.views[idx].site.as_deref()?;
+        let epoch = self.freezing_epoch(idx);
+        self.freezing.as_ref().filter(|l| l.answers(site, epoch))
     }
 
     /// Request the melting level view `idx` wants (see [`Self::freezing_epoch`]). Throttled per
@@ -3380,16 +3397,16 @@ impl HookEchoApp {
         lon: f64,
         lat: f64,
         antenna_altitude_m: Option<f64>,
-        // (0°C height, −20°C height), metres above sea level — `self.freezing`, already filtered
-        // to the gate's own site by the caller. `None` on the very first inspection of a site (or
-        // a hail grid's own request) before the proactive fetch `inspect_gate` kicks off there —
-        // see that fetch's own doc comment — has actually landed; a UDP formula referencing these
-        // inputs just sees them as missing in the meantime, not the app fetching a second time.
-        freezing: Option<(f64, f64)>,
+        // Isotherm heights above sea level — `self.freezing`, already filtered to the gate's own
+        // site and epoch by the caller (`env_levels_for`). Empty on the very first inspection of a
+        // site before the proactive fetch `inspect_gate` kicks off there has landed; a formula
+        // referencing these inputs just sees them as missing in the meantime.
+        levels: wxdata::udp_column::Levels,
     ) -> wxdata::udp::GateInputs {
         let mut out = wxdata::udp::GateInputs {
-            freezing_level_m: freezing.map(|(h0, _)| h0 as f32),
-            minus20c_height_m: freezing.map(|(_, hm20)| hm20 as f32),
+            freezing_level_m: levels.h0_m,
+            minus10c_height_m: levels.hm10_m,
+            minus20c_height_m: levels.hm20_m,
             ..Default::default()
         };
         for m in [
@@ -3400,7 +3417,8 @@ impl HookEchoApp {
             Moment::SpecificDifferentialPhase,
             Moment::CorrelationCoefficient,
         ] {
-            let Ok(binned) = vol.binned(m, tilt, false) else {
+            // Velocity dealiased, as a product drawn on the map reads it (`Volume::product_sweep`).
+            let Ok(binned) = vol.binned(m, tilt, m == Moment::Velocity) else {
                 continue;
             };
             let Some(sample) = binned.sample_at(lon, lat) else {
@@ -3445,10 +3463,10 @@ impl HookEchoApp {
         lon: f64,
         lat: f64,
         antenna_altitude_m: Option<f64>,
-        freezing: Option<(f64, f64)>,
+        levels: wxdata::udp_column::Levels,
     ) -> Vec<wxdata::udp::GateInputs> {
         (0..vol.elevations.len())
-            .map(|tilt| Self::udp_gate_inputs(vol, tilt, lon, lat, antenna_altitude_m, freezing))
+            .map(|tilt| Self::udp_gate_inputs(vol, tilt, lon, lat, antenna_altitude_m, levels))
             .filter(|g| g.beam_height_m.is_some())
             .collect()
     }
@@ -3483,8 +3501,14 @@ impl HookEchoApp {
         // Only meaningful for the gate's own site and time — `self.freezing` is a single
         // most-recent cache, so `freezing_for` filters out another site's reading, or a live one
         // standing in for an archived volume's. Read before `v` for the same borrow reason.
-        let freezing = self.freezing_for(idx);
-        if freezing.is_none() {
+        let levels = self
+            .env_levels_for(idx)
+            .map(env_levels::EnvLevels::column_levels)
+            .unwrap_or_default();
+        let environment = self
+            .env_levels_for(idx)
+            .map(env_levels::EnvLevels::describe);
+        if levels.h0_m.is_none() {
             self.fetch_freezing_levels(ctx, idx);
         }
         let v = &mut self.views[idx];
@@ -3514,8 +3538,8 @@ impl HookEchoApp {
         let raw = vol.binned(moment, tilt, false).ok()?.clone();
         let inspection = raw.inspect(lon, lat, dealiased.as_ref())?;
         let time_range = level2::sweep_time_range(&scan, elevation_deg, moment);
-        let gate_inputs = Self::udp_gate_inputs(vol, tilt, lon, lat, antenna_altitude_m, freezing);
-        let column_inputs = Self::udp_column_inputs(vol, lon, lat, antenna_altitude_m, freezing);
+        let gate_inputs = Self::udp_gate_inputs(vol, tilt, lon, lat, antenna_altitude_m, levels);
+        let column_inputs = Self::udp_column_inputs(vol, lon, lat, antenna_altitude_m, levels);
         Some(ui::gate_inspector::GateInspectorPopup {
             site,
             vcp,
@@ -3524,6 +3548,7 @@ impl HookEchoApp {
             inspection,
             gate_inputs,
             column_inputs,
+            environment,
             // Filled on a click only (below): the cursor-probe table calls this on every hover
             // and keeps just the value, and the series reads every volume the pane holds.
             series: Vec::new(),
@@ -3568,6 +3593,7 @@ impl HookEchoApp {
                         FL::CompareA | FL::CompareB => self.compare_grid.is_some(),
                         _ => {
                             self.mrms_ready_for(idx, *layer)
+                                && self.radar_field_ready(idx, *layer)
                                 && self
                                     .field_state_for(idx, *layer)
                                     .is_some_and(|state| state.grid.is_some())
@@ -3596,7 +3622,8 @@ impl HookEchoApp {
             | FL::VilDensity
             | FL::EtopLocal
             | FL::HailMehs
-            | FL::HailPosh => "Local radar".into(),
+            | FL::HailPosh
+            | FL::UserColumn => "Local radar".into(),
             FL::SnowBands => "Derived MRMS".into(),
             FL::SnowAnalysis => "NOAA NOHRSC".into(),
             FL::Vil | FL::EchoTops | FL::Hca => "NEXRAD Level III".into(),
@@ -4875,6 +4902,10 @@ impl HookEchoApp {
             env: wxdata::udp_volume::Env {
                 antenna_altitude_m,
                 freezing: self.freezing_for(idx).map(|(a, b)| (a as f32, b as f32)),
+                minus10c_m: self
+                    .env_levels_for(idx)
+                    .and_then(|l| l.hm10_m)
+                    .map(|h| h as f32),
             },
         };
         let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -4886,6 +4917,7 @@ impl HookEchoApp {
             .freezing
             .map(|(a, b)| (a.to_bits(), b.to_bits()))
             .hash(&mut h);
+        spec.env.minus10c_m.map(f32::to_bits).hash(&mut h);
         spec.env.antenna_altitude_m.map(f32::to_bits).hash(&mut h);
         def.palette.hash(&mut h);
         Some((spec, h.finish()))

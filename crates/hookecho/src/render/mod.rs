@@ -236,6 +236,10 @@ pub enum FieldLayer {
     HailMehs,
     /// Probability of Severe Hail derived from the volume (Witt et al. 1998).
     HailPosh,
+    /// The pane's selected column user-defined product (`MapView::column_product`), evaluated on
+    /// the local-derived grid from this radar's own volume (`wxdata::udp_column`). Its palette,
+    /// range and units are the product's own, not a fixed ramp.
+    UserColumn,
     /// HRRR accumulated snowfall through the scrubbed forecast hour.
     Snowfall,
     /// NOHRSC observed snowfall analysis over the last 6/24/48/72 hours.
@@ -473,7 +477,7 @@ impl FieldLayer {
     }
 
     /// Fixed bottom-to-top paint order within each band.
-    pub const DRAW_ORDER: [FieldLayer; 89] = [
+    pub const DRAW_ORDER: [FieldLayer; 90] = [
         // Below-radar context band (bottom to top). The global models sit at the very bottom:
         // they are the synoptic backdrop everything else is drawn against — satellite included,
         // since it is the same kind of backdrop and the radar itself paints over it just the same.
@@ -562,6 +566,7 @@ impl FieldLayer {
         FieldLayer::VilDensity,
         FieldLayer::HailMehs,
         FieldLayer::HailPosh,
+        FieldLayer::UserColumn,
         FieldLayer::Posh,
         FieldLayer::Shi,
         FieldLayer::Hca,
@@ -656,6 +661,7 @@ impl FieldLayer {
             FieldLayer::EtopLocal => "etop-local",
             FieldLayer::HailMehs => "hail-mehs",
             FieldLayer::HailPosh => "hail-posh",
+            FieldLayer::UserColumn => "user-column",
             // These national-layer slugs are also `wxdata::mrms::catalog` field IDs —
             // `descriptor()` resolves them by exact string match, so a mismatch here would
             // silently break provenance/search for the layer.
@@ -3103,6 +3109,9 @@ fn smooth_field(layer: FieldLayer) -> bool {
     FIELD_SMOOTHING.load(std::sync::atomic::Ordering::Relaxed)
         // The RGB composite's index points into its own adaptive palette, not along a ramp.
         && layer != FieldLayer::GoesRgb
+        // A user product can be a count, a 0/1 mask or a height: a blend of two cells is a value
+        // the formula never produced, so it is drawn cell by cell, exactly as it probes.
+        && layer != FieldLayer::UserColumn
         && !field_ramps::ramp_for(layer)
             .is_some_and(|r| matches!(r.scale, field_ramps::FieldScale::Categorical(_)))
 }
@@ -3117,6 +3126,10 @@ mod field_smoothing_tests {
         assert!(smooth_field(FieldLayer::Cape));
         assert!(smooth_field(FieldLayer::GoesIr));
         assert!(!smooth_field(FieldLayer::Hca), "categories never blend");
+        assert!(
+            !smooth_field(FieldLayer::UserColumn),
+            "a user product is drawn as evaluated"
+        );
         assert!(
             !smooth_field(FieldLayer::GoesRgb),
             "palette indices never blend"

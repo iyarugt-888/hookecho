@@ -16,7 +16,7 @@ use crate::xsection::{column_samples, dist_bearing};
 use chrono::{DateTime, Utc};
 
 /// Grid spacing of every derived product, in degrees — same as the L3 radial projection.
-const RES_DEG: f64 = 0.01;
+pub(crate) const RES_DEG: f64 = 0.01;
 /// Reflectivity above this contributes nothing more to VIL/SHI: it is hail, not water, and
 /// letting it run free turns one bright core into an implausible column of liquid.
 const Z_CAP_DBZ: f32 = 56.0;
@@ -58,9 +58,9 @@ pub struct Derived {
 }
 
 /// The grid every derived product shares: 0.01° cells covering the volume's range disk.
-struct Grid {
-    nx: usize,
-    ny: usize,
+pub(crate) struct Grid {
+    pub(crate) nx: usize,
+    pub(crate) ny: usize,
     lon_west: f64,
     lon_east: f64,
     lat_north: f64,
@@ -70,7 +70,7 @@ struct Grid {
 }
 
 impl Grid {
-    fn for_sweeps(sweeps: &[BinnedSweep]) -> Option<Self> {
+    pub(crate) fn for_sweeps(sweeps: &[BinnedSweep]) -> Option<Self> {
         let s0 = sweeps.first()?;
         let (lat0, lon0) = (s0.radar_lat as f64, s0.radar_lon as f64);
         // Range disk of the widest sweep; higher tilts are usually shorter.
@@ -84,26 +84,33 @@ impl Grid {
         let coslat = lat0.to_radians().cos().max(0.05);
         let dlat = max_range_km / 111.0;
         let dlon = max_range_km / (111.0 * coslat);
+        let nx = ((2.0 * dlon / RES_DEG).ceil() as usize).max(1);
+        let ny = ((2.0 * dlat / RES_DEG).ceil() as usize).max(1);
+        // The far edges are where `nx`/`ny` cells of exactly `RES_DEG` end, not the range disk's
+        // own extent: cells are sampled at `RES_DEG` spacing ([`Self::ground_az`]), and a reader
+        // places them by dividing the stated extent by the cell count, so the two must agree or
+        // every cell drifts toward the east and south edges by up to a whole cell.
+        let (lon_west, lat_north) = (lon0 - dlon, lat0 + dlat);
         Some(Self {
-            nx: ((2.0 * dlon / RES_DEG).ceil() as usize).max(1),
-            ny: ((2.0 * dlat / RES_DEG).ceil() as usize).max(1),
-            lon_west: lon0 - dlon,
-            lon_east: lon0 + dlon,
-            lat_north: lat0 + dlat,
-            lat_south: lat0 - dlat,
+            nx,
+            ny,
+            lon_west,
+            lon_east: lon_west + nx as f64 * RES_DEG,
+            lat_north,
+            lat_south: lat_north - ny as f64 * RES_DEG,
             lat0,
             lon0,
         })
     }
 
     /// Ground range (km) and azimuth (deg from north) of cell `(gx, gy)`.
-    fn ground_az(&self, gx: usize, gy: usize) -> (f64, f64) {
+    pub(crate) fn ground_az(&self, gx: usize, gy: usize) -> (f64, f64) {
         let lat = self.lat_north - (gy as f64 + 0.5) * RES_DEG;
         let lon = self.lon_west + (gx as f64 + 0.5) * RES_DEG;
         dist_bearing(self.lon0, self.lat0, lon, lat)
     }
 
-    fn field(&self, values: Vec<f32>, time: DateTime<Utc>) -> MrmsField {
+    pub(crate) fn field(&self, values: Vec<f32>, time: DateTime<Utc>) -> MrmsField {
         MrmsField {
             values,
             nx: self.nx,
@@ -458,6 +465,43 @@ mod tests {
         let mut s = Vec::new();
         column_samples(sweeps, ground_km, 0.0, &mut s);
         s
+    }
+
+    /// A reader places cell `(gx, gy)` by dividing the field's stated extent by its cell count;
+    /// that must be the very point the cell was sampled at, out to the far east and south edges.
+    #[test]
+    fn a_cell_is_drawn_where_it_was_sampled() {
+        for lat in [25.0f32, 35.0, 47.0] {
+            let mut sweeps = uniform_sweeps(30.0, &[0.5]);
+            sweeps[0].radar_lat = lat;
+            let g = Grid::for_sweeps(&sweeps).unwrap();
+            let f = g.field(vec![0.0; g.nx * g.ny], Utc::now());
+            let (dlon, dlat) = (
+                (f.lon_east - f.lon_west) / f.nx as f64,
+                (f.lat_north - f.lat_south) / f.ny as f64,
+            );
+            for (gx, gy) in [
+                (0, 0),
+                (g.nx - 1, g.ny - 1),
+                (g.nx / 2, g.ny - 1),
+                (g.nx - 1, 0),
+            ] {
+                let (lon, lat) = (
+                    f.lon_west + (gx as f64 + 0.5) * dlon,
+                    f.lat_north - (gy as f64 + 0.5) * dlat,
+                );
+                let (r_read, az_read) = dist_bearing(g.lon0, g.lat0, lon, lat);
+                let (r, az) = g.ground_az(gx, gy);
+                assert!(
+                    (r_read - r).abs() < 1e-6,
+                    "{lat}: cell {gx},{gy} at {r_read} vs {r} km"
+                );
+                assert!((az_read - az).abs() < 1e-6, "{lat}: cell {gx},{gy} bearing");
+            }
+            // And the grid still covers the whole range disk.
+            assert!(f.lon_east >= g.lon0 + (g.lon0 - f.lon_west) - 1e-9);
+            assert!(f.lat_south <= g.lat0 - (f.lat_north - g.lat0) + 1e-9);
+        }
     }
 
     /// Filling down adds the layer between the lowest beam and the ground, so VIL near the radar

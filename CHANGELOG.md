@@ -8,6 +8,33 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: column user-defined products on the map
+
+A user-defined product built on a vertical/layer function (`max_vertical`, `max_layer`,
+`first_height_above`, `count_above`, …) now draws as a 2D field over the tilt — "Show on map" in
+User-defined products, or "Column user product" in the layer list. It is evaluated from every tilt
+of the pane's own volume on the local-derived 0.01° grid, through the same nearest-gate rule as
+the local composite (`max_vertical(REF)` is that composite, cell for cell), under the pane's live
+temporal policy, off the UI thread, and only for the scan, revision, product definition and
+environment it was asked for. Its legend samples the drawn colour table and states the source
+acquisition span and any older-pass or masked rows; the cursor probe reads the exact cell and how
+many beams sampled it; GeoTIFF/NetCDF exports carry the formula, units and environment source.
+The pane's choice is saved with workspaces. Cells are drawn as evaluated, never smoothed between.
+
+Formulas can read `MINUS10C_HEIGHT_M`: HRRR's `263 K level` while following live, the lowest
+−10 °C crossing of that day's observed sounding on an archived volume. A formula needing an
+isotherm the matched source lacks is not drawn and says why; nothing is substituted. The gate
+inspector evaluates a column formula with the map's rules (based at the lowest sampled level),
+reads velocity dealiased as the map does, and names where its environmental heights came from.
+
+### Fixed: locally derived grids are drawn where they were sampled
+
+The composite, VIL, VIL density, echo-top, MEHS/POSH and trail-export grids sampled cells at
+exactly 0.01° but declared the range disk's unrounded extent, so readers and the renderer placed
+cells up to one cell (~1 km) toward the east and south edges. The declared extent now matches the
+sampled cells. Probes and exports of local radar fields also require the pane's own selection,
+as drawing already did.
+
 ### Added: pane-owned MRMS analyses and precipitation tint
 
 MRMS catalog fields now follow each pane's archive cursor when analysis time is unlinked, and

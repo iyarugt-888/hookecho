@@ -963,6 +963,13 @@ pub struct MeltingLevels {
     /// 0 °C and −20 °C heights, metres above the launch site's own surface.
     pub h0_m: f64,
     pub hm20_m: f64,
+    /// −10 °C height, metres above the launch site: the *lowest* crossing going up, interpolated
+    /// between bracketing levels only (ROADMAP_PARITY M3.3's rule for this level, unlike the
+    /// melting level's highest). `None` when the ascent never brackets it.
+    pub hm10_m: Option<f64>,
+    /// How many times the ascent cooled through −10 °C; more than one means an inversion, and the
+    /// lowest was taken.
+    pub hm10_crossings: usize,
 }
 
 /// 0 °C and −20 °C heights for `(lon, lat)` at `when`, from the observed sounding — archived back
@@ -986,11 +993,14 @@ pub async fn melting_levels(
             match fetch(client, station, at, cache_dir.clone()).await {
                 Ok(snd) => match levels_of(&snd) {
                     Some((h0_m, hm20_m)) => {
+                        let hm10 = snd.isotherm_crossings_m(-10.0);
                         return Ok(MeltingLevels {
                             label: format!("{} {}", station.name, snd.run.format("%d %HZ")),
                             h0_m,
                             hm20_m,
-                        })
+                            hm10_m: hm10.first().copied(),
+                            hm10_crossings: hm10.len(),
+                        });
                     }
                     None => {
                         last_err = anyhow::anyhow!(

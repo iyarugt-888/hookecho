@@ -481,6 +481,15 @@ impl PaneSnap {
                 ),
             ]
             .into_iter()
+            // The pane's column user product, by name (`MapView::column_product`); the saved
+            // definition itself lives with the products in Settings. Absent when none is shown,
+            // so a file that never had one stays byte-identical.
+            .chain(v.column_product.clone().map(|name| {
+                (
+                    "column-product".to_string(),
+                    serde_json::Value::String(name),
+                )
+            }))
             .collect(),
         }
     }
@@ -518,6 +527,11 @@ impl PaneSnap {
             }
         }
         v.model_link_snapshot = v.models.clone();
+        v.column_product = self
+            .extra
+            .get("column-product")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string);
         v.site = self.site.clone();
         v.moment = self.moment;
         v.tilt = self.tilt;
@@ -1215,6 +1229,33 @@ mod tests {
         assert!(fresh.threshold_enabled[Moment::Reflectivity.index()]);
         assert!(!fresh.threshold_enabled[Moment::SpectrumWidth.index()]);
         assert_eq!(fresh.thresholds[Moment::Velocity.index()], None);
+    }
+
+    #[test]
+    fn a_column_product_and_its_layer_survive_the_round_trip_and_absence_stays_absent() {
+        let cam = crate::render::mercator::Camera::at_lonlat(0.0, 0.0, 3.0);
+        let mut v = MapView::new(None, cam);
+        let bare = serde_json::to_value(PaneSnap::capture(&v)).unwrap();
+        assert!(
+            bare.get("column-product").is_none(),
+            "nothing written when none is shown"
+        );
+        v.column_product = Some("ZDR above 0C".into());
+        v.fields_on.insert(crate::render::FieldLayer::UserColumn);
+        let json = serde_json::to_string(&PaneSnap::capture(&v)).unwrap();
+        let snap: PaneSnap = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            snap.fields_on.as_deref(),
+            Some(["user-column".to_string()].as_slice())
+        );
+        let mut fresh = MapView::new(None, cam);
+        fresh.column_product = Some("leftover".into());
+        snap.apply(&mut fresh);
+        assert_eq!(fresh.column_product.as_deref(), Some("ZDR above 0C"));
+        // A snapshot without one clears a leftover selection rather than keeping it.
+        let plain: PaneSnap = serde_json::from_value(bare).unwrap();
+        plain.apply(&mut fresh);
+        assert_eq!(fresh.column_product, None);
     }
 
     #[test]

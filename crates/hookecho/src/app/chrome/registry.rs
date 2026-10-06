@@ -872,6 +872,13 @@ impl HookEchoApp {
                 false,
             ),
             (
+                FL::UserColumn,
+                "Radar",
+                "Column user product",
+                "The column user-defined product picked in User-defined products, from every tilt of this volume",
+                false,
+            ),
+            (
                 FL::NdfdTemp2m,
                 "Models",
                 "NDFD temperature (2 m)",

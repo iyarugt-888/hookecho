@@ -621,9 +621,30 @@ impl HookEchoApp {
             };
         }
 
+        if layer == FL::UserColumn {
+            // The cell the point falls in, exactly as stored — not a bilinear blend, which would
+            // invent a height or a count between two columns — with how many beams sampled it.
+            let shown = self.column_shown(idx);
+            return crate::ui::cursor_probe::ProbeRow {
+                pane: idx,
+                source: "Local radar (column product)".into(),
+                product: shown.map_or_else(|| "Column product".into(), |a| a.name.clone()),
+                time: shown.map(|a| a.volume_time),
+                value: shown.and_then(|a| {
+                    let (v, levels) = a.product.at(lon, lat)?;
+                    Some(match v {
+                        Some(v) => format!("{} {} · {levels} levels", fmt_value(v), a.units)
+                            .replace("  ", " "),
+                        None if levels == 0 => "no beam overhead".into(),
+                        None => format!("— · {levels} levels"),
+                    })
+                }),
+                folded: false,
+            };
+        }
         let state = self
             .field_state_for(idx, layer)
-            .filter(|_| self.mrms_ready_for(idx, layer));
+            .filter(|_| self.mrms_ready_for(idx, layer) && self.radar_field_ready(idx, layer));
         let grid = state.and_then(|field| field.grid.as_ref());
         crate::ui::cursor_probe::ProbeRow {
             pane: idx,

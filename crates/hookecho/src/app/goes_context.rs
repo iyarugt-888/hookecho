@@ -77,10 +77,9 @@ impl GoesRequest {
         }
     }
     pub(super) fn cadence(self) -> std::time::Duration {
-        std::time::Duration::from_secs(if self.sector.is_meso() || self.layer.is_none() {
-            self.sector.cadence_secs()
-        } else {
-            field_refresh_secs(self.layer.unwrap())
+        std::time::Duration::from_secs(match self.layer {
+            Some(layer) if !self.sector.is_meso() => field_refresh_secs(layer),
+            _ => self.sector.cadence_secs(),
         })
     }
     pub(super) fn accepts_time(self, time: DateTime<Utc>) -> bool {

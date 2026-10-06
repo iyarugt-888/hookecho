@@ -25,6 +25,10 @@ pub struct GateInspectorPopup {
     /// user-defined-product formula (`max_vertical`, `max_layer`, …; ROADMAP_NEW C1) reduces
     /// over. A tilt this point falls outside of is simply absent, not a placeholder entry.
     pub column_inputs: Vec<wxdata::udp::GateInputs>,
+    /// Where the environmental heights a formula reads came from at this site and time
+    /// (`app::env_levels::EnvLevels::describe`); `None` when no matched reading exists, in which
+    /// case those inputs are missing rather than substituted.
+    pub environment: Option<String>,
     /// `moment` at this point in every volume the pane holds, oldest first — the loop being
     /// played, at the nearest tilt in each (see `MapView::point_series`).
     pub series: Vec<(chrono::DateTime<chrono::Utc>, Option<f32>)>,
@@ -124,15 +128,21 @@ pub(crate) fn attributes(
     let udp_rows: Vec<(&str, String)> = udp_products
         .iter()
         .map(|def| {
+            // A column formula reads the whole column under the point with the map's rules (its
+            // base is the lowest sampled level, not this tilt), so the two cannot disagree; a gate
+            // formula reads this gate.
             let value = match def.compile() {
-                Ok(expr) => match wxdata::udp::evaluate_at_column(
-                    &expr,
-                    &popup.gate_inputs,
-                    &popup.column_inputs,
-                ) {
-                    Some(v) => format!("{v:.2} {}", def.units).trim_end().to_string(),
-                    None => "—".to_string(),
-                },
+                Ok(expr) => {
+                    let v = if expr.uses_column() {
+                        wxdata::udp_column::evaluate_column(&expr, &popup.column_inputs)
+                    } else {
+                        wxdata::udp::evaluate(&expr, &popup.gate_inputs)
+                    };
+                    match v {
+                        Some(v) => format!("{v:.2} {}", def.units).trim_end().to_string(),
+                        None => "—".to_string(),
+                    }
+                }
                 Err(e) => format!("Error: {e}"),
             };
             (def.name.as_str(), value)
@@ -181,7 +191,16 @@ pub(crate) fn attributes(
         }),
     ];
     if !udp_rows.is_empty() {
-        groups.push(("USER-DEFINED", udp_rows));
+        let mut rows = udp_rows;
+        rows.push(("Column levels", popup.column_inputs.len().to_string()));
+        rows.push((
+            "Environment",
+            popup
+                .environment
+                .clone()
+                .unwrap_or_else(|| "none for this radar and time".into()),
+        ));
+        groups.push(("USER-DEFINED", rows));
     }
     let columns = if ui.available_width() >= 480.0 { 3 } else { 1 };
     for chunk in groups.chunks(columns) {
@@ -496,6 +515,7 @@ mod tests {
             },
             gate_inputs: wxdata::udp::GateInputs::default(),
             column_inputs: Vec::new(),
+            environment: None,
             series: Vec::new(),
         }
     }
@@ -781,6 +801,38 @@ mod tests {
         assert!(with.iter().any(|s| s == "USER-DEFINED"), "{with:?}");
         assert!(with.iter().any(|s| s == "Boosted REF"), "{with:?}");
         assert!(with.iter().any(|s| s == "52.50 dBZ"), "{with:?}");
+    }
+
+    /// A column formula reads the column under the point, based at its lowest level — what the
+    /// map's `UserColumn` cell holds — not the clicked tilt.
+    #[test]
+    fn a_column_product_reads_the_column_not_the_clicked_tilt() {
+        let mut popup = sample_popup(Moment::Reflectivity, false, Some(42.5));
+        popup.gate_inputs.reflectivity = Some(42.5); // the clicked (upper) tilt
+        let level = |h: f32, z: f32| wxdata::udp::GateInputs {
+            reflectivity: Some(z),
+            beam_height_m: Some(h),
+            ..Default::default()
+        };
+        // Handed over out of order: the lowest level is still the base.
+        popup.column_inputs = vec![level(3000.0, 42.5), level(800.0, 30.0), level(6000.0, 55.0)];
+        let products = [wxdata::udp::ProductDef {
+            name: "Growth".into(),
+            units: "dB".into(),
+            expression: "max_vertical(REF) - REF".into(),
+            range: None,
+            palette: None,
+        }];
+        let labels = labels_for(&popup, &products);
+        assert!(
+            labels.iter().any(|s| s == "25.00 dB"),
+            "55 − base 30: {labels:?}"
+        );
+        assert!(labels.iter().any(|s| s == "3"), "three levels: {labels:?}");
+        assert!(
+            labels.iter().any(|s| s == "none for this radar and time"),
+            "{labels:?}"
+        );
     }
 
     /// A formula that fails to compile shows the error inline rather than silently dropping the

@@ -43,6 +43,11 @@ impl HookEchoApp {
             FL::Mrms | FL::Mosaic | FL::Hrrr => {
                 mrms_upload(f, self.palettes.table(Moment::Reflectivity))
             }
+            // The accepted product's own table and range; without one, nothing is drawable.
+            FL::UserColumn => match self.column_accepted.as_deref() {
+                Some(a) => column_product::column_upload(f, &a.table, a.range),
+                None => field_upload_indexed(FL::UserColumn, f),
+            },
             other => field_upload_indexed(other, f),
         }
     }

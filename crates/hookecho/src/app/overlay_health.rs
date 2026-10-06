@@ -20,6 +20,7 @@ impl OverlayMsg {
         match self {
             Self::PlacefileError(_, error) => Some(error),
             Self::DerivedFields(delivery) => delivery.fields.as_ref().err().map(String::as_str),
+            Self::ColumnProduct(delivery) => delivery.error(),
             _ => None,
         }
     }
@@ -33,6 +34,7 @@ impl OverlayMsg {
             Self::Recon(observations) => latest(observations.iter().map(|o| o.time)),
             Self::Cells(_, cells, _) => latest(cells.iter().filter_map(|c| c.time)),
             Self::Field(_, field) => Some(field.time),
+            Self::ColumnProduct(delivery) => delivery.acquisition_end(),
             Self::DerivedFields(delivery) => delivery
                 .fields
                 .as_ref()

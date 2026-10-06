@@ -75,6 +75,12 @@ impl HookEchoApp {
                             continue;
                         }
                     }
+                    if let Ok(OverlayMsg::ColumnProduct(delivery)) = &result {
+                        if !self.column_delivery_current(delivery) {
+                            self.acquisition.discard(&lane, generation);
+                            continue;
+                        }
+                    }
                     let valid_time = result.as_ref().ok().and_then(OverlayMsg::health_valid_time);
                     // Plugin failures deliberately arrive as a message so the placefile manager
                     // can show them, but they are still failures for source health. Treating the
@@ -308,6 +314,7 @@ impl HookEchoApp {
                     }
                 }
                 OverlayMsg::DerivedFields(delivery) => self.accept_derived_fields(*delivery),
+                OverlayMsg::ColumnProduct(delivery) => self.accept_column_product(*delivery),
                 OverlayMsg::MrmsField(layer, field, request) => {
                     // The field's original request resolves to a currently wanted immutable slot.
                     if let Some(context) = self
@@ -399,12 +406,7 @@ impl HookEchoApp {
                 }
                 OverlayMsg::Spotters(spotters) => self.spotters = spotters,
                 OverlayMsg::Fronts(a) => self.fronts = Some(a),
-                OverlayMsg::FreezingLevels {
-                    site,
-                    epoch,
-                    h0,
-                    hm20,
-                } => self.freezing = Some((site, epoch, h0, hm20)),
+                OverlayMsg::FreezingLevels(levels) => self.freezing = Some(*levels),
                 OverlayMsg::ProbSevere(f) => {
                     self.evaluate_probsevere_rules(&f);
                     self.probsevere = f;

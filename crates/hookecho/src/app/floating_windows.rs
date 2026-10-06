@@ -39,12 +39,25 @@ impl HookEchoApp {
             .show(ctx, &mut self.settings, &pf_status, &mut self.drawer);
         let active = self.active;
         let before = self.views[active].user_product.clone();
+        let column_before = self.views[active].column_product.clone();
+        let column_status = match self.column_status(active) {
+            Some(column_product::ColumnStatus::Unavailable(why)) => Some(why),
+            _ => None,
+        };
+        let view = &mut self.views[active];
         self.udp_window.show(
             ctx,
             &mut self.settings,
             &mut self.drawer,
-            &mut self.views[active].user_product,
+            &mut view.user_product,
+            &mut view.column_product,
+            column_status,
         );
+        if self.views[active].column_product != column_before {
+            // The product and its field layer go on and off together.
+            let on = self.views[active].column_product.is_some();
+            self.set_field(crate::render::FieldLayer::UserColumn, on);
+        }
         if self.views[active].user_product != before {
             let v = &mut self.views[active];
             v.product_range = None;

@@ -1,7 +1,8 @@
 //! User-defined products (Phase C1): add/edit/remove GR2Analyst-style formula products.
 //!
-//! This window manages the saved list (`Settings::udp_products`) and which product the active pane
-//! shows on the map (`MapView::user_product`); it does not evaluate anything itself. A saved
+//! This window manages the saved list (`Settings::udp_products`) and which products the active pane
+//! shows on the map — a gate formula in place of the moment (`MapView::user_product`), a column
+//! formula as a 2D field over it (`MapView::column_product`); it does not evaluate anything itself. A saved
 //! product's live value at whatever point is clicked shows up in the gate inspector
 //! (`ui::gate_inspector`), which reads this same list.
 
@@ -23,8 +24,12 @@ impl UdpWindow {
         ctx: &egui::Context,
         settings: &mut Settings,
         drawer: &mut crate::ui::drawer::Drawer,
-        // The active pane's product shown on the map, by name.
+        // The active pane's gate product shown on the map, by name.
         on_map: &mut Option<String>,
+        // The active pane's column product shown on the map, by name.
+        column_on_map: &mut Option<String>,
+        // Why the active pane's column product is not drawn, when it is selected and not drawn.
+        column_status: Option<String>,
     ) {
         let mut open = self.open;
         let Some(window) = drawer.page_sized(
@@ -42,7 +47,8 @@ impl UdpWindow {
             ui.label(
                 "Combine a gate's own moments and geometry into a custom value — GR2Analyst's \
                  user-defined products. Show one on the map in place of the moment, draw it in 3D \
-                 (\"User\" in the 3D controls), or click the map to read it at a gate.",
+                 (\"User\" in the 3D controls), or click the map to read it at a gate. A column \
+                 formula (max_vertical, max_layer, …) is drawn as a 2D field over the tilt.",
             );
             ui.add_space(4.0);
             if ui
@@ -63,7 +69,7 @@ impl UdpWindow {
                 .show(ui, |ui| {
                     for i in 0..settings.udp_products.len() {
                         ui.push_id(i, |ui| {
-                            row(ui, settings, i, &mut remove, on_map);
+                            row(ui, settings, i, &mut remove, on_map, column_on_map);
                         });
                         ui.separator();
                     }
@@ -73,8 +79,17 @@ impl UdpWindow {
                 if on_map.as_deref() == Some(gone.name.as_str()) {
                     *on_map = None;
                 }
+                if column_on_map.as_deref() == Some(gone.name.as_str()) {
+                    *column_on_map = None;
+                }
             }
 
+            if let Some(why) = &column_status {
+                ui.colored_label(
+                    egui::Color32::from_rgb(230, 190, 110),
+                    format!("Column product: {why}"),
+                );
+            }
             ui.add_space(6.0);
             ui.strong("Add a product");
             ui.horizontal(|ui| {
@@ -130,6 +145,7 @@ fn row(
     i: usize,
     remove: &mut Option<usize>,
     on_map: &mut Option<String>,
+    column_on_map: &mut Option<String>,
 ) {
     let def = &mut settings.udp_products[i];
     let old_name = def.name.clone();
@@ -145,23 +161,37 @@ fn row(
     if def.name != old_name && on_map.as_deref() == Some(old_name.as_str()) {
         *on_map = Some(def.name.clone());
     }
+    if def.name != old_name && column_on_map.as_deref() == Some(old_name.as_str()) {
+        *column_on_map = Some(def.name.clone());
+    }
     ui.add(egui::TextEdit::singleline(&mut def.expression).desired_width(f32::INFINITY));
     let compiled = def.compile();
     if let Err(e) = &compiled {
         ui.colored_label(egui::Color32::from_rgb(230, 130, 130), e.to_string());
     }
     let per_gate = compiled.as_ref().is_ok_and(|e| !e.uses_column());
+    let per_column = compiled.as_ref().is_ok_and(|e| e.uses_column());
     ui.horizontal(|ui| {
-        let shown = on_map.as_deref() == Some(def.name.as_str());
-        let r = ui
-            .add_enabled(per_gate, egui::Button::selectable(shown, "Show on map"))
-            .on_hover_text("Draw it on the map in place of the moment, on the shown tilt")
-            .on_disabled_hover_text(
-                "A vertical/layer function has one value per column, not per gate, so there is \
-                 no sweep of it to draw",
-            );
-        if r.clicked() {
-            *on_map = (!shown).then(|| def.name.clone());
+        if per_column {
+            let shown = column_on_map.as_deref() == Some(def.name.as_str());
+            let r = ui
+                .add(egui::Button::selectable(shown, "Show on map"))
+                .on_hover_text(
+                    "Draw it as a 2D field over the map: one value per ground point, from every \
+                     tilt of this volume over it",
+                );
+            if r.clicked() {
+                *column_on_map = (!shown).then(|| def.name.clone());
+            }
+        } else {
+            let shown = on_map.as_deref() == Some(def.name.as_str());
+            let r = ui
+                .add_enabled(per_gate, egui::Button::selectable(shown, "Show on map"))
+                .on_hover_text("Draw it on the map in place of the moment, on the shown tilt")
+                .on_disabled_hover_text("Fix the formula first");
+            if r.clicked() {
+                *on_map = (!shown).then(|| def.name.clone());
+            }
         }
         let mut fixed = def.range.is_some();
         if ui
@@ -223,9 +253,9 @@ fn reference(ui: &mut egui::Ui) {
             "Functions: min(a,b)  max(a,b)  mean(a,b,...) [2–8 values]  clamp(x,lo,hi)  abs(x)",
         );
         ui.weak(
-            "BEAM_HEIGHT_M is above the radar; BEAM_ALTITUDE_M, FREEZING_LEVEL_M and \
-             MINUS20C_HEIGHT_M are above sea level when known — compare the latter two against \
-             BEAM_ALTITUDE_M, not BEAM_HEIGHT_M.",
+            "BEAM_HEIGHT_M is above the radar; BEAM_ALTITUDE_M, FREEZING_LEVEL_M, \
+             MINUS10C_HEIGHT_M and MINUS20C_HEIGHT_M are above sea level when known — compare the \
+             isotherms against BEAM_ALTITUDE_M, not BEAM_HEIGHT_M. VEL is dealiased.",
         );
         ui.label(
             "Functions: min max mean(2-8) clamp abs   max_vertical(e[,cond]) min_vertical(e[,cond]) \
@@ -237,9 +267,10 @@ fn reference(ui: &mut egui::Ui) {
         ui.weak(
             "A formula referencing a moment that has no value at a gate (below threshold, \
              range-folded, or not carried there) evaluates to nothing there, same as the moment \
-             itself. FREEZING_LEVEL_M/MINUS20C_HEIGHT_M only have a value when a recent fetch \
-             exists for this site (today, that means a MESH/POSH hail layer has been on \
-             recently) — turn one on once to warm the reading up for a formula that needs it.",
+             itself. The isotherm heights come from the live HRRR analysis while following the \
+             feed and from that day's observed sounding on an archived volume — never one for \
+             the other; a formula needing a height neither has is not drawn. A column formula's \
+             bare inputs (outside a vertical function) read the lowest level over the point.",
         );
     });
 }

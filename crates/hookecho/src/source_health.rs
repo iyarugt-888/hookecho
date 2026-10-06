@@ -122,6 +122,9 @@ pub(crate) enum FeedSource {
     TropicalCyclones,
     WindParticles,
     DerivedRadarFields,
+    /// A column user-defined product evaluated from the pane's own volume (M3.3). Its own lane,
+    /// so a product build and a composite/VIL build never supersede each other.
+    UserColumnProduct,
     /// Where a GOES mesoscale sector is pointed (ROADMAP_NEW E5), probed while the chosen sector
     /// has moved away from the view.
     GoesMesoSector,
@@ -204,6 +207,7 @@ impl FeedSource {
             Self::TropicalCyclones => "Tropical cyclones",
             Self::WindParticles => "Wind particles",
             Self::DerivedRadarFields => "Derived radar fields",
+            Self::UserColumnProduct => "Column user product",
             Self::GoesMesoSector => "GOES mesoscale sector",
             Self::GlmArchive => "GLM lightning (archive)",
         }
@@ -215,6 +219,7 @@ impl FeedSource {
             | Self::LiveStations
             | Self::FieldMill
             | Self::DerivedRadarFields
+            | Self::UserColumnProduct
             | Self::GoesMesoSector
             | Self::GlmArchive => 60,
             Self::SurfaceObservations => 75,
@@ -279,7 +284,7 @@ impl FeedSource {
             | Self::ElectricField
             | Self::PowerOutages
             | Self::RiverGauges => EndpointFamily::PublicPartnerApi,
-            Self::DerivedRadarFields => EndpointFamily::LocalProcessing,
+            Self::DerivedRadarFields | Self::UserColumnProduct => EndpointFamily::LocalProcessing,
             Self::GoesMesoSector | Self::GlmArchive => EndpointFamily::GoesOpenData,
             Self::FieldMill => EndpointFamily::UserConfigured,
         }

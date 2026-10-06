@@ -132,6 +132,25 @@ pub(crate) fn dist_bearing(lon0: f64, lat0: f64, lon: f64, lat: f64) -> (f64, f6
     (dist, brg)
 }
 
+/// The data index of the gate `s`'s beam passes over at ground range `ground_km`, azimuth `az`
+/// (deg from north), and that gate's slant range (km) — nearest gate in range, the azimuth bin the
+/// point falls in. `None` past either end of the sweep. Every vertical profile in this crate
+/// (cross-sections, derived products, column user products) samples through this one rule.
+pub(crate) fn gate_over_ground(s: &BinnedSweep, ground_km: f64, az: f64) -> Option<(usize, f64)> {
+    if s.az_bins == 0 || s.gate_count == 0 {
+        return None;
+    }
+    let slant = slant_from_ground_km(ground_km, s.elevation_deg as f64);
+    let gate =
+        ((slant - s.first_gate_km as f64) / s.gate_interval_km.max(f32::EPSILON) as f64).round();
+    if gate < 0.0 || gate as usize >= s.gate_count {
+        return None;
+    }
+    let bin = ((az / 360.0 * s.az_bins as f64) as usize) % s.az_bins;
+    let cell = bin * s.gate_count + gate as usize;
+    (cell < s.data.len()).then_some((cell, slant))
+}
+
 /// Sample every tilt's beam passing over one ground point, as `(height_km, value)` sorted by
 /// height. `out` is cleared first so callers can reuse one buffer across a whole grid.
 ///
@@ -145,19 +164,14 @@ pub(crate) fn column_samples(
 ) {
     out.clear();
     for s in sweeps {
-        let e = s.elevation_deg as f64;
-        let slant = slant_from_ground_km(ground_km, e);
-        let gate = ((slant - s.first_gate_km as f64) / s.gate_interval_km.max(f32::EPSILON) as f64)
-            .round();
-        if gate < 0.0 || gate as usize >= s.gate_count {
+        let Some((cell, slant)) = gate_over_ground(s, ground_km, az) else {
             continue;
-        }
-        let bin = ((az / 360.0 * s.az_bins as f64) as usize) % s.az_bins;
-        let idx = s.data[bin * s.gate_count + gate as usize];
+        };
+        let idx = s.data[cell];
         if idx < 2 {
             continue; // 0/1 = no data / below threshold
         }
-        let h = beam_height_km(slant, e);
+        let h = beam_height_km(slant, s.elevation_deg as f64);
         let v = s.value_min + (idx as f32 - 2.0) / 253.0 * (s.value_max - s.value_min);
         out.push((h, v));
     }

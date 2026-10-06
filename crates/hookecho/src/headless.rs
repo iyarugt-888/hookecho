@@ -3400,6 +3400,92 @@ pub fn run_hrrr_layer(
     render_to_png(&rt, cb, out_path)
 }
 
+/// Evaluate column formula `formula` over a local Archive II volume exactly as the map does
+/// (`wxdata::udp_column`, every tilt, velocity dealiased) and draw it as the `UserColumn` field
+/// around the radar. Isotherm heights are only what the caller passes — stated, never fetched or
+/// guessed — and the site's antenna altitude comes from the site table.
+pub fn run_column(
+    path: &str,
+    formula: &str,
+    out_path: &str,
+    levels: wxdata::udp_column::Levels,
+) -> anyhow::Result<()> {
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    let expr = wxdata::udp::parse(formula)?;
+    let scan = level2::decode_volume(std::fs::read(path)?)?;
+    let site = scan.site().map(|s| s.identifier_string());
+    let antenna_altitude_m = site
+        .as_deref()
+        .and_then(wxdata::sites::site_by_id)
+        .map(|s| s.elevation_meters as f32 + wxdata::towers::tower_m(s.id) as f32);
+    let moments = wxdata::udp_volume::MOMENTS;
+    let tilts: Vec<wxdata::udp_column::ColumnTilt> = (0..level2::elevation_angles(&scan).len())
+        .map(|t| {
+            std::array::from_fn(|i| {
+                level2::bin_scan_opts(&scan, moments[i], t, moments[i] == Moment::Velocity).ok()
+            })
+        })
+        .collect();
+    // The volume's own clock — its lowest tilt's first radial — or no product: never "now".
+    let lowest = *level2::elevation_angles(&scan)
+        .first()
+        .ok_or_else(|| anyhow::anyhow!("the volume has no tilts"))?;
+    let time = level2::sweep_time_range(&scan, lowest, Moment::Reflectivity)
+        .map(|(start, _)| start)
+        .ok_or_else(|| anyhow::anyhow!("the volume carries no radial times"))?;
+    let t0 = std::time::Instant::now();
+    let env = wxdata::udp_column::ColumnEnv {
+        antenna_altitude_m,
+        levels,
+    };
+    let p = wxdata::udp_column::evaluate_grid(&expr, &tilts, &env, time)?;
+    let elapsed = t0.elapsed();
+    let values: Vec<Option<f32>> = p
+        .field
+        .values
+        .iter()
+        .map(|v| v.is_finite().then_some(*v))
+        .collect();
+    let range = wxdata::udp_volume::auto_range(values.iter(), None)
+        .ok_or_else(|| anyhow::anyhow!("the product has no value anywhere in this volume"))?;
+    println!(
+        "{}: {formula} over {} tilts, {}x{} cells, {} with value, range {:.2}..{:.2}, {:.0} ms",
+        site.as_deref().unwrap_or("?"),
+        p.tilts,
+        p.field.nx,
+        p.field.ny,
+        p.cells_with_value,
+        range.0,
+        range.1,
+        elapsed.as_secs_f64() * 1000.0
+    );
+    let table = crate::colormap::ramp_table(range.0, range.1);
+    let upload = crate::app::column_upload(&p.field, &table, range);
+    let (lon0, lat0) = scan.site().map_or((-97.0, 38.0), |s| {
+        (s.longitude() as f64, s.latitude() as f64)
+    });
+    let camera_set = std::env::var("HOOKECHO_CAM").is_ok();
+    if !camera_set {
+        // Centre on the radar unless the caller placed the camera.
+        if let Ok(mut c) = CENTER_OVERRIDE.lock() {
+            if c.is_none() {
+                *c = Some((lon0, lat0));
+            }
+        }
+        ZOOM_OVERRIDE
+            .compare_exchange(
+                u64::MAX,
+                7.0f64.to_bits(),
+                std::sync::atomic::Ordering::Relaxed,
+                std::sync::atomic::Ordering::Relaxed,
+            )
+            .ok();
+    }
+    render_field_png(&rt, crate::render::FieldLayer::UserColumn, upload, out_path)
+}
+
 /// Draw one prepared gridded field over the national basemap and save it.
 fn render_field_png(
     rt: &tokio::runtime::Runtime,
