@@ -211,7 +211,11 @@ impl HookEchoApp {
     /// The core-statistics rows (label, value) around each of `at` on pane `idx`'s displayed
     /// tilt, the same table this window shows, with the tilt binned once for all of them. The
     /// Storm Digest's brief reads its cores through this.
-    pub(crate) fn core_rows_at(&mut self, idx: usize, at: &[(f64, f64)]) -> Vec<Vec<(String, String)>> {
+    pub(crate) fn core_rows_at(
+        &mut self,
+        idx: usize,
+        at: &[(f64, f64)],
+    ) -> Vec<Vec<(String, String)>> {
         if at.is_empty() {
             return Vec::new();
         }
@@ -311,6 +315,12 @@ impl HookEchoApp {
         let trend = self.cell_trends.get(&c.id).cloned().unwrap_or_default();
         // Its persistent identity across scans (ROADMAP_PARITY M2.1).
         let identity = self.dock.storm_ids.describe(&c.id);
+        // What it has been linked to over those scans, each by the rule that linked it.
+        let evidence = self.dock.storm_ids.evidence_lines(&c.id, |s| {
+            chrono::DateTime::from_timestamp(s, 0)
+                .map(|d| crate::timefmt::fmt_clock(d, tz, false))
+                .unwrap_or_default()
+        });
         let explained = wxdata::cellscore::score_all_explained(
             std::slice::from_ref(&c),
             &self.probsevere,
@@ -500,6 +510,12 @@ impl HookEchoApp {
                                 }
                                 if let Some(line) = &identity {
                                     ws::kv(ui, &t, "History", line, None);
+                                }
+                                for (i, line) in evidence.iter().take(8).enumerate() {
+                                    ws::kv(ui, &t, if i == 0 { "Linked" } else { "" }, line, None);
+                                }
+                                if evidence.len() > 8 {
+                                    ws::kv(ui, &t, "", &format!("and {} more", evidence.len() - 8), None);
                                 }
                             });
                             // What threatens where: the tornado detection at this storm, the
@@ -899,12 +915,19 @@ fn threat_for(
     let tornado = associations.circulations.first().map(|&(i, separation)| {
         let z = &evidence.circulations[i];
         let (d, bearing) = km(z.id.lon, z.id.lat);
-        let place = if d < 1.0 { "at the core".to_string() } else {
+        let place = if d < 1.0 {
+            "at the core".to_string()
+        } else {
             format!("{} {} of it", distance(d, metric), compass(bearing))
         };
-        format!("{} · evidence {} · {} signal{}, {place}; nearest SCIT core ({} from nearest signal)",
-            z.id.tier.label(), wxdata::evidence::out_of_100(z.id.score), z.members.len(),
-            if z.members.len() == 1 { "" } else { "s" }, distance(separation, metric))
+        format!(
+            "{} · evidence {} · {} signal{}, {place}; nearest SCIT core ({} from nearest signal)",
+            z.id.tier.label(),
+            wxdata::evidence::out_of_100(z.id.score),
+            z.members.len(),
+            if z.members.len() == 1 { "" } else { "s" },
+            distance(separation, metric)
+        )
     });
     let mut warnings: Vec<String> = associations
         .warnings

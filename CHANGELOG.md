@@ -8,6 +8,16 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: what each storm has been linked to, over time
+
+The Cell window's Storm section now lists, under the storm's History line, every warning,
+ProbSevere object, tornado detection and SCIT hail report the storm has been linked to since it was
+first tracked: when, over how many scans, how the value changed (`ProbSevere object 4321 — Tor 40%
+→ Tor 62%`), and how it was linked — inside the polygon, the nearest storm to the detection, or as
+close to another storm, in which case it is listed on both as not attributed. A storm's record
+survives SCIT changing its ID, a detector finishing after the scan arrived, and seeking back in a
+loop. Watches are not counted as warnings.
+
 ### Added: column user-defined products on the map
 
 A user-defined product built on a vertical/layer function (`max_vertical`, `max_layer`,
