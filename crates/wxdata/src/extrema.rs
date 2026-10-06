@@ -37,6 +37,7 @@
 //! a permanent false couplet wherever the Nyquist interval was exceeded once.
 
 use crate::level2::BinnedSweep;
+use crate::mrms::MrmsField;
 
 /// Which end of the range the trail keeps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -378,27 +379,204 @@ impl SlidingTrail {
                 }
             }
         }
-        let to = inside.last().map_or(first_t, |f| f.0);
-        let mut steps: Vec<i64> = inside.windows(2).map(|w| w[1].0 - w[0].0).collect();
-        steps.sort_unstable();
-        let cadence = steps.get(steps.len() / 2).copied().filter(|c| *c > 0);
-        let missing = cadence.map_or(0, |c| {
-            let expected = ((to - first_t) as f64 / c as f64).round() as usize + 1;
-            expected.saturating_sub(inside.len())
-        });
-        let short_s = (first_t - (now - self.window_s) - cadence.unwrap_or(0)).max(0);
+        let times: Vec<i64> = inside.iter().map(|f| f.0).collect();
         Some(WindowTrail {
             sweep,
             contributor,
-            coverage: Coverage {
-                requested_s: self.window_s,
-                from: first_t,
-                to,
-                frames: inside.len(),
-                missing,
-                short_s,
-            },
+            coverage: coverage_of(&times, now, self.window_s),
         })
+    }
+}
+
+/// The coverage of frames at `times` (ascending, non-empty) for the window of `window_s` ending at
+/// `now`: span, missed frames at their own median cadence, and the unfilled old end.
+fn coverage_of(times: &[i64], now: i64, window_s: i64) -> Coverage {
+    let first_t = times[0];
+    let to = *times.last().unwrap_or(&first_t);
+    let mut steps: Vec<i64> = times.windows(2).map(|w| w[1] - w[0]).collect();
+    steps.sort_unstable();
+    let cadence = steps.get(steps.len() / 2).copied().filter(|c| *c > 0);
+    let missing = cadence.map_or(0, |c| {
+        let expected = ((to - first_t) as f64 / c as f64).round() as usize + 1;
+        expected.saturating_sub(times.len())
+    });
+    let short_s = (first_t - (now - window_s) - cadence.unwrap_or(0)).max(0);
+    Coverage {
+        requested_s: window_s,
+        from: first_t,
+        to,
+        frames: times.len(),
+        missing,
+        short_s,
+    }
+}
+
+/// Why two grids could not share a [`GridTrail`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GridMismatch {
+    /// Different cell count or extent: another grid, not the same cells at another time.
+    Grid,
+}
+
+/// A gridded trail as of a moment: physical extrema of finite cells, untouched by age.
+#[derive(Clone)]
+pub struct GridWindowTrail {
+    /// The extremum per cell (NaN where no frame in the window had a value), stamped with the
+    /// newest frame's time.
+    pub field: MrmsField,
+    /// Time (seconds) of the frame that supplied each cell, the newest on a tie.
+    pub contributor: Vec<Option<i64>>,
+    pub coverage: Coverage,
+}
+
+impl GridWindowTrail {
+    /// `(value, contributor time)` of the cell `(lon, lat)` falls in. `None` off the grid.
+    pub fn at_point(&self, lon: f64, lat: f64) -> Option<(Option<f32>, Option<i64>)> {
+        let f = &self.field;
+        if f.nx == 0 || f.ny == 0 {
+            return None;
+        }
+        let fx = (lon - f.lon_west) / (f.lon_east - f.lon_west) * f.nx as f64;
+        let fy = (f.lat_north - lat) / (f.lat_north - f.lat_south) * f.ny as f64;
+        if !(0.0..f.nx as f64).contains(&fx) || !(0.0..f.ny as f64).contains(&fy) {
+            return None;
+        }
+        let i = fy as usize * f.nx + fx as usize;
+        let v = f.values[i];
+        Some((v.is_finite().then_some(v), self.contributor[i]))
+    }
+}
+
+/// [`SlidingTrail`] for lat/lon grids — a column user product or another field evaluated per
+/// volume on one fixed grid. Frames are kept by time; the trail as of a moment is the exact
+/// extremum of the finite cells of the frames inside the window ending then. NaN never wins.
+/// Frames on another grid reset the trail when newest and are skipped when older, so arrival
+/// order cannot change the answer. The caller owns product identity: a different product or
+/// definition is a new trail, not a frame of this one.
+#[derive(Clone)]
+pub struct GridTrail {
+    keep: Extremum,
+    window_s: i64,
+    max_frames: usize,
+    frames: Vec<(i64, MrmsField)>,
+    pub last_reset: Option<GridMismatch>,
+}
+
+fn same_grid(a: &MrmsField, b: &MrmsField) -> bool {
+    a.nx == b.nx
+        && a.ny == b.ny
+        && a.values.len() == b.values.len()
+        && (a.lon_west - b.lon_west).abs() < 1e-9
+        && (a.lon_east - b.lon_east).abs() < 1e-9
+        && (a.lat_north - b.lat_north).abs() < 1e-9
+        && (a.lat_south - b.lat_south).abs() < 1e-9
+}
+
+/// What [`GridTrail::push`] did with a frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GridMerge {
+    Merged,
+    Reset(GridMismatch),
+    Skipped(GridMismatch),
+}
+
+impl GridTrail {
+    pub fn new(keep: Extremum, window_s: i64, max_frames: usize) -> Self {
+        GridTrail {
+            keep,
+            window_s: window_s.max(0),
+            max_frames: max_frames.max(1),
+            frames: Vec::new(),
+            last_reset: None,
+        }
+    }
+
+    pub fn times(&self) -> impl Iterator<Item = i64> + '_ {
+        self.frames.iter().map(|(t, _)| *t)
+    }
+
+    /// Keep only frames inside the window ending at `now` (see [`SlidingTrail::retain_window`]).
+    pub fn retain_window(&mut self, now: i64) {
+        let from = now - self.window_s;
+        self.frames.retain(|(t, _)| *t >= from && *t <= now);
+    }
+
+    pub fn push(&mut self, time: i64, field: MrmsField) -> GridMerge {
+        if let Some((_, held)) = self.frames.first() {
+            if !same_grid(held, &field) {
+                if self.frames.last().is_some_and(|(newest, _)| time < *newest) {
+                    return GridMerge::Skipped(GridMismatch::Grid);
+                }
+                self.frames.clear();
+                self.frames.push((time, field));
+                self.last_reset = Some(GridMismatch::Grid);
+                return GridMerge::Reset(GridMismatch::Grid);
+            }
+        }
+        match self.frames.binary_search_by_key(&time, |(t, _)| *t) {
+            Ok(i) => self.frames[i].1 = field,
+            Err(i) => self.frames.insert(i, (time, field)),
+        }
+        let newest = self.frames.last().map_or(time, |f| f.0);
+        self.frames.retain(|(t, _)| *t >= newest - self.window_s);
+        let over = self.frames.len().saturating_sub(self.max_frames);
+        self.frames.drain(..over);
+        GridMerge::Merged
+    }
+
+    /// The trail as of `now` over the held frames with `now - window_s <= time <= now`.
+    pub fn at(&self, now: i64) -> Option<GridWindowTrail> {
+        let inside: Vec<&(i64, MrmsField)> = self
+            .frames
+            .iter()
+            .filter(|(t, _)| *t <= now && *t >= now - self.window_s)
+            .collect();
+        let first = &inside.first()?.1;
+        let mut values = vec![f32::NAN; first.values.len()];
+        let mut contributor = vec![None; first.values.len()];
+        for (t, f) in &inside {
+            for ((slot, who), &v) in values.iter_mut().zip(contributor.iter_mut()).zip(&f.values) {
+                if !v.is_finite() {
+                    continue;
+                }
+                let better = !slot.is_finite()
+                    || match self.keep {
+                        Extremum::Max => v >= *slot,
+                        Extremum::Min => v <= *slot,
+                    };
+                if better {
+                    *slot = v;
+                    *who = Some(*t);
+                }
+            }
+        }
+        let newest = inside.last().map(|f| &f.1).unwrap_or(first);
+        let times: Vec<i64> = inside.iter().map(|f| f.0).collect();
+        Some(GridWindowTrail {
+            field: MrmsField {
+                values,
+                time: newest.time,
+                ..newest.clone_meta()
+            },
+            contributor,
+            coverage: coverage_of(&times, now, self.window_s),
+        })
+    }
+}
+
+impl MrmsField {
+    /// The grid without its values.
+    fn clone_meta(&self) -> MrmsField {
+        MrmsField {
+            values: Vec::new(),
+            nx: self.nx,
+            ny: self.ny,
+            lon_west: self.lon_west,
+            lon_east: self.lon_east,
+            lat_north: self.lat_north,
+            lat_south: self.lat_south,
+            time: self.time,
+        }
     }
 }
 
@@ -823,6 +1001,124 @@ mod tests {
             "the 0.9° frame is left out"
         );
         assert!(results[0].1.iter().all(|&c| c == 120));
+    }
+
+    fn grid(time: i64, f: impl Fn(usize) -> f32) -> crate::mrms::MrmsField {
+        crate::mrms::MrmsField {
+            values: (0..12).map(f).collect(),
+            nx: 4,
+            ny: 3,
+            lon_west: -98.0,
+            lon_east: -97.96,
+            lat_north: 35.03,
+            lat_south: 35.0,
+            time: chrono::DateTime::from_timestamp(time, 0).unwrap(),
+        }
+    }
+
+    #[test]
+    fn a_grid_trail_is_exact_over_its_window_and_nan_never_wins() {
+        let mut seed = 99u64;
+        let mut rnd = move || {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            (seed >> 40) as u32
+        };
+        let frames: Vec<(i64, crate::mrms::MrmsField)> = (0..10)
+            .map(|k| {
+                let vals: Vec<f32> = (0..12)
+                    .map(|_| {
+                        let r = rnd();
+                        if r % 4 == 0 {
+                            f32::NAN
+                        } else {
+                            (r % 1000) as f32 / 10.0 - 20.0
+                        }
+                    })
+                    .collect();
+                let t = 1_000 + 300 * k as i64;
+                (t, grid(t, |i| vals[i]))
+            })
+            .collect();
+        for keep in [Extremum::Max, Extremum::Min] {
+            let mut g = GridTrail::new(keep, 1_200, 64);
+            for (t, f) in &frames {
+                g.push(*t, f.clone());
+                let w = g.at(*t).unwrap();
+                assert_eq!(w.field.time, f.time, "stamped with the newest frame");
+                for cell in 0..12 {
+                    let real: Vec<(i64, f32)> = frames
+                        .iter()
+                        .filter(|(ft, _)| *ft <= *t && *ft >= *t - 1_200)
+                        .map(|(ft, f)| (*ft, f.values[cell]))
+                        .filter(|(_, v)| v.is_finite())
+                        .collect();
+                    let want = match keep {
+                        Extremum::Max => real
+                            .iter()
+                            .map(|x| x.1)
+                            .fold(None, |a: Option<f32>, v| Some(a.map_or(v, |a| a.max(v)))),
+                        Extremum::Min => real
+                            .iter()
+                            .map(|x| x.1)
+                            .fold(None, |a: Option<f32>, v| Some(a.map_or(v, |a| a.min(v)))),
+                    };
+                    match want {
+                        Some(v) => {
+                            assert_eq!(w.field.values[cell], v);
+                            let newest = real.iter().filter(|x| x.1 == v).map(|x| x.0).max();
+                            assert_eq!(w.contributor[cell], newest);
+                        }
+                        None => {
+                            assert!(w.field.values[cell].is_nan() && w.contributor[cell].is_none())
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_grid_trail_scrubs_back_exactly_and_skips_older_other_grids() {
+        let frames: Vec<(i64, crate::mrms::MrmsField)> = (0..6)
+            .map(|k| (300 * k, grid(300 * k, move |i| (k * 7 + i as i64) as f32)))
+            .collect();
+        let drive = |g: &mut GridTrail, now: i64| {
+            g.retain_window(now);
+            for (t, f) in frames.iter().filter(|(t, _)| *t <= now && *t >= now - 900) {
+                if !g.times().any(|h| h == *t) {
+                    g.push(*t, f.clone());
+                }
+            }
+            g.at(now).unwrap()
+        };
+        let mut live = GridTrail::new(Extremum::Max, 900, 16);
+        drive(&mut live, 1_500);
+        for now in [600, 1_200, 0, 1_500] {
+            let a = drive(&mut live, now);
+            let b = drive(&mut GridTrail::new(Extremum::Max, 900, 16), now);
+            assert!(a
+                .field
+                .values
+                .iter()
+                .zip(&b.field.values)
+                .all(|(x, y)| x.to_bits() == y.to_bits()));
+            assert_eq!(a.contributor, b.contributor);
+            assert_eq!(a.coverage, b.coverage);
+        }
+        let mut other = grid(100, |_| 999.0);
+        other.nx = 6;
+        other.ny = 2;
+        let mut g = GridTrail::new(Extremum::Max, 3_600, 16);
+        g.push(600, frames[2].1.clone());
+        assert_eq!(
+            g.push(100, other.clone()),
+            GridMerge::Skipped(GridMismatch::Grid)
+        );
+        assert_eq!(g.push(900, other), GridMerge::Reset(GridMismatch::Grid));
+        let (v, who) = g.at(900).unwrap().at_point(-97.99, 35.02).unwrap();
+        assert_eq!((v, who), (Some(999.0), Some(900)));
     }
 
     #[test]

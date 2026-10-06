@@ -559,6 +559,7 @@ impl HookEchoApp {
             column_requested: None,
             column_accepted: None,
             column_failed: None,
+            column_trail: None,
             freezing: None,
             freezing_last_fetch: None,
             show_metar: false,

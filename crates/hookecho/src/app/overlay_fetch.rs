@@ -40,6 +40,8 @@ pub(crate) enum OverlayMsg {
     DerivedFields(Box<radar_products::DerivedDelivery>),
     /// A column user product build (`app::column_product`).
     ColumnProduct(Box<super::column_product::ColumnDelivery>),
+    /// Volumes evaluated for a column product trail (`app::column_trail`).
+    ColumnTrail(Box<super::column_trail::ColumnTrailDelivery>),
     StampedField(
         crate::render::FieldLayer,
         wxdata::field::Stamped<wxdata::mrms::MrmsField>,

@@ -315,6 +315,7 @@ impl HookEchoApp {
                 }
                 OverlayMsg::DerivedFields(delivery) => self.accept_derived_fields(*delivery),
                 OverlayMsg::ColumnProduct(delivery) => self.accept_column_product(*delivery),
+                OverlayMsg::ColumnTrail(delivery) => self.accept_column_trail(*delivery),
                 OverlayMsg::MrmsField(layer, field, request) => {
                     // The field's original request resolves to a currently wanted immutable slot.
                     if let Some(context) = self

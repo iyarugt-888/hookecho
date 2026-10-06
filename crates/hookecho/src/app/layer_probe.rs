@@ -629,6 +629,9 @@ impl HookEchoApp {
             };
         }
 
+        if layer == FL::UserColumnTrail {
+            return self.column_trail_probe(idx, lon, lat);
+        }
         if layer == FL::UserColumn {
             // The cell the point falls in, exactly as stored — not a bilinear blend, which would
             // invent a height or a count between two columns — with how many beams sampled it.

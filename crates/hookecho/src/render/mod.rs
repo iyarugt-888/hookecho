@@ -244,6 +244,9 @@ pub enum FieldLayer {
     /// the local-derived grid from this radar's own volume (`wxdata::udp_column`). Its palette,
     /// range and units are the product's own, not a fixed ramp.
     UserColumn,
+    /// The extremum of the pane's column user product over the loop's volumes in the trail
+    /// window ending at the playhead (`app::column_trail`).
+    UserColumnTrail,
     /// HRRR accumulated snowfall through the scrubbed forecast hour.
     Snowfall,
     /// NOHRSC observed snowfall analysis over the last 6/24/48/72 hours.
@@ -481,7 +484,7 @@ impl FieldLayer {
     }
 
     /// Fixed bottom-to-top paint order within each band.
-    pub const DRAW_ORDER: [FieldLayer; 90] = [
+    pub const DRAW_ORDER: [FieldLayer; 91] = [
         // Below-radar context band (bottom to top). The global models sit at the very bottom:
         // they are the synoptic backdrop everything else is drawn against — satellite included,
         // since it is the same kind of backdrop and the radar itself paints over it just the same.
@@ -571,6 +574,7 @@ impl FieldLayer {
         FieldLayer::HailMehs,
         FieldLayer::HailPosh,
         FieldLayer::UserColumn,
+        FieldLayer::UserColumnTrail,
         FieldLayer::Posh,
         FieldLayer::Shi,
         FieldLayer::Hca,
@@ -666,6 +670,7 @@ impl FieldLayer {
             FieldLayer::HailMehs => "hail-mehs",
             FieldLayer::HailPosh => "hail-posh",
             FieldLayer::UserColumn => "user-column",
+            FieldLayer::UserColumnTrail => "user-column-trail",
             // These national-layer slugs are also `wxdata::mrms::catalog` field IDs —
             // `descriptor()` resolves them by exact string match, so a mismatch here would
             // silently break provenance/search for the layer.
@@ -3177,6 +3182,7 @@ fn smooth_field(layer: FieldLayer) -> bool {
         // A user product can be a count, a 0/1 mask or a height: a blend of two cells is a value
         // the formula never produced, so it is drawn cell by cell, exactly as it probes.
         && layer != FieldLayer::UserColumn
+        && layer != FieldLayer::UserColumnTrail
         && !field_ramps::ramp_for(layer)
             .is_some_and(|r| matches!(r.scale, field_ramps::FieldScale::Categorical(_)))
 }

@@ -12,6 +12,7 @@ mod case;
 /// windows, and every data path are shared.
 mod chrome;
 mod column_product;
+mod column_trail;
 mod trail;
 #[cfg(test)]
 use trail::trail_status_line;
@@ -1753,6 +1754,8 @@ pub struct HookEchoApp {
     column_requested: Option<column_product::ColumnKey>,
     column_accepted: Option<Arc<column_product::ColumnAccepted>>,
     column_failed: Option<(column_product::ColumnKey, String)>,
+    /// The column product trail being built for the active pane (`app::column_trail`).
+    column_trail: Option<column_trail::ColumnTrailState>,
     /// The most recent isotherm heights (`env_levels::EnvLevels`), for the hail grids and every
     /// other consumer of a melting level. Read through [`App::freezing_for`] /
     /// [`App::env_levels_for`], which only hand a view the levels for its own site and epoch.
@@ -3604,7 +3607,8 @@ impl HookEchoApp {
             | FL::EtopLocal
             | FL::HailMehs
             | FL::HailPosh
-            | FL::UserColumn => "Local radar".into(),
+            | FL::UserColumn
+            | FL::UserColumnTrail => "Local radar".into(),
             FL::SnowBands => "Derived MRMS".into(),
             FL::SnowAnalysis => "NOAA NOHRSC".into(),
             FL::Vil | FL::EchoTops | FL::Hca => "NEXRAD Level III".into(),

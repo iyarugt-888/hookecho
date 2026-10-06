@@ -37,6 +37,14 @@ way. The cursor probe names the scan that set each gate and how long before the 
 status line and exports say when the history is shorter than the window or volumes are missing.
 Exported trails carry the playhead's time instead of the wall clock.
 
+### Added: trails of column user products
+
+"Column user product trail" draws the maximum or minimum of the pane's column product over the
+loop's volumes in the trail window ending at the playhead, built in the background from the
+cached volumes. The probe names the volume that set each cell; the legend says how much of the
+window is covered and what was left out. A formula that reads an isotherm uses only volumes from
+that reading's own time.
+
 ### Fixed: locally derived grids are drawn where they were sampled
 
 The composite, VIL, VIL density, echo-top, MEHS/POSH and trail-export grids sampled cells at

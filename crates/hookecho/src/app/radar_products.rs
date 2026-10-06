@@ -79,6 +79,9 @@ impl HookEchoApp {
         if layer == crate::render::FieldLayer::UserColumn {
             return self.column_field_ready(idx);
         }
+        if layer == crate::render::FieldLayer::UserColumnTrail {
+            return self.column_trail_ready(idx);
+        }
         if !LAYERS.contains(&layer) {
             return true;
         }

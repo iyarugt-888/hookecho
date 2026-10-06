@@ -125,29 +125,53 @@ impl HookEchoApp {
             }
             let state = self.field_state_for(self.active, *layer)?;
             let grid = state.grid.as_ref()?;
-            let product = match self
-                .column_shown(self.active)
-                .filter(|_| *layer == FL::UserColumn)
-            {
-                // The formula travels with the grid, and where any isotherm in it came from.
-                Some(a) => {
-                    let formula = self
-                        .settings
-                        .udp_products
-                        .iter()
-                        .find(|p| p.name == a.name)
-                        .map_or_else(String::new, |p| p.expression.clone());
-                    let env = a
-                        .env_source
-                        .as_ref()
-                        .map_or_else(String::new, |s| format!(" | environment {s}"));
-                    format!(
-                        "{} [{}] = {formula} (column user product, {} tilts){env}",
-                        a.name, a.units, a.product.tilts
-                    )
-                }
-                None => Self::probe_field_product(*layer),
-            };
+            let product =
+                match self
+                    .column_shown(self.active)
+                    .filter(|_| *layer == FL::UserColumn)
+                {
+                    // The formula travels with the grid, and where any isotherm in it came from.
+                    Some(a) => {
+                        let formula = self
+                            .settings
+                            .udp_products
+                            .iter()
+                            .find(|p| p.name == a.name)
+                            .map_or_else(String::new, |p| p.expression.clone());
+                        let env = a
+                            .env_source
+                            .as_ref()
+                            .map_or_else(String::new, |s| format!(" | environment {s}"));
+                        format!(
+                            "{} [{}] = {formula} (column user product, {} tilts){env}",
+                            a.name, a.units, a.product.tilts
+                        )
+                    }
+                    None if *layer == FL::UserColumnTrail => {
+                        match self
+                            .column_trail_shown(self.active)
+                            .and_then(|t| Some((t, t.shown.as_ref()?)))
+                        {
+                            Some((t, w)) => {
+                                format!(
+                            "{} [{}] trail: {} over {} min ending at the playhead, {} volumes \
+                             {}..{} ({} missing, {} s of the window without history)",
+                            t.name,
+                            t.units,
+                            if self.filters.trail_keep_min { "minimum" } else { "maximum" },
+                            self.filters.trail_window_min,
+                            w.coverage.frames,
+                            w.coverage.from,
+                            w.coverage.to,
+                            w.coverage.missing,
+                            w.coverage.short_s
+                        )
+                            }
+                            None => Self::probe_field_product(*layer),
+                        }
+                    }
+                    None => Self::probe_field_product(*layer),
+                };
             Some((
                 *layer,
                 grid,

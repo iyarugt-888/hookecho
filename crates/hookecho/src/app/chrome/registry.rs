@@ -879,6 +879,13 @@ impl HookEchoApp {
                 false,
             ),
             (
+                FL::UserColumnTrail,
+                "Radar",
+                "Column user product trail",
+                "Its maximum (or minimum) over the loop's volumes in the trail window ending at the playhead",
+                false,
+            ),
+            (
                 FL::NdfdTemp2m,
                 "Models",
                 "NDFD temperature (2 m)",

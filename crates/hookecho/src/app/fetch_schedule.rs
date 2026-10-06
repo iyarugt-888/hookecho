@@ -477,6 +477,7 @@ impl HookEchoApp {
         // Locally derived products: no fetch, just a recompute when the volume or threshold moves.
         self.recompute_derived(ctx);
         self.recompute_column_product(ctx);
+        self.advance_column_trail(ctx);
         // Beam-blockage raster: rebuilt when the camera, site, or tilt moves (DEM tiles are cached).
         self.update_blockage(ctx);
         self.update_lowest_tilt(ctx);
@@ -704,7 +705,8 @@ pub(crate) fn field_refresh_secs(layer: crate::render::FieldLayer) -> u64 {
         | FL::EtopLocal
         | FL::HailMehs
         | FL::HailPosh
-        | FL::UserColumn => 60,
+        | FL::UserColumn
+        | FL::UserColumnTrail => 60,
         // Gridded from the GLM feed the app already polls every 20 s; regridding is local work.
         FL::GlmFed => 60,
     }

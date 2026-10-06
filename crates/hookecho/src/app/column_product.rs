@@ -47,6 +47,7 @@ impl ColumnKey {
 }
 
 /// What one pane's selected column product evaluates as.
+#[derive(Clone)]
 pub(crate) struct ColumnSpec {
     pub name: String,
     pub units: String,
@@ -138,10 +139,26 @@ fn key_for(
     palettes_gen: u64,
     spec: &ColumnSpec,
 ) -> Option<ColumnKey> {
-    use std::hash::{Hash, Hasher};
     let vol = view.volume.as_ref()?;
+    Some(ColumnKey {
+        site: view.site.clone(),
+        volume: vol.name.clone(),
+        revision: vol.revision(),
+        scan: radar_products::ScanIdentity::new(&vol.scan),
+        acquisition: vol.acquisition_for(view.site.as_deref()).cloned(),
+        policy: radar_products::policy(view, settings),
+        product: spec.name.clone(),
+        definition: definition_hash(settings, palettes_gen, &spec.name),
+        env: env_bits(spec),
+    })
+}
+
+/// The saved definition named `name` — formula, units, range, palette (with the palette
+/// registry's generation and theme when it names a moment's table) — as one number.
+fn definition_hash(settings: &Settings, palettes_gen: u64, name: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    if let Some(def) = settings.udp_products.iter().find(|p| p.name == spec.name) {
+    if let Some(def) = settings.udp_products.iter().find(|p| p.name == name) {
         def.expression.hash(&mut h);
         def.units.hash(&mut h);
         def.palette.hash(&mut h);
@@ -154,17 +171,83 @@ fn key_for(
             crate::theme::is_high_contrast(settings.theme).hash(&mut h);
         }
     }
-    Some(ColumnKey {
-        site: view.site.clone(),
-        volume: vol.name.clone(),
-        revision: vol.revision(),
-        scan: radar_products::ScanIdentity::new(&vol.scan),
-        acquisition: vol.acquisition_for(view.site.as_deref()).cloned(),
-        policy: radar_products::policy(view, settings),
-        product: spec.name.clone(),
-        definition: h.finish(),
-        env: env_bits(spec),
-    })
+    h.finish()
+}
+
+/// Everything about `spec` but the volume: its definition and the environment it reads, as one
+/// number — what a trail of this product over many volumes is keyed by.
+pub(super) fn product_identity(settings: &Settings, palettes_gen: u64, spec: &ColumnSpec) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    definition_hash(settings, palettes_gen, &spec.name).hash(&mut h);
+    spec.name.hash(&mut h);
+    env_bits(spec).hash(&mut h);
+    h.finish()
+}
+
+/// The tilts of a decoded scan (not a pane's `Volume`) for a column formula, as
+/// [`assemble_tilts`] takes them: every distinct tilt, the moments it reads, velocity dealiased.
+pub(super) fn scan_tilts(scan: &wxdata::level2::Scan, expr: &wxdata::udp::Expr) -> Vec<ColumnTilt> {
+    let moments = wxdata::udp_volume::MOMENTS;
+    let reads = expr.inputs();
+    let mut wanted: Vec<usize> = (0..moments.len())
+        .filter(|&i| reads.contains(&wxdata::udp_volume::moment_input(moments[i])))
+        .collect();
+    if wanted.is_empty() {
+        wanted.push(0);
+    }
+    let mut tilts: Vec<ColumnTilt> = (0..wxdata::level2::elevation_angles(scan).len())
+        .map(|t| {
+            std::array::from_fn(|i| {
+                wanted
+                    .contains(&i)
+                    .then(|| {
+                        wxdata::level2::bin_scan_opts(
+                            scan,
+                            moments[i],
+                            t,
+                            moments[i] == Moment::Velocity,
+                        )
+                        .ok()
+                    })
+                    .flatten()
+            })
+        })
+        .collect();
+    tilts.retain(|t| t.iter().any(Option::is_some));
+    tilts
+}
+
+/// The product a pane's volume shows, as the worker builds it (continuous policy), for tests that
+/// compare it with another path.
+#[cfg(test)]
+pub(super) fn single_volume_product(
+    vol: &mut Volume,
+    spec: &ColumnSpec,
+    time: chrono::DateTime<chrono::Utc>,
+) -> anyhow::Result<ColumnProduct> {
+    let tilts = assemble_tilts(vol, &spec.expr);
+    Ok(build(
+        tilts,
+        TemporalPolicy::Continuous,
+        None,
+        &spec.expr,
+        &spec.env,
+        time,
+    )?
+    .1)
+}
+
+/// The worker's evaluation of one scan under the continuous policy (a loop frame is a whole
+/// volume), stamped with `time`.
+pub(super) fn evaluate_scan(
+    scan: &wxdata::level2::Scan,
+    expr: &wxdata::udp::Expr,
+    env: &ColumnEnv,
+    time: chrono::DateTime<chrono::Utc>,
+) -> anyhow::Result<ColumnProduct> {
+    let tilts = scan_tilts(scan, expr);
+    Ok(build(tilts, TemporalPolicy::Continuous, None, expr, env, time)?.1)
 }
 
 /// Every distinct tilt of `vol` with the moments `expr` reads (velocity dealiased, as every
