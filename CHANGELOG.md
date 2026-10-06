@@ -17,6 +17,13 @@ shows where it will go and anything it will skip; Take puts the whole scene on a
 still switch scenes straight away. If the program pane has been closed, Take is refused and the
 output says so instead of switching to another pane.
 
+### Added: filter an imported layer by its attributes
+
+Each imported GIS layer has a Filter, such as `POP > 1000 and TYPE = "school"`. Only features it
+is true for are drawn, clickable, labelled, exported and used as impact targets. A feature that
+doesn't have the attribute is left out rather than treated as zero. A filter with a mistake keeps
+the previous one in force and says what is wrong.
+
 ### Added: cases keep your manual storm tracks
 
 Saving a case now keeps your manual storm-motion tracks, with the time each was set for and the

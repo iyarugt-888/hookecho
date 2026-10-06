@@ -26,8 +26,10 @@ pub(crate) struct Imported<'a> {
     pub keys: &'a [String],
     /// The colour-by legend, when one is on.
     pub legend: Option<&'a crate::gis_import::Legend>,
-    /// With a time attribute mapped: how many features are valid at the view's time, of all.
+    /// With a time mapping or a filter: how many features are shown, of all.
     pub time_count: Option<(usize, usize)>,
+    /// Why the edited layer's filter does not parse (the previous one stays in use).
+    pub filter_error: Option<String>,
 }
 
 /// One attribute picker: "None" or any of `keys`, bound to `value`.
@@ -415,9 +417,30 @@ fn gis_layers(
             &mut layer.time_end,
         );
     });
+    ui.horizontal(|ui| {
+        ui.label("Filter").on_hover_text(
+            "Show only features this is true for, e.g. POP > 1000 and TYPE = \"school\". \
+             Compare with =, !=, <, <=, >, >= or contains; combine with and, or, not; \
+             NAME is missing. A feature without the attribute is not shown; names with spaces \
+             go in `backticks`.",
+        );
+        changed |= ui
+            .add(
+                egui::TextEdit::singleline(&mut layer.filter)
+                    .desired_width(f32::INFINITY)
+                    .hint_text("every feature"),
+            )
+            .changed();
+    });
+    if let Some(e) = &imported.filter_error {
+        ui.colored_label(
+            egui::Color32::from_rgb(230, 130, 130),
+            format!("Filter not applied: {e} (the previous one is still in use)"),
+        );
+    }
     if let Some((shown, total)) = imported.time_count {
         ui.weak(format!(
-            "{shown} of {total} features valid at the view's time"
+            "{shown} of {total} features shown (valid at the view's time and passing the filter)"
         ));
     }
     changed |= ui

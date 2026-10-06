@@ -25,6 +25,15 @@ pub(crate) struct LoadedGis {
     pub colors: Option<ColoredBy>,
     pub time: Option<ImportedTime>,
     /// Per source feature, whether it is valid at the view's time; `None` without a time mapping.
+    time_mask: Option<Vec<bool>>,
+    /// The attribute filter in use (the last one that parsed), its text, and which source
+    /// features it passes (M4.3).
+    filter: Option<(String, Vec<bool>)>,
+    /// Why the layer's current filter text does not parse, while the previous one stays in use.
+    pub filter_error: Option<String>,
+    /// Per source feature, whether it is drawn: valid at the view's time and passing the filter;
+    /// `None` with neither, which shows every feature. Drawing, clicks, labels, export and impact
+    /// targets all read this one mask.
     pub shown: Option<Vec<bool>>,
     /// Why the file could not be read, when it could not.
     pub error: Option<String>,
@@ -39,6 +48,9 @@ impl LoadedGis {
             marks,
             colors: None,
             time: None,
+            time_mask: None,
+            filter: None,
+            filter_error: None,
             shown: None,
             error: None,
         }
@@ -70,7 +82,7 @@ impl LoadedGis {
         let keys = (config.time_start.clone(), config.time_end.clone());
         if keys == (None, None) || self.marks.props.is_empty() {
             self.time = None;
-            changed |= self.shown.take().is_some();
+            self.time_mask = None;
         } else {
             if self.time.as_ref().is_none_or(|(k, _)| *k != keys) {
                 let bounds = crate::gis_import::time_bounds(
@@ -81,12 +93,33 @@ impl LoadedGis {
                 self.time = Some((keys, bounds));
             }
             if let Some((_, bounds)) = &self.time {
-                let shown = crate::gis_import::shown_at(bounds, t);
-                if self.shown.as_ref() != Some(&shown) {
-                    self.shown = Some(shown);
-                    changed = true;
-                }
+                self.time_mask = Some(crate::gis_import::shown_at(bounds, t));
             }
+        }
+        // The attribute filter: re-parsed only when its text changes; one that does not parse
+        // leaves the previous one in force and says why.
+        let text = config.filter.trim();
+        if text.is_empty() {
+            self.filter = None;
+            self.filter_error = None;
+        } else if self.filter.as_ref().is_none_or(|(f, _)| f != text) {
+            match crate::gis_filter::parse(text) {
+                Ok(f) => {
+                    let mask = self.marks.props.iter().map(|p| f.shows(p)).collect();
+                    self.filter = Some((text.to_string(), mask));
+                    self.filter_error = None;
+                }
+                Err(e) => self.filter_error = Some(e),
+            }
+        }
+        let shown = match (&self.time_mask, &self.filter) {
+            (None, None) => None,
+            (Some(m), None) | (None, Some((_, m))) => Some(m.clone()),
+            (Some(a), Some((_, b))) => Some(a.iter().zip(b).map(|(x, y)| *x && *y).collect()),
+        };
+        if shown != self.shown {
+            self.shown = shown;
+            changed = true;
         }
         match &config.color_by {
             None => changed |= self.colors.take().is_some(),
@@ -869,5 +902,65 @@ mod tests {
             mark_at(&marks, not_point, at(-97.0, 35.0), tol, tol),
             Some((0, "Line"))
         );
+    }
+
+    /// A filter decides what is shown together with the time window; one that does not parse
+    /// keeps the previous one in force and says why; a feature missing the attribute is hidden.
+    #[test]
+    fn a_layer_filter_and_its_time_window_decide_together() {
+        let feature = |name: &str, pop: Option<i64>, start: &str| {
+            let mut p = serde_json::json!({ "NAME": name, "START": start });
+            if let Some(v) = pop {
+                p["POP"] = v.into();
+            }
+            wxdata::gis::GisFeature {
+                geometry: wxdata::gis::Geometry::Point([-97.0, 35.0]),
+                properties: p.as_object().unwrap().clone(),
+            }
+        };
+        let mut layer = LoadedGis::new(
+            1,
+            vec![
+                feature("big early", Some(5000), "2026-05-06T20:00:00Z"),
+                feature("small", Some(10), "2026-05-06T20:00:00Z"),
+                feature("big late", Some(9000), "2026-05-06T22:00:00Z"),
+                feature("unknown", None, "2026-05-06T20:00:00Z"),
+            ],
+        );
+        let t = chrono::DateTime::parse_from_rfc3339("2026-05-06T21:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut config = GisLayerConfig {
+            id: 1,
+            filter: "POP > 1000".into(),
+            ..Default::default()
+        };
+        assert!(layer.sync(&config, t));
+        let shown = |l: &LoadedGis| (0..4).map(|i| l.valid(Some(&i))).collect::<Vec<_>>();
+        assert_eq!(
+            shown(&layer),
+            [true, false, true, false],
+            "the missing POP is hidden"
+        );
+        config.time_start = Some("START".into());
+        layer.sync(&config, t);
+        assert_eq!(
+            shown(&layer),
+            [true, false, false, false],
+            "and only those valid now"
+        );
+        // A typo keeps the last good filter and says why.
+        config.filter = "POP >".into();
+        assert!(!layer.sync(&config, t));
+        assert!(layer
+            .filter_error
+            .as_deref()
+            .unwrap()
+            .contains("expected a value"));
+        assert_eq!(shown(&layer), [true, false, false, false]);
+        config.filter.clear();
+        config.time_start = None;
+        assert!(layer.sync(&config, t));
+        assert!(layer.filter_error.is_none() && layer.shown.is_none());
     }
 }

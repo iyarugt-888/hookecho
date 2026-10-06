@@ -242,6 +242,10 @@ pub struct GisLayerConfig {
     /// Its points and areas are impact targets: a storm's arrival and closest approach at each
     /// are listed with the storm (ROADMAP_PARITY M2.3), named by its label attribute.
     pub targets: bool,
+    /// An attribute filter (`crate::gis_filter`): only features it is true for are drawn,
+    /// clickable, labelled, exported and targeted. Empty shows every feature.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub filter: String,
 }
 
 impl Default for GisLayerConfig {
@@ -259,6 +263,7 @@ impl Default for GisLayerConfig {
             below: false,
             group: None,
             targets: false,
+            filter: String::new(),
         }
     }
 }
@@ -2989,6 +2994,7 @@ mod tests {
                 below: true,
                 group: Some("Boundaries".into()),
                 targets: true,
+                filter: "POP > 1000".into(),
             }],
             gis_groups: vec![GisGroup {
                 name: "Boundaries".into(),

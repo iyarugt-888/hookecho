@@ -121,6 +121,7 @@ impl HookEchoApp {
             keys: &label_keys,
             legend: legend.as_ref(),
             time_count,
+            filter_error: edited_layer.and_then(|l| l.filter_error.clone()),
         };
         let outcome = ui::layer_window::show(
             ctx,
