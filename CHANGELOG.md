@@ -8,6 +8,16 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: several imported GIS layers at once
+
+Importing a GIS file now adds a layer instead of replacing the one you had. Each layer keeps its
+own color, outline, opacity, labels, color-by attribute, time mapping, minimum zoom and whether it
+draws under the official products. The Layer Manager lists them in paint order: show or hide each
+one, reorder, zoom to it, remove it, and put layers in named groups you can switch on and off
+together. Re-importing a file that is already a layer updates its shapes and keeps its settings.
+A layer whose file can't be found at launch stays in the list marked missing, with the reason,
+instead of disappearing. Your existing imported layer and its settings carry over automatically.
+
 ### Added: a storm's manual motion shows beside SCIT's
 
 A manual track started from a storm now stays attached to that storm, even when SCIT renumbers
