@@ -139,6 +139,9 @@ impl HookEchoApp {
         if let Some(id) = outcome.zoom {
             self.zoom_to_gis(Some(id));
         }
+        if let Some(id) = outcome.export {
+            self.export_gis_layer(id);
+        }
         if outcome.changed {
             // Imported polygon colors are applied while assembling `self.overlays`, so style
             // edits need a rebuild; placefile/field opacity changes also remain safely covered.

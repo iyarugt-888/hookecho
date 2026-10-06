@@ -187,6 +187,55 @@ fn load_source(
     }
 }
 
+/// A layer's shown features (valid at the view's time and passing its filter) with the
+/// attributes its file gave them, plus `hookecho: "imported"` and the layer's name.
+pub(crate) fn layer_features(
+    config: &crate::settings::GisLayerConfig,
+    layer: &LoadedGis,
+) -> Vec<wxdata::gis::GisFeature> {
+    use wxdata::gis::{Geometry, GisFeature};
+    let mut out = Vec::new();
+    let config_name = &config.name;
+    let m = &layer.marks;
+    let props = |src: Option<&usize>| {
+        let mut p = src
+            .and_then(|&s| m.props.get(s))
+            .cloned()
+            .unwrap_or_default();
+        p.insert("hookecho".into(), "imported".into());
+        p.insert("layer".into(), config_name.clone().into());
+        p
+    };
+    for (i, f) in layer.shapes.iter().enumerate() {
+        let src = m.shape_src.get(i);
+        if layer.valid(src) && !f.rings.is_empty() {
+            out.push(GisFeature {
+                geometry: Geometry::Polygon(f.rings.clone()),
+                properties: props(src),
+            });
+        }
+    }
+    for (i, line) in m.lines.iter().enumerate() {
+        let src = m.line_src.get(i);
+        if layer.valid(src) {
+            out.push(GisFeature {
+                geometry: Geometry::LineString(line.clone()),
+                properties: props(src),
+            });
+        }
+    }
+    for (i, p) in m.points.iter().enumerate() {
+        let src = m.point_src.get(i);
+        if layer.valid(src) {
+            out.push(GisFeature {
+                geometry: Geometry::Point(*p),
+                properties: props(src),
+            });
+        }
+    }
+    out
+}
+
 /// The paint order of the layers' polygons around the official products: `(below, above)`, each
 /// in `settings.gis_layers` order, first underneath.
 pub(crate) fn paint_order(settings: &crate::settings::Settings) -> (Vec<u64>, Vec<u64>) {
@@ -634,49 +683,38 @@ impl HookEchoApp {
     /// zoom, the feature valid at the view's time — with the attributes its file gave it, plus
     /// `hookecho: "imported"` and the layer's name, for the map's GeoJSON export.
     pub(crate) fn gis_export_features(&self) -> Vec<wxdata::gis::GisFeature> {
-        use wxdata::gis::{Geometry, GisFeature};
         let zoom = self.views[self.active].camera.zoom;
-        let mut out = Vec::new();
-        for (config, layer) in self.gis_marks_shown(zoom) {
-            let m = &layer.marks;
-            let props = |src: Option<&usize>| {
-                let mut p = src
-                    .and_then(|&s| m.props.get(s))
-                    .cloned()
-                    .unwrap_or_default();
-                p.insert("hookecho".into(), "imported".into());
-                p.insert("layer".into(), config.name.clone().into());
-                p
-            };
-            for (i, f) in layer.shapes.iter().enumerate() {
-                let src = m.shape_src.get(i);
-                if layer.valid(src) && !f.rings.is_empty() {
-                    out.push(GisFeature {
-                        geometry: Geometry::Polygon(f.rings.clone()),
-                        properties: props(src),
-                    });
-                }
+        self.gis_marks_shown(zoom)
+            .into_iter()
+            .flat_map(|(config, layer)| layer_features(config, layer))
+            .collect()
+    }
+
+    /// Write one layer's shown features — valid at the view's time and passing its filter — as
+    /// GeoJSON with their own attributes (ROADMAP_PARITY M4.4).
+    pub(crate) fn export_gis_layer(&mut self, id: u64) {
+        let (Some(config), Some(layer)) = (self.settings.gis_layer(id), self.gis_loaded(id)) else {
+            return;
+        };
+        let features = layer_features(config, layer);
+        let name = format!(
+            "{}-shown.geojson",
+            config
+                .name
+                .rsplit_once('.')
+                .map_or(config.name.as_str(), |(stem, _)| stem)
+        );
+        let n = features.len();
+        let json = wxdata::gis::to_geojson(&features);
+        match crate::dialog::save_bytes(&name, "geojson", json.as_bytes()) {
+            crate::dialog::Saved::Where(w) => {
+                self.toast(ToastKind::Success, format!("Exported {n} features to {w}"))
             }
-            for (i, line) in m.lines.iter().enumerate() {
-                let src = m.line_src.get(i);
-                if layer.valid(src) {
-                    out.push(GisFeature {
-                        geometry: Geometry::LineString(line.clone()),
-                        properties: props(src),
-                    });
-                }
+            crate::dialog::Saved::Failed(e) => {
+                self.toast(ToastKind::Error, format!("Layer export failed: {e}"))
             }
-            for (i, p) in m.points.iter().enumerate() {
-                let src = m.point_src.get(i);
-                if layer.valid(src) {
-                    out.push(GisFeature {
-                        geometry: Geometry::Point(*p),
-                        properties: props(src),
-                    });
-                }
-            }
+            crate::dialog::Saved::Cancelled => {}
         }
-        out
     }
 
     /// Points and lines of every shown layer, each in its own style.
@@ -962,5 +1000,15 @@ mod tests {
         config.time_start = None;
         assert!(layer.sync(&config, t));
         assert!(layer.filter_error.is_none() && layer.shown.is_none());
+        // An export of the layer writes exactly what it shows, with each feature's attributes.
+        config.filter = "POP > 1000".into();
+        layer.sync(&config, t);
+        let out = layer_features(&config, &layer);
+        let names: Vec<&str> = out
+            .iter()
+            .map(|f| f.properties["NAME"].as_str().unwrap())
+            .collect();
+        assert_eq!(names, ["big early", "big late"]);
+        assert_eq!(out[0].properties["hookecho"], "imported");
     }
 }

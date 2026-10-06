@@ -69,6 +69,8 @@ pub(crate) struct Outcome {
     pub remove: Option<u64>,
     /// Frame the map on this imported layer.
     pub zoom: Option<u64>,
+    /// Write this imported layer's shown features out as GeoJSON.
+    pub export: Option<u64>,
 }
 
 /// Show the window. `active` is the field layers currently painting, with their display names
@@ -238,6 +240,15 @@ fn gis_layers(
                     .clicked()
                 {
                     out.zoom = Some(id);
+                }
+                if ui
+                    .small_button("⤓")
+                    .on_hover_text(
+                        "Export the features this layer shows (filter and time applied) as GeoJSON",
+                    )
+                    .clicked()
+                {
+                    out.export = Some(id);
                 }
                 if ui
                     .add_enabled(i + 1 < n, egui::Button::new("▼"))
