@@ -8,6 +8,33 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Changed: Tornado detection reads the air around the storm
+
+A *possible* Tornado detection marker is no longer drawn where the air feeding the storm cannot
+support a tornado: a significant tornado parameter (STP) under 0.25 within 40 km of it, from the
+HRRR run an hour before the scan. On ordinary severe-weather days that removes about half the
+false markers (0.56 to 0.31 per radar-hour on 259 random windows, 2018–2025) for a few tornadoes
+in air the model got wrong (POD 0.38 to 0.33); on tornado days it costs at most a point.
+*Likely*, *debris* and *confirmed* markers are drawn whatever the model says. The marker's card
+now shows that air under **Environment**: STP, 0–1 km helicity, CAPE, cloud base and 0–6 km
+shear, with the HRRR run it came from, and says when a marker stands on its radar evidence alone.
+Until the HRRR hour arrives, or where it cannot be had, markers are drawn as before.
+
+### Fixed: STP reads the cloud base and the deep shear as SPC does
+
+The STP layer read HRRR's cloud base (LCL) as a height above sea level and subtracted the
+ground, though HRRR already gives it above ground; on high ground that put the cloud base far too
+low and STP far too high. STP, on the map and in the point sounding, also used SCP's shear term;
+it now uses SPC's own (none below 12.5 m/s, up to 1.5 from 30 m/s), as the effective-layer STP
+already did. Expect lower STP over the High Plains and higher STP in strongly sheared air.
+
+### Added: each storm keeps its own number
+
+SCIT recycles and changes its cell IDs. The Storms table now shows each storm's own number beside
+SCIT's (`O7 #12`), kept for as long as the app follows the storm, and the Cell window has a
+**History** line: how long and over how many scans it has been tracked, the SCIT IDs it has worn,
+whether it split from another storm, and whether its latest link is tentative.
+
 ### Changed: the output window stays on its pane; scenes are cued, then taken
 
 The output window now stays on the pane that was active when you opened it, so working in another
@@ -461,8 +488,8 @@ and a *possible* marker within 2 km of a wind turbine that stood in the scan's y
 *confirmed* but no longer makes one from weak shear near the report. It does not run on TDWR
 sites. On 259 random severe-weather windows (2018–2025, three of the years held out from all
 tuning) it found 38% of the tornadoes at 0.56 false *possible* markers per radar-hour and 0.02 at
-*likely*; the original Tornado ID found 16% at 3.1 and 0.75. Scores remain evidence, not
-calibrated probabilities.
+*likely*; the original Tornado ID found 16% at 3.1 and 0.75. (The environment check above takes
+the 0.56 to 0.31.) Scores remain evidence, not calibrated probabilities.
 
 ### Added: where each Tornado ID verdict came from
 
@@ -978,13 +1005,16 @@ to show, hide or move any tool window, or **Reset window layout** to put them al
 
 ### Added: the workstation on your phone
 
-Phones get a new look, **Station**, modelled on the desktop's Dock layout: a top bar with search,
-alerts and a menu that reaches every tool and setting; big Site, Product and Tilt buttons with a
-2D/3D switch; map tools down the left edge and the color scale down the right; and a panel at the
-bottom whose tabs are the Inspector, Layers, Storms and Alerts (plus storm details, soundings, flood
-gauges and anything else you open). Drag the panel up to read more, fold it down to see more map,
-or go full screen. Phones on the old default design switch to Station once; the other designs are
-still under Settings → Appearance.
+Phones get a new look, **Station**, modelled on the desktop's Dock layout, with the map the full
+height of the screen. A small bar over its top left holds the menu (behind the logo: every tool
+and setting), search, the alerts bell, and one button for the radar, product, tilt and 2D/3D that
+reads like `KTLX · 0.5°` over `Reflectivity`. At the bottom left, locate and a menu button that
+opens the map tools (Layers, display options, 3D, center, measure, tools, full screen), in a second
+column when the map is short. Under the map, a panel whose tabs are the Inspector, Layers, Storms
+and Alerts (plus storm details, soundings, flood gauges and anything else you open); drag it up to
+read more or fold it down to see more map, and its tabs stay in view whatever window is open.
+Phones on the old default design switch to Station once; the other designs are still under
+Settings → Appearance.
 
 ### Added: flood gauge dashboard
 

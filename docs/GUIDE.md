@@ -79,7 +79,10 @@ more of the weak tornadoes ordinary severe days bring; set the bar, or turn it
 off, in Layer options → Detectors. Wind turbines make rotation-like clutter, so
 a *possible* marker within 2 km of a turbine that stood in the scan's year is
 not drawn (turbine locations from the USGS U.S. Wind Turbine Database); *likely*
-and stronger still are. It does not run on TDWR sites.
+and stronger still are. Nor is a *possible* marker where the air feeding the storm
+cannot support a tornado (STP under 0.25 near it, from the HRRR an hour before the
+scan); the card's **Environment** lines show that air for every marker. It does not
+run on TDWR sites.
 
 ## Project a storm's motion
 
