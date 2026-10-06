@@ -141,8 +141,13 @@ pub(crate) struct Probe {
     pub native_row_ms: Option<i64>,
     pub native_pass: wxdata::live_pass::RowPass,
     pub pass_site: Option<String>,
-    /// The sweep's estimated Nyquist velocity, m/s (velocity only).
+    /// The sweep's estimated Nyquist velocity, m/s (velocity only): read off the values, a
+    /// fallback when nothing better is known.
     pub nyquist_mps: Option<f32>,
+    /// The Nyquist velocity decoded from the radial that wrote this gate's row, m/s.
+    pub nyquist_decoded_mps: Option<f32>,
+    /// The unambiguous range decoded from the same radial, km.
+    pub unambiguous_km: Option<f32>,
     /// The value came from the dealiased sweep.
     pub dealiased: bool,
 }

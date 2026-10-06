@@ -1105,3 +1105,178 @@ fn cached_column_product_full_volume_cost() {
         );
     }
 }
+
+/// Every Message 31 radial data block in `bytes`, read straight from the ICD layout rather than
+/// through the decoder: block id "RRAD", then LRTUP, unambiguous range (0.1 km), two noise levels
+/// (4 bytes each) and Nyquist velocity (0.01 m/s), big-endian. Returns `(nyquist, range)` raw.
+fn radial_blocks_by_hand(bytes: Vec<u8>) -> Vec<(u16, u16)> {
+    let file = nexrad_data::volume::File::new(bytes);
+    let file = if file.compressed() {
+        file.decompress().unwrap()
+    } else {
+        file
+    };
+    let mut out = Vec::new();
+    for record in file.records().unwrap() {
+        let record = if record.compressed() {
+            record.decompress().unwrap()
+        } else {
+            nexrad_data::volume::Record::new(record.data().to_vec())
+        };
+        let data = record.data();
+        let mut i = 0;
+        while i + 18 <= data.len() {
+            if &data[i..i + 4] == b"RRAD" {
+                let be = |at: usize| u16::from_be_bytes([data[i + at], data[i + at + 1]]);
+                let lrtup = be(4);
+                if (20..=40).contains(&lrtup) {
+                    out.push((be(16), be(6)));
+                    i += lrtup as usize;
+                    continue;
+                }
+            }
+            i += 1;
+        }
+    }
+    out
+}
+
+/// M3.1: the Nyquist velocity and unambiguous range each radial was collected with are decoded
+/// from its own radial block, not estimated, and every binned row carries its writer's values.
+#[test]
+fn decoded_doppler_metadata_matches_an_independent_read_of_the_radial_blocks() {
+    let m = corpus::manifest();
+    for f in m.fixtures.iter().filter(|f| f.tier == "offline") {
+        let bytes = corpus::read(f, &corpus::cache_dir()).unwrap();
+        let mut by_hand = radial_blocks_by_hand(bytes.clone());
+        let scan = level2::decode_volume(bytes).unwrap();
+        let mut decoded: Vec<(u16, u16)> = scan
+            .sweeps()
+            .iter()
+            .flat_map(|s| s.radials())
+            .filter_map(|r| {
+                Some((
+                    (r.nyquist_velocity_mps()? * 100.0).round() as u16,
+                    (r.unambiguous_range_km()? * 10.0).round() as u16,
+                ))
+            })
+            .collect();
+        let radials: usize = scan.sweeps().iter().map(|s| s.radials().len()).sum();
+        assert!(
+            !by_hand.is_empty(),
+            "{}: no radial blocks found by hand",
+            f.id
+        );
+        by_hand.retain(|(n, r)| *n > 0 && *r > 0);
+        by_hand.sort_unstable();
+        decoded.sort_unstable();
+        assert_eq!(
+            decoded.len(),
+            radials,
+            "{}: a radial lost its metadata",
+            f.id
+        );
+        assert_eq!(
+            decoded, by_hand,
+            "{}: decoded values differ from the blocks",
+            f.id
+        );
+        // Physically plausible WSR-88D values, read with the ICD's scales.
+        for (n, r) in &decoded {
+            let (n, r) = (f32::from(*n) * 0.01, f32::from(*r) * 0.1);
+            assert!((5.0..=50.0).contains(&n), "{}: Nyquist {n} m/s", f.id);
+            assert!(
+                (80.0..=520.0).contains(&r),
+                "{}: unambiguous range {r} km",
+                f.id
+            );
+        }
+        // Binned rows carry the writer's decoded values, unknown elsewhere.
+        // The partial files keep only the first (surveillance) records, whose radials carry a
+        // Nyquist too; the full volumes' velocity rows are checked in the cached test below.
+        let v = [Moment::Velocity, Moment::Reflectivity]
+            .into_iter()
+            .find_map(|m| level2::bin_scan(&scan, m, 0).ok())
+            .unwrap_or_else(|| panic!("{}: nothing to bin", f.id));
+        {
+            assert_eq!(v.row_nyquist_mps.len(), v.az_bins, "{}", f.id);
+            let known: Vec<f32> = v
+                .row_nyquist_mps
+                .iter()
+                .copied()
+                .filter(|x| x.is_finite())
+                .collect();
+            assert!(!known.is_empty(), "{}: no row with a Nyquist", f.id);
+            let allowed: Vec<f32> = decoded.iter().map(|(n, _)| f32::from(*n) * 0.01).collect();
+            assert!(
+                known
+                    .iter()
+                    .all(|k| allowed.iter().any(|a| (a - k).abs() < 1e-3)),
+                "{}: a row's Nyquist is not one its radials carried",
+                f.id
+            );
+            eprintln!(
+                "{}: {} radials, Nyquist {:?} m/s on the lowest tilt",
+                f.id,
+                radials,
+                {
+                    let mut u: Vec<i32> =
+                        known.iter().map(|k| (k * 100.0).round() as i32).collect();
+                    u.sort_unstable();
+                    u.dedup();
+                    u.iter().map(|x| *x as f32 / 100.0).collect::<Vec<_>>()
+                }
+            );
+        }
+    }
+}
+
+/// The same on full volumes' velocity: every lowest-velocity-tilt row carries the Nyquist of the
+/// radial that wrote it, and the decoded values are the ones the radial blocks hold.
+#[test]
+#[ignore = "large cached fixtures: provision explicitly before running"]
+fn cached_velocity_rows_carry_their_decoded_nyquist() {
+    let m = corpus::manifest();
+    for id in ["mayfield-2021", "denver-hail-2017", "moore-2013"] {
+        let f = m.fixtures.iter().find(|f| f.id == id).unwrap();
+        let bytes = corpus::read(f, &corpus::cache_dir()).unwrap();
+        let mut by_hand = radial_blocks_by_hand(bytes.clone());
+        by_hand.retain(|(n, r)| *n > 0 && *r > 0);
+        let scan = level2::decode_volume(bytes).unwrap();
+        let (t, v) = (0..level2::elevation_angles(&scan).len())
+            .find_map(|t| Some((t, level2::bin_scan(&scan, Moment::Velocity, t).ok()?)))
+            .unwrap_or_else(|| panic!("{id}: no velocity tilt"));
+        let known: Vec<f32> = v
+            .row_nyquist_mps
+            .iter()
+            .copied()
+            .filter(|x| x.is_finite())
+            .collect();
+        let filled = v
+            .data
+            .chunks(v.gate_count)
+            .filter(|r| r.iter().any(|&c| c >= 2))
+            .count();
+        assert!(
+            known.len() >= filled,
+            "{id}: {} rows with data, {} with a Nyquist",
+            filled,
+            known.len()
+        );
+        let allowed: std::collections::BTreeSet<u16> = by_hand.iter().map(|(n, _)| *n).collect();
+        let mut seen: Vec<u16> = known.iter().map(|k| (k * 100.0).round() as u16).collect();
+        seen.sort_unstable();
+        seen.dedup();
+        assert!(
+            seen.iter().all(|n| allowed.contains(n)),
+            "{id}: {seen:?} not among the blocks"
+        );
+        eprintln!(
+            "{id}: velocity tilt {t} ({:.1}°): {} rows, Nyquist {:?} m/s; estimate from values {:?}",
+            v.elevation_deg,
+            known.len(),
+            seen.iter().map(|n| f32::from(*n) / 100.0).collect::<Vec<_>>(),
+            v.estimated_nyquist_mps()
+        );
+    }
+}

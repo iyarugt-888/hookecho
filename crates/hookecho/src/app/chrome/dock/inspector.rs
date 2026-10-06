@@ -61,6 +61,8 @@ impl HookEchoApp {
                 }),
             pass_site,
             nyquist_mps: sweep.estimated_nyquist_mps(),
+            nyquist_decoded_mps: sweep.row_value(&sweep.row_nyquist_mps, lon, lat),
+            unambiguous_km: sweep.row_value(&sweep.row_unambiguous_km, lon, lat),
             dealiased: dealias,
         })
     }
@@ -220,8 +222,19 @@ impl HookEchoApp {
         let flags = probe.as_ref().map(probe_flags).unwrap_or_default();
         let nyquist = probe
             .as_ref()
-            .and_then(|p| p.nyquist_mps)
-            .map(|n| format!("\u{b1}{:.1} {disp_unit}", n * disp_factor));
+            .filter(|_| moment == Moment::Velocity)
+            .and_then(|p| {
+                nyquist_line(
+                    p.nyquist_decoded_mps,
+                    p.nyquist_mps,
+                    disp_factor,
+                    disp_unit,
+                )
+            });
+        let unambiguous = probe
+            .as_ref()
+            .and_then(|p| p.unambiguous_km)
+            .map(|km| format!("{km:.0} km (decoded)"));
         let model_shown = crate::model_browser::model_layers()
             .any(|layer| self.views[self.active].fields_on.contains(&layer));
         // An analysis steps by hour, a forecast by lead: the card's section and buttons say which.
@@ -346,6 +359,9 @@ impl HookEchoApp {
                     }
                     if let Some(n) = &nyquist {
                         ws::kv(ui, &t, "Nyquist", n, None);
+                    }
+                    if let Some(r) = &unambiguous {
+                        ws::kv(ui, &t, "Unambiguous range", r, None);
                     }
                     if !flags.is_empty() {
                         ws::kv(ui, &t, "Quality", &flags.join(", "), Some(t.warn));
@@ -1040,6 +1056,24 @@ pub(super) fn fmt_beam(ft: f64, metric: bool) -> String {
     }
 }
 
+/// The Nyquist velocity for a reader: the decoded value when the data carried one, else the
+/// estimate read off the values, labelled as such — an estimate is never shown as decoded.
+pub(crate) fn nyquist_line(
+    decoded: Option<f32>,
+    estimated: Option<f32>,
+    factor: f32,
+    unit: &str,
+) -> Option<String> {
+    match (decoded, estimated) {
+        (Some(n), _) => Some(format!("\u{b1}{:.1} {unit} (decoded)", n * factor)),
+        (None, Some(n)) => Some(format!(
+            "\u{2248}\u{b1}{:.1} {unit} (estimated from values)",
+            n * factor
+        )),
+        (None, None) => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1582,6 +1616,8 @@ mod tests {
             native_pass: wxdata::live_pass::RowPass::Unavailable,
             pass_site: None,
             nyquist_mps: None,
+            nyquist_decoded_mps: None,
+            unambiguous_km: None,
             dealiased: false,
         };
         assert_eq!(probe_flags(&p), ["range folded"]);

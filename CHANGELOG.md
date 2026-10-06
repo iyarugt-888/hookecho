@@ -54,6 +54,13 @@ and can carry it into the 3D view as a vertical cut. It names the tilts and the 
 section was scanned over, how much of it is inside real beam coverage, and it follows its pane
 to each new volume.
 
+### Changed: Nyquist velocity is read from the data, not guessed
+
+The gate inspector and the workstation Inspector now show the Nyquist velocity and unambiguous
+range each radial was collected with, decoded from its Level II message, labelled "decoded". When
+the data does not carry them, the old estimate read off the velocities appears under its own
+"estimated" label instead; nothing estimated is shown as decoded.
+
 ### Fixed: locally derived grids are drawn where they were sampled
 
 The composite, VIL, VIL density, echo-top, MEHS/POSH and trail-export grids sampled cells at

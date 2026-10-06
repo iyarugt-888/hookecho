@@ -80,7 +80,7 @@ pub fn assemble_volume<'a>(
                                         ));
                                     }
                                 }
-                                all_radials.push(m.into_radial()?);
+                                all_radials.push(crate::volume::model_radial(m)?);
                             }
                             MessageContents::VolumeCoveragePattern(m) => {
                                 if coverage_pattern_message.is_none() {
@@ -112,7 +112,7 @@ pub fn assemble_volume<'a>(
                                     ));
                                 }
                             }
-                            all_radials.push(m.into_radial()?);
+                            all_radials.push(crate::volume::model_radial(m)?);
                         }
                         MessageContents::VolumeCoveragePattern(m) => {
                             if coverage_pattern_message.is_none() {

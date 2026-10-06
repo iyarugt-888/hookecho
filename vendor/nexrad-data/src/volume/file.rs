@@ -126,7 +126,7 @@ impl File {
                                 });
                             }
                         }
-                        radials.push(m.into_radial()?);
+                        radials.push(model_radial(m)?);
                     }
                     // hookecho patch: pre-2008 volumes carry Type-1 legacy radar data messages.
                     // They have no volume data block, so the site comes from the registry later.
@@ -314,4 +314,24 @@ impl Debug for File {
 
         debug.finish()
     }
+}
+
+/// hookecho patch: a Message 31 as a model radial, keeping its radial block's Nyquist velocity
+/// and unambiguous range (`Radial::with_doppler_metadata`) — the one place every archive and
+/// real-time path turns a message into a radial.
+#[cfg(feature = "nexrad-model")]
+pub(crate) fn model_radial(
+    m: Box<nexrad_decode::messages::digital_radar_data::Message<'_>>,
+) -> crate::result::Result<nexrad_model::data::Radial> {
+    let doppler = m.radial_data_block().map(|b| {
+        (
+            b.inner().nyquist_velocity_raw(),
+            b.inner().unambiguous_range_raw(),
+        )
+    });
+    let radial = m.into_radial()?;
+    Ok(match doppler {
+        Some((nyquist, range)) => radial.with_doppler_metadata(nyquist, range),
+        None => radial,
+    })
 }

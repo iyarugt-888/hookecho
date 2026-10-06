@@ -25,6 +25,7 @@ exclude = ["fuzz", "scripts/strikes-relay"]
 [patch.crates-io]
 gribberish = { path = "vendor/gribberish" }
 nexrad-data = { path = "vendor/nexrad-data" }
+nexrad-model = { path = "vendor/nexrad-model" }
 
 # Release builds strip symbols and use fat LTO — wgpu+egui debug info dominates size, and the
 # AppImage ships the release binary. `codegen-units = 1` costs build time and buys inlining across

@@ -166,6 +166,13 @@ pub(crate) fn attributes(
         (
             "GEOMETRY",
             vec![
+                (
+                    "Unambiguous range",
+                    i.unambiguous_range_km.map_or_else(
+                        || "not in this data".into(),
+                        |km| format!("{km:.1} km (decoded)"),
+                    ),
+                ),
                 ("Slant range", format!("{:.2} km", i.sample.range_km)),
                 ("Ground range", format!("{:.2} km", i.ground_range_km)),
                 ("Beam height", format!("{:.0} ft", i.beam_height_ft)),
@@ -185,7 +192,16 @@ pub(crate) fn attributes(
             let mut rows = vec![("Raw value", raw_value)];
             if popup.moment == Moment::Velocity {
                 rows.push(("Dealiased value", opt(i.dealiased_value, " m/s", 1)));
-                rows.push(("Nyquist velocity (est.)", opt(i.nyquist_mps, " m/s", 1)));
+                // Decoded from the radial that wrote this row, else an estimate read off the
+                // values — each under its own label, never one for the other.
+                rows.push((
+                    "Nyquist velocity (decoded)",
+                    i.nyquist_decoded_mps
+                        .map_or_else(|| "not in this data".into(), |n| format!("{n:.2} m/s")),
+                ));
+                if i.nyquist_decoded_mps.is_none() {
+                    rows.push(("Nyquist velocity (est.)", opt(i.nyquist_mps, " m/s", 1)));
+                }
             }
             rows
         }),
@@ -512,6 +528,8 @@ mod tests {
                 gate_interval_km: 0.25,
                 elevation_deg: 0.5,
                 nyquist_mps: (moment == Moment::Velocity).then_some(32.0),
+                nyquist_decoded_mps: None,
+                unambiguous_range_km: None,
             },
             gate_inputs: wxdata::udp::GateInputs::default(),
             column_inputs: Vec::new(),
@@ -707,6 +725,31 @@ mod tests {
                 "{popup:?} -> {labels:?}"
             );
         }
+    }
+
+    /// The decoded Nyquist is shown as decoded, and the estimate only when nothing was decoded —
+    /// under its own "(est.)" label; an unknown range says so instead of inventing one.
+    #[test]
+    fn decoded_and_estimated_nyquist_keep_their_own_labels() {
+        let mut popup = sample_popup(Moment::Velocity, false, Some(-12.0));
+        let labels = labels_for(&popup, &[]);
+        assert!(
+            labels.iter().any(|s| s == "Nyquist velocity (est.)"),
+            "{labels:?}"
+        );
+        assert!(labels.iter().any(|s| s == "not in this data"), "{labels:?}");
+        popup.inspection.nyquist_decoded_mps = Some(26.42);
+        popup.inspection.unambiguous_range_km = Some(117.3);
+        let labels = labels_for(&popup, &[]);
+        assert!(labels.iter().any(|s| s == "26.42 m/s"), "{labels:?}");
+        assert!(
+            labels.iter().any(|s| s == "117.3 km (decoded)"),
+            "{labels:?}"
+        );
+        assert!(
+            !labels.iter().any(|s| s == "Nyquist velocity (est.)"),
+            "no estimate beside a decoded value: {labels:?}"
+        );
     }
 
     /// A gate carried over from the previous rotation must say how far behind it is. Without

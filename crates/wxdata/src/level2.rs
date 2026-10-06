@@ -163,6 +163,13 @@ pub struct BinnedSweep {
     /// `0` means unknown. A dealiased field can hold values past it, so the sweep's own value range
     /// cannot say. Detectors use it to tell a real shear from a fold that dealiasing left behind.
     pub nyquist_ms: f32,
+    /// Per azimuth row, the Nyquist velocity (m/s) and unambiguous range (km) decoded from the
+    /// Message 31 radial block of the radial that wrote that row — the same writer as
+    /// `source_radials`. NaN where that radial carried none (a legacy Message 1, a synthesized
+    /// tilt, an unset field). Empty when no row has one. Decoded metadata, never an estimate:
+    /// see [`Self::estimated_nyquist_mps`] for that, which stays separate.
+    pub row_nyquist_mps: Vec<f32>,
+    pub row_unambiguous_km: Vec<f32>,
 }
 
 impl Default for BinnedSweep {
@@ -183,6 +190,8 @@ impl Default for BinnedSweep {
             source_radials: None,
             stale_arc_deg: None,
             nyquist_ms: 0.0,
+            row_nyquist_mps: Vec::new(),
+            row_unambiguous_km: Vec::new(),
         }
     }
 }
@@ -675,6 +684,16 @@ impl BinnedSweep {
         })
     }
 
+    /// The per-row metadata `rows` (laid out like `row_nyquist_mps`) for the row `(lon, lat)` falls
+    /// in; `None` outside the sweep, with no rows, or where the row's value is unknown.
+    pub fn row_value(&self, rows: &[f32], lon: f64, lat: f64) -> Option<f32> {
+        if rows.len() != self.az_bins {
+            return None;
+        }
+        let (_, bin, ..) = self.locate(lon, lat)?;
+        rows.get(bin).copied().filter(|v| v.is_finite())
+    }
+
     /// Index into `data` of the gate [`Self::sample_at`] reads at `(lon, lat)`, for a companion
     /// grid laid out like it (a trail's contributor times).
     pub fn index_at(&self, lon: f64, lat: f64) -> Option<usize> {
@@ -787,6 +806,8 @@ impl BinnedSweep {
             gate_interval_km: self.gate_interval_km,
             elevation_deg: self.elevation_deg,
             nyquist_mps: self.estimated_nyquist_mps(),
+            nyquist_decoded_mps: self.row_value(&self.row_nyquist_mps, lon, lat),
+            unambiguous_range_km: self.row_value(&self.row_unambiguous_km, lon, lat),
             sample,
         })
     }
@@ -828,6 +849,11 @@ pub struct GateInspection {
     pub elevation_deg: f32,
     /// See [`BinnedSweep::estimated_nyquist_mps`] — an estimate, not a decoded header value.
     pub nyquist_mps: Option<f32>,
+    /// The Nyquist velocity (m/s) decoded from the radial that wrote this gate's row; `None`
+    /// when the data did not carry one. Never filled from the estimate above.
+    pub nyquist_decoded_mps: Option<f32>,
+    /// The unambiguous range (km) decoded from the same radial; `None` when not carried.
+    pub unambiguous_range_km: Option<f32>,
 }
 
 /// An AWS archive volume identifier (re-exported so callers needn't depend on `nexrad-data`).
@@ -1266,6 +1292,7 @@ pub fn trim_scan(scan: &Scan, moment: Moment, elevation_deg: f32) -> Scan {
             m(Moment::CorrelationCoefficient),
             None,
         )
+        .with_doppler_metadata_of(r)
     };
     let sweeps = scan
         .sweeps()
@@ -1933,6 +1960,22 @@ fn bin_sweep_opts_inner(
                 .into()
         });
 
+    // The decoded Doppler metadata of each row's writer (the bucket's last radial, as above).
+    use nexrad_model::data::Radial;
+    let row_meta = |f: fn(&Radial) -> Option<f32>| -> Vec<f32> {
+        let rows: Vec<f32> = by_bin
+            .iter()
+            .map(|bucket| bucket.last().and_then(|r| f(r)).unwrap_or(f32::NAN))
+            .collect();
+        if rows.iter().all(|v| v.is_nan()) {
+            Vec::new()
+        } else {
+            rows
+        }
+    };
+    let row_nyquist_mps = row_meta(Radial::nyquist_velocity_mps);
+    let row_unambiguous_km = row_meta(Radial::unambiguous_range_km);
+
     Ok(BinnedSweep {
         moment,
         az_bins: AZ_BINS,
@@ -1949,6 +1992,8 @@ fn bin_sweep_opts_inner(
         source_radials,
         stale_arc_deg,
         nyquist_ms,
+        row_nyquist_mps,
+        row_unambiguous_km,
     })
 }
 
