@@ -224,12 +224,7 @@ impl HookEchoApp {
             .as_ref()
             .filter(|_| moment == Moment::Velocity)
             .and_then(|p| {
-                nyquist_line(
-                    p.nyquist_decoded_mps,
-                    p.nyquist_mps,
-                    disp_factor,
-                    disp_unit,
-                )
+                nyquist_line(p.nyquist_decoded_mps, p.nyquist_mps, disp_factor, disp_unit)
             });
         let unambiguous = probe
             .as_ref()

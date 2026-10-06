@@ -9,12 +9,19 @@ use std::collections::HashMap;
 use std::num::NonZeroU64;
 use wgpu::util::DeviceExt;
 
-/// Recent client transport receipt-to-GPU-queue timings for one pane/source subscription.
-/// Queue writes are observable here; GPU completion and presentation are separate events.
+/// Recent client transport receipt timings for one pane/source subscription, by stage:
+/// receipt → the texture writes queued (`samples_micros`), and receipt → the GPU finished the
+/// frame that drew them (`gpu_done_micros`). The second is observed when the device reports the
+/// work done, which on native is no later than the following frame's submission, so it can read
+/// up to a frame late and never early. Display scan-out (presentation) is not measured here.
 #[derive(Default)]
 pub struct LiveQueueTimings {
     latest_micros: std::sync::atomic::AtomicU64,
     samples_micros: std::sync::Mutex<std::collections::VecDeque<u64>>,
+    latest_gpu_done_micros: std::sync::atomic::AtomicU64,
+    gpu_done_micros: std::sync::Mutex<std::collections::VecDeque<u64>>,
+    /// Live uploads whose GPU completion could not be observed in time, so were not sampled.
+    unobserved: std::sync::atomic::AtomicU64,
 }
 
 impl LiveQueueTimings {
@@ -35,11 +42,47 @@ impl LiveQueueTimings {
     }
 
     fn record_elapsed(&self, elapsed: std::time::Duration) {
+        Self::record_into(&self.latest_micros, &self.samples_micros, elapsed);
+    }
+
+    /// Receipt → GPU finished the frame that drew it, microseconds; 0 before the first sample.
+    pub fn latest_gpu_done_micros(&self) -> u64 {
+        self.latest_gpu_done_micros
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn gpu_done_samples_micros(&self) -> Vec<u64> {
+        self.gpu_done_micros
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .copied()
+            .collect()
+    }
+
+    /// Live uploads left out of the GPU-completion samples because their frame was not followed
+    /// closely enough to observe it.
+    pub fn unobserved(&self) -> u64 {
+        self.unobserved.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn note_unobserved(&self) {
+        self.unobserved
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn record_gpu_done(&self, elapsed: std::time::Duration) {
+        Self::record_into(&self.latest_gpu_done_micros, &self.gpu_done_micros, elapsed);
+    }
+
+    fn record_into(
+        latest: &std::sync::atomic::AtomicU64,
+        samples: &std::sync::Mutex<std::collections::VecDeque<u64>>,
+        elapsed: std::time::Duration,
+    ) {
         let micros = elapsed.as_micros().max(1).min(u64::MAX as u128) as u64;
-        self.latest_micros
-            .store(micros, std::sync::atomic::Ordering::Relaxed);
-        let mut samples = self
-            .samples_micros
+        latest.store(micros, std::sync::atomic::Ordering::Relaxed);
+        let mut samples = samples
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         samples.push_back(micros);
@@ -48,6 +91,16 @@ impl LiveQueueTimings {
         }
     }
 }
+
+/// A live upload's receipt clock, when its frame was prepared, and the timings it reports into.
+type GpuMark = (
+    wxdata::clock::Instant,
+    wxdata::clock::Instant,
+    std::sync::Arc<LiveQueueTimings>,
+);
+
+/// How long after a live upload's frame its completion may still be registered and trusted.
+const GPU_MARK_MAX_WAIT: std::time::Duration = std::time::Duration::from_millis(100);
 
 /// XYZ tile id.
 pub type TileId = (u8, u32, u32);
@@ -1190,6 +1243,10 @@ struct PaneGpu {
 
 /// Long-lived GPU resources, stored in egui's `CallbackResources` type-map.
 pub struct RenderResources {
+    /// Live uploads written for each pane's last frame, waiting to have their GPU completion
+    /// observed: registered at that pane's next prepare, after the frame that drew them was
+    /// submitted (see `LiveQueueTimings`).
+    gpu_marks: HashMap<u32, Vec<GpuMark>>,
     tile_pipeline: wgpu::RenderPipeline,
     radar_pipeline: wgpu::RenderPipeline,
     observed_pipeline: wgpu::RenderPipeline,
@@ -1602,6 +1659,7 @@ impl RenderResources {
         });
 
         Self {
+            gpu_marks: HashMap::new(),
             tile_pipeline,
             radar_pipeline,
             observed_pipeline,
@@ -2246,6 +2304,29 @@ impl RenderResources {
     }
 
     fn upload_frame(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, cb: &MapCallback) {
+        // This pane's previous frame has been submitted by now: ask the device to report when
+        // the work it drew is finished.
+        for (started, queued, timings) in self.gpu_marks.remove(&cb.pane).unwrap_or_default() {
+            // Registered too long after the drawing frame (the app idled before repainting), the
+            // callback could fire long after the work finished: excluded, not overstated.
+            if queued.elapsed() > GPU_MARK_MAX_WAIT {
+                timings.note_unobserved();
+                continue;
+            }
+            queue.on_submitted_work_done(move || timings.record_gpu_done(started.elapsed()));
+        }
+        if let Some((started, timings)) = cb
+            .radar_upload
+            .as_ref()
+            .filter(|r| !r.lut_only)
+            .and_then(|r| r.telemetry.as_ref())
+        {
+            self.gpu_marks.entry(cb.pane).or_default().push((
+                *started,
+                wxdata::clock::Instant::now(),
+                std::sync::Arc::clone(timings),
+            ));
+        }
         // --- Shared caches ---
         if cb.clear_tiles {
             self.tiles.clear();

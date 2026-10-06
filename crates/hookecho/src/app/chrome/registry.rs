@@ -95,6 +95,17 @@ fn render_queue_detail(micros: u64) -> Option<(&'static str, String)> {
     })
 }
 
+/// The newest receipt → GPU-finished latency, once one has been observed. Not presentation: the
+/// frame may still wait for the screen.
+fn gpu_done_detail(micros: u64) -> Option<(&'static str, String)> {
+    (micros > 0).then(|| {
+        (
+            "Receipt → GPU done",
+            format_millis(std::time::Duration::from_micros(micros)),
+        )
+    })
+}
+
 /// ROADMAP_NEW B6.9's source-health additions: which of the three failover tiers is active, the
 /// standby side's own freshness, and the last transition — when this pane has a
 /// `radar_provider_manager::SiteProviders` running for its site. Appended to `radar_health()`'s
@@ -446,6 +457,7 @@ impl HookEchoApp {
             ingest_lag_detail(v.last_live_arrival),
             decode_time_detail(v.last_decode_time),
             render_queue_detail(v.live_queue_timings.latest_micros()),
+            gpu_done_detail(v.live_queue_timings.latest_gpu_done_micros()),
             retry_detail(v.live_retries),
             v.live_scan
                 .last_stream_error
@@ -2016,8 +2028,8 @@ impl HookEchoApp {
 #[cfg(test)]
 mod tests {
     use super::{
-        decode_time_detail, field_layer_is_health_tracked, ingest_lag_detail, render_queue_detail,
-        retry_detail,
+        decode_time_detail, field_layer_is_health_tracked, gpu_done_detail, ingest_lag_detail,
+        render_queue_detail, retry_detail,
     };
 
     /// Every MRMS catalog product must be health-tracked without being named here — that is the
@@ -2164,6 +2176,19 @@ mod tests {
     fn a_decode_at_or_past_one_second_shows_tenths() {
         let (_, value) = decode_time_detail(Some(std::time::Duration::from_millis(1_500))).unwrap();
         assert_eq!(value, "1.5s");
+    }
+
+    #[test]
+    fn gpu_done_detail_is_its_own_stage_and_hidden_until_observed() {
+        assert!(gpu_done_detail(0).is_none());
+        let (label, value) = gpu_done_detail(42_000).unwrap();
+        assert_eq!(label, "Receipt → GPU done");
+        assert_eq!(value, "42ms");
+        assert_ne!(
+            label,
+            render_queue_detail(1).unwrap().0,
+            "never the queue stage's label"
+        );
     }
 
     #[test]

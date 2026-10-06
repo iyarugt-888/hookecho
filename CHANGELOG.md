@@ -61,6 +61,12 @@ range each radial was collected with, decoded from its Level II message, labelle
 the data does not carry them, the old estimate read off the velocities appears under its own
 "estimated" label instead; nothing estimated is shown as decoded.
 
+### Added: live latency to the GPU finishing the frame
+
+The Log shows, beside the time from receiving a live radar update to queueing it for the GPU, the
+time until the GPU actually finished drawing it, with medians, 95th percentiles and how many
+updates could not be observed. Screen presentation is not included and the label says so.
+
 ### Fixed: locally derived grids are drawn where they were sampled
 
 The composite, VIL, VIL density, echo-top, MEHS/POSH and trail-export grids sampled cells at

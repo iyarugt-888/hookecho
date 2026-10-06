@@ -532,3 +532,90 @@ fn gpu_gate_opacity_fades_display_only() {
     assert!(wrong * 200 <= kept + blended, "{wrong} pixels wrong");
     assert_eq!(sweep.data, data_before, "the fade changed values");
 }
+
+/// ROADMAP_PARITY M1.2: a live upload's receipt clock reaches the GPU-completion stage — reported
+/// only after the frame that drew it has finished on the device, never before its queue writes.
+#[test]
+#[ignore = "gpu: explicitly provision an adapter for real radar visual certification"]
+fn gpu_live_upload_reports_queue_and_completion_stages_in_order() {
+    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let bytes =
+        std::fs::read(repo.join("crates/wxdata/tests/data/corpus/mayfield-2021-first-records.ar2"))
+            .expect("required radar input");
+    let scan = level2::decode_volume(bytes).expect("real partial volume");
+    let sweep = level2::bin_scan(&scan, Moment::Reflectivity, 0).expect("real reflectivity");
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let (device, queue, _adapter) =
+        init_gpu(&rt).expect("required GPU adapter; certification remains open without one");
+    let format = wgpu::TextureFormat::Rgba8UnormSrgb;
+    let mut resources = RenderResources::new(&device, format);
+    let target = new_target(&device, format, SIZE);
+    let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+    let camera = Camera::at_lonlat(f64::from(sweep.radar_lon), f64::from(sweep.radar_lat), 8.5);
+    let timings = std::sync::Arc::new(crate::render::LiveQueueTimings::default());
+    let received = wxdata::clock::Instant::now();
+    let mut cb = callback(&sweep, &camera);
+    if let Some(up) = cb.radar_upload.as_mut() {
+        up.telemetry = Some((received, std::sync::Arc::clone(&timings)));
+    }
+    resources.render_once(&device, &queue, &view, &cb, BACKGROUND);
+    assert_eq!(
+        timings.samples_micros().len(),
+        1,
+        "queue writes recorded at upload"
+    );
+    assert!(
+        timings.gpu_done_samples_micros().is_empty(),
+        "no completion before the drawing frame was even asked about"
+    );
+    // The pane's next frame registers the completion of the one that drew the upload.
+    let mut next = callback(&sweep, &camera);
+    next.radar_upload = None;
+    resources.render_once(&device, &queue, &view, &next, BACKGROUND);
+    device
+        .poll(wgpu::PollType::wait_indefinitely())
+        .expect("device poll");
+    let queued = timings.samples_micros()[0];
+    let done = timings.gpu_done_samples_micros();
+    assert_eq!(done.len(), 1, "one completion per live upload");
+    assert!(
+        done[0] >= queued,
+        "completion {} µs before queue {} µs",
+        done[0],
+        queued
+    );
+    eprintln!("receipt → queue {queued} µs, → GPU done {} µs", done[0]);
+    // A LUT-only recolour is not a live update and adds no sample.
+    let mut recolour = callback(&sweep, &camera);
+    if let Some(up) = recolour.radar_upload.as_mut() {
+        up.lut_only = true;
+        up.data.clear();
+        up.telemetry = Some((received, std::sync::Arc::clone(&timings)));
+    }
+    resources.render_once(&device, &queue, &view, &recolour, BACKGROUND);
+    resources.render_once(&device, &queue, &view, &next, BACKGROUND);
+    device
+        .poll(wgpu::PollType::wait_indefinitely())
+        .expect("device poll");
+    assert_eq!(timings.gpu_done_samples_micros().len(), 1);
+    // A frame followed too late is excluded and counted, never recorded as a long latency.
+    let mut late = callback(&sweep, &camera);
+    if let Some(up) = late.radar_upload.as_mut() {
+        up.data[0] ^= 1; // a real change, so it is a live write
+        up.telemetry = Some((
+            wxdata::clock::Instant::now(),
+            std::sync::Arc::clone(&timings),
+        ));
+    }
+    resources.render_once(&device, &queue, &view, &late, BACKGROUND);
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    resources.render_once(&device, &queue, &view, &next, BACKGROUND);
+    device
+        .poll(wgpu::PollType::wait_indefinitely())
+        .expect("device poll");
+    assert_eq!(timings.gpu_done_samples_micros().len(), 1);
+    assert_eq!(timings.unobserved(), 1);
+}

@@ -553,6 +553,14 @@ current agent assignment.
 
 **Agent prompt:** `Implement M1.2 using section 6. Extend the existing local timing path and label every measured stage accurately before changing performance-critical code.`
 
+**Status:** implementation: in progress (GPU-completion stage, increment 1); verification: partial (software GPU only).
+
+**Evidence ledger — 2026-10-06, increment 1 (receipt → GPU done):**
+
+- *Delivered:* `render::LiveQueueTimings` gains a second, separately named stage beside "receipt → GPU queue writes": **receipt → GPU finished the frame that drew it**. A live (non-LUT-only) radar upload's receipt clock is kept per pane, and at that pane's next prepare — after the drawing frame was submitted — `Queue::on_submitted_work_done` records when the device reports the work done. The app requests that next frame immediately; a mark that could only be registered more than 100 ms later is excluded and counted as "not observed" rather than recorded as a long latency. The Log dock shows p50/p95/sample count for both stages (plus the not-observed count); source-health details add "Receipt → GPU done". Display scan-out/presentation is still not measured and is named as such in the UI text.
+- *Commands and results:* `gpu_live_upload_reports_queue_and_completion_stages_in_order` (GPU suite, llvmpipe): one queue sample at upload, no completion before the drawing frame is followed, exactly one completion after it, completion ≥ queue (one run: 4.6 ms to queue, 20.6 ms to GPU done on the CPU rasterizer), no sample for a LUT-only recolour, and a 150 ms-late follow-up excluded and counted. Registry unit test keeps the two stages' labels distinct. clippy `-D warnings` clean; workspace tests 2,342 passed, 0 failed; GPU suite 37 passed.
+- *Open:* presentation (compositor) latency, decode/acceptance stage correlation with frame identity in one trace, 3D upload/build profiling, and any desktop or Android hardware measurement.
+
 #### M1.3 — Prove source failover under severe-weather load
 
 **Priority:** P0. **Depends on:** M0.3, M1.1, M1.2. **Original references:** ROADMAP_2 §§1.3, 3; ROADMAP_NEW §B6.
