@@ -8,7 +8,7 @@
 //! of a tilt or a volume ([`crate::udp_volume`]), a product is also drawn on the map, in 2D in
 //! place of a moment and in 3D as a volume.
 //!
-//! Environmental heights (`FREEZING_LEVEL_M`, `MINUS10C_HEIGHT_M`, `MINUS20C_HEIGHT_M`) are inputs
+//! Environmental heights (`FREEZING_LEVEL_M`, `MINUS10C_HEIGHT_M` through `MINUS40C_HEIGHT_M`) are inputs
 //! like any other, metres above sea level, filled by the caller only from a source matched to the
 //! volume's own site and time (see [`crate::udp_column`]); a formula that reads one the caller
 //! does not have evaluates as missing. Column formulas are drawn on the map as a 2D field by
@@ -49,6 +49,16 @@
 //! `BEAM_HEIGHT_M` falls in `[lo, hi]`; `first_height_above(expr, threshold)` /
 //! `last_height_above` return the height of the lowest/highest qualifying entry;
 //! `count_above(expr, threshold)` counts qualifying entries.
+//! `mean_vertical(expr[, cond])` averages recorded samples, and `count_vertical(cond)` /
+//! `fraction_vertical(cond)` count or divide the true conditions by the recorded conditions.
+//! `max_height(expr[, cond])` / `min_height` return the extremum's sampled height above the
+//! antenna (lowest height wins a tie). Layer reductions accept an optional fourth mask argument.
+//! Map reductions may nest twice, subject to a conservative node-evaluation budget.
+//! `first_crossing_height(expr, threshold)` / `last_crossing_height` interpolate between
+//! adjacent recorded beams in either direction; an exact threshold sample also qualifies.
+//! `integral_layer(expr, lo, hi)` integrates piecewise linear samples over a fully bracketed
+//! interval, in input-units * metres. Both use antenna-relative heights, reject unknown or
+//! duplicate heights, and never bridge missing samples or extrapolate beyond recorded beams.
 //!
 //! `None` (a moment absent at this gate — below threshold, range-folded, or simply not carried by
 //! this radial) propagates through every operator: a formula referencing a missing input has no
@@ -75,14 +85,14 @@ pub enum Input {
     BeamHeightM,
     /// Approximate beam center altitude above sea level, metres; unavailable without site elevation.
     BeamAltitudeM,
-    /// 0°C isotherm height, metres above sea level (HRRR analysis) — compare against
+    /// 0°C isotherm height, metres above sea level (matched HRRR analysis or recorded sounding) — compare against
     /// [`Self::BeamAltitudeM`], not [`Self::BeamHeightM`], the same above-sea-level convention
     /// the existing hail algorithm already uses this same model field for. Only populated when
     /// the caller has a recent fetch for the gate's site (ROADMAP_NEW C1's "freezing level...
     /// environmental input" — reuses `OverlaySource::FreezingLevels`, the fetch already built for
     /// the MEHS/POSH hail grids, rather than adding a second one).
     FreezingLevelM,
-    /// −20°C (253 K) isotherm height, metres above sea level (HRRR analysis) — the level Witt's
+    /// −20°C (253 K live model field) isotherm height, metres above sea level — the level Witt's
     /// hail weighting tops out at, same source and same population rule as
     /// [`Self::FreezingLevelM`].
     Minus20cHeightM,
@@ -91,9 +101,25 @@ pub enum Input {
     /// volume. Same datum and population rule as [`Self::FreezingLevelM`]; missing, never
     /// interpolated from the other two levels, when its source does not carry it.
     Minus10cHeightM,
+    /// -30/-40 C levels from the same matched source when actually bracketed; MSL.
+    Minus30cHeightM,
+    Minus40cHeightM,
 }
 
 impl Input {
+    /// Source-matched isotherm inputs. Shared by admission, fetching and portable metadata so
+    /// adding a height cannot bypass historical epoch checks in a downstream owner.
+    pub const fn is_environment_height(self) -> bool {
+        matches!(
+            self,
+            Self::FreezingLevelM
+                | Self::Minus10cHeightM
+                | Self::Minus20cHeightM
+                | Self::Minus30cHeightM
+                | Self::Minus40cHeightM
+        )
+    }
+
     fn parse(name: &str) -> Option<Self> {
         Some(match name.to_ascii_uppercase().as_str() {
             "REF" => Self::Reflectivity,
@@ -110,12 +136,14 @@ impl Input {
             "FREEZING_LEVEL_M" => Self::FreezingLevelM,
             "MINUS20C_HEIGHT_M" => Self::Minus20cHeightM,
             "MINUS10C_HEIGHT_M" => Self::Minus10cHeightM,
+            "MINUS30C_HEIGHT_M" => Self::Minus30cHeightM,
+            "MINUS40C_HEIGHT_M" => Self::Minus40cHeightM,
             _ => return None,
         })
     }
 
     /// Every input name a formula can reference — for building an editor's autocomplete/help list.
-    pub const ALL: [Input; 14] = [
+    pub const ALL: [Input; 16] = [
         Input::Reflectivity,
         Input::Velocity,
         Input::SpectrumWidth,
@@ -130,6 +158,8 @@ impl Input {
         Input::FreezingLevelM,
         Input::Minus10cHeightM,
         Input::Minus20cHeightM,
+        Input::Minus30cHeightM,
+        Input::Minus40cHeightM,
     ];
 
     /// The exact spelling a formula uses for this input.
@@ -149,6 +179,8 @@ impl Input {
             Self::FreezingLevelM => "FREEZING_LEVEL_M",
             Self::Minus20cHeightM => "MINUS20C_HEIGHT_M",
             Self::Minus10cHeightM => "MINUS10C_HEIGHT_M",
+            Self::Minus30cHeightM => "MINUS30C_HEIGHT_M",
+            Self::Minus40cHeightM => "MINUS40C_HEIGHT_M",
         }
     }
 }
@@ -174,6 +206,8 @@ pub struct GateInputs {
     pub minus20c_height_m: Option<f32>,
     /// See [`Input::Minus10cHeightM`]'s doc comment.
     pub minus10c_height_m: Option<f32>,
+    pub minus30c_height_m: Option<f32>,
+    pub minus40c_height_m: Option<f32>,
 }
 
 impl GateInputs {
@@ -193,6 +227,8 @@ impl GateInputs {
             Input::FreezingLevelM => self.freezing_level_m,
             Input::Minus20cHeightM => self.minus20c_height_m,
             Input::Minus10cHeightM => self.minus10c_height_m,
+            Input::Minus30cHeightM => self.minus30c_height_m,
+            Input::Minus40cHeightM => self.minus40c_height_m,
         }
     }
 }
@@ -227,6 +263,20 @@ enum Func {
     /// second argument instead.
     MaxVertical,
     MinVertical,
+    MeanVertical,
+    /// Height above the radar antenna of the extremum; lowest height wins ties.
+    MaxHeight,
+    MinHeight,
+    /// Count/fraction of finite, recorded conditions that are true; missing conditions are
+    /// excluded from the denominator. An entirely missing column has no result.
+    CountVertical,
+    FractionVertical,
+    /// Linear crossing between adjacent recorded samples; never bridges missing values.
+    FirstCrossingHeight,
+    LastCrossingHeight,
+    /// Trapezoidal integral in input-units * metres, requiring complete bracketing of the
+    /// requested antenna-relative interval. Missing spans and extrapolation are refused.
+    IntegralLayer,
     /// `max_layer(expr, lo, hi)` — `expr` reduced over column entries whose `BEAM_HEIGHT_M` falls
     /// in `[lo, hi]`.
     MaxLayer,
@@ -250,9 +300,17 @@ impl Func {
             "abs" => (Self::Abs, 1, 1),
             "max_vertical" => (Self::MaxVertical, 1, 2),
             "min_vertical" => (Self::MinVertical, 1, 2),
-            "max_layer" => (Self::MaxLayer, 3, 3),
-            "min_layer" => (Self::MinLayer, 3, 3),
-            "mean_layer" => (Self::MeanLayer, 3, 3),
+            "mean_vertical" => (Self::MeanVertical, 1, 2),
+            "max_height" => (Self::MaxHeight, 1, 2),
+            "min_height" => (Self::MinHeight, 1, 2),
+            "count_vertical" => (Self::CountVertical, 1, 1),
+            "fraction_vertical" => (Self::FractionVertical, 1, 1),
+            "first_crossing_height" => (Self::FirstCrossingHeight, 2, 2),
+            "last_crossing_height" => (Self::LastCrossingHeight, 2, 2),
+            "integral_layer" => (Self::IntegralLayer, 3, 3),
+            "max_layer" => (Self::MaxLayer, 3, 4),
+            "min_layer" => (Self::MinLayer, 3, 4),
+            "mean_layer" => (Self::MeanLayer, 3, 4),
             "first_height_above" => (Self::FirstHeightAbove, 2, 2),
             "last_height_above" => (Self::LastHeightAbove, 2, 2),
             "count_above" => (Self::CountAbove, 2, 2),
@@ -270,12 +328,36 @@ impl Func {
             self,
             Self::MaxVertical
                 | Self::MinVertical
+                | Self::MeanVertical
+                | Self::MaxHeight
+                | Self::MinHeight
+                | Self::CountVertical
+                | Self::FractionVertical
+                | Self::FirstCrossingHeight
+                | Self::LastCrossingHeight
+                | Self::IntegralLayer
                 | Self::MaxLayer
                 | Self::MinLayer
                 | Self::MeanLayer
                 | Self::FirstHeightAbove
                 | Self::LastHeightAbove
                 | Self::CountAbove
+        )
+    }
+
+    fn reads_height(self) -> bool {
+        matches!(
+            self,
+            Self::MaxLayer
+                | Self::MinLayer
+                | Self::MeanLayer
+                | Self::FirstHeightAbove
+                | Self::LastHeightAbove
+                | Self::MaxHeight
+                | Self::MinHeight
+                | Self::FirstCrossingHeight
+                | Self::LastCrossingHeight
+                | Self::IntegralLayer
         )
     }
 }
@@ -303,7 +385,12 @@ impl Expr {
                     walk(a, out);
                     walk(b, out);
                 }
-                ExprNode::Call(_, args) => args.iter().for_each(|a| walk(a, out)),
+                ExprNode::Call(f, args) => {
+                    args.iter().for_each(|a| walk(a, out));
+                    if f.reads_height() && !out.contains(&Input::BeamHeightM) {
+                        out.push(Input::BeamHeightM);
+                    }
+                }
                 ExprNode::Ternary(c, a, b) => {
                     walk(c, out);
                     walk(a, out);
@@ -362,6 +449,56 @@ impl Expr {
             }
         }
         walk(&self.0)
+    }
+
+    /// Conservative upper bound on AST node visits for one column evaluation. Column calls
+    /// multiply the work of their per-entry arguments, including nested reductions; scalar
+    /// bounds/thresholds are evaluated once. Both ternary branches are budgeted. Saturation
+    /// makes arithmetic overflow rejectable rather than turning an unsafe formula cheap.
+    pub fn evaluation_cost(&self, levels: usize) -> u64 {
+        fn sum(nodes: &[ExprNode], levels: u64) -> u64 {
+            nodes
+                .iter()
+                .fold(0u64, |cost, n| cost.saturating_add(walk(n, levels)))
+        }
+        fn walk(n: &ExprNode, levels: u64) -> u64 {
+            let children = match n {
+                ExprNode::Number(_) | ExprNode::Var(_) => 0,
+                ExprNode::Neg(a) | ExprNode::Not(a) => walk(a, levels),
+                ExprNode::Bin(_, a, b) => walk(a, levels).saturating_add(walk(b, levels)),
+                ExprNode::Ternary(c, a, b) => walk(c, levels)
+                    .saturating_add(walk(a, levels))
+                    .saturating_add(walk(b, levels)),
+                ExprNode::Call(f, args) if f.is_column_aware() => {
+                    if matches!(
+                        f,
+                        Func::MaxLayer | Func::MinLayer | Func::MeanLayer | Func::IntegralLayer
+                    ) {
+                        levels
+                            .saturating_mul(
+                                walk(&args[0], levels).saturating_add(sum(&args[3..], levels)),
+                            )
+                            .saturating_add(sum(&args[1..3], levels))
+                    } else if matches!(
+                        f,
+                        Func::FirstHeightAbove
+                            | Func::LastHeightAbove
+                            | Func::CountAbove
+                            | Func::FirstCrossingHeight
+                            | Func::LastCrossingHeight
+                    ) {
+                        levels
+                            .saturating_mul(walk(&args[0], levels))
+                            .saturating_add(sum(&args[1..], levels))
+                    } else {
+                        levels.saturating_mul(sum(args, levels))
+                    }
+                }
+                ExprNode::Call(_, args) => sum(args, levels),
+            };
+            1u64.saturating_add(children)
+        }
+        walk(&self.0, levels as u64)
     }
 }
 
@@ -429,7 +566,7 @@ fn truthy(v: f32) -> bool {
 }
 
 fn eval_node(node: &ExprNode, inputs: &GateInputs, column: Option<&[GateInputs]>) -> Option<f32> {
-    match node {
+    let value = match node {
         ExprNode::Number(n) => Some(*n),
         ExprNode::Var(input) => inputs.get(*input),
         ExprNode::Neg(a) => eval_node(a, inputs, column).map(|v| -v),
@@ -463,7 +600,8 @@ fn eval_node(node: &ExprNode, inputs: &GateInputs, column: Option<&[GateInputs]>
                 (Func::Min, [a, b]) => a.min(*b),
                 (Func::Max, [a, b]) => a.max(*b),
                 (Func::Mean, values) => values.iter().sum::<f32>() / values.len() as f32,
-                (Func::Clamp, [x, lo, hi]) => x.clamp(*lo, *hi),
+                (Func::Clamp, [x, lo, hi]) if lo <= hi => x.clamp(*lo, *hi),
+                (Func::Clamp, _) => return None,
                 (Func::Abs, [x]) => x.abs(),
                 _ => unreachable!("Func::parse's arity matches evaluate's arm for it"),
             })
@@ -472,7 +610,8 @@ fn eval_node(node: &ExprNode, inputs: &GateInputs, column: Option<&[GateInputs]>
             let cond = eval_node(cond, inputs, column)?;
             eval_node(if truthy(cond) { a } else { b }, inputs, column)
         }
-    }
+    };
+    value.filter(|v| v.is_finite())
 }
 
 /// The vertical/layer functions (ROADMAP_NEW C1): each reduces `args[0]` — re-evaluated once per
@@ -487,41 +626,68 @@ fn eval_column_call(
     column: &[GateInputs],
 ) -> Option<f32> {
     match func {
-        Func::MaxVertical | Func::MinVertical => {
+        Func::MaxVertical
+        | Func::MinVertical
+        | Func::MeanVertical
+        | Func::MaxHeight
+        | Func::MinHeight => {
             let mut best: Option<f32> = None;
+            let mut best_height: Option<f32> = None;
+            let mut sum = 0.0f64;
+            let mut count = 0usize;
             for entry in column {
-                let Some(v) = eval_node(&args[0], entry, Some(column)) else {
+                let Some(v) = eval_node(&args[0], entry, Some(column)).filter(|v| v.is_finite())
+                else {
                     continue;
                 };
                 if let Some(cond_node) = args.get(1) {
                     match eval_node(cond_node, entry, Some(column)) {
-                        Some(c) if truthy(c) => {}
+                        Some(c) if c.is_finite() && truthy(c) => {}
                         _ => continue,
                     }
                 }
-                best = Some(match best {
-                    None => v,
-                    Some(b) if func == Func::MaxVertical => b.max(v),
-                    Some(b) => b.min(v),
-                });
+                let height = entry.beam_height_m.filter(|h| h.is_finite());
+                let maximum = matches!(func, Func::MaxVertical | Func::MaxHeight);
+                let improves = best.is_none_or(|b| if maximum { v > b } else { v < b });
+                if improves {
+                    best = Some(v);
+                    best_height = height;
+                } else if best == Some(v) {
+                    // An unlocated winning/tied value cannot be assigned another beam's height.
+                    best_height = height.zip(best_height).map(|(h, old)| h.min(old));
+                }
+                sum += f64::from(v);
+                count += 1;
             }
-            best
+            match func {
+                Func::MaxHeight | Func::MinHeight => best_height,
+                Func::MeanVertical => (count > 0).then(|| (sum / count as f64) as f32),
+                _ => best,
+            }
         }
         Func::MaxLayer | Func::MinLayer | Func::MeanLayer => {
-            let lo = eval_node(&args[1], point, Some(column))?;
-            let hi = eval_node(&args[2], point, Some(column))?;
+            let lo = eval_node(&args[1], point, Some(column)).filter(|v| v.is_finite())?;
+            let hi = eval_node(&args[2], point, Some(column)).filter(|v| v.is_finite())?;
             let (lo, hi) = (lo.min(hi), lo.max(hi));
             let mut sum = 0.0f32;
             let mut count = 0usize;
             let mut best: Option<f32> = None;
             for entry in column {
-                let Some(h) = entry.beam_height_m else {
+                let Some(h) = entry.beam_height_m.filter(|h| h.is_finite()) else {
                     continue;
                 };
                 if h < lo || h > hi {
                     continue;
                 }
-                let Some(v) = eval_node(&args[0], entry, Some(column)) else {
+                if let Some(cond) = args.get(3) {
+                    if !eval_node(cond, entry, Some(column))
+                        .is_some_and(|v| v.is_finite() && truthy(v))
+                    {
+                        continue;
+                    }
+                }
+                let Some(v) = eval_node(&args[0], entry, Some(column)).filter(|v| v.is_finite())
+                else {
                     continue;
                 };
                 sum += v;
@@ -574,6 +740,93 @@ fn eval_column_call(
                 })
                 .count();
             Some(count as f32)
+        }
+        Func::CountVertical | Func::FractionVertical => {
+            let mut valid = 0usize;
+            let mut hits = 0usize;
+            for entry in column {
+                if let Some(v) = eval_node(&args[0], entry, Some(column)).filter(|v| v.is_finite())
+                {
+                    valid += 1;
+                    hits += usize::from(truthy(v));
+                }
+            }
+            (valid > 0).then(|| {
+                if func == Func::CountVertical {
+                    hits as f32
+                } else {
+                    hits as f32 / valid as f32
+                }
+            })
+        }
+        Func::FirstCrossingHeight | Func::LastCrossingHeight | Func::IntegralLayer => {
+            let bound = eval_node(&args[1], point, Some(column))?;
+            // Keep missing values in the ordered profile so they break adjacency. An unknown
+            // height cannot be placed reliably and invalidates this profile rather than being
+            // silently skipped to interpolate across it.
+            let mut profile: Vec<(f32, Option<f32>)> = column
+                .iter()
+                .map(|g| {
+                    Some((
+                        g.beam_height_m.filter(|h| h.is_finite())?,
+                        eval_node(&args[0], g, Some(column)),
+                    ))
+                })
+                .collect::<Option<_>>()?;
+            profile.sort_by(|a, b| a.0.total_cmp(&b.0));
+            // Two samples at the same height have no unique interpolation. Caller should
+            // supply one distinct cut per height, as udp_column does.
+            if profile.windows(2).any(|p| p[0].0 == p[1].0) {
+                return None;
+            }
+            if func == Func::IntegralLayer {
+                let other = eval_node(&args[2], point, Some(column))?;
+                let (lo, hi) = (f64::from(bound.min(other)), f64::from(bound.max(other)));
+                if lo >= hi
+                    || f64::from(profile.first()?.0) > lo
+                    || f64::from(profile.last()?.0) < hi
+                {
+                    return None;
+                }
+                let mut integral = 0.0f64;
+                for pair in profile.windows(2) {
+                    let ((h0, v0), (h1, v1)) = (pair[0], pair[1]);
+                    let (h0, h1) = (f64::from(h0), f64::from(h1));
+                    let (a, b) = (lo.max(h0), hi.min(h1));
+                    if a >= b {
+                        continue;
+                    }
+                    let (v0, v1) = (f64::from(v0?), f64::from(v1?));
+                    let at = |h: f64| v0 + (v1 - v0) * (h - h0) / (h1 - h0);
+                    integral += (at(a) + at(b)) * 0.5 * (b - a);
+                }
+                return Some(integral as f32);
+            }
+            let mut crossing: Option<f32> = None;
+            let mut record = |h: f32| {
+                crossing = Some(crossing.map_or(h, |old| {
+                    if func == Func::FirstCrossingHeight {
+                        old.min(h)
+                    } else {
+                        old.max(h)
+                    }
+                }));
+            };
+            for &(h, v) in &profile {
+                if v == Some(bound) {
+                    record(h);
+                }
+            }
+            for pair in profile.windows(2) {
+                let ((h0, Some(v0)), (h1, Some(v1))) = (pair[0], pair[1]) else {
+                    continue;
+                };
+                if (v0 < bound && v1 > bound) || (v0 > bound && v1 < bound) {
+                    let t = (f64::from(bound) - f64::from(v0)) / (f64::from(v1) - f64::from(v0));
+                    record((f64::from(h0) + t * (f64::from(h1) - f64::from(h0))) as f32);
+                }
+            }
+            crossing
         }
         _ => unreachable!("Func::is_column_aware's arms match this match's arms"),
     }
@@ -1016,6 +1269,8 @@ mod tests {
             freezing_level_m: Some(3000.0),
             minus20c_height_m: Some(6500.0),
             minus10c_height_m: Some(4800.0),
+            minus30c_height_m: None,
+            minus40c_height_m: None,
         }
     }
 
@@ -1168,10 +1423,17 @@ mod tests {
     }
 
     #[test]
-    fn division_by_zero_is_infinity_not_a_panic() {
-        // Floats saturate to +/-inf on divide-by-zero rather than panicking; a formula that hits
-        // this reads a very large or NaN-like number rather than crashing the app either way.
-        assert_eq!(eval("REF / 0"), Some(f32::INFINITY));
+    fn undefined_arithmetic_is_missing_before_comparisons_or_masks() {
+        for src in [
+            "REF / 0",
+            "0 / 0",
+            "1e39",
+            "(REF / 0) > 10",
+            "(REF / 0) ? 1 : 0",
+            "clamp(REF, 40, 0)",
+        ] {
+            assert_eq!(eval(src), None, "{src}");
+        }
     }
 
     #[test]
@@ -1276,11 +1538,178 @@ mod tests {
     }
 
     #[test]
+    fn nested_reductions_and_scalar_bounds_have_a_saturating_work_budget() {
+        assert_eq!(parse("REF + 1").unwrap().evaluation_cost(10), 3);
+        assert_eq!(parse("max_vertical(REF)").unwrap().evaluation_cost(10), 11);
+        assert_eq!(
+            parse("max_vertical(max_vertical(REF))")
+                .unwrap()
+                .evaluation_cost(10),
+            111
+        );
+        // The upper bound is computed once, rather than once per sampled beam.
+        assert_eq!(
+            parse("max_layer(REF, 0, max_vertical(BEAM_HEIGHT_M))")
+                .unwrap()
+                .evaluation_cost(10),
+            23
+        );
+        assert_eq!(
+            parse("max_vertical(max_vertical(REF))")
+                .unwrap()
+                .evaluation_cost(usize::MAX),
+            u64::MAX
+        );
+        assert_eq!(
+            eval_col("min_vertical(REF, REF >= max_vertical(REF) - 15)"),
+            Some(40.0)
+        );
+        assert_eq!(
+            eval_col("mean_layer(REF, first_height_above(REF, 50), last_height_above(REF, 40))"),
+            Some(47.5)
+        );
+    }
+
+    #[test]
     fn vertical_functions_take_an_optional_condition_in_place_of_where() {
         // The roadmap's own worked example: the lowest CC among tilts that actually have
         // reflectivity at or above 40 dBZ — the debris signature riding with the hail core.
         assert_eq!(eval_col("min_vertical(CC, REF >= 40)"), Some(0.85));
         assert_eq!(eval_col("max_vertical(CC, REF >= 40)"), Some(0.99));
+    }
+
+    #[test]
+    fn column_statistics_use_recorded_samples_and_masks() {
+        assert_eq!(eval_col("mean_vertical(REF)"), Some(40.0));
+        assert_eq!(eval_col("mean_vertical(REF, CC < 0.9)"), Some(55.0));
+        assert_eq!(eval_col("mean_layer(REF, 0, 8000, CC < 0.9)"), Some(55.0));
+        assert_eq!(eval_col("count_vertical(REF >= 40)"), Some(3.0));
+        assert_eq!(eval_col("fraction_vertical(REF >= 40)"), Some(0.75));
+        assert_eq!(eval_col("fraction_vertical(REF > 90)"), Some(0.0));
+        assert_eq!(eval_col("mean_vertical(REF, REF > 90)"), None);
+        for src in [
+            "count_vertical(REF > 0)",
+            "fraction_vertical(REF > 0)",
+            "mean_vertical(REF)",
+        ] {
+            let expr = parse(src).unwrap();
+            assert_eq!(
+                evaluate_at_column(&expr, &inputs(), &[GateInputs::default()]),
+                None,
+                "{src}"
+            );
+        }
+        assert_eq!(
+            eval_col("fraction_vertical(REF >= mean_vertical(REF))"),
+            Some(0.75)
+        );
+        // Per-entry masks, including a nested reduction, must also enter the work budget.
+        assert_eq!(
+            parse("mean_layer(REF, 0, 8000, REF >= max_vertical(REF))")
+                .unwrap()
+                .evaluation_cost(10),
+            143
+        );
+    }
+
+    #[test]
+    fn extrema_heights_are_sampled_above_antenna_with_lowest_ties() {
+        assert_eq!(eval_col("max_height(REF)"), Some(1500.0));
+        assert_eq!(eval_col("min_height(REF)"), Some(5000.0));
+        assert_eq!(eval_col("max_height(REF, CC > 0.9)"), Some(500.0));
+        let expr = parse("max_height(REF)").unwrap();
+        assert!(expr.inputs().contains(&Input::BeamHeightM));
+        let mut col = column();
+        col[0].reflectivity = Some(55.0);
+        col.reverse();
+        assert_eq!(evaluate_at_column(&expr, &inputs(), &col), Some(500.0));
+        // A tied or winning value without a recorded height makes that height unknowable.
+        col[4].beam_height_m = None;
+        assert_eq!(evaluate_at_column(&expr, &inputs(), &col), None);
+        col[4].reflectivity = Some(60.0);
+        assert_eq!(evaluate_at_column(&expr, &inputs(), &col), None);
+        assert_eq!(eval_col("max_layer(REF, 0, max_height(REF))"), Some(55.0));
+    }
+
+    #[test]
+    fn interpolated_crossings_are_distinct_from_sampled_threshold_heights() {
+        // 45 -> 55 crosses 50 halfway from 500 to 1500 m; 55 -> 40 crosses it one
+        // third of the way from 1500 to 3000 m. These are algebraic references.
+        assert_eq!(eval_col("first_crossing_height(REF, 50)"), Some(1000.0));
+        assert_eq!(eval_col("last_crossing_height(REF, 50)"), Some(2000.0));
+        assert_eq!(eval_col("first_height_above(REF, 50)"), Some(1500.0));
+        assert_eq!(eval_col("last_crossing_height(REF, 40)"), Some(3000.0));
+        let expr = parse("first_crossing_height(REF, 50)").unwrap();
+        let mut col = column();
+        col[1].reflectivity = None;
+        assert_eq!(evaluate_at_column(&expr, &inputs(), &col), None);
+        col = column();
+        col.reverse();
+        assert_eq!(evaluate_at_column(&expr, &inputs(), &col), Some(1000.0));
+        col[0].beam_height_m = None;
+        assert_eq!(evaluate_at_column(&expr, &inputs(), &col), None);
+    }
+
+    #[test]
+    fn integrals_clip_bracketed_linear_segments_without_filling_holes() {
+        // Analytic reference: v(h) = 2 + h/1000 at irregularly spaced levels. Its
+        // integral from 500 to 2500 m is [2h + h^2/2000] = 7000 value-metres.
+        let mut col: Vec<_> = [0.0, 1000.0, 3000.0]
+            .into_iter()
+            .map(|h| GateInputs {
+                beam_height_m: Some(h),
+                reflectivity: Some(2.0 + h / 1000.0),
+                ..Default::default()
+            })
+            .collect();
+        let calc = |src: &str, col: &[GateInputs]| {
+            evaluate_at_column(&parse(src).unwrap(), &inputs(), col)
+        };
+        assert_eq!(calc("integral_layer(REF, 500, 2500)", &col), Some(7000.0));
+        assert_eq!(calc("integral_layer(REF, 2500, 500)", &col), Some(7000.0));
+        assert_eq!(calc("integral_layer(REF, -1, 2500)", &col), None);
+        assert_eq!(calc("integral_layer(REF, 500, 3001)", &col), None);
+        assert_eq!(calc("integral_layer(REF, 500, 500)", &col), None);
+        col.reverse();
+        assert_eq!(calc("integral_layer(REF, 500, 2500)", &col), Some(7000.0));
+        col[1].reflectivity = None;
+        assert_eq!(calc("integral_layer(REF, 500, 2500)", &col), None);
+        col[1].reflectivity = Some(3.0);
+        col[1].beam_height_m = col[0].beam_height_m;
+        assert_eq!(calc("integral_layer(REF, 500, 2500)", &col), None);
+        assert_eq!(
+            parse("integral_layer(REF, 0, max_height(REF))")
+                .unwrap()
+                .evaluation_cost(10),
+            23
+        );
+    }
+
+    #[test]
+    fn nonfinite_column_samples_and_conditions_do_not_become_observations() {
+        let col = [
+            GateInputs {
+                reflectivity: Some(f32::NAN),
+                ..Default::default()
+            },
+            GateInputs {
+                reflectivity: Some(3.0),
+                beam_height_m: Some(10.0),
+                ..Default::default()
+            },
+        ];
+        for (src, expected) in [
+            ("mean_vertical(REF)", Some(3.0)),
+            ("max_height(REF)", Some(10.0)),
+            ("fraction_vertical(REF / 0)", None),
+            ("mean_vertical(REF, 1 / 0)", None),
+        ] {
+            assert_eq!(
+                evaluate_at_column(&parse(src).unwrap(), &inputs(), &col),
+                expected,
+                "{src}"
+            );
+        }
     }
 
     #[test]

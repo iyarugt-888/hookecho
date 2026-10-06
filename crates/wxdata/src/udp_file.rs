@@ -5,8 +5,8 @@
 //!
 //! What a product needs is derived from its formula, never trusted from the file: a declared list
 //! that disagrees is reported and the formula wins. Import validates every product before it is
-//! accepted — the formula parses, its nesting and size are bounded, a column formula reduces one
-//! column at most, the palette is a colour table this build has — and returns a diagnostic for
+//! accepted — the formula parses, its nesting and size are bounded, column reductions nest at
+//! most twice, the palette is a colour table this build has — and returns a diagnostic for
 //! each one refused or adjusted, so a malformed or hostile file costs a bounded parse and nothing
 //! else. Formulas are the existing safe expression language; nothing in a file executes.
 //!
@@ -91,13 +91,6 @@ pub struct Import {
     pub diagnostics: Vec<String>,
 }
 
-fn is_environment(i: Input) -> bool {
-    matches!(
-        i,
-        Input::FreezingLevelM | Input::Minus10cHeightM | Input::Minus20cHeightM
-    )
-}
-
 /// What a formula needs, derived from it.
 fn describe(def: &ProductDef) -> Result<Entry, String> {
     let expr = def.compile().map_err(|e| e.to_string())?;
@@ -105,13 +98,13 @@ fn describe(def: &ProductDef) -> Result<Entry, String> {
     let antenna = inputs.contains(&Input::BeamHeightM);
     let msl = inputs
         .iter()
-        .any(|i| *i == Input::BeamAltitudeM || is_environment(*i));
+        .any(|i| *i == Input::BeamAltitudeM || i.is_environment_height());
     Ok(Entry {
         def: def.clone(),
         requires: inputs.iter().map(|i| i.name().to_string()).collect(),
         environment: inputs
             .iter()
-            .filter(|i| is_environment(**i))
+            .filter(|i| i.is_environment_height())
             .map(|i| i.name().to_string())
             .collect(),
         kind: if expr.uses_column() {
@@ -204,7 +197,11 @@ fn validate(
         ));
     }
     if expr.column_depth() > crate::udp_column::MAX_COLUMN_DEPTH {
-        return Err("it reduces a column inside another column reduction".into());
+        return Err(format!(
+            "its column reductions nest {} deep; at most {} are supported",
+            expr.column_depth(),
+            crate::udp_column::MAX_COLUMN_DEPTH
+        ));
     }
     if let Some((lo, hi)) = def.range {
         if !(lo.is_finite() && hi.is_finite() && lo < hi) {
@@ -405,6 +402,52 @@ mod tests {
     }
 
     #[test]
+    fn bounded_nested_columns_round_trip_with_their_dependencies() {
+        let product = def(
+            "Core layer",
+            "max_layer(REF, 0, last_height_above(REF, 40))",
+        );
+        let got = import(&export(std::slice::from_ref(&product)), &palettes).unwrap();
+        assert!(got.diagnostics.is_empty(), "{:?}", got.diagnostics);
+        assert_eq!(got.products[0].expression, product.expression);
+        let entry = describe(&product).unwrap();
+        assert_eq!(entry.altitude, Altitude::AboveAntenna);
+        assert!(entry.requires.contains(&"BEAM_HEIGHT_M".to_string()));
+    }
+
+    #[test]
+    fn composable_reference_products_import_without_adjusting_science_or_metadata() {
+        let text = include_str!("../../../docs/certification/m3.3/composable-products.json");
+        let imported = import(text, &palettes).unwrap();
+        assert!(
+            imported.diagnostics.is_empty(),
+            "{:?}",
+            imported.diagnostics
+        );
+        assert_eq!(imported.products.len(), 6);
+        let roundtrip = import(&export(&imported.products), &palettes).unwrap();
+        assert_eq!(roundtrip.products, imported.products);
+        assert!(roundtrip.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn additional_isotherms_export_as_required_msl_environment_and_roundtrip() {
+        let product = def("Cold layer", "max_vertical(REF, BEAM_ALTITUDE_M >= MINUS30C_HEIGHT_M && BEAM_ALTITUDE_M <= MINUS40C_HEIGHT_M)");
+        let text = export(&[product]);
+        let file: ProductFile = serde_json::from_str(&text).unwrap();
+        let entry = &file.products[0];
+        assert_eq!(
+            entry.environment,
+            ["MINUS30C_HEIGHT_M", "MINUS40C_HEIGHT_M"]
+        );
+        assert_eq!(entry.altitude, Altitude::Msl);
+        assert_eq!(entry.kind, Kind::Column);
+        let got = import(&text, &palettes).unwrap();
+        assert!(got.diagnostics.is_empty(), "{:?}", got.diagnostics);
+        assert_eq!(got.products, vec![entry.def.clone()]);
+    }
+
+    #[test]
     fn bad_products_are_refused_by_name_and_the_rest_imported() {
         let deep = format!("{}REF{}", "(".repeat(100), ")".repeat(100));
         let big = (0..600).map(|_| "REF").collect::<Vec<_>>().join(" + ");
@@ -413,7 +456,7 @@ mod tests {
             def("Broken", "REF +"),
             def("Deep", &deep),
             def("Big", &big),
-            def("Nested", "max_vertical(max_vertical(REF))"),
+            def("Nested", "max_vertical(max_vertical(max_vertical(REF)))"),
             def("", "REF"),
             def("Huge", &"1".repeat(MAX_EXPRESSION_BYTES + 1)),
         ];
@@ -438,7 +481,7 @@ mod tests {
         says("Broken", "does not parse");
         says("Deep", "does not parse");
         says("Big", "operations");
-        says("Nested", "inside another column");
+        says("Nested", "nest 3 deep");
         says("(unnamed)", "no name");
         says("Huge", "bytes");
     }

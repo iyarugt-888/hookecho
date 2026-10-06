@@ -682,10 +682,10 @@ fn main() -> eframe::Result<()> {
     }
 
     // Column user product verify (M3.3), offline from a local Archive II file:
-    // `hookecho --headless-column <volume.ar2> "<formula>" <out.png> [h0,hm10,hm20 metres MSL]`.
+    // `hookecho --headless-column <volume.ar2> "<formula>" <out.png> [h0,hm10,hm20,hm30,hm40 metres MSL]`.
     if let Some(pos) = args.iter().position(|a| a == "--headless-column") {
         let (Some(path), Some(formula)) = (args.get(pos + 1), args.get(pos + 2)) else {
-            eprintln!("usage: --headless-column <volume> \"<formula>\" <out.png> [h0,hm10,hm20]");
+            eprintln!("usage: --headless-column <volume> \"<formula>\" <out.png> [h0,hm10,hm20,hm30,hm40]");
             std::process::exit(2);
         };
         let out = args
@@ -699,6 +699,8 @@ fn main() -> eframe::Result<()> {
                 h0_m: v.first().copied().flatten(),
                 hm10_m: v.get(1).copied().flatten(),
                 hm20_m: v.get(2).copied().flatten(),
+                hm30_m: v.get(3).copied().flatten(),
+                hm40_m: v.get(4).copied().flatten(),
             }
         });
         if let Err(e) = headless::run_column(path, formula, out, levels.unwrap_or_default()) {

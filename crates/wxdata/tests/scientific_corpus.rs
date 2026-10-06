@@ -994,6 +994,38 @@ fn cached_column_products_match_independent_columns() {
             "max_vertical(ZDR, BEAM_ALTITUDE_M > FREEZING_LEVEL_M)",
             &env,
         );
+        let composable = [
+            "min_vertical(REF, REF >= max_vertical(REF) - 5)",
+            "mean_vertical(REF)",
+            "fraction_vertical(REF >= 40)",
+            "max_height(REF)",
+        ]
+        .map(|src| grid(src, &ColumnEnv::default()));
+        let mut composable_bad = [0usize; 4];
+        // Real archived Denver profile selected at/before this scan, using recorded MSL HGHT.
+        // The independent layer bounds below are from the pinned stdlib Python reader.
+        let cold_layer = (id == "denver-hail-2017").then(|| {
+            let station = *wxdata::raob::STATIONS.iter().find(|s| s.id == "72469").unwrap();
+            let launch = "2017-05-08T12:00:00Z".parse().unwrap();
+            assert_eq!(wxdata::raob::synoptic_before(time), launch);
+            let reading = wxdata::raob::EnvironmentalLevels::from_table(station, launch, include_str!(
+                "../../../docs/certification/m3.3/recorded-environment/72469-2017050812.txt"
+            ));
+            let site = wxdata::sites::site_by_id("KFTG").unwrap();
+            let antenna = site.elevation_meters as f32 + wxdata::towers::tower_m(site.id) as f32;
+            let env = ColumnEnv { antenna_altitude_m: Some(antenna), levels: Levels {
+                hm30_m: reading.isotherms[3].height_m.map(|h| h as f32),
+                hm40_m: reading.isotherms[4].height_m.map(|h| h as f32),
+                ..Default::default()
+            }};
+            eprintln!("{id}: {}", reading.describe());
+            (antenna, [
+                grid("max_vertical(REF, BEAM_ALTITUDE_M >= MINUS30C_HEIGHT_M && BEAM_ALTITUDE_M <= MINUS40C_HEIGHT_M)", &env),
+                grid("mean_layer(REF, MINUS30C_HEIGHT_M - (BEAM_ALTITUDE_M - BEAM_HEIGHT_M), MINUS40C_HEIGHT_M - (BEAM_ALTITUDE_M - BEAM_HEIGHT_M))", &env),
+            ])
+        });
+        let mut cold_bad = [0usize; 2];
+        let mut cold_hits = 0usize;
         let (lat0, lon0) = (refl[0].radar_lat as f64, refl[0].radar_lon as f64);
         let fld = &cc.field;
         let (dlon, dlat) = (
@@ -1012,8 +1044,12 @@ fn cached_column_products_match_independent_columns() {
                     continue;
                 }
                 let (mut cc_min, mut zdr_max): (Option<f32>, Option<f32>) = (None, None);
+                let mut ref_column = Vec::new();
                 for t in &tilts {
                     let z = t[0].as_ref().and_then(|s| sample_over(s, r, az));
+                    if let Some((Some(v), h)) = z {
+                        ref_column.push((v, h));
+                    }
                     let c = t[5].as_ref().and_then(|s| sample_over(s, r, az));
                     if let (Some((Some(z), _)), Some((Some(c), _))) = (z, c) {
                         if z >= 45.0 {
@@ -1042,11 +1078,64 @@ fn cached_column_products_match_independent_columns() {
                 zdr_hits += usize::from(zdr_max.is_some());
                 cc_bad += usize::from(!agree(cc_min, cc.field.values[i]));
                 zdr_bad += usize::from(!agree(zdr_max, zdr.field.values[i]));
+                // Direct arithmetic on independently sampled gates; no DSL evaluation here.
+                let peak = ref_column.iter().map(|(v, _)| *v).max_by(f32::total_cmp);
+                let want = peak.map(|peak| {
+                    let band_min = ref_column
+                        .iter()
+                        .map(|(v, _)| *v)
+                        .filter(|v| *v >= peak - 5.0)
+                        .min_by(f32::total_cmp)
+                        .unwrap();
+                    let mean = ref_column.iter().map(|(v, _)| f64::from(*v)).sum::<f64>()
+                        / ref_column.len() as f64;
+                    let fraction = ref_column.iter().filter(|(v, _)| *v >= 40.0).count() as f32
+                        / ref_column.len() as f32;
+                    let height = ref_column
+                        .iter()
+                        .filter(|(v, _)| *v == peak)
+                        .map(|(_, h)| *h)
+                        .min_by(f64::total_cmp)
+                        .unwrap();
+                    [band_min, mean as f32, fraction, height as f32]
+                });
+                for (k, product) in composable.iter().enumerate() {
+                    let got = product.field.values[i];
+                    let matches = want.map_or(got.is_nan(), |w| {
+                        (got - w[k]).abs() < if k == 3 { 0.5 } else { 1e-4 }
+                    });
+                    composable_bad[k] += usize::from(!matches);
+                }
+                if let Some((antenna, products)) = &cold_layer {
+                    let lo = 7922.473282442748_f64 as f32;
+                    let hi = 9085.832061068702_f64 as f32;
+                    let values: Vec<f32> = ref_column
+                        .iter()
+                        .filter(|(_, h)| {
+                            let altitude = *antenna + *h as f32;
+                            altitude >= lo && altitude <= hi
+                        })
+                        .map(|(v, _)| *v)
+                        .collect();
+                    cold_hits += usize::from(!values.is_empty());
+                    let wanted = (!values.is_empty()).then(|| {
+                        [
+                            values.iter().copied().max_by(f32::total_cmp).unwrap(),
+                            (values.iter().map(|v| f64::from(*v)).sum::<f64>()
+                                / values.len() as f64) as f32,
+                        ]
+                    });
+                    for (k, product) in products.iter().enumerate() {
+                        cold_bad[k] +=
+                            usize::from(!agree(wanted.map(|w| w[k]), product.field.values[i]));
+                    }
+                }
             }
         }
         eprintln!(
             "{id}: {checked} cells, CC-min {cc_hits} with a core level ({cc_bad} differ), \
-             ZDR-above {zdr_hits} with a level above ({zdr_bad} differ)"
+             ZDR-above {zdr_hits} with a level above ({zdr_bad} differ); \
+             nested-band/mean/fraction/peak-height mismatches {composable_bad:?}"
         );
         assert!(
             checked > 800 && cc_hits > 20 && zdr_hits > 200,
@@ -1056,6 +1145,22 @@ fn cached_column_products_match_independent_columns() {
         // the two (equivalent) nearest-gate rules; nothing else may differ.
         assert!(cc_bad * 100 <= checked, "{id}: {cc_bad} CC cells differ");
         assert!(zdr_bad * 100 <= checked, "{id}: {zdr_bad} ZDR cells differ");
+        for (k, bad) in composable_bad.into_iter().enumerate() {
+            assert!(
+                bad * 100 <= checked,
+                "{id}: composable product {k}: {bad}/{checked} cells differ"
+            );
+        }
+        if cold_layer.is_some() {
+            eprintln!("{id}: recorded -30/-40 C layer: {checked} sampled cells, {cold_hits} populated, masked-max/layer-mean mismatches {cold_bad:?}");
+            assert!(cold_hits > 20, "insufficient sampled cold-layer echo");
+            for bad in cold_bad {
+                assert!(
+                    bad * 100 <= checked,
+                    "{bad}/{checked} cold-layer cells differ"
+                );
+            }
+        }
     }
 }
 

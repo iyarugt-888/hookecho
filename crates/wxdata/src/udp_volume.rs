@@ -41,10 +41,13 @@ pub fn moment_input(m: Moment) -> Input {
 pub struct Env {
     /// Antenna altitude above sea level, metres (for `BEAM_ALTITUDE_M`).
     pub antenna_altitude_m: Option<f32>,
-    /// (0 °C, −20 °C) heights above sea level, metres.
-    pub freezing: Option<(f32, f32)>,
+    /// 0 °C and −20 °C heights, independently available, metres MSL.
+    pub freezing_level_m: Option<f32>,
+    pub minus20c_m: Option<f32>,
     /// −10 °C height above sea level, metres, from the same matched source.
     pub minus10c_m: Option<f32>,
+    pub minus30c_m: Option<f32>,
+    pub minus40c_m: Option<f32>,
 }
 
 fn decode(s: &BinnedSweep, code: u8) -> Option<f32> {
@@ -130,9 +133,11 @@ pub fn evaluate_tilt(
                 elevation_deg: Some(elev),
                 beam_height_m: Some(height_m),
                 beam_altitude_m: env.antenna_altitude_m.map(|a| a + height_m),
-                freezing_level_m: env.freezing.map(|f| f.0),
-                minus20c_height_m: env.freezing.map(|f| f.1),
+                freezing_level_m: env.freezing_level_m,
+                minus20c_height_m: env.minus20c_m,
                 minus10c_height_m: env.minus10c_m,
+                minus30c_height_m: env.minus30c_m,
+                minus40c_height_m: env.minus40c_m,
             };
             out[bin * base.gate_count + gate] = evaluate(expr, &inputs).filter(|v| v.is_finite());
         }
@@ -274,6 +279,27 @@ mod tests {
         let v = values[5 * 100 + 50].unwrap();
         assert!((v - 30.0).abs() < 0.6, "50 - 10*2 = 30, got {v}");
         assert!(values[20 * 100 + 50].is_none(), "clear air has no value");
+    }
+
+    #[test]
+    fn gate_volume_environment_preserves_independently_missing_levels() {
+        let refl = sweep(Moment::Reflectivity, |_, _| Some(30.0));
+        let tilt = [Some(&refl), None, None, None, None, None];
+        let env = Env {
+            minus20c_m: Some(6700.0),
+            minus30c_m: Some(7900.0),
+            ..Default::default()
+        };
+        for (formula, want) in [
+            ("MINUS20C_HEIGHT_M", Some(6700.0)),
+            ("MINUS30C_HEIGHT_M", Some(7900.0)),
+            ("FREEZING_LEVEL_M", None),
+            ("MINUS40C_HEIGHT_M", None),
+        ] {
+            let (_, values) =
+                evaluate_tilt(&crate::udp::parse(formula).unwrap(), &tilt, env).unwrap();
+            assert!(values.iter().all(|v| *v == want), "{formula}");
+        }
     }
 
     #[test]

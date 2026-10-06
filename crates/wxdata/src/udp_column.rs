@@ -30,6 +30,8 @@ pub struct Levels {
     pub h0_m: Option<f32>,
     pub hm10_m: Option<f32>,
     pub hm20_m: Option<f32>,
+    pub hm30_m: Option<f32>,
+    pub hm40_m: Option<f32>,
 }
 
 /// What a column formula can read that is not in the sweeps.
@@ -45,6 +47,8 @@ impl ColumnEnv {
         g.freezing_level_m = self.levels.h0_m;
         g.minus10c_height_m = self.levels.hm10_m;
         g.minus20c_height_m = self.levels.hm20_m;
+        g.minus30c_height_m = self.levels.hm30_m;
+        g.minus40c_height_m = self.levels.hm40_m;
         g.beam_altitude_m = match (self.antenna_altitude_m, g.beam_height_m) {
             (Some(a), Some(h)) => Some(a + h),
             _ => None,
@@ -59,6 +63,8 @@ impl ColumnEnv {
                 Input::FreezingLevelM => self.levels.h0_m.is_none(),
                 Input::Minus10cHeightM => self.levels.hm10_m.is_none(),
                 Input::Minus20cHeightM => self.levels.hm20_m.is_none(),
+                Input::Minus30cHeightM => self.levels.hm30_m.is_none(),
+                Input::Minus40cHeightM => self.levels.hm40_m.is_none(),
                 Input::BeamAltitudeM => self.antenna_altitude_m.is_none(),
                 _ => false,
             })
@@ -69,11 +75,11 @@ impl ColumnEnv {
 /// One distinct tilt's sweeps, in [`MOMENTS`] order, `None` where the tilt has no such moment.
 pub type ColumnTilt = [Option<BinnedSweep>; 6];
 
-/// Nested vertical functions re-walk the column once per entry per level of nesting; the map
-/// allows one level. The gate inspector, evaluating a single column, has no such limit.
-pub const MAX_COLUMN_DEPTH: usize = 1;
+/// Nested reductions can compare a sample with column statistics or use a reduction as a
+/// layer bound. Two levels are allowed; the grid also budgets actual nested AST work.
+pub const MAX_COLUMN_DEPTH: usize = 2;
 
-/// Ceiling on formula-node evaluations for one grid (cells × levels × nodes), so a pasted formula
+/// Ceiling on formula-node evaluations for one grid, including nested reductions, so a pasted formula
 /// cannot pin a worker for minutes. A 460 km volume with 20 tilts and a 50-node formula is ~1e9.
 pub const MAX_NODE_EVALUATIONS: u64 = 3_000_000_000;
 
@@ -292,6 +298,9 @@ fn evaluate_sampled(expr: &Expr, reads: &[usize], column: &[GateInputs]) -> Opti
 /// map's rules: the base is the lowest level, and a column with nothing the formula reads
 /// recorded has no value. What the gate inspector shows for a column product.
 pub fn evaluate_column(expr: &Expr, column: &[GateInputs]) -> Option<f32> {
+    if expr.column_depth() > MAX_COLUMN_DEPTH {
+        return None;
+    }
     let mut sorted = column.to_vec();
     sorted.sort_by(|a, b| a.beam_height_m.total_cmp_opt(&b.beam_height_m));
     evaluate_sampled(expr, &moment_reads(expr), &sorted)
@@ -318,9 +327,7 @@ pub fn evaluate_grid(
         .collect();
     let grid = Grid::for_sweeps(&geometry).ok_or(ColumnError::NoTilts)?;
     let cells = (grid.nx * grid.ny) as u64;
-    let work = cells
-        .saturating_mul(refs.len() as u64)
-        .saturating_mul(expr.node_count() as u64);
+    let work = cells.saturating_mul(expr.evaluation_cost(refs.len()));
     if work > MAX_NODE_EVALUATIONS {
         return Err(ColumnError::TooExpensive(work));
     }
@@ -641,6 +648,7 @@ mod tests {
                 h0_m: Some(3_400.0),
                 hm10_m: None,
                 hm20_m: Some(6_600.0),
+                ..Default::default()
             },
         };
         assert_eq!(
@@ -650,6 +658,33 @@ mod tests {
             )
             .unwrap_err(),
             ColumnError::MissingEnvironment(vec![Input::Minus10cHeightM])
+        );
+    }
+
+    #[test]
+    fn additional_isotherms_are_independent_required_inputs_for_map_and_probe() {
+        let env = ColumnEnv {
+            levels: Levels {
+                hm30_m: Some(7900.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut g = vec![GateInputs {
+            reflectivity: Some(40.0),
+            beam_height_m: Some(1000.0),
+            ..Default::default()
+        }];
+        let e = crate::udp::parse("max_vertical(REF) + MINUS30C_HEIGHT_M").unwrap();
+        env.apply(&mut g[0]);
+        assert_eq!(evaluate_column(&e, &g), Some(7940.0));
+        assert!(grid_of("max_vertical(REF) + MINUS30C_HEIGHT_M", &env).is_ok());
+        let e = crate::udp::parse("max_vertical(REF) + MINUS40C_HEIGHT_M").unwrap();
+        let missing = ColumnError::MissingEnvironment(vec![Input::Minus40cHeightM]);
+        assert_eq!(evaluate_column(&e, &g), None);
+        assert_eq!(
+            grid_of("max_vertical(REF) + MINUS40C_HEIGHT_M", &env).unwrap_err(),
+            missing
         );
     }
 
@@ -704,8 +739,12 @@ mod tests {
             ColumnError::NotColumn
         );
         assert_eq!(
-            grid_of("max_vertical(REF, REF > max_vertical(REF) - 5)", &env).unwrap_err(),
-            ColumnError::TooDeep(2)
+            grid_of(
+                "max_vertical(REF, REF > max_vertical(max_vertical(REF)) - 5)",
+                &env
+            )
+            .unwrap_err(),
+            ColumnError::TooDeep(3)
         );
         assert_eq!(
             grid_of("max_vertical(KDP)", &env).unwrap_err(),
@@ -713,11 +752,37 @@ mod tests {
         );
         let err = grid_of("max_vertical(KDP)", &env).unwrap_err().to_string();
         assert!(err.contains("KDP"), "{err}");
+        assert_eq!(
+            evaluate_column(
+                &crate::udp::parse("max_vertical(max_vertical(max_vertical(REF)))").unwrap(),
+                &[GateInputs {
+                    reflectivity: Some(40.0),
+                    ..Default::default()
+                }]
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn nested_grid_work_is_refused_before_sampling_or_allocating_values() {
+        // Long-range geometry with tiny gate buffers: enough cells and levels to exceed the
+        // nested budget, while the former cells * levels * nodes estimate would admit it.
+        let mut s = sweep(Moment::Reflectivity, 0.5, 2, |_, _| Some(40.0));
+        s.first_gate_km = 460.0;
+        let tilts = vec![[Some(s), None, None, None, None, None]; 100];
+        let expr = crate::udp::parse("max_vertical(max_vertical(REF))").unwrap();
+        let err = evaluate_grid(&expr, &tilts, &ColumnEnv::default(), Utc::now()).unwrap_err();
+        assert!(
+            matches!(err, ColumnError::TooExpensive(n) if n > MAX_NODE_EVALUATIONS),
+            "{err}"
+        );
     }
 
     #[test]
     fn the_inspector_column_and_the_map_cell_agree() {
-        let expr = crate::udp::parse("max_layer(REF, 0, 3000) - REF").unwrap();
+        let expr =
+            crate::udp::parse("max_layer(REF, 0, last_height_above(REF, 40)) - REF").unwrap();
         let vol = volume();
         let p = evaluate_grid(&expr, &vol, &ColumnEnv::default(), Utc::now()).unwrap();
         let refs: Vec<[Option<&BinnedSweep>; 6]> = vol

@@ -54,7 +54,7 @@ Statuses in this table describe the audited baseline. **Foundation present** mea
 | Storm selection and association | [Storms dock](crates/hookecho/src/app/chrome/dock/storms.rs), [spatial associations](crates/hookecho/src/app/chrome/dock/storm_associations.rs), [cell analysis](crates/hookecho/src/app/chrome/dock/cell.rs) | Spatial evidence preserves source objects, polygon holes, distance limits, and ambiguity. A persistent storm identity (stable IDs, provider-ID changes, split/merge lineage) carries a per-storm record of the warnings, ProbSevere objects, tornado detections and hail it was linked to over time, by the same coverage/nearest/ambiguity rule. Not yet calibrated on pinned fixtures; manual motion and per-entity ETA remain. | M2.1–M2.2 |
 | Manual motion and impacts | [Motion tool](crates/hookecho/src/app/storm_track.rs), [shared geometry](crates/hookecho/src/app/storm_track_geometry.rs), [Census impacts](crates/wxdata/src/census.rs) | Points, lines, intervals, asymmetric widths, cones, handle constraints, and zone/marker ETAs exist. Complete geolocated community/asset impacts, case persistence, and device interaction proof. | M2.3–M2.4 |
 | Gate inspection and scientific metadata | [Gate/beam metadata](crates/wxdata/src/level2.rs), [gate inspector](crates/hookecho/src/ui/gate_inspector.rs), [beam model](crates/wxdata/src/beam_geometry.rs) | Nyquist velocity and unambiguous range are decoded per radial from Message 31 (M3.1 increment 1) and shown as decoded, with the value-based estimate kept separate and labelled. Dealiasing and detectors now unfold at the decoded value behind a Py-ART-scored backtest (M3.1 increment 2). Moment scale/offset, gate quality and per-sector Nyquist for sectorized VCPs remain. | M3.1 |
-| User-defined products | [Expression engine](crates/wxdata/src/udp.rs), [gate-grid evaluation](crates/wxdata/src/udp_volume.rs), [pane product cache](crates/hookecho/src/view.rs), [product editor](crates/hookecho/src/ui/udp_window.rs) | Gate products render in 2D and 3D. Column formulas render as a 2D field (`UserColumn`) with probe/legend/export and 0/−10/−20 °C inputs from matched sources (M3.3 increment 1). Portable versioned product files, typed units/datums, editor diagnostics, column trails and 3D/section use of column fields remain. | M3.2–M3.3 |
+| User-defined products | [Expression engine](crates/wxdata/src/udp.rs), [column evaluation](crates/wxdata/src/udp_column.rs), [portable files](crates/wxdata/src/udp_file.rs), [pane product cache](crates/hookecho/src/view.rs), [product editor](crates/hookecho/src/ui/udp_window.rs) | Gate products render in 2D and 3D. Column fields have map/probe/legend/export, trails and portable versioned definitions. Bounded nested reductions, masked statistics, extremum heights, interpolated crossings and layer integrals are implemented. Matched archived 0 through −40 °C inputs now use recorded geopotential MSL heights; live HRRR retains its three source fields and leaves −30/−40 missing (M3.3 increments below). Operand units/datum typing, further matched profile fields, per-pane independent evaluation, and meaningful column-field 3D/section use remain open. | M3.2–M3.3 |
 | Temporal extrema | [Sliding trail](crates/wxdata/src/extrema.rs), [trail layer](crates/hookecho/src/app/trail.rs), [trail interaction regressions](crates/hookecho/src/app/trail_status_tests.rs) | Partial workflow. Polar trails are exact sliding windows anchored at the playhead with per-gate contributor times; age fade is GPU display opacity only (M3.4 increment 2). Column-product trails (`GridTrail`, increment 3) use the same window off-thread. Still one site/tilt for polar trails, cached frames only (no bounded prefetch); MRMS MESH/AzShear and other derived-grid trails remain. | M3.4 |
 | Volume analysis | [Volume builder](crates/wxdata/src/volume3d.rs), [MIP shader](crates/hookecho/src/shaders/raymarch.wgsl), [opacity/slice controls](crates/hookecho/src/ui/volume3d_window.rs), [isosurfaces](crates/wxdata/src/isosurface.rs), [3D playback](crates/hookecho/src/app/view3d_state.rs) | MIP, opacity controls, isosurfaces, clipping, CAPPI reference, and playback already exist. A four-point opacity curve on MIP does not establish lit translucent volume parity. Extend rendering, ROI, measurement, and linked slicing. | M3.5–M3.6 |
 | GIS | [Import integration](crates/hookecho/src/app/gis_import.rs), [geometry/styles](crates/hookecho/src/gis_import.rs), [Shapefile](crates/wxdata/src/shapefile.rs), [projection](crates/wxdata/src/projection.rs), [KML/KMZ](crates/wxdata/src/kml.rs), [export](crates/hookecho/src/gis_export.rs) | Formats, U.S. projections, styling, labels, and time filtering exist. Settings retain one imported layer; Android/browser single-file picking can omit shapefile sidecars. Complete collections, groups, filters, and real interoperability. | M4.1–M4.4 |
@@ -867,6 +867,139 @@ Remaining open:
 - *Next ready increment:* M3.4 — wire `extrema::SlidingTrail` into the trail layer with per-gate age as display opacity only, exact expiry on scrub, contributor-time probe and export without `Utc::now()` fallbacks; then column/MRMS grid trails.
 
 **Evidence ledger — 2026-10-06, GeoTIFF read by GDAL:** the GeoTIFF writer every gridded export uses (column products included) was read back with GDAL 3.8.4 (installed in the container for this check; not a CI gate) from an ignored sample writer (`write_geotiff_sample`): `gdalinfo` reports EPSG:4326, origin (−98, 36), pixel size (0.25, −0.2), `AREA_OR_POINT=Area`, NoData NaN, the description tag as written, and statistics that exclude the hole (mean 8.318 = 91.5/11); `gdallocationinfo` returns 0 at (−97.9, 35.9) and 15 at (−97.4, 35.6), the cells a reader should find there. Complements the in-repo `an_independent_reader_gets_the_grid_and_its_georeferencing_back` (the `tiff` crate).
+
+**Evidence ledger — 2026-10-06, increment 2 (composable column science):**
+
+- *Audit/baseline:* began at `fe1d7d4` on `feat/wsv3-redesign`, after reading the current task,
+  architecture, contributor gate and recent UDP commits (`bdf09ec`, `abcf097`). Portable files,
+  map/export/probe and column trails already exist. The demonstrated gap was a blanket rejection
+  of nested map reductions and a narrow set of reductions. Concurrent detector work landed as
+  `a377dfc`; that work is preserved and this increment changes no detector or app-shell code.
+- *Implementation:* the existing expression owner now supports `mean_vertical(e[,cond])`,
+  `count_vertical(cond)`, `fraction_vertical(cond)`, `max_height(e[,cond])`,
+  `min_height(e[,cond])`, `first_crossing_height(e,t)`, `last_crossing_height(e,t)` and
+  `integral_layer(e,lo,hi)`. Layer max/min/mean accept a fourth condition. Import, editor, grid
+  and column probe allow two nested reductions; grid admission budgets saturating AST visits,
+  multiplying per-entry arguments at each reduction and counting scalar bounds/thresholds once.
+  A long-range synthetic case demonstrates rejection before grid-value allocation where the
+  former cells × levels × nodes estimate would admit excessive nested work.
+- *Scientific contract:* means weight recorded beams equally; fractions exclude missing
+  conditions from their denominator, and all-missing conditions return missing. Extrema heights
+  are sampled ARL metres, with the lowest height winning ties; an unlocated winning/tied value
+  returns missing height. New crossing functions interpolate adjacent recorded beams in either
+  gradient direction; existing sampled threshold-height functions retain their meaning. Layer
+  integrals are clipped trapezoids in input-units × metres, requiring the entire nonzero interval
+  to be bracketed without missing spans. Unknown/duplicate heights invalidate the interpolation
+  profile. No extrapolation or environmental substitution is introduced. Undefined arithmetic
+  becomes missing before comparison/mask evaluation, and reversed clamp bounds no longer panic.
+- *Workflow/compatibility:* all functions feed the existing column grid, renderer, cell probe,
+  trails and exports. Implicit ARL height dependencies are now included in portable metadata.
+  The existing version-1 file format is retained; older builds reject unknown new functions or
+  unsupported nesting through their existing diagnostics. Finite legacy formulas retain their
+  results. The editor explains semantics and diagnoses excessive nesting. Six importable,
+  round-tripped [reference products](docs/certification/m3.3/composable-products.json) and
+  [scientific rules/reproduction](docs/certification/m3.3/README.md) accompany the change.
+- *Independent numerical evidence:* algebraic crossing references and an analytic linear-profile
+  integral (7,000 value-metres over 500–2,500 m), irregular spacing, reversed input/bounds,
+  missing spans, ties and undefined arithmetic are covered by unit tests. Explicit
+  `cargo test -p wxdata --test scientific_corpus cached_column_products_match_independent_columns
+  -- --ignored --nocapture` passed (1 test): all four new direct reference calculations
+  (nested peak-band minimum, mean, fraction, peak height) had **0 mismatches** in **1,104 Denver**
+  and **1,058 Mayfield** cells (8,648 new comparisons), using checksummed full volumes cropped to
+  60 km, every distinct tilt. Existing composite equality, masked CC and isotherm-relative ZDR
+  comparisons also passed with zero mismatches. Test environment heights are stated parameters,
+  not observations.
+- *GPU evidence:* explicit `cargo test -p hookecho --lib
+  gpu_column_product_renders_where_its_cells_are -- --ignored --nocapture` passed (1 test,
+  six formulas) on Windows, **NVIDIA RTX 2060 / Vulkan, driver 572.16**. Composite, CC mask,
+  mean, fraction, peak height and nested band had **108,976 stable colored pixels, 0 color
+  mismatches; 695,635 empty-cell pixels, 0 filled**. Fraction and peak-height captures were also
+  visually reviewed. This is production field rendering offscreen on the committed partial
+  Mayfield fixture, with the existing quantization/LUT/channel-tolerance rules; it is not a
+  complete-volume accuracy, physical interaction, visible-presentation or application-soak claim.
+- *Build verification:* final `cargo clippy --workspace --all-targets -- -D warnings` passed.
+  `cargo check --target wasm32-unknown-unknown -p hookecho --lib` passed (10 existing hookecho
+  warnings in unchanged browser-gated code). Fresh `cargo test --workspace` following the final
+  unknown-height correction passed **2,418 tests**, zero failures, **162 ignored** (34 suites,
+  including zero-test/doc-test suites); the preceding full run had the same counts. Formatting
+  checks on all changed Rust files and `git diff --check` passed. Local logs/captures are under `target/parity-review/udp-*.log` and
+  `target/parity-review/m3.3/`; the durable tests and reference definitions are tracked.
+- *Open gates/next work:* operand unit/datum typing, terrain-AGL layer bounds, additional
+  environment/profile fields and isotherms, finer pane ownership, and full-range nested-product
+  performance remain. No Android build/device or browser runtime was exercised; no configured
+  adb/NDK environment was found. Desktop live/interactive and multi-hour application profiles,
+  Android phone/tablet and visible-presentation certification remain open. The partial input
+  verifies rendering and missing sectors; recorded complete volumes provide the separate numeric
+  evidence. Continue with matched environmental/profile fields or operand typing after these
+  gates; do not rebuild delivered trails/render/export features.
+
+**Evidence ledger — 2026-10-06, increment 3 (recorded-height archived environment):**
+
+- *Audit/baseline:* `a377dfc` on `feat/wsv3-redesign`; rechecked status, this card, architecture,
+  contributor gates and recent environmental/UDP owners. The demonstrated datum error was the
+  archived overlay adding radar elevation to hypsometric heights above the balloon launch site.
+  The UWyo cache already retains recorded HGHT geopotential metres MSL, which the legacy
+  thermodynamic parser discards. Detector, parcel and backtest calibration code is preserved.
+- *Implementation:* focused `raob::environment` reads adjacent recorded HGHT/TEMP, retaining
+  holes, both gradient directions and exact samples. All five isotherms (0 through −40 °C) keep
+  missing values independently. −10/−30/−40 use lowest crossings; 0/−20 retain highest cooling
+  crossings when present, otherwise lowest recorded crossings. Hail weighting requires a positive
+  0/−20 layer. The same bounded historical station/launch search and raw cache are reused;
+  source strings name WMO/site, full selected launch, datum, interpolation rule and table SHA256.
+  This selection is a request/cache identity, not an independently verified reported launch time.
+- *Workflow/compatibility:* `MINUS30C_HEIGHT_M` / `MINUS40C_HEIGHT_M` flow through existing
+  gate, column, map, probe, trail and gate/3D owners. Live HRRR leaves them missing and names its
+  actual 0C/263K/253K fields, full analysis date and MSL units. Portable version-1 definitions
+  derive the additional requirements and MSL convention. Reports add the levels/crossing counts
+  and serialize unavailable heights as null. Column/trail keys retain requested-profile source
+  identity even when its requested level is missing; gate/3D keys include environmental source
+  identity. A single Input classification also gates proactive fetch and historical trail
+  admission for all five isotherms; a synoptic-boundary regression rejects earlier scans,
+  missing contexts and unknown timestamps. No complete profile serialization for gate/3D is claimed. Environment dispatch and
+  gate/product sampling moved to existing focused owners, removing roughly 200 app-shell lines.
+- *Independent numeric evidence:* two pinned cached raw tables (OUN selected 2013-05-20 12Z,
+  111 pressure rows; Denver selected 2017-05-08 12Z, 56 rows) have raw-byte SHA256 and a separate
+  stdlib Python fixed-column reader. Receipt and reported observation timestamps are null because
+  the legacy cache did not retain them. Ten isotherm references, missing spans, warming/cooling,
+  independent missing fields, station/epoch matching and source changes are durable regressions.
+  See [raw tables, references and scientific contract](docs/certification/m3.3/recorded-environment/README.md).
+  Explicit cached scientific corpus test passed **1 test**: actual Denver −30/−40 layer masked
+  maximum and ARL-converted layer mean had **0 mismatches across 1,104 checked cells**, with
+  **531 populated**. Bounds came from the independent Python reader; radar sampling is independent
+  of the DSL. Existing Denver/Mayfield composite, mask and four composable references retained
+  **0 mismatches** (1,104 / 1,058 sampled cells).
+- *Gate remediation:* the first workspace attempt stopped a scripted provider after a fixed
+  100 ms and recorded only two of its expected three updates under concurrent compile load.
+  The healthy/failing provider controls now await the actual HealthBoard transition with a bounded
+  timeout before shutdown. Production provider behavior is unchanged; the failure-only control
+  no longer claims to prove reconnection, which has its separate control. The next workspace
+  attempt passed the controls and 2,389 tests in completed suites but ended with a Windows
+  executable-sharing error during overlapping Cargo jobs. A final stable-source run follows
+  those builds; neither interrupted attempt is counted as a passing workspace gate.
+- *GPU evidence:* explicit seven-formula offscreen field control passed **1 test** on
+  **NVIDIA RTX 2060 / Vulkan, driver 572.16**: **126,992 stable colored pixels, 0 color
+  mismatches; 808,482 empty-cell pixels, 0 filled**. The additional isotherm mask uses stated
+  rendering parameters, not a measured Mayfield environment. Its capture was visually reviewed.
+  Production field/LUT placement and holes are verified; physical interaction, visible presentation
+  and the later proactive-fetch/trail-admission changes are outside this offscreen control.
+- *Build verification:* final `cargo test --workspace` passed **2,427 tests, 0 failed,
+  162 ignored** across **34 suites**, including empty/doc-test suites. All new recorded-profile,
+  additional-input, portable-file, historical-cache and trail-boundary controls passed. Final
+  `cargo clippy --workspace --all-targets -- -D warnings` passed. Fresh
+  `cargo check --target wasm32-unknown-unknown -p hookecho --lib` passed with the same **10 hookecho
+  and 1 wxdata existing warnings**. Changed-file rustfmt checks and `git diff --check` passed.
+  Logs are `target/parity-review/env-workspace-complete.log`, `env-clippy-complete.log`,
+  `env-wasm-complete.log`, `env-real-columns.log`, `env-gpu.log` and `env-reference.log`; captures
+  are in `target/parity-review/m3.3/`. Durable fixtures/tests/references are tracked. Milestone
+  verification remains partial: these numeric/build/offscreen results do not close application,
+  presentation, physical-device or soak certification.
+- *Open gates:* recorded geopotential height is explicit and compared to approximate geometric
+  beam altitude; exact geodetic conversion and operand unit/datum typing remain open. The sparse
+  sounding, separation from radar and selected-launch age are interpretation limits. Archive
+  network availability/reported-launch metadata were not certified. Further matched profile fields,
+  pane independence, full-range nested cost, full-application/visible-presentation/long-soak,
+  browser runtime and physical Android phone/tablet gates remain open. The overarching parity
+  objective remains active; delivered renderer/trail/export foundations should not be rebuilt.
 
 #### M3.4 — Preserve physical extrema while aging trails
 

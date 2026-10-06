@@ -341,11 +341,27 @@ fn gpu_column_product_renders_where_its_cells_are() {
         }
         out.map(|c| c.map(f32::from_bits))
     };
-    for src in ["max_vertical(REF)", "min_vertical(CC, REF >= 30)"] {
+    for (name, src) in [
+        ("composite", "max_vertical(REF)"),
+        ("core-cc", "min_vertical(CC, REF >= 30)"),
+        ("column-mean", "mean_vertical(REF)"),
+        ("column-fraction", "fraction_vertical(REF >= 40)"),
+        ("peak-height", "max_height(REF)"),
+        (
+            "nested-band",
+            "min_vertical(REF, REF >= max_vertical(REF) - 5)",
+        ),
+        ("outside-cold-layer", "max_vertical(REF, BEAM_ALTITUDE_M < MINUS30C_HEIGHT_M || BEAM_ALTITUDE_M > MINUS40C_HEIGHT_M)"),
+    ] {
+        // Explicit rendering parameters, not an observed Mayfield environment. Numerical
+        // source matching and recorded-height accuracy are checked separately on pinned RAOBs.
+        let env = ColumnEnv { antenna_altitude_m: Some(400.0), levels: wxdata::udp_column::Levels {
+            hm30_m: Some(7900.0), hm40_m: Some(9100.0), ..Default::default()
+        }};
         let p = evaluate_grid(
             &wxdata::udp::parse(src).unwrap(),
             &tilts,
-            &ColumnEnv::default(),
+            &env,
             chrono::DateTime::from_timestamp(1_639_193_029, 0).unwrap(),
         )
         .expect("column product on the real partial volume");
@@ -373,11 +389,6 @@ fn gpu_column_product_renders_where_its_cells_are() {
         cb.field_draws = vec![(layer, 1.0)];
         resources.render_once(&device, &queue, &view, &cb, BACKGROUND);
         let actual = read_target(&device, &queue, &target, SIZE);
-        let name = if src.starts_with("max") {
-            "composite"
-        } else {
-            "core-cc"
-        };
         image::save_buffer(
             output.join(format!("column-{name}.png")),
             &actual,

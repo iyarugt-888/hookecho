@@ -8,6 +8,28 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Fixed: archived environmental height datum; added colder isotherms
+
+Archived radar products now use the sounding's recorded HGHT geopotential metres MSL instead
+of adding radar elevation to a launch-relative height. Missing height/temperature samples break
+interpolation, and missing wind/dewpoint no longer removes a valid height/temperature bracket.
+Source details retain the full selected launch, station, crossing convention and table identity.
+`MINUS30C_HEIGHT_M` and `MINUS40C_HEIGHT_M` are available when the same historical profile
+supplies them; live HRRR leaves them unavailable. All five isotherms preserve missing values
+independently in map, probe and gate/3D evaluation. Geopotential heights remain explicitly
+identified; exact geometric/geodetic equivalence with beam altitude is not claimed.
+
+### Added: composable column radar products
+
+Column formulas now support masked means, condition counts/fractions, heights of maxima/minima,
+interpolated first/last threshold crossings, and height-layer integration. Two levels of nested
+reductions are allowed under a budget that counts their repeated work. Layer reductions accept
+a condition mask. Height results and layer bounds are explicitly antenna-relative; integrations
+require a fully bracketed layer and never fill missing spans. Fractions count recorded conditions
+only. The editor describes these rules, and portable reference products accompany the numeric
+and rendering regressions. Undefined arithmetic and invalid clamp bounds return missing instead
+of producing infinite conditions or panicking.
+
 ### Fixed: velocity dealiasing and 1-degree tilts
 
 Upper tilts no longer draw with thin transparent stripes. About one row in eight was being left

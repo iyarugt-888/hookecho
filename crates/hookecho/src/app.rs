@@ -1284,7 +1284,10 @@ pub struct HookEchoApp {
     near_storm: near_storm::NearStormFeed,
     /// The background job computing one volume's columns (see `compute_llsd`).
     #[allow(clippy::type_complexity)]
-    llsd_job: Option<((usize, String, usize), std::sync::mpsc::Receiver<detectors::LlsdJob>)>,
+    llsd_job: Option<(
+        (usize, String, usize),
+        std::sync::mpsc::Receiver<detectors::LlsdJob>,
+    )>,
     /// When the sweeps behind `couplet_cache`'s couplets were scanned (`detection_lineage`).
     #[allow(clippy::type_complexity)]
     pub(crate) couplet_inputs: Option<(
@@ -2469,72 +2472,6 @@ impl HookEchoApp {
         self.views[self.active].moments()
     }
 
-    /// Refresh the melting-level heights the hail grids need, on the environment cadence.
-    /// Which melting level view `idx` wants: `None` for the live HRRR analysis while it follows
-    /// the feed, or the synoptic launch at or before its volume's scan time when it is scrubbing
-    /// the archive — the observed ascent that day, not today's model.
-    fn freezing_epoch(&self, idx: usize) -> Option<chrono::DateTime<chrono::Utc>> {
-        let v = &self.views[idx];
-        if v.timeline.following {
-            return None;
-        }
-        v.volume
-            .as_ref()
-            .map(|vol| wxdata::raob::synoptic_before(vol.time))
-    }
-
-    /// `(0 °C, −20 °C)` heights above sea level for view `idx`, only when the cached ones were
-    /// fetched for its own site *and* epoch — a live reading must never stand in for an archived
-    /// storm's, or one site's for another's.
-    fn freezing_for(&self, idx: usize) -> Option<(f64, f64)> {
-        let site = self.views[idx].site.as_deref()?;
-        let epoch = self.freezing_epoch(idx);
-        self.freezing
-            .as_ref()
-            .filter(|l| l.answers(site, epoch))
-            .map(|l| (l.h0_m, l.hm20_m))
-    }
-
-    /// The full isotherm reading for view `idx`, under the same site-and-epoch rule as
-    /// [`Self::freezing_for`].
-    pub(crate) fn env_levels_for(&self, idx: usize) -> Option<&env_levels::EnvLevels> {
-        let site = self.views[idx].site.as_deref()?;
-        let epoch = self.freezing_epoch(idx);
-        self.freezing.as_ref().filter(|l| l.answers(site, epoch))
-    }
-
-    /// Request the melting level view `idx` wants (see [`Self::freezing_epoch`]). Throttled per
-    /// `(site, epoch)`: the live analysis refreshes on the 15-minute environment cadence, and an
-    /// archived ascent never changes, so the same cadence only paces retries after a failure.
-    fn fetch_freezing_levels(&mut self, ctx: &egui::Context, idx: usize) {
-        let Some(site) = self.views[idx]
-            .site
-            .as_deref()
-            .and_then(wxdata::sites::site_by_id)
-        else {
-            return;
-        };
-        let epoch = self.freezing_epoch(idx);
-        if self
-            .freezing_last_fetch
-            .as_ref()
-            .is_some_and(|(t, s, e)| s == site.id && *e == epoch && t.elapsed().as_secs() < 900)
-        {
-            return;
-        }
-        self.freezing_last_fetch = Some((Instant::now(), site.id.to_string(), epoch));
-        self.spawn_overlay(
-            ctx,
-            OverlaySource::FreezingLevels {
-                site: site.id.to_string(),
-                lon: site.longitude as f64,
-                lat: site.latitude as f64,
-                elev_m: site.elevation_meters as f64,
-                epoch,
-            },
-        );
-    }
-
     fn spawn_overlay(&self, ctx: &egui::Context, source: OverlaySource) {
         self.acquisition
             .spawn(ctx, source, self.field_texture_cap());
@@ -3382,89 +3319,6 @@ impl HookEchoApp {
                 .map_err(|e| e.to_string());
             let _ = tx.send(res);
         });
-    }
-
-    /// Phase C1's gate-inspector inputs: every moment a user-defined product can reference, plus
-    /// geometry, sampled at `(lon, lat)` on `tilt`. Binning is cached on `vol` (LRU) — sampling a
-    /// moment the pane's own display hasn't already binned costs one bin, everything else is free.
-    fn udp_gate_inputs(
-        vol: &mut Volume,
-        tilt: usize,
-        lon: f64,
-        lat: f64,
-        antenna_altitude_m: Option<f64>,
-        // Isotherm heights above sea level — `self.freezing`, already filtered to the gate's own
-        // site and epoch by the caller (`env_levels_for`). Empty on the very first inspection of a
-        // site before the proactive fetch `inspect_gate` kicks off there has landed; a formula
-        // referencing these inputs just sees them as missing in the meantime.
-        levels: wxdata::udp_column::Levels,
-    ) -> wxdata::udp::GateInputs {
-        let mut out = wxdata::udp::GateInputs {
-            freezing_level_m: levels.h0_m,
-            minus10c_height_m: levels.hm10_m,
-            minus20c_height_m: levels.hm20_m,
-            ..Default::default()
-        };
-        for m in [
-            Moment::Reflectivity,
-            Moment::Velocity,
-            Moment::SpectrumWidth,
-            Moment::DifferentialReflectivity,
-            Moment::SpecificDifferentialPhase,
-            Moment::CorrelationCoefficient,
-        ] {
-            // Velocity dealiased, as a product drawn on the map reads it (`Volume::product_sweep`).
-            let Ok(binned) = vol.binned(m, tilt, m == Moment::Velocity) else {
-                continue;
-            };
-            let Some(sample) = binned.sample_at(lon, lat) else {
-                continue;
-            };
-            let elevation_deg = binned.elevation_deg;
-            match m {
-                Moment::Reflectivity => out.reflectivity = sample.value,
-                Moment::Velocity => out.velocity = sample.value,
-                Moment::SpectrumWidth => out.spectrum_width = sample.value,
-                Moment::DifferentialReflectivity => out.differential_reflectivity = sample.value,
-                Moment::SpecificDifferentialPhase => out.specific_diff_phase = sample.value,
-                Moment::CorrelationCoefficient => out.correlation_coefficient = sample.value,
-                _ => {}
-            }
-            // Geometry is the same point regardless of which moment answered first — grab it
-            // once, from whichever moment happens to be present at this gate.
-            if out.azimuth_deg.is_none() {
-                out.azimuth_deg = Some(sample.azimuth_deg);
-                out.range_km = Some(wxdata::xsection::ground_from_slant_km(
-                    sample.range_km as f64,
-                    elevation_deg as f64,
-                ) as f32);
-                out.elevation_deg = Some(elevation_deg);
-                let height_m =
-                    wxdata::xsection::beam_height_km(sample.range_km as f64, elevation_deg as f64)
-                        * 1000.0;
-                out.beam_height_m = Some(height_m as f32);
-                out.beam_altitude_m =
-                    antenna_altitude_m.map(|altitude| (altitude + height_m) as f32);
-            }
-        }
-        out
-    }
-
-    /// Every tilt's own [`Self::udp_gate_inputs`] at the same `(lon, lat)`, low to high — the
-    /// "column" a vertical/layer user-defined-product function (ROADMAP_NEW C1) reduces over.
-    /// Skips a tilt this point falls outside of rather than padding the column with an empty
-    /// entry that has no height to sort or filter by.
-    fn udp_column_inputs(
-        vol: &mut Volume,
-        lon: f64,
-        lat: f64,
-        antenna_altitude_m: Option<f64>,
-        levels: wxdata::udp_column::Levels,
-    ) -> Vec<wxdata::udp::GateInputs> {
-        (0..vol.elevations.len())
-            .map(|tilt| Self::udp_gate_inputs(vol, tilt, lon, lat, antenna_altitude_m, levels))
-            .filter(|g| g.beam_height_m.is_some())
-            .collect()
     }
 
     /// Phase B4's gate inspector: everything about the point at `(lon, lat)` on the active pane's
@@ -4771,59 +4625,6 @@ impl HookEchoApp {
         if self.follow_notice.is_some() {
             ctx.request_repaint_after(std::time::Duration::from_millis(500));
         }
-    }
-
-    /// User product `name` as pane `idx` would evaluate it: its formula, range and the site
-    /// facts it can read, plus a key identifying all of that. `None` when it no longer exists, it
-    /// does not parse, or it reduces a whole column (a vertical/layer function has no value at a
-    /// single gate, so there is nothing to draw per gate).
-    fn product_named(&self, idx: usize, name: &str) -> Option<(crate::loop3d::ProductSpec, u64)> {
-        use std::hash::{Hash, Hasher};
-        let v = &self.views[idx];
-        let def = self.settings.udp_products.iter().find(|p| p.name == name)?;
-        let expr = def.compile().ok().filter(|e| !e.uses_column())?;
-        let antenna_altitude_m = v
-            .site
-            .as_deref()
-            .and_then(wxdata::sites::site_by_id)
-            .map(|s| s.elevation_meters as f32 + wxdata::towers::tower_m(s.id) as f32);
-        // A moment's colour table, when the product names one: drawn over that table's own span
-        // unless it sets a range of its own.
-        let table = def
-            .palette
-            .as_deref()
-            .and_then(Moment::from_code)
-            .map(|m| crate::colormap::effective_table(&self.palettes, m, self.settings.theme));
-        let table_span = table.as_ref().and_then(|t| {
-            let (lo, hi) = (t.stops.first()?.value, t.stops.last()?.value);
-            (hi > lo).then_some((lo, hi))
-        });
-        let spec = crate::loop3d::ProductSpec {
-            expr,
-            range: def.range.or(table_span),
-            table,
-            env: wxdata::udp_volume::Env {
-                antenna_altitude_m,
-                freezing: self.freezing_for(idx).map(|(a, b)| (a as f32, b as f32)),
-                minus10c_m: self
-                    .env_levels_for(idx)
-                    .and_then(|l| l.hm10_m)
-                    .map(|h| h as f32),
-            },
-        };
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        def.expression.hash(&mut h);
-        spec.range
-            .map(|(a, b)| (a.to_bits(), b.to_bits()))
-            .hash(&mut h);
-        spec.env
-            .freezing
-            .map(|(a, b)| (a.to_bits(), b.to_bits()))
-            .hash(&mut h);
-        spec.env.minus10c_m.map(f32::to_bits).hash(&mut h);
-        spec.env.antenna_altitude_m.map(f32::to_bits).hash(&mut h);
-        def.palette.hash(&mut h);
-        Some((spec, h.finish()))
     }
 
     /// The user-defined product pane `idx`'s 3D draws, when it draws one (ROADMAP_NEW H1).

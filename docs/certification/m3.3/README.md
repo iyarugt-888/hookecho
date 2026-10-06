@@ -36,3 +36,60 @@ Scientific checks behind the same feature (CPU, not visual):
 
 Not established here: physical desktop GPU or Android rendering, live progressive volumes on a
 device, browser runtime, or interaction latency.
+
+## Composable formulas (2026-10-06)
+
+Import [composable-products.json](composable-products.json) in User-defined products. These six
+version-1 definitions include a mean, a fraction, the peak's sampled height, a masked layer
+bounded by that peak, an interpolated threshold crossing, and a KDP height integral. They use
+the existing field renderer, cell probe, trails and scientific exports. Formula text, units and
+source coverage continue through those owners; no second grid or rendering pipeline is added.
+
+`mean_vertical` is an arithmetic mean of recorded beam values, with equal weight per beam.
+`fraction_vertical` divides true finite conditions by recorded finite conditions, excluding
+missing conditions. Neither measures a height-weighted fraction or proves a complete column.
+`max_height`/`min_height` return the sampled extremum's height; the lowest height wins a tie.
+If a winning or tied value has an unknown height, the returned height is missing.
+An optional condition filters means/extrema, and layer functions accept a fourth condition.
+
+`first_crossing_height`/`last_crossing_height` linearly interpolate adjacent recorded values
+in either gradient direction, also accepting exact threshold samples. Their names deliberately
+differ from the existing `first_height_above`/`last_height_above`, which continue to return
+qualifying sampled beam heights. `integral_layer` uses trapezoids clipped to the requested
+layer and requires both bounds to be bracketed without missing intervening samples. It returns
+input-units × metres. There is no extrapolation; unknown/duplicate heights invalidate the
+interpolation profile. Zero-width layers return missing. These rules describe a sampled-beam
+approximation, without claiming truth between beams. The KDP example is a **vertical** integral,
+not a reconstruction of the radar's radial differential phase.
+
+Returned heights and layer bounds are metres above the radar antenna (ARL), not terrain AGL.
+`BEAM_ALTITUDE_M` and environmental isotherms remain MSL. Isotherm comparisons still require
+the existing site/time-matched environment; none of these functions fetches a replacement.
+Units remain user-declared strings; dimensional typing and true terrain-AGL layer bounds remain
+open. Implicit height reads now appear in portable dependency/altitude metadata.
+
+Nested reductions are limited to depth two in import, editor, grid and column probe. The grid
+budgets AST visits per argument, multiplying per-beam work at every nesting level while counting
+scalar bounds/thresholds once. Arithmetic saturates on overflow. Sorting/geometry costs are
+not AST visits. Undefined arithmetic returns missing before it can become a comparison or mask;
+finite existing formulas retain their original results.
+
+Durable checks: `udp` unit tests contain algebraic crossing/integral references, masks, empty
+and nonfinite columns, height ties, nesting/cost limits and portable round trips.
+`cached_column_products_match_independent_columns` additionally checks nested peak-band minima,
+means, fractions and peak heights against direct calculations over independently sampled gates
+on pinned Denver/Mayfield volumes. `gpu_column_product_renders_where_its_cells_are` now covers
+six formulas with production LUT/quantization, cell placement and transparent holes. Actual
+run results are recorded separately in ROADMAP_PARITY.md; these instructions alone are not
+certification evidence.
+
+## Archived environmental inputs (2026-10-06)
+
+The archived application now reads source HGHT/TEMP directly and adds −30/−40 °C inputs only
+where that same selected sounding brackets them. It no longer adds radar elevation to
+launch-relative sounding heights. Missing levels remain independent. Source identity includes
+the full launch selection, station, geopotential MSL datum, crossing convention and raw-table
+SHA256. The live HRRR owner retains its 0C/263K/253K fields and does not estimate the two new
+levels. See [recorded-environment rules, pinned tables and independent reference reader](recorded-environment/README.md)
+for selection, interpolation, unknown reported timestamps and the remaining geopotential versus
+approximate geometric beam-altitude limitation. Tests and run evidence are recorded separately.

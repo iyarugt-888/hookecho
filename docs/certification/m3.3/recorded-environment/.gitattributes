@@ -1,0 +1,2 @@
+# Pinned table SHA256 is defined over original cached bytes, including LF endings.
+*.txt -text

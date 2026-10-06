@@ -18,6 +18,9 @@ use chrono::{DateTime, Datelike, TimeZone, Timelike, Utc};
 
 const URL: &str = "https://weather.uwyo.edu/wsgi/sounding";
 
+mod environment;
+pub use environment::{environment_levels, EnvironmentalLevels, Isotherm};
+
 /// A radiosonde launch site: WMO number, a human label, and where it stands.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RaobStation {
@@ -893,6 +896,32 @@ pub async fn fetch(
     cache_dir: Option<std::path::PathBuf>,
 ) -> anyhow::Result<Sounding> {
     let launch = synoptic_before(when);
+    let table = fetch_table(client, station, launch, cache_dir).await?;
+    let levels = parse_table(&table);
+    anyhow::ensure!(
+        levels.len() >= 5,
+        "sounding for {} at {} has only {} usable levels",
+        station.name,
+        launch.format("%Y-%m-%d %HZ"),
+        levels.len()
+    );
+    Ok(Sounding {
+        fh: 0,
+        lon: station.lon,
+        lat: station.lat,
+        run: launch,
+        levels,
+    })
+}
+
+/// Shared raw-table acquisition. The thermodynamic sounding and the recorded-height
+/// environment use the same immutable station/launch cache, without changing legacy parcels.
+async fn fetch_table(
+    client: &reqwest::Client,
+    station: &RaobStation,
+    launch: DateTime<Utc>,
+    cache_dir: Option<std::path::PathBuf>,
+) -> anyhow::Result<String> {
     let cache_file = cache_dir.map(|d| {
         d.join("raob")
             .join(format!("{}-{}.txt", station.id, launch.format("%Y%m%d%H")))
@@ -937,22 +966,7 @@ pub async fn fetch(
             table
         }
     };
-    let levels = parse_table(&table);
-    anyhow::ensure!(
-        levels.len() >= 5,
-        "sounding for {} at {} has only {} usable levels",
-        station.name,
-        launch.format("%Y-%m-%d %HZ"),
-        levels.len()
-    );
-    Ok(Sounding {
-        // An observed ascent is not a forecast; f00 is the honest label.
-        fh: 0,
-        lon: station.lon,
-        lat: station.lat,
-        run: launch,
-        levels,
-    })
+    Ok(table)
 }
 
 /// The hail algorithm's two heights from an observed ascent, and which ascent they came from.

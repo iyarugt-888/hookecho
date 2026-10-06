@@ -168,7 +168,19 @@ impl UdpWindow {
                     ui.colored_label(egui::Color32::from_rgb(230, 130, 130), e.to_string());
                 }
             }
-            let valid = !name.is_empty() && parsed.is_ok();
+            let supported = parsed
+                .as_ref()
+                .is_ok_and(|e| e.column_depth() <= wxdata::udp_column::MAX_COLUMN_DEPTH);
+            if parsed
+                .as_ref()
+                .is_ok_and(|e| e.column_depth() > wxdata::udp_column::MAX_COLUMN_DEPTH)
+            {
+                ui.colored_label(
+                    egui::Color32::from_rgb(230, 130, 130),
+                    "Column reductions may nest at most twice",
+                );
+            }
+            let valid = !name.is_empty() && supported;
             if ui.add_enabled(valid, egui::Button::new("Add")).clicked() {
                 let mut def = ProductDef {
                     id: String::new(),
@@ -224,11 +236,20 @@ fn row(
     }
     let per_gate = compiled.as_ref().is_ok_and(|e| !e.uses_column());
     let per_column = compiled.as_ref().is_ok_and(|e| e.uses_column());
+    let supported = compiled
+        .as_ref()
+        .is_ok_and(|e| e.column_depth() <= wxdata::udp_column::MAX_COLUMN_DEPTH);
+    if per_column && !supported {
+        ui.colored_label(
+            egui::Color32::from_rgb(230, 130, 130),
+            "Column reductions may nest at most twice",
+        );
+    }
     ui.horizontal(|ui| {
         if per_column {
             let shown = column_on_map.as_deref() == Some(def.name.as_str());
             let r = ui
-                .add(egui::Button::selectable(shown, "Show on map"))
+                .add_enabled(supported, egui::Button::selectable(shown, "Show on map"))
                 .on_hover_text(
                     "Draw it as a 2D field over the map: one value per ground point, from every \
                      tilt of this volume over it",
@@ -307,13 +328,25 @@ fn reference(ui: &mut egui::Ui) {
         );
         ui.weak(
             "BEAM_HEIGHT_M is above the radar; BEAM_ALTITUDE_M, FREEZING_LEVEL_M, \
-             MINUS10C_HEIGHT_M and MINUS20C_HEIGHT_M are above sea level when known — compare the \
+             MINUS10C_HEIGHT_M through MINUS40C_HEIGHT_M are above sea level when known — compare the \
              isotherms against BEAM_ALTITUDE_M, not BEAM_HEIGHT_M. VEL is dealiased.",
         );
+        ui.weak("Archived isotherms use recorded sounding HGHT (geopotential metres MSL). −30/−40 °C are unavailable from the live HRRR source. Missing levels are never estimated from another isotherm.");
         ui.label(
             "Functions: min max mean(2-8) clamp abs   max_vertical(e[,cond]) min_vertical(e[,cond]) \
-             max_layer(e,lo,hi) min_layer mean_layer   first_height_above(e,t) last_height_above(e,t) \
-             count_above(e,t)",
+             mean_vertical(e[,cond]) max_height(e[,cond]) min_height(e[,cond]) \
+             max_layer(e,lo,hi[,cond]) min_layer mean_layer \
+             first_height_above(e,t) last_height_above(e,t) count_above(e,t) \
+             count_vertical(cond) fraction_vertical(cond) \
+             first_crossing_height(e,t) last_crossing_height(e,t) integral_layer(e,lo,hi)",
+        );
+        ui.weak(
+            "Layer bounds and returned heights are metres above the antenna (ARL), not terrain \
+             AGL or MSL. Heights are sampled beams, not interpolated crossings; extrema ties \
+             choose the lowest height. Crossing functions interpolate adjacent recorded beams; \
+             integral_layer returns value × metres and requires the whole interval to be \
+             bracketed with no missing samples. Fractions use recorded conditions as the \
+             denominator, excluding missing samples. Reductions may nest twice, with a bounded map cost.",
         );
         ui.label("Operators: + - * /   < <= > >= == !=   && || !   cond ? a : b");
         ui.add_space(4.0);

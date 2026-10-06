@@ -663,8 +663,23 @@ mod tests {
             .await;
         });
 
-        // The scripted healthy provider sends 3 updates then stays open until stopped.
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        // Observe the delivered updates before stopping. A fixed 100 ms cutoff drops scripted
+        // updates when the workspace suite is CPU-bound, testing scheduling instead of health.
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                if board
+                    .lock()
+                    .unwrap()
+                    .get("Scripted A")
+                    .is_some_and(|h| h.successes == 3)
+                {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("scripted updates were not recorded");
         active.store(false, Ordering::Relaxed);
         tokio::time::timeout(std::time::Duration::from_secs(2), handle)
             .await
@@ -679,7 +694,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn monitor_provider_records_failures_and_reconnects() {
+    async fn monitor_provider_records_failure_before_shutdown() {
         let provider = Arc::new(ScriptedProvider {
             label: "Scripted B",
             capabilities: ProviderCapabilities::relay(),
@@ -706,8 +721,22 @@ mod tests {
             .await;
         });
 
-        // Let it fail and reconnect at least once (2s backoff between attempts).
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        // Observe the failure before stopping; reconnect behaviour has its own control below.
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                if board
+                    .lock()
+                    .unwrap()
+                    .get("Scripted B")
+                    .is_some_and(|h| h.failures == 1)
+                {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("scripted failure was not recorded");
         active.store(false, Ordering::Relaxed);
         tokio::time::timeout(std::time::Duration::from_secs(2), handle)
             .await

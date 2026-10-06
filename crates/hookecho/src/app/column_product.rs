@@ -20,6 +20,8 @@ struct EnvBits {
     h0: Option<u32>,
     hm10: Option<u32>,
     hm20: Option<u32>,
+    hm30: Option<u32>,
+    hm40: Option<u32>,
     source: Option<String>,
 }
 
@@ -123,9 +125,11 @@ fn env_bits(spec: &ColumnSpec) -> EnvBits {
         h0: pick(Input::FreezingLevelM, l.h0_m),
         hm10: pick(Input::Minus10cHeightM, l.hm10_m),
         hm20: pick(Input::Minus20cHeightM, l.hm20_m),
+        hm30: pick(Input::Minus30cHeightM, l.hm30_m),
+        hm40: pick(Input::Minus40cHeightM, l.hm40_m),
         source: None,
     };
-    let reads_env = bits.h0.is_some() || bits.hm10.is_some() || bits.hm20.is_some();
+    let reads_env = reads.iter().any(|i| i.is_environment_height());
     EnvBits {
         source: spec.env_source.clone().filter(|_| reads_env),
         ..bits
@@ -361,6 +365,166 @@ pub(crate) fn column_upload(
 }
 
 impl HookEchoApp {
+    /// Phase C1's gate-inspector inputs: every moment a user-defined product can reference, plus
+    /// geometry, sampled at `(lon, lat)` on `tilt`. Binning is cached on `vol` (LRU) — sampling a
+    /// moment the pane's own display hasn't already binned costs one bin, everything else is free.
+    pub(super) fn udp_gate_inputs(
+        vol: &mut Volume,
+        tilt: usize,
+        lon: f64,
+        lat: f64,
+        antenna_altitude_m: Option<f64>,
+        // Isotherm heights above sea level — `self.freezing`, already filtered to the gate's own
+        // site and epoch by the caller (`env_levels_for`). Empty on the very first inspection of a
+        // site before the proactive fetch `inspect_gate` kicks off there has landed; a formula
+        // referencing these inputs just sees them as missing in the meantime.
+        levels: wxdata::udp_column::Levels,
+    ) -> wxdata::udp::GateInputs {
+        let mut out = wxdata::udp::GateInputs {
+            freezing_level_m: levels.h0_m,
+            minus10c_height_m: levels.hm10_m,
+            minus20c_height_m: levels.hm20_m,
+            minus30c_height_m: levels.hm30_m,
+            minus40c_height_m: levels.hm40_m,
+            ..Default::default()
+        };
+        for m in [
+            Moment::Reflectivity,
+            Moment::Velocity,
+            Moment::SpectrumWidth,
+            Moment::DifferentialReflectivity,
+            Moment::SpecificDifferentialPhase,
+            Moment::CorrelationCoefficient,
+        ] {
+            // Velocity dealiased, as a product drawn on the map reads it (`Volume::product_sweep`).
+            let Ok(binned) = vol.binned(m, tilt, m == Moment::Velocity) else {
+                continue;
+            };
+            let Some(sample) = binned.sample_at(lon, lat) else {
+                continue;
+            };
+            let elevation_deg = binned.elevation_deg;
+            match m {
+                Moment::Reflectivity => out.reflectivity = sample.value,
+                Moment::Velocity => out.velocity = sample.value,
+                Moment::SpectrumWidth => out.spectrum_width = sample.value,
+                Moment::DifferentialReflectivity => out.differential_reflectivity = sample.value,
+                Moment::SpecificDifferentialPhase => out.specific_diff_phase = sample.value,
+                Moment::CorrelationCoefficient => out.correlation_coefficient = sample.value,
+                _ => {}
+            }
+            // Geometry is the same point regardless of which moment answered first — grab it
+            // once, from whichever moment happens to be present at this gate.
+            if out.azimuth_deg.is_none() {
+                out.azimuth_deg = Some(sample.azimuth_deg);
+                out.range_km = Some(wxdata::xsection::ground_from_slant_km(
+                    sample.range_km as f64,
+                    elevation_deg as f64,
+                ) as f32);
+                out.elevation_deg = Some(elevation_deg);
+                let height_m =
+                    wxdata::xsection::beam_height_km(sample.range_km as f64, elevation_deg as f64)
+                        * 1000.0;
+                out.beam_height_m = Some(height_m as f32);
+                out.beam_altitude_m =
+                    antenna_altitude_m.map(|altitude| (altitude + height_m) as f32);
+            }
+        }
+        out
+    }
+
+    /// Every tilt's own [`Self::udp_gate_inputs`] at the same `(lon, lat)`, low to high — the
+    /// "column" a vertical/layer user-defined-product function (ROADMAP_NEW C1) reduces over.
+    /// Skips a tilt this point falls outside of rather than padding the column with an empty
+    /// entry that has no height to sort or filter by.
+    pub(super) fn udp_column_inputs(
+        vol: &mut Volume,
+        lon: f64,
+        lat: f64,
+        antenna_altitude_m: Option<f64>,
+        levels: wxdata::udp_column::Levels,
+    ) -> Vec<wxdata::udp::GateInputs> {
+        (0..vol.elevations.len())
+            .map(|tilt| Self::udp_gate_inputs(vol, tilt, lon, lat, antenna_altitude_m, levels))
+            .filter(|g| g.beam_height_m.is_some())
+            .collect()
+    }
+
+    /// User product `name` as pane `idx` would evaluate it: its formula, range and the site
+    /// facts it can read, plus a key identifying all of that. `None` when it no longer exists, it
+    /// does not parse, or it reduces a whole column (a vertical/layer function has no value at a
+    /// single gate, so there is nothing to draw per gate).
+    pub(super) fn product_named(
+        &self,
+        idx: usize,
+        name: &str,
+    ) -> Option<(crate::loop3d::ProductSpec, u64)> {
+        use std::hash::{Hash, Hasher};
+        let v = &self.views[idx];
+        let def = self.settings.udp_products.iter().find(|p| p.name == name)?;
+        let expr = def.compile().ok().filter(|e| !e.uses_column())?;
+        let antenna_altitude_m = v
+            .site
+            .as_deref()
+            .and_then(wxdata::sites::site_by_id)
+            .map(|s| s.elevation_meters as f32 + wxdata::towers::tower_m(s.id) as f32);
+        // A moment's colour table, when the product names one: drawn over that table's own span
+        // unless it sets a range of its own.
+        let table = def
+            .palette
+            .as_deref()
+            .and_then(Moment::from_code)
+            .map(|m| crate::colormap::effective_table(&self.palettes, m, self.settings.theme));
+        let table_span = table.as_ref().and_then(|t| {
+            let (lo, hi) = (t.stops.first()?.value, t.stops.last()?.value);
+            (hi > lo).then_some((lo, hi))
+        });
+        let spec = crate::loop3d::ProductSpec {
+            expr,
+            range: def.range.or(table_span),
+            table,
+            env: wxdata::udp_volume::Env {
+                antenna_altitude_m,
+                freezing_level_m: self
+                    .env_levels_for(idx)
+                    .and_then(|l| l.h0_m)
+                    .map(|h| h as f32),
+                minus20c_m: self
+                    .env_levels_for(idx)
+                    .and_then(|l| l.hm20_m)
+                    .map(|h| h as f32),
+                minus30c_m: self
+                    .env_levels_for(idx)
+                    .and_then(|l| l.hm30_m)
+                    .map(|h| h as f32),
+                minus40c_m: self
+                    .env_levels_for(idx)
+                    .and_then(|l| l.hm40_m)
+                    .map(|h| h as f32),
+                minus10c_m: self
+                    .env_levels_for(idx)
+                    .and_then(|l| l.hm10_m)
+                    .map(|h| h as f32),
+            },
+        };
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        def.expression.hash(&mut h);
+        spec.range
+            .map(|(a, b)| (a.to_bits(), b.to_bits()))
+            .hash(&mut h);
+        spec.env.freezing_level_m.map(f32::to_bits).hash(&mut h);
+        spec.env.minus20c_m.map(f32::to_bits).hash(&mut h);
+        spec.env.minus30c_m.map(f32::to_bits).hash(&mut h);
+        spec.env.minus40c_m.map(f32::to_bits).hash(&mut h);
+        if spec.expr.inputs().iter().any(|i| i.is_environment_height()) {
+            self.env_levels_for(idx).map(|l| &l.source).hash(&mut h);
+        }
+        spec.env.minus10c_m.map(f32::to_bits).hash(&mut h);
+        spec.env.antenna_altitude_m.map(f32::to_bits).hash(&mut h);
+        def.palette.hash(&mut h);
+        Some((spec, h.finish()))
+    }
+
     /// Pane `idx`'s selected column product, compiled with the environment matched to its own site
     /// and time. `None` with no selection; `Err` when it cannot be a column product at all.
     pub(crate) fn column_spec(&self, idx: usize) -> Option<Result<ColumnSpec, String>> {
@@ -498,15 +662,7 @@ impl HookEchoApp {
             return;
         };
         // A formula reading an isotherm needs that site's and time's reading; ask for it and wait.
-        let reads = spec.expr.inputs();
-        use wxdata::udp::Input;
-        if [
-            Input::FreezingLevelM,
-            Input::Minus10cHeightM,
-            Input::Minus20cHeightM,
-        ]
-        .iter()
-        .any(|i| reads.contains(i))
+        if spec.expr.inputs().iter().any(|i| i.is_environment_height())
             && self.env_levels_for(idx).is_none()
         {
             self.fetch_freezing_levels(ctx, idx);
@@ -892,6 +1048,7 @@ mod tests {
                     h0_m: Some(h0),
                     hm10_m: hm10,
                     hm20_m: Some(7000.0),
+                    ..Default::default()
                 },
             },
             env_source: Some("HRRR analysis 06 00Z".into()),
@@ -924,6 +1081,27 @@ mod tests {
             ))
         };
         assert_ne!(m10(Some(5000.0)), m10(None));
+        let mut cold = spec("max_vertical(REF) + MINUS30C_HEIGHT_M", 3000.0, None);
+        let missing = env_bits(&cold);
+        assert!(
+            missing.source.is_some(),
+            "a matched profile with a missing requested level keeps provenance"
+        );
+        cold.env.levels.hm30_m = Some(7900.0);
+        assert_ne!(missing, env_bits(&cold));
+        let recorded = env_bits(&cold);
+        cold.env.levels.hm40_m = Some(9000.0);
+        assert_eq!(
+            recorded,
+            env_bits(&cold),
+            "an unread additional level is ignored"
+        );
+        cold.env_source = Some("recorded HGHT; different table SHA256".into());
+        assert_ne!(
+            recorded,
+            env_bits(&cold),
+            "same numeric values from another profile have another key"
+        );
     }
 
     #[test]

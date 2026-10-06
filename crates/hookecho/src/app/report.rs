@@ -328,6 +328,10 @@ impl HookEchoApp {
                 "minus10_c_m_msl": l.hm10_m,
                 "minus10_c_crossings": l.hm10_crossings,
                 "minus20_c_m_msl": l.hm20_m,
+                "minus30_c_m_msl": l.hm30_m,
+                "minus30_c_crossings": l.hm30_crossings,
+                "minus40_c_m_msl": l.hm40_m,
+                "minus40_c_crossings": l.hm40_crossings,
             })),
             "sources": [
                 "NOAA NEXRAD Level II (AWS Open Data: unidata-nexrad-level2)",

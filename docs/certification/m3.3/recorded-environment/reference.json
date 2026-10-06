@@ -1,0 +1,106 @@
+[
+  {
+    "file": "72357-2013052012.txt",
+    "sha256": "7a39a521b6f6eb8ba95bd022e6937f2d2c5b02f7757a2dd02307470196efbf9f",
+    "request_url": "https://weather.uwyo.edu/wsgi/sounding?datetime=2013-05-20+12%3A00%3A00&id=72357&src=UNKNOWN&type=TEXT%3ALIST",
+    "launch_selection_utc": "2013-05-20T12:00:00Z",
+    "receipt_time_utc": null,
+    "reported_observation_time_utc": null,
+    "datum": "recorded HGHT geopotential metres MSL",
+    "profile_rows": 111,
+    "isotherms": [
+      {
+        "temperature_c": 0,
+        "crossings_m": [
+          4092.846153846154
+        ],
+        "lowest_m": 4092.846153846154,
+        "highest_cooling_m": 4092.846153846154
+      },
+      {
+        "temperature_c": -10,
+        "crossings_m": [
+          5177.571428571428
+        ],
+        "lowest_m": 5177.571428571428,
+        "highest_cooling_m": 5177.571428571428
+      },
+      {
+        "temperature_c": -20,
+        "crossings_m": [
+          7135.125
+        ],
+        "lowest_m": 7135.125,
+        "highest_cooling_m": 7135.125
+      },
+      {
+        "temperature_c": -30,
+        "crossings_m": [
+          8426.941176470587
+        ],
+        "lowest_m": 8426.941176470587,
+        "highest_cooling_m": 8426.941176470587
+      },
+      {
+        "temperature_c": -40,
+        "crossings_m": [
+          9719.884615384615
+        ],
+        "lowest_m": 9719.884615384615,
+        "highest_cooling_m": 9719.884615384615
+      }
+    ]
+  },
+  {
+    "file": "72469-2017050812.txt",
+    "sha256": "bd47579b1dec727c7f19c06e4ad423e0d7e8702732fcb12d23e86b44fbc74262",
+    "request_url": "https://weather.uwyo.edu/wsgi/sounding?datetime=2017-05-08+12%3A00%3A00&id=72469&src=UNKNOWN&type=TEXT%3ALIST",
+    "launch_selection_utc": "2017-05-08T12:00:00Z",
+    "receipt_time_utc": null,
+    "reported_observation_time_utc": null,
+    "datum": "recorded HGHT geopotential metres MSL",
+    "profile_rows": 56,
+    "isotherms": [
+      {
+        "temperature_c": 0,
+        "crossings_m": [
+          4130.5
+        ],
+        "lowest_m": 4130.5,
+        "highest_cooling_m": 4130.5
+      },
+      {
+        "temperature_c": -10,
+        "crossings_m": [
+          5411.0
+        ],
+        "lowest_m": 5411.0,
+        "highest_cooling_m": 5411.0
+      },
+      {
+        "temperature_c": -20,
+        "crossings_m": [
+          6714.691588785046
+        ],
+        "lowest_m": 6714.691588785046,
+        "highest_cooling_m": 6714.691588785046
+      },
+      {
+        "temperature_c": -30,
+        "crossings_m": [
+          7922.473282442748
+        ],
+        "lowest_m": 7922.473282442748,
+        "highest_cooling_m": 7922.473282442748
+      },
+      {
+        "temperature_c": -40,
+        "crossings_m": [
+          9085.832061068702
+        ],
+        "lowest_m": 9085.832061068702,
+        "highest_cooling_m": 9085.832061068702
+      }
+    ]
+  }
+]

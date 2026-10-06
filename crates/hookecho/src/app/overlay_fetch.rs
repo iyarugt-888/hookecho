@@ -228,15 +228,14 @@ pub(crate) enum OverlaySource {
     Ensemble(wxdata::ensemble::EnsembleField, u16),
     /// Gridded L3 product (DVL/EET) for a site, projected to a lat/lon field (feature X).
     L3Grid(crate::render::FieldLayer, String),
-    /// Melting-level and −20 °C heights at `site`'s radar (`lon`, `lat`, `elev_m` above sea
-    /// level), for the derived hail grids. `epoch: None` is the live HRRR analysis; `Some(t)` is
+    /// Environmental isotherms at `site`'s radar (`lon`, `lat`), for hail grids and user products.
+    /// `epoch: None` is the live HRRR analysis; `Some(t)` is
     /// the observed sounding at synoptic time `t`, for an archived volume — so a storm from 2013
     /// is integrated with 2013's melting level, not today's.
     FreezingLevels {
         site: String,
         lon: f64,
         lat: f64,
-        elev_m: f64,
         epoch: Option<chrono::DateTime<chrono::Utc>>,
     },
     /// NOHRSC observed snowfall analysis over an accumulation window (hours).
@@ -939,31 +938,15 @@ impl OverlaySource {
                 site,
                 lon,
                 lat,
-                elev_m,
                 epoch: Some(t),
             } => {
                 // An archived volume: the balloon that went up that day, not today's model.
-                let m = wxdata::raob::melting_levels(http, lon, lat, t, crate::paths::cache_dir())
-                    .await?;
-                log::info!(
-                    target: "wxdata::derived",
-                    "{site}: melting level {:.1} km, −20 °C {:.1} km, from {}",
-                    m.h0_m / 1000.0,
-                    m.hm20_m / 1000.0,
-                    m.label
-                );
-                // Above the launch site's surface, taken as above the radar (the two sit within a
-                // few hundred metres of each other everywhere in CONUS — see `melting_levels`),
-                // then put back on the sea-level datum the HRRR branch below reports in.
-                OverlayMsg::FreezingLevels(Box::new(super::env_levels::EnvLevels {
-                    site,
-                    epoch: Some(t),
-                    h0_m: m.h0_m + elev_m,
-                    hm20_m: m.hm20_m + elev_m,
-                    hm10_m: m.hm10_m.map(|h| h + elev_m),
-                    source: format!("{} sounding", m.label),
-                    hm10_crossings: Some(m.hm10_crossings),
-                }))
+                let m =
+                    wxdata::raob::environment_levels(http, lon, lat, t, crate::paths::cache_dir())
+                        .await?;
+                OverlayMsg::FreezingLevels(Box::new(super::env_levels::EnvLevels::observed(
+                    site, t, m,
+                )))
             }
             OverlaySource::FreezingLevels {
                 site,
@@ -1016,11 +999,15 @@ impl OverlaySource {
                         OverlayMsg::FreezingLevels(Box::new(super::env_levels::EnvLevels {
                             site,
                             epoch: None,
-                            h0_m: a as f64,
-                            hm20_m: b as f64,
+                            h0_m: Some(a as f64),
+                            hm20_m: Some(b as f64),
                             hm10_m: hm10.map(f64::from),
-                            source: format!("HRRR analysis {}", h0.run.format("%d %HZ")),
+                            source: format!("HRRR analysis {}; 0 C field, 263/253 K levels (-10.15/-20.15 C), HGT m MSL", h0.run.format("%Y-%m-%d %H:%MZ")),
                             hm10_crossings: None,
+                            hm30_m: None,
+                            hm40_m: None,
+                            hm30_crossings: None,
+                            hm40_crossings: None,
                         }))
                     }
                     (Some(_), Some(_)) => {

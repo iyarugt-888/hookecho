@@ -16,6 +16,23 @@ use wxdata::extrema::{Extremum, GridMerge, GridTrail, GridWindowTrail};
 const FRAMES_PER_JOB: usize = 2;
 const MAX_FRAMES: usize = if cfg!(target_os = "android") { 32 } else { 64 };
 
+/// Admission for one cached trail frame. Unknown timestamps cannot become a synthetic epoch.
+fn environment_matches_frame(
+    reading_epoch: Option<Option<chrono::DateTime<chrono::Utc>>>,
+    following: bool,
+    frame_time: i64,
+) -> bool {
+    let epoch = if following {
+        None
+    } else {
+        let Some(time) = chrono::DateTime::from_timestamp(frame_time, 0) else {
+            return false;
+        };
+        Some(wxdata::raob::synoptic_before(time))
+    };
+    reading_epoch == Some(epoch)
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ColumnTrailKey {
     site: Option<String>,
@@ -129,14 +146,7 @@ impl HookEchoApp {
         }
         // Environment epochs: a formula reading an isotherm uses only volumes of the reading's
         // own epoch.
-        let reads_env = spec.expr.inputs().iter().any(|i| {
-            matches!(
-                i,
-                wxdata::udp::Input::FreezingLevelM
-                    | wxdata::udp::Input::Minus10cHeightM
-                    | wxdata::udp::Input::Minus20cHeightM
-            )
-        });
+        let reads_env = spec.expr.inputs().iter().any(|i| i.is_environment_height());
         let reading_epoch = self.env_levels_for(idx).map(|l| l.epoch);
         let following = self.views[idx].timeline.following;
         let Some(state) = self.column_trail.as_mut() else {
@@ -149,12 +159,7 @@ impl HookEchoApp {
         }
         if reads_env {
             for (name, t) in &wanted {
-                let epoch = (!following).then(|| {
-                    wxdata::raob::synoptic_before(
-                        chrono::DateTime::from_timestamp(*t, 0).unwrap_or_default(),
-                    )
-                });
-                if reading_epoch != Some(epoch) {
+                if !environment_matches_frame(reading_epoch, following, *t) {
                     state
                         .skipped
                         .entry(name.clone())
@@ -479,5 +484,61 @@ mod tests {
             ..plain.clone()
         };
         assert_ne!(id(&plain), id(&renamed));
+    }
+
+    #[test]
+    fn every_environment_input_needs_its_own_epoch_across_synoptic_boundary() {
+        let epoch: chrono::DateTime<chrono::Utc> = "2017-05-08T12:00:00Z".parse().unwrap();
+        for input in [
+            "FREEZING_LEVEL_M",
+            "MINUS10C_HEIGHT_M",
+            "MINUS20C_HEIGHT_M",
+            "MINUS30C_HEIGHT_M",
+            "MINUS40C_HEIGHT_M",
+        ] {
+            let s = spec(
+                &format!("max_vertical(REF, BEAM_ALTITUDE_M > {input})"),
+                None,
+            );
+            assert!(
+                s.expr.inputs().iter().any(|i| i.is_environment_height()),
+                "{input} triggers fetching and epoch admission"
+            );
+            assert!(environment_matches_frame(
+                Some(Some(epoch)),
+                false,
+                epoch.timestamp() + 60
+            ));
+            assert!(
+                !environment_matches_frame(Some(Some(epoch)), false, epoch.timestamp() - 1),
+                "{input}: no future launch for earlier scan"
+            );
+        }
+        assert!(!environment_matches_frame(None, false, epoch.timestamp()));
+        assert!(!environment_matches_frame(
+            Some(None),
+            false,
+            epoch.timestamp()
+        ));
+        assert!(!environment_matches_frame(
+            Some(Some(epoch)),
+            false,
+            i64::MAX
+        ));
+        assert!(environment_matches_frame(
+            Some(None),
+            true,
+            epoch.timestamp()
+        ));
+        assert!(!environment_matches_frame(
+            Some(Some(epoch)),
+            true,
+            epoch.timestamp()
+        ));
+        assert!(!spec("max_vertical(REF)", None)
+            .expr
+            .inputs()
+            .iter()
+            .any(|i| i.is_environment_height()));
     }
 }

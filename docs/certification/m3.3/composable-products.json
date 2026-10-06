@@ -1,0 +1,61 @@
+{
+  "format": "hookecho-product",
+  "version": 1,
+  "products": [
+    {
+      "id": "example-column-mean-v1",
+      "name": "Recorded beam mean reflectivity",
+      "units": "dBZ",
+      "expression": "mean_vertical(REF)",
+      "kind": "column",
+      "requires": ["REF"],
+      "altitude": "none"
+    },
+    {
+      "id": "example-column-fraction-v1",
+      "name": "Recorded fraction above 40 dBZ",
+      "units": "fraction",
+      "expression": "fraction_vertical(REF >= 40)",
+      "range": [0, 1],
+      "kind": "column",
+      "requires": ["REF"],
+      "altitude": "none"
+    },
+    {
+      "id": "example-column-peak-height-v1",
+      "name": "Reflectivity peak height ARL",
+      "units": "m ARL",
+      "expression": "max_height(REF)",
+      "kind": "column",
+      "requires": ["REF", "BEAM_HEIGHT_M"],
+      "altitude": "above_antenna"
+    },
+    {
+      "id": "example-column-core-layer-v1",
+      "name": "Mean CC below the reflectivity peak",
+      "units": "ratio",
+      "expression": "mean_layer(CC, 0, max_height(REF), REF >= 40)",
+      "kind": "column",
+      "requires": ["CC", "REF", "BEAM_HEIGHT_M"],
+      "altitude": "above_antenna"
+    },
+    {
+      "id": "example-column-crossing-v1",
+      "name": "Last interpolated 40 dBZ crossing ARL",
+      "units": "m ARL",
+      "expression": "last_crossing_height(REF, 40)",
+      "kind": "column",
+      "requires": ["REF", "BEAM_HEIGHT_M"],
+      "altitude": "above_antenna"
+    },
+    {
+      "id": "example-column-kdp-integral-v1",
+      "name": "Vertical KDP integral 1-4 km ARL",
+      "units": "deg",
+      "expression": "integral_layer(KDP, 1000, 4000) / 1000",
+      "kind": "column",
+      "requires": ["KDP", "BEAM_HEIGHT_M"],
+      "altitude": "above_antenna"
+    }
+  ]
+}
