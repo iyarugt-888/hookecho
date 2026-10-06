@@ -8,6 +8,14 @@ The rolling `latest` release tracks `main` and is not listed here.
 
 ## Unreleased
 
+### Added: workspaces and scenes remember your GIS layers
+
+Saving a workspace or a broadcast scene now records which imported GIS layers were on, in what
+order and style, and which groups were shown; switching to it puts them back. A layer imported
+afterwards is hidden when you switch to a view that didn't have it. If a saved view names a layer
+you have since removed, you're told which one rather than it quietly being replaced by another.
+Workspaces and scenes saved earlier leave your layers as they are.
+
 ### Added: imported points and lines can be clicked and exported
 
 Clicking an imported point or line now opens its attributes, as clicking an imported polygon does.

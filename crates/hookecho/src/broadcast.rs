@@ -139,6 +139,10 @@ pub struct Scene {
     /// The output window's size, by its label ("1920 × 1080", "Free size"); unknown keeps it.
     #[serde(default)]
     pub size: String,
+    /// The imported GIS layers as saved (ROADMAP_PARITY M4.4); `None` in a scene saved before
+    /// they were kept, or with none imported, which leaves the layers as they are.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gis: Option<crate::settings::GisSnapshot>,
 }
 
 #[cfg(test)]

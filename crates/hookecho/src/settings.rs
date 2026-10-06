@@ -277,6 +277,16 @@ impl Default for GisGroup {
     }
 }
 
+/// The imported GIS layers as a workspace or scene saw them (ROADMAP_PARITY M4.4): the master
+/// switch, every layer's state by its stable ID, and the group switches.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GisSnapshot {
+    pub shown: bool,
+    pub layers: Vec<GisLayerConfig>,
+    pub groups: Vec<GisGroup>,
+}
+
 /// A saved 3D map look for one 3D product: its floor, ceiling and opacity curve, in that
 /// product's own units (ROADMAP_NEW H2).
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -2115,6 +2125,52 @@ impl Settings {
         Some(gone)
     }
 
+    /// The layers as they are now, for a workspace or scene; `None` with no layers, so a saved
+    /// view that never had any leaves later imports alone.
+    pub fn gis_snapshot(&self, shown: bool) -> Option<GisSnapshot> {
+        (!self.gis_layers.is_empty()).then(|| GisSnapshot {
+            shown,
+            layers: self.gis_layers.clone(),
+            groups: self.gis_groups.clone(),
+        })
+    }
+
+    /// Put the layers back as `snap` saw them: each layer it names by ID (and the same source)
+    /// takes its saved state and order; a layer imported since is hidden, since it was not part
+    /// of the view; group switches are restored. Returns the layers it names that are no longer
+    /// imported (`name (source)`), which are reported rather than bound to a similar layer.
+    pub fn apply_gis_snapshot(&mut self, snap: &GisSnapshot) -> Vec<String> {
+        let same = |a: &GisLayerConfig, b: &GisLayerConfig| a.id == b.id && a.source == b.source;
+        let missing = snap
+            .layers
+            .iter()
+            .filter(|s| !self.gis_layers.iter().any(|l| same(l, s)))
+            .map(|s| format!("{} ({})", s.name, s.source))
+            .collect();
+        let mut ordered: Vec<GisLayerConfig> = snap
+            .layers
+            .iter()
+            .filter(|s| self.gis_layers.iter().any(|l| same(l, s)))
+            .cloned()
+            .collect();
+        for l in &self.gis_layers {
+            if !snap.layers.iter().any(|s| same(l, s)) {
+                ordered.push(GisLayerConfig {
+                    visible: false,
+                    ..l.clone()
+                });
+            }
+        }
+        self.gis_layers = ordered;
+        for g in &snap.groups {
+            match self.gis_groups.iter_mut().find(|x| x.name == g.name) {
+                Some(x) => x.visible = g.visible,
+                None => self.gis_groups.push(g.clone()),
+            }
+        }
+        missing
+    }
+
     /// Move a layer `delta` places in paint order (positive: drawn later, on top).
     pub fn move_gis_layer(&mut self, id: u64, delta: isize) {
         let Some(i) = self.gis_layers.iter().position(|l| l.id == id) else {
@@ -2501,6 +2557,61 @@ mod tests {
         };
         assert_eq!(too_wide.rendered_stroke_width(), 8.0);
         assert_eq!(too_thin.rendered_stroke_width(), 0.5);
+    }
+
+    /// A workspace or scene puts the layers back by ID: their state and order as saved, a layer
+    /// imported since hidden, group switches restored, and a layer since removed reported by name
+    /// rather than bound to another layer, even one re-imported from the same file.
+    #[test]
+    fn a_gis_snapshot_restores_layers_by_id_and_reports_the_removed() {
+        let mut s = Settings::default();
+        assert!(
+            s.gis_snapshot(true).is_none(),
+            "nothing imported, nothing saved"
+        );
+        let a = s.add_gis_layer("counties.geojson".into());
+        let b = s.add_gis_layer("sirens.geojson".into());
+        s.gis_layer_mut(a).unwrap().group = Some("Base".into());
+        s.gis_groups.push(GisGroup {
+            name: "Base".into(),
+            visible: true,
+        });
+        s.gis_layer_mut(b).unwrap().style.color = [255, 0, 0];
+        let snap = s.gis_snapshot(true).unwrap();
+        // Afterwards: reordered, restyled, a group hidden, a new layer imported.
+        s.move_gis_layer(b, -1);
+        s.gis_layer_mut(b).unwrap().style.color = [0, 0, 255];
+        s.gis_layer_mut(a).unwrap().visible = false;
+        s.gis_groups[0].visible = false;
+        let c = s.add_gis_layer("roads.geojson".into());
+        assert!(s.apply_gis_snapshot(&snap).is_empty());
+        let ids: Vec<u64> = s.gis_layers.iter().map(|l| l.id).collect();
+        assert_eq!(ids, [a, b, c]);
+        assert_eq!(s.gis_layer(b).unwrap().style.color, [255, 0, 0]);
+        assert!(s.gis_layer_shown(a) && s.gis_layer_shown(b));
+        assert!(
+            !s.gis_layer(c).unwrap().visible,
+            "not part of the saved view"
+        );
+        // Sirens removed and imported again: a new layer, not the saved one.
+        s.remove_gis_layer(b);
+        let b2 = s.add_gis_layer("sirens.geojson".into());
+        let missing = s.apply_gis_snapshot(&snap);
+        assert_eq!(missing, ["sirens.geojson (sirens.geojson)"]);
+        assert!(!s.gis_layer(b2).unwrap().visible);
+        // Saved views from before this carry no snapshot and leave the layers alone.
+        let old_scene: crate::broadcast::Scene =
+            serde_json::from_str(r#"{"name":"Old","lon":-97.0,"lat":35.0,"zoom":7.0}"#).unwrap();
+        assert!(old_scene.gis.is_none());
+        let round: crate::broadcast::Scene = serde_json::from_str(
+            &serde_json::to_string(&crate::broadcast::Scene {
+                gis: Some(snap.clone()),
+                ..old_scene
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(round.gis, Some(snap));
     }
 
     /// The browser has no path that survives a reload, so a name that matches a `web_files` entry

@@ -101,6 +101,10 @@ pub struct Workspace {
     /// saved point would be yesterday's storm.
     #[serde(default)]
     pub sound_center: bool,
+    /// The imported GIS layers as saved (ROADMAP_PARITY M4.4); `None` in a workspace saved
+    /// before they were kept, or with none imported, which leaves the layers as they are.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gis: Option<crate::settings::GisSnapshot>,
     /// Fields this build does not know, written by a newer one: kept, so opening and saving a
     /// workspace here does not silently drop what a later version put in it.
     #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
@@ -873,6 +877,7 @@ pub fn starters() -> Vec<Workspace> {
             fields_on: Vec::new(),
             chrome: None,
             sound_center: false,
+            gis: None,
             extra: Default::default(),
         },
         Workspace {
@@ -904,6 +909,7 @@ pub fn starters() -> Vec<Workspace> {
             fields_on: vec!["mrms".into()],
             chrome: None,
             sound_center: false,
+            gis: None,
             extra: Default::default(),
         },
         Workspace {
@@ -926,6 +932,7 @@ pub fn starters() -> Vec<Workspace> {
             fields_on: Vec::new(),
             chrome: None,
             sound_center: false,
+            gis: None,
             extra: Default::default(),
         },
         // ROADMAP_NEW J5's first three analyst presets. Each reuses exactly the same
@@ -964,6 +971,7 @@ pub fn starters() -> Vec<Workspace> {
             fields_on: Vec::new(),
             chrome: None,
             sound_center: false,
+            gis: None,
             extra: Default::default(),
         },
         Workspace {
@@ -991,6 +999,7 @@ pub fn starters() -> Vec<Workspace> {
             fields_on: vec!["mesh".into()],
             chrome: None,
             sound_center: true,
+            gis: None,
             extra: Default::default(),
         },
         Workspace {
@@ -1034,6 +1043,7 @@ pub fn starters() -> Vec<Workspace> {
             ],
             chrome: None,
             sound_center: false,
+            gis: None,
             extra: Default::default(),
         },
         Workspace {
@@ -1073,6 +1083,7 @@ pub fn starters() -> Vec<Workspace> {
             fields_on: vec!["goes-ir".into(), "goes-water-vapor".into()],
             chrome: None,
             sound_center: false,
+            gis: None,
             extra: Default::default(),
         },
         Workspace {
@@ -1123,6 +1134,7 @@ pub fn starters() -> Vec<Workspace> {
             fields_on: vec!["mrms".into(), "hrrr".into()],
             chrome: None,
             sound_center: false,
+            gis: None,
             extra: Default::default(),
         },
         // ROADMAP_2 §12.1's Tropical preset: a landfalling storm's radar beside the satellite
@@ -1159,6 +1171,7 @@ pub fn starters() -> Vec<Workspace> {
             fields_on: vec!["goes-ir".into()],
             chrome: None,
             sound_center: false,
+            gis: None,
             extra: Default::default(),
         },
     ]
@@ -1315,6 +1328,7 @@ mod tests {
             adopt_site: false,
             fields_on: vec!["mrms".into()],
             sound_center: true,
+            gis: None,
             extra: Default::default(),
             chrome: Some(Chrome {
                 panel_open: true,

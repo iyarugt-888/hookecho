@@ -55,6 +55,7 @@ impl HookEchoApp {
             style: self.settings.broadcast.clone(),
             strap: self.output.strap.clone(),
             size: self.output.size.label().to_string(),
+            gis: self.settings.gis_snapshot(self.show_imported_gis),
         }
     }
 
@@ -86,6 +87,9 @@ impl HookEchoApp {
         self.output.strap = scene.strap.clone();
         if let Some(size) = OutputSize::from_label(&scene.size) {
             self.output.size = size;
+        }
+        if let Some(gis) = &scene.gis {
+            self.apply_gis_snapshot(gis, &format!("Scene \u{201c}{}\u{201d}", scene.name));
         }
         self.rebuild_overlays();
     }

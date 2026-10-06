@@ -251,6 +251,24 @@ impl HookEchoApp {
         id
     }
 
+    /// Put the imported layers back as a workspace or scene (`what`) saved them, saying which
+    /// layers it names that are no longer imported.
+    pub(crate) fn apply_gis_snapshot(&mut self, snap: &crate::settings::GisSnapshot, what: &str) {
+        self.show_imported_gis = snap.shown;
+        let missing = self.settings.apply_gis_snapshot(snap);
+        if !missing.is_empty() {
+            let msg = format!(
+                "{what} shows GIS layer{} no longer imported: {}. Import the file again to \
+                 bring it back as a new layer.",
+                if missing.len() == 1 { "" } else { "s" },
+                missing.join(", ")
+            );
+            log::warn!("{msg}");
+            self.toast(ToastKind::Error, msg);
+        }
+        self.rebuild_overlays();
+    }
+
     /// Remove a layer and what was read from it.
     pub(crate) fn remove_gis(&mut self, id: u64) {
         self.settings.remove_gis_layer(id);
